@@ -620,4 +620,69 @@ describe('Kern IR Fitness Tests', () => {
       }
     });
   });
+
+  describe('Terminal Transpiler', () => {
+    test('generates ANSI helpers and text output', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileTerminal } = await import(resolve(ROOT, 'src/transpiler-terminal.ts'));
+      const ast = parse('screen name=Test\n  text value=Hello {fw:bold,c:#f97316}');
+      const result = transpileTerminal(ast);
+
+      expect(result.code).toContain('ansiColor');
+      expect(result.code).toContain('style(');
+      expect(result.code).toContain('Hello');
+    });
+
+    test('generates separator and box', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileTerminal } = await import(resolve(ROOT, 'src/transpiler-terminal.ts'));
+      const ast = parse('screen name=Test\n  separator width=40\n  box color=cyan\n    text value="Inside box"');
+      const result = transpileTerminal(ast);
+
+      expect(result.code).toContain('separator(40)');
+      expect(result.code).toContain('box(');
+      expect(result.code).toContain('Inside box');
+    });
+
+    test('generates gradient and spinner', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileTerminal } = await import(resolve(ROOT, 'src/transpiler-terminal.ts'));
+      const ast = parse('screen name=Test\n  gradient text="AGON" colors=[208,214,220]\n  spinner message="Loading..." color=214');
+      const result = transpileTerminal(ast);
+
+      expect(result.code).toContain('gradient(');
+      expect(result.code).toContain('AGON');
+      expect(result.code).toContain('spinner(');
+      expect(result.code).toContain('Loading...');
+    });
+
+    test('generates state blocks as module-level vars', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileTerminal } = await import(resolve(ROOT, 'src/transpiler-terminal.ts'));
+      const ast = parse('screen name=Test\n  state name=busy initial=false');
+      const result = transpileTerminal(ast);
+
+      expect(result.code).toContain('let busy = false');
+    });
+
+    test('agon-terminal.kern produces valid output', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileTerminal } = await import(resolve(ROOT, 'src/transpiler-terminal.ts'));
+      const source = readFileSync(resolve(ROOT, 'examples/agon-terminal.kern'), 'utf-8');
+      const ast = parse(source);
+      const result = transpileTerminal(ast);
+
+      expect(result.code).toContain('gradient');
+      expect(result.code).toContain('AGON');
+      expect(result.code).toContain('spinner');
+      expect(result.code).toContain('progressBar');
+      expect(result.code).toContain('separator');
+    });
+
+    test('terminal target accepted in resolveConfig', async () => {
+      const { resolveConfig } = await import(resolve(ROOT, 'src/config.ts'));
+      const config = resolveConfig({ target: 'terminal' });
+      expect(config.target).toBe('terminal');
+    });
+  });
 });

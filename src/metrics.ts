@@ -23,6 +23,10 @@ const HANDLED_NODE_TYPES = new Set([
   'cli', 'command', 'arg', 'flag', 'import',
   // Streaming/process
   'stream', 'spawn', 'timer', 'on', 'env',
+  // Terminal
+  'separator', 'table', 'scoreboard', 'metric',
+  'spinner', 'progress', 'box', 'gradient',
+  'repl', 'guard', 'parallel', 'dispatch', 'then', 'each',
 ]);
 
 // ── Types ────────────────────────────────────────────────────────────────

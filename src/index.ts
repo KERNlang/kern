@@ -31,6 +31,7 @@ export { transpileTailwind } from './transpiler-tailwind.js';
 export { transpileNextjs } from './transpiler-nextjs.js';
 export { transpileExpress } from './transpiler-express.js';
 export { transpileCliApp } from './transpiler-cli.js';
+export { transpileTerminal } from './transpiler-terminal.js';
 
 // Metrics
 export { collectLanguageMetrics, mergeMetrics, isEscapedStyleKey } from './metrics.js';
