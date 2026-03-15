@@ -283,8 +283,11 @@ function renderTerminalNode(node: IRNode, indent: string): string[] {
       break;
 
     case 'repl':
+      // Handled at top level
+      break;
+
     case 'parallel':
-      // Handled by transpiler-repl.ts
+      lines.push(...generateParallelCode(node, indent));
       break;
 
     default:
@@ -296,6 +299,125 @@ function renderTerminalNode(node: IRNode, indent: string): string[] {
       }
   }
 
+  return lines;
+}
+
+// ── Parallel code generator ───────────────────────────────────────────────
+
+function generateParallelCode(node: IRNode, indent: string): string[] {
+  const p = getProps(node);
+  const timeoutSec = Number(p.timeout) || 60;
+  const lines: string[] = [];
+
+  // Find each/dispatch children and then block
+  const eachNode = (node.children || []).find(c => c.type === 'each');
+  const dispatchNodes = getChildren(node, 'dispatch');
+  const thenNode = (node.children || []).find(c => c.type === 'then');
+
+  lines.push(`${indent}// ── Parallel dispatch ──────────────────────────`);
+  lines.push(`${indent}await (async () => {`);
+  lines.push(`${indent}  const _ac = new AbortController();`);
+  lines.push(`${indent}  const _timeout = setTimeout(() => _ac.abort(), ${timeoutSec * 1000});`);
+  lines.push('');
+
+  if (eachNode) {
+    // Pattern: each engine in collection → dispatch
+    const ep = getProps(eachNode);
+    // "each engine in state.engines" → varName=engine, collection=state.engines
+    // Parse from props: name=engine, in=state.engines (or similar)
+    const varName = ep.name as string || 'item';
+    const collection = (ep.in as string) || '[]';
+    const innerDispatch = getFirstChild(eachNode, 'dispatch');
+
+    if (innerDispatch) {
+      const dp = getProps(innerDispatch);
+      const prompt = dp.prompt as string || 'prompt';
+      const resultVar = dp.result as string || 'result';
+
+      // Check for on start/done events (Pattern B)
+      const onStartNode = (innerDispatch.children || []).find(c =>
+        c.type === 'on' && (getProps(c).name === 'start' || getProps(c).event === 'start')
+      );
+      const onDoneNode = (innerDispatch.children || []).find(c =>
+        c.type === 'on' && (getProps(c).name === 'done' || getProps(c).event === 'done')
+      );
+
+      lines.push(`${indent}  const _tasks = (${collection} || []).map(async (${varName}) => {`);
+
+      if (onStartNode) {
+        const startHandler = getFirstChild(onStartNode, 'handler');
+        const startCode = startHandler ? String(getProps(startHandler).code || '') : '';
+        if (startCode) {
+          for (const l of startCode.split('\n')) lines.push(`${indent}    ${l.trim()}`);
+        }
+      }
+
+      lines.push(`${indent}    const ${resultVar} = await dispatch(${varName}, ${prompt}, { signal: _ac.signal });`);
+
+      if (onDoneNode) {
+        const doneHandler = getFirstChild(onDoneNode, 'handler');
+        const doneCode = doneHandler ? String(getProps(doneHandler).code || '') : '';
+        if (doneCode) {
+          for (const l of doneCode.split('\n')) lines.push(`${indent}    ${l.trim()}`);
+        }
+      }
+
+      lines.push(`${indent}    return { ${varName}, ${resultVar} };`);
+      lines.push(`${indent}  });`);
+    }
+  } else if (dispatchNodes.length > 0) {
+    // Named dispatch nodes: dispatch engine="claude" → claudeResult
+    lines.push(`${indent}  const _tasks = [`);
+    for (const dn of dispatchNodes) {
+      const dp = getProps(dn);
+      const engine = dp.engine as string || 'engine';
+      const prompt = dp.prompt as string || 'prompt';
+      const resultVar = dp.result as string || `${engine}Result`;
+      lines.push(`${indent}    (async () => {`);
+      lines.push(`${indent}      const ${resultVar} = await dispatch(${JSON.stringify(engine)}, ${prompt}, { signal: _ac.signal });`);
+      lines.push(`${indent}      return { engine: ${JSON.stringify(engine)}, result: ${resultVar} };`);
+      lines.push(`${indent}    })(),`);
+    }
+    lines.push(`${indent}  ];`);
+  }
+
+  lines.push('');
+  lines.push(`${indent}  let _results;`);
+  lines.push(`${indent}  try {`);
+  lines.push(`${indent}    _results = await Promise.race([`);
+  lines.push(`${indent}      Promise.allSettled(_tasks),`);
+  lines.push(`${indent}      new Promise((_, reject) => {`);
+  lines.push(`${indent}        _ac.signal.addEventListener('abort', () => reject(new Error('Parallel timeout')));`);
+  lines.push(`${indent}      }),`);
+  lines.push(`${indent}    ]);`);
+  lines.push(`${indent}  } catch {`);
+  lines.push(`${indent}    _results = await Promise.allSettled(_tasks);`);
+  lines.push(`${indent}  } finally {`);
+  lines.push(`${indent}    clearTimeout(_timeout);`);
+  lines.push(`${indent}  }`);
+  lines.push('');
+  lines.push(`${indent}  const results = _results`);
+  lines.push(`${indent}    .filter((r) => r.status === 'fulfilled')`);
+  lines.push(`${indent}    .map((r) => r.value);`);
+
+  // Then block
+  if (thenNode) {
+    lines.push('');
+    // Render then children
+    for (const child of thenNode.children || []) {
+      lines.push(...renderTerminalNode(child, `${indent}  `));
+    }
+    // Handler inside then
+    const thenHandler = getFirstChild(thenNode, 'handler');
+    if (thenHandler) {
+      const code = String(getProps(thenHandler).code || '');
+      for (const l of code.split('\n')) {
+        lines.push(`${indent}  ${l.trim()}`);
+      }
+    }
+  }
+
+  lines.push(`${indent}})();`);
   return lines;
 }
 
@@ -322,21 +444,23 @@ export function transpileTerminal(root: IRNode, _config?: ResolvedKernConfig): T
   // REPL node detection — generate readline setup
   const replNode = (root.children || []).find(c => c.type === 'repl');
 
-  // Render static nodes (text, separator, box, etc.) before REPL
+  // Render static nodes (text, separator, box, parallel, etc.) before REPL
   const staticChildren = (root.children || []).filter(c => c.type !== 'state' && c.type !== 'repl');
+  const hasAsync = staticChildren.some(c => c.type === 'parallel');
+
   if (staticChildren.length > 0) {
-    lines.push('// ── Static output ──────────────────────────────────────');
+    lines.push('// ── Output ─────────────────────────────────────────────');
+    if (hasAsync) lines.push('(async () => {');
+    const indent = hasAsync ? '  ' : '';
     for (const child of staticChildren) {
-      lines.push(...renderTerminalNode(child, ''));
+      lines.push(...renderTerminalNode(child, indent));
     }
+    if (hasAsync) lines.push('})();');
     lines.push('');
   }
 
   if (replNode) {
     lines.push(...generateReplCode(replNode));
-  } else if (staticChildren.length > 0) {
-    // Wrap in async IIFE only if there are async operations
-    // (static output is synchronous, no wrapper needed)
   }
 
   sourceMap.push({
