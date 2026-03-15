@@ -1,137 +1,13 @@
 import type { IRNode, TranspileResult, SourceMapEntry } from './types.js';
-import { STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
+import type { ResolvedKernConfig } from './config.js';
+import { stylesToTailwind, colorToTw } from './styles-tailwind.js';
+import { countTokens, serializeIR, camelKey, escapeJsx } from './utils.js';
 
-// ── Style-to-Tailwind mapping ───────────────────────────────────────────
+// ── Active config for current transpilation run ─────────────────────────
 
-function stylesToTailwind(styles: Record<string, string>): string {
-  const classes: string[] = [];
-
-  for (const [key, val] of Object.entries(styles)) {
-    const expanded = STYLE_SHORTHANDS[key] || key;
-    const v = VALUE_SHORTHANDS[val] || val;
-
-    switch (expanded) {
-      case 'padding': classes.push(pxToTw('p', v)); break;
-      case 'paddingTop': classes.push(pxToTw('pt', v)); break;
-      case 'paddingBottom': classes.push(pxToTw('pb', v)); break;
-      case 'paddingLeft': classes.push(pxToTw('pl', v)); break;
-      case 'paddingRight': classes.push(pxToTw('pr', v)); break;
-      case 'margin': classes.push(pxToTw('m', v)); break;
-      case 'marginTop': classes.push(pxToTw('mt', v)); break;
-      case 'marginBottom': classes.push(pxToTw('mb', v)); break;
-      case 'marginLeft': classes.push(pxToTw('ml', v)); break;
-      case 'marginRight': classes.push(pxToTw('mr', v)); break;
-      case 'backgroundColor': classes.push(colorToTw('bg', v)); break;
-      case 'color': classes.push(colorToTw('text', v)); break;
-      case 'fontSize': classes.push(fsTw(v)); break;
-      case 'fontWeight': classes.push(fwTw(v)); break;
-      case 'borderRadius': classes.push(pxToTw('rounded', v)); break;
-      case 'width': v === '100%' ? classes.push('w-full') : classes.push(`w-[${addPx(v)}]`); break;
-      case 'height': v === '100%' ? classes.push('h-full') : classes.push(`h-[${addPx(v)}]`); break;
-      case 'justifyContent':
-        if (v === 'space-between') classes.push('justify-between');
-        else if (v === 'space-around') classes.push('justify-around');
-        else if (v === 'center') classes.push('justify-center');
-        else if (v === 'flex-end') classes.push('justify-end');
-        else classes.push('justify-start');
-        break;
-      case 'alignItems':
-        if (v === 'center') classes.push('items-center');
-        else if (v === 'flex-start') classes.push('items-start');
-        else if (v === 'flex-end') classes.push('items-end');
-        else if (v === 'stretch') classes.push('items-stretch');
-        break;
-      case 'flexDirection':
-        if (v === 'row') classes.push('flex-row');
-        break;
-      case 'flex': classes.push(`flex-${v}`); break;
-      case 'gap': classes.push(pxToTw('gap', v)); break;
-      case 'borderColor': classes.push(colorToTw('border', v)); break;
-      case 'borderWidth': classes.push('border'); break;
-      case 'overflow': classes.push(`overflow-${v}`); break;
-      default:
-        // Pass through as arbitrary Tailwind property
-        // Tailwind JIT requires spaces → underscores in arbitrary values
-        const twVal = v.replace(/ /g, '_');
-        classes.push(`[${cssKebab(expanded)}:${twVal}]`);
-    }
-  }
-
-  return classes.join(' ');
-}
-
-function pxToTw(prefix: string, v: string): string {
-  const n = Number(v);
-  if (isNaN(n)) return `${prefix}-[${v}]`;
-
-  // Special handling for border-radius → Tailwind rounded classes
-  if (prefix === 'rounded') {
-    const roundedMap: Record<number, string> = {
-      0: 'rounded-none', 2: 'rounded-sm', 4: 'rounded', 6: 'rounded-md',
-      8: 'rounded-lg', 12: 'rounded-xl', 16: 'rounded-2xl', 20: 'rounded-[20px]',
-      9999: 'rounded-full',
-    };
-    return roundedMap[n] || `rounded-[${n}px]`;
-  }
-
-  // Tailwind spacing scale: 1=4px, 2=8px, 3=12px, 4=16px, 5=20px, 6=24px, 8=32px
-  const twMap: Record<number, string> = {
-    0: '0', 1: 'px', 2: '0.5', 4: '1', 6: '1.5', 8: '2', 10: '2.5',
-    12: '3', 14: '3.5', 16: '4', 20: '5', 24: '6', 28: '7', 32: '8',
-    36: '9', 40: '10', 44: '11', 48: '12',
-  };
-  return twMap[n] !== undefined ? `${prefix}-${twMap[n]}` : `${prefix}-[${n}px]`;
-}
-
-function colorToTw(prefix: string, v: string): string {
-  // Map known zinc/orange theme colors to Tailwind classes
-  const twColors: Record<string, string> = {
-    '#18181b': `${prefix}-zinc-900`, '#27272a': `${prefix}-zinc-800`,
-    '#3f3f46': `${prefix}-zinc-700`, '#52525b': `${prefix}-zinc-600`,
-    '#71717a': `${prefix}-zinc-500`, '#a1a1aa': `${prefix}-zinc-400`,
-    '#d4d4d8': `${prefix}-zinc-300`, '#e4e4e7': `${prefix}-zinc-200`,
-    '#f4f4f5': `${prefix}-zinc-100`, '#fafafa': `${prefix}-zinc-50`,
-    '#09090b': `${prefix}-zinc-950`, '#ffffff': `${prefix}-white`,
-    '#fff': `${prefix}-white`, '#FFF': `${prefix}-white`,
-    '#f97316': `${prefix}-orange-500`, '#ea580c': `${prefix}-orange-600`,
-    '#F8F9FA': `${prefix}-gray-50`,
-  };
-  return twColors[v] || `${prefix}-[${v}]`;
-}
-
-function fsTw(v: string): string {
-  const map: Record<string, string> = {
-    '10': 'text-[10px]', '11': 'text-[11px]', '12': 'text-xs', '13': 'text-[13px]',
-    '14': 'text-sm', '16': 'text-base', '18': 'text-lg', '20': 'text-xl',
-    '24': 'text-2xl', '28': 'text-[28px]', '30': 'text-3xl',
-  };
-  return map[v] || `text-[${v}px]`;
-}
-
-function fwTw(v: string): string {
-  const map: Record<string, string> = {
-    '300': 'font-light', '400': 'font-normal', '500': 'font-medium',
-    '600': 'font-semibold', '700': 'font-bold', '800': 'font-extrabold',
-    '900': 'font-black', 'bold': 'font-bold', 'normal': 'font-normal',
-    'medium': 'font-medium', 'semibold': 'font-semibold',
-  };
-  return map[v] || `font-[${v}]`;
-}
-
-function addPx(v: string): string {
-  const n = Number(v);
-  return isNaN(n) ? v : `${n}px`;
-}
-
-function cssKebab(s: string): string {
-  return s.replace(/([A-Z])/g, '-$1').toLowerCase();
-}
+let _activeConfig: ResolvedKernConfig | undefined;
 
 // ── Code generation ─────────────────────────────────────────────────────
-
-function countTokens(text: string): number {
-  return text.split(/[\s{}()\[\];,.<>:='"]+/).filter(Boolean).length;
-}
 
 interface StateDecl {
   name: string;
@@ -147,6 +23,12 @@ interface CodeBuilder {
   storeHooks: Set<string>;
   stateDecls: StateDecl[];
   logicBlocks: string[];
+  i18nEnabled: boolean;
+}
+
+/** Wrap text with t() for i18n, or emit raw string when i18n is disabled */
+function tText(ctx: CodeBuilder, key: string, value: string): string {
+  return ctx.i18nEnabled ? `{t('${key}', '${escapeJsx(value)}')}` : escapeJsx(value);
 }
 
 function getProps(node: IRNode): Record<string, unknown> {
@@ -168,13 +50,13 @@ function getPseudoStyles(node: IRNode): Record<string, Record<string, string>> {
 function twClasses(node: IRNode, extra: string = ''): string {
   const styles = getStyles(node);
   const pseudo = getPseudoStyles(node);
-  const tw = stylesToTailwind(styles);
+  const tw = stylesToTailwind(styles, _activeConfig?.colors);
 
   // Generate pseudo-class Tailwind variants: hover:bg-red-500, active:scale-95
   const pseudoClasses: string[] = [];
   for (const [state, stateStyles] of Object.entries(pseudo)) {
     const twState = state === 'press' ? 'active' : state; // :press → active:
-    const expanded = stylesToTailwind(stateStyles);
+    const expanded = stylesToTailwind(stateStyles, _activeConfig?.colors);
     if (expanded) {
       pseudoClasses.push(expanded.split(' ').map(c => `${twState}:${c}`).join(' '));
     }
@@ -298,8 +180,13 @@ function renderSection(node: IRNode, ctx: CodeBuilder, indent: string): void {
   if (description) {
     ctx.componentImports.add('SettingsSection');
     ctx.lines.push(`${indent}<SettingsSection`);
-    ctx.lines.push(`${indent}  title={t('${key}.title', '${escapeJsx(title)}')}`);
-    ctx.lines.push(`${indent}  description={t('${key}.description', '${escapeJsx(description)}')}`);
+    if (ctx.i18nEnabled) {
+      ctx.lines.push(`${indent}  title={t('${key}.title', '${escapeJsx(title)}')}`);
+      ctx.lines.push(`${indent}  description={t('${key}.description', '${escapeJsx(description)}')}`);
+    } else {
+      ctx.lines.push(`${indent}  title="${escapeJsx(title)}"`);
+      ctx.lines.push(`${indent}  description="${escapeJsx(description)}"`);
+    }
     ctx.lines.push(`${indent}>`);
     ctx.lines.push(`${indent}  <div className="space-y-8">`);
     renderChildren(node, ctx, indent + '  ');
@@ -312,21 +199,21 @@ function renderSection(node: IRNode, ctx: CodeBuilder, indent: string): void {
   if (icon) {
     ctx.lines.push(`${indent}  <div className="flex items-center gap-2 mb-4">`);
     ctx.lines.push(`${indent}    <h3 className="text-sm font-medium text-white">`);
-    ctx.lines.push(`${indent}      {t('${key}.title', '${escapeJsx(title)}')}`);
+    ctx.lines.push(`${indent}      ${tText(ctx, `${key}.title`, title)}`);
     ctx.lines.push(`${indent}    </h3>`);
     ctx.componentImports.add('Icon');
     ctx.lines.push(`${indent}    <div className="relative group">`);
     ctx.lines.push(`${indent}      <Icon name="${icon}" size="sm" className="text-zinc-500 hover:text-orange-500 cursor-help transition-colors" />`);
     ctx.lines.push(`${indent}      <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-50 w-72 p-3 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl text-xs text-zinc-300">`);
     if (tooltip) {
-      ctx.lines.push(`${indent}        {t('${key}.tooltip', ${JSON.stringify(tooltip)})}`);
+      ctx.lines.push(`${indent}        ${ctx.i18nEnabled ? `{t('${key}.tooltip', ${JSON.stringify(tooltip)})}` : escapeJsx(tooltip)}`);
     }
     ctx.lines.push(`${indent}      </div>`);
     ctx.lines.push(`${indent}    </div>`);
     ctx.lines.push(`${indent}  </div>`);
   } else {
     ctx.lines.push(`${indent}  <h3 className="text-sm font-medium text-white mb-4">`);
-    ctx.lines.push(`${indent}    {t('${key}.title', '${escapeJsx(title)}')}`);
+    ctx.lines.push(`${indent}    ${tText(ctx, `${key}.title`, title)}`);
     ctx.lines.push(`${indent}  </h3>`);
   }
 
@@ -340,7 +227,7 @@ function renderCard(node: IRNode, ctx: CodeBuilder, indent: string): void {
   delete styles.border;
   let extra = '';
   if (border) {
-    const borderClass = colorToTw('border', border);
+    const borderClass = colorToTw('border', border, _activeConfig?.colors);
     extra = `border ${borderClass}`;
   }
   ctx.lines.push(`${indent}<div${twClasses(node, extra)}>`);
@@ -386,7 +273,7 @@ function renderText(node: IRNode, ctx: CodeBuilder, indent: string): void {
   } else if (rawValue) {
     const value = rawValue as string;
     const i18nKey = key || camelKey(value);
-    ctx.lines.push(`${indent}<${el}${tw}>{t('${i18nKey}', '${escapeJsx(value)}')}</${el}>`);
+    ctx.lines.push(`${indent}<${el}${tw}>${tText(ctx, i18nKey, value)}</${el}>`);
   }
 }
 
@@ -409,11 +296,11 @@ function renderButton(node: IRNode, ctx: CodeBuilder, indent: string): void {
       ctx.componentImports.add('Icon');
       ctx.lines.push(`${indent}  <Icon name="${iconName}" size="sm" className="mr-2" />`);
     }
-    ctx.lines.push(`${indent}  {t('${camelKey(text)}', '${escapeJsx(text)}')}`);
+    ctx.lines.push(`${indent}  ${tText(ctx, camelKey(text), text)}`);
     ctx.lines.push(`${indent}</Button>`);
   } else {
     ctx.lines.push(`${indent}<button${twClasses(node)} onClick={${onClick || '() => {}'}}>`)
-    ctx.lines.push(`${indent}  {t('${camelKey(text)}', '${escapeJsx(text)}')}`);
+    ctx.lines.push(`${indent}  ${tText(ctx, camelKey(text), text)}`);
     ctx.lines.push(`${indent}</button>`);
   }
 }
@@ -571,7 +458,7 @@ function renderTabs(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
 function renderTab(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  ctx.lines.push(`${indent}<button${twClasses(node)}>{t('${camelKey(p.label as string)}', '${p.label}')}</button>`);
+  ctx.lines.push(`${indent}<button${twClasses(node)}>${tText(ctx, camelKey(p.label as string), p.label as string)}</button>`);
 }
 
 function renderProgress(node: IRNode, ctx: CodeBuilder, indent: string): void {
@@ -620,14 +507,6 @@ function renderInput(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-function camelKey(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+(.)/g, (_, c) => c.toUpperCase()).replace(/[^a-zA-Z0-9]/g, '');
-}
-
-function escapeJsx(s: string): string {
-  return s.replace(/'/g, "\\'");
-}
-
 function bindExpr(bind: string, format: string): string {
   // "{v} dB ({presetLabel})" → `${fixStrengthDb.toFixed(1)} dB (${presetLabel})`
   const expr = format
@@ -667,7 +546,18 @@ function irConditionToJs(cond: unknown): string {
 
 // ── Main export ─────────────────────────────────────────────────────────
 
-export function transpileTailwind(root: IRNode): TranspileResult {
+export function transpileTailwind(root: IRNode, config?: ResolvedKernConfig): TranspileResult {
+  _activeConfig = config;
+  try {
+  return _transpileTailwindInner(root, config);
+  } finally {
+    _activeConfig = undefined;
+  }
+}
+
+function _transpileTailwindInner(root: IRNode, config?: ResolvedKernConfig): TranspileResult {
+  const i18nEnabled = config?.i18n?.enabled ?? true;
+
   const ctx: CodeBuilder = {
     lines: [],
     sourceMap: [],
@@ -677,6 +567,7 @@ export function transpileTailwind(root: IRNode): TranspileResult {
     storeHooks: new Set(),
     stateDecls: [],
     logicBlocks: [],
+    i18nEnabled,
   };
 
   // Render JSX tree (state/logic nodes are collected, not rendered)
@@ -702,14 +593,20 @@ export function transpileTailwind(root: IRNode): TranspileResult {
     code.push(`import React, { ${reactImports.join(', ')} } from 'react';`);
   }
 
-  code.push(`import { useTranslation } from 'react-i18next';`);
+  const i18nHook = config?.i18n?.hookName ?? 'useTranslation';
+  const i18nImport = config?.i18n?.importPath ?? 'react-i18next';
+  const uiLibrary = config?.components?.uiLibrary ?? '@components/ui';
+
+  if (i18nEnabled) {
+    code.push(`import { ${i18nHook} } from '${i18nImport}';`);
+  }
 
   if (ctx.componentImports.size > 0) {
     const uiImports = [...ctx.componentImports].filter(c => ['Icon', 'Button'].includes(c));
     const featureImports = [...ctx.componentImports].filter(c => !['Icon', 'Button'].includes(c));
 
     if (uiImports.length > 0) {
-      code.push(`import { ${uiImports.join(', ')} } from '@components/ui';`);
+      code.push(`import { ${uiImports.join(', ')} } from '${uiLibrary}';`);
     }
     for (const imp of featureImports) {
       code.push(`import { ${imp} } from './${imp}';`);
@@ -718,7 +615,9 @@ export function transpileTailwind(root: IRNode): TranspileResult {
 
   code.push('');
   code.push(`export function ${name}() {`);
-  code.push(`  const { t } = useTranslation();`);
+  if (i18nEnabled) {
+    code.push(`  const { t } = ${i18nHook}();`);
+  }
 
   // Generate useState declarations
   for (const s of ctx.stateDecls) {
@@ -761,23 +660,3 @@ export function transpileTailwind(root: IRNode): TranspileResult {
   };
 }
 
-function serializeIR(node: IRNode, indent = ''): string {
-  let line = `${indent}${node.type}`;
-  const props = node.props || {};
-  for (const [k, v] of Object.entries(props)) {
-    if (k === 'styles' || k === 'pseudoStyles' || k === 'themeRefs') continue;
-    line += ` ${k}=${typeof v === 'string' && v.includes(' ') ? `"${v}"` : v}`;
-  }
-  if (props.styles) {
-    const pairs = Object.entries(props.styles as Record<string, string>)
-      .map(([k, v]) => `${k}:${v}`).join(',');
-    line += ` {${pairs}}`;
-  }
-  let result = line + '\n';
-  if (node.children) {
-    for (const child of node.children) {
-      result += serializeIR(child, indent + '  ');
-    }
-  }
-  return result;
-}

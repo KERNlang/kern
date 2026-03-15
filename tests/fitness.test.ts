@@ -1,7 +1,8 @@
 import { readFileSync, existsSync } from 'fs';
-import { resolve } from 'path';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
-const ROOT = resolve(__dirname, '..');
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('Kern IR Fitness Tests', () => {
   // ── Spec Tests ──────────────────────────────────────────────────────────
@@ -332,6 +333,81 @@ describe('Kern IR Fitness Tests', () => {
         expect(ast2.type).toBe(ast1.type);
         expect(ast2.children?.length).toBeGreaterThan(0);
       }
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // CONFIG & VALIDATION TESTS — Phase 1B
+  // ══════════════════════════════════════════════════════════════════════
+
+  describe('Config', () => {
+    test('resolveConfig returns defaults when no user config', async () => {
+      const { resolveConfig } = await import(resolve(ROOT, 'src/config.ts'));
+      const config = resolveConfig();
+      expect(config.target).toBe('nextjs');
+      expect(config.i18n.enabled).toBe(true);
+      expect(config.i18n.hookName).toBe('useTranslation');
+      expect(config.components.uiLibrary).toBe('@components/ui');
+      expect(config.output.outDir).toBe('.');
+    });
+
+    test('resolveConfig merges user overrides', async () => {
+      const { resolveConfig } = await import(resolve(ROOT, 'src/config.ts'));
+      const config = resolveConfig({
+        target: 'tailwind',
+        i18n: { enabled: false },
+        colors: { '#custom': 'brand-500' },
+      });
+      expect(config.target).toBe('tailwind');
+      expect(config.i18n.enabled).toBe(false);
+      expect(config.i18n.hookName).toBe('useTranslation'); // default preserved
+      expect(config.colors['#custom']).toBe('brand-500');
+      expect(config.colors['#18181b']).toBe('zinc-900'); // default preserved
+    });
+
+    test('resolveConfig throws on unknown target', async () => {
+      const { resolveConfig } = await import(resolve(ROOT, 'src/config.ts'));
+      expect(() => resolveConfig({ target: 'express' as any })).toThrow('Unknown target');
+    });
+
+    test('custom colors produce custom Tailwind classes', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileTailwind } = await import(resolve(ROOT, 'src/transpiler-tailwind.ts'));
+      const { resolveConfig } = await import(resolve(ROOT, 'src/config.ts'));
+      const config = resolveConfig({ colors: { '#custom123': 'brand-500' } });
+      const ast = parse('screen name=Test\n  card {bg:#custom123}');
+      const result = transpileTailwind(ast, config);
+      expect(result.code).toContain('bg-brand-500');
+    });
+
+    test('i18n.enabled=false suppresses t() wrapping', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileTailwind } = await import(resolve(ROOT, 'src/transpiler-tailwind.ts'));
+      const { resolveConfig } = await import(resolve(ROOT, 'src/config.ts'));
+      const config = resolveConfig({ i18n: { enabled: false } });
+      const ast = parse('screen name=Test\n  text value=Hello');
+      const result = transpileTailwind(ast, config);
+      expect(result.code).not.toContain('useTranslation');
+      expect(result.code).not.toContain("from 'react-i18next'");
+      expect(result.code).not.toContain("t('"); // no t() calls in JSX body
+      expect(result.code).toContain('Hello'); // raw string present
+    });
+
+    test('custom uiLibrary changes import path', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileTailwind } = await import(resolve(ROOT, 'src/transpiler-tailwind.ts'));
+      const { resolveConfig } = await import(resolve(ROOT, 'src/config.ts'));
+      const config = resolveConfig({ components: { uiLibrary: '@mylib/design-system' } });
+      const ast = parse('screen name=Test\n  section title="Settings" icon=info tooltip="Help"');
+      const result = transpileTailwind(ast, config);
+      expect(result.code).toContain("from '@mylib/design-system'");
+    });
+
+    test('GeneratedArtifact type exists on TranspileResult', async () => {
+      const types = readFileSync(resolve(ROOT, 'src/types.ts'), 'utf-8');
+      expect(types).toContain('export interface GeneratedArtifact');
+      expect(types).toContain("'page' | 'layout' | 'route' | 'middleware' | 'component' | 'config'");
+      expect(types).toContain('artifacts?: GeneratedArtifact[]');
     });
   });
 });

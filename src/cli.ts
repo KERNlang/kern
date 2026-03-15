@@ -1,16 +1,17 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { resolve, basename, dirname } from 'path';
+import { createJiti } from 'jiti';
 import { parse } from './parser.js';
 import { transpile } from './transpiler.js';
 import { transpileWeb } from './transpiler-web.js';
 import { transpileTailwind } from './transpiler-tailwind.js';
 import { transpileNextjs } from './transpiler-nextjs.js';
 import { decompile } from './decompiler.js';
+import { resolveConfig, VALID_TARGETS, type ResolvedKernConfig, type KernTarget } from './config.js';
 import type { IRNode } from './types.js';
 
 const args = process.argv.slice(2);
-const target = args.find(a => a.startsWith('--target='))?.split('=')[1] || 'nextjs';
 const inputFile = args.find(a => !a.startsWith('--'));
 
 if (!inputFile) {
@@ -28,6 +29,34 @@ if (!inputFile) {
   console.log('  --pretty     Expand minified Kern back to indented format');
   process.exit(1);
 }
+
+// ── Load config via jiti (supports .ts config at runtime) ────────────────
+
+let config: ResolvedKernConfig;
+const configPath = resolve(process.cwd(), 'kern.config.ts');
+if (existsSync(configPath)) {
+  try {
+    const jiti = createJiti(import.meta.url);
+    const userConfig = (jiti(configPath) as { default?: unknown }).default ?? jiti(configPath);
+    config = resolveConfig(userConfig as Partial<import('./config.js').KernConfig>);
+  } catch (err) {
+    console.error(`Warning: Failed to load kern.config.ts: ${(err as Error).message}`);
+    config = resolveConfig({});
+  }
+} else {
+  config = resolveConfig({});
+}
+
+// CLI flags override config — target
+const cliTarget = args.find(a => a.startsWith('--target='))?.split('=')[1];
+if (cliTarget) {
+  if (!VALID_TARGETS.includes(cliTarget as KernTarget)) {
+    console.error(`Unknown target: '${cliTarget}'. Valid targets: ${VALID_TARGETS.join(', ')}`);
+    process.exit(1);
+  }
+  config = { ...config, target: cliTarget as KernTarget };
+}
+const target = config.target;
 
 const irSource = readFileSync(resolve(inputFile), 'utf-8');
 const ast = parse(irSource);
@@ -62,7 +91,7 @@ if (args.includes('--decompile')) {
 }
 
 // ── Transpile: Kern → target code ───────────────────────────────────────
-const result = target === 'native' ? transpile(ast) : target === 'web' ? transpileWeb(ast) : target === 'tailwind' ? transpileTailwind(ast) : transpileNextjs(ast);
+const result = target === 'native' ? transpile(ast, config) : target === 'web' ? transpileWeb(ast, config) : target === 'tailwind' ? transpileTailwind(ast, config) : transpileNextjs(ast, config);
 
 const outFile = resolve(dirname(inputFile), `${name}.tsx`);
 writeFileSync(outFile, result.code);
