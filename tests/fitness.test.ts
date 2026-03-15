@@ -575,8 +575,11 @@ describe('Kern IR Fitness Tests', () => {
       expect(route!.content).toContain('flushHeaders');
       expect(route!.content).toContain('const emit =');
       expect(route!.content).toContain('writableEnded');
-      expect(route!.content).toContain('[DONE]');
+      expect(route!.content).toContain("JSON.stringify('[DONE]')"); // [DONE] as JSON
       expect(route!.content).toContain('AbortController');
+      expect(route!.content).toContain('await (async'); // awaited IIFE
+      expect(route!.content).toContain('keep-alive'); // heartbeat
+      expect(route!.content).toContain('clearInterval(heartbeat)'); // heartbeat cleanup
     });
 
     test('timer route generates timeout with AbortController', async () => {
@@ -601,6 +604,7 @@ describe('Kern IR Fitness Tests', () => {
       expect(route!.content).toContain("import { spawn } from 'node:child_process'");
       expect(route!.content).toContain('shell: false');
       expect(route!.content).toContain("spawn('codex'");
+      expect(route!.content).toContain('resolveStream'); // awaits child completion
     });
 
     test('ai-buddies-api.kern produces valid output', async () => {

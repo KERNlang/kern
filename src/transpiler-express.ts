@@ -79,24 +79,44 @@ function generateStreamSetup(indent: string): string[] {
     `${indent}  if (event) res.write(\`event: \${event}\\n\`);`,
     `${indent}  res.write(\`data: \${JSON.stringify(data)}\\n\\n\`);`,
     `${indent}};`,
+    `${indent}`,
+    `${indent}// SSE heartbeat — keeps proxies/browsers from killing the connection`,
+    `${indent}const heartbeat = setInterval(() => {`,
+    `${indent}  if (res.writableEnded) { clearInterval(heartbeat); return; }`,
+    `${indent}  res.write(': keep-alive\\n\\n');`,
+    `${indent}}, 15000);`,
   ];
 }
 
-function generateStreamWrap(handlerLines: string[], indent: string): string[] {
-  return [
-    `${indent}(async () => {`,
-    `${indent}  try {`,
-    ...handlerLines.map(l => `${indent}    ${l}`),
-    `${indent}  } catch (err) {`,
-    `${indent}    emit({ type: 'error', error: err instanceof Error ? err.message : String(err) });`,
-    `${indent}  } finally {`,
-    `${indent}    if (!res.writableEnded) {`,
-    `${indent}      res.write('data: [DONE]\\n\\n');`,
-    `${indent}      res.end();`,
-    `${indent}    }`,
-    `${indent}  }`,
-    `${indent})();`,
-  ];
+function generateStreamWrap(handlerLines: string[], hasSpawn: boolean, indent: string): string[] {
+  const lines: string[] = [];
+
+  // Await the async IIFE so Express doesn't return before stream completes
+  lines.push(`${indent}await (async () => {`);
+  lines.push(`${indent}  try {`);
+
+  if (hasSpawn) {
+    // Wrap spawn in a Promise so we await child completion before closing stream
+    lines.push(`${indent}    await new Promise<void>((resolveStream, rejectStream) => {`);
+    lines.push(...handlerLines.map(l => `${indent}      ${l}`));
+    // The spawn's on('close') handler should call resolveStream()
+    lines.push(`${indent}    });`);
+  } else {
+    lines.push(...handlerLines.map(l => `${indent}    ${l}`));
+  }
+
+  lines.push(`${indent}  } catch (err) {`);
+  lines.push(`${indent}    emit({ type: 'error', error: err instanceof Error ? err.message : String(err) });`);
+  lines.push(`${indent}  } finally {`);
+  lines.push(`${indent}    clearInterval(heartbeat);`);
+  lines.push(`${indent}    if (!res.writableEnded) {`);
+  lines.push(`${indent}      res.write(\`data: \${JSON.stringify('[DONE]')}\\n\\n\`);`);
+  lines.push(`${indent}      res.end();`);
+  lines.push(`${indent}    }`);
+  lines.push(`${indent}  }`);
+  lines.push(`${indent})();`);
+
+  return lines;
 }
 
 // ── Spawn code generator ─────────────────────────────────────────────────
@@ -151,14 +171,20 @@ function generateSpawnCode(spawnNode: IRNode, indent: string): string[] {
     lines.push(`${indent}}, ${timeoutSec * 1000});`);
   }
 
-  // Abort on request close
+  // Abort on request close — SIGTERM then force SIGKILL + resolve after 5s
   lines.push(`${indent}ac.signal.addEventListener('abort', () => {`);
-  lines.push(`${indent}  if (!childExited) child.kill('SIGTERM');`);
+  lines.push(`${indent}  if (!childExited) {`);
+  lines.push(`${indent}    child.kill('SIGTERM');`);
+  lines.push(`${indent}    setTimeout(() => {`);
+  lines.push(`${indent}      if (!childExited) child.kill('SIGKILL');`);
+  lines.push(`${indent}      if (typeof resolveStream === 'function') resolveStream();`);
+  lines.push(`${indent}    }, 5000);`);
+  lines.push(`${indent}  }`);
   lines.push(`${indent}});`);
 
   // Event handlers from child nodes
-  const onStdout = getFirstChild(spawnNode, 'on');
   const onNodes = getChildren(spawnNode, 'on');
+  let hasCloseHandler = false;
 
   for (const onNode of onNodes) {
     const onProps = getProps(onNode);
@@ -175,18 +201,30 @@ function generateSpawnCode(spawnNode: IRNode, indent: string): string[] {
       lines.push(...code.split('\n').map(l => `${indent}  ${l.trim()}`));
       lines.push(`${indent}});`);
     } else if (event === 'close') {
+      hasCloseHandler = true;
       lines.push(`${indent}child.on('close', (code: number | null) => {`);
       if (timeoutSec > 0) lines.push(`${indent}  clearTimeout(spawnTimer);`);
       lines.push(...code.split('\n').map(l => `${indent}  ${l.trim()}`));
+      // Resolve the stream promise so finally block runs AFTER child exits
+      lines.push(`${indent}  if (typeof resolveStream === 'function') resolveStream();`);
       lines.push(`${indent}});`);
     } else if (event === 'timeout') {
-      // Handled via the timer killed branch — stored for close handler
+      // Handled via the timer killed branch
     }
+  }
+
+  // Default close handler if none specified — ensures stream promise resolves
+  if (!hasCloseHandler) {
+    lines.push(`${indent}child.on('close', (code: number | null) => {`);
+    if (timeoutSec > 0) lines.push(`${indent}  clearTimeout(spawnTimer);`);
+    lines.push(`${indent}  if (typeof resolveStream === 'function') resolveStream();`);
+    lines.push(`${indent}});`);
   }
 
   // Catch spawn errors (binary not found)
   lines.push(`${indent}child.on('error', (err: Error) => {`);
   lines.push(`${indent}  emit({ type: 'error', error: err.message });`);
+  lines.push(`${indent}  if (typeof resolveStream === 'function') resolveStream();`);
   lines.push(`${indent}});`);
 
   return lines;
@@ -558,7 +596,7 @@ function buildRouteArtifact(
       streamHandlerLines.push(...spawnLines);
     }
 
-    lines.push(...generateStreamWrap(streamHandlerLines, '    '));
+    lines.push(...generateStreamWrap(streamHandlerLines, caps.hasSpawn, '    '));
   } else if (caps.hasTimer && caps.timerNode) {
     // Timer route — wrap handler in timeout
     lines.push(...generateTimerCode(caps.timerNode, routeHandlerCode, '    '));
