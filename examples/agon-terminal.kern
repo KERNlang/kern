@@ -1,0 +1,26 @@
+screen name=AgonTerminal
+  state name=busy initial=false
+
+  gradient text="AGON" colors=[208,214,220,226,228,230,255]
+
+  box color=214
+    text value="Any AI can join. They compete. You ship." {fw:bold}
+
+  separator width=48
+
+  text value="Engines ready:" {c:#a1a1aa}
+  text value="  claude  codex  gemini" {c:#f97316,fw:bold}
+
+  separator width=48
+
+  spinner message="Dispatching engines..." color=214
+
+  progress value=75 max=100 color=214
+
+  separator width=48
+
+  text value="Forge Results:" {fw:bold}
+  scoreboard title="Forge Scoreboard" winner="claude"
+    metric name=Score values=["89","74","71"]
+    metric name=Diff values=["436","570","317"]
+    metric name=Time values=["45s","52s","38s"]

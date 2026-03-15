@@ -53,6 +53,10 @@ export const NODE_TYPES = [
   'stream', 'spawn', 'timer', 'on', 'env',
   // CLI
   'cli', 'command', 'arg', 'flag', 'import',
+  // Terminal
+  'separator', 'table', 'scoreboard', 'metric',
+  'spinner', 'progress', 'box', 'gradient',
+  'repl', 'guard', 'parallel', 'dispatch', 'then', 'each',
 ] as const;
 
 export type IRNodeType = (typeof NODE_TYPES)[number];
