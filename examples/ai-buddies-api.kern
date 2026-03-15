@@ -1,0 +1,54 @@
+server name=AIBuddiesAPI port=19854
+  middleware name=cors
+  middleware name=json
+
+  route method=post path=/api/review
+    schema body="{diff: string, userNotes?: string}"
+    stream
+      handler <<<
+        const registry = req.app.get('registry');
+        const expanded = registry.expandInstances();
+        const abortController = new AbortController();
+        res.on('close', () => abortController.abort());
+
+        await Promise.allSettled(expanded.map(async (config) => {
+          if (abortController.signal.aborted) return;
+          const adapter = registry.getAdapter(config.id);
+          for await (const event of adapter.stream({
+            systemPrompt: getReviewPersona(config.id).systemPrompt,
+            userPrompt: req.body.diff,
+          })) {
+            if (abortController.signal.aborted) break;
+            emit(event);
+          }
+        }));
+      >>>
+
+  route method=post path=/api/providers/toggle
+    schema body="{id: string, enabled: boolean}"
+    handler <<<
+      const provider = registry.get(req.body.id);
+      if (!provider) return res.status(404).json({ error: 'Not found' });
+      provider.enabled = req.body.enabled;
+      registry.register(provider);
+      saveConfig();
+      res.json({ ok: true });
+    >>>
+
+  route method=post path=/api/providers/test
+    schema body="{id: string}"
+    timer 15
+      handler <<<
+        const provider = registry.get(req.body.id);
+        const result = await provider.test();
+        res.json({ ok: true, message: result });
+      >>>
+      on name=timeout
+        handler <<<
+          res.status(408).json({ ok: false, message: 'Test timed out' });
+        >>>
+
+  route method=get path=/health
+    handler <<<
+      res.json({ ok: true, uptime: process.uptime() });
+    >>>

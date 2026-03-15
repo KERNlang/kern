@@ -561,4 +561,63 @@ describe('Kern IR Fitness Tests', () => {
       expect(cmd!.content).not.toContain("task-class?:");
     });
   });
+
+  describe('Express Stream/Spawn/Timer', () => {
+    test('stream route generates SSE headers and emit helper', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileExpress } = await import(resolve(ROOT, 'src/transpiler-express.ts'));
+      const ast = parse('server name=Test\n  route method=post path=/api/stream\n    stream\n      handler <<<\n        emit({ type: "ping" });\n      >>>');
+      const result = transpileExpress(ast);
+
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route).toBeDefined();
+      expect(route!.content).toContain('text/event-stream');
+      expect(route!.content).toContain('flushHeaders');
+      expect(route!.content).toContain('const emit =');
+      expect(route!.content).toContain('writableEnded');
+      expect(route!.content).toContain('[DONE]');
+      expect(route!.content).toContain('AbortController');
+    });
+
+    test('timer route generates timeout with AbortController', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileExpress } = await import(resolve(ROOT, 'src/transpiler-express.ts'));
+      const ast = parse('server name=Test\n  route method=post path=/api/test\n    timer 15\n      handler <<<\n        const r = await doWork();\n        res.json(r);\n      >>>');
+      const result = transpileExpress(ast);
+
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('15000');
+      expect(route!.content).toContain('AbortController');
+      expect(route!.content).toContain('clearTimeout');
+    });
+
+    test('spawn generates child_process with shell:false', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileExpress } = await import(resolve(ROOT, 'src/transpiler-express.ts'));
+      const ast = parse("server name=Test\n  route method=post path=/api/run\n    stream\n      spawn binary=codex args=['-p','hello']\n        on name=stdout\n          handler <<<\n            emit({ text: chunk.toString() });\n          >>>");
+      const result = transpileExpress(ast);
+
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain("import { spawn } from 'node:child_process'");
+      expect(route!.content).toContain('shell: false');
+      expect(route!.content).toContain("spawn('codex'");
+    });
+
+    test('ai-buddies-api.kern produces valid output', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileExpress } = await import(resolve(ROOT, 'src/transpiler-express.ts'));
+      const source = readFileSync(resolve(ROOT, 'examples/ai-buddies-api.kern'), 'utf-8');
+      const ast = parse(source);
+      const result = transpileExpress(ast);
+
+      expect(result.code).toContain('express');
+      expect(result.artifacts!.length).toBeGreaterThanOrEqual(2);
+
+      // Review route should have SSE
+      const reviewRoute = result.artifacts!.find((a: any) => a.path.includes('review'));
+      if (reviewRoute) {
+        expect(reviewRoute.content).toContain('text/event-stream');
+      }
+    });
+  });
 });

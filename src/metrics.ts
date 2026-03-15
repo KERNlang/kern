@@ -21,6 +21,8 @@ const HANDLED_NODE_TYPES = new Set([
   'progress', 'input', 'theme',
   // CLI
   'cli', 'command', 'arg', 'flag', 'import',
+  // Streaming/process
+  'stream', 'spawn', 'timer', 'on', 'env',
 ]);
 
 // ── Types ────────────────────────────────────────────────────────────────
