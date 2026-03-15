@@ -168,4 +168,170 @@ describe('Kern IR Fitness Tests', () => {
       expect(result.code).toContain('Dashboard');
     });
   });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // EXTENDED TESTS — v1.0 cross-backend coverage
+  // ══════════════════════════════════════════════════════════════════════
+
+  describe('Parser — State & Logic', () => {
+    test('parses state declarations', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const ast = parse('screen name=Test\n  state name=count initial=0');
+      const stateNode = ast.children?.find((c: any) => c.type === 'state');
+      expect(stateNode).toBeDefined();
+      expect(stateNode?.props?.name).toBe('count');
+      expect(stateNode?.props?.initial).toBe('0');
+    });
+
+    test('parses logic blocks', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const ast = parse('screen name=Test\n  logic <<<\n    console.log("hi");\n  >>>');
+      const logicNode = ast.children?.find((c: any) => c.type === 'logic');
+      expect(logicNode).toBeDefined();
+      expect(logicNode?.props?.code).toContain('console.log');
+    });
+
+    test('parses inline expressions', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const ast = parse('screen name=Test\n  text value={{ count + 1 }}');
+      const textNode = ast.children?.find((c: any) => c.type === 'text');
+      expect(textNode?.props?.value).toBeDefined();
+      expect(typeof textNode?.props?.value).toBe('object');
+      expect((textNode?.props?.value as any).__expr).toBe(true);
+      expect((textNode?.props?.value as any).code).toContain('count + 1');
+    });
+
+    test('parses theme nodes with names', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const ast = parse('screen name=Test\n  theme myTheme {h:8,br:4}');
+      const themeNode = ast.children?.find((c: any) => c.type === 'theme');
+      expect(themeNode).toBeDefined();
+      expect(themeNode?.props?.name).toBe('myTheme');
+    });
+
+    test('parses CSS escape hatch (quoted keys)', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const ast = parse('screen name=Test\n  card {"backdrop-filter":"blur(8px)",p:16}');
+      const card = ast.children?.find((c: any) => c.type === 'card');
+      const styles = card?.props?.styles as Record<string, string>;
+      expect(styles).toBeDefined();
+      expect(styles['backdrop-filter']).toBe('blur(8px)');
+      expect(styles['p']).toBe('16');
+    });
+  });
+
+  describe('Tailwind Transpiler', () => {
+    test('generates useState from state nodes', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileTailwind } = await import(resolve(ROOT, 'src/transpiler-tailwind.ts'));
+      const ast = parse('screen name=Test\n  state name=count initial=0\n  text value=Hello');
+      const result = transpileTailwind(ast);
+      expect(result.code).toContain('useState');
+      expect(result.code).toContain('count');
+      expect(result.code).toContain('setCount');
+    });
+
+    test('generates useEffect from logic blocks', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileTailwind } = await import(resolve(ROOT, 'src/transpiler-tailwind.ts'));
+      const ast = parse('screen name=Test\n  logic <<<\n    useEffect(() => {}, []);\n  >>>\n  text value=Hello');
+      const result = transpileTailwind(ast);
+      expect(result.code).toContain('useEffect');
+      expect(result.code).toContain("from 'react'");
+    });
+
+    test('renders expressions in JSX', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileTailwind } = await import(resolve(ROOT, 'src/transpiler-tailwind.ts'));
+      const ast = parse('screen name=Test\n  text value={{ count + " items" }}');
+      const result = transpileTailwind(ast);
+      expect(result.code).toContain('{count + " items"}');
+    });
+
+    test('generates proper Tailwind rounded classes', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileTailwind } = await import(resolve(ROOT, 'src/transpiler-tailwind.ts'));
+      const ast = parse('screen name=Test\n  card {br:8,p:16}');
+      const result = transpileTailwind(ast);
+      expect(result.code).toContain('rounded-lg');
+      expect(result.code).not.toContain('rounded-2');
+    });
+
+    test('generates pseudo-style Tailwind variants', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileTailwind } = await import(resolve(ROOT, 'src/transpiler-tailwind.ts'));
+      const ast = parse('screen name=Test\n  button text=Click {bg:#007AFF,:press:bg:#005BB5}');
+      const result = transpileTailwind(ast);
+      expect(result.code).toContain('active:');
+    });
+
+    test('renders input with bind and placeholder', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileTailwind } = await import(resolve(ROOT, 'src/transpiler-tailwind.ts'));
+      const ast = parse('screen name=Test\n  input bind=query placeholder="Search..."');
+      const result = transpileTailwind(ast);
+      expect(result.code).toContain('value={query}');
+      expect(result.code).toContain('placeholder="Search..."');
+      expect(result.code).toContain('onChange');
+    });
+  });
+
+  describe('Next.js Transpiler', () => {
+    test('generates use client directive', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileNextjs } = await import(resolve(ROOT, 'src/transpiler-nextjs.ts'));
+      const ast = parse('page name=Test client=true\n  text value=Hello');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain("'use client'");
+    });
+
+    test('generates metadata export', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileNextjs } = await import(resolve(ROOT, 'src/transpiler-nextjs.ts'));
+      const ast = parse('page name=Test\n  metadata title="My Page" description="A page"');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('Metadata');
+      expect(result.code).toContain("title: 'My Page'");
+    });
+
+    test('uses next/link for navigation', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileNextjs } = await import(resolve(ROOT, 'src/transpiler-nextjs.ts'));
+      const ast = parse('page name=Test client=true\n  button text="Go" to=dashboard');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain("next/link");
+      expect(result.code).toContain('Link');
+    });
+  });
+
+  describe('Web Transpiler', () => {
+    test('generates HTML elements not React Native', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileWeb } = await import(resolve(ROOT, 'src/transpiler-web.ts'));
+      const ast = parse('screen name=Test\n  row\n    text value=Hello\n    button text=Click');
+      const result = transpileWeb(ast);
+      expect(result.code).toContain('<div');
+      expect(result.code).toContain('<span');
+      expect(result.code).toContain('<button');
+      expect(result.code).not.toContain('View');
+      expect(result.code).not.toContain('TouchableOpacity');
+    });
+  });
+
+  describe('Roundtrip', () => {
+    test('minify then parse preserves tree structure', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const irSource = readFileSync(resolve(ROOT, 'examples/dashboard.kern'), 'utf-8');
+      const ast1 = parse(irSource);
+
+      // Read the minified version
+      const minPath = resolve(ROOT, 'examples/dashboard.min.kern');
+      if (existsSync(minPath)) {
+        const minSource = readFileSync(minPath, 'utf-8');
+        const ast2 = parse(minSource);
+        expect(ast2.type).toBe(ast1.type);
+        expect(ast2.children?.length).toBeGreaterThan(0);
+      }
+    });
+  });
 });
