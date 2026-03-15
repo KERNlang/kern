@@ -9,6 +9,7 @@ const MAPPED_CSS_PROPERTIES = new Set([
   'backgroundColor', 'color', 'fontSize', 'fontWeight', 'borderRadius',
   'width', 'height', 'justifyContent', 'alignItems', 'flexDirection',
   'flex', 'gap', 'borderColor', 'borderWidth', 'overflow',
+  'textAlign', 'elevation', 'opacity', 'position', 'display', 'zIndex',
 ]);
 
 // ── Handled node types (mirrors renderNode switch in transpiler-tailwind) ─

@@ -9,6 +9,7 @@ import { transpileTailwind } from './transpiler-tailwind.js';
 import { transpileNextjs } from './transpiler-nextjs.js';
 import { decompile } from './decompiler.js';
 import { resolveConfig, VALID_TARGETS, type ResolvedKernConfig, type KernTarget } from './config.js';
+import { collectLanguageMetrics } from './metrics.js';
 import type { IRNode } from './types.js';
 
 const args = process.argv.slice(2);
@@ -27,6 +28,7 @@ if (!inputFile) {
   console.log('  --decompile  Output human-readable pseudocode');
   console.log('  --minify     Output minified single-line Kern (LLM wire format)');
   console.log('  --pretty     Expand minified Kern back to indented format');
+  console.log('  --metrics    Show language metrics (escape ratio, coverage, etc.)');
   process.exit(1);
 }
 
@@ -87,6 +89,31 @@ if (args.includes('--pretty')) {
 if (args.includes('--decompile')) {
   const result = decompile(ast);
   console.log(result.code);
+  process.exit(0);
+}
+
+// ── Metrics: analyze language coverage ────────────────────────────────────
+if (args.includes('--metrics')) {
+  const metrics = collectLanguageMetrics(ast);
+  console.log(`Metrics: ${inputFile}`);
+  console.log(`  Nodes:        ${metrics.nodeCount} (${metrics.nodeTypes.length} types)`);
+  console.log(`  Styles:       ${metrics.styleMetrics.totalStyleDecls} declarations`);
+  console.log(`  Mapped:       ${metrics.styleMetrics.mappedStyleDecls} (${Math.round((1 - metrics.styleMetrics.escapeRatio) * 100)}%)`);
+  console.log(`  Escaped:      ${metrics.styleMetrics.escapedStyleDecls} (${Math.round(metrics.styleMetrics.escapeRatio * 100)}%)`);
+  if (metrics.styleMetrics.escapedKeys.length > 0) {
+    console.log(`  Escape keys:  ${metrics.styleMetrics.escapedKeys.join(', ')}`);
+  }
+  console.log(`  Shorthand:    ${Math.round(metrics.shorthandCoverage * 100)}% coverage`);
+  console.log(`  Theme refs:   ${metrics.themeRefCount}`);
+  console.log(`  Pseudo:       ${metrics.pseudoStyleCount}`);
+  if (metrics.unknownNodeCount > 0) {
+    console.log(`  Unknown nodes: ${metrics.unknownNodeCount}`);
+  }
+  console.log('');
+  console.log('  Node types:');
+  for (const nt of metrics.nodeTypes.slice(0, 10)) {
+    console.log(`    ${nt.type}: ${nt.count} (${nt.styleDecls} styles)`);
+  }
   process.exit(0);
 }
 

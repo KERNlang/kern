@@ -23,8 +23,8 @@ export default function LandingPage() {
         </div>
       </div>
       <div className="items-center p-[80px] gap-6 flex flex-col">
-        <h1 className="text-[48px] font-extrabold text-white [text-align:center]">Analyze your mix in seconds</h1>
-        <p className="text-lg text-zinc-400 [text-align:center]">AI-powered stem separation, frequency analysis, and mastering suggestions.</p>
+        <h1 className="text-[48px] font-extrabold text-white text-center">Analyze your mix in seconds</h1>
+        <p className="text-lg text-zinc-400 text-center">AI-powered stem separation, frequency analysis, and mastering suggestions.</p>
         <div className="gap-4 flex">
           <Link href="/signup" className="bg-orange-500 text-white rounded-lg p-4 text-base font-semibold">Start Free Trial</Link>
           <button className="bg-[transparent] text-white rounded-lg p-4 text-base font-semibold [border:#3f3f46]" onClick={openDemo}>Watch Demo</button>

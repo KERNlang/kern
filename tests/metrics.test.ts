@@ -31,14 +31,14 @@ describe('Metrics Engine', () => {
       expect(isEscapedStyleKey('transition')).toBe(true);
     });
 
-    test('shorthand "ta" → textAlign → true (not in transpiler switch)', async () => {
+    test('shorthand "ta" → textAlign → false (now mapped)', async () => {
       const { isEscapedStyleKey } = await import(resolve(ROOT, 'src/metrics.ts'));
-      expect(isEscapedStyleKey('ta')).toBe(true);
+      expect(isEscapedStyleKey('ta')).toBe(false);
     });
 
-    test('shorthand "shadow" → elevation → true (not in transpiler switch)', async () => {
+    test('shorthand "shadow" → elevation → false (now mapped)', async () => {
       const { isEscapedStyleKey } = await import(resolve(ROOT, 'src/metrics.ts'));
-      expect(isEscapedStyleKey('shadow')).toBe(true);
+      expect(isEscapedStyleKey('shadow')).toBe(false);
     });
   });
 
@@ -68,7 +68,7 @@ describe('Metrics Engine', () => {
 
       expect(metrics.styleMetrics.escapeRatio).toBeGreaterThan(0);
       expect(metrics.styleMetrics.escapedKeys).toContain('transition');
-      expect(metrics.styleMetrics.escapedKeys).toContain('textAlign'); // ta shorthand gap
+      // textAlign is now mapped (fixed in Phase 3), no longer escapes
     });
   });
 
