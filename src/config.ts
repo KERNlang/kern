@@ -4,9 +4,9 @@
 
 import { DEFAULT_COLORS } from './styles-tailwind.js';
 
-export type KernTarget = 'nextjs' | 'tailwind' | 'web' | 'native';
+export type KernTarget = 'nextjs' | 'tailwind' | 'web' | 'native' | 'express';
 
-export const VALID_TARGETS: KernTarget[] = ['nextjs', 'tailwind', 'web', 'native'];
+export const VALID_TARGETS: KernTarget[] = ['nextjs', 'tailwind', 'web', 'native', 'express'];
 
 export interface KernConfig {
   target?: KernTarget;

@@ -42,7 +42,7 @@ export default function LandingPage() {
         </div>
       </div>
       <div className="justify-center p-8 [border:#27272a] flex">
-        <span className="text-xs text-zinc-500">© 2026 AudioFacets. Built with LLM-Speach.</span>
+        <span className="text-xs text-zinc-500">© 2026 AudioFacets. Built with Kern.</span>
       </div>
     </div>
   );

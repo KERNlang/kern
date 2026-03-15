@@ -11,32 +11,32 @@ const Dashboard: React.FC = () => {
         <Image style={styles.image_3} source={require('./avatar')} />
       </View>
       <View style={styles.card_4}>
-        <View label="Calories" current="1840" target="2200" unit="kcal" color="#FF6B6B">
+        <View style={styles.progress_5} label="Calories" current="1840" target="2200" unit="kcal" color="#FF6B6B">
           <Text>Calories: 1840/2200 kcal</Text>
-          <View style={styles.progressBar_5}>
-            <View style={styles.progressFill_6} />
+          <View style={styles.progressBar_6}>
+            <View style={styles.progressFill_7} />
           </View>
         </View>
-        <View label="Protein" current="96" target="140" unit="g" color="#4ECDC4">
+        <View style={styles.progress_8} label="Protein" current="96" target="140" unit="g" color="#4ECDC4">
           <Text>Protein: 96/140 g</Text>
-          <View style={styles.progressBar_7}>
-            <View style={styles.progressFill_8} />
-          </View>
-        </View>
-        <View label="Carbs" current="210" target="260" unit="g" color="#FFD166">
-          <Text>Carbs: 210/260 g</Text>
           <View style={styles.progressBar_9}>
             <View style={styles.progressFill_10} />
           </View>
         </View>
-        <View label="Fat" current="58" target="70" unit="g" color="#6C5CE7">
+        <View style={styles.progress_11} label="Carbs" current="210" target="260" unit="g" color="#FFD166">
+          <Text>Carbs: 210/260 g</Text>
+          <View style={styles.progressBar_12}>
+            <View style={styles.progressFill_13} />
+          </View>
+        </View>
+        <View style={styles.progress_14} label="Fat" current="58" target="70" unit="g" color="#6C5CE7">
           <Text>Fat: 58/70 g</Text>
-          <View style={styles.progressBar_11}>
-            <View style={styles.progressFill_12} />
+          <View style={styles.progressBar_15}>
+            <View style={styles.progressFill_16} />
           </View>
         </View>
       </View>
-      <TouchableOpacity style={styles.button_13} to="LogMeal">
+      <TouchableOpacity style={styles.button_17} to="LogMeal">
         <Text style={styles.buttonText}>Log Meal</Text>
       </TouchableOpacity>
       <View title="Recent Meals" separator="true">
@@ -81,29 +81,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF',
     margin: 16,
   },
-  progressBar_5: {
+  progress_5: {
+    height: 8,
+    borderRadius: 4,
+  },
+  progressBar_6: {
     height: 8,
     borderRadius: 4,
     backgroundColor: '#E0E0E0',
     overflow: 'hidden',
   },
-  progressFill_6: {
+  progressFill_7: {
     height: 8,
     borderRadius: 4,
     backgroundColor: '#FF6B6B',
     width: '84%',
   },
-  progressBar_7: {
+  progress_8: {
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#E0E0E0',
-    overflow: 'hidden',
-  },
-  progressFill_8: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#4ECDC4',
-    width: '69%',
   },
   progressBar_9: {
     height: 8,
@@ -114,22 +110,42 @@ const styles = StyleSheet.create({
   progressFill_10: {
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#FFD166',
-    width: '81%',
+    backgroundColor: '#4ECDC4',
+    width: '69%',
   },
-  progressBar_11: {
+  progress_11: {
+    height: 8,
+    borderRadius: 4,
+  },
+  progressBar_12: {
     height: 8,
     borderRadius: 4,
     backgroundColor: '#E0E0E0',
     overflow: 'hidden',
   },
-  progressFill_12: {
+  progressFill_13: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFD166',
+    width: '81%',
+  },
+  progress_14: {
+    height: 8,
+    borderRadius: 4,
+  },
+  progressBar_15: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E0E0E0',
+    overflow: 'hidden',
+  },
+  progressFill_16: {
     height: 8,
     borderRadius: 4,
     backgroundColor: '#6C5CE7',
     width: '83%',
   },
-  button_13: {
+  button_17: {
     width: '100%',
     borderRadius: 8,
     backgroundColor: '#007AFF',

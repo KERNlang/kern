@@ -13,6 +13,8 @@ interface ParsedLine {
   loc: IRSourceLocation;
 }
 
+const MULTILINE_BLOCK_TYPES = new Set(['logic', 'handler']);
+
 function parseLine(raw: string, lineNum: number): ParsedLine | null {
   if (raw.trim() === '') return null;
 
@@ -266,13 +268,14 @@ export function parse(source: string): IRNode {
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trimStart();
 
-    // Handle logic <<< ... >>> multi-line blocks
-    if (trimmed.startsWith('logic <<<')) {
+    const multilineType = [...MULTILINE_BLOCK_TYPES].find(type => trimmed.startsWith(`${type} <<<`));
+    if (multilineType) {
       const indent = lines[i].search(/\S/);
       const codeLines: string[] = [];
       const startLine = i + 1;
+      const blockOpen = `${multilineType} <<<`;
       // Check if inline close on same line
-      const afterOpen = trimmed.slice(9);
+      const afterOpen = trimmed.slice(blockOpen.length);
       if (afterOpen.includes('>>>')) {
         codeLines.push(afterOpen.split('>>>')[0]);
       } else {
@@ -290,7 +293,7 @@ export function parse(source: string): IRNode {
       }
       parsed.push({
         indent: indent / 2,
-        type: 'logic',
+        type: multilineType,
         props: { code: codeLines.join('\n').trim() },
         styles: {},
         pseudoStyles: {},
