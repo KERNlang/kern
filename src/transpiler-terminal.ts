@@ -373,8 +373,35 @@ function generateParallelCode(node: IRNode, indent: string): string[] {
       const engine = dp.engine as string || 'engine';
       const prompt = dp.prompt as string || 'prompt';
       const resultVar = dp.result as string || `${engine}Result`;
+
+      // Check for on start/done events
+      const onStartNode = (dn.children || []).find(c =>
+        c.type === 'on' && (getProps(c).name === 'start' || getProps(c).event === 'start')
+      );
+      const onDoneNode = (dn.children || []).find(c =>
+        c.type === 'on' && (getProps(c).name === 'done' || getProps(c).event === 'done')
+      );
+
       lines.push(`${indent}    (async () => {`);
+
+      if (onStartNode) {
+        const startHandler = getFirstChild(onStartNode, 'handler');
+        const startCode = startHandler ? String(getProps(startHandler).code || '') : '';
+        if (startCode) {
+          for (const l of startCode.split('\n')) lines.push(`${indent}      ${l.trim()}`);
+        }
+      }
+
       lines.push(`${indent}      const ${resultVar} = await dispatch(${JSON.stringify(engine)}, ${prompt}, { signal: _ac.signal });`);
+
+      if (onDoneNode) {
+        const doneHandler = getFirstChild(onDoneNode, 'handler');
+        const doneCode = doneHandler ? String(getProps(doneHandler).code || '') : '';
+        if (doneCode) {
+          for (const l of doneCode.split('\n')) lines.push(`${indent}      ${l.trim()}`);
+        }
+      }
+
       lines.push(`${indent}      return { engine: ${JSON.stringify(engine)}, result: ${resultVar} };`);
       lines.push(`${indent}    })(),`);
     }
@@ -382,21 +409,18 @@ function generateParallelCode(node: IRNode, indent: string): string[] {
   }
 
   lines.push('');
-  lines.push(`${indent}  let _results;`);
-  lines.push(`${indent}  try {`);
-  lines.push(`${indent}    _results = await Promise.race([`);
-  lines.push(`${indent}      Promise.allSettled(_tasks),`);
-  lines.push(`${indent}      new Promise((_, reject) => {`);
-  lines.push(`${indent}        _ac.signal.addEventListener('abort', () => reject(new Error('Parallel timeout')));`);
-  lines.push(`${indent}      }),`);
-  lines.push(`${indent}    ]);`);
-  lines.push(`${indent}  } catch {`);
-  lines.push(`${indent}    _results = await Promise.allSettled(_tasks);`);
-  lines.push(`${indent}  } finally {`);
-  lines.push(`${indent}    clearTimeout(_timeout);`);
-  lines.push(`${indent}  }`);
-  lines.push('');
-  lines.push(`${indent}  const results = _results`);
+  lines.push(`${indent}  // Race tasks against timeout — collect whatever finished`);
+  lines.push(`${indent}  const _timeoutPromise = new Promise((resolve) => {`);
+  lines.push(`${indent}    _ac.signal.addEventListener('abort', () => resolve('timeout'));`);
+  lines.push(`${indent}  });`);
+  lines.push(`${indent}  const _raceResult = await Promise.race([`);
+  lines.push(`${indent}    Promise.allSettled(_tasks).then(r => ({ settled: r })),`);
+  lines.push(`${indent}    _timeoutPromise.then(() => ({ settled: null })),`);
+  lines.push(`${indent}  ]);`);
+  lines.push(`${indent}  clearTimeout(_timeout);`);
+  lines.push(`${indent}  // On timeout, collect partial results (resolved so far)`);
+  lines.push(`${indent}  const _settled = (_raceResult as any).settled || [];`);
+  lines.push(`${indent}  const results = _settled`);
   lines.push(`${indent}    .filter((r) => r.status === 'fulfilled')`);
   lines.push(`${indent}    .map((r) => r.value);`);
 
