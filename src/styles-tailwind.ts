@@ -70,6 +70,12 @@ export function stylesToTailwind(styles: Record<string, string>, colors?: Record
       case 'borderColor': classes.push(colorToTw('border', v, colors)); break;
       case 'borderWidth': classes.push('border'); break;
       case 'overflow': classes.push(`overflow-${v}`); break;
+      case 'textAlign': classes.push(`text-${v}`); break;
+      case 'elevation': classes.push(`shadow-${v === '0' ? 'none' : v}`); break;
+      case 'opacity': classes.push(`opacity-${Math.round(Number(v) * 100) || v}`); break;
+      case 'position': classes.push(v); break;
+      case 'display': classes.push(v === 'none' ? 'hidden' : v); break;
+      case 'zIndex': classes.push(`z-${v}`); break;
       default:
         // Pass through as arbitrary Tailwind property
         const twVal = v.replace(/ /g, '_');
