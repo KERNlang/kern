@@ -1,0 +1,96 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Kern",
+  "scopeName": "source.kern",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#node-line" }
+  ],
+  "repository": {
+    "comment": {
+      "match": "//.*$",
+      "name": "comment.line.double-slash.kern"
+    },
+    "node-line": {
+      "patterns": [
+        { "include": "#theme-ref" },
+        { "include": "#style-block" },
+        { "include": "#pseudo-style" },
+        { "include": "#node-type" },
+        { "include": "#prop-quoted-value" },
+        { "include": "#prop-bare" },
+        { "include": "#string" }
+      ]
+    },
+    "node-type": {
+      "match": "(?<=^|\\s)(screen|page|layout|loading|error|section|card|row|col|scroll|text|image|progress|divider|button|input|modal|list|item|tabs|tab|header|link|slider|toggle|grid|conditional|component|icon|theme|metadata|nav)\\b",
+      "name": "keyword.control.kern"
+    },
+    "style-block": {
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": { "0": { "name": "punctuation.definition.style.begin.kern" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.style.end.kern" } },
+      "name": "meta.style-block.kern",
+      "patterns": [
+        { "include": "#pseudo-selector" },
+        { "include": "#style-key-shorthand" },
+        { "include": "#style-color" },
+        { "include": "#style-number" },
+        { "include": "#style-string" },
+        {
+          "match": ",",
+          "name": "punctuation.separator.kern"
+        },
+        {
+          "match": ":",
+          "name": "punctuation.separator.key-value.kern"
+        }
+      ]
+    },
+    "pseudo-selector": {
+      "match": ":(press|hover|active|focus)",
+      "name": "entity.other.pseudo-selector.kern"
+    },
+    "style-key-shorthand": {
+      "match": "\\b(p|pt|pb|pl|pr|m|mt|mb|ml|mr|bg|c|fs|fw|br|bw|bc|w|h|f|jc|ai|fd|ta|gap|shadow|border)\\b(?=:)",
+      "name": "support.type.property-name.kern"
+    },
+    "style-color": {
+      "match": "#[0-9A-Fa-f]{3,8}",
+      "name": "constant.other.color.kern"
+    },
+    "style-number": {
+      "match": "(?<=:)-?[0-9]+(\\.[0-9]+)?",
+      "name": "constant.numeric.kern"
+    },
+    "style-string": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.kern"
+    },
+    "prop-quoted-value": {
+      "match": "([a-zA-Z_][a-zA-Z0-9_-]*)=(\"[^\"]*\")",
+      "captures": {
+        "1": { "name": "entity.other.attribute-name.kern" },
+        "2": { "name": "string.quoted.double.kern" }
+      }
+    },
+    "prop-bare": {
+      "match": "([a-zA-Z_][a-zA-Z0-9_-]*)=([^\\s{$\"]+)",
+      "captures": {
+        "1": { "name": "entity.other.attribute-name.kern" },
+        "2": { "name": "variable.other.value.kern" }
+      }
+    },
+    "theme-ref": {
+      "match": "\\$([a-zA-Z_][a-zA-Z0-9_-]*)",
+      "name": "variable.other.theme-ref.kern"
+    },
+    "string": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.kern"
+    }
+  }
+}
