@@ -16,26 +16,36 @@ const ANSI_HELPERS = `
 // ── ANSI helpers ──────────────────────────────────────────────────────
 const ESC = '\\x1b[';
 const RESET = ESC + '0m';
+let _activeSpinner = null;
 
-function ansiColor(c: string | number): string {
+function hexTo256(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return 16 + 36 * Math.round(r / 255 * 5) + 6 * Math.round(g / 255 * 5) + Math.round(b / 255 * 5);
+}
+
+function ansiColor(c) {
   if (typeof c === 'number') return ESC + '38;5;' + c + 'm';
-  const named: Record<string, string> = {
+  if (typeof c === 'string' && c.startsWith('#')) return ESC + '38;5;' + hexTo256(c) + 'm';
+  const named = {
     red: '31', green: '32', yellow: '33', blue: '34',
     cyan: '36', magenta: '35', white: '37', dim: '2', bold: '1', italic: '3',
   };
   return ESC + (named[c] || '37') + 'm';
 }
 
-function ansiBg(c: string | number): string {
+function ansiBg(c) {
   if (typeof c === 'number') return ESC + '48;5;' + c + 'm';
-  const named: Record<string, string> = {
+  if (typeof c === 'string' && c.startsWith('#')) return ESC + '48;5;' + hexTo256(c) + 'm';
+  const named = {
     red: '41', green: '42', yellow: '43', blue: '44',
     cyan: '46', magenta: '45', white: '47',
   };
   return ESC + (named[c] || '47') + 'm';
 }
 
-function style(text: string, opts: { color?: string | number; bg?: string | number; bold?: boolean; dim?: boolean; italic?: boolean }): string {
+function style(text, opts) {
   let prefix = '';
   if (opts.bold) prefix += ESC + '1m';
   if (opts.dim) prefix += ESC + '2m';
@@ -45,14 +55,14 @@ function style(text: string, opts: { color?: string | number; bg?: string | numb
   return prefix + text + RESET;
 }
 
-function separator(width = 48): string {
-  return style('─'.repeat(width), { dim: true });
+function separator(width) {
+  return style('─'.repeat(width || 48), { dim: true });
 }
 
-function table(headers: string[], rows: string[][], colWidths?: number[]): string {
+function table(headers, rows, colWidths) {
   const widths = colWidths || headers.map((h, i) => Math.max(h.length, ...rows.map(r => (r[i] || '').length)) + 2);
-  const pad = (s: string, w: number) => s + ' '.repeat(Math.max(0, w - s.length));
-  const lines: string[] = [];
+  const pad = (s, w) => s + ' '.repeat(Math.max(0, w - s.length));
+  const lines = [];
   lines.push(headers.map((h, i) => style(pad(h, widths[i]), { bold: true })).join(''));
   lines.push(style('─'.repeat(widths.reduce((a, b) => a + b, 0)), { dim: true }));
   for (const row of rows) {
@@ -61,7 +71,9 @@ function table(headers: string[], rows: string[][], colWidths?: number[]): strin
   return lines.join('\\n');
 }
 
-function box(content: string, color: string | number = 'white', width = 50): string {
+function box(content, color, width) {
+  color = color || 'white';
+  width = width || 50;
   const lines = content.split('\\n');
   const inner = width - 4;
   const top = style('┌' + '─'.repeat(inner + 2) + '┐', { color });
@@ -73,39 +85,47 @@ function box(content: string, color: string | number = 'white', width = 50): str
   return [top, ...mid, bot].join('\\n');
 }
 
-function gradient(text: string, colors: number[]): string {
-  if (colors.length === 0) return text;
+function gradient(text, colors) {
+  if (!colors || colors.length === 0) return text;
   return text.split('').map((ch, i) => {
     const colorIdx = Math.floor((i / text.length) * colors.length);
     return ansiColor(colors[Math.min(colorIdx, colors.length - 1)]) + ch;
   }).join('') + RESET;
 }
 
-function spinner(message: string, color: string | number = 'white'): { start(): void; stop(finalMsg?: string): void } {
+function spinner(message, color) {
+  color = color || 'white';
   const frames = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
   let i = 0;
-  let interval: ReturnType<typeof setInterval>;
-  return {
+  let interval;
+  const s = {
     start() {
+      _activeSpinner = s;
       interval = setInterval(() => {
         process.stdout.write('\\r' + ansiColor(color) + frames[i % frames.length] + RESET + ' ' + message);
         i++;
       }, 80);
     },
-    stop(finalMsg?: string) {
+    stop(finalMsg) {
       clearInterval(interval);
+      _activeSpinner = null;
       process.stdout.write('\\r' + ' '.repeat(message.length + 4) + '\\r');
       if (finalMsg) console.log(finalMsg);
     },
   };
+  return s;
 }
 
-function progressBar(value: number, max: number, width = 20, color: string | number = 'green'): string {
+function progressBar(value, max, width, color) {
+  width = width || 20;
+  color = color || 'green';
   const pct = Math.min(1, Math.max(0, value / max));
   const filled = Math.round(pct * width);
   const empty = width - filled;
   return ansiColor(color) + '▓'.repeat(filled) + RESET + '░'.repeat(empty) + \` \${Math.round(pct * 100)}%\`;
 }
+
+process.on('SIGINT', () => { if (_activeSpinner) _activeSpinner.stop(); process.exit(0); });
 `.trim();
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -225,14 +245,21 @@ function renderTerminalNode(node: IRNode, indent: string): string[] {
     case 'box': {
       const color = p.color as string || 'white';
       const width = Number(p.width) || 50;
-      // Box content from children
-      const childLines: string[] = [];
+      // Box content from all children (recursive)
+      const boxContent: string[] = [];
       for (const child of node.children || []) {
+        const cp = getProps(child);
         if (child.type === 'text') {
-          childLines.push(getProps(child).value as string || '');
+          boxContent.push(cp.value as string || '');
+        } else if (child.type === 'separator') {
+          boxContent.push('─'.repeat(Math.min(Number(cp.width) || 40, width - 4)));
+        } else if (child.type === 'progress') {
+          boxContent.push(`[progress: ${cp.value || 0}/${cp.max || 100}]`);
+        } else {
+          boxContent.push(`[${child.type}]`);
         }
       }
-      lines.push(`${indent}console.log(box(${JSON.stringify(childLines.join('\\n'))}, ${JSON.stringify(color)}, ${width}));`);
+      lines.push(`${indent}console.log(box(${JSON.stringify(boxContent.join('\\n'))}, ${JSON.stringify(color)}, ${width}));`);
       break;
     }
 
@@ -295,17 +322,21 @@ export function transpileTerminal(root: IRNode, _config?: ResolvedKernConfig): T
   // REPL node detection — generate readline setup
   const replNode = (root.children || []).find(c => c.type === 'repl');
 
+  // Render static nodes (text, separator, box, etc.) before REPL
+  const staticChildren = (root.children || []).filter(c => c.type !== 'state' && c.type !== 'repl');
+  if (staticChildren.length > 0) {
+    lines.push('// ── Static output ──────────────────────────────────────');
+    for (const child of staticChildren) {
+      lines.push(...renderTerminalNode(child, ''));
+    }
+    lines.push('');
+  }
+
   if (replNode) {
     lines.push(...generateReplCode(replNode));
-  } else {
-    // Non-REPL mode: render nodes sequentially
-    lines.push('// ── Main ───────────────────────────────────────────────');
-    lines.push('(async () => {');
-    for (const child of root.children || []) {
-      if (child.type === 'state') continue;
-      lines.push(...renderTerminalNode(child, '  '));
-    }
-    lines.push('})();');
+  } else if (staticChildren.length > 0) {
+    // Wrap in async IIFE only if there are async operations
+    // (static output is synchronous, no wrapper needed)
   }
 
   sourceMap.push({
