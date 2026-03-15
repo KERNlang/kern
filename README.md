@@ -32,27 +32,38 @@ That's 10 lines. Kern turns it into a complete React component with Tailwind cla
 ## Install
 
 ```bash
-# As a project dependency
 npm install kern-lang
+```
 
-# Or globally for the CLI
+Global install for CLI usage:
+
+```bash
 npm install -g kern-lang
 ```
 
 ## Quick Start
 
 ```bash
-# Transpile to Next.js (use npx if not installed globally)
-npx kern examples/dashboard.kern --target=nextjs
+# Transpile to Next.js
+kern dashboard.kern --target=nextjs
 
 # Transpile to Express API
-npx kern examples/api-routes.kern --target=express
+kern api.kern --target=express
 
 # Transpile to CLI app
-npx kern examples/agon.kern --target=cli
+kern mycli.kern --target=cli
+
+# Transpile to terminal UI
+kern ui.kern --target=terminal
 
 # Show language metrics
-npx kern examples/dashboard.kern --metrics
+kern dashboard.kern --metrics
+```
+
+Or without global install:
+
+```bash
+npx kern dashboard.kern --target=nextjs
 ```
 
 ## Express Backend Example
