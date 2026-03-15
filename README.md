@@ -212,6 +212,17 @@ See [LICENSE](LICENSE) for the full text.
 
 ---
 
-**Swiss-engineered. AI-designed. Human-directed.**
+## Contributors
 
-*Created by [cukas](https://github.com/cukas) with Claude, Codex, and Gemini.*
+| Role | Who |
+|---|---|
+| **Creator & Director** | [cukas](https://github.com/cukas) |
+| **Co-Architect** | Claude (Anthropic) — Opus 4.6 |
+| **Co-Architect** | Codex (OpenAI) — GPT-5.4 |
+| **Co-Architect** | Gemini (Google) |
+
+Every feature was brainstormed by all 3 AIs, forged competitively, and cross-reviewed. 9 review passes, 9 bugs caught. The Express target was won by Codex in a 3-way forge. Engines speak Kern.
+
+---
+
+**Swiss-engineered. AI-designed. Human-directed.**

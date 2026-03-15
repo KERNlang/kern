@@ -38,6 +38,12 @@
     "tailwind",
     "express"
   ],
+  "author": "cukas",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cukas/KERNlang.git"
+  },
+  "homepage": "https://github.com/cukas/KERNlang#readme",
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "build": "tsc",

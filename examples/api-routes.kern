@@ -1,4 +1,4 @@
-server name=AudioFacetsAPI port=3001
+server name=MusicAPI port=3001
   middleware name=cors
   middleware name=json
   middleware name=auth handler=verifyToken

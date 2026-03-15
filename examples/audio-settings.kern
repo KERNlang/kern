@@ -1,4 +1,4 @@
-section name=AudioSettings key=settings.audio title="Audio & Analysis" description="Configure analysis sensitivity and audio processing defaults."
+section name=AppSettings key=settings.audio title="Audio & Analysis" description="Configure analysis sensitivity and audio processing defaults."
   section key=settings.masteringDefaults title="Mastering Defaults"
     text key=settings.masteringDefaults.description value="Set your preferred starting point for the mastering chain." tag=p {fs:12,c:#71717a,mb:12}
     component ref=MasteringDefaultsSection

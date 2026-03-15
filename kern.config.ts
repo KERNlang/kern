@@ -5,7 +5,7 @@
  * This file is auto-loaded by the CLI from the project root.
  */
 
-import type { KernConfig } from './src/config.js';
+import type { KernConfig } from 'kern-lang';
 
 const config: KernConfig = {
   // Target framework (default: nextjs)

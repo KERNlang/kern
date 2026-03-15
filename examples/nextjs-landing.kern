@@ -1,9 +1,9 @@
 page name=LandingPage client=true {bg:#09090b}
-  metadata title="AudioFacets — AI Mix Analysis" description="Analyze your mix with AI-powered stem separation and frequency analysis." keywords="audio,mixing,mastering,AI"
+  metadata title="SoundKit — Audio Toolkit" description="Analyze your mix with AI-powered stem separation and frequency analysis." keywords="audio,mixing,mastering,AI"
 
   row {jc:sb,ai:center,p:16,border:#27272a}
     link to=/
-      text value=AudioFacets tag=h1 {fs:24,fw:bold,c:#fff}
+      text value=SoundKit tag=h1 {fs:24,fw:bold,c:#fff}
     row {gap:16,ai:center}
       link to=/features
         text value=Features {fs:14,c:#a1a1aa}
@@ -30,4 +30,4 @@ page name=LandingPage client=true {bg:#09090b}
       text value="Auto-generated mastering presets based on your genre and reference tracks." tag=p {fs:14,c:#a1a1aa}
 
   row {jc:center,p:32,border:#27272a}
-    text value="© 2026 AudioFacets. Built with Kern." {fs:12,c:#71717a}
+    text value="© 2026 SoundKit. Built with Kern." {fs:12,c:#71717a}

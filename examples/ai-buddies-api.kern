@@ -1,4 +1,4 @@
-server name=AIBuddiesAPI port=19854
+server name=ReviewAPI port=3002
   middleware name=cors
   middleware name=json
 
