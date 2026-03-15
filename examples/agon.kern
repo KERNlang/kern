@@ -1,0 +1,44 @@
+cli name=agon version=2.0.0 description="Any AI can join. They compete. You ship."
+  flag name=verbose alias=v type=boolean description="Verbose output"
+  flag name=json type=boolean description="JSON output format"
+
+  import from="../src/forge.js" names=runForge
+  import from="../src/brainstorm.js" names=collectDrafts,rankDrafts,display
+
+  command name=forge description="Run competitive forge"
+    arg name=task type=string required=true description="Task to implement"
+    flag name=test alias=t type=string description="Fitness test command"
+    flag name=timeout type=number default=600 description="Engine timeout in seconds"
+    flag name=engines type=string default="claude,codex,gemini" description="Engines CSV"
+    flag name=starter type=string description="Which engine runs first"
+    import from="../src/forge.js" names=runForge
+    handler <<<
+      const engineList = opts.engines.split(',');
+      await runForge(task, engineList, opts);
+    >>>
+
+  command name=brainstorm description="Multi-AI confidence bid"
+    arg name=question type=string required=true description="Question to brainstorm"
+    flag name=format type=string default="kern" description="Draft format"
+    import from="../src/brainstorm.js" names=collectDrafts,rankDrafts,display
+    handler <<<
+      const drafts = await collectDrafts(question, opts);
+      const ranked = await rankDrafts(drafts);
+      display(ranked);
+    >>>
+
+  command name=tribunal description="Multi-AI debate and ruling"
+    arg name=topic type=string required=true description="Topic to debate"
+    flag name=rounds type=number default=3 description="Debate rounds"
+    flag name=judge type=string default="caesar" description="Judge engine"
+    import from="../src/tribunal.js" names=runTribunal
+    handler <<<
+      await runTribunal(topic, opts);
+    >>>
+
+  command name=leaderboard description="Show ELO ratings"
+    flag name=task-class type=string description="Filter by task class"
+    import from="../src/elo.js" names=showLeaderboard
+    handler <<<
+      await showLeaderboard(opts);
+    >>>

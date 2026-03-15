@@ -45,7 +45,7 @@ export interface GeneratedArtifact {
   /** Generated code */
   content: string;
   /** Artifact type */
-  type: 'page' | 'layout' | 'route' | 'middleware' | 'component' | 'config';
+  type: 'page' | 'layout' | 'route' | 'middleware' | 'component' | 'config' | 'entry' | 'command';
 }
 
 /** Result of transpilation */
