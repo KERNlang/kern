@@ -50,8 +50,10 @@ function stylesToTailwind(styles: Record<string, string>): string {
       case 'borderWidth': classes.push('border'); break;
       case 'overflow': classes.push(`overflow-${v}`); break;
       default:
-        // Pass through as arbitrary Tailwind
-        classes.push(`[${cssKebab(expanded)}:${addPx(v)}]`);
+        // Pass through as arbitrary Tailwind property
+        // Tailwind JIT requires spaces → underscores in arbitrary values
+        const twVal = v.replace(/ /g, '_');
+        classes.push(`[${cssKebab(expanded)}:${twVal}]`);
     }
   }
 

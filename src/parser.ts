@@ -33,9 +33,14 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
     rest = rest.replace(/^ +/, '');
     if (rest.length === 0) break;
 
-    // Style block
+    // Style block — find matching } respecting quotes
     if (rest[0] === '{') {
-      const close = rest.indexOf('}');
+      let close = -1;
+      let inQuote = false;
+      for (let j = 1; j < rest.length; j++) {
+        if (rest[j] === '"') inQuote = !inQuote;
+        if (!inQuote && rest[j] === '}') { close = j; break; }
+      }
       if (close === -1) break;
       const block = rest.slice(1, close);
       parseStyleBlock(block, styles, pseudoStyles);
@@ -86,27 +91,72 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
   };
 }
 
+function splitStylePairs(block: string): string[] {
+  const pairs: string[] = [];
+  let current = '';
+  let inQuote = false;
+  let parenDepth = 0;
+
+  for (let i = 0; i < block.length; i++) {
+    const ch = block[i];
+    if (ch === '"') {
+      inQuote = !inQuote;
+      current += ch;
+    } else if (!inQuote && ch === '(') {
+      parenDepth++;
+      current += ch;
+    } else if (!inQuote && ch === ')') {
+      parenDepth--;
+      current += ch;
+    } else if (!inQuote && parenDepth === 0 && ch === ',') {
+      if (current.trim()) pairs.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) pairs.push(current.trim());
+  return pairs;
+}
+
 function parseStyleBlock(
   block: string,
   styles: Record<string, string>,
   pseudoStyles: Record<string, Record<string, string>>,
 ): void {
-  // Split on commas, but respect nested values
-  const pairs = block.split(',').map(s => s.trim()).filter(Boolean);
+  const pairs = splitStylePairs(block);
   for (const pair of pairs) {
     // Pseudo-selector: :press:bg:#005BB5
-    const pseudoMatch = pair.match(/^:([a-z]+):([A-Za-z_][A-Za-z0-9_-]*):(.+)$/);
+    const pseudoMatch = pair.match(/^:([a-z]+):([A-Za-z0-9_-]+):(.+)$/);
     if (pseudoMatch) {
       const [, pseudo, key, value] = pseudoMatch;
       if (!pseudoStyles[pseudo]) pseudoStyles[pseudo] = {};
       pseudoStyles[pseudo][key] = value.trim();
       continue;
     }
-    // Normal: key:value
+
+    // Quoted key: "backdrop-filter":"blur(8px)"
+    const quotedKeyMatch = pair.match(/^"([^"]+)"\s*:\s*(.*)/);
+    if (quotedKeyMatch) {
+      const key = quotedKeyMatch[1];
+      let value = quotedKeyMatch[2].trim();
+      // Strip surrounding quotes from value if present
+      if (value.startsWith('"') && value.endsWith('"')) {
+        value = value.slice(1, -1);
+      }
+      styles[key] = value;
+      continue;
+    }
+
+    // Normal: key:value (value may be quoted)
     const colonIdx = pair.indexOf(':');
     if (colonIdx > 0) {
       const key = pair.slice(0, colonIdx).trim();
-      const value = pair.slice(colonIdx + 1).trim();
+      let value = pair.slice(colonIdx + 1).trim();
+      // Strip surrounding quotes from value if present
+      if (value.startsWith('"') && value.endsWith('"')) {
+        value = value.slice(1, -1);
+      }
       styles[key] = value;
     }
   }
