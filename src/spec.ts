@@ -7,7 +7,7 @@
  * Foundation: indent-based, semantic names, key=value props
  * Styles: shorthand blocks in {} with CSS escape hatch
  * Meta: theme nodes ($ref), pseudo-selectors (:press, :hover)
- * Targets: Next.js, React+Tailwind, React Native
+ * Targets: Next.js, React+Tailwind, React Native, Express
  */
 
 export const KERN_VERSION = '2.0.0';
@@ -48,6 +48,8 @@ export const NODE_TYPES = [
   'tabs', 'tab', 'header',
   // Meta
   'theme',
+  // Backend
+  'server', 'route', 'middleware', 'handler', 'schema',
 ] as const;
 
 export type IRNodeType = (typeof NODE_TYPES)[number];

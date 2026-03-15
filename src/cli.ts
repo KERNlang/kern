@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { resolve, basename, dirname } from 'path';
 import { createJiti } from 'jiti';
 import { parse } from './parser.js';
@@ -7,6 +7,7 @@ import { transpile } from './transpiler.js';
 import { transpileWeb } from './transpiler-web.js';
 import { transpileTailwind } from './transpiler-tailwind.js';
 import { transpileNextjs } from './transpiler-nextjs.js';
+import { transpileExpress } from './transpiler-express.js';
 import { decompile } from './decompiler.js';
 import { resolveConfig, VALID_TARGETS, type ResolvedKernConfig, type KernTarget } from './config.js';
 import { collectLanguageMetrics } from './metrics.js';
@@ -16,13 +17,14 @@ const args = process.argv.slice(2);
 const inputFile = args.find(a => !a.startsWith('--'));
 
 if (!inputFile) {
-  console.log('Usage: kern <file.kern> [--target=nextjs|tailwind|web|native] [options]');
+  console.log('Usage: kern <file.kern> [--target=nextjs|tailwind|web|native|express] [options]');
   console.log('');
   console.log('Targets:');
   console.log('  nextjs    Next.js App Router (default)');
   console.log('  tailwind  React + Tailwind CSS');
   console.log('  web       React with inline styles');
   console.log('  native    React Native component');
+  console.log('  express   Express TypeScript backend');
   console.log('');
   console.log('Options:');
   console.log('  --decompile  Output human-readable pseudocode');
@@ -118,18 +120,39 @@ if (args.includes('--metrics')) {
 }
 
 // ── Transpile: Kern → target code ───────────────────────────────────────
-const result = target === 'native' ? transpile(ast, config) : target === 'web' ? transpileWeb(ast, config) : target === 'tailwind' ? transpileTailwind(ast, config) : transpileNextjs(ast, config);
+const result = target === 'native'
+  ? transpile(ast, config)
+  : target === 'web'
+    ? transpileWeb(ast, config)
+    : target === 'tailwind'
+      ? transpileTailwind(ast, config)
+      : target === 'express'
+        ? transpileExpress(ast, config)
+        : transpileNextjs(ast, config);
 
-const outFile = resolve(dirname(inputFile), `${name}.tsx`);
+const outDir = resolve(dirname(inputFile), config.output.outDir);
+const outExt = target === 'express' ? '.ts' : '.tsx';
+const outFile = resolve(outDir, `${name}${outExt}`);
+mkdirSync(dirname(outFile), { recursive: true });
 writeFileSync(outFile, result.code);
+if (result.artifacts) {
+  for (const artifact of result.artifacts) {
+    const artifactPath = resolve(outDir, artifact.path);
+    mkdirSync(dirname(artifactPath), { recursive: true });
+    writeFileSync(artifactPath, artifact.content);
+  }
+}
 
 console.log(`Transpiled: ${inputFile} → ${outFile}`);
-const targetNames: Record<string, string> = { native: 'React Native', web: 'React (inline)', tailwind: 'React + Tailwind', nextjs: 'Next.js App Router' };
+const targetNames: Record<string, string> = { native: 'React Native', web: 'React (inline)', tailwind: 'React + Tailwind', nextjs: 'Next.js App Router', express: 'Express TypeScript' };
 console.log(`Target:     ${targetNames[target] || target}`);
 console.log(`IR tokens:  ${result.irTokenCount}`);
 console.log(`TS tokens:  ${result.tsTokenCount}`);
 console.log(`Reduction:  ${result.tokenReduction}%`);
 console.log(`Source map: ${result.sourceMap.length} entries`);
+if (result.artifacts) {
+  console.log(`Artifacts:  ${result.artifacts.length}`);
+}
 
 // ── Minify/Pretty implementations ───────────────────────────────────────
 

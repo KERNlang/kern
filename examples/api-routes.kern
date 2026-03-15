@@ -1,0 +1,32 @@
+server name=AudioFacetsAPI port=3001
+  middleware name=cors
+  middleware name=json
+  middleware name=auth handler=verifyToken
+
+  route method=get path=/api/tracks
+    handler <<<
+      const tracks = await db.tracks.findAll({ userId: req.user.id });
+      res.json(tracks);
+    >>>
+
+  route method=post path=/api/tracks/analyze
+    schema body="{trackId: string, options?: {stems: boolean}}"
+    handler <<<
+      const { trackId, options } = req.body;
+      const result = await analyzeTrack(trackId, options);
+      res.json(result);
+    >>>
+
+  route method=get path=/api/tracks/:id
+    handler <<<
+      const track = await db.tracks.findById(req.params.id);
+      if (!track) return res.status(404).json({ error: 'Not found' });
+      res.json(track);
+    >>>
+
+  route method=delete path=/api/tracks/:id
+    middleware name=requireOwner
+    handler <<<
+      await db.tracks.delete(req.params.id);
+      res.status(204).send();
+    >>>

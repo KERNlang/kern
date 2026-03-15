@@ -367,7 +367,13 @@ describe('Kern IR Fitness Tests', () => {
 
     test('resolveConfig throws on unknown target', async () => {
       const { resolveConfig } = await import(resolve(ROOT, 'src/config.ts'));
-      expect(() => resolveConfig({ target: 'express' as any })).toThrow('Unknown target');
+      expect(() => resolveConfig({ target: 'invalid-target' as any })).toThrow('Unknown target');
+    });
+
+    test('resolveConfig accepts express as a valid target', async () => {
+      const { resolveConfig } = await import(resolve(ROOT, 'src/config.ts'));
+      const config = resolveConfig({ target: 'express' });
+      expect(config.target).toBe('express');
     });
 
     test('custom colors produce custom Tailwind classes', async () => {
@@ -408,6 +414,69 @@ describe('Kern IR Fitness Tests', () => {
       expect(types).toContain('export interface GeneratedArtifact');
       expect(types).toContain("'page' | 'layout' | 'route' | 'middleware' | 'component' | 'config'");
       expect(types).toContain('artifacts?: GeneratedArtifact[]');
+    });
+  });
+
+  describe('Express Transpiler', () => {
+    test('parser supports server, schema, and handler backend nodes', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const source = [
+        'server name=TestAPI port=3001',
+        '  route method=post path=/tracks',
+        '    schema body="{trackId: string}" response="{ok: boolean}"',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+
+      const ast = parse(source);
+      const route = ast.children?.find((child: any) => child.type === 'route');
+      const schema = route?.children?.find((child: any) => child.type === 'schema');
+      const handler = route?.children?.find((child: any) => child.type === 'handler');
+
+      expect(ast.type).toBe('server');
+      expect(route?.props?.method).toBe('post');
+      expect(schema?.props?.body).toBe('{trackId: string}');
+      expect(schema?.props?.response).toBe('{ok: boolean}');
+      expect(handler?.props?.code).toContain('res.json');
+    });
+
+    test('express transpiler generates multi-file route and middleware artifacts', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileExpress } = await import(resolve(ROOT, 'src/transpiler-express.ts'));
+      const source = readFileSync(resolve(ROOT, 'examples/api-routes.kern'), 'utf-8');
+
+      const result = transpileExpress(parse(source));
+
+      expect(result.code).toContain(`import { verifyToken } from './middleware/auth.js';`);
+      expect(result.code).toContain(`import { registerGetApiTracksRoute } from './routes/get-api-tracks.js';`);
+      expect(result.code).toContain('app.use(cors());');
+      expect(result.code).toContain('app.use(express.json());');
+      expect(result.artifacts).toBeDefined();
+      expect(result.artifacts?.some((artifact: any) => artifact.path === 'routes/post-api-tracks-analyze.ts')).toBe(true);
+      expect(result.artifacts?.some((artifact: any) => artifact.path === 'middleware/auth.ts')).toBe(true);
+    });
+
+    test('express transpiler emits schema guards and ignores frontend nodes', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileExpress } = await import(resolve(ROOT, 'src/transpiler-express.ts'));
+      const source = [
+        'server name=TestAPI',
+        '  button text=IgnoreMe',
+        '  route method=post path=/tracks/:id',
+        '    schema body="{trackId: string}"',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+
+      const result = transpileExpress(parse(source));
+      const routeArtifact = result.artifacts?.find((artifact: any) => artifact.path === 'routes/post-tracks-id.ts');
+
+      expect(routeArtifact?.content).toContain(`assertRequiredFields('params', req.params, ['id']);`);
+      expect(routeArtifact?.content).toContain(`assertRequiredFields('body', req.body, ['trackId']);`);
+      expect(routeArtifact?.content).not.toContain('IgnoreMe');
+      expect(result.code).not.toContain('IgnoreMe');
     });
   });
 });
