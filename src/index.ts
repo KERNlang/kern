@@ -39,6 +39,10 @@ export type { LanguageMetrics, StyleMetrics, NodeTypeMetrics } from './metrics.j
 export { scanKernProject, projectToKern } from './context-export.js';
 export type { ProjectSummary } from './context-export.js';
 
+// Draft protocol (for Agon forge/brainstorm/tribunal)
+export { buildKernDraftPrompt, parseKernDraft, buildKernRankPrompt } from './draft-protocol.js';
+export type { KernDraft } from './draft-protocol.js';
+
 // Spec
 export { KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
 
