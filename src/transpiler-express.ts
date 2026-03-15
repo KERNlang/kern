@@ -43,7 +43,8 @@ interface RouteCapabilities {
 
 function analyzeRouteCapabilities(routeNode: IRNode): RouteCapabilities {
   const streamNode = getFirstChild(routeNode, 'stream');
-  const spawnNode = streamNode ? getFirstChild(streamNode, 'spawn') : getFirstChild(routeNode, 'spawn');
+  // spawn must be inside stream (for SSE output), not standalone on route
+  const spawnNode = streamNode ? getFirstChild(streamNode, 'spawn') : undefined;
   const timerNode = getFirstChild(routeNode, 'timer');
 
   const hasStream = !!streamNode;
@@ -140,16 +141,19 @@ function generateSpawnCode(spawnNode: IRNode, indent: string): string[] {
   lines.push(`${indent}let errorText = '';`);
 
   // Timeout with SIGTERM → SIGKILL escalation
+  lines.push(`${indent}let childExited = false;`);
+  lines.push(`${indent}child.on('exit', () => { childExited = true; });`);
+
   if (timeoutSec > 0) {
     lines.push(`${indent}const spawnTimer = setTimeout(() => {`);
     lines.push(`${indent}  child.kill('SIGTERM');`);
-    lines.push(`${indent}  setTimeout(() => { if (!child.killed) child.kill('SIGKILL'); }, 3000);`);
+    lines.push(`${indent}  setTimeout(() => { if (!childExited) child.kill('SIGKILL'); }, 3000);`);
     lines.push(`${indent}}, ${timeoutSec * 1000});`);
   }
 
   // Abort on request close
   lines.push(`${indent}ac.signal.addEventListener('abort', () => {`);
-  lines.push(`${indent}  if (!child.killed) child.kill('SIGTERM');`);
+  lines.push(`${indent}  if (!childExited) child.kill('SIGTERM');`);
   lines.push(`${indent}});`);
 
   // Event handlers from child nodes
@@ -441,14 +445,18 @@ function buildRouteArtifact(
   const schema = buildSchema(getFirstChild(routeNode, 'schema'));
   const caps = analyzeRouteCapabilities(routeNode);
 
-  // Get handler code — from stream's handler if streaming, else route's handler
+  // Get handler code — priority: stream handler > timer handler > route handler > 501
   const handlerNode = caps.hasStream
     ? getFirstChild(caps.streamNode!, 'handler')
-    : getFirstChild(routeNode, 'handler');
+    : caps.hasTimer
+      ? null // timer owns its own handler, don't look at route level
+      : getFirstChild(routeNode, 'handler');
+  const routeHandlerNode = getFirstChild(routeNode, 'handler');
   const handlerProps = handlerNode ? getProps(handlerNode) : {};
+  const routeHandlerCode = routeHandlerNode ? String(getProps(routeHandlerNode).code || '') : '';
   const handlerCode = typeof handlerProps.code === 'string'
     ? String(handlerProps.code)
-    : caps.hasStream ? '' : `res.status(501).json({ error: 'Route handler not implemented' });`;
+    : caps.hasStream || caps.hasTimer ? '' : `res.status(501).json({ error: 'Route handler not implemented' });`;
 
   const routeMiddleware = getChildren(routeNode, 'middleware');
   const routeImports = new Set<string>();
@@ -553,7 +561,7 @@ function buildRouteArtifact(
     lines.push(...generateStreamWrap(streamHandlerLines, '    '));
   } else if (caps.hasTimer && caps.timerNode) {
     // Timer route — wrap handler in timeout
-    lines.push(...generateTimerCode(caps.timerNode, handlerCode, '    '));
+    lines.push(...generateTimerCode(caps.timerNode, routeHandlerCode, '    '));
   } else {
     // Standard route — try/catch → next(error)
     lines.push('    try {');
