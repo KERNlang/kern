@@ -1,0 +1,21 @@
+screen id=fitvtDashboard title="FITVT Dashboard" {p=16 bg=#F4F6F8}
+  header title=FITVT {jc=space-between ai=center m=0,0,20,0}
+    text value=FITVT role=title {fs=28 fw=800}
+    avatar src=avatar://user alt="User avatar" {w=40 h=40 br=20}
+  card id=macroSummary title="Today's Macros" {p=16 bg=#FFFFFF br=20 m=0,0,16,0}
+    progress label=Calories current=1840 target=2400 unit=kcal fill:=current/target color=#FF7A59 {m=0,0,12,0}
+    progress label=Protein current=132 target=160 unit=g fill:=current/target color=#4F46E5 {m=0,0,12,0}
+    progress label=Carbs current=188 target=250 unit=g fill:=current/target color=#14B8A6 {m=0,0,12,0}
+    progress label=Fat current=58 target=70 unit=g fill:=current/target color=#F59E0B
+  button label="Log Meal" action="navigate:LogMeal" {w=100% p=14 bg=#111827 br=14 m=0,0,16,0}
+  list id=recentMeals title="Recent Meals" count=5 {p=8 bg=#FFFFFF br=20 m=0,0,16,0}
+    meal id=meal1 name="Greek Yogurt Bowl" time=07:45 calories=420 {p=12}
+    meal id=meal2 name="Chicken Burrito Bowl" time=12:10 calories=610 {p=12}
+    meal id=meal3 name="Protein Shake" time=15:35 calories=280 {p=12}
+    meal id=meal4 name="Salmon Rice Plate" time=19:05 calories=690 {p=12}
+    meal id=meal5 name="Cottage Cheese Snack" time=21:00 calories=210 {p=12}
+  tabbar active=dashboard {p=10 bg=#FFFFFF br=18 jc=space-around ai=center}
+    tab key=dashboard label=Dashboard icon=home active=true
+    tab key=log label=Log icon=plus active=false
+    tab key=stats label=Stats icon=chart active=false
+    tab key=settings label=Settings icon=settings active=false

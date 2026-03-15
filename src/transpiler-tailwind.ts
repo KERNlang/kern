@@ -61,6 +61,17 @@ function stylesToTailwind(styles: Record<string, string>): string {
 function pxToTw(prefix: string, v: string): string {
   const n = Number(v);
   if (isNaN(n)) return `${prefix}-[${v}]`;
+
+  // Special handling for border-radius → Tailwind rounded classes
+  if (prefix === 'rounded') {
+    const roundedMap: Record<number, string> = {
+      0: 'rounded-none', 2: 'rounded-sm', 4: 'rounded', 6: 'rounded-md',
+      8: 'rounded-lg', 12: 'rounded-xl', 16: 'rounded-2xl', 20: 'rounded-[20px]',
+      9999: 'rounded-full',
+    };
+    return roundedMap[n] || `rounded-[${n}px]`;
+  }
+
   // Tailwind spacing scale: 1=4px, 2=8px, 3=12px, 4=16px, 5=20px, 6=24px, 8=32px
   const twMap: Record<number, string> = {
     0: '0', 1: 'px', 2: '0.5', 4: '1', 6: '1.5', 8: '2', 10: '2.5',
@@ -245,25 +256,44 @@ function renderScreen(node: IRNode, ctx: CodeBuilder, indent: string): void {
 function renderSection(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
   const title = p.title as string || '';
+  const key = p.key as string || camelKey(title);
   const icon = p.icon as string;
+  const tooltip = p.tooltip as string;
+  const description = p.description as string;
+
+  // Check if this is the root section (has description) → use SettingsSection component
+  if (description) {
+    ctx.componentImports.add('SettingsSection');
+    ctx.lines.push(`${indent}<SettingsSection`);
+    ctx.lines.push(`${indent}  title={t('${key}.title', '${escapeJsx(title)}')}`);
+    ctx.lines.push(`${indent}  description={t('${key}.description', '${escapeJsx(description)}')}`);
+    ctx.lines.push(`${indent}>`);
+    ctx.lines.push(`${indent}  <div className="space-y-8">`);
+    renderChildren(node, ctx, indent + '  ');
+    ctx.lines.push(`${indent}  </div>`);
+    ctx.lines.push(`${indent}</SettingsSection>`);
+    return;
+  }
 
   ctx.lines.push(`${indent}<div>`);
   if (icon) {
     ctx.lines.push(`${indent}  <div className="flex items-center gap-2 mb-4">`);
     ctx.lines.push(`${indent}    <h3 className="text-sm font-medium text-white">`);
-    ctx.lines.push(`${indent}      {t('${camelKey(title)}.title', '${title}')}`);
+    ctx.lines.push(`${indent}      {t('${key}.title', '${escapeJsx(title)}')}`);
     ctx.lines.push(`${indent}    </h3>`);
     ctx.componentImports.add('Icon');
     ctx.lines.push(`${indent}    <div className="relative group">`);
     ctx.lines.push(`${indent}      <Icon name="${icon}" size="sm" className="text-zinc-500 hover:text-orange-500 cursor-help transition-colors" />`);
     ctx.lines.push(`${indent}      <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-50 w-72 p-3 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl text-xs text-zinc-300">`);
-    ctx.lines.push(`${indent}        {/* tooltip content */}`);
+    if (tooltip) {
+      ctx.lines.push(`${indent}        {t('${key}.tooltip', ${JSON.stringify(tooltip)})}`);
+    }
     ctx.lines.push(`${indent}      </div>`);
     ctx.lines.push(`${indent}    </div>`);
     ctx.lines.push(`${indent}  </div>`);
   } else {
     ctx.lines.push(`${indent}  <h3 className="text-sm font-medium text-white mb-4">`);
-    ctx.lines.push(`${indent}    {t('${camelKey(title)}.title', '${title}')}`);
+    ctx.lines.push(`${indent}    {t('${key}.title', '${escapeJsx(title)}')}`);
     ctx.lines.push(`${indent}  </h3>`);
   }
 
@@ -276,7 +306,10 @@ function renderCard(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const border = styles.border;
   delete styles.border;
   let extra = '';
-  if (border) extra = `border border-[${border}]`;
+  if (border) {
+    const borderClass = colorToTw('border', border);
+    extra = `border ${borderClass}`;
+  }
   ctx.lines.push(`${indent}<div${twClasses(node, extra)}>`);
   renderChildren(node, ctx, indent);
   ctx.lines.push(`${indent}</div>`);
@@ -299,17 +332,21 @@ function renderText(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const value = p.value as string;
   const bind = p.bind as string;
   const format = p.format as string;
+  const key = p.key as string;
+  const tag = p.tag as string || 'span';
+  const el = tag === 'p' ? 'p' : tag === 'label' ? 'label' : 'span';
 
   const tw = twClasses(node);
 
   if (bind) {
     if (format) {
-      ctx.lines.push(`${indent}<span${tw}>{${bindExpr(bind, format)}}</span>`);
+      ctx.lines.push(`${indent}<${el}${tw}>{${bindExpr(bind, format)}}</${el}>`);
     } else {
-      ctx.lines.push(`${indent}<span${tw}>{${bindVar(bind)}}</span>`);
+      ctx.lines.push(`${indent}<${el}${tw}>{${bindVar(bind)}}</${el}>`);
     }
   } else if (value) {
-    ctx.lines.push(`${indent}<span${tw}>{t('${camelKey(value)}', '${escapeJsx(value)}')}</span>`);
+    const i18nKey = key || camelKey(value);
+    ctx.lines.push(`${indent}<${el}${tw}>{t('${i18nKey}', '${escapeJsx(value)}')}</${el}>`);
   }
 }
 
@@ -410,13 +447,17 @@ function renderComponent(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
   ctx.componentImports.add(ref);
 
+  const hasExplicitOnChange = 'onChange' in p;
   const attrs: string[] = [];
   for (const [k, v] of Object.entries(p)) {
     if (k === 'ref' || k === 'styles' || k === 'pseudoStyles' || k === 'themeRefs') continue;
     if (k === 'bind') {
       const varName = bindVar(v as string);
       attrs.push(`value={${varName}}`);
-      attrs.push(`onChange={${bindSetter(v as string)}}`);
+      // Only add auto-generated onChange if no explicit one exists
+      if (!hasExplicitOnChange) {
+        attrs.push(`onChange={${bindSetter(v as string)}}`);
+      }
     } else if (k === 'onChange') {
       attrs.push(`onChange={${v}}`);
     } else if (k === 'props') {
@@ -427,6 +468,8 @@ function renderComponent(node: IRNode, ctx: CodeBuilder, indent: string): void {
       }
     } else if (k === 'disabled') {
       attrs.push(`disabled={${irConditionToJs(v as string)}}`);
+    } else if (k === 'default') {
+      attrs.push(`defaultValue={${JSON.stringify(v)}}`);
     } else {
       attrs.push(`${k}={${JSON.stringify(v)}}`);
     }
