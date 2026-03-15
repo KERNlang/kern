@@ -28,6 +28,209 @@ interface MiddlewareUsage {
   invocation: string;
 }
 
+// ── Route capability analysis ────────────────────────────────────────────
+
+interface RouteCapabilities {
+  hasStream: boolean;
+  hasSpawn: boolean;
+  hasTimer: boolean;
+  streamNode?: IRNode;
+  spawnNode?: IRNode;
+  timerNode?: IRNode;
+  needsAbortController: boolean;
+  needsChildProcess: boolean;
+}
+
+function analyzeRouteCapabilities(routeNode: IRNode): RouteCapabilities {
+  const streamNode = getFirstChild(routeNode, 'stream');
+  // spawn must be inside stream (for SSE output), not standalone on route
+  const spawnNode = streamNode ? getFirstChild(streamNode, 'spawn') : undefined;
+  const timerNode = getFirstChild(routeNode, 'timer');
+
+  const hasStream = !!streamNode;
+  const hasSpawn = !!spawnNode;
+  const hasTimer = !!timerNode;
+
+  return {
+    hasStream,
+    hasSpawn,
+    hasTimer,
+    streamNode,
+    spawnNode,
+    timerNode,
+    needsAbortController: hasStream || hasSpawn || hasTimer,
+    needsChildProcess: hasSpawn,
+  };
+}
+
+// ── SSE stream code generator ────────────────────────────────────────────
+
+function generateStreamSetup(indent: string): string[] {
+  return [
+    `${indent}res.writeHead(200, {`,
+    `${indent}  'Content-Type': 'text/event-stream',`,
+    `${indent}  'Cache-Control': 'no-cache',`,
+    `${indent}  'Connection': 'keep-alive',`,
+    `${indent}});`,
+    `${indent}res.flushHeaders();`,
+    `${indent}`,
+    `${indent}const emit = (data: unknown, event?: string) => {`,
+    `${indent}  if (res.writableEnded) return;`,
+    `${indent}  if (event) res.write(\`event: \${event}\\n\`);`,
+    `${indent}  res.write(\`data: \${JSON.stringify(data)}\\n\\n\`);`,
+    `${indent}};`,
+  ];
+}
+
+function generateStreamWrap(handlerLines: string[], indent: string): string[] {
+  return [
+    `${indent}(async () => {`,
+    `${indent}  try {`,
+    ...handlerLines.map(l => `${indent}    ${l}`),
+    `${indent}  } catch (err) {`,
+    `${indent}    emit({ type: 'error', error: err instanceof Error ? err.message : String(err) });`,
+    `${indent}  } finally {`,
+    `${indent}    if (!res.writableEnded) {`,
+    `${indent}      res.write('data: [DONE]\\n\\n');`,
+    `${indent}      res.end();`,
+    `${indent}    }`,
+    `${indent}  }`,
+    `${indent})();`,
+  ];
+}
+
+// ── Spawn code generator ─────────────────────────────────────────────────
+
+function generateSpawnCode(spawnNode: IRNode, indent: string): string[] {
+  const p = getProps(spawnNode);
+  const binary = String(p.binary || 'echo');
+  const args = p.args as string | undefined;
+  const timeoutSec = Number(p.timeout) || 0;
+  const lines: string[] = [];
+
+  // Validate: binary must be static (security: no dynamic binary)
+  if (binary.includes('{{') || binary.includes('req.')) {
+    lines.push(`${indent}// ERROR: Dynamic binary is not allowed for security. Use a static binary name.`);
+    lines.push(`${indent}res.status(500).json({ error: 'Dynamic binary not allowed' });`);
+    return lines;
+  }
+
+  const argsExpr = args || '[]';
+  lines.push(`${indent}const child = spawn('${escapeSingleQuotes(binary)}', ${argsExpr}, {`);
+  lines.push(`${indent}  stdio: ['pipe', 'pipe', 'pipe'],`);
+  lines.push(`${indent}  shell: false,`);
+
+  // Env vars
+  const envNodes = getChildren(spawnNode, 'env');
+  if (envNodes.length > 0) {
+    const envPairs = envNodes.map(e => {
+      const ep = getProps(e);
+      const entries = Object.entries(ep).filter(([k]) => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
+      return entries.map(([k, v]) => `${k}: '${String(v)}'`).join(', ');
+    }).join(', ');
+    lines.push(`${indent}  env: { ...process.env, ${envPairs} },`);
+  }
+
+  lines.push(`${indent}});`);
+
+  // stdin handling — only end if no stdin prop
+  if (!p.stdin) {
+    lines.push(`${indent}child.stdin.end();`);
+  }
+
+  lines.push(`${indent}let errorText = '';`);
+
+  // Timeout with SIGTERM → SIGKILL escalation
+  lines.push(`${indent}let childExited = false;`);
+  lines.push(`${indent}child.on('exit', () => { childExited = true; });`);
+
+  if (timeoutSec > 0) {
+    lines.push(`${indent}const spawnTimer = setTimeout(() => {`);
+    lines.push(`${indent}  child.kill('SIGTERM');`);
+    lines.push(`${indent}  setTimeout(() => { if (!childExited) child.kill('SIGKILL'); }, 3000);`);
+    lines.push(`${indent}}, ${timeoutSec * 1000});`);
+  }
+
+  // Abort on request close
+  lines.push(`${indent}ac.signal.addEventListener('abort', () => {`);
+  lines.push(`${indent}  if (!childExited) child.kill('SIGTERM');`);
+  lines.push(`${indent}});`);
+
+  // Event handlers from child nodes
+  const onStdout = getFirstChild(spawnNode, 'on');
+  const onNodes = getChildren(spawnNode, 'on');
+
+  for (const onNode of onNodes) {
+    const onProps = getProps(onNode);
+    const event = String(onProps.name || onProps.event || '');
+    const handlerChild = getFirstChild(onNode, 'handler');
+    const code = handlerChild ? String(getProps(handlerChild).code || '') : '';
+
+    if (event === 'stdout') {
+      lines.push(`${indent}child.stdout.on('data', (chunk: Buffer) => {`);
+      lines.push(...code.split('\n').map(l => `${indent}  ${l.trim()}`));
+      lines.push(`${indent}});`);
+    } else if (event === 'stderr') {
+      lines.push(`${indent}child.stderr.on('data', (chunk: Buffer) => {`);
+      lines.push(...code.split('\n').map(l => `${indent}  ${l.trim()}`));
+      lines.push(`${indent}});`);
+    } else if (event === 'close') {
+      lines.push(`${indent}child.on('close', (code: number | null) => {`);
+      if (timeoutSec > 0) lines.push(`${indent}  clearTimeout(spawnTimer);`);
+      lines.push(...code.split('\n').map(l => `${indent}  ${l.trim()}`));
+      lines.push(`${indent}});`);
+    } else if (event === 'timeout') {
+      // Handled via the timer killed branch — stored for close handler
+    }
+  }
+
+  // Catch spawn errors (binary not found)
+  lines.push(`${indent}child.on('error', (err: Error) => {`);
+  lines.push(`${indent}  emit({ type: 'error', error: err.message });`);
+  lines.push(`${indent}});`);
+
+  return lines;
+}
+
+// ── Timer code generator ─────────────────────────────────────────────────
+
+function generateTimerCode(timerNode: IRNode, handlerCode: string, indent: string): string[] {
+  const p = getProps(timerNode);
+  const timeoutSec = Number(Object.values(p).find(v => typeof v === 'string' && !isNaN(Number(v))) || p.timeout || 15);
+  const handlerChild = getFirstChild(timerNode, 'handler');
+  const timerHandlerCode = handlerChild ? String(getProps(handlerChild).code || '') : '';
+  const onTimeoutNode = (timerNode.children || []).find(c => c.type === 'on' && (getProps(c).name === 'timeout' || getProps(c).event === 'timeout'));
+  const timeoutHandler = onTimeoutNode ? getFirstChild(onTimeoutNode, 'handler') : undefined;
+  const timeoutCode = timeoutHandler ? String(getProps(timeoutHandler).code || '') : `res.status(408).json({ error: 'Request timed out' });`;
+
+  const lines: string[] = [];
+  lines.push(`${indent}const timeoutMs = ${timeoutSec * 1000};`);
+  lines.push(`${indent}const timer = setTimeout(() => {`);
+  lines.push(`${indent}  ac.abort();`);
+  lines.push(...timeoutCode.split('\n').map(l => `${indent}  ${l.trim()}`));
+  lines.push(`${indent}}, timeoutMs);`);
+  lines.push(`${indent}`);
+  lines.push(`${indent}try {`);
+  // Timer handler code (the work to do)
+  if (timerHandlerCode) {
+    lines.push(...timerHandlerCode.split('\n').map(l => `${indent}  ${l.trim()}`));
+  }
+  // Original route handler code
+  if (handlerCode) {
+    lines.push(...handlerCode.split('\n').map(l => `${indent}  ${l.trim()}`));
+  }
+  lines.push(`${indent}} catch (err) {`);
+  lines.push(`${indent}  if (!ac.signal.aborted) {`);
+  lines.push(`${indent}    clearTimeout(timer);`);
+  lines.push(`${indent}    throw err;`);
+  lines.push(`${indent}  }`);
+  lines.push(`${indent}} finally {`);
+  lines.push(`${indent}  clearTimeout(timer);`);
+  lines.push(`${indent}}`);
+
+  return lines;
+}
+
 function getProps(node: IRNode): Record<string, unknown> {
   return node.props || {};
 }
@@ -240,11 +443,20 @@ function buildRouteArtifact(
   const fileBase = routeFileBase(normalizedMethod, path, routeIndex);
   const registerName = routeRegisterName(normalizedMethod, path);
   const schema = buildSchema(getFirstChild(routeNode, 'schema'));
-  const handlerNode = getFirstChild(routeNode, 'handler');
+  const caps = analyzeRouteCapabilities(routeNode);
+
+  // Get handler code — priority: stream handler > timer handler > route handler > 501
+  const handlerNode = caps.hasStream
+    ? getFirstChild(caps.streamNode!, 'handler')
+    : caps.hasTimer
+      ? null // timer owns its own handler, don't look at route level
+      : getFirstChild(routeNode, 'handler');
+  const routeHandlerNode = getFirstChild(routeNode, 'handler');
   const handlerProps = handlerNode ? getProps(handlerNode) : {};
+  const routeHandlerCode = routeHandlerNode ? String(getProps(routeHandlerNode).code || '') : '';
   const handlerCode = typeof handlerProps.code === 'string'
     ? String(handlerProps.code)
-    : `res.status(501).json({ error: 'Route handler not implemented' });`;
+    : caps.hasStream || caps.hasTimer ? '' : `res.status(501).json({ error: 'Route handler not implemented' });`;
 
   const routeMiddleware = getChildren(routeNode, 'middleware');
   const routeImports = new Set<string>();
@@ -286,6 +498,9 @@ function buildRouteArtifact(
   } else {
     lines.push(`import { type Express, type NextFunction, type Request, type Response } from 'express';`);
   }
+  if (caps.needsChildProcess) {
+    lines.push(`import { spawn } from 'node:child_process';`);
+  }
   for (const routeImport of [...routeImports].sort()) {
     lines.push(routeImport);
   }
@@ -309,15 +524,53 @@ function buildRouteArtifact(
   }
   lines.push('');
   lines.push(`export function ${registerName}(app: Express): void {`);
-  lines.push(`  app.${normalizedMethod}('${escapeSingleQuotes(path)}', ${middlewareInvocations.length > 0 ? `${middlewareInvocations.join(', ')}, ` : ''}async (req: ${requestType}, res: Response<ResponseBody>, next: NextFunction) => {`);
-  lines.push('    try {');
-  for (const validationLine of validationLines) {
-    lines.push(`      ${validationLine}`);
+  lines.push(`  app.${normalizedMethod}('${escapeSingleQuotes(path)}', ${middlewareInvocations.length > 0 ? `${middlewareInvocations.join(', ')}, ` : ''}async (req: ${requestType}, res: Response, next: NextFunction) => {`);
+
+  // Schema validation — always runs first, before stream/timer
+  if (validationLines.length > 0) {
+    lines.push('    try {');
+    for (const validationLine of validationLines) {
+      lines.push(`      ${validationLine}`);
+    }
+    lines.push('    } catch (err) {');
+    lines.push('      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) } as any);');
+    lines.push('    }');
+    lines.push('');
   }
-  lines.push(...indentBlock(handlerCode, '      '));
-  lines.push('    } catch (error) {');
-  lines.push('      next(error);');
-  lines.push('    }');
+
+  // Request-scoped AbortController (if any async capability)
+  if (caps.needsAbortController) {
+    lines.push('    const ac = new AbortController();');
+    lines.push("    req.on('close', () => ac.abort());");
+    lines.push('');
+  }
+
+  if (caps.hasStream) {
+    // SSE route — validate first, then stream
+    lines.push(...generateStreamSetup('    '));
+    lines.push('');
+
+    const streamHandlerLines = handlerCode.split('\n').map(l => l.trim()).filter(Boolean);
+
+    // If spawn inside stream, generate spawn code
+    if (caps.hasSpawn && caps.spawnNode) {
+      const spawnLines = generateSpawnCode(caps.spawnNode, '');
+      streamHandlerLines.push(...spawnLines);
+    }
+
+    lines.push(...generateStreamWrap(streamHandlerLines, '    '));
+  } else if (caps.hasTimer && caps.timerNode) {
+    // Timer route — wrap handler in timeout
+    lines.push(...generateTimerCode(caps.timerNode, routeHandlerCode, '    '));
+  } else {
+    // Standard route — try/catch → next(error)
+    lines.push('    try {');
+    lines.push(...indentBlock(handlerCode, '      '));
+    lines.push('    } catch (error) {');
+    lines.push('      next(error);');
+    lines.push('    }');
+  }
+
   lines.push('  });');
   lines.push('}');
 

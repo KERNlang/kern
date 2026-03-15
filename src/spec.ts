@@ -50,6 +50,7 @@ export const NODE_TYPES = [
   'theme',
   // Backend
   'server', 'route', 'middleware', 'handler', 'schema',
+  'stream', 'spawn', 'timer', 'on', 'env',
   // CLI
   'cli', 'command', 'arg', 'flag', 'import',
 ] as const;
