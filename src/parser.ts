@@ -1,4 +1,7 @@
 import type { IRNode, IRSourceLocation } from './types.js';
+import { KernParseError } from './errors.js';
+
+let _parseWarnings: string[] = [];
 
 interface ParsedLine {
   indent: number;
@@ -118,10 +121,11 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
       continue;
     }
 
-    // Unknown token — warn and skip to next whitespace
+    // Unknown token — collect as warning, skip to next whitespace
     const skipped = rest.match(/^\S+/);
     if (skipped) {
-      console.warn(`[kern] Warning: unexpected token "${skipped[0]}" at line ${lineNum}, col ${col + (raw.length - rest.length)}`);
+      const errCol = col + (raw.length - rest.length);
+      _parseWarnings.push(`Unexpected token "${skipped[0]}" at line ${lineNum}:${errCol}`);
       rest = rest.slice(skipped[0].length);
       continue;
     }
@@ -249,7 +253,11 @@ function expandMinified(source: string): string {
   return result.join('\n');
 }
 
+/** Get warnings from the last parse() call */
+export function getParseWarnings(): string[] { return [..._parseWarnings]; }
+
 export function parse(source: string): IRNode {
+  _parseWarnings = [];
   // Handle minified S-expression format
   source = expandMinified(source);
   const lines = source.split('\n');

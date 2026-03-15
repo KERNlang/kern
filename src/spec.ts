@@ -52,7 +52,9 @@ export const NODE_TYPES = [
 
 export type IRNodeType = (typeof NODE_TYPES)[number];
 
-// ── Style Shorthands ────────────────────────────────────────────────────
+// ── Style Shorthands (FROZEN at v1.0 — 30 entries) ──────────────────────
+// Any CSS property not in this map uses the escape hatch: "property":"value"
+// This map will NOT grow. Use quoted keys for new CSS properties.
 export const STYLE_SHORTHANDS: Record<string, string> = {
   // Spacing
   p: 'padding', m: 'margin',
