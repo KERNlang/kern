@@ -114,7 +114,7 @@ function generateStreamWrap(handlerLines: string[], hasSpawn: boolean, indent: s
   lines.push(`${indent}      res.end();`);
   lines.push(`${indent}    }`);
   lines.push(`${indent}  }`);
-  lines.push(`${indent})();`);
+  lines.push(`${indent}})();`);
 
   return lines;
 }
