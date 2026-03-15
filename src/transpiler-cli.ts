@@ -190,11 +190,6 @@ function generateEntryFile(cli: CliInfo): string {
     lines.push(`import { register${pascalCase(cmd.name)} } from './commands/${cmd.name}.js';`);
   }
 
-  // Global imports
-  for (const imp of cli.globalImports) {
-    lines.push(`import { ${imp.names.join(', ')} } from '${imp.from}';`);
-  }
-
   lines.push('');
   lines.push(`const program = new Command();`);
   lines.push(`program`);
@@ -256,15 +251,18 @@ function generateCommandFile(cmd: CommandInfo): string {
   }
 
   // Action
-  const argNames = cmd.args.map(a => a.name);
-  const argTypes = cmd.args.map(a => {
-    const tsType = a.type === 'number' ? 'string' : 'string';
-    return `${a.name}${a.required ? '' : '?'}: ${tsType}`;
+  const argParams = cmd.args.map(a => {
+    const safeName = camelKey(a.name) || a.name;
+    const tsType = 'string'; // Commander always passes args as strings
+    return `${safeName}${a.required ? '' : '?'}: ${tsType}`;
   });
 
   const optsType = generateOptsType(cmd.flags);
+  const paramList = argParams.length > 0
+    ? argParams.join(', ') + ', '
+    : '';
 
-  lines.push(`  cmd.action(async (${argNames.join(', ')}${argNames.length > 0 ? ', ' : ''}opts: ${optsType}) => {`);
+  lines.push(`  cmd.action(async (${paramList}opts: ${optsType}) => {`);
 
   if (cmd.handlerCode) {
     for (const line of cmd.handlerCode.split('\n')) {
@@ -315,9 +313,11 @@ function generateOptsType(flags: FlagInfo[]): string {
   if (flags.length === 0) return 'Record<string, unknown>';
 
   const fields = flags.map(f => {
+    // Commander camelCases dashed option names (e.g. --task-class → taskClass)
+    const safeName = camelKey(f.name) || f.name;
     const tsType = f.type === 'number' ? 'number' : f.type === 'boolean' ? 'boolean' : 'string';
     const optional = !f.required && f.defaultValue === undefined ? '?' : '';
-    return `${f.name}${optional}: ${tsType}`;
+    return `${safeName}${optional}: ${tsType}`;
   });
 
   return `{ ${fields.join('; ')} }`;

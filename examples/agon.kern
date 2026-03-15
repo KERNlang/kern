@@ -2,9 +2,6 @@ cli name=agon version=2.0.0 description="Any AI can join. They compete. You ship
   flag name=verbose alias=v type=boolean description="Verbose output"
   flag name=json type=boolean description="JSON output format"
 
-  import from="../src/forge.js" names=runForge
-  import from="../src/brainstorm.js" names=collectDrafts,rankDrafts,display
-
   command name=forge description="Run competitive forge"
     arg name=task type=string required=true description="Task to implement"
     flag name=test alias=t type=string description="Fitness test command"

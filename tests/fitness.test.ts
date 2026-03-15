@@ -549,5 +549,16 @@ describe('Kern IR Fitness Tests', () => {
       const config = resolveConfig({ target: 'cli' });
       expect(config.target).toBe('cli');
     });
+
+    test('dashed flag names produce camelCase opts type', async () => {
+      const { parse } = await import(resolve(ROOT, 'src/parser.ts'));
+      const { transpileCliApp } = await import(resolve(ROOT, 'src/transpiler-cli.ts'));
+      const ast = parse('cli name=test\n  command name=run\n    flag name=task-class type=string\n    handler <<<\n      console.log(opts.taskClass);\n    >>>');
+      const result = transpileCliApp(ast);
+
+      const cmd = result.artifacts!.find((a: any) => a.path === 'commands/run.ts');
+      expect(cmd!.content).toContain('taskClass');
+      expect(cmd!.content).not.toContain("task-class?:");
+    });
   });
 });
