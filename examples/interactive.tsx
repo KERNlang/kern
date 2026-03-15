@@ -35,7 +35,7 @@ export function InteractiveSearch() {
       <div className="gap-4 flex flex-col">
         <span className="text-2xl font-bold text-zinc-900">{t('searchInventory', 'Search Inventory')}</span>
         <p className="text-sm text-zinc-600">{t('typeAProductNameToFilterTheLiveResults', 'Type a product name to filter the live results.')}</p>
-        <input className="p-3 rounded-lg bg-white [border:#d4d4d8]" />
+        <input className="p-3 rounded-lg bg-white [border:#d4d4d8]" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search items..." />
         <div className="justify-between items-center flex">
           <span className="text-sm text-zinc-900">{loading ? "Refreshing..." : (filteredItems.length + " matches")}</span>
           <span className="text-sm text-zinc-500">{query.length > 0 ? "Filter: " + query : "All items"}</span>
@@ -43,11 +43,23 @@ export function InteractiveSearch() {
         {!loading && (
           <>
             <div className="space-y-2">
-              <div>
+              <div className="flex items-center justify-between p-3 border-b border-zinc-800">
+                <div>
+                  <span className="text-sm text-white font-medium">Apple Watch</span>
+                  <span className="text-xs text-zinc-500 ml-2">Electronics</span>
+                </div>
               </div>
-              <div>
+              <div className="flex items-center justify-between p-3 border-b border-zinc-800">
+                <div>
+                  <span className="text-sm text-white font-medium">Bluetooth Speaker</span>
+                  <span className="text-xs text-zinc-500 ml-2">Audio</span>
+                </div>
               </div>
-              <div>
+              <div className="flex items-center justify-between p-3 border-b border-zinc-800">
+                <div>
+                  <span className="text-sm text-white font-medium">Desk Lamp</span>
+                  <span className="text-xs text-zinc-500 ml-2">Office</span>
+                </div>
               </div>
             </div>
           </>

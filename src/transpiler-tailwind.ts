@@ -161,10 +161,26 @@ function getThemeRefs(node: IRNode): string[] {
   return (getProps(node).themeRefs as string[]) || [];
 }
 
+function getPseudoStyles(node: IRNode): Record<string, Record<string, string>> {
+  return (getProps(node).pseudoStyles as Record<string, Record<string, string>>) || {};
+}
+
 function twClasses(node: IRNode, extra: string = ''): string {
   const styles = getStyles(node);
+  const pseudo = getPseudoStyles(node);
   const tw = stylesToTailwind(styles);
-  const parts = [tw, extra].filter(Boolean);
+
+  // Generate pseudo-class Tailwind variants: hover:bg-red-500, active:scale-95
+  const pseudoClasses: string[] = [];
+  for (const [state, stateStyles] of Object.entries(pseudo)) {
+    const twState = state === 'press' ? 'active' : state; // :press → active:
+    const expanded = stylesToTailwind(stateStyles);
+    if (expanded) {
+      pseudoClasses.push(expanded.split(' ').map(c => `${twState}:${c}`).join(' '));
+    }
+  }
+
+  const parts = [tw, ...pseudoClasses, extra].filter(Boolean);
   return parts.length > 0 ? ` className="${parts.join(' ')}"` : '';
 }
 
@@ -522,9 +538,29 @@ function renderList(node: IRNode, ctx: CodeBuilder, indent: string): void {
 }
 
 function renderItem(node: IRNode, ctx: CodeBuilder, indent: string): void {
-  ctx.lines.push(`${indent}<div${twClasses(node)}>`);
-  renderChildren(node, ctx, indent);
-  ctx.lines.push(`${indent}</div>`);
+  const p = getProps(node);
+  const tw = twClasses(node, 'flex items-center justify-between p-3 border-b border-zinc-800');
+  const hasChildren = node.children && node.children.length > 0;
+
+  if (hasChildren) {
+    ctx.lines.push(`${indent}<div${tw}>`);
+    renderChildren(node, ctx, indent);
+    ctx.lines.push(`${indent}</div>`);
+  } else {
+    // Render item props as content
+    const name = p.name as string;
+    const time = p.time as string;
+    const calories = p.calories as string;
+    const category = p.category as string;
+    ctx.lines.push(`${indent}<div${tw}>`);
+    ctx.lines.push(`${indent}  <div>`);
+    if (name) ctx.lines.push(`${indent}    <span className="text-sm text-white font-medium">${name}</span>`);
+    if (time) ctx.lines.push(`${indent}    <span className="text-xs text-zinc-500 ml-2">${time}</span>`);
+    if (category) ctx.lines.push(`${indent}    <span className="text-xs text-zinc-500 ml-2">${category}</span>`);
+    ctx.lines.push(`${indent}  </div>`);
+    if (calories) ctx.lines.push(`${indent}  <span className="text-sm text-zinc-400">${calories} kcal</span>`);
+    ctx.lines.push(`${indent}</div>`);
+  }
 }
 
 function renderTabs(node: IRNode, ctx: CodeBuilder, indent: string): void {
@@ -559,7 +595,27 @@ function renderProgress(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
 function renderInput(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  ctx.lines.push(`${indent}<input${twClasses(node)} />`);
+  const attrs: string[] = [];
+  const tw = twClasses(node);
+
+  if (p.bind) {
+    const bind = p.bind as string;
+    const setter = bindSetter(bind);
+    attrs.push(`value={${bindVar(bind)}}`);
+    // Check if onChange is an expression
+    if (isExpr(p.onChange)) {
+      attrs.push(`onChange={${(p.onChange as { code: string }).code}}`);
+    } else if (p.onChange) {
+      attrs.push(`onChange={${p.onChange}}`);
+    } else {
+      attrs.push(`onChange={(e) => ${setter}(e.target.value)}`);
+    }
+  }
+  if (p.placeholder) attrs.push(`placeholder="${p.placeholder}"`);
+  if (p.type) attrs.push(`type="${p.type}"`);
+
+  const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
+  ctx.lines.push(`${indent}<input${tw}${attrStr} />`);
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -599,7 +655,7 @@ function bindSetter(bind: string): string {
 function irConditionToJs(cond: unknown): string {
   // Handle expression objects from {{ }}
   if (typeof cond === 'object' && cond !== null && '__expr' in cond) {
-    return (cond as { code: string }).code;
+    return (cond as unknown as { code: string }).code;
   }
   // "isPro" → isPro
   // "!isPro" → !isPro

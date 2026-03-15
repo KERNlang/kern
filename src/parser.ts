@@ -28,6 +28,16 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
   const pseudoStyles: Record<string, Record<string, string>> = {};
   const themeRefs: string[] = [];
 
+  // Special: theme nodes have a bare name after the type: "theme bar {h:8}"
+  if (type === 'theme') {
+    rest = rest.replace(/^ +/, '');
+    const nameMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)/);
+    if (nameMatch) {
+      props.name = nameMatch[1];
+      rest = rest.slice(nameMatch[0].length);
+    }
+  }
+
   // Parse the remainder: props, style blocks, theme refs
   while (rest.length > 0) {
     rest = rest.replace(/^ +/, '');
@@ -108,6 +118,13 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
       continue;
     }
 
+    // Unknown token — warn and skip to next whitespace
+    const skipped = rest.match(/^\S+/);
+    if (skipped) {
+      console.warn(`[kern] Warning: unexpected token "${skipped[0]}" at line ${lineNum}, col ${col + (raw.length - rest.length)}`);
+      rest = rest.slice(skipped[0].length);
+      continue;
+    }
     break;
   }
 
@@ -193,7 +210,48 @@ function parseStyleBlock(
   }
 }
 
+function expandMinified(source: string): string {
+  // Detect minified S-expression format: node(child1,child2)
+  // Convert to indented format for the standard parser
+  if (!source.includes('(') || source.split('\n').length > 2) return source;
+
+  const result: string[] = [];
+  let depth = 0;
+  let current = '';
+  let inQuote = false;
+  let inBraces = 0;
+
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === '"') { inQuote = !inQuote; current += ch; continue; }
+    if (inQuote) { current += ch; continue; }
+    if (ch === '{') { inBraces++; current += ch; continue; }
+    if (ch === '}') { inBraces--; current += ch; continue; }
+    if (inBraces > 0) { current += ch; continue; }
+
+    if (ch === '(') {
+      result.push('  '.repeat(depth) + current.trim());
+      current = '';
+      depth++;
+    } else if (ch === ')') {
+      if (current.trim()) result.push('  '.repeat(depth) + current.trim());
+      current = '';
+      depth--;
+    } else if (ch === ',' && inBraces === 0) {
+      if (current.trim()) result.push('  '.repeat(depth) + current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) result.push('  '.repeat(depth) + current.trim());
+
+  return result.join('\n');
+}
+
 export function parse(source: string): IRNode {
+  // Handle minified S-expression format
+  source = expandMinified(source);
   const lines = source.split('\n');
   const parsed: ParsedLine[] = [];
 

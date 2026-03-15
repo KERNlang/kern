@@ -3,7 +3,7 @@ import { resolve } from 'path';
 
 const ROOT = resolve(__dirname, '..');
 
-describe('LLM-Speach IR Fitness Tests', () => {
+describe('Kern IR Fitness Tests', () => {
   // ── Spec Tests ──────────────────────────────────────────────────────────
   describe('IR Spec', () => {
     test('spec file exists at src/spec.ts or src/spec.json', () => {
@@ -12,9 +12,9 @@ describe('LLM-Speach IR Fitness Tests', () => {
       expect(tsExists || jsonExists).toBe(true);
     });
 
-    test('types.ts exports LLMSpeachEngine interface', () => {
+    test('types.ts exports KernEngine interface', () => {
       const types = readFileSync(resolve(ROOT, 'src/types.ts'), 'utf-8');
-      expect(types).toContain('export interface LLMSpeachEngine');
+      expect(types).toContain('export interface KernEngine');
       expect(types).toContain('parse(');
       expect(types).toContain('transpile(');
       expect(types).toContain('decompile(');

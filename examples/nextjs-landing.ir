@@ -30,4 +30,4 @@ page name=LandingPage client=true {bg:#09090b}
       text value="Auto-generated mastering presets based on your genre and reference tracks." tag=p {fs:14,c:#a1a1aa}
 
   row {jc:center,p:32,border:#27272a}
-    text value="© 2026 AudioFacets. Built with LLM-Speach." {fs:12,c:#71717a}
+    text value="© 2026 AudioFacets. Built with Kern." {fs:12,c:#71717a}

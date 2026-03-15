@@ -1,5 +1,5 @@
 /**
- * LLM-Speach IR Type System
+ * Kern IR Type System
  *
  * This is the contract. Each forge engine must implement:
  * 1. A parser that reads IR → IRNode tree
@@ -59,7 +59,7 @@ export interface DecompileResult {
 }
 
 /** The main engine interface each implementation must satisfy */
-export interface LLMSpeachEngine {
+export interface KernEngine {
   /** Parse IR source text into an IR node tree */
   parse(source: string): IRNode;
 

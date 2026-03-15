@@ -82,9 +82,14 @@ function minifyKern(node: IRNode): string {
   const props = node.props || {};
   let head = type;
 
-  // Serialize props
+  // Serialize props (theme name is bare word, not key=value)
   for (const [k, v] of Object.entries(props)) {
     if (['styles', 'pseudoStyles', 'themeRefs'].includes(k)) continue;
+    if (type === 'theme' && k === 'name') { head += ` ${v}`; continue; }
+    if (typeof v === 'object' && v !== null && '__expr' in v) {
+      head += ` ${k}={{ ${(v as unknown as { code: string }).code} }}`;
+      continue;
+    }
     const val = typeof v === 'string' && v.includes(' ') ? `"${v}"` : String(v);
     head += ` ${k}=${val}`;
   }
@@ -129,6 +134,11 @@ function prettyKern(node: IRNode, indent = ''): string {
 
   for (const [k, v] of Object.entries(props)) {
     if (['styles', 'pseudoStyles', 'themeRefs'].includes(k)) continue;
+    if (type === 'theme' && k === 'name') { line += ` ${v}`; continue; }
+    if (typeof v === 'object' && v !== null && '__expr' in v) {
+      line += ` ${k}={{ ${(v as unknown as { code: string }).code} }}`;
+      continue;
+    }
     const val = typeof v === 'string' && v.includes(' ') ? `"${v}"` : String(v);
     line += ` ${k}=${val}`;
   }
