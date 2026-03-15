@@ -1,0 +1,22 @@
+screen name=Dashboard {bg:#F8F9FA}
+  theme bar {h:8,br:4}
+  row {p:16,jc:sb,ai:center}
+    text value=FITVT {fs:24,fw:bold}
+    image src=avatar {w:40,h:40,br:20}
+  card {p:16,br:12,bg:#FFF,m:16}
+    progress label=Calories current=1840 target=2200 unit=kcal color=#FF6B6B $bar
+    progress label=Protein current=96 target=140 unit=g color=#4ECDC4 $bar
+    progress label=Carbs current=210 target=260 unit=g color=#FFD166 $bar
+    progress label=Fat current=58 target=70 unit=g color=#6C5CE7 $bar
+  button text="Log Meal" to=LogMeal {w:full,br:8,bg:#007AFF,p:16,:press:bg:#005BB5}
+  list title="Recent Meals" separator=true
+    item id=m1 name="Greek Yogurt Bowl" time=08:15 calories=320
+    item id=m2 name="Chicken Salad" time=12:40 calories=540
+    item id=m3 name="Protein Shake" time=15:10 calories=220
+    item id=m4 name="Salmon Rice Bowl" time=18:30 calories=680
+    item id=m5 name="Casein Pudding" time=21:00 calories=190
+  tabs active=Dashboard
+    tab icon=home label=Dashboard
+    tab icon=plus label=Log
+    tab icon=chart label=Stats
+    tab icon=gear label=Settings

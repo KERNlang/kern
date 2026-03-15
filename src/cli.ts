@@ -13,7 +13,7 @@ const target = args.find(a => a.startsWith('--target='))?.split('=')[1] || 'next
 const inputFile = args.find(a => !a.startsWith('--'));
 
 if (!inputFile) {
-  console.log('Usage: llm-speach <file.ir> [--target=nextjs|tailwind|web|native] [--decompile]');
+  console.log('Usage: kern <file.kern> [--target=nextjs|tailwind|web|native] [--decompile]');
   console.log('');
   console.log('Targets:');
   console.log('  nextjs    Next.js App Router (default)');
@@ -37,7 +37,8 @@ if (args.includes('--decompile')) {
 
 const result = target === 'native' ? transpile(ast) : target === 'web' ? transpileWeb(ast) : target === 'tailwind' ? transpileTailwind(ast) : transpileNextjs(ast);
 
-const name = basename(inputFile, '.ir');
+const ext = inputFile.endsWith('.kern') ? '.kern' : '.ir';
+const name = basename(inputFile, ext);
 const outFile = resolve(dirname(inputFile), `${name}.tsx`);
 writeFileSync(outFile, result.code);
 

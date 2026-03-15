@@ -1,7 +1,7 @@
 {
-  "name": "llm-speach",
+  "name": "kern-lang",
   "version": "0.1.0",
-  "description": "LLM-native IR language for cross-platform app generation",
+  "description": "Kern — the LLM-native language. Swiss-engineered IR that transpiles to React, Next.js, and React Native.",
   "type": "module",
   "scripts": {
     "build": "tsc",

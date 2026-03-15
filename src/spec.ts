@@ -1,14 +1,16 @@
 /**
- * LLM-Speach IR v2 Specification
+ * Kern v2 Specification
  *
- * Unified design from 3-AI forge + tribunal + brainstorm.
- * Foundation: Design B (indent-based, semantic names, key=value)
- * + Design C style shorthands in {} blocks
- * + Theme nodes for reusable styles ($ref)
- * + Pseudo-selectors for interaction states (:press, :hover)
+ * The LLM-native language. Swiss-engineered.
+ * Designed by 3 AIs through forge + tribunal + brainstorm.
+ *
+ * Foundation: indent-based, semantic names, key=value props
+ * Styles: shorthand blocks in {} with CSS escape hatch
+ * Meta: theme nodes ($ref), pseudo-selectors (:press, :hover)
+ * Targets: Next.js, React+Tailwind, React Native
  */
 
-export const IR_VERSION = '2.0.0';
+export const KERN_VERSION = '2.0.0';
 
 // ── Grammar ─────────────────────────────────────────────────────────────
 export const IR_GRAMMAR = `
