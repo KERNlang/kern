@@ -50,6 +50,8 @@ export const NODE_TYPES = [
   'theme',
   // Backend
   'server', 'route', 'middleware', 'handler', 'schema',
+  // CLI
+  'cli', 'command', 'arg', 'flag', 'import',
 ] as const;
 
 export type IRNodeType = (typeof NODE_TYPES)[number];

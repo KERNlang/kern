@@ -19,6 +19,8 @@ const HANDLED_NODE_TYPES = new Set([
   'divider', 'button', 'slider', 'toggle', 'grid', 'conditional',
   'component', 'icon', 'image', 'list', 'item', 'tabs', 'tab',
   'progress', 'input', 'theme',
+  // CLI
+  'cli', 'command', 'arg', 'flag', 'import',
 ]);
 
 // ── Types ────────────────────────────────────────────────────────────────

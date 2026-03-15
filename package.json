@@ -19,6 +19,7 @@
     "./transpiler-tailwind": "./dist/transpiler-tailwind.js",
     "./transpiler-nextjs": "./dist/transpiler-nextjs.js",
     "./transpiler-express": "./dist/transpiler-express.js",
+    "./transpiler-cli": "./dist/transpiler-cli.js",
     "./draft-protocol": "./dist/draft-protocol.js"
   },
   "files": [

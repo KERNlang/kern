@@ -8,6 +8,7 @@ import { transpileWeb } from './transpiler-web.js';
 import { transpileTailwind } from './transpiler-tailwind.js';
 import { transpileNextjs } from './transpiler-nextjs.js';
 import { transpileExpress } from './transpiler-express.js';
+import { transpileCliApp } from './transpiler-cli.js';
 import { decompile } from './decompiler.js';
 import { resolveConfig, VALID_TARGETS, type ResolvedKernConfig, type KernTarget } from './config.js';
 import { collectLanguageMetrics } from './metrics.js';
@@ -17,7 +18,7 @@ const args = process.argv.slice(2);
 const inputFile = args.find(a => !a.startsWith('--'));
 
 if (!inputFile) {
-  console.log('Usage: kern <file.kern> [--target=nextjs|tailwind|web|native|express] [options]');
+  console.log('Usage: kern <file.kern> [--target=nextjs|tailwind|web|native|express|cli] [options]');
   console.log('');
   console.log('Targets:');
   console.log('  nextjs    Next.js App Router (default)');
@@ -25,6 +26,7 @@ if (!inputFile) {
   console.log('  web       React with inline styles');
   console.log('  native    React Native component');
   console.log('  express   Express TypeScript backend');
+  console.log('  cli       Commander.js CLI app');
   console.log('');
   console.log('Options:');
   console.log('  --decompile  Output human-readable pseudocode');
@@ -128,10 +130,12 @@ const result = target === 'native'
       ? transpileTailwind(ast, config)
       : target === 'express'
         ? transpileExpress(ast, config)
-        : transpileNextjs(ast, config);
+        : target === 'cli'
+          ? transpileCliApp(ast, config)
+          : transpileNextjs(ast, config);
 
 const outDir = resolve(dirname(inputFile), config.output.outDir);
-const outExt = target === 'express' ? '.ts' : '.tsx';
+const outExt = (target === 'express' || target === 'cli') ? '.ts' : '.tsx';
 const outFile = resolve(outDir, `${name}${outExt}`);
 mkdirSync(dirname(outFile), { recursive: true });
 writeFileSync(outFile, result.code);
@@ -144,7 +148,7 @@ if (result.artifacts) {
 }
 
 console.log(`Transpiled: ${inputFile} → ${outFile}`);
-const targetNames: Record<string, string> = { native: 'React Native', web: 'React (inline)', tailwind: 'React + Tailwind', nextjs: 'Next.js App Router', express: 'Express TypeScript' };
+const targetNames: Record<string, string> = { native: 'React Native', web: 'React (inline)', tailwind: 'React + Tailwind', nextjs: 'Next.js App Router', express: 'Express TypeScript', cli: 'Commander.js CLI' };
 console.log(`Target:     ${targetNames[target] || target}`);
 console.log(`IR tokens:  ${result.irTokenCount}`);
 console.log(`TS tokens:  ${result.tsTokenCount}`);
