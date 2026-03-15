@@ -38,6 +38,16 @@ export interface SourceMapEntry {
   outCol: number;
 }
 
+/** Generated output artifact (for multi-file targets like Next.js, Express) */
+export interface GeneratedArtifact {
+  /** Relative output path */
+  path: string;
+  /** Generated code */
+  content: string;
+  /** Artifact type */
+  type: 'page' | 'layout' | 'route' | 'middleware' | 'component' | 'config';
+}
+
 /** Result of transpilation */
 export interface TranspileResult {
   /** Generated React Native TypeScript code */
@@ -50,6 +60,8 @@ export interface TranspileResult {
   tsTokenCount: number;
   /** Token reduction percentage */
   tokenReduction: number;
+  /** Multi-file output artifacts */
+  artifacts?: GeneratedArtifact[];
 }
 
 /** Result of decompilation (IR → human-readable) */

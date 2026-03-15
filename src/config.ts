@@ -2,8 +2,14 @@
  * Kern Configuration Types
  */
 
+import { DEFAULT_COLORS } from './styles-tailwind.js';
+
+export type KernTarget = 'nextjs' | 'tailwind' | 'web' | 'native';
+
+export const VALID_TARGETS: KernTarget[] = ['nextjs', 'tailwind', 'web', 'native'];
+
 export interface KernConfig {
-  target?: 'nextjs' | 'tailwind' | 'web' | 'native';
+  target?: KernTarget;
 
   i18n?: {
     enabled?: boolean;
@@ -25,7 +31,31 @@ export interface KernConfig {
   };
 }
 
-export const DEFAULT_CONFIG: KernConfig = {
+/** Fully resolved config — all fields required, no optionals */
+export interface ResolvedKernConfig {
+  target: KernTarget;
+
+  i18n: {
+    enabled: boolean;
+    hookName: string;
+    importPath: string;
+  };
+
+  components: {
+    uiLibrary: string;
+    componentRoot: string;
+    mappings: Record<string, string>;
+  };
+
+  colors: Record<string, string>;
+
+  output: {
+    outDir: string;
+    sourceMaps: boolean;
+  };
+}
+
+export const DEFAULT_CONFIG: ResolvedKernConfig = {
   target: 'nextjs',
   i18n: {
     enabled: true,
@@ -35,38 +65,44 @@ export const DEFAULT_CONFIG: KernConfig = {
   components: {
     uiLibrary: '@components/ui',
     componentRoot: '@/components',
+    mappings: {},
   },
-  colors: {
-    '#09090b': 'zinc-950',
-    '#18181b': 'zinc-900',
-    '#27272a': 'zinc-800',
-    '#3f3f46': 'zinc-700',
-    '#52525b': 'zinc-600',
-    '#71717a': 'zinc-500',
-    '#a1a1aa': 'zinc-400',
-    '#d4d4d8': 'zinc-300',
-    '#e4e4e7': 'zinc-200',
-    '#f4f4f5': 'zinc-100',
-    '#fafafa': 'zinc-50',
-    '#ffffff': 'white',
-    '#fff': 'white',
-    '#FFF': 'white',
-    '#f97316': 'orange-500',
-    '#ea580c': 'orange-600',
-    '#F8F9FA': 'gray-50',
-  },
+  colors: { ...DEFAULT_COLORS },
   output: {
     outDir: '.',
     sourceMaps: false,
   },
 };
 
-export function mergeConfig(user: Partial<KernConfig>): KernConfig {
+export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
+  if (!user) return { ...DEFAULT_CONFIG };
+
+  // Validate target
+  if (user.target && !VALID_TARGETS.includes(user.target)) {
+    throw new Error(`Unknown target: '${user.target}'. Valid targets: ${VALID_TARGETS.join(', ')}`);
+  }
+
   return {
     target: user.target || DEFAULT_CONFIG.target,
-    i18n: { ...DEFAULT_CONFIG.i18n, ...user.i18n },
-    components: { ...DEFAULT_CONFIG.components, ...user.components },
+    i18n: {
+      enabled: user.i18n?.enabled ?? DEFAULT_CONFIG.i18n.enabled,
+      hookName: user.i18n?.hookName ?? DEFAULT_CONFIG.i18n.hookName,
+      importPath: user.i18n?.importPath ?? DEFAULT_CONFIG.i18n.importPath,
+    },
+    components: {
+      uiLibrary: user.components?.uiLibrary ?? DEFAULT_CONFIG.components.uiLibrary,
+      componentRoot: user.components?.componentRoot ?? DEFAULT_CONFIG.components.componentRoot,
+      mappings: { ...DEFAULT_CONFIG.components.mappings, ...user.components?.mappings },
+    },
     colors: { ...DEFAULT_CONFIG.colors, ...user.colors },
-    output: { ...DEFAULT_CONFIG.output, ...user.output },
+    output: {
+      outDir: user.output?.outDir ?? DEFAULT_CONFIG.output.outDir,
+      sourceMaps: user.output?.sourceMaps ?? DEFAULT_CONFIG.output.sourceMaps,
+    },
   };
+}
+
+/** @deprecated Use resolveConfig instead */
+export function mergeConfig(user: Partial<KernConfig>): KernConfig {
+  return resolveConfig(user);
 }

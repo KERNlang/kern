@@ -1,5 +1,11 @@
 import type { IRNode, TranspileResult, SourceMapEntry } from './types.js';
-import { STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
+import type { ResolvedKernConfig } from './config.js';
+import { stylesToTailwind, colorToTw } from './styles-tailwind.js';
+import { countTokens, serializeIR, camelKey, escapeJsx } from './utils.js';
+
+// ── Active config for current transpilation run ─────────────────────────
+
+let _activeConfig: ResolvedKernConfig | undefined;
 
 /**
  * Next.js App Router Transpiler
@@ -11,97 +17,6 @@ import { STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
  * - next/link, next/image, next/navigation imports
  * - Multi-file output via TranspileResult.files
  */
-
-// Re-use Tailwind style logic
-// ── Style-to-Tailwind (copied core, kept DRY via shared helpers) ────────
-
-function stylesToTailwind(styles: Record<string, string>): string {
-  const classes: string[] = [];
-  for (const [key, val] of Object.entries(styles)) {
-    const expanded = STYLE_SHORTHANDS[key] || key;
-    const v = VALUE_SHORTHANDS[val] || val;
-    switch (expanded) {
-      case 'padding': classes.push(pxToTw('p', v)); break;
-      case 'paddingTop': classes.push(pxToTw('pt', v)); break;
-      case 'paddingBottom': classes.push(pxToTw('pb', v)); break;
-      case 'paddingLeft': classes.push(pxToTw('pl', v)); break;
-      case 'paddingRight': classes.push(pxToTw('pr', v)); break;
-      case 'margin': classes.push(pxToTw('m', v)); break;
-      case 'marginTop': classes.push(pxToTw('mt', v)); break;
-      case 'marginBottom': classes.push(pxToTw('mb', v)); break;
-      case 'marginLeft': classes.push(pxToTw('ml', v)); break;
-      case 'marginRight': classes.push(pxToTw('mr', v)); break;
-      case 'backgroundColor': classes.push(colorToTw('bg', v)); break;
-      case 'color': classes.push(colorToTw('text', v)); break;
-      case 'fontSize': classes.push(fsTw(v)); break;
-      case 'fontWeight': classes.push(fwTw(v)); break;
-      case 'borderRadius': classes.push(pxToTw('rounded', v)); break;
-      case 'width': v === '100%' ? classes.push('w-full') : classes.push(`w-[${addPx(v)}]`); break;
-      case 'height': v === '100%' ? classes.push('h-full') : classes.push(`h-[${addPx(v)}]`); break;
-      case 'justifyContent':
-        if (v === 'space-between') classes.push('justify-between');
-        else if (v === 'space-around') classes.push('justify-around');
-        else if (v === 'center') classes.push('justify-center');
-        else if (v === 'flex-end') classes.push('justify-end');
-        else classes.push('justify-start');
-        break;
-      case 'alignItems':
-        if (v === 'center') classes.push('items-center');
-        else if (v === 'flex-start') classes.push('items-start');
-        else if (v === 'flex-end') classes.push('items-end');
-        else if (v === 'stretch') classes.push('items-stretch');
-        break;
-      case 'flexDirection': if (v === 'row') classes.push('flex-row'); break;
-      case 'flex': classes.push(`flex-${v}`); break;
-      case 'gap': classes.push(pxToTw('gap', v)); break;
-      case 'borderColor': classes.push(colorToTw('border', v)); break;
-      case 'borderWidth': classes.push('border'); break;
-      case 'overflow': classes.push(`overflow-${v}`); break;
-      default:
-        const twVal = v.replace(/ /g, '_');
-        classes.push(`[${cssKebab(expanded)}:${twVal}]`);
-    }
-  }
-  return classes.join(' ');
-}
-
-function pxToTw(prefix: string, v: string): string {
-  const n = Number(v);
-  if (isNaN(n)) return `${prefix}-[${v}]`;
-  if (prefix === 'rounded') {
-    const m: Record<number, string> = { 0: 'rounded-none', 2: 'rounded-sm', 4: 'rounded', 6: 'rounded-md', 8: 'rounded-lg', 12: 'rounded-xl', 16: 'rounded-2xl' };
-    return m[n] || `rounded-[${n}px]`;
-  }
-  const m: Record<number, string> = { 0: '0', 1: 'px', 2: '0.5', 4: '1', 6: '1.5', 8: '2', 10: '2.5', 12: '3', 14: '3.5', 16: '4', 20: '5', 24: '6', 28: '7', 32: '8', 36: '9', 40: '10', 44: '11', 48: '12' };
-  return m[n] !== undefined ? `${prefix}-${m[n]}` : `${prefix}-[${n}px]`;
-}
-
-function colorToTw(prefix: string, v: string): string {
-  const m: Record<string, string> = {
-    '#18181b': `${prefix}-zinc-900`, '#27272a': `${prefix}-zinc-800`, '#3f3f46': `${prefix}-zinc-700`,
-    '#52525b': `${prefix}-zinc-600`, '#71717a': `${prefix}-zinc-500`, '#a1a1aa': `${prefix}-zinc-400`,
-    '#d4d4d8': `${prefix}-zinc-300`, '#e4e4e7': `${prefix}-zinc-200`, '#f4f4f5': `${prefix}-zinc-100`,
-    '#09090b': `${prefix}-zinc-950`, '#ffffff': `${prefix}-white`, '#fff': `${prefix}-white`, '#FFF': `${prefix}-white`,
-    '#f97316': `${prefix}-orange-500`, '#ea580c': `${prefix}-orange-600`, '#F8F9FA': `${prefix}-gray-50`,
-  };
-  return m[v] || `${prefix}-[${v}]`;
-}
-
-function fsTw(v: string): string {
-  const m: Record<string, string> = { '12': 'text-xs', '14': 'text-sm', '16': 'text-base', '18': 'text-lg', '20': 'text-xl', '24': 'text-2xl', '30': 'text-3xl' };
-  return m[v] || `text-[${v}px]`;
-}
-
-function fwTw(v: string): string {
-  const m: Record<string, string> = { '400': 'font-normal', '500': 'font-medium', '600': 'font-semibold', '700': 'font-bold', '800': 'font-extrabold', 'bold': 'font-bold', 'medium': 'font-medium', 'semibold': 'font-semibold' };
-  return m[v] || `font-[${v}]`;
-}
-
-function addPx(v: string): string { const n = Number(v); return isNaN(n) ? v : `${n}px`; }
-function cssKebab(s: string): string { return s.replace(/([A-Z])/g, '-$1').toLowerCase(); }
-function countTokens(text: string): number { return text.split(/[\s{}()\[\];,.<>:='"]+/).filter(Boolean).length; }
-function camelKey(text: string): string { return text.toLowerCase().replace(/[^a-z0-9]+(.)/g, (_, c) => c.toUpperCase()).replace(/[^a-zA-Z0-9]/g, ''); }
-function escapeJsx(s: string): string { return s.replace(/'/g, "\\'"); }
 
 // ── Next.js specific types ──────────────────────────────────────────────
 
@@ -130,7 +45,7 @@ function getProps(node: IRNode): Record<string, unknown> { return node.props || 
 function getStyles(node: IRNode): Record<string, string> { return (getProps(node).styles as Record<string, string>) || {}; }
 
 function twClasses(node: IRNode, extra: string = ''): string {
-  const tw = stylesToTailwind(getStyles(node));
+  const tw = stylesToTailwind(getStyles(node), _activeConfig?.colors);
   const parts = [tw, extra].filter(Boolean);
   return parts.length > 0 ? ` className="${parts.join(' ')}"` : '';
 }
@@ -236,7 +151,7 @@ function renderCard(node: IRNode, ctx: Ctx, indent: string): void {
   const styles = getStyles(node);
   const border = styles.border;
   delete styles.border;
-  const extra = border ? `border ${colorToTw('border', border)}` : '';
+  const extra = border ? `border ${colorToTw('border', border, _activeConfig?.colors)}` : '';
   ctx.lines.push(`${indent}<div${twClasses(node, extra)}>`);
   renderChildren(node, ctx, indent);
   ctx.lines.push(`${indent}</div>`);
@@ -346,7 +261,16 @@ function renderProgress(node: IRNode, ctx: Ctx, indent: string): void {
 
 // ── Main export ─────────────────────────────────────────────────────────
 
-export function transpileNextjs(root: IRNode): NextTranspileResult {
+export function transpileNextjs(root: IRNode, config?: ResolvedKernConfig): NextTranspileResult {
+  _activeConfig = config;
+  try {
+  return _transpileNextjsInner(root, config);
+  } finally {
+    _activeConfig = undefined;
+  }
+}
+
+function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextTranspileResult {
   const ctx: Ctx = {
     lines: [],
     sourceMap: [],
@@ -392,11 +316,13 @@ export function transpileNextjs(root: IRNode): NextTranspileResult {
   }
 
   // Component imports
+  const uiLib = config?.components?.uiLibrary ?? '@/components/ui';
+  const compRoot = config?.components?.componentRoot ?? '@/components';
   if (ctx.componentImports.size > 0) {
     const uiImports = [...ctx.componentImports].filter(c => ['Icon', 'Button'].includes(c));
     const others = [...ctx.componentImports].filter(c => !['Icon', 'Button'].includes(c));
-    if (uiImports.length > 0) code.push(`import { ${uiImports.join(', ')} } from '@/components/ui';`);
-    for (const imp of others) code.push(`import { ${imp} } from '@/components/${imp}';`);
+    if (uiImports.length > 0) code.push(`import { ${uiImports.join(', ')} } from '${uiLib}';`);
+    for (const imp of others) code.push(`import { ${imp} } from '${compRoot}/${imp}';`);
   }
 
   if (code.length > 0 && code[code.length - 1] !== '') code.push('');
@@ -449,18 +375,3 @@ export function transpileNextjs(root: IRNode): NextTranspileResult {
   };
 }
 
-function serializeIR(node: IRNode, indent = ''): string {
-  let line = `${indent}${node.type}`;
-  const props = node.props || {};
-  for (const [k, v] of Object.entries(props)) {
-    if (['styles', 'pseudoStyles', 'themeRefs'].includes(k)) continue;
-    line += ` ${k}=${typeof v === 'string' && v.includes(' ') ? `"${v}"` : v}`;
-  }
-  if (props.styles) {
-    const pairs = Object.entries(props.styles as Record<string, string>).map(([k, v]) => `${k}:${v}`).join(',');
-    line += ` {${pairs}}`;
-  }
-  let result = line + '\n';
-  if (node.children) for (const child of node.children) result += serializeIR(child, indent + '  ');
-  return result;
-}

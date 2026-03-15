@@ -12,7 +12,16 @@
     "dist",
     "kern.config.ts"
   ],
-  "keywords": ["kern", "llm", "ir", "transpiler", "react", "nextjs", "react-native", "tailwind"],
+  "keywords": [
+    "kern",
+    "llm",
+    "ir",
+    "transpiler",
+    "react",
+    "nextjs",
+    "react-native",
+    "tailwind"
+  ],
   "license": "MIT",
   "scripts": {
     "build": "tsc",
@@ -21,10 +30,13 @@
     "fitness": "npm test"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
+    "@types/jest": "^29.5.0",
     "@types/node": "^22.0.0",
     "jest": "^29.7.0",
     "ts-jest": "^29.3.0",
-    "@types/jest": "^29.5.0"
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "jiti": "^2.6.1"
   }
 }

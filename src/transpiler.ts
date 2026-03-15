@@ -1,5 +1,7 @@
 import type { IRNode, TranspileResult, SourceMapEntry } from './types.js';
-import { STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
+import type { ResolvedKernConfig } from './config.js';
+import { expandStyles } from './styles-react.js';
+import { countTokens, serializeIR } from './utils.js';
 
 const NODE_TO_COMPONENT: Record<string, string> = {
   screen: 'View',
@@ -21,25 +23,6 @@ const NODE_TO_COMPONENT: Record<string, string> = {
   header: 'View',
 };
 
-function expandStyleKey(key: string): string {
-  return STYLE_SHORTHANDS[key] || key;
-}
-
-function expandStyleValue(value: string): string | number {
-  if (VALUE_SHORTHANDS[value]) return VALUE_SHORTHANDS[value];
-  const num = Number(value);
-  if (!isNaN(num) && value !== '') return num;
-  return value;
-}
-
-function expandStyles(styles: Record<string, string>): Record<string, string | number> {
-  const result: Record<string, string | number> = {};
-  for (const [k, v] of Object.entries(styles)) {
-    result[expandStyleKey(k)] = expandStyleValue(v);
-  }
-  return result;
-}
-
 function styleToString(styles: Record<string, string | number>, indent: string): string {
   const entries = Object.entries(styles);
   if (entries.length === 0) return '{}';
@@ -50,12 +33,7 @@ function styleToString(styles: Record<string, string | number>, indent: string):
   return `{\n${lines.join('\n')}\n${indent}}`;
 }
 
-function countTokens(text: string): number {
-  // Approximate token count: split on whitespace and punctuation
-  return text.split(/[\s{}()\[\];,.<>:='"]+/).filter(Boolean).length;
-}
-
-export function transpile(root: IRNode): TranspileResult {
+export function transpile(root: IRNode, _config?: ResolvedKernConfig): TranspileResult {
   const sourceMap: SourceMapEntry[] = [];
   const styleEntries: Record<string, Record<string, string | number>> = {};
   let styleIdx = 0;
@@ -264,28 +242,3 @@ export function transpile(root: IRNode): TranspileResult {
   };
 }
 
-function serializeIR(node: IRNode, indent = ''): string {
-  let line = `${indent}${node.type}`;
-  const props = node.props || {};
-  for (const [k, v] of Object.entries(props)) {
-    if (k === 'styles' || k === 'pseudoStyles' || k === 'themeRefs') continue;
-    line += ` ${k}=${typeof v === 'string' && v.includes(' ') ? `"${v}"` : v}`;
-  }
-  if (props.styles) {
-    const pairs = Object.entries(props.styles as Record<string, string>)
-      .map(([k, v]) => `${k}:${v}`).join(',');
-    line += ` {${pairs}}`;
-  }
-  if (props.themeRefs) {
-    for (const ref of props.themeRefs as string[]) {
-      line += ` $${ref}`;
-    }
-  }
-  let result = line + '\n';
-  if (node.children) {
-    for (const child of node.children) {
-      result += serializeIR(child, indent + '  ');
-    }
-  }
-  return result;
-}
