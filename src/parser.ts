@@ -58,6 +58,24 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
       }
     }
 
+    // Prop: key={{ expression }}
+    const exprPropMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)=\{\{/);
+    if (exprPropMatch) {
+      const key = exprPropMatch[1];
+      rest = rest.slice(exprPropMatch[0].length);
+      // Find matching }}
+      let depth = 1;
+      let j = 0;
+      for (; j < rest.length - 1; j++) {
+        if (rest[j] === '{' && rest[j + 1] === '{') { depth++; j++; }
+        else if (rest[j] === '}' && rest[j + 1] === '}') { depth--; j++; if (depth === 0) break; }
+      }
+      const expr = rest.slice(0, j - 1).trim();
+      rest = rest.slice(j + 1);
+      props[key] = { __expr: true, code: expr };
+      continue;
+    }
+
     // Prop: key=value or key="quoted value"
     const propMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)=/);
     if (propMatch) {
@@ -68,6 +86,19 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
         const endQuote = rest.indexOf('"', 1);
         value = rest.slice(1, endQuote);
         rest = rest.slice(endQuote + 1);
+      } else if (rest.startsWith('{{')) {
+        // Bare expression without key= prefix (e.g. value={{ x }})
+        rest = rest.slice(2);
+        let depth = 1;
+        let j = 0;
+        for (; j < rest.length - 1; j++) {
+          if (rest[j] === '{' && rest[j + 1] === '{') { depth++; j++; }
+          else if (rest[j] === '}' && rest[j + 1] === '}') { depth--; j++; if (depth === 0) break; }
+        }
+        const expr = rest.slice(0, j - 1).trim();
+        rest = rest.slice(j + 1);
+        props[key] = { __expr: true, code: expr };
+        continue;
       } else {
         const endMatch = rest.match(/^[^\s{$]+/);
         value = endMatch ? endMatch[0] : '';
@@ -167,6 +198,42 @@ export function parse(source: string): IRNode {
   const parsed: ParsedLine[] = [];
 
   for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+
+    // Handle logic <<< ... >>> multi-line blocks
+    if (trimmed.startsWith('logic <<<')) {
+      const indent = lines[i].search(/\S/);
+      const codeLines: string[] = [];
+      const startLine = i + 1;
+      // Check if inline close on same line
+      const afterOpen = trimmed.slice(9);
+      if (afterOpen.includes('>>>')) {
+        codeLines.push(afterOpen.split('>>>')[0]);
+      } else {
+        i++;
+        while (i < lines.length && !lines[i].includes('>>>')) {
+          codeLines.push(lines[i]);
+          i++;
+        }
+        // Capture text before >>> on closing line
+        if (i < lines.length) {
+          const closeLine = lines[i];
+          const closeIdx = closeLine.indexOf('>>>');
+          if (closeIdx > 0) codeLines.push(closeLine.slice(0, closeIdx));
+        }
+      }
+      parsed.push({
+        indent: indent / 2,
+        type: 'logic',
+        props: { code: codeLines.join('\n').trim() },
+        styles: {},
+        pseudoStyles: {},
+        themeRefs: [],
+        loc: { line: startLine, col: indent + 1 },
+      });
+      continue;
+    }
+
     const p = parseLine(lines[i], i + 1);
     if (p) parsed.push(p);
   }

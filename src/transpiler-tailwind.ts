@@ -133,13 +133,20 @@ function countTokens(text: string): number {
   return text.split(/[\s{}()\[\];,.<>:='"]+/).filter(Boolean).length;
 }
 
+interface StateDecl {
+  name: string;
+  initial: string;
+}
+
 interface CodeBuilder {
   lines: string[];
   sourceMap: SourceMapEntry[];
   imports: Set<string>;
-  hooks: Map<string, string>; // hookName -> initialValue
+  hooks: Map<string, string>;
   componentImports: Set<string>;
   storeHooks: Set<string>;
+  stateDecls: StateDecl[];
+  logicBlocks: string[];
 }
 
 function getProps(node: IRNode): Record<string, unknown> {
@@ -167,6 +174,14 @@ function renderNode(node: IRNode, ctx: CodeBuilder, indent: string): void {
   ctx.sourceMap.push({ irLine, irCol: node.loc?.col || 1, outLine: ctx.lines.length + 1, outCol: 1 });
 
   switch (node.type) {
+    case 'state':
+      // Collect state declarations — rendered as useState in component header
+      ctx.stateDecls.push({ name: p.name as string, initial: p.initial as string });
+      return;
+    case 'logic':
+      // Collect logic blocks — rendered before return statement
+      ctx.logicBlocks.push(p.code as string);
+      return;
     case 'screen':
       renderScreen(node, ctx, indent);
       break;
@@ -329,24 +344,31 @@ function renderCol(node: IRNode, ctx: CodeBuilder, indent: string): void {
   ctx.lines.push(`${indent}</div>`);
 }
 
+function isExpr(v: unknown): v is { __expr: true; code: string } {
+  return typeof v === 'object' && v !== null && '__expr' in v;
+}
+
 function renderText(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  const value = p.value as string;
+  const rawValue = p.value;
   const bind = p.bind as string;
   const format = p.format as string;
   const key = p.key as string;
   const tag = p.tag as string || 'span';
-  const el = tag === 'p' ? 'p' : tag === 'label' ? 'label' : 'span';
+  const el = tag === 'p' ? 'p' : tag === 'h1' ? 'h1' : tag === 'h2' ? 'h2' : tag === 'h3' ? 'h3' : tag === 'label' ? 'label' : 'span';
 
   const tw = twClasses(node);
 
-  if (bind) {
+  if (isExpr(rawValue)) {
+    ctx.lines.push(`${indent}<${el}${tw}>{${rawValue.code}}</${el}>`);
+  } else if (bind) {
     if (format) {
       ctx.lines.push(`${indent}<${el}${tw}>{${bindExpr(bind, format)}}</${el}>`);
     } else {
       ctx.lines.push(`${indent}<${el}${tw}>{${bindVar(bind)}}</${el}>`);
     }
-  } else if (value) {
+  } else if (rawValue) {
+    const value = rawValue as string;
     const i18nKey = key || camelKey(value);
     ctx.lines.push(`${indent}<${el}${tw}>{t('${i18nKey}', '${escapeJsx(value)}')}</${el}>`);
   }
@@ -574,11 +596,15 @@ function bindSetter(bind: string): string {
   return `set${bind.charAt(0).toUpperCase() + bind.slice(1)}`;
 }
 
-function irConditionToJs(cond: string): string {
+function irConditionToJs(cond: unknown): string {
+  // Handle expression objects from {{ }}
+  if (typeof cond === 'object' && cond !== null && '__expr' in cond) {
+    return (cond as { code: string }).code;
+  }
   // "isPro" → isPro
   // "!isPro" → !isPro
   // "isPro&perStemMode=manual" → isPro && perStemMode === 'manual'
-  return cond
+  return String(cond)
     .replace(/&/g, ' && ')
     .replace(/([a-zA-Z_]+)=([a-zA-Z_]+)/g, "$1 === '$2'");
 }
@@ -593,17 +619,33 @@ export function transpileTailwind(root: IRNode): TranspileResult {
     hooks: new Map(),
     componentImports: new Set(),
     storeHooks: new Set(),
+    stateDecls: [],
+    logicBlocks: [],
   };
 
-  // Render JSX tree
+  // Render JSX tree (state/logic nodes are collected, not rendered)
   renderNode(root, ctx, '    ');
 
   const name = (root.props?.name as string) || 'Component';
+  const hasState = ctx.stateDecls.length > 0;
+  const hasLogic = ctx.logicBlocks.length > 0;
 
   // Build output
   const code: string[] = [];
   code.push(`'use client';`);
   code.push('');
+
+  // React imports
+  const reactImports: string[] = [];
+  if (hasState) reactImports.push('useState');
+  if (hasLogic && ctx.logicBlocks.some(b => b.includes('useEffect'))) reactImports.push('useEffect');
+  if (hasLogic && ctx.logicBlocks.some(b => b.includes('useCallback'))) reactImports.push('useCallback');
+  if (hasLogic && ctx.logicBlocks.some(b => b.includes('useMemo'))) reactImports.push('useMemo');
+  if (hasLogic && ctx.logicBlocks.some(b => b.includes('useRef'))) reactImports.push('useRef');
+  if (reactImports.length > 0) {
+    code.push(`import React, { ${reactImports.join(', ')} } from 'react';`);
+  }
+
   code.push(`import { useTranslation } from 'react-i18next';`);
 
   if (ctx.componentImports.size > 0) {
@@ -621,6 +663,26 @@ export function transpileTailwind(root: IRNode): TranspileResult {
   code.push('');
   code.push(`export function ${name}() {`);
   code.push(`  const { t } = useTranslation();`);
+
+  // Generate useState declarations
+  for (const s of ctx.stateDecls) {
+    const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
+    const init = s.initial === 'true' ? 'true' : s.initial === 'false' ? 'false' : isNaN(Number(s.initial)) ? `'${s.initial}'` : s.initial;
+    // Check if initial is an expression
+    const initProp = (root.children?.find(c => c.type === 'state' && c.props?.name === s.name)?.props?.initial);
+    const isExpr = typeof initProp === 'object' && initProp !== null && '__expr' in (initProp as object);
+    const initVal = isExpr ? (initProp as { code: string }).code : init;
+    code.push(`  const [${s.name}, ${setter}] = useState(${initVal});`);
+  }
+
+  // Generate logic blocks
+  for (const block of ctx.logicBlocks) {
+    code.push('');
+    for (const line of block.split('\n')) {
+      code.push(`  ${line}`);
+    }
+  }
+
   code.push('');
   code.push('  return (');
   code.push(...ctx.lines);

@@ -6,7 +6,7 @@ export default {
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   transform: {
-    '^.+\\.tsx?$': ['ts-jest', { useESM: true }],
+    '^.+\\.tsx?$': ['ts-jest', { useESM: true, tsconfig: { module: 'es2022', moduleResolution: 'bundler' } }],
   },
   testMatch: ['**/*.test.ts'],
 };
