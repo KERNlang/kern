@@ -1,13 +1,25 @@
 {
   "name": "kern-lang",
-  "version": "1.0.0-rc.1",
-  "description": "Kern — the LLM-native language. Swiss-engineered IR that transpiles to React, Next.js, and React Native.",
+  "version": "1.0.0",
+  "description": "Kern — the LLM-native language. Swiss-engineered IR that transpiles to React, Next.js, Express, and React Native.",
   "type": "module",
   "bin": {
     "kern": "./dist/cli.js"
   },
-  "main": "./dist/parser.js",
-  "types": "./dist/parser.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./parser": "./dist/parser.js",
+    "./config": "./dist/config.js",
+    "./metrics": "./dist/metrics.js",
+    "./context-export": "./dist/context-export.js",
+    "./transpiler": "./dist/transpiler.js",
+    "./transpiler-web": "./dist/transpiler-web.js",
+    "./transpiler-tailwind": "./dist/transpiler-tailwind.js",
+    "./transpiler-nextjs": "./dist/transpiler-nextjs.js",
+    "./transpiler-express": "./dist/transpiler-express.js"
+  },
   "files": [
     "dist",
     "kern.config.ts"
@@ -20,7 +32,8 @@
     "react",
     "nextjs",
     "react-native",
-    "tailwind"
+    "tailwind",
+    "express"
   ],
   "license": "MIT",
   "scripts": {
