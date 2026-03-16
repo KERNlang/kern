@@ -1,0 +1,13 @@
+type name=Product values="physical|digital|subscription"
+
+swr-hook hookName=useProducts cacheKey="/api/products" fetcher=apiFetcher
+  handler <<<
+    const formatted = data?.map(formatProduct);
+  >>>
+
+swr-hook hookName=useCart cacheKey="/api/cart"
+
+arrow-fn name=formatProduct params="p: Product" returnType=": string"
+  handler <<<
+    return p.name;
+  >>>

@@ -1,0 +1,18 @@
+template name=swr-hook
+  slot name=hookName type=identifier
+  slot name=cacheKey type=expr
+  slot name=fetcher type=expr optional=true default=defaultFetcher
+  slot name=returnType type=type optional=true
+  import from=swr names=useSWR
+  body <<<
+    export function {{hookName}}() {
+      const { data, error, isLoading } = useSWR(
+        {{cacheKey}},
+        {{fetcher}}
+      );
+
+      {{CHILDREN}}
+
+      return { data, error, isLoading };
+    }
+  >>>

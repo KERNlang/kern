@@ -1,0 +1,34 @@
+{
+  "name": "kern-lang",
+  "version": "2.0.0",
+  "description": "The language LLMs think in. Write one .kern file, ship 7 targets. 70% fewer tokens.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": "./dist/index.js" },
+  "files": ["dist"],
+  "keywords": [
+    "kern", "llm", "ir", "transpiler", "react", "nextjs",
+    "react-native", "tailwind", "express"
+  ],
+  "author": "cukas",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cukas/KERNlang.git"
+  },
+  "homepage": "https://github.com/cukas/KERNlang#readme",
+  "license": "AGPL-3.0",
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@kern/core": "workspace:*",
+    "@kern/protocol": "workspace:*",
+    "@kern/react": "workspace:*",
+    "@kern/native": "workspace:*",
+    "@kern/express": "workspace:*",
+    "@kern/cli": "workspace:*",
+    "@kern/terminal": "workspace:*",
+    "@kern/metrics": "workspace:*"
+  }
+}

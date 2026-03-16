@@ -1,0 +1,253 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200" viewBox="0 0 800 200" role="img" aria-labelledby="title desc">
+  <title id="title">KERN animated banner</title>
+  <desc id="desc">Dark Swiss-inspired banner showing a central .kern source radiating to React, Next.js, Vue, Nuxt, Tailwind, React Native, Express, CLI, and Terminal targets with CSS-only animation.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#0a0f15"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="76%" cy="50%" r="54%">
+      <stop offset="0%" stop-color="#ff6b6b" stop-opacity="0.16"/>
+      <stop offset="45%" stop-color="#ff6b6b" stop-opacity="0.04"/>
+      <stop offset="100%" stop-color="#ff6b6b" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="beamGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ff6b6b"/>
+      <stop offset="55%" stop-color="#ffb0b0"/>
+      <stop offset="100%" stop-color="#f0f6fc"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ff6b6b"/>
+      <stop offset="100%" stop-color="#ff8e8e"/>
+    </linearGradient>
+    <filter id="softShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="10" flood-color="#ff6b6b" flood-opacity="0.12"/>
+    </filter>
+    <style>
+      text { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+      .grid line { stroke: #161b22; stroke-width: 1; shape-rendering: crispEdges; }
+      .guide { stroke: #ff6b6b; stroke-opacity: 0.14; stroke-width: 1; }
+      .caption { fill: #ff7b72; font-size: 10px; font-weight: 700; letter-spacing: 2.2px; }
+      .title { fill: #f0f6fc; font-size: 54px; font-weight: 700; letter-spacing: 0.4px; }
+      .tagline { fill: #c9d1d9; font-size: 16px; font-weight: 500; }
+      .tiny { fill: #8b949e; font-size: 8px; font-weight: 700; letter-spacing: 1.5px; }
+      .beam-soft { fill: none; stroke: #f0f6fc; stroke-opacity: 0.08; stroke-width: 7; stroke-linecap: round; }
+      .beam { fill: none; stroke: url(#beamGrad); stroke-width: 1.5; stroke-linecap: round; stroke-dasharray: 4 9; animation: flow 4.8s linear infinite; }
+      .target { transform-box: fill-box; transform-origin: center; }
+      .target rect { fill: #11161d; stroke: #30363d; stroke-width: 1; }
+      .target text { fill: #f0f6fc; font-size: 11px; font-weight: 600; }
+      .source-outline { animation: ring 3.6s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .badge { transform-box: fill-box; transform-origin: left center; }
+      .pulse-dot { animation: dot 2.8s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+      .t1 { animation: fan1 4.7s ease-in-out infinite; }
+      .t2 { animation: fan2 4.9s ease-in-out infinite; }
+      .t3 { animation: fan3 4.6s ease-in-out infinite; }
+      .t4 { animation: fan4 5.1s ease-in-out infinite; }
+      .t5 { animation: fan5 4.8s ease-in-out infinite; }
+      .t6 { animation: fan6 5s ease-in-out infinite; }
+      .t7 { animation: fan7 4.5s ease-in-out infinite; }
+      .t8 { animation: fan8 4.9s ease-in-out infinite; }
+      .t9 { animation: fan9 5.2s ease-in-out infinite; }
+      @keyframes flow {
+        to { stroke-dashoffset: -78; }
+      }
+      @keyframes ring {
+        0%, 100% { opacity: 0.24; transform: scale(0.98); }
+        50% { opacity: 0.68; transform: scale(1.04); }
+      }
+      @keyframes dot {
+        0%, 100% { opacity: 0.86; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.8); }
+      }
+      @keyframes fan1 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50% { transform: translate(-4px, -2px) scale(1.02); }
+      }
+      @keyframes fan2 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50% { transform: translate(-2px, -4px) scale(1.02); }
+      }
+      @keyframes fan3 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50% { transform: translate(2px, -4px) scale(1.02); }
+      }
+      @keyframes fan4 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50% { transform: translate(5px, -2px) scale(1.02); }
+      }
+      @keyframes fan5 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50% { transform: translate(5px, 2px) scale(1.02); }
+      }
+      @keyframes fan6 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50% { transform: translate(4px, 4px) scale(1.02); }
+      }
+      @keyframes fan7 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50% { transform: translate(0, 5px) scale(1.02); }
+      }
+      @keyframes fan8 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50% { transform: translate(-3px, 4px) scale(1.02); }
+      }
+      @keyframes fan9 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50% { transform: translate(-5px, 1px) scale(1.02); }
+      }
+    </style>
+  </defs>
+
+  <rect width="800" height="200" fill="url(#bg)"/>
+  <rect width="800" height="200" fill="url(#glow)"/>
+
+  <g class="grid">
+    <line x1="24" y1="0" x2="24" y2="200"/>
+    <line x1="64" y1="0" x2="64" y2="200"/>
+    <line x1="104" y1="0" x2="104" y2="200"/>
+    <line x1="144" y1="0" x2="144" y2="200"/>
+    <line x1="184" y1="0" x2="184" y2="200"/>
+    <line x1="224" y1="0" x2="224" y2="200"/>
+    <line x1="264" y1="0" x2="264" y2="200"/>
+    <line x1="304" y1="0" x2="304" y2="200"/>
+    <line x1="344" y1="0" x2="344" y2="200"/>
+    <line x1="384" y1="0" x2="384" y2="200"/>
+    <line x1="424" y1="0" x2="424" y2="200"/>
+    <line x1="464" y1="0" x2="464" y2="200"/>
+    <line x1="504" y1="0" x2="504" y2="200"/>
+    <line x1="544" y1="0" x2="544" y2="200"/>
+    <line x1="584" y1="0" x2="584" y2="200"/>
+    <line x1="624" y1="0" x2="624" y2="200"/>
+    <line x1="664" y1="0" x2="664" y2="200"/>
+    <line x1="704" y1="0" x2="704" y2="200"/>
+    <line x1="744" y1="0" x2="744" y2="200"/>
+    <line x1="784" y1="0" x2="784" y2="200"/>
+    <line x1="0" y1="20" x2="800" y2="20"/>
+    <line x1="0" y1="52" x2="800" y2="52"/>
+    <line x1="0" y1="84" x2="800" y2="84"/>
+    <line x1="0" y1="116" x2="800" y2="116"/>
+    <line x1="0" y1="148" x2="800" y2="148"/>
+    <line x1="0" y1="180" x2="800" y2="180"/>
+  </g>
+
+  <line class="guide" x1="40" y1="16" x2="40" y2="184"/>
+  <line class="guide" x1="492" y1="16" x2="492" y2="184"/>
+  <line class="guide" x1="280" y1="101" x2="744" y2="101"/>
+
+  <!-- Left side: branding -->
+  <text class="caption" x="48" y="30">AI WRITES CODE. KERN COMPILES IT.</text>
+  <text class="title" x="48" y="80">KERN</text>
+  <rect x="48" y="89" width="98" height="4" rx="2" fill="url(#accentGrad)"/>
+  <text class="tagline" x="48" y="114">The language LLMs think in</text>
+
+  <!-- Badge: moved below tagline, no overlap -->
+  <g class="badge" transform="translate(48 130)">
+    <rect x="0" y="0" width="154" height="24" rx="12" fill="#11161d" stroke="#ff6b6b" stroke-width="1"/>
+    <circle cx="16" cy="12" r="3.5" fill="#ff6b6b"/>
+    <text x="28" y="16" fill="#f0f6fc" font-size="11" font-weight="700">70% fewer tokens</text>
+  </g>
+
+  <!-- Sub-badge: 9 targets -->
+  <g transform="translate(48 162)">
+    <rect x="0" y="0" width="110" height="20" rx="10" fill="#11161d" stroke="#30363d" stroke-width="1"/>
+    <text x="12" y="14" fill="#8b949e" font-size="9" font-weight="600">9 targets, 1 source</text>
+  </g>
+
+  <!-- Source glow ring -->
+  <g>
+    <circle cx="492" cy="102" r="60" fill="none" stroke="#ff6b6b" stroke-opacity="0.10" class="source-outline"/>
+    <rect x="436" y="62" width="112" height="80" rx="18" fill="none" stroke="#ff6b6b" stroke-opacity="0.24" class="source-outline" style="animation-delay:-1.2s;" filter="url(#softShadow)"/>
+  </g>
+
+  <!-- Beams: 9 targets -->
+  <g>
+    <path class="beam-soft" d="M492 102 C460 80 420 52 360 30"/>
+    <path class="beam-soft" d="M492 102 C480 78 470 50 460 24"/>
+    <path class="beam-soft" d="M492 102 C530 78 570 52 620 30"/>
+    <path class="beam-soft" d="M492 102 C550 90 610 78 680 68"/>
+    <path class="beam-soft" d="M492 102 C564 100 625 106 700 112"/>
+    <path class="beam-soft" d="M492 102 C550 120 600 148 650 168"/>
+    <path class="beam-soft" d="M492 102 C490 128 484 155 476 176"/>
+    <path class="beam-soft" d="M492 102 C440 118 390 140 340 160"/>
+    <path class="beam-soft" d="M492 102 C430 100 380 92 310 80"/>
+
+    <path class="beam" d="M492 102 C460 80 420 52 360 30" style="animation-delay:-0.2s;"/>
+    <path class="beam" d="M492 102 C480 78 470 50 460 24" style="animation-delay:-0.6s;"/>
+    <path class="beam" d="M492 102 C530 78 570 52 620 30" style="animation-delay:-1.0s;"/>
+    <path class="beam" d="M492 102 C550 90 610 78 680 68" style="animation-delay:-1.4s;"/>
+    <path class="beam" d="M492 102 C564 100 625 106 700 112" style="animation-delay:-1.8s;"/>
+    <path class="beam" d="M492 102 C550 120 600 148 650 168" style="animation-delay:-2.2s;"/>
+    <path class="beam" d="M492 102 C490 128 484 155 476 176" style="animation-delay:-2.6s;"/>
+    <path class="beam" d="M492 102 C440 118 390 140 340 160" style="animation-delay:-3.0s;"/>
+    <path class="beam" d="M492 102 C430 100 380 92 310 80" style="animation-delay:-3.4s;"/>
+  </g>
+
+  <!-- 9 target nodes -->
+  <g filter="url(#softShadow)">
+    <g class="target t1">
+      <rect x="316" y="16" width="76" height="26" rx="7"/>
+      <circle cx="328" cy="29" r="2.5" fill="#ff6b6b"/>
+      <text x="337" y="33">CLI</text>
+    </g>
+
+    <g class="target t2">
+      <rect x="420" y="10" width="76" height="26" rx="7"/>
+      <circle cx="432" cy="23" r="2.5" fill="#ff6b6b"/>
+      <text x="441" y="27">React</text>
+    </g>
+
+    <g class="target t3">
+      <rect x="578" y="16" width="82" height="26" rx="7"/>
+      <circle cx="590" cy="29" r="2.5" fill="#ff6b6b"/>
+      <text x="599" y="33">Next.js</text>
+    </g>
+
+    <g class="target t4">
+      <rect x="636" y="54" width="88" height="26" rx="7"/>
+      <circle cx="648" cy="67" r="2.5" fill="#42b883"/>
+      <text x="657" y="71">Vue</text>
+    </g>
+
+    <g class="target t5">
+      <rect x="654" y="98" width="94" height="26" rx="7"/>
+      <circle cx="666" cy="111" r="2.5" fill="#42b883"/>
+      <text x="675" y="115">Nuxt</text>
+    </g>
+
+    <g class="target t6">
+      <rect x="604" y="154" width="100" height="26" rx="7"/>
+      <circle cx="616" cy="167" r="2.5" fill="#ff6b6b"/>
+      <text x="625" y="171">Tailwind</text>
+    </g>
+
+    <g class="target t7">
+      <rect x="432" y="164" width="82" height="26" rx="7"/>
+      <circle cx="444" cy="177" r="2.5" fill="#ff6b6b"/>
+      <text x="453" y="181">Terminal</text>
+    </g>
+
+    <g class="target t8">
+      <rect x="296" y="148" width="86" height="26" rx="7"/>
+      <circle cx="308" cy="161" r="2.5" fill="#ff6b6b"/>
+      <text x="317" y="165">Express</text>
+    </g>
+
+    <g class="target t9">
+      <rect x="266" y="66" width="86" height="26" rx="7"/>
+      <circle cx="278" cy="79" r="2.5" fill="#61dafb"/>
+      <text x="287" y="83">Native</text>
+    </g>
+  </g>
+
+  <!-- Source file card -->
+  <g>
+    <circle class="pulse-dot" cx="492" cy="102" r="3" fill="#ff6b6b"/>
+    <rect x="444" y="70" width="96" height="64" rx="12" fill="#11161d" stroke="#30363d" stroke-width="1.2"/>
+    <path d="M516 70 L540 94 L523 94 Q516 94 516 87 Z" fill="#161b22" stroke="#30363d" stroke-width="1.2" stroke-linejoin="round"/>
+    <text class="tiny" x="456" y="88">SOURCE</text>
+    <text x="456" y="104" fill="#f0f6fc" font-size="16" font-weight="700">app.kern</text>
+    <rect x="456" y="114" width="42" height="4" rx="2" fill="url(#accentGrad)"/>
+    <rect x="456" y="122" width="60" height="4" rx="2" fill="#30363d"/>
+    <rect x="456" y="130" width="48" height="4" rx="2" fill="#30363d"/>
+  </g>
+</svg>

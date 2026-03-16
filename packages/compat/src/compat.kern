@@ -1,0 +1,12 @@
+module name=KernCompat
+  export from="@kern/core" star=true
+  export from="@kern/protocol" star=true
+  export from="@kern/react" names="transpileTailwind,transpileNextjs,transpileWeb"
+  export from="@kern/native" names="transpile"
+  export from="@kern/express" names="transpileExpress"
+  export from="@kern/cli" names="transpileCliApp"
+  export from="@kern/terminal" names="transpileTerminal"
+  export from="@kern/metrics" names="collectLanguageMetrics,mergeMetrics,isEscapedStyleKey"
+  export from="@kern/metrics" types="LanguageMetrics,StyleMetrics,NodeTypeMetrics"
+  export from="@kern/metrics" names="scanKernProject,projectToKern"
+  export from="@kern/metrics" types="ProjectSummary"

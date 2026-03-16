@@ -1,0 +1,7 @@
+template name=zustand-selector
+  slot name=selectorName type=identifier
+  slot name=stateType type=identifier
+  slot name=field type=expr
+  body <<<
+    export const select{{selectorName}} = (s: {{stateType}}) => s.{{field}};
+  >>>

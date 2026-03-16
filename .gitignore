@@ -1,5 +1,9 @@
 node_modules/
 dist/
+packages/*/dist/
 examples/src/generated/
 examples/*.tsx
 *.min.kern
+.changeset/*.md
+.claude/settings.local.json
+.claude/docs/plans/*.md

@@ -1,0 +1,9 @@
+template name=arrow-fn
+  slot name=name type=identifier
+  slot name=params type=expr optional=true
+  slot name=returnType type=type optional=true
+  body <<<
+    export const {{name}} = ({{params}}){{returnType}} => {
+      {{CHILDREN}}
+    };
+  >>>

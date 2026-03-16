@@ -1,304 +1,383 @@
-# Kern
+<div align="center">
+  <br>
+  <img src="assets/banner.svg" alt="KERN — The language LLMs think in" width="800">
+  <br><br>
 
-**Write one `.kern` file. Ship 7 targets. Save 70% tokens.**
+  <strong>You prompt. AI writes KERN. KERN compiles to anything.</strong><br>
+  <sub>Humans never write .kern — the AI does.</sub>
 
-Kern is the language LLMs think in. A high-leverage authoring language that transpiles to production stacks you already use — and cuts AI token costs by 70% when used as a communication protocol between competing AI engines.
+  <br><br>
 
-### Why Kern exists
+  <a href="#install">Install</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#what-is-kern">What is KERN?</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#examples">Examples</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#kern-review">kern review</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#targets">10 Targets</a>
 
-LLMs are expensive. Every token costs money. When an AI generates a React component, it outputs 500+ tokens of boilerplate — imports, StyleSheet, JSX, types. When two AIs discuss an implementation, they burn thousands of tokens on verbose natural language.
+  <br><br>
+</div>
 
-Kern solves both problems:
-
-| Use case | Without Kern | With Kern | Savings |
-|---|---|---|---|
-| Generate a dashboard UI | 500+ tokens (React/TS) | 40 tokens (.kern) | **92%** |
-| AI proposes an approach | 800+ tokens (natural language) | 80 tokens (draft block) | **90%** |
-| 3 AIs brainstorm | 2,400+ tokens | 320 tokens | **87%** |
-| Express API with 4 routes | 400+ tokens | 40 tokens | **90%** |
-
-**For developers:** Write less, ship to more targets.
-**For AI systems:** Communicate in structured blocks instead of verbose prose.
-**For your wallet:** 70-90% fewer tokens = 70-90% lower API costs.
-
-```
-screen name=Dashboard {bg:#F8F9FA}
-  row {p:16,jc:sb,ai:center}
-    text value=FITVT {fs:24,fw:bold}
-    image src=avatar {w:40,h:40,br:20}
-  card {p:16,br:12,bg:#FFF,m:16}
-    progress label=Calories current=1840 target=2200 color=#FF6B6B
-    progress label=Protein current=96 target=140 color=#4ECDC4
-  button text="Log Meal" {w:full,br:8,bg:#007AFF,p:16}
-```
-
-That's 10 lines. Kern turns it into a complete React component with Tailwind classes, source maps, and token efficiency metrics. Or a Next.js page. Or a React Native screen. Or an Express API. Or a CLI. Or a terminal UI. Same source, 7 targets.
-
-## Targets
-
-| Target | Command | Generates |
-|---|---|---|
-| **Next.js** | `kern file.kern --target=nextjs` | App Router pages with metadata, `next/link`, `next/image` |
-| **Tailwind** | `kern file.kern --target=tailwind` | React + Tailwind CSS with `useState`, `useTranslation` |
-| **Web** | `kern file.kern --target=web` | React with inline CSS styles |
-| **React Native** | `kern file.kern --target=native` | React Native with `StyleSheet.create()` |
-| **Express** | `kern file.kern --target=express` | Typed Express routes with SSE streaming, child process spawn, timeouts |
-| **CLI** | `kern file.kern --target=cli` | Commander.js with typed args, flags, `parseAsync()` |
-| **Terminal** | `kern file.kern --target=terminal` | ANSI terminal UI — tables, spinners, progress bars, gradients |
+---
 
 ## Install
 
 ```bash
-npm install kern-lang
+npm install -g @kern/cli
 ```
-
-Global install for CLI usage:
 
 ```bash
-npm install -g kern-lang
+kern compile src/kern/ --outdir=src/generated/   # .kern → TypeScript
+kern app.kern --target=vue                        # .kern → Vue SFC
+kern app.kern --target=nextjs                     # .kern → Next.js page
+kern review src/ --recursive                      # Scan TS → find bugs
+kern dev src/kern/ --target=nextjs                # Watch & hot-transpile
 ```
 
-## Quick Start
+---
 
-```bash
-# Transpile to Next.js
-kern dashboard.kern --target=nextjs
+## What is KERN?
 
-# Transpile to Express API
-kern api.kern --target=express
+**KERN is a programming language designed for AI, not humans.**
 
-# Transpile to CLI app
-kern mycli.kern --target=cli
-
-# Transpile to terminal UI
-kern ui.kern --target=terminal
-
-# Show language metrics
-kern dashboard.kern --metrics
-```
-
-Or without global install:
-
-```bash
-npx kern dashboard.kern --target=nextjs
-```
-
-## Express Backend Example
+You describe what you want in plain English. The AI (Claude, Codex, Gemini) writes `.kern`. KERN compiles to clean, production-ready TypeScript — for any framework.
 
 ```
-server name=API port=3001
-  middleware name=cors
-  middleware name=json
-
-  route method=post path=/api/review
-    schema body="{diff: string}"
-    stream
-      handler <<<
-        const results = await analyze(req.body.diff);
-        for (const r of results) emit(r);
-      >>>
-
-  route method=get path=/health
-    handler <<<
-      res.json({ ok: true });
-    >>>
+Human:  "Build me a toast notification store with zustand"
+  ↓
+AI:     Writes 8 lines of .kern
+  ↓
+KERN:   Compiles to 54 lines of TypeScript
+  ↓
+Output: Working zustand store, typed interfaces, selectors
 ```
 
-Generates typed Express routes with SSE streaming, `AbortController` lifecycle, heartbeat keep-alive, and schema validation. Multi-file output via `GeneratedArtifact[]`.
+**You never touch `.kern` files.** The AI thinks in KERN because it's 70% fewer tokens than TypeScript — more code per context window, fewer hallucinations, structural guarantees.
 
-## CLI Example
+No runtime. No framework lock-in. Just a compiler.
 
-```
-cli name=mytool version=1.0.0 description="My CLI tool"
-  command name=build
-    arg name=target type=string required=true
-    flag name=watch alias=w type=boolean description="Watch mode"
-    flag name=timeout type=number default=30
-    import from="./build.js" names=runBuild
-    handler <<<
-      await runBuild(target, opts);
-    >>>
-```
+### Why the AI writes KERN instead of TypeScript directly
 
-Generates Commander.js with `parseAsync()`, `parseFloat` coercion for number flags, `requiredOption()` for required flags, per-command files.
+| | AI writes TypeScript | AI writes KERN |
+|:--|:-----|:-----|
+| **Tokens** | 1000 tokens for a store | 200 tokens (5x less) |
+| **Consistency** | Every file looks different | Same structure every time |
+| **Targets** | Locked to one framework | Compile to 9 frameworks |
+| **Review** | Read 500 lines of TS | Read 50 lines of KERN |
+| **Upgrades** | Rewrite for new versions | Re-compile, done |
 
-## Terminal UI Example
+---
 
-```
-screen name=Dashboard
-  gradient text="MY APP" colors=[208,214,220,226,228]
-  separator width=48
-  scoreboard title="Results" winner="engine-1"
-    metric name=Score values=["89","74","71"]
-    metric name=Time values=["45s","52s","38s"]
-  spinner message="Processing..." color=214
-  progress value=75 max=100 color=214
-```
+## Examples
 
-Generates pure Node.js ANSI escape codes — no dependencies. Tables, spinners, progress bars, gradients, boxes.
+### Same `.kern` source → React, Vue, or Express
 
-## Metrics
+**The KERN source** (what the AI writes):
 
-```bash
-npx kern examples/dashboard.kern --metrics
+```kern
+screen name=Settings
+  state name=darkMode initial=false
+  card {p:24,br:12}
+    text variant=h2 value="Preferences"
+    row {gap:16}
+      text value="Dark mode"
+      button text="Toggle" action="setDarkMode(!darkMode)"
 ```
 
-```
-Metrics: examples/dashboard.kern
-  Nodes:        23 (10 types)
-  Styles:       18 declarations
-  Mapped:       18 (100%)
-  Escaped:      0 (0%)
-  Shorthand:    94% coverage
-  Theme refs:   4
-```
+**→ React (`--target=tailwind`)**
 
-The metrics engine tells you exactly how much of your design system Kern handles natively vs. needs escape hatches.
+```tsx
+'use client';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
-## Configuration
+export default function Settings() {
+  const { t } = useTranslation();
+  const [darkMode, setDarkMode] = useState(false);
 
-```typescript
-// kern.config.ts
-const config: KernConfig = {
-  target: 'nextjs',
-  i18n: { enabled: true, hookName: 'useTranslation' },
-  components: { uiLibrary: '@components/ui' },
-  colors: {
-    '#18181b': 'zinc-900',
-    '#f97316': 'orange-500',
-    // your design system colors
-  },
-};
-```
-
-Config loaded via `jiti` (same as Tailwind CSS, Nuxt). CLI flags override config values.
-
-## API
-
-```typescript
-import {
-  parse,
-  transpileTailwind,
-  transpileNextjs,
-  transpileExpress,
-  transpileCliApp,
-  transpileTerminal,
-  collectLanguageMetrics,
-  resolveConfig,
-} from 'kern-lang';
-
-const ast = parse(kernSource);
-const result = transpileTailwind(ast, resolveConfig({ colors: myColors }));
-console.log(result.code);
-```
-
-## How It Was Built
-
-Kern was designed by three AI architectures — Claude (Anthropic), Codex (OpenAI), and Gemini (Google) — through competitive forge, brainstorm, and tribunal processes. Each feature was:
-
-1. **Brainstormed** — all 3 AIs propose approaches in Kern draft format
-2. **Forged** — all 3 implement independently, scored by automated fitness tests
-3. **Reviewed** — losing AIs critique the winner, bugs are fixed
-
-The Express target was forged in a 3-way competition. Codex won with typed generics and schema validation. Claude and Gemini's review caught 5 additional bugs. Every review found real issues — 9 review passes, 9 bugs caught and fixed.
-
-94 tests across 6 test suites. Zero type errors. Every commit verified.
-
-## Draft Protocol
-
-Kern isn't just a transpiler — it's a communication protocol between AI engines. The Draft Protocol lets competing AIs exchange structured proposals:
-
-```
-draft {
-  approach: "Use middleware chain with JWT validation"
-  reasoning: "Standard pattern, battle-tested"
-  tradeoffs: "adds latency", "requires secret management"
-  confidence: 82
-  keyFiles: "src/auth.ts", "src/middleware.ts"
-  steps {
-    1: "Add jsonwebtoken dependency"
-    2: "Create verifyToken middleware"
-    3: "Wire into Express app.use()"
-  }
+  return (
+    <div className="flex flex-col min-h-screen">
+      <div className="p-6 rounded-xl shadow">
+        <h2>{t('settings.preferences', 'Preferences')}</h2>
+        <div className="flex gap-4">
+          <p>{t('settings.darkMode', 'Dark mode')}</p>
+          <button onClick={() => setDarkMode(!darkMode)}>Toggle</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 ```
 
-70% fewer tokens than natural language. Structured. Rankable. Engines speak Kern.
+**→ Vue 3 (`--target=vue`)**
 
-## Token Savings — The Real Story
+```vue
+<script setup lang="ts">
+import { ref } from 'vue';
 
-Kern was born from a real problem: running 3 AI engines in parallel is expensive. Every brainstorm session, every forge competition, every code review burns tokens. At scale, this is the #1 cost driver for multi-AI systems.
+const darkMode = ref(false);
+</script>
 
-**Before Kern (natural language):**
+<template>
+  <div class="screen-0">
+    <div class="card-1">
+      <h2>Preferences</h2>
+      <div class="row-2">
+        <p>Dark mode</p>
+        <button @click="darkMode = !darkMode">Toggle</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.screen-0 { display: flex; flex-direction: column; min-height: 100vh; }
+.card-1 { padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.row-2 { display: flex; flex-direction: row; gap: 16px; }
+</style>
 ```
-I think we should implement this using a middleware chain pattern with JWT
-validation. The reasoning is that this is a standard, battle-tested approach
-that works well with Express. The main tradeoffs are that it adds latency
-per request and requires proper secret management. I'm about 82% confident
-this is the right approach. The key files we'd need to modify are
-src/auth.ts and src/middleware.ts. Here are the steps: first, add the
-jsonwebtoken dependency, then create a verifyToken middleware function,
-and finally wire it into the Express app.use() chain.
-```
-**~120 tokens**
 
-**After Kern (draft block):**
+**→ Nuxt 3 (`--target=nuxt`)** — same output but no explicit `import { ref }` (auto-imported) and page goes to `pages/settings.vue`.
+
+### State machines — 12 lines → 140+ lines
+
+```kern
+machine name=Plan
+  state name=draft
+  state name=approved
+  state name=running
+  state name=completed
+  state name=failed
+  state name=cancelled
+  transition name=approve from=draft to=approved
+  transition name=start from=approved to=running
+  transition name=cancel from="draft|approved|running|failed" to=cancelled
+  transition name=fail from="running" to=failed
 ```
-draft {
-  approach: "Use middleware chain with JWT validation"
-  reasoning: "Standard pattern, battle-tested"
-  tradeoffs: "adds latency", "requires secret management"
-  confidence: 82
-  keyFiles: "src/auth.ts", "src/middleware.ts"
-  steps {
-    1: "Add jsonwebtoken dependency"
-    2: "Create verifyToken middleware"
-    3: "Wire into Express app.use()"
+
+**Generates** typed state type, error class, and transition functions:
+
+```typescript
+export type PlanState = 'draft' | 'approved' | 'running'
+  | 'completed' | 'failed' | 'cancelled';
+
+export class PlanStateError extends Error {
+  constructor(
+    public readonly expected: string | string[],
+    public readonly actual: string,
+  ) {
+    const expectedStr = Array.isArray(expected) ? expected.join(' | ') : expected;
+    super(`Invalid plan state: expected ${expectedStr}, got ${actual}`);
   }
 }
+
+/** draft → approved */
+export function approvePlan<T extends { state: PlanState }>(entity: T): T {
+  if (entity.state !== 'draft') throw new PlanStateError('draft', entity.state);
+  return { ...entity, state: 'approved' as PlanState };
+}
+
+// + startPlan, cancelPlan, failPlan ...
 ```
-**~40 tokens** — same information, structured, parseable, rankable.
 
-**Real-world numbers from Agon (competitive AI orchestration):**
+### Zustand store — template-powered
 
-| Operation | Old (natural language) | New (Kern) | Saved |
-|---|---|---|---|
-| 3-engine brainstorm | 2,400 tokens | 320 tokens | $0.02/call |
-| Forge plan review | 1,600 tokens | 240 tokens | $0.01/call |
-| Context injection | 800 tokens | 200 tokens | $0.005/call |
-| **Daily (50 operations)** | **~240K tokens** | **~38K tokens** | **~$2/day** |
-| **Monthly** | **~7.2M tokens** | **~1.1M tokens** | **~$60/month** |
+```kern
+interface name=Toast
+  field name=id type=string
+  field name=message type=string
+  field name=type type="'success' | 'error' | 'info'"
 
-For a solo dev running multi-AI tools, that's the difference between affordable and not. For a company running thousands of operations, it's the difference between viable and bankrupt.
+interface name=ToastState
+  field name=toasts type="Toast[]"
+  field name=addToast type="(msg: string) => void"
+  field name=removeToast type="(id: string) => void"
 
-Kern isn't just a language. It's a compression algorithm for AI communication.
+zustand-store storeName=Toast stateType=ToastState
+  handler <<<
+    toasts: [],
+    addToast: (msg) => set(s => ({ toasts: [...s.toasts, { id: Date.now().toString(), message: msg, type: 'info' }] })),
+    removeToast: (id) => set(s => ({ toasts: s.toasts.filter(t => t.id !== id) })),
+  >>>
+```
+
+**Generates** typed interfaces + complete zustand store + selectors. The AI writes this in ~200 tokens. The TypeScript output is ~600 tokens.
+
+---
+
+## kern review
+
+**Scan existing TypeScript. Find bugs. No AI needed — pure AST analysis.**
+
+```bash
+kern review src/stores/toast.ts
+```
+
+```
+  @kern/review — analyzing src/stores/toast.ts
+
+  KERN-expressible (3 constructs):
+    L10-16      interface Toast (4 fields)                         (97%)
+    L18-22      interface ToastState (3 fields)                    (97%)
+
+  Suggested .kern rewrites (1):
+    zustand-store  →  zustand-store storeName=Toast stateType=ToastState (173 → 5 tokens)
+
+  Summary: 87% KERN coverage, ~218 → 70 tokens (68% reduction)
+```
+
+### 26 AST-based rules across 5 layers
+
+All rules walk the TypeScript AST — zero regex on source text, zero false positives on strings/comments.
+
+| Layer | Rules | Examples |
+|:------|:------|:--------|
+| **Base** (always active) | 12 | `floating-promise`, `memory-leak`, `state-mutation`, `empty-catch`, `machine-gap`, `config-default-mismatch` |
+| **React** | 6 | `unstable-key`, `hook-order`, `async-effect`, `stale-closure`, `render-side-effect`, `state-explosion` |
+| **Next.js** | 3 | `server-hook`, `hydration-mismatch`, `missing-use-client` |
+| **Vue** | 4 | `missing-ref-value`, `missing-onUnmounted`, `reactive-destructure`, `setup-side-effect` |
+| **Express** | 3 | `unvalidated-input`, `missing-error-middleware`, `sync-in-handler` |
+
+### Bug detection
+
+```bash
+kern review src/App.tsx
+
+  BUGS (1):
+    ! L460: [memory-leak] Effect creates addEventListener() but has no cleanup
+      Fix: Add cleanup: return () => { removeEventListener(...) }
+```
+
+### Multi-source linting: `--lint`
+
+```bash
+kern review src/ --lint        # KERN rules + ESLint + tsc diagnostics, unified output
+```
+
+Merges findings from three sources into one report with deduplication:
+- **kern** — 26 structural rules (AST-based)
+- **eslint** — if installed, runs via Node API
+- **tsc** — TypeScript compiler diagnostics
+
+### AI-assisted review: `--llm`
+
+```bash
+kern review src/ --llm         # Exports KERN IR (5x smaller than TS) for AI review
+```
+
+Builds a structured prompt with short aliases (N1, N2, ...) and handler bodies. Paste the output to any LLM. Parse the JSON response back with validated nodeId mapping.
+
+### Auto-migration: `--fix`
+
+```bash
+kern review src/ --fix         # Writes .kern files from template suggestions + roundtrip verification
+```
+
+### CI enforcement
+
+```bash
+kern review src/ --enforce --min-coverage=80     # Block PRs below threshold
+kern review --diff origin/main                    # Only changed files
+```
+
+### Real-world results
+
+| Codebase | Files | Coverage | Bugs Found | Token Reduction |
+|:---------|:------|:---------|:-----------|:----------------|
+| Zustand store layer | 14 | 99% | 1 memory leak | 74% |
+| kern-lang (self-review) | 48 | 88% | 0 | N/A |
+| audiofacets (Electron app) | 1 | 87% | 0 | 68% |
+
+---
+
+## Targets
+
+KERN compiles to **10 different targets** from the same `.kern` source:
+
+| Target | Output | Use case |
+|:-------|:-------|:---------|
+| `nextjs` | Next.js App Router pages | Full-stack web apps |
+| `tailwind` | React + Tailwind CSS | Component libraries |
+| `web` | React with inline styles | Universal web components |
+| `vue` | Vue 3 Single File Components | Vue apps |
+| `nuxt` | Nuxt 3 (pages, layouts, server routes) | Full-stack Vue apps |
+| `native` | React Native | Mobile apps |
+| `express` | Express TypeScript | APIs and backends |
+| `cli` | Commander.js | CLI tools |
+| `terminal` | ANSI terminal | TUIs and dev tools |
+
+---
+
+## Core Language Nodes
+
+11 node types that cover the full spectrum of application logic:
+
+| Node | What it does | Example |
+|:-----|:-------------|:--------|
+| `type` | Union types and aliases | `type name=Status values="ok\|error"` |
+| `interface` | Typed data structures | `interface name=User` → fields |
+| `fn` | Functions with handler blocks | `fn name=compute returns=number` |
+| `machine` | State machines with transitions | 12 lines → 140+ lines of TS |
+| `error` | Error classes with templates | `error name=NotFound message="..."` |
+| `config` | Config interfaces + defaults | `config name=Settings` → interface + defaults |
+| `store` | File-based JSON persistence | `store name=Plan` → full CRUD |
+| `test` | Vitest-compatible test suites | `test name="Unit"` → describe/it |
+| `event` | Typed event systems | `event name=AppEvent` → union + map |
+| `import` | ES module imports | Named, default, type-only |
+| `const` | Typed constant declarations | `const name=PORT type=number value=3000` |
+
+---
+
+## Template System
+
+KERN detects your project's libraries and generates matching templates:
+
+```bash
+kern init-templates    # Scans package.json → scaffolds templates
+```
+
+Supported: **Zustand**, **SWR**, **TanStack Query**, **XState**, **Jotai**, **Zod**, **tRPC**
+
+---
+
+## Version-Aware Compilation
+
+KERN auto-detects framework versions from `package.json`. Upgrade your framework, re-compile, done.
+
+| Framework change | Without KERN | With KERN |
+|:-----------------|:-------------|:----------|
+| Tailwind v3 → v4 | Rewrite classes, update config | `kern build` |
+| Next.js 14 → 15 | Update metadata API, breaking changes | `kern build` |
+
+---
+
+## Proven at Scale
+
+[Agon-AI](https://github.com/cukas/Agon-AI) — competitive AI orchestration — migrated entirely to KERN. 16 `.kern` files replaced 17 TypeScript files.
+
+| File | TypeScript | KERN | Compression |
+|:-----|:----------|:-----|:------------|
+| Types (20+ interfaces) | 293 lines | 157 lines | **1.9x** |
+| Errors (7 classes) | 77 lines | 18 lines | **4.3x** |
+| Store (CRUD operations) | 60 lines | 3 lines | **20x** |
+| **Full core package** | **~1,500 lines** | **~700 lines** | **~2x** |
+
+---
+
+## Monorepo
+
+```
+@kern/core        Parser, codegen, types — the compiler engine
+@kern/cli         CLI tool (compile, transpile, dev, review)
+@kern/react       Next.js, Tailwind, Web transpilers
+@kern/vue         Vue 3 SFC, Nuxt 3 transpilers
+@kern/review      TS → KERN inference, bug detection, enforcement
+@kern/native      React Native transpiler
+@kern/express     Express backend transpiler
+@kern/terminal    ANSI terminal transpiler
+@kern/metrics     Language coverage analysis
+@kern/protocol    AI draft communication protocol
+```
+
+---
 
 ## License
 
-**AGPL-3.0-or-later** — You are free to use, modify, and distribute Kern under the terms of the [GNU Affero General Public License v3.0](LICENSE). This means:
+**AGPL-3.0** — Swiss-engineered with precision.
 
-- If you modify Kern or build software that incorporates it, and you distribute that software or make it available over a network, you must release your source code under the same AGPL-3.0 terms.
-- This applies equally to individuals, companies, and organizations.
-
-**Commercial license:** If you want to use Kern in proprietary/closed-source software without the AGPL's source-sharing requirements, a commercial license is available. Contact [cukas](https://github.com/cukas) for details.
-
-**In practice:** Solo developers, students, and open-source projects can use Kern freely. Companies building closed-source products need a commercial license — or they can open-source their code.
-
-See [LICENSE](LICENSE) for the full text.
-
----
-
-## Contributors
-
-| Role | Who |
-|---|---|
-| **Creator & Director** | [cukas](https://github.com/cukas) |
-| **Co-Architect** | Claude (Anthropic) — Opus 4.6 |
-| **Co-Architect** | Codex (OpenAI) — GPT-5.4 |
-| **Co-Architect** | Gemini (Google) |
-
-Every feature was brainstormed by all 3 AIs, forged competitively, and cross-reviewed. 9 review passes, 9 bugs caught. The Express target was won by Codex in a 3-way forge. Engines speak Kern.
-
----
-
-**Swiss-engineered. AI-designed. Human-directed.**
+Copyright (c) 2026 cukas

@@ -1,0 +1,40 @@
+interface name=Toast
+  field name=id type=string
+  field name=message type=string
+  field name=type type="'success' | 'error' | 'info' | 'warning'"
+  field name=durationMs type=number optional=true
+
+interface name=ToastState
+  field name=toasts type="Toast[]"
+  field name=addToast type="(message: string, type?: Toast['type'], durationMs?: number) => void"
+  field name=removeToast type="(id: string) => void"
+
+zustand-store storeName=Toast stateType=ToastState
+  handler <<<
+    toasts: [],
+
+    addToast: (message, type = 'info', durationMs?: number) => {
+      const id = `toast-${Date.now()}-${Math.random()}`;
+      const toast: Toast = { id, message, type };
+
+      set((state) => ({
+        toasts: [...state.toasts, toast]
+      }));
+
+      const duration = durationMs ?? (type === 'error' ? 4000 : type === 'warning' ? 5000 : 2000);
+      setTimeout(() => {
+        set((state) => ({
+          toasts: state.toasts.filter((t) => t.id !== id)
+        }));
+      }, duration);
+    },
+
+    removeToast: (id) =>
+      set((state) => ({
+        toasts: state.toasts.filter((t) => t.id !== id)
+      }))
+  >>>
+
+zustand-selector selectorName=Toasts stateType=ToastState field=toasts
+zustand-selector selectorName=AddToast stateType=ToastState field=addToast
+zustand-selector selectorName=RemoveToast stateType=ToastState field=removeToast

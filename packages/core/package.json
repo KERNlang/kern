@@ -1,0 +1,20 @@
+{
+  "name": "@kern/core",
+  "version": "2.0.0",
+  "description": "Kern core — parser, types, spec, config, style engines, codegen",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "AGPL-3.0",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --forceExit --config jest.config.js"
+  },
+  "dependencies": {}
+}

@@ -8,5 +8,5 @@ export default {
   transform: {
     '^.+\\.tsx?$': ['ts-jest', { useESM: true, tsconfig: { module: 'es2022', moduleResolution: 'bundler' } }],
   },
-  testMatch: ['**/*.test.ts'],
+  testMatch: ['<rootDir>/tests/**/*.test.ts'],
 };

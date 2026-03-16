@@ -1,17 +1,14 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "outDir": "dist",
-    "rootDir": "src",
-    "strict": true,
-    "esModuleInterop": true,
-    "declaration": true,
-    "sourceMap": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/protocol" },
+    { "path": "packages/react" },
+    { "path": "packages/native" },
+    { "path": "packages/express" },
+    { "path": "packages/terminal" },
+    { "path": "packages/metrics" },
+    { "path": "packages/cli" },
+    { "path": "packages/compat" }
+  ]
 }

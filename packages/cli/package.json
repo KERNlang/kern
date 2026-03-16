@@ -1,0 +1,35 @@
+{
+  "name": "@kern/cli",
+  "version": "2.0.0",
+  "description": "KERN CLI — transpile, compile, minify, and analyze .kern files",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "kern": "./dist/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./transpiler-cli": "./dist/transpiler-cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "AGPL-3.0",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --forceExit --config jest.config.js"
+  },
+  "dependencies": {
+    "@kern/core": "workspace:*",
+    "@kern/express": "workspace:*",
+    "@kern/metrics": "workspace:*",
+    "@kern/native": "workspace:*",
+    "@kern/react": "workspace:*",
+    "@kern/review": "workspace:*",
+    "@kern/terminal": "workspace:*",
+    "@kern/vue": "workspace:*",
+    "chokidar": "^5.0.0",
+    "jiti": "^2.6.1"
+  }
+}

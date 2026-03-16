@@ -1,0 +1,161 @@
+import { readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+
+describe('Express Transpiler', () => {
+  test('express transpiler generates multi-file route and middleware artifacts', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileExpress } = await import('../src/transpiler-express.js');
+    const source = readFileSync(resolve(ROOT, 'examples/api-routes.kern'), 'utf-8');
+    const result = transpileExpress(parse(source));
+
+    expect(result.code).toContain(`import { verifyToken } from './middleware/auth.js';`);
+    expect(result.code).toContain(`import { registerGetApiTracksRoute } from './routes/get-api-tracks.js';`);
+    expect(result.code).toContain('app.use(cors());');
+    expect(result.code).toContain(`app.use(express.json({ limit: '1mb' }));`);
+    expect(result.artifacts).toBeDefined();
+    expect(result.artifacts?.some((artifact: any) => artifact.path === 'routes/post-api-tracks-analyze.ts')).toBe(true);
+    expect(result.artifacts?.some((artifact: any) => artifact.path === 'middleware/auth.ts')).toBe(true);
+  });
+
+  test('express transpiler emits schema guards and ignores frontend nodes', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileExpress } = await import('../src/transpiler-express.js');
+    const source = [
+      'server name=TestAPI',
+      '  button text=IgnoreMe',
+      '  route method=post path=/tracks/:id',
+      '    schema body="{trackId: string}"',
+      '    handler <<<',
+      '      res.json({ ok: true });',
+      '    >>>',
+    ].join('\n');
+
+    const result = transpileExpress(parse(source));
+    const routeArtifact = result.artifacts?.find((artifact: any) => artifact.path === 'routes/post-tracks-id.ts');
+
+    expect(routeArtifact?.content).toContain(`assertRequiredFields('params', req.params, ['id']);`);
+    expect(routeArtifact?.content).toContain(`assertRequiredFields('body', req.body, ['trackId']);`);
+    expect(routeArtifact?.content).not.toContain('IgnoreMe');
+    expect(result.code).not.toContain('IgnoreMe');
+  });
+
+  describe('Stream/Spawn/Timer', () => {
+    test('stream route generates SSE headers and emit helper', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const ast = parse('server name=Test\n  route method=post path=/api/stream\n    stream\n      handler <<<\n        emit({ type: "ping" });\n      >>>');
+      const result = transpileExpress(ast);
+
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route).toBeDefined();
+      expect(route!.content).toContain('text/event-stream');
+      expect(route!.content).toContain('flushHeaders');
+      expect(route!.content).toContain('const emit =');
+      expect(route!.content).toContain('writableEnded');
+      expect(route!.content).toContain("JSON.stringify('[DONE]')");
+      expect(route!.content).toContain('AbortController');
+      expect(route!.content).toContain('await (async');
+      expect(route!.content).toContain('keep-alive');
+      expect(route!.content).toContain('clearInterval(heartbeat)');
+    });
+
+    test('timer route generates timeout with AbortController', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const ast = parse('server name=Test\n  route method=post path=/api/test\n    timer 15\n      handler <<<\n        const r = await doWork();\n        res.json(r);\n      >>>');
+      const result = transpileExpress(ast);
+
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('15000');
+      expect(route!.content).toContain('AbortController');
+      expect(route!.content).toContain('clearTimeout');
+    });
+
+    test('spawn generates child_process with shell:false', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const ast = parse("server name=Test\n  route method=post path=/api/run\n    stream\n      spawn binary=codex args=['-p','hello']\n        on name=stdout\n          handler <<<\n            emit({ text: chunk.toString() });\n          >>>");
+      const result = transpileExpress(ast);
+
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain("import { spawn } from 'node:child_process'");
+      expect(route!.content).toContain('shell: false');
+      expect(route!.content).toContain("spawn('codex'");
+      expect(route!.content).toContain('resolveStream');
+    });
+
+    test('ai-buddies-api.kern produces valid output', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = readFileSync(resolve(ROOT, 'examples/ai-buddies-api.kern'), 'utf-8');
+      const ast = parse(source);
+      const result = transpileExpress(ast);
+
+      expect(result.code).toContain('express');
+      expect(result.artifacts!.length).toBeGreaterThanOrEqual(2);
+
+      const reviewRoute = result.artifacts!.find((a: any) => a.path.includes('review'));
+      if (reviewRoute) {
+        expect(reviewRoute.content).toContain('text/event-stream');
+      }
+    });
+  });
+
+  describe('Hardened Defaults', () => {
+    test('strict mode emits x-powered-by disable and sanitized error handler', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const ast = parse('server name=Test\n  route method=get path=/health\n    handler <<<\n      res.json({ ok: true });\n    >>>');
+      const result = transpileExpress(ast);
+
+      expect(result.code).toContain(`app.disable('x-powered-by')`);
+      expect(result.code).toContain(`express.json({ limit: '1mb' })`);
+      expect(result.code).toContain(`res.status(404).json({ error: 'Not Found' })`);
+      expect(result.code).toContain(`console.error(err)`);
+      expect(result.code).toContain(`res.status(500).json({ error: 'Internal Server Error' })`);
+      // Must NOT leak error.message
+      expect(result.code).not.toContain('error.message');
+    });
+
+    test('relaxed mode skips hardened defaults', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { resolveConfig } = await import('../../core/src/config.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const config = resolveConfig({ target: 'express', express: { security: 'relaxed' } });
+      const ast = parse('server name=Test\n  route method=get path=/health\n    handler <<<\n      res.json({ ok: true });\n    >>>');
+      const result = transpileExpress(ast, config);
+
+      expect(result.code).not.toContain(`app.disable('x-powered-by')`);
+      expect(result.code).not.toContain(`{ limit: '1mb' }`);
+      expect(result.code).not.toContain('Not Found');
+      expect(result.code).toContain('error.message');
+    });
+
+    test('strict mode does not duplicate json middleware when IR declares it', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const ast = parse('server name=Test\n  middleware name=json\n  route method=get path=/health\n    handler <<<\n      res.json({ ok: true });\n    >>>');
+      const result = transpileExpress(ast);
+
+      // Should have json middleware from IR (with limit), but NOT the auto-added one
+      const jsonMatches = result.code.match(/express\.json/g);
+      expect(jsonMatches?.length).toBe(1);
+    });
+
+    test('helmet opt-in adds import and dependency comment', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { resolveConfig } = await import('../../core/src/config.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const config = resolveConfig({ target: 'express', express: { helmet: true } });
+      const ast = parse('server name=Test\n  route method=get path=/health\n    handler <<<\n      res.json({ ok: true });\n    >>>');
+      const result = transpileExpress(ast, config);
+
+      expect(result.code).toContain(`import helmet from 'helmet'`);
+      expect(result.code).toContain('app.use(helmet())');
+      expect(result.code).toContain('// Dependencies: helmet');
+    });
+  });
+});

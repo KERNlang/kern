@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200" viewBox="0 0 800 200">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#010409"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#fb923c"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f97316" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#f97316" stop-opacity="0"/>
+    </linearGradient>
+    <style>
+      text { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+      .grid line { stroke: #161b22; stroke-width: 0.5; }
+
+      .kern-title { fill: #f0f6fc; font-size: 60px; font-weight: 800; letter-spacing: -2px; }
+      .kern-dot { fill: #f97316; font-size: 60px; font-weight: 800; }
+      .tagline { fill: #8b949e; font-size: 13px; font-weight: 500; letter-spacing: 2px; text-transform: uppercase; }
+      .stat-num { fill: #f97316; font-size: 22px; font-weight: 800; }
+      .stat-label { fill: #6e7681; font-size: 10px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; }
+
+      .target-label { fill: #c9d1d9; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; }
+      .target-dot { animation: pulse 2.4s ease-in-out infinite; transform-origin: center; }
+      .connector { stroke: #21262d; stroke-width: 1; fill: none; stroke-dasharray: 200; stroke-dashoffset: 200; animation: draw 3s ease-out forwards; }
+      .hub-ring { fill: none; stroke: #f97316; stroke-width: 1.5; opacity: 0.3; animation: ring 3s ease-in-out infinite; transform-origin: center; }
+      .hub-ring2 { fill: none; stroke: #f97316; stroke-width: 1; opacity: 0.15; animation: ring 3s ease-in-out infinite 1.5s; transform-origin: center; }
+
+      .t1 .connector { animation-delay: 0.1s; } .t1 .target-dot { animation-delay: 0.0s; }
+      .t2 .connector { animation-delay: 0.25s; } .t2 .target-dot { animation-delay: 0.15s; }
+      .t3 .connector { animation-delay: 0.4s; } .t3 .target-dot { animation-delay: 0.3s; }
+      .t4 .connector { animation-delay: 0.55s; } .t4 .target-dot { animation-delay: 0.45s; }
+      .t5 .connector { animation-delay: 0.7s; } .t5 .target-dot { animation-delay: 0.6s; }
+      .t6 .connector { animation-delay: 0.85s; } .t6 .target-dot { animation-delay: 0.75s; }
+      .t7 .connector { animation-delay: 1.0s; } .t7 .target-dot { animation-delay: 0.9s; }
+
+      @keyframes draw {
+        0% { stroke-dashoffset: 200; opacity: 0; }
+        30% { opacity: 1; }
+        100% { stroke-dashoffset: 0; opacity: 1; }
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 0.5; r: 3; }
+        50% { opacity: 1; r: 4.5; }
+      }
+      @keyframes ring {
+        0%, 100% { r: 18; opacity: 0.3; }
+        50% { r: 24; opacity: 0.08; }
+      }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="200" fill="url(#bg)"/>
+
+  <!-- Grid (Swiss precision) -->
+  <g class="grid" opacity="0.6">
+    <line x1="0" y1="40" x2="800" y2="40"/><line x1="0" y1="80" x2="800" y2="80"/>
+    <line x1="0" y1="120" x2="800" y2="120"/><line x1="0" y1="160" x2="800" y2="160"/>
+    <line x1="40" y1="0" x2="40" y2="200"/><line x1="320" y1="0" x2="320" y2="200"/>
+    <line x1="600" y1="0" x2="600" y2="200"/><line x1="760" y1="0" x2="760" y2="200"/>
+  </g>
+
+  <!-- Left column: Title + tagline -->
+  <text class="kern-title" x="44" y="82">KERN</text>
+  <rect x="44" y="92" width="80" height="3" rx="1.5" fill="url(#accent)"/>
+  <text class="tagline" x="44" y="118">The language LLMs think in</text>
+
+  <!-- Stats row -->
+  <g transform="translate(44, 148)">
+    <text class="stat-num">70%</text>
+    <text class="stat-label" x="60" y="0">fewer tokens</text>
+  </g>
+  <g transform="translate(190, 148)">
+    <text class="stat-num">7</text>
+    <text class="stat-label" x="22" y="0">targets</text>
+  </g>
+  <g transform="translate(280, 148)">
+    <text class="stat-num">1</text>
+    <text class="stat-label" x="16" y="0">.kern file</text>
+  </g>
+
+  <!-- Right side: Hub + targets -->
+  <g transform="translate(540, 100)">
+    <!-- Hub -->
+    <circle class="hub-ring" r="20"/>
+    <circle class="hub-ring2" r="28"/>
+    <circle r="6" fill="#f97316"/>
+    <text x="0" y="3" text-anchor="middle" fill="#0d1117" font-size="7" font-weight="800">.k</text>
+
+    <!-- Connectors + target dots -->
+    <g class="t1">
+      <line class="connector" x1="8" y1="-4" x2="100" y2="-72"/>
+      <circle class="target-dot" cx="100" cy="-72" r="3" fill="#61dafb"/>
+      <text class="target-label" x="100" y="-80" text-anchor="middle">React</text>
+    </g>
+    <g class="t2">
+      <line class="connector" x1="8" y1="-2" x2="160" y2="-42"/>
+      <circle class="target-dot" cx="160" cy="-42" r="3" fill="#f0f0f0"/>
+      <text class="target-label" x="160" y="-50" text-anchor="middle">Next.js</text>
+    </g>
+    <g class="t3">
+      <line class="connector" x1="8" y1="0" x2="190" y2="0"/>
+      <circle class="target-dot" cx="190" cy="0" r="3" fill="#38bdf8"/>
+      <text class="target-label" x="190" y="-8" text-anchor="middle">Tailwind</text>
+    </g>
+    <g class="t4">
+      <line class="connector" x1="8" y1="2" x2="160" y2="42"/>
+      <circle class="target-dot" cx="160" cy="42" r="3" fill="#61dafb"/>
+      <text class="target-label" x="160" y="56" text-anchor="middle">Native</text>
+    </g>
+    <g class="t5">
+      <line class="connector" x1="6" y1="5" x2="100" y2="72"/>
+      <circle class="target-dot" cx="100" cy="72" r="3" fill="#68d391"/>
+      <text class="target-label" x="100" y="86" text-anchor="middle">Express</text>
+    </g>
+    <g class="t6">
+      <line class="connector" x1="-6" y1="5" x2="-80" y2="60"/>
+      <circle class="target-dot" cx="-80" cy="60" r="3" fill="#fbbf24"/>
+      <text class="target-label" x="-80" y="74" text-anchor="middle">CLI</text>
+    </g>
+    <g class="t7">
+      <line class="connector" x1="-6" y1="-4" x2="-80" y2="-60"/>
+      <circle class="target-dot" cx="-80" cy="-60" r="3" fill="#a78bfa"/>
+      <text class="target-label" x="-80" y="-68" text-anchor="middle">Terminal</text>
+    </g>
+  </g>
+</svg>

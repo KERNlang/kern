@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../core" },
+    { "path": "../protocol" },
+    { "path": "../react" },
+    { "path": "../native" },
+    { "path": "../express" },
+    { "path": "../cli" },
+    { "path": "../terminal" },
+    { "path": "../metrics" }
+  ]
+}

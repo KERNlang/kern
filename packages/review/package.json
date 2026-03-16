@@ -1,0 +1,23 @@
+{
+  "name": "@kern/review",
+  "version": "2.0.0",
+  "description": "Kern Review — scan TS, infer .kern IR, roundtrip diff, report",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "AGPL-3.0",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --forceExit --config jest.config.js"
+  },
+  "dependencies": {
+    "@kern/core": "workspace:*",
+    "ts-morph": "^24.0.0"
+  }
+}

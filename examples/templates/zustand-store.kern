@@ -1,0 +1,10 @@
+template name=zustand-store
+  slot name=storeName type=identifier
+  slot name=stateType type=identifier
+  slot name=initialState type=expr optional=true default={}
+  import from=zustand names=create
+  body <<<
+    export const use{{storeName}}Store = create<{{stateType}}>((set) => ({
+      {{CHILDREN}}
+    }));
+  >>>
