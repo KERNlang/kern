@@ -56,7 +56,14 @@ export const NODE_TYPES = [
   // Terminal
   'separator', 'table', 'scoreboard', 'metric',
   'spinner', 'progress', 'box', 'gradient',
-  'repl', 'guard', 'parallel', 'dispatch', 'then', 'each',
+  'state', 'repl', 'guard', 'parallel', 'dispatch', 'then', 'each',
+  // Core Language — type system, functions, state machines
+  'type', 'interface', 'field', 'fn',
+  'machine', 'transition',
+  'error', 'module', 'export',
+  'config', 'store',
+  'test', 'describe', 'it',
+  'event',
 ] as const;
 
 export type IRNodeType = (typeof NODE_TYPES)[number];

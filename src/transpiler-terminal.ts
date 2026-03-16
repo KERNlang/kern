@@ -1,6 +1,7 @@
 import type { IRNode, TranspileResult, SourceMapEntry, GeneratedArtifact } from './types.js';
 import type { ResolvedKernConfig } from './config.js';
 import { countTokens, serializeIR } from './utils.js';
+import { isCoreNode, generateCoreNode } from './codegen-core.js';
 
 /**
  * Terminal Transpiler — generates ANSI-based CLI rendering code
@@ -291,6 +292,11 @@ function renderTerminalNode(node: IRNode, indent: string): string[] {
       break;
 
     default:
+      // Core language nodes (type, interface, fn, machine, etc.)
+      if (isCoreNode(node.type)) {
+        lines.push(...generateCoreNode(node).map(l => `${indent}${l}`));
+        break;
+      }
       // Recurse into children for unknown nodes
       if (node.children) {
         for (const child of node.children) {
@@ -468,8 +474,18 @@ export function transpileTerminal(root: IRNode, _config?: ResolvedKernConfig): T
   // REPL node detection — generate readline setup
   const replNode = (root.children || []).find(c => c.type === 'repl');
 
+  // Core language nodes (type, interface, fn, machine, etc.) — emit before output
+  const coreChildren = (root.children || []).filter(c => isCoreNode(c.type));
+  if (coreChildren.length > 0) {
+    lines.push('// ── Core ───────────────────────────────────────────────');
+    for (const child of coreChildren) {
+      lines.push(...generateCoreNode(child));
+      lines.push('');
+    }
+  }
+
   // Render static nodes (text, separator, box, parallel, etc.) before REPL
-  const staticChildren = (root.children || []).filter(c => c.type !== 'state' && c.type !== 'repl');
+  const staticChildren = (root.children || []).filter(c => c.type !== 'state' && c.type !== 'repl' && !isCoreNode(c.type));
   const hasAsync = staticChildren.some(c => c.type === 'parallel');
 
   if (staticChildren.length > 0) {

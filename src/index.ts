@@ -52,5 +52,13 @@ export { KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './
 export { stylesToTailwind, colorToTw, pxToTw, DEFAULT_COLORS } from './styles-tailwind.js';
 export { expandStyles, expandStyleKey, expandStyleValue } from './styles-react.js';
 
+// Core language codegen (type, interface, fn, machine, error, config, store, test, event)
+export { generateCoreNode, isCoreNode, CORE_NODE_TYPES } from './codegen-core.js';
+export {
+  generateType, generateInterface, generateFunction,
+  generateMachine, generateError, generateModule,
+  generateConfig, generateStore, generateTest, generateEvent,
+} from './codegen-core.js';
+
 // Utilities
 export { countTokens, serializeIR, camelKey, escapeJsx } from './utils.js';

@@ -1,0 +1,102 @@
+screen name=AgonPlanModel
+
+  type name=StepState values="pending|running|completed|failed|skipped"
+  type name=StepEffect values="read|write|exec|network"
+  type name=PlanStepKind values="dispatch|fitness|critique|synthesis|apply"
+  type name=ApprovalLevel values="auto|plan|step"
+
+  interface name=ArtifactRef
+    field name=type type="'patch'|'diff'|'output'|'manifest'"
+    field name=path type=string
+    field name=engineId type=string optional=true
+
+  interface name=StepAttempt
+    field name=startedAt type=string
+    field name=finishedAt type=string optional=true
+    field name=exitCode type=number optional=true
+    field name=error type=string optional=true
+
+  interface name=StepResult
+    field name=state type=StepState
+    field name=attempts type="StepAttempt[]"
+    field name=artifacts type="ArtifactRef[]"
+    field name=engineId type=string optional=true
+    field name=score type=number optional=true
+    field name=durationMs type=number optional=true
+
+  interface name=PlanStep
+    field name=id type=string
+    field name=kind type=PlanStepKind
+    field name=label type=string
+    field name=engineId type=string optional=true
+    field name=effects type="StepEffect[]"
+    field name=result type=StepResult
+
+  interface name=PlanAction
+    field name=type type="'forge'|'build'"
+    field name=task type=string
+    field name=fitnessCmd type=string optional=true
+    field name=engineId type=string optional=true
+    field name=engines type="string[]" optional=true
+
+  interface name=WorkspaceSnapshot
+    field name=id type=string
+    field name=path type=string
+    field name=headSha type=string
+    field name=branch type=string
+    field name=dirty type=boolean
+
+  interface name=Plan
+    field name=id type=string
+    field name=action type=PlanAction
+    field name=state type=PlanState
+    field name=steps type="PlanStep[]"
+    field name=workspace type=WorkspaceSnapshot
+    field name=createdAt type=string
+    field name=updatedAt type=string
+    field name=currentStepId type="string|null"
+
+  machine name=Plan
+    state name=draft
+    state name=approved
+    state name=running
+    state name=paused
+    state name=completed
+    state name=failed
+    state name=cancelled
+    transition name=approve from=draft to=approved
+    transition name=start from=approved to=running
+      handler <<<
+        const firstPending = (entity as any).steps?.find((s: any) => s.result?.state === 'pending');
+        return { ...entity, state: 'running' as PlanState, currentStepId: firstPending?.id ?? null, updatedAt: new Date().toISOString() };
+      >>>
+    transition name=cancel from="draft|approved|running|paused|failed" to=cancelled
+    transition name=fail from="running|paused" to=failed
+    transition name=pause from=running to=paused
+    transition name=complete from=running to=completed
+
+  error name=AgonError extends=Error
+
+  error name=PlanStateError extends=AgonError message="Invalid plan state: expected ${expectedStr}, got ${actual}"
+    field name=expected type="string|string[]"
+    field name=actual type=string
+
+  store name=Plan path="~/.agon/plans" key=id model=Plan
+
+  event name=ForgeEvent
+    type name="baseline:start"
+    type name="baseline:done" data="{ passes: boolean }"
+    type name="stage1:dispatch" data="{ engineId: string }"
+    type name="stage1:accepted" data="{ engineId: string, score: number }"
+    type name="stage1:score" data="{ engineId: string }"
+    type name="stage2:dispatch" data="{ engineId: string }"
+    type name="stage2:score" data="{ engineId: string }"
+    type name="winner:determined" data="{ winner: string, bestScore: number }"
+    type name="synthesis:start"
+    type name="synthesis:done"
+
+  config name=AgonConfig
+    field name=timeout type=number default=120
+    field name=forgeEnableSynthesis type=boolean default=false
+    field name=approvalLevel type=ApprovalLevel default=plan
+    field name=caesarModel type=string default=smollm2-360m
