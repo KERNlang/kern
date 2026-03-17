@@ -129,9 +129,14 @@ export function reviewGraph(
         f.origin = isEntry ? 'changed' : 'upstream';
         f.distance = gf.distance;
 
-        // Downgrade upstream findings to info
+        // Upstream findings: keep severity for errors on the live path (distance 1),
+        // downgrade to info only for distant dependencies (distance 2+)
         if (!isEntry && f.severity !== 'info') {
-          f.severity = 'info';
+          if (gf.distance >= 2 || f.severity !== 'error') {
+            f.severity = 'info';
+          }
+          // distance 1 errors retain severity — these are direct imports
+          // that materially affect the changed code
         }
       }
 
