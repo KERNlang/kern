@@ -27,9 +27,9 @@ const reactHookFormDetector: DetectorPack = {
       const endOffset = closingMatch ? match.index + closingMatch.index! + closingMatch[0].length : match.index + match[0].length;
       const endLine = fullText.substring(0, endOffset).split('\n').length;
 
-      // Try to extract the component/function name
-      const beforeMatch = fullText.substring(0, match.index);
-      const fnNameMatch = beforeMatch.match(/(?:function|const)\s+(\w+)\s*(?:=|[\(<])[^]*?$/);
+      // Try to extract the component/function name (limit lookback to avoid backtracking)
+      const beforeMatch = fullText.substring(Math.max(0, match.index - 500), match.index);
+      const fnNameMatch = beforeMatch.match(/(?:function|const)\s+(\w+)\s*(?:=|\(|<)[^]*$/);
       const formName = fnNameMatch ? fnNameMatch[1] : 'Form';
 
       const snippet = fullText.substring(match.index, Math.min(endOffset, match.index + 300));

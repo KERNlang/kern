@@ -849,12 +849,18 @@ if (args[0] === 'evolve' && args[1] !== undefined && !args[1].startsWith('evolve
 // ── kern evolve:review [options] ─────────────────────────────────────
 if (args[0] === 'evolve:review') {
   const listMode = args.includes('--list') || args.length === 1;
-  const approveId = args.find(a => a.startsWith('--approve'))
-    ? (args.find(a => a.startsWith('--approve='))?.split('=')[1] || args[args.indexOf('--approve') + 1])
-    : undefined;
-  const rejectId = args.find(a => a.startsWith('--reject'))
-    ? (args.find(a => a.startsWith('--reject='))?.split('=')[1] || args[args.indexOf('--reject') + 1])
-    : undefined;
+  const approveId = (() => {
+    const eqArg = args.find(a => a.startsWith('--approve='));
+    if (eqArg) return eqArg.split('=')[1];
+    const idx = args.indexOf('--approve');
+    return idx !== -1 && idx + 1 < args.length ? args[idx + 1] : undefined;
+  })();
+  const rejectId = (() => {
+    const eqArg = args.find(a => a.startsWith('--reject='));
+    if (eqArg) return eqArg.split('=')[1];
+    const idx = args.indexOf('--reject');
+    return idx !== -1 && idx + 1 < args.length ? args[idx + 1] : undefined;
+  })();
   const promoteMode = args.includes('--promote');
   const isLocal = args.includes('--local') || !args.includes('--catalog');
 
