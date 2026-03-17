@@ -9,9 +9,11 @@
  * v2: Unified ReviewFinding pipeline. All findings merged into single array.
  */
 
-import { readFileSync, readdirSync, statSync } from 'fs';
+import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { resolve, relative, join } from 'path';
 import { inferFromSource, inferFromFile, createInMemoryProject } from './inferrer.js';
+import { resolveImportGraph } from './graph.js';
+import type { GraphOptions } from './types.js';
 import { detectTemplates } from './template-detector.js';
 import { structuralDiff } from './differ.js';
 import { runQualityRules } from './quality-rules.js';
@@ -21,6 +23,8 @@ import type { ReviewReport, InferResult, TemplateMatch, ReviewConfig, EnforceRes
 
 export type { ReviewReport, InferResult, TemplateMatch, ReviewFinding, SourceSpan } from './types.js';
 export type { ReviewStats, Confidence, ReviewConfig, EnforceResult, RuleContext, ReviewRule } from './types.js';
+export type { GraphFile, GraphResult, GraphOptions } from './types.js';
+export { resolveImportGraph } from './graph.js';
 export { createFingerprint } from './types.js';
 export { inferFromSource, inferFromFile } from './inferrer.js';
 export { detectTemplates } from './template-detector.js';
@@ -28,6 +32,7 @@ export { structuralDiff } from './differ.js';
 export { runQualityRules } from './quality-rules.js';
 export { calculateStats, formatReport, formatReportJSON, formatSummary, checkEnforcement, formatEnforcement, dedup } from './reporter.js';
 export { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
+export type { LLMGraphContext } from './llm-review.js';
 export { runESLint, runTSCDiagnostics, runTSCDiagnosticsFromPaths, linkToNodes } from './external-tools.js';
 
 /**
@@ -93,6 +98,46 @@ export function reviewDirectory(dirPath: string, recursive = false, config?: Rev
       reports.push(reviewFile(file, config));
     } catch (err) {
       console.error(`  Skipping ${relative(process.cwd(), file)}: ${(err as Error).message}`);
+    }
+  }
+
+  return reports;
+}
+
+/**
+ * Review files with full import graph context.
+ * Entry files get normal findings, upstream dependencies get origin='upstream'.
+ */
+export function reviewGraph(
+  entryFiles: string[],
+  config?: ReviewConfig,
+  graphOptions?: GraphOptions,
+): ReviewReport[] {
+  const graph = resolveImportGraph(entryFiles, graphOptions);
+  const entrySet = new Set(graph.entryFiles);
+  const distanceMap = new Map(graph.files.map(f => [f.path, f.distance]));
+  const reports: ReviewReport[] = [];
+
+  for (const gf of graph.files) {
+    if (!existsSync(gf.path)) continue;
+    try {
+      const report = reviewFile(gf.path, config);
+      const isEntry = entrySet.has(gf.path);
+
+      // Tag every finding with provenance
+      for (const f of report.findings) {
+        f.origin = isEntry ? 'changed' : 'upstream';
+        f.distance = gf.distance;
+
+        // Downgrade upstream findings to info
+        if (!isEntry && f.severity !== 'info') {
+          f.severity = 'info';
+        }
+      }
+
+      reports.push(report);
+    } catch (err) {
+      console.error(`  Skipping ${relative(process.cwd(), gf.path)}: ${(err as Error).message}`);
     }
   }
 

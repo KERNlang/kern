@@ -50,9 +50,18 @@ export function exportKernIR(
  * Build a structured prompt with short aliases for LLM code review.
  * Handler bodies are included so the LLM can review actual logic.
  */
+/**
+ * Context entry for graph-aware LLM prompts.
+ * Maps file paths to their graph distance (0 = changed, 1+ = upstream).
+ */
+export interface LLMGraphContext {
+  fileDistances: Map<string, number>;
+}
+
 export function buildLLMPrompt(
   inferred: InferResult[],
   templateMatches: TemplateMatch[],
+  graphContext?: LLMGraphContext,
 ): string {
   const lines: string[] = [];
 
@@ -69,13 +78,34 @@ export function buildLLMPrompt(
   lines.push('');
   lines.push('Categories: bug, type, pattern, style, structure');
   lines.push('Severities: error, warning, info');
+
+  // Graph context instructions for LLM (Gemini feedback: be explicit about what markers mean)
+  if (graphContext) {
+    lines.push('');
+    lines.push('Context markers:');
+    lines.push('  [CHANGED] — this node is from a file the user modified. Focus your review here.');
+    lines.push('  [CONTEXT d=N] — this node is from an upstream dependency at distance N.');
+    lines.push('    Reference these only to support findings in [CHANGED] nodes.');
+    lines.push('    Do NOT report findings against [CONTEXT] nodes unless they directly affect [CHANGED] code.');
+  }
+
   lines.push('');
   lines.push('KERN IR:');
 
   for (const r of inferred) {
     if (r.node.type === 'import') continue;
 
-    lines.push(`[${r.promptAlias}] ${serializeNodeWithBody(r.node, '')}`);
+    // Add graph provenance marker if available
+    let marker = '';
+    if (graphContext) {
+      const filePath = r.sourceSpans?.[0]?.file || '';
+      const distance = graphContext.fileDistances.get(filePath);
+      if (distance !== undefined) {
+        marker = distance === 0 ? ' [CHANGED]' : ` [CONTEXT d=${distance}]`;
+      }
+    }
+
+    lines.push(`[${r.promptAlias}]${marker} ${serializeNodeWithBody(r.node, '')}`);
   }
 
   for (const t of templateMatches) {

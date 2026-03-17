@@ -9,6 +9,7 @@
     { "path": "packages/terminal" },
     { "path": "packages/metrics" },
     { "path": "packages/cli" },
-    { "path": "packages/compat" }
+    { "path": "packages/compat" },
+    { "path": "packages/evolve" }
   ]
 }

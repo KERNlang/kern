@@ -12,7 +12,7 @@ import { transpileCliApp } from './transpiler-cli.js';
 import { transpileTerminal } from '@kernlang/terminal';
 import { transpileVue, transpileNuxt } from '@kernlang/vue';
 import { collectLanguageMetrics } from '@kernlang/metrics';
-import { reviewFile, reviewDirectory, reviewSource, formatReport, formatReportJSON, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes } from '@kernlang/review';
+import { reviewFile, reviewDirectory, reviewSource, reviewGraph, resolveImportGraph, formatReport, formatReportJSON, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes } from '@kernlang/review';
 import type { ReviewConfig, ReviewFinding } from '@kernlang/review';
 
 const args = process.argv.slice(2);
@@ -495,6 +495,13 @@ if (args[0] === 'review') {
   const llmMode = args.includes('--llm');
   const fixMode = args.includes('--fix');
   const lintMode = args.includes('--lint');
+  const graphMode = args.includes('--graph');
+  const batchMode = args.includes('--batch');
+  const maxDepthArg = args.find(a => a.startsWith('--max-depth='))?.split('=')[1];
+  const maxDepth = maxDepthArg ? Number(maxDepthArg) : 3;
+  const batchSizeArg = args.find(a => a.startsWith('--batch-size='))?.split('=')[1];
+  const batchSize = batchSizeArg ? Number(batchSizeArg) : 20;
+  const tsconfigPath = args.find(a => a.startsWith('--tsconfig='))?.split('=')[1];
   const minCoverageArg = args.find(a => a.startsWith('--min-coverage='))?.split('=')[1];
   const minCoverage = minCoverageArg ? Number(minCoverageArg) : undefined;
   const diffBase = args.find(a => a.startsWith('--diff'))
@@ -586,26 +593,49 @@ if (args[0] === 'review') {
   // Collect reports from diff, directory, or single file
   let reports: import('@kernlang/review').ReviewReport[] = [];
 
+  // Collect entry file paths for --graph mode
+  let entryFilePaths: string[] = [];
+
   if (reviewInput === '__diff__') {
     const diffFiles = (globalThis as any).__diffFiles as string[];
-    for (const f of diffFiles) {
-      const fullPath = resolve(f);
-      if (existsSync(fullPath)) {
-        try { reports.push(reviewFile(fullPath, reviewConfig)); } catch {}
-      }
-    }
+    entryFilePaths = diffFiles.map(f => resolve(f)).filter(f => existsSync(f));
   } else {
-    // Support multiple positional paths: kern review file1.ts file2.ts dir/
     const paths = reviewInputs.length > 0 ? reviewInputs : [reviewInput];
     for (const p of paths) {
       const rPath = resolve(p);
       if (!existsSync(rPath)) continue;
       const rStat = statSync(rPath);
       if (rStat.isDirectory()) {
-        reports.push(...reviewDirectory(rPath, recursive, reviewConfig));
+        // Collect files from directory for graph seeding
+        entryFilePaths.push(...collectTsFilesFlat(rPath, recursive));
       } else {
-        try { reports.push(reviewFile(rPath, reviewConfig)); } catch {}
+        entryFilePaths.push(rPath);
       }
+    }
+  }
+
+  if (graphMode && entryFilePaths.length > 0) {
+    // --graph: resolve import graph, review all files with provenance
+    const graphOpts = { maxDepth, tsConfigFilePath: tsconfigPath ? resolve(tsconfigPath) : undefined };
+    const graph = resolveImportGraph(entryFilePaths, graphOpts);
+    console.log(`  Graph: ${graph.totalFiles} files resolved (${graph.skipped} skipped, depth ${maxDepth})`);
+    reports = reviewGraph(entryFilePaths, reviewConfig, graphOpts);
+  } else if (batchMode && entryFilePaths.length > batchSize) {
+    // --batch: process in chunks for large repos
+    const totalBatches = Math.ceil(entryFilePaths.length / batchSize);
+    for (let i = 0; i < entryFilePaths.length; i += batchSize) {
+      const batch = entryFilePaths.slice(i, i + batchSize);
+      const batchNum = Math.floor(i / batchSize) + 1;
+      for (const f of batch) {
+        try { reports.push(reviewFile(f, reviewConfig)); } catch {}
+      }
+      const batchFindings = reports.slice(-batch.length).reduce((sum, r) => sum + r.findings.length, 0);
+      console.log(`  Batch ${batchNum}/${totalBatches}: ${batch.length} files reviewed (${batchFindings} findings)`);
+    }
+  } else {
+    // Standard mode: review each file individually
+    for (const f of entryFilePaths) {
+      try { reports.push(reviewFile(f, reviewConfig)); } catch {}
     }
   }
 
@@ -625,9 +655,24 @@ if (args[0] === 'review') {
 
   // --llm: output structured LLM prompt with nodeId aliases
   if (llmMode) {
+    // Build graph context for LLM markers if --graph is active
+    const llmGraphContext = graphMode ? (() => {
+      const fileDistances = new Map<string, number>();
+      for (const report of reports) {
+        const finding = report.findings[0];
+        const distance = finding?.distance ?? 0;
+        fileDistances.set(report.filePath, distance);
+      }
+      // Entry files always distance 0
+      for (const ep of entryFilePaths) {
+        fileDistances.set(ep, 0);
+      }
+      return { fileDistances };
+    })() : undefined;
+
     for (const report of reports) {
       console.log(`\n// ── ${report.filePath} ──`);
-      console.log(buildLLMPrompt(report.inferred, report.templateMatches));
+      console.log(buildLLMPrompt(report.inferred, report.templateMatches, llmGraphContext));
     }
     console.log('\n// Paste the JSON response from your AI to validate and map findings back to TS.');
     process.exit(0);
@@ -983,6 +1028,20 @@ function minifyKern(node: IRNode): string {
   }
 
   return head;
+}
+
+function collectTsFilesFlat(dirPath: string, recursive: boolean): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(dirPath)) {
+    const full = resolve(dirPath, entry);
+    const s = statSync(full);
+    if (s.isDirectory() && recursive && !entry.startsWith('.') && entry !== 'node_modules' && entry !== 'dist') {
+      files.push(...collectTsFilesFlat(full, true));
+    } else if ((entry.endsWith('.ts') || entry.endsWith('.tsx')) && !entry.endsWith('.d.ts') && !entry.endsWith('.test.ts')) {
+      files.push(full);
+    }
+  }
+  return files;
 }
 
 function prettyKern(node: IRNode, indent = ''): string {

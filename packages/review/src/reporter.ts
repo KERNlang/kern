@@ -176,7 +176,8 @@ export function formatReport(report: ReviewReport): string {
       lines.push(`  BUGS (${errors.length}):`);
       for (const f of errors) {
         const tag = SOURCE_TAGS[f.source] || '';
-        lines.push(`    ! L${f.primarySpan.startLine}: ${tag} [${f.ruleId}] ${f.message}`);
+        const upstream = f.origin === 'upstream' ? ' [upstream]' : '';
+        lines.push(`    ! L${f.primarySpan.startLine}: ${tag} [${f.ruleId}]${upstream} ${f.message}`);
         if (f.suggestion) lines.push(`      Fix: ${f.suggestion}`);
       }
       lines.push('');
@@ -186,7 +187,8 @@ export function formatReport(report: ReviewReport): string {
       lines.push(`  WARNINGS (${warnings.length}):`);
       for (const f of warnings) {
         const tag = SOURCE_TAGS[f.source] || '';
-        lines.push(`    ~ L${f.primarySpan.startLine}: ${tag} [${f.ruleId}] ${f.message}`);
+        const upstream = f.origin === 'upstream' ? ' [upstream]' : '';
+        lines.push(`    ~ L${f.primarySpan.startLine}: ${tag} [${f.ruleId}]${upstream} ${f.message}`);
         if (f.suggestion) lines.push(`      Suggestion: ${f.suggestion}`);
       }
       lines.push('');
@@ -196,7 +198,8 @@ export function formatReport(report: ReviewReport): string {
       lines.push(`  INFO (${infos.length}):`);
       for (const f of infos) {
         const tag = SOURCE_TAGS[f.source] || '';
-        lines.push(`    - L${f.primarySpan.startLine}: ${tag} [${f.ruleId}] ${f.message}`);
+        const upstream = f.origin === 'upstream' ? ` [upstream d=${f.distance ?? '?'}]` : '';
+        lines.push(`    - L${f.primarySpan.startLine}: ${tag} [${f.ruleId}]${upstream} ${f.message}`);
       }
       lines.push('');
     }

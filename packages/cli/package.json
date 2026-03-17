@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@kernlang/core": "workspace:*",
+    "@kernlang/evolve": "workspace:*",
     "@kernlang/express": "workspace:*",
     "@kernlang/metrics": "workspace:*",
     "@kernlang/native": "workspace:*",

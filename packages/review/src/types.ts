@@ -44,6 +44,10 @@ export interface ReviewFinding {
   confidence?: number;
   /** Stable fingerprint for dedup across sources */
   fingerprint: string;
+  /** Graph provenance: 'changed' = entry file, 'upstream' = dependency */
+  origin?: 'changed' | 'upstream';
+  /** Distance from nearest entry file (0 = entry, 1 = direct import, etc.) */
+  distance?: number;
 }
 
 // ── Confidence ───────────────────────────────────────────────────────────
@@ -176,6 +180,31 @@ export interface RuleContext {
 
 /** A review rule function */
 export type ReviewRule = (ctx: RuleContext) => ReviewFinding[];
+
+// ── Import Graph ─────────────────────────────────────────────────────────
+
+/** A file node in the import graph */
+export interface GraphFile {
+  path: string;
+  distance: number;
+  imports: string[];
+  importedBy: string[];
+}
+
+/** Result of resolving the import graph */
+export interface GraphResult {
+  files: GraphFile[];
+  entryFiles: string[];
+  totalFiles: number;
+  skipped: number;
+}
+
+/** Options for resolveImportGraph */
+export interface GraphOptions {
+  maxDepth?: number;
+  tsConfigFilePath?: string;
+  project?: import('ts-morph').Project;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
