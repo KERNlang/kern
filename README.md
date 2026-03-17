@@ -26,6 +26,7 @@ kern compile src/kern/ --outdir=src/generated/   # .kern → TypeScript
 kern app.kern --target=vue                        # .kern → Vue SFC
 kern app.kern --target=nextjs                     # .kern → Next.js page
 kern review src/ --recursive                      # Scan TS → find bugs
+kern evolve src/ --recursive                      # Detect gaps → propose templates
 kern dev src/kern/ --target=nextjs                # Watch & hot-transpile
 ```
 
@@ -333,6 +334,19 @@ kern init-templates    # Scans package.json → scaffolds templates
 
 Supported: **Zustand**, **SWR**, **TanStack Query**, **XState**, **Jotai**, **Zod**, **tRPC**
 
+### Self-extending: `kern evolve`
+
+Don't have a template for your library? KERN can learn it from your codebase:
+
+```bash
+kern evolve src/ --recursive          # Detect gaps → propose templates
+kern evolve:review --list             # Review proposals with split-view
+kern evolve:review --approve <id>     # Approve a proposal
+kern evolve:review --promote --local  # Write to templates/
+```
+
+Evolve scans your TypeScript, finds patterns from 12 library families (react-hook-form, redux-toolkit, framer-motion, axios, yup, valibot, etc.), and generates `.kern` template proposals with typed slots. Each proposal is validated through a 5-step pipeline: parse, register, expand, golden-diff, typecheck.
+
 ---
 
 ## Version-Aware Compilation
@@ -367,6 +381,7 @@ KERN auto-detects framework versions from `package.json`. Upgrade your framework
 @kernlang/react       Next.js, Tailwind, Web transpilers
 @kernlang/vue         Vue 3 SFC, Nuxt 3 transpilers
 @kernlang/review      TS → KERN inference, bug detection, enforcement
+@kernlang/evolve      Self-extending template system (detect gaps → propose)
 @kernlang/native      React Native transpiler
 @kernlang/express     Express backend transpiler
 @kernlang/terminal    ANSI terminal transpiler

@@ -35,11 +35,11 @@ const framerMotionDetector: DetectorPack = {
     }
 
     // Pattern: variants object for motion components
-    const variantsRe = /(?:export\s+)?const\s+(\w+)\s*(?::\s*Variants)?\s*=\s*\{[^}]*(?:hidden|visible|initial|animate|exit)\s*:/g;
+    const variantsRe = /(?:export\s+)?const\s+(\w+)\s*(?::\s*Variants)?\s*=\s*\{[^}]*(?:hidden|visible|initial|animate|exit|enter|center|closed|open)\s*:/g;
     while ((match = variantsRe.exec(fullText)) !== null) {
       const hasImport = sourceFile.getImportDeclarations().some(imp => {
         const mod = imp.getModuleSpecifierValue();
-        return mod === 'framer-motion' || mod === 'motion';
+        return mod === 'framer-motion' || mod === 'motion' || mod.startsWith('motion/') || mod.startsWith('framer-motion/');
       });
       if (!hasImport) continue;
 
