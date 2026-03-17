@@ -135,7 +135,7 @@ function collectTsFiles(inputPath: string, recursive: boolean): string[] {
   const stat = statSync(inputPath);
   if (stat.isFile()) {
     if (inputPath.endsWith('.ts') || inputPath.endsWith('.tsx')) {
-      if (!inputPath.endsWith('.d.ts') && !inputPath.endsWith('.test.ts')) {
+      if (!inputPath.endsWith('.d.ts') && !inputPath.endsWith('.test.ts') && !inputPath.endsWith('.test.tsx')) {
         return [inputPath];
       }
     }
@@ -150,7 +150,7 @@ function collectTsFiles(inputPath: string, recursive: boolean): string[] {
     const s = statSync(full);
     if (s.isDirectory() && recursive && !entry.startsWith('.') && entry !== 'node_modules' && entry !== 'dist') {
       files.push(...collectTsFiles(full, true));
-    } else if ((entry.endsWith('.ts') || entry.endsWith('.tsx')) && !entry.endsWith('.d.ts') && !entry.endsWith('.test.ts')) {
+    } else if ((entry.endsWith('.ts') || entry.endsWith('.tsx')) && !entry.endsWith('.d.ts') && !entry.endsWith('.test.ts') && !entry.endsWith('.test.tsx')) {
       files.push(full);
     }
   }

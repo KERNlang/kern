@@ -70,12 +70,11 @@ function buildTemplateBody(pattern: AnalyzedPattern): string {
 
   // Replace extracted param values with {{slotName}} placeholders
   // Sort params by value length (longest first) to avoid partial replacements
-  const sortedSlots = [...pattern.slots].sort(
-    (a, b) => b.value.length - a.value.length,
-  );
+  const sortedSlots = [...pattern.slots]
+    .filter(s => s.value && s.value !== 'any' && s.value !== 'unknown')
+    .sort((a, b) => b.value.length - a.value.length);
 
   for (const slot of sortedSlots) {
-    if (!slot.value || slot.value === 'any' || slot.value === 'unknown') continue;
 
     // Replace literal value occurrences with {{slotName}}
     const escaped = escapeRegExp(slot.value);

@@ -10,7 +10,7 @@
  */
 
 import { Project } from 'ts-morph';
-import { parse, registerTemplate, expandTemplateNode, clearTemplates, getTemplate } from '@kernlang/core';
+import { parse, registerTemplate, expandTemplateNode, clearTemplates } from '@kernlang/core';
 import type { IRNode } from '@kernlang/core';
 import type { TemplateProposal, ValidationResult } from './types.js';
 
@@ -18,6 +18,7 @@ import type { TemplateProposal, ValidationResult } from './types.js';
  * Validate a template proposal through the 5-step pipeline.
  *
  * Uses REAL values extracted from source, not synthetic placeholders.
+ * Each call operates on an isolated template registry (cleared before and after).
  */
 export function validateProposal(
   proposal: TemplateProposal,
@@ -42,9 +43,10 @@ export function validateProposal(
     return result;
   }
 
+  // Isolate: clear the global template registry before registering
+  clearTemplates();
+
   // Step 2: Register the template
-  // Save and restore the global template registry
-  const savedTemplates = saveTemplateRegistry();
   try {
     const templateNodes = ast.type === 'template'
       ? [ast]
@@ -52,7 +54,7 @@ export function validateProposal(
 
     if (templateNodes.length === 0) {
       result.errors.push('No template node found in parsed source');
-      restoreTemplateRegistry(savedTemplates);
+      clearTemplates();
       return result;
     }
 
@@ -62,7 +64,7 @@ export function validateProposal(
     result.registerOk = true;
   } catch (err) {
     result.errors.push(`Register error: ${(err as Error).message}`);
-    restoreTemplateRegistry(savedTemplates);
+    clearTemplates();
     return result;
   }
 
@@ -74,12 +76,12 @@ export function validateProposal(
     result.expansionOk = true;
   } catch (err) {
     result.errors.push(`Expansion error: ${(err as Error).message}`);
-    restoreTemplateRegistry(savedTemplates);
+    clearTemplates();
     return result;
   }
 
-  // Restore registry now that we're done with template operations
-  restoreTemplateRegistry(savedTemplates);
+  // Clean up registry — expansion is done, remaining steps don't need it
+  clearTemplates();
 
   // Step 4: Golden diff — compare expanded output with original TS
   try {
@@ -88,11 +90,9 @@ export function validateProposal(
       result.expandedTs!,
     );
     result.goldenDiff = diff;
-    // Golden diff passes if the expanded TS is structurally similar
     result.goldenDiffOk = assessGoldenDiff(diff);
   } catch (err) {
     result.errors.push(`Golden diff error: ${(err as Error).message}`);
-    // Non-fatal: continue to typecheck
   }
 
   // Step 5: Typecheck the expanded TypeScript
@@ -100,7 +100,6 @@ export function validateProposal(
     result.typecheckOk = typecheckExpansion(result.expandedTs!, tsconfigPath);
   } catch (err) {
     result.errors.push(`Typecheck error: ${(err as Error).message}`);
-    // Typecheck failure is non-fatal for the overall validation
   }
 
   return result;
@@ -150,40 +149,24 @@ function computeGoldenDiff(original: string, expanded: string): string {
   return diff.join('\n');
 }
 
-/**
- * Normalize code for structural comparison (ignore whitespace, imports, exports).
- */
 function normalizeForDiff(code: string): string {
   return code
     .split('\n')
     .map(l => l.trim())
     .filter(l => l.length > 0)
-    .filter(l => !l.startsWith('import ')) // Skip import lines (template adds its own)
+    .filter(l => !l.startsWith('import '))
     .join('\n');
 }
 
-/**
- * Assess whether a golden diff indicates structural similarity.
- *
- * We don't require exact match — the template output may have slightly
- * different formatting. We check that the important structural elements match.
- */
 function assessGoldenDiff(diff: string): boolean {
   const lines = diff.split('\n');
   const totalLines = lines.length;
   const matchedLines = lines.filter(l => l.startsWith('  ')).length;
 
-  // At least 40% structural similarity for the diff to pass
   if (totalLines === 0) return true;
   return matchedLines / totalLines >= 0.4;
 }
 
-/**
- * Typecheck expanded TypeScript using ts-morph.
- *
- * Creates an in-memory project with the project's actual tsconfig
- * for accurate type resolution.
- */
 function typecheckExpansion(expandedTs: string, tsconfigPath?: string): boolean {
   const project = new Project({
     skipAddingFilesFromTsConfig: true,
@@ -201,30 +184,13 @@ function typecheckExpansion(expandedTs: string, tsconfigPath?: string): boolean 
   const sourceFile = project.createSourceFile('__evolve_check__.ts', expandedTs);
   const diagnostics = sourceFile.getPreEmitDiagnostics();
 
-  // Filter out diagnostics about missing modules (external imports)
   const realErrors = diagnostics.filter(d => {
     const msg = d.getMessageText();
     const msgStr = typeof msg === 'string' ? msg : msg.getMessageText();
-    // Skip "Cannot find module" errors for external packages
     if (msgStr.includes('Cannot find module')) return false;
-    // Skip "Could not find a declaration file" errors
     if (msgStr.includes('Could not find a declaration file')) return false;
     return true;
   });
 
   return realErrors.length === 0;
-}
-
-// ── Template Registry Save/Restore ───────────────────────────────────────
-
-let _savedTemplateState: Map<string, unknown> | null = null;
-
-function saveTemplateRegistry(): Map<string, unknown> {
-  // We can't directly access the registry, so we use clearTemplates
-  // and track what we need to restore
-  return new Map();
-}
-
-function restoreTemplateRegistry(_saved: Map<string, unknown>): void {
-  clearTemplates();
 }

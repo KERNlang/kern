@@ -61,8 +61,11 @@ export function detectGaps(
     const detections = detector.detect(sourceFile, fullText);
 
     for (const detection of detections) {
-      // Skip if this range is already covered by existing templates
-      const isCovered = coveredRanges.has(`${detection.startLine}`);
+      // Skip if any line in this range is already covered by existing templates
+      let isCovered = false;
+      for (let l = detection.startLine; l <= detection.endLine; l++) {
+        if (coveredRanges.has(`${l}`)) { isCovered = true; break; }
+      }
       if (isCovered) continue;
 
       gaps.push({
