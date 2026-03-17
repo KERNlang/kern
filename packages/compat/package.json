@@ -22,13 +22,13 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@kern/core": "workspace:*",
-    "@kern/protocol": "workspace:*",
-    "@kern/react": "workspace:*",
-    "@kern/native": "workspace:*",
-    "@kern/express": "workspace:*",
-    "@kern/cli": "workspace:*",
-    "@kern/terminal": "workspace:*",
-    "@kern/metrics": "workspace:*"
+    "@kernlang/core": "workspace:*",
+    "@kernlang/protocol": "workspace:*",
+    "@kernlang/react": "workspace:*",
+    "@kernlang/native": "workspace:*",
+    "@kernlang/express": "workspace:*",
+    "@kernlang/cli": "workspace:*",
+    "@kernlang/terminal": "workspace:*",
+    "@kernlang/metrics": "workspace:*"
   }
 }

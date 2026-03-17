@@ -2,18 +2,18 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { resolve, basename, dirname, relative } from 'path';
 import { createJiti } from 'jiti';
-import { parse, decompile, resolveConfig, VALID_TARGETS, VALID_STRUCTURES, generateCoreNode, isCoreNode, detectVersionsFromPackageJson, scanProject, generateConfigSource, formatScanSummary, registerTemplate, isTemplateNode, expandTemplateNode, clearTemplates, detectTemplates, COMMON_TEMPLATES } from '@kern/core';
-import type { ResolvedKernConfig, KernTarget, KernStructure, KernConfig, IRNode } from '@kern/core';
-import { generateReactNode, isReactNode } from '@kern/react';
-import { transpile } from '@kern/native';
-import { transpileWeb, transpileTailwind, transpileNextjs } from '@kern/react';
-import { transpileExpress } from '@kern/express';
+import { parse, decompile, resolveConfig, VALID_TARGETS, VALID_STRUCTURES, generateCoreNode, isCoreNode, detectVersionsFromPackageJson, scanProject, generateConfigSource, formatScanSummary, registerTemplate, isTemplateNode, expandTemplateNode, clearTemplates, detectTemplates, COMMON_TEMPLATES } from '@kernlang/core';
+import type { ResolvedKernConfig, KernTarget, KernStructure, KernConfig, IRNode } from '@kernlang/core';
+import { generateReactNode, isReactNode } from '@kernlang/react';
+import { transpile } from '@kernlang/native';
+import { transpileWeb, transpileTailwind, transpileNextjs } from '@kernlang/react';
+import { transpileExpress } from '@kernlang/express';
 import { transpileCliApp } from './transpiler-cli.js';
-import { transpileTerminal } from '@kern/terminal';
-import { transpileVue, transpileNuxt } from '@kern/vue';
-import { collectLanguageMetrics } from '@kern/metrics';
-import { reviewFile, reviewDirectory, reviewSource, formatReport, formatReportJSON, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes } from '@kern/review';
-import type { ReviewConfig, ReviewFinding } from '@kern/review';
+import { transpileTerminal } from '@kernlang/terminal';
+import { transpileVue, transpileNuxt } from '@kernlang/vue';
+import { collectLanguageMetrics } from '@kernlang/metrics';
+import { reviewFile, reviewDirectory, reviewSource, formatReport, formatReportJSON, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes } from '@kernlang/review';
+import type { ReviewConfig, ReviewFinding } from '@kernlang/review';
 
 const args = process.argv.slice(2);
 
@@ -584,7 +584,7 @@ if (args[0] === 'review') {
   }
 
   // Collect reports from diff, directory, or single file
-  let reports: import('@kern/review').ReviewReport[] = [];
+  let reports: import('@kernlang/review').ReviewReport[] = [];
 
   if (reviewInput === '__diff__') {
     const diffFiles = (globalThis as any).__diffFiles as string[];

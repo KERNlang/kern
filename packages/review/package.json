@@ -1,5 +1,5 @@
 {
-  "name": "@kern/review",
+  "name": "@kernlang/review",
   "version": "2.0.0",
   "description": "Kern Review — scan TS, infer .kern IR, roundtrip diff, report",
   "type": "module",
@@ -17,7 +17,7 @@
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --forceExit --config jest.config.js"
   },
   "dependencies": {
-    "@kern/core": "workspace:*",
+    "@kernlang/core": "workspace:*",
     "ts-morph": "^24.0.0"
   }
 }

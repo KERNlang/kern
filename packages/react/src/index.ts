@@ -1,5 +1,5 @@
 /**
- * @kern/react — React transpilers (Tailwind, Next.js, Web) + React codegen
+ * @kernlang/react — React transpilers (Tailwind, Next.js, Web) + React codegen
  */
 export { transpileTailwind } from './transpiler-tailwind.js';
 export { transpileNextjs } from './transpiler-nextjs.js';

@@ -124,7 +124,7 @@ const SOURCE_TAGS: Record<string, string> = {
 export function formatReport(report: ReviewReport): string {
   const lines: string[] = [];
 
-  lines.push(`  @kern/review — analyzing ${report.filePath}`);
+  lines.push(`  @kernlang/review — analyzing ${report.filePath}`);
   lines.push('');
 
   if (report.inferred.length > 0) {
@@ -258,7 +258,7 @@ export function formatSummary(reports: ReviewReport[]): string {
   const coveragePct = totalLines > 0 ? Math.round((coveredLines / totalLines) * 100) : 0;
   const reductionPct = totalTsTokens > 0 ? Math.round((1 - totalKernTokens / totalTsTokens) * 100) : 0;
 
-  lines.push(`  @kern/review — ${reports.length} files analyzed`);
+  lines.push(`  @kernlang/review — ${reports.length} files analyzed`);
   lines.push('');
   lines.push(`  Total constructs: ${totalConstructs}`);
   lines.push(`  Coverage:         ${coveragePct}%`);

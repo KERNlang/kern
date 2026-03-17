@@ -29,28 +29,28 @@ importers:
 
   packages/cli:
     dependencies:
-      '@kern/core':
+      '@kernlang/core':
         specifier: workspace:*
         version: link:../core
-      '@kern/express':
+      '@kernlang/express':
         specifier: workspace:*
         version: link:../express
-      '@kern/metrics':
+      '@kernlang/metrics':
         specifier: workspace:*
         version: link:../metrics
-      '@kern/native':
+      '@kernlang/native':
         specifier: workspace:*
         version: link:../native
-      '@kern/react':
+      '@kernlang/react':
         specifier: workspace:*
         version: link:../react
-      '@kern/review':
+      '@kernlang/review':
         specifier: workspace:*
         version: link:../review
-      '@kern/terminal':
+      '@kernlang/terminal':
         specifier: workspace:*
         version: link:../terminal
-      '@kern/vue':
+      '@kernlang/vue':
         specifier: workspace:*
         version: link:../vue
       chokidar:
@@ -62,28 +62,28 @@ importers:
 
   packages/compat:
     dependencies:
-      '@kern/cli':
+      '@kernlang/cli':
         specifier: workspace:*
         version: link:../cli
-      '@kern/core':
+      '@kernlang/core':
         specifier: workspace:*
         version: link:../core
-      '@kern/express':
+      '@kernlang/express':
         specifier: workspace:*
         version: link:../express
-      '@kern/metrics':
+      '@kernlang/metrics':
         specifier: workspace:*
         version: link:../metrics
-      '@kern/native':
+      '@kernlang/native':
         specifier: workspace:*
         version: link:../native
-      '@kern/protocol':
+      '@kernlang/protocol':
         specifier: workspace:*
         version: link:../protocol
-      '@kern/react':
+      '@kernlang/react':
         specifier: workspace:*
         version: link:../react
-      '@kern/terminal':
+      '@kernlang/terminal':
         specifier: workspace:*
         version: link:../terminal
 
@@ -91,19 +91,19 @@ importers:
 
   packages/express:
     dependencies:
-      '@kern/core':
+      '@kernlang/core':
         specifier: workspace:*
         version: link:../core
 
   packages/metrics:
     dependencies:
-      '@kern/core':
+      '@kernlang/core':
         specifier: workspace:*
         version: link:../core
 
   packages/native:
     dependencies:
-      '@kern/core':
+      '@kernlang/core':
         specifier: workspace:*
         version: link:../core
 
@@ -111,13 +111,13 @@ importers:
 
   packages/react:
     dependencies:
-      '@kern/core':
+      '@kernlang/core':
         specifier: workspace:*
         version: link:../core
 
   packages/review:
     dependencies:
-      '@kern/core':
+      '@kernlang/core':
         specifier: workspace:*
         version: link:../core
       ts-morph:
@@ -126,13 +126,13 @@ importers:
 
   packages/terminal:
     dependencies:
-      '@kern/core':
+      '@kernlang/core':
         specifier: workspace:*
         version: link:../core
 
   packages/vue:
     dependencies:
-      '@kern/core':
+      '@kernlang/core':
         specifier: workspace:*
         version: link:../core
 

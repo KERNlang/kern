@@ -2,11 +2,11 @@
  * Vue-specific codegen — generates Vue 3 Composition API code for
  * provider (provide/inject), effect (onMounted/watch), and hook (composable) nodes.
  *
- * Mirrors @kern/react/codegen-react.ts but outputs Vue instead of React/JSX.
+ * Mirrors @kernlang/react/codegen-react.ts but outputs Vue instead of React/JSX.
  */
 
-import type { IRNode } from '@kern/core';
-import { parseParamList } from '@kern/core';
+import type { IRNode } from '@kernlang/core';
+import { parseParamList } from '@kernlang/core';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 

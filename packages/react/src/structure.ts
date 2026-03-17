@@ -8,8 +8,8 @@
  * paths per pattern, extracts hooks (state/logic), and resolves imports.
  */
 
-import type { IRNode, GeneratedArtifact, ResolvedKernConfig } from '@kern/core';
-import type { KernStructure } from '@kern/core';
+import type { IRNode, GeneratedArtifact, ResolvedKernConfig } from '@kernlang/core';
+import type { KernStructure } from '@kernlang/core';
 
 // ── Types ────────────────────────────────────────────────────────────────
 

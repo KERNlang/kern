@@ -1,5 +1,5 @@
 /**
- * @kern/vue — Vue 3 SFC + Nuxt 3 transpilers + Vue codegen
+ * @kernlang/vue — Vue 3 SFC + Nuxt 3 transpilers + Vue codegen
  */
 export { transpileVue } from './transpiler-vue.js';
 export { transpileNuxt } from './transpiler-nuxt.js';

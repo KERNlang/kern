@@ -1,5 +1,5 @@
 /**
- * @kern/review — Scan TS, infer .kern IR, review pipeline, report.
+ * @kernlang/review — Scan TS, infer .kern IR, review pipeline, report.
  *
  * Public API:
  *   reviewFile(filePath, config?)     — review a single file

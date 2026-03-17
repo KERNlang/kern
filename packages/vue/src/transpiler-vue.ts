@@ -3,11 +3,11 @@
  *
  * Maps the same KERN IR nodes to Vue Single File Components instead of React TSX.
  * Core language nodes (type, interface, fn, machine, etc.) already produce pure TS
- * via @kern/core — this transpiler only handles UI nodes.
+ * via @kernlang/core — this transpiler only handles UI nodes.
  */
 
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig } from '@kern/core';
-import { expandStyles, countTokens, serializeIR } from '@kern/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR } from '@kernlang/core';
 
 // ── Node → HTML Element Mapping ──────────────────────────────────────────
 

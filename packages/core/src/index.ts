@@ -1,5 +1,5 @@
 /**
- * @kern/core — parser, types, spec, config, style engines, codegen
+ * @kernlang/core — parser, types, spec, config, style engines, codegen
  */
 
 // Core

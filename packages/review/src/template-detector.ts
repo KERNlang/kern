@@ -9,7 +9,7 @@
  */
 
 import { SourceFile, SyntaxKind } from 'ts-morph';
-import { countTokens } from '@kern/core';
+import { countTokens } from '@kernlang/core';
 import type { TemplateMatch, ReviewConfig } from './types.js';
 
 interface TemplatePattern {

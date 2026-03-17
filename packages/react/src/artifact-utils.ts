@@ -5,7 +5,7 @@
  * structure !== 'flat' to convert a StructurePlan into GeneratedArtifact[].
  */
 
-import type { GeneratedArtifact, IRNode, ResolvedKernConfig } from '@kern/core';
+import type { GeneratedArtifact, IRNode, ResolvedKernConfig } from '@kernlang/core';
 import type {
   StructurePlan,
   PlannedFile,

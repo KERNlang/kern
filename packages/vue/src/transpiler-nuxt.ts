@@ -10,8 +10,8 @@
  * - Uses Nuxt composables: useHead, useRoute, navigateTo
  */
 
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact } from '@kern/core';
-import { expandStyles, countTokens, serializeIR } from '@kern/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR } from '@kernlang/core';
 
 // ── Node → HTML Element Mapping (same as Vue) ───────────────────────────
 

@@ -1,25 +1,25 @@
 /**
  * kern-lang v2.0.0 — compatibility wrapper
  *
- * Re-exports all @kern/* packages for backwards compatibility.
- * For new projects, import from @kern/core + @kern/<target> directly.
+ * Re-exports all @kernlang/* packages for backwards compatibility.
+ * For new projects, import from @kernlang/core + @kernlang/<target> directly.
  */
 
 // Core (parser, types, config, spec, styles, codegen, utils)
-export * from '@kern/core';
+export * from '@kernlang/core';
 
 // Protocol (draft protocol for AI engines)
-export * from '@kern/protocol';
+export * from '@kernlang/protocol';
 
 // Transpilers
-export { transpileTailwind, transpileNextjs, transpileWeb } from '@kern/react';
-export { transpile } from '@kern/native';
-export { transpileExpress } from '@kern/express';
-export { transpileCliApp } from '@kern/cli';
-export { transpileTerminal } from '@kern/terminal';
+export { transpileTailwind, transpileNextjs, transpileWeb } from '@kernlang/react';
+export { transpile } from '@kernlang/native';
+export { transpileExpress } from '@kernlang/express';
+export { transpileCliApp } from '@kernlang/cli';
+export { transpileTerminal } from '@kernlang/terminal';
 
 // Metrics + context export
-export { collectLanguageMetrics, mergeMetrics, isEscapedStyleKey } from '@kern/metrics';
-export type { LanguageMetrics, StyleMetrics, NodeTypeMetrics } from '@kern/metrics';
-export { scanKernProject, projectToKern } from '@kern/metrics';
-export type { ProjectSummary } from '@kern/metrics';
+export { collectLanguageMetrics, mergeMetrics, isEscapedStyleKey } from '@kernlang/metrics';
+export type { LanguageMetrics, StyleMetrics, NodeTypeMetrics } from '@kernlang/metrics';
+export { scanKernProject, projectToKern } from '@kernlang/metrics';
+export type { ProjectSummary } from '@kernlang/metrics';

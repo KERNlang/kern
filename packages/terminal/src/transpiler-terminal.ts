@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, GeneratedArtifact, ResolvedKernConfig } from '@kern/core';
-import { countTokens, serializeIR, isCoreNode, generateCoreNode } from '@kern/core';
+import type { IRNode, TranspileResult, SourceMapEntry, GeneratedArtifact, ResolvedKernConfig } from '@kernlang/core';
+import { countTokens, serializeIR, isCoreNode, generateCoreNode } from '@kernlang/core';
 
 /**
  * Terminal Transpiler — generates ANSI-based CLI rendering code

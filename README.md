@@ -18,7 +18,7 @@
 ## Install
 
 ```bash
-npm install -g @kern/cli
+npm install -g @kernlang/cli
 ```
 
 ```bash
@@ -209,7 +209,7 @@ kern review src/stores/toast.ts
 ```
 
 ```
-  @kern/review — analyzing src/stores/toast.ts
+  @kernlang/review — analyzing src/stores/toast.ts
 
   KERN-expressible (3 constructs):
     L10-16      interface Toast (4 fields)                         (97%)
@@ -362,16 +362,16 @@ KERN auto-detects framework versions from `package.json`. Upgrade your framework
 ## Monorepo
 
 ```
-@kern/core        Parser, codegen, types — the compiler engine
-@kern/cli         CLI tool (compile, transpile, dev, review)
-@kern/react       Next.js, Tailwind, Web transpilers
-@kern/vue         Vue 3 SFC, Nuxt 3 transpilers
-@kern/review      TS → KERN inference, bug detection, enforcement
-@kern/native      React Native transpiler
-@kern/express     Express backend transpiler
-@kern/terminal    ANSI terminal transpiler
-@kern/metrics     Language coverage analysis
-@kern/protocol    AI draft communication protocol
+@kernlang/core        Parser, codegen, types — the compiler engine
+@kernlang/cli         CLI tool (compile, transpile, dev, review)
+@kernlang/react       Next.js, Tailwind, Web transpilers
+@kernlang/vue         Vue 3 SFC, Nuxt 3 transpilers
+@kernlang/review      TS → KERN inference, bug detection, enforcement
+@kernlang/native      React Native transpiler
+@kernlang/express     Express backend transpiler
+@kernlang/terminal    ANSI terminal transpiler
+@kernlang/metrics     Language coverage analysis
+@kernlang/protocol    AI draft communication protocol
 ```
 
 ---

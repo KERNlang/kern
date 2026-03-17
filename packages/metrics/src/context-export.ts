@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { resolve, relative, join } from 'path';
-import { parse, resolveConfig } from '@kern/core';
-import type { ResolvedKernConfig, KernTarget } from '@kern/core';
+import { parse, resolveConfig } from '@kernlang/core';
+import type { ResolvedKernConfig, KernTarget } from '@kernlang/core';
 import { collectLanguageMetrics, mergeMetrics, type LanguageMetrics } from './metrics.js';
 
 // ── Types ────────────────────────────────────────────────────────────────

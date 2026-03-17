@@ -12,8 +12,8 @@ import {
   SourceFile,
   SyntaxKind,
 } from 'ts-morph';
-import type { IRNode } from '@kern/core';
-import { countTokens } from '@kern/core';
+import type { IRNode } from '@kernlang/core';
+import { countTokens } from '@kernlang/core';
 import type { InferResult, Confidence, SourceSpan } from './types.js';
 
 // ── Create Project ───────────────────────────────────────────────────────

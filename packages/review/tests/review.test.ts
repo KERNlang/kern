@@ -104,7 +104,7 @@ export interface User { name: string; status: Status; }
     const report = reviewSource(source, 'user.ts');
     const formatted = formatReport(report);
 
-    expect(formatted).toContain('@kern/review');
+    expect(formatted).toContain('@kernlang/review');
     expect(formatted).toContain('user.ts');
     expect(formatted).toContain('KERN-expressible');
     expect(formatted).toContain('Summary');

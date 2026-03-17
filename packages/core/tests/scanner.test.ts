@@ -292,7 +292,7 @@ describe('generateConfigSource', () => {
       detections: [],
     };
     const source = generateConfigSource(result);
-    expect(source).toContain("import type { KernConfig } from '@kern/core'");
+    expect(source).toContain("import type { KernConfig } from '@kernlang/core'");
     expect(source).toContain("target: 'nextjs'");
     expect(source).toContain("nextjs: '^15.2.0'");
     expect(source).toContain("tailwind: '^4.0.0'");

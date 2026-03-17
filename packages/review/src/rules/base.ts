@@ -6,7 +6,7 @@
  */
 
 import { SyntaxKind } from 'ts-morph';
-import { countTokens } from '@kern/core';
+import { countTokens } from '@kernlang/core';
 import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 

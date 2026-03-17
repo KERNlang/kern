@@ -1,11 +1,11 @@
 /**
- * Types for @kern/review — TS → .kern inference, review pipeline, unified findings.
+ * Types for @kernlang/review — TS → .kern inference, review pipeline, unified findings.
  *
  * v2: Unified ReviewFinding replaces QualityFinding + DiffFinding.
  *     InferResult gains stable nodeId + promptAlias + sourceSpans.
  */
 
-import type { IRNode } from '@kern/core';
+import type { IRNode } from '@kernlang/core';
 
 // ── Source Spans ──────────────────────────────────────────────────────────
 

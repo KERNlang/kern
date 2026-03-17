@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult } from '@kern/core';
-import { STYLE_SHORTHANDS } from '@kern/core';
+import type { IRNode, TranspileResult } from '@kernlang/core';
+import { STYLE_SHORTHANDS } from '@kernlang/core';
 
 // ── Mapped CSS properties (mirrors the switch cases in stylesToTailwind) ─
 

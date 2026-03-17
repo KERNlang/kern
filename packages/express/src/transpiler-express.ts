@@ -1,5 +1,5 @@
-import type { ResolvedKernConfig, GeneratedArtifact, IRNode, SourceMapEntry, TranspileResult } from '@kern/core';
-import { camelKey, countTokens, serializeIR } from '@kern/core';
+import type { ResolvedKernConfig, GeneratedArtifact, IRNode, SourceMapEntry, TranspileResult } from '@kernlang/core';
+import { camelKey, countTokens, serializeIR } from '@kernlang/core';
 
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'delete']);
 

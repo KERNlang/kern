@@ -1,12 +1,12 @@
 /**
  * React-specific codegen — generates JSX/TSX code for provider and effect nodes.
  *
- * These nodes live in @kern/react because they produce JSX output,
- * unlike hook which generates pure TypeScript and lives in @kern/core.
+ * These nodes live in @kernlang/react because they produce JSX output,
+ * unlike hook which generates pure TypeScript and lives in @kernlang/core.
  */
 
-import type { IRNode } from '@kern/core';
-import { parseParamList, capitalize } from '@kern/core';
+import type { IRNode } from '@kernlang/core';
+import { parseParamList, capitalize } from '@kernlang/core';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 

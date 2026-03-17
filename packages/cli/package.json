@@ -1,5 +1,5 @@
 {
-  "name": "@kern/cli",
+  "name": "@kernlang/cli",
   "version": "2.0.0",
   "description": "KERN CLI — transpile, compile, minify, and analyze .kern files",
   "type": "module",
@@ -21,14 +21,14 @@
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --forceExit --config jest.config.js"
   },
   "dependencies": {
-    "@kern/core": "workspace:*",
-    "@kern/express": "workspace:*",
-    "@kern/metrics": "workspace:*",
-    "@kern/native": "workspace:*",
-    "@kern/react": "workspace:*",
-    "@kern/review": "workspace:*",
-    "@kern/terminal": "workspace:*",
-    "@kern/vue": "workspace:*",
+    "@kernlang/core": "workspace:*",
+    "@kernlang/express": "workspace:*",
+    "@kernlang/metrics": "workspace:*",
+    "@kernlang/native": "workspace:*",
+    "@kernlang/react": "workspace:*",
+    "@kernlang/review": "workspace:*",
+    "@kernlang/terminal": "workspace:*",
+    "@kernlang/vue": "workspace:*",
     "chokidar": "^5.0.0",
     "jiti": "^2.6.1"
   }

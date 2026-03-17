@@ -327,7 +327,7 @@ export function generateConfigSource(result: ScanResult): string {
   const { config } = result;
   const lines: string[] = [];
 
-  lines.push("import type { KernConfig } from '@kern/core';");
+  lines.push("import type { KernConfig } from '@kernlang/core';");
   lines.push('');
   lines.push('const config: KernConfig = {');
 

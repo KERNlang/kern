@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig } from '@kern/core';
-import { expandStyles, countTokens, serializeIR } from '@kern/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR } from '@kernlang/core';
 
 const NODE_TO_COMPONENT: Record<string, string> = {
   screen: 'View',

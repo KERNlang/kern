@@ -607,7 +607,7 @@ export function generateConst(node: IRNode): string[] {
   return [`${exp}const ${name}${typeAnnotation};`];
 }
 
-// ── Shared Helpers (exported for @kern/react) ────────────────────────────
+// ── Shared Helpers (exported for @kernlang/react) ────────────────────────────
 
 /** Parse "name:Type,name2:Type2" → "name: Type, name2: Type2" */
 export function parseParamList(params: string): string {

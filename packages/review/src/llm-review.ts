@@ -195,7 +195,7 @@ export function parseLLMResponse(
 
 // ── Node Serialization ───────────────────────────────────────────────────
 
-function serializeNode(node: import('@kern/core').IRNode, indent: string): string {
+function serializeNode(node: import('@kernlang/core').IRNode, indent: string): string {
   const parts = [node.type];
   if (node.props) {
     for (const [k, v] of Object.entries(node.props)) {
@@ -214,7 +214,7 @@ function serializeNode(node: import('@kern/core').IRNode, indent: string): strin
   return result;
 }
 
-function serializeNodeWithBody(node: import('@kern/core').IRNode, indent: string): string {
+function serializeNodeWithBody(node: import('@kernlang/core').IRNode, indent: string): string {
   const parts = [node.type];
   if (node.props) {
     for (const [k, v] of Object.entries(node.props)) {

@@ -1,5 +1,5 @@
 /**
- * @kern/metrics — Language metrics and project context export
+ * @kernlang/metrics — Language metrics and project context export
  */
 export { collectLanguageMetrics, mergeMetrics, isEscapedStyleKey } from './metrics.js';
 export type { LanguageMetrics, StyleMetrics, NodeTypeMetrics } from './metrics.js';
