@@ -266,6 +266,151 @@ describe('Next.js 15 Production Patterns', () => {
       expect(NODE_TYPES).toContain('notFound');
       expect(NODE_TYPES).toContain('redirect');
       expect(NODE_TYPES).toContain('fetch');
+      expect(NODE_TYPES).toContain('codeblock');
+      expect(NODE_TYPES).toContain('section');
+    });
+  });
+
+  // ── Route-aware page compilation ──────────────────────────────────────
+
+  describe('route-aware compilation', () => {
+    test('page with route="/features" outputs features/page.tsx', () => {
+      const ast = parse('page name=FeaturesPage route="/features"\n  text value="Features"');
+      const result = transpileNextjs(ast);
+      expect(result.files[0].path).toBe('features/page.tsx');
+    });
+
+    test('layout with route="/docs" outputs docs/layout.tsx', () => {
+      const ast = parse('layout route="/docs"\n  text value="Docs"');
+      const result = transpileNextjs(ast);
+      expect(result.files[0].path).toBe('docs/layout.tsx');
+    });
+
+    test('nested route /docs/getting-started outputs correct path', () => {
+      const ast = parse('page name=GettingStarted route="/docs/getting-started"\n  text value="Getting Started"');
+      const result = transpileNextjs(ast);
+      expect(result.files[0].path).toBe('docs/getting-started/page.tsx');
+    });
+
+    test('no route prop falls back to page.tsx (backward compat)', () => {
+      const ast = parse('page name=Home\n  text value="Home"');
+      const result = transpileNextjs(ast);
+      expect(result.files[0].path).toBe('page.tsx');
+    });
+
+    test('segment="[slug]" appended to route path', () => {
+      const ast = parse('page name=DocPage route="/docs" segment="[slug]"\n  text value="Doc"');
+      const result = transpileNextjs(ast);
+      expect(result.files[0].path).toBe('docs/[slug]/page.tsx');
+    });
+  });
+
+  // ── Codeblock node ────────────────────────────────────────────────────
+
+  describe('codeblock', () => {
+    test('inline value renders <pre><code>', () => {
+      const ast = parse('page name=DocsPage\n  codeblock lang=kern value="page name=Hello"');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('<pre className="bg-zinc-900 rounded-lg p-4 overflow-x-auto">');
+      expect(result.code).toContain('<code');
+      expect(result.code).toContain('page name=Hello');
+    });
+
+    test('lang prop renders as CSS class', () => {
+      const ast = parse('page name=DocsPage\n  codeblock lang=typescript value="const x = 1"');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('language-typescript');
+    });
+
+    test('multiline via body child renders content', () => {
+      const ast = parse('page name=DocsPage\n  codeblock lang=kern\n    body value="page name=Hello"');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('<pre');
+      expect(result.code).toContain('page name=Hello');
+    });
+  });
+
+  // ── Enhanced section ──────────────────────────────────────────────────
+
+  describe('enhanced section', () => {
+    test('id prop renders as HTML attribute', () => {
+      const ast = parse('page name=Home\n  section id=hero\n    text value="Hello"');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('<section id="hero"');
+    });
+
+    test('no title means no <h2>', () => {
+      const ast = parse('page name=Home\n  section id=features\n    text value="Feature 1"');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('<section id="features"');
+      expect(result.code).not.toContain('<h2');
+    });
+
+    test('title prop still renders <h2>', () => {
+      const ast = parse('page name=Home\n  section title="About"\n    text value="About us"');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('<h2');
+      expect(result.code).toContain('About');
+    });
+  });
+
+  // ── Enhanced image ────────────────────────────────────────────────────
+
+  describe('enhanced image', () => {
+    test('full path src used as-is', () => {
+      const ast = parse('page name=Home\n  image src="/images/hero.png" alt="Hero" width=800 height=400');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('src="/images/hero.png"');
+      expect(result.code).not.toContain('src="//images/hero.png.png"');
+    });
+
+    test('priority prop renders attribute', () => {
+      const ast = parse('page name=Home\n  image src="/hero.jpg" alt="Hero" width=800 height=400 priority=true');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('priority');
+    });
+
+    test('fill prop omits width/height', () => {
+      const ast = parse('page name=Home\n  image src="https://cdn.example.com/photo.jpg" alt="Photo" fill=true');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('fill');
+      expect(result.code).not.toContain('width={');
+    });
+
+    test('legacy bare src still gets /<name>.png', () => {
+      const ast = parse('page name=Home\n  image src=logo alt="Logo"');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('src="/logo.png"');
+    });
+  });
+
+  // ── Text tags ─────────────────────────────────────────────────────────
+
+  describe('text tag map', () => {
+    test('h3 tag renders correctly', () => {
+      const ast = parse('page name=Home\n  text value="Subtitle" tag=h3');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('<h3');
+      expect(result.code).toContain('</h3>');
+    });
+
+    test('h4 tag renders correctly', () => {
+      const ast = parse('page name=Home\n  text value="Sub" tag=h4');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('<h4');
+    });
+
+    test('h5 and h6 tags render correctly', () => {
+      const ast = parse('page name=Home\n  text value="A" tag=h5\n  text value="B" tag=h6');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('<h5');
+      expect(result.code).toContain('<h6');
+    });
+
+    test('span is default for unknown tag', () => {
+      const ast = parse('page name=Home\n  text value="Hello"');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('<span');
     });
   });
 });

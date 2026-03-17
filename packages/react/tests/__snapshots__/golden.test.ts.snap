@@ -32,15 +32,15 @@ export default function LandingPage() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         <div className="bg-zinc-900 rounded-2xl p-6 border border-zinc-800">
-          <span className="text-lg font-semibold text-white mb-2">Stem Separation</span>
+          <h3 className="text-lg font-semibold text-white mb-2">Stem Separation</h3>
           <p className="text-sm text-zinc-400">Split any track into drums, bass, vocals, and more using Demucs ML.</p>
         </div>
         <div className="bg-zinc-900 rounded-2xl p-6 border border-zinc-800">
-          <span className="text-lg font-semibold text-white mb-2">Frequency Analysis</span>
+          <h3 className="text-lg font-semibold text-white mb-2">Frequency Analysis</h3>
           <p className="text-sm text-zinc-400">Identify problematic frequencies and get EQ fix suggestions per stem.</p>
         </div>
         <div className="bg-zinc-900 rounded-2xl p-6 border border-zinc-800">
-          <span className="text-lg font-semibold text-white mb-2">Mastering Chain</span>
+          <h3 className="text-lg font-semibold text-white mb-2">Mastering Chain</h3>
           <p className="text-sm text-zinc-400">Auto-generated mastering presets based on your genre and reference tracks.</p>
         </div>
       </div>

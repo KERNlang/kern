@@ -39,7 +39,9 @@ export const NODE_TYPES = [
   // Layout
   'screen', 'row', 'col', 'card', 'scroll',
   // Content
-  'text', 'image', 'progress', 'divider',
+  'text', 'image', 'progress', 'divider', 'codeblock',
+  // Structural
+  'section',
   // Interactive
   'button', 'input', 'modal',
   // Lists

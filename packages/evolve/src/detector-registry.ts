@@ -55,14 +55,14 @@ export function detectorCount(): number {
  */
 export async function loadBuiltinDetectors(): Promise<void> {
   const modules = await Promise.all([
-    import('../detectors/react-forms.js'),
-    import('../detectors/state-mgmt.js'),
-    import('../detectors/animation.js'),
-    import('../detectors/data-fetching.js'),
-    import('../detectors/schema-validation.js'),
-    import('../detectors/express-middleware.js'),
-    import('../detectors/vue-composables.js'),
-    import('../detectors/testing.js'),
+    import('./detectors/react-forms.js'),
+    import('./detectors/state-mgmt.js'),
+    import('./detectors/animation.js'),
+    import('./detectors/data-fetching.js'),
+    import('./detectors/schema-validation.js'),
+    import('./detectors/express-middleware.js'),
+    import('./detectors/vue-composables.js'),
+    import('./detectors/testing.js'),
   ]);
   for (const mod of modules) {
     for (const pack of mod.detectors) {

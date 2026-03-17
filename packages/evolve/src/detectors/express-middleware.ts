@@ -3,7 +3,7 @@
  */
 
 import type { SourceFile } from 'ts-morph';
-import type { DetectorPack, DetectionResult } from '../src/types.js';
+import type { DetectorPack, DetectionResult } from '../types.js';
 
 const expressMiddlewareDetector: DetectorPack = {
   id: 'express-middleware',

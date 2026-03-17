@@ -32,6 +32,9 @@ importers:
       '@kernlang/core':
         specifier: workspace:*
         version: link:../core
+      '@kernlang/evolve':
+        specifier: workspace:*
+        version: link:../evolve
       '@kernlang/express':
         specifier: workspace:*
         version: link:../express
@@ -88,6 +91,18 @@ importers:
         version: link:../terminal
 
   packages/core: {}
+
+  packages/evolve:
+    dependencies:
+      '@kernlang/core':
+        specifier: workspace:*
+        version: link:../core
+      '@kernlang/review':
+        specifier: workspace:*
+        version: link:../review
+      ts-morph:
+        specifier: ^24.0.0
+        version: 24.0.0
 
   packages/express:
     dependencies:

@@ -11,6 +11,7 @@
 
 import type { ReviewRule } from '../types.js';
 import { baseRules } from './base.js';
+import { securityRules } from './security.js';
 import { reactRules } from './react.js';
 import { vueRules } from './vue.js';
 import { nextjsRules } from './nextjs.js';
@@ -24,7 +25,7 @@ const VUE_TARGETS = new Set(['vue', 'nuxt']);
  * Base rules are always active; framework rules activate by target.
  */
 export function getActiveRules(target?: string): ReviewRule[] {
-  const rules: ReviewRule[] = [...baseRules];
+  const rules: ReviewRule[] = [...baseRules, ...securityRules];
 
   if (target && REACT_TARGETS.has(target)) {
     rules.push(...reactRules);

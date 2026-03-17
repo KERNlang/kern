@@ -13,6 +13,7 @@
     { "path": "../terminal" },
     { "path": "../vue" },
     { "path": "../review" },
-    { "path": "../metrics" }
+    { "path": "../metrics" },
+    { "path": "../evolve" }
   ]
 }

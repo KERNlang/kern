@@ -123,6 +123,16 @@ function twClasses(node: IRNode, ctx: Ctx, extra: string = ''): string {
   return parts.length > 0 ? ` className="${parts.join(' ')}"` : '';
 }
 
+// ── Route path helper ────────────────────────────────────────────────────
+
+function routeToPath(route: string, segment?: string): string {
+  // Normalize: strip leading/trailing slashes
+  const normalized = route.replace(/^\/+|\/+$/g, '');
+  const parts = normalized ? normalized.split('/') : [];
+  if (segment) parts.push(segment);
+  return parts.length > 0 ? parts.join('/') + '/' : '';
+}
+
 // ── Node renderers ──────────────────────────────────────────────────────
 
 function renderNode(node: IRNode, ctx: Ctx, indent: string): void {
@@ -144,6 +154,7 @@ function renderNode(node: IRNode, ctx: Ctx, indent: string): void {
     case 'button': renderButton(node, ctx, indent); break;
     case 'link': renderLink(node, ctx, indent); break;
     case 'image': renderImage(node, ctx, indent); break;
+    case 'codeblock': renderCodeBlock(node, ctx, indent); break;
     case 'input': ctx.lines.push(`${indent}<input${twClasses(node, ctx)} />`); break;
     case 'slider': renderSlider(node, ctx, indent); break;
     case 'toggle': renderToggle(node, ctx, indent); break;
@@ -219,11 +230,38 @@ function renderMetadata(node: IRNode, ctx: Ctx): void {
 function renderSection(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   const title = p.title as string || '';
-  const key = p.key as string || camelKey(title);
-  ctx.lines.push(`${indent}<section>`);
-  ctx.lines.push(`${indent}  <h2 className="text-lg font-semibold mb-4">${escapeJsxText(title)}</h2>`);
+  const id = p.id as string;
+  const idAttr = id ? ` id="${id}"` : '';
+  const tw = twClasses(node, ctx);
+  ctx.lines.push(`${indent}<section${idAttr}${tw}>`);
+  if (title) {
+    ctx.lines.push(`${indent}  <h2 className="text-lg font-semibold mb-4">${escapeJsxText(title)}</h2>`);
+  }
   renderChildren(node, ctx, indent);
   ctx.lines.push(`${indent}</section>`);
+}
+
+function renderCodeBlock(node: IRNode, ctx: Ctx, indent: string): void {
+  const p = getProps(node);
+  const lang = p.lang as string || '';
+  const langClass = lang ? ` language-${lang}` : '';
+  // Content: inline value prop or body child node
+  let content = p.value as string || '';
+  if (!content && node.children) {
+    const bodyNode = node.children.find(c => c.type === 'body');
+    if (bodyNode) {
+      const bp = getProps(bodyNode);
+      content = bp.value as string || '';
+    }
+  }
+  // Escape for JSX template literal: backslashes, backticks, ${
+  const escaped = content
+    .replace(/\\/g, '\\\\')
+    .replace(/`/g, '\\`')
+    .replace(/\$\{/g, '\\${');
+  ctx.lines.push(`${indent}<pre className="bg-zinc-900 rounded-lg p-4 overflow-x-auto">`);
+  ctx.lines.push(`${indent}  <code className="text-sm font-mono text-zinc-100${langClass}">{\`${escaped}\`}</code>`);
+  ctx.lines.push(`${indent}</pre>`);
 }
 
 function renderCard(node: IRNode, ctx: Ctx, indent: string): void {
@@ -247,11 +285,13 @@ function renderCard(node: IRNode, ctx: Ctx, indent: string): void {
   }
 }
 
+const TEXT_TAG_MAP: Record<string, string> = { p: 'p', h1: 'h1', h2: 'h2', h3: 'h3', h4: 'h4', h5: 'h5', h6: 'h6', label: 'label', span: 'span' };
+
 function renderText(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   const value = p.value as string;
   const bind = p.bind as string;
-  const el = (p.tag as string) === 'p' ? 'p' : (p.tag as string) === 'h1' ? 'h1' : (p.tag as string) === 'h2' ? 'h2' : (p.tag as string) === 'label' ? 'label' : 'span';
+  const el = TEXT_TAG_MAP[p.tag as string] || 'span';
   const tw = twClasses(node, ctx);
   if (bind) ctx.lines.push(`${indent}<${el}${tw}>{${bind}}</${el}>`);
   else if (value) ctx.lines.push(`${indent}<${el}${tw}>${escapeJsxText(value)}</${el}>`);
@@ -282,9 +322,18 @@ function renderImage(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   addDefaultImport(ctx, 'next/image', 'Image');
   const tw = twClasses(node, ctx);
-  const width = p.width || (getStyles(node).w) || '100';
-  const height = p.height || (getStyles(node).h) || '100';
-  ctx.lines.push(`${indent}<Image src="/${p.src}.png" alt="${p.alt || p.src}" width={${width}} height={${height}}${tw} />`);
+  const rawSrc = p.src as string || '';
+  const src = (rawSrc.startsWith('/') || rawSrc.includes('://') || rawSrc.includes('.')) ? rawSrc : `/${rawSrc}.png`;
+  const alt = escapeJsxAttr(String(p.alt || p.src || ''));
+  const fill = p.fill === 'true' || p.fill === true;
+  const priority = p.priority === 'true' || p.priority === true;
+  if (fill) {
+    ctx.lines.push(`${indent}<Image src="${src}" alt="${alt}"${priority ? ' priority' : ''} fill${tw} />`);
+  } else {
+    const width = p.width || (getStyles(node).w) || '100';
+    const height = p.height || (getStyles(node).h) || '100';
+    ctx.lines.push(`${indent}<Image src="${src}" alt="${alt}" width={${width}} height={${height}}${priority ? ' priority' : ''}${tw} />`);
+  }
 }
 
 function renderSlider(node: IRNode, ctx: Ctx, indent: string): void {
@@ -570,12 +619,15 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
   const tsTokenCount = countTokens(output);
   const tokenReduction = tsTokenCount > 0 ? Math.round((1 - irTokenCount / tsTokenCount) * 100) : 0;
 
-  // Determine output filename convention
+  // Determine output filename convention (route-aware)
+  const route = rootProps.route as string | undefined;
+  const segment = rootProps.segment as string | undefined;
+  const routePrefix = route ? routeToPath(route, segment) : (segment ? routeToPath('', segment) : '');
   const files: NextFile[] = [];
-  if (isLayout) files.push({ path: 'layout.tsx', content: output });
-  else if (isLoading) files.push({ path: 'loading.tsx', content: output });
-  else if (isError) files.push({ path: 'error.tsx', content: output });
-  else files.push({ path: 'page.tsx', content: output });
+  if (isLayout) files.push({ path: `${routePrefix}layout.tsx`, content: output });
+  else if (isLoading) files.push({ path: `${routePrefix}loading.tsx`, content: output });
+  else if (isError) files.push({ path: `${routePrefix}error.tsx`, content: output });
+  else files.push({ path: `${routePrefix}page.tsx`, content: output });
 
   return {
     code: output,

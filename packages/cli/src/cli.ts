@@ -14,6 +14,8 @@ import { transpileVue, transpileNuxt } from '@kernlang/vue';
 import { collectLanguageMetrics } from '@kernlang/metrics';
 import { reviewFile, reviewDirectory, reviewSource, reviewGraph, resolveImportGraph, formatReport, formatReportJSON, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes } from '@kernlang/review';
 import type { ReviewConfig, ReviewFinding } from '@kernlang/review';
+import { evolve, loadBuiltinDetectors, listStaged, getStaged, updateStagedStatus, promoteLocal, cleanRejected, formatSplitView } from '@kernlang/evolve';
+import type { EvolveOptions } from '@kernlang/evolve';
 
 const args = process.argv.slice(2);
 
@@ -228,7 +230,9 @@ function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride
     const outFileName = (target === 'nextjs' && resultWithFiles.files && resultWithFiles.files.length > 0)
       ? resultWithFiles.files[0].path
       : `${name}${outExt}`;
-    writeFileSync(resolve(outDir, outFileName), header + result.code);
+    const outFilePath = resolve(outDir, outFileName);
+    mkdirSync(dirname(outFilePath), { recursive: true });
+    writeFileSync(outFilePath, header + result.code);
     if (result.artifacts) {
       for (const artifact of result.artifacts) {
         const artifactPath = resolve(outDir, artifact.path);
@@ -775,6 +779,142 @@ if (args[0] === 'review') {
   process.exit(0);
 }
 
+// ── kern evolve <dir|file> [options] ──────────────────────────────────
+if (args[0] === 'evolve' && args[1] !== undefined && !args[1].startsWith('evolve:')) {
+  const evolveInput = args[1];
+  if (!evolveInput || evolveInput.startsWith('--')) {
+    console.error('Usage: kern evolve <dir|file> [--recursive] [--preview] [--min-confidence=N] [--min-support=N] [--json]');
+    process.exit(1);
+  }
+
+  const evolvePath = resolve(evolveInput);
+  const stat = existsSync(evolvePath) ? statSync(evolvePath) : null;
+  if (!stat) {
+    console.error(`Not found: ${evolveInput}`);
+    process.exit(1);
+  }
+
+  const recursive = args.includes('--recursive') || args.includes('-r');
+  const preview = args.includes('--preview');
+  const jsonOutput = args.includes('--json');
+  const minConfArg = args.find(a => a.startsWith('--min-confidence='))?.split('=')[1];
+  const minSupportArg = args.find(a => a.startsWith('--min-support='))?.split('=')[1];
+
+  const evolveOptions: EvolveOptions = {
+    recursive,
+    preview,
+    thresholds: {
+      ...(minConfArg ? { minConfidence: Number(minConfArg) } : {}),
+      ...(minSupportArg ? { minSupport: Number(minSupportArg) } : {}),
+    },
+  };
+
+  // Load built-in detectors
+  await loadBuiltinDetectors();
+
+  console.log(`\n  KERN evolve — scanning for template gaps\n`);
+  console.log(`  Input: ${relative(process.cwd(), evolvePath) || '.'}`);
+  console.log(`  Mode:  ${preview ? 'preview (no staging)' : 'detect + stage'}`);
+  console.log('');
+
+  const result = evolve(evolvePath, evolveOptions);
+
+  if (jsonOutput) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(`  Gaps detected:       ${result.gaps.length}`);
+    console.log(`  Patterns analyzed:   ${result.analyzed.length}`);
+    console.log(`  Templates proposed:  ${result.proposals.length}`);
+    console.log(`  Validated:           ${result.validated.filter(v => v.validation.parseOk && v.validation.expansionOk).length}/${result.validated.length}`);
+
+    if (!preview && result.staged.length > 0) {
+      console.log(`  Staged for review:   ${result.staged.length}`);
+      console.log(`\n  Run 'kern evolve:review --list' to review proposals.`);
+    }
+
+    if (result.proposals.length > 0 && !jsonOutput) {
+      console.log('\n  Proposed templates:');
+      for (const p of result.proposals) {
+        const v = result.validated.find(v => v.proposal.id === p.id);
+        const status = v ? (v.validation.parseOk && v.validation.expansionOk ? '✓' : '✗') : '?';
+        console.log(`    ${status} ${p.templateName} (${p.namespace}) — score: ${p.qualityScore.overallScore}, instances: ${p.instanceCount}`);
+      }
+    }
+  }
+
+  console.log('');
+  process.exit(0);
+}
+
+// ── kern evolve:review [options] ─────────────────────────────────────
+if (args[0] === 'evolve:review') {
+  const listMode = args.includes('--list') || args.length === 1;
+  const approveId = args.find(a => a.startsWith('--approve'))
+    ? (args.find(a => a.startsWith('--approve='))?.split('=')[1] || args[args.indexOf('--approve') + 1])
+    : undefined;
+  const rejectId = args.find(a => a.startsWith('--reject'))
+    ? (args.find(a => a.startsWith('--reject='))?.split('=')[1] || args[args.indexOf('--reject') + 1])
+    : undefined;
+  const promoteMode = args.includes('--promote');
+  const isLocal = args.includes('--local') || !args.includes('--catalog');
+
+  if (approveId) {
+    const updated = updateStagedStatus(approveId, 'approved');
+    if (updated) {
+      console.log(`  Approved: ${approveId}`);
+    } else {
+      console.error(`  Not found: ${approveId}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  if (rejectId) {
+    const updated = updateStagedStatus(rejectId, 'rejected');
+    if (updated) {
+      console.log(`  Rejected: ${rejectId}`);
+      cleanRejected();
+    } else {
+      console.error(`  Not found: ${rejectId}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  if (promoteMode) {
+    if (!isLocal) {
+      console.log('  Catalog promotion is for contributors who want to upstream templates.');
+      console.log('  Use --local (default) to write templates to your project.');
+      process.exit(0);
+    }
+
+    const promoted = promoteLocal();
+    if (promoted.length === 0) {
+      console.log('  No approved proposals to promote.');
+    } else {
+      console.log(`  Promoted ${promoted.length} template(s) to templates/:`);
+      for (const name of promoted) {
+        console.log(`    ${name}`);
+      }
+    }
+    process.exit(0);
+  }
+
+  // Default: list mode
+  const staged = listStaged();
+  if (staged.length === 0) {
+    console.log('  No staged proposals. Run \'kern evolve <dir>\' to detect gaps.');
+    process.exit(0);
+  }
+
+  console.log(`\n  KERN evolve:review — ${staged.length} proposal(s)\n`);
+  for (const s of staged) {
+    console.log(formatSplitView(s));
+    console.log('');
+  }
+  process.exit(0);
+}
+
 // ── Standard transpile mode ────────────────────────────────────────────
 
 const inputFile = args.find(a => !a.startsWith('--'));
@@ -788,6 +928,8 @@ if (!inputFile) {
   console.log('  scan [--force] [--dry-run]                    Detect project → generate kern.config.ts');
   console.log('  init-templates [--force] [--dry-run]          Scan deps → scaffold template .kern files');
   console.log('  review <file.ts|dir> [options]                Analyze TS → infer .kern coverage + review');
+  console.log('  evolve <dir|file> [options]                   Detect gaps → propose templates');
+  console.log('  evolve:review [options]                       Review staged template proposals');
   console.log('');
   console.log('Targets:');
   console.log('  nextjs    Next.js App Router (default)');
