@@ -8,8 +8,9 @@ import { generateReactNode, isReactNode } from '@kernlang/react';
 import { transpile } from '@kernlang/native';
 import { transpileWeb, transpileTailwind, transpileNextjs } from '@kernlang/react';
 import { transpileExpress } from '@kernlang/express';
+import { transpileFastAPI } from '@kernlang/fastapi';
 import { transpileCliApp } from './transpiler-cli.js';
-import { transpileTerminal } from '@kernlang/terminal';
+import { transpileTerminal, transpileInk } from '@kernlang/terminal';
 import { transpileVue, transpileNuxt } from '@kernlang/vue';
 import { collectLanguageMetrics } from '@kernlang/metrics';
 import { reviewFile, reviewDirectory, reviewSource, reviewGraph, resolveImportGraph, formatReport, formatReportJSON, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes } from '@kernlang/review';
@@ -127,7 +128,8 @@ if (args[0] === 'dev') {
       const ext = filePath.endsWith('.kern') ? '.kern' : '.ir';
       const fileBaseName = basename(filePath, ext);
       const outDir = resolve(devOutDir ? resolve(devOutDir) : dirname(filePath), devConfig.output.outDir);
-      const outExt = (devConfig.target === 'vue' || devConfig.target === 'nuxt') ? '.vue'
+      const outExt = devConfig.target === 'fastapi' ? '.py'
+        : (devConfig.target === 'vue' || devConfig.target === 'nuxt') ? '.vue'
         : (devConfig.target === 'express' || devConfig.target === 'cli' || devConfig.target === 'terminal') ? '.ts' : '.tsx';
       const outFile = resolve(outDir, `${fileBaseName}${outExt}`);
       try {
@@ -203,15 +205,19 @@ function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride
         ? transpileTailwind(ast, cfg)
         : target === 'express'
           ? transpileExpress(ast, cfg)
-          : target === 'cli'
-            ? transpileCliApp(ast, cfg)
-            : target === 'terminal'
-              ? transpileTerminal(ast, cfg)
-              : target === 'vue'
-                ? transpileVue(ast, cfg)
-                : target === 'nuxt'
-                  ? transpileNuxt(ast, cfg)
-                  : transpileNextjs(ast, cfg);
+          : target === 'fastapi'
+            ? transpileFastAPI(ast, cfg)
+            : target === 'cli'
+              ? transpileCliApp(ast, cfg)
+              : target === 'terminal'
+                ? transpileTerminal(ast, cfg)
+                : target === 'ink'
+                  ? transpileInk(ast, cfg)
+                  : target === 'vue'
+                    ? transpileVue(ast, cfg)
+                    : target === 'nuxt'
+                      ? transpileNuxt(ast, cfg)
+                      : transpileNextjs(ast, cfg);
 
   const outDir = resolve(outDirOverride ? resolve(outDirOverride) : dirname(file), cfg.output.outDir);
   mkdirSync(outDir, { recursive: true });
@@ -223,8 +229,10 @@ function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride
       writeFileSync(artifactPath, header + artifact.content);
     }
   } else {
-    const outExt = (target === 'vue' || target === 'nuxt') ? '.vue'
-      : (target === 'express' || target === 'cli' || target === 'terminal') ? '.ts' : '.tsx';
+    const outExt = target === 'fastapi' ? '.py'
+      : (target === 'vue' || target === 'nuxt') ? '.vue'
+      : (target === 'express' || target === 'cli' || target === 'terminal') ? '.ts'
+      : target === 'ink' ? '.tsx' : '.tsx';
     // For Next.js target, use the file convention name from the transpiler result (page.tsx, layout.tsx, etc.)
     const resultWithFiles = result as { files?: Array<{ path: string; content: string }> };
     const outFileName = (target === 'nextjs' && resultWithFiles.files && resultWithFiles.files.length > 0)
@@ -746,7 +754,13 @@ if (args[0] === 'review') {
   }
 
   if (jsonOutput) {
-    console.log(JSON.stringify(reports.length === 1 ? reports[0] : reports, null, 2));
+    // Include KERN IR + LLM prompt in JSON so the calling AI can review
+    const enriched = reports.map(report => {
+      const llmPrompt = buildLLMPrompt(report.inferred, report.templateMatches);
+      const kernIR = exportKernIR(report.inferred, report.templateMatches);
+      return { ...report, kernIR, llmPrompt };
+    });
+    console.log(JSON.stringify(enriched.length === 1 ? enriched[0] : enriched, null, 2));
   } else {
     for (const report of reports) {
       console.log('');
@@ -1071,15 +1085,19 @@ const result = target === 'native'
       ? transpileTailwind(ast, config)
       : target === 'express'
         ? transpileExpress(ast, config)
-        : target === 'cli'
-          ? transpileCliApp(ast, config)
-          : target === 'terminal'
-            ? transpileTerminal(ast, config)
-            : target === 'vue'
-              ? transpileVue(ast, config)
-              : target === 'nuxt'
-                ? transpileNuxt(ast, config)
-                : transpileNextjs(ast, config);
+        : target === 'fastapi'
+          ? transpileFastAPI(ast, config)
+          : target === 'cli'
+            ? transpileCliApp(ast, config)
+            : target === 'terminal'
+              ? transpileTerminal(ast, config)
+              : target === 'ink'
+                ? transpileInk(ast, config)
+                : target === 'vue'
+                ? transpileVue(ast, config)
+                : target === 'nuxt'
+                  ? transpileNuxt(ast, config)
+                  : transpileNextjs(ast, config);
 
 const outDir = resolve(dirname(inputFile), config.output.outDir);
 const isStructured = config.structure !== 'flat' && result.artifacts && result.artifacts.length > 0;
@@ -1097,8 +1115,10 @@ if (isStructured) {
   console.log(`Transpiled: ${inputFile} → ${displayPath}`);
 } else {
   // Flat output: single file
-  const outExt = (target === 'vue' || target === 'nuxt') ? '.vue'
-    : (target === 'express' || target === 'cli' || target === 'terminal') ? '.ts' : '.tsx';
+  const outExt = target === 'fastapi' ? '.py'
+    : (target === 'vue' || target === 'nuxt') ? '.vue'
+    : (target === 'express' || target === 'cli' || target === 'terminal') ? '.ts'
+    : target === 'ink' ? '.tsx' : '.tsx';
   const outFile = resolve(outDir, `${name}${outExt}`);
   mkdirSync(dirname(outFile), { recursive: true });
   writeFileSync(outFile, result.code);
@@ -1112,7 +1132,7 @@ if (isStructured) {
   console.log(`Transpiled: ${inputFile} → ${outFile}`);
 }
 
-const targetNames: Record<string, string> = { native: 'React Native', web: 'React (inline)', tailwind: 'React + Tailwind', nextjs: 'Next.js App Router', express: 'Express TypeScript', cli: 'Commander.js CLI', terminal: 'ANSI Terminal', vue: 'Vue 3 SFC', nuxt: 'Nuxt 3' };
+const targetNames: Record<string, string> = { native: 'React Native', web: 'React (inline)', tailwind: 'React + Tailwind', nextjs: 'Next.js App Router', express: 'Express TypeScript', fastapi: 'FastAPI Python', cli: 'Commander.js CLI', terminal: 'ANSI Terminal', ink: 'Ink (React for Terminals)', vue: 'Vue 3 SFC', nuxt: 'Nuxt 3' };
 console.log(`Target:     ${targetNames[target] || target}`);
 if (config.structure !== 'flat') {
   const structureNames: Record<string, string> = { bulletproof: 'Bulletproof React', atomic: 'Atomic Design', kern: 'KERN Native' };

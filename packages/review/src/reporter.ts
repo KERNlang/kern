@@ -6,6 +6,7 @@
  */
 
 import type { ReviewReport, ReviewStats, ReviewFinding, InferResult, TemplateMatch, EnforceResult, ReviewConfig } from './types.js';
+import { buildLLMPrompt, exportKernIR } from './llm-review.js';
 
 // ── Stats Calculation ────────────────────────────────────────────────────
 
@@ -233,8 +234,23 @@ export function formatEnforcement(result: EnforceResult): string {
 
 // ── JSON Format ──────────────────────────────────────────────────────────
 
-export function formatReportJSON(report: ReviewReport): string {
-  return JSON.stringify(report, null, 2);
+export function formatReportJSON(
+  report: ReviewReport,
+  options?: { includeLLMPrompt?: boolean },
+): string {
+  if (!options?.includeLLMPrompt) {
+    return JSON.stringify(report, null, 2);
+  }
+
+  // Include KERN IR and LLM prompt so the calling AI can review
+  const llmPrompt = buildLLMPrompt(report.inferred, report.templateMatches);
+  const kernIR = exportKernIR(report.inferred, report.templateMatches);
+
+  return JSON.stringify({
+    ...report,
+    kernIR,
+    llmPrompt,
+  }, null, 2);
 }
 
 // ── Multi-file Summary ───────────────────────────────────────────────────
