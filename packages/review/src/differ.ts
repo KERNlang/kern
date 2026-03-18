@@ -139,8 +139,9 @@ export function structuralDiff(
           nodeIds: [r.nodeId],
         });
       }
-    } catch {
-      // Recompilation failed — the inference was probably incomplete
+    } catch (_err) {
+      // Recompilation failed — inference was incomplete, skip this construct
+      // (e.g., partial machine nodes, unresolvable template references)
     }
   }
 

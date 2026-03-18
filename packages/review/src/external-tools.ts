@@ -141,8 +141,9 @@ export function runTSCDiagnostics(project: Project): ReviewFinding[] {
         fingerprint: createFingerprint(`ts${code}`, startLine, startCol),
       });
     }
-  } catch {
-    // Diagnostics collection failed — skip
+  } catch (err) {
+    // ts-morph diagnostics can fail on malformed source — return what we have
+    if (process.env.KERN_DEBUG) console.error('tsc diagnostics error:', (err as Error).message);
   }
 
   return findings;
@@ -161,7 +162,7 @@ export function runTSCDiagnosticsFromPaths(filePaths: string[]): ReviewFinding[]
   try {
     const project = createProject();
     for (const fp of filePaths) {
-      try { project.addSourceFileAtPath(fp); } catch { /* skip unreadable files */ }
+      try { project.addSourceFileAtPath(fp); } catch (_e) { /* skip unreadable/unparseable files */ }
     }
     return runTSCDiagnostics(project);
   } catch {
