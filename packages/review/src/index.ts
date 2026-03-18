@@ -115,8 +115,8 @@ export function reviewGraph(
 ): ReviewReport[] {
   const graph = resolveImportGraph(entryFiles, graphOptions);
   const entrySet = new Set(graph.entryFiles);
-  const distanceMap = new Map(graph.files.map(f => [f.path, f.distance]));
   const reports: ReviewReport[] = [];
+  const severityOrder: Record<string, number> = { error: 0, warning: 1, info: 2 };
 
   for (const gf of graph.files) {
     if (!existsSync(gf.path)) continue;
@@ -139,6 +139,13 @@ export function reviewGraph(
           // that materially affect the changed code
         }
       }
+
+      // Re-sort after severity mutations
+      report.findings.sort((a, b) => {
+        const sd = severityOrder[a.severity] - severityOrder[b.severity];
+        if (sd !== 0) return sd;
+        return a.primarySpan.startLine - b.primarySpan.startLine;
+      });
 
       reports.push(report);
     } catch (err) {
