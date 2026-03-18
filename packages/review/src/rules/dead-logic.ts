@@ -287,50 +287,49 @@ function unusedCollection(ctx: RuleContext): ReviewFinding[] {
     'reduce', 'some', 'every', 'forEach', 'entries', 'values', 'keys', 'join',
     'flat', 'flatMap', 'slice', 'at', 'length', 'size']);
 
-  // Find collection declarations: new Array/Map/Set or [] or new Map()
-  for (const stmt of ctx.sourceFile.getVariableStatements()) {
-    for (const decl of stmt.getDeclarations()) {
-      const init = decl.getInitializer();
-      if (!init) continue;
-      const initText = init.getText();
-      const isCollection = init.getKind() === SyntaxKind.ArrayLiteralExpression ||
-        initText.startsWith('new Map') || initText.startsWith('new Set') ||
-        initText.startsWith('new Array');
-      if (!isCollection) continue;
+  // Find ALL variable declarations (not just top-level) for collection patterns
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = decl.getInitializer();
+    if (!init) continue;
+    const initText = init.getText();
+    const isCollection = init.getKind() === SyntaxKind.ArrayLiteralExpression ||
+      initText.startsWith('new Map') || initText.startsWith('new Set') ||
+      initText.startsWith('new Array');
+    if (!isCollection) continue;
 
-      const varName = decl.getName();
-      const declLine = stmt.getStartLineNumber();
+    const varName = decl.getName();
+    const declLine = decl.getStartLineNumber();
 
-      // Scan all references to this variable in the file
-      let hasWrite = false;
-      let hasRead = false;
+    // Scope: only scan references within the same block/function scope
+    const scope = decl.getFirstAncestorByKind(SyntaxKind.Block) || ctx.sourceFile;
 
-      for (const ident of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
-        if (ident.getText() !== varName) continue;
-        if (ident.getStartLineNumber() === declLine) continue; // skip declaration
+    let hasWrite = false;
+    let hasRead = false;
 
-        const parent = ident.getParent();
-        if (!parent) continue;
+    for (const ident of scope.getDescendantsOfKind(SyntaxKind.Identifier)) {
+      if (ident.getText() !== varName) continue;
+      if (ident.getStartLineNumber() === declLine && ident.getStart() <= decl.getEnd()) continue;
 
-        if (parent.getKind() === SyntaxKind.PropertyAccessExpression) {
-          const pa = parent as import('ts-morph').PropertyAccessExpression;
-          if (pa.getExpression() === ident) {
-            const method = pa.getName();
-            if (writeOps.has(method)) hasWrite = true;
-            if (readOps.has(method)) hasRead = true;
-            // Spread, destructure, or iteration counts as read
-          }
-        } else {
-          // Any other usage is a read (passed as arg, returned, spread, etc.)
-          hasRead = true;
+      const parent = ident.getParent();
+      if (!parent) continue;
+
+      if (parent.getKind() === SyntaxKind.PropertyAccessExpression) {
+        const pa = parent as import('ts-morph').PropertyAccessExpression;
+        if (pa.getExpression() === ident) {
+          const method = pa.getName();
+          if (writeOps.has(method)) hasWrite = true;
+          if (readOps.has(method)) hasRead = true;
         }
+      } else if (parent.getKind() !== SyntaxKind.VariableDeclaration) {
+        // Any other usage (arg, return, spread, etc.) is a read
+        hasRead = true;
       }
+    }
 
-      if (hasWrite && !hasRead) {
-        findings.push(finding('unused-collection', 'warning', 'bug',
-          `Collection '${varName}' is populated but never read`,
-          ctx.filePath, declLine));
-      }
+    if (hasWrite && !hasRead) {
+      findings.push(finding('unused-collection', 'warning', 'bug',
+        `Collection '${varName}' is populated but never read`,
+        ctx.filePath, declLine));
     }
   }
 
@@ -344,54 +343,54 @@ function emptyCollectionAccess(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   const writeOps = new Set(['push', 'add', 'set', 'unshift', 'splice', 'fill']);
 
-  for (const stmt of ctx.sourceFile.getVariableStatements()) {
-    for (const decl of stmt.getDeclarations()) {
-      const init = decl.getInitializer();
-      if (!init) continue;
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = decl.getInitializer();
+    if (!init) continue;
 
-      // Only flag collections initialized as empty
-      const initText = init.getText().trim();
-      const isEmpty = initText === '[]' || initText === 'new Map()' ||
-        initText === 'new Set()' || initText === 'new Array()';
-      if (!isEmpty) continue;
+    // Only flag collections initialized as empty
+    const initText = init.getText().trim();
+    const isEmpty = initText === '[]' || initText === 'new Map()' ||
+      initText === 'new Set()' || initText === 'new Array()';
+    if (!isEmpty) continue;
 
-      const varName = decl.getName();
-      const declLine = stmt.getStartLineNumber();
+    const varName = decl.getName();
+    const declLine = decl.getStartLineNumber();
 
-      let hasWrite = false;
-      let hasRead = false;
+    // Scope: only scan within the same block
+    const scope = decl.getFirstAncestorByKind(SyntaxKind.Block) || ctx.sourceFile;
 
-      for (const ident of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
-        if (ident.getText() !== varName) continue;
-        if (ident.getStartLineNumber() === declLine) continue;
+    let hasWrite = false;
+    let hasRead = false;
 
-        const parent = ident.getParent();
-        if (!parent) continue;
+    for (const ident of scope.getDescendantsOfKind(SyntaxKind.Identifier)) {
+      if (ident.getText() !== varName) continue;
+      if (ident.getStartLineNumber() === declLine && ident.getStart() <= decl.getEnd()) continue;
 
-        if (parent.getKind() === SyntaxKind.PropertyAccessExpression) {
-          const pa = parent as import('ts-morph').PropertyAccessExpression;
-          if (pa.getExpression() === ident) {
-            if (writeOps.has(pa.getName())) hasWrite = true;
-            else hasRead = true;
-          }
+      const parent = ident.getParent();
+      if (!parent) continue;
+
+      if (parent.getKind() === SyntaxKind.PropertyAccessExpression) {
+        const pa = parent as import('ts-morph').PropertyAccessExpression;
+        if (pa.getExpression() === ident) {
+          if (writeOps.has(pa.getName())) hasWrite = true;
+          else hasRead = true;
+        }
+      } else if (parent.getKind() === SyntaxKind.BinaryExpression) {
+        const bin = parent as import('ts-morph').BinaryExpression;
+        if (bin.getOperatorToken().getKind() === SyntaxKind.EqualsToken && bin.getLeft() === ident) {
+          hasWrite = true;
         } else {
-          // Could be assignment target or read — be conservative
-          if (parent.getKind() === SyntaxKind.BinaryExpression) {
-            const bin = parent as import('ts-morph').BinaryExpression;
-            if (bin.getOperatorToken().getKind() === SyntaxKind.EqualsToken && bin.getLeft() === ident) {
-              hasWrite = true;
-              continue;
-            }
-          }
           hasRead = true;
         }
+      } else if (parent.getKind() !== SyntaxKind.VariableDeclaration) {
+        hasRead = true;
       }
+    }
 
-      if (hasRead && !hasWrite) {
-        findings.push(finding('empty-collection-access', 'warning', 'bug',
-          `Collection '${varName}' is initialized empty and never populated — reads will always be empty`,
-          ctx.filePath, declLine));
-      }
+    if (hasRead && !hasWrite) {
+      findings.push(finding('empty-collection-access', 'warning', 'bug',
+        `Collection '${varName}' is initialized empty and never populated — reads will always be empty`,
+        ctx.filePath, declLine));
     }
   }
 

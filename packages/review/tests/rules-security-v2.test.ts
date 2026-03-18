@@ -14,7 +14,7 @@ describe('Security v2 Rules', () => {
       const report = reviewSource(source, 'auth.ts');
       const f = report.findings.filter(f => f.ruleId === 'jwt-weak-verification');
       expect(f.length).toBeGreaterThanOrEqual(1);
-      expect(f[0].severity).toBe('error');
+      expect(f[0].severity).toBe('warning');
       expect(f[0].message).toContain('decode');
     });
 
@@ -191,7 +191,7 @@ describe('Security v2 Rules', () => {
   // ── weak-password-hashing ──────────────────────────────────────────────
 
   describe('weak-password-hashing', () => {
-    it('flags createHash(md5)', () => {
+    it('flags createHash(md5) in password context', () => {
       const source = `
         import crypto from 'crypto';
         function hashPassword(password: string) {
@@ -202,6 +202,19 @@ describe('Security v2 Rules', () => {
       const f = report.findings.filter(f => f.ruleId === 'weak-password-hashing');
       expect(f.length).toBeGreaterThanOrEqual(1);
       expect(f[0].message).toContain('md5');
+      expect(f[0].severity).toBe('error');
+    });
+
+    it('does not flag createHash(md5) for checksums', () => {
+      const source = `
+        import crypto from 'crypto';
+        function getEtag(content: string) {
+          return crypto.createHash('md5').update(content).digest('hex');
+        }
+      `;
+      const report = reviewSource(source, 'util.ts');
+      const f = report.findings.filter(f => f.ruleId === 'weak-password-hashing');
+      expect(f.length).toBe(0);
     });
 
     it('flags bcrypt with low rounds', () => {

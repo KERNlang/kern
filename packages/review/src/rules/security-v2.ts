@@ -54,26 +54,48 @@ function jwtWeakVerification(ctx: RuleContext): ReviewFinding[] {
       const objText = pa.getExpression().getText();
 
       if (methodName === 'decode' && /jwt|jsonwebtoken/i.test(objText)) {
-        findings.push(finding('jwt-weak-verification', 'error', 'bug',
-          'jwt.decode() does not verify signatures — use jwt.verify() for authentication',
-          ctx.filePath, call.getStartLineNumber(),
-          { suggestion: 'Replace jwt.decode() with jwt.verify(token, secret, { algorithms: ["RS256"] })' }));
+        // Check context: if result is used in auth decisions, it's dangerous.
+        // Skip if clearly inspection/logging (variable named like 'debug', 'log', 'inspect', 'preview')
+        let contextVar = '';
+        const parent = call.getParent();
+        if (parent?.getKind() === SyntaxKind.VariableDeclaration) {
+          contextVar = (parent as import('ts-morph').VariableDeclaration).getName().toLowerCase();
+        }
+        const isInspection = /debug|log|inspect|preview|display|print/.test(contextVar);
+
+        if (!isInspection) {
+          findings.push(finding('jwt-weak-verification', 'warning', 'bug',
+            'jwt.decode() does not verify signatures — use jwt.verify() for authentication decisions',
+            ctx.filePath, call.getStartLineNumber(),
+            { suggestion: 'Replace jwt.decode() with jwt.verify(token, secret, { algorithms: ["RS256"] })' }));
+        }
       }
 
       // jwt.verify() — check for missing algorithms option
       if (methodName === 'verify' && /jwt|jsonwebtoken/i.test(objText)) {
         const args = call.getArguments();
-        // verify(token, secret) without options — no algorithms restriction
+        // verify(token, secret) — no options at all
         if (args.length < 3) {
           findings.push(finding('jwt-weak-verification', 'warning', 'bug',
             'jwt.verify() without algorithms allowlist — accepts any algorithm including "none"',
             ctx.filePath, call.getStartLineNumber(),
             { suggestion: 'Add { algorithms: ["RS256"] } as third argument' }));
         } else {
-          // Check if options object has algorithms
-          const optionsArg = args[2];
-          if (optionsArg.getKind() === SyntaxKind.ObjectLiteralExpression) {
-            const obj = optionsArg as import('ts-morph').ObjectLiteralExpression;
+          const thirdArg = args[2];
+          // verify(token, secret, callback) — callback form, no options
+          if (thirdArg.getKind() === SyntaxKind.ArrowFunction ||
+              thirdArg.getKind() === SyntaxKind.FunctionExpression ||
+              thirdArg.getKind() === SyntaxKind.Identifier) {
+            // If 3rd is callback and no 4th arg (options), flag it
+            if (args.length < 4 || args[3]?.getKind() === SyntaxKind.ArrowFunction || args[3]?.getKind() === SyntaxKind.FunctionExpression) {
+              findings.push(finding('jwt-weak-verification', 'warning', 'bug',
+                'jwt.verify() callback form without algorithms allowlist',
+                ctx.filePath, call.getStartLineNumber(),
+                { suggestion: 'Add { algorithms: ["RS256"] } as options: jwt.verify(token, secret, options, callback)' }));
+            }
+          } else if (thirdArg.getKind() === SyntaxKind.ObjectLiteralExpression) {
+            // verify(token, secret, options) — check options for algorithms
+            const obj = thirdArg as import('ts-morph').ObjectLiteralExpression;
             const hasAlgorithms = obj.getProperties().some(p => {
               if (p.getKind() !== SyntaxKind.PropertyAssignment) return false;
               return (p as import('ts-morph').PropertyAssignment).getName() === 'algorithms';
@@ -127,7 +149,9 @@ function cookieHardening(ctx: RuleContext): ReviewFinding[] {
 
     // Get cookie name to check if it's session/auth related
     const cookieName = args[0].getText().replace(/['"]/g, '').toLowerCase();
-    const isAuthCookie = /session|token|auth|jwt|sid|csrf|refresh/i.test(cookieName);
+    // CSRF cookies must be JS-readable — exclude from auth cookie checks
+    const isCsrfCookie = /csrf|xsrf/i.test(cookieName);
+    const isAuthCookie = !isCsrfCookie && /session|token|auth|jwt|sid|refresh/i.test(cookieName);
 
     if (args.length < 3) {
       // No options at all
@@ -186,11 +210,15 @@ function csrfDetection(ctx: RuleContext): ReviewFinding[] {
   const fullText = ctx.sourceFile.getFullText();
 
   // Only fire if the app uses cookie-based auth (per Codex: don't nag bearer-token APIs)
-  const usesCookieAuth = fullText.includes('cookie-session') ||
+  // Passport with session: false is stateless JWT — not cookie auth
+  const hasPassportStateless = fullText.includes('session: false') && fullText.includes('passport');
+  const usesCookieAuth = (
+    fullText.includes('cookie-session') ||
     fullText.includes('express-session') ||
     fullText.includes('cookie-parser') ||
-    fullText.includes('passport') ||
-    /res\.cookie\s*\(/.test(fullText);
+    (fullText.includes('passport') && !hasPassportStateless) ||
+    /res\.cookie\s*\([^)]*(?:session|auth|token)/i.test(fullText)
+  );
 
   if (!usesCookieAuth) return findings;
 
@@ -331,12 +359,15 @@ function pathTraversal(ctx: RuleContext): ReviewFinding[] {
 
     if (!hasUserInput) continue;
 
-    // Check if path.resolve/path.join with validation exists nearby
+    // Check if the same function scope has path validation before the fs call
     const parentBlock = call.getFirstAncestorByKind(SyntaxKind.Block);
     const blockText = parentBlock?.getText() || '';
-    const hasPathValidation = blockText.includes('path.resolve') && blockText.includes('startsWith') ||
-      blockText.includes('path.normalize') && blockText.includes('includes(\'..\')') ||
-      blockText.includes('sanitize');
+    const callOffset = call.getStart() - (parentBlock?.getStart() || 0);
+    const textBeforeCall = blockText.substring(0, callOffset);
+    // Only count validation that appears BEFORE the fs call in the same block
+    const hasPathValidation =
+      (textBeforeCall.includes('path.resolve') && textBeforeCall.includes('startsWith')) ||
+      (textBeforeCall.includes('path.normalize') && textBeforeCall.includes("'..'"));
 
     if (!hasPathValidation) {
       findings.push(finding('path-traversal', 'error', 'bug',
@@ -358,10 +389,21 @@ function pathTraversal(ctx: RuleContext): ReviewFinding[] {
     const argText = args[0].getText();
 
     if (argText.includes('req.params') || argText.includes('req.query')) {
-      findings.push(finding('path-traversal', 'error', 'bug',
-        `res.${pa.getName()}() with user input — path traversal vulnerability`,
-        ctx.filePath, call.getStartLineNumber(),
-        { suggestion: 'Use { root: __dirname } option and validate the path' }));
+      // Check if options object with { root } is passed — this is the safe pattern
+      const hasRootOption = args.length >= 2 && args.some(a => {
+        if (a.getKind() !== SyntaxKind.ObjectLiteralExpression) return false;
+        return (a as import('ts-morph').ObjectLiteralExpression).getProperties().some(p => {
+          if (p.getKind() !== SyntaxKind.PropertyAssignment) return false;
+          return (p as import('ts-morph').PropertyAssignment).getName() === 'root';
+        });
+      });
+
+      if (!hasRootOption) {
+        findings.push(finding('path-traversal', 'error', 'bug',
+          `res.${pa.getName()}() with user input — path traversal vulnerability`,
+          ctx.filePath, call.getStartLineNumber(),
+          { suggestion: 'Use { root: __dirname } option and validate the path' }));
+      }
     }
   }
 
@@ -404,10 +446,14 @@ function weakPasswordHashing(ctx: RuleContext): ReviewFinding[] {
             const isPasswordContext = /password|passwd|hash.*pass|pass.*hash|credential|secret/i.test(contextName);
 
             if (algo === 'md5' || algo === 'sha1') {
-              findings.push(finding('weak-password-hashing', isPasswordContext ? 'error' : 'warning', 'bug',
-                `createHash('${algo}')${isPasswordContext ? ' for password hashing' : ''} — cryptographically broken`,
-                ctx.filePath, call.getStartLineNumber(),
-                { suggestion: 'Use bcrypt, scrypt, or argon2 for passwords. Use SHA-256+ for integrity checks.' }));
+              // Only flag as error in password context; skip entirely for non-password use
+              // (MD5 for checksums/ETags/Gravatar is fine)
+              if (isPasswordContext) {
+                findings.push(finding('weak-password-hashing', 'error', 'bug',
+                  `createHash('${algo}') for password hashing — cryptographically broken`,
+                  ctx.filePath, call.getStartLineNumber(),
+                  { suggestion: 'Use bcrypt, scrypt, or argon2 for passwords.' }));
+              }
             } else if (algo === 'sha256' && isPasswordContext) {
               findings.push(finding('weak-password-hashing', 'error', 'bug',
                 'Raw SHA-256 for password hashing — too fast, vulnerable to brute force',
