@@ -4,9 +4,9 @@
 
 import { DEFAULT_COLORS } from './styles-tailwind.js';
 
-export type KernTarget = 'nextjs' | 'tailwind' | 'web' | 'native' | 'express' | 'cli' | 'terminal' | 'vue' | 'nuxt';
+export type KernTarget = 'nextjs' | 'tailwind' | 'web' | 'native' | 'express' | 'cli' | 'terminal' | 'ink' | 'vue' | 'nuxt' | 'fastapi';
 
-export const VALID_TARGETS: KernTarget[] = ['nextjs', 'tailwind', 'web', 'native', 'express', 'cli', 'terminal', 'vue', 'nuxt'];
+export const VALID_TARGETS: KernTarget[] = ['nextjs', 'tailwind', 'web', 'native', 'express', 'cli', 'terminal', 'ink', 'vue', 'nuxt', 'fastapi'];
 
 export type KernStructure = 'flat' | 'bulletproof' | 'atomic' | 'kern';
 
@@ -49,6 +49,13 @@ export interface KernConfig {
     helmet?: boolean;
     compression?: boolean;
   };
+
+  fastapi?: {
+    security?: 'strict' | 'relaxed';
+    cors?: boolean;
+    gzip?: boolean;
+    uvicorn?: { host?: string; reload?: boolean; workers?: number };
+  };
 }
 
 /** Fully resolved config — all fields required, no optionals */
@@ -82,6 +89,13 @@ export interface ResolvedKernConfig {
     helmet: boolean;
     compression: boolean;
   };
+
+  fastapi: {
+    security: 'strict' | 'relaxed';
+    cors: boolean;
+    gzip: boolean;
+    uvicorn: { host: string; reload: boolean; workers?: number };
+  };
 }
 
 export const DEFAULT_CONFIG: ResolvedKernConfig = {
@@ -108,6 +122,12 @@ export const DEFAULT_CONFIG: ResolvedKernConfig = {
     security: 'strict',
     helmet: false,
     compression: false,
+  },
+  fastapi: {
+    security: 'strict',
+    cors: false,
+    gzip: false,
+    uvicorn: { host: '0.0.0.0', reload: false },
   },
 };
 
@@ -151,6 +171,16 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
       security: user.express?.security ?? DEFAULT_CONFIG.express.security,
       helmet: user.express?.helmet ?? DEFAULT_CONFIG.express.helmet,
       compression: user.express?.compression ?? DEFAULT_CONFIG.express.compression,
+    },
+    fastapi: {
+      security: user.fastapi?.security ?? DEFAULT_CONFIG.fastapi.security,
+      cors: user.fastapi?.cors ?? DEFAULT_CONFIG.fastapi.cors,
+      gzip: user.fastapi?.gzip ?? DEFAULT_CONFIG.fastapi.gzip,
+      uvicorn: {
+        host: user.fastapi?.uvicorn?.host ?? DEFAULT_CONFIG.fastapi.uvicorn.host,
+        reload: user.fastapi?.uvicorn?.reload ?? DEFAULT_CONFIG.fastapi.uvicorn.reload,
+        ...(user.fastapi?.uvicorn?.workers ? { workers: user.fastapi.uvicorn.workers } : {}),
+      },
     },
   };
 }

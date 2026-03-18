@@ -10,6 +10,7 @@
     { "path": "../native" },
     { "path": "../react" },
     { "path": "../express" },
+    { "path": "../fastapi" },
     { "path": "../terminal" },
     { "path": "../vue" },
     { "path": "../review" },

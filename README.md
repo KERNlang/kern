@@ -1,6 +1,6 @@
 <div align="center">
   <br>
-  <img src="assets/banner.svg" alt="KERN — The language LLMs think in" width="800">
+  <img src="assets/banner.svg" alt="KERN — The language LLMs think in" width="100%">
   <br><br>
 
   <strong>You prompt. AI writes KERN. KERN compiles to anything.</strong><br>
@@ -8,7 +8,7 @@
 
   <br><br>
 
-  <a href="#install">Install</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#what-is-kern">What is KERN?</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#examples">Examples</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#kern-review">kern review</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#targets">10 Targets</a>
+  <a href="#install">Install</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#what-is-kern">What is KERN?</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#examples">Examples</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#kern-review">kern review</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#targets">11 Targets</a>
 
   <br><br>
 </div>
@@ -25,6 +25,7 @@ npm install -g @kernlang/cli
 kern compile src/kern/ --outdir=src/generated/   # .kern → TypeScript
 kern app.kern --target=vue                        # .kern → Vue SFC
 kern app.kern --target=nextjs                     # .kern → Next.js page
+kern api.kern --target=fastapi                    # .kern → FastAPI Python
 kern review src/ --recursive                      # Scan TS → find bugs
 kern evolve src/ --recursive                      # Detect gaps → propose templates
 kern dev src/kern/ --target=nextjs                # Watch & hot-transpile
@@ -66,7 +67,7 @@ No runtime. No framework lock-in. Just a compiler.
 
 ## Examples
 
-### Same `.kern` source → React, Vue, or Express
+### Same `.kern` source → React, Vue, FastAPI, or any target
 
 **The KERN source** (what the AI writes):
 
@@ -134,6 +135,46 @@ const darkMode = ref(false);
 ```
 
 **→ Nuxt 3 (`--target=nuxt`)** — same output but no explicit `import { ref }` (auto-imported) and page goes to `pages/settings.vue`.
+
+### FastAPI — `.kern` → Python API
+
+```kern
+server name=TrackAPI port=8000
+  middleware name=cors
+  route method=get path=/tracks/:id
+    handler <<<
+      return {"id": id, "title": "My Track"}
+    >>>
+  route method=post path=/tracks
+    schema body="{title: string, duration: number}"
+    handler <<<
+      return {"created": True, "title": body.title}
+    >>>
+```
+
+**→ FastAPI (`--target=fastapi`)**
+
+Generates `main.py` + `routes/*.py`:
+
+```python
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from routes.get_tracks_id import router as get_tracks_id_router
+from routes.post_tracks import router as post_tracks_router
+import uvicorn
+
+app = FastAPI(title="TrackAPI")
+
+app.add_middleware(CORSMiddleware, allow_origins=["*"], ...)
+
+app.include_router(get_tracks_id_router)
+app.include_router(post_tracks_router)
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+```
+
+Each route gets its own file with `APIRouter`, Pydantic models for schemas, and `:id` → `{id}` path conversion.
 
 ### State machines — 12 lines → 140+ lines
 
@@ -288,7 +329,7 @@ kern review --diff origin/main                    # Only changed files
 
 ## Targets
 
-KERN compiles to **10 different targets** from the same `.kern` source:
+KERN compiles to **11 different targets** from the same `.kern` source:
 
 | Target | Output | Use case |
 |:-------|:-------|:---------|
@@ -299,6 +340,7 @@ KERN compiles to **10 different targets** from the same `.kern` source:
 | `nuxt` | Nuxt 3 (pages, layouts, server routes) | Full-stack Vue apps |
 | `native` | React Native | Mobile apps |
 | `express` | Express TypeScript | APIs and backends |
+| `fastapi` | FastAPI Python | Python APIs and backends |
 | `cli` | Commander.js | CLI tools |
 | `terminal` | ANSI terminal | TUIs and dev tools |
 

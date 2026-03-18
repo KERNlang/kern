@@ -1,12 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200" viewBox="0 0 800 200" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="220" viewBox="0 0 960 220" role="img" aria-labelledby="title desc">
   <title id="title">KERN animated banner</title>
-  <desc id="desc">Dark Swiss-inspired banner showing a central .kern source radiating to React, Next.js, Vue, Nuxt, Tailwind, React Native, Express, CLI, and Terminal targets with CSS-only animation.</desc>
+  <desc id="desc">Dark Swiss-inspired banner showing a central .kern source radiating to React, Next.js, Vue, Nuxt, Tailwind, React Native, Express, FastAPI, CLI, and Terminal targets with CSS-only animation.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#0d1117"/>
       <stop offset="100%" stop-color="#0a0f15"/>
     </linearGradient>
-    <radialGradient id="glow" cx="76%" cy="50%" r="54%">
+    <radialGradient id="glow" cx="72%" cy="50%" r="50%">
       <stop offset="0%" stop-color="#ff6b6b" stop-opacity="0.16"/>
       <stop offset="45%" stop-color="#ff6b6b" stop-opacity="0.04"/>
       <stop offset="100%" stop-color="#ff6b6b" stop-opacity="0"/>
@@ -48,6 +48,7 @@
       .t7 { animation: fan7 4.5s ease-in-out infinite; }
       .t8 { animation: fan8 4.9s ease-in-out infinite; }
       .t9 { animation: fan9 5.2s ease-in-out infinite; }
+      .t10 { animation: fan10 4.4s ease-in-out infinite; }
       @keyframes flow {
         to { stroke-dashoffset: -78; }
       }
@@ -95,159 +96,185 @@
         0%, 100% { transform: translate(0, 0) scale(1); }
         50% { transform: translate(-5px, 1px) scale(1.02); }
       }
+      @keyframes fan10 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50% { transform: translate(-4px, 3px) scale(1.02); }
+      }
     </style>
   </defs>
 
-  <rect width="800" height="200" fill="url(#bg)"/>
-  <rect width="800" height="200" fill="url(#glow)"/>
+  <rect width="960" height="220" fill="url(#bg)"/>
+  <rect width="960" height="220" fill="url(#glow)"/>
 
   <g class="grid">
-    <line x1="24" y1="0" x2="24" y2="200"/>
-    <line x1="64" y1="0" x2="64" y2="200"/>
-    <line x1="104" y1="0" x2="104" y2="200"/>
-    <line x1="144" y1="0" x2="144" y2="200"/>
-    <line x1="184" y1="0" x2="184" y2="200"/>
-    <line x1="224" y1="0" x2="224" y2="200"/>
-    <line x1="264" y1="0" x2="264" y2="200"/>
-    <line x1="304" y1="0" x2="304" y2="200"/>
-    <line x1="344" y1="0" x2="344" y2="200"/>
-    <line x1="384" y1="0" x2="384" y2="200"/>
-    <line x1="424" y1="0" x2="424" y2="200"/>
-    <line x1="464" y1="0" x2="464" y2="200"/>
-    <line x1="504" y1="0" x2="504" y2="200"/>
-    <line x1="544" y1="0" x2="544" y2="200"/>
-    <line x1="584" y1="0" x2="584" y2="200"/>
-    <line x1="624" y1="0" x2="624" y2="200"/>
-    <line x1="664" y1="0" x2="664" y2="200"/>
-    <line x1="704" y1="0" x2="704" y2="200"/>
-    <line x1="744" y1="0" x2="744" y2="200"/>
-    <line x1="784" y1="0" x2="784" y2="200"/>
-    <line x1="0" y1="20" x2="800" y2="20"/>
-    <line x1="0" y1="52" x2="800" y2="52"/>
-    <line x1="0" y1="84" x2="800" y2="84"/>
-    <line x1="0" y1="116" x2="800" y2="116"/>
-    <line x1="0" y1="148" x2="800" y2="148"/>
-    <line x1="0" y1="180" x2="800" y2="180"/>
+    <line x1="24" y1="0" x2="24" y2="220"/>
+    <line x1="64" y1="0" x2="64" y2="220"/>
+    <line x1="104" y1="0" x2="104" y2="220"/>
+    <line x1="144" y1="0" x2="144" y2="220"/>
+    <line x1="184" y1="0" x2="184" y2="220"/>
+    <line x1="224" y1="0" x2="224" y2="220"/>
+    <line x1="264" y1="0" x2="264" y2="220"/>
+    <line x1="304" y1="0" x2="304" y2="220"/>
+    <line x1="344" y1="0" x2="344" y2="220"/>
+    <line x1="384" y1="0" x2="384" y2="220"/>
+    <line x1="424" y1="0" x2="424" y2="220"/>
+    <line x1="464" y1="0" x2="464" y2="220"/>
+    <line x1="504" y1="0" x2="504" y2="220"/>
+    <line x1="544" y1="0" x2="544" y2="220"/>
+    <line x1="584" y1="0" x2="584" y2="220"/>
+    <line x1="624" y1="0" x2="624" y2="220"/>
+    <line x1="664" y1="0" x2="664" y2="220"/>
+    <line x1="704" y1="0" x2="704" y2="220"/>
+    <line x1="744" y1="0" x2="744" y2="220"/>
+    <line x1="784" y1="0" x2="784" y2="220"/>
+    <line x1="824" y1="0" x2="824" y2="220"/>
+    <line x1="864" y1="0" x2="864" y2="220"/>
+    <line x1="904" y1="0" x2="904" y2="220"/>
+    <line x1="944" y1="0" x2="944" y2="220"/>
+    <line x1="0" y1="22" x2="960" y2="22"/>
+    <line x1="0" y1="56" x2="960" y2="56"/>
+    <line x1="0" y1="90" x2="960" y2="90"/>
+    <line x1="0" y1="124" x2="960" y2="124"/>
+    <line x1="0" y1="158" x2="960" y2="158"/>
+    <line x1="0" y1="192" x2="960" y2="192"/>
   </g>
 
-  <line class="guide" x1="40" y1="16" x2="40" y2="184"/>
-  <line class="guide" x1="492" y1="16" x2="492" y2="184"/>
-  <line class="guide" x1="280" y1="101" x2="744" y2="101"/>
+  <line class="guide" x1="40" y1="16" x2="40" y2="204"/>
+  <line class="guide" x1="560" y1="16" x2="560" y2="204"/>
+  <line class="guide" x1="300" y1="110" x2="910" y2="110"/>
 
   <!-- Left side: branding -->
-  <text class="caption" x="48" y="30">AI WRITES CODE. KERN COMPILES IT.</text>
-  <text class="title" x="48" y="80">KERN</text>
-  <rect x="48" y="89" width="98" height="4" rx="2" fill="url(#accentGrad)"/>
-  <text class="tagline" x="48" y="114">The language LLMs think in</text>
+  <text class="caption" x="48" y="34">AI WRITES CODE. KERN COMPILES IT.</text>
+  <text class="title" x="48" y="88">KERN</text>
+  <rect x="48" y="97" width="98" height="4" rx="2" fill="url(#accentGrad)"/>
+  <text class="tagline" x="48" y="124">The language LLMs think in</text>
 
-  <!-- Badge: moved below tagline, no overlap -->
-  <g class="badge" transform="translate(48 130)">
+  <!-- Badge: 70% fewer tokens -->
+  <g class="badge" transform="translate(48 140)">
     <rect x="0" y="0" width="154" height="24" rx="12" fill="#11161d" stroke="#ff6b6b" stroke-width="1"/>
     <circle cx="16" cy="12" r="3.5" fill="#ff6b6b"/>
     <text x="28" y="16" fill="#f0f6fc" font-size="11" font-weight="700">70% fewer tokens</text>
   </g>
 
-  <!-- Sub-badge: 9 targets -->
-  <g transform="translate(48 162)">
-    <rect x="0" y="0" width="110" height="20" rx="10" fill="#11161d" stroke="#30363d" stroke-width="1"/>
-    <text x="12" y="14" fill="#8b949e" font-size="9" font-weight="600">9 targets, 1 source</text>
+  <!-- Sub-badge: 11 targets -->
+  <g transform="translate(48 172)">
+    <rect x="0" y="0" width="118" height="20" rx="10" fill="#11161d" stroke="#30363d" stroke-width="1"/>
+    <text x="12" y="14" fill="#8b949e" font-size="9" font-weight="600">11 targets, 1 source</text>
   </g>
 
   <!-- Source glow ring -->
   <g>
-    <circle cx="492" cy="102" r="60" fill="none" stroke="#ff6b6b" stroke-opacity="0.10" class="source-outline"/>
-    <rect x="436" y="62" width="112" height="80" rx="18" fill="none" stroke="#ff6b6b" stroke-opacity="0.24" class="source-outline" style="animation-delay:-1.2s;" filter="url(#softShadow)"/>
+    <circle cx="560" cy="110" r="64" fill="none" stroke="#ff6b6b" stroke-opacity="0.10" class="source-outline"/>
+    <rect x="500" y="68" width="120" height="84" rx="18" fill="none" stroke="#ff6b6b" stroke-opacity="0.24" class="source-outline" style="animation-delay:-1.2s;" filter="url(#softShadow)"/>
   </g>
 
-  <!-- Beams: 9 targets -->
+  <!-- Beams: 10 targets -->
   <g>
-    <path class="beam-soft" d="M492 102 C460 80 420 52 360 30"/>
-    <path class="beam-soft" d="M492 102 C480 78 470 50 460 24"/>
-    <path class="beam-soft" d="M492 102 C530 78 570 52 620 30"/>
-    <path class="beam-soft" d="M492 102 C550 90 610 78 680 68"/>
-    <path class="beam-soft" d="M492 102 C564 100 625 106 700 112"/>
-    <path class="beam-soft" d="M492 102 C550 120 600 148 650 168"/>
-    <path class="beam-soft" d="M492 102 C490 128 484 155 476 176"/>
-    <path class="beam-soft" d="M492 102 C440 118 390 140 340 160"/>
-    <path class="beam-soft" d="M492 102 C430 100 380 92 310 80"/>
+    <!-- CLI -->
+    <path class="beam-soft" d="M560 110 C520 86 470 54 400 30"/>
+    <!-- React -->
+    <path class="beam-soft" d="M560 110 C546 84 530 52 520 24"/>
+    <!-- Next.js -->
+    <path class="beam-soft" d="M560 110 C600 84 650 52 710 28"/>
+    <!-- Vue -->
+    <path class="beam-soft" d="M560 110 C624 94 700 78 790 62"/>
+    <!-- Nuxt -->
+    <path class="beam-soft" d="M560 110 C640 110 730 114 830 118"/>
+    <!-- Tailwind -->
+    <path class="beam-soft" d="M560 110 C620 128 700 156 790 176"/>
+    <!-- Terminal -->
+    <path class="beam-soft" d="M560 110 C556 140 548 168 540 192"/>
+    <!-- Express -->
+    <path class="beam-soft" d="M560 110 C500 126 430 150 360 170"/>
+    <!-- FastAPI -->
+    <path class="beam-soft" d="M560 110 C470 122 390 128 310 132"/>
+    <!-- Native -->
+    <path class="beam-soft" d="M560 110 C490 104 420 90 350 76"/>
 
-    <path class="beam" d="M492 102 C460 80 420 52 360 30" style="animation-delay:-0.2s;"/>
-    <path class="beam" d="M492 102 C480 78 470 50 460 24" style="animation-delay:-0.6s;"/>
-    <path class="beam" d="M492 102 C530 78 570 52 620 30" style="animation-delay:-1.0s;"/>
-    <path class="beam" d="M492 102 C550 90 610 78 680 68" style="animation-delay:-1.4s;"/>
-    <path class="beam" d="M492 102 C564 100 625 106 700 112" style="animation-delay:-1.8s;"/>
-    <path class="beam" d="M492 102 C550 120 600 148 650 168" style="animation-delay:-2.2s;"/>
-    <path class="beam" d="M492 102 C490 128 484 155 476 176" style="animation-delay:-2.6s;"/>
-    <path class="beam" d="M492 102 C440 118 390 140 340 160" style="animation-delay:-3.0s;"/>
-    <path class="beam" d="M492 102 C430 100 380 92 310 80" style="animation-delay:-3.4s;"/>
+    <path class="beam" d="M560 110 C520 86 470 54 400 30" style="animation-delay:-0.2s;"/>
+    <path class="beam" d="M560 110 C546 84 530 52 520 24" style="animation-delay:-0.6s;"/>
+    <path class="beam" d="M560 110 C600 84 650 52 710 28" style="animation-delay:-1.0s;"/>
+    <path class="beam" d="M560 110 C624 94 700 78 790 62" style="animation-delay:-1.4s;"/>
+    <path class="beam" d="M560 110 C640 110 730 114 830 118" style="animation-delay:-1.8s;"/>
+    <path class="beam" d="M560 110 C620 128 700 156 790 176" style="animation-delay:-2.2s;"/>
+    <path class="beam" d="M560 110 C556 140 548 168 540 192" style="animation-delay:-2.6s;"/>
+    <path class="beam" d="M560 110 C500 126 430 150 360 170" style="animation-delay:-3.0s;"/>
+    <path class="beam" d="M560 110 C470 122 390 128 310 132" style="animation-delay:-3.4s;"/>
+    <path class="beam" d="M560 110 C490 104 420 90 350 76" style="animation-delay:-3.8s;"/>
   </g>
 
-  <!-- 9 target nodes -->
+  <!-- 10 target nodes -->
   <g filter="url(#softShadow)">
     <g class="target t1">
-      <rect x="316" y="16" width="76" height="26" rx="7"/>
-      <circle cx="328" cy="29" r="2.5" fill="#ff6b6b"/>
-      <text x="337" y="33">CLI</text>
+      <rect x="358" y="16" width="76" height="26" rx="7"/>
+      <circle cx="370" cy="29" r="2.5" fill="#ff6b6b"/>
+      <text x="379" y="33">CLI</text>
     </g>
 
     <g class="target t2">
-      <rect x="420" y="10" width="76" height="26" rx="7"/>
-      <circle cx="432" cy="23" r="2.5" fill="#ff6b6b"/>
-      <text x="441" y="27">React</text>
+      <rect x="484" y="10" width="76" height="26" rx="7"/>
+      <circle cx="496" cy="23" r="2.5" fill="#61dafb"/>
+      <text x="505" y="27">React</text>
     </g>
 
     <g class="target t3">
-      <rect x="578" y="16" width="82" height="26" rx="7"/>
-      <circle cx="590" cy="29" r="2.5" fill="#ff6b6b"/>
-      <text x="599" y="33">Next.js</text>
+      <rect x="670" y="14" width="82" height="26" rx="7"/>
+      <circle cx="682" cy="27" r="2.5" fill="#ff6b6b"/>
+      <text x="691" y="31">Next.js</text>
     </g>
 
     <g class="target t4">
-      <rect x="636" y="54" width="88" height="26" rx="7"/>
-      <circle cx="648" cy="67" r="2.5" fill="#42b883"/>
-      <text x="657" y="71">Vue</text>
+      <rect x="746" y="48" width="82" height="26" rx="7"/>
+      <circle cx="758" cy="61" r="2.5" fill="#42b883"/>
+      <text x="767" y="65">Vue</text>
     </g>
 
     <g class="target t5">
-      <rect x="654" y="98" width="94" height="26" rx="7"/>
-      <circle cx="666" cy="111" r="2.5" fill="#42b883"/>
-      <text x="675" y="115">Nuxt</text>
+      <rect x="786" y="104" width="82" height="26" rx="7"/>
+      <circle cx="798" cy="117" r="2.5" fill="#42b883"/>
+      <text x="807" y="121">Nuxt</text>
     </g>
 
     <g class="target t6">
-      <rect x="604" y="154" width="100" height="26" rx="7"/>
-      <circle cx="616" cy="167" r="2.5" fill="#ff6b6b"/>
-      <text x="625" y="171">Tailwind</text>
+      <rect x="742" y="162" width="100" height="26" rx="7"/>
+      <circle cx="754" cy="175" r="2.5" fill="#ff6b6b"/>
+      <text x="763" y="179">Tailwind</text>
     </g>
 
     <g class="target t7">
-      <rect x="432" y="164" width="82" height="26" rx="7"/>
-      <circle cx="444" cy="177" r="2.5" fill="#ff6b6b"/>
-      <text x="453" y="181">Terminal</text>
+      <rect x="498" y="180" width="82" height="26" rx="7"/>
+      <circle cx="510" cy="193" r="2.5" fill="#ff6b6b"/>
+      <text x="519" y="197">Terminal</text>
     </g>
 
     <g class="target t8">
-      <rect x="296" y="148" width="86" height="26" rx="7"/>
-      <circle cx="308" cy="161" r="2.5" fill="#ff6b6b"/>
-      <text x="317" y="165">Express</text>
+      <rect x="314" y="158" width="86" height="26" rx="7"/>
+      <circle cx="326" cy="171" r="2.5" fill="#ff6b6b"/>
+      <text x="335" y="175">Express</text>
     </g>
 
     <g class="target t9">
-      <rect x="266" y="66" width="86" height="26" rx="7"/>
-      <circle cx="278" cy="79" r="2.5" fill="#61dafb"/>
-      <text x="287" y="83">Native</text>
+      <rect x="266" y="118" width="86" height="26" rx="7"/>
+      <circle cx="278" cy="131" r="2.5" fill="#009688"/>
+      <text x="287" y="135">FastAPI</text>
+    </g>
+
+    <g class="target t10">
+      <rect x="306" y="62" width="86" height="26" rx="7"/>
+      <circle cx="318" cy="75" r="2.5" fill="#61dafb"/>
+      <text x="327" y="79">Native</text>
     </g>
   </g>
 
   <!-- Source file card -->
   <g>
-    <circle class="pulse-dot" cx="492" cy="102" r="3" fill="#ff6b6b"/>
-    <rect x="444" y="70" width="96" height="64" rx="12" fill="#11161d" stroke="#30363d" stroke-width="1.2"/>
-    <path d="M516 70 L540 94 L523 94 Q516 94 516 87 Z" fill="#161b22" stroke="#30363d" stroke-width="1.2" stroke-linejoin="round"/>
-    <text class="tiny" x="456" y="88">SOURCE</text>
-    <text x="456" y="104" fill="#f0f6fc" font-size="16" font-weight="700">app.kern</text>
-    <rect x="456" y="114" width="42" height="4" rx="2" fill="url(#accentGrad)"/>
-    <rect x="456" y="122" width="60" height="4" rx="2" fill="#30363d"/>
-    <rect x="456" y="130" width="48" height="4" rx="2" fill="#30363d"/>
+    <circle class="pulse-dot" cx="560" cy="110" r="3" fill="#ff6b6b"/>
+    <rect x="510" y="76" width="100" height="68" rx="12" fill="#11161d" stroke="#30363d" stroke-width="1.2"/>
+    <path d="M584 76 L610 102 L591 102 Q584 102 584 95 Z" fill="#161b22" stroke="#30363d" stroke-width="1.2" stroke-linejoin="round"/>
+    <text class="tiny" x="522" y="96">SOURCE</text>
+    <text x="522" y="112" fill="#f0f6fc" font-size="16" font-weight="700">app.kern</text>
+    <rect x="522" y="122" width="42" height="4" rx="2" fill="url(#accentGrad)"/>
+    <rect x="522" y="130" width="60" height="4" rx="2" fill="#30363d"/>
+    <rect x="522" y="138" width="48" height="4" rx="2" fill="#30363d"/>
   </g>
 </svg>
