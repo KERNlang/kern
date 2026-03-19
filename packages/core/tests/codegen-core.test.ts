@@ -456,6 +456,233 @@ describe('Core Language Codegen', () => {
     });
   });
 
+  // ── Gap 5: Default params ──
+
+  describe('default params', () => {
+    it('generates function with default parameter values', () => {
+      const source = [
+        'fn name=determineWinner params="results:StageResult[],spread:number=8" returns=string',
+        '  handler <<<',
+        '    return results[0];',
+        '  >>>',
+      ].join('\n');
+      const code = gen(source);
+
+      expect(code).toContain('spread: number = 8');
+      expect(code).toContain('results: StageResult[]');
+    });
+
+    it('handles arrow function types in params without splitting on =>', () => {
+      const source = 'fn name=apply params="cb:(x:number) => void,value:number=42" returns=void';
+      const code = gen(source);
+
+      expect(code).toContain('cb: (x:number) => void');
+      expect(code).toContain('value: number = 42');
+    });
+
+    it('handles generic types with commas inside angle brackets', () => {
+      const source = 'fn name=merge params="a:Record<string,number>,b:Record<string,number>" returns=void';
+      const code = gen(source);
+
+      expect(code).toContain('a: Record<string,number>');
+      expect(code).toContain('b: Record<string,number>');
+    });
+  });
+
+  // ── Gap 6: Discriminated unions ──
+
+  describe('union', () => {
+    it('generates discriminated union with variants', () => {
+      const source = [
+        'union name=ContentSegment discriminant=type',
+        '  variant name=prose',
+        '    field name=text type=string',
+        '  variant name=code',
+        '    field name=language type=string',
+        '    field name=code type=string',
+      ].join('\n');
+      const code = gen(source);
+
+      expect(code).toContain("export type ContentSegment =");
+      expect(code).toContain("type: 'prose'; text: string");
+      expect(code).toContain("type: 'code'; language: string; code: string");
+    });
+
+    it('uses custom discriminant field', () => {
+      const source = [
+        'union name=Action discriminant=kind',
+        '  variant name=click',
+        '    field name=x type=number',
+        '  variant name=scroll',
+        '    field name=delta type=number',
+      ].join('\n');
+      const code = gen(source);
+
+      expect(code).toContain("kind: 'click'");
+      expect(code).toContain("kind: 'scroll'");
+    });
+
+    it('handles optional fields in variants', () => {
+      const source = [
+        'union name=Event discriminant=type',
+        '  variant name=error',
+        '    field name=message type=string',
+        '    field name=stack type=string optional=true',
+      ].join('\n');
+      const code = gen(source);
+
+      expect(code).toContain('message: string');
+      expect(code).toContain('stack?: string');
+    });
+  });
+
+  // ── Gap 1: Service (class) ──
+
+  describe('service', () => {
+    it('generates class with fields and methods', () => {
+      const source = [
+        'service name=TokenTracker',
+        '  field name=entries type="TokenUsage[]" default="[]" private=true',
+        '  method name=record params="usage:TokenUsage" returns=void',
+        '    handler <<<',
+        '      this.entries.push(usage);',
+        '    >>>',
+        '  method name=getStats returns=SessionStats',
+        '    handler <<<',
+        '      return { calls: this.entries.length };',
+        '    >>>',
+        '  method name=reset returns=void',
+        '    handler <<<',
+        '      this.entries = [];',
+        '    >>>',
+      ].join('\n');
+      const code = gen(source);
+
+      expect(code).toContain('export class TokenTracker {');
+      expect(code).toContain('private entries: TokenUsage[] = [];');
+      expect(code).toContain('record(usage: TokenUsage): void {');
+      expect(code).toContain('this.entries.push(usage)');
+      expect(code).toContain('getStats(): SessionStats {');
+      expect(code).toContain('reset(): void {');
+    });
+
+    it('generates class with implements clause', () => {
+      const source = [
+        'service name=CliAdapter implements=EngineAdapter',
+        '  method name=dispatch params="input:string" returns="Promise<void>" async=true',
+        '    handler <<<',
+        '      await this.engine.run(input);',
+        '    >>>',
+      ].join('\n');
+      const code = gen(source);
+
+      expect(code).toContain('export class CliAdapter implements EngineAdapter {');
+      expect(code).toContain('async dispatch(input: string): Promise<void> {');
+    });
+
+    it('generates async generator method with stream=true', () => {
+      const source = [
+        'service name=Adapter implements=EngineAdapter',
+        '  method name=dispatchStream params="prompt:string,opts:StreamOpts" returns=StreamChunk stream=true',
+        '    handler <<<',
+        '      const response = await this.client.stream(prompt, opts);',
+        '      for await (const chunk of response) {',
+        '        yield { text: chunk.text };',
+        '      }',
+        '    >>>',
+      ].join('\n');
+      const code = gen(source);
+
+      expect(code).toContain('async *dispatchStream(prompt: string, opts: StreamOpts): AsyncGenerator<StreamChunk> {');
+      expect(code).toContain('yield { text: chunk.text }');
+    });
+
+    it('generates singleton instance', () => {
+      const source = [
+        'service name=TokenTracker',
+        '  field name=entries type="TokenUsage[]" default="[]"',
+        '  singleton name=tracker',
+      ].join('\n');
+      const code = gen(source);
+
+      expect(code).toContain('export class TokenTracker {');
+      expect(code).toContain('export const tracker = new TokenTracker();');
+    });
+
+    it('generates constructor', () => {
+      const source = [
+        'service name=Registry',
+        '  field name=items type="Map<string,any>"',
+        '  constructor params="initialItems:string[]"',
+        '    handler <<<',
+        '      this.items = new Map();',
+        '      initialItems.forEach(i => this.items.set(i, null));',
+        '    >>>',
+      ].join('\n');
+      const code = gen(source);
+
+      expect(code).toContain('constructor(initialItems: string[]) {');
+      expect(code).toContain('this.items = new Map()');
+    });
+  });
+
+  // ── Gap 3: Signal + cleanup ──
+
+  describe('signal and cleanup', () => {
+    it('generates AbortController from signal node', () => {
+      const source = [
+        'fn name=handleChat params="input:string" returns="Promise<void>" async=true',
+        '  signal name=abort',
+        '  handler <<<',
+        '    const stream = fetch(url, { signal: abort.signal });',
+        '  >>>',
+      ].join('\n');
+      const code = gen(source);
+
+      expect(code).toContain('const abort = new AbortController();');
+      expect(code).toContain('signal: abort.signal');
+    });
+
+    it('generates try/finally from cleanup node', () => {
+      const source = [
+        'fn name=handleStream params="ctx:Context" returns="Promise<void>" async=true',
+        '  handler <<<',
+        '    for await (const chunk of stream) {',
+        '      process(chunk);',
+        '    }',
+        '  >>>',
+        '  cleanup <<<',
+        '    ctx.setActiveAbort(null);',
+        '  >>>',
+      ].join('\n');
+      const code = gen(source);
+
+      expect(code).toContain('try {');
+      expect(code).toContain('for await (const chunk of stream)');
+      expect(code).toContain('} finally {');
+      expect(code).toContain('ctx.setActiveAbort(null)');
+    });
+
+    it('generates signal + cleanup together', () => {
+      const source = [
+        'fn name=fetchData params="url:string" returns="Promise<void>" async=true',
+        '  signal name=abort',
+        '  handler <<<',
+        '    const res = await fetch(url, { signal: abort.signal });',
+        '  >>>',
+        '  cleanup <<<',
+        '    abort.abort();',
+        '  >>>',
+      ].join('\n');
+      const code = gen(source);
+
+      expect(code).toContain('const abort = new AbortController();');
+      expect(code).toContain('try {');
+      expect(code).toContain('} finally {');
+      expect(code).toContain('abort.abort()');
+    });
+  });
+
   // ── isCoreNode ──
 
   describe('isCoreNode', () => {

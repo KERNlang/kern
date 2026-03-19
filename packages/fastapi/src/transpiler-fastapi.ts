@@ -426,11 +426,18 @@ function buildRouteArtifact(
       paramParts.push('body: RequestBody');
     }
 
-    // v3 validate — add schema as body param
-    if (validateNode) {
+    // v3 validate — method-aware: body param for POST/PUT/PATCH, Depends for GET/DELETE
+    if (validateNode && !schema.body) {
       const validateSchema = String(getProps(validateNode).schema || '');
       if (validateSchema) {
-        paramParts.push(`body: ${validateSchema}`);
+        const bodyMethods = new Set(['post', 'put', 'patch']);
+        if (bodyMethods.has(normalizedMethod)) {
+          paramParts.push(`body: ${validateSchema}`);
+        } else {
+          // GET/DELETE: validation via dependency, not body
+          imports.add('from fastapi import Depends');
+          paramParts.push(`validated = Depends(${toSnakeCase(validateSchema)})`);
+        }
       }
     }
 

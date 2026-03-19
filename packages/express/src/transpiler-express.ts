@@ -509,7 +509,12 @@ function buildRouteArtifact(
     const mwNames = mwProps.names as string[] | undefined;
     if (mwNames && Array.isArray(mwNames)) {
       for (const mwName of mwNames) {
-        middlewareInvocations.push(mwName);
+        // Resolve each bare name through the middleware resolution system
+        const syntheticNode: IRNode = { type: 'middleware', props: { name: mwName }, children: [] };
+        const usage = resolveMiddlewareUsage(syntheticNode, middlewareArtifacts, '../');
+        if (usage.importLine) routeImports.add(usage.importLine);
+        if (usage.invocation === 'express.json()') needsExpressDefaultImport = true;
+        middlewareInvocations.push(usage.invocation);
       }
       continue;
     }
@@ -619,11 +624,24 @@ function buildRouteArtifact(
   // v3 query params — extract with type coercion and defaults
   if (queryParams.length > 0) {
     for (const qp of queryParams) {
-      const coerce = qp.type === 'number' ? 'Number' : qp.type === 'boolean' ? 'Boolean' : 'String';
       if (qp.default !== undefined) {
-        lines.push(`    const ${qp.name} = req.query.${qp.name} !== undefined ? ${coerce}(req.query.${qp.name}) : ${qp.default};`);
+        // With default: check undefined, then coerce
+        if (qp.type === 'number') {
+          lines.push(`    const ${qp.name} = req.query.${qp.name} !== undefined ? Number(req.query.${qp.name}) : ${qp.default};`);
+        } else if (qp.type === 'boolean') {
+          lines.push(`    const ${qp.name} = req.query.${qp.name} !== undefined ? req.query.${qp.name} === 'true' : ${qp.default};`);
+        } else {
+          lines.push(`    const ${qp.name} = typeof req.query.${qp.name} === 'string' ? req.query.${qp.name} : ${qp.default};`);
+        }
       } else {
-        lines.push(`    const ${qp.name} = ${coerce}(req.query.${qp.name});`);
+        // Without default: coerce safely, undefined stays undefined
+        if (qp.type === 'number') {
+          lines.push(`    const ${qp.name} = req.query.${qp.name} !== undefined ? Number(req.query.${qp.name}) : undefined;`);
+        } else if (qp.type === 'boolean') {
+          lines.push(`    const ${qp.name} = req.query.${qp.name} !== undefined ? req.query.${qp.name} === 'true' : undefined;`);
+        } else {
+          lines.push(`    const ${qp.name} = typeof req.query.${qp.name} === 'string' ? req.query.${qp.name} as string : undefined;`);
+        }
       }
     }
     lines.push('');

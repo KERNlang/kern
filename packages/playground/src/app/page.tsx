@@ -7,7 +7,7 @@ import { OutputPanel } from '@/components/OutputPanel';
 import { StatsBar } from '@/components/StatsBar';
 import { ErrorPanel } from '@/components/ErrorPanel';
 import { EXAMPLES } from '@/lib/examples';
-import { TARGET_LANGUAGE } from '@/lib/targets';
+import { TARGET_LANGUAGE, TARGET_LABELS } from '@/lib/targets';
 import type { PlaygroundTarget } from '@/lib/targets';
 import type { CompileResult } from '@/lib/compile';
 import type { InferResult } from '@/lib/infer';
@@ -105,7 +105,7 @@ function ShareButton() {
 
 // ── Mode Toggle ──────────────────────────────────────────────────────────
 
-function ModeToggle({ mode, onChange }: { mode: PlaygroundMode; onChange: (m: PlaygroundMode) => void }) {
+function ModeToggle({ mode, onChange, targetLabel }: { mode: PlaygroundMode; onChange: (m: PlaygroundMode) => void; targetLabel: string }) {
   const btnStyle = (active: boolean): React.CSSProperties => ({
     padding: '5px 12px',
     fontSize: 12,
@@ -122,10 +122,10 @@ function ModeToggle({ mode, onChange }: { mode: PlaygroundMode; onChange: (m: Pl
   return (
     <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden' }}>
       <button style={{ ...btnStyle(mode === 'infer'), borderRadius: '6px 0 0 6px' }} onClick={() => onChange('infer')}>
-        TS → KERN
+        {targetLabel} → KERN
       </button>
       <button style={{ ...btnStyle(mode === 'compile'), borderRadius: '0 6px 6px 0', borderLeft: 'none' }} onClick={() => onChange('compile')}>
-        KERN → Target
+        KERN → {targetLabel}
       </button>
     </div>
   );
@@ -311,9 +311,10 @@ export default function PlaygroundPage() {
       ? { irTokens: inferStats.kernTokens, outputTokens: inferStats.inputTokens, reduction: -inferStats.reduction }
       : null;
 
-  // Left/right panel labels
-  const leftLabel = mode === 'compile' ? 'Source (.kern)' : 'Input (TypeScript / React)';
-  const leftLanguage = mode === 'compile' ? 'kern' : 'typescript';
+  // Derived labels
+  const targetLabel = TARGET_LABELS[selectedTarget];
+  const leftLabel = mode === 'compile' ? 'Source (.kern)' : `Input (${targetLabel})`;
+  const leftLanguage = mode === 'compile' ? 'kern' : TARGET_LANGUAGE[selectedTarget];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -338,47 +339,43 @@ export default function PlaygroundPage() {
             <span style={{ color: '#ff6b6b' }}>KERN</span>
             <span style={{ color: '#8b949e', fontWeight: 400, marginLeft: 8 }}>Playground</span>
           </span>
-          <ModeToggle mode={mode} onChange={handleModeChange} />
+          <ModeToggle mode={mode} onChange={handleModeChange} targetLabel={targetLabel} />
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          {mode === 'compile' && (
-            <>
-              <label style={{ fontSize: 12, color: '#8b949e' }}>Target:</label>
-              <TargetSelector value={selectedTarget} onChange={setSelectedTarget} />
+          <label style={{ fontSize: 12, color: '#8b949e' }}>{mode === 'compile' ? 'Target:' : 'Source:'}</label>
+          <TargetSelector value={selectedTarget} onChange={setSelectedTarget} />
 
-              {!isMobile && (
-                <select
-                  onChange={(e) => {
-                    const idx = parseInt(e.target.value, 10);
-                    if (idx >= 0) {
-                      const example = EXAMPLES[idx];
-                      setSourceCode(example.source);
-                      setSelectedTarget(example.recommendedTarget as PlaygroundTarget);
-                    }
-                  }}
-                  defaultValue=""
-                  style={{
-                    background: '#21262d',
-                    color: '#e6edf3',
-                    border: '1px solid #30363d',
-                    borderRadius: 6,
-                    padding: '6px 12px',
-                    fontSize: 13,
-                    fontFamily: 'inherit',
-                    cursor: 'pointer',
-                    outline: 'none',
-                  }}
-                >
-                  <option value="" disabled>Examples</option>
-                  {EXAMPLES.map((example, i) => (
-                    <option key={example.name} value={i}>
-                      {example.name} — {example.description}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </>
+          {mode === 'compile' && !isMobile && (
+            <select
+              onChange={(e) => {
+                const idx = parseInt(e.target.value, 10);
+                if (idx >= 0) {
+                  const example = EXAMPLES[idx];
+                  setSourceCode(example.source);
+                  setSelectedTarget(example.recommendedTarget as PlaygroundTarget);
+                }
+              }}
+              defaultValue=""
+              style={{
+                background: '#21262d',
+                color: '#e6edf3',
+                border: '1px solid #30363d',
+                borderRadius: 6,
+                padding: '6px 12px',
+                fontSize: 13,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+                outline: 'none',
+              }}
+            >
+              <option value="" disabled>Examples</option>
+              {EXAMPLES.map((example, i) => (
+                <option key={example.name} value={i}>
+                  {example.name} — {example.description}
+                </option>
+              ))}
+            </select>
           )}
 
           <ShareButton />

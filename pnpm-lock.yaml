@@ -154,6 +154,9 @@ importers:
       '@kernlang/react':
         specifier: workspace:*
         version: link:../react
+      '@kernlang/review':
+        specifier: workspace:*
+        version: link:../review
       '@kernlang/terminal':
         specifier: workspace:*
         version: link:../terminal
