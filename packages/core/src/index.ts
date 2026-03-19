@@ -44,11 +44,21 @@ export { expandStyles, expandStyleKey, expandStyleValue } from './styles-react.j
 export {
   generateCoreNode, isCoreNode, CORE_NODE_TYPES,
   generateType, generateInterface, generateFunction,
-  generateMachine, generateError, generateModule,
+  generateMachine, generateMachineReducer, generateError, generateModule,
   generateConfig, generateStore, generateTest, generateEvent,
   generateImport, generateConst, generateHook,
+  generateOn, generateWebSocket,
+  // Ground layer
+  generateDerive, generateTransform, generateAction, generateGuard,
+  generateAssume, generateInvariant, generateEach, generateCollect,
+  generateBranch, generateResolve, generateExpect, generateRecover,
+  generatePattern, generateApply,
+  emitReasonAnnotations, emitLowConfidenceTodo,
   parseParamList, capitalize,
 } from './codegen-core.js';
+
+// Codegen errors
+export { KernCodegenError } from './errors.js';
 
 // Template engine
 export {
@@ -64,6 +74,17 @@ export type { CatalogEntry } from './template-catalog.js';
 // Scanner
 export { scanProject, generateConfigSource, formatScanSummary } from './scanner.js';
 export type { ScanResult, ScanInfo, Detection } from './scanner.js';
+
+// Concepts (universal cross-language review model)
+export { conceptId, conceptSpan } from './concepts.js';
+export type {
+  ConceptNode, ConceptEdge, ConceptMap, ConceptSpan,
+  ConceptNodeKind, ConceptEdgeKind,
+  ConceptNodePayload, ConceptEdgePayload,
+  EntrypointPayload, EffectPayload, StateMutationPayload,
+  ErrorRaisePayload, ErrorHandlePayload, GuardPayload,
+  CallPayload, DependencyPayload,
+} from './concepts.js';
 
 // Utilities
 export { countTokens, serializeIR, camelKey, escapeJsx, escapeJsxText, escapeJsxAttr, escapeJsString } from './utils.js';

@@ -19,6 +19,8 @@ import { structuralDiff } from './differ.js';
 import { runQualityRules } from './quality-rules.js';
 import { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, dedup } from './reporter.js';
 import { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
+import { extractTsConcepts } from './mappers/ts-concepts.js';
+import { runConceptRules } from './concept-rules/index.js';
 import type { ReviewReport, InferResult, TemplateMatch, ReviewConfig, EnforceResult, ReviewFinding, SourceSpan } from './types.js';
 
 export type { ReviewReport, InferResult, TemplateMatch, ReviewFinding, SourceSpan } from './types.js';
@@ -34,6 +36,29 @@ export { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSumm
 export { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
 export type { LLMGraphContext } from './llm-review.js';
 export { runESLint, runTSCDiagnostics, runTSCDiagnosticsFromPaths, linkToNodes } from './external-tools.js';
+export { extractTsConcepts } from './mappers/ts-concepts.js';
+export { runConceptRules } from './concept-rules/index.js';
+export type { ConceptRule, ConceptRuleContext } from './concept-rules/index.js';
+
+// KERN-IR lint pipeline (ground layer)
+export { lintKernIR, flattenIR } from './kern-lint.js';
+export type { KernLintRule } from './kern-lint.js';
+export { GROUND_LAYER_RULES } from './rules/ground-layer.js';
+export {
+  guardWithoutElse, actionMissingIdempotent, branchNonExhaustive,
+  collectUnbounded, reasonWithoutBasis, assumeLowTrust, expectRangeInverted,
+} from './rules/ground-layer.js';
+
+// Confidence layer
+export {
+  parseConfidence, buildConfidenceGraph, propagateConfidence,
+  resolveBaseConfidence, serializeGraph, computeConfidenceSummary,
+} from './confidence.js';
+export type {
+  ConfidenceSpec, ConfidenceNode, NeedsEntry,
+  ConfidenceGraph, SerializedConfidenceGraph, ConfidenceSummary,
+} from './confidence.js';
+export { lintConfidenceGraph, CONFIDENCE_RULES } from './rules/confidence.js';
 
 /**
  * Review a single TypeScript file.
@@ -63,8 +88,12 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
   // Phase 5: Quality rules → unified findings
   const qualityFindings = runQualityRules(sourceFile, inferred, templateMatches, config);
 
+  // Phase 6: Concept extraction + concept rules (universal, cross-language)
+  const concepts = extractTsConcepts(sourceFile, filePath);
+  const conceptFindings = runConceptRules(concepts, filePath);
+
   // Merge all findings into single unified array
-  const findings = dedup([...diffFindings, ...qualityFindings]);
+  const findings = dedup([...diffFindings, ...qualityFindings, ...conceptFindings]);
 
   // Sort: severity (error > warning > info), then by line
   const severityOrder: Record<string, number> = { error: 0, warning: 1, info: 2 };
