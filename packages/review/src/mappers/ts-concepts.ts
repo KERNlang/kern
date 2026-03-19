@@ -6,7 +6,10 @@
  */
 
 import { SyntaxKind, type SourceFile } from 'ts-morph';
-import type { ConceptMap, ConceptNode, ConceptEdge, ConceptSpan, ErrorHandlePayload } from '@kernlang/core';
+import type {
+  ConceptMap, ConceptNode, ConceptEdge, ConceptSpan,
+  ErrorHandlePayload, EntrypointPayload, GuardPayload,
+} from '@kernlang/core';
 import { conceptId, conceptSpan } from '@kernlang/core';
 
 const EXTRACTOR_VERSION = '1.0.0';
@@ -44,6 +47,10 @@ export function extractTsConcepts(sourceFile: SourceFile, filePath: string): Con
   extractErrorRaise(sourceFile, filePath, nodes);
   extractErrorHandle(sourceFile, filePath, nodes);
   extractEffects(sourceFile, filePath, nodes);
+  extractEntrypoints(sourceFile, filePath, nodes);
+  extractGuards(sourceFile, filePath, nodes);
+  extractStateMutation(sourceFile, filePath, nodes);
+  extractDependencyEdges(sourceFile, filePath, edges);
 
   return {
     filePath,
@@ -266,6 +273,232 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
         payload: { kind: 'effect', subtype: 'fs', async: funcName.includes('Sync') ? false : isInAsyncContext(call) },
       });
     }
+  }
+}
+
+// ── entrypoint ───────────────────────────────────────────────────────────
+
+const ROUTE_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'all', 'use']);
+
+function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
+  // Express/Fastify route handlers: app.get('/path', handler)
+  for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) continue;
+    const pa = callee as import('ts-morph').PropertyAccessExpression;
+    const methodName = pa.getName();
+    if (!ROUTE_METHODS.has(methodName)) continue;
+
+    const objText = pa.getExpression().getText();
+    if (!/app|router|server/i.test(objText)) continue;
+
+    const args = call.getArguments();
+    if (args.length < 2) continue;
+
+    // First arg is the route path
+    let routePath: string | undefined;
+    if (args[0].getKind() === SyntaxKind.StringLiteral) {
+      routePath = (args[0] as import('ts-morph').StringLiteral).getLiteralValue();
+    }
+
+    nodes.push({
+      id: conceptId(filePath, 'entrypoint', call.getStart()),
+      kind: 'entrypoint',
+      primarySpan: span(filePath, call),
+      evidence: call.getText().substring(0, 120),
+      confidence: 0.95,
+      language: 'ts',
+      containerId: getContainerId(call, filePath),
+      payload: {
+        kind: 'entrypoint',
+        subtype: 'route',
+        name: routePath || methodName,
+        httpMethod: methodName === 'use' ? undefined : methodName.toUpperCase(),
+      },
+    });
+  }
+
+  // export default function — only if it looks like a handler (has req/res params or returns JSX)
+  for (const exportDecl of sf.getExportedDeclarations()) {
+    const [name, decls] = exportDecl;
+    if (name !== 'default') continue;
+    for (const decl of decls) {
+      if (decl.getKind() === SyntaxKind.FunctionDeclaration) {
+        const fn = decl as import('ts-morph').FunctionDeclaration;
+        const params = fn.getParameters();
+        const paramNames = params.map(p => p.getName());
+        const isHandler = paramNames.some(n => /req|request|ctx|context|event/i.test(n));
+        const isComponent = fn.getName()?.[0]?.toUpperCase() === fn.getName()?.[0];
+
+        if (isHandler || isComponent) {
+          nodes.push({
+            id: conceptId(filePath, 'entrypoint', decl.getStart()),
+            kind: 'entrypoint',
+            primarySpan: span(filePath, decl),
+            evidence: decl.getText().substring(0, 100),
+            confidence: isHandler ? 0.9 : 0.7,
+            language: 'ts',
+            payload: {
+              kind: 'entrypoint',
+              subtype: isHandler ? 'handler' : 'export',
+              name: fn.getName() || 'default',
+            },
+          });
+        }
+      }
+    }
+  }
+}
+
+// ── guard ────────────────────────────────────────────────────────────────
+
+const AUTH_KEYWORDS = /auth|session|token|user|role|permission|admin|login|credential/i;
+const VALIDATION_CALLS = new Set(['parse', 'safeParse', 'validate', 'validateSync', 'check']);
+
+function extractGuards(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
+  // Pattern 1: early return/throw after auth check: if (!req.user) return/throw
+  for (const ifStmt of sf.getDescendantsOfKind(SyntaxKind.IfStatement)) {
+    const condText = ifStmt.getExpression().getText();
+    if (!AUTH_KEYWORDS.test(condText)) continue;
+
+    const thenBlock = ifStmt.getThenStatement();
+    const thenText = thenBlock.getText();
+
+    // Must be early exit (return, throw, or response with 401/403)
+    const isEarlyExit = thenText.includes('return') || thenText.includes('throw') ||
+      thenText.includes('401') || thenText.includes('403') || thenText.includes('redirect');
+
+    if (!isEarlyExit) continue;
+
+    nodes.push({
+      id: conceptId(filePath, 'guard', ifStmt.getStart()),
+      kind: 'guard',
+      primarySpan: span(filePath, ifStmt),
+      evidence: ifStmt.getText().substring(0, 120),
+      confidence: 0.8,
+      language: 'ts',
+      containerId: getContainerId(ifStmt, filePath),
+      payload: { kind: 'guard', subtype: 'auth', name: condText.substring(0, 60) },
+    });
+  }
+
+  // Pattern 2: schema.parse(), validator.validate() calls
+  for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) continue;
+    const pa = callee as import('ts-morph').PropertyAccessExpression;
+    if (!VALIDATION_CALLS.has(pa.getName())) continue;
+
+    const objText = pa.getExpression().getText();
+    if (/schema|validator|zod|yup|joi|valibot/i.test(objText) || /Schema$/.test(objText)) {
+      nodes.push({
+        id: conceptId(filePath, 'guard', call.getStart()),
+        kind: 'guard',
+        primarySpan: span(filePath, call),
+        evidence: call.getText().substring(0, 100),
+        confidence: 0.9,
+        language: 'ts',
+        containerId: getContainerId(call, filePath),
+        payload: { kind: 'guard', subtype: 'validation', name: objText },
+      });
+    }
+  }
+}
+
+// ── state_mutation ───────────────────────────────────────────────────────
+
+function extractStateMutation(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
+  // this.x = ..., this.x++, this.x += ...
+  for (const binExpr of sf.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+    const op = binExpr.getOperatorToken().getKind();
+    if (op !== SyntaxKind.EqualsToken &&
+        op !== SyntaxKind.PlusEqualsToken &&
+        op !== SyntaxKind.MinusEqualsToken) continue;
+
+    const leftText = binExpr.getLeft().getText();
+    if (!leftText.includes('.')) continue; // only property assignments
+
+    const root = leftText.split('.')[0];
+
+    let scope: 'local' | 'module' | 'global' | 'shared' = 'local';
+    if (root === 'this' || root === 'self') scope = 'module';
+    else if (/global|window|process\.env/i.test(root)) scope = 'global';
+    else if (/state|store|cache|registry/i.test(root)) scope = 'shared';
+    else continue; // skip local assignments like obj.prop = x
+
+    nodes.push({
+      id: conceptId(filePath, 'state_mutation', binExpr.getStart()),
+      kind: 'state_mutation',
+      primarySpan: span(filePath, binExpr),
+      evidence: binExpr.getText().substring(0, 100),
+      confidence: scope === 'module' ? 0.9 : 0.75,
+      language: 'ts',
+      containerId: getContainerId(binExpr, filePath),
+      payload: { kind: 'state_mutation', target: leftText, scope },
+    });
+  }
+
+  // Prefix/postfix: this.count++, state.value--
+  for (const unary of [
+    ...sf.getDescendantsOfKind(SyntaxKind.PostfixUnaryExpression),
+    ...sf.getDescendantsOfKind(SyntaxKind.PrefixUnaryExpression),
+  ]) {
+    const operandText = unary.getKind() === SyntaxKind.PostfixUnaryExpression
+      ? (unary as import('ts-morph').PostfixUnaryExpression).getOperand().getText()
+      : (unary as import('ts-morph').PrefixUnaryExpression).getOperand().getText();
+
+    if (!operandText.includes('.')) continue;
+    const root = operandText.split('.')[0];
+
+    let scope: 'local' | 'module' | 'global' | 'shared' = 'local';
+    if (root === 'this' || root === 'self') scope = 'module';
+    else if (/state|store|cache/i.test(root)) scope = 'shared';
+    else continue;
+
+    nodes.push({
+      id: conceptId(filePath, 'state_mutation', unary.getStart()),
+      kind: 'state_mutation',
+      primarySpan: span(filePath, unary),
+      evidence: unary.getText().substring(0, 80),
+      confidence: 0.85,
+      language: 'ts',
+      containerId: getContainerId(unary, filePath),
+      payload: { kind: 'state_mutation', target: operandText, scope },
+    });
+  }
+}
+
+// ── dependency edges ─────────────────────────────────────────────────────
+
+const NODE_STDLIB = new Set([
+  'fs', 'path', 'os', 'http', 'https', 'url', 'util', 'crypto',
+  'events', 'stream', 'buffer', 'child_process', 'cluster', 'net',
+  'dns', 'tls', 'zlib', 'readline', 'assert', 'querystring',
+]);
+
+function extractDependencyEdges(sf: SourceFile, filePath: string, edges: ConceptEdge[]): void {
+  for (const imp of sf.getImportDeclarations()) {
+    const specifier = imp.getModuleSpecifierValue();
+    const start = imp.getStart();
+
+    let subtype: 'internal' | 'external' | 'stdlib' = 'external';
+    if (specifier.startsWith('.') || specifier.startsWith('/')) {
+      subtype = 'internal';
+    } else if (NODE_STDLIB.has(specifier.split('/')[0]) || specifier.startsWith('node:')) {
+      subtype = 'stdlib';
+    }
+
+    edges.push({
+      id: conceptId(filePath, 'dependency', start),
+      kind: 'dependency',
+      sourceId: filePath,
+      targetId: specifier,
+      primarySpan: span(filePath, imp),
+      evidence: imp.getText().substring(0, 120),
+      confidence: 1.0,
+      language: 'ts',
+      payload: { kind: 'dependency', subtype, specifier },
+    });
   }
 }
 

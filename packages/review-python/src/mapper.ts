@@ -9,7 +9,7 @@ import Parser from 'tree-sitter';
 import Python from 'tree-sitter-python';
 import type {
   ConceptMap, ConceptNode, ConceptEdge, ConceptSpan,
-  ErrorHandlePayload,
+  ErrorHandlePayload, EntrypointPayload, GuardPayload, StateMutationPayload, DependencyPayload,
 } from '@kernlang/core';
 import { conceptId, conceptSpan } from '@kernlang/core';
 
@@ -24,6 +24,14 @@ const DB_MODULES = new Set(['psycopg2', 'asyncpg', 'pymongo', 'sqlalchemy', 'dja
 const DB_METHODS = new Set(['execute', 'executemany', 'fetchone', 'fetchall', 'fetchmany', 'query', 'find', 'find_one', 'insert_one', 'insert_many', 'update_one', 'delete_one']);
 
 const FS_FUNCTIONS = new Set(['open', 'read', 'write', 'readlines', 'writelines']);
+
+const STDLIB_MODULES = new Set([
+  'os', 'sys', 'json', 're', 'math', 'datetime', 'time', 'logging', 'argparse',
+  'collections', 'itertools', 'functools', 'pathlib', 'shutil', 'subprocess',
+  'threading', 'multiprocessing', 'abc', 'typing', 'io', 'pickle', 'random',
+  'hashlib', 'hmac', 'base64', 'csv', 'sqlite3', 'zlib', 'gzip', 'tarfile', 'zipfile',
+  'enum', 'struct', 'tempfile', 'unittest', 'urllib', 'uuid', 'xml',
+]);
 
 // ── Parser setup ─────────────────────────────────────────────────────────
 
@@ -47,6 +55,11 @@ export function extractPythonConcepts(source: string, filePath: string): Concept
   extractErrorRaise(tree.rootNode, source, filePath, nodes);
   extractErrorHandle(tree.rootNode, source, filePath, nodes);
   extractEffects(tree.rootNode, source, filePath, nodes);
+
+  extractEntrypoints(tree.rootNode, source, filePath, nodes);
+  extractGuards(tree.rootNode, source, filePath, nodes);
+  extractStateMutation(tree.rootNode, source, filePath, nodes);
+  extractDependencyEdges(tree.rootNode, source, filePath, edges);
 
   return {
     filePath,
@@ -244,6 +257,274 @@ function extractEffects(
         containerId: getContainerId(node, filePath),
         payload: { kind: 'effect', subtype: 'network', async: true },
       });
+    }
+  });
+}
+
+// ── entrypoint ──────────────────────────────────────────────────────────
+
+function extractEntrypoints(
+  root: Parser.SyntaxNode,
+  source: string,
+  filePath: string,
+  nodes: ConceptNode[],
+): void {
+  // 1. Route decorators: @app.route, @app.get, @router.post, etc.
+  walkNodes(root, 'function_definition', (node) => {
+    const decorators = node.childForFieldName('decorators');
+    if (!decorators) return;
+
+    for (const dec of decorators.children) {
+      if (dec.type !== 'decorator') continue;
+      const decText = dec.text;
+
+      // Regex for routing decorators: @app.route('/path'), @router.get('/path'), etc.
+      const routeMatch = decText.match(/@(app|router)\.(route|get|post|put|delete|patch)\s*\(\s*(['"])([^'"]+)\3/);
+      if (routeMatch) {
+        const method = routeMatch[2].toUpperCase();
+        const path = routeMatch[4];
+        const nameNode = node.childForFieldName('name');
+
+        nodes.push({
+          id: conceptId(filePath, 'entrypoint', dec.startIndex),
+          kind: 'entrypoint',
+          primarySpan: nodeSpan(filePath, dec),
+          evidence: nodeText(source, dec, 100),
+          confidence: 1.0,
+          language: 'py',
+          containerId: getContainerId(node, filePath),
+          payload: {
+            kind: 'entrypoint',
+            subtype: 'route',
+            name: nameNode ? nameNode.text : 'anonymous',
+            httpMethod: method === 'ROUTE' ? undefined : method,
+          },
+        });
+      }
+    }
+  });
+
+  // 2. if __name__ == '__main__':
+  walkNodes(root, 'if_statement', (node) => {
+    const condition = node.childForFieldName('condition');
+    if (condition && condition.text.includes('__name__') && condition.text.includes('__main__')) {
+      nodes.push({
+        id: conceptId(filePath, 'entrypoint', node.startIndex),
+        kind: 'entrypoint',
+        primarySpan: nodeSpan(filePath, node),
+        evidence: nodeText(source, node, 100),
+        confidence: 1.0,
+        language: 'py',
+        payload: {
+          kind: 'entrypoint',
+          subtype: 'main',
+          name: 'main',
+        },
+      });
+    }
+  });
+}
+
+// ── guard ───────────────────────────────────────────────────────────────
+
+function extractGuards(
+  root: Parser.SyntaxNode,
+  source: string,
+  filePath: string,
+  nodes: ConceptNode[],
+): void {
+  // 1. Auth decorators
+  walkNodes(root, 'function_definition', (node) => {
+    const decorators = node.childForFieldName('decorators');
+    if (!decorators) return;
+
+    for (const dec of decorators.children) {
+      if (dec.type !== 'decorator') continue;
+      const decText = dec.text;
+      if (/@(login_required|requires_auth|permission_required)/.test(decText)) {
+        nodes.push({
+          id: conceptId(filePath, 'guard', dec.startIndex),
+          kind: 'guard',
+          primarySpan: nodeSpan(filePath, dec),
+          evidence: nodeText(source, dec, 100),
+          confidence: 1.0,
+          language: 'py',
+          containerId: getContainerId(node, filePath),
+          payload: {
+            kind: 'guard',
+            subtype: 'auth',
+            name: decText.replace('@', '').split('(')[0].trim(),
+          },
+        });
+      }
+    }
+  });
+
+  // 2. Pydantic validation: BaseModel.model_validate()
+  walkNodes(root, 'call', (node) => {
+    const func = node.childForFieldName('function');
+    if (func && func.text.includes('model_validate')) {
+      nodes.push({
+        id: conceptId(filePath, 'guard', node.startIndex),
+        kind: 'guard',
+        primarySpan: nodeSpan(filePath, node),
+        evidence: nodeText(source, node, 100),
+        confidence: 0.9,
+        language: 'py',
+        containerId: getContainerId(node, filePath),
+        payload: { kind: 'guard', subtype: 'validation', name: 'pydantic' },
+      });
+    }
+  });
+
+  // 3. Early return/raise after auth check: if not request.user: raise/return
+  walkNodes(root, 'if_statement', (node) => {
+    const cond = node.childForFieldName('condition');
+    if (cond && /\b(user|auth|request\.user)\b/.test(cond.text)) {
+      const block = node.namedChildren.find(c => c.type === 'block');
+      if (block) {
+        const firstStmt = block.namedChildren[0];
+        if (firstStmt && (firstStmt.type === 'return_statement' || firstStmt.type === 'raise_statement')) {
+          nodes.push({
+            id: conceptId(filePath, 'guard', node.startIndex),
+            kind: 'guard',
+            primarySpan: nodeSpan(filePath, node),
+            evidence: nodeText(source, node, 100),
+            confidence: 0.8,
+            language: 'py',
+            containerId: getContainerId(node, filePath),
+            payload: { kind: 'guard', subtype: 'auth' },
+          });
+        }
+      }
+    }
+  });
+}
+
+// ── state_mutation ───────────────────────────────────────────────────────
+
+function extractStateMutation(
+  root: Parser.SyntaxNode,
+  source: string,
+  filePath: string,
+  nodes: ConceptNode[],
+): void {
+  // Track global keyword usage
+  const globalVarsInFile = new Set<string>();
+  walkNodes(root, 'global_statement', (node) => {
+    for (const child of node.namedChildren) {
+      if (child.type === 'identifier') globalVarsInFile.add(child.text);
+    }
+  });
+
+  walkNodes(root, 'assignment', (node) => {
+    const left = node.childForFieldName('left');
+    if (!left) return;
+
+    // self.x = ... → scope 'module' (as requested)
+    if (left.type === 'attribute') {
+      const obj = left.childForFieldName('object');
+      if (obj && obj.text === 'self') {
+        nodes.push({
+          id: conceptId(filePath, 'state_mutation', node.startIndex),
+          kind: 'state_mutation',
+          primarySpan: nodeSpan(filePath, node),
+          evidence: nodeText(source, node, 100),
+          confidence: 0.9,
+          language: 'py',
+          containerId: getContainerId(node, filePath),
+          payload: { kind: 'state_mutation', target: left.text, scope: 'module' },
+        });
+        return;
+      }
+    }
+
+    // Global or Module level assignment
+    if (left.type === 'identifier') {
+      const name = left.text;
+      const containerId = getContainerId(node, filePath);
+
+      if (globalVarsInFile.has(name)) {
+        nodes.push({
+          id: conceptId(filePath, 'state_mutation', node.startIndex),
+          kind: 'state_mutation',
+          primarySpan: nodeSpan(filePath, node),
+          evidence: nodeText(source, node, 100),
+          confidence: 1.0,
+          language: 'py',
+          containerId,
+          payload: { kind: 'state_mutation', target: name, scope: 'global' },
+        });
+      } else if (!containerId) {
+        // Module level (top level)
+        nodes.push({
+          id: conceptId(filePath, 'state_mutation', node.startIndex),
+          kind: 'state_mutation',
+          primarySpan: nodeSpan(filePath, node),
+          evidence: nodeText(source, node, 100),
+          confidence: 0.8,
+          language: 'py',
+          payload: { kind: 'state_mutation', target: name, scope: 'module' },
+        });
+      }
+    }
+  });
+}
+
+// ── dependency ──────────────────────────────────────────────────────────
+
+function extractDependencyEdges(
+  root: Parser.SyntaxNode,
+  source: string,
+  filePath: string,
+  edges: ConceptEdge[],
+): void {
+  const addDependency = (node: Parser.SyntaxNode, specifier: string) => {
+    let subtype: 'stdlib' | 'external' | 'internal' = 'external';
+    if (specifier.startsWith('.')) {
+      subtype = 'internal';
+    } else {
+      const rootModule = specifier.split('.')[0];
+      if (STDLIB_MODULES.has(rootModule)) {
+        subtype = 'stdlib';
+      }
+    }
+
+    edges.push({
+      id: `${filePath}#dep@${node.startIndex}`,
+      kind: 'dependency',
+      sourceId: filePath,
+      targetId: specifier,
+      primarySpan: nodeSpan(filePath, node),
+      evidence: nodeText(source, node, 100),
+      confidence: 1.0,
+      language: 'py',
+      payload: { kind: 'dependency', subtype, specifier },
+    });
+  };
+
+  walkNodes(root, 'import_statement', (node) => {
+    // import x, y as z
+    for (const child of node.namedChildren) {
+      if (child.type === 'dotted_name') {
+        addDependency(node, child.text);
+      } else if (child.type === 'aliased_import') {
+        const name = child.childForFieldName('name');
+        if (name) addDependency(node, name.text);
+      }
+    }
+  });
+
+  walkNodes(root, 'import_from_statement', (node) => {
+    // from x import y
+    const moduleNode = node.childForFieldName('module_name');
+    const relativeMatch = node.text.match(/^from\s+(\.+)/);
+    let specifier = moduleNode ? moduleNode.text : '';
+    if (relativeMatch) {
+      specifier = relativeMatch[1] + specifier;
+    }
+    if (specifier) {
+      addDependency(node, specifier);
     }
   });
 }
