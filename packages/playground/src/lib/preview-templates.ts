@@ -27,7 +27,9 @@ function buildReactPreview(code: string, withTailwind: boolean): string {
     .replace(/^import\s+.*from\s+['"]react['"];?\s*\n?/gm, '')
     .replace(/^import\s+.*from\s+['"]react-dom['"];?\s*\n?/gm, '')
     .replace(/^import\s+.*from\s+['"]react-i18next['"];?\s*\n?/gm, '')
-    .replace(/\bconst\s*\{\s*t\s*\}\s*=\s*useTranslation\(\);?\s*\n?/g, 'const t = (s) => s;\n');
+    .replace(/\bconst\s*\{\s*t\s*\}\s*=\s*useTranslation\(\);?\s*\n?/g, 'const t = (_key, fallback) => fallback || _key;\n')
+    .replace(/^export\s+default\s+/gm, '')
+    .replace(/^export\s+/gm, '');
 
   return `<!DOCTYPE html>
 <html>
