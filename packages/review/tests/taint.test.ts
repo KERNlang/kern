@@ -3,7 +3,7 @@
  */
 
 import { reviewSource } from '../src/index.js';
-import { analyzeTaint, taintToFindings } from '../src/taint.js';
+import { analyzeTaint, taintToFindings, isSanitizerSufficient, buildExportMap, analyzeTaintCrossFile, crossFileTaintToFindings } from '../src/taint.js';
 import { inferFromSource } from '../src/inferrer.js';
 
 // ── Direct taint analysis tests ───────────────────────────────────────
@@ -199,5 +199,109 @@ describe('taintToFindings', () => {
 
     const findings = taintToFindings(results);
     expect(findings[0].severity).toBe('warning'); // fs = warning, not error
+  });
+});
+
+// ── Sanitizer sufficiency matrix ──────────────────────────────────────
+
+describe('isSanitizerSufficient', () => {
+  it('parseInt is sufficient for SQL but not command injection', () => {
+    expect(isSanitizerSufficient('parseInt', 'sql')).toBe(true);
+    expect(isSanitizerSufficient('parseInt', 'command')).toBe(false);
+  });
+
+  it('schema.parse is sufficient for everything', () => {
+    expect(isSanitizerSufficient('schema.parse', 'command')).toBe(true);
+    expect(isSanitizerSufficient('schema.parse', 'sql')).toBe(true);
+    expect(isSanitizerSufficient('schema.parse', 'fs')).toBe(true);
+    expect(isSanitizerSufficient('schema.parse', 'redirect')).toBe(true);
+  });
+
+  it('DOMPurify is sufficient for template but not SQL', () => {
+    expect(isSanitizerSufficient('DOMPurify', 'template')).toBe(true);
+    expect(isSanitizerSufficient('DOMPurify', 'sql')).toBe(false);
+    expect(isSanitizerSufficient('DOMPurify', 'command')).toBe(false);
+  });
+
+  it('path.normalize is sufficient for FS but not command', () => {
+    expect(isSanitizerSufficient('path.normalize', 'fs')).toBe(true);
+    expect(isSanitizerSufficient('path.normalize', 'command')).toBe(false);
+  });
+
+  it('encodeURIComponent is sufficient for redirect but not SQL', () => {
+    expect(isSanitizerSufficient('encodeURIComponent', 'redirect')).toBe(true);
+    expect(isSanitizerSufficient('encodeURIComponent', 'sql')).toBe(false);
+  });
+
+  it('parameterized query is sufficient for SQL only', () => {
+    expect(isSanitizerSufficient('parameterized query ($N)', 'sql')).toBe(true);
+    expect(isSanitizerSufficient('parameterized query ($N)', 'command')).toBe(false);
+  });
+
+  it('unknown sanitizer gets benefit of doubt', () => {
+    expect(isSanitizerSufficient('customSanitizer', 'command')).toBe(true);
+  });
+});
+
+// ── Insufficient sanitizer detection ──────────────────────────────────
+
+describe('insufficient sanitizer detection', () => {
+  it('reports parseInt as insufficient for command injection', () => {
+    const source = `
+export function runJob(req: Request, res: Response): void {
+  const id = parseInt(req.body.id);
+  exec('job ' + id);
+  res.json({ ok: true });
+}
+`;
+    const report = reviewSource(source, 'handler.ts');
+    const f = report.findings.find(f => f.ruleId === 'taint-insufficient-sanitizer');
+    expect(f).toBeDefined();
+    expect(f!.message).toContain('parseInt');
+    expect(f!.message).toContain('command injection');
+  });
+});
+
+// ── Cross-file taint helpers ──────────────────────────────────────────
+
+describe('buildExportMap', () => {
+  it('maps exported functions with sink detection', () => {
+    const source = `
+export function runQuery(sql: string): void {
+  query(sql);
+}
+`;
+    const inferred = inferFromSource(source, 'db.ts');
+    const map = buildExportMap(new Map([['db.ts', inferred]]));
+
+    const entry = map.get('db.ts::runQuery');
+    expect(entry).toBeDefined();
+    expect(entry!.hasSink).toBe(true);
+    expect(entry!.sinks.length).toBeGreaterThanOrEqual(1);
+    expect(entry!.sinks[0].category).toBe('sql');
+  });
+});
+
+describe('crossFileTaintToFindings', () => {
+  it('converts cross-file results to findings with related spans', () => {
+    const results = [{
+      callerFile: 'routes.ts',
+      callerFn: 'handleRequest',
+      callerLine: 10,
+      calleeFile: 'db.ts',
+      calleeFn: 'runQuery',
+      taintedArgs: ['userInput'],
+      sinkInCallee: { name: 'query', category: 'sql' as const, taintedArg: 'sql' },
+      source: { name: 'userInput', origin: 'req.body.query' },
+    }];
+
+    const findings = crossFileTaintToFindings(results);
+    expect(findings.length).toBe(1);
+    expect(findings[0].ruleId).toBe('taint-crossfile-sql');
+    expect(findings[0].message).toContain('Cross-file taint');
+    expect(findings[0].message).toContain('handleRequest');
+    expect(findings[0].message).toContain('runQuery');
+    expect(findings[0].relatedSpans).toBeDefined();
+    expect(findings[0].relatedSpans![0].file).toBe('db.ts');
   });
 });

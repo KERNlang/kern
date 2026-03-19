@@ -25,7 +25,7 @@ import { lintConfidenceGraph } from './rules/confidence.js';
 import { lintKernIR } from './kern-lint.js';
 import { GROUND_LAYER_RULES } from './rules/ground-layer.js';
 import { buildConfidenceGraph, serializeGraph, computeConfidenceSummary } from './confidence.js';
-import { analyzeTaint, taintToFindings } from './taint.js';
+import { analyzeTaint, taintToFindings, analyzeTaintCrossFile, crossFileTaintToFindings } from './taint.js';
 import type { ReviewReport, InferResult, TemplateMatch, ReviewConfig, EnforceResult, ReviewFinding, SourceSpan } from './types.js';
 
 export type { ReviewReport, InferResult, TemplateMatch, ReviewFinding, SourceSpan } from './types.js';
@@ -65,9 +65,9 @@ export type {
 } from './confidence.js';
 export { lintConfidenceGraph, lintMultiFileConfidenceGraph, CONFIDENCE_RULES } from './rules/confidence.js';
 
-// Taint tracking (Phase 2)
-export { analyzeTaint, taintToFindings } from './taint.js';
-export type { TaintSource, TaintSink, TaintPath, TaintResult } from './taint.js';
+// Taint tracking (Phase 2 + cross-file)
+export { analyzeTaint, taintToFindings, analyzeTaintCrossFile, crossFileTaintToFindings, buildExportMap, buildImportMap, isSanitizerSufficient } from './taint.js';
+export type { TaintSource, TaintSink, TaintPath, TaintResult, CrossFileTaintResult, ExportedFunction } from './taint.js';
 
 // LLM bridge (Phase 3)
 export { runLLMReview, isLLMAvailable } from './llm-bridge.js';
@@ -269,6 +269,29 @@ export function reviewGraph(
       reports.push(report);
     } catch (err) {
       console.error(`  Skipping ${relative(process.cwd(), gf.path)}: ${(err as Error).message}`);
+    }
+  }
+
+  // Cross-file taint analysis — trace tainted data across import boundaries
+  const inferredPerFile = new Map<string, InferResult[]>();
+  const graphImports = new Map<string, string[]>();
+  for (const report of reports) {
+    inferredPerFile.set(report.filePath, report.inferred);
+  }
+  for (const gf of graph.files) {
+    graphImports.set(gf.path, gf.imports);
+  }
+
+  const crossFileResults = analyzeTaintCrossFile(inferredPerFile, graphImports);
+  if (crossFileResults.length > 0) {
+    const crossFileFindings = crossFileTaintToFindings(crossFileResults);
+    // Add cross-file findings to the caller's report
+    for (const f of crossFileFindings) {
+      const callerReport = reports.find(r => r.filePath === f.primarySpan.file);
+      if (callerReport) {
+        callerReport.findings.push(f);
+        callerReport.findings = dedup(callerReport.findings);
+      }
     }
   }
 
