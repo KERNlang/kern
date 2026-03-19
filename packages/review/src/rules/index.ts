@@ -13,6 +13,7 @@ import type { ReviewRule } from '../types.js';
 import { baseRules } from './base.js';
 import { securityRules } from './security.js';
 import { securityV2Rules } from './security-v2.js';
+import { securityV3Rules } from './security-v3.js';
 import { deadLogicRules } from './dead-logic.js';
 import { reactRules } from './react.js';
 import { vueRules } from './vue.js';
@@ -27,7 +28,7 @@ const VUE_TARGETS = new Set(['vue', 'nuxt']);
  * Base + security + dead-logic are always active; framework rules activate by target.
  */
 export function getActiveRules(target?: string): ReviewRule[] {
-  const rules: ReviewRule[] = [...baseRules, ...securityRules, ...securityV2Rules, ...deadLogicRules];
+  const rules: ReviewRule[] = [...baseRules, ...securityRules, ...securityV2Rules, ...securityV3Rules, ...deadLogicRules];
 
   if (target && REACT_TARGETS.has(target)) {
     rules.push(...reactRules);
