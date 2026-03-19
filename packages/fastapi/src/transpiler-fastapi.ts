@@ -348,12 +348,30 @@ function buildRouteArtifact(
     imports.add('import asyncio');
   }
 
-  // v3 route children: params, auth, validate, error
+  // v3 route children: params, auth, validate, error, middleware
   const paramsNodes = getChildren(routeNode, 'params');
   const queryParams: Array<{ name: string; type: string; default?: string }> = [];
   for (const paramNode of paramsNodes) {
     const paramItems = getProps(paramNode).items as Array<{ name: string; type: string; default?: string }> | undefined;
     if (paramItems) queryParams.push(...paramItems);
+  }
+
+  // Route-level middleware → Depends() in FastAPI
+  const routeMiddleware = getChildren(routeNode, 'middleware');
+  const middlewareDeps: string[] = [];
+  for (const mwNode of routeMiddleware) {
+    const mwProps = getProps(mwNode);
+    const mwNames = mwProps.names as string[] | undefined;
+    if (mwNames && Array.isArray(mwNames)) {
+      for (const mwName of mwNames) {
+        middlewareDeps.push(toSnakeCase(mwName));
+      }
+    } else if (mwProps.name) {
+      middlewareDeps.push(toSnakeCase(String(mwProps.name)));
+    }
+  }
+  if (middlewareDeps.length > 0) {
+    imports.add('from fastapi import Depends');
   }
 
   const authNode = getFirstChild(routeNode, 'auth');
@@ -439,6 +457,11 @@ function buildRouteArtifact(
           paramParts.push(`validated = Depends(${toSnakeCase(validateSchema)})`);
         }
       }
+    }
+
+    // v3 route-level middleware → Depends()
+    for (const dep of middlewareDeps) {
+      paramParts.push(`_${dep} = Depends(${dep})`);
     }
 
     // v3 auth — add Depends(auth_required)
