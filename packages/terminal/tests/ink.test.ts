@@ -247,6 +247,194 @@ describe('Ink Transpiler', () => {
     expect(result.code).toContain('loadItems()');
   });
 
+  // ── Bug fixes ──────────────────────────────────────────────────────
+
+  test('Bug #1: hoists nested on-nodes from UI containers to useInput', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  state name=active initial=false',
+      '  box color=cyan',
+      '    on event=key key=return',
+      '      handler <<<',
+      '        setActive(true);',
+      '      >>>',
+      '    text value="Press Enter"',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Should generate useInput hook (not just a comment)
+    expect(result.code).toContain('useInput((input, key) => {');
+    expect(result.code).toContain('key.return');
+    expect(result.code).toContain('setActive(true)');
+    // Should NOT have an on-node rendered as JSX
+    expect(result.code).not.toContain('// on key');
+  });
+
+  test('Bug #2: handles __expr objects in text value', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = 'screen name=Test\n  text value={{ loading ? "Loading..." : "Done" }}';
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('loading ? "Loading..." : "Done"');
+    expect(result.code).not.toContain('__expr');
+    expect(result.code).not.toContain('[object Object]');
+  });
+
+  test('Bug #3: dynamic progress with expression values', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  state name=progress initial=0',
+      '  progress value={{ progress }} max=100 color=green',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Should generate runtime computation, not static 0%
+    expect(result.code).toContain('_pct');
+    expect(result.code).toContain('progress');
+    expect(result.code).not.toContain("{'░░░░░░░░░░░░░░░░░░░░'}");
+    expect(result.code).not.toContain("' 0%'");
+  });
+
+  test('Bug #4: text-input generates value/onChange when bind is set', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  state name=query initial=""',
+      '  text-input bind=query placeholder="Search..."',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('value={query}');
+    expect(result.code).toContain('onChange={setQuery}');
+    expect(result.code).toContain('placeholder="Search..."');
+  });
+
+  test('Bug #5: select-input generates onSelect handler', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = 'screen name=Test\n  select-input items={{menuItems}} onSelect=handleSelect';
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('items={menuItems}');
+    expect(result.code).toContain('onSelect={handleSelect}');
+  });
+
+  test('Bug #6: handler blocks preserve indentation', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  box',
+      '    handler <<<',
+      '      if (condition) {',
+      '        doSomething();',
+      '      }',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Indentation structure should be preserved (not flattened by trim)
+    expect(result.code).toContain('if (condition) {');
+    expect(result.code).toContain('  doSomething();');
+    expect(result.code).toContain('}');
+  });
+
+  // ── New features ──────────────────────────────────────────────────
+
+  test('Feature #7: conditional rendering', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  state name=loading initial=true',
+      '  conditional if={{ loading }}',
+      '    spinner message="Loading..."',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('{loading && (');
+    expect(result.code).toContain('<>');
+    expect(result.code).toContain('<Spinner');
+    expect(result.code).toContain('</>');
+  });
+
+  test('Feature #8: logic blocks generate useEffect', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  logic <<<',
+      '    const timer = setInterval(() => tick(), 1000);',
+      '    return () => clearInterval(timer);',
+      '  >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('useEffect(() => {');
+    expect(result.code).toContain('setInterval');
+    expect(result.code).toContain('clearInterval');
+  });
+
+  test('Feature #9: component props from screen attributes', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = 'screen name=MyScreen props="onExit:() => void, title:string"\n  text value="Hello"';
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('function MyScreen(');
+    expect(result.code).toContain('onExit');
+    expect(result.code).toContain('title');
+  });
+
+  test('Feature #10: ref nodes generate useRef', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  ref name=timer initial=null',
+      '  text value="Timer app"',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('useRef');
+    expect(result.code).toContain('const timerRef = useRef(null)');
+  });
+
+  test('Feature #11: callback nodes generate useCallback', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  callback name=handleSubmit params="value:string" deps=onSubmit',
+      '    handler <<<',
+      '      onSubmit(value);',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('useCallback');
+    expect(result.code).toContain('const handleSubmit = useCallback((value:string) => {');
+    expect(result.code).toContain('onSubmit(value)');
+    expect(result.code).toContain('}, [onSubmit])');
+  });
+
   test('returns valid TranspileResult with token metrics', async () => {
     const { parse } = await import('../../core/src/parser.js');
     const { transpileInk } = await import('../src/transpiler-ink.js');

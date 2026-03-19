@@ -88,6 +88,140 @@ export function generateInterface(node: IRNode): string[] {
   return lines;
 }
 
+// ── Discriminated Union ──────────────────────────────────────────────────
+// union name=ContentSegment discriminant=type
+//   variant name=prose
+//     field name=text type=string
+//   variant name=code
+//     field name=language type=string
+//     field name=code type=string
+// → export type ContentSegment =
+//   | { type: 'prose'; text: string }
+//   | { type: 'code'; language: string; code: string };
+
+export function generateUnion(node: IRNode): string[] {
+  const props = p(node);
+  const name = props.name as string;
+  const discriminant = props.discriminant as string || 'type';
+  const exp = exportPrefix(node);
+  const variants = kids(node, 'variant');
+
+  if (variants.length === 0) {
+    return [`${exp}type ${name} = never;`];
+  }
+
+  const lines: string[] = [`${exp}type ${name} =`];
+  for (let i = 0; i < variants.length; i++) {
+    const vp = p(variants[i]);
+    const vname = vp.name as string;
+    const fields = kids(variants[i], 'field');
+    const fieldParts = [`${discriminant}: '${vname}'`];
+    for (const field of fields) {
+      const fp = p(field);
+      const opt = fp.optional === 'true' || fp.optional === true ? '?' : '';
+      fieldParts.push(`${fp.name}${opt}: ${fp.type}`);
+    }
+    const semi = i === variants.length - 1 ? ';' : '';
+    lines.push(`  | { ${fieldParts.join('; ')} }${semi}`);
+  }
+  return lines;
+}
+
+// ── Service (Class) ─────────────────────────────────────────────────────
+// service name=TokenTracker
+//   field name=entries type="TokenUsage[]" default="[]" private=true
+//   method name=record params="usage:TokenUsage" returns=void
+//     handler <<<
+//       this.entries.push(usage);
+//     >>>
+//   method name=getStats returns=SessionStats
+//     handler <<<
+//       return { ... };
+//     >>>
+// singleton name=tracker type=TokenTracker
+// → export class TokenTracker { ... }
+// → export const tracker = new TokenTracker();
+
+export function generateService(node: IRNode): string[] {
+  const props = p(node);
+  const name = props.name as string;
+  const impl = props.implements as string;
+  const exp = exportPrefix(node);
+  const lines: string[] = [];
+
+  const implClause = impl ? ` implements ${impl}` : '';
+  lines.push(`${exp}class ${name}${implClause} {`);
+
+  // Fields
+  for (const field of kids(node, 'field')) {
+    const fp = p(field);
+    const vis = fp.private === 'true' || fp.private === true ? 'private ' : '';
+    const readonly = fp.readonly === 'true' || fp.readonly === true ? 'readonly ' : '';
+    const typeAnnotation = fp.type ? `: ${fp.type}` : '';
+    const defaultVal = fp.default as string;
+    const init = defaultVal !== undefined ? ` = ${defaultVal}` : '';
+    lines.push(`  ${vis}${readonly}${fp.name}${typeAnnotation}${init};`);
+  }
+
+  // Constructor (if any constructor child exists)
+  const ctorNode = firstChild(node, 'constructor');
+  if (ctorNode) {
+    const ctorProps = p(ctorNode);
+    const ctorParams = ctorProps.params ? parseParamList(ctorProps.params as string) : '';
+    const ctorCode = handlerCode(ctorNode);
+    lines.push('');
+    lines.push(`  constructor(${ctorParams}) {`);
+    if (ctorCode) {
+      for (const line of ctorCode.split('\n')) {
+        lines.push(`    ${line}`);
+      }
+    }
+    lines.push('  }');
+  }
+
+  // Methods
+  for (const method of kids(node, 'method')) {
+    const mp = p(method);
+    const mname = mp.name as string;
+    const mparams = mp.params ? parseParamList(mp.params as string) : '';
+    const isAsync = mp.async === 'true' || mp.async === true;
+    const isStream = mp.stream === 'true' || mp.stream === true;
+    const isStatic = mp.static === 'true' || mp.static === true;
+    const vis = mp.private === 'true' || mp.private === true ? 'private ' : '';
+    const staticKw = isStatic ? 'static ' : '';
+    const star = isStream ? '*' : '';
+    const asyncKw = (isAsync || isStream) ? 'async ' : '';
+    const mcode = handlerCode(method);
+
+    // stream=true → AsyncGenerator return type
+    const mreturns = isStream
+      ? `: AsyncGenerator<${mp.returns || 'unknown'}>`
+      : mp.returns ? `: ${mp.returns}` : '';
+
+    lines.push('');
+    lines.push(`  ${vis}${staticKw}${asyncKw}${star}${mname}(${mparams})${mreturns} {`);
+    if (mcode) {
+      for (const line of mcode.split('\n')) {
+        lines.push(`    ${line}`);
+      }
+    }
+    lines.push('  }');
+  }
+
+  lines.push('}');
+
+  // Singleton instances
+  for (const singleton of kids(node, 'singleton')) {
+    const sp = p(singleton);
+    const sname = sp.name as string;
+    const stype = sp.type as string || name;
+    lines.push('');
+    lines.push(`${exp}const ${sname} = new ${stype}();`);
+  }
+
+  return lines;
+}
+
 // ── Function ─────────────────────────────────────────────────────────────
 // fn name=createPlan params="action:PlanAction,ws:WorkspaceSnapshot" returns=Plan
 //   handler <<<
@@ -104,13 +238,9 @@ export function generateFunction(node: IRNode): string[] {
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
-  // Parse params: "action:PlanAction,ws:WorkspaceSnapshot" → "action: PlanAction, ws: WorkspaceSnapshot"
-  const paramList = params
-    ? params.split(',').map(s => {
-        const [pname, ...ptype] = s.split(':').map(t => t.trim());
-        return ptype.length > 0 ? `${pname}: ${ptype.join(':')}` : pname;
-      }).join(', ')
-    : '';
+  // Parse params: "action:PlanAction,ws:WorkspaceSnapshot,spread:number=8"
+  // → "action: PlanAction, ws: WorkspaceSnapshot, spread: number = 8"
+  const paramList = params ? parseParamList(params) : '';
 
   // stream=true → async generator function
   if (isStream) {
@@ -131,12 +261,43 @@ export function generateFunction(node: IRNode): string[] {
   const asyncKw = isAsync ? 'async ' : '';
   const code = handlerCode(node);
 
+  // Gap 3: signal + cleanup support for async functions
+  const signalNode = firstChild(node, 'signal');
+  const cleanupNode = firstChild(node, 'cleanup');
+  const hasSignal = !!signalNode;
+  const hasCleanup = !!cleanupNode;
+
   lines.push(`${exp}${asyncKw}function ${name}(${paramList})${retClause} {`);
-  if (code) {
+
+  // Signal → AbortController setup
+  if (hasSignal) {
+    const signalName = (p(signalNode!).name as string) || 'abort';
+    lines.push(`  const ${signalName} = new AbortController();`);
+  }
+
+  // Wrap body in try/finally if cleanup exists
+  if (hasCleanup) {
+    lines.push('  try {');
+    if (code) {
+      for (const line of code.split('\n')) {
+        lines.push(`    ${line}`);
+      }
+    }
+    lines.push('  } finally {');
+    const cleanupCode = p(cleanupNode!).code as string || '';
+    if (cleanupCode) {
+      const dedented = dedent(cleanupCode);
+      for (const line of dedented.split('\n')) {
+        lines.push(`    ${line}`);
+      }
+    }
+    lines.push('  }');
+  } else if (code) {
     for (const line of code.split('\n')) {
       lines.push(`  ${line}`);
     }
   }
+
   lines.push('}');
   return lines;
 }
@@ -857,13 +1018,66 @@ export function generateConst(node: IRNode): string[] {
 
 // ── Shared Helpers (exported for @kernlang/react) ────────────────────────────
 
-/** Parse "name:Type,name2:Type2" → "name: Type, name2: Type2" */
+/** Parse "name:Type,name2:Type2,spread:number=8" → "name: Type, name2: Type2, spread: number = 8"
+ *  Supports default values via = after the type. */
 export function parseParamList(params: string): string {
   if (!params) return '';
-  return params.split(',').map(s => {
-    const [pname, ...ptype] = s.split(':').map(t => t.trim());
-    return ptype.length > 0 ? `${pname}: ${ptype.join(':')}` : pname;
+  return splitParamsRespectingDepth(params).map(s => {
+    const trimmed = s.trim();
+    // Split name from type:default — find the first ':'
+    const colonIdx = trimmed.indexOf(':');
+    if (colonIdx === -1) return trimmed;
+
+    const pname = trimmed.slice(0, colonIdx).trim();
+    const rest = trimmed.slice(colonIdx + 1).trim();
+
+    // Split type from default value — find '=' not inside angle brackets or parens
+    const eqIdx = findDefaultSeparator(rest);
+    if (eqIdx === -1) {
+      return `${pname}: ${rest}`;
+    }
+    const ptype = rest.slice(0, eqIdx).trim();
+    const pdefault = rest.slice(eqIdx + 1).trim();
+    return `${pname}: ${ptype} = ${pdefault}`;
   }).join(', ');
+}
+
+/** Split param string on commas while respecting <>, (), {} depth.
+ *  Handles => (arrow) without decrementing depth. */
+function splitParamsRespectingDepth(s: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '<' || ch === '(' || ch === '{') depth++;
+    else if ((ch === '>' || ch === ')' || ch === '}') && depth > 0) depth--;
+    if (ch === ',' && depth === 0) {
+      parts.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current);
+  return parts;
+}
+
+/** Find the index of '=' that separates type from default value,
+ *  skipping '=' inside arrow functions (=>), generics, or parens. */
+function findDefaultSeparator(rest: string): number {
+  let depth = 0;
+  for (let i = 0; i < rest.length; i++) {
+    const ch = rest[i];
+    if (ch === '<' || ch === '(' || ch === '{') depth++;
+    else if (ch === '>' || ch === ')' || ch === '}') depth--;
+    else if (ch === '=' && depth === 0) {
+      // Skip '=>' (arrow function in type)
+      if (rest[i + 1] === '>') continue;
+      return i;
+    }
+  }
+  return -1;
 }
 
 export function capitalize(s: string): string {
@@ -1497,6 +1711,8 @@ export function generateApply(node: IRNode): string[] {
 
 export const CORE_NODE_TYPES = new Set([
   'type', 'interface', 'field', 'fn',
+  'union', 'variant',
+  'service', 'method', 'singleton', 'constructor',
   'machine', 'transition',
   'error', 'module', 'export',
   'config', 'store',
@@ -1505,6 +1721,8 @@ export const CORE_NODE_TYPES = new Set([
   'hook',
   'on', 'websocket',
   'template', 'slot', 'body',
+  // Async extensions
+  'signal', 'cleanup',
   // Ground layer
   'derive', 'transform', 'action', 'guard', 'assume', 'invariant',
   'each', 'collect', 'branch', 'path',
@@ -1527,6 +1745,8 @@ export function generateCoreNode(node: IRNode): string[] {
   switch (node.type) {
     case 'type': return generateType(node);
     case 'interface': return generateInterface(node);
+    case 'union': return generateUnion(node);
+    case 'service': return generateService(node);
     case 'fn': return generateFunction(node);
     case 'machine': return generateMachine(node);
     case 'error': return generateError(node);
@@ -1566,6 +1786,13 @@ export function generateCoreNode(node: IRNode): string[] {
     case 'reason': return [];
     case 'evidence': return [];
     case 'needs': return [];
+    // Structural children consumed by parents
+    case 'variant': return [];
+    case 'method': return [];
+    case 'singleton': return [];
+    case 'constructor': return [];
+    case 'signal': return [];
+    case 'cleanup': return [];
     default:
       // Check if this is a template instance
       if (isTemplateNode(node.type)) return expandTemplateNode(node);
