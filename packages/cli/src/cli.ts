@@ -888,6 +888,9 @@ if (args[0] === 'evolve' && args[1] !== undefined && !args[1].startsWith('evolve
     console.log(JSON.stringify(result, null, 2));
   } else {
     console.log(`  Gaps detected:       ${result.gaps.length}`);
+    if (result.conceptSummary) {
+      console.log(`  ${result.conceptSummary.formatted}`);
+    }
     console.log(`  Patterns analyzed:   ${result.analyzed.length}`);
     console.log(`  Templates proposed:  ${result.proposals.length}`);
     console.log(`  Validated:           ${result.validated.filter(v => v.validation.parseOk && v.validation.expansionOk).length}/${result.validated.length}`);
