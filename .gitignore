@@ -8,3 +8,4 @@ examples/*.tsx
 .claude/settings.local.json
 .claude/docs/plans/*.md
 docs/plans/
+.claude*.tsbuildinfo
