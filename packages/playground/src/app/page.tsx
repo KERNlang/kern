@@ -449,6 +449,7 @@ export default function PlaygroundPage() {
                     output={compiledOutput}
                     outputLanguage={TARGET_LANGUAGE[selectedTarget]}
                     artifacts={artifacts}
+                    target={selectedTarget}
                   />
                 )
               )}
@@ -527,6 +528,7 @@ export default function PlaygroundPage() {
                   output={compiledOutput}
                   outputLanguage={TARGET_LANGUAGE[selectedTarget]}
                   artifacts={artifacts}
+                  target={selectedTarget}
                 />
               )
             )}
