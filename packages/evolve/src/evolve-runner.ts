@@ -13,7 +13,7 @@ import { proposeTemplates } from './template-proposer.js';
 import { validateProposal } from './template-validator.js';
 import { stageProposal } from './staging.js';
 import { DEFAULT_THRESHOLDS } from './quality-scorer.js';
-import type { EvolveConfig, EvolveResult, QualityThresholds, PatternGap } from './types.js';
+import type { EvolveConfig, EvolveResult, QualityThresholds, PatternGap, ConceptGapSummary } from './types.js';
 
 export interface EvolveOptions {
   recursive?: boolean;
@@ -85,6 +85,7 @@ export function evolve(
     proposals,
     validated,
     staged,
+    conceptSummary: buildConceptSummary(allGaps),
   };
 }
 
@@ -126,7 +127,24 @@ export function evolveSource(
     proposals,
     validated,
     staged: [],
+    conceptSummary: buildConceptSummary(gaps),
   };
+}
+
+function buildConceptSummary(gaps: PatternGap[]): ConceptGapSummary | undefined {
+  const conceptGaps = gaps.filter(g => g.libraryName === 'structural');
+  if (conceptGaps.length === 0) return undefined;
+
+  const byRule: Record<string, number> = {};
+  for (const g of conceptGaps) {
+    const rule = g.detectorId.replace(/^concept-/, '');
+    byRule[rule] = (byRule[rule] || 0) + 1;
+  }
+
+  const parts = Object.entries(byRule).map(([rule, count]) => `${rule}: ${count}`);
+  const formatted = `Structural gaps: ${conceptGaps.length} (${parts.join(', ')})`;
+
+  return { total: conceptGaps.length, byRule, formatted };
 }
 
 function collectTsFiles(inputPath: string, recursive: boolean): string[] {

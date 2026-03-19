@@ -9,6 +9,7 @@ import { Project, type SourceFile } from 'ts-morph';
 import { reviewFile } from '@kernlang/review';
 import type { ReviewReport, TemplateMatch } from '@kernlang/review';
 import { getAllDetectors, getDetectorsForImport } from './detector-registry.js';
+import { detectConceptualGaps } from './concept-gap-adapter.js';
 import type { PatternGap, DetectorPack, DetectionResult } from './types.js';
 
 let _gapIdCounter = 0;
@@ -84,7 +85,9 @@ export function detectGaps(
     }
   }
 
-  return gaps;
+  // Run concept-based detection (universal structural gaps)
+  const conceptGaps = detectConceptualGaps(sourceFile, filePath);
+  return [...gaps, ...conceptGaps];
 }
 
 /**

@@ -29,6 +29,7 @@ export type {
   StagedProposal,
   EvolveConfig,
   EvolveResult,
+  ConceptGapSummary,
 } from './types.js';
 
 // Detector Registry
@@ -46,6 +47,9 @@ export {
 
 // Gap Detector
 export { detectGaps, detectGapsInFiles, detectGapsFromSource, resetGapIds } from './gap-detector.js';
+
+// Concept Gap Adapter
+export { detectConceptualGaps, resetConceptGapIds } from './concept-gap-adapter.js';
 
 // Quality Scorer
 export { scorePattern, passesThresholds, DEFAULT_THRESHOLDS } from './quality-scorer.js';

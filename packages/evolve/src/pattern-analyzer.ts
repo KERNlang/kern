@@ -157,10 +157,13 @@ export function analyzePatterns(
   gaps: PatternGap[],
   thresholds: QualityThresholds = DEFAULT_THRESHOLDS,
 ): AnalyzedPattern[] {
+  // Structural gaps are findings, not template proposal candidates — filter them out
+  const templateGaps = gaps.filter(g => g.libraryName !== 'structural');
+
   // Group by (namespace, structuralHash)
   const groups = new Map<string, PatternGap[]>();
 
-  for (const gap of gaps) {
+  for (const gap of templateGaps) {
     const hash = computeStructuralHash(gap);
     const key = `${gap.libraryName}::${hash}`;
     const group = groups.get(key) || [];

@@ -18,7 +18,8 @@ export type PatternKind =
   | 'middleware'
   | 'composable'
   | 'testing'
-  | 'generic';
+  | 'generic'
+  | 'structural';
 
 // ── Detector Pack ────────────────────────────────────────────────────────
 
@@ -161,6 +162,14 @@ export interface EvolveConfig {
   templatesDir: string;
 }
 
+// ── Concept Gap Summary ──────────────────────────────────────────────────
+
+export interface ConceptGapSummary {
+  total: number;
+  byRule: Record<string, number>;
+  formatted: string;
+}
+
 // ── Evolve Result ────────────────────────────────────────────────────────
 
 export interface EvolveResult {
@@ -169,4 +178,5 @@ export interface EvolveResult {
   proposals: TemplateProposal[];
   validated: Array<{ proposal: TemplateProposal; validation: ValidationResult }>;
   staged: StagedProposal[];
+  conceptSummary?: ConceptGapSummary;
 }
