@@ -213,7 +213,15 @@ export default function PlaygroundPage() {
     setInferredKern(null);
     setInferStats(null);
     setInferError(null);
-  }, []);
+  }, [selectedTarget]);
+
+  // Switch target: load matching example in infer mode
+  const handleTargetChange = useCallback((target: PlaygroundTarget) => {
+    setSelectedTarget(target);
+    if (mode === 'infer') {
+      setSourceCode(INFER_EXAMPLES[target]);
+    }
+  }, [mode]);
 
   const doCompile = useCallback(async (source: string, target: PlaygroundTarget) => {
     if (!source.trim()) {
@@ -329,7 +337,7 @@ export default function PlaygroundPage() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <label style={{ fontSize: 12, color: '#8b949e' }}>{mode === 'compile' ? 'Target:' : 'Source:'}</label>
-          <TargetSelector value={selectedTarget} onChange={setSelectedTarget} />
+          <TargetSelector value={selectedTarget} onChange={handleTargetChange} />
 
           {mode === 'compile' && !isMobile && (
             <select
