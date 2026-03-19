@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@kernlang/core": "workspace:*",
+    "@kernlang/review": "workspace:*",
     "@kernlang/react": "workspace:*",
     "@kernlang/express": "workspace:*",
     "@kernlang/fastapi": "workspace:*",

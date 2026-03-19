@@ -10,6 +10,11 @@ import { EXAMPLES } from '@/lib/examples';
 import { TARGET_LANGUAGE } from '@/lib/targets';
 import type { PlaygroundTarget } from '@/lib/targets';
 import type { CompileResult } from '@/lib/compile';
+import type { InferResult } from '@/lib/infer';
+
+// ── Types ────────────────────────────────────────────────────────────────
+
+type PlaygroundMode = 'compile' | 'infer';
 
 // ── URL Sharing Helpers ──────────────────────────────────────────────────
 
@@ -21,27 +26,30 @@ function decodeSource(encoded: string): string {
   return decodeURIComponent(escape(atob(encoded)));
 }
 
-function readShareParams(): { source?: string; target?: PlaygroundTarget } {
+function readShareParams(): { source?: string; target?: PlaygroundTarget; mode?: PlaygroundMode } {
   if (typeof window === 'undefined') return {};
   const params = new URLSearchParams(window.location.search);
   const source64 = params.get('source');
   const target = params.get('target') as PlaygroundTarget | null;
+  const mode = params.get('mode') as PlaygroundMode | null;
   try {
     return {
       source: source64 ? decodeSource(source64) : undefined,
       target: target || undefined,
+      mode: mode === 'infer' ? 'infer' : undefined,
     };
   } catch {
     return {};
   }
 }
 
-function updateShareUrl(source: string, target: string) {
+function updateShareUrl(source: string, target: string, mode: PlaygroundMode) {
   if (typeof window === 'undefined') return;
   try {
     const url = new URL(window.location.href);
     url.searchParams.set('source', encodeSource(source));
     url.searchParams.set('target', target);
+    url.searchParams.set('mode', mode);
     history.replaceState(null, '', url.toString());
   } catch {
     // Skip URL update for oversized source or encoding errors
@@ -95,6 +103,34 @@ function ShareButton() {
   );
 }
 
+// ── Mode Toggle ──────────────────────────────────────────────────────────
+
+function ModeToggle({ mode, onChange }: { mode: PlaygroundMode; onChange: (m: PlaygroundMode) => void }) {
+  const btnStyle = (active: boolean): React.CSSProperties => ({
+    padding: '5px 12px',
+    fontSize: 12,
+    fontWeight: 600,
+    fontFamily: 'inherit',
+    border: '1px solid #30363d',
+    cursor: 'pointer',
+    outline: 'none',
+    transition: 'background 0.15s',
+    color: active ? '#e6edf3' : '#8b949e',
+    background: active ? '#30363d' : 'transparent',
+  });
+
+  return (
+    <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden' }}>
+      <button style={{ ...btnStyle(mode === 'infer'), borderRadius: '6px 0 0 6px' }} onClick={() => onChange('infer')}>
+        TS → KERN
+      </button>
+      <button style={{ ...btnStyle(mode === 'compile'), borderRadius: '0 6px 6px 0', borderLeft: 'none' }} onClick={() => onChange('compile')}>
+        KERN → Target
+      </button>
+    </div>
+  );
+}
+
 // ── Mobile Tab Toggle ────────────────────────────────────────────────────
 
 function MobileTabToggle({ active, onChange }: { active: 'editor' | 'output'; onChange: (tab: 'editor' | 'output') => void }) {
@@ -114,23 +150,54 @@ function MobileTabToggle({ active, onChange }: { active: 'editor' | 'output'; on
 
   return (
     <div style={{ display: 'flex', borderBottom: '1px solid #30363d', background: '#161b22', flexShrink: 0 }}>
-      <button style={tabStyle(active === 'editor')} onClick={() => onChange('editor')}>Editor</button>
+      <button style={tabStyle(active === 'editor')} onClick={() => onChange('editor')}>Input</button>
       <button style={tabStyle(active === 'output')} onClick={() => onChange('output')}>Output</button>
     </div>
   );
 }
 
+// ── Default Infer Example ────────────────────────────────────────────────
+
+const INFER_EXAMPLE = `import React from 'react';
+
+interface UserCardProps {
+  name: string;
+  email: string;
+  avatar: string;
+}
+
+export function UserCard({ name, email, avatar }: UserCardProps) {
+  return (
+    <div style={{ padding: 16, borderRadius: 12, background: '#fff' }}>
+      <img src={avatar} alt={name} style={{ width: 48, height: 48, borderRadius: 24 }} />
+      <h2 style={{ fontSize: 18, fontWeight: 'bold' }}>{name}</h2>
+      <p style={{ fontSize: 14, color: '#666' }}>{email}</p>
+      <button style={{ padding: '8px 16px', borderRadius: 8, background: '#007AFF', color: '#fff' }}>
+        Follow
+      </button>
+    </div>
+  );
+}`;
+
 // ── Main Page ────────────────────────────────────────────────────────────
 
 export default function PlaygroundPage() {
-  // Load initial state from URL params or defaults
-  const [sourceCode, setSourceCode] = useState(EXAMPLES[0].source);
+  const [mode, setMode] = useState<PlaygroundMode>('infer');
+  const [sourceCode, setSourceCode] = useState(INFER_EXAMPLE);
   const [selectedTarget, setSelectedTarget] = useState<PlaygroundTarget>('tailwind');
+
+  // Compile mode state
   const [irOutput, setIrOutput] = useState<string | null>(null);
   const [compiledOutput, setCompiledOutput] = useState<string | null>(null);
   const [artifacts, setArtifacts] = useState<CompileResult['artifacts']>([]);
   const [stats, setStats] = useState<CompileResult['stats']>(null);
   const [error, setError] = useState<CompileResult['error']>(null);
+
+  // Infer mode state
+  const [inferredKern, setInferredKern] = useState<string | null>(null);
+  const [inferStats, setInferStats] = useState<InferResult['stats']>(null);
+  const [inferError, setInferError] = useState<InferResult['error']>(null);
+
   const [isLoading, setIsLoading] = useState(false);
   const [mobileTab, setMobileTab] = useState<'editor' | 'output'>('editor');
   const isMobile = useIsMobile();
@@ -138,8 +205,29 @@ export default function PlaygroundPage() {
   // Initialize from URL params on mount
   useEffect(() => {
     const shared = readShareParams();
+    if (shared.mode) setMode(shared.mode);
     if (shared.source) setSourceCode(shared.source);
+    else if (shared.mode !== 'infer') setSourceCode(EXAMPLES[0].source);
     if (shared.target) setSelectedTarget(shared.target);
+  }, []);
+
+  // Switch mode: swap default source
+  const handleModeChange = useCallback((newMode: PlaygroundMode) => {
+    setMode(newMode);
+    if (newMode === 'infer') {
+      setSourceCode(INFER_EXAMPLE);
+    } else {
+      setSourceCode(EXAMPLES[0].source);
+    }
+    // Clear both states
+    setIrOutput(null);
+    setCompiledOutput(null);
+    setArtifacts([]);
+    setStats(null);
+    setError(null);
+    setInferredKern(null);
+    setInferStats(null);
+    setInferError(null);
   }, []);
 
   const doCompile = useCallback(async (source: string, target: PlaygroundTarget) => {
@@ -172,18 +260,60 @@ export default function PlaygroundPage() {
     }
   }, []);
 
-  // Debounced compile on source/target change
+  const doInfer = useCallback(async (source: string) => {
+    if (!source.trim()) {
+      setInferredKern(null);
+      setInferStats(null);
+      setInferError(null);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/infer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source, language: 'typescript' }),
+      });
+      const result: InferResult = await res.json();
+      setInferredKern(result.kern);
+      setInferStats(result.stats);
+      setInferError(result.error);
+    } catch {
+      setInferError({ message: 'Failed to reach infer endpoint', line: 0, col: 0, codeFrame: '' });
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Debounced action on source/target/mode change
   useEffect(() => {
     const timer = setTimeout(() => {
-      doCompile(sourceCode, selectedTarget);
+      if (mode === 'compile') {
+        doCompile(sourceCode, selectedTarget);
+      } else {
+        doInfer(sourceCode);
+      }
     }, 400);
     return () => clearTimeout(timer);
-  }, [sourceCode, selectedTarget, doCompile]);
+  }, [sourceCode, selectedTarget, mode, doCompile, doInfer]);
 
-  // Update share URL after compile
+  // Update share URL
   useEffect(() => {
-    updateShareUrl(sourceCode, selectedTarget);
-  }, [sourceCode, selectedTarget]);
+    updateShareUrl(sourceCode, selectedTarget, mode);
+  }, [sourceCode, selectedTarget, mode]);
+
+  // Derived: which error/stats to show
+  const activeError = mode === 'compile' ? error : inferError;
+  const activeStats = mode === 'compile'
+    ? stats
+    : inferStats
+      ? { irTokens: inferStats.kernTokens, outputTokens: inferStats.inputTokens, reduction: -inferStats.reduction }
+      : null;
+
+  // Left/right panel labels
+  const leftLabel = mode === 'compile' ? 'Source (.kern)' : 'Input (TypeScript / React)';
+  const leftLanguage = mode === 'compile' ? 'kern' : 'typescript';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
@@ -208,42 +338,47 @@ export default function PlaygroundPage() {
             <span style={{ color: '#ff6b6b' }}>KERN</span>
             <span style={{ color: '#8b949e', fontWeight: 400, marginLeft: 8 }}>Playground</span>
           </span>
+          <ModeToggle mode={mode} onChange={handleModeChange} />
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <label style={{ fontSize: 12, color: '#8b949e' }}>Target:</label>
-          <TargetSelector value={selectedTarget} onChange={setSelectedTarget} />
+          {mode === 'compile' && (
+            <>
+              <label style={{ fontSize: 12, color: '#8b949e' }}>Target:</label>
+              <TargetSelector value={selectedTarget} onChange={setSelectedTarget} />
 
-          {!isMobile && (
-            <select
-              onChange={(e) => {
-                const idx = parseInt(e.target.value, 10);
-                if (idx >= 0) {
-                  const example = EXAMPLES[idx];
-                  setSourceCode(example.source);
-                  setSelectedTarget(example.recommendedTarget as PlaygroundTarget);
-                }
-              }}
-              defaultValue=""
-              style={{
-                background: '#21262d',
-                color: '#e6edf3',
-                border: '1px solid #30363d',
-                borderRadius: 6,
-                padding: '6px 12px',
-                fontSize: 13,
-                fontFamily: 'inherit',
-                cursor: 'pointer',
-                outline: 'none',
-              }}
-            >
-              <option value="" disabled>Examples</option>
-              {EXAMPLES.map((example, i) => (
-                <option key={example.name} value={i}>
-                  {example.name} — {example.description}
-                </option>
-              ))}
-            </select>
+              {!isMobile && (
+                <select
+                  onChange={(e) => {
+                    const idx = parseInt(e.target.value, 10);
+                    if (idx >= 0) {
+                      const example = EXAMPLES[idx];
+                      setSourceCode(example.source);
+                      setSelectedTarget(example.recommendedTarget as PlaygroundTarget);
+                    }
+                  }}
+                  defaultValue=""
+                  style={{
+                    background: '#21262d',
+                    color: '#e6edf3',
+                    border: '1px solid #30363d',
+                    borderRadius: 6,
+                    padding: '6px 12px',
+                    fontSize: 13,
+                    fontFamily: 'inherit',
+                    cursor: 'pointer',
+                    outline: 'none',
+                  }}
+                >
+                  <option value="" disabled>Examples</option>
+                  {EXAMPLES.map((example, i) => (
+                    <option key={example.name} value={i}>
+                      {example.name} — {example.description}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </>
           )}
 
           <ShareButton />
@@ -268,59 +403,57 @@ export default function PlaygroundPage() {
                 fontSize: 12,
                 fontWeight: 500,
                 color: '#8b949e',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
               }}>
-                <span>Source (.kern)</span>
-                <select
-                  onChange={(e) => {
-                    const idx = parseInt(e.target.value, 10);
-                    if (idx >= 0) {
-                      const example = EXAMPLES[idx];
-                      setSourceCode(example.source);
-                      setSelectedTarget(example.recommendedTarget as PlaygroundTarget);
-                    }
-                  }}
-                  defaultValue=""
-                  style={{
-                    background: '#21262d',
-                    color: '#e6edf3',
-                    border: '1px solid #30363d',
-                    borderRadius: 4,
-                    padding: '4px 8px',
-                    fontSize: 11,
-                    fontFamily: 'inherit',
-                    cursor: 'pointer',
-                    outline: 'none',
-                  }}
-                >
-                  <option value="" disabled>Examples</option>
-                  {EXAMPLES.map((example, i) => (
-                    <option key={example.name} value={i}>{example.name}</option>
-                  ))}
-                </select>
+                {leftLabel}
               </div>
               <div style={{ flex: 1, minHeight: 0 }}>
                 <PlaygroundEditor
                   value={sourceCode}
                   onChange={setSourceCode}
-                  language="kern"
-                  error={error}
+                  language={leftLanguage}
+                  error={activeError}
                 />
               </div>
             </div>
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              {error ? (
-                <ErrorPanel error={error} />
+              {mode === 'infer' ? (
+                inferError ? (
+                  <ErrorPanel error={inferError} />
+                ) : (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    <div style={{
+                      padding: '8px 16px',
+                      borderBottom: '1px solid #30363d',
+                      background: '#161b22',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: '#8b949e',
+                    }}>
+                      Inferred KERN
+                      {inferStats && <span style={{ marginLeft: 8, color: '#4ecdc4' }}>({inferStats.constructs} constructs)</span>}
+                    </div>
+                    <div style={{ flex: 1, minHeight: 0 }}>
+                      <PlaygroundEditor
+                        value={inferredKern ?? '// Paste TypeScript or React code on the left'}
+                        onChange={() => {}}
+                        language="kern"
+                        readOnly
+                      />
+                    </div>
+                  </div>
+                )
               ) : (
-                <OutputPanel
-                  ir={irOutput}
-                  output={compiledOutput}
-                  outputLanguage={TARGET_LANGUAGE[selectedTarget]}
-                  artifacts={artifacts}
-                />
+                activeError ? (
+                  <ErrorPanel error={activeError} />
+                ) : (
+                  <OutputPanel
+                    ir={irOutput}
+                    output={compiledOutput}
+                    outputLanguage={TARGET_LANGUAGE[selectedTarget]}
+                    artifacts={artifacts}
+                  />
+                )
               )}
             </div>
           )}
@@ -328,7 +461,7 @@ export default function PlaygroundPage() {
       ) : (
         // Desktop: side-by-side 40/60 split
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-          {/* Source editor */}
+          {/* Left: input editor */}
           <div style={{
             width: '40%',
             borderRight: '1px solid #30363d',
@@ -343,34 +476,62 @@ export default function PlaygroundPage() {
               fontWeight: 500,
               color: '#8b949e',
             }}>
-              Source (.kern)
+              {leftLabel}
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
               <PlaygroundEditor
                 value={sourceCode}
                 onChange={setSourceCode}
-                language="kern"
-                error={error}
+                language={leftLanguage}
+                error={activeError}
               />
             </div>
           </div>
 
-          {/* Output panels */}
+          {/* Right: output */}
           <div style={{
             flex: 1,
             display: 'flex',
             flexDirection: 'column',
             minWidth: 0,
           }}>
-            {error ? (
-              <ErrorPanel error={error} />
+            {mode === 'infer' ? (
+              inferError ? (
+                <ErrorPanel error={inferError} />
+              ) : (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                  <div style={{
+                    padding: '8px 16px',
+                    borderBottom: '1px solid #30363d',
+                    background: '#161b22',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: '#8b949e',
+                  }}>
+                    Inferred KERN
+                    {inferStats && <span style={{ marginLeft: 8, color: '#4ecdc4' }}>({inferStats.constructs} constructs)</span>}
+                  </div>
+                  <div style={{ flex: 1, minHeight: 0 }}>
+                    <PlaygroundEditor
+                      value={inferredKern ?? '// Paste TypeScript or React code on the left'}
+                      onChange={() => {}}
+                      language="kern"
+                      readOnly
+                    />
+                  </div>
+                </div>
+              )
             ) : (
-              <OutputPanel
-                ir={irOutput}
-                output={compiledOutput}
-                outputLanguage={TARGET_LANGUAGE[selectedTarget]}
-                artifacts={artifacts}
-              />
+              activeError ? (
+                <ErrorPanel error={activeError} />
+              ) : (
+                <OutputPanel
+                  ir={irOutput}
+                  output={compiledOutput}
+                  outputLanguage={TARGET_LANGUAGE[selectedTarget]}
+                  artifacts={artifacts}
+                />
+              )
             )}
           </div>
         </div>
@@ -378,8 +539,8 @@ export default function PlaygroundPage() {
 
       {/* Stats bar */}
       <StatsBar
-        stats={stats}
-        artifactCount={artifacts.length}
+        stats={activeStats}
+        artifactCount={mode === 'compile' ? artifacts.length : 0}
         isLoading={isLoading}
       />
     </div>
