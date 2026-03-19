@@ -550,6 +550,322 @@ export function generateConst(node: IRNode): string[] {
   return [`${name}${typeAnnotation} = None`];
 }
 
+// ── Ground Layer: derive ─────────────────────────────────────────────────
+// derive name=loudness expr={{average(stems)}} type=number
+// → loudness: float = average(stems)
+
+export function generateDerive(node: IRNode): string[] {
+  const props = p(node);
+  const name = toSnakeCase(props.name as string);
+  const expr = props.expr as string;
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+  return [`${name}${typeAnnotation} = ${expr}`];
+}
+
+// ── Ground Layer: transform ──────────────────────────────────────────────
+
+export function generateTransform(node: IRNode): string[] {
+  const props = p(node);
+  const name = toSnakeCase(props.name as string);
+  const target = props.target as string | undefined;
+  const via = props.via as string | undefined;
+  const constType = props.type as string | undefined;
+  const code = handlerCode(node);
+  const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
+
+  if (code) {
+    const lines: string[] = [];
+    lines.push(`def ${name}(state)${typeAnnotation}:`);
+    for (const line of code.split('\n')) {
+      lines.push(`    ${line}`);
+    }
+    return lines;
+  }
+
+  if (target && via) {
+    return [`${name}${typeAnnotation} = ${via.replace(/\(/, `(${target}, `).replace(/, \)/, ')')}`];
+  }
+  if (via) {
+    return [`${name}${typeAnnotation} = ${via}`];
+  }
+  return [`${name}${typeAnnotation} = None`];
+}
+
+// ── Ground Layer: action ─────────────────────────────────────────────────
+
+export function generateAction(node: IRNode): string[] {
+  const props = p(node);
+  const name = toSnakeCase(props.name as string);
+  const idempotent = props.idempotent === 'true' || props.idempotent === true;
+  const reversible = props.reversible === 'true' || props.reversible === true;
+  const params = props.params as string || '';
+  const returns = props.returns as string | undefined;
+  const code = handlerCode(node);
+
+  const paramList = params
+    ? params.split(',').map(s => {
+        const [pname, ...ptype] = s.split(':').map(t => t.trim());
+        return ptype.length > 0 ? `${toSnakeCase(pname)}: ${mapTsTypeToPython(ptype.join(':'))}` : toSnakeCase(pname);
+      }).join(', ')
+    : '';
+
+  const retClause = returns ? ` -> ${mapTsTypeToPython(returns)}` : ' -> None';
+  const lines: string[] = [];
+
+  lines.push(`async def ${name}(${paramList})${retClause}:`);
+
+  // Docstring with metadata
+  const metaParts: string[] = [];
+  if (idempotent) metaParts.push('idempotent=True');
+  if (reversible) metaParts.push('reversible=True');
+  if (metaParts.length > 0) {
+    lines.push(`    """@action ${metaParts.join(' ')}"""`);
+  }
+
+  if (code) {
+    for (const line of code.split('\n')) {
+      lines.push(`    ${line}`);
+    }
+  } else {
+    lines.push('    pass');
+  }
+  return lines;
+}
+
+// ── Ground Layer: guard ──────────────────────────────────────────────────
+
+export function generateGuard(node: IRNode): string[] {
+  const props = p(node);
+  const name = props.name as string || 'guard';
+  const expr = props.expr as string;
+  const elseCode = props.else as string | undefined;
+
+  if (elseCode && /^\d+$/.test(elseCode)) {
+    return [`if not (${expr}):\n    raise HTTPException(status_code=${elseCode}, detail="Guard: ${name}")`];
+  } else if (elseCode) {
+    return [`if not (${expr}):\n    ${elseCode}`];
+  }
+  return [`if not (${expr}):\n    raise ValueError("Guard failed: ${name}")`];
+}
+
+// ── Ground Layer: assume ─────────────────────────────────────────────────
+
+export function generateAssume(node: IRNode): string[] {
+  const props = p(node);
+  const expr = props.expr as string;
+  const name = props.name as string || 'assumption';
+  return [`assert ${expr}, "Assume failed: ${name}"`];
+}
+
+// ── Ground Layer: invariant ──────────────────────────────────────────────
+
+export function generateInvariant(node: IRNode): string[] {
+  const props = p(node);
+  const name = props.name as string || 'invariant';
+  const expr = props.expr as string;
+  return [`assert ${expr}, "Invariant: ${name}"`];
+}
+
+// ── Ground Layer: each ───────────────────────────────────────────────────
+
+export function generateEach(node: IRNode): string[] {
+  const props = p(node);
+  const name = props.name as string || 'item';
+  const collection = props.in as string;
+  const index = props.index as string | undefined;
+
+  const lines: string[] = [];
+  if (index) {
+    lines.push(`for ${index}, ${name} in enumerate(${collection}):`);
+  } else {
+    lines.push(`for ${name} in ${collection}:`);
+  }
+
+  const children = kids(node);
+  if (children.length === 0) {
+    lines.push('    pass');
+  } else {
+    for (const child of children) {
+      const childLines = generatePythonCoreNode(child);
+      for (const line of childLines) {
+        lines.push(`    ${line}`);
+      }
+    }
+  }
+  return lines;
+}
+
+// ── Ground Layer: collect ────────────────────────────────────────────────
+
+export function generateCollect(node: IRNode): string[] {
+  const props = p(node);
+  const name = toSnakeCase(props.name as string);
+  const from = props.from as string;
+  const where = props.where as string | undefined;
+  const limit = props.limit as string | undefined;
+
+  if (where && limit) {
+    return [`${name} = [item for item in ${from} if ${where}][:${limit}]`];
+  }
+  if (where) {
+    return [`${name} = [item for item in ${from} if ${where}]`];
+  }
+  if (limit) {
+    return [`${name} = ${from}[:${limit}]`];
+  }
+  return [`${name} = list(${from})`];
+}
+
+// ── Ground Layer: branch / path ──────────────────────────────────────────
+
+export function generateBranch(node: IRNode): string[] {
+  const props = p(node);
+  const name = props.name as string || 'branch';
+  const on = props.on as string;
+  const paths = kids(node, 'path');
+
+  const lines: string[] = [];
+  lines.push(`# branch: ${name}`);
+  lines.push(`match ${on}:`);
+
+  for (const pathNode of paths) {
+    const pp = p(pathNode);
+    const value = pp.value as string;
+    lines.push(`    case "${value}":`);
+    const children = kids(pathNode);
+    if (children.length === 0) {
+      lines.push('        pass');
+    } else {
+      for (const child of children) {
+        const childLines = generatePythonCoreNode(child);
+        for (const line of childLines) {
+          lines.push(`        ${line}`);
+        }
+      }
+    }
+  }
+  return lines;
+}
+
+// ── Ground Layer: resolve ────────────────────────────────────────────────
+
+export function generateResolve(node: IRNode): string[] {
+  const props = p(node);
+  const name = toSnakeCase(props.name as string);
+  const candidates = kids(node, 'candidate');
+  const discriminator = firstChild(node, 'discriminator');
+
+  if (!discriminator) return [`# resolve: ${name} — missing discriminator`];
+
+  const dp = p(discriminator);
+  const method = dp.method as string || 'select';
+  const metric = dp.metric as string || '';
+
+  const lines: string[] = [];
+  lines.push(`# resolve: ${name}`);
+  lines.push(`_${name}_candidates = [`);
+  for (const c of candidates) {
+    const cp = p(c);
+    const cname = cp.name as string;
+    const code = handlerCode(c);
+    lines.push(`    {"name": "${cname}", "fn": lambda signal: ${code.trim() || 'None'}},`);
+  }
+  lines.push(`]`);
+  lines.push('');
+
+  const discCode = handlerCode(discriminator);
+  lines.push(`async def resolve_${name}(signal):`);
+  lines.push(`    candidates = _${name}_candidates`);
+  lines.push(`    # discriminator: ${method}(${metric})`);
+  if (discCode) {
+    for (const line of discCode.split('\n')) {
+      lines.push(`    ${line}`);
+    }
+  }
+  lines.push(`    return candidates[winner_idx]["fn"](signal)`);
+  return lines;
+}
+
+// ── Ground Layer: expect ─────────────────────────────────────────────────
+
+export function generateExpect(node: IRNode): string[] {
+  const props = p(node);
+  const name = toSnakeCase(props.name as string || 'expected');
+  const expr = props.expr as string;
+  const within = props.within as string | undefined;
+  const max = props.max as string | undefined;
+  const min = props.min as string | undefined;
+
+  if (within) {
+    const [lo, hi] = within.split('..');
+    return [`assert ${lo} <= (${expr}) <= ${hi}, f"Expected ${name} in [${lo}, ${hi}], got {${expr}}"`];
+  }
+  if (min && max) {
+    return [`assert ${min} <= (${expr}) <= ${max}, f"Expected ${name} in [${min}, ${max}], got {${expr}}"`];
+  }
+  if (max) {
+    return [`assert (${expr}) <= ${max}, f"Expected ${name} <= ${max}, got {${expr}}"`];
+  }
+  if (min) {
+    return [`assert (${expr}) >= ${min}, f"Expected ${name} >= ${min}, got {${expr}}"`];
+  }
+  return [`assert (${expr}) is not None, "Expected ${name} to be defined"`];
+}
+
+// ── Ground Layer: recover ────────────────────────────────────────────────
+
+export function generateRecover(node: IRNode): string[] {
+  const props = p(node);
+  const name = toSnakeCase(props.name as string);
+  const strategies = kids(node, 'strategy');
+
+  const lines: string[] = [];
+  lines.push(`# recover: ${name}`);
+  lines.push(`async def ${name}_with_recovery(fn):`);
+
+  for (const strategy of strategies) {
+    const sp = p(strategy);
+    const sname = sp.name as string;
+    const code = handlerCode(strategy);
+
+    if (sname === 'retry') {
+      const max = Number(sp.max) || 3;
+      const delay = Number(sp.delay) || 1000;
+      lines.push(`    # strategy: retry (max=${max}, delay=${delay}ms)`);
+      lines.push(`    import asyncio`);
+      lines.push(`    for _attempt in range(${max}):`);
+      lines.push(`        try:`);
+      lines.push(`            return await fn()`);
+      lines.push(`        except Exception:`);
+      lines.push(`            if _attempt < ${max - 1}:`);
+      lines.push(`                await asyncio.sleep(${delay / 1000})`);
+    } else if (sname === 'fallback') {
+      lines.push(`    # strategy: fallback (terminal)`);
+      if (code) {
+        for (const line of code.split('\n')) {
+          lines.push(`    ${line}`);
+        }
+      } else {
+        lines.push(`    raise RuntimeError("All recovery strategies exhausted for ${name}")`);
+      }
+    } else {
+      lines.push(`    # strategy: ${sname}`);
+      lines.push(`    try:`);
+      if (code) {
+        for (const line of code.split('\n')) {
+          lines.push(`        ${line}`);
+        }
+      } else {
+        lines.push(`        pass`);
+      }
+      lines.push(`    except Exception:`);
+      lines.push(`        pass`);
+    }
+  }
+  return lines;
+}
+
 // ── Dispatcher ───────────────────────────────────────────────────────────
 
 /** Generate Python for any core language node. Returns string lines. */
@@ -566,6 +882,19 @@ export function generatePythonCoreNode(node: IRNode): string[] {
     case 'event': return generateEvent(node);
     case 'import': return generateImport(node);
     case 'const': return generateConst(node);
+    // Ground layer
+    case 'derive': return generateDerive(node);
+    case 'transform': return generateTransform(node);
+    case 'action': return generateAction(node);
+    case 'guard': return generateGuard(node);
+    case 'assume': return generateAssume(node);
+    case 'invariant': return generateInvariant(node);
+    case 'each': return generateEach(node);
+    case 'collect': return generateCollect(node);
+    case 'branch': return generateBranch(node);
+    case 'resolve': return generateResolve(node);
+    case 'expect': return generateExpect(node);
+    case 'recover': return generateRecover(node);
     default: return [];
   }
 }

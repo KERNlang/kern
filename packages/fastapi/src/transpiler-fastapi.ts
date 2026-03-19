@@ -538,6 +538,9 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   const TOP_LEVEL_CORE = new Set([
     'type', 'interface', 'fn', 'machine', 'error', 'module',
     'config', 'store', 'test', 'event', 'import', 'const',
+    // Ground layer
+    'derive', 'transform', 'action', 'guard', 'assume', 'invariant',
+    'each', 'collect', 'branch', 'resolve', 'expect', 'recover',
   ]);
   const allChildren = serverNode.children || [];
   const coreNodes = allChildren.filter(c => TOP_LEVEL_CORE.has(c.type));
