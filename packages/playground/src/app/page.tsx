@@ -11,6 +11,7 @@ import { TARGET_LANGUAGE, TARGET_LABELS } from '@/lib/targets';
 import type { PlaygroundTarget } from '@/lib/targets';
 import type { CompileResult } from '@/lib/compile';
 import type { InferResult } from '@/lib/infer';
+import { INFER_EXAMPLES } from '@/lib/infer-examples';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -156,34 +157,11 @@ function MobileTabToggle({ active, onChange }: { active: 'editor' | 'output'; on
   );
 }
 
-// ── Default Infer Example ────────────────────────────────────────────────
-
-const INFER_EXAMPLE = `import React from 'react';
-
-interface UserCardProps {
-  name: string;
-  email: string;
-  avatar: string;
-}
-
-export function UserCard({ name, email, avatar }: UserCardProps) {
-  return (
-    <div style={{ padding: 16, borderRadius: 12, background: '#fff' }}>
-      <img src={avatar} alt={name} style={{ width: 48, height: 48, borderRadius: 24 }} />
-      <h2 style={{ fontSize: 18, fontWeight: 'bold' }}>{name}</h2>
-      <p style={{ fontSize: 14, color: '#666' }}>{email}</p>
-      <button style={{ padding: '8px 16px', borderRadius: 8, background: '#007AFF', color: '#fff' }}>
-        Follow
-      </button>
-    </div>
-  );
-}`;
-
 // ── Main Page ────────────────────────────────────────────────────────────
 
 export default function PlaygroundPage() {
   const [mode, setMode] = useState<PlaygroundMode>('infer');
-  const [sourceCode, setSourceCode] = useState(INFER_EXAMPLE);
+  const [sourceCode, setSourceCode] = useState(INFER_EXAMPLES['tailwind']);
   const [selectedTarget, setSelectedTarget] = useState<PlaygroundTarget>('tailwind');
 
   // Compile mode state
@@ -215,7 +193,7 @@ export default function PlaygroundPage() {
   const handleModeChange = useCallback((newMode: PlaygroundMode) => {
     setMode(newMode);
     if (newMode === 'infer') {
-      setSourceCode(INFER_EXAMPLE);
+      setSourceCode(INFER_EXAMPLES[selectedTarget]);
     } else {
       setSourceCode(EXAMPLES[0].source);
     }
@@ -228,7 +206,15 @@ export default function PlaygroundPage() {
     setInferredKern(null);
     setInferStats(null);
     setInferError(null);
-  }, []);
+  }, [selectedTarget]);
+
+  // Switch target: load matching example in infer mode
+  const handleTargetChange = useCallback((target: PlaygroundTarget) => {
+    setSelectedTarget(target);
+    if (mode === 'infer') {
+      setSourceCode(INFER_EXAMPLES[target]);
+    }
+  }, [mode]);
 
   const doCompile = useCallback(async (source: string, target: PlaygroundTarget) => {
     if (!source.trim()) {
@@ -344,7 +330,7 @@ export default function PlaygroundPage() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <label style={{ fontSize: 12, color: '#8b949e' }}>{mode === 'compile' ? 'Target:' : 'Source:'}</label>
-          <TargetSelector value={selectedTarget} onChange={setSelectedTarget} />
+          <TargetSelector value={selectedTarget} onChange={handleTargetChange} />
 
           {mode === 'compile' && !isMobile && (
             <select
