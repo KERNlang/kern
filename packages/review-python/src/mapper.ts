@@ -270,33 +270,34 @@ function extractEntrypoints(
   nodes: ConceptNode[],
 ): void {
   // 1. Route decorators: @app.route, @app.get, @router.post, etc.
-  walkNodes(root, 'function_definition', (node) => {
-    const decorators = node.childForFieldName('decorators');
-    if (!decorators) return;
+  // tree-sitter Python wraps decorated functions in 'decorated_definition'
+  walkNodes(root, 'decorated_definition', (node) => {
+    const fnDef = node.children.find(c => c.type === 'function_definition');
+    if (!fnDef) return;
 
-    for (const dec of decorators.children) {
-      if (dec.type !== 'decorator') continue;
-      const decText = dec.text;
+    for (const child of node.children) {
+      if (child.type !== 'decorator') continue;
+      const decText = source.substring(child.startIndex, child.endIndex);
 
-      // Regex for routing decorators: @app.route('/path'), @router.get('/path'), etc.
-      const routeMatch = decText.match(/@(app|router)\.(route|get|post|put|delete|patch)\s*\(\s*(['"])([^'"]+)\3/);
+      const routeMatch = decText.match(/@(app|router|bp)\.(route|get|post|put|delete|patch)\s*\(/);
       if (routeMatch) {
         const method = routeMatch[2].toUpperCase();
-        const path = routeMatch[4];
-        const nameNode = node.childForFieldName('name');
+        const nameNode = fnDef.childForFieldName('name');
+        // Try to extract path from decorator args
+        const pathMatch = decText.match(/['"]([^'"]+)['"]/);
 
         nodes.push({
-          id: conceptId(filePath, 'entrypoint', dec.startIndex),
+          id: conceptId(filePath, 'entrypoint', child.startIndex),
           kind: 'entrypoint',
-          primarySpan: nodeSpan(filePath, dec),
-          evidence: nodeText(source, dec, 100),
+          primarySpan: nodeSpan(filePath, child),
+          evidence: nodeText(source, child, 100),
           confidence: 1.0,
           language: 'py',
           containerId: getContainerId(node, filePath),
           payload: {
             kind: 'entrypoint',
             subtype: 'route',
-            name: nameNode ? nameNode.text : 'anonymous',
+            name: nameNode ? nameNode.text : (pathMatch?.[1] || 'anonymous'),
             httpMethod: method === 'ROUTE' ? undefined : method,
           },
         });
@@ -333,20 +334,17 @@ function extractGuards(
   filePath: string,
   nodes: ConceptNode[],
 ): void {
-  // 1. Auth decorators
-  walkNodes(root, 'function_definition', (node) => {
-    const decorators = node.childForFieldName('decorators');
-    if (!decorators) return;
-
-    for (const dec of decorators.children) {
-      if (dec.type !== 'decorator') continue;
-      const decText = dec.text;
-      if (/@(login_required|requires_auth|permission_required)/.test(decText)) {
+  // 1. Auth decorators (tree-sitter: decorated_definition → decorator + function_definition)
+  walkNodes(root, 'decorated_definition', (node) => {
+    for (const child of node.children) {
+      if (child.type !== 'decorator') continue;
+      const decText = source.substring(child.startIndex, child.endIndex);
+      if (/@(login_required|requires_auth|permission_required|auth_required|authenticated)/.test(decText)) {
         nodes.push({
-          id: conceptId(filePath, 'guard', dec.startIndex),
+          id: conceptId(filePath, 'guard', child.startIndex),
           kind: 'guard',
-          primarySpan: nodeSpan(filePath, dec),
-          evidence: nodeText(source, dec, 100),
+          primarySpan: nodeSpan(filePath, child),
+          evidence: nodeText(source, child, 100),
           confidence: 1.0,
           language: 'py',
           containerId: getContainerId(node, filePath),
