@@ -504,4 +504,158 @@ describe('FastAPI Transpiler', () => {
     expect(result.tsTokenCount).toBeGreaterThan(0);
     expect(typeof result.tokenReduction).toBe('number');
   });
+
+  // ── Route v3 — framework-agnostic syntax ────────────────────────────
+
+  describe('Route v3 — framework-agnostic syntax', () => {
+    test('route GET /path parses positional verb and path', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    handler <<<',
+        '      return {"users": []}',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route).toBeDefined();
+      expect(route!.content).toContain('@router.get("/api/users")');
+    });
+
+    test('params generates typed function parameters with defaults', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    params page:number = 1, limit:number = 20',
+        '    handler <<<',
+        '      return {"page": page, "limit": limit}',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('page: int = 1');
+      expect(route!.content).toContain('limit: int = 20');
+    });
+
+    test('auth required adds Depends(auth_required)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/users',
+        '    auth required',
+        '    handler <<<',
+        '      return {"ok": True}',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('Depends(auth_required)');
+      expect(route!.content).toContain('from fastapi import Depends');
+    });
+
+    test('auth optional adds Depends(auth_optional)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/public',
+        '    auth optional',
+        '    handler <<<',
+        '      return {"ok": True}',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('Depends(auth_optional)');
+    });
+
+    test('validate adds schema as function parameter', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/users',
+        '    validate CreateUserSchema',
+        '    handler <<<',
+        '      return {"ok": True}',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('body: CreateUserSchema');
+    });
+
+    test('error nodes add docstring error contract', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    handler <<<',
+        '      return []',
+        '    >>>',
+        '    error 401 "Unauthorized"',
+        '    error 500 "Server error"',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('Errors:');
+      expect(route!.content).toContain('401');
+      expect(route!.content).toContain('500');
+    });
+
+    test('full v3 route example compiles end-to-end', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = readFileSync(resolve(ROOT, 'examples/route-v3.kern'), 'utf-8');
+      const result = transpileFastAPI(parse(source));
+
+      expect(result.code).toContain('FastAPI');
+      expect(result.artifacts!.length).toBeGreaterThanOrEqual(4);
+
+      const getUsersRoute = result.artifacts!.find((a: any) => a.path.includes('get_api_users'));
+      expect(getUsersRoute).toBeDefined();
+      expect(getUsersRoute!.content).toContain('page: int = 1');
+      expect(getUsersRoute!.content).toContain('limit: int = 20');
+      expect(getUsersRoute!.content).toContain('Depends(auth_required)');
+    });
+
+    test('backward compat: old route method=get path=/ still works', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route method=get path=/api/health',
+        '    handler <<<',
+        '      return {"ok": True}',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route).toBeDefined();
+      expect(route!.content).toContain('@router.get("/api/health")');
+    });
+
+    test('params with string type generates str parameter', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/search',
+        '    params q:string, sort:string = "relevance"',
+        '    handler <<<',
+        '      return {"q": q}',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('q: str');
+      expect(route!.content).toContain('sort: str = "relevance"');
+    });
+  });
 });

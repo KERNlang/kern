@@ -158,4 +158,161 @@ describe('Express Transpiler', () => {
       expect(result.code).toContain('// Dependencies: helmet');
     });
   });
+
+  describe('Route v3 — framework-agnostic syntax', () => {
+    test('route GET /path parses positional verb and path', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    handler <<<',
+        '      res.json([]);',
+        '    >>>',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route).toBeDefined();
+      expect(route!.content).toContain("app.get('/api/users'");
+    });
+
+    test('params generates query param extraction with types and defaults', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    params page:number = 1, limit:number = 20',
+        '    handler <<<',
+        '      res.json({ page, limit });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('Number(req.query.page)');
+      expect(route!.content).toContain('Number(req.query.limit)');
+      expect(route!.content).toContain(': 1;');
+      expect(route!.content).toContain(': 20;');
+    });
+
+    test('auth required adds authRequired middleware', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/users',
+        '    auth required',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('authRequired');
+    });
+
+    test('auth optional adds authOptional middleware', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/public',
+        '    auth optional',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('authOptional');
+    });
+
+    test('validate adds validation middleware', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/users',
+        '    validate CreateUserSchema',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('validate(CreateUserSchema)');
+    });
+
+    test('error nodes add error contract comments', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    handler <<<',
+        '      res.json([]);',
+        '    >>>',
+        '    error 401 "Unauthorized"',
+        '    error 500 "Server error"',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('// 401 — Unauthorized');
+      expect(route!.content).toContain('// 500 — Server error');
+    });
+
+    test('middleware bare word list adds multiple middleware', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    middleware rateLimit, cors',
+        '    handler <<<',
+        '      res.json([]);',
+        '    >>>',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('rateLimit');
+      expect(route!.content).toContain('cors');
+    });
+
+    test('full v3 route example compiles end-to-end', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = readFileSync(resolve(ROOT, 'examples/route-v3.kern'), 'utf-8');
+      const result = transpileExpress(parse(source));
+
+      expect(result.code).toContain('express');
+      expect(result.artifacts!.length).toBeGreaterThanOrEqual(4);
+
+      const getUsersRoute = result.artifacts!.find((a: any) => a.path.includes('get-api-users'));
+      expect(getUsersRoute).toBeDefined();
+      expect(getUsersRoute!.content).toContain('authRequired');
+      expect(getUsersRoute!.content).toContain('validate(UserQuerySchema)');
+      expect(getUsersRoute!.content).toContain('Number(req.query.page)');
+      expect(getUsersRoute!.content).toContain(': 1;');
+
+      const postUsersRoute = result.artifacts!.find((a: any) => a.path.includes('post-api-users'));
+      expect(postUsersRoute).toBeDefined();
+      expect(postUsersRoute!.content).toContain('authRequired');
+    });
+
+    test('backward compat: old route method=get path=/ still works', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route method=get path=/api/health',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route).toBeDefined();
+      expect(route!.content).toContain("app.get('/api/health'");
+    });
+  });
 });

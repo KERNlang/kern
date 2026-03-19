@@ -227,4 +227,124 @@ describe('Kern Core', () => {
       }
     });
   });
+
+  // ── Route v3 Parser Tests ─────────────────────────────────────────────
+  describe('Route v3 Parser', () => {
+    test('parses route GET /api/users positional syntax', async () => {
+      const { parse } = await import('../src/parser.js');
+      const ast = parse('server name=Test\n  route GET /api/users');
+      const route = ast.children![0];
+      expect(route.type).toBe('route');
+      expect(route.props?.method).toBe('get');
+      expect(route.props?.path).toBe('/api/users');
+    });
+
+    test('parses route POST /api/users case-insensitive', async () => {
+      const { parse } = await import('../src/parser.js');
+      const ast = parse('server name=Test\n  route post /api/users');
+      const route = ast.children![0];
+      expect(route.props?.method).toBe('post');
+      expect(route.props?.path).toBe('/api/users');
+    });
+
+    test('parses params with types and defaults', async () => {
+      const { parse } = await import('../src/parser.js');
+      const ast = parse('route GET /api/users\n  params page:number = 1, limit:number = 20');
+      const params = ast.children![0];
+      expect(params.type).toBe('params');
+      const items = params.props?.items as Array<{ name: string; type: string; default?: string }>;
+      expect(items).toHaveLength(2);
+      expect(items[0]).toEqual({ name: 'page', type: 'number', default: '1' });
+      expect(items[1]).toEqual({ name: 'limit', type: 'number', default: '20' });
+    });
+
+    test('parses params without defaults', async () => {
+      const { parse } = await import('../src/parser.js');
+      const ast = parse('route GET /api/search\n  params q:string');
+      const params = ast.children![0];
+      const items = params.props?.items as Array<{ name: string; type: string; default?: string }>;
+      expect(items).toHaveLength(1);
+      expect(items[0]).toEqual({ name: 'q', type: 'string' });
+    });
+
+    test('parses auth mode', async () => {
+      const { parse } = await import('../src/parser.js');
+      const ast = parse('route GET /api/users\n  auth required');
+      const auth = ast.children![0];
+      expect(auth.type).toBe('auth');
+      expect(auth.props?.mode).toBe('required');
+    });
+
+    test('parses validate schema name', async () => {
+      const { parse } = await import('../src/parser.js');
+      const ast = parse('route POST /api/users\n  validate CreateUserSchema');
+      const validate = ast.children![0];
+      expect(validate.type).toBe('validate');
+      expect(validate.props?.schema).toBe('CreateUserSchema');
+    });
+
+    test('parses error with numeric status and message', async () => {
+      const { parse } = await import('../src/parser.js');
+      const ast = parse('route GET /api/users\n  error 401 "Unauthorized"');
+      const error = ast.children![0];
+      expect(error.type).toBe('error');
+      expect(error.props?.status).toBe(401);
+      expect(error.props?.message).toBe('Unauthorized');
+    });
+
+    test('parses middleware bare word list', async () => {
+      const { parse } = await import('../src/parser.js');
+      const ast = parse('route GET /api/users\n  middleware rateLimit, cors');
+      const mw = ast.children![0];
+      expect(mw.type).toBe('middleware');
+      expect(mw.props?.names).toEqual(['rateLimit', 'cors']);
+    });
+
+    test('parses middleware single bare word', async () => {
+      const { parse } = await import('../src/parser.js');
+      const ast = parse('route GET /api/users\n  middleware rateLimit');
+      const mw = ast.children![0];
+      expect(mw.type).toBe('middleware');
+      expect(mw.props?.name).toBe('rateLimit');
+    });
+
+    test('backward compat: route method=get path=/ still parses', async () => {
+      const { parse } = await import('../src/parser.js');
+      const ast = parse('server name=Test\n  route method=get path=/api/health');
+      const route = ast.children![0];
+      expect(route.type).toBe('route');
+      expect(route.props?.method).toBe('get');
+      expect(route.props?.path).toBe('/api/health');
+    });
+
+    test('parses full v3 route with all children', async () => {
+      const { parse } = await import('../src/parser.js');
+      const source = [
+        'route GET /api/users',
+        '  params page:number = 1, limit:number = 20',
+        '  auth required',
+        '  validate UserQuerySchema',
+        '  middleware rateLimit, cors',
+        '  handler <<<',
+        '    res.json([]);',
+        '  >>>',
+        '  error 401 "Unauthorized"',
+        '  error 500 "Server error"',
+      ].join('\n');
+      const ast = parse(source);
+      expect(ast.type).toBe('route');
+      expect(ast.props?.method).toBe('get');
+      expect(ast.props?.path).toBe('/api/users');
+      expect(ast.children).toHaveLength(7); // params, auth, validate, middleware, handler, error x2
+
+      const types = ast.children!.map(c => c.type);
+      expect(types).toContain('params');
+      expect(types).toContain('auth');
+      expect(types).toContain('validate');
+      expect(types).toContain('middleware');
+      expect(types).toContain('handler');
+      expect(types).toContain('error');
+      expect(types.filter(t => t === 'error')).toHaveLength(2);
+    });
+  });
 });

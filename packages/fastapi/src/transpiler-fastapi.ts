@@ -348,6 +348,28 @@ function buildRouteArtifact(
     imports.add('import asyncio');
   }
 
+  // v3 route children: params, auth, validate, error
+  const paramsNodes = getChildren(routeNode, 'params');
+  const queryParams: Array<{ name: string; type: string; default?: string }> = [];
+  for (const paramNode of paramsNodes) {
+    const paramItems = getProps(paramNode).items as Array<{ name: string; type: string; default?: string }> | undefined;
+    if (paramItems) queryParams.push(...paramItems);
+  }
+
+  const authNode = getFirstChild(routeNode, 'auth');
+  const validateNode = getFirstChild(routeNode, 'validate');
+  const errorNodes = getChildren(routeNode, 'error').filter(n => typeof getProps(n).status === 'number');
+
+  // Auth requires Depends import
+  if (authNode) {
+    imports.add('from fastapi import Depends');
+  }
+
+  // Error responses require HTTPException
+  if (errorNodes.length > 0) {
+    imports.add('from fastapi import HTTPException');
+  }
+
   // Schema — generate Pydantic models
   const modelLines: string[] = [];
   if (schema.body) {
@@ -363,7 +385,7 @@ function buildRouteArtifact(
     modelLines.push('');
   }
 
-  // Write imports
+  // Write imports (must come after all imports.add() calls)
   for (const imp of [...imports].sort()) {
     lines.push(imp);
   }
@@ -384,18 +406,49 @@ function buildRouteArtifact(
   } else if (caps.hasTimer && caps.timerNode) {
     lines.push(...generateTimerRoute(routeNode, caps, normalizedMethod, fastapiPath, pathParams, routeHandlerCode));
   } else {
-    // Standard route
+    // Standard route — build function signature
     const paramParts: string[] = [];
     for (const param of pathParams) {
       paramParts.push(`${param}: str`);
     }
+
+    // v3 query params with types and defaults
+    for (const qp of queryParams) {
+      const pyType = qp.type === 'number' ? 'int' : qp.type === 'boolean' ? 'bool' : 'str';
+      if (qp.default !== undefined) {
+        paramParts.push(`${toSnakeCase(qp.name)}: ${pyType} = ${qp.default}`);
+      } else {
+        paramParts.push(`${toSnakeCase(qp.name)}: ${pyType}`);
+      }
+    }
+
     if (schema.body) {
       paramParts.push('body: RequestBody');
+    }
+
+    // v3 validate — add schema as body param
+    if (validateNode) {
+      const validateSchema = String(getProps(validateNode).schema || '');
+      if (validateSchema) {
+        paramParts.push(`body: ${validateSchema}`);
+      }
+    }
+
+    // v3 auth — add Depends(auth_required)
+    if (authNode) {
+      const authMode = String(getProps(authNode).mode || 'required');
+      const authFunc = authMode === 'optional' ? 'auth_optional' : 'auth_required';
+      paramParts.push(`user = Depends(${authFunc})`);
     }
 
     const paramStr = paramParts.join(', ');
     lines.push(`@router.${normalizedMethod}("${fastapiPath}")`);
     lines.push(`async def ${toSnakeCase(normalizedMethod)}_${slugify(fastapiPath)}(${paramStr}):`);
+
+    // v3 error contract as docstring
+    if (errorNodes.length > 0) {
+      lines.push(`    """Errors: ${errorNodes.map(n => `${getProps(n).status} ${getProps(n).message || ''}`).join(', ')}"""`);
+    }
 
     if (handlerCode) {
       lines.push(...indentHandler(handlerCode, '    '));

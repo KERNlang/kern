@@ -504,11 +504,50 @@ function buildRouteArtifact(
   let needsExpressDefaultImport = false;
 
   for (const middlewareNode of routeMiddleware) {
+    // Handle v3 bare-word middleware list: middleware names=["rateLimit","cors"]
+    const mwProps = getProps(middlewareNode);
+    const mwNames = mwProps.names as string[] | undefined;
+    if (mwNames && Array.isArray(mwNames)) {
+      for (const mwName of mwNames) {
+        middlewareInvocations.push(mwName);
+      }
+      continue;
+    }
     const usage = resolveMiddlewareUsage(middlewareNode, middlewareArtifacts, '../');
     if (usage.importLine) routeImports.add(usage.importLine);
     if (usage.invocation === 'express.json()') needsExpressDefaultImport = true;
     middlewareInvocations.push(usage.invocation);
   }
+
+  // v3 route children: auth, validate
+  const authNode = getFirstChild(routeNode, 'auth');
+  if (authNode) {
+    const authMode = String(getProps(authNode).mode || 'required');
+    middlewareInvocations.unshift(authMode === 'optional' ? 'authOptional' : 'authRequired');
+  }
+
+  const validateNode = getFirstChild(routeNode, 'validate');
+  if (validateNode) {
+    const validateSchema = String(getProps(validateNode).schema || '');
+    if (validateSchema) {
+      middlewareInvocations.push(`validate(${validateSchema})`);
+    }
+  }
+
+  // v3 route children: params (query params with types and defaults)
+  const paramsNodes = getChildren(routeNode, 'params');
+  const queryParams: Array<{ name: string; type: string; default?: string }> = [];
+  for (const paramNode of paramsNodes) {
+    const items = getProps(paramNode).items as Array<{ name: string; type: string; default?: string }> | undefined;
+    if (items) queryParams.push(...items);
+  }
+
+  // v3 route children: error (HTTP error contract)
+  const errorNodes = getChildren(routeNode, 'error').filter(n => typeof getProps(n).status === 'number');
+  const errorResponses: Array<{ status: number; message: string }> = errorNodes.map(n => ({
+    status: getProps(n).status as number,
+    message: String(getProps(n).message || 'Error'),
+  }));
 
   const paramsType = schema.params || buildPathParamsType(path) || 'Record<string, never>';
   const queryType = schema.query || 'Record<string, never>';
@@ -574,6 +613,28 @@ function buildRouteArtifact(
     lines.push('    } catch (err) {');
     lines.push('      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) } as any);');
     lines.push('    }');
+    lines.push('');
+  }
+
+  // v3 query params — extract with type coercion and defaults
+  if (queryParams.length > 0) {
+    for (const qp of queryParams) {
+      const coerce = qp.type === 'number' ? 'Number' : qp.type === 'boolean' ? 'Boolean' : 'String';
+      if (qp.default !== undefined) {
+        lines.push(`    const ${qp.name} = req.query.${qp.name} !== undefined ? ${coerce}(req.query.${qp.name}) : ${qp.default};`);
+      } else {
+        lines.push(`    const ${qp.name} = ${coerce}(req.query.${qp.name});`);
+      }
+    }
+    lines.push('');
+  }
+
+  // v3 error responses — JSDoc contract
+  if (errorResponses.length > 0) {
+    lines.push('    // Error contract:');
+    for (const er of errorResponses) {
+      lines.push(`    // ${er.status} — ${er.message}`);
+    }
     lines.push('');
   }
 

@@ -53,6 +53,8 @@ export const NODE_TYPES = [
   // Backend
   'server', 'route', 'middleware', 'handler', 'schema',
   'stream', 'spawn', 'timer', 'on', 'env', 'websocket',
+  // Route children (v3 — framework-agnostic route syntax)
+  'params', 'auth', 'validate',
   // CLI
   'cli', 'command', 'arg', 'flag', 'import',
   // Terminal
@@ -63,6 +65,9 @@ export const NODE_TYPES = [
   'generateMetadata', 'notFound', 'redirect', 'fetch',
   // Core Language — type system, functions, state machines
   'type', 'interface', 'field', 'fn',
+  'union', 'variant',
+  'service', 'method', 'singleton', 'constructor',
+  'signal', 'cleanup',
   'machine', 'transition',
   'error', 'module', 'export',
   'config', 'store',

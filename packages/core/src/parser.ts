@@ -63,6 +63,91 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
     }
   }
 
+  // Special: route v3 positional syntax — "route GET /api/users"
+  if (type === 'route') {
+    rest = rest.replace(/^ +/, '');
+    const verbMatch = rest.match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+/i);
+    if (verbMatch) {
+      props.method = verbMatch[1].toLowerCase();
+      rest = rest.slice(verbMatch[0].length);
+      const pathMatch = rest.match(/^(\/\S*)/);
+      if (pathMatch) {
+        props.path = pathMatch[1];
+        rest = rest.slice(pathMatch[0].length);
+      }
+    }
+  }
+
+  // Special: params — "params page:number = 1, limit:number = 20"
+  if (type === 'params') {
+    rest = rest.replace(/^ +/, '');
+    if (rest.length > 0) {
+      const items: Array<{ name: string; type: string; default?: string }> = [];
+      const parts = rest.split(',').map(s => s.trim()).filter(Boolean);
+      for (const part of parts) {
+        const m = part.match(/^([A-Za-z_]\w*):([A-Za-z_]\w*(?:\[\])?)(?:\s*=\s*(.+))?$/);
+        if (m) {
+          const item: { name: string; type: string; default?: string } = { name: m[1], type: m[2] };
+          if (m[3] !== undefined) item.default = m[3].trim();
+          items.push(item);
+        }
+      }
+      props.items = items;
+      rest = '';
+    }
+  }
+
+  // Special: auth — "auth required" / "auth optional" / "auth bearer"
+  if (type === 'auth') {
+    rest = rest.replace(/^ +/, '');
+    const modeMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)/);
+    if (modeMatch) {
+      props.mode = modeMatch[1];
+      rest = rest.slice(modeMatch[0].length);
+    }
+  }
+
+  // Special: validate — "validate UserQuerySchema"
+  if (type === 'validate') {
+    rest = rest.replace(/^ +/, '');
+    const schemaMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
+    if (schemaMatch) {
+      props.schema = schemaMatch[1];
+      rest = rest.slice(schemaMatch[0].length);
+    }
+  }
+
+  // Special: error with numeric status — "error 401 "Unauthorized""
+  if (type === 'error') {
+    rest = rest.replace(/^ +/, '');
+    const statusMatch = rest.match(/^(\d{3})/);
+    if (statusMatch) {
+      props.status = parseInt(statusMatch[1], 10);
+      rest = rest.slice(statusMatch[0].length).replace(/^ +/, '');
+      if (rest.startsWith('"')) {
+        const endQuote = rest.indexOf('"', 1);
+        if (endQuote > 0) {
+          props.message = rest.slice(1, endQuote);
+          rest = rest.slice(endQuote + 1);
+        }
+      }
+    }
+  }
+
+  // Special: middleware bare word list — "middleware rateLimit, cors"
+  if (type === 'middleware') {
+    rest = rest.replace(/^ +/, '');
+    if (rest.length > 0 && !rest.includes('=')) {
+      const names = rest.split(',').map(s => s.trim()).filter(Boolean);
+      if (names.length > 1) {
+        props.names = names;
+      } else if (names.length === 1) {
+        props.name = names[0];
+      }
+      rest = '';
+    }
+  }
+
   // Parse the remainder: props, style blocks, theme refs
   while (rest.length > 0) {
     rest = rest.replace(/^ +/, '');
