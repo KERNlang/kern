@@ -452,7 +452,6 @@ function buildRouteArtifact(
         if (bodyMethods.has(normalizedMethod)) {
           paramParts.push(`body: ${validateSchema}`);
         } else {
-          // GET/DELETE: validation via dependency, not body
           imports.add('from fastapi import Depends');
           paramParts.push(`validated = Depends(${toSnakeCase(validateSchema)})`);
         }
