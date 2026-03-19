@@ -13,8 +13,8 @@ import { transpileCliApp } from './transpiler-cli.js';
 import { transpileTerminal, transpileInk } from '@kernlang/terminal';
 import { transpileVue, transpileNuxt } from '@kernlang/vue';
 import { collectLanguageMetrics } from '@kernlang/metrics';
-import { reviewFile, reviewDirectory, reviewSource, reviewGraph, resolveImportGraph, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes } from '@kernlang/review';
-import type { ReviewConfig, ReviewFinding } from '@kernlang/review';
+import { reviewFile, reviewDirectory, reviewSource, reviewGraph, resolveImportGraph, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes, runLLMReview, isLLMAvailable, analyzeTaint } from '@kernlang/review';
+import type { ReviewConfig, ReviewFinding, LLMReviewInput } from '@kernlang/review';
 import { evolve, loadBuiltinDetectors, listStaged, getStaged, updateStagedStatus, promoteLocal, cleanRejected, formatSplitView } from '@kernlang/evolve';
 import type { EvolveOptions } from '@kernlang/evolve';
 
@@ -710,7 +710,7 @@ if (args[0] === 'review') {
     process.exit(0);
   }
 
-  // --llm: output structured LLM prompt with nodeId aliases
+  // --llm: LLM-assisted security review (batch file check)
   if (llmMode) {
     // Build graph context for LLM markers if --graph is active
     const llmGraphContext = graphMode ? (() => {
@@ -720,19 +720,55 @@ if (args[0] === 'review') {
         const distance = finding?.distance ?? 0;
         fileDistances.set(report.filePath, distance);
       }
-      // Entry files always distance 0
       for (const ep of entryFilePaths) {
         fileDistances.set(ep, 0);
       }
       return { fileDistances };
     })() : undefined;
 
-    for (const report of reports) {
-      console.log(`\n// ── ${report.filePath} ──`);
-      console.log(buildLLMPrompt(report.inferred, report.templateMatches, llmGraphContext));
+    if (isLLMAvailable()) {
+      // Phase 3: actual LLM API call with taint context
+      console.log('  LLM review: calling API...');
+      const llmInputs: LLMReviewInput[] = reports.map(report => ({
+        filePath: report.filePath,
+        inferred: report.inferred,
+        templateMatches: report.templateMatches,
+        taintResults: analyzeTaint(report.inferred, report.filePath),
+        graphContext: llmGraphContext,
+      }));
+
+      try {
+        const llmFindings = await runLLMReview(llmInputs);
+        console.log(`  LLM review: ${llmFindings.length} findings from AI`);
+
+        // Merge LLM findings into reports
+        for (const f of llmFindings) {
+          const report = reports.find(r => r.filePath === f.primarySpan.file);
+          if (report) {
+            report.findings.push(f);
+          } else if (reports.length > 0) {
+            reports[0].findings.push(f);
+          }
+        }
+
+        // Dedup after merge
+        for (const report of reports) {
+          report.findings = dedup(report.findings);
+        }
+      } catch (err) {
+        console.error(`  LLM review failed: ${(err as Error).message}`);
+      }
+      // Fall through to normal output (don't exit — show merged findings)
+    } else {
+      // No API key: export prompt for manual review (backward compat)
+      for (const report of reports) {
+        console.log(`\n// ── ${report.filePath} ──`);
+        console.log(buildLLMPrompt(report.inferred, report.templateMatches, llmGraphContext));
+      }
+      console.log('\n  No KERN_LLM_API_KEY set — printed prompt for manual LLM review.');
+      console.log('  Set KERN_LLM_API_KEY to enable automatic LLM security analysis.');
+      process.exit(0);
     }
-    console.log('\n// Paste the JSON response from your AI to validate and map findings back to TS.');
-    process.exit(0);
   }
 
   // --fix: auto-migration — write .kern files from template suggestions, verify roundtrip

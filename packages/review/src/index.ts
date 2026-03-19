@@ -25,6 +25,7 @@ import { lintConfidenceGraph } from './rules/confidence.js';
 import { lintKernIR } from './kern-lint.js';
 import { GROUND_LAYER_RULES } from './rules/ground-layer.js';
 import { buildConfidenceGraph, serializeGraph, computeConfidenceSummary } from './confidence.js';
+import { analyzeTaint, taintToFindings } from './taint.js';
 import type { ReviewReport, InferResult, TemplateMatch, ReviewConfig, EnforceResult, ReviewFinding, SourceSpan } from './types.js';
 
 export type { ReviewReport, InferResult, TemplateMatch, ReviewFinding, SourceSpan } from './types.js';
@@ -63,6 +64,14 @@ export type {
   ConfidenceGraph, MultiFileConfidenceGraph, SerializedConfidenceGraph, ConfidenceSummary,
 } from './confidence.js';
 export { lintConfidenceGraph, lintMultiFileConfidenceGraph, CONFIDENCE_RULES } from './rules/confidence.js';
+
+// Taint tracking (Phase 2)
+export { analyzeTaint, taintToFindings } from './taint.js';
+export type { TaintSource, TaintSink, TaintPath, TaintResult } from './taint.js';
+
+// LLM bridge (Phase 3)
+export { runLLMReview, isLLMAvailable } from './llm-bridge.js';
+export type { LLMBridgeConfig, LLMReviewInput } from './llm-bridge.js';
 
 /**
  * Review a single file. Auto-detects language from extension.
@@ -115,8 +124,12 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
     confidenceSummary = computeConfidenceSummary(graph);
   }
 
+  // Phase 8: Taint tracking — source→sink analysis on handler bodies
+  const taintResults = analyzeTaint(inferred, filePath);
+  const taintFindings = taintToFindings(taintResults);
+
   // Merge all findings into single unified array
-  const findings = dedup([...diffFindings, ...qualityFindings, ...conceptFindings, ...groundFindings, ...confidenceFindings]);
+  const findings = dedup([...diffFindings, ...qualityFindings, ...conceptFindings, ...groundFindings, ...confidenceFindings, ...taintFindings]);
 
   // Sort: severity (error > warning > info), then by line
   const severityOrder: Record<string, number> = { error: 0, warning: 1, info: 2 };
