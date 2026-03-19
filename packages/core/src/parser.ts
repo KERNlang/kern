@@ -134,6 +134,57 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
     }
   }
 
+  // Special: derive with bare name — "derive user expr={{...}}"
+  if (type === 'derive') {
+    rest = rest.replace(/^ +/, '');
+    const nameMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
+    // Only consume bare name if it's NOT a key=value pair (e.g., "derive name=foo" or "derive from=x")
+    if (nameMatch && !rest.match(/^[A-Za-z_][A-Za-z0-9_]*=/)) {
+      props.name = nameMatch[1];
+      rest = rest.slice(nameMatch[0].length);
+    }
+  }
+
+  // Special: guard with bare name — "guard exists expr={{...}} else=404"
+  if (type === 'guard') {
+    rest = rest.replace(/^ +/, '');
+    const nameMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
+    if (nameMatch && !rest.match(/^[A-Za-z_][A-Za-z0-9_]*=/)) {
+      props.name = nameMatch[1];
+      rest = rest.slice(nameMatch[0].length);
+    }
+  }
+
+  // Special: effect with bare name — "effect fetchUsers"
+  if (type === 'effect') {
+    rest = rest.replace(/^ +/, '');
+    const nameMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
+    if (nameMatch && !rest.match(/^[A-Za-z_][A-Za-z0-9_]*=/)) {
+      props.name = nameMatch[1];
+      rest = rest.slice(nameMatch[0].length);
+    }
+  }
+
+  // Special: trigger with bare type — "trigger db query=..."
+  if (type === 'trigger') {
+    rest = rest.replace(/^ +/, '');
+    const typeMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
+    if (typeMatch && !rest.match(/^[A-Za-z_][A-Za-z0-9_]*=/)) {
+      props.kind = typeMatch[1];
+      rest = rest.slice(typeMatch[0].length);
+    }
+  }
+
+  // Special: respond with optional status — "respond 200 json=users" / "respond redirect=/login"
+  if (type === 'respond') {
+    rest = rest.replace(/^ +/, '');
+    const statusMatch = rest.match(/^(\d{3})/);
+    if (statusMatch) {
+      props.status = parseInt(statusMatch[1], 10);
+      rest = rest.slice(statusMatch[0].length);
+    }
+  }
+
   // Special: middleware bare word list — "middleware rateLimit, cors"
   if (type === 'middleware') {
     rest = rest.replace(/^ +/, '');

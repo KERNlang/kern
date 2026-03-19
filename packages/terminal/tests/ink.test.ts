@@ -247,6 +247,62 @@ describe('Ink Transpiler', () => {
     expect(result.code).toContain('loadItems()');
   });
 
+  // ── New primitives ─────────────────────────────────────────────────
+
+  test('async=true on callback generates async useCallback', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  callback name=handleSubmit params="value:string" deps="dispatch,mode" async=true',
+      '    handler <<<',
+      '      const result = await process(value);',
+      '      dispatch({ type: "done", result });',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('useCallback(async (value:string) => {');
+    expect(result.code).toContain('await process(value)');
+    expect(result.code).toContain('[dispatch,mode]');
+  });
+
+  test('each node generates .map() iteration', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  each collection={{engines}} item=engine index=i key={{engine.id}}',
+      '    box',
+      '      text value={{engine.name}}',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('{engines.map((engine, i) => (');
+    expect(result.code).toContain('key={engine.id}');
+    expect(result.code).toContain('<Box');
+    expect(result.code).toContain('))}');
+  });
+
+  test('each node with multiple children wraps in React.Fragment', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  each collection={{items}} item=item key={{item.id}}',
+      '    text value={{item.label}}',
+      '    text value={{item.detail}} {dim:true}',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('{items.map((item, i) => (');
+    expect(result.code).toContain('React.Fragment key={item.id}');
+    expect(result.code).toContain('</React.Fragment>');
+  });
+
   // ── Bug fixes ──────────────────────────────────────────────────────
 
   test('Bug #1: hoists nested on-nodes from UI containers to useInput', async () => {

@@ -269,8 +269,10 @@ function generateCallbackHook(callbackNode: IRNode, imports: ImportTracker): str
     imports.addReact('useCallback');
     const dedented = dedent(code);
     const depsStr = deps ? `[${deps}]` : '[]';
+    const isAsync = props.async === 'true' || props.async === true;
+    const asyncKw = isAsync ? 'async ' : '';
 
-    lines.push(`  const ${name} = useCallback((${params}) => {`);
+    lines.push(`  const ${name} = useCallback(${asyncKw}(${params}) => {`);
     for (const line of dedented.split('\n')) {
       lines.push(`    ${line}`);
     }
@@ -589,6 +591,39 @@ function renderInkNode(node: IRNode, indent: string, imports: ImportTracker): st
       break;
     }
 
+    // Feature: each — JSX list iteration
+    // each collection={{items}} item=engine index=i key={{engine.id}}
+    //   box ...
+    // → {items.map((engine, i) => (<Box key={engine.id}>...</Box>))}
+    case 'each': {
+      const rawCollection = p.collection;
+      const collection = isExpr(rawCollection) ? (rawCollection as { code: string }).code : (rawCollection as string || '[]');
+      const item = p.item as string || 'item';
+      const index = p.index as string || 'i';
+      const rawKey = p.key;
+      const key = isExpr(rawKey) ? (rawKey as { code: string }).code : (rawKey as string || index);
+
+      lines.push(`${indent}{${collection}.map((${item}, ${index}) => (`);
+      // If there's one child, render it directly with key; otherwise wrap in fragment
+      const children = node.children || [];
+      if (children.length === 1) {
+        const childLines = renderInkNode(children[0], indent + '  ', imports);
+        // Inject key prop into the first JSX opening tag
+        if (childLines.length > 0) {
+          childLines[0] = childLines[0].replace(/^(\s*<\w+)/, `$1 key={${key}}`);
+        }
+        lines.push(...childLines);
+      } else {
+        lines.push(`${indent}  <React.Fragment key={${key}}>`);
+        for (const child of children) {
+          lines.push(...renderInkNode(child, indent + '    ', imports));
+        }
+        lines.push(`${indent}  </React.Fragment>`);
+      }
+      lines.push(`${indent}))}`)
+      break;
+    }
+
     // Feature #7: Conditional rendering
     case 'conditional': {
       const condition = p.if;
@@ -679,10 +714,12 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
   const streamNodes = getChildren(root, 'stream');
   const logicNodes = getChildren(root, 'logic');
   const callbackNodes = getChildren(root, 'callback');
-  const coreChildren = (root.children || []).filter(c => isCoreNode(c.type) && c.type !== 'on');
+  // In Ink context, 'each' is a UI node (.map iteration), not a core node (for...of loop)
+  const isInkUiNode = (type: string) => type === 'each';
+  const coreChildren = (root.children || []).filter(c => isCoreNode(c.type) && c.type !== 'on' && !isInkUiNode(c.type));
   const uiChildren = (root.children || []).filter(c =>
     c.type !== 'state' && c.type !== 'ref' && c.type !== 'on' && c.type !== 'stream'
-    && c.type !== 'logic' && c.type !== 'callback' && !isCoreNode(c.type)
+    && c.type !== 'logic' && c.type !== 'callback' && (!isCoreNode(c.type) || isInkUiNode(c.type))
   );
 
   // Bug #1: Collect nested on-nodes from UI tree and hoist to component level
