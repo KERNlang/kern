@@ -6,7 +6,7 @@
  */
 
 import type { ResolvedKernConfig, GeneratedArtifact, IRNode, SourceMapEntry, TranspileResult } from '@kernlang/core';
-import { countTokens, serializeIR, isCoreNode } from '@kernlang/core';
+import { countTokens, serializeIR } from '@kernlang/core';
 import { generatePythonCoreNode } from './codegen-python.js';
 import { mapTsTypeToPython, toSnakeCase } from './type-map.js';
 
@@ -60,11 +60,29 @@ function slugify(value: string): string {
   return value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
+    .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '') || 'generated';
 }
 
 function escapePyStr(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+/** Strip common leading whitespace, preserving relative indentation. */
+function dedent(code: string): string {
+  const lines = code.split('\n');
+  const nonEmpty = lines.filter(l => l.trim().length > 0);
+  if (nonEmpty.length === 0) return code;
+  const min = Math.min(...nonEmpty.map(l => l.match(/^(\s*)/)?.[1].length ?? 0));
+  return lines.map(l => l.slice(min)).join('\n');
+}
+
+/** Indent handler code by a fixed prefix, preserving internal structure. */
+function indentHandler(code: string, indent: string): string[] {
+  const dedented = dedent(code);
+  return dedented.split('\n')
+    .filter(l => l.trim().length > 0)
+    .map(l => `${indent}${l}`);
 }
 
 function findServerNode(root: IRNode): IRNode | undefined {
@@ -199,9 +217,7 @@ function generateStreamRoute(
         const stdoutCode = stdoutHandlerNode ? String(getProps(stdoutHandlerNode).code || '') : '';
         lines.push(`            async for chunk in process.stdout:`);
         if (stdoutCode) {
-          for (const line of stdoutCode.split('\n')) {
-            lines.push(`                ${line.trim()}`);
-          }
+          lines.push(...indentHandler(stdoutCode, '                '));
         } else {
           lines.push(`                yield f"data: {chunk.decode()}\\n\\n"`);
         }
@@ -217,10 +233,7 @@ function generateStreamRoute(
       lines.push(`        # timeout: ${timeoutSec}s`);
     }
   } else if (handlerCode) {
-    for (const line of handlerCode.split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed) lines.push(`        ${trimmed}`);
-    }
+    lines.push(...indentHandler(handlerCode, '        '));
   } else {
     lines.push(`        yield "data: [DONE]\\n\\n"`);
   }
@@ -259,16 +272,10 @@ function generateTimerRoute(
   lines.push(`async def ${toSnakeCase(method)}_${slugify(fastapiPath)}(${paramStr}):`);
   lines.push(`    async def _work():`);
   if (timerHandlerCode) {
-    for (const line of timerHandlerCode.split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed) lines.push(`        ${trimmed}`);
-    }
+    lines.push(...indentHandler(timerHandlerCode, '        '));
   }
   if (handlerCode) {
-    for (const line of handlerCode.split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed) lines.push(`        ${trimmed}`);
-    }
+    lines.push(...indentHandler(handlerCode, '        '));
   }
   lines.push(`    try:`);
   lines.push(`        return await asyncio.wait_for(_work(), timeout=${timeoutSec})`);
@@ -282,9 +289,7 @@ function generateTimerRoute(
     const timeoutHandler = getFirstChild(onTimeoutNode, 'handler');
     const timeoutCode = timeoutHandler ? String(getProps(timeoutHandler).code || '') : '';
     if (timeoutCode) {
-      for (const line of timeoutCode.split('\n')) {
-        lines.push(`        ${line.trim()}`);
-      }
+      lines.push(...indentHandler(timeoutCode, '        '));
     } else {
       lines.push(`        raise HTTPException(status_code=408, detail="Request timed out")`);
     }
@@ -324,7 +329,7 @@ function buildRouteArtifact(
   const routeHandlerCode = routeHandlerNode ? String(getProps(routeHandlerNode).code || '') : '';
   const handlerCode = typeof handlerProps.code === 'string'
     ? String(handlerProps.code)
-    : caps.hasStream || caps.hasTimer ? '' : '';
+    : '';
 
   const lines: string[] = [];
   const imports = new Set<string>();
@@ -393,15 +398,9 @@ function buildRouteArtifact(
     lines.push(`async def ${toSnakeCase(normalizedMethod)}_${slugify(fastapiPath)}(${paramStr}):`);
 
     if (handlerCode) {
-      for (const line of handlerCode.split('\n')) {
-        const trimmed = line.trim();
-        if (trimmed) lines.push(`    ${trimmed}`);
-      }
+      lines.push(...indentHandler(handlerCode, '    '));
     } else if (routeHandlerCode) {
-      for (const line of routeHandlerCode.split('\n')) {
-        const trimmed = line.trim();
-        if (trimmed) lines.push(`    ${trimmed}`);
-      }
+      lines.push(...indentHandler(routeHandlerCode, '    '));
     } else {
       lines.push(`    return {"error": "Route handler not implemented"}`);
     }
@@ -534,9 +533,14 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   const uvicornReload = isStrict ? false : (_config?.fastapi?.uvicorn?.reload ?? false);
   const uvicornWorkers = _config?.fastapi?.uvicorn?.workers;
 
-  // Collect core language nodes (type, interface, fn, machine, etc.)
+  // Collect top-level core language nodes (type, interface, fn, machine, etc.)
+  // Exclude child-only types (field, transition, handler, describe, it, etc.)
+  const TOP_LEVEL_CORE = new Set([
+    'type', 'interface', 'fn', 'machine', 'error', 'module',
+    'config', 'store', 'test', 'event', 'import', 'const',
+  ]);
   const allChildren = serverNode.children || [];
-  const coreNodes = allChildren.filter(c => isCoreNode(c.type));
+  const coreNodes = allChildren.filter(c => TOP_LEVEL_CORE.has(c.type));
 
   const serverImports = new Set<string>();
   const middlewareLines: string[] = [];
