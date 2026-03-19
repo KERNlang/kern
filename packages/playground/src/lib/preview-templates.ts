@@ -17,8 +17,8 @@ export function buildPreviewHtml(compiledCode: string, target: PlaygroundTarget)
 }
 
 function buildReactPreview(code: string, withTailwind: boolean): string {
-  // Extract the component name from "export function Foo" or "export default function Foo"
-  const componentMatch = code.match(/export\s+(?:default\s+)?function\s+(\w+)/);
+  // Extract the component name from "export function Foo" or "export const Foo = ..."
+  const componentMatch = code.match(/export\s+(?:default\s+)?(?:function|const)\s+(\w+)/);
   const componentName = componentMatch?.[1] ?? 'App';
 
   // Strip import lines (CDN provides React/ReactDOM globally)
@@ -49,8 +49,13 @@ function buildReactPreview(code: string, withTailwind: boolean): string {
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel" data-type="module">
+  <script type="text/babel">
     try {
+      const { 
+        useState, useEffect, useMemo, useCallback, useRef, useContext, 
+        useReducer, useTransition, useDeferredValue, useId, useLayoutEffect 
+      } = React;
+
       ${cleanCode}
 
       const root = ReactDOM.createRoot(document.getElementById('root'));
@@ -86,6 +91,15 @@ function buildVuePreview(code: string): string {
   const styleMatch = code.match(/<style[^>]*>([\s\S]*?)<\/style>/);
   const styleContent = styleMatch?.[1]?.trim() ?? '';
 
+  // Extract all top-level declarations to return them from setup()
+  const declRegex = /(?:const|let|var|function)\s+(\w+)/g;
+  const declarations = new Set<string>();
+  let match;
+  while ((match = declRegex.exec(scriptContent)) !== null) {
+    declarations.add(match[1]);
+  }
+  const returnObject = `{ ${Array.from(declarations).join(', ')} }`;
+
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -103,11 +117,11 @@ function buildVuePreview(code: string): string {
   <div id="app">${templateContent}</div>
   <script>
     try {
-      const { createApp, ref, computed, onMounted } = Vue;
+      const { createApp, ref, computed, onMounted, reactive, watch, watchEffect } = Vue;
       const app = createApp({
         setup() {
           ${scriptContent.replace(/^import\s+.*\n?/gm, '').replace(/defineProps[^;]*;?\n?/g, '')}
-          return {};
+          return ${returnObject};
         }
       });
       app.mount('#app');
