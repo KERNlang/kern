@@ -182,6 +182,16 @@ export function PlaygroundEditor({
       beforeMount={(monaco) => {
         registerKernLanguage(monaco);
 
+        // Disable built-in TypeScript/JavaScript diagnostics — this is a paste target, not an IDE
+        monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+          noSemanticValidation: true,
+          noSyntaxValidation: true,
+        });
+        monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+          noSemanticValidation: true,
+          noSyntaxValidation: true,
+        });
+
         monaco.editor.defineTheme('kern-dark', {
           base: 'vs-dark',
           inherit: true,
