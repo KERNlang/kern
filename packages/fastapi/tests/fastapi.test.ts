@@ -623,6 +623,9 @@ describe('FastAPI Transpiler', () => {
       expect(getUsersRoute!.content).toContain('page: int = 1');
       expect(getUsersRoute!.content).toContain('limit: int = 20');
       expect(getUsersRoute!.content).toContain('Depends(auth_required)');
+      // Route-level middleware should also be present as Depends
+      expect(getUsersRoute!.content).toContain('Depends(rate_limit)');
+      expect(getUsersRoute!.content).toContain('Depends(cors)');
     });
 
     test('backward compat: old route method=get path=/ still works', async () => {
@@ -656,6 +659,79 @@ describe('FastAPI Transpiler', () => {
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       expect(route!.content).toContain('q: str');
       expect(route!.content).toContain('sort: str = "relevance"');
+    });
+
+    test('route-level middleware emits Depends()', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    middleware rateLimit, cors',
+        '    handler <<<',
+        '      return []',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('Depends(rate_limit)');
+      expect(route!.content).toContain('Depends(cors)');
+      expect(route!.content).toContain('from fastapi import Depends');
+    });
+
+    test('validate on GET uses Depends, not body param', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    validate UserQuerySchema',
+        '    handler <<<',
+        '      return []',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      // GET route should NOT have body param
+      expect(route!.content).not.toContain('body: UserQuerySchema');
+      // Should use Depends instead
+      expect(route!.content).toContain('Depends(user_query_schema)');
+    });
+
+    test('validate on POST uses body param', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/users',
+        '    validate CreateUserSchema',
+        '    handler <<<',
+        '      return {"ok": True}',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('body: CreateUserSchema');
+      expect(route!.content).not.toContain('Depends(create_user_schema)');
+    });
+
+    test('validate does not duplicate body when schema body= is present', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/users',
+        '    schema body="{name: string}"',
+        '    validate CreateUserSchema',
+        '    handler <<<',
+        '      return {"ok": True}',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      // schema body= takes priority — only one body param
+      const bodyCount = (route!.content.match(/body:/g) || []).length;
+      expect(bodyCount).toBe(1);
     });
   });
 });

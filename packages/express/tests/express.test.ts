@@ -261,7 +261,7 @@ describe('Express Transpiler', () => {
       expect(route!.content).toContain('// 500 — Server error');
     });
 
-    test('middleware bare word list adds multiple middleware', async () => {
+    test('middleware bare word list resolves each name correctly', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
       const source = [
@@ -274,8 +274,32 @@ describe('Express Transpiler', () => {
       ].join('\n');
       const result = transpileExpress(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
-      expect(route!.content).toContain('rateLimit');
-      expect(route!.content).toContain('cors');
+      // cors should be resolved to cors() with import
+      expect(route!.content).toContain('cors()');
+      expect(route!.content).toContain("import cors from 'cors'");
+      // rateLimit is resolved through custom middleware artifact
+      const mwArtifact = result.artifacts!.find((a: any) => a.type === 'middleware');
+      expect(mwArtifact).toBeDefined();
+    });
+
+    test('query params without defaults coerce safely', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/search',
+        '    params q:string, page:number',
+        '    handler <<<',
+        '      res.json({ q, page });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      // Without default: must check undefined, not blindly coerce
+      expect(route!.content).toContain('!== undefined');
+      expect(route!.content).toContain(': undefined');
+      // Must NOT use String(req.query.q) directly (would produce "undefined")
+      expect(route!.content).not.toMatch(/String\(req\.query\.\w+\)/);
     });
 
     test('full v3 route example compiles end-to-end', async () => {
@@ -293,6 +317,9 @@ describe('Express Transpiler', () => {
       expect(getUsersRoute!.content).toContain('validate(UserQuerySchema)');
       expect(getUsersRoute!.content).toContain('Number(req.query.page)');
       expect(getUsersRoute!.content).toContain(': 1;');
+      // Bare middleware cors should resolve to cors() with import
+      expect(getUsersRoute!.content).toContain('cors()');
+      expect(getUsersRoute!.content).toContain("import cors from 'cors'");
 
       const postUsersRoute = result.artifacts!.find((a: any) => a.path.includes('post-api-users'));
       expect(postUsersRoute).toBeDefined();
