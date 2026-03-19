@@ -43,7 +43,7 @@ export { expandStyles, expandStyleKey, expandStyleValue } from './styles-react.j
 // Codegen core
 export {
   generateCoreNode, isCoreNode, CORE_NODE_TYPES,
-  generateType, generateInterface, generateFunction,
+  generateType, generateInterface, generateUnion, generateService, generateFunction,
   generateMachine, generateMachineReducer, generateError, generateModule,
   generateConfig, generateStore, generateTest, generateEvent,
   generateImport, generateConst, generateHook,
