@@ -1,21 +1,38 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { PlaygroundEditor } from './PlaygroundEditor';
+import { PreviewPanel } from './PreviewPanel';
+import { isPreviewable } from '@/lib/preview-templates';
+import type { PlaygroundTarget } from '@/lib/targets';
 
 interface OutputPanelProps {
   ir: string | null;
   output: string | null;
   outputLanguage: string;
   artifacts: Array<{ path: string; content: string; type: string }>;
+  target?: PlaygroundTarget;
 }
 
-type Tab = 'ir' | 'output' | 'artifacts';
+type Tab = 'preview' | 'output' | 'ir' | 'artifacts';
 
-export function OutputPanel({ ir, output, outputLanguage, artifacts }: OutputPanelProps) {
+export function OutputPanel({ ir, output, outputLanguage, artifacts, target }: OutputPanelProps) {
+  const showPreview = !!(target && isPreviewable(target) && output);
   const [activeTab, setActiveTab] = useState<Tab>('output');
 
+  // Auto-switch to preview when it becomes available
+  useEffect(() => {
+    if (showPreview && activeTab === 'output') {
+      setActiveTab('preview');
+    } else if (!showPreview && activeTab === 'preview') {
+      setActiveTab('output');
+    }
+  }, [showPreview]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const effectiveTab = activeTab === 'preview' && !showPreview ? 'output' : activeTab;
+
   const tabs: { key: Tab; label: string; badge?: number }[] = [
+    ...(showPreview ? [{ key: 'preview' as Tab, label: 'Preview' }] : []),
     { key: 'output', label: 'Compiled Output' },
     { key: 'ir', label: 'KERN IR' },
     ...(artifacts.length > 0 ? [{ key: 'artifacts' as Tab, label: 'Artifacts', badge: artifacts.length }] : []),
@@ -39,10 +56,10 @@ export function OutputPanel({ ir, output, outputLanguage, artifacts }: OutputPan
               padding: '8px 16px',
               fontSize: 12,
               fontWeight: 500,
-              color: activeTab === tab.key ? '#e6edf3' : '#8b949e',
-              background: activeTab === tab.key ? '#0d1117' : 'transparent',
+              color: effectiveTab === tab.key ? '#e6edf3' : '#8b949e',
+              background: effectiveTab === tab.key ? '#0d1117' : 'transparent',
               border: 'none',
-              borderBottom: activeTab === tab.key ? '2px solid #ff6b6b' : '2px solid transparent',
+              borderBottom: effectiveTab === tab.key ? '2px solid #ff6b6b' : '2px solid transparent',
               cursor: 'pointer',
               fontFamily: 'inherit',
               display: 'flex',
@@ -67,7 +84,10 @@ export function OutputPanel({ ir, output, outputLanguage, artifacts }: OutputPan
       </div>
 
       <div style={{ flex: 1, minHeight: 0 }}>
-        {activeTab === 'output' && (
+        {effectiveTab === 'preview' && showPreview && target && (
+          <PreviewPanel compiledCode={output} target={target} />
+        )}
+        {effectiveTab === 'output' && (
           <PlaygroundEditor
             value={output ?? ''}
             onChange={() => {}}
@@ -75,7 +95,7 @@ export function OutputPanel({ ir, output, outputLanguage, artifacts }: OutputPan
             readOnly
           />
         )}
-        {activeTab === 'ir' && (
+        {effectiveTab === 'ir' && (
           <PlaygroundEditor
             value={ir ?? ''}
             onChange={() => {}}
@@ -83,7 +103,7 @@ export function OutputPanel({ ir, output, outputLanguage, artifacts }: OutputPan
             readOnly
           />
         )}
-        {activeTab === 'artifacts' && (
+        {effectiveTab === 'artifacts' && (
           <div style={{ display: 'flex', height: '100%' }}>
             <div style={{
               width: 200,

@@ -48,6 +48,7 @@ export function scanProject(cwd: string): ScanResult {
   const detections: Detection[] = [];
 
   detectFromPackageJson(cwd, config, info, detections);
+  detectFromPythonProject(cwd, config, detections);
   detectFromTsconfig(cwd, config, info, detections);
   detectFromPrettierrc(cwd, info, detections);
   detectFromEditorConfig(cwd, info, detections);
@@ -148,13 +149,55 @@ function detectFromPackageJson(
 }
 
 function detectTarget(allDeps: Record<string, string>): KernTarget | null {
-  // Priority: most specific framework first
+  // Priority: most specific framework first, then broader ones.
+  // Order matters — ink/react-native depend on react, nuxt depends on vue,
+  // so specific targets must be checked before their base frameworks.
   if (allDeps['next']) return 'nextjs';
+  if (allDeps['nuxt']) return 'nuxt';
+  if (allDeps['ink']) return 'ink';
   if (allDeps['react-native']) return 'native';
   if (allDeps['express']) return 'express';
   if (allDeps['tailwindcss'] && !allDeps['next']) return 'tailwind';
+  if (allDeps['vue']) return 'vue';
   if (allDeps['react']) return 'web';
   return null;
+}
+
+// ── Detector: Python project (pyproject.toml / requirements.txt) ─────────
+
+function detectFromPythonProject(
+  cwd: string,
+  config: Partial<KernConfig>,
+  detections: Detection[],
+): void {
+  // Skip if target already detected from package.json
+  if (config.target) return;
+
+  // Check pyproject.toml first
+  const pyprojectPath = resolve(cwd, 'pyproject.toml');
+  if (existsSync(pyprojectPath)) {
+    try {
+      const raw = readFileSync(pyprojectPath, 'utf-8');
+      if (/fastapi/i.test(raw)) {
+        config.target = 'fastapi';
+        detections.push({ source: 'pyproject.toml', field: 'target', value: 'fastapi', confidence: 'high' });
+        return;
+      }
+    } catch {}
+  }
+
+  // Fall back to requirements.txt
+  const reqPath = resolve(cwd, 'requirements.txt');
+  if (existsSync(reqPath)) {
+    try {
+      const raw = readFileSync(reqPath, 'utf-8');
+      if (/^fastapi\b/im.test(raw)) {
+        config.target = 'fastapi';
+        detections.push({ source: 'requirements.txt', field: 'target', value: 'fastapi', confidence: 'high' });
+        return;
+      }
+    } catch {}
+  }
 }
 
 // ── Detector: tsconfig.json ──────────────────────────────────────────────

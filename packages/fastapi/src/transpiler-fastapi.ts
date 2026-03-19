@@ -49,11 +49,234 @@ function getProps(node: IRNode): Record<string, unknown> {
 }
 
 function getChildren(node: IRNode, type: string): IRNode[] {
-  return (node.children || []).filter(child => child.type === type);
+  return (node.children || []).filter((child: IRNode) => child.type === type);
 }
 
 function getFirstChild(node: IRNode, type: string): IRNode | undefined {
-  return (node.children || []).find(child => child.type === type);
+  return (node.children || []).find((child: IRNode) => child.type === type);
+}
+
+// ── Portable respond node → FastAPI ──────────────────────────────────────
+
+function generateRespondFastAPI(respondNode: IRNode, indent: string): string[] {
+  const p = getProps(respondNode);
+  const status = typeof p.status === 'number' ? p.status : undefined;
+  const json = p.json as string | undefined;
+  const error = p.error as string | undefined;
+  const text = p.text as string | undefined;
+  const redirect = p.redirect as string | undefined;
+
+  if (redirect) {
+    return [`${indent}return RedirectResponse(url="${escapePyStr(String(redirect))}")`];
+  }
+  if (error) {
+    return [`${indent}raise HTTPException(status_code=${status || 500}, detail="${escapePyStr(String(error))}")`];
+  }
+  if (json) {
+    if (!status || status === 200) {
+      return [`${indent}return ${json}`];
+    }
+    return [`${indent}return JSONResponse(content=${json}, status_code=${status})`];
+  }
+  if (text) {
+    if (!status || status === 200) {
+      return [`${indent}return PlainTextResponse(content=${text})`];
+    }
+    return [`${indent}return PlainTextResponse(content=${text}, status_code=${status})`];
+  }
+  if (status === 204) {
+    return [`${indent}return Response(status_code=204)`];
+  }
+  if (status) {
+    return [`${indent}return Response(status_code=${status})`];
+  }
+  return [`${indent}return Response(status_code=200)`];
+}
+
+// ── Portable request reference rewriting → FastAPI ────────────────────────
+
+function rewriteFastAPIExpr(expr: string, pathParams: string[]): string {
+  let result = expr;
+  // params.X → X (function param) for path params
+  for (const param of pathParams) {
+    result = result.replace(new RegExp(`\\bparams\\.${param}\\b`, 'g'), param);
+  }
+  // Fallback: any remaining params.X → X (for query params not in pathParams)
+  result = result.replace(/\bparams\.([A-Za-z_]\w*)/g, '$1');
+  // body.X → body.X (Pydantic model — already correct)
+  // query.X → X (function param)
+  result = result.replace(/\bquery\.([A-Za-z_]\w*)/g, '$1');
+  // headers.X → request.headers.get("X")
+  result = result.replace(/\bheaders\.([A-Za-z_][\w-]*)/g, (_m, key) => `request.headers.get("${key}")`);
+  // effectName.result → effect_name (effect variables hold the result directly, snake_cased)
+  result = result.replace(/\b([A-Za-z_]\w*)\.result\b/g, (_m, name) => toSnakeCase(name));
+  return result;
+}
+
+// ── Portable handler generation (derive → guard → handler → respond) ─────
+
+function extractExprCode(prop: unknown): string {
+  if (typeof prop === 'object' && prop !== null && (prop as any).__expr) return (prop as any).code;
+  return typeof prop === 'string' ? prop : '';
+}
+
+function addRespondImports(respondNode: IRNode, imports: Set<string>): void {
+  const rp = getProps(respondNode);
+  if (rp.redirect) imports.add('from fastapi.responses import RedirectResponse');
+  if (rp.text) imports.add('from fastapi.responses import PlainTextResponse');
+  if (typeof rp.status === 'number' && rp.status !== 200 && rp.json) imports.add('from fastapi.responses import JSONResponse');
+  if (typeof rp.status === 'number' && !rp.json && !rp.text && !rp.redirect && !rp.error) imports.add('from fastapi.responses import Response');
+  if (rp.error) imports.add('from fastapi import HTTPException');
+}
+
+function generatePortableChildFastAPI(
+  child: IRNode,
+  indent: string,
+  pathParams: string[],
+  imports: Set<string>,
+): string[] {
+  const lines: string[] = [];
+  const p = getProps(child);
+
+  switch (child.type) {
+    case 'derive': {
+      const name = String(p.name || '');
+      const exprCode = extractExprCode(p.expr);
+      if (name && exprCode) {
+        lines.push(`${indent}${toSnakeCase(name)} = ${rewriteFastAPIExpr(exprCode, pathParams)}`);
+      }
+      break;
+    }
+    case 'guard': {
+      const name = String(p.name || '');
+      const exprCode = extractExprCode(p.expr);
+      const elseStatus = p.else ? parseInt(String(p.else), 10) : 404;
+      const elseMessage = typeof p.message === 'string' ? p.message : (name ? `${name} guard failed` : 'Guard failed');
+      if (exprCode) {
+        imports.add('from fastapi import HTTPException');
+        lines.push(`${indent}if not (${rewriteFastAPIExpr(exprCode, pathParams)}):`);
+        lines.push(`${indent}    raise HTTPException(status_code=${elseStatus}, detail="${escapePyStr(elseMessage)}")`);
+      }
+      break;
+    }
+    case 'handler': {
+      const code = String(p.code || '');
+      if (code) lines.push(...indentHandler(code, indent));
+      break;
+    }
+    case 'respond': {
+      // Clone props to avoid mutating shared AST, then rewrite portable refs
+      const clonedRespond: IRNode = { ...child, props: { ...child.props } };
+      if (clonedRespond.props!.json) clonedRespond.props!.json = rewriteFastAPIExpr(String(clonedRespond.props!.json), pathParams);
+      if (clonedRespond.props!.text) clonedRespond.props!.text = rewriteFastAPIExpr(String(clonedRespond.props!.text), pathParams);
+      addRespondImports(clonedRespond, imports);
+      lines.push(...generateRespondFastAPI(clonedRespond, indent));
+      break;
+    }
+    case 'branch': {
+      const on = rewriteFastAPIExpr(String(p.on || ''), pathParams);
+      const paths = getChildren(child, 'path');
+      for (let i = 0; i < paths.length; i++) {
+        const pathNode = paths[i];
+        const pp = getProps(pathNode);
+        const value = String(pp.value || '');
+        const keyword = i === 0 ? 'if' : 'elif';
+        lines.push(`${indent}${keyword} ${on} == "${escapePyStr(value)}":`);
+        const bodyStart = lines.length;
+        for (const pathChild of pathNode.children || []) {
+          lines.push(...generatePortableChildFastAPI(pathChild, indent + '    ', pathParams, imports));
+        }
+        if (lines.length === bodyStart) lines.push(`${indent}    pass`);
+      }
+      break;
+    }
+    case 'each': {
+      const name = String(p.name || 'item');
+      const collection = rewriteFastAPIExpr(extractExprCode(p.in) || String(p.in || ''), pathParams);
+      const index = p.index ? String(p.index) : undefined;
+      if (index) {
+        lines.push(`${indent}for ${index}, ${name} in enumerate(${collection}):`);
+      } else {
+        lines.push(`${indent}for ${name} in ${collection}:`);
+      }
+      const bodyStart = lines.length;
+      for (const eachChild of child.children || []) {
+        lines.push(...generatePortableChildFastAPI(eachChild, indent + '    ', pathParams, imports));
+      }
+      if (lines.length === bodyStart) lines.push(`${indent}    pass`);
+      break;
+    }
+    case 'collect': {
+      const rawName = toSnakeCase(String(p.name || ''));
+      // Avoid shadowing Python built-ins
+      const PY_BUILTINS = new Set(['sorted', 'list', 'dict', 'set', 'map', 'filter', 'type', 'id', 'input', 'print', 'range', 'len', 'min', 'max', 'sum', 'any', 'all']);
+      const collectName = PY_BUILTINS.has(rawName) ? `${rawName}_result` : rawName;
+      const from = rewriteFastAPIExpr(String(p.from || ''), pathParams);
+      const where = p.where ? extractExprCode(p.where) : undefined;
+      const limit = p.limit ? String(p.limit) : undefined;
+      const order = p.order ? String(p.order) : undefined;
+      if (where && !order && !limit) {
+        lines.push(`${indent}${collectName} = [item for item in ${from} if ${rewriteFastAPIExpr(where, pathParams)}]`);
+      } else {
+        lines.push(`${indent}${collectName} = ${from}`);
+        if (where) lines.push(`${indent}${collectName} = [item for item in ${collectName} if ${rewriteFastAPIExpr(where, pathParams)}]`);
+        if (order) lines.push(`${indent}${collectName} = sorted(${collectName}, key=lambda item: ${rewriteFastAPIExpr(order, pathParams)})`);
+        if (limit) lines.push(`${indent}${collectName} = ${collectName}[:${limit}]`);
+      }
+      break;
+    }
+    case 'effect': {
+      const effectName = toSnakeCase(String(p.name || 'effect'));
+      const triggerNode = getFirstChild(child, 'trigger');
+      const recoverNode = getFirstChild(child, 'recover');
+      const triggerProps = triggerNode ? getProps(triggerNode) : {};
+      const triggerExpr = extractExprCode(triggerProps.expr) || String(triggerProps.query || triggerProps.url || triggerProps.call || '');
+      const retryCount = recoverNode ? parseInt(String(getProps(recoverNode).retry || '0'), 10) : 0;
+      const fallback = recoverNode ? String(getProps(recoverNode).fallback || 'None') : 'None';
+      const pyFallback = fallback === 'null' ? 'None' : fallback;
+
+      if (retryCount > 0) {
+        lines.push(`${indent}${effectName} = ${pyFallback}`);
+        lines.push(`${indent}for _attempt in range(${retryCount}):`);
+        lines.push(`${indent}    try:`);
+        lines.push(`${indent}        ${effectName} = ${rewriteFastAPIExpr(triggerExpr, pathParams)}`);
+        lines.push(`${indent}        break`);
+        lines.push(`${indent}    except Exception:`);
+        lines.push(`${indent}        if _attempt == ${retryCount - 1}:`);
+        lines.push(`${indent}            ${effectName} = ${pyFallback}`);
+      } else {
+        lines.push(`${indent}try:`);
+        lines.push(`${indent}    ${effectName} = ${rewriteFastAPIExpr(triggerExpr, pathParams)}`);
+        lines.push(`${indent}except Exception:`);
+        lines.push(`${indent}    ${effectName} = ${pyFallback}`);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return lines;
+}
+
+function generatePortableHandlerFastAPI(
+  routeNode: IRNode,
+  indent: string,
+  pathParams: string[],
+  imports: Set<string>,
+): string[] {
+  const lines: string[] = [];
+  const children = routeNode.children || [];
+
+  // Walk all route children in document order
+  const PORTABLE_TYPES = new Set(['derive', 'guard', 'handler', 'respond', 'branch', 'each', 'collect', 'effect']);
+  for (const child of children) {
+    if (PORTABLE_TYPES.has(child.type)) {
+      lines.push(...generatePortableChildFastAPI(child, indent, pathParams, imports));
+    }
+  }
+
+  return lines;
 }
 
 function slugify(value: string): string {
@@ -318,6 +541,18 @@ function buildRouteArtifact(
   const caps = analyzeRouteCapabilities(routeNode);
   const pathParams = derivePathParams(path);
 
+  // Portable route children: derive, guard, respond, branch, each, collect
+  const deriveNodes = getChildren(routeNode, 'derive');
+  const guardNodes = getChildren(routeNode, 'guard');
+  const respondNode = getFirstChild(routeNode, 'respond');
+  const branchNodes = getChildren(routeNode, 'branch');
+  const eachNodes = getChildren(routeNode, 'each');
+  const collectNodes = getChildren(routeNode, 'collect');
+  const effectNodes = getChildren(routeNode, 'effect');
+  const hasPortableNodes = deriveNodes.length > 0 || guardNodes.length > 0 || !!respondNode
+    || branchNodes.length > 0 || eachNodes.length > 0 || collectNodes.length > 0
+    || effectNodes.length > 0;
+
   // Get handler code
   const handlerNode = caps.hasStream
     ? getFirstChild(caps.streamNode!, 'handler')
@@ -403,26 +638,14 @@ function buildRouteArtifact(
     modelLines.push('');
   }
 
-  // Write imports (must come after all imports.add() calls)
-  for (const imp of [...imports].sort()) {
-    lines.push(imp);
-  }
-  lines.push('');
-
-  // Router
-  lines.push(`router = APIRouter()`);
-  lines.push('');
-
-  // Model definitions
-  if (modelLines.length > 0) {
-    lines.push(...modelLines);
-  }
+  // Generate handler body lines first (may add to imports)
+  const bodyLines: string[] = [];
 
   // Route handler
   if (caps.hasStream) {
-    lines.push(...generateStreamRoute(routeNode, caps, normalizedMethod, fastapiPath, pathParams));
+    bodyLines.push(...generateStreamRoute(routeNode, caps, normalizedMethod, fastapiPath, pathParams));
   } else if (caps.hasTimer && caps.timerNode) {
-    lines.push(...generateTimerRoute(routeNode, caps, normalizedMethod, fastapiPath, pathParams, routeHandlerCode));
+    bodyLines.push(...generateTimerRoute(routeNode, caps, normalizedMethod, fastapiPath, pathParams, routeHandlerCode));
   } else {
     // Standard route — build function signature
     const paramParts: string[] = [];
@@ -471,22 +694,42 @@ function buildRouteArtifact(
     }
 
     const paramStr = paramParts.join(', ');
-    lines.push(`@router.${normalizedMethod}("${fastapiPath}")`);
-    lines.push(`async def ${toSnakeCase(normalizedMethod)}_${slugify(fastapiPath)}(${paramStr}):`);
+    bodyLines.push(`@router.${normalizedMethod}("${fastapiPath}")`);
+    bodyLines.push(`async def ${toSnakeCase(normalizedMethod)}_${slugify(fastapiPath)}(${paramStr}):`);
 
     // v3 error contract as docstring
     if (errorNodes.length > 0) {
-      lines.push(`    """Errors: ${errorNodes.map(n => `${getProps(n).status} ${getProps(n).message || ''}`).join(', ')}"""`);
+      bodyLines.push(`    """Errors: ${errorNodes.map(n => `${getProps(n).status} ${getProps(n).message || ''}`).join(', ')}"""`);
     }
 
-    if (handlerCode) {
-      lines.push(...indentHandler(handlerCode, '    '));
+    if (hasPortableNodes) {
+      bodyLines.push(...generatePortableHandlerFastAPI(routeNode, '    ', pathParams, imports));
+    } else if (handlerCode) {
+      bodyLines.push(...indentHandler(handlerCode, '    '));
     } else if (routeHandlerCode) {
-      lines.push(...indentHandler(routeHandlerCode, '    '));
+      bodyLines.push(...indentHandler(routeHandlerCode, '    '));
     } else {
-      lines.push(`    return {"error": "Route handler not implemented"}`);
+      bodyLines.push(`    return {"error": "Route handler not implemented"}`);
     }
   }
+
+  // Write imports (after all imports.add() calls, including from portable handler)
+  for (const imp of [...imports].sort()) {
+    lines.push(imp);
+  }
+  lines.push('');
+
+  // Router
+  lines.push(`router = APIRouter()`);
+  lines.push('');
+
+  // Model definitions
+  if (modelLines.length > 0) {
+    lines.push(...modelLines);
+  }
+
+  // Append handler body
+  lines.push(...bodyLines);
 
   sourceMap.push({
     irLine: routeNode.loc?.line || 0,

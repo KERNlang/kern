@@ -734,4 +734,450 @@ describe('FastAPI Transpiler', () => {
       expect(bodyCount).toBe(1);
     });
   });
+
+  // ── Portable Backend — respond, derive, guard ──────────────────────
+
+  describe('Portable Backend — respond, derive, guard', () => {
+    test('respond 200 json=data generates return data', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    respond 200 json=users',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('return users');
+    });
+
+    test('respond 201 json=user generates JSONResponse with status', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/users',
+        '    respond 201 json=user',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('JSONResponse(content=user, status_code=201)');
+      expect(route!.content).toContain('from fastapi.responses import JSONResponse');
+    });
+
+    test('respond 204 generates Response(status_code=204)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route DELETE /api/users/:id',
+        '    respond 204',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('Response(status_code=204)');
+      expect(route!.content).toContain('from fastapi.responses import Response');
+    });
+
+    test('respond 404 error="Not found" generates HTTPException', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users/:id',
+        '    respond 404 error="Not found"',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('raise HTTPException(status_code=404, detail="Not found")');
+    });
+
+    test('respond redirect="/login" generates RedirectResponse', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /login',
+        '    respond redirect="/login"',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('RedirectResponse(url="/login")');
+      expect(route!.content).toContain('from fastapi.responses import RedirectResponse');
+    });
+
+    test('respond 200 text=result generates PlainTextResponse', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/text',
+        '    respond 200 text=result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('PlainTextResponse(content=result)');
+      expect(route!.content).toContain('from fastapi.responses import PlainTextResponse');
+    });
+
+    test('derive generates variable binding', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    derive users expr={{await db.query("SELECT * FROM users")}}',
+        '    respond 200 json=users',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('users = await db.query("SELECT * FROM users")');
+      expect(route!.content).toContain('return users');
+    });
+
+    test('guard generates early-return check', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users/:id',
+        '    derive user expr={{await db.findById(params.id)}}',
+        '    guard name=exists expr={{user}} else=404',
+        '    respond 200 json=user',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      // params.id → id (function param in FastAPI)
+      expect(route!.content).toContain('await db.findById(id)');
+      expect(route!.content).toContain('if not (user):');
+      expect(route!.content).toContain('raise HTTPException(status_code=404');
+      expect(route!.content).toContain('return user');
+    });
+
+    test('portable request refs: params/body/headers rewritten for FastAPI', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/users/:id',
+        '    derive user expr={{await db.findById(params.id)}}',
+        '    derive token expr={{headers.authorization}}',
+        '    respond 200 json=user',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      // params.id → id (function param)
+      expect(route!.content).toContain('await db.findById(id)');
+      // headers.X → request.headers.get("X")
+      expect(route!.content).toContain('request.headers.get("authorization")');
+    });
+
+    test('handler + respond coexist (escape hatch pattern)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/tracks/analyze',
+        '    handler <<<',
+        '      result = await analyze_audio(body.track_id)',
+        '    >>>',
+        '    respond 200 json=result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route!.content).toContain('analyze_audio(body.track_id)');
+      expect(route!.content).toContain('return result');
+    });
+
+    test('derive + guard + handler + respond execution order', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/tracks/:id/analyze',
+        '    derive track expr={{await db.tracks.find_by_id(params.id)}}',
+        '    guard name=trackExists expr={{track}} else=404',
+        '    handler <<<',
+        '      result = await analyze_audio_fft(track.audio_path)',
+        '    >>>',
+        '    respond 200 json=result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+
+      // Verify execution order
+      const deriveIdx = content.indexOf('track = ');
+      const guardIdx = content.indexOf('if not (track)');
+      const handlerIdx = content.indexOf('analyze_audio_fft');
+      const respondIdx = content.indexOf('return result');
+
+      expect(deriveIdx).toBeGreaterThan(-1);
+      expect(guardIdx).toBeGreaterThan(deriveIdx);
+      expect(handlerIdx).toBeGreaterThan(guardIdx);
+      expect(respondIdx).toBeGreaterThan(handlerIdx);
+    });
+
+    test('full v3 portable route example compiles end-to-end', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = readFileSync(resolve(ROOT, 'examples/route-v3.kern'), 'utf-8');
+      const result = transpileFastAPI(parse(source));
+
+      // Portable POST route
+      const postRoute = result.artifacts!.find((a: any) => a.path.includes('post_api_users'));
+      expect(postRoute).toBeDefined();
+      expect(postRoute!.content).toContain('user = ');
+      expect(postRoute!.content).toContain('JSONResponse(content=user, status_code=201)');
+
+      // Portable GET :id route
+      const getIdRoute = result.artifacts!.find((a: any) => a.path.includes('get_api_users_id'));
+      expect(getIdRoute).toBeDefined();
+      expect(getIdRoute!.content).toContain('user = ');
+      expect(getIdRoute!.content).toContain('if not (user)');
+      expect(getIdRoute!.content).toContain('return user');
+
+      // Portable DELETE route
+      const deleteRoute = result.artifacts!.find((a: any) => a.path.includes('delete_api_users_id'));
+      expect(deleteRoute).toBeDefined();
+      expect(deleteRoute!.content).toContain('Response(status_code=204)');
+    });
+
+    test('bilingual: same .kern compiles to matching Express AND FastAPI', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../../express/src/transpiler-express.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test port=3000',
+        '  route GET /api/users/:id',
+        '    derive user expr={{await db.findById(params.id)}}',
+        '    guard name=exists expr={{user}} else=404',
+        '    respond 200 json=user',
+        '  route POST /api/users',
+        '    auth required',
+        '    validate CreateUserSchema',
+        '    derive user expr={{await db.create(body)}}',
+        '    respond 201 json=user',
+        '  route DELETE /api/users/:id',
+        '    auth required',
+        '    respond 204',
+      ].join('\n');
+      const ast = parse(source);
+      const expressResult = transpileExpress(ast);
+      const fastapiResult = transpileFastAPI(ast);
+
+      // Both produce 3 route artifacts
+      const expressRoutes = expressResult.artifacts!.filter(a => a.type === 'route');
+      const fastapiRoutes = fastapiResult.artifacts!.filter(a => a.type === 'route');
+      expect(expressRoutes.length).toBe(3);
+      expect(fastapiRoutes.length).toBe(3);
+
+      // GET :id — both have derive, guard, respond
+      const exGetId = expressRoutes.find(a => a.path.includes('get'));
+      const pyGetId = fastapiRoutes.find(a => a.path.includes('get'));
+      expect(exGetId!.content).toContain('const user =');
+      expect(pyGetId!.content).toContain('user = ');
+      expect(exGetId!.content).toContain('res.json(user)');
+      expect(pyGetId!.content).toContain('return user');
+
+      // POST — both have auth + create + 201
+      const exPost = expressRoutes.find(a => a.path.includes('post'));
+      const pyPost = fastapiRoutes.find(a => a.path.includes('post'));
+      expect(exPost!.content).toContain('res.status(201).json(user)');
+      expect(pyPost!.content).toContain('JSONResponse(content=user, status_code=201)');
+
+      // DELETE — both respond 204
+      const exDelete = expressRoutes.find(a => a.path.includes('delete'));
+      const pyDelete = fastapiRoutes.find(a => a.path.includes('delete'));
+      expect(exDelete!.content).toContain('res.status(204).send()');
+      expect(pyDelete!.content).toContain('Response(status_code=204)');
+    });
+  });
+
+  // ── Portable Control Flow — branch, each, collect ──────────────────
+
+  describe('Portable Control Flow — branch, each, collect', () => {
+    test('branch generates if/elif chain on query param', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    params role:string',
+        '    derive users expr={{await db.query("SELECT * FROM users")}}',
+        '    branch name=filterByRole on=query.role',
+        '      path value="admin"',
+        '        collect name=filtered from=users where={{item.role == "admin"}}',
+        '        respond 200 json=filtered',
+        '      path value="user"',
+        '        collect name=filtered from=users where={{item.role == "user"}}',
+        '        respond 200 json=filtered',
+        '    respond 200 json=users',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+
+      // Branch generates if/elif
+      expect(content).toContain('if role == "admin"');
+      expect(content).toContain('elif role == "user"');
+      // Collect inside branch
+      expect(content).toContain('item for item in');
+      // Respond inside branch
+      expect(content).toContain('return filtered');
+      // Default respond at end
+      expect(content).toContain('return users');
+    });
+
+    test('collect generates list comprehension with filter', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/tracks',
+        '    derive tracks expr={{await db.query("SELECT * FROM tracks")}}',
+        '    collect name=popular from=tracks where={{item.plays > 1000}} limit=10',
+        '    respond 200 json=popular',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+
+      // With both where+limit, uses multi-step pattern
+      expect(content).toContain('item for item in popular if item.plays > 1000');
+      expect(content).toContain('[:10]');
+      expect(content).toContain('return popular');
+    });
+
+    test('each generates for loop', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route POST /api/batch',
+        '    derive items expr={{body.items}}',
+        '    each name=item in=items',
+        '      derive result expr={{await process_item(item)}}',
+        '    respond 200 json=items',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+
+      expect(content).toContain('for item in items:');
+      expect(content).toContain('result = await process_item(item)');
+    });
+
+    test('each with index generates enumerate loop', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/list',
+        '    derive items expr={{await db.get_all()}}',
+        '    each name=item in=items index=i',
+        '      derive numbered expr={{{"index": i, **item}}}',
+        '    respond 200 json=items',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+
+      expect(route!.content).toContain('for i, item in enumerate(items):');
+    });
+
+    test('collect with sort generates sorted()', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/tracks',
+        '    derive tracks expr={{await db.query("SELECT * FROM tracks")}}',
+        '    collect name=sorted from=tracks order=item.score',
+        '    respond 200 json=sorted',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+
+      // 'sorted' is a Python built-in → renamed to sorted_result
+      expect(route!.content).toContain('sorted(sorted_result, key=lambda item: item.score)');
+    });
+  });
+
+  // ── Portable Effect — effect + trigger + recover ───────────────────
+
+  describe('Portable Effect — effect + trigger + recover', () => {
+    test('effect with retry generates for loop', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users',
+        '    effect fetchUsers',
+        '      trigger db query="SELECT * FROM users"',
+        '      recover retry=3 fallback=[]',
+        '    respond 200 json=fetchUsers.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+
+      // Retry loop — Python style
+      expect(content).toContain('for _attempt in range(3):');
+      expect(content).toContain('fetch_users = SELECT * FROM users');
+      expect(content).toContain('break');
+      // Fallback
+      expect(content).toContain('fetch_users = []');
+      // effectName.result → effectName (snake_case)
+      expect(content).toContain('return fetch_users');
+    });
+
+    test('effect without retry generates try/except', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/data',
+        '    effect loadData',
+        '      trigger http url="/api/external"',
+        '      recover fallback=null',
+        '    guard name=hasData expr={{loadData.result}} else=502',
+        '    respond 200 json=loadData.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+
+      // try/except (no retry)
+      expect(content).toContain('try:');
+      expect(content).toContain('except Exception:');
+      expect(content).toContain('load_data = None');
+      // guard + respond reference effect
+      expect(content).toContain('if not (load_data)');
+      expect(content).toContain('return load_data');
+    });
+
+    test('effect with expr trigger rewrites portable refs', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'server name=Test',
+        '  route GET /api/users/:id',
+        '    effect fetchUser',
+        '      trigger db expr={{await db.users.find_by_id(params.id)}}',
+        '      recover retry=2 fallback=null',
+        '    guard name=exists expr={{fetchUser.result}} else=404',
+        '    respond 200 json=fetchUser.result',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      const content = route!.content;
+
+      // params.id → id (function param)
+      expect(content).toContain('await db.users.find_by_id(id)');
+      expect(content).toContain('_attempt in range(2)');
+      // .result stripped
+      expect(content).toContain('if not (fetch_user)');
+      expect(content).toContain('return fetch_user');
+    });
+  });
 });

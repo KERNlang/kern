@@ -54,7 +54,7 @@ export const NODE_TYPES = [
   'server', 'route', 'middleware', 'handler', 'schema',
   'stream', 'spawn', 'timer', 'on', 'env', 'websocket',
   // Route children (v3 — framework-agnostic route syntax)
-  'params', 'auth', 'validate',
+  'params', 'auth', 'validate', 'respond', 'trigger',
   // CLI
   'cli', 'command', 'arg', 'flag', 'import',
   // Terminal

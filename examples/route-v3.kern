@@ -17,25 +17,19 @@ server name=UserAPI port=3001
   route POST /api/users
     auth required
     validate CreateUserSchema
-    handler <<<
-      const user = await db.users.create(req.body);
-      res.status(201).json(user);
-    >>>
+    derive user expr={{await db.users.create(body)}}
+    respond 201 json=user
     error 400 "Invalid request"
     error 401 "Unauthorized"
 
   route GET /api/users/:id
     params include:string
-    handler <<<
-      const user = await db.users.findById(req.params.id);
-      if (!user) return res.status(404).json({ error: 'Not found' });
-      res.json(user);
-    >>>
+    derive user expr={{await db.users.findById(params.id)}}
+    guard name=exists expr={{user}} else=404
+    respond 200 json=user
     error 404 "Not found"
 
   route DELETE /api/users/:id
     auth required
-    handler <<<
-      await db.users.delete(req.params.id);
-      res.status(204).send();
-    >>>
+    derive result expr={{await db.users.delete(params.id)}}
+    respond 204

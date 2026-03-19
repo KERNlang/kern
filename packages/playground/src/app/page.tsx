@@ -183,10 +183,17 @@ export default function PlaygroundPage() {
   // Initialize from URL params on mount
   useEffect(() => {
     const shared = readShareParams();
-    if (shared.mode) setMode(shared.mode);
-    if (shared.source) setSourceCode(shared.source);
-    else if (shared.mode !== 'infer') setSourceCode(EXAMPLES[0].source);
-    if (shared.target) setSelectedTarget(shared.target);
+    const resolvedMode = shared.mode ?? 'infer';
+    const resolvedTarget = (shared.target ?? 'tailwind') as PlaygroundTarget;
+    setMode(resolvedMode);
+    setSelectedTarget(resolvedTarget);
+    if (shared.source) {
+      setSourceCode(shared.source);
+    } else if (resolvedMode === 'infer') {
+      setSourceCode(INFER_EXAMPLES[resolvedTarget]);
+    } else {
+      setSourceCode(EXAMPLES[0].source);
+    }
   }, []);
 
   // Switch mode: swap default source
@@ -435,6 +442,7 @@ export default function PlaygroundPage() {
                     output={compiledOutput}
                     outputLanguage={TARGET_LANGUAGE[selectedTarget]}
                     artifacts={artifacts}
+                    target={selectedTarget}
                   />
                 )
               )}
@@ -513,6 +521,7 @@ export default function PlaygroundPage() {
                   output={compiledOutput}
                   outputLanguage={TARGET_LANGUAGE[selectedTarget]}
                   artifacts={artifacts}
+                  target={selectedTarget}
                 />
               )
             )}
