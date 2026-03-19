@@ -261,10 +261,33 @@ function loadConfig(): ResolvedKernConfig {
       return resolveConfig(userConfig as Partial<KernConfig>);
     } catch (err) {
       console.error(`Warning: Failed to load kern.config.ts: ${(err as Error).message}`);
-      return resolveConfig({});
     }
   }
-  return resolveConfig({});
+
+  // No kern.config.ts — auto-detect target from package.json
+  const autoDetected = autoDetectTarget();
+  return resolveConfig(autoDetected ? { target: autoDetected } : {});
+}
+
+function autoDetectTarget(): import('@kernlang/core').KernTarget | null {
+  const pkgPath = resolve(process.cwd(), 'package.json');
+  if (!existsSync(pkgPath)) return null;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+    const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+    // Priority: most specific first
+    if (allDeps['next']) return 'nextjs';
+    if (allDeps['nuxt']) return 'nuxt' as any;
+    if (allDeps['vue']) return 'vue';
+    if (allDeps['react-native']) return 'native';
+    if (allDeps['fastapi'] || allDeps['flask'] || allDeps['django']) return 'express' as any; // Python web → express rules are closest
+    if (allDeps['express'] || allDeps['fastify'] || allDeps['koa'] || allDeps['hono']) return 'express';
+    if (allDeps['tailwindcss'] && allDeps['react']) return 'tailwind';
+    if (allDeps['react']) return 'web';
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function loadTemplates(cfg: ResolvedKernConfig): void {
@@ -571,7 +594,14 @@ if (args[0] === 'review') {
   }
 
   // Load kern.config.ts to get registered templates and target
+  // Auto-detects target from package.json if no config exists
   const reviewCfg = loadConfig();
+  if (!jsonOutput && !sarifOutput) {
+    const configExists = existsSync(resolve(process.cwd(), 'kern.config.ts'));
+    if (!configExists) {
+      console.log(`  Target: ${reviewCfg.target} (auto-detected from package.json)`);
+    }
+  }
   const reviewConfig: ReviewConfig = {
     registeredTemplates: [],
     minCoverage: minCoverage ?? 0,
