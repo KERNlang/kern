@@ -11,6 +11,9 @@
     { "path": "packages/metrics" },
     { "path": "packages/cli" },
     { "path": "packages/compat" },
-    { "path": "packages/evolve" }
+    { "path": "packages/evolve" },
+    { "path": "packages/review" },
+    { "path": "packages/review-python" },
+    { "path": "packages/vue" }
   ]
 }
