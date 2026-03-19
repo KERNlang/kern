@@ -744,15 +744,35 @@ export function generateModule(node: IRNode): string[] {
     const names = ep.names as string;
     const typeNames = ep.types as string;
     const star = ep.star === 'true' || ep.star === true;
+    const defaultExport = ep.default as string;
 
+    // export * from './foo.js'
     if (from && !names && !typeNames && star) {
       lines.push(`export * from '${from}';`);
     }
+    // export { a, b } from './foo.js'
     if (from && names) {
       lines.push(`export { ${names.split(',').map(s => s.trim()).join(', ')} } from '${from}';`);
     }
+    // export type { A, B } from './types.js'
     if (from && typeNames) {
       lines.push(`export type { ${typeNames.split(',').map(s => s.trim()).join(', ')} } from '${from}';`);
+    }
+    // export default foo
+    if (defaultExport && !from) {
+      lines.push(`export default ${defaultExport};`);
+    }
+    // export default from './foo.js' (re-export default)
+    if (defaultExport && from) {
+      lines.push(`export { default as ${defaultExport} } from '${from}';`);
+    }
+    // export { a, b } (no from — local re-export)
+    if (!from && names && !defaultExport) {
+      lines.push(`export { ${names.split(',').map(s => s.trim()).join(', ')} };`);
+    }
+    // export type { A, B } (no from — local type re-export)
+    if (!from && typeNames && !defaultExport) {
+      lines.push(`export type { ${typeNames.split(',').map(s => s.trim()).join(', ')} };`);
     }
   }
 

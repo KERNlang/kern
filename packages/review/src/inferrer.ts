@@ -58,6 +58,7 @@ export function inferFromSourceFile(sourceFile: SourceFile): InferResult[] {
   results.push(...inferErrors(sourceFile));
   results.push(...inferImports(sourceFile));
   results.push(...inferConsts(sourceFile));
+  results.push(...inferExports(sourceFile));
 
   // Phase 2: Composite patterns
   results.push(...inferMachines(sourceFile, results));
@@ -400,6 +401,80 @@ function inferConsts(sourceFile: SourceFile): InferResult[] {
       results.push(makeResult(node, sourceFile, startOffset, endOffset, startLine, endLine,
         `const ${name}${typeName ? ': ' + typeName : ''} = ${initializer || '...'}`,
         'high', 90, originalText));
+    }
+  }
+
+  return results;
+}
+
+// ── Phase 1: Export Declarations ─────────────────────────────────────────
+
+function inferExports(sourceFile: SourceFile): InferResult[] {
+  const results: InferResult[] = [];
+  const filePath = sourceFile.getFilePath() || 'input.ts';
+
+  // Named re-exports: export { x } from './foo'
+  for (const decl of sourceFile.getExportDeclarations()) {
+    const startLine = decl.getStartLineNumber();
+    const endLine = decl.getEndLineNumber();
+    const startOffset = decl.getStart();
+    const endOffset = decl.getEnd();
+    const text = decl.getText();
+
+    const specifier = decl.getModuleSpecifierValue();
+    const namedExports = decl.getNamedExports().map(e => e.getName());
+    const isTypeOnly = decl.isTypeOnly();
+
+    const node: IRNode = {
+      type: 'export',
+      props: {
+        ...(specifier ? { from: specifier } : {}),
+        ...(namedExports.length > 0 ? (isTypeOnly ? { types: namedExports.join(',') } : { names: namedExports.join(',') }) : {}),
+        ...(!specifier && namedExports.length === 0 ? { star: 'true' } : {}),
+      },
+    };
+
+    const tsTokens = text.split(/\s+/).length;
+    const kernTokens = Math.max(1, Math.ceil(tsTokens * 0.4));
+
+    results.push({
+      node,
+      nodeId: `${filePath}#export@${startOffset}`,
+      promptAlias: '',
+      startLine,
+      endLine,
+      sourceSpans: [getSpan(sourceFile, startOffset, endOffset)],
+      summary: `re-export${specifier ? ` from ${specifier}` : ''}`,
+      confidence: 'high',
+      confidencePct: 95,
+      kernTokens,
+      tsTokens,
+    });
+  }
+
+  // Export assignments: export default x
+  for (const stmt of sourceFile.getStatements()) {
+    if (stmt.getKind() === SyntaxKind.ExportAssignment) {
+      const startLine = stmt.getStartLineNumber();
+      const endLine = stmt.getEndLineNumber();
+      const startOffset = stmt.getStart();
+      const endOffset = stmt.getEnd();
+      const text = stmt.getText();
+      const expr = (stmt as import('ts-morph').ExportAssignment).getExpression().getText();
+
+      results.push({
+        node: { type: 'export', props: { default: expr } },
+        nodeId: `${filePath}#export-default@${startOffset}`,
+        promptAlias: '',
+        startLine,
+        endLine,
+        sourceSpans: [getSpan(sourceFile, startOffset, endOffset)],
+        summary: `export default ${expr}`,
+        confidence: 'high',
+        confidencePct: 95,
+        kernTokens: 2,
+        tsTokens: text.split(/\s+/).length,
+      });
     }
   }
 
