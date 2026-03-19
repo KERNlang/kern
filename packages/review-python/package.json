@@ -1,7 +1,7 @@
 {
   "name": "@kernlang/review-python",
   "version": "0.1.0",
-  "description": "Python concept mapper for kern review — tree-sitter based",
+  "description": "Python concept mapper for kern review \u2014 tree-sitter based",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -18,5 +18,11 @@
   "devDependencies": {
     "ts-morph": "^24.0.0",
     "typescript": "^5.7.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   }
 }

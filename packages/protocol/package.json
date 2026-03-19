@@ -1,12 +1,15 @@
 {
   "name": "@kernlang/protocol",
   "version": "2.0.0",
-  "description": "Kern draft protocol — structured AI communication format",
+  "description": "Kern draft protocol \u2014 structured AI communication format",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
     "dist"
