@@ -80,6 +80,55 @@ describe('scanProject — target detection', () => {
     const result = scanProject(testDir);
     expect(result.config.target).toBe('nextjs');
   });
+
+  it('detects Ink → ink (not web, even though react is a dep)', () => {
+    testDir = createTestDir();
+    writeJson(testDir, 'package.json', {
+      dependencies: { ink: '^5.0.0', react: '^18.0.0' },
+    });
+    const result = scanProject(testDir);
+    expect(result.config.target).toBe('ink');
+  });
+
+  it('detects Vue → vue', () => {
+    testDir = createTestDir();
+    writeJson(testDir, 'package.json', { dependencies: { vue: '^3.4.0' } });
+    const result = scanProject(testDir);
+    expect(result.config.target).toBe('vue');
+  });
+
+  it('detects Nuxt → nuxt (not vue, even though vue is a dep)', () => {
+    testDir = createTestDir();
+    writeJson(testDir, 'package.json', {
+      dependencies: { nuxt: '^3.10.0', vue: '^3.4.0' },
+    });
+    const result = scanProject(testDir);
+    expect(result.config.target).toBe('nuxt');
+  });
+
+  it('detects FastAPI from pyproject.toml', () => {
+    testDir = createTestDir();
+    writeJson(testDir, 'package.json', { dependencies: {} });
+    writeFile(testDir, 'pyproject.toml', `[project]\nname = "my-api"\ndependencies = ["fastapi>=0.110.0", "uvicorn"]\n`);
+    const result = scanProject(testDir);
+    expect(result.config.target).toBe('fastapi');
+  });
+
+  it('detects FastAPI from requirements.txt', () => {
+    testDir = createTestDir();
+    writeJson(testDir, 'package.json', { dependencies: {} });
+    writeFile(testDir, 'requirements.txt', 'fastapi>=0.110.0\nuvicorn\npydantic\n');
+    const result = scanProject(testDir);
+    expect(result.config.target).toBe('fastapi');
+  });
+
+  it('Node.js target takes priority over Python (mixed project)', () => {
+    testDir = createTestDir();
+    writeJson(testDir, 'package.json', { dependencies: { express: '^4.18.0' } });
+    writeFile(testDir, 'requirements.txt', 'fastapi>=0.110.0\n');
+    const result = scanProject(testDir);
+    expect(result.config.target).toBe('express');
+  });
 });
 
 // ── Framework Versions ───────────────────────────────────────────────────
