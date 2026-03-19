@@ -24,6 +24,14 @@ export class KernParseError extends KernError {
   }
 }
 
+export class KernCodegenError extends Error {
+  constructor(message: string, public readonly node?: { type: string; loc?: { line: number; col: number } }) {
+    const loc = node?.loc ? ` at ${node.type}:${node.loc.line}:${node.loc.col}` : node ? ` at ${node.type}` : '';
+    super(`Codegen error: ${message}${loc}`);
+    this.name = 'KernCodegenError';
+  }
+}
+
 function codeFrame(source: string, line: number, col: number): string {
   const lines = source.split('\n');
   const start = Math.max(0, line - 3);

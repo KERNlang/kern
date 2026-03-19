@@ -514,6 +514,93 @@ function resolveMiddlewareUsage(
   };
 }
 
+// ── WebSocket artifact builder ────────────────────────────────────────────
+
+interface WebSocketArtifactRef {
+  artifact: GeneratedArtifact;
+  funcName: string;
+  fileBase: string;
+  wsPath: string;
+}
+
+function buildWebSocketArtifact(
+  wsNode: IRNode,
+  wsIndex: number,
+  sourceMap: SourceMapEntry[],
+): WebSocketArtifactRef {
+  const props = getProps(wsNode);
+  const wsPath = String(props.path || '/ws');
+  const fileBase = slugify(`ws_${wsPath.replace(/[:/]/g, '_')}`) || `ws_${wsIndex}`;
+  const funcName = `websocket_${slugify(wsPath.replace(/[:/]/g, '_'))}`;
+
+  const onNodes = getChildren(wsNode, 'on');
+
+  // Extract handler code per event
+  let connectCode = '';
+  let messageCode = '';
+  let disconnectCode = '';
+
+  for (const onNode of onNodes) {
+    const onProps = getProps(onNode);
+    const event = String(onProps.event || onProps.name || '');
+    const handlerNode = getFirstChild(onNode, 'handler');
+    const handlerProps = handlerNode ? getProps(handlerNode) : {};
+    const code = typeof handlerProps.code === 'string' ? String(handlerProps.code) : '';
+
+    if (event === 'connect') connectCode = code;
+    else if (event === 'message') messageCode = code;
+    else if (event === 'disconnect') disconnectCode = code;
+  }
+
+  const lines: string[] = [];
+
+  // Imports
+  lines.push('from fastapi import WebSocket');
+  lines.push('from starlette.websockets import WebSocketDisconnect');
+  lines.push('');
+
+  // WebSocket endpoint function (standalone, will be mounted via app.websocket)
+  lines.push(`async def ${funcName}(websocket: WebSocket):`);
+  lines.push('    await websocket.accept()');
+
+  // Connect handler
+  if (connectCode) {
+    lines.push(...indentHandler(connectCode, '    '));
+  }
+
+  // Message loop + disconnect
+  lines.push('    try:');
+  lines.push('        while True:');
+  lines.push('            data = await websocket.receive_json()');
+  if (messageCode) {
+    lines.push(...indentHandler(messageCode, '            '));
+  }
+  lines.push('    except WebSocketDisconnect:');
+  if (disconnectCode) {
+    lines.push(...indentHandler(disconnectCode, '        '));
+  } else {
+    lines.push('        pass');
+  }
+
+  sourceMap.push({
+    irLine: wsNode.loc?.line || 0,
+    irCol: wsNode.loc?.col || 1,
+    outLine: 1,
+    outCol: 1,
+  });
+
+  return {
+    funcName,
+    fileBase,
+    wsPath,
+    artifact: {
+      path: `ws/${fileBase}.py`,
+      content: lines.join('\n'),
+      type: 'websocket',
+    },
+  };
+}
+
 // ── Main transpiler ──────────────────────────────────────────────────────
 
 export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): TranspileResult {
@@ -525,6 +612,7 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   const port = String(serverProps.port || '8000');
   const serverMiddlewares = getChildren(serverNode, 'middleware');
   const routeNodes = getChildren(serverNode, 'route');
+  const websocketNodes = getChildren(serverNode, 'websocket');
 
   const isStrict = !_config || (_config.fastapi?.security ?? 'strict') === 'strict';
   const corsEnabled = _config?.fastapi?.cors ?? false;
@@ -579,9 +667,25 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     buildRouteArtifact(routeNode, index, sourceMap),
   );
 
+  // Build websocket artifacts
+  const wsArtifacts = websocketNodes.map((wsNode, index) =>
+    buildWebSocketArtifact(wsNode, index, sourceMap),
+  );
+
+  // WebSocket imports
+  if (wsArtifacts.length > 0) {
+    serverImports.add('from fastapi import WebSocket');
+    serverImports.add('from starlette.websockets import WebSocketDisconnect');
+  }
+
   // Route imports
   for (const route of routeArtifacts) {
     serverImports.add(`from routes.${route.fileBase} import router as ${route.routerName}`);
+  }
+
+  // WebSocket imports
+  for (const ws of wsArtifacts) {
+    serverImports.add(`from ws.${ws.fileBase} import ${ws.funcName}`);
   }
 
   // ── Generate main.py ──────────────────────────────────────────────────
@@ -626,6 +730,14 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     lines.push('');
   }
 
+  // WebSocket route decorators
+  for (const ws of wsArtifacts) {
+    lines.push(`app.websocket("${ws.wsPath}")(${ws.funcName})`);
+  }
+  if (wsArtifacts.length > 0) {
+    lines.push('');
+  }
+
   // Error handlers
   if (isStrict) {
     lines.push('');
@@ -664,6 +776,7 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
 
   const artifacts: GeneratedArtifact[] = [
     ...routeArtifacts.map(r => r.artifact),
+    ...wsArtifacts.map(w => w.artifact),
     ...[...middlewareArtifacts.values()].map(m => m.artifact),
   ];
 

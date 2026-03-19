@@ -666,6 +666,7 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
     dependencyComments.push('compression');
   }
 
+  const websocketNodes = getChildren(serverNode, 'websocket');
   const routeArtifacts = routeNodes.map((routeNode, index) => buildRouteArtifact(routeNode, index, middlewareArtifacts, sourceMap));
 
   const lines: string[] = [];
@@ -674,6 +675,10 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   }
   lines.push(`import express from 'express';`);
   lines.push(`import type { NextFunction, Request, Response } from 'express';`);
+  if (websocketNodes.length > 0) {
+    lines.push(`import { createServer } from 'http';`);
+    lines.push(`import { WebSocketServer, type WebSocket } from 'ws';`);
+  }
   for (const serverImport of [...serverImports].sort()) {
     lines.push(serverImport);
   }
@@ -729,10 +734,104 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
     lines.push('});');
   }
 
-  lines.push('');
-  lines.push(`app.listen(port, () => {`);
-  lines.push(`  console.log(\`\${serverName} listening on port \${port}\`);`);
-  lines.push('});');
+  // WebSocket support
+  if (websocketNodes.length > 0) {
+    lines.push('');
+    lines.push(`const server = createServer(app);`);
+
+    for (const wsNode of websocketNodes) {
+      const wsProps = getProps(wsNode);
+      const wsPath = String(wsProps.path || '/ws');
+      const wsName = String(wsProps.name || 'ws');
+      const wsOnNodes = getChildren(wsNode, 'on');
+
+      lines.push(`const ${wsName}Server = new WebSocketServer({ server, path: '${wsPath}' });`);
+      lines.push('');
+      lines.push(`${wsName}Server.on('connection', (ws: WebSocket) => {`);
+
+      // on event=connect
+      const connectNode = wsOnNodes.find(n => {
+        const e = String(getProps(n).event || getProps(n).name || '');
+        return e === 'connect' || e === 'connection';
+      });
+      if (connectNode) {
+        const handlerChild = getChildren(connectNode, 'handler')[0];
+        const code = handlerChild ? String(getProps(handlerChild).code || '') : '';
+        if (code) {
+          for (const line of code.split('\n')) {
+            lines.push(`  ${line}`);
+          }
+        }
+      }
+
+      // on event=message
+      const messageNode = wsOnNodes.find(n => {
+        const e = String(getProps(n).event || getProps(n).name || '');
+        return e === 'message';
+      });
+      lines.push('');
+      lines.push(`  ws.on('message', (raw: Buffer) => {`);
+      lines.push(`    const data = JSON.parse(raw.toString());`);
+      if (messageNode) {
+        const handlerChild = getChildren(messageNode, 'handler')[0];
+        const code = handlerChild ? String(getProps(handlerChild).code || '') : '';
+        if (code) {
+          for (const line of code.split('\n')) {
+            lines.push(`    ${line}`);
+          }
+        }
+      }
+      lines.push(`  });`);
+
+      // on event=error
+      const errorNode = wsOnNodes.find(n => {
+        const e = String(getProps(n).event || getProps(n).name || '');
+        return e === 'error';
+      });
+      if (errorNode) {
+        const handlerChild = getChildren(errorNode, 'handler')[0];
+        const code = handlerChild ? String(getProps(handlerChild).code || '') : '';
+        lines.push('');
+        lines.push(`  ws.on('error', (error: Error) => {`);
+        if (code) {
+          for (const line of code.split('\n')) {
+            lines.push(`    ${line}`);
+          }
+        }
+        lines.push(`  });`);
+      }
+
+      // on event=disconnect/close
+      const closeNode = wsOnNodes.find(n => {
+        const e = String(getProps(n).event || getProps(n).name || '');
+        return e === 'disconnect' || e === 'close';
+      });
+      lines.push('');
+      lines.push(`  ws.on('close', () => {`);
+      if (closeNode) {
+        const handlerChild = getChildren(closeNode, 'handler')[0];
+        const code = handlerChild ? String(getProps(handlerChild).code || '') : '';
+        if (code) {
+          for (const line of code.split('\n')) {
+            lines.push(`    ${line}`);
+          }
+        }
+      }
+      lines.push(`  });`);
+
+      lines.push(`});`);
+    }
+
+    lines.push('');
+    lines.push(`server.listen(port, () => {`);
+    lines.push(`  console.log(\`\${serverName} listening on port \${port}\`);`);
+    lines.push('});');
+  } else {
+    lines.push('');
+    lines.push(`app.listen(port, () => {`);
+    lines.push(`  console.log(\`\${serverName} listening on port \${port}\`);`);
+    lines.push('});');
+  }
   lines.push('');
   lines.push('export default app;');
 

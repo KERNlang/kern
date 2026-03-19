@@ -172,6 +172,7 @@ function renderNode(node: IRNode, ctx: Ctx, indent: string): void {
     case 'redirect': renderRedirect(node, ctx, indent); break;
     case 'import': renderImport(node, ctx); break;
     case 'fetch': renderFetchNode(node, ctx); break;
+    case 'on': renderOnHandler(node, ctx); return;
     case 'theme': break;
     default:
       ctx.lines.push(`${indent}<div${twClasses(node, ctx)}>`);
@@ -351,6 +352,64 @@ function renderToggle(node: IRNode, ctx: Ctx, indent: string): void {
   ctx.lines.push(`${indent}  <input type="checkbox" className="sr-only peer" checked={${bind || 'value'}} onChange={(e) => ${setter}(e.target.checked)} />`);
   ctx.lines.push(`${indent}  <div className="w-11 h-6 bg-zinc-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600" />`);
   ctx.lines.push(`${indent}</label>`);
+}
+
+function renderOnHandler(node: IRNode, ctx: Ctx): void {
+  const p = getProps(node);
+  const event = (p.event || p.name) as string;
+  const handlerRef = p.handler as string;
+  const key = p.key as string;
+  const isAsync = p.async === 'true' || p.async === true;
+
+  const handlerChild = (node.children || []).find(c => c.type === 'handler');
+  const code = handlerChild ? (getProps(handlerChild).code as string || '') : '';
+
+  if (handlerRef && !code) return;
+
+  ctx.isClient = true; // event handlers require 'use client'
+  const fnName = handlerRef || `handle${event.charAt(0).toUpperCase() + event.slice(1)}`;
+  const asyncKw = isAsync ? 'async ' : '';
+
+  const paramType = event === 'submit' ? 'e: React.FormEvent'
+    : event === 'click' ? 'e: React.MouseEvent'
+    : event === 'change' ? 'e: React.ChangeEvent'
+    : event === 'key' || event === 'keydown' || event === 'keyup' ? 'e: React.KeyboardEvent'
+    : event === 'focus' || event === 'blur' ? 'e: React.FocusEvent'
+    : event === 'scroll' ? 'e: React.UIEvent'
+    : `e: React.SyntheticEvent`;
+
+  const keyGuard = key ? `    if (e.key !== '${key}') return;\n` : '';
+
+  addNamedImport(ctx, 'react', 'useCallback');
+  let block = `  const ${fnName} = useCallback(${asyncKw}(${paramType}) => {\n`;
+  if (keyGuard) block += keyGuard;
+  if (code) {
+    for (const line of code.split('\n')) {
+      block += `    ${line}\n`;
+    }
+  }
+  block += `  }, []);\n`;
+  ctx.bodyLines.push(block);
+
+  if (event === 'key' || event === 'keydown' || event === 'keyup') {
+    addNamedImport(ctx, 'react', 'useEffect');
+    const domEvent = event === 'key' ? 'keydown' : event;
+    let effect = `  useEffect(() => {\n`;
+    effect += `    const listener = (e: KeyboardEvent) => ${fnName}(e as unknown as React.KeyboardEvent);\n`;
+    effect += `    window.addEventListener('${domEvent}', listener);\n`;
+    effect += `    return () => window.removeEventListener('${domEvent}', listener);\n`;
+    effect += `  }, [${fnName}]);\n`;
+    ctx.bodyLines.push(effect);
+  }
+
+  if (event === 'resize') {
+    addNamedImport(ctx, 'react', 'useEffect');
+    let effect = `  useEffect(() => {\n`;
+    effect += `    window.addEventListener('resize', ${fnName});\n`;
+    effect += `    return () => window.removeEventListener('resize', ${fnName});\n`;
+    effect += `  }, [${fnName}]);\n`;
+    ctx.bodyLines.push(effect);
+  }
 }
 
 function renderGrid(node: IRNode, ctx: Ctx, indent: string): void {

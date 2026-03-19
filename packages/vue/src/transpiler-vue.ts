@@ -89,6 +89,17 @@ interface StateDecl {
   initial: string;
 }
 
+// ── Event Handler Declarations ──────────────────────────────────────────
+
+interface EventHandlerDecl {
+  event: string;
+  fnName: string;
+  code: string;
+  isAsync: boolean;
+  key?: string;
+  paramType: string;
+}
+
 // ── Build Context ────────────────────────────────────────────────────────
 
 interface VueBuilder {
@@ -96,6 +107,7 @@ interface VueBuilder {
   scriptImports: Set<string>;
   vueImports: Set<string>;
   stateDecls: StateDecl[];
+  eventHandlers: EventHandlerDecl[];
   logicBlocks: string[];
   cssRules: Map<string, Record<string, string | number>>;
   sourceMap: SourceMapEntry[];
@@ -110,6 +122,7 @@ function createBuilder(config?: ResolvedKernConfig): VueBuilder {
     scriptImports: new Set(),
     vueImports: new Set(),
     stateDecls: [],
+    eventHandlers: [],
     logicBlocks: [],
     cssRules: new Map(),
     sourceMap: [],
@@ -184,6 +197,47 @@ function addLayoutDefaults(nodeType: string, styles: Record<string, string | num
   return s;
 }
 
+// ── Event Type Mapping ──────────────────────────────────────────────────
+
+function eventParamType(event: string): string {
+  if (event === 'click') return 'e: MouseEvent';
+  if (event === 'submit') return 'e: Event';
+  if (event === 'change') return 'e: Event';
+  if (event === 'key' || event === 'keydown' || event === 'keyup') return 'e: KeyboardEvent';
+  if (event === 'focus' || event === 'blur') return 'e: FocusEvent';
+  if (event === 'drag' || event === 'drop') return 'e: DragEvent';
+  if (event === 'scroll') return 'e: Event';
+  if (event === 'resize') return '';
+  if (event === 'input') return 'e: Event';
+  if (event === 'mouseover' || event === 'mouseout' || event === 'mouseenter' || event === 'mouseleave') return 'e: MouseEvent';
+  return 'e: Event';
+}
+
+function collectOnHandler(node: IRNode, ctx: VueBuilder): void {
+  const props = getProps(node);
+  const event = (props.event || props.name) as string;
+  const handlerRef = props.handler as string;
+  const key = props.key as string;
+  const isAsync = props.async === 'true' || props.async === true;
+
+  const handlerChild = (node.children || []).find(c => c.type === 'handler');
+  const code = handlerChild ? (getProps(handlerChild).code as string || '') : '';
+
+  if (handlerRef && !code) return;
+
+  const fnName = handlerRef || `handle${event.charAt(0).toUpperCase() + event.slice(1)}`;
+  const paramType = eventParamType(event);
+
+  // Events that need onMounted + addEventListener (global/window events)
+  const needsMounted = event === 'key' || event === 'keydown' || event === 'keyup' || event === 'resize';
+  if (needsMounted) {
+    ctx.vueImports.add('onMounted');
+    ctx.vueImports.add('onUnmounted');
+  }
+
+  ctx.eventHandlers.push({ event, fnName, code, isAsync, key, paramType });
+}
+
 // ── Template Rendering ───────────────────────────────────────────────────
 
 function renderNode(node: IRNode, ctx: VueBuilder, indent: string): void {
@@ -198,6 +252,9 @@ function renderNode(node: IRNode, ctx: VueBuilder, indent: string): void {
       return;
     case 'logic':
       ctx.logicBlocks.push(props.code as string);
+      return;
+    case 'on':
+      collectOnHandler(node, ctx);
       return;
     case 'theme':
       return;
@@ -281,7 +338,7 @@ function renderNode(node: IRNode, ctx: VueBuilder, indent: string): void {
   const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
 
   // Children or self-closing
-  const hasContent = (node.children && node.children.some(c => c.type !== 'state' && c.type !== 'logic' && c.type !== 'theme' && c.type !== 'handler')) ||
+  const hasContent = (node.children && node.children.some(c => c.type !== 'state' && c.type !== 'logic' && c.type !== 'theme' && c.type !== 'handler' && c.type !== 'on')) ||
     (node.type === 'text' && props.value) ||
     (node.type === 'button' && props.text) ||
     (node.type === 'progress' && props.label) ||
@@ -448,6 +505,52 @@ function generateScriptSetup(ctx: VueBuilder, root: IRNode): string {
   for (const block of ctx.logicBlocks) {
     lines.push(block);
     lines.push('');
+  }
+
+  // Event handlers
+  for (const handler of ctx.eventHandlers) {
+    const asyncKw = handler.isAsync ? 'async ' : '';
+    const keyGuard = handler.key ? `  if ((e as KeyboardEvent).key !== '${handler.key}') return;\n` : '';
+
+    // For key/resize events, generate a plain function + onMounted/onUnmounted
+    const needsMounted = handler.event === 'key' || handler.event === 'keydown' ||
+                         handler.event === 'keyup' || handler.event === 'resize';
+
+    if (needsMounted) {
+      // Generate the function
+      const param = handler.paramType || '';
+      lines.push(`${asyncKw}function ${handler.fnName}(${param}) {`);
+      if (keyGuard) lines.push(keyGuard.trimEnd());
+      if (handler.code) {
+        for (const line of handler.code.split('\n')) {
+          lines.push(`  ${line}`);
+        }
+      }
+      lines.push('}');
+      lines.push('');
+
+      // Generate onMounted + onUnmounted for window event listener
+      const domEvent = handler.event === 'key' ? 'keydown' : handler.event;
+      lines.push(`onMounted(() => {`);
+      lines.push(`  window.addEventListener('${domEvent}', ${handler.fnName} as EventListener);`);
+      lines.push(`});`);
+      lines.push('');
+      lines.push(`onUnmounted(() => {`);
+      lines.push(`  window.removeEventListener('${domEvent}', ${handler.fnName} as EventListener);`);
+      lines.push(`});`);
+      lines.push('');
+    } else {
+      // Generate a plain function for template-bound events (click, submit, etc.)
+      const param = handler.paramType || '';
+      lines.push(`${asyncKw}function ${handler.fnName}(${param}) {`);
+      if (handler.code) {
+        for (const line of handler.code.split('\n')) {
+          lines.push(`  ${line}`);
+        }
+      }
+      lines.push('}');
+      lines.push('');
+    }
   }
 
   return lines.join('\n');

@@ -144,6 +144,9 @@ function renderNode(node: IRNode, ctx: CodeBuilder, indent: string): void {
     case 'input':
       renderInput(node, ctx, indent);
       break;
+    case 'on':
+      renderOnHandler(node, ctx);
+      return;
     case 'theme':
       break; // theme definitions are meta, not rendered
     default:
@@ -355,6 +358,73 @@ function renderToggle(node: IRNode, ctx: CodeBuilder, indent: string): void {
   ctx.lines.push(`${indent}  />`);
   ctx.lines.push(`${indent}  <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600" />`);
   ctx.lines.push(`${indent}</label>`);
+}
+
+function renderOnHandler(node: IRNode, ctx: CodeBuilder): void {
+  const p = getProps(node);
+  const event = (p.event || p.name) as string;
+  const handlerRef = p.handler as string;
+  const key = p.key as string;
+  const isAsync = p.async === 'true' || p.async === true;
+
+  // Get handler code from child handler node
+  const handlerChild = (node.children || []).find(c => c.type === 'handler');
+  const code = handlerChild ? (getProps(handlerChild).code as string || '') : '';
+
+  if (handlerRef && !code) {
+    // Just a reference: on event=click handler=handleClick — no code to generate
+    return;
+  }
+
+  const fnName = handlerRef || `handle${event.charAt(0).toUpperCase() + event.slice(1)}`;
+  const asyncKw = isAsync ? 'async ' : '';
+
+  // Event parameter type
+  const paramType = event === 'submit' ? 'e: React.FormEvent'
+    : event === 'click' ? 'e: React.MouseEvent'
+    : event === 'change' ? 'e: React.ChangeEvent'
+    : event === 'key' || event === 'keydown' || event === 'keyup' ? 'e: React.KeyboardEvent'
+    : event === 'focus' || event === 'blur' ? 'e: React.FocusEvent'
+    : event === 'drag' || event === 'drop' ? 'e: React.DragEvent'
+    : event === 'scroll' ? 'e: React.UIEvent'
+    : event === 'resize' ? '' // window event, no param
+    : `e: React.SyntheticEvent`;
+
+  const keyGuard = key ? `    if (e.key !== '${key}') return;\n` : '';
+
+  // Use useCallback for event handlers
+  ctx.imports.add('useCallback');
+  let block = `  const ${fnName} = useCallback(${asyncKw}(${paramType}) => {\n`;
+  if (keyGuard) block += keyGuard;
+  if (code) {
+    for (const line of code.split('\n')) {
+      block += `    ${line}\n`;
+    }
+  }
+  block += `  }, []);\n`;
+  ctx.logicBlocks.push(block);
+
+  // For keyboard events, add useEffect to register global listener
+  if (event === 'key' || event === 'keydown' || event === 'keyup') {
+    ctx.imports.add('useEffect');
+    const domEvent = event === 'key' ? 'keydown' : event;
+    let effect = `  useEffect(() => {\n`;
+    effect += `    const listener = (e: KeyboardEvent) => ${fnName}(e as unknown as React.KeyboardEvent);\n`;
+    effect += `    window.addEventListener('${domEvent}', listener);\n`;
+    effect += `    return () => window.removeEventListener('${domEvent}', listener);\n`;
+    effect += `  }, [${fnName}]);\n`;
+    ctx.logicBlocks.push(effect);
+  }
+
+  // For resize events, add useEffect for window listener
+  if (event === 'resize') {
+    ctx.imports.add('useEffect');
+    let effect = `  useEffect(() => {\n`;
+    effect += `    window.addEventListener('resize', ${fnName});\n`;
+    effect += `    return () => window.removeEventListener('resize', ${fnName});\n`;
+    effect += `  }, [${fnName}]);\n`;
+    ctx.logicBlocks.push(effect);
+  }
 }
 
 function renderGrid(node: IRNode, ctx: CodeBuilder, indent: string): void {

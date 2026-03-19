@@ -8,7 +8,7 @@
 
   <br><br>
 
-  <a href="#install">Install</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#what-is-kern">What is KERN?</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#examples">Examples</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#kern-review">kern review</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#targets">11 Targets</a>
+  <a href="#install">Install</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#what-is-kern">What is KERN?</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#playground">Playground</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#examples">Examples</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#kern-review">kern review</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;<a href="#targets">11 Targets</a>
 
   <br><br>
 </div>
@@ -33,9 +33,21 @@ kern dev src/kern/ --target=nextjs                # Watch & hot-transpile
 
 ---
 
+## Playground
+
+Try KERN without installing anything:
+
+```bash
+cd packages/playground && pnpm dev    # localhost:3000
+```
+
+Paste `.kern` code, pick a target, see compiled output — live with 400ms debounce. Supports all 10 compilable targets with example presets.
+
+---
+
 ## What is KERN?
 
-**KERN is a programming language designed for AI, not humans.**
+**KERN is a structural language that enforces correctness by design.**
 
 You describe what you want in plain English. The AI (Claude, Codex, Gemini) writes `.kern`. KERN compiles to clean, production-ready TypeScript — for any framework.
 
@@ -57,10 +69,10 @@ No runtime. No framework lock-in. Just a compiler.
 
 | | AI writes TypeScript | AI writes KERN |
 |:--|:-----|:-----|
-| **Tokens** | 1000 tokens for a store | 200 tokens (5x less) |
+| **Correctness** | Hope the AI got it right | Parser rejects invalid structure |
 | **Consistency** | Every file looks different | Same structure every time |
-| **Targets** | Locked to one framework | Compile to 9 frameworks |
-| **Review** | Read 500 lines of TS | Read 50 lines of KERN |
+| **Targets** | Locked to one framework | Compile to 11 frameworks |
+| **Review** | Read 500 lines of TS | `kern review` finds bugs via AST |
 | **Upgrades** | Rewrite for new versions | Re-compile, done |
 
 ---
@@ -217,6 +229,37 @@ export function approvePlan<T extends { state: PlanState }>(entity: T): T {
 // + startPlan, cancelPlan, failPlan ...
 ```
 
+### WebSocket — Express and FastAPI
+
+```kern
+server name=ChatServer port=4000
+  websocket path=/ws/chat
+    on event=connect
+      handler <<<ws.send(JSON.stringify({ type: "welcome" }));>>>
+    on event=message
+      handler <<<broadcast(data);>>>
+    on event=disconnect
+      handler <<<console.log("client left");>>>
+```
+
+**→ Express** generates `WebSocketServer` with `ws` package. **→ FastAPI** generates `@app.websocket` with `WebSocket` + `WebSocketDisconnect`.
+
+### Event handlers — one syntax, every framework
+
+```kern
+screen name=App
+  on event=click
+    handler <<<setCount(prev => prev + 1);>>>
+  on event=key key=Enter
+    handler <<<processInput(buffer);>>>
+```
+
+| Target | Output |
+|:-------|:-------|
+| React/Next.js | `useCallback` + `useEffect` for global listeners |
+| Vue/Nuxt | `function handleClick(e: MouseEvent)` + `onMounted`/`onUnmounted` |
+| Ink | `useInput((input, key) => { ... })` with key filtering |
+
 ### Zustand store — template-powered
 
 ```kern
@@ -319,11 +362,14 @@ kern review --diff origin/main                    # Only changed files
 
 ### Real-world results
 
-| Codebase | Files | Coverage | Bugs Found | Token Reduction |
-|:---------|:------|:---------|:-----------|:----------------|
-| Zustand store layer | 14 | 99% | 1 memory leak | 74% |
-| kern-lang (self-review) | 48 | 88% | 0 | N/A |
-| audiofacets (Electron app) | 1 | 87% | 0 | 68% |
+| Codebase | Files | Coverage | Bugs Found |
+|:---------|:------|:---------|:-----------|
+| audiofacets (Electron + React) | 840 | **90%** | 4,477 findings |
+| audiofacets backend (Express) | 40 | **75%** | 478 findings |
+| audiofacets shop (Next.js) | 47 | **90%** | 176 findings |
+| kern-lang (self-review) | 48 | 88% | 0 |
+
+`kern review` is not about token compression — it's about **structural confidence**. When the parser accepts your code, you know the interfaces are complete, the handlers exist, and the state transitions are valid.
 
 ---
 
@@ -339,28 +385,32 @@ KERN compiles to **11 different targets** from the same `.kern` source:
 | `vue` | Vue 3 Single File Components | Vue apps |
 | `nuxt` | Nuxt 3 (pages, layouts, server routes) | Full-stack Vue apps |
 | `native` | React Native | Mobile apps |
-| `express` | Express TypeScript | APIs and backends |
-| `fastapi` | FastAPI Python | Python APIs and backends |
+| `express` | Express TypeScript + WebSocket | APIs and backends |
+| `fastapi` | FastAPI Python + WebSocket | Python APIs and backends |
 | `cli` | Commander.js | CLI tools |
 | `terminal` | ANSI terminal | TUIs and dev tools |
+| `ink` | Ink (React for terminals) | Interactive terminal UIs |
 
 ---
 
 ## Core Language Nodes
 
-11 node types that cover the full spectrum of application logic:
+14 node types that cover the full spectrum of application logic:
 
 | Node | What it does | Example |
 |:-----|:-------------|:--------|
 | `type` | Union types and aliases | `type name=Status values="ok\|error"` |
 | `interface` | Typed data structures | `interface name=User` → fields |
-| `fn` | Functions with handler blocks | `fn name=compute returns=number` |
+| `fn` | Functions and generators | `fn name=compute stream=true returns=Item` |
 | `machine` | State machines with transitions | 12 lines → 140+ lines of TS |
 | `error` | Error classes with templates | `error name=NotFound message="..."` |
 | `config` | Config interfaces + defaults | `config name=Settings` → interface + defaults |
 | `store` | File-based JSON persistence | `store name=Plan` → full CRUD |
 | `test` | Vitest-compatible test suites | `test name="Unit"` → describe/it |
 | `event` | Typed event systems | `event name=AppEvent` → union + map |
+| `on` | Event handlers (click, key, submit) | `on event=key key=Enter` → per-framework |
+| `websocket` | Bidirectional real-time | `websocket path=/ws` → Express/FastAPI |
+| `stream` | Async generator consumption | `stream name=lines source=generate` → `useEffect` |
 | `import` | ES module imports | Named, default, type-only |
 | `const` | Typed constant declarations | `const name=PORT type=number value=3000` |
 
@@ -419,14 +469,16 @@ KERN auto-detects framework versions from `package.json`. Upgrade your framework
 
 ```
 @kernlang/core        Parser, codegen, types — the compiler engine
-@kernlang/cli         CLI tool (compile, transpile, dev, review)
+@kernlang/cli         CLI tool (compile, transpile, dev, review, evolve)
 @kernlang/react       Next.js, Tailwind, Web transpilers
 @kernlang/vue         Vue 3 SFC, Nuxt 3 transpilers
+@kernlang/native      React Native transpiler
+@kernlang/express     Express backend + WebSocket transpiler
+@kernlang/fastapi     FastAPI Python + WebSocket transpiler
+@kernlang/terminal    ANSI terminal + Ink transpilers
 @kernlang/review      TS → KERN inference, bug detection, enforcement
 @kernlang/evolve      Self-extending template system (detect gaps → propose)
-@kernlang/native      React Native transpiler
-@kernlang/express     Express backend transpiler
-@kernlang/terminal    ANSI terminal transpiler
+@kernlang/playground  Interactive compiler UI (Next.js)
 @kernlang/metrics     Language coverage analysis
 @kernlang/protocol    AI draft communication protocol
 ```

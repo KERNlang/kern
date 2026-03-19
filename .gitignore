@@ -7,3 +7,4 @@ examples/*.tsx
 .changeset/*.md
 .claude/settings.local.json
 .claude/docs/plans/*.md
+docs/plans/

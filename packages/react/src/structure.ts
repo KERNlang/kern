@@ -50,12 +50,18 @@ const SURFACE_TYPES = new Set(['screen', 'page', 'modal']);
 const BLOCK_TYPES = new Set(['card', 'section', 'form', 'list', 'grid', 'tabs']);
 const CONTAINER_TYPES = new Set(['row', 'col']);
 const ELEMENT_TYPES = new Set(['text', 'button', 'input', 'progress', 'separator', 'divider', 'image', 'icon', 'slider', 'toggle', 'tab', 'item']);
+const GROUND_LAYER_TYPES = new Set([
+  'derive', 'transform', 'action', 'guard', 'assume', 'invariant',
+  'each', 'collect', 'branch', 'resolve', 'expect', 'recover',
+  'pattern', 'apply',
+]);
 
 export function classifyNode(node: IRNode): NodeRole {
   if (node.type === 'state') return 'state';
   if (node.type === 'logic' || node.type === 'handler') return 'logic';
   if (node.type === 'theme') return 'theme';
   if (node.type === 'metadata') return 'meta';
+  if (GROUND_LAYER_TYPES.has(node.type)) return 'logic';
   if (SURFACE_TYPES.has(node.type)) return 'surface';
   if (BLOCK_TYPES.has(node.type)) return 'block';
   if (CONTAINER_TYPES.has(node.type)) return 'container';

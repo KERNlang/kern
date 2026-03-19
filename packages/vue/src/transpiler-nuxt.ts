@@ -69,12 +69,38 @@ function getThemeRefs(node: IRNode): string[] {
   return (getProps(node).themeRefs as string[]) || [];
 }
 
+// ── Event Handler Declarations ──────────────────────────────────────────
+
+interface EventHandlerDecl {
+  event: string;
+  fnName: string;
+  code: string;
+  isAsync: boolean;
+  key?: string;
+  paramType: string;
+}
+
+function eventParamType(event: string): string {
+  if (event === 'click') return 'e: MouseEvent';
+  if (event === 'submit') return 'e: Event';
+  if (event === 'change') return 'e: Event';
+  if (event === 'key' || event === 'keydown' || event === 'keyup') return 'e: KeyboardEvent';
+  if (event === 'focus' || event === 'blur') return 'e: FocusEvent';
+  if (event === 'drag' || event === 'drop') return 'e: DragEvent';
+  if (event === 'scroll') return 'e: Event';
+  if (event === 'resize') return '';
+  if (event === 'input') return 'e: Event';
+  if (event === 'mouseover' || event === 'mouseout' || event === 'mouseenter' || event === 'mouseleave') return 'e: MouseEvent';
+  return 'e: Event';
+}
+
 // ── Build Context ────────────────────────────────────────────────────────
 
 interface NuxtBuilder {
   templateLines: string[];
   scriptLines: string[];
   stateDecls: Array<{ name: string; initial: string }>;
+  eventHandlers: EventHandlerDecl[];
   logicBlocks: string[];
   cssRules: Map<string, Record<string, string | number>>;
   sourceMap: SourceMapEntry[];
@@ -90,6 +116,7 @@ function createBuilder(config?: ResolvedKernConfig): NuxtBuilder {
     templateLines: [],
     scriptLines: [],
     stateDecls: [],
+    eventHandlers: [],
     logicBlocks: [],
     cssRules: new Map(),
     sourceMap: [],
@@ -142,6 +169,26 @@ function addLayoutDefaults(nodeType: string, styles: Record<string, string | num
   return s;
 }
 
+// ── Event Handler Collection ─────────────────────────────────────────────
+
+function collectOnHandler(node: IRNode, ctx: NuxtBuilder): void {
+  const props = getProps(node);
+  const event = (props.event || props.name) as string;
+  const handlerRef = props.handler as string;
+  const key = props.key as string;
+  const isAsync = props.async === 'true' || props.async === true;
+
+  const handlerChild = (node.children || []).find(c => c.type === 'handler');
+  const code = handlerChild ? (getProps(handlerChild).code as string || '') : '';
+
+  if (handlerRef && !code) return;
+
+  const fnName = handlerRef || `handle${event.charAt(0).toUpperCase() + event.slice(1)}`;
+  const paramType = eventParamType(event);
+
+  ctx.eventHandlers.push({ event, fnName, code, isAsync, key, paramType });
+}
+
 // ── Template rendering ───────────────────────────────────────────────────
 
 function renderNode(node: IRNode, ctx: NuxtBuilder, indent: string): void {
@@ -153,6 +200,9 @@ function renderNode(node: IRNode, ctx: NuxtBuilder, indent: string): void {
       return;
     case 'logic':
       ctx.logicBlocks.push(props.code as string);
+      return;
+    case 'on':
+      collectOnHandler(node, ctx);
       return;
     case 'theme':
     case 'handler':
@@ -218,7 +268,7 @@ function renderNode(node: IRNode, ctx: NuxtBuilder, indent: string): void {
 
   const hasContent = (node.children && node.children.some(c =>
     c.type !== 'state' && c.type !== 'logic' && c.type !== 'theme' &&
-    c.type !== 'handler' && c.type !== 'metadata')) ||
+    c.type !== 'handler' && c.type !== 'metadata' && c.type !== 'on')) ||
     (node.type === 'text' && props.value) ||
     (node.type === 'button' && props.text) ||
     (node.type === 'section' && props.title);
@@ -361,6 +411,51 @@ function generateScriptSetup(ctx: NuxtBuilder): string {
   for (const block of ctx.logicBlocks) {
     lines.push(block);
     lines.push('');
+  }
+
+  // Event handlers
+  for (const handler of ctx.eventHandlers) {
+    const asyncKw = handler.isAsync ? 'async ' : '';
+    const keyGuard = handler.key ? `  if ((e as KeyboardEvent).key !== '${handler.key}') return;\n` : '';
+
+    const needsMounted = handler.event === 'key' || handler.event === 'keydown' ||
+                         handler.event === 'keyup' || handler.event === 'resize';
+
+    if (needsMounted) {
+      // Generate the function
+      const param = handler.paramType || '';
+      lines.push(`${asyncKw}function ${handler.fnName}(${param}) {`);
+      if (keyGuard) lines.push(keyGuard.trimEnd());
+      if (handler.code) {
+        for (const line of handler.code.split('\n')) {
+          lines.push(`  ${line}`);
+        }
+      }
+      lines.push('}');
+      lines.push('');
+
+      // Nuxt auto-imports onMounted/onUnmounted — no explicit import needed
+      const domEvent = handler.event === 'key' ? 'keydown' : handler.event;
+      lines.push(`onMounted(() => {`);
+      lines.push(`  window.addEventListener('${domEvent}', ${handler.fnName} as EventListener);`);
+      lines.push(`});`);
+      lines.push('');
+      lines.push(`onUnmounted(() => {`);
+      lines.push(`  window.removeEventListener('${domEvent}', ${handler.fnName} as EventListener);`);
+      lines.push(`});`);
+      lines.push('');
+    } else {
+      // Generate a plain function for template-bound events
+      const param = handler.paramType || '';
+      lines.push(`${asyncKw}function ${handler.fnName}(${param}) {`);
+      if (handler.code) {
+        for (const line of handler.code.split('\n')) {
+          lines.push(`  ${line}`);
+        }
+      }
+      lines.push('}');
+      lines.push('');
+    }
   }
 
   return lines.join('\n');

@@ -395,6 +395,102 @@ describe('FastAPI Transpiler', () => {
     });
   });
 
+  // ── WebSocket ────────────────────────────────────────────────────────
+
+  describe('WebSocket', () => {
+    test('generates websocket endpoint with connect/message/disconnect handlers', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+
+      const source = [
+        'server name=ChatAPI port=8000',
+        '  websocket path=/ws/chat',
+        '    on event=connect',
+        '      handler <<<await websocket.send_json({"type": "welcome"})>>>',
+        '    on event=message',
+        '      handler <<<',
+        '        await broadcast(data)',
+        '      >>>',
+        '    on event=disconnect',
+        '      handler <<<print("client left")>>>',
+      ].join('\n');
+
+      const result = transpileFastAPI(parse(source));
+
+      // main.py should import WebSocket types and mount the ws endpoint
+      expect(result.code).toContain('from fastapi import WebSocket');
+      expect(result.code).toContain('from starlette.websockets import WebSocketDisconnect');
+      expect(result.code).toContain('app.websocket("/ws/chat")');
+
+      // Should have a websocket artifact
+      const wsArtifact = result.artifacts?.find(a => a.type === 'websocket');
+      expect(wsArtifact).toBeDefined();
+      expect(wsArtifact!.path).toContain('ws/');
+      expect(wsArtifact!.path.endsWith('.py')).toBe(true);
+
+      // Artifact content should have the websocket handler structure
+      const content = wsArtifact!.content;
+      expect(content).toContain('async def websocket_');
+      expect(content).toContain('websocket: WebSocket');
+      expect(content).toContain('await websocket.accept()');
+      expect(content).toContain('await websocket.send_json({"type": "welcome"})');
+      expect(content).toContain('while True:');
+      expect(content).toContain('await websocket.receive_json()');
+      expect(content).toContain('await broadcast(data)');
+      expect(content).toContain('except WebSocketDisconnect:');
+      expect(content).toContain('print("client left")');
+    });
+
+    test('websocket with only message handler generates correct structure', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+
+      const source = [
+        'server name=EchoAPI port=9000',
+        '  websocket path=/ws/echo',
+        '    on event=message',
+        '      handler <<<',
+        '        await websocket.send_json(data)',
+        '      >>>',
+      ].join('\n');
+
+      const result = transpileFastAPI(parse(source));
+      const wsArtifact = result.artifacts?.find(a => a.type === 'websocket');
+
+      expect(wsArtifact).toBeDefined();
+      const content = wsArtifact!.content;
+      expect(content).toContain('await websocket.accept()');
+      expect(content).toContain('await websocket.send_json(data)');
+      // disconnect handler should have 'pass' fallback
+      expect(content).toContain('except WebSocketDisconnect:');
+      expect(content).toContain('pass');
+    });
+
+    test('websocket artifacts coexist with route artifacts', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+
+      const source = [
+        'server name=HybridAPI port=8000',
+        '  route method=get path=/health',
+        '    handler <<<return {"status": "ok"}>>>',
+        '  websocket path=/ws/live',
+        '    on event=message',
+        '      handler <<<await websocket.send_json(data)>>>',
+      ].join('\n');
+
+      const result = transpileFastAPI(parse(source));
+
+      const routeArtifacts = result.artifacts?.filter(a => a.type === 'route') || [];
+      const wsArtifacts = result.artifacts?.filter(a => a.type === 'websocket') || [];
+
+      expect(routeArtifacts.length).toBe(1);
+      expect(wsArtifacts.length).toBe(1);
+      expect(result.code).toContain('app.include_router(');
+      expect(result.code).toContain('app.websocket("/ws/live")');
+    });
+  });
+
   // ── Token Metrics ─────────────────────────────────────────────────────
 
   test('reports token metrics', async () => {

@@ -6,7 +6,7 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { parseParamList, capitalize } from '@kernlang/core';
+import { parseParamList, capitalize, generateCoreNode } from '@kernlang/core';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -205,6 +205,59 @@ export function generateEffect(node: IRNode): string[] {
 /** Check if a node is a React codegen node (provider or top-level effect). */
 export function isReactNode(type: string): boolean {
   return type === 'provider' || type === 'effect';
+}
+
+// ── Ground Layer — React Overrides (Tier 2) ──────────────────────────────
+
+const GROUND_NODE_TYPES = new Set([
+  'derive', 'transform', 'action', 'guard', 'assume', 'invariant',
+  'each', 'collect', 'branch', 'resolve', 'expect', 'recover',
+  'pattern', 'apply',
+]);
+
+/** Check if a node is a ground-layer node that may have React-specific overrides. */
+export function isGroundNode(type: string): boolean {
+  return GROUND_NODE_TYPES.has(type);
+}
+
+/** React Tier 2 override for derive → useMemo. */
+function generateReactDerive(node: IRNode): string[] {
+  const props = p(node);
+  const name = props.name as string;
+  const expr = props.expr as string;
+  const deps = props.deps as string || '';
+  const depsArr = deps ? `[${deps}]` : '[]';
+
+  return [`const ${name} = useMemo(() => ${expr}, ${depsArr});`];
+}
+
+/** React Tier 2 override for each → .map() for JSX rendering. */
+function generateReactEach(node: IRNode): string[] {
+  const props = p(node);
+  const name = props.name as string || 'item';
+  const collection = props.in as string;
+  const index = props.index as string | undefined;
+
+  const lines: string[] = [];
+  const paramStr = index ? `(${name}, ${index})` : `(${name})`;
+  lines.push(`{(${collection}).map(${paramStr} => (`);
+  for (const child of kids(node)) {
+    const childLines = generateCoreNode(child);
+    for (const line of childLines) {
+      lines.push(`  ${line}`);
+    }
+  }
+  lines.push(`))}`);
+  return lines;
+}
+
+/** Generate React-overridden ground-layer node. Falls through to core for non-overridden nodes. */
+export function generateGroundNode(node: IRNode): string[] | null {
+  switch (node.type) {
+    case 'derive': return generateReactDerive(node);
+    case 'each': return generateReactEach(node);
+    default: return null; // No React override — fall through to core
+  }
 }
 
 /** Generate TSX for a React codegen node. */
