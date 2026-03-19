@@ -454,58 +454,104 @@ function nonExhaustiveSwitch(ctx: RuleContext): ReviewFinding[] {
 }
 
 // ── Rule 8: cognitive-complexity ─────────────────────────────────────────
-// Sonar-style cognitive complexity metric
+// Sonar-compatible cognitive complexity metric (S3776)
+//
+// Codex review fixes applied:
+// - Nested functions scored independently (not leaked into parent)
+// - else if handled as flat chain (+1 only), not nested
+// - .then()/.catch() not counted (callbacks are separate functions)
+// - ?? included alongside && and ||
+// - Recursion via text match (good enough for single-file scope)
 
-function calculateCognitiveComplexity(node: import('ts-morph').Node): number {
+const NESTING_STRUCTURES = new Set([
+  SyntaxKind.IfStatement,
+  SyntaxKind.SwitchStatement,
+  SyntaxKind.ForStatement,
+  SyntaxKind.ForInStatement,
+  SyntaxKind.ForOfStatement,
+  SyntaxKind.WhileStatement,
+  SyntaxKind.DoStatement,
+  SyntaxKind.CatchClause,
+  SyntaxKind.ConditionalExpression,
+]);
+
+const NESTED_FUNCTION_KINDS = new Set([
+  SyntaxKind.ArrowFunction,
+  SyntaxKind.FunctionExpression,
+  SyntaxKind.FunctionDeclaration,
+  SyntaxKind.MethodDeclaration,
+]);
+
+const LOGICAL_OPS = new Set([
+  SyntaxKind.AmpersandAmpersandToken,
+  SyntaxKind.BarBarToken,
+  SyntaxKind.QuestionQuestionToken,
+]);
+
+function calculateCognitiveComplexity(body: import('ts-morph').Node, fnName?: string): number {
   let complexity = 0;
-  let nestingLevel = 0;
 
-  function walk(n: import('ts-morph').Node) {
+  function walk(n: import('ts-morph').Node, nesting: number) {
     const kind = n.getKind();
 
-    // 1. Increments + Nesting: if, switch, for, while, do, catch, ternary
-    if ([
-      SyntaxKind.IfStatement,
-      SyntaxKind.SwitchStatement,
-      SyntaxKind.ForStatement,
-      SyntaxKind.ForInStatement,
-      SyntaxKind.ForOfStatement,
-      SyntaxKind.WhileStatement,
-      SyntaxKind.DoStatement,
-      SyntaxKind.CatchClause,
-    ].includes(kind)) {
-      complexity += 1 + nestingLevel;
-      nestingLevel++;
-      n.forEachChild(walk);
-      nestingLevel--;
+    // Stop at nested function boundaries — they are scored independently
+    if (NESTED_FUNCTION_KINDS.has(kind) && n !== body && n.getParent() !== body.getParent()) {
       return;
     }
 
-    if (kind === SyntaxKind.ConditionalExpression) {
-      complexity += 1 + nestingLevel;
-      nestingLevel++;
-      n.forEachChild(walk);
-      nestingLevel--;
-      return;
-    }
-
-    // 2. Increments only: else, else if
+    // Handle if/else-if/else chains specially
     if (kind === SyntaxKind.IfStatement) {
       const ifStmt = n as import('ts-morph').IfStatement;
+
+      // +1 + nesting for the if itself
+      complexity += 1 + nesting;
+
+      // Walk the then-block at nesting+1
+      const thenStmt = ifStmt.getThenStatement();
+      thenStmt.forEachChild(child => walk(child, nesting + 1));
+
+      // Handle else / else-if
       const elseStmt = ifStmt.getElseStatement();
       if (elseStmt) {
-        if (elseStmt.getKind() !== SyntaxKind.IfStatement) {
-          complexity += 1; // plain else
+        if (elseStmt.getKind() === SyntaxKind.IfStatement) {
+          // else if: +1 only (flat chain, no nesting increment)
+          complexity += 1;
+          const elseIf = elseStmt as import('ts-morph').IfStatement;
+          const elseThen = elseIf.getThenStatement();
+          elseThen.forEachChild(child => walk(child, nesting + 1));
+          // Continue the chain
+          const nextElse = elseIf.getElseStatement();
+          if (nextElse) {
+            if (nextElse.getKind() === SyntaxKind.IfStatement) {
+              // Recurse for further else-if
+              walk(nextElse, nesting);
+            } else {
+              // plain else at end of chain
+              complexity += 1;
+              nextElse.forEachChild(child => walk(child, nesting + 1));
+            }
+          }
+        } else {
+          // plain else: +1 only
+          complexity += 1;
+          elseStmt.forEachChild(child => walk(child, nesting + 1));
         }
-        // else if is handled by the recursive walk of IfStatement
       }
+      return;
     }
 
-    // 3. Logical operators sequences (&&, ||)
+    // Other nesting structures: +1 + nesting, increase depth
+    if (NESTING_STRUCTURES.has(kind)) {
+      complexity += 1 + nesting;
+      n.forEachChild(child => walk(child, nesting + 1));
+      return;
+    }
+
+    // Logical operator sequences: +1 when operator type changes
     if (kind === SyntaxKind.BinaryExpression) {
       const binExpr = n as import('ts-morph').BinaryExpression;
       const op = binExpr.getOperatorToken().getKind();
-      if (op === SyntaxKind.AmpersandAmpersandToken || op === SyntaxKind.BarBarToken) {
+      if (LOGICAL_OPS.has(op)) {
         const parent = n.getParent();
         let sameAsParent = false;
         if (parent?.getKind() === SyntaxKind.BinaryExpression) {
@@ -516,30 +562,18 @@ function calculateCognitiveComplexity(node: import('ts-morph').Node): number {
       }
     }
 
-    // 4. Promise chains (.then, .catch)
-    if (kind === SyntaxKind.PropertyAccessExpression) {
-      const prop = n as import('ts-morph').PropertyAccessExpression;
-      const name = prop.getName();
-      if (name === 'then' || name === 'catch') {
+    // Recursion: direct call to own name
+    if (kind === SyntaxKind.CallExpression && fnName) {
+      const callText = (n as import('ts-morph').CallExpression).getExpression().getText();
+      if (callText === fnName || callText === `this.${fnName}`) {
         complexity += 1;
       }
     }
 
-    n.forEachChild(walk);
+    n.forEachChild(child => walk(child, nesting));
   }
 
-  // Find all recursive calls within the node
-  const fnName = (node as any).getName?.();
-  if (fnName) {
-    const calls = node.getDescendantsOfKind(SyntaxKind.CallExpression);
-    for (const call of calls) {
-      if (call.getExpression().getText() === fnName) {
-        complexity += 1;
-      }
-    }
-  }
-
-  node.forEachChild(walk);
+  body.forEachChild(child => walk(child, 0));
   return complexity;
 }
 
@@ -547,22 +581,26 @@ function cognitiveComplexity(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   const threshold = ctx.config?.maxComplexity ?? 15;
 
+  // Score every function-like body independently
   const functions = [
     ...ctx.sourceFile.getFunctions(),
     ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.MethodDeclaration),
     ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ArrowFunction),
     ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.FunctionExpression),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.GetAccessor),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.SetAccessor),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.Constructor),
   ];
 
   for (const fn of functions) {
     const body = fn.getBody();
     if (!body) continue;
 
-    const complexity = calculateCognitiveComplexity(fn);
-    if (complexity > threshold) {
-      const name = (fn as any).getName?.() || 'anonymous';
+    const name = (fn as any).getName?.() || undefined;
+    const score = calculateCognitiveComplexity(body, name);
+    if (score > threshold) {
       findings.push(finding('cognitive-complexity', 'warning', 'structure',
-        `Function '${name}' has cognitive complexity of ${complexity} (threshold: ${threshold})`,
+        `Function '${name || 'anonymous'}' has cognitive complexity of ${score} (threshold: ${threshold})`,
         ctx.filePath, fn.getStartLineNumber()));
     }
   }
