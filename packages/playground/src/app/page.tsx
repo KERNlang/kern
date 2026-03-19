@@ -187,10 +187,13 @@ export default function PlaygroundPage() {
     const resolvedTarget = (shared.target ?? 'tailwind') as PlaygroundTarget;
     setMode(resolvedMode);
     setSelectedTarget(resolvedTarget);
-    if (shared.source) {
+    if (resolvedMode === 'infer') {
+      // In infer mode, always load the per-target example (ignore stale URL source)
+      setSourceCode(shared.source && !shared.source.startsWith('screen ') && !shared.source.includes('{bg:')
+        ? shared.source
+        : INFER_EXAMPLES[resolvedTarget]);
+    } else if (shared.source) {
       setSourceCode(shared.source);
-    } else if (resolvedMode === 'infer') {
-      setSourceCode(INFER_EXAMPLES[resolvedTarget]);
     } else {
       setSourceCode(EXAMPLES[0].source);
     }
