@@ -18,7 +18,7 @@ export function PreviewPanel({ compiledCode, target }: PreviewPanelProps) {
   return (
     <iframe
       srcDoc={html}
-      sandbox="allow-scripts allow-same-origin"
+      referrerPolicy="no-referrer"
       style={{
         width: '100%',
         height: '100%',
