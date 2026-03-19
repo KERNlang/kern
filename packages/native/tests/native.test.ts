@@ -1,10 +1,11 @@
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { parse } from '../../core/src/parser.js';
 import { transpile } from '../src/transpiler.js';
 import type { IRNode } from '../../core/src/types.js';
 
-const ROOT = resolve(__dirname, '../../..');
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 function makeNode(type: string, props: Record<string, unknown> = {}, children: IRNode[] = []): IRNode {
   return { type, props, children };
