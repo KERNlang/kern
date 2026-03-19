@@ -141,23 +141,52 @@ export function shipOrder<T extends { state: OrderState }>(e: T): T {
     });
   });
 
-  // ── complexity-spike ──
+  // ── cognitive-complexity ──
 
-  describe('complexity-spike', () => {
-    it('flags functions with very large handler bodies', () => {
-      // Create a function with >200 tokens in the body
-      const longBody = Array.from({ length: 60 }, (_, i) =>
-        `  const val${i} = compute(${i}, ${i + 1}, ${i + 2});`
-      ).join('\n');
+  describe('cognitive-complexity', () => {
+    it('flags functions exceeding complexity threshold', () => {
+      // Nested ifs + loops + ternary should easily exceed threshold of 15
       const source = `
-export function bigFunction(): void {
-${longBody}
+function complex(a: number, b: string, c: boolean) {
+  if (a > 0) {
+    if (b === 'x') {
+      for (let i = 0; i < a; i++) {
+        if (c) {
+          while (i > 0) {
+            if (a && b) {
+              const x = c ? 1 : 2;
+            }
+          }
+        }
+      }
+    } else if (b === 'y') {
+      switch (a) {
+        case 1: break;
+        case 2: break;
+      }
+    } else {
+      try { foo(); } catch (e) { bar(); }
+    }
+  }
 }
 `;
-      const report = reviewSource(source, 'big.ts');
-      const spike = report.findings.find(f => f.ruleId === 'complexity-spike');
-      expect(spike).toBeDefined();
-      expect(spike!.severity).toBe('info');
+      const report = reviewSource(source, 'complex.ts');
+      const cc = report.findings.find(f => f.ruleId === 'cognitive-complexity');
+      expect(cc).toBeDefined();
+      expect(cc!.severity).toBe('warning');
+      expect(cc!.message).toContain('cognitive complexity');
+    });
+
+    it('passes simple functions', () => {
+      const source = `
+function simple(x: number) {
+  if (x > 0) return x;
+  return -x;
+}
+`;
+      const report = reviewSource(source, 'simple.ts');
+      const cc = report.findings.find(f => f.ruleId === 'cognitive-complexity');
+      expect(cc).toBeUndefined();
     });
   });
 

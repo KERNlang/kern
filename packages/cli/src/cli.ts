@@ -13,7 +13,7 @@ import { transpileCliApp } from './transpiler-cli.js';
 import { transpileTerminal, transpileInk } from '@kernlang/terminal';
 import { transpileVue, transpileNuxt } from '@kernlang/vue';
 import { collectLanguageMetrics } from '@kernlang/metrics';
-import { reviewFile, reviewDirectory, reviewSource, reviewGraph, resolveImportGraph, formatReport, formatReportJSON, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes } from '@kernlang/review';
+import { reviewFile, reviewDirectory, reviewSource, reviewGraph, resolveImportGraph, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes } from '@kernlang/review';
 import type { ReviewConfig, ReviewFinding } from '@kernlang/review';
 import { evolve, loadBuiltinDetectors, listStaged, getStaged, updateStagedStatus, promoteLocal, cleanRejected, formatSplitView } from '@kernlang/evolve';
 import type { EvolveOptions } from '@kernlang/evolve';
@@ -498,9 +498,10 @@ if (args[0] === 'init-templates') {
   process.exit(0);
 }
 
-// ── kern review <file|dir|--diff base> [--json] [--recursive] [--enforce] [--min-coverage=N] [--export-kern] [--llm] [--fix] [--lint] ──
+// ── kern review <file|dir|--diff base> [--json] [--sarif] [--recursive] [--enforce] [--min-coverage=N] [--max-complexity=N] [--export-kern] [--llm] [--fix] [--lint] ──
 if (args[0] === 'review') {
   const jsonOutput = args.includes('--json');
+  const sarifOutput = args.includes('--sarif') || args.includes('--format=sarif');
   const recursive = args.includes('--recursive') || args.includes('-r');
   const enforce = args.includes('--enforce');
   const exportKern = args.includes('--export-kern');
@@ -516,6 +517,12 @@ if (args[0] === 'review') {
   const tsconfigPath = args.find(a => a.startsWith('--tsconfig='))?.split('=')[1];
   const minCoverageArg = args.find(a => a.startsWith('--min-coverage='))?.split('=')[1];
   const minCoverage = minCoverageArg ? Number(minCoverageArg) : undefined;
+  const maxComplexityArg = args.find(a => a.startsWith('--max-complexity='))?.split('=')[1];
+  const maxComplexity = maxComplexityArg ? Number(maxComplexityArg) : 15;
+  const maxErrorsArg = args.find(a => a.startsWith('--max-errors='))?.split('=')[1];
+  const maxErrors = maxErrorsArg ? Number(maxErrorsArg) : 0;
+  const maxWarningsArg = args.find(a => a.startsWith('--max-warnings='))?.split('=')[1];
+  const maxWarnings = maxWarningsArg ? Number(maxWarningsArg) : undefined;
   const diffBase = args.find(a => a.startsWith('--diff'))
     ? (args.find(a => a.startsWith('--diff='))?.split('=')[1] || args[args.indexOf('--diff') + 1] || 'origin/main')
     : undefined;
@@ -546,7 +553,7 @@ if (args[0] === 'review') {
   }
 
   if (!reviewInput) {
-    console.error('Usage: kern review <file.ts|dir> [--diff base] [--json] [--recursive] [--enforce] [--min-coverage=N] [--export-kern] [--llm] [--fix]');
+    console.error('Usage: kern review <file.ts|dir> [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--min-coverage=N] [--max-complexity=N] [--export-kern] [--llm] [--fix]');
     process.exit(1);
   }
 
@@ -566,6 +573,9 @@ if (args[0] === 'review') {
     registeredTemplates: [],
     minCoverage: minCoverage ?? 0,
     enforceTemplates: enforce,
+    maxComplexity,
+    maxErrors,
+    maxWarnings,
     target: reviewCfg.target,
   };
 
@@ -761,6 +771,8 @@ if (args[0] === 'review') {
       return { ...report, kernIR, llmPrompt };
     });
     console.log(JSON.stringify(enriched.length === 1 ? enriched[0] : enriched, null, 2));
+  } else if (sarifOutput) {
+    console.log(formatSARIF(reports));
   } else {
     for (const report of reports) {
       console.log('');
@@ -772,18 +784,22 @@ if (args[0] === 'review') {
     }
 
     // Enforcement
-    if (enforce || minCoverage !== undefined) {
+    const hasThresholds = minCoverage !== undefined || maxComplexityArg !== undefined || maxErrorsArg !== undefined || maxWarningsArg !== undefined;
+    if (enforce || hasThresholds) {
       console.log('');
       let allPassed = true;
       for (const report of reports) {
         const result = checkEnforcement(report, reviewConfig);
         if (!result.passed) {
           allPassed = false;
+          console.log(`  File: ${report.filePath}`);
           console.log(formatEnforcement(result));
+          console.log('');
         }
       }
+
       if (allPassed) {
-        console.log(`  Enforcement: PASS (all files)`);
+        console.log(`  Enforcement: PASS (all files checked against thresholds)`);
       } else {
         process.exit(1);
       }
@@ -947,7 +963,7 @@ if (!inputFile) {
   console.log('  compile <dir|file> --outdir=<dir>             Compile .kern → .ts (core nodes)');
   console.log('  scan [--force] [--dry-run]                    Detect project → generate kern.config.ts');
   console.log('  init-templates [--force] [--dry-run]          Scan deps → scaffold template .kern files');
-  console.log('  review <file.ts|dir> [options]                Analyze TS → infer .kern coverage + review');
+  console.log('  review <file.ts|dir> [options]                Static analysis, Cognitive Complexity & CI Gate');
   console.log('  evolve <dir|file> [options]                   Detect gaps → propose templates');
   console.log('  evolve:review [options]                       Review staged template proposals');
   console.log('');

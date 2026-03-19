@@ -108,9 +108,37 @@ export function checkEnforcement(
     }
   }
 
-  const passed = actualCoverage >= minCoverage && templateViolations.length === 0;
+  const errors = report.findings.filter(f => f.severity === 'error').length;
+  const warnings = report.findings.filter(f => f.severity === 'warning').length;
+  const maxErrors = config.maxErrors ?? 0;
+  const maxWarnings = config.maxWarnings ?? Number.MAX_SAFE_INTEGER;
 
-  return { passed, minCoverage, actualCoverage, templateViolations };
+  let maxComplexity = 0;
+  for (const f of report.findings) {
+    if (f.ruleId === 'cognitive-complexity') {
+      const match = f.message.match(/complexity of (\d+)/);
+      if (match) {
+        maxComplexity = Math.max(maxComplexity, parseInt(match[1]));
+      }
+    }
+  }
+  const allowedComplexity = config.maxComplexity ?? 15;
+
+  const passed = actualCoverage >= minCoverage &&
+                 templateViolations.length === 0 &&
+                 errors <= maxErrors &&
+                 warnings <= maxWarnings &&
+                 maxComplexity <= allowedComplexity;
+
+  return {
+    passed,
+    minCoverage,
+    actualCoverage,
+    templateViolations,
+    errors: { actual: errors, max: maxErrors },
+    warnings: { actual: warnings, max: maxWarnings },
+    complexity: { actual: maxComplexity, max: allowedComplexity }
+  };
 }
 
 // ── CLI Format ───────────────────────────────────────────────────────────
@@ -218,15 +246,18 @@ export function formatEnforcement(result: EnforceResult): string {
   const lines: string[] = [];
 
   if (result.passed) {
-    lines.push(`  Enforcement: PASS (${result.actualCoverage}% >= ${result.minCoverage}% min)`);
+    lines.push(`  Enforcement: PASS`);
   } else {
     lines.push(`  Enforcement: FAIL`);
-    if (result.actualCoverage < result.minCoverage) {
-      lines.push(`    Coverage ${result.actualCoverage}% < ${result.minCoverage}% minimum`);
-    }
-    for (const v of result.templateViolations) {
-      lines.push(`    Template: ${v}`);
-    }
+  }
+
+  lines.push(`    Coverage:   ${result.actualCoverage}% (min: ${result.minCoverage}%)`);
+  lines.push(`    Complexity: ${result.complexity.actual} (max: ${result.complexity.max})`);
+  lines.push(`    Errors:     ${result.errors.actual} (max: ${result.errors.max})`);
+  lines.push(`    Warnings:   ${result.warnings.actual} (max: ${result.warnings.max === Number.MAX_SAFE_INTEGER ? 'unlimited' : result.warnings.max})`);
+
+  for (const v of result.templateViolations) {
+    lines.push(`    Template:   ${v}`);
   }
 
   return lines.join('\n');
@@ -251,6 +282,65 @@ export function formatReportJSON(
     kernIR,
     llmPrompt,
   }, null, 2);
+}
+
+// ── SARIF Format ─────────────────────────────────────────────────────────
+
+export function formatSARIF(reports: ReviewReport[]): string {
+  const sarif = {
+    $schema: 'https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0-rtm.5.json',
+    version: '2.1.0',
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: '@kernlang/review',
+            version: '2.0.0',
+            rules: [] as any[]
+          }
+        },
+        results: [] as any[]
+      }
+    ]
+  };
+
+  const rules = new Set<string>();
+
+  for (const report of reports) {
+    for (const f of report.findings) {
+      if (!rules.has(f.ruleId)) {
+        rules.add(f.ruleId);
+        sarif.runs[0].tool.driver.rules.push({
+          id: f.ruleId,
+          shortDescription: { text: f.ruleId },
+          helpUri: `https://github.com/kern-lang/kern-lang/blob/main/docs/rules.md#${f.ruleId}`
+        });
+      }
+
+      const sarifLevel = f.severity === 'error' ? 'error' : (f.severity === 'warning' ? 'warning' : 'note');
+
+      sarif.runs[0].results.push({
+        ruleId: f.ruleId,
+        level: sarifLevel,
+        message: { text: f.message },
+        locations: [
+          {
+            physicalLocation: {
+              artifactLocation: { uri: f.primarySpan.file },
+              region: {
+                startLine: f.primarySpan.startLine,
+                startColumn: f.primarySpan.startCol,
+                endLine: f.primarySpan.endLine,
+                endColumn: f.primarySpan.endCol
+              }
+            }
+          }
+        ]
+      });
+    }
+  }
+
+  return JSON.stringify(sarif, null, 2);
 }
 
 // ── Multi-file Summary ───────────────────────────────────────────────────

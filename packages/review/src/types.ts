@@ -153,6 +153,12 @@ export interface EnforceResult {
   actualCoverage: number;
   /** Template violations (detected pattern but no KERN template used) */
   templateViolations: string[];
+  /** Errors found vs max allowed */
+  errors: { actual: number; max: number };
+  /** Warnings found vs max allowed */
+  warnings: { actual: number; max: number };
+  /** Max complexity found vs max allowed */
+  complexity: { actual: number; max: number };
 }
 
 /** Configuration for the review pipeline */
@@ -163,6 +169,14 @@ export interface ReviewConfig {
   minCoverage?: number;
   /** Require detected library patterns to use KERN templates */
   enforceTemplates?: boolean;
+  /** Maximum cognitive complexity allowed (default: 15) */
+  maxComplexity?: number;
+  /** Maximum errors allowed in CI (default: 0) */
+  maxErrors?: number;
+  /** Maximum warnings allowed in CI (default: undefined - no limit) */
+  maxWarnings?: number;
+  /** Output format (text, json, sarif) */
+  format?: 'text' | 'json' | 'sarif';
   /** Build target — activates framework-specific rules */
   target?: string;
 }

@@ -17,7 +17,7 @@ import type { GraphOptions } from './types.js';
 import { detectTemplates } from './template-detector.js';
 import { structuralDiff } from './differ.js';
 import { runQualityRules } from './quality-rules.js';
-import { calculateStats, formatReport, formatReportJSON, formatSummary, checkEnforcement, formatEnforcement, dedup } from './reporter.js';
+import { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, dedup } from './reporter.js';
 import { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
 import type { ReviewReport, InferResult, TemplateMatch, ReviewConfig, EnforceResult, ReviewFinding, SourceSpan } from './types.js';
 
@@ -30,7 +30,7 @@ export { inferFromSource, inferFromFile } from './inferrer.js';
 export { detectTemplates } from './template-detector.js';
 export { structuralDiff } from './differ.js';
 export { runQualityRules } from './quality-rules.js';
-export { calculateStats, formatReport, formatReportJSON, formatSummary, checkEnforcement, formatEnforcement, dedup } from './reporter.js';
+export { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, dedup } from './reporter.js';
 export { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
 export type { LLMGraphContext } from './llm-review.js';
 export { runESLint, runTSCDiagnostics, runTSCDiagnosticsFromPaths, linkToNodes } from './external-tools.js';

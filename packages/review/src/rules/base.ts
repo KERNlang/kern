@@ -453,25 +453,117 @@ function nonExhaustiveSwitch(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
-// ── Rule 8: complexity-spike ─────────────────────────────────────────────
-// Handler block exceeds 200 tokens
+// ── Rule 8: cognitive-complexity ─────────────────────────────────────────
+// Sonar-style cognitive complexity metric
 
-function complexitySpike(ctx: RuleContext): ReviewFinding[] {
+function calculateCognitiveComplexity(node: import('ts-morph').Node): number {
+  let complexity = 0;
+  let nestingLevel = 0;
+
+  function walk(n: import('ts-morph').Node) {
+    const kind = n.getKind();
+
+    // 1. Increments + Nesting: if, switch, for, while, do, catch, ternary
+    if ([
+      SyntaxKind.IfStatement,
+      SyntaxKind.SwitchStatement,
+      SyntaxKind.ForStatement,
+      SyntaxKind.ForInStatement,
+      SyntaxKind.ForOfStatement,
+      SyntaxKind.WhileStatement,
+      SyntaxKind.DoStatement,
+      SyntaxKind.CatchClause,
+    ].includes(kind)) {
+      complexity += 1 + nestingLevel;
+      nestingLevel++;
+      n.forEachChild(walk);
+      nestingLevel--;
+      return;
+    }
+
+    if (kind === SyntaxKind.ConditionalExpression) {
+      complexity += 1 + nestingLevel;
+      nestingLevel++;
+      n.forEachChild(walk);
+      nestingLevel--;
+      return;
+    }
+
+    // 2. Increments only: else, else if
+    if (kind === SyntaxKind.IfStatement) {
+      const ifStmt = n as import('ts-morph').IfStatement;
+      const elseStmt = ifStmt.getElseStatement();
+      if (elseStmt) {
+        if (elseStmt.getKind() !== SyntaxKind.IfStatement) {
+          complexity += 1; // plain else
+        }
+        // else if is handled by the recursive walk of IfStatement
+      }
+    }
+
+    // 3. Logical operators sequences (&&, ||)
+    if (kind === SyntaxKind.BinaryExpression) {
+      const binExpr = n as import('ts-morph').BinaryExpression;
+      const op = binExpr.getOperatorToken().getKind();
+      if (op === SyntaxKind.AmpersandAmpersandToken || op === SyntaxKind.BarBarToken) {
+        const parent = n.getParent();
+        let sameAsParent = false;
+        if (parent?.getKind() === SyntaxKind.BinaryExpression) {
+          const parentOp = (parent as import('ts-morph').BinaryExpression).getOperatorToken().getKind();
+          if (parentOp === op) sameAsParent = true;
+        }
+        if (!sameAsParent) complexity += 1;
+      }
+    }
+
+    // 4. Promise chains (.then, .catch)
+    if (kind === SyntaxKind.PropertyAccessExpression) {
+      const prop = n as import('ts-morph').PropertyAccessExpression;
+      const name = prop.getName();
+      if (name === 'then' || name === 'catch') {
+        complexity += 1;
+      }
+    }
+
+    n.forEachChild(walk);
+  }
+
+  // Find all recursive calls within the node
+  const fnName = (node as any).getName?.();
+  if (fnName) {
+    const calls = node.getDescendantsOfKind(SyntaxKind.CallExpression);
+    for (const call of calls) {
+      if (call.getExpression().getText() === fnName) {
+        complexity += 1;
+      }
+    }
+  }
+
+  node.forEachChild(walk);
+  return complexity;
+}
+
+function cognitiveComplexity(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
+  const threshold = ctx.config?.maxComplexity ?? 15;
 
-  for (const r of ctx.inferred) {
-    if (r.node.type !== 'fn') continue;
-    const handler = (r.node.children || []).find(c => c.type === 'handler');
-    if (!handler?.props?.code) continue;
+  const functions = [
+    ...ctx.sourceFile.getFunctions(),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.MethodDeclaration),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ArrowFunction),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.FunctionExpression),
+  ];
 
-    const code = handler.props.code as string;
-    const tokens = countTokens(code);
+  for (const fn of functions) {
+    const body = fn.getBody();
+    if (!body) continue;
 
-    if (tokens > 200) {
-      findings.push(finding('complexity-spike', 'info', 'structure',
-        `Function '${r.node.props?.name}' has ${tokens} tokens in handler body — consider splitting`,
-        ctx.filePath, r.startLine, 1,
-        { nodeIds: [r.nodeId] }));
+    const complexity = calculateCognitiveComplexity(fn);
+    if (complexity > threshold) {
+      const name = (fn as any).getName?.() || 'anonymous';
+      findings.push(finding('cognitive-complexity', 'warning', 'structure',
+        `Function '${name}' has cognitive complexity of ${complexity} (threshold: ${threshold})`,
+        ctx.filePath, fn.getStartLineNumber()));
     }
   }
 
@@ -687,7 +779,7 @@ export const baseRules = [
   configDefaultMismatch,
   eventMapMismatch,
   nonExhaustiveSwitch,
-  complexitySpike,
+  cognitiveComplexity,
   templateAvailable,
   handlerExtraction,
   memoryLeak,
