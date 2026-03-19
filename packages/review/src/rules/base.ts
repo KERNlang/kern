@@ -387,7 +387,6 @@ function eventMapMismatch(ctx: RuleContext): ReviewFinding[] {
 
 function nonExhaustiveSwitch(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
-  const fullText = ctx.sourceFile.getFullText();
 
   // Collect known union types from inferred results
   const unionTypes = new Map<string, string[]>();

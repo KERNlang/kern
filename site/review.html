@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>kern review — Static Analysis for TypeScript</title>
+  <meta name="description" content="50-rule static analysis engine for TypeScript. AST + KERN IR + LLM pipeline. Replaces SonarQube with zero config.">
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.17/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --bg-card: #111118;
+      --bg-code: #0d0d14;
+      --border: #1e1e2e;
+      --border-accent: #2d2d44;
+      --text: #e4e4ef;
+      --text-muted: #8888a0;
+      --text-dim: #5a5a72;
+      --accent: #7c6aef;
+      --accent-bright: #9580ff;
+      --green: #50e3a4;
+      --red: #ff6b7a;
+      --yellow: #ffc86b;
+      --blue: #6bc5ff;
+      --orange: #ffaa5a;
+      --pink: #ff7eb3;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      margin: 0;
+    }
+
+    code, pre, .mono {
+      font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    }
+
+    /* Gradient noise overlay */
+    .hero-bg {
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124,106,239,0.15), transparent),
+        radial-gradient(ellipse 60% 40% at 80% 60%, rgba(80,227,164,0.06), transparent),
+        var(--bg);
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      transition: border-color 0.2s;
+    }
+    .card:hover {
+      border-color: var(--border-accent);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 10px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .badge-error { background: rgba(255,107,122,0.14); color: var(--red); }
+    .badge-warning { background: rgba(255,200,107,0.14); color: var(--yellow); }
+    .badge-info { background: rgba(107,197,255,0.14); color: var(--blue); }
+
+    .badge-cat-bug { background: rgba(255,107,122,0.10); color: #ff8f9b; }
+    .badge-cat-pattern { background: rgba(149,128,255,0.12); color: var(--accent-bright); }
+    .badge-cat-structure { background: rgba(80,227,164,0.12); color: var(--green); }
+    .badge-cat-style { background: rgba(107,197,255,0.10); color: var(--blue); }
+
+    .rule-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+    .rule-table th {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--bg);
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+    }
+    .rule-table td {
+      padding: 10px 16px;
+      border-bottom: 1px solid rgba(30,30,46,0.5);
+      font-size: 14px;
+      vertical-align: middle;
+    }
+    .rule-table tbody tr:hover {
+      background: rgba(124,106,239,0.03);
+    }
+    .rule-table .rule-id {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--accent-bright);
+      white-space: nowrap;
+    }
+
+    pre.code-block {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 24px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--text);
+    }
+    pre.code-block .comment { color: var(--text-dim); }
+    pre.code-block .keyword { color: var(--accent-bright); }
+    pre.code-block .string { color: var(--green); }
+    pre.code-block .flag { color: var(--yellow); }
+    pre.code-block .cmd { color: var(--text); }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    .nav-link {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+    .nav-link:hover { color: var(--text); }
+
+    .pipeline-step {
+      position: relative;
+      padding-left: 28px;
+    }
+    .pipeline-step::before {
+      content: '';
+      position: absolute;
+      left: 8px;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: var(--border-accent);
+    }
+    .pipeline-step::after {
+      content: '';
+      position: absolute;
+      left: 4px;
+      top: 8px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--bg);
+    }
+
+    .stat-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 36px;
+      font-weight: 700;
+      line-height: 1;
+      background: linear-gradient(135deg, var(--accent-bright), var(--green));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .category-header {
+      background: rgba(124,106,239,0.05);
+      border-left: 3px solid var(--accent);
+    }
+
+    .glow-line {
+      height: 1px;
+      background: linear-gradient(to right, transparent, var(--accent), transparent);
+      opacity: 0.3;
+    }
+
+    @media (max-width: 768px) {
+      .rule-table td, .rule-table th { padding: 8px 10px; font-size: 12px; }
+      .stat-num { font-size: 28px; }
+      .hide-mobile { display: none; }
+    }
+  </style>
+</head>
+
+<body class="hero-bg">
+
+  <!-- ─── Navigation ─────────────────────────────────────────────────── -->
+  <nav style="position:sticky;top:0;z-index:50;background:rgba(10,10,15,0.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);">
+    <div style="max-width:1200px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:16px;color:var(--accent-bright);">kern</span>
+        <span style="color:var(--text-dim);font-size:14px;">/</span>
+        <span style="font-size:14px;font-weight:500;color:var(--text-muted);">review</span>
+      </div>
+      <div style="display:flex;gap:28px;">
+        <a href="#features" class="nav-link">Features</a>
+        <a href="#rules" class="nav-link">Rules</a>
+        <a href="#cli" class="nav-link">CLI</a>
+        <a href="#ci" class="nav-link">CI</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ─── Hero ───────────────────────────────────────────────────────── -->
+  <header style="max-width:1200px;margin:0 auto;padding:80px 24px 60px;">
+    <p class="section-label" style="margin-bottom:16px;">Static Analysis Engine</p>
+    <h1 style="font-size:clamp(32px,5vw,56px);font-weight:800;line-height:1.1;margin:0 0 20px;">
+      kern review
+    </h1>
+    <p style="font-size:clamp(16px,2.2vw,22px);color:var(--text-muted);max-width:680px;line-height:1.6;margin:0 0 36px;">
+      50-rule static analysis for TypeScript that sees structure, not just syntax.
+      <span style="color:var(--text);">Replaces SonarQube</span> with a 3-layer pipeline:
+      AST, KERN IR, and optional LLM analysis.
+    </p>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:48px;">
+      <code style="display:inline-block;background:var(--bg-code);border:1px solid var(--border);border-radius:8px;padding:10px 20px;font-size:14px;">
+        <span style="color:var(--text-dim);">$</span> <span style="color:var(--text);">npx kern review src/</span>
+      </code>
+    </div>
+
+    <!-- Stats row -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:24px;max-width:800px;">
+      <div>
+        <div class="stat-num">50</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-top:4px;">Built-in Rules</div>
+      </div>
+      <div>
+        <div class="stat-num">8</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-top:4px;">Rule Categories</div>
+      </div>
+      <div>
+        <div class="stat-num">3</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-top:4px;">Analysis Layers</div>
+      </div>
+      <div>
+        <div class="stat-num">0</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-top:4px;">Config Required</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="glow-line" style="max-width:1200px;margin:0 auto;"></div>
+
+  <!-- ─── Features ───────────────────────────────────────────────────── -->
+  <section id="features" style="max-width:1200px;margin:0 auto;padding:72px 24px;">
+    <p class="section-label" style="margin-bottom:12px;">Why kern review</p>
+    <h2 style="font-size:28px;font-weight:700;margin:0 0 40px;">Beyond token-matching. Structural analysis.</h2>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;">
+
+      <!-- Pipeline -->
+      <div class="card" style="padding:28px;">
+        <h3 style="font-size:15px;font-weight:700;margin:0 0 16px;color:var(--accent-bright);">3-Layer Pipeline</h3>
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <div class="pipeline-step">
+            <div style="font-size:13px;font-weight:600;color:var(--text);">Layer 1 &mdash; AST</div>
+            <div style="font-size:13px;color:var(--text-muted);">ts-morph parses TypeScript. Pattern-matching rules run on the syntax tree. Zero false positives from string matching.</div>
+          </div>
+          <div class="pipeline-step">
+            <div style="font-size:13px;font-weight:600;color:var(--text);">Layer 2 &mdash; KERN IR</div>
+            <div style="font-size:13px;color:var(--text-muted);">TypeScript is inferred into KERN intermediate representation. Rules analyze <code style="font-size:12px;">machine</code>, <code style="font-size:12px;">config</code>, <code style="font-size:12px;">event</code>, and <code style="font-size:12px;">fn</code> nodes structurally.</div>
+          </div>
+          <div class="pipeline-step">
+            <div style="font-size:13px;font-weight:600;color:var(--text);">Layer 3 &mdash; LLM</div>
+            <div style="font-size:13px;color:var(--text-muted);">Optional. Send KERN IR + findings to an LLM for architectural review, pattern suggestions, and natural-language explanations.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Import Graph -->
+      <div class="card" style="padding:28px;">
+        <h3 style="font-size:15px;font-weight:700;margin:0 0 16px;color:var(--green);">Import Graph Tracing</h3>
+        <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px;">
+          <code style="font-size:12px;">--graph</code> resolves the full import tree from entry files. Findings on upstream dependencies include their distance from the change, so you can prioritize what matters.
+        </p>
+        <pre class="code-block" style="font-size:12px;padding:14px 18px;">
+<span class="comment"># Trace feature path from entry points</span>
+<span class="cmd">kern review</span> <span class="flag">--graph</span> <span class="string">src/index.ts</span>
+
+<span class="comment"># Only review files changed in current diff</span>
+<span class="cmd">kern review</span> <span class="flag">--diff</span> <span class="flag">--graph</span></pre>
+      </div>
+
+      <!-- Cognitive Complexity -->
+      <div class="card" style="padding:28px;">
+        <h3 style="font-size:15px;font-weight:700;margin:0 0 16px;color:var(--yellow);">Cognitive Complexity</h3>
+        <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px;">
+          Sonar-compatible S3776 implementation. Scores every function independently. Handles <code style="font-size:12px;">else if</code> chains, nested functions, logical operator sequences, recursion, and the <code style="font-size:12px;">??</code> operator correctly.
+        </p>
+        <p style="font-size:13px;color:var(--text-muted);margin:0;">
+          Default threshold: <strong style="color:var(--text);">15</strong>. Override with <code style="font-size:12px;">--max-complexity</code>.
+        </p>
+      </div>
+
+      <!-- CI Gate -->
+      <div class="card" style="padding:28px;">
+        <h3 style="font-size:15px;font-weight:700;margin:0 0 16px;color:var(--red);">CI Quality Gate</h3>
+        <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px;">
+          <code style="font-size:12px;">--enforce</code> fails the build when thresholds are exceeded. Configure max errors, max warnings, max complexity, and minimum KERN coverage.
+        </p>
+        <pre class="code-block" style="font-size:12px;padding:14px 18px;">
+<span class="cmd">kern review</span> <span class="flag">--enforce</span> \
+  <span class="flag">--max-errors</span> <span class="string">0</span> \
+  <span class="flag">--max-warnings</span> <span class="string">10</span> \
+  <span class="flag">--max-complexity</span> <span class="string">20</span> \
+  <span class="flag">--min-coverage</span> <span class="string">60</span></pre>
+      </div>
+
+      <!-- SARIF -->
+      <div class="card" style="padding:28px;">
+        <h3 style="font-size:15px;font-weight:700;margin:0 0 16px;color:var(--blue);">SARIF Output</h3>
+        <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px;">
+          <code style="font-size:12px;">--sarif</code> outputs SARIF 2.1.0 for GitHub Advanced Security integration. Findings appear as code scanning alerts directly in PRs.
+        </p>
+        <p style="font-size:13px;color:var(--text-muted);margin:0;">
+          Also supports <code style="font-size:12px;">--json</code> for custom tooling and dashboards.
+        </p>
+      </div>
+
+      <!-- Framework Rules -->
+      <div class="card" style="padding:28px;">
+        <h3 style="font-size:15px;font-weight:700;margin:0 0 16px;color:var(--pink);">Framework-Aware</h3>
+        <p style="font-size:13px;color:var(--text-muted);margin:0 0 14px;">
+          Set your target and get framework-specific rules automatically. React hooks violations, Vue reactivity bugs, Next.js Server Component errors, Express security issues.
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">
+          <span class="badge" style="background:rgba(149,128,255,0.10);color:var(--accent-bright);">React</span>
+          <span class="badge" style="background:rgba(80,227,164,0.10);color:var(--green);">Vue</span>
+          <span class="badge" style="background:rgba(255,126,179,0.10);color:var(--pink);">Next.js</span>
+          <span class="badge" style="background:rgba(255,200,107,0.10);color:var(--yellow);">Express</span>
+          <span class="badge" style="background:rgba(107,197,255,0.10);color:var(--blue);">Tailwind</span>
+          <span class="badge" style="background:rgba(255,170,90,0.10);color:var(--orange);">Native</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="glow-line" style="max-width:1200px;margin:0 auto;"></div>
+
+  <!-- ─── Rule Reference ─────────────────────────────────────────────── -->
+  <section id="rules" style="max-width:1200px;margin:0 auto;padding:72px 24px;">
+    <p class="section-label" style="margin-bottom:12px;">Rule Reference</p>
+    <h2 style="font-size:28px;font-weight:700;margin:0 0 8px;">50 Rules. 8 Categories.</h2>
+    <p style="font-size:15px;color:var(--text-muted);margin:0 0 36px;max-width:600px;">
+      Base, security, and dead-logic rules are always active. Framework rules activate based on your build target.
+    </p>
+
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:12px;">
+      <table class="rule-table">
+        <thead>
+          <tr>
+            <th style="min-width:200px;">Rule ID</th>
+            <th>Description</th>
+            <th style="min-width:80px;">Severity</th>
+            <th style="min-width:80px;" class="hide-mobile">Category</th>
+          </tr>
+        </thead>
+        <tbody>
+
+          <!-- ── Base Rules ── -->
+          <tr>
+            <td colspan="4" class="category-header" style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent-bright);padding:10px 16px;">
+              Base &mdash; Always Active (12 rules)
+            </td>
+          </tr>
+          <tr>
+            <td class="rule-id">floating-promise</td>
+            <td>Async function or <code>.then()</code> chain called without <code>await</code>, <code>return</code>, or <code>void</code></td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">state-mutation</td>
+            <td>Direct mutation of state via <code>.push()</code>, <code>.splice()</code>, <code>delete</code> on state-like objects</td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">empty-catch</td>
+            <td>Empty catch block silently swallows exceptions</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">machine-gap</td>
+            <td>Unreachable states, dead-end states, or transitions referencing unknown states in KERN machine nodes</td>
+            <td><span class="badge badge-warning">warning</span> / <span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-structure">structure</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">config-default-mismatch</td>
+            <td>Config interface fields missing from defaults object, or default keys not in the interface</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-pattern">pattern</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">event-map-mismatch</td>
+            <td>EventType values without handlers in EventMap, or map keys without matching event types</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-pattern">pattern</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">non-exhaustive-switch</td>
+            <td>Switch over a union or machine state type that misses cases (no default clause)</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-pattern">pattern</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">cognitive-complexity</td>
+            <td>Function exceeds cognitive complexity threshold (Sonar S3776-compatible)</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-structure">structure</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">template-available</td>
+            <td>Library pattern detected that has a registered KERN template</td>
+            <td><span class="badge badge-info">info</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-pattern">pattern</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">handler-extraction</td>
+            <td>Large inline handler (&gt;300 tokens) that should be extracted to a separate <code>fn</code> node</td>
+            <td><span class="badge badge-info">info</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-structure">structure</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">memory-leak</td>
+            <td>Effect creates subscription (<code>addEventListener</code>, <code>setInterval</code>, <code>WebSocket</code>, etc.) without cleanup return</td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">unhandled-async</td>
+            <td>Async function with <code>await</code> but no <code>try/catch</code> or <code>.catch()</code> &mdash; unhandled rejection risk</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+
+          <!-- ── Security v1 ── -->
+          <tr>
+            <td colspan="4" class="category-header" style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--red);padding:10px 16px;">
+              Security &mdash; Always Active (8 rules)
+            </td>
+          </tr>
+          <tr>
+            <td class="rule-id">xss-unsafe-html</td>
+            <td><code>dangerouslySetInnerHTML</code>, <code>v-html</code>, or direct <code>.innerHTML</code> assignment &mdash; XSS vector</td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">hardcoded-secret</td>
+            <td>String literals matching API key, JWT, AWS, GitHub, Slack, SendGrid, or Google key patterns</td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">command-injection</td>
+            <td><code>exec()</code> / <code>spawn()</code> with template literals or string concatenation</td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">no-eval</td>
+            <td><code>eval()</code> or <code>new Function()</code> &mdash; code injection risk</td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">insecure-random</td>
+            <td><code>Math.random()</code> in security-sensitive context (token, password, key generation)</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">cors-wildcard</td>
+            <td><code>cors()</code> with no options or <code>origin: '*'</code> &mdash; allows any domain</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">helmet-missing</td>
+            <td>Express app created without <code>helmet()</code> middleware &mdash; missing security headers</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">open-redirect</td>
+            <td><code>res.redirect()</code> with unvalidated user input from <code>req.query</code> / <code>req.params</code></td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+
+          <!-- ── Security v2 ── -->
+          <tr>
+            <td colspan="4" class="category-header" style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--orange);padding:10px 16px;">
+              Security v2 &mdash; Always Active (6 rules)
+            </td>
+          </tr>
+          <tr>
+            <td class="rule-id">jwt-weak-verification</td>
+            <td><code>jwt.decode()</code> for auth decisions, <code>jwt.verify()</code> without <code>algorithms</code> allowlist, or accepting <code>"none"</code> algorithm</td>
+            <td><span class="badge badge-warning">warning</span> / <span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">cookie-hardening</td>
+            <td>Auth cookies missing <code>httpOnly</code>, <code>secure</code>, or <code>sameSite</code> flags</td>
+            <td><span class="badge badge-error">error</span> / <span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">csrf-detection</td>
+            <td>Cookie-auth app with state-changing routes but no CSRF protection middleware</td>
+            <td><span class="badge badge-warning">warning</span> / <span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">csp-strength</td>
+            <td>Weak CSP directives: <code>unsafe-inline</code>, <code>unsafe-eval</code>, wildcard <code>script-src</code>, missing <code>frame-ancestors</code></td>
+            <td><span class="badge badge-warning">warning</span> / <span class="badge badge-info">info</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">path-traversal</td>
+            <td>File system operations or <code>res.sendFile()</code> with user input without path validation</td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">weak-password-hashing</td>
+            <td>MD5/SHA1/SHA256 for passwords, low bcrypt rounds (&lt;10), low PBKDF2 iterations (&lt;100k)</td>
+            <td><span class="badge badge-error">error</span> / <span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+
+          <!-- ── Dead Logic ── -->
+          <tr>
+            <td colspan="4" class="category-header" style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--yellow);padding:10px 16px;">
+              Dead Logic &mdash; Always Active (8 rules)
+            </td>
+          </tr>
+          <tr>
+            <td class="rule-id">identical-conditions</td>
+            <td>Same condition repeated in an <code>if</code> / <code>else if</code> chain</td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">identical-expressions</td>
+            <td>Both sides of a binary operator are identical: <code>a === a</code>, <code>x - x</code>, <code>x && x</code></td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">all-identical-branches</td>
+            <td>All branches of <code>if/else</code> or ternary produce the same code &mdash; condition has no effect</td>
+            <td><span class="badge badge-error">error</span> / <span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">constant-condition</td>
+            <td><code>if (true)</code>, <code>if (false)</code>, <code>while (false)</code>, ternary with boolean literal</td>
+            <td><span class="badge badge-warning">warning</span> / <span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">one-iteration-loop</td>
+            <td>Loop body always exits on first iteration (unconditional <code>break</code>/<code>return</code>/<code>throw</code>)</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">unused-collection</td>
+            <td>Array, Map, or Set is populated but never read</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">empty-collection-access</td>
+            <td>Collection initialized empty and read but never populated &mdash; reads always return empty</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">redundant-jump</td>
+            <td>Unnecessary <code>continue</code> at end of loop body or bare <code>return</code> at end of void function</td>
+            <td><span class="badge badge-info">info</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-style">style</span></td>
+          </tr>
+
+          <!-- ── React ── -->
+          <tr>
+            <td colspan="4" class="category-header" style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent-bright);padding:10px 16px;">
+              React &mdash; nextjs | tailwind | web | native (6 rules)
+            </td>
+          </tr>
+          <tr>
+            <td class="rule-id">async-effect</td>
+            <td><code>useEffect(async () => ...)</code> &mdash; React does not support async effect callbacks</td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">render-side-effect</td>
+            <td><code>setState</code> or <code>fetch()</code> called directly in component render body, outside hooks or handlers</td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">unstable-key</td>
+            <td>Missing <code>key</code> prop or <code>key={index}</code> in <code>.map()</code> JSX expressions</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">stale-closure</td>
+            <td>Timer in <code>useEffect</code> with empty <code>[]</code> deps may capture stale state values</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">state-explosion</td>
+            <td>Component has &gt;5 <code>useState</code> calls &mdash; should use <code>useReducer</code> or a state machine</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-pattern">pattern</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">hook-order</td>
+            <td>React hook called inside <code>if</code>, loop, or after early return &mdash; violates Rules of Hooks</td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+
+          <!-- ── Vue ── -->
+          <tr>
+            <td colspan="4" class="category-header" style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--green);padding:10px 16px;">
+              Vue &mdash; vue | nuxt (4 rules)
+            </td>
+          </tr>
+          <tr>
+            <td class="rule-id">missing-ref-value</td>
+            <td><code>ref()</code> result used in expression without <code>.value</code> access</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">missing-onUnmounted</td>
+            <td><code>watch()</code> or <code>addEventListener</code> without cleanup in <code>onUnmounted</code></td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">setup-side-effect</td>
+            <td>Top-level <code>await</code> in <code>&lt;script setup&gt;</code> without <code>onMounted</code> wrapper &mdash; SSR issue</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-pattern">pattern</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">reactive-destructure</td>
+            <td>Destructuring <code>reactive()</code> loses reactivity &mdash; use <code>toRefs()</code></td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+
+          <!-- ── Next.js ── -->
+          <tr>
+            <td colspan="4" class="category-header" style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--pink);padding:10px 16px;">
+              Next.js &mdash; nextjs only (3 rules)
+            </td>
+          </tr>
+          <tr>
+            <td class="rule-id">server-hook</td>
+            <td>Client hooks (<code>useState</code>, <code>useEffect</code>, etc.) used in Server Component without <code>'use client'</code></td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">hydration-mismatch</td>
+            <td>Nondeterministic expressions (<code>Date.now()</code>, <code>Math.random()</code>, <code>new Date()</code>) in render cause hydration mismatch</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">missing-use-client</td>
+            <td>Event handlers (<code>onClick</code>, <code>onChange</code>, etc.) in Server Component &mdash; needs <code>'use client'</code></td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-pattern">pattern</span></td>
+          </tr>
+
+          <!-- ── Express ── -->
+          <tr>
+            <td colspan="4" class="category-header" style="font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--yellow);padding:10px 16px;">
+              Express &mdash; express only (3 rules)
+            </td>
+          </tr>
+          <tr>
+            <td class="rule-id">unvalidated-input</td>
+            <td><code>req.body</code> / <code>req.params</code> / <code>req.query</code> used without validation library (zod, joi, yup)</td>
+            <td><span class="badge badge-error">error</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-bug">bug</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">missing-error-middleware</td>
+            <td>Express app without error handling middleware (4-param function)</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-pattern">pattern</span></td>
+          </tr>
+          <tr>
+            <td class="rule-id">sync-in-handler</td>
+            <td>Synchronous file system or crypto operations in request handlers block the event loop</td>
+            <td><span class="badge badge-warning">warning</span></td>
+            <td class="hide-mobile"><span class="badge badge-cat-pattern">pattern</span></td>
+          </tr>
+
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="glow-line" style="max-width:1200px;margin:0 auto;"></div>
+
+  <!-- ─── CLI Usage ──────────────────────────────────────────────────── -->
+  <section id="cli" style="max-width:1200px;margin:0 auto;padding:72px 24px;">
+    <p class="section-label" style="margin-bottom:12px;">CLI Reference</p>
+    <h2 style="font-size:28px;font-weight:700;margin:0 0 32px;">Usage &amp; Flags</h2>
+
+    <pre class="code-block" style="margin-bottom:32px;">
+<span class="comment"># Basic usage — review a file or directory</span>
+<span class="cmd">kern review</span> <span class="string">src/server.ts</span>
+<span class="cmd">kern review</span> <span class="string">src/</span>
+
+<span class="comment"># Recursive scan of all .ts/.tsx files</span>
+<span class="cmd">kern review</span> <span class="flag">--recursive</span> <span class="string">src/</span>
+
+<span class="comment"># Only review files changed in current git diff</span>
+<span class="cmd">kern review</span> <span class="flag">--diff</span>
+
+<span class="comment"># Include import graph tracing (feature-path analysis)</span>
+<span class="cmd">kern review</span> <span class="flag">--graph</span> <span class="string">src/index.ts</span>
+
+<span class="comment"># Enable LLM layer (requires KERN_LLM_KEY or configured provider)</span>
+<span class="cmd">kern review</span> <span class="flag">--llm</span> <span class="string">src/</span>
+
+<span class="comment"># Run as linter (exit 1 on any error, for pre-commit hooks)</span>
+<span class="cmd">kern review</span> <span class="flag">--lint</span> <span class="string">src/</span></pre>
+
+    <h3 style="font-size:18px;font-weight:600;margin:0 0 20px;">Output Flags</h3>
+
+    <pre class="code-block" style="margin-bottom:32px;">
+<span class="comment"># JSON output for custom tooling</span>
+<span class="cmd">kern review</span> <span class="flag">--json</span> <span class="string">src/</span>
+
+<span class="comment"># SARIF 2.1.0 output for GitHub Advanced Security</span>
+<span class="cmd">kern review</span> <span class="flag">--sarif</span> <span class="string">src/</span> <span class="cmd">&gt;</span> <span class="string">results.sarif</span></pre>
+
+    <h3 style="font-size:18px;font-weight:600;margin:0 0 20px;">Enforcement Flags</h3>
+
+    <pre class="code-block" style="margin-bottom:32px;">
+<span class="comment"># Enforce quality gate — fail if thresholds are exceeded</span>
+<span class="cmd">kern review</span> <span class="flag">--enforce</span> <span class="string">src/</span>
+
+<span class="comment"># Custom thresholds</span>
+<span class="cmd">kern review</span> <span class="flag">--enforce</span> \
+  <span class="flag">--max-errors</span> <span class="string">0</span>           <span class="comment"># Zero errors allowed (default)</span>
+  <span class="flag">--max-warnings</span> <span class="string">10</span>       <span class="comment"># Max 10 warnings</span>
+  <span class="flag">--max-complexity</span> <span class="string">20</span>     <span class="comment"># Max cognitive complexity per function</span>
+  <span class="flag">--min-coverage</span> <span class="string">60</span>       <span class="comment"># Min KERN coverage percentage</span></pre>
+
+    <h3 style="font-size:18px;font-weight:600;margin:0 0 20px;">All Flags</h3>
+
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:12px;">
+      <table class="rule-table">
+        <thead>
+          <tr>
+            <th style="min-width:180px;">Flag</th>
+            <th>Description</th>
+            <th style="min-width:100px;" class="hide-mobile">Default</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="rule-id">--json</td>
+            <td>Output findings as JSON</td>
+            <td class="hide-mobile" style="color:var(--text-dim);">false</td>
+          </tr>
+          <tr>
+            <td class="rule-id">--sarif</td>
+            <td>Output SARIF 2.1.0 for GitHub code scanning</td>
+            <td class="hide-mobile" style="color:var(--text-dim);">false</td>
+          </tr>
+          <tr>
+            <td class="rule-id">--enforce</td>
+            <td>Enable quality gate enforcement (exit 1 on failure)</td>
+            <td class="hide-mobile" style="color:var(--text-dim);">false</td>
+          </tr>
+          <tr>
+            <td class="rule-id">--max-complexity</td>
+            <td>Maximum cognitive complexity per function</td>
+            <td class="hide-mobile" style="color:var(--text-dim);">15</td>
+          </tr>
+          <tr>
+            <td class="rule-id">--max-errors</td>
+            <td>Maximum errors allowed (enforcement mode)</td>
+            <td class="hide-mobile" style="color:var(--text-dim);">0</td>
+          </tr>
+          <tr>
+            <td class="rule-id">--max-warnings</td>
+            <td>Maximum warnings allowed (enforcement mode)</td>
+            <td class="hide-mobile" style="color:var(--text-dim);">unlimited</td>
+          </tr>
+          <tr>
+            <td class="rule-id">--min-coverage</td>
+            <td>Minimum KERN coverage percentage (enforcement mode)</td>
+            <td class="hide-mobile" style="color:var(--text-dim);">0</td>
+          </tr>
+          <tr>
+            <td class="rule-id">--graph</td>
+            <td>Enable import graph tracing from entry files</td>
+            <td class="hide-mobile" style="color:var(--text-dim);">false</td>
+          </tr>
+          <tr>
+            <td class="rule-id">--llm</td>
+            <td>Enable LLM analysis layer (architectural review)</td>
+            <td class="hide-mobile" style="color:var(--text-dim);">false</td>
+          </tr>
+          <tr>
+            <td class="rule-id">--diff</td>
+            <td>Only review files changed in current git diff</td>
+            <td class="hide-mobile" style="color:var(--text-dim);">false</td>
+          </tr>
+          <tr>
+            <td class="rule-id">--recursive</td>
+            <td>Recursively scan directories for .ts/.tsx files</td>
+            <td class="hide-mobile" style="color:var(--text-dim);">false</td>
+          </tr>
+          <tr>
+            <td class="rule-id">--lint</td>
+            <td>Lint mode: exit 1 on any error finding</td>
+            <td class="hide-mobile" style="color:var(--text-dim);">false</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="glow-line" style="max-width:1200px;margin:0 auto;"></div>
+
+  <!-- ─── CI Integration ─────────────────────────────────────────────── -->
+  <section id="ci" style="max-width:1200px;margin:0 auto;padding:72px 24px 96px;">
+    <p class="section-label" style="margin-bottom:12px;">CI Integration</p>
+    <h2 style="font-size:28px;font-weight:700;margin:0 0 12px;">GitHub Actions + SARIF</h2>
+    <p style="font-size:15px;color:var(--text-muted);margin:0 0 32px;max-width:600px;">
+      Upload SARIF results to GitHub Advanced Security. Findings appear as code scanning alerts inline on pull requests.
+    </p>
+
+    <pre class="code-block">
+<span class="comment"># .github/workflows/kern-review.yml</span>
+<span class="keyword">name</span>: kern review
+<span class="keyword">on</span>: [push, pull_request]
+
+<span class="keyword">jobs</span>:
+  <span class="keyword">review</span>:
+    <span class="keyword">runs-on</span>: ubuntu-latest
+    <span class="keyword">permissions</span>:
+      <span class="keyword">security-events</span>: write
+    <span class="keyword">steps</span>:
+      - <span class="keyword">uses</span>: <span class="string">actions/checkout@v4</span>
+
+      - <span class="keyword">uses</span>: <span class="string">actions/setup-node@v4</span>
+        <span class="keyword">with</span>:
+          <span class="keyword">node-version</span>: <span class="string">20</span>
+
+      - <span class="keyword">run</span>: <span class="string">npm ci</span>
+
+      <span class="comment"># Run kern review with SARIF output + enforcement</span>
+      - <span class="keyword">name</span>: <span class="string">kern review</span>
+        <span class="keyword">run</span>: |
+          npx kern review --sarif --enforce \
+            --max-errors 0 \
+            --max-warnings 20 \
+            --max-complexity 20 \
+            --recursive src/ > results.sarif
+
+      <span class="comment"># Upload SARIF to GitHub Advanced Security</span>
+      - <span class="keyword">name</span>: <span class="string">Upload SARIF</span>
+        <span class="keyword">if</span>: <span class="string">always()</span>
+        <span class="keyword">uses</span>: <span class="string">github/codeql-action/upload-sarif@v3</span>
+        <span class="keyword">with</span>:
+          <span class="keyword">sarif_file</span>: <span class="string">results.sarif</span>
+          <span class="keyword">category</span>: <span class="string">kern-review</span></pre>
+
+    <div style="margin-top:40px;padding:24px 28px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;">
+      <h3 style="font-size:15px;font-weight:700;margin:0 0 12px;color:var(--green);">Diff-Only Mode for PRs</h3>
+      <p style="font-size:13px;color:var(--text-muted);margin:0 0 16px;">
+        Use <code style="font-size:12px;">--diff</code> to only review files changed in the PR. Combine with <code style="font-size:12px;">--graph</code> to also trace upstream dependencies.
+      </p>
+      <pre class="code-block" style="font-size:12px;padding:14px 18px;margin:0;">
+<span class="comment"># Only review changed files + their import graph</span>
+<span class="cmd">npx kern review</span> <span class="flag">--diff</span> <span class="flag">--graph</span> <span class="flag">--sarif</span> <span class="cmd">&gt;</span> <span class="string">results.sarif</span></pre>
+    </div>
+  </section>
+
+  <!-- ─── Footer ─────────────────────────────────────────────────────── -->
+  <footer style="border-top:1px solid var(--border);padding:40px 24px;">
+    <div style="max-width:1200px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;">
+      <div>
+        <span style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:14px;color:var(--accent-bright);">kern</span>
+        <span style="color:var(--text-dim);font-size:13px;margin-left:8px;">The language LLMs think in.</span>
+      </div>
+      <div style="font-size:13px;color:var(--text-dim);">
+        50 rules &middot; AST + KERN IR + LLM &middot; Zero config &middot; SARIF output
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
