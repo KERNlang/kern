@@ -52,7 +52,7 @@ export const NODE_TYPES = [
   'theme',
   // Backend
   'server', 'route', 'middleware', 'handler', 'schema',
-  'stream', 'spawn', 'timer', 'on', 'env',
+  'stream', 'spawn', 'timer', 'on', 'env', 'websocket',
   // CLI
   'cli', 'command', 'arg', 'flag', 'import',
   // Terminal
@@ -72,8 +72,19 @@ export const NODE_TYPES = [
   'hook', 'provider', 'effect',
   'memo', 'callback', 'ref', 'context', 'cleanup',
   'prop', 'returns',
+  // Ink — terminal React (Ink) specific nodes
+  'input-area', 'output-area', 'text-input', 'select-input',
   // Template system
   'template', 'slot', 'body',
+  // Ground layer — semantic reasoning
+  'derive', 'transform', 'action', 'assume', 'invariant',
+  'branch', 'path', 'resolve', 'candidate', 'discriminator',
+  'collect', 'pattern', 'apply', 'expect',
+  'recover', 'strategy',
+  // Reason layer — metadata children
+  'reason', 'evidence',
+  // Confidence layer — evidence gaps
+  'needs',
 ] as const;
 
 export type IRNodeType = (typeof NODE_TYPES)[number];

@@ -121,6 +121,10 @@ export interface ReviewReport {
   findings: ReviewFinding[];
   /** Summary stats */
   stats: ReviewStats;
+  /** Confidence graph (present when confidence layer is active) */
+  confidenceGraph?: import('./confidence.js').SerializedConfidenceGraph;
+  /** Confidence summary bands */
+  confidenceSummary?: import('./confidence.js').ConfidenceSummary;
 }
 
 /** Summary statistics for a review */
@@ -179,6 +183,10 @@ export interface ReviewConfig {
   format?: 'text' | 'json' | 'sarif';
   /** Build target — activates framework-specific rules */
   target?: string;
+  /** Minimum confidence for findings to count in enforcement (default: 0) */
+  minConfidence?: number;
+  /** Show confidence scores in output */
+  showConfidence?: boolean;
 }
 
 // ── Rule Context ─────────────────────────────────────────────────────────

@@ -56,6 +56,15 @@ export interface KernConfig {
     gzip?: boolean;
     uvicorn?: { host?: string; reload?: boolean; workers?: number };
   };
+
+  review?: {
+    /** Show confidence scores in review output (default: false) */
+    showConfidence?: boolean;
+    /** Minimum confidence for findings to count in enforcement (default: 0) */
+    minConfidence?: number;
+    /** Maximum cognitive complexity allowed (default: 15) */
+    maxComplexity?: number;
+  };
 }
 
 /** Fully resolved config — all fields required, no optionals */
@@ -96,6 +105,12 @@ export interface ResolvedKernConfig {
     gzip: boolean;
     uvicorn: { host: string; reload: boolean; workers?: number };
   };
+
+  review: {
+    showConfidence: boolean;
+    minConfidence: number;
+    maxComplexity: number;
+  };
 }
 
 export const DEFAULT_CONFIG: ResolvedKernConfig = {
@@ -128,6 +143,11 @@ export const DEFAULT_CONFIG: ResolvedKernConfig = {
     cors: false,
     gzip: false,
     uvicorn: { host: '0.0.0.0', reload: false },
+  },
+  review: {
+    showConfidence: false,
+    minConfidence: 0,
+    maxComplexity: 15,
   },
 };
 
@@ -181,6 +201,11 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
         reload: user.fastapi?.uvicorn?.reload ?? DEFAULT_CONFIG.fastapi.uvicorn.reload,
         ...(user.fastapi?.uvicorn?.workers ? { workers: user.fastapi.uvicorn.workers } : {}),
       },
+    },
+    review: {
+      showConfidence: user.review?.showConfidence ?? DEFAULT_CONFIG.review.showConfidence,
+      minConfidence: user.review?.minConfidence ?? DEFAULT_CONFIG.review.minConfidence,
+      maxComplexity: user.review?.maxComplexity ?? DEFAULT_CONFIG.review.maxComplexity,
     },
   };
 }

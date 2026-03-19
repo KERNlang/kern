@@ -9,6 +9,7 @@ export default {
   extensionsToTreatAsEsm: ['.ts'],
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
+    '^@kernlang/core$': resolve(ROOT, 'packages/core/src/index.ts'),
   },
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {
@@ -20,5 +21,8 @@ export default {
       },
     }],
   },
+  transformIgnorePatterns: [
+    'node_modules/(?!@kernlang/)',
+  ],
   testMatch: ['**/tests/**/*.test.ts'],
 };

@@ -21,6 +21,10 @@ import { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSumm
 import { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { runConceptRules } from './concept-rules/index.js';
+import { lintConfidenceGraph } from './rules/confidence.js';
+import { lintKernIR } from './kern-lint.js';
+import { GROUND_LAYER_RULES } from './rules/ground-layer.js';
+import { buildConfidenceGraph, serializeGraph, computeConfidenceSummary } from './confidence.js';
 import type { ReviewReport, InferResult, TemplateMatch, ReviewConfig, EnforceResult, ReviewFinding, SourceSpan } from './types.js';
 
 export type { ReviewReport, InferResult, TemplateMatch, ReviewFinding, SourceSpan } from './types.js';
@@ -51,20 +55,24 @@ export {
 
 // Confidence layer
 export {
-  parseConfidence, buildConfidenceGraph, propagateConfidence,
-  resolveBaseConfidence, serializeGraph, computeConfidenceSummary,
+  parseConfidence, buildConfidenceGraph, buildMultiFileConfidenceGraph,
+  propagateConfidence, resolveBaseConfidence, serializeGraph, computeConfidenceSummary,
 } from './confidence.js';
 export type {
-  ConfidenceSpec, ConfidenceNode, NeedsEntry,
-  ConfidenceGraph, SerializedConfidenceGraph, ConfidenceSummary,
+  ConfidenceSpec, ConfidenceNode, NeedsEntry, DuplicateNameEntry,
+  ConfidenceGraph, MultiFileConfidenceGraph, SerializedConfidenceGraph, ConfidenceSummary,
 } from './confidence.js';
-export { lintConfidenceGraph, CONFIDENCE_RULES } from './rules/confidence.js';
+export { lintConfidenceGraph, lintMultiFileConfidenceGraph, CONFIDENCE_RULES } from './rules/confidence.js';
 
 /**
- * Review a single TypeScript file.
+ * Review a single file. Auto-detects language from extension.
+ * Supports: .ts, .tsx, .py
  */
 export function reviewFile(filePath: string, config?: ReviewConfig): ReviewReport {
   const source = readFileSync(filePath, 'utf-8');
+  if (filePath.endsWith('.py')) {
+    return reviewPythonSource(source, filePath, config);
+  }
   return reviewSource(source, filePath, config);
 }
 
@@ -92,8 +100,23 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
   const concepts = extractTsConcepts(sourceFile, filePath);
   const conceptFindings = runConceptRules(concepts, filePath);
 
+  // Phase 7: KERN-IR lint (ground layer + confidence rules on inferred nodes)
+  const irNodes = inferred.map(r => r.node);
+  const groundFindings = lintKernIR(irNodes, GROUND_LAYER_RULES);
+  const confidenceFindings = lintConfidenceGraph(irNodes);
+
+  // Build confidence graph if any nodes have confidence props
+  let confidenceGraph: ReviewReport['confidenceGraph'];
+  let confidenceSummary: ReviewReport['confidenceSummary'];
+  const hasConfidence = irNodes.some(n => n.props?.confidence !== undefined);
+  if (hasConfidence) {
+    const graph = buildConfidenceGraph(irNodes);
+    confidenceGraph = serializeGraph(graph);
+    confidenceSummary = computeConfidenceSummary(graph);
+  }
+
   // Merge all findings into single unified array
-  const findings = dedup([...diffFindings, ...qualityFindings, ...conceptFindings]);
+  const findings = dedup([...diffFindings, ...qualityFindings, ...conceptFindings, ...groundFindings, ...confidenceFindings]);
 
   // Sort: severity (error > warning > info), then by line
   const severityOrder: Record<string, number> = { error: 0, warning: 1, info: 2 };
@@ -112,15 +135,69 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
     templateMatches,
     findings,
     stats,
+    ...(confidenceGraph ? { confidenceGraph } : {}),
+    ...(confidenceSummary ? { confidenceSummary } : {}),
   };
 }
 
 /**
- * Review all .ts/.tsx files in a directory.
+ * Review Python source code (string).
+ * Concept-only pipeline — no KERN IR inference, no ts-morph AST rules.
+ */
+export function reviewPythonSource(source: string, filePath = 'input.py', config?: ReviewConfig): ReviewReport {
+  const totalLines = source.split('\n').length;
+
+  // Python: concept extraction + concept rules only
+  let conceptFindings: ReviewFinding[] = [];
+  try {
+    // Dynamic import — @kernlang/review-python is optional
+    const { extractPythonConcepts } = require('@kernlang/review-python');
+    const concepts = extractPythonConcepts(source, filePath);
+    conceptFindings = runConceptRules(concepts, filePath);
+  } catch (_err) {
+    // @kernlang/review-python not installed — skip concept extraction
+    conceptFindings = [{
+      source: 'kern',
+      ruleId: 'missing-python-support',
+      severity: 'info',
+      category: 'structure' as const,
+      message: 'Install @kernlang/review-python for Python concept analysis',
+      primarySpan: { file: filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+      fingerprint: 'missing-python-0',
+    }];
+  }
+
+  const findings = dedup(conceptFindings);
+  const severityOrder: Record<string, number> = { error: 0, warning: 1, info: 2 };
+  findings.sort((a, b) => {
+    const sd = severityOrder[a.severity] - severityOrder[b.severity];
+    if (sd !== 0) return sd;
+    return a.primarySpan.startLine - b.primarySpan.startLine;
+  });
+
+  return {
+    filePath,
+    inferred: [],
+    templateMatches: [],
+    findings,
+    stats: {
+      totalLines,
+      coveredLines: 0,
+      coveragePct: 0,
+      totalTsTokens: 0,
+      totalKernTokens: 0,
+      reductionPct: 0,
+      constructCount: 0,
+    },
+  };
+}
+
+/**
+ * Review all .ts/.tsx/.py files in a directory.
  */
 export function reviewDirectory(dirPath: string, recursive = false, config?: ReviewConfig): ReviewReport[] {
   const reports: ReviewReport[] = [];
-  const files = collectTsFiles(dirPath, recursive);
+  const files = collectReviewableFiles(dirPath, recursive);
 
   for (const file of files) {
     try {
@@ -185,14 +262,16 @@ export function reviewGraph(
   return reports;
 }
 
-function collectTsFiles(dirPath: string, recursive: boolean): string[] {
+function collectReviewableFiles(dirPath: string, recursive: boolean): string[] {
   const files: string[] = [];
   for (const entry of readdirSync(dirPath)) {
     const full = join(dirPath, entry);
     const stat = statSync(full);
-    if (stat.isDirectory() && recursive && !entry.startsWith('.') && entry !== 'node_modules' && entry !== 'dist') {
-      files.push(...collectTsFiles(full, true));
+    if (stat.isDirectory() && recursive && !entry.startsWith('.') && entry !== 'node_modules' && entry !== 'dist' && entry !== '__pycache__' && entry !== '.venv' && entry !== 'venv') {
+      files.push(...collectReviewableFiles(full, true));
     } else if ((entry.endsWith('.ts') || entry.endsWith('.tsx')) && !entry.endsWith('.d.ts') && !entry.endsWith('.test.ts') && !entry.endsWith('.test.tsx')) {
+      files.push(full);
+    } else if (entry.endsWith('.py') && !entry.startsWith('test_') && !entry.endsWith('_test.py')) {
       files.push(full);
     }
   }

@@ -16,7 +16,9 @@ export { transpileTailwind, transpileNextjs, transpileWeb } from '@kernlang/reac
 export { transpile } from '@kernlang/native';
 export { transpileExpress } from '@kernlang/express';
 export { transpileCliApp } from '@kernlang/cli';
-export { transpileTerminal } from '@kernlang/terminal';
+export { transpileTerminal, transpileInk } from '@kernlang/terminal';
+export { transpileVue, transpileNuxt } from '@kernlang/vue';
+export { transpileFastAPI } from '@kernlang/fastapi';
 
 // Metrics + context export
 export { collectLanguageMetrics, mergeMetrics, isEscapedStyleKey } from '@kernlang/metrics';

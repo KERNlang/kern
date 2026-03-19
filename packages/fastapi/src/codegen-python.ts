@@ -550,22 +550,72 @@ export function generateConst(node: IRNode): string[] {
   return [`${name}${typeAnnotation} = None`];
 }
 
+// ── Reason & Confidence Annotations (Python) ────────────────────────────
+
+export function emitPyReasonAnnotations(node: IRNode): string[] {
+  const reasonNode = firstChild(node, 'reason');
+  const evidenceNode = firstChild(node, 'evidence');
+  const needsNodes = kids(node, 'needs');
+  const confidence = p(node).confidence as string | undefined;
+
+  if (!reasonNode && !evidenceNode && !confidence && needsNodes.length === 0) return [];
+
+  const lines: string[] = [];
+  if (confidence) lines.push(`# @confidence ${confidence}`);
+  if (reasonNode) {
+    const rp = p(reasonNode);
+    lines.push(`# @reason ${rp.because || ''}`);
+    if (rp.basis) lines.push(`# @basis ${rp.basis}`);
+    if (rp.survives) lines.push(`# @survives ${rp.survives}`);
+  }
+  if (evidenceNode) {
+    const ep = p(evidenceNode);
+    const parts = [`source=${ep.source}`];
+    if (ep.method) parts.push(`method=${ep.method}`);
+    if (ep.authority) parts.push(`authority=${ep.authority}`);
+    lines.push(`# @evidence ${parts.join(', ')}`);
+  }
+  for (const needsNode of needsNodes) {
+    const np = p(needsNode);
+    const desc = np.what as string || np.description as string || '';
+    const wouldRaise = np['would-raise-to'] as string;
+    const tag = wouldRaise ? `${desc} (would raise to ${wouldRaise})` : desc;
+    lines.push(`# @needs ${tag}`);
+  }
+  return lines;
+}
+
+/** Emit a TODO comment for nodes with low literal confidence (< 0.5). */
+export function emitPyLowConfidenceTodo(node: IRNode, confidence: string | undefined): string[] {
+  if (!confidence) return [];
+  const val = parseFloat(confidence);
+  if (isNaN(val) || val >= 0.5 || confidence.includes(':')) return [];
+  const name = p(node).name as string || node.type;
+  return [`# TODO(low-confidence): ${name} confidence=${confidence}`];
+}
+
 // ── Ground Layer: derive ─────────────────────────────────────────────────
 // derive name=loudness expr={{average(stems)}} type=number
 // → loudness: float = average(stems)
 
 export function generateDerive(node: IRNode): string[] {
+  const annotations = emitPyReasonAnnotations(node);
+  const conf = p(node).confidence as string | undefined;
+  const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
   const name = toSnakeCase(props.name as string);
   const expr = props.expr as string;
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
-  return [`${name}${typeAnnotation} = ${expr}`];
+  return [...todo, ...annotations, `${name}${typeAnnotation} = ${expr}`];
 }
 
 // ── Ground Layer: transform ──────────────────────────────────────────────
 
 export function generateTransform(node: IRNode): string[] {
+  const annotations = emitPyReasonAnnotations(node);
+  const conf = p(node).confidence as string | undefined;
+  const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
   const name = toSnakeCase(props.name as string);
   const target = props.target as string | undefined;
@@ -575,7 +625,7 @@ export function generateTransform(node: IRNode): string[] {
   const typeAnnotation = constType ? `: ${mapTsTypeToPython(constType)}` : '';
 
   if (code) {
-    const lines: string[] = [];
+    const lines: string[] = [...todo, ...annotations];
     lines.push(`def ${name}(state)${typeAnnotation}:`);
     for (const line of code.split('\n')) {
       lines.push(`    ${line}`);
@@ -584,17 +634,20 @@ export function generateTransform(node: IRNode): string[] {
   }
 
   if (target && via) {
-    return [`${name}${typeAnnotation} = ${via.replace(/\(/, `(${target}, `).replace(/, \)/, ')')}`];
+    return [...todo, ...annotations, `${name}${typeAnnotation} = ${via.replace(/\(/, `(${target}, `).replace(/, \)/, ')')}`];
   }
   if (via) {
-    return [`${name}${typeAnnotation} = ${via}`];
+    return [...todo, ...annotations, `${name}${typeAnnotation} = ${via}`];
   }
-  return [`${name}${typeAnnotation} = None`];
+  return [...todo, ...annotations, `${name}${typeAnnotation} = None`];
 }
 
 // ── Ground Layer: action ─────────────────────────────────────────────────
 
 export function generateAction(node: IRNode): string[] {
+  const annotations = emitPyReasonAnnotations(node);
+  const conf = p(node).confidence as string | undefined;
+  const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
   const name = toSnakeCase(props.name as string);
   const idempotent = props.idempotent === 'true' || props.idempotent === true;
@@ -611,7 +664,7 @@ export function generateAction(node: IRNode): string[] {
     : '';
 
   const retClause = returns ? ` -> ${mapTsTypeToPython(returns)}` : ' -> None';
-  const lines: string[] = [];
+  const lines: string[] = [...todo, ...annotations];
 
   lines.push(`async def ${name}(${paramList})${retClause}:`);
 
@@ -636,46 +689,58 @@ export function generateAction(node: IRNode): string[] {
 // ── Ground Layer: guard ──────────────────────────────────────────────────
 
 export function generateGuard(node: IRNode): string[] {
+  const annotations = emitPyReasonAnnotations(node);
+  const conf = p(node).confidence as string | undefined;
+  const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
   const name = props.name as string || 'guard';
   const expr = props.expr as string;
   const elseCode = props.else as string | undefined;
 
   if (elseCode && /^\d+$/.test(elseCode)) {
-    return [`if not (${expr}):\n    raise HTTPException(status_code=${elseCode}, detail="Guard: ${name}")`];
+    return [...todo, ...annotations, `if not (${expr}):\n    raise HTTPException(status_code=${elseCode}, detail="Guard: ${name}")`];
   } else if (elseCode) {
-    return [`if not (${expr}):\n    ${elseCode}`];
+    return [...todo, ...annotations, `if not (${expr}):\n    ${elseCode}`];
   }
-  return [`if not (${expr}):\n    raise ValueError("Guard failed: ${name}")`];
+  return [...todo, ...annotations, `if not (${expr}):\n    raise ValueError("Guard failed: ${name}")`];
 }
 
 // ── Ground Layer: assume ─────────────────────────────────────────────────
 
 export function generateAssume(node: IRNode): string[] {
+  const annotations = emitPyReasonAnnotations(node);
+  const conf = p(node).confidence as string | undefined;
+  const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
   const expr = props.expr as string;
   const name = props.name as string || 'assumption';
-  return [`assert ${expr}, "Assume failed: ${name}"`];
+  return [...todo, ...annotations, `assert ${expr}, "Assume failed: ${name}"`];
 }
 
 // ── Ground Layer: invariant ──────────────────────────────────────────────
 
 export function generateInvariant(node: IRNode): string[] {
+  const annotations = emitPyReasonAnnotations(node);
+  const conf = p(node).confidence as string | undefined;
+  const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
   const name = props.name as string || 'invariant';
   const expr = props.expr as string;
-  return [`assert ${expr}, "Invariant: ${name}"`];
+  return [...todo, ...annotations, `assert ${expr}, "Invariant: ${name}"`];
 }
 
 // ── Ground Layer: each ───────────────────────────────────────────────────
 
 export function generateEach(node: IRNode): string[] {
+  const annotations = emitPyReasonAnnotations(node);
+  const conf = p(node).confidence as string | undefined;
+  const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
   const name = props.name as string || 'item';
   const collection = props.in as string;
   const index = props.index as string | undefined;
 
-  const lines: string[] = [];
+  const lines: string[] = [...todo, ...annotations];
   if (index) {
     lines.push(`for ${index}, ${name} in enumerate(${collection}):`);
   } else {
@@ -699,6 +764,9 @@ export function generateEach(node: IRNode): string[] {
 // ── Ground Layer: collect ────────────────────────────────────────────────
 
 export function generateCollect(node: IRNode): string[] {
+  const annotations = emitPyReasonAnnotations(node);
+  const conf = p(node).confidence as string | undefined;
+  const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
   const name = toSnakeCase(props.name as string);
   const from = props.from as string;
@@ -706,26 +774,29 @@ export function generateCollect(node: IRNode): string[] {
   const limit = props.limit as string | undefined;
 
   if (where && limit) {
-    return [`${name} = [item for item in ${from} if ${where}][:${limit}]`];
+    return [...todo, ...annotations, `${name} = [item for item in ${from} if ${where}][:${limit}]`];
   }
   if (where) {
-    return [`${name} = [item for item in ${from} if ${where}]`];
+    return [...todo, ...annotations, `${name} = [item for item in ${from} if ${where}]`];
   }
   if (limit) {
-    return [`${name} = ${from}[:${limit}]`];
+    return [...todo, ...annotations, `${name} = ${from}[:${limit}]`];
   }
-  return [`${name} = list(${from})`];
+  return [...todo, ...annotations, `${name} = list(${from})`];
 }
 
 // ── Ground Layer: branch / path ──────────────────────────────────────────
 
 export function generateBranch(node: IRNode): string[] {
+  const annotations = emitPyReasonAnnotations(node);
+  const conf = p(node).confidence as string | undefined;
+  const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
   const name = props.name as string || 'branch';
   const on = props.on as string;
   const paths = kids(node, 'path');
 
-  const lines: string[] = [];
+  const lines: string[] = [...todo, ...annotations];
   lines.push(`# branch: ${name}`);
   lines.push(`match ${on}:`);
 
@@ -751,6 +822,9 @@ export function generateBranch(node: IRNode): string[] {
 // ── Ground Layer: resolve ────────────────────────────────────────────────
 
 export function generateResolve(node: IRNode): string[] {
+  const annotations = emitPyReasonAnnotations(node);
+  const conf = p(node).confidence as string | undefined;
+  const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
   const name = toSnakeCase(props.name as string);
   const candidates = kids(node, 'candidate');
@@ -762,7 +836,7 @@ export function generateResolve(node: IRNode): string[] {
   const method = dp.method as string || 'select';
   const metric = dp.metric as string || '';
 
-  const lines: string[] = [];
+  const lines: string[] = [...todo, ...annotations];
   lines.push(`# resolve: ${name}`);
   lines.push(`_${name}_candidates = [`);
   for (const c of candidates) {
@@ -790,6 +864,9 @@ export function generateResolve(node: IRNode): string[] {
 // ── Ground Layer: expect ─────────────────────────────────────────────────
 
 export function generateExpect(node: IRNode): string[] {
+  const annotations = emitPyReasonAnnotations(node);
+  const conf = p(node).confidence as string | undefined;
+  const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
   const name = toSnakeCase(props.name as string || 'expected');
   const expr = props.expr as string;
@@ -799,28 +876,31 @@ export function generateExpect(node: IRNode): string[] {
 
   if (within) {
     const [lo, hi] = within.split('..');
-    return [`assert ${lo} <= (${expr}) <= ${hi}, f"Expected ${name} in [${lo}, ${hi}], got {${expr}}"`];
+    return [...todo, ...annotations, `assert ${lo} <= (${expr}) <= ${hi}, f"Expected ${name} in [${lo}, ${hi}], got {${expr}}"`];
   }
   if (min && max) {
-    return [`assert ${min} <= (${expr}) <= ${max}, f"Expected ${name} in [${min}, ${max}], got {${expr}}"`];
+    return [...todo, ...annotations, `assert ${min} <= (${expr}) <= ${max}, f"Expected ${name} in [${min}, ${max}], got {${expr}}"`];
   }
   if (max) {
-    return [`assert (${expr}) <= ${max}, f"Expected ${name} <= ${max}, got {${expr}}"`];
+    return [...todo, ...annotations, `assert (${expr}) <= ${max}, f"Expected ${name} <= ${max}, got {${expr}}"`];
   }
   if (min) {
-    return [`assert (${expr}) >= ${min}, f"Expected ${name} >= ${min}, got {${expr}}"`];
+    return [...todo, ...annotations, `assert (${expr}) >= ${min}, f"Expected ${name} >= ${min}, got {${expr}}"`];
   }
-  return [`assert (${expr}) is not None, "Expected ${name} to be defined"`];
+  return [...todo, ...annotations, `assert (${expr}) is not None, "Expected ${name} to be defined"`];
 }
 
 // ── Ground Layer: recover ────────────────────────────────────────────────
 
 export function generateRecover(node: IRNode): string[] {
+  const annotations = emitPyReasonAnnotations(node);
+  const conf = p(node).confidence as string | undefined;
+  const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
   const name = toSnakeCase(props.name as string);
   const strategies = kids(node, 'strategy');
 
-  const lines: string[] = [];
+  const lines: string[] = [...todo, ...annotations];
   lines.push(`# recover: ${name}`);
   lines.push(`async def ${name}_with_recovery(fn):`);
 

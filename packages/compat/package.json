@@ -29,6 +29,8 @@
     "@kernlang/express": "workspace:*",
     "@kernlang/cli": "workspace:*",
     "@kernlang/terminal": "workspace:*",
+    "@kernlang/vue": "workspace:*",
+    "@kernlang/fastapi": "workspace:*",
     "@kernlang/metrics": "workspace:*"
   }
 }

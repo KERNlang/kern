@@ -108,8 +108,11 @@ export function checkEnforcement(
     }
   }
 
-  const errors = report.findings.filter(f => f.severity === 'error').length;
-  const warnings = report.findings.filter(f => f.severity === 'warning').length;
+  // Filter findings by minConfidence — findings without confidence default to 1.0 (fully trusted)
+  const minConf = config.minConfidence ?? 0;
+  const countable = report.findings.filter(f => (f.confidence ?? 1.0) >= minConf);
+  const errors = countable.filter(f => f.severity === 'error').length;
+  const warnings = countable.filter(f => f.severity === 'warning').length;
   const maxErrors = config.maxErrors ?? 0;
   const maxWarnings = config.maxWarnings ?? Number.MAX_SAFE_INTEGER;
 
@@ -150,7 +153,7 @@ const SOURCE_TAGS: Record<string, string> = {
   llm: '[llm]',
 };
 
-export function formatReport(report: ReviewReport): string {
+export function formatReport(report: ReviewReport, config?: ReviewConfig): string {
   const lines: string[] = [];
 
   lines.push(`  @kernlang/review — analyzing ${report.filePath}`);
@@ -195,18 +198,20 @@ export function formatReport(report: ReviewReport): string {
   }
 
   // Unified findings — sorted by severity, with source tags
+  const showConf = config?.showConfidence === true;
   const allFindings = dedup(report.findings);
   if (allFindings.length > 0) {
     const errors = allFindings.filter(f => f.severity === 'error');
     const warnings = allFindings.filter(f => f.severity === 'warning');
     const infos = allFindings.filter(f => f.severity === 'info');
+    const confPrefix = (f: ReviewFinding) => showConf && f.confidence !== undefined ? ` [${f.confidence.toFixed(2)}]` : '';
 
     if (errors.length > 0) {
       lines.push(`  BUGS (${errors.length}):`);
       for (const f of errors) {
         const tag = SOURCE_TAGS[f.source] || '';
         const upstream = f.origin === 'upstream' ? ' [upstream]' : '';
-        lines.push(`    ! L${f.primarySpan.startLine}: ${tag} [${f.ruleId}]${upstream} ${f.message}`);
+        lines.push(`    ! L${f.primarySpan.startLine}: ${tag}${confPrefix(f)} [${f.ruleId}]${upstream} ${f.message}`);
         if (f.suggestion) lines.push(`      Fix: ${f.suggestion}`);
       }
       lines.push('');
@@ -217,7 +222,7 @@ export function formatReport(report: ReviewReport): string {
       for (const f of warnings) {
         const tag = SOURCE_TAGS[f.source] || '';
         const upstream = f.origin === 'upstream' ? ' [upstream]' : '';
-        lines.push(`    ~ L${f.primarySpan.startLine}: ${tag} [${f.ruleId}]${upstream} ${f.message}`);
+        lines.push(`    ~ L${f.primarySpan.startLine}: ${tag}${confPrefix(f)} [${f.ruleId}]${upstream} ${f.message}`);
         if (f.suggestion) lines.push(`      Suggestion: ${f.suggestion}`);
       }
       lines.push('');
@@ -228,7 +233,7 @@ export function formatReport(report: ReviewReport): string {
       for (const f of infos) {
         const tag = SOURCE_TAGS[f.source] || '';
         const upstream = f.origin === 'upstream' ? ` [upstream d=${f.distance ?? '?'}]` : '';
-        lines.push(`    - L${f.primarySpan.startLine}: ${tag} [${f.ruleId}]${upstream} ${f.message}`);
+        lines.push(`    - L${f.primarySpan.startLine}: ${tag}${confPrefix(f)} [${f.ruleId}]${upstream} ${f.message}`);
       }
       lines.push('');
     }
@@ -236,6 +241,15 @@ export function formatReport(report: ReviewReport): string {
 
   const s = report.stats;
   lines.push(`  Summary: ${s.coveragePct}% KERN coverage, ~${s.totalTsTokens} → ${s.totalKernTokens} KERN tokens (${s.reductionPct}% reduction)`);
+
+  // Confidence summary (when present)
+  if (showConf && report.confidenceSummary) {
+    const cs = report.confidenceSummary;
+    lines.push(`  Confidence: ${cs.high} high (>0.9), ${cs.medium} medium (0.7-0.9), ${cs.low} low (<0.7)`);
+    if (cs.unresolvedNeeds > 0) {
+      lines.push(`  Unresolved needs: ${cs.unresolvedNeeds}`);
+    }
+  }
 
   return lines.join('\n');
 }
@@ -319,7 +333,7 @@ export function formatSARIF(reports: ReviewReport[]): string {
 
       const sarifLevel = f.severity === 'error' ? 'error' : (f.severity === 'warning' ? 'warning' : 'note');
 
-      sarif.runs[0].results.push({
+      const result: Record<string, unknown> = {
         ruleId: f.ruleId,
         level: sarifLevel,
         message: { text: f.message },
@@ -335,8 +349,14 @@ export function formatSARIF(reports: ReviewReport[]): string {
               }
             }
           }
-        ]
-      });
+        ],
+      };
+      // SARIF result.rank is 0.0–100.0 per spec; kern/confidence stays 0–1
+      if (f.confidence !== undefined) {
+        result.rank = f.confidence * 100;
+        result.properties = { 'kern/confidence': f.confidence };
+      }
+      sarif.runs[0].results.push(result);
     }
   }
 

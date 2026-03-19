@@ -49,6 +49,11 @@ const config: KernConfig = {
     // Add your project colors here
   },
 
+  // Confidence layer — always show confidence in review output
+  review: {
+    showConfidence: true,
+  },
+
   // Output configuration
   output: {
     // Directory for generated .tsx files (relative to project root)

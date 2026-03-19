@@ -13,6 +13,8 @@
     { "path": "../express" },
     { "path": "../cli" },
     { "path": "../terminal" },
+    { "path": "../vue" },
+    { "path": "../fastapi" },
     { "path": "../metrics" }
   ]
 }
