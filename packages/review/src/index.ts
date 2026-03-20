@@ -26,6 +26,7 @@ import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { runConceptRules } from './concept-rules/index.js';
 import { lintConfidenceGraph } from './rules/confidence.js';
 import { lintKernIR, flattenIR } from './kern-lint.js';
+import { lintKernSourceIR, KERN_SOURCE_RULES } from './rules/kern-source.js';
 import { GROUND_LAYER_RULES } from './rules/ground-layer.js';
 import { buildConfidenceGraph, serializeGraph, computeConfidenceSummary } from './confidence.js';
 import { analyzeTaint, taintToFindings, analyzeTaintCrossFile, crossFileTaintToFindings } from './taint.js';
@@ -55,6 +56,8 @@ export type { ConceptRule, ConceptRuleContext } from './concept-rules/index.js';
 export { lintKernIR, flattenIR } from './kern-lint.js';
 export type { KernLintRule } from './kern-lint.js';
 export { GROUND_LAYER_RULES } from './rules/ground-layer.js';
+export { lintKernSourceIR, KERN_SOURCE_RULES, undefinedReference, typeModelMismatch, unusedState, handlerHeavy, missingConfidence } from './rules/kern-source.js';
+export type { KernSourceRule } from './rules/kern-source.js';
 export {
   guardWithoutElse, actionMissingIdempotent, branchNonExhaustive,
   collectUnbounded, reasonWithoutBasis, assumeLowTrust, expectRangeInverted,
@@ -221,6 +224,10 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
     if (!f.primarySpan.file) f.primarySpan.file = filePath;
   }
   allFindings.push(...confFindings);
+
+  // File-aware .kern review rules on flattened IR nodes
+  const kernSourceFindings = safePhase('kern-source-lint', () => lintKernSourceIR(flatNodes, filePath, KERN_SOURCE_RULES), []);
+  allFindings.push(...kernSourceFindings);
 
   // Confidence graph
   let confidenceGraph: ReviewReport['confidenceGraph'];
