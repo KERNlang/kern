@@ -21,6 +21,7 @@ import { structuralDiff } from './differ.js';
 import { runQualityRules } from './quality-rules.js';
 import { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, dedup, sortAndDedup, sortFindings } from './reporter.js';
 import { classifyFileRole } from './file-role.js';
+import { runTSCDiagnostics } from './external-tools.js';
 import { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { runConceptRules } from './concept-rules/index.js';
@@ -154,6 +155,9 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
   const irNodes = inferred.map(r => r.node);
   allFindings.push(...safePhase('ground-lint', () => lintKernIR(irNodes, GROUND_LAYER_RULES), []));
   allFindings.push(...safePhase('confidence-lint', () => lintConfidenceGraph(irNodes), []));
+
+  // Phase 8: TSC diagnostics — native TypeScript compiler errors
+  allFindings.push(...safePhase('tsc', () => runTSCDiagnostics(project), []));
 
   // Build confidence graph if any nodes have confidence props
   let confidenceGraph: ReviewReport['confidenceGraph'];
