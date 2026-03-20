@@ -507,7 +507,7 @@ function renderList(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
 function renderItem(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  const tw = twClasses(node, ctx, 'flex items-center justify-between py-3 px-1 border-b border-zinc-200');
+  const tw = twClasses(node, ctx, 'flex items-center justify-between py-3 px-1 border-b border-current/10');
   const hasChildren = node.children && node.children.length > 0;
 
   if (hasChildren) {
@@ -522,17 +522,17 @@ function renderItem(node: IRNode, ctx: CodeBuilder, indent: string): void {
     const category = p.category as string;
     ctx.lines.push(`${indent}<div${tw}>`);
     ctx.lines.push(`${indent}  <div className="flex items-center gap-2">`);
-    if (name) ctx.lines.push(`${indent}    <span className="text-sm font-medium text-zinc-800">${escapeJsxText(name)}</span>`);
-    if (time) ctx.lines.push(`${indent}    <span className="text-xs text-zinc-400">${escapeJsxText(time)}</span>`);
-    if (category) ctx.lines.push(`${indent}    <span className="text-xs text-zinc-400 bg-zinc-100 px-2 py-0.5 rounded">${escapeJsxText(category)}</span>`);
+    if (name) ctx.lines.push(`${indent}    <span className="text-sm font-medium">${escapeJsxText(name)}</span>`);
+    if (time) ctx.lines.push(`${indent}    <span className="text-xs opacity-50">${escapeJsxText(time)}</span>`);
+    if (category) ctx.lines.push(`${indent}    <span className="text-xs opacity-50 bg-current/5 px-2 py-0.5 rounded">${escapeJsxText(category)}</span>`);
     ctx.lines.push(`${indent}  </div>`);
-    if (calories) ctx.lines.push(`${indent}  <span className="text-sm font-medium text-zinc-500">${escapeJsxText(calories)} kcal</span>`);
+    if (calories) ctx.lines.push(`${indent}  <span className="text-sm font-medium opacity-60">${escapeJsxText(calories)} kcal</span>`);
     ctx.lines.push(`${indent}</div>`);
   }
 }
 
 function renderTabs(node: IRNode, ctx: CodeBuilder, indent: string): void {
-  ctx.lines.push(`${indent}<nav${twClasses(node, ctx, 'flex justify-around items-center border-t border-zinc-200 bg-white py-2 mt-auto')}>`);
+  ctx.lines.push(`${indent}<nav${twClasses(node, ctx, 'flex justify-around items-center border-t border-current/10 py-2 mt-auto')}>`);
   renderChildren(node, ctx, indent);
   ctx.lines.push(`${indent}</nav>`);
 }
@@ -543,18 +543,23 @@ function renderTab(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const icon = p.icon as string;
   const activeClass = 'text-zinc-400 hover:text-blue-500';
   ctx.lines.push(`${indent}<button${twClasses(node, ctx, `flex flex-col items-center gap-0.5 text-xs ${activeClass}`)}>`);
-  if (icon) ctx.lines.push(`${indent}  <span className="text-lg">${iconToEmoji(icon)}</span>`);
+  if (icon) ctx.lines.push(`${indent}  <span dangerouslySetInnerHTML={{ __html: '${iconToSvg(icon).replace(/'/g, "\\'")}' }} />`);
   ctx.lines.push(`${indent}  ${tText(ctx, camelKey(label), label)}`);
   ctx.lines.push(`${indent}</button>`);
 }
 
-function iconToEmoji(icon: string): string {
-  const map: Record<string, string> = {
-    home: '🏠', plus: '➕', chart: '📊', stats: '📊',
-    search: '🔍', settings: '⚙️', profile: '👤', heart: '❤️',
-    star: '⭐', bell: '🔔', mail: '✉️', camera: '📷',
+function iconToSvg(icon: string): string {
+  const svgs: Record<string, string> = {
+    home: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+    plus: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
+    chart: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
+    stats: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
+    search: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+    settings: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>',
+    profile: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+    heart: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
   };
-  return map[icon] || '•';
+  return svgs[icon] || '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4"/></svg>';
 }
 
 function renderProgress(node: IRNode, ctx: CodeBuilder, indent: string): void {
@@ -567,11 +572,11 @@ function renderProgress(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
   ctx.lines.push(`${indent}<div className="mb-3">`);
   ctx.lines.push(`${indent}  <div className="flex justify-between text-sm mb-1">`);
-  ctx.lines.push(`${indent}    <span className="font-medium text-zinc-600">${escapeJsxText(String(label))}</span>`);
-  ctx.lines.push(`${indent}    <span className="text-zinc-500">${current}/${target} ${escapeJsxText(String(p.unit || ''))}</span>`);
+  ctx.lines.push(`${indent}    <span className="font-medium opacity-80">${escapeJsxText(String(label))}</span>`);
+  ctx.lines.push(`${indent}    <span className="opacity-60">${current}/${target} ${escapeJsxText(String(p.unit || ''))}</span>`);
   ctx.lines.push(`${indent}  </div>`);
-  ctx.lines.push(`${indent}  <div className="h-2.5 bg-zinc-200 rounded-full overflow-hidden">`);
-  ctx.lines.push(`${indent}    <div className="h-full rounded-full bg-[${color}] transition-all" style={{ width: '${pct}%' }} />`);
+  ctx.lines.push(`${indent}  <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'rgba(128,128,128,0.2)' }}>`);
+  ctx.lines.push(`${indent}    <div className="h-full rounded-full transition-all" style={{ width: '${pct}%', backgroundColor: '${color}' }} />`);
   ctx.lines.push(`${indent}  </div>`);
   ctx.lines.push(`${indent}</div>`);
 }

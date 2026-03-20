@@ -10,17 +10,16 @@ export const EXAMPLES: Example[] = [
     name: 'Dashboard',
     description: 'Fitness tracker with progress bars and meal list',
     recommendedTarget: 'tailwind',
-    source: `screen name=Dashboard {bg:#F8F9FA}
-  theme bar {h:8,br:4}
+    source: `screen name=Dashboard {bg:#0A0F1C}
   row {p:16,jc:sb,ai:center}
-    text value=FITVT {fs:24,fw:bold}
+    text value=FITVT {fs:24,fw:bold,c:#F8FAFC}
     image src=avatar {w:40,h:40,br:20}
-  card {p:16,br:12,bg:#FFF,m:16}
-    progress label=Calories current=1840 target=2200 unit=kcal color=#FF6B6B $bar
-    progress label=Protein current=96 target=140 unit=g color=#4ECDC4 $bar
-    progress label=Carbs current=210 target=260 unit=g color=#FFD166 $bar
-    progress label=Fat current=58 target=70 unit=g color=#6C5CE7 $bar
-  button text="Log Meal" to=LogMeal {w:full,br:8,bg:#007AFF,p:16,:press:bg:#005BB5}
+  card {p:20,br:16,bg:#232D3F,m:16}
+    progress label=Calories current=1840 target=2200 unit=kcal color=#3B82F6
+    progress label=Protein current=96 target=140 unit=g color=#EF4444
+    progress label=Carbs current=210 target=260 unit=g color=#22C55E
+    progress label=Fat current=58 target=70 unit=g color=#F59E0B
+  button text="Log Meal" to=LogMeal {w:full,br:12,bg:#8B5CF6,p:16,c:#fff,:press:bg:#7C3AED}
   list title="Recent Meals" separator=true
     item id=m1 name="Greek Yogurt Bowl" time=08:15 calories=320
     item id=m2 name="Chicken Salad" time=12:40 calories=540
