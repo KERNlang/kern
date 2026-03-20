@@ -6,6 +6,7 @@ import { TargetSelector } from '@/components/TargetSelector';
 import { OutputPanel } from '@/components/OutputPanel';
 import { StatsBar } from '@/components/StatsBar';
 import { ErrorPanel } from '@/components/ErrorPanel';
+import { InferOutputPanel } from '@/components/InferOutputPanel';
 import { EXAMPLES } from '@/lib/examples';
 import { TARGET_LANGUAGE, TARGET_LABELS } from '@/lib/targets';
 import type { PlaygroundTarget } from '@/lib/targets';
@@ -493,27 +494,12 @@ export default function PlaygroundPage() {
               inferError ? (
                 <ErrorPanel error={inferError} />
               ) : (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                  <div style={{
-                    padding: '8px 16px',
-                    borderBottom: '1px solid #30363d',
-                    background: '#161b22',
-                    fontSize: 12,
-                    fontWeight: 500,
-                    color: '#8b949e',
-                  }}>
-                    Inferred KERN
-                    {inferStats && <span style={{ marginLeft: 8, color: '#4ecdc4' }}>({inferStats.constructs} constructs)</span>}
-                  </div>
-                  <div style={{ flex: 1, minHeight: 0 }}>
-                    <PlaygroundEditor
-                      value={inferredKern ?? '// Paste TypeScript or React code on the left'}
-                      onChange={() => {}}
-                      language="kern"
-                      readOnly
-                    />
-                  </div>
-                </div>
+                <InferOutputPanel
+                  sourceCode={sourceCode}
+                  inferredKern={inferredKern}
+                  inferStats={inferStats}
+                  target={selectedTarget}
+                />
               )
             ) : (
               activeError ? (

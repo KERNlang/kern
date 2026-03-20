@@ -52,6 +52,11 @@ function buildReactPreview(code: string, withTailwind: boolean): string {
 </head>
 <body>
   <div id="root"></div>
+  <script>
+    window.onerror = function(msg, url, line) {
+      document.getElementById('root').innerHTML = '<div class="preview-error">Preview error:\\n' + msg + '\\nLine: ' + line + '</div>';
+    };
+  </script>
   <script type="text/babel">
     try {
       const { 
