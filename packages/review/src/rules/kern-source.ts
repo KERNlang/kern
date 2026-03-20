@@ -38,11 +38,17 @@ const SCOPE_NODE_TYPES = new Set([
   'screen', 'hook', 'provider', 'fn', 'callback', 'memo', 'effect',
   'route', 'server', 'service', 'method', 'singleton', 'constructor',
   'middleware', 'cli', 'command', 'test', 'describe', 'it',
+  // Template node types + CLI
+  'arrow-fn', 'swr-hook', 'zustand-store', 'zustand-selector', 'module',
+  'cli',
 ]);
 
 const DIRECT_BINDING_NODE_TYPES = new Set([
   'state', 'const', 'fn', 'derive', 'import', 'ref', 'context',
   'callback', 'memo', 'effect', 'middleware', 'hook', 'method',
+  'arg', 'flag',
+  // Template node types that declare a name binding
+  'arrow-fn', 'swr-hook', 'zustand-store', 'zustand-selector',
 ]);
 
 const TYPE_POSITION_KINDS = new Set([
@@ -305,7 +311,17 @@ function addBindingsFromScopeNode(scopeNode: IRNode, target: Map<string, Binding
       continue;
     }
 
-    if (!DIRECT_BINDING_NODE_TYPES.has(child.type) || typeof cp.name !== 'string') continue;
+    if (!DIRECT_BINDING_NODE_TYPES.has(child.type)) continue;
+
+    // Import nodes use 'names' (comma-separated) instead of 'name'
+    if (child.type === 'import' && typeof cp.names === 'string') {
+      for (const importedName of cp.names.split(',').map((s: string) => s.trim()).filter(Boolean)) {
+        addBinding(target, importedName, { kind: 'import', node: child });
+      }
+      continue;
+    }
+
+    if (typeof cp.name !== 'string') continue;
     addBinding(target, cp.name, {
       kind: child.type,
       node: child,
@@ -659,12 +675,24 @@ export const unusedState: KernSourceRule = (nodes: IRNode[], filePath: string): 
     const scopeRoot = parentMap.get(node);
     if (!scopeRoot) continue;
 
+    // Skip states inside machine nodes — they're used by transitions (from=/to= props)
+    if (scopeRoot.type === 'machine') continue;
+
     const stateName = p.name as string;
     const setterName = `set${capitalize(stateName)}`;
     let used = false;
 
     walkSubtree(scopeRoot, current => {
       if (used || current === node) return;
+
+      // Check bind= attribute (e.g., input bind=query)
+      const cp = props(current);
+      if (typeof cp.bind === 'string' && cp.bind === stateName) { used = true; return; }
+
+      // Check value/initial/expr props for direct state references (e.g., value={{ query }})
+      for (const val of Object.values(cp)) {
+        if (typeof val === 'string' && new RegExp(`\\b${stateName}\\b`).test(val)) { used = true; return; }
+      }
 
       const blockCode = current.type === 'handler' || current.type === 'logic' || current.type === 'body'
         ? getCodeProp(current)

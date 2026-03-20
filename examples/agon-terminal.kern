@@ -13,9 +13,9 @@ screen name=AgonTerminal
 
   separator width=48
 
-  spinner message="Dispatching engines..." color=214
-
-  progress value=75 max=100 color=214
+  conditional if={{ busy }}
+    spinner message="Dispatching engines..." color=214
+    progress value=75 max=100 color=214
 
   separator width=48
 

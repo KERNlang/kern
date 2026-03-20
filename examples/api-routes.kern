@@ -2,6 +2,8 @@ server name=MusicAPI port=3001
   middleware name=cors
   middleware name=json
   middleware name=auth handler=verifyToken
+  import from="./services/db.js" names=db
+  import from="./services/analyzer.js" names=analyzeTrack
 
   route method=get path=/api/tracks
     handler <<<
