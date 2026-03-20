@@ -40,7 +40,7 @@ function buildReactPreview(code: string, withTailwind: boolean): string {
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; }
-    html { background: #111; }
+    html { background: #f0f0f0; }
     img[src$="avatar.png"], img[alt="avatar"] { background: linear-gradient(135deg, #8B5CF6, #00CEFF); border-radius: 50%; color: transparent; overflow: hidden; font-size: 0; }
     #root { min-height: 100vh; max-width: 430px; margin: 0 auto; position: relative; box-shadow: 0 0 40px rgba(0,0,0,0.3); }
     .preview-error { color: #ff6b6b; padding: 16px; font-family: monospace; font-size: 13px; white-space: pre-wrap; }
@@ -117,7 +117,7 @@ function buildVuePreview(code: string): string {
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; }
-    html { background: #111; }
+    html { background: #f0f0f0; }
     img[src$="avatar.png"], img[alt="avatar"] { background: linear-gradient(135deg, #8B5CF6, #00CEFF); border-radius: 50%; color: transparent; overflow: hidden; font-size: 0; }
     ${styleContent}
     .preview-error { color: #ff6b6b; padding: 16px; font-family: monospace; font-size: 13px; white-space: pre-wrap; }

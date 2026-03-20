@@ -73,6 +73,10 @@ export type { TaintSource, TaintSink, TaintPath, TaintResult, CrossFileTaintResu
 export { runLLMReview, isLLMAvailable } from './llm-bridge.js';
 export type { LLMBridgeConfig, LLMReviewInput } from './llm-bridge.js';
 
+// Spec checker — .kern contract vs .ts implementation
+export { checkSpec, checkSpecFiles, extractSpecContracts, extractImplRoutes, matchRoutes, verifyRouteContract, specViolationsToFindings } from './spec-checker.js';
+export type { SpecContract, ImplRoute, SpecViolation, SpecCheckResult, ViolationKind } from './spec-checker.js';
+
 /**
  * Review a single file. Auto-detects language from extension.
  * Supports: .ts, .tsx, .py
