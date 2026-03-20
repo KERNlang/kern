@@ -163,7 +163,7 @@ const SANITIZER_SUFFICIENCY: Record<string, Set<SinkCategory>> = {
  */
 export function isSanitizerSufficient(sanitizerName: string, sinkCategory: SinkCategory): boolean {
   const allowed = SANITIZER_SUFFICIENCY[sanitizerName];
-  if (!allowed) return true; // Unknown sanitizer — give benefit of doubt
+  if (!allowed) return false; // Unknown sanitizer — default deny, verify manually
   return allowed.has(sinkCategory);
 }
 
@@ -259,6 +259,204 @@ function classifyParams(paramsStr: string): TaintSource[] {
 }
 
 /**
+ * Multi-hop taint propagation using worklist algorithm.
+ * Propagates until fixed point or configurable depth limit.
+ * 
+ * Handles all assignment patterns:
+ * - const b = a
+ * - const b = a.trim()
+ * - const {x} = obj
+ * - let b; b = a
+ * 
+ * @param code - Handler code string
+ * @param initialTainted - Set of initially tainted variable names
+ * @param maxDepth - Maximum propagation depth (default: 3)
+ * @returns Set of all tainted variable names after fixed point or depth limit
+ */
+export function propagateTaintMultiHop(
+  code: string,
+  initialTainted: Set<string>,
+  maxDepth: number = 3,
+): Set<string> {
+  const tainted = new Set<string>(initialTainted);
+  const worklist: Array<{ varName: string; depth: number }> = [];
+  const visitedAssignments = new Set<string>();
+  const assignmentDepths = new Map<string, number>();
+
+  for (const v of initialTainted) {
+    worklist.push({ varName: v, depth: 0 });
+  }
+
+  const allAssignments = extractAllAssignments(code);
+
+  while (worklist.length > 0) {
+    const { varName: currentVar, depth } = worklist.shift()!;
+
+    if (depth >= maxDepth) continue;
+
+    for (const assignment of allAssignments) {
+      const { lhs, rhs, assignId } = assignment;
+
+      if (visitedAssignments.has(`${assignId}:${depth}`)) continue;
+
+      const rhsDeps = extractDependencies(rhs);
+
+      if (rhsDeps.has(currentVar)) {
+        visitedAssignments.add(`${assignId}:${depth}`);
+
+        const existingDepth = assignmentDepths.get(lhs);
+        if (existingDepth !== undefined && existingDepth <= depth + 1) {
+          continue;
+        }
+        assignmentDepths.set(lhs, depth + 1);
+
+        if (!tainted.has(lhs)) {
+          tainted.add(lhs);
+          worklist.push({ varName: lhs, depth: depth + 1 });
+        }
+
+        if (isCircularAssignment(lhs, rhs, allAssignments)) {
+          continue;
+        }
+
+        for (const dep of rhsDeps) {
+          if (dep !== currentVar && tainted.has(dep)) {
+            const depDepth = assignmentDepths.get(dep) ?? 0;
+            if (depth + 1 > depDepth) {
+              if (!tainted.has(lhs)) {
+                tainted.add(lhs);
+                worklist.push({ varName: lhs, depth: depth + 1 });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return tainted;
+}
+
+interface Assignment {
+  lhs: string;
+  rhs: string;
+  assignId: string;
+}
+
+function extractAllAssignments(code: string): Assignment[] {
+  const assignments: Assignment[] = [];
+
+  const lines = code.split('\n');
+  let assignCounter = 0;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*')) continue;
+
+    for (const assign of parseLineAssignments(trimmed, assignCounter)) {
+      assignments.push(assign);
+      assignCounter++;
+    }
+  }
+
+  return assignments;
+}
+
+function parseLineAssignments(line: string, lineNum: number): Assignment[] {
+  const assignments: Assignment[] = [];
+
+  const constLetVarRegex = /^(?:const|let|var)\s+/;
+  const declMatch = line.match(constLetVarRegex);
+  if (!declMatch) {
+    const reassignRegex = /^(\w+)\s*=\s*(.+)$/;
+    const reassign = line.match(reassignRegex);
+    if (reassign) {
+      assignments.push({
+        lhs: reassign[1],
+        rhs: reassign[2],
+        assignId: `${lineNum}:reassign`,
+      });
+    }
+    return assignments;
+  }
+
+  const rest = line.slice(declMatch[0].length);
+
+  const destructRegex = /^\{\s*([^}]+)\}\s*=\s*(.+)$/;
+  const destructMatch = rest.match(destructRegex);
+  if (destructMatch) {
+    const vars = destructMatch[1].split(',').map(v => {
+      const name = v.trim().split(':')[0].split('=')[0].trim();
+      return name;
+    }).filter(v => v && !v.startsWith('...'));
+    const rhs = destructMatch[2];
+    for (let i = 0; i < vars.length; i++) {
+      assignments.push({
+        lhs: vars[i],
+        rhs: `${rhs}[${i}]`,
+        assignId: `${lineNum}:destructure:${i}`,
+      });
+    }
+    return assignments;
+  }
+
+  const simpleAssignRegex = /^(\w+)\s*=\s*(.+)$/;
+  const simpleMatch = rest.match(simpleAssignRegex);
+  if (simpleMatch) {
+    assignments.push({
+      lhs: simpleMatch[1],
+      rhs: simpleMatch[2],
+      assignId: `${lineNum}:simple`,
+    });
+  }
+
+  return assignments;
+}
+
+function extractDependencies(rhs: string): Set<string> {
+  const deps = new Set<string>();
+  const RESERVED = new Set(['undefined', 'null', 'true', 'false', 'const', 'let', 'var', 'new', 'typeof', 'instanceof', 'return', 'await', 'async', 'function', 'if', 'else', 'for', 'while', 'switch', 'case', 'break', 'continue', 'throw', 'try', 'catch', 'finally']);
+
+  // Match all identifier chains: foo, foo.bar, foo.bar.baz, foo[0].bar
+  const chainRegex = /\b([a-zA-Z_$]\w*)(?:\s*\.\s*\w+|\s*\[[^\]]*\])*/g;
+  let match;
+  while ((match = chainRegex.exec(rhs)) !== null) {
+    const base = match[1];
+    if (!RESERVED.has(base) && !/^\d/.test(base)) {
+      deps.add(base);
+    }
+  }
+
+  return deps;
+}
+
+function isCircularAssignment(lhs: string, rhs: string, allAssignments: Assignment[]): boolean {
+  const rhsDeps = extractDependencies(rhs);
+  const visited = new Set<string>();
+  const stack = [...rhsDeps];
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (current === lhs) return true;
+    if (visited.has(current)) continue;
+    visited.add(current);
+
+    for (const assign of allAssignments) {
+      if (assign.lhs === current) {
+        const deps = extractDependencies(assign.rhs);
+        for (const dep of deps) {
+          if (!visited.has(dep)) {
+            stack.push(dep);
+          }
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * Propagate taint through variable assignments in handler body.
  * Tracks: const x = req.body.foo → x is tainted.
  * Returns all tainted variable names with their origins.
@@ -266,64 +464,16 @@ function classifyParams(paramsStr: string): TaintSource[] {
 function propagateTaint(code: string, params: TaintSource[]): TaintSource[] {
   const tainted = new Map<string, TaintSource>();
 
-  // Seed: the params themselves
   for (const p of params) {
     tainted.set(p.name, p);
   }
 
-  // Find all user input access patterns in code
-  for (const { pattern, origin } of USER_INPUT_ACCESS) {
-    if (pattern.test(code)) {
-      // Find assignments from this source: const x = req.body.foo
-      const assignRegex = new RegExp(
-        `(?:const|let|var)\\s+(\\w+)\\s*=\\s*${origin.replace('.', '\\.')}(?:\\.(\\w+))?`,
-        'g'
-      );
-      let match;
-      while ((match = assignRegex.exec(code)) !== null) {
-        const varName = match[1];
-        const prop = match[2] ? `${origin}.${match[2]}` : origin;
-        tainted.set(varName, { name: varName, origin: prop });
-      }
-    }
-  }
+  const initialTainted = new Set(tainted.keys());
+  const propagated = propagateTaintMultiHop(code, initialTainted);
 
-  // Destructuring: const { name, email } = req.body
-  for (const p of params) {
-    const destructRegex = new RegExp(
-      `(?:const|let|var)\\s*\\{\\s*([^}]+)\\}\\s*=\\s*${p.name}\\.(?:body|query|params)`,
-      'g'
-    );
-    let match;
-    while ((match = destructRegex.exec(code)) !== null) {
-      const vars = match[1].split(',').map(v => v.trim().split(':')[0].trim().split('=')[0].trim());
-      for (const v of vars) {
-        if (v) {
-          tainted.set(v, { name: v, origin: `${p.name}.body.${v}` });
-        }
-      }
-    }
-  }
-
-  // Simple propagation: const y = someTransform(x) where x is tainted
-  // Only one level deep to avoid false positives
-  const taintedNames = new Set(tainted.keys());
-  const propagateRegex = /(?:const|let|var)\s+(\w+)\s*=\s*[^;]*?(\w+)/g;
-  let pm;
-  while ((pm = propagateRegex.exec(code)) !== null) {
-    const newVar = pm[1];
-    // Check if any tainted variable appears in the assignment RHS
-    if (taintedNames.has(newVar)) continue; // already tainted
-    // Get the full RHS
-    const eqIdx = code.indexOf('=', pm.index + pm[1].length);
-    const semiIdx = code.indexOf(';', eqIdx);
-    if (eqIdx < 0) continue;
-    const rhs = code.slice(eqIdx + 1, semiIdx > eqIdx ? semiIdx : eqIdx + 200).trim();
-    for (const tName of taintedNames) {
-      if (new RegExp(`\\b${tName}\\b`).test(rhs)) {
-        tainted.set(newVar, { name: newVar, origin: `derived from ${tName}` });
-        break;
-      }
+  for (const v of propagated) {
+    if (!tainted.has(v)) {
+      tainted.set(v, { name: v, origin: `derived` });
     }
   }
 
@@ -338,28 +488,27 @@ function findTaintedSinks(code: string, taintedVars: TaintSource[]): TaintSink[]
   const taintedNames = new Set(taintedVars.map(v => v.name));
 
   for (const { pattern, name, category } of SINK_PATTERNS) {
-    const match = pattern.exec(code);
-    if (!match) continue;
+    // Scan ALL matches using a global copy (original patterns are non-global)
+    const globalPattern = new RegExp(pattern.source, 'g');
+    let match;
+    while ((match = globalPattern.exec(code)) !== null) {
+      // Extract the argument region after the match
+      const callStart = match.index + match[0].length;
+      const parenDepth = findClosingParen(code, callStart);
+      const argText = code.slice(callStart, parenDepth);
 
-    // Extract the argument region after the match
-    const callStart = match.index + match[0].length;
-    const parenDepth = findClosingParen(code, callStart);
-    const argText = code.slice(callStart, parenDepth);
-
-    // Check if any tainted variable is used in the arguments
-    for (const tName of taintedNames) {
-      if (new RegExp(`\\b${tName}\\b`).test(argText)) {
-        sinks.push({ name, category, taintedArg: tName });
-        break;
+      // Check if any tainted variable is used in the arguments
+      for (const tName of taintedNames) {
+        if (new RegExp(`\\b${tName}\\b`).test(argText)) {
+          sinks.push({ name, category, taintedArg: tName });
+          break;
+        }
       }
-    }
 
-    // Also check for template literals with tainted vars: `SELECT * FROM ${table}`
-    if (category === 'sql') {
-      // Check template literal in args
+      // Also check for template literals with tainted vars in any sink category
       const templateMatch = argText.match(/`[^`]*\$\{(\w+)\}[^`]*`/);
       if (templateMatch && taintedNames.has(templateMatch[1])) {
-        sinks.push({ name: `${name} (template)`, category: 'sql', taintedArg: templateMatch[1] });
+        sinks.push({ name: `${name} (template)`, category, taintedArg: templateMatch[1] });
       }
     }
   }
@@ -419,9 +568,9 @@ function detectSanitizers(code: string): Array<{ name: string; context: string }
   const found: Array<{ name: string; context: string }> = [];
 
   for (const { pattern, name } of SANITIZER_PATTERNS) {
-    const match = pattern.exec(code);
-    if (match) {
-      // Get surrounding context (50 chars before and after)
+    const globalPattern = new RegExp(pattern.source, 'g');
+    let match;
+    while ((match = globalPattern.exec(code)) !== null) {
       const start = Math.max(0, match.index - 50);
       const end = Math.min(code.length, match.index + match[0].length + 50);
       found.push({ name, context: code.slice(start, end) });

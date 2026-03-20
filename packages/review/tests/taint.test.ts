@@ -3,7 +3,7 @@
  */
 
 import { reviewSource } from '../src/index.js';
-import { analyzeTaint, taintToFindings, isSanitizerSufficient, buildExportMap, analyzeTaintCrossFile, crossFileTaintToFindings } from '../src/taint.js';
+import { analyzeTaint, taintToFindings, isSanitizerSufficient, buildExportMap, analyzeTaintCrossFile, crossFileTaintToFindings, propagateTaintMultiHop } from '../src/taint.js';
 import { inferFromSource } from '../src/inferrer.js';
 
 // ── Direct taint analysis tests ───────────────────────────────────────
@@ -238,8 +238,8 @@ describe('isSanitizerSufficient', () => {
     expect(isSanitizerSufficient('parameterized query ($N)', 'command')).toBe(false);
   });
 
-  it('unknown sanitizer gets benefit of doubt', () => {
-    expect(isSanitizerSufficient('customSanitizer', 'command')).toBe(true);
+  it('unknown sanitizer defaults to deny (not sufficient)', () => {
+    expect(isSanitizerSufficient('customSanitizer', 'command')).toBe(false);
   });
 });
 
@@ -303,5 +303,125 @@ describe('crossFileTaintToFindings', () => {
     expect(findings[0].message).toContain('runQuery');
     expect(findings[0].relatedSpans).toBeDefined();
     expect(findings[0].relatedSpans![0].file).toBe('db.ts');
+  });
+});
+
+// ── Multi-hop taint propagation ─────────────────────────────────────────
+
+describe('propagateTaintMultiHop', () => {
+  it('handles direct assignment: const b = a', () => {
+    const code = `
+      const a = req.body.x;
+      const b = a;
+      exec(b);
+    `;
+    const result = propagateTaintMultiHop(code, new Set(['a']));
+    expect(result.has('a')).toBe(true);
+    expect(result.has('b')).toBe(true);
+  });
+
+  it('handles method call propagation: const b = a.trim()', () => {
+    const code = `
+      const a = req.body.name;
+      const b = a.trim();
+      const c = b.toLowerCase();
+      exec(c);
+    `;
+    const result = propagateTaintMultiHop(code, new Set(['a']));
+    expect(result.has('a')).toBe(true);
+    expect(result.has('b')).toBe(true);
+    expect(result.has('c')).toBe(true);
+  });
+
+  it('handles destructuring: const {x} = obj', () => {
+    const code = `
+      const obj = req.body;
+      const { x, y } = obj;
+      exec(x);
+      exec(y);
+    `;
+    const result = propagateTaintMultiHop(code, new Set(['obj']));
+    expect(result.has('obj')).toBe(true);
+    expect(result.has('x')).toBe(true);
+    expect(result.has('y')).toBe(true);
+  });
+
+  it('handles reassignment: let b; b = a', () => {
+    const code = `
+      const a = req.body.cmd;
+      let b;
+      b = a;
+      exec(b);
+    `;
+    const result = propagateTaintMultiHop(code, new Set(['a']));
+    expect(result.has('a')).toBe(true);
+    expect(result.has('b')).toBe(true);
+  });
+
+  it('respects depth limit (default 3)', () => {
+    const code = `
+      const a = req.body.x;
+      const b = a;
+      const c = b;
+      const d = c;
+      const e = d;
+      exec(e);
+    `;
+    const result = propagateTaintMultiHop(code, new Set(['a']));
+    expect(result.has('a')).toBe(true);
+    expect(result.has('b')).toBe(true);
+    expect(result.has('c')).toBe(true);
+    expect(result.has('d')).toBe(true);
+    expect(result.has('e')).toBe(false);
+  });
+
+  it('respects custom depth limit', () => {
+    const code = `
+      const a = req.body.x;
+      const b = a;
+      const c = b;
+      exec(c);
+    `;
+    const result = propagateTaintMultiHop(code, new Set(['a']), 1);
+    expect(result.has('a')).toBe(true);
+    expect(result.has('b')).toBe(true);
+    expect(result.has('c')).toBe(false);
+  });
+
+  it('does not infinite-loop on circular assignments', () => {
+    const code = `
+      let a = req.body.x;
+      let b = a;
+      a = b;
+      b = a;
+    `;
+    const result = propagateTaintMultiHop(code, new Set(['a']));
+    expect(result.has('a')).toBe(true);
+    expect(result.has('b')).toBe(true);
+  });
+
+  it('handles multiple tainted sources', () => {
+    const code = `
+      const a = req.body.x;
+      const b = req.query.y;
+      const c = a + b;
+      exec(c);
+    `;
+    const result = propagateTaintMultiHop(code, new Set(['a', 'b']));
+    expect(result.has('a')).toBe(true);
+    expect(result.has('b')).toBe(true);
+    expect(result.has('c')).toBe(true);
+  });
+
+  it('terminates at fixed point', () => {
+    const code = `
+      const a = req.body.x;
+      const b = a;
+      const c = b;
+    `;
+    const result = propagateTaintMultiHop(code, new Set(['a']));
+    expect(result.has('a')).toBe(true);
+    expect(result.has('b')).toBe(true);
+    expect(result.has('c')).toBe(true);
   });
 });

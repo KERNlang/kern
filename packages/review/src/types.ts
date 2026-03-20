@@ -7,6 +7,23 @@
 
 import type { IRNode } from '@kernlang/core';
 
+// ── File Role ─────────────────────────────────────────────────────────────
+
+/** Classified role of a source file — drives which rules are eligible to run */
+export type FileRole = 'runtime' | 'codegen' | 'rule-definition' | 'example' | 'test' | 'barrel';
+
+// ── Analysis Context ──────────────────────────────────────────────────────
+
+/** Shared context built once per file, consumed by all review phases */
+export interface AnalysisContext {
+  source: string;
+  filePath: string;
+  project: import('ts-morph').Project;
+  sourceFile: import('ts-morph').SourceFile;
+  inferred: InferResult[];
+  fileRole: FileRole;
+}
+
 // ── Source Spans ──────────────────────────────────────────────────────────
 
 /** Exact location in a source file */
@@ -198,6 +215,7 @@ export interface RuleContext {
   templateMatches: TemplateMatch[];
   config?: ReviewConfig;
   filePath: string;
+  fileRole: FileRole;
 }
 
 /** A review rule function */

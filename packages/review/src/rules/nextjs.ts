@@ -4,6 +4,7 @@
  * Catches Server Component / App Router pitfalls.
  */
 
+import { SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 
@@ -38,28 +39,57 @@ function isClientComponent(fullText: string): boolean {
 }
 
 // ── Rule 21: server-hook ─────────────────────────────────────────────────
-// React hooks (useState, useEffect, etc.) in a Server Component
+// React hooks (useState, useEffect, etc.) in a Server Component.
+// Only fires on runtime files — codegen/examples/rules/barrels are skipped.
+
+const CLIENT_HOOKS = new Set(['useState', 'useEffect', 'useRef', 'useCallback', 'useMemo',
+  'useReducer', 'useContext', 'useLayoutEffect', 'useTransition',
+  'useDeferredValue', 'useImperativeHandle', 'useSyncExternalStore']);
 
 function serverHook(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
-  const fullText = ctx.sourceFile.getFullText();
 
+  // Gate: only run on runtime files (skip codegen, rules, examples, barrels, tests)
+  if (ctx.fileRole !== 'runtime') return findings;
+
+  const fullText = ctx.sourceFile.getFullText();
   if (isClientComponent(fullText)) return findings;
 
-  const clientHooks = ['useState', 'useEffect', 'useRef', 'useCallback', 'useMemo',
-    'useReducer', 'useContext', 'useLayoutEffect', 'useTransition',
-    'useDeferredValue', 'useImperativeHandle', 'useSyncExternalStore'];
+  // AST-aware: walk actual CallExpression nodes, not regex on raw text
+  const calls = ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
+  for (const call of calls) {
+    const expr = call.getExpression();
+    let hookName: string | undefined;
 
-  for (const hook of clientHooks) {
-    const hookRegex = new RegExp(`\\b${hook}\\s*[<(]`, 'g');
-    let match;
-    while ((match = hookRegex.exec(fullText)) !== null) {
-      const line = fullText.substring(0, match.index).split('\n').length;
-      findings.push(finding('server-hook', 'error', 'bug',
-        `'${hook}' used in Server Component — add 'use client' directive or move to a Client Component`,
-        ctx.filePath, line,
-        { suggestion: "Add 'use client' at the top of the file" }));
+    // Direct call: useState(...)
+    if (expr.getKind() === SyntaxKind.Identifier) {
+      const name = expr.getText();
+      if (CLIENT_HOOKS.has(name)) hookName = name;
     }
+    // Property access: React.useState(...)
+    else if (expr.getKind() === SyntaxKind.PropertyAccessExpression) {
+      const prop = expr.asKind(SyntaxKind.PropertyAccessExpression);
+      if (prop) {
+        const name = prop.getName();
+        if (CLIENT_HOOKS.has(name)) hookName = name;
+      }
+    }
+
+    if (!hookName) continue;
+
+    // Skip if inside a string literal, template literal, or comment (codegen output)
+    const parent = call.getParent();
+    if (parent && (
+      parent.getKind() === SyntaxKind.TemplateExpression ||
+      parent.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral ||
+      parent.getKind() === SyntaxKind.TemplateSpan
+    )) continue;
+
+    const line = call.getStartLineNumber();
+    findings.push(finding('server-hook', 'error', 'bug',
+      `'${hookName}' used in Server Component — add 'use client' directive or move to a Client Component`,
+      ctx.filePath, line,
+      { suggestion: "Add 'use client' at the top of the file" }));
   }
 
   return findings;

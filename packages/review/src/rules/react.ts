@@ -4,7 +4,7 @@
  * Catches React-specific bugs that KERN IR + AST can detect mechanically.
  */
 
-import { SyntaxKind } from 'ts-morph';
+import { SyntaxKind, Node } from 'ts-morph';
 import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 
@@ -309,6 +309,70 @@ function hookOrder(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: effect-self-update-loop ────────────────────────────────────────
+// useEffect that updates a state variable listed in its own dependency array
+
+function effectSelfUpdateLoop(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+  const findings: ReviewFinding[] = [];
+  const setterToState = new Map<string, string>();
+
+  // Collect useState setter→state mappings: const [count, setCount] = useState(0)
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = decl.getNameNode();
+    const init = decl.getInitializer();
+    if (!Node.isArrayBindingPattern(nameNode) || !init || !Node.isCallExpression(init)) continue;
+    const calleeText = init.getExpression().getText();
+    if (calleeText !== 'useState' && calleeText !== 'React.useState') continue;
+    const elements = nameNode.getElements();
+    if (elements.length < 2 || !Node.isBindingElement(elements[0]) || !Node.isBindingElement(elements[1])) continue;
+    setterToState.set(elements[1].getName(), elements[0].getName());
+  }
+
+  if (setterToState.size === 0) return findings;
+
+  // Find useEffect calls and check for self-update loops
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const calleeText = call.getExpression().getText();
+    if (calleeText !== 'useEffect' && calleeText !== 'React.useEffect') continue;
+
+    const [callbackArg, depsArg] = call.getArguments();
+    if (!callbackArg || !depsArg) continue;
+    if (!Node.isArrowFunction(callbackArg) && !Node.isFunctionExpression(callbackArg)) continue;
+    if (!Node.isArrayLiteralExpression(depsArg)) continue;
+
+    const deps = new Set(depsArg.getElements().map(el => el.getText()));
+
+    // Find setter calls in the effect body
+    for (const innerCall of callbackArg.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      const expr = innerCall.getExpression();
+      if (!Node.isIdentifier(expr)) continue;
+      const setterName = expr.getText();
+      const stateName = setterToState.get(setterName);
+      if (!stateName || !deps.has(stateName)) continue;
+
+      // Skip if inside a nested function (event handler, cleanup, etc.)
+      let isNested = false;
+      let cur = innerCall.getParent();
+      while (cur && cur !== callbackArg) {
+        if (Node.isArrowFunction(cur) || Node.isFunctionExpression(cur) || Node.isFunctionDeclaration(cur)) {
+          isNested = true;
+          break;
+        }
+        cur = cur.getParent();
+      }
+      if (isNested) continue;
+
+      findings.push(finding('effect-self-update-loop', 'error', 'bug',
+        `useEffect updates '${stateName}' via ${setterName}() while '${stateName}' is in deps — infinite re-render loop`,
+        ctx.filePath, innerCall.getStartLineNumber(),
+        { suggestion: `Move the write behind a guard or use a ref to break the cycle` }));
+    }
+  }
+
+  return findings;
+}
+
 // ── Exported React Rules ─────────────────────────────────────────────────
 
 export const reactRules = [
@@ -318,4 +382,5 @@ export const reactRules = [
   staleClosure,
   stateExplosion,
   hookOrder,
+  effectSelfUpdateLoop,
 ];

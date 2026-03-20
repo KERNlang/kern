@@ -63,14 +63,17 @@ export function calculateStats(
 
 // ── Dedup ────────────────────────────────────────────────────────────────
 
-/** Deduplicate findings: same line + similar message from different sources → collapse */
+/**
+ * Deduplicate findings using fingerprint + message hash.
+ * Fingerprint alone can collide when a rule emits multiple findings at the same location
+ * (e.g., machine-gap fires once per unreachable state on the same type declaration line).
+ */
 export function dedup(findings: ReviewFinding[]): ReviewFinding[] {
   const seen = new Map<string, ReviewFinding>();
 
   for (const f of findings) {
-    // Dedup key: line + message prefix (collapses same message from different sources,
-    // but keeps different findings at the same line separate)
-    const key = `${f.primarySpan.startLine}:${f.message.substring(0, 60)}`;
+    // Combine fingerprint with message prefix to avoid false merges
+    const key = `${f.fingerprint}:${f.message.substring(0, 40)}`;
     const existing = seen.get(key);
 
     if (existing) {
@@ -85,6 +88,23 @@ export function dedup(findings: ReviewFinding[]): ReviewFinding[] {
   }
 
   return [...seen.values()];
+}
+
+/** Sort findings by severity (error > warning > info) then by line. Shared utility. */
+export function sortFindings(findings: ReviewFinding[]): void {
+  const severityOrder: Record<string, number> = { error: 0, warning: 1, info: 2 };
+  findings.sort((a, b) => {
+    const sd = severityOrder[a.severity] - severityOrder[b.severity];
+    if (sd !== 0) return sd;
+    return a.primarySpan.startLine - b.primarySpan.startLine;
+  });
+}
+
+/** Dedup + sort in one call. Replaces the 5 duplicated sort/dedup blocks. */
+export function sortAndDedup(findings: ReviewFinding[]): ReviewFinding[] {
+  const result = dedup(findings);
+  sortFindings(result);
+  return result;
 }
 
 // ── Enforcement ──────────────────────────────────────────────────────────
