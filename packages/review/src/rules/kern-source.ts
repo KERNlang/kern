@@ -81,13 +81,25 @@ const SAFE_STRING_MEMBERS = new Set([
 ]);
 
 const AMBIENT_NAMES = new Set([
+  // JS globals
   'Array', 'AbortController', 'Boolean', 'Buffer', 'Date', 'Error', 'Headers',
   'JSON', 'Map', 'Math', 'Number', 'Object', 'Promise', 'RegExp', 'Request',
   'Response', 'Set', 'String', 'URL', 'URLSearchParams', 'console', 'crypto',
   'clearInterval', 'clearTimeout', 'document', 'fetch', 'globalThis', 'location',
-  'navigator', 'params', 'process', 'query', 'req', 'res', 'setInterval',
-  'setTimeout', 'window', 'body', 'headers', 'ctx', 'env', 'event',
-  'state', 'dispatch', 'get', 'set', 'undefined', 'NaN', 'Infinity',
+  'navigator', 'process', 'setInterval', 'setTimeout', 'window',
+  'undefined', 'NaN', 'Infinity', 'Symbol', 'WeakMap', 'WeakSet', 'Proxy',
+  'Reflect', 'queueMicrotask', 'structuredClone', 'atob', 'btoa',
+  // HTTP handler context (injected by framework)
+  'req', 'res', 'ctx', 'next', 'params', 'query', 'body', 'headers',
+  'event', 'env', 'emit', 'send', 'status',
+  // State/dispatch (React/KERN runtime)
+  'state', 'dispatch', 'get', 'set', 'props', 'self', 'this',
+  // Common external service references (injected via DI or app context)
+  'db', 'redis', 'cache', 'store', 'config', 'logger', 'app',
+  // CLI context (common in KERN CLI examples)
+  'opts', 'args', 'options', 'argv',
+  // SWR/hook context (data comes from framework)
+  'data', 'error', 'isLoading', 'mutate', 'isValidating',
 ]);
 
 const EXTERNAL_SIGNAL_RE = /\b(fetch|axios|db|redis|stripe|openai|supabase|client|api|provider|registry|http|https)\b|await\s+[A-Za-z_$]/;
