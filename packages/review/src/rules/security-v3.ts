@@ -349,6 +349,128 @@ function informationExposure(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule S13: prompt-injection ─────────────────────────────────────────
+// User input embedded into LLM prompts without sanitization.
+// Detects: template literals or string concatenation that include user input
+// flowing to LLM API calls (generateContent, chat.completions, etc.)
+// CWE-77 (Injection), OWASP LLM01
+
+/** Known LLM API call patterns */
+const LLM_API_PATTERNS = /\bgenerateContent\b|\bchat\.completions\b|\bcreate\b.*\bmodel\b|\bgenerate\b|\bsendMessage\b|\bcomplete\b/;
+/** Common prompt builder function names */
+const PROMPT_BUILDER_PATTERNS = /\bbuildPrompt\b|\bgeneratePrompt\b|\bsystemPrompt\b|\buserPrompt\b|\bcreatePrompt\b/;
+/** Sanitization function patterns */
+const PROMPT_SANITIZER_PATTERNS = /\bsanitizeForPrompt\b|\bescapePrompt\b|\bcleanPrompt\b|\bsanitize\w*\(/;
+
+function promptInjection(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  // Check template literals that embed user input and flow to LLM calls
+  for (const template of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.TemplateExpression)) {
+    const text = template.getText();
+
+    // Does this template contain user input references?
+    const hasUserInput = USER_INPUT_PATTERNS.test(text) ||
+      /\b(question|userInput|userMessage|message|input|query|prompt|instruction|caption)\b/.test(text);
+    if (!hasUserInput) continue;
+
+    // Is there a sanitizer wrapping the user input in this template?
+    if (PROMPT_SANITIZER_PATTERNS.test(text)) continue;
+
+    // Check if this template is used in an LLM context
+    // 1. Inside a function whose name suggests prompt building
+    let parent: import('ts-morph').Node | undefined = template.getParent();
+    let inPromptContext = false;
+    while (parent) {
+      if (parent.getKind() === SyntaxKind.FunctionDeclaration ||
+          parent.getKind() === SyntaxKind.ArrowFunction ||
+          parent.getKind() === SyntaxKind.MethodDeclaration) {
+        const parentText = parent.getText().substring(0, 200);
+        if (PROMPT_BUILDER_PATTERNS.test(parentText) || LLM_API_PATTERNS.test(parentText)) {
+          inPromptContext = true;
+        }
+        // Check function name
+        if (parent.getKind() === SyntaxKind.FunctionDeclaration) {
+          const fnName = (parent as import('ts-morph').FunctionDeclaration).getName() || '';
+          if (/prompt|build.*prompt|generate.*prompt|system.*prompt/i.test(fnName)) {
+            inPromptContext = true;
+          }
+        }
+        break;
+      }
+      parent = parent.getParent() as import('ts-morph').Node | undefined;
+    }
+
+    // 2. Variable assigned to a name like "systemPrompt", "userPrompt"
+    const assignParent = template.getParent();
+    if (assignParent?.getKind() === SyntaxKind.VariableDeclaration) {
+      const varName = (assignParent as import('ts-morph').VariableDeclaration).getName();
+      if (/prompt|system|instruction/i.test(varName)) {
+        inPromptContext = true;
+      }
+    }
+    // Also check if template is assigned via `const x = ...`
+    if (assignParent?.getKind() === SyntaxKind.BinaryExpression) {
+      const leftText = (assignParent as import('ts-morph').BinaryExpression).getLeft().getText();
+      if (/prompt|system|instruction/i.test(leftText)) {
+        inPromptContext = true;
+      }
+    }
+
+    if (!inPromptContext) continue;
+
+    // Find which user input variable is unsanitized
+    const spans = template.getTemplateSpans();
+    for (const span of spans) {
+      const exprText = span.getExpression().getText();
+      // Skip if this specific expression is wrapped in sanitize
+      if (PROMPT_SANITIZER_PATTERNS.test(exprText)) continue;
+      // Skip simple property access on known safe objects
+      if (/^(intent|mixContext|analysisResults)\b/.test(exprText)) continue;
+
+      // Check if this is a user-controlled value
+      const isUserControlled = USER_INPUT_PATTERNS.test(exprText) ||
+        /^(question|userInput|userMessage|message|input|caption|instruction)\b/.test(exprText);
+
+      if (isUserControlled) {
+        findings.push(finding('prompt-injection', 'warning', 'bug',
+          `User input '${exprText.substring(0, 50)}' embedded in LLM prompt without sanitization — prompt injection risk`,
+          ctx.filePath, template.getStartLineNumber(),
+          { suggestion: 'Wrap user input with sanitizeForPrompt() or equivalent before embedding in prompts' }));
+        break; // One finding per template
+      }
+    }
+  }
+
+  // Check string concatenation in prompt context: "You are... " + userInput
+  for (const bin of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+    if (bin.getOperatorToken().getKind() !== SyntaxKind.PlusToken) continue;
+
+    const rightText = bin.getRight().getText();
+    const leftText = bin.getLeft().getText();
+    const fullText = bin.getText();
+
+    // Is this string concat involving user input?
+    const hasUserInput = USER_INPUT_PATTERNS.test(rightText) ||
+      /^(question|userInput|message|input|caption|instruction)\b/.test(rightText);
+    if (!hasUserInput) continue;
+
+    // Is the left side a prompt-like string?
+    const isPromptConcat = /prompt|instruction|system|you are|analyze|review/i.test(leftText);
+    if (!isPromptConcat) continue;
+
+    // Is it sanitized?
+    if (PROMPT_SANITIZER_PATTERNS.test(fullText)) continue;
+
+    findings.push(finding('prompt-injection', 'warning', 'bug',
+      `User input concatenated into LLM prompt without sanitization — prompt injection risk`,
+      ctx.filePath, bin.getStartLineNumber(),
+      { suggestion: 'Use sanitizeForPrompt() on user input before concatenating into prompts' }));
+  }
+
+  return findings;
+}
+
 // ── Exported Security v3 Rules ────────────────────────────────────────
 
 export const securityV3Rules = [
@@ -356,4 +478,5 @@ export const securityV3Rules = [
   missingInputValidation,
   prototypePollution,
   informationExposure,
+  promptInjection,
 ];
