@@ -11,6 +11,8 @@
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { resolve, relative, join } from 'path';
+import { parse as parseKern, countTokens, serializeIR } from '@kernlang/core';
+import type { IRNode } from '@kernlang/core';
 import { inferFromSource, inferFromFile, inferFromSourceFile, createInMemoryProject } from './inferrer.js';
 import { resolveImportGraph } from './graph.js';
 import type { GraphOptions } from './types.js';
@@ -23,7 +25,7 @@ import { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js'
 import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { runConceptRules } from './concept-rules/index.js';
 import { lintConfidenceGraph } from './rules/confidence.js';
-import { lintKernIR } from './kern-lint.js';
+import { lintKernIR, flattenIR } from './kern-lint.js';
 import { GROUND_LAYER_RULES } from './rules/ground-layer.js';
 import { buildConfidenceGraph, serializeGraph, computeConfidenceSummary } from './confidence.js';
 import { analyzeTaint, taintToFindings, analyzeTaintCrossFile, crossFileTaintToFindings } from './taint.js';
@@ -83,10 +85,13 @@ export type { SpecContract, ImplRoute, SpecViolation, SpecCheckResult, Violation
 
 /**
  * Review a single file. Auto-detects language from extension.
- * Supports: .ts, .tsx, .py
+ * Supports: .ts, .tsx, .py, .kern
  */
 export function reviewFile(filePath: string, config?: ReviewConfig): ReviewReport {
   const source = readFileSync(filePath, 'utf-8');
+  if (filePath.endsWith('.kern')) {
+    return reviewKernSource(source, filePath, config);
+  }
   if (filePath.endsWith('.py')) {
     return reviewPythonSource(source, filePath, config);
   }
@@ -169,6 +174,105 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
     templateMatches,
     findings,
     stats,
+    ...(confidenceGraph ? { confidenceGraph } : {}),
+    ...(confidenceSummary ? { confidenceSummary } : {}),
+  };
+}
+
+/**
+ * Review .kern source code (native KERN IR).
+ * Parses directly to IR — skips TS inference, templates, diff, AST quality rules.
+ * Runs: ground-layer rules, confidence rules, LLM review.
+ */
+export function reviewKernSource(source: string, filePath = 'input.kern', _config?: ReviewConfig): ReviewReport {
+  const totalLines = source.split('\n').length;
+  const allFindings: ReviewFinding[] = [];
+
+  function safePhase<T>(name: string, fn: () => T, fallback: T): T {
+    try { return fn(); }
+    catch (err) {
+      allFindings.push({
+        source: 'kern', ruleId: 'internal-error', severity: 'info', category: 'structure',
+        message: `Review phase '${name}' failed: ${(err as Error).message}`,
+        primarySpan: { file: filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+        fingerprint: createFingerprint('internal-error', 1, name.charCodeAt(0)),
+      });
+      return fallback;
+    }
+  }
+
+  // Parse .kern → IR tree
+  const root = safePhase('parse', () => parseKern(source), { type: 'document' } as IRNode);
+
+  // Flatten IR tree for rule consumption
+  const flatNodes = flattenIR(root).filter(n => n.type !== 'document');
+
+  // Ground-layer rules on IR nodes
+  const groundFindings = safePhase('ground-lint', () => lintKernIR(flatNodes, GROUND_LAYER_RULES), []);
+  // Attach filePath to findings (ground rules may leave file empty)
+  for (const f of groundFindings) {
+    if (!f.primarySpan.file) f.primarySpan.file = filePath;
+  }
+  allFindings.push(...groundFindings);
+
+  // Confidence rules on IR nodes
+  const confFindings = safePhase('confidence-lint', () => lintConfidenceGraph(flatNodes), []);
+  for (const f of confFindings) {
+    if (!f.primarySpan.file) f.primarySpan.file = filePath;
+  }
+  allFindings.push(...confFindings);
+
+  // Confidence graph
+  let confidenceGraph: ReviewReport['confidenceGraph'];
+  let confidenceSummary: ReviewReport['confidenceSummary'];
+  if (flatNodes.some(n => n.props?.confidence !== undefined)) {
+    const graph = buildConfidenceGraph(flatNodes);
+    confidenceGraph = serializeGraph(graph);
+    confidenceSummary = computeConfidenceSummary(graph);
+  }
+
+  // Build InferResult[] adapter for compatibility with report/LLM pipeline
+  const inferred: InferResult[] = flatNodes.map((node, i) => {
+    const line = node.loc?.line ?? 1;
+    const endLine = node.loc?.endLine ?? line;
+    const name = (node.props?.name as string) || node.type;
+    const shallowNode: IRNode = { ...node, children: undefined };
+    const rendered = serializeIR(shallowNode);
+    return {
+      node,
+      nodeId: `${filePath}#${node.type}:${name}@L${line}`,
+      promptAlias: `N${i + 1}`,
+      startLine: line,
+      endLine,
+      sourceSpans: [{
+        file: filePath, startLine: line, startCol: node.loc?.col ?? 1,
+        endLine, endCol: node.loc?.endCol ?? 1,
+      }],
+      summary: `${node.type}${name !== node.type ? ` ${name}` : ''}`,
+      confidence: 'high' as const,
+      confidencePct: 100,
+      kernTokens: countTokens(rendered),
+      tsTokens: countTokens(rendered),
+    };
+  });
+
+  const findings = sortAndDedup(allFindings);
+  const kernTokens = countTokens(source);
+
+  return {
+    filePath,
+    inferred,
+    templateMatches: [],
+    findings,
+    stats: {
+      totalLines,
+      coveredLines: totalLines,
+      coveragePct: 100,
+      totalTsTokens: kernTokens,
+      totalKernTokens: kernTokens,
+      reductionPct: 0,
+      constructCount: flatNodes.length,
+    },
     ...(confidenceGraph ? { confidenceGraph } : {}),
     ...(confidenceSummary ? { confidenceSummary } : {}),
   };
@@ -316,6 +420,8 @@ function collectReviewableFiles(dirPath: string, recursive: boolean): string[] {
     } else if ((entry.endsWith('.ts') || entry.endsWith('.tsx')) && !entry.endsWith('.d.ts') && !entry.endsWith('.test.ts') && !entry.endsWith('.test.tsx')) {
       files.push(full);
     } else if (entry.endsWith('.py') && !entry.startsWith('test_') && !entry.endsWith('_test.py')) {
+      files.push(full);
+    } else if (entry.endsWith('.kern')) {
       files.push(full);
     }
   }

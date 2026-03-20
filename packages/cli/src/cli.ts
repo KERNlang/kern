@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { resolve, basename, dirname, relative } from 'path';
 import { createJiti } from 'jiti';
-import { parse, decompile, resolveConfig, VALID_TARGETS, VALID_STRUCTURES, generateCoreNode, isCoreNode, detectVersionsFromPackageJson, scanProject, generateConfigSource, formatScanSummary, registerTemplate, isTemplateNode, expandTemplateNode, clearTemplates, detectTemplates, COMMON_TEMPLATES } from '@kernlang/core';
+import { parse, decompile, resolveConfig, VALID_TARGETS, VALID_STRUCTURES, generateCoreNode, isCoreNode, detectVersionsFromPackageJson, scanProject, generateConfigSource, formatScanSummary, registerTemplate, isTemplateNode, expandTemplateNode, clearTemplates, detectTemplates, COMMON_TEMPLATES, collectCoverageGaps, writeCoverageGaps } from '@kernlang/core';
 import type { ResolvedKernConfig, KernTarget, KernStructure, KernConfig, IRNode } from '@kernlang/core';
 import { generateReactNode, isReactNode } from '@kernlang/react';
 import { transpile } from '@kernlang/native';
@@ -13,7 +13,7 @@ import { transpileCliApp } from './transpiler-cli.js';
 import { transpileTerminal, transpileInk } from '@kernlang/terminal';
 import { transpileVue, transpileNuxt } from '@kernlang/vue';
 import { collectLanguageMetrics } from '@kernlang/metrics';
-import { reviewFile, reviewDirectory, reviewSource, reviewGraph, resolveImportGraph, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes, runLLMReview, isLLMAvailable, analyzeTaint } from '@kernlang/review';
+import { reviewFile, reviewDirectory, reviewSource, reviewGraph, resolveImportGraph, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes, runLLMReview, isLLMAvailable, analyzeTaint, checkSpecFiles, specViolationsToFindings } from '@kernlang/review';
 import type { ReviewConfig, ReviewFinding, LLMReviewInput } from '@kernlang/review';
 import { evolve, loadBuiltinDetectors, listStaged, getStaged, updateStagedStatus, promoteLocal, cleanRejected, formatSplitView } from '@kernlang/evolve';
 import type { EvolveOptions } from '@kernlang/evolve';
@@ -82,7 +82,7 @@ if (args[0] === 'dev') {
   // Initial build of all .kern files
   const initialFiles = findKernFiles(watchDir, watchPattern);
   for (const file of initialFiles) {
-    transpileAndWrite(file, devConfig, devOutDir);
+    transpileAndWrite(file, devConfig, devOutDir, watchDir);
   }
   if (initialFiles.length > 0) {
     console.log(`  ${initialFiles.length} file(s) compiled.\n`);
@@ -103,7 +103,7 @@ if (args[0] === 'dev') {
       const rel = relative(process.cwd(), filePath);
       const start = performance.now();
       try {
-        transpileAndWrite(filePath, devConfig, devOutDir);
+        transpileAndWrite(filePath, devConfig, devOutDir, watchDir);
         const ms = Math.round(performance.now() - start);
         console.log(`  ${rel} → compiled (${ms}ms)`);
       } catch (err) {
@@ -115,7 +115,7 @@ if (args[0] === 'dev') {
       const rel = relative(process.cwd(), filePath);
       const start = performance.now();
       try {
-        transpileAndWrite(filePath, devConfig, devOutDir);
+        transpileAndWrite(filePath, devConfig, devOutDir, watchDir);
         const ms = Math.round(performance.now() - start);
         console.log(`  ${rel} → compiled (${ms}ms)`);
       } catch (err) {
@@ -127,7 +127,9 @@ if (args[0] === 'dev') {
       const rel = relative(process.cwd(), filePath);
       const ext = filePath.endsWith('.kern') ? '.kern' : '.ir';
       const fileBaseName = basename(filePath, ext);
-      const outDir = resolve(devOutDir ? resolve(devOutDir) : dirname(filePath), devConfig.output.outDir);
+      const unlinkRelDir = relative(resolve(watchDir), dirname(filePath));
+      const unlinkBaseDir = devOutDir ? resolve(resolve(devOutDir), unlinkRelDir) : dirname(filePath);
+      const outDir = resolve(unlinkBaseDir, devConfig.output.outDir);
       const outExt = devConfig.target === 'fastapi' ? '.py'
         : (devConfig.target === 'vue' || devConfig.target === 'nuxt') ? '.vue'
         : (devConfig.target === 'express' || devConfig.target === 'cli' || devConfig.target === 'terminal') ? '.ts' : '.tsx';
@@ -188,7 +190,7 @@ function findKernFiles(dir: string, singleFile?: string): string[] {
   return files;
 }
 
-function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride?: string): void {
+function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride?: string, inputBase?: string): void {
   const source = readFileSync(file, 'utf-8');
   const ast = parse(source);
   const ext = file.endsWith('.kern') ? '.kern' : '.ir';
@@ -196,6 +198,14 @@ function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride
   const target = cfg.target;
   const relSource = relative(process.cwd(), file);
   const header = GENERATED_HEADER + relSource + '\n\n';
+
+  // Emit coverage gaps unless --no-gaps
+  if (!args.includes('--no-gaps')) {
+    const gaps = collectCoverageGaps(ast, file);
+    if (gaps.length > 0) {
+      writeCoverageGaps(gaps, resolve(process.cwd(), '.kern-gaps'));
+    }
+  }
 
   const result = target === 'native'
     ? transpile(ast, cfg)
@@ -219,7 +229,11 @@ function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride
                       ? transpileNuxt(ast, cfg)
                       : transpileNextjs(ast, cfg);
 
-  const outDir = resolve(outDirOverride ? resolve(outDirOverride) : dirname(file), cfg.output.outDir);
+  // Preserve relative directory structure when outDirOverride is set
+  // e.g. kern/llm/patterns.kern with --outdir=app/ → app/llm/page.tsx (not app/page.tsx)
+  const relDir = inputBase ? relative(resolve(inputBase), dirname(file)) : '';
+  const baseDir = outDirOverride ? resolve(resolve(outDirOverride), relDir) : dirname(file);
+  const outDir = resolve(baseDir, cfg.output.outDir);
   mkdirSync(outDir, { recursive: true });
 
   if (result.artifacts && result.artifacts.length > 0 && cfg.structure !== 'flat') {
@@ -529,6 +543,10 @@ if (args[0] === 'review') {
   const enforce = args.includes('--enforce');
   const exportKern = args.includes('--export-kern');
   const llmMode = args.includes('--llm');
+  const cloudMode = args.includes('--cloud');
+  const securityMode = args.includes('--security');
+  const specMode = args.includes('--spec');
+  const specFile = args.find(a => a.endsWith('.kern') && a !== 'review');
   const fixMode = args.includes('--fix');
   const lintMode = args.includes('--lint');
   const graphMode = args.includes('--graph');
@@ -579,7 +597,8 @@ if (args[0] === 'review') {
   }
 
   if (!reviewInput) {
-    console.error('Usage: kern review <file.ts|dir> [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--min-coverage=N] [--max-complexity=N] [--export-kern] [--llm] [--fix]');
+    console.error('Usage: kern review <file.ts|dir> [--security] [--llm] [--spec file.kern] [--cloud]');
+    console.error('       [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--fix]');
     process.exit(1);
   }
 
@@ -697,7 +716,7 @@ if (args[0] === 'review') {
   }
 
   if (reports.length === 0) {
-    console.log('  No .ts/.tsx files found to review.');
+    console.log('  No reviewable files found (.ts/.tsx/.py/.kern).');
     process.exit(0);
   }
 
@@ -707,6 +726,115 @@ if (args[0] === 'review') {
       console.log(`\n// ── ${report.filePath} ──`);
       console.log(exportKernIR(report.inferred, report.templateMatches));
     }
+    process.exit(0);
+  }
+
+  // --spec: verify .kern spec contracts against .ts implementation
+  if (specMode && specFile) {
+    const kernFilePath = resolve(specFile);
+    if (!existsSync(kernFilePath)) {
+      console.error(`  .kern spec file not found: ${specFile}`);
+      process.exit(1);
+    }
+
+    console.log(`\n  KERN spec check: ${specFile} → ${reports.length} implementation files\n`);
+
+    let totalViolations = 0;
+    for (const report of reports) {
+      const result = checkSpecFiles(kernFilePath, report.filePath);
+      if (result.violations.length > 0) {
+        const findings = specViolationsToFindings(result);
+        totalViolations += findings.length;
+        report.findings.push(...findings);
+        report.findings = dedup(report.findings);
+
+        for (const v of result.violations) {
+          const icon = v.kind.includes('missing') || v.kind === 'spec-unimplemented' ? '✗' : '~';
+          const sev = v.kind === 'spec-auth-missing' || v.kind === 'spec-unimplemented' ? 'ERROR' : v.kind === 'spec-undeclared' ? 'INFO' : 'WARN';
+          console.log(`    ${icon} [${sev}] ${v.kind}: ${v.detail}`);
+          if (v.suggestion) console.log(`      → ${v.suggestion}`);
+        }
+      }
+
+      if (result.matched.length > 0) {
+        const satisfied = result.matched.length - result.violations.filter(v => v.kind !== 'spec-undeclared' && v.kind !== 'spec-unimplemented').length;
+        console.log(`\n  Matched: ${result.matched.length} routes | Satisfied: ${satisfied} | Violations: ${totalViolations}`);
+        if (result.unmatchedSpecs.length > 0) console.log(`  Unimplemented: ${result.unmatchedSpecs.map(s => s.routeKey).join(', ')}`);
+        if (result.unmatchedImpls.length > 0) console.log(`  Undeclared: ${result.unmatchedImpls.map(i => i.routeKey).join(', ')}`);
+      }
+    }
+
+    if (totalViolations === 0) {
+      console.log('  All spec contracts satisfied.');
+    }
+    console.log('');
+    // Fall through to normal output
+  }
+
+  // --security: show only security-related findings
+  if (securityMode) {
+    const SECURITY_RULES = new Set([
+      'xss-unsafe-html', 'hardcoded-secret', 'command-injection', 'no-eval',
+      'insecure-random', 'cors-wildcard', 'helmet-missing', 'open-redirect',
+      'jwt-weak-verification', 'cookie-hardening', 'csrf-detection', 'csp-strength',
+      'path-traversal', 'weak-password-hashing', 'regex-dos', 'missing-input-validation',
+      'prototype-pollution', 'information-exposure', 'prompt-injection',
+      'taint-command', 'taint-fs', 'taint-sql', 'taint-redirect', 'taint-eval',
+      'taint-insufficient-sanitizer', 'taint-crossfile-command', 'taint-crossfile-fs',
+      'taint-crossfile-sql', 'taint-crossfile-redirect', 'taint-crossfile-eval',
+      'spec-auth-missing', 'spec-validate-missing', 'spec-guard-missing',
+      'spec-middleware-missing', 'spec-unimplemented',
+    ]);
+
+    console.log('\n  KERN Security Report\n');
+
+    let totalSec = 0;
+    for (const report of reports) {
+      const secFindings = report.findings.filter(f => SECURITY_RULES.has(f.ruleId));
+      if (secFindings.length === 0) continue;
+      totalSec += secFindings.length;
+
+      const rel = relative(process.cwd(), report.filePath);
+      console.log(`  ${rel}:`);
+      for (const f of secFindings) {
+        const icon = f.severity === 'error' ? '✗' : f.severity === 'warning' ? '~' : '-';
+        console.log(`    ${icon} L${f.primarySpan.startLine}: [${f.ruleId}] ${f.message}`);
+        if (f.suggestion) console.log(`      → ${f.suggestion}`);
+      }
+      console.log('');
+    }
+
+    if (totalSec === 0) {
+      console.log('  No security issues found.');
+    } else {
+      const errors = reports.flatMap(r => r.findings).filter(f => SECURITY_RULES.has(f.ruleId) && f.severity === 'error').length;
+      const warnings = reports.flatMap(r => r.findings).filter(f => SECURITY_RULES.has(f.ruleId) && f.severity === 'warning').length;
+      console.log(`  Total: ${totalSec} security findings (${errors} errors, ${warnings} warnings)`);
+    }
+
+    console.log('  Rules: OWASP Top 10, OWASP LLM Top 10, Taint Tracking, Spec Contracts');
+    console.log('');
+    process.exit(0);
+  }
+
+  // --cloud: KERN Pro cloud review (coming soon)
+  if (cloudMode) {
+    console.log('');
+    console.log('  KERN Pro — Cloud-powered AI review');
+    console.log('');
+    console.log('  Coming soon. Cloud review will provide:');
+    console.log('    • LLM-powered security analysis without an AI IDE');
+    console.log('    • Team dashboard with trend tracking');
+    console.log('    • Custom rule engine for enterprise');
+    console.log('    • CI/CD integration with quality gates');
+    console.log('');
+    console.log('  For now, use --llm with your AI assistant (Claude Code, Cursor, etc.)');
+    console.log('  The assistant reads the KERN IR output and performs the AI review.');
+    console.log('');
+    console.log('  → kern review src/ --llm');
+    console.log('');
+    console.log('  Join the waitlist: https://kernlang.dev/pro');
+    console.log('');
     process.exit(0);
   }
 
@@ -760,15 +888,36 @@ if (args[0] === 'review') {
       }
       // Fall through to normal output (don't exit — show merged findings)
     } else {
-      // No API key: export prompt for manual review (backward compat)
+      // No cloud API key — output static findings + KERN IR for the AI assistant
+      // The LLM running this command (Claude Code, Cursor, etc.) IS the reviewer
+      console.log('\n  ── KERN IR for LLM review ──\n');
       for (const report of reports) {
-        console.log(`\n// ── ${report.filePath} ──`);
+        console.log(`// ── ${report.filePath} ──`);
         console.log(buildLLMPrompt(report.inferred, report.templateMatches, llmGraphContext));
+
+        // Include taint analysis context
+        const taintResults = analyzeTaint(report.inferred, report.filePath);
+        if (taintResults.length > 0) {
+          console.log('\n// Taint analysis:');
+          for (const t of taintResults) {
+            for (const p of t.paths) {
+              const status = p.sanitized ? `SANITIZED (${p.sanitizer})` : 'UNSANITIZED';
+              console.log(`//   ${t.fnName}: ${p.source.origin} → ${p.sink.name}() [${status}]`);
+            }
+          }
+        }
+        console.log('');
       }
-      console.log('\n  No KERN_LLM_API_KEY set — printed prompt for manual LLM review.');
-      console.log('  Set KERN_LLM_API_KEY to enable automatic LLM security analysis.');
-      process.exit(0);
+
+      // Show static findings summary
+      const totalFindings = reports.reduce((sum, r) => sum + r.findings.length, 0);
+      const errors = reports.reduce((sum, r) => sum + r.findings.filter(f => f.severity === 'error').length, 0);
+      const warnings = reports.reduce((sum, r) => sum + r.findings.filter(f => f.severity === 'warning').length, 0);
+      console.log(`  Static analysis: ${totalFindings} findings (${errors} errors, ${warnings} warnings)`);
+      console.log('  Review the KERN IR above for security issues the static rules may have missed.');
+      console.log('');
     }
+    // Fall through to normal output — show full report with static findings
   }
 
   // --fix: auto-migration — write .kern files from template suggestions, verify roundtrip
@@ -901,9 +1050,11 @@ if (args[0] === 'evolve' && args[1] !== undefined && !args[1].startsWith('evolve
   const minConfArg = args.find(a => a.startsWith('--min-confidence='))?.split('=')[1];
   const minSupportArg = args.find(a => a.startsWith('--min-support='))?.split('=')[1];
 
+  const enableNodes = args.includes('--nodes') || args.includes('--from-gaps');
   const evolveOptions: EvolveOptions = {
     recursive,
     preview,
+    enableNodeProposals: enableNodes,
     thresholds: {
       ...(minConfArg ? { minConfidence: Number(minConfArg) } : {}),
       ...(minSupportArg ? { minSupport: Number(minSupportArg) } : {}),
@@ -942,6 +1093,19 @@ if (args[0] === 'evolve' && args[1] !== undefined && !args[1].startsWith('evolve
         const v = result.validated.find(v => v.proposal.id === p.id);
         const status = v ? (v.validation.parseOk && v.validation.expansionOk ? '✓' : '✗') : '?';
         console.log(`    ${status} ${p.templateName} (${p.namespace}) — score: ${p.qualityScore.overallScore}, instances: ${p.instanceCount}`);
+      }
+    }
+
+    // v3: Node proposals
+    if (result.nodeProposals && result.nodeProposals.length > 0 && !jsonOutput) {
+      console.log(`\n  Node proposals (v3): ${result.nodeProposals.length}`);
+      for (const np of result.nodeProposals) {
+        const nv = result.nodeValidated?.find(v => v.proposal.id === np.id);
+        const status = nv ? (nv.validation.parseOk && nv.validation.codegenOk ? '✓' : '✗') : '?';
+        console.log(`    ${status} ${np.nodeName} — express: ${np.expressibilityScore.overall}, freq: ${np.frequency}, score: ${np.qualityScore}`);
+      }
+      if (result.stagedNodes && result.stagedNodes.length > 0) {
+        console.log(`  Staged nodes:        ${result.stagedNodes.length}`);
       }
     }
   }
@@ -1421,6 +1585,10 @@ function collectTsFilesFlat(dirPath: string, recursive: boolean): string[] {
     if (s.isDirectory() && recursive && !entry.startsWith('.') && entry !== 'node_modules' && entry !== 'dist') {
       files.push(...collectTsFilesFlat(full, true));
     } else if ((entry.endsWith('.ts') || entry.endsWith('.tsx')) && !entry.endsWith('.d.ts') && !entry.endsWith('.test.ts')) {
+      files.push(full);
+    } else if (entry.endsWith('.kern')) {
+      files.push(full);
+    } else if (entry.endsWith('.py') && !entry.startsWith('test_') && !entry.endsWith('_test.py')) {
       files.push(full);
     }
   }
