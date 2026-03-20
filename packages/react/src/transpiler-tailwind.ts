@@ -167,9 +167,24 @@ function renderChildren(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
 function renderScreen(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'space-y-8')}>`);
+  const styles = getStyles(node);
+  // Auto-detect dark background and add light text
+  const bgColor = styles.backgroundColor || '';
+  const isDark = isDarkColor(bgColor);
+  const textClass = isDark ? 'text-white' : 'text-zinc-900';
+  ctx.lines.push(`${indent}<div${twClasses(node, ctx, `space-y-8 ${textClass} min-h-screen`)}>`);
   renderChildren(node, ctx, indent);
   ctx.lines.push(`${indent}</div>`);
+}
+
+function isDarkColor(hex: string): boolean {
+  if (!hex || !hex.startsWith('#')) return false;
+  const c = hex.replace('#', '');
+  const r = parseInt(c.substring(0, 2), 16);
+  const g = parseInt(c.substring(2, 4), 16);
+  const b = parseInt(c.substring(4, 6), 16);
+  // Relative luminance
+  return (r * 0.299 + g * 0.587 + b * 0.114) < 128;
 }
 
 function renderSection(node: IRNode, ctx: CodeBuilder, indent: string): void {
@@ -522,11 +537,11 @@ function renderItem(node: IRNode, ctx: CodeBuilder, indent: string): void {
     const category = p.category as string;
     ctx.lines.push(`${indent}<div${tw}>`);
     ctx.lines.push(`${indent}  <div className="flex items-center gap-2">`);
-    if (name) ctx.lines.push(`${indent}    <span className="text-sm font-medium">${escapeJsxText(name)}</span>`);
-    if (time) ctx.lines.push(`${indent}    <span className="text-xs opacity-50">${escapeJsxText(time)}</span>`);
-    if (category) ctx.lines.push(`${indent}    <span className="text-xs opacity-50 bg-current/5 px-2 py-0.5 rounded">${escapeJsxText(category)}</span>`);
+    if (name) ctx.lines.push(`${indent}    <span className="text-sm font-semibold">${escapeJsxText(name)}</span>`);
+    if (time) ctx.lines.push(`${indent}    <span className="text-xs opacity-40">${escapeJsxText(time)}</span>`);
+    if (category) ctx.lines.push(`${indent}    <span className="text-xs opacity-40">${escapeJsxText(category)}</span>`);
     ctx.lines.push(`${indent}  </div>`);
-    if (calories) ctx.lines.push(`${indent}  <span className="text-sm font-medium opacity-60">${escapeJsxText(calories)} kcal</span>`);
+    if (calories) ctx.lines.push(`${indent}  <span className="text-sm opacity-50">${escapeJsxText(calories)} kcal</span>`);
     ctx.lines.push(`${indent}</div>`);
   }
 }
