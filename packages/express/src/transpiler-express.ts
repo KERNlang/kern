@@ -1,5 +1,5 @@
 import type { ResolvedKernConfig, GeneratedArtifact, IRNode, SourceMapEntry, TranspileResult } from '@kernlang/core';
-import { camelKey, countTokens, serializeIR } from '@kernlang/core';
+import { camelKey, countTokens, generateCoreNode, serializeIR } from '@kernlang/core';
 
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'delete']);
 
@@ -926,6 +926,56 @@ function buildRouteArtifact(
   };
 }
 
+// ── Core node artifact mapping ────────────────────────────────────────────
+
+/** Map core node type → output directory + artifact type. */
+function coreNodeMeta(type: string): { dir: string; artifactType: GeneratedArtifact['type'] } {
+  switch (type) {
+    case 'interface': return { dir: 'models', artifactType: 'model' };
+    case 'service':   return { dir: 'services', artifactType: 'service' };
+    case 'type':      return { dir: 'types', artifactType: 'types' };
+    case 'config':    return { dir: 'config', artifactType: 'config' };
+    case 'error':     return { dir: 'errors', artifactType: 'error' };
+    default:          return { dir: 'lib', artifactType: 'lib' };
+  }
+}
+
+const TOP_LEVEL_CORE = new Set([
+  'type', 'interface', 'service', 'fn', 'machine', 'error',
+  'module', 'config', 'store', 'event', 'const',
+]);
+
+interface CoreArtifactRef {
+  artifact: GeneratedArtifact;
+  importPath: string;
+  exportNames: string[];
+}
+
+function buildCoreArtifact(node: IRNode): CoreArtifactRef {
+  const name = String((node.props || {}).name || node.type);
+  const fileBase = slugify(name);
+  const { dir, artifactType } = coreNodeMeta(node.type);
+  const tsLines = generateCoreNode(node);
+  const content = tsLines.join('\n');
+
+  // Extract export names for the import line
+  const exportNames: string[] = [];
+  for (const line of tsLines) {
+    const m = line.match(/^export (?:type |interface |function |const |class |enum |abstract class )(\w+)/);
+    if (m) exportNames.push(m[1]);
+  }
+
+  return {
+    importPath: `./${dir}/${fileBase}.js`,
+    exportNames,
+    artifact: {
+      path: `${dir}/${fileBase}.ts`,
+      content,
+      type: artifactType,
+    },
+  };
+}
+
 export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): TranspileResult {
   const sourceMap: SourceMapEntry[] = [];
   const middlewareArtifacts = new Map<string, MiddlewareArtifactRef>();
@@ -961,6 +1011,20 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
     dependencyComments.push('compression');
   }
 
+  // Collect top-level core language nodes (type, interface, service, config, etc.)
+  // Core nodes may live as siblings of server under the parse root, or as server children.
+  const rootChildren = root.children || [];
+  const serverChildren = serverNode !== root ? (serverNode.children || []) : [];
+  const coreNodes = [
+    ...rootChildren.filter(c => TOP_LEVEL_CORE.has(c.type)),
+    ...serverChildren.filter(c => TOP_LEVEL_CORE.has(c.type)),
+  ];
+  // If the root itself is a core node (parser wraps first top-level node as root), include it
+  if (TOP_LEVEL_CORE.has(root.type) && root !== serverNode) {
+    coreNodes.unshift(root);
+  }
+  const coreArtifactRefs = coreNodes.map(n => buildCoreArtifact(n));
+
   const websocketNodes = getChildren(serverNode, 'websocket');
   const routeArtifacts = routeNodes.map((routeNode, index) => buildRouteArtifact(routeNode, index, middlewareArtifacts, sourceMap));
 
@@ -979,6 +1043,11 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   }
   for (const routeArtifact of routeArtifacts) {
     lines.push(`import { ${routeArtifact.registerName} } from './routes/${routeArtifact.fileBase}.js';`);
+  }
+  for (const coreRef of coreArtifactRefs) {
+    if (coreRef.exportNames.length > 0) {
+      lines.push(`import { ${coreRef.exportNames.join(', ')} } from '${coreRef.importPath}';`);
+    }
   }
   lines.push('');
   lines.push(`const app = express();`);
@@ -1140,6 +1209,7 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   const artifacts: GeneratedArtifact[] = [
     ...routeArtifacts.map(route => route.artifact),
     ...[...middlewareArtifacts.values()].map(entry => entry.artifact),
+    ...coreArtifactRefs.map(ref => ref.artifact),
   ];
 
   const output = lines.join('\n');

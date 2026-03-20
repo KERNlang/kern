@@ -955,8 +955,17 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     'derive', 'transform', 'action', 'guard', 'assume', 'invariant',
     'each', 'collect', 'branch', 'resolve', 'expect', 'recover',
   ]);
-  const allChildren = serverNode.children || [];
-  const coreNodes = allChildren.filter(c => TOP_LEVEL_CORE.has(c.type));
+  // Core nodes may live as siblings of server under the parse root, or as server children.
+  const rootChildren = root.children || [];
+  const serverChildren = serverNode !== root ? (serverNode.children || []) : [];
+  const coreNodes = [
+    ...rootChildren.filter(c => TOP_LEVEL_CORE.has(c.type)),
+    ...serverChildren.filter(c => TOP_LEVEL_CORE.has(c.type)),
+  ];
+  // If the root itself is a core node (parser wraps first top-level node as root), include it
+  if (TOP_LEVEL_CORE.has(root.type) && root !== serverNode) {
+    coreNodes.unshift(root);
+  }
 
   const serverImports = new Set<string>();
   const middlewareLines: string[] = [];

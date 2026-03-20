@@ -45,7 +45,7 @@ export interface GeneratedArtifact {
   /** Generated code */
   content: string;
   /** Artifact type */
-  type: 'page' | 'layout' | 'route' | 'middleware' | 'component' | 'config' | 'entry' | 'command' | 'hook' | 'types' | 'barrel' | 'theme' | 'template' | 'websocket';
+  type: 'page' | 'layout' | 'route' | 'middleware' | 'component' | 'config' | 'entry' | 'command' | 'hook' | 'types' | 'barrel' | 'theme' | 'template' | 'websocket' | 'model' | 'service' | 'error' | 'lib';
 }
 
 /** Result of transpilation */
