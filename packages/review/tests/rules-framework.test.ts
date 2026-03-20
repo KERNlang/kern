@@ -100,9 +100,9 @@ export function foo(): void {
 }
 function riskyOp(): void {}
 `;
-    // No target — base rules still apply
+    // No target — base rules still apply. ignored-error (concept) suppresses empty-catch.
     const report = reviewSource(source, 'test.ts');
-    const finding = report.findings.find(f => f.ruleId === 'empty-catch');
+    const finding = report.findings.find(f => f.ruleId === 'ignored-error' || f.ruleId === 'empty-catch');
     expect(finding).toBeDefined();
   });
 

@@ -79,7 +79,7 @@ export async function fetchData(url: string): Promise<any> {
   // ── empty-catch ──
 
   describe('empty-catch', () => {
-    it('detects empty catch block', () => {
+    it('detects empty catch block (via ignored-error concept rule, empty-catch suppressed)', () => {
       const source = `
 export function doSomething(): void {
   try {
@@ -90,9 +90,13 @@ export function doSomething(): void {
 function riskyOperation(): void {}
 `;
       const report = reviewSource(source, 'ops.ts');
-      const finding = report.findings.find(f => f.ruleId === 'empty-catch');
-      expect(finding).toBeDefined();
-      expect(finding!.severity).toBe('warning');
+      // ignored-error (concept rule) fires and suppresses empty-catch (base rule)
+      const ignoredError = report.findings.find(f => f.ruleId === 'ignored-error');
+      expect(ignoredError).toBeDefined();
+      expect(ignoredError!.severity).toBe('error');
+      // empty-catch should be suppressed when ignored-error covers the same line
+      const emptyCatch = report.findings.find(f => f.ruleId === 'empty-catch');
+      expect(emptyCatch).toBeUndefined();
     });
 
     it('does not flag catch with body', () => {

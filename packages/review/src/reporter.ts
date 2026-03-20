@@ -87,7 +87,18 @@ export function dedup(findings: ReviewFinding[]): ReviewFinding[] {
     }
   }
 
-  return [...seen.values()];
+  // Suppress empty-catch when ignored-error fires on the same line (concept rule is more semantic)
+  const ignoredErrorLines = new Set<number>();
+  for (const f of seen.values()) {
+    if (f.ruleId === 'ignored-error') ignoredErrorLines.add(f.primarySpan.startLine);
+  }
+  const result: ReviewFinding[] = [];
+  for (const f of seen.values()) {
+    if (f.ruleId === 'empty-catch' && ignoredErrorLines.has(f.primarySpan.startLine)) continue;
+    result.push(f);
+  }
+
+  return result;
 }
 
 /** Sort findings by severity (error > warning > info) then by line. Shared utility. */
