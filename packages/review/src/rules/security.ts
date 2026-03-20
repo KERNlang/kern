@@ -74,12 +74,19 @@ function xssUnsafeHtml(ctx: RuleContext): ReviewFinding[] {
 
 const SECRET_PATTERNS = [
   { pattern: /^(sk|pk)[-_](live|test|prod)[-_][a-zA-Z0-9]{16,}$/, label: 'API key' },
+  { pattern: /^sk-[a-zA-Z0-9]{20,}$/, label: 'OpenAI/Stripe secret key' },
   { pattern: /^ghp_[a-zA-Z0-9]{36,}$/, label: 'GitHub token' },
+  { pattern: /^gho_[a-zA-Z0-9]{36,}$/, label: 'GitHub OAuth token' },
+  { pattern: /^github_pat_[a-zA-Z0-9_]{22,}$/, label: 'GitHub fine-grained PAT' },
   { pattern: /^xox[bpras]-[a-zA-Z0-9-]{10,}$/, label: 'Slack token' },
   { pattern: /^eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}/, label: 'JWT token' },
   { pattern: /^AKIA[A-Z0-9]{16}$/, label: 'AWS access key' },
   { pattern: /^AIza[a-zA-Z0-9_-]{35}$/, label: 'Google API key' },
   { pattern: /^SG\.[a-zA-Z0-9_-]{22}\.[a-zA-Z0-9_-]{43}$/, label: 'SendGrid key' },
+  { pattern: /^-----BEGIN (RSA |EC |ED25519 )?PRIVATE KEY-----/, label: 'Private key' },
+  { pattern: /^npm_[a-zA-Z0-9]{36,}$/, label: 'npm token' },
+  { pattern: /^pypi-[a-zA-Z0-9_-]{50,}$/, label: 'PyPI token' },
+  { pattern: /^(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis):\/\/[^\s]{10,}$/, label: 'Connection string' },
 ];
 
 const SECRET_VAR_NAMES = /^(api[_-]?key|secret[_-]?key|auth[_-]?token|password|passwd|private[_-]?key|access[_-]?token|client[_-]?secret)$/i;

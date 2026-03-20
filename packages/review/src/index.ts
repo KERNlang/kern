@@ -119,8 +119,14 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
     }
   }
 
-  // Phase 1+2: Infer KERN constructs (reuse existing SourceFile)
+  // Phase 1: Infer KERN constructs (reuse existing SourceFile)
   const inferred = safePhase('infer', () => inferFromSourceFile(sourceFile), []);
+
+  // Phase 2: Taint tracking — moved up for early security signal
+  allFindings.push(...safePhase('taint', () => {
+    const taintResults = analyzeTaint(inferred, filePath);
+    return taintToFindings(taintResults);
+  }, []));
 
   // Phase 3: Template detection (config-aware)
   const templateMatches = safePhase('templates', () => detectTemplates(sourceFile, config), []);
@@ -128,7 +134,7 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
   // Phase 4: Structural diff → unified findings
   allFindings.push(...safePhase('diff', () => structuralDiff(source, inferred, filePath), []));
 
-  // Phase 5: Quality rules → unified findings (now receives fileRole)
+  // Phase 5: Quality rules → unified findings (receives fileRole)
   allFindings.push(...safePhase('quality', () => runQualityRules(sourceFile, inferred, templateMatches, config, fileRole), []));
 
   // Phase 6: Concept extraction + concept rules (universal, cross-language)
@@ -150,12 +156,6 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
     confidenceGraph = serializeGraph(graph);
     confidenceSummary = computeConfidenceSummary(graph);
   }
-
-  // Phase 8: Taint tracking — source→sink analysis on handler bodies
-  allFindings.push(...safePhase('taint', () => {
-    const taintResults = analyzeTaint(inferred, filePath);
-    return taintToFindings(taintResults);
-  }, []));
 
   // Merge, dedup, sort — single shared utility
   const findings = sortAndDedup(allFindings);
