@@ -149,11 +149,11 @@
   <rect x="48" y="97" width="98" height="4" rx="2" fill="url(#accentGrad)"/>
   <text class="tagline" x="48" y="124">The language LLMs think in</text>
 
-  <!-- Badge: 70% fewer tokens -->
+  <!-- Badge: 7 LLMs -->
   <g class="badge" transform="translate(48 140)">
-    <rect x="0" y="0" width="154" height="24" rx="12" fill="#11161d" stroke="#ff6b6b" stroke-width="1"/>
+    <rect x="0" y="0" width="298" height="24" rx="12" fill="#11161d" stroke="#ff6b6b" stroke-width="1"/>
     <circle cx="16" cy="12" r="3.5" fill="#ff6b6b"/>
-    <text x="28" y="16" fill="#f0f6fc" font-size="11" font-weight="700">70% fewer tokens</text>
+    <text x="28" y="16" fill="#f0f6fc" font-size="11" font-weight="700">7 LLMs understand it without ever seeing it</text>
   </g>
 
   <!-- Sub-badge: 11 targets -->
