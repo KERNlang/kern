@@ -229,10 +229,10 @@ function renderCard(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const styles = { ...getStyles(node) };
   const border = styles.border;
   delete styles.border;
-  let extra = '';
+  let extra = 'shadow-sm';
   if (border) {
     const borderClass = colorToTw('border', border, ctx.colors);
-    extra = `border ${borderClass}`;
+    extra = `shadow-sm border ${borderClass}`;
   }
   // Use a shallow-copied styles object to avoid mutating the live IR node
   if (node.props) {
@@ -507,7 +507,7 @@ function renderList(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
 function renderItem(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  const tw = twClasses(node, ctx, 'flex items-center justify-between p-3 border-b border-zinc-800');
+  const tw = twClasses(node, ctx, 'flex items-center justify-between py-3 px-1 border-b border-zinc-200');
   const hasChildren = node.children && node.children.length > 0;
 
   if (hasChildren) {
@@ -521,25 +521,40 @@ function renderItem(node: IRNode, ctx: CodeBuilder, indent: string): void {
     const calories = p.calories as string;
     const category = p.category as string;
     ctx.lines.push(`${indent}<div${tw}>`);
-    ctx.lines.push(`${indent}  <div>`);
-    if (name) ctx.lines.push(`${indent}    <span className="text-sm text-white font-medium">${escapeJsxText(name)}</span>`);
-    if (time) ctx.lines.push(`${indent}    <span className="text-xs text-zinc-500 ml-2">${escapeJsxText(time)}</span>`);
-    if (category) ctx.lines.push(`${indent}    <span className="text-xs text-zinc-500 ml-2">${escapeJsxText(category)}</span>`);
+    ctx.lines.push(`${indent}  <div className="flex items-center gap-2">`);
+    if (name) ctx.lines.push(`${indent}    <span className="text-sm font-medium text-zinc-800">${escapeJsxText(name)}</span>`);
+    if (time) ctx.lines.push(`${indent}    <span className="text-xs text-zinc-400">${escapeJsxText(time)}</span>`);
+    if (category) ctx.lines.push(`${indent}    <span className="text-xs text-zinc-400 bg-zinc-100 px-2 py-0.5 rounded">${escapeJsxText(category)}</span>`);
     ctx.lines.push(`${indent}  </div>`);
-    if (calories) ctx.lines.push(`${indent}  <span className="text-sm text-zinc-400">${escapeJsxText(calories)} kcal</span>`);
+    if (calories) ctx.lines.push(`${indent}  <span className="text-sm font-medium text-zinc-500">${escapeJsxText(calories)} kcal</span>`);
     ctx.lines.push(`${indent}</div>`);
   }
 }
 
 function renderTabs(node: IRNode, ctx: CodeBuilder, indent: string): void {
-  ctx.lines.push(`${indent}<nav${twClasses(node, ctx, 'flex')}>`);
+  ctx.lines.push(`${indent}<nav${twClasses(node, ctx, 'flex justify-around items-center border-t border-zinc-200 bg-white py-2 mt-auto')}>`);
   renderChildren(node, ctx, indent);
   ctx.lines.push(`${indent}</nav>`);
 }
 
 function renderTab(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  ctx.lines.push(`${indent}<button${twClasses(node, ctx)}>${tText(ctx, camelKey(p.label as string), p.label as string)}</button>`);
+  const label = p.label as string;
+  const icon = p.icon as string;
+  const activeClass = 'text-zinc-400 hover:text-blue-500';
+  ctx.lines.push(`${indent}<button${twClasses(node, ctx, `flex flex-col items-center gap-0.5 text-xs ${activeClass}`)}>`);
+  if (icon) ctx.lines.push(`${indent}  <span className="text-lg">${iconToEmoji(icon)}</span>`);
+  ctx.lines.push(`${indent}  ${tText(ctx, camelKey(label), label)}`);
+  ctx.lines.push(`${indent}</button>`);
+}
+
+function iconToEmoji(icon: string): string {
+  const map: Record<string, string> = {
+    home: '🏠', plus: '➕', chart: '📊', stats: '📊',
+    search: '🔍', settings: '⚙️', profile: '👤', heart: '❤️',
+    star: '⭐', bell: '🔔', mail: '✉️', camera: '📷',
+  };
+  return map[icon] || '•';
 }
 
 function renderProgress(node: IRNode, ctx: CodeBuilder, indent: string): void {
@@ -552,11 +567,11 @@ function renderProgress(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
   ctx.lines.push(`${indent}<div className="mb-3">`);
   ctx.lines.push(`${indent}  <div className="flex justify-between text-sm mb-1">`);
-  ctx.lines.push(`${indent}    <span className="text-zinc-300">${escapeJsxText(String(label))}</span>`);
-  ctx.lines.push(`${indent}    <span className="text-zinc-400">${current}/${target} ${escapeJsxText(String(p.unit || ''))}</span>`);
+  ctx.lines.push(`${indent}    <span className="font-medium text-zinc-600">${escapeJsxText(String(label))}</span>`);
+  ctx.lines.push(`${indent}    <span className="text-zinc-500">${current}/${target} ${escapeJsxText(String(p.unit || ''))}</span>`);
   ctx.lines.push(`${indent}  </div>`);
-  ctx.lines.push(`${indent}  <div className="h-2 bg-zinc-700 rounded-full overflow-hidden">`);
-  ctx.lines.push(`${indent}    <div className="h-full rounded-full bg-[${color}]" style={{ width: '${pct}%' }} />`);
+  ctx.lines.push(`${indent}  <div className="h-2.5 bg-zinc-200 rounded-full overflow-hidden">`);
+  ctx.lines.push(`${indent}    <div className="h-full rounded-full bg-[${color}] transition-all" style={{ width: '${pct}%' }} />`);
   ctx.lines.push(`${indent}  </div>`);
   ctx.lines.push(`${indent}</div>`);
 }
