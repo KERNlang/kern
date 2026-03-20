@@ -18,14 +18,14 @@ describe('Next.js 15 Production Patterns', () => {
 
   describe('generateMetadata', () => {
     test('parses generateMetadata node', () => {
-      const ast = parse('page async name=ProductPage\n  generateMetadata\n    handler code="const { locale } = await params; return { title: locale };"');
+      const ast = parse('page async name=ProjectPage\n  generateMetadata\n    handler code="const { locale } = await params; return { title: locale };"');
       expect(ast.type).toBe('page');
       const genMeta = ast.children?.find((c: any) => c.type === 'generateMetadata');
       expect(genMeta).toBeDefined();
     });
 
     test('generates async generateMetadata function', () => {
-      const ast = parse('page name=ProductPage\n  generateMetadata\n    handler code="const { locale } = await params; return { title: locale };"');
+      const ast = parse('page name=ProjectPage\n  generateMetadata\n    handler code="const { locale } = await params; return { title: locale };"');
       const result = transpileNextjs(ast);
       expect(result.code).toContain('export async function generateMetadata');
       expect(result.code).toContain('Promise<Metadata>');
@@ -33,26 +33,40 @@ describe('Next.js 15 Production Patterns', () => {
     });
 
     test('includes handler code in generateMetadata body', () => {
-      const ast = parse('page name=ProductPage\n  generateMetadata\n    handler code="const { locale } = await params; return { title: locale };"');
+      const ast = parse('page name=ProjectPage\n  generateMetadata\n    handler code="const { locale } = await params; return { title: locale };"');
       const result = transpileNextjs(ast);
       expect(result.code).toContain('const { locale } = await params');
       expect(result.code).toContain('return { title: locale }');
     });
 
     test('imports Metadata type for generateMetadata', () => {
-      const ast = parse('page name=ProductPage\n  generateMetadata');
+      const ast = parse('page name=ProjectPage\n  generateMetadata');
       const result = transpileNextjs(ast);
       expect(result.code).toContain("import type { Metadata } from 'next'");
     });
 
     test('generateMetadata not emitted for client components', () => {
-      const ast = parse('page name=ProductPage client=true\n  generateMetadata');
+      const ast = parse('page name=ProjectPage client=true\n  generateMetadata');
       const result = transpileNextjs(ast);
       expect(result.code).not.toContain('export async function generateMetadata');
     });
 
+    test('client=true prevents async function even with async=true', () => {
+      const ast = parse('page name=LandingPage client=true async=true\n  text value=Hello');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain("'use client'");
+      expect(result.code).not.toContain('async function');
+    });
+
+    test('client=true prevents async function even with fetch calls', () => {
+      const ast = parse('page name=LandingPage client=true\n  fetch name=data url=/api/data\n  text value=Hello');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain("'use client'");
+      expect(result.code).not.toContain('async function');
+    });
+
     test('generateMetadata with default handler when no code provided', () => {
-      const ast = parse('page name=ProductPage\n  generateMetadata');
+      const ast = parse('page name=ProjectPage\n  generateMetadata');
       const result = transpileNextjs(ast);
       expect(result.code).toContain('export async function generateMetadata');
       expect(result.code).toContain('const resolvedParams = await params');
@@ -64,20 +78,20 @@ describe('Next.js 15 Production Patterns', () => {
 
   describe('notFound', () => {
     test('parses notFound node with expression condition', () => {
-      const ast = parse('page name=ProductPage\n  notFound if={{ !product }}');
+      const ast = parse('page name=ProjectPage\n  notFound if={{ !project }}');
       const notFoundNode = ast.children?.find((c: any) => c.type === 'notFound');
       expect(notFoundNode).toBeDefined();
     });
 
     test('generates notFound import and call', () => {
-      const ast = parse('page name=ProductPage\n  notFound if={{ !product }}');
+      const ast = parse('page name=ProjectPage\n  notFound if={{ !project }}');
       const result = transpileNextjs(ast);
       expect(result.code).toContain("import { notFound } from 'next/navigation'");
-      expect(result.code).toContain('if (!product) { notFound(); }');
+      expect(result.code).toContain('if (!project) { notFound(); }');
     });
 
     test('generates unconditional notFound call', () => {
-      const ast = parse('page name=ProductPage\n  notFound');
+      const ast = parse('page name=ProjectPage\n  notFound');
       const result = transpileNextjs(ast);
       expect(result.code).toContain("import { notFound } from 'next/navigation'");
       expect(result.code).toContain('notFound();');
@@ -86,21 +100,21 @@ describe('Next.js 15 Production Patterns', () => {
 
   describe('redirect', () => {
     test('parses redirect node with target path', () => {
-      const ast = parse('page name=ProductPage\n  redirect to=/login');
+      const ast = parse('page name=ProjectPage\n  redirect to=/login');
       const redirectNode = ast.children?.find((c: any) => c.type === 'redirect');
       expect(redirectNode).toBeDefined();
       expect(redirectNode.props?.to).toBe('/login');
     });
 
     test('generates redirect import and call', () => {
-      const ast = parse('page name=ProductPage\n  redirect to=/login');
+      const ast = parse('page name=ProjectPage\n  redirect to=/login');
       const result = transpileNextjs(ast);
       expect(result.code).toContain("import { redirect } from 'next/navigation'");
       expect(result.code).toContain("redirect('/login')");
     });
 
     test('generates both notFound and redirect imports when used together', () => {
-      const ast = parse('page name=ProductPage\n  notFound if={{ !product }}\n  redirect to=/login');
+      const ast = parse('page name=ProjectPage\n  notFound if={{ !project }}\n  redirect to=/login');
       const result = transpileNextjs(ast);
       expect(result.code).toContain("from 'next/navigation'");
       expect(result.code).toContain('notFound');
@@ -156,19 +170,19 @@ describe('Next.js 15 Production Patterns', () => {
 
   describe('async server components', () => {
     test('parses page with async=true', () => {
-      const ast = parse('page async=true name=ProductPage\n  text value=Hello');
+      const ast = parse('page async=true name=ProjectPage\n  text value=Hello');
       expect(ast.props?.async).toBe('true');
     });
 
     test('generates async function signature', () => {
-      const ast = parse('page async=true name=ProductPage\n  text value=Hello');
+      const ast = parse('page async=true name=ProjectPage\n  text value=Hello');
       const result = transpileNextjs(ast);
-      expect(result.code).toContain('export default async function ProductPage');
+      expect(result.code).toContain('export default async function ProjectPage');
       expect(result.code).toContain('props: { params: Promise<Record<string, string>> }');
     });
 
     test('destructures params in async component', () => {
-      const ast = parse('page async=true name=ProductPage\n  text value=Hello');
+      const ast = parse('page async=true name=ProjectPage\n  text value=Hello');
       const result = transpileNextjs(ast);
       expect(result.code).toContain('const params = await props.params');
     });
@@ -191,33 +205,33 @@ describe('Next.js 15 Production Patterns', () => {
 
   describe('fetch node', () => {
     test('parses fetch node with name and url', () => {
-      const ast = parse('page name=ProductPage\n  fetch name=product url=/api/product');
+      const ast = parse('page name=ProjectPage\n  fetch name=project url=/api/project');
       const fetchNode = ast.children?.find((c: any) => c.type === 'fetch');
       expect(fetchNode).toBeDefined();
-      expect(fetchNode.props?.name).toBe('product');
-      expect(fetchNode.props?.url).toBe('/api/product');
+      expect(fetchNode.props?.name).toBe('project');
+      expect(fetchNode.props?.url).toBe('/api/project');
     });
 
     test('generates fetch call with await', () => {
-      const ast = parse('page name=ProductPage\n  fetch name=product url=/api/product');
+      const ast = parse('page name=ProjectPage\n  fetch name=project url=/api/project');
       const result = transpileNextjs(ast);
-      expect(result.code).toContain("const product = await fetch('/api/product').then(r => r.json())");
+      expect(result.code).toContain("const project = await fetch('/api/project').then(r => r.json())");
     });
 
     test('fetch node makes page async automatically', () => {
-      const ast = parse('page name=ProductPage\n  fetch name=product url=/api/product\n  text value=Hello');
+      const ast = parse('page name=ProjectPage\n  fetch name=project url=/api/project\n  text value=Hello');
       const result = transpileNextjs(ast);
-      expect(result.code).toContain('export default async function ProductPage');
+      expect(result.code).toContain('export default async function ProjectPage');
     });
 
     test('multiple fetch calls in same page', () => {
-      const source = `page name=ProductPage
-  fetch name=product url=/api/product
+      const source = `page name=ProjectPage
+  fetch name=project url=/api/project
   fetch name=reviews url=/api/reviews
   text value=Hello`;
       const ast = parse(source);
       const result = transpileNextjs(ast);
-      expect(result.code).toContain("const product = await fetch('/api/product').then(r => r.json())");
+      expect(result.code).toContain("const project = await fetch('/api/project').then(r => r.json())");
       expect(result.code).toContain("const reviews = await fetch('/api/reviews').then(r => r.json())");
     });
   });
@@ -226,11 +240,11 @@ describe('Next.js 15 Production Patterns', () => {
 
   describe('combined patterns', () => {
     test('async page with fetch, notFound, and generateMetadata', () => {
-      const source = `page async=true name=ProductPage
+      const source = `page async=true name=ProjectPage
   generateMetadata
-    handler code="const { locale } = await params; return { title: 'Product - ' + locale };"
-  fetch name=product url=/api/product
-  notFound if={{ !product }}
+    handler code="const { locale } = await params; return { title: 'Project - ' + locale };"
+  fetch name=project url=/api/project
+  notFound if={{ !project }}
   text value=Hello`;
       const ast = parse(source);
       const result = transpileNextjs(ast);
@@ -240,11 +254,11 @@ describe('Next.js 15 Production Patterns', () => {
       // Should have navigation import
       expect(result.code).toContain("from 'next/navigation'");
       // Should have notFound call
-      expect(result.code).toContain('if (!product) { notFound(); }');
+      expect(result.code).toContain('if (!project) { notFound(); }');
       // Should have fetch
-      expect(result.code).toContain("await fetch('/api/product')");
+      expect(result.code).toContain("await fetch('/api/project')");
       // Should be async
-      expect(result.code).toContain('export default async function ProductPage');
+      expect(result.code).toContain('export default async function ProjectPage');
     });
 
     test('page with custom imports and fetch', () => {

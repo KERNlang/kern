@@ -68,6 +68,7 @@ interface Ctx {
 }
 
 function getProps(node: IRNode): Record<string, unknown> { return node.props || {}; }
+function isExpr(v: unknown): v is { __expr: true; code: string } { return typeof v === 'object' && v !== null && '__expr' in v; }
 function getStyles(node: IRNode): Record<string, string> { return (getProps(node).styles as Record<string, string>) || {}; }
 
 // ── Unified import helpers (from Codex) ──────────────────────────────────
@@ -162,7 +163,7 @@ function renderNode(node: IRNode, ctx: Ctx, indent: string): void {
     case 'link': renderLink(node, ctx, indent); break;
     case 'image': renderImage(node, ctx, indent); break;
     case 'codeblock': renderCodeBlock(node, ctx, indent); break;
-    case 'input': ctx.lines.push(`${indent}<input${twClasses(node, ctx)} />`); break;
+    case 'input': case 'textarea': renderInput(node, ctx, indent); break;
     case 'slider': renderSlider(node, ctx, indent); break;
     case 'toggle': renderToggle(node, ctx, indent); break;
     case 'grid': renderGrid(node, ctx, indent); break;
@@ -266,7 +267,14 @@ function renderCodeBlock(node: IRNode, ctx: Ctx, indent: string): void {
   const lang = p.lang as string || '';
   const langClass = lang ? ` language-${lang}` : '';
   // Content: inline value prop or body child node
-  let content = p.value as string || '';
+  const rawValue = p.value;
+  if (isExpr(rawValue)) {
+    ctx.lines.push(`${indent}<pre className="bg-zinc-900 rounded-lg p-4 overflow-x-auto">`);
+    ctx.lines.push(`${indent}  <code className="text-sm font-mono text-zinc-100${langClass}">{${rawValue.code}}</code>`);
+    ctx.lines.push(`${indent}</pre>`);
+    return;
+  }
+  let content = rawValue as string || '';
   if (!content && node.children) {
     const bodyNode = node.children.find(c => c.type === 'body');
     if (bodyNode) {
@@ -305,28 +313,55 @@ function renderCard(node: IRNode, ctx: Ctx, indent: string): void {
   }
 }
 
-const TEXT_TAG_MAP: Record<string, string> = { p: 'p', h1: 'h1', h2: 'h2', h3: 'h3', h4: 'h4', h5: 'h5', h6: 'h6', label: 'label', span: 'span' };
+const TEXT_TAG_MAP: Record<string, string> = { p: 'p', h1: 'h1', h2: 'h2', h3: 'h3', h4: 'h4', h5: 'h5', h6: 'h6', label: 'label', span: 'span', pre: 'pre', code: 'code' };
 
 function renderText(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
-  const value = p.value as string;
+  const rawValue = p.value;
   const bind = p.bind as string;
   const el = TEXT_TAG_MAP[p.tag as string] || 'span';
   const tw = twClasses(node, ctx);
-  if (bind) ctx.lines.push(`${indent}<${el}${tw}>{${bind}}</${el}>`);
-  else if (value) ctx.lines.push(`${indent}<${el}${tw}>${escapeJsxText(value)}</${el}>`);
+  if (isExpr(rawValue)) ctx.lines.push(`${indent}<${el}${tw}>{${rawValue.code}}</${el}>`);
+  else if (bind) ctx.lines.push(`${indent}<${el}${tw}>{${bind}}</${el}>`);
+  else if (rawValue) ctx.lines.push(`${indent}<${el}${tw}>${escapeJsxText(rawValue as string)}</${el}>`);
 }
 
 function renderButton(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   const text = p.text as string || '';
   const to = p.to as string;
-  const onClick = p.onClick as string;
+  const rawOnClick = p.onClick;
+  const onClick = isExpr(rawOnClick) ? rawOnClick.code : rawOnClick as string;
   if (to) {
     addDefaultImport(ctx, 'next/link', 'Link');
     ctx.lines.push(`${indent}<Link href="/${to.toLowerCase()}"${twClasses(node, ctx)}>${escapeJsxText(text)}</Link>`);
   } else {
     ctx.lines.push(`${indent}<button${twClasses(node, ctx)} onClick={${onClick || '() => {}'}}>${escapeJsxText(text)}</button>`);
+  }
+}
+
+function renderInput(node: IRNode, ctx: Ctx, indent: string): void {
+  const p = getProps(node);
+  const isTextarea = node.type === 'textarea' || p.type === 'textarea' || p.multiline;
+  const tag = isTextarea ? 'textarea' : 'input';
+  const attrs: string[] = [];
+  const tw = twClasses(node, ctx);
+  if (p.bind) {
+    const bind = p.bind as string;
+    const setter = `set${bind.charAt(0).toUpperCase() + bind.slice(1)}`;
+    attrs.push(`value={${bind}}`);
+    if (isExpr(p.onChange)) attrs.push(`onChange={${p.onChange.code}}`);
+    else if (p.onChange) attrs.push(`onChange={${p.onChange}}`);
+    else attrs.push(`onChange={(e) => ${setter}(e.target.value)}`);
+  }
+  if (p.placeholder) attrs.push(`placeholder="${p.placeholder}"`);
+  if (!isTextarea && p.type && p.type !== 'textarea') attrs.push(`type="${p.type}"`);
+  if (p.spellcheck === 'false' || p.spellcheck === false) attrs.push('spellCheck={false}');
+  const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
+  if (isTextarea) {
+    ctx.lines.push(`${indent}<${tag}${tw}${attrStr} />`);
+  } else {
+    ctx.lines.push(`${indent}<${tag}${tw}${attrStr} />`);
   }
 }
 
@@ -582,6 +617,12 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
   // If there are fetch calls, mark page as async
   if (ctx.fetchCalls.length > 0) ctx.isAsync = true;
 
+  // Client components cannot be async in Next.js — client wins, drop server-only patterns
+  if (ctx.isClient && ctx.isAsync) {
+    ctx.isAsync = false;
+    ctx.fetchCalls = [];
+  }
+
   const name = (rootProps.name as string) || 'Page';
   const isLayout = root.type === 'layout';
   const isLoading = root.type === 'loading';
@@ -618,6 +659,14 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
   // State requires useState import
   if (ctx.stateDecls.length > 0) {
     addNamedImport(ctx, 'react', 'useState');
+  }
+
+  // Detect hook imports from logic blocks before emitting imports
+  for (const block of ctx.logicBlocks) {
+    if (block.includes('useEffect')) addNamedImport(ctx, 'react', 'useEffect');
+    if (block.includes('useCallback')) addNamedImport(ctx, 'react', 'useCallback');
+    if (block.includes('useMemo')) addNamedImport(ctx, 'react', 'useMemo');
+    if (block.includes('useRef')) addNamedImport(ctx, 'react', 'useRef');
   }
 
   // Emit all imports (unified, sorted)
@@ -708,9 +757,13 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
     code.push(`  const [${s.name}, ${setter}] = useState(${initVal});`);
   }
 
-  // Emit logic blocks
+  // Emit logic blocks & detect hook imports
   for (const block of ctx.logicBlocks) {
     code.push(`  ${block}`);
+    if (block.includes('useEffect')) addNamedImport(ctx, 'react', 'useEffect');
+    if (block.includes('useCallback')) addNamedImport(ctx, 'react', 'useCallback');
+    if (block.includes('useMemo')) addNamedImport(ctx, 'react', 'useMemo');
+    if (block.includes('useRef')) addNamedImport(ctx, 'react', 'useRef');
   }
 
   // Emit body lines (notFound, redirect calls)
@@ -784,8 +837,11 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
   const isLayout = rootNode.type === 'layout';
   const isError = rootNode.type === 'error';
 
-  // 'use client' only when the component actually has client-side interactivity
-  // (ctx.isClient is set during rendering by renderPage/renderError/client=true flag)
+  // Client components cannot be async in Next.js — client wins, drop server-only patterns
+  if (ctx.isClient && ctx.isAsync) {
+    ctx.isAsync = false;
+    ctx.fetchCalls = [];
+  }
 
   const code: string[] = [];
 
@@ -818,6 +874,14 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
   // State requires useState import
   if (ctx.stateDecls.length > 0) {
     addNamedImport(ctx, 'react', 'useState');
+  }
+
+  // Detect hook imports from logic blocks before emitting imports
+  for (const block of ctx.logicBlocks) {
+    if (block.includes('useEffect')) addNamedImport(ctx, 'react', 'useEffect');
+    if (block.includes('useCallback')) addNamedImport(ctx, 'react', 'useCallback');
+    if (block.includes('useMemo')) addNamedImport(ctx, 'react', 'useMemo');
+    if (block.includes('useRef')) addNamedImport(ctx, 'react', 'useRef');
   }
 
   code.push(...emitImports(ctx));
@@ -897,9 +961,13 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
     code.push(`  const [${s.name}, ${setter}] = useState(${initVal});`);
   }
 
-  // Emit logic blocks
+  // Emit logic blocks & detect hook imports
   for (const block of ctx.logicBlocks) {
     code.push(`  ${block}`);
+    if (block.includes('useEffect')) addNamedImport(ctx, 'react', 'useEffect');
+    if (block.includes('useCallback')) addNamedImport(ctx, 'react', 'useCallback');
+    if (block.includes('useMemo')) addNamedImport(ctx, 'react', 'useMemo');
+    if (block.includes('useRef')) addNamedImport(ctx, 'react', 'useRef');
   }
 
   // Emit fetch calls (inside async function body, before return)
