@@ -151,6 +151,17 @@ function mergeParams(gaps: PatternGap[]): ExtractedParam[] {
 }
 
 /**
+ * Analyze structural gaps separately for v3 node proposals.
+ */
+export function analyzeStructuralPatterns(
+  gaps: PatternGap[],
+  thresholds: QualityThresholds = DEFAULT_THRESHOLDS,
+): AnalyzedPattern[] {
+  const structuralGaps = gaps.filter(g => g.libraryName === 'structural');
+  return groupAndScore(structuralGaps, thresholds);
+}
+
+/**
  * Analyze and group pattern gaps into deduplicated, scored patterns.
  */
 export function analyzePatterns(
@@ -159,11 +170,16 @@ export function analyzePatterns(
 ): AnalyzedPattern[] {
   // Structural gaps are findings, not template proposal candidates — filter them out
   const templateGaps = gaps.filter(g => g.libraryName !== 'structural');
+  return groupAndScore(templateGaps, thresholds);
+}
 
-  // Group by (namespace, structuralHash)
+function groupAndScore(
+  gaps: PatternGap[],
+  thresholds: QualityThresholds,
+): AnalyzedPattern[] {
   const groups = new Map<string, PatternGap[]>();
 
-  for (const gap of templateGaps) {
+  for (const gap of gaps) {
     const hash = computeStructuralHash(gap);
     const key = `${gap.libraryName}::${hash}`;
     const group = groups.get(key) || [];
@@ -171,7 +187,6 @@ export function analyzePatterns(
     groups.set(key, group);
   }
 
-  // Convert groups to analyzed patterns
   const patterns: AnalyzedPattern[] = [];
 
   for (const [key, groupGaps] of groups) {
@@ -179,7 +194,6 @@ export function analyzePatterns(
     const hash = computeStructuralHash(representative);
     const qualityScore = scorePattern(groupGaps, thresholds);
 
-    // Filter out patterns that don't meet thresholds
     if (!passesThresholds(qualityScore, thresholds)) continue;
 
     patterns.push({
@@ -196,8 +210,6 @@ export function analyzePatterns(
     });
   }
 
-  // Sort by overall score descending
   patterns.sort((a, b) => b.qualityScore.overallScore - a.qualityScore.overallScore);
-
   return patterns;
 }

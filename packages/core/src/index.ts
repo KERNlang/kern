@@ -3,7 +3,7 @@
  */
 
 // Core
-export { parse } from './parser.js';
+export { parse, registerParserHints, unregisterParserHints, clearParserHints } from './parser.js';
 export { decompile } from './decompiler.js';
 export { KernParseError } from './errors.js';
 
@@ -34,7 +34,11 @@ export type {
 } from './version-adapters.js';
 
 // Spec
-export { KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
+export {
+  KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS,
+  // Evolved types (v4)
+  registerEvolvedType, unregisterEvolvedType, isKnownNodeType, getEvolvedTypes, clearEvolvedTypes, KERN_RESERVED,
+} from './spec.js';
 
 // Style engines
 export { stylesToTailwind, colorToTw, pxToTw, DEFAULT_COLORS } from './styles-tailwind.js';
@@ -55,6 +59,11 @@ export {
   generatePattern, generateApply,
   emitReasonAnnotations, emitLowConfidenceTodo,
   parseParamList, capitalize,
+  // Graduated nodes
+  generateConditional, generateSelect,
+  generateModel, generateRepository, generateDependency, generateCache,
+  // Evolved generators (v4)
+  registerEvolvedGenerator, unregisterEvolvedGenerator, clearEvolvedGenerators, hasEvolvedGenerator,
 } from './codegen-core.js';
 
 // Codegen errors
@@ -66,6 +75,10 @@ export {
   clearTemplates, getTemplate, templateCount, KernTemplateError,
 } from './template-engine.js';
 export type { TemplateDefinition, TemplateSlot, TemplateImport, TemplateSlotType } from './types.js';
+
+// Coverage gap emitter (v3)
+export { collectCoverageGaps, writeCoverageGaps, readCoverageGaps } from './coverage-gap.js';
+export type { CoverageGap } from './coverage-gap.js';
 
 // Template catalog
 export { TEMPLATE_CATALOG, COMMON_TEMPLATES, detectTemplates } from './template-catalog.js';

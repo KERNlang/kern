@@ -63,12 +63,27 @@ export async function loadBuiltinDetectors(): Promise<void> {
     import('./detectors/express-middleware.js'),
     import('./detectors/vue-composables.js'),
     import('./detectors/testing.js'),
+    import('./detectors/structural.js'),
   ]);
   for (const mod of modules) {
     for (const pack of mod.detectors) {
       registerDetector(pack);
     }
   }
+}
+
+/**
+ * Get detectors that are universal (import-agnostic, empty packageNames).
+ * These run on every file regardless of imports.
+ */
+export function getUniversalDetectors(): DetectorPack[] {
+  const results: DetectorPack[] = [];
+  for (const pack of _registry.values()) {
+    if (pack.packageNames.length === 0) {
+      results.push(pack);
+    }
+  }
+  return results;
 }
 
 /**

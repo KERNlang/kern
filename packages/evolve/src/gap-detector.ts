@@ -8,7 +8,7 @@
 import { Project, type SourceFile } from 'ts-morph';
 import { reviewFile } from '@kernlang/review';
 import type { ReviewReport, TemplateMatch } from '@kernlang/review';
-import { getAllDetectors, getDetectorsForImport } from './detector-registry.js';
+import { getAllDetectors, getDetectorsForImport, getUniversalDetectors } from './detector-registry.js';
 import { detectConceptualGaps } from './concept-gap-adapter.js';
 import type { PatternGap, DetectorPack, DetectionResult } from './types.js';
 
@@ -57,12 +57,39 @@ export function detectGaps(
     }
   }
 
-  // Run each relevant detector
+  // Run each relevant detector (import-matched)
   for (const detector of relevantDetectors) {
     const detections = detector.detect(sourceFile, fullText);
 
     for (const detection of detections) {
       // Skip if any line in this range is already covered by existing templates
+      let isCovered = false;
+      for (let l = detection.startLine; l <= detection.endLine; l++) {
+        if (coveredRanges.has(`${l}`)) { isCovered = true; break; }
+      }
+      if (isCovered) continue;
+
+      gaps.push({
+        id: nextGapId(detector.id),
+        detectorId: detector.id,
+        libraryName: detector.libraryName,
+        patternKind: detector.patternKind,
+        anchorImport: detection.anchorImport,
+        startLine: detection.startLine,
+        endLine: detection.endLine,
+        snippet: detection.snippet,
+        extractedParams: detection.extractedParams,
+        confidencePct: detection.confidencePct,
+        filePath,
+      });
+    }
+  }
+
+  // Run universal detectors (import-agnostic structural patterns)
+  for (const detector of getUniversalDetectors()) {
+    if (relevantDetectors.has(detector)) continue; // already ran
+    const detections = detector.detect(sourceFile, fullText);
+    for (const detection of detections) {
       let isCovered = false;
       for (let l = detection.startLine; l <= detection.endLine; l++) {
         if (coveredRanges.has(`${l}`)) { isCovered = true; break; }

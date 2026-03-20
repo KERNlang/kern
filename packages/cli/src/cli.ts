@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { resolve, basename, dirname, relative } from 'path';
 import { createJiti } from 'jiti';
-import { parse, decompile, resolveConfig, VALID_TARGETS, VALID_STRUCTURES, generateCoreNode, isCoreNode, detectVersionsFromPackageJson, scanProject, generateConfigSource, formatScanSummary, registerTemplate, isTemplateNode, expandTemplateNode, clearTemplates, detectTemplates, COMMON_TEMPLATES, collectCoverageGaps, writeCoverageGaps } from '@kernlang/core';
+import { parse, decompile, resolveConfig, VALID_TARGETS, VALID_STRUCTURES, generateCoreNode, isCoreNode, detectVersionsFromPackageJson, scanProject, generateConfigSource, formatScanSummary, registerTemplate, isTemplateNode, expandTemplateNode, clearTemplates, detectTemplates, COMMON_TEMPLATES, collectCoverageGaps, writeCoverageGaps, NODE_TYPES } from '@kernlang/core';
 import type { ResolvedKernConfig, KernTarget, KernStructure, KernConfig, IRNode } from '@kernlang/core';
 import { generateReactNode, isReactNode } from '@kernlang/react';
 import { transpile } from '@kernlang/native';
@@ -15,8 +15,8 @@ import { transpileVue, transpileNuxt } from '@kernlang/vue';
 import { collectLanguageMetrics } from '@kernlang/metrics';
 import { reviewFile, reviewDirectory, reviewSource, reviewGraph, resolveImportGraph, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes, runLLMReview, isLLMAvailable, analyzeTaint, checkSpecFiles, specViolationsToFindings } from '@kernlang/review';
 import type { ReviewConfig, ReviewFinding, LLMReviewInput } from '@kernlang/review';
-import { evolve, loadBuiltinDetectors, listStaged, getStaged, updateStagedStatus, promoteLocal, cleanRejected, formatSplitView } from '@kernlang/evolve';
-import type { EvolveOptions } from '@kernlang/evolve';
+import { evolve, loadBuiltinDetectors, listStaged, getStaged, updateStagedStatus, promoteLocal, cleanRejected, formatSplitView, loadEvolvedNodes, runGoldenTests, formatGoldenTestResults, rollbackNode, restoreNode, readEvolvedManifest, buildDiscoveryPrompt, parseDiscoveryResponse, selectRepresentativeFiles, collectTsFiles, estimateTokens, createLLMProvider, TokenBudget, validateEvolveProposal, graduateNode, compileCodegenToJS } from '@kernlang/evolve';
+import type { EvolveOptions, LLMProviderOptions } from '@kernlang/evolve';
 
 const args = process.argv.slice(2);
 
@@ -73,6 +73,12 @@ if (args[0] === 'dev') {
 
   // Load templates before compilation
   loadTemplates(devConfig);
+
+  // Load evolved nodes (v4) — graduated nodes from .kern/evolved/
+  const evolvedResult = loadEvolvedNodes();
+  if (evolvedResult.loaded > 0) {
+    console.log(`  Evolved nodes: ${evolvedResult.loaded} loaded`);
+  }
 
   console.log(`\n  KERN dev — watching for changes`);
   console.log(`  Target: ${devConfig.target}`);
@@ -1186,6 +1192,198 @@ if (args[0] === 'evolve:review') {
     console.log(formatSplitView(s));
     console.log('');
   }
+  process.exit(0);
+}
+
+// ── kern evolve:discover <dir> [--recursive] [--provider=openai|ollama] [--max-tokens=N] ──
+if (args[0] === 'evolve:discover') {
+  const discoverInput = args[1];
+  if (!discoverInput || discoverInput.startsWith('--')) {
+    console.error('Usage: kern evolve:discover <dir> [--recursive] [--provider=openai|anthropic|ollama] [--max-tokens=N]');
+    process.exit(1);
+  }
+
+  const discoverPath = resolve(discoverInput);
+  if (!existsSync(discoverPath)) {
+    console.error(`Not found: ${discoverInput}`);
+    process.exit(1);
+  }
+
+  const recursive = args.includes('--recursive') || args.includes('-r');
+  const providerArg = args.find(a => a.startsWith('--provider='))?.split('=')[1] as LLMProviderOptions['provider'];
+  const maxTokensArg = args.find(a => a.startsWith('--max-tokens='))?.split('=')[1];
+  const maxTokens = maxTokensArg ? Number(maxTokensArg) : 100000;
+
+  console.log(`\n  KERN evolve:discover — LLM pattern discovery\n`);
+  console.log(`  Input: ${relative(process.cwd(), discoverPath) || '.'}`);
+
+  // Collect files and batch
+  const tsFiles = collectTsFiles(discoverPath, recursive);
+  console.log(`  Files found: ${tsFiles.length}`);
+
+  if (tsFiles.length === 0) {
+    console.log('  No TypeScript files to analyze.');
+    process.exit(0);
+  }
+
+  const batches = selectRepresentativeFiles(tsFiles);
+  console.log(`  Batches: ${batches.length} (sampling representative files)`);
+
+  // Load existing evolved keywords for dedup
+  const manifest = readEvolvedManifest();
+  const evolvedKeywords = manifest ? Object.keys(manifest.nodes) : [];
+
+  // Create LLM provider
+  let provider;
+  try {
+    provider = createLLMProvider({ provider: providerArg });
+  } catch (err) {
+    console.error(`  ${(err as Error).message}`);
+    process.exit(1);
+  }
+  console.log(`  Provider: ${provider.name}`);
+
+  const budget = new TokenBudget(maxTokens);
+  const allProposals: import('@kernlang/evolve').EvolveNodeProposal[] = [];
+  const runId = `run-${Date.now()}`;
+
+  for (let i = 0; i < batches.length; i++) {
+    if (budget.exhausted) {
+      console.log(`  Token budget exhausted (${budget}). Stopping.`);
+      break;
+    }
+
+    const batch = batches[i];
+    const files = batch.map(fp => ({
+      path: relative(process.cwd(), fp),
+      content: readFileSync(fp, 'utf-8'),
+    }));
+
+    const prompt = buildDiscoveryPrompt(files, NODE_TYPES, evolvedKeywords);
+    budget.add(estimateTokens(prompt));
+
+    console.log(`  Batch ${i + 1}/${batches.length}: ${files.map(f => f.path).join(', ')}`);
+
+    try {
+      const response = await provider.complete(prompt);
+      budget.add(estimateTokens(response));
+
+      const proposals = parseDiscoveryResponse(response, runId);
+      allProposals.push(...proposals);
+
+      if (proposals.length > 0) {
+        console.log(`    → ${proposals.length} pattern(s) found: ${proposals.map(p => p.keyword).join(', ')}`);
+      }
+    } catch (err) {
+      console.error(`    → Error: ${(err as Error).message}`);
+    }
+  }
+
+  // Dedup across batches
+  const seen = new Set<string>();
+  const uniqueProposals = allProposals.filter(p => {
+    if (seen.has(p.keyword)) return false;
+    seen.add(p.keyword);
+    return true;
+  });
+
+  console.log(`\n  Discovery complete.`);
+  console.log(`  Tokens used: ${budget}`);
+  console.log(`  Proposals: ${uniqueProposals.length}\n`);
+
+  // Validate and stage proposals
+  const existingKw = [...(NODE_TYPES as readonly string[]), ...evolvedKeywords];
+  for (const proposal of uniqueProposals) {
+    const validation = validateEvolveProposal(proposal, existingKw);
+    const allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
+    const status = allOk ? '\u2713' : '\u2717';
+    console.log(`  ${status} ${proposal.keyword} — ${proposal.reason.observation}`);
+    if (validation.errors.length > 0) {
+      for (const err of validation.errors.slice(0, 3)) {
+        console.log(`    ${err}`);
+      }
+    }
+  }
+
+  if (uniqueProposals.length > 0) {
+    console.log(`\n  Run 'kern evolve:review-v4' to review and graduate proposals.`);
+  }
+
+  console.log('');
+  process.exit(0);
+}
+
+// ── kern evolve:test ─────────────────────────────────────────────────
+if (args[0] === 'evolve:test') {
+  console.log('\n  KERN evolve:test — golden test runner\n');
+
+  const results = runGoldenTests();
+  console.log(formatGoldenTestResults(results));
+
+  const failed = results.filter(r => !r.pass).length;
+  console.log('');
+  process.exit(failed > 0 ? 1 : 0);
+}
+
+// ── kern evolve:rollback <keyword> [--force] ─────────────────────────
+if (args[0] === 'evolve:rollback') {
+  const keyword = args[1];
+  if (!keyword || keyword.startsWith('--')) {
+    console.error('Usage: kern evolve:rollback <keyword> [--force]');
+    process.exit(1);
+  }
+
+  const force = args.includes('--force');
+  const result = rollbackNode(keyword, process.cwd(), force);
+
+  if (result.success) {
+    console.log(`  Rolled back '${keyword}' (moved to .trash/).`);
+    console.log(`  Restore with: kern evolve:restore ${keyword}`);
+  } else {
+    console.error(`  Failed: ${result.error}`);
+    if (result.usageFiles) {
+      console.error('  Used in:');
+      for (const f of result.usageFiles.slice(0, 5)) {
+        console.error(`    ${relative(process.cwd(), f)}`);
+      }
+    }
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+// ── kern evolve:restore <keyword> ────────────────────────────────────
+if (args[0] === 'evolve:restore') {
+  const keyword = args[1];
+  if (!keyword) {
+    console.error('Usage: kern evolve:restore <keyword>');
+    process.exit(1);
+  }
+
+  const result = restoreNode(keyword);
+  if (result.success) {
+    console.log(`  Restored '${keyword}'.`);
+  } else {
+    console.error(`  Failed: ${result.error}`);
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+// ── kern evolve:list ─────────────────────────────────────────────────
+if (args[0] === 'evolve:list') {
+  const manifest = readEvolvedManifest();
+
+  if (!manifest || Object.keys(manifest.nodes).length === 0) {
+    console.log('\n  No evolved nodes graduated. Run \'kern evolve:discover\' to start.\n');
+    process.exit(0);
+  }
+
+  console.log(`\n  KERN evolved nodes — ${Object.keys(manifest.nodes).length} graduated\n`);
+  for (const [keyword, entry] of Object.entries(manifest.nodes)) {
+    console.log(`  ${keyword} — ${entry.displayName} (graduated ${entry.graduatedAt.split('T')[0]} by ${entry.graduatedBy})`);
+  }
+  console.log('');
   process.exit(0);
 }
 

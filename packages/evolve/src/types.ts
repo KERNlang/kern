@@ -170,6 +170,47 @@ export interface ConceptGapSummary {
   formatted: string;
 }
 
+// ── Expressibility Score ─────────────────────────────────────────────────
+
+export interface ExpressibilityScore {
+  handlerEscapes: number;
+  nonStandardAttrs: number;
+  semanticLeaks: number;
+  overall: number;
+}
+
+// ── Node Proposal (v3 — IR self-extension) ──────────────────────────────
+
+export interface NodeProposal {
+  id: string;
+  nodeName: string;
+  kernSyntax: string;
+  codegenStub: string;
+  targetStubs: Record<string, string>;
+  expressibilityScore: ExpressibilityScore;
+  frequency: number;
+  qualityScore: number;
+  supportingGapIds: string[];
+}
+
+export interface NodeValidationResult {
+  parseOk: boolean;
+  codegenOk: boolean;
+  targetCoverage: number;
+  errors: string[];
+}
+
+export type NodeProposalStatus = 'pending' | 'approved' | 'rejected';
+
+export interface StagedNodeProposal {
+  id: string;
+  proposal: NodeProposal;
+  validation: NodeValidationResult;
+  status: NodeProposalStatus;
+  stagedAt: string;
+  reviewedAt?: string;
+}
+
 // ── Evolve Result ────────────────────────────────────────────────────────
 
 export interface EvolveResult {
@@ -179,4 +220,7 @@ export interface EvolveResult {
   validated: Array<{ proposal: TemplateProposal; validation: ValidationResult }>;
   staged: StagedProposal[];
   conceptSummary?: ConceptGapSummary;
+  nodeProposals?: NodeProposal[];
+  nodeValidated?: Array<{ proposal: NodeProposal; validation: NodeValidationResult }>;
+  stagedNodes?: StagedNodeProposal[];
 }
