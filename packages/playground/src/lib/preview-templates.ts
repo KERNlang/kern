@@ -43,8 +43,8 @@ function buildReactPreview(code: string, withTailwind: boolean): string {
     .preview-error { color: #ff6b6b; padding: 16px; font-family: monospace; font-size: 13px; white-space: pre-wrap; }
   </style>
   ${withTailwind ? '<script src="https://cdn.tailwindcss.com"></script>' : ''}
-  <script src="https://cdn.jsdelivr.net/npm/react@19/umd/react.development.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/react-dom@19/umd/react-dom.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
 </head>
 <body>
