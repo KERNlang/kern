@@ -94,6 +94,10 @@ const SINK_PATTERNS: SinkPattern[] = [
   // Eval
   { pattern: /\beval\s*\(/, name: 'eval', category: 'eval' },
   { pattern: /\bnew\s+Function\s*\(/, name: 'new Function', category: 'eval' },
+  // LLM API calls (prompt injection sinks)
+  { pattern: /\bgenerateContent\s*\(/, name: 'generateContent', category: 'template' },
+  { pattern: /\bsendMessage\s*\(/, name: 'sendMessage', category: 'template' },
+  { pattern: /\bchat\.completions\.create\s*\(/, name: 'chat.completions.create', category: 'template' },
 ];
 
 // ── Sanitizer Detection ─────────────────────────────────────────────────
@@ -120,6 +124,9 @@ const SANITIZER_PATTERNS = [
   // SQL parameterization
   { pattern: /\$\d+/, name: 'parameterized query ($N)' },
   { pattern: /\?\s*,/, name: 'parameterized query (?)' },
+  // Prompt sanitization
+  { pattern: /\bsanitizeForPrompt\s*\(/, name: 'sanitizeForPrompt' },
+  { pattern: /\bescapePrompt\s*\(/, name: 'escapePrompt' },
 ];
 
 // ── Sanitizer Sufficiency Matrix ──────────────────────────────────────────
@@ -145,6 +152,8 @@ const SANITIZER_SUFFICIENCY: Record<string, Set<SinkCategory>> = {
   'replace(../)':             new Set(['fs']),
   'parameterized query ($N)': new Set(['sql']),
   'parameterized query (?)':  new Set(['sql']),
+  'sanitizeForPrompt':        new Set(['template']),
+  'escapePrompt':             new Set(['template']),
 };
 
 /**

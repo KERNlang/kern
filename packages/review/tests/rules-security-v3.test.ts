@@ -314,3 +314,55 @@ app.get('/data', (req: any, res: any) => {
     expect(f).toBeUndefined();
   });
 });
+
+// ── prompt-injection ──────────────────────────────────────────────────
+
+describe('prompt-injection', () => {
+  it('detects user input in template literal prompt without sanitization', () => {
+    const source = `
+export function buildPrompt(question: string): string {
+  const systemPrompt = \`You are an assistant. Answer: \${question}\`;
+  return systemPrompt;
+}
+`;
+    const report = reviewSource(source, 'prompts.ts');
+    const f = report.findings.find(f => f.ruleId === 'prompt-injection');
+    expect(f).toBeDefined();
+    expect(f!.message).toContain('question');
+    expect(f!.message).toContain('prompt injection');
+  });
+
+  it('does NOT fire when sanitizeForPrompt is used', () => {
+    const source = `
+export function buildPrompt(question: string): string {
+  const systemPrompt = \`You are an assistant. Answer: \${sanitizeForPrompt(question)}\`;
+  return systemPrompt;
+}
+`;
+    const report = reviewSource(source, 'prompts.ts');
+    const f = report.findings.find(f => f.ruleId === 'prompt-injection');
+    expect(f).toBeUndefined();
+  });
+
+  it('detects string concatenation of user input into prompt', () => {
+    const source = `
+export function makePrompt(userInput: string): string {
+  return "You are an expert. Analyze this: " + userInput;
+}
+`;
+    const report = reviewSource(source, 'prompts.ts');
+    const f = report.findings.find(f => f.ruleId === 'prompt-injection');
+    expect(f).toBeDefined();
+  });
+
+  it('does NOT fire on non-prompt template literals', () => {
+    const source = `
+export function greet(name: string): string {
+  return \`Hello \${name}!\`;
+}
+`;
+    const report = reviewSource(source, 'utils.ts');
+    const f = report.findings.find(f => f.ruleId === 'prompt-injection');
+    expect(f).toBeUndefined();
+  });
+});
