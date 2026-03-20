@@ -511,7 +511,19 @@ function renderIcon(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
 function renderImage(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  ctx.lines.push(`${indent}<img src="/${p.src}.png" alt="${p.src}"${twClasses(node, ctx)} />`);
+  const src = p.src as string || '';
+  const styles = getStyles(node);
+  const w = styles.width || '40';
+  const h = styles.height || '40';
+  const isAvatar = src === 'avatar' || src.includes('avatar');
+  if (isAvatar) {
+    // Render avatar as gradient circle placeholder
+    ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'flex items-center justify-center text-white font-bold')} style={{ background: 'linear-gradient(135deg, #8B5CF6, #00CEFF)' }}>
+${indent}  <svg width="${Math.round(Number(w) * 0.5)}" height="${Math.round(Number(h) * 0.5)}" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+${indent}</div>`);
+  } else {
+    ctx.lines.push(`${indent}<img src="${src.startsWith('http') ? src : `/${src}.png`}" alt="${escapeJsxText(src)}"${twClasses(node, ctx)} />`);
+  }
 }
 
 function renderList(node: IRNode, ctx: CodeBuilder, indent: string): void {

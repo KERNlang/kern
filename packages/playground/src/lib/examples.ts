@@ -10,8 +10,8 @@ export const EXAMPLES: Example[] = [
     name: 'Dashboard',
     description: 'Fitness tracker with progress bars and meal list',
     recommendedTarget: 'tailwind',
-    source: `screen name=Dashboard {bg:#0A0F1C}
-  row {p:16,jc:sb,ai:center}
+    source: `screen name=Dashboard {bg:#0A0F1C,p:16}
+  row {jc:sb,ai:center}
     text value=FITVT {fs:24,fw:bold,c:#F8FAFC}
     image src=avatar {w:40,h:40,br:20}
   card {p:20,br:16,bg:#232D3F,m:16}

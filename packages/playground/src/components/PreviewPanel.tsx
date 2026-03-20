@@ -23,7 +23,7 @@ export function PreviewPanel({ compiledCode, target }: PreviewPanelProps) {
         width: '100%',
         height: '100%',
         border: 'none',
-        background: '#f8f9fa',
+        background: '#111',
         borderRadius: 0,
       }}
       title="KERN Preview"
