@@ -44,6 +44,11 @@ interface GenerateMetadataInfo {
   handlerCode: string;
 }
 
+interface StateDecl {
+  name: string;
+  initial: string;
+}
+
 interface Ctx {
   lines: string[];
   sourceMap: SourceMapEntry[];
@@ -55,6 +60,8 @@ interface Ctx {
   generateMetadataInfo: GenerateMetadataInfo | null;
   fetchCalls: FetchCall[];
   bodyLines: string[];
+  stateDecls: StateDecl[];
+  logicBlocks: string[];
   colors: Record<string, string> | undefined;
   twProfile: TailwindVersionProfile | undefined;
   njProfile: NextjsVersionProfile | undefined;
@@ -173,6 +180,18 @@ function renderNode(node: IRNode, ctx: Ctx, indent: string): void {
     case 'import': renderImport(node, ctx); break;
     case 'fetch': renderFetchNode(node, ctx); break;
     case 'on': renderOnHandler(node, ctx); return;
+    case 'state':
+      ctx.stateDecls.push({ name: String(p.name || ''), initial: String(p.initial ?? '') });
+      ctx.isClient = true; // state requires 'use client'
+      return;
+    case 'logic':
+      if (p.code) ctx.logicBlocks.push(String(p.code));
+      else if (node.children) {
+        const handlerChild = node.children.find(c => c.type === 'handler');
+        if (handlerChild?.props?.code) ctx.logicBlocks.push(String(handlerChild.props.code));
+      }
+      ctx.isClient = true;
+      return;
     case 'theme': break;
     default:
       ctx.lines.push(`${indent}<div${twClasses(node, ctx)}>`);
@@ -545,6 +564,8 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
     generateMetadataInfo: null,
     fetchCalls: [],
     bodyLines: [],
+    stateDecls: [],
+    logicBlocks: [],
     colors: config?.colors,
     twProfile: config?.frameworkVersions ? buildTailwindProfile(config.frameworkVersions) : undefined,
     njProfile: config?.frameworkVersions ? buildNextjsProfile(config.frameworkVersions) : undefined,
@@ -592,6 +613,11 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
   // Static metadata needs Metadata type
   if (ctx.metadata && !ctx.isClient && !ctx.generateMetadataInfo) {
     addNamedImport(ctx, 'next', 'Metadata', true);
+  }
+
+  // State requires useState import
+  if (ctx.stateDecls.length > 0) {
+    addNamedImport(ctx, 'react', 'useState');
   }
 
   // Emit all imports (unified, sorted)
@@ -662,6 +688,31 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
     }
   }
 
+  // Emit useState declarations
+  for (const s of ctx.stateDecls) {
+    const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
+    const initProp = root.children?.find(c => c.type === 'state' && c.props?.name === s.name)?.props?.initial;
+    const isExpr = typeof initProp === 'object' && initProp !== null && '__expr' in (initProp as object);
+    let initVal: string;
+    if (isExpr) {
+      initVal = (initProp as { code: string }).code;
+    } else if (s.initial === 'true' || s.initial === 'false') {
+      initVal = s.initial;
+    } else if (s.initial === '' || s.initial === "''") {
+      initVal = "''";
+    } else if (!isNaN(Number(s.initial)) && s.initial !== '') {
+      initVal = s.initial;
+    } else {
+      initVal = `'${s.initial}'`;
+    }
+    code.push(`  const [${s.name}, ${setter}] = useState(${initVal});`);
+  }
+
+  // Emit logic blocks
+  for (const block of ctx.logicBlocks) {
+    code.push(`  ${block}`);
+  }
+
   // Emit body lines (notFound, redirect calls)
   for (const line of ctx.bodyLines) {
     code.push(line);
@@ -712,6 +763,8 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
     generateMetadataInfo: null,
     fetchCalls: [],
     bodyLines: [],
+    stateDecls: [],
+    logicBlocks: [],
     colors: config.colors,
     twProfile: config.frameworkVersions ? buildTailwindProfile(config.frameworkVersions) : undefined,
     njProfile: config.frameworkVersions ? buildNextjsProfile(config.frameworkVersions) : undefined,
@@ -761,6 +814,11 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
 
   // If there are fetch calls, mark page as async
   if (ctx.fetchCalls.length > 0) ctx.isAsync = true;
+
+  // State requires useState import
+  if (ctx.stateDecls.length > 0) {
+    addNamedImport(ctx, 'react', 'useState');
+  }
 
   code.push(...emitImports(ctx));
 
@@ -816,6 +874,32 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
     }
   } else {
     code.push(`export default function ${name}() {`);
+  }
+
+  // Emit useState declarations
+  for (const s of ctx.stateDecls) {
+    const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
+    const rootNode = file.nodes[0];
+    const initProp = rootNode?.children?.find((c: IRNode) => c.type === 'state' && c.props?.name === s.name)?.props?.initial;
+    const isExpr = typeof initProp === 'object' && initProp !== null && '__expr' in (initProp as object);
+    let initVal: string;
+    if (isExpr) {
+      initVal = (initProp as { code: string }).code;
+    } else if (s.initial === 'true' || s.initial === 'false') {
+      initVal = s.initial;
+    } else if (s.initial === '' || s.initial === "''") {
+      initVal = "''";
+    } else if (!isNaN(Number(s.initial)) && s.initial !== '') {
+      initVal = s.initial;
+    } else {
+      initVal = `'${s.initial}'`;
+    }
+    code.push(`  const [${s.name}, ${setter}] = useState(${initVal});`);
+  }
+
+  // Emit logic blocks
+  for (const block of ctx.logicBlocks) {
+    code.push(`  ${block}`);
   }
 
   // Emit fetch calls (inside async function body, before return)
