@@ -12,6 +12,7 @@
  * NOT SQL injection. The sufficiency matrix catches these mismatches.
  */
 
+import { SyntaxKind, Node, type SourceFile, type FunctionDeclaration, type ArrowFunction, type FunctionExpression, type MethodDeclaration } from 'ts-morph';
 import type { InferResult, ReviewFinding, SourceSpan } from './types.js';
 import { createFingerprint } from './types.js';
 
@@ -62,6 +63,16 @@ const USER_INPUT_ACCESS = [
   { pattern: /\brequest\.params\b/, origin: 'request.params' },
   { pattern: /\bprocess\.argv\b/, origin: 'process.argv' },
   { pattern: /\bprocess\.env\b/, origin: 'process.env' },
+  // DB read results (indirect injection sources)
+  { pattern: /\bdb\.query\b/, origin: 'db.query' },
+  { pattern: /\bfindOne\b/, origin: 'findOne' },
+  { pattern: /\bfindById\b/, origin: 'findById' },
+  { pattern: /\bgetItem\b/, origin: 'getItem' },
+  { pattern: /\bcollection\.find\b/, origin: 'collection.find' },
+  // RAG/retrieval results
+  { pattern: /\bvectorStore\.search\b/, origin: 'vectorStore.search' },
+  { pattern: /\bsimilaritySearch\b/, origin: 'similaritySearch' },
+  { pattern: /\bindex\.query\b/, origin: 'index.query' },
 ] as const;
 
 // ── Sink Classification ─────────────────────────────────────────────────
@@ -98,6 +109,9 @@ const SINK_PATTERNS: SinkPattern[] = [
   { pattern: /\bgenerateContent\s*\(/, name: 'generateContent', category: 'template' },
   { pattern: /\bsendMessage\s*\(/, name: 'sendMessage', category: 'template' },
   { pattern: /\bchat\.completions\.create\s*\(/, name: 'chat.completions.create', category: 'template' },
+  // VM execution sinks (LLM output execution)
+  { pattern: /\bvm\.runInContext\s*\(/, name: 'vm.runInContext', category: 'eval' },
+  { pattern: /\bvm\.runInNewContext\s*\(/, name: 'vm.runInNewContext', category: 'eval' },
 ];
 
 // ── Sanitizer Detection ─────────────────────────────────────────────────
@@ -127,6 +141,9 @@ const SANITIZER_PATTERNS = [
   // Prompt sanitization
   { pattern: /\bsanitizeForPrompt\s*\(/, name: 'sanitizeForPrompt' },
   { pattern: /\bescapePrompt\s*\(/, name: 'escapePrompt' },
+  // LLM-specific sanitizers
+  { pattern: /\bstripDelimiters\s*\(/, name: 'stripDelimiters' },
+  { pattern: /\bcleanForPrompt\s*\(/, name: 'cleanForPrompt' },
 ];
 
 // ── Sanitizer Sufficiency Matrix ──────────────────────────────────────────
@@ -154,6 +171,8 @@ const SANITIZER_SUFFICIENCY: Record<string, Set<SinkCategory>> = {
   'parameterized query (?)':  new Set(['sql']),
   'sanitizeForPrompt':        new Set(['template']),
   'escapePrompt':             new Set(['template']),
+  'stripDelimiters':          new Set(['template']),
+  'cleanForPrompt':           new Set(['template']),
 };
 
 /**
@@ -193,9 +212,298 @@ export interface ExportedFunction {
 
 /**
  * Run taint analysis on all fn nodes in inferred results.
- * Returns TaintResult[] — one per function with taint paths found.
+ * When sourceFile is provided, uses AST-based analysis (more accurate).
+ * Falls back to regex-based analysis when no SourceFile available.
  */
-export function analyzeTaint(inferred: InferResult[], filePath: string): TaintResult[] {
+export function analyzeTaint(inferred: InferResult[], filePath: string, sourceFile?: SourceFile): TaintResult[] {
+  // Use AST-based analysis when SourceFile is available
+  if (sourceFile) {
+    return analyzeTaintAST(inferred, filePath, sourceFile);
+  }
+  return analyzeTaintRegex(inferred, filePath);
+}
+
+/**
+ * AST-based taint analysis — walks real ts-morph AST nodes instead of regex on strings.
+ * Handles destructuring, method chains, computed property access.
+ */
+function analyzeTaintAST(inferred: InferResult[], filePath: string, sourceFile: SourceFile): TaintResult[] {
+  const results: TaintResult[] = [];
+
+  // Collect all function-like AST nodes from the SourceFile
+  const allFns: Array<{ node: FunctionDeclaration | ArrowFunction | FunctionExpression | MethodDeclaration; startLine: number }> = [];
+  for (const fn of sourceFile.getFunctions()) allFns.push({ node: fn, startLine: fn.getStartLineNumber() });
+  for (const stmt of sourceFile.getVariableStatements()) {
+    for (const decl of stmt.getDeclarations()) {
+      const init = decl.getInitializer();
+      if (init && (Node.isArrowFunction(init) || Node.isFunctionExpression(init))) {
+        allFns.push({ node: init, startLine: stmt.getStartLineNumber() });
+      }
+    }
+  }
+  for (const cls of sourceFile.getClasses()) {
+    for (const method of cls.getMethods()) {
+      allFns.push({ node: method, startLine: method.getStartLineNumber() });
+    }
+  }
+
+  for (const { node: fn, startLine } of allFns) {
+    const params = fn.getParameters();
+    const fnName = 'getName' in fn && typeof fn.getName === 'function' ? fn.getName() || 'anonymous' : 'anonymous';
+
+    // Step 1: Classify params as tainted using type info
+    const taintedParams: TaintSource[] = [];
+    for (const param of params) {
+      const name = param.getName();
+      const typeText = param.getType().getText(param);
+      if (HTTP_PARAM_NAMES.test(name) || HTTP_PARAM_TYPES.test(typeText)) {
+        taintedParams.push({ name, origin: `${name} (HTTP input)` });
+      }
+    }
+    if (taintedParams.length === 0) continue;
+
+    // Step 2: AST-based taint propagation through the function body
+    const body = fn.getBody();
+    if (!body) continue;
+
+    const taintedNames = new Set(taintedParams.map(p => p.name));
+    const taintedVars = new Map<string, TaintSource>();
+    for (const p of taintedParams) taintedVars.set(p.name, p);
+
+    // Walk all variable declarations and track taint flow
+    const varDecls: import('ts-morph').VariableDeclaration[] = [];
+    for (const stmt of (Node.isBlock(body) ? body.getStatements() : [])) {
+      if (Node.isVariableStatement(stmt)) {
+        varDecls.push(...stmt.getDeclarations());
+      }
+    }
+    // Multiple passes to handle forward dependencies (max 3 hops)
+    for (let hop = 0; hop < 3; hop++) {
+      for (const decl of varDecls) {
+        const nameNode = decl.getNameNode();
+
+        // Simple name binding: const id = parseInt(req.body.id)
+        if (Node.isIdentifier(nameNode)) {
+          const declName = nameNode.getText();
+          if (taintedNames.has(declName)) continue;
+          const init = decl.getInitializer();
+          if (!init) continue;
+          if (astExprRefersToTainted(init, taintedNames)) {
+            taintedNames.add(declName);
+            taintedVars.set(declName, { name: declName, origin: 'derived' });
+          }
+        }
+
+        // Object destructuring: const { x, y } = taintedObj
+        if (Node.isObjectBindingPattern(nameNode)) {
+          const init = decl.getInitializer();
+          if (!init || !astExprRefersToTainted(init, taintedNames)) continue;
+          for (const element of nameNode.getElements()) {
+            const elName = element.getName();
+            if (!taintedNames.has(elName)) {
+              taintedNames.add(elName);
+              taintedVars.set(elName, { name: elName, origin: 'destructured' });
+            }
+          }
+        }
+
+        // Array destructuring: const [a, b] = taintedArr
+        if (Node.isArrayBindingPattern(nameNode)) {
+          const init = decl.getInitializer();
+          if (!init || !astExprRefersToTainted(init, taintedNames)) continue;
+          for (const element of nameNode.getElements()) {
+            if (Node.isBindingElement(element)) {
+              const elName = element.getName();
+              if (!taintedNames.has(elName)) {
+                taintedNames.add(elName);
+                taintedVars.set(elName, { name: elName, origin: 'destructured' });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Step 3: Find sinks via AST CallExpression walk
+    const sinks: TaintSink[] = [];
+    const calls: import('ts-morph').CallExpression[] = [];
+    body.forEachDescendant(n => { if (n.getKindName() === 'CallExpression') calls.push(n as import('ts-morph').CallExpression); });
+    for (const call of calls) {
+      const calleeName = getCalleeBaseName(call);
+      const sinkDef = SINK_NAMES.get(calleeName);
+      if (!sinkDef) continue;
+
+      // Check if any argument references a tainted variable
+      for (const arg of call.getArguments()) {
+        const taintedArg = findTaintedIdentifier(arg, taintedNames);
+        if (taintedArg) {
+          sinks.push({
+            name: calleeName,
+            category: sinkDef,
+            taintedArg,
+            line: call.getStartLineNumber(),
+          });
+          break;
+        }
+      }
+
+      // Also check template literal arguments
+      const templateArgs = call.getArguments().filter(a => Node.isTemplateExpression(a) || Node.isNoSubstitutionTemplateLiteral(a));
+      for (const tpl of templateArgs) {
+        if (Node.isTemplateExpression(tpl)) {
+          for (const span of tpl.getTemplateSpans()) {
+            const expr = span.getExpression();
+            const taintedArg = findTaintedIdentifier(expr, taintedNames);
+            if (taintedArg) {
+              sinks.push({
+                name: `${calleeName} (template)`,
+                category: sinkDef,
+                taintedArg,
+                line: call.getStartLineNumber(),
+              });
+            }
+          }
+        }
+      }
+    }
+
+    if (sinks.length === 0) continue;
+
+    // Step 4: Check for sanitizers (AST-based)
+    const foundSanitizers = findSanitizersAST(body, taintedNames);
+
+    // Build paths
+    const paths: TaintPath[] = [];
+    for (const sink of sinks) {
+      const source = taintedVars.get(sink.taintedArg) || taintedParams[0];
+      const sanitizer = foundSanitizers.find(s =>
+        s.sanitizedVars.has(sink.taintedArg)
+      );
+      const hasSanitizer = !!sanitizer;
+      const sufficient = hasSanitizer ? isSanitizerSufficient(sanitizer.name, sink.category) : false;
+
+      paths.push({
+        source,
+        sink,
+        sanitized: hasSanitizer && sufficient,
+        sanitizer: sanitizer?.name,
+        insufficientSanitizer: hasSanitizer && !sufficient ? sanitizer.name : undefined,
+      });
+    }
+
+    if (paths.length > 0) {
+      results.push({ fnName, filePath, startLine, paths });
+    }
+  }
+
+  return results;
+}
+
+/** Check if an expression references any tainted variable name */
+function astExprRefersToTainted(expr: Node, taintedNames: Set<string>): boolean {
+  if (Node.isIdentifier(expr) && taintedNames.has(expr.getText())) return true;
+  if (Node.isPropertyAccessExpression(expr)) {
+    return astExprRefersToTainted(expr.getExpression(), taintedNames);
+  }
+  if (Node.isElementAccessExpression(expr)) {
+    return astExprRefersToTainted(expr.getExpression(), taintedNames);
+  }
+  if (Node.isCallExpression(expr)) {
+    return astExprRefersToTainted(expr.getExpression(), taintedNames);
+  }
+  if (Node.isAwaitExpression(expr)) {
+    return astExprRefersToTainted(expr.getExpression(), taintedNames);
+  }
+  // Check all children for complex expressions
+  for (const child of expr.getChildren()) {
+    if (astExprRefersToTainted(child, taintedNames)) return true;
+  }
+  return false;
+}
+
+/** Get the base name of a callee (e.g., exec from child_process.exec, or db.query) */
+function getCalleeBaseName(call: import('ts-morph').CallExpression): string {
+  const expr = call.getExpression();
+  if (Node.isIdentifier(expr)) return expr.getText();
+  if (Node.isPropertyAccessExpression(expr)) return expr.getName();
+  return '';
+}
+
+/** Find the first tainted identifier in an expression tree */
+function findTaintedIdentifier(expr: Node, taintedNames: Set<string>): string | undefined {
+  if (Node.isIdentifier(expr) && taintedNames.has(expr.getText())) return expr.getText();
+  if (Node.isPropertyAccessExpression(expr)) {
+    return findTaintedIdentifier(expr.getExpression(), taintedNames);
+  }
+  // Check binary expressions (string concatenation: 'cmd ' + userInput)
+  if (Node.isBinaryExpression(expr)) {
+    return findTaintedIdentifier(expr.getLeft(), taintedNames) || findTaintedIdentifier(expr.getRight(), taintedNames);
+  }
+  for (const child of expr.getChildren()) {
+    const found = findTaintedIdentifier(child, taintedNames);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** AST-based sanitizer detection */
+function findSanitizersAST(body: Node, taintedNames: Set<string>): Array<{ name: string; sanitizedVars: Set<string> }> {
+  const sanitizers: Array<{ name: string; sanitizedVars: Set<string> }> = [];
+
+  const allCalls: import('ts-morph').CallExpression[] = [];
+  body.forEachDescendant(n => { if (n.getKindName() === 'CallExpression') allCalls.push(n as import('ts-morph').CallExpression); });
+  for (const call of allCalls) {
+    const calleeName = getCalleeBaseName(call);
+    const matchedSanitizer = SANITIZER_PATTERN_NAMES.find(s => calleeName.includes(s));
+    if (!matchedSanitizer) continue;
+
+    // Track which tainted vars are sanitized by this call
+    const sanitizedVars = new Set<string>();
+    for (const arg of call.getArguments()) {
+      const tainted = findTaintedIdentifier(arg, taintedNames);
+      if (tainted) sanitizedVars.add(tainted);
+    }
+
+    // Also check if the result is assigned to a variable (replacing the tainted value)
+    const parent = call.getParent();
+    if (parent && Node.isVariableDeclaration(parent)) {
+      const declName = parent.getName();
+      sanitizedVars.add(declName);
+    }
+
+    if (sanitizedVars.size > 0) {
+      sanitizers.push({ name: matchedSanitizer, sanitizedVars });
+    }
+  }
+
+  return sanitizers;
+}
+
+// Sink name → category lookup (flat map from SINK_PATTERNS)
+const SINK_NAMES = new Map<string, TaintSink['category']>([
+  ['exec', 'command'], ['execSync', 'command'], ['spawn', 'command'],
+  ['spawnSync', 'command'], ['execFile', 'command'], ['execFileSync', 'command'],
+  ['writeFile', 'fs'], ['writeFileSync', 'fs'], ['createWriteStream', 'fs'],
+  ['unlink', 'fs'], ['unlinkSync', 'fs'],
+  ['query', 'sql'], ['$execute', 'sql'], ['raw', 'sql'],
+  ['$queryRaw', 'sql'], ['$queryRawUnsafe', 'sql'],
+  ['redirect', 'redirect'],
+  ['eval', 'eval'], ['Function', 'eval'],
+]);
+
+// Sanitizer names to detect (from SANITIZER_PATTERNS)
+const SANITIZER_PATTERN_NAMES = [
+  'parseInt', 'parseFloat', 'Number', 'Boolean', 'String',
+  'encodeURI', 'encodeURIComponent', 'escape',
+  'sanitize', 'DOMPurify', 'purify', 'xss',
+  'escapeHtml', 'sqlstring', 'parameterized',
+  'parse', 'safeParse', 'validate',
+];
+
+/**
+ * Regex-based taint analysis — legacy fallback for when no SourceFile is available.
+ */
+function analyzeTaintRegex(inferred: InferResult[], filePath: string): TaintResult[] {
   const results: TaintResult[] = [];
 
   for (const r of inferred) {
