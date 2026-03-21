@@ -28,7 +28,8 @@ export function classifyFileRole(sourceFile: SourceFile, filePath: string): File
   if (/\/rules?\//i.test(lower) && /\/review\//.test(lower)) {
     return 'rule-definition';
   }
-  if (/\/examples?\//i.test(lower) || /\/fixtures?\//i.test(lower) || /\/preview-/.test(lower.split('/').pop() || '')) {
+  const basename = lower.split('/').pop() || '';
+  if (/\/examples?\//i.test(lower) || /\/fixtures?\//i.test(lower) || /\/preview-/.test(basename) || /(?:^|[-_.])examples?\.(tsx?|jsx?)$/.test(basename)) {
     return 'example';
   }
 
