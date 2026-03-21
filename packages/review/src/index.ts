@@ -31,6 +31,7 @@ import { lintKernSourceIR, KERN_SOURCE_RULES } from './rules/kern-source.js';
 import { GROUND_LAYER_RULES } from './rules/ground-layer.js';
 import { buildConfidenceGraph, serializeGraph, computeConfidenceSummary } from './confidence.js';
 import { analyzeTaint, taintToFindings, analyzeTaintCrossFile, crossFileTaintToFindings } from './taint.js';
+import { applySuppression } from './suppression/index.js';
 import type { ReviewReport, InferResult, TemplateMatch, ReviewConfig, EnforceResult, ReviewFinding, SourceSpan } from './types.js';
 import { createFingerprint } from './types.js';
 
@@ -170,7 +171,11 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
   }
 
   // Merge, dedup, sort — single shared utility
-  const findings = sortAndDedup(allFindings);
+  const dedupedFindings = sortAndDedup(allFindings);
+
+  // Apply suppression (inline comments + config disabledRules)
+  const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
+  const findings = sortAndDedup(suppression.findings);
 
   // Calculate stats
   const stats = calculateStats(inferred, templateMatches, findings, totalLines);
@@ -267,7 +272,9 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
     };
   });
 
-  const findings = sortAndDedup(allFindings);
+  const dedupedFindings = sortAndDedup(allFindings);
+  const suppression = applySuppression(dedupedFindings, source, filePath, _config, _config?.strict ?? false);
+  const findings = sortAndDedup(suppression.findings);
   const kernTokens = countTokens(source);
 
   return {

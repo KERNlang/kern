@@ -1,4 +1,5 @@
 server name=ReviewAPI port=3002
+  import from="./config.js" names=getReviewPersona,saveConfig
   middleware name=cors
   middleware name=json
   derive name=registry expr={{req.app.get('registry')}}
