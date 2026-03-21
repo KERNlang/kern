@@ -15,7 +15,7 @@ import { transpileVue, transpileNuxt } from '@kernlang/vue';
 import { collectLanguageMetrics } from '@kernlang/metrics';
 import { reviewFile, reviewDirectory, reviewSource, reviewGraph, resolveImportGraph, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes, runLLMReview, isLLMAvailable, analyzeTaint, checkSpecFiles, specViolationsToFindings } from '@kernlang/review';
 import type { ReviewConfig, ReviewFinding, LLMReviewInput } from '@kernlang/review';
-import { evolve, loadBuiltinDetectors, listStaged, getStaged, updateStagedStatus, promoteLocal, cleanRejected, formatSplitView, loadEvolvedNodes, runGoldenTests, formatGoldenTestResults, rollbackNode, restoreNode, readEvolvedManifest, buildDiscoveryPrompt, parseDiscoveryResponse, selectRepresentativeFiles, collectTsFiles, estimateTokens, createLLMProvider, TokenBudget, validateEvolveProposal, graduateNode, compileCodegenToJS } from '@kernlang/evolve';
+import { evolve, loadBuiltinDetectors, listStaged, getStaged, updateStagedStatus, promoteLocal, cleanRejected, formatSplitView, loadEvolvedNodes, runGoldenTests, formatGoldenTestResults, rollbackNode, restoreNode, readEvolvedManifest, buildDiscoveryPrompt, parseDiscoveryResponse, selectRepresentativeFiles, collectTsFiles, estimateTokens, createLLMProvider, TokenBudget, validateEvolveProposal, graduateNode, compileCodegenToJS, stageEvolveV4Proposal, listStagedEvolveV4, getStagedEvolveV4, updateStagedEvolveV4Status, cleanRejectedEvolveV4, cleanApprovedEvolveV4, formatEvolveV4SplitView, promoteNode, pruneNodes, detectCollisions, renameEvolvedNode, readNodeDefinition, buildBackfillPrompt, buildRetryPrompt, rebuildEvolvedManifest } from '@kernlang/evolve';
 import type { EvolveOptions, LLMProviderOptions } from '@kernlang/evolve';
 
 const args = process.argv.slice(2);
@@ -75,7 +75,7 @@ if (args[0] === 'dev') {
   loadTemplates(devConfig);
 
   // Load evolved nodes (v4) — graduated nodes from .kern/evolved/
-  const evolvedResult = loadEvolvedNodes();
+  const evolvedResult = loadEvolvedNodes(process.cwd(), args.includes('--verify'));
   if (evolvedResult.loaded > 0) {
     console.log(`  Evolved nodes: ${evolvedResult.loaded} loaded`);
   }
@@ -573,6 +573,9 @@ if (args[0] === 'review') {
   const showConfidence = args.includes('--confidence');
   const minConfidenceArg = args.find(a => a.startsWith('--min-confidence='))?.split('=')[1];
   const minConfidence = minConfidenceArg ? Number(minConfidenceArg) : undefined;
+  const disableRuleArgs = args.filter(a => a.startsWith('--disable-rule=')).map(a => a.split('=')[1]);
+  const strictArg = args.find(a => a === '--strict' || a.startsWith('--strict='));
+  const strict: false | 'inline' | 'all' = strictArg === '--strict' ? 'inline' : strictArg === '--strict=all' ? 'all' : false;
   const diffBase = args.find(a => a.startsWith('--diff'))
     ? (args.find(a => a.startsWith('--diff='))?.split('=')[1] || args[args.indexOf('--diff') + 1] || 'origin/main')
     : undefined;
@@ -627,6 +630,10 @@ if (args[0] === 'review') {
       console.log(`  Target: ${reviewCfg.target} (auto-detected from package.json)`);
     }
   }
+  // Merge disabledRules from config + CLI flags
+  const cfgDisabledRules: string[] = reviewCfg.review.disabledRules ?? [];
+  const mergedDisabledRules = [...new Set([...cfgDisabledRules, ...disableRuleArgs])];
+
   const reviewConfig: ReviewConfig = {
     registeredTemplates: [],
     minCoverage: minCoverage ?? 0,
@@ -637,6 +644,8 @@ if (args[0] === 'review') {
     target: reviewCfg.target,
     showConfidence: showConfidence || reviewCfg.review.showConfidence,
     minConfidence: minConfidence ?? reviewCfg.review.minConfidence,
+    disabledRules: mergedDisabledRules.length > 0 ? mergedDisabledRules : undefined,
+    strict,
   };
 
   // Load templates and collect their names
@@ -1291,11 +1300,55 @@ if (args[0] === 'evolve:discover') {
   console.log(`  Tokens used: ${budget}`);
   console.log(`  Proposals: ${uniqueProposals.length}\n`);
 
-  // Validate and stage proposals
+  // Validate and stage proposals (with LLM retry on failure, max 2 retries)
   const existingKw = [...(NODE_TYPES as readonly string[]), ...evolvedKeywords];
-  for (const proposal of uniqueProposals) {
-    const validation = validateEvolveProposal(proposal, existingKw);
-    const allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
+  let stagedCount = 0;
+  const maxRetries = 2;
+
+  for (let pi = 0; pi < uniqueProposals.length; pi++) {
+    let proposal = uniqueProposals[pi];
+    // Assign ID if missing
+    if (!proposal.id) {
+      proposal.id = `${proposal.keyword}-${Date.now()}`;
+    }
+
+    let validation = validateEvolveProposal(proposal, existingKw);
+    let allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
+
+    // Retry on fixable failures (parse, codegen, typescript, golden diff)
+    const isFixable = validation.schemaOk && validation.keywordOk && !allOk;
+    if (!allOk && isFixable && provider) {
+      for (let retry = 1; retry <= maxRetries; retry++) {
+        console.log(`  \u21BB ${proposal.keyword} — retry ${retry}/${maxRetries} (feeding errors to LLM)`);
+        try {
+          const retryPrompt = buildRetryPrompt(proposal, validation.errors);
+          budget.add(estimateTokens(retryPrompt));
+          const retryResponse = await provider.complete(retryPrompt);
+          budget.add(estimateTokens(retryResponse));
+
+          // Parse retry response as single object
+          let json = retryResponse.trim();
+          const fenceMatch = json.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+          if (fenceMatch) json = fenceMatch[1].trim();
+          const objStart = json.indexOf('{');
+          const objEnd = json.lastIndexOf('}');
+          if (objStart !== -1 && objEnd > objStart) json = json.slice(objStart, objEnd + 1);
+
+          const fixed = JSON.parse(json);
+          // Merge fixes into proposal
+          if (fixed.kernExample) proposal.kernExample = fixed.kernExample;
+          if (fixed.expectedOutput) proposal.expectedOutput = fixed.expectedOutput;
+          if (fixed.codegenSource) proposal.codegenSource = fixed.codegenSource;
+
+          validation = validateEvolveProposal(proposal, existingKw);
+          allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
+          if (allOk) break;
+        } catch {
+          // Retry failed, continue to next attempt
+        }
+      }
+    }
+
     const status = allOk ? '\u2713' : '\u2717';
     console.log(`  ${status} ${proposal.keyword} — ${proposal.reason.observation}`);
     if (validation.errors.length > 0) {
@@ -1303,13 +1356,215 @@ if (args[0] === 'evolve:discover') {
         console.log(`    ${err}`);
       }
     }
+
+    // Stage proposals for review (including failed ones — user can inspect)
+    validation.retryCount = allOk ? 0 : maxRetries;
+    stageEvolveV4Proposal(proposal, validation);
+    stagedCount++;
   }
 
-  if (uniqueProposals.length > 0) {
-    console.log(`\n  Run 'kern evolve:review-v4' to review and graduate proposals.`);
+  if (stagedCount > 0) {
+    console.log(`\n  Staged ${stagedCount} proposal(s).`);
+    console.log(`  Run 'kern evolve:review-v4' to review and graduate proposals.`);
   }
 
   console.log('');
+  process.exit(0);
+}
+
+// ── kern evolve:review-v4 [--list] [--approve=<id>] [--reject=<id>] [--detail=<id>] ──
+if (args[0] === 'evolve:review-v4') {
+  const approveV4Id = (() => {
+    const eqArg = args.find(a => a.startsWith('--approve='));
+    if (eqArg) return eqArg.split('=')[1];
+    const idx = args.indexOf('--approve');
+    return idx !== -1 && idx + 1 < args.length ? args[idx + 1] : undefined;
+  })();
+  const rejectV4Id = (() => {
+    const eqArg = args.find(a => a.startsWith('--reject='));
+    if (eqArg) return eqArg.split('=')[1];
+    const idx = args.indexOf('--reject');
+    return idx !== -1 && idx + 1 < args.length ? args[idx + 1] : undefined;
+  })();
+  const detailV4Id = (() => {
+    const eqArg = args.find(a => a.startsWith('--detail='));
+    if (eqArg) return eqArg.split('=')[1];
+    const idx = args.indexOf('--detail');
+    return idx !== -1 && idx + 1 < args.length ? args[idx + 1] : undefined;
+  })();
+
+  if (approveV4Id) {
+    // Approve → validate → compile → graduate
+    const staged = getStagedEvolveV4(approveV4Id);
+    if (!staged) {
+      console.error(`  Not found: ${approveV4Id}`);
+      process.exit(1);
+    }
+
+    const { proposal, validation } = staged;
+    const allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
+    if (!allOk) {
+      console.error(`  Cannot approve — validation failed for '${proposal.keyword}':`);
+      for (const err of validation.errors) {
+        console.error(`    ${err}`);
+      }
+      process.exit(1);
+    }
+
+    // Compile codegen source to JS
+    let compiledJs: string;
+    try {
+      compiledJs = compileCodegenToJS(proposal.codegenSource);
+    } catch (err) {
+      console.error(`  Failed to compile codegen for '${proposal.keyword}': ${(err as Error).message}`);
+      process.exit(1);
+    }
+
+    // Graduate the node
+    const result = graduateNode(proposal, compiledJs);
+    if (result.success) {
+      updateStagedEvolveV4Status(approveV4Id, 'approved');
+      cleanApprovedEvolveV4(approveV4Id);
+      console.log(`  Graduated '${proposal.keyword}' → ${result.path}`);
+      console.log(`  The node is now available in kern compile and kern dev.`);
+    } else {
+      console.error(`  Graduation failed: ${result.error}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  if (rejectV4Id) {
+    const updated = updateStagedEvolveV4Status(rejectV4Id, 'rejected');
+    if (updated) {
+      console.log(`  Rejected: ${updated.proposal.keyword} (${rejectV4Id})`);
+      cleanRejectedEvolveV4();
+    } else {
+      console.error(`  Not found: ${rejectV4Id}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  if (detailV4Id) {
+    const staged = getStagedEvolveV4(detailV4Id);
+    if (!staged) {
+      console.error(`  Not found: ${detailV4Id}`);
+      process.exit(1);
+    }
+    const { proposal, validation } = staged;
+    console.log(`\n  DETAIL: ${proposal.keyword} (${proposal.displayName})\n`);
+    console.log(`  Description: ${proposal.description}`);
+    console.log(`  Props: ${proposal.props.map(p => `${p.name}:${p.type}${p.required ? '*' : ''}`).join(', ')}`);
+    console.log(`  Child types: ${proposal.childTypes.join(', ') || '(none)'}`);
+    console.log(`  Codegen tier: ${proposal.codegenTier}`);
+    console.log(`  Run ID: ${proposal.evolveRunId}`);
+    if (proposal.parserHints) {
+      console.log(`  Parser hints: ${JSON.stringify(proposal.parserHints)}`);
+    }
+    console.log(`\n  --- Codegen Source ---`);
+    console.log(proposal.codegenSource);
+    console.log(`  --- Instances (${proposal.reason.instances.length}) ---`);
+    for (const inst of proposal.reason.instances.slice(0, 10)) {
+      console.log(`    ${inst}`);
+    }
+    if (validation.errors.length > 0) {
+      console.log(`\n  --- Validation Errors ---`);
+      for (const err of validation.errors) {
+        console.log(`    ${err}`);
+      }
+    }
+    console.log('');
+    process.exit(0);
+  }
+
+  // Default: interactive review or list mode
+  const stagedV4 = listStagedEvolveV4();
+  const pendingV4 = stagedV4.filter(s => s.status === 'pending');
+  if (pendingV4.length === 0) {
+    console.log('  No pending v4 proposals. Run \'kern evolve:discover <dir>\' to find patterns.');
+    process.exit(0);
+  }
+
+  const listOnly = args.includes('--list');
+
+  if (listOnly) {
+    console.log(`\n  KERN evolve:review-v4 — ${pendingV4.length} proposal(s)\n`);
+    for (const s of pendingV4) {
+      console.log(formatEvolveV4SplitView(s));
+      console.log('');
+    }
+    process.exit(0);
+  }
+
+  // Interactive review — walk through each proposal
+  const { createInterface } = await import('readline');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q: string): Promise<string> => new Promise(res => rl.question(q, res));
+
+  console.log(`\n  KERN evolve:review-v4 — ${pendingV4.length} proposal(s)\n`);
+
+  for (const staged of pendingV4) {
+    console.log(formatEvolveV4SplitView(staged));
+    console.log('');
+
+    let decided = false;
+    while (!decided) {
+      const answer = (await ask('  [a]pprove  [r]eject  [s]kip  [d]etail  [q]uit > ')).trim().toLowerCase();
+
+      if (answer === 'a' || answer === 'approve') {
+        const { proposal, validation } = staged;
+        const allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
+        if (!allOk) {
+          console.log(`  Cannot approve — validation failed. Use [d]etail to see errors.\n`);
+          continue;
+        }
+        try {
+          const compiledJs = compileCodegenToJS(proposal.codegenSource);
+          const result = graduateNode(proposal, compiledJs);
+          if (result.success) {
+            updateStagedEvolveV4Status(staged.id, 'approved');
+            cleanApprovedEvolveV4(staged.id);
+            console.log(`  \u2713 Graduated '${proposal.keyword}'\n`);
+          } else {
+            console.log(`  Graduation failed: ${result.error}\n`);
+          }
+        } catch (err) {
+          console.log(`  Error: ${(err as Error).message}\n`);
+        }
+        decided = true;
+      } else if (answer === 'r' || answer === 'reject') {
+        updateStagedEvolveV4Status(staged.id, 'rejected');
+        cleanRejectedEvolveV4();
+        console.log(`  \u2717 Rejected '${staged.proposal.keyword}'\n`);
+        decided = true;
+      } else if (answer === 's' || answer === 'skip') {
+        console.log(`  Skipped.\n`);
+        decided = true;
+      } else if (answer === 'd' || answer === 'detail') {
+        const { proposal, validation } = staged;
+        console.log(`\n  --- Codegen Source ---`);
+        console.log(proposal.codegenSource);
+        console.log(`  --- Instances (${proposal.reason.instances.length}) ---`);
+        for (const inst of proposal.reason.instances.slice(0, 5)) {
+          console.log(`    ${inst}`);
+        }
+        if (validation.errors.length > 0) {
+          console.log(`  --- Errors ---`);
+          for (const err of validation.errors) {
+            console.log(`    ${err}`);
+          }
+        }
+        console.log('');
+      } else if (answer === 'q' || answer === 'quit') {
+        rl.close();
+        process.exit(0);
+      }
+    }
+  }
+
+  rl.close();
+  console.log('  Review complete.\n');
   process.exit(0);
 }
 
@@ -1383,6 +1638,243 @@ if (args[0] === 'evolve:list') {
   for (const [keyword, entry] of Object.entries(manifest.nodes)) {
     console.log(`  ${keyword} — ${entry.displayName} (graduated ${entry.graduatedAt.split('T')[0]} by ${entry.graduatedBy})`);
   }
+  console.log('');
+  process.exit(0);
+}
+
+// ── kern evolve:promote <keyword> ────────────────────────────────────
+if (args[0] === 'evolve:promote') {
+  const promoteKeyword = args[1];
+  if (!promoteKeyword || promoteKeyword.startsWith('--')) {
+    console.error('Usage: kern evolve:promote <keyword>');
+    console.error('  Reads codegen from .kern/evolved/<keyword>/ and outputs what to add to core.');
+    process.exit(1);
+  }
+
+  const result = promoteNode(promoteKeyword);
+  if (!result.success) {
+    console.error(`  Failed: ${result.error}`);
+    process.exit(1);
+  }
+
+  const fnName = 'generate' + promoteKeyword.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join('');
+  console.log(`\n  KERN evolve:promote — ${promoteKeyword}\n`);
+  console.log('  To promote this node to core, apply these changes:\n');
+  console.log(`  1. Add '${promoteKeyword}' to NODE_TYPES in packages/core/src/spec.ts`);
+  console.log(`  2. Create packages/core/src/generators/${fnName}.ts with:`);
+  console.log(`     ──────────────────────────────`);
+  for (const line of (result.codegenTs || '').split('\n').slice(0, 20)) {
+    console.log(`     ${line}`);
+  }
+  if ((result.codegenTs || '').split('\n').length > 20) {
+    console.log(`     ... (${(result.codegenTs || '').split('\n').length - 20} more lines)`);
+  }
+  console.log(`     ──────────────────────────────`);
+  console.log(`  3. Add case '${promoteKeyword}': return ${fnName}(node); to generateCoreNode() in codegen-core.ts`);
+  if (result.goldenKern) {
+    console.log(`  4. Move golden test to packages/core/tests/`);
+  }
+  console.log(`  5. Run: kern evolve:rollback ${promoteKeyword} --force`);
+  console.log('');
+  process.exit(0);
+}
+
+// ── kern evolve:backfill <keyword> --target=<target> [--provider=...] ──
+if (args[0] === 'evolve:backfill') {
+  const backfillKeyword = args[1];
+  if (!backfillKeyword || backfillKeyword.startsWith('--')) {
+    console.error('Usage: kern evolve:backfill <keyword> --target=<target> [--provider=openai|anthropic|ollama]');
+    process.exit(1);
+  }
+
+  const backfillTarget = args.find(a => a.startsWith('--target='))?.split('=')[1];
+  if (!backfillTarget) {
+    console.error('  --target=<target> is required');
+    process.exit(1);
+  }
+
+  const def = readNodeDefinition(backfillKeyword);
+  if (!def) {
+    console.error(`  Node '${backfillKeyword}' is not graduated.`);
+    process.exit(1);
+  }
+
+  // Read current codegen source
+  const codegenTsPath = resolve('.kern', 'evolved', backfillKeyword, 'codegen.ts');
+  if (!existsSync(codegenTsPath)) {
+    console.error(`  Missing codegen.ts for '${backfillKeyword}'`);
+    process.exit(1);
+  }
+  const codegenSource = readFileSync(codegenTsPath, 'utf-8');
+  const templateKernPath = resolve('.kern', 'evolved', backfillKeyword, 'template.kern');
+  const kernExample = existsSync(templateKernPath) ? readFileSync(templateKernPath, 'utf-8') : '';
+  const expectedOutputPath = resolve('.kern', 'evolved', backfillKeyword, 'expected-output.ts');
+  const expectedOutput = existsSync(expectedOutputPath) ? readFileSync(expectedOutputPath, 'utf-8') : '';
+
+  console.log(`\n  KERN evolve:backfill — ${backfillKeyword} → ${backfillTarget}\n`);
+
+  const providerArg = args.find(a => a.startsWith('--provider='))?.split('=')[1] as 'openai' | 'anthropic' | 'ollama' | undefined;
+  let provider;
+  try {
+    provider = createLLMProvider({ provider: providerArg });
+  } catch (err) {
+    console.error(`  ${(err as Error).message}`);
+    process.exit(1);
+  }
+  console.log(`  Provider: ${provider.name}`);
+
+  const prompt = buildBackfillPrompt(backfillKeyword, {
+    props: def.props,
+    childTypes: def.childTypes,
+    kernExample,
+    codegenSource,
+    expectedOutput,
+  }, backfillTarget);
+
+  try {
+    const response = await provider.complete(prompt);
+
+    // Parse JSON response
+    let json = response.trim();
+    const fenceMatch = json.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+    if (fenceMatch) json = fenceMatch[1].trim();
+    const objStart = json.indexOf('{');
+    const objEnd = json.lastIndexOf('}');
+    if (objStart !== -1 && objEnd > objStart) json = json.slice(objStart, objEnd + 1);
+
+    const parsed = JSON.parse(json);
+    const targetCodegen = parsed.codegenSource as string;
+
+    if (!targetCodegen) {
+      console.error('  LLM did not return codegenSource');
+      process.exit(1);
+    }
+
+    // Write target override
+    const targetsDir = resolve('.kern', 'evolved', backfillKeyword, 'targets');
+    mkdirSync(targetsDir, { recursive: true });
+    writeFileSync(resolve(targetsDir, `${backfillTarget}.js`), targetCodegen);
+
+    console.log(`  Written: .kern/evolved/${backfillKeyword}/targets/${backfillTarget}.js`);
+    if (parsed.expectedOutput) {
+      console.log(`  Expected output preview:`);
+      for (const line of (parsed.expectedOutput as string).split('\n').slice(0, 10)) {
+        console.log(`    ${line}`);
+      }
+    }
+    console.log(`\n  Review the generated codegen before using in production.`);
+  } catch (err) {
+    console.error(`  Error: ${(err as Error).message}`);
+    process.exit(1);
+  }
+
+  console.log('');
+  process.exit(0);
+}
+
+// ── kern evolve:prune [--dry-run] [--days=N] ─────────────────────────
+if (args[0] === 'evolve:prune') {
+  const dryRun = args.includes('--dry-run');
+  const daysArg = args.find(a => a.startsWith('--days='))?.split('=')[1];
+  const thresholdDays = daysArg ? Number(daysArg) : 90;
+
+  console.log(`\n  KERN evolve:prune — removing unused nodes (>${thresholdDays}d)\n`);
+
+  const results = pruneNodes(process.cwd(), thresholdDays, dryRun);
+
+  if (results.length === 0) {
+    console.log('  No nodes eligible for pruning.');
+    process.exit(0);
+  }
+
+  for (const r of results) {
+    if (dryRun) {
+      console.log(`  Would prune: ${r.keyword} (${r.daysUnused}d unused)`);
+    } else if (r.pruned) {
+      console.log(`  Pruned: ${r.keyword} (${r.daysUnused}d unused) → .trash/`);
+    } else {
+      console.log(`  Failed: ${r.keyword} — ${r.error}`);
+    }
+  }
+
+  if (dryRun) {
+    console.log(`\n  Dry run — no changes made. Remove --dry-run to prune.`);
+  }
+
+  console.log('');
+  process.exit(0);
+}
+
+// ── kern evolve:migrate ──────────────────────────────────────────────
+if (args[0] === 'evolve:migrate') {
+  console.log(`\n  KERN evolve:migrate — checking for keyword collisions\n`);
+
+  const collisions = detectCollisions(NODE_TYPES);
+
+  if (collisions.length === 0) {
+    console.log('  No collisions. All evolved nodes are compatible with core.');
+    process.exit(0);
+  }
+
+  console.log(`  Found ${collisions.length} collision(s):\n`);
+  for (const c of collisions) {
+    console.log(`  ${c.keyword} (graduated ${c.graduatedAt.split('T')[0]})`);
+    console.log(`    This keyword now exists in core NODE_TYPES.`);
+    console.log(`    Options:`);
+    console.log(`      kern evolve:migrate --rename=${c.keyword} --to=<new-name>`);
+    console.log(`      kern evolve:migrate --remove=${c.keyword}  (core version supersedes)`);
+    console.log('');
+  }
+
+  // Handle --rename and --remove flags
+  const renameArg = args.find(a => a.startsWith('--rename='))?.split('=')[1];
+  const toArg = args.find(a => a.startsWith('--to='))?.split('=')[1];
+  const removeArg = args.find(a => a.startsWith('--remove='))?.split('=')[1];
+
+  if (renameArg && toArg) {
+    const result = renameEvolvedNode(renameArg, toArg);
+    if (result.success) {
+      console.log(`  Renamed '${renameArg}' → '${toArg}'`);
+      console.log(`  Update your .kern files: replace '${renameArg}' with '${toArg}'.`);
+    } else {
+      console.error(`  Rename failed: ${result.error}`);
+      process.exit(1);
+    }
+  }
+
+  if (removeArg) {
+    const result = rollbackNode(removeArg, process.cwd(), true);
+    if (result.success) {
+      console.log(`  Removed evolved '${removeArg}' — core version will be used.`);
+    } else {
+      console.error(`  Remove failed: ${result.error}`);
+      process.exit(1);
+    }
+  }
+
+  console.log('');
+  process.exit(0);
+}
+
+// ── kern evolve:rebuild ─────────────────────────────────────────────
+if (args[0] === 'evolve:rebuild') {
+  console.log(`\n  KERN evolve:rebuild — rebuilding manifest from disk\n`);
+
+  const result = rebuildEvolvedManifest();
+
+  if (result.errors.length > 0) {
+    for (const err of result.errors) {
+      console.log(`  ⚠  ${err}`);
+    }
+    console.log('');
+  }
+
+  if (result.rebuilt === 0 && result.errors.length > 0) {
+    console.error('  No nodes rebuilt.');
+    process.exit(1);
+  }
+
+  console.log(`  manifest.json rebuilt with ${result.rebuilt} node(s).`);
   console.log('');
   process.exit(0);
 }
@@ -1526,6 +2018,12 @@ if (!inputFile) {
   console.log('  review <file.ts|dir> [options]                Static analysis, Cognitive Complexity & CI Gate');
   console.log('  evolve <dir|file> [options]                   Detect gaps → propose templates');
   console.log('  evolve:review [options]                       Review staged template proposals');
+  console.log('  evolve:review-v4 [options]                    Review & graduate v4 node proposals');
+  console.log('  evolve:promote <keyword>                      Show steps to move evolved → core');
+  console.log('  evolve:backfill <kw> --target=<t>             LLM generates target-specific codegen');
+  console.log('  evolve:prune [--dry-run] [--days=N]           Remove unused nodes (default 90d)');
+  console.log('  evolve:migrate                                Detect & resolve keyword collisions');
+  console.log('  evolve:rebuild                                Rebuild manifest.json from disk definitions');
   console.log('  confidence <file.kern>                        Display confidence graph for a .kern file');
   console.log('');
   console.log('Targets:');
@@ -1574,6 +2072,9 @@ if (existsSync(configPath)) {
 
 // Load templates before transpile
 loadTemplates(config);
+
+// Load evolved nodes (v4) — graduated nodes from .kern/evolved/
+loadEvolvedNodes(process.cwd(), args.includes('--verify'));
 
 // CLI flags override config — target
 const cliTarget = args.find(a => a.startsWith('--target='))?.split('=')[1];

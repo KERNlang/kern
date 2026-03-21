@@ -161,6 +161,55 @@ function updateManifest(
   writeManifest(evolvedDir, manifest);
 }
 
+/**
+ * Promote a graduated evolved node → core.
+ *
+ * Reads the node from .kern/evolved/<keyword>/, returns all the data
+ * needed to add it to the core package. Does NOT write to core files
+ * (that's the CLI's job — it knows the file paths).
+ */
+export function promoteNode(
+  keyword: string,
+  baseDir: string = process.cwd(),
+): {
+  success: boolean;
+  error?: string;
+  codegenTs?: string;
+  goldenKern?: string;
+  goldenOutput?: string;
+  definition?: EvolvedNodeDefinition;
+} {
+  const evolvedDir = resolve(baseDir, '.kern', 'evolved');
+  const nodeDir = join(evolvedDir, keyword);
+
+  if (!existsSync(nodeDir)) {
+    return { success: false, error: `Node '${keyword}' is not graduated` };
+  }
+
+  const codegenTsPath = join(nodeDir, 'codegen.ts');
+  const templateKernPath = join(nodeDir, 'template.kern');
+  const expectedOutputPath = join(nodeDir, 'expected-output.ts');
+  const defPath = join(nodeDir, 'definition.json');
+
+  if (!existsSync(codegenTsPath)) {
+    return { success: false, error: `Missing codegen.ts for '${keyword}'` };
+  }
+  if (!existsSync(defPath)) {
+    return { success: false, error: `Missing definition.json for '${keyword}'` };
+  }
+
+  try {
+    const codegenTs = readFileSync(codegenTsPath, 'utf-8');
+    const goldenKern = existsSync(templateKernPath) ? readFileSync(templateKernPath, 'utf-8') : undefined;
+    const goldenOutput = existsSync(expectedOutputPath) ? readFileSync(expectedOutputPath, 'utf-8') : undefined;
+    const definition: EvolvedNodeDefinition = JSON.parse(readFileSync(defPath, 'utf-8'));
+
+    return { success: true, codegenTs, goldenKern, goldenOutput, definition };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
 export function removeFromManifest(evolvedDir: string, keyword: string): boolean {
   const manifest = readManifest(evolvedDir);
   if (!manifest.nodes[keyword]) return false;

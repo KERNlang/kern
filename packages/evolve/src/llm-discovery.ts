@@ -285,3 +285,117 @@ function truncate(content: string, maxChars: number): string {
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
+
+// ── Retry Prompt ──────────────────────────────────────────────────────────
+
+/**
+ * Build a prompt asking the LLM to fix a failed proposal.
+ * Feeds back the validation errors so the LLM can correct its output.
+ */
+export function buildRetryPrompt(
+  proposal: EvolveNodeProposal,
+  errors: string[],
+): string {
+  return `Your previous KERN node proposal "${proposal.keyword}" failed validation. Fix the issues and return the corrected proposal.
+
+## Previous Proposal
+
+keyword: ${proposal.keyword}
+kernExample: ${proposal.kernExample}
+expectedOutput: ${proposal.expectedOutput}
+codegenSource:
+${proposal.codegenSource}
+
+## Validation Errors
+
+${errors.map((e, i) => `${i + 1}. ${e}`).join('\n')}
+
+## Rules
+
+1. **codegenSource MUST be valid CommonJS JavaScript** (not TypeScript). Use \`module.exports = function(node, helpers) { ... }\`.
+2. **Available helpers:** \`helpers.p(node)\` returns props, \`helpers.kids(node, 'type')\`, \`helpers.firstChild(node, 'type')\`, \`helpers.capitalize(str)\`, \`helpers.parseParamList(str)\`, \`helpers.dedent(str)\`, \`helpers.handlerCode(node)\`, \`helpers.exportPrefix(node)\`.
+3. **The function must return string[]** — an array of lines of TypeScript code.
+4. **kernExample must parse** with KERN's indent-based parser (2-space indents, key=value props).
+5. **expectedOutput must match** what codegenSource produces for kernExample.
+
+## Response Format
+
+Return ONLY the corrected JSON object (same schema as before):
+
+\`\`\`json
+{
+  "keyword": "${proposal.keyword}",
+  "displayName": "${proposal.displayName}",
+  "description": "${proposal.description}",
+  "props": ${JSON.stringify(proposal.props)},
+  "childTypes": ${JSON.stringify(proposal.childTypes)},
+  "kernExample": "...",
+  "expectedOutput": "...",
+  "codegenSource": "module.exports = function(node, helpers) { ... }",
+  "reason": ${JSON.stringify(proposal.reason)}
+}
+\`\`\`
+
+No markdown outside the JSON block. No explanation.`;
+}
+
+// ── Backfill Prompt ───────────────────────────────────────────────────────
+
+/**
+ * Build a prompt for LLM to generate a target-specific codegen for an evolved node.
+ */
+export function buildBackfillPrompt(
+  keyword: string,
+  definition: {
+    props: EvolvedNodeProp[];
+    childTypes: string[];
+    kernExample: string;
+    codegenSource: string;
+    expectedOutput: string;
+  },
+  target: string,
+): string {
+  return `You are generating a target-specific code generator for a KERN evolved node.
+
+## Node: ${keyword}
+Target: ${target}
+
+## Props
+${definition.props.map(p => `- ${p.name} (${p.type}${p.required ? ', required' : ''}): ${p.description}`).join('\n')}
+
+## Child Types
+${definition.childTypes.join(', ') || '(none)'}
+
+## KERN Example Input
+\`\`\`kern
+${definition.kernExample}
+\`\`\`
+
+## Default Codegen (TypeScript target)
+\`\`\`javascript
+${definition.codegenSource}
+\`\`\`
+
+## Default Output (TypeScript)
+\`\`\`typescript
+${definition.expectedOutput}
+\`\`\`
+
+## Your Task
+
+Write a **CommonJS JavaScript** function that generates **${target}**-specific output for this node. The function receives \`(node, helpers)\` and must return \`string[]\` (lines of code).
+
+Available helpers: \`helpers.p(node)\` (props), \`helpers.kids(node, 'type')\` (children), \`helpers.firstChild(node, 'type')\`, \`helpers.capitalize(str)\`, \`helpers.parseParamList(str)\`, \`helpers.dedent(str)\`, \`helpers.handlerCode(node)\`, \`helpers.exportPrefix(node)\`.
+
+## Response Format
+
+Return ONLY a JSON object:
+\`\`\`json
+{
+  "codegenSource": "module.exports = function(node, helpers) { ... }",
+  "expectedOutput": "// expected output for the kern example above"
+}
+\`\`\`
+
+No markdown, no explanation, just the JSON object.`;
+}

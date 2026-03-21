@@ -60,11 +60,11 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
   let rest = raw.slice(indent);
   const col = indent + 1;
 
-  // Extract type
-  const typeMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)/);
+  // Extract type — supports `evolved:keyword` namespace prefix as escape hatch
+  const typeMatch = rest.match(/^(?:evolved:)?([A-Za-z_][A-Za-z0-9_-]*)/);
   if (!typeMatch) return null;
   const type = typeMatch[1];
-  rest = rest.slice(type.length);
+  rest = rest.slice(typeMatch[0].length);
 
   const props: Record<string, unknown> = {};
   const styles: Record<string, string> = {};

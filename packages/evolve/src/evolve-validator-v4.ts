@@ -7,6 +7,7 @@
 
 import { parse } from '@kernlang/core';
 import { KERN_RESERVED, NODE_TYPES, registerParserHints, unregisterParserHints } from '@kernlang/core';
+import { ts } from 'ts-morph';
 import { compileSandboxedGenerator } from './sandboxed-generator.js';
 import { checkDedup } from './evolve-dedup.js';
 import { compareGoldenOutput } from './golden-test-runner.js';
@@ -189,20 +190,29 @@ function validateTypeScript(
     const ast = parse(proposal.kernExample);
     const output = generator(ast).join('\n');
 
-    // Basic TS syntax check — look for obvious errors
-    // Full ts.transpileModule would require typescript as a dep;
-    // for now, check for balanced braces and no obvious syntax issues
-    const openBraces = (output.match(/\{/g) || []).length;
-    const closeBraces = (output.match(/\}/g) || []).length;
-    if (openBraces !== closeBraces) {
-      errors.push(`Unbalanced braces in codegen output: ${openBraces} open, ${closeBraces} close`);
-      return false;
-    }
+    // Real TypeScript syntax validation via ts.transpileModule
+    // Enable JSX since KERN generates React/JSX output for frontend targets
+    const result = ts.transpileModule(output, {
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ES2022,
+        jsx: ts.JsxEmit.ReactJSX,
+        strict: false,
+        noEmit: false,
+        skipLibCheck: true,
+      },
+      reportDiagnostics: true,
+      fileName: 'evolved-output.tsx',
+    });
 
-    const openParens = (output.match(/\(/g) || []).length;
-    const closeParens = (output.match(/\)/g) || []).length;
-    if (openParens !== closeParens) {
-      errors.push(`Unbalanced parentheses in codegen output: ${openParens} open, ${closeParens} close`);
+    const diagnostics = result.diagnostics || [];
+    // Only fail on syntax errors (category 1 = Error), not semantic warnings
+    const syntaxErrors = diagnostics.filter(d => d.category === ts.DiagnosticCategory.Error);
+    if (syntaxErrors.length > 0) {
+      for (const d of syntaxErrors.slice(0, 3)) {
+        const msg = ts.flattenDiagnosticMessageText(d.messageText, '\n');
+        errors.push(`TypeScript syntax error: ${msg}`);
+      }
       return false;
     }
 

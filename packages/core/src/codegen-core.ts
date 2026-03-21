@@ -16,20 +16,31 @@ import { KernCodegenError } from './errors.js';
 // before the default case, allowing graduated nodes to produce output.
 
 const _evolvedGenerators = new Map<string, (node: IRNode) => string[]>();
+const _evolvedTargetGenerators = new Map<string, Map<string, (node: IRNode) => string[]>>();
 
 /** Register an evolved generator (called at startup). */
 export function registerEvolvedGenerator(keyword: string, fn: (node: IRNode) => string[]): void {
   _evolvedGenerators.set(keyword, fn);
 }
 
+/** Register a target-specific evolved generator (called at startup). */
+export function registerEvolvedTargetGenerator(keyword: string, target: string, fn: (node: IRNode) => string[]): void {
+  if (!_evolvedTargetGenerators.has(keyword)) {
+    _evolvedTargetGenerators.set(keyword, new Map());
+  }
+  _evolvedTargetGenerators.get(keyword)!.set(target, fn);
+}
+
 /** Unregister an evolved generator (for rollback/testing). */
 export function unregisterEvolvedGenerator(keyword: string): void {
   _evolvedGenerators.delete(keyword);
+  _evolvedTargetGenerators.delete(keyword);
 }
 
 /** Clear all evolved generators (for test isolation). */
 export function clearEvolvedGenerators(): void {
   _evolvedGenerators.clear();
+  _evolvedTargetGenerators.clear();
 }
 
 /** Check if an evolved generator exists for a type. */
@@ -2051,7 +2062,7 @@ export function isCoreNode(type: string): boolean {
 }
 
 /** Generate TypeScript for any core language node. */
-export function generateCoreNode(node: IRNode): string[] {
+export function generateCoreNode(node: IRNode, target?: string): string[] {
   switch (node.type) {
     case 'type': return generateType(node);
     case 'interface': return generateInterface(node);
@@ -2118,8 +2129,9 @@ export function generateCoreNode(node: IRNode): string[] {
     case 'invalidate': return [];
     case 'option': return [];
     default: {
-      // Check evolved generators (v4) — graduated nodes loaded at startup
-      const evolvedGen = _evolvedGenerators.get(node.type);
+      // Check evolved generators (v4) — target-specific first, then default
+      const targetGen = target && _evolvedTargetGenerators.get(node.type)?.get(target);
+      const evolvedGen = targetGen || _evolvedGenerators.get(node.type);
       if (evolvedGen) return evolvedGen(node);
       // Check if this is a template instance
       if (isTemplateNode(node.type)) return expandTemplateNode(node);

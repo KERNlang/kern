@@ -84,6 +84,14 @@ export {
   listStagedNodes,
   updateStagedNodeStatus,
   formatNodeSplitView,
+  // v4 evolve staging
+  stageEvolveV4Proposal,
+  listStagedEvolveV4,
+  getStagedEvolveV4,
+  updateStagedEvolveV4Status,
+  cleanRejectedEvolveV4,
+  cleanApprovedEvolveV4,
+  formatEvolveV4SplitView,
 } from './staging.js';
 
 // Expressibility Scorer (v3)
@@ -134,7 +142,9 @@ export {
   getEvolvedKeywords,
   readManifest as readEvolvedManifest,
   readNodeDefinition,
+  rebuildManifest as rebuildEvolvedManifest,
 } from './evolved-node-loader.js';
+export type { RebuildResult } from './evolved-node-loader.js';
 
 // Sandboxed Generator
 export { loadSandboxedGenerator, compileSandboxedGenerator, getCodegenHelpers } from './sandboxed-generator.js';
@@ -145,12 +155,13 @@ export { checkDedup } from './evolve-dedup.js';
 export { compareGoldenOutput, runGoldenTests, formatGoldenTestResults } from './golden-test-runner.js';
 
 // Graduation
-export { graduateNode, compileCodegenToJS } from './graduation.js';
+export { graduateNode, compileCodegenToJS, promoteNode } from './graduation.js';
 
-// Rollback
-export { rollbackNode, restoreNode, findUsages } from './evolve-rollback.js';
+// Rollback + Prune + Migrate
+export { rollbackNode, restoreNode, findUsages, pruneNodes, detectCollisions, renameEvolvedNode } from './evolve-rollback.js';
+export type { PruneResult, CollisionInfo } from './evolve-rollback.js';
 
 // LLM Discovery
-export { buildDiscoveryPrompt, parseDiscoveryResponse, selectRepresentativeFiles, collectTsFiles, estimateTokens } from './llm-discovery.js';
+export { buildDiscoveryPrompt, parseDiscoveryResponse, selectRepresentativeFiles, collectTsFiles, estimateTokens, buildBackfillPrompt, buildRetryPrompt } from './llm-discovery.js';
 export { createLLMProvider, TokenBudget } from './llm-provider.js';
 export type { LLMProvider, LLMProviderOptions } from './llm-provider.js';

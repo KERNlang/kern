@@ -7,6 +7,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, renameSync, rmSync } from 'fs';
 import { resolve, join } from 'path';
 import { removeFromManifest } from './graduation.js';
+import type { EvolvedManifest } from './evolved-types.js';
 
 export interface RollbackResult {
   success: boolean;
@@ -90,6 +91,162 @@ export function rollbackNode(
 
     // Update manifest
     removeFromManifest(evolvedDir, keyword);
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+// ── Prune ─────────────────────────────────────────────────────────────────
+
+export interface PruneResult {
+  keyword: string;
+  daysUnused: number;
+  pruned: boolean;
+  error?: string;
+}
+
+/**
+ * Prune evolved nodes that haven't been used in any .kern files
+ * and are older than the given threshold (default: 90 days).
+ *
+ * @param dryRun — if true, just report what would be pruned
+ */
+export function pruneNodes(
+  baseDir: string = process.cwd(),
+  thresholdDays = 90,
+  dryRun = false,
+): PruneResult[] {
+  const evolvedDir = resolve(baseDir, '.kern', 'evolved');
+  const manifestPath = join(evolvedDir, 'manifest.json');
+
+  if (!existsSync(manifestPath)) return [];
+
+  let manifest: EvolvedManifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+  } catch {
+    return [];
+  }
+
+  const now = Date.now();
+  const thresholdMs = thresholdDays * 24 * 60 * 60 * 1000;
+  const results: PruneResult[] = [];
+
+  for (const [keyword, entry] of Object.entries(manifest.nodes)) {
+    const graduatedAt = new Date(entry.graduatedAt).getTime();
+    const ageMs = now - graduatedAt;
+    const daysOld = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+
+    if (ageMs < thresholdMs) continue; // Too young to prune
+
+    // Check if used anywhere
+    const usages = findUsages(keyword, baseDir);
+    if (usages.length > 0) continue; // Still in use
+
+    if (dryRun) {
+      results.push({ keyword, daysUnused: daysOld, pruned: false });
+    } else {
+      const rollResult = rollbackNode(keyword, baseDir, true);
+      results.push({
+        keyword,
+        daysUnused: daysOld,
+        pruned: rollResult.success,
+        error: rollResult.error,
+      });
+    }
+  }
+
+  return results;
+}
+
+// ── Migrate ───────────────────────────────────────────────────────────────
+
+export interface CollisionInfo {
+  keyword: string;
+  displayName: string;
+  graduatedAt: string;
+}
+
+/**
+ * Detect keyword collisions between evolved nodes and core NODE_TYPES.
+ * Called when KERN is upgraded and new core types may have been added.
+ */
+export function detectCollisions(
+  coreTypes: readonly string[],
+  baseDir: string = process.cwd(),
+): CollisionInfo[] {
+  const evolvedDir = resolve(baseDir, '.kern', 'evolved');
+  const manifestPath = join(evolvedDir, 'manifest.json');
+
+  if (!existsSync(manifestPath)) return [];
+
+  let manifest: EvolvedManifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+  } catch {
+    return [];
+  }
+
+  const collisions: CollisionInfo[] = [];
+  const coreSet = new Set(coreTypes);
+
+  for (const [keyword, entry] of Object.entries(manifest.nodes)) {
+    if (coreSet.has(keyword)) {
+      collisions.push({
+        keyword,
+        displayName: entry.displayName,
+        graduatedAt: entry.graduatedAt,
+      });
+    }
+  }
+
+  return collisions;
+}
+
+/**
+ * Rename an evolved node's keyword.
+ * Updates the manifest, directory name, and definition.json.
+ */
+export function renameEvolvedNode(
+  oldKeyword: string,
+  newKeyword: string,
+  baseDir: string = process.cwd(),
+): { success: boolean; error?: string } {
+  const evolvedDir = resolve(baseDir, '.kern', 'evolved');
+  const oldDir = join(evolvedDir, oldKeyword);
+  const newDir = join(evolvedDir, newKeyword);
+
+  if (!existsSync(oldDir)) {
+    return { success: false, error: `Node '${oldKeyword}' not found` };
+  }
+  if (existsSync(newDir)) {
+    return { success: false, error: `Node '${newKeyword}' already exists` };
+  }
+
+  try {
+    // Rename directory
+    renameSync(oldDir, newDir);
+
+    // Update definition.json
+    const defPath = join(newDir, 'definition.json');
+    if (existsSync(defPath)) {
+      const def = JSON.parse(readFileSync(defPath, 'utf-8'));
+      def.keyword = newKeyword;
+      writeFileSync(defPath, JSON.stringify(def, null, 2));
+    }
+
+    // Update manifest
+    const manifestPath = join(evolvedDir, 'manifest.json');
+    if (existsSync(manifestPath)) {
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+      if (manifest.nodes[oldKeyword]) {
+        manifest.nodes[newKeyword] = { ...manifest.nodes[oldKeyword], keyword: newKeyword };
+        delete manifest.nodes[oldKeyword];
+        writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+      }
+    }
 
     return { success: true };
   } catch (err) {

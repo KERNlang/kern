@@ -5,10 +5,10 @@
  * to the parser (via dynamic types + hints) and codegen (via generator map).
  */
 
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, statSync } from 'fs';
 import { resolve, join } from 'path';
 import { createHash } from 'crypto';
-import { registerEvolvedType, KERN_RESERVED } from '@kernlang/core';
+import { registerEvolvedType, registerEvolvedGenerator as registerCoreEvolvedGenerator, registerEvolvedTargetGenerator, KERN_RESERVED } from '@kernlang/core';
 import { loadSandboxedGenerator } from './sandboxed-generator.js';
 import type { IRNode } from '@kernlang/core';
 import type { EvolvedManifest, EvolvedManifestEntry, EvolvedNodeDefinition, ParserHints } from './evolved-types.js';
@@ -135,6 +135,8 @@ function loadSingleNode(
   // Load sandboxed generator
   const generator = loadSandboxedGenerator(codegenPath);
   _evolvedGenerators.set(keyword, generator);
+  // Also register in codegen-core so generateCoreNode() can dispatch
+  registerCoreEvolvedGenerator(keyword, generator);
 
   // Register type in spec
   registerEvolvedType(keyword);
@@ -145,6 +147,22 @@ function loadSingleNode(
   // Store parser hints
   if (entry.parserHints) {
     _parserHints.set(keyword, entry.parserHints);
+  }
+
+  // Load target-specific overrides from targets/ directory
+  const targetsDir = join(nodeDir, 'targets');
+  if (existsSync(targetsDir)) {
+    try {
+      for (const file of readdirSync(targetsDir)) {
+        if (!file.endsWith('.js')) continue;
+        const targetName = file.replace(/\.js$/, '');
+        const targetPath = join(targetsDir, file);
+        const targetGenerator = loadSandboxedGenerator(targetPath);
+        registerEvolvedTargetGenerator(keyword, targetName, targetGenerator);
+      }
+    } catch {
+      // Skip unreadable targets dir — default codegen still works
+    }
   }
 }
 
@@ -175,4 +193,91 @@ export function readNodeDefinition(
   } catch {
     return null;
   }
+}
+
+// ── Manifest Rebuild ─────────────────────────────────────────────────────
+
+export interface RebuildResult {
+  rebuilt: number;
+  errors: string[];
+}
+
+/**
+ * Rebuild manifest.json from disk by scanning .kern/evolved/ subdirectories.
+ *
+ * Reads each subdirectory's definition.json, extracts manifest-level fields,
+ * and writes a fresh manifest.json. Skips .trash/ and any directory missing
+ * a valid definition.json.
+ *
+ * Use when the manifest is out of sync, corrupted, or missing.
+ *
+ * @param baseDir — project root (defaults to cwd)
+ */
+export function rebuildManifest(
+  baseDir: string = process.cwd(),
+): RebuildResult {
+  const evolvedDir = resolve(baseDir, '.kern', 'evolved');
+  const errors: string[] = [];
+
+  if (!existsSync(evolvedDir)) {
+    return { rebuilt: 0, errors: ['No .kern/evolved/ directory found'] };
+  }
+
+  const entries = readdirSync(evolvedDir);
+  const nodes: Record<string, EvolvedManifestEntry> = {};
+  let rebuilt = 0;
+
+  for (const entry of entries) {
+    // Skip manifest.json itself, .trash, and hidden dirs
+    if (entry === 'manifest.json' || entry === '.trash' || entry.startsWith('.')) {
+      continue;
+    }
+
+    const entryPath = join(evolvedDir, entry);
+
+    // Only process directories
+    try {
+      if (!statSync(entryPath).isDirectory()) continue;
+    } catch {
+      continue;
+    }
+
+    const defPath = join(entryPath, 'definition.json');
+    if (!existsSync(defPath)) {
+      errors.push(`${entry}: missing definition.json, skipped`);
+      continue;
+    }
+
+    let def: EvolvedNodeDefinition;
+    try {
+      def = JSON.parse(readFileSync(defPath, 'utf-8'));
+    } catch (err) {
+      errors.push(`${entry}: failed to parse definition.json — ${(err as Error).message}`);
+      continue;
+    }
+
+    // Build manifest entry from definition
+    const manifestEntry: EvolvedManifestEntry = {
+      keyword: def.keyword,
+      displayName: def.displayName,
+      codegenTier: 1,  // default; definition.json doesn't store tier
+      childTypes: def.childTypes,
+      parserHints: def.parserHints,
+      hash: def.hash,
+      graduatedBy: def.graduatedBy,
+      graduatedAt: def.graduatedAt,
+      evolveRunId: def.evolveRunId,
+      kernVersion: def.kernVersion,
+    };
+
+    nodes[def.keyword] = manifestEntry;
+    rebuilt++;
+  }
+
+  // Write the fresh manifest
+  const manifest: EvolvedManifest = { version: 1, nodes };
+  mkdirSync(evolvedDir, { recursive: true });
+  writeFileSync(join(evolvedDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+
+  return { rebuilt, errors };
 }

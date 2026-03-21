@@ -63,7 +63,7 @@ export {
   generateConditional, generateSelect,
   generateModel, generateRepository, generateDependency, generateCache,
   // Evolved generators (v4)
-  registerEvolvedGenerator, unregisterEvolvedGenerator, clearEvolvedGenerators, hasEvolvedGenerator,
+  registerEvolvedGenerator, registerEvolvedTargetGenerator, unregisterEvolvedGenerator, clearEvolvedGenerators, hasEvolvedGenerator,
 } from './codegen-core.js';
 
 // Codegen errors

@@ -394,6 +394,87 @@ export function formatSARIF(reports: ReviewReport[]): string {
   return JSON.stringify(sarif, null, 2);
 }
 
+/**
+ * Format SARIF with suppression metadata.
+ * Suppressed findings appear with a `suppressions` array per SARIF v2.1.0 section 3.35.
+ */
+export function formatSARIFWithSuppressions(
+  reports: ReviewReport[],
+  suppressedFindings?: ReviewFinding[],
+): string {
+  const sarif = {
+    $schema: 'https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0-rtm.5.json',
+    version: '2.1.0',
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: '@kernlang/review',
+            version: '2.0.0',
+            rules: [] as any[]
+          }
+        },
+        results: [] as any[]
+      }
+    ]
+  };
+
+  const rules = new Set<string>();
+  const suppressedSet = new Set(suppressedFindings?.map(f => f.fingerprint) ?? []);
+  const allFindings = [
+    ...reports.flatMap(r => r.findings),
+    ...(suppressedFindings ?? []),
+  ];
+
+  for (const f of allFindings) {
+    if (!rules.has(f.ruleId)) {
+      rules.add(f.ruleId);
+      sarif.runs[0].tool.driver.rules.push({
+        id: f.ruleId,
+        shortDescription: { text: f.ruleId },
+        helpUri: `https://github.com/kern-lang/kern-lang/blob/main/docs/rules.md#${f.ruleId}`
+      });
+    }
+
+    const sarifLevel = f.severity === 'error' ? 'error' : (f.severity === 'warning' ? 'warning' : 'note');
+
+    const result: Record<string, unknown> = {
+      ruleId: f.ruleId,
+      level: sarifLevel,
+      message: { text: f.message },
+      locations: [
+        {
+          physicalLocation: {
+            artifactLocation: { uri: f.primarySpan.file },
+            region: {
+              startLine: f.primarySpan.startLine,
+              startColumn: f.primarySpan.startCol,
+              endLine: f.primarySpan.endLine,
+              endColumn: f.primarySpan.endCol
+            }
+          }
+        }
+      ],
+    };
+
+    if (f.confidence !== undefined) {
+      result.rank = f.confidence * 100;
+      result.properties = { 'kern/confidence': f.confidence };
+    }
+
+    if (suppressedSet.has(f.fingerprint)) {
+      result.suppressions = [{
+        kind: 'inSource',
+        justification: `kern-ignore directive`,
+      }];
+    }
+
+    sarif.runs[0].results.push(result);
+  }
+
+  return JSON.stringify(sarif, null, 2);
+}
+
 // ── Multi-file Summary ───────────────────────────────────────────────────
 
 export function formatSummary(reports: ReviewReport[]): string {
