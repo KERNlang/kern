@@ -54,21 +54,25 @@ export function detectorCount(): number {
  * Load all built-in detector packs.
  */
 export async function loadBuiltinDetectors(): Promise<void> {
-  const modules = await Promise.all([
-    import('./detectors/react-forms.js'),
-    import('./detectors/state-mgmt.js'),
-    import('./detectors/animation.js'),
-    import('./detectors/data-fetching.js'),
-    import('./detectors/schema-validation.js'),
-    import('./detectors/express-middleware.js'),
-    import('./detectors/vue-composables.js'),
-    import('./detectors/testing.js'),
-    import('./detectors/structural.js'),
-  ]);
-  for (const mod of modules) {
-    for (const pack of mod.detectors) {
-      registerDetector(pack);
+  try {
+    const modules = await Promise.all([
+      import('./detectors/react-forms.js'),
+      import('./detectors/state-mgmt.js'),
+      import('./detectors/animation.js'),
+      import('./detectors/data-fetching.js'),
+      import('./detectors/schema-validation.js'),
+      import('./detectors/express-middleware.js'),
+      import('./detectors/vue-composables.js'),
+      import('./detectors/testing.js'),
+      import('./detectors/structural.js'),
+    ]);
+    for (const mod of modules) {
+      for (const pack of mod.detectors) {
+        registerDetector(pack);
+      }
     }
+  } catch (err) {
+    throw new Error(`Failed to load builtin detectors: ${(err as Error).message}`);
   }
 }
 

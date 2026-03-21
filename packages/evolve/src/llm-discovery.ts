@@ -96,7 +96,8 @@ export function collectTsFiles(dir: string, recursive = true): string[] {
           files.push(full);
         }
       }
-    } catch { /* skip unreadable dirs */ }
+    } catch { // file may not exist
+    }
   }
 
   walk(resolve(dir));
@@ -213,8 +214,9 @@ export function parseDiscoveryResponse(
     try {
       const p = normalizeProposal(item as Record<string, unknown>, evolveRunId);
       if (p) proposals.push(p);
-    } catch {
-      // Skip malformed entries
+    } catch (err) {
+      // Malformed LLM response entry — log and continue
+      if (process.env.KERN_DEBUG) console.warn('Skipping malformed proposal entry:', (err as Error).message);
     }
   }
 

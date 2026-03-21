@@ -225,7 +225,7 @@ function extractMiddlewareArgs(afterPath: string): string[] {
   const names: string[] = [];
 
   // Match: , identifier, identifier, ... async? (req
-  const argsSection = afterPath.match(/^((?:\s*,\s*\w+)*)\s*,\s*(?:async\s*)?\(/);
+  const argsSection = afterPath.match(/^((,\s?\w+){0,10})\s?,\s?(?:async\s+)?\(/);
   if (!argsSection) return names;
 
   const argsText = argsSection[1];
@@ -319,8 +319,8 @@ export function matchRoutes(
 
 const AUTH_MIDDLEWARE = /\b(auth|authenticate|requireAuth|requireLicense|verifyToken|jwtVerify|bearerAuth|isAuthenticated|authMiddleware|passport|requirePro)\b/i;
 const AUTH_BODY = /\breq\.(user|auth)\b|verifyToken\s*\(|authenticate\s*\(|checkAuth\s*\(|requireLicense\b/;
-const VALIDATION_CALL = /\.(parse|safeParse|validate|validateSync)\s*\(/;
-const GUARD_CONDITIONAL = /if\s*\(\s*!?\s*\w+/;
+const VALIDATION_CALL = /\.(parse|safeParse|validate|validateSync)\s?\(/;
+const GUARD_CONDITIONAL = /if\s?\(\s?!?\s?\w+/;
 
 function checkAuth(spec: SpecContract, impl: ImplRoute): SpecViolation | null {
   if (!spec.auth) return null;

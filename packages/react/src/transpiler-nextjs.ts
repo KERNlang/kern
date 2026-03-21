@@ -125,10 +125,39 @@ function emitImports(ctx: Ctx): string[] {
 }
 
 function twClasses(node: IRNode, ctx: Ctx, extra: string = ''): string {
-  let tw = stylesToTailwind(getStyles(node), ctx.colors);
+  const styles = getStyles(node);
+  // Extract className pass-through (e.g. {className:doc.page} → className={doc.page})
+  const classNameRef = styles.className;
+  const inlineStyles: Record<string, string> = {};
+  const filteredStyles: Record<string, string> = {};
+  for (const [k, v] of Object.entries(styles)) {
+    if (k === 'className') continue;
+    // CSS custom properties and complex values → inline style
+    if (v.includes('var(') || k === 'borderBottom' || k === 'background' || k === 'color' || k === 'fontFamily') {
+      inlineStyles[k] = v;
+    } else {
+      filteredStyles[k] = v;
+    }
+  }
+  let tw = stylesToTailwind(filteredStyles, ctx.colors);
   if (ctx.twProfile) tw = applyTailwindTokenRules(tw, ctx.twProfile);
   const parts = [tw, extra].filter(Boolean);
-  return parts.length > 0 ? ` className="${parts.join(' ')}"` : '';
+  const attrs: string[] = [];
+  if (classNameRef) {
+    // className is a JS expression reference like doc.page
+    if (parts.length > 0) {
+      attrs.push(` className={\`\${${classNameRef}} ${parts.join(' ')}\`}`);
+    } else {
+      attrs.push(` className={${classNameRef}}`);
+    }
+  } else if (parts.length > 0) {
+    attrs.push(` className="${parts.join(' ')}"`);
+  }
+  if (Object.keys(inlineStyles).length > 0) {
+    const pairs = Object.entries(inlineStyles).map(([k, v]) => `${k}: '${v}'`);
+    attrs.push(` style={{ ${pairs.join(', ')} }}`);
+  }
+  return attrs.join('');
 }
 
 // ── Route path helper ────────────────────────────────────────────────────
@@ -175,6 +204,12 @@ function renderNode(node: IRNode, ctx: Ctx, indent: string): void {
     case 'progress': renderProgress(node, ctx, indent); break;
     case 'tabs': ctx.lines.push(`${indent}<nav${twClasses(node, ctx, 'flex')}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</nav>`); break;
     case 'tab': ctx.lines.push(`${indent}<button${twClasses(node, ctx)}>${escapeJsxText(String(p.label || ''))}</button>`); break;
+    case 'table': ctx.lines.push(`${indent}<table${twClasses(node, ctx)}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</table>`); break;
+    case 'thead': ctx.lines.push(`${indent}<thead>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</thead>`); break;
+    case 'tbody': ctx.lines.push(`${indent}<tbody>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</tbody>`); break;
+    case 'tr': ctx.lines.push(`${indent}<tr${twClasses(node, ctx)}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</tr>`); break;
+    case 'th': renderTableCell(node, ctx, indent, 'th'); break;
+    case 'td': renderTableCell(node, ctx, indent, 'td'); break;
     case 'generateMetadata': renderGenerateMetadata(node, ctx); break;
     case 'notFound': renderNotFound(node, ctx, indent); break;
     case 'redirect': renderRedirect(node, ctx, indent); break;
@@ -266,11 +301,16 @@ function renderCodeBlock(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   const lang = p.lang as string || '';
   const langClass = lang ? ` language-${lang}` : '';
+  const hasCustomStyle = getStyles(node).className || getStyles(node).background;
+  const preAttrs = hasCustomStyle ? twClasses(node, ctx) : ` className="bg-zinc-900 rounded-lg p-4 overflow-x-auto"`;
+  const codeClass = hasCustomStyle
+    ? `className="${langClass.trim()}"` + (getStyles(node).fontFamily ? ` style={{ fontFamily: '${getStyles(node).fontFamily}' }}` : '')
+    : `className="text-sm font-mono text-zinc-100${langClass}"`;
   // Content: inline value prop or body child node
   const rawValue = p.value;
   if (isExpr(rawValue)) {
-    ctx.lines.push(`${indent}<pre className="bg-zinc-900 rounded-lg p-4 overflow-x-auto">`);
-    ctx.lines.push(`${indent}  <code className="text-sm font-mono text-zinc-100${langClass}">{${rawValue.code}}</code>`);
+    ctx.lines.push(`${indent}<pre${preAttrs}>`);
+    ctx.lines.push(`${indent}  <code ${codeClass}>{${rawValue.code}}</code>`);
     ctx.lines.push(`${indent}</pre>`);
     return;
   }
@@ -279,7 +319,8 @@ function renderCodeBlock(node: IRNode, ctx: Ctx, indent: string): void {
     const bodyNode = node.children.find(c => c.type === 'body');
     if (bodyNode) {
       const bp = getProps(bodyNode);
-      content = bp.value as string || '';
+      // body value="..." OR body <<<...>>> (multiline block → code prop)
+      content = (bp.code as string) || (bp.value as string) || '';
     }
   }
   // Escape for JSX template literal: backslashes, backticks, ${
@@ -287,8 +328,8 @@ function renderCodeBlock(node: IRNode, ctx: Ctx, indent: string): void {
     .replace(/\\/g, '\\\\')
     .replace(/`/g, '\\`')
     .replace(/\$\{/g, '\\${');
-  ctx.lines.push(`${indent}<pre className="bg-zinc-900 rounded-lg p-4 overflow-x-auto">`);
-  ctx.lines.push(`${indent}  <code className="text-sm font-mono text-zinc-100${langClass}">{\`${escaped}\`}</code>`);
+  ctx.lines.push(`${indent}<pre${preAttrs}>`);
+  ctx.lines.push(`${indent}  <code ${codeClass}>{\`${escaped}\`}</code>`);
   ctx.lines.push(`${indent}</pre>`);
 }
 
@@ -336,6 +377,7 @@ function renderButton(node: IRNode, ctx: Ctx, indent: string): void {
     addDefaultImport(ctx, 'next/link', 'Link');
     ctx.lines.push(`${indent}<Link href="/${to.toLowerCase()}"${twClasses(node, ctx)}>${escapeJsxText(text)}</Link>`);
   } else {
+    ctx.isClient = true; // onClick requires 'use client'
     ctx.lines.push(`${indent}<button${twClasses(node, ctx)} onClick={${onClick || '() => {}'}}>${escapeJsxText(text)}</button>`);
   }
 }
@@ -350,6 +392,7 @@ function renderInput(node: IRNode, ctx: Ctx, indent: string): void {
     const bind = p.bind as string;
     const setter = `set${bind.charAt(0).toUpperCase() + bind.slice(1)}`;
     attrs.push(`value={${bind}}`);
+    ctx.isClient = true; // onChange requires 'use client'
     if (isExpr(p.onChange)) attrs.push(`onChange={${p.onChange.code}}`);
     else if (p.onChange) attrs.push(`onChange={${p.onChange}}`);
     else attrs.push(`onChange={(e) => ${setter}(e.target.value)}`);
@@ -359,7 +402,7 @@ function renderInput(node: IRNode, ctx: Ctx, indent: string): void {
   if (p.spellcheck === 'false' || p.spellcheck === false) attrs.push('spellCheck={false}');
   const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
   if (isTextarea) {
-    ctx.lines.push(`${indent}<${tag}${tw}${attrStr} />`);
+    ctx.lines.push(`${indent}<${tag}${tw}${attrStr} rows={4} />`);
   } else {
     ctx.lines.push(`${indent}<${tag}${tw}${attrStr} />`);
   }
@@ -395,6 +438,7 @@ function renderSlider(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   const bind = p.bind as string;
   const setter = bind ? `set${bind.charAt(0).toUpperCase() + bind.slice(1)}` : 'setValue';
+  ctx.isClient = true; // onChange requires 'use client'
   ctx.lines.push(`${indent}<input type="range" min={${p.min || 0}} max={${p.max || 100}} step={${p.step || 1}} value={${bind || 'value'}} onChange={(e) => ${setter}(parseFloat(e.target.value))} className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-orange-500" />`);
 }
 
@@ -402,6 +446,7 @@ function renderToggle(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   const bind = p.bind as string;
   const setter = bind ? `set${bind.charAt(0).toUpperCase() + bind.slice(1)}` : 'setValue';
+  ctx.isClient = true; // onChange requires 'use client'
   ctx.lines.push(`${indent}<label className="relative inline-flex items-center cursor-pointer">`);
   ctx.lines.push(`${indent}  <input type="checkbox" className="sr-only peer" checked={${bind || 'value'}} onChange={(e) => ${setter}(e.target.checked)} />`);
   ctx.lines.push(`${indent}  <div className="w-11 h-6 bg-zinc-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600" />`);
@@ -466,6 +511,23 @@ function renderOnHandler(node: IRNode, ctx: Ctx): void {
   }
 }
 
+function renderTableCell(node: IRNode, ctx: Ctx, indent: string, tag: 'th' | 'td'): void {
+  const p = getProps(node);
+  const tw = twClasses(node, ctx);
+  const rawValue = p.value;
+  if (isExpr(rawValue)) {
+    ctx.lines.push(`${indent}<${tag}${tw}>{${rawValue.code}}</${tag}>`);
+  } else if (rawValue) {
+    ctx.lines.push(`${indent}<${tag}${tw}>${escapeJsxText(rawValue as string)}</${tag}>`);
+  } else if (node.children && node.children.length > 0) {
+    ctx.lines.push(`${indent}<${tag}${tw}>`);
+    renderChildren(node, ctx, indent);
+    ctx.lines.push(`${indent}</${tag}>`);
+  } else {
+    ctx.lines.push(`${indent}<${tag}${tw} />`);
+  }
+}
+
 function renderGrid(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   ctx.lines.push(`${indent}<div className="grid grid-cols-1 md:grid-cols-${p.cols || 1} gap-${Math.round(Number(p.gap || 16) / 4)}">`);
@@ -484,13 +546,13 @@ function renderConditional(node: IRNode, ctx: Ctx, indent: string): void {
 
 function renderComponent(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
-  const ref = p.ref as string;
+  const ref = (p.ref || p.name) as string;
   if (!ref) return;
   ctx.componentImports.add(ref);
   const hasOnChange = 'onChange' in p;
   const attrs: string[] = [];
   for (const [k, v] of Object.entries(p)) {
-    if (['ref', 'styles', 'pseudoStyles', 'themeRefs'].includes(k)) continue;
+    if (['ref', 'name', 'styles', 'pseudoStyles', 'themeRefs'].includes(k)) continue;
     if (k === 'bind') { attrs.push(`value={${v}}`); if (!hasOnChange) attrs.push(`onChange={set${(v as string).charAt(0).toUpperCase() + (v as string).slice(1)}}`); }
     else if (k === 'onChange') attrs.push(`onChange={${v}}`);
     else if (k === 'props') { for (const pn of (v as string).split(',')) attrs.push(`${pn.trim()}={${pn.trim()}}`); }
@@ -498,7 +560,14 @@ function renderComponent(node: IRNode, ctx: Ctx, indent: string): void {
     else if (k === 'default') attrs.push(`defaultValue={${JSON.stringify(v)}}`);
     else attrs.push(`${k}={${JSON.stringify(v)}}`);
   }
-  ctx.lines.push(`${indent}<${ref}${attrs.length ? ' ' + attrs.join(' ') : ''} />`);
+  const attrStr = attrs.length ? ' ' + attrs.join(' ') : '';
+  if (node.children && node.children.length > 0) {
+    ctx.lines.push(`${indent}<${ref}${attrStr}>`);
+    renderChildren(node, ctx, indent);
+    ctx.lines.push(`${indent}</${ref}>`);
+  } else {
+    ctx.lines.push(`${indent}<${ref}${attrStr} />`);
+  }
 }
 
 function renderProgress(node: IRNode, ctx: Ctx, indent: string): void {
@@ -740,10 +809,11 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
   // Emit useState declarations
   for (const s of ctx.stateDecls) {
     const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
-    const initProp = root.children?.find(c => c.type === 'state' && c.props?.name === s.name)?.props?.initial;
-    const isExpr = typeof initProp === 'object' && initProp !== null && '__expr' in (initProp as object);
+    const stateNode = root.children?.find(c => c.type === 'state' && c.props?.name === s.name);
+    const initProp = stateNode?.props?.initial;
+    const isExprInit = typeof initProp === 'object' && initProp !== null && '__expr' in (initProp as object);
     let initVal: string;
-    if (isExpr) {
+    if (isExprInit) {
       initVal = (initProp as { code: string }).code;
     } else if (s.initial === 'true' || s.initial === 'false') {
       initVal = s.initial;
@@ -944,7 +1014,8 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
   for (const s of ctx.stateDecls) {
     const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
     const rootNode = file.nodes[0];
-    const initProp = rootNode?.children?.find((c: IRNode) => c.type === 'state' && c.props?.name === s.name)?.props?.initial;
+    const stateNode = rootNode?.children?.find((c: IRNode) => c.type === 'state' && c.props?.name === s.name);
+    const initProp = stateNode?.props?.initial;
     const isExpr = typeof initProp === 'object' && initProp !== null && '__expr' in (initProp as object);
     let initVal: string;
     if (isExpr) {

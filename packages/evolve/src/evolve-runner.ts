@@ -60,8 +60,7 @@ export function evolve(
       const sourceFile = project.addSourceFileAtPath(filePath);
       const gaps = detectGaps(sourceFile, filePath);
       allGaps.push(...gaps);
-    } catch {
-      // Skip files that can't be parsed
+    } catch { // file may not exist
     }
   }
 

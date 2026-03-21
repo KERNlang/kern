@@ -160,8 +160,7 @@ function loadSingleNode(
         const targetGenerator = loadSandboxedGenerator(targetPath);
         registerEvolvedTargetGenerator(keyword, targetName, targetGenerator);
       }
-    } catch {
-      // Skip unreadable targets dir — default codegen still works
+    } catch { // file may not exist
     }
   }
 }

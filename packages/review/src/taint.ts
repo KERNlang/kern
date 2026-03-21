@@ -128,8 +128,8 @@ const SANITIZER_PATTERNS = [
   { pattern: /\.validate\s*\(/, name: 'schema.validate' },
   { pattern: /\.validateSync\s*\(/, name: 'schema.validateSync' },
   // String sanitization
-  { pattern: /\bsanitize\w*\s*\(/, name: 'sanitize()' },
-  { pattern: /\bescape\w*\s*\(/, name: 'escape()' },
+  { pattern: /\bsanitize\w*\s?\(/, name: 'sanitize()' },
+  { pattern: /\bescape\w*\s?\(/, name: 'escape()' },
   { pattern: /\bDOMPurify\b/, name: 'DOMPurify' },
   { pattern: /\bencodeURI(Component)?\s*\(/, name: 'encodeURIComponent' },
   // Path sanitization
@@ -298,7 +298,8 @@ function analyzeTaintAST(inferred: InferResult[], filePath: string, sourceFile: 
           if (astExprRefersToTainted(init, taintedNames)) {
             taintedNames.add(declName);
             const srcName = findTaintedIdentifier(init, taintedNames);
-            const srcOrigin = srcName ? taintedVars.get(srcName)?.origin : undefined;
+            const srcVar = srcName ? taintedVars.get(srcName) : undefined;
+            const srcOrigin = srcVar?.origin;
             taintedVars.set(declName, { name: declName, origin: srcOrigin || 'derived' });
           }
         }
@@ -308,7 +309,8 @@ function analyzeTaintAST(inferred: InferResult[], filePath: string, sourceFile: 
           const init = decl.getInitializer();
           if (!init || !astExprRefersToTainted(init, taintedNames)) continue;
           const srcName = findTaintedIdentifier(init, taintedNames);
-          const srcOrigin = srcName ? taintedVars.get(srcName)?.origin : undefined;
+          const srcVar2 = srcName ? taintedVars.get(srcName) : undefined;
+          const srcOrigin = srcVar2?.origin;
           for (const element of (nameNode as any).getElements()) {
             const elName = element.getName();
             if (!taintedNames.has(elName)) {
@@ -323,7 +325,8 @@ function analyzeTaintAST(inferred: InferResult[], filePath: string, sourceFile: 
           const init = decl.getInitializer();
           if (!init || !astExprRefersToTainted(init, taintedNames)) continue;
           const srcName = findTaintedIdentifier(init, taintedNames);
-          const srcOrigin = srcName ? taintedVars.get(srcName)?.origin : undefined;
+          const srcVar3 = srcName ? taintedVars.get(srcName) : undefined;
+          const srcOrigin = srcVar3?.origin;
           for (const element of (nameNode as any).getElements()) {
             if (element.getKindName() === 'BindingElement') {
               const elName = (element as any).getName();
@@ -395,8 +398,8 @@ function analyzeTaintAST(inferred: InferResult[], filePath: string, sourceFile: 
       const sanitizer = foundSanitizers.find(s =>
         s.sanitizedVars.has(sink.taintedArg)
       );
-      const hasSanitizer = !!sanitizer;
-      const sufficient = hasSanitizer ? isSanitizerSufficient(sanitizer.name, sink.category) : false;
+      const hasSanitizer = sanitizer != null;
+      const sufficient = sanitizer != null ? isSanitizerSufficient(sanitizer.name, sink.category) : false;
 
       paths.push({
         source,
@@ -749,7 +752,7 @@ function extractDependencies(rhs: string): Set<string> {
   const RESERVED = new Set(['undefined', 'null', 'true', 'false', 'const', 'let', 'var', 'new', 'typeof', 'instanceof', 'return', 'await', 'async', 'function', 'if', 'else', 'for', 'while', 'switch', 'case', 'break', 'continue', 'throw', 'try', 'catch', 'finally']);
 
   // Match all identifier chains: foo, foo.bar, foo.bar.baz, foo[0].bar
-  const chainRegex = /\b([a-zA-Z_$]\w*)(?:\s*\.\s*\w+|\s*\[[^\]]*\])*/g;
+  const chainRegex = /\b([a-zA-Z_$]\w*)(?:\.\w+|\[[^\]]*\])*/g;
   let match;
   while ((match = chainRegex.exec(rhs)) !== null) {
     const base = match[1];
@@ -880,8 +883,8 @@ function buildPaths(code: string, taintedVars: TaintSource[], sinks: TaintSink[]
     );
 
     // Check sanitizer sufficiency — is this the RIGHT sanitizer for this sink?
-    const hasSanitizer = !!sanitizer;
-    const sufficient = hasSanitizer ? isSanitizerSufficient(sanitizer.name, sink.category) : false;
+    const hasSanitizer = sanitizer != null;
+    const sufficient = sanitizer != null ? isSanitizerSufficient(sanitizer.name, sink.category) : false;
 
     paths.push({
       source,

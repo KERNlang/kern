@@ -183,7 +183,9 @@ function detectFromPythonProject(
         detections.push({ source: 'pyproject.toml', field: 'target', value: 'fastapi', confidence: 'high' });
         return;
       }
-    } catch {}
+    } catch {
+      // parse failed, try next strategy
+    }
   }
 
   // Fall back to requirements.txt
@@ -196,7 +198,9 @@ function detectFromPythonProject(
         detections.push({ source: 'requirements.txt', field: 'target', value: 'fastapi', confidence: 'high' });
         return;
       }
-    } catch {}
+    } catch {
+      // parse failed, try next strategy
+    }
   }
 }
 
@@ -228,7 +232,7 @@ function detectFromTsconfig(
         baseConfig = parseJsonWithComments(readFileSync(resolvedExtends, 'utf-8'));
       }
     } catch {
-      // ignore
+      // parse failed, try next strategy
     }
   }
 
@@ -276,7 +280,7 @@ function detectFromPrettierrc(
         source = name;
         break;
       } catch {
-        // continue
+        // parse failed, try next strategy
       }
     }
   }

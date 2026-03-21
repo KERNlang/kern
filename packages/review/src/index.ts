@@ -46,13 +46,17 @@ export { classifyFileRole } from './file-role.js';
 export { detectTemplates } from './template-detector.js';
 export { structuralDiff } from './differ.js';
 export { runQualityRules } from './quality-rules.js';
-export { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, dedup, sortAndDedup, sortFindings } from './reporter.js';
+export { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSARIFWithSuppressions, formatSummary, checkEnforcement, formatEnforcement, dedup, sortAndDedup, sortFindings } from './reporter.js';
 export { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
 export type { LLMGraphContext } from './llm-review.js';
 export { runESLint, runTSCDiagnostics, runTSCDiagnosticsFromPaths, linkToNodes } from './external-tools.js';
 export { extractTsConcepts } from './mappers/ts-concepts.js';
 export { runConceptRules } from './concept-rules/index.js';
 export type { ConceptRule, ConceptRuleContext } from './concept-rules/index.js';
+
+// Suppression
+export { applySuppression, parseDirectives, configDirectives, isConceptRule } from './suppression/index.js';
+export type { SuppressionDirective, SuppressionResult, StrictMode } from './suppression/index.js';
 
 // KERN-IR lint pipeline (ground layer)
 export { lintKernIR, flattenIR } from './kern-lint.js';
@@ -323,7 +327,9 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
     }];
   }
 
-  const findings = sortAndDedup(conceptFindings);
+  const dedupedFindings = sortAndDedup(conceptFindings);
+  const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
+  const findings = sortAndDedup(suppression.findings);
 
   return {
     filePath,

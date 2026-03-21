@@ -108,9 +108,9 @@ export function compileCodegenToJS(tsSource: string): string {
   // If no module.exports yet, wrap
   if (!js.includes('module.exports')) {
     // Try to find a standalone function declaration
-    const fnMatch = js.match(/^function\s+\w+/m);
+    const fnMatch = js.match(/^function\s{1,20}\w+/m);
     if (fnMatch) {
-      js = js.replace(/^(function\s+\w+)/m, 'module.exports = $1');
+      js = js.replace(/^(function\s{1,20}\w+)/m, 'module.exports = $1');
     }
   }
 
@@ -126,8 +126,8 @@ export function compileCodegenToJS(tsSource: string): string {
   js = js.replace(/(\w|\))\s*:\s*any\b/g, '$1');
   js = js.replace(/(\w|\))\s*:\s*CodegenHelpers\b/g, '$1');
   js = js.replace(/(\w|\))\s*:\s*Record<[^>]+>/g, '$1');
-  js = js.replace(/<[A-Z]\w*(?:\s*,\s*[A-Z]\w*)*>/g, '');
-  js = js.replace(/\bas\s+\w+/g, '');
+  js = js.replace(/<[A-Z]\w*(?:,\s?[A-Z]\w*){0,10}>/g, '');
+  js = js.replace(/\bas\s{1,20}\w+/g, '');
 
   return js;
 }

@@ -638,6 +638,18 @@ export const typeModelMismatch: KernSourceRule = (nodes: IRNode[], filePath: str
     for (const [key, members] of mismatches) {
       const [bindingName, alias] = key.split(':');
       const union = unionAliases.get(alias);
+      const relatedInfo = union != null
+        ? {
+            relatedSpans: [{
+              file: filePath,
+              startLine: loc(union.node).line,
+              startCol: loc(union.node).col,
+              endLine: loc(union.node).line,
+              endCol: loc(union.node).col,
+            }],
+            suggestion: `Use '${bindingName}' as a literal value, or change '${alias}' to an interface/union with object variants if field access is intended.`,
+          }
+        : undefined;
       findings.push(finding(
         'type-model-mismatch',
         'warning',
@@ -645,16 +657,7 @@ export const typeModelMismatch: KernSourceRule = (nodes: IRNode[], filePath: str
         `Literal-union type '${alias}' is used like an object in handler code: ${bindingName}.${[...members].join(', ')}`,
         filePath,
         node,
-        union ? {
-          relatedSpans: [{
-            file: filePath,
-            startLine: loc(union.node).line,
-            startCol: loc(union.node).col,
-            endLine: loc(union.node).line,
-            endCol: loc(union.node).col,
-          }],
-          suggestion: `Use '${bindingName}' as a literal value, or change '${alias}' to an interface/union with object variants if field access is intended.`,
-        } : undefined,
+        relatedInfo,
       ));
     }
   }

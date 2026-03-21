@@ -64,6 +64,8 @@ export interface KernConfig {
     minConfidence?: number;
     /** Maximum cognitive complexity allowed (default: 15) */
     maxComplexity?: number;
+    /** Rule IDs to disable project-wide */
+    disabledRules?: string[];
   };
 }
 
@@ -110,6 +112,7 @@ export interface ResolvedKernConfig {
     showConfidence: boolean;
     minConfidence: number;
     maxComplexity: number;
+    disabledRules: string[];
   };
 }
 
@@ -148,6 +151,7 @@ export const DEFAULT_CONFIG: ResolvedKernConfig = {
     showConfidence: false,
     minConfidence: 0,
     maxComplexity: 15,
+    disabledRules: [],
   },
 };
 
@@ -206,6 +210,7 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
       showConfidence: user.review?.showConfidence ?? DEFAULT_CONFIG.review.showConfidence,
       minConfidence: user.review?.minConfidence ?? DEFAULT_CONFIG.review.minConfidence,
       maxComplexity: user.review?.maxComplexity ?? DEFAULT_CONFIG.review.maxComplexity,
+      disabledRules: user.review?.disabledRules ?? DEFAULT_CONFIG.review.disabledRules,
     },
   };
 }

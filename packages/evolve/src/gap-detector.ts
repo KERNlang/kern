@@ -135,14 +135,12 @@ export function detectGapsInFiles(
       let coverage: ReviewReport | undefined;
       try {
         coverage = reviewFile(filePath);
-      } catch {
-        // Review might fail for some files, that's ok
+      } catch { // file may not exist
       }
 
       const gaps = detectGaps(sourceFile, filePath, coverage);
       allGaps.push(...gaps);
-    } catch {
-      // Skip files that can't be parsed
+    } catch { // file may not exist
     }
   }
 

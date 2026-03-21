@@ -57,7 +57,7 @@ const DB_READ_PATTERNS = /\b(db\.query|findOne|findById|findMany|getItem|collect
 const LLM_API_PATTERNS = /\bgenerateContent\b|\bchat\.completions\.create\b|\bcomplete\b|\bsendMessage\b|\bcreateCompletion\b|\bcreateChatCompletion\b/;
 const LLM_RESPONSE_NAMES = /^(completion|llmResponse|llmResult|aiResponse|chatResponse|aiOutput|generatedText)$/i;
 const PROMPT_CONTEXT = /prompt|system|instruction|context|template/i;
-const SANITIZER_CALL = /\bsanitize\w*\s*\(|\bescape\w*\s*\(|\bclean\w*\s*\(|\bstripDelimiters\s*\(|\bcleanForPrompt\s*\(/;
+const SANITIZER_CALL = /\bsanitize\w*\s?\(|\bescape\w*\s?\(|\bclean\w*\s?\(|\bstripDelimiters\s?\(|\bcleanForPrompt\s?\(/;
 const VALIDATION_CALL = /\.parse\s*\(|\.safeParse\s*\(|\.validate\s*\(|\.validateSync\s*\(/;
 const RETRIEVAL_PATTERNS = /\bvectorStore\.search\b|\bvectorDb\.search\b|\bretrieve\b|\bsimilaritySearch\b|\bembedding\.query\b|\bindex\.query\b|\bsemantic[Ss]earch\b|\b\w+[Dd]b\.search\b|\b\w+[Ss]tore\.search\b/;
 const EXEC_SINKS = /\beval\s*\(|\bnew\s+Function\s*\(|\bvm\.runInContext\s*\(|\bvm\.runInNewContext\s*\(|\bexec\s*\(|\bexecSync\s*\(/;
@@ -417,10 +417,10 @@ function toolCallingManipulation(ctx: RuleContext): ReviewFinding[] {
 
     const forBody = forOf.getStatement().getText();
     // Is there an execute/call pattern using the loop variable's .name?
-    if (/\b(execute|call|invoke|run|dispatch)\w*\s*\(/i.test(forBody) &&
+    if (/\b(execute|call|invoke|run|dispatch)\w*\s?\(/i.test(forBody) &&
         /\.name\b|\.function\b/.test(forBody)) {
       // Check if there's an allowlist/validation on the tool NAME before execution
-      if (!/allowlist\w*\.has\s*\(\s*\w+\.name|whitelist\w*\.has\s*\(\s*\w+\.name|allowed\w*\.includes\s*\(\s*\w+\.name|validTools\w*\.has\s*\(\s*\w+\.name/.test(forBody)) {
+      if (!/allowlist\w*\.has\s?\(\s?\w+\.name|whitelist\w*\.has\s?\(\s?\w+\.name|allowed\w*\.includes\s?\(\s?\w+\.name|validTools\w*\.has\s?\(\s?\w+\.name/.test(forBody)) {
         findings.push(finding('tool-calling-manipulation', 'error', 'bug',
           `LLM-returned tool calls executed without allowlist validation — attacker can invoke arbitrary tools via prompt injection`,
           ctx.filePath, forOf.getStartLineNumber(),
@@ -435,9 +435,9 @@ function toolCallingManipulation(ctx: RuleContext): ReviewFinding[] {
     if (!/tool_calls\.forEach|toolCalls\.forEach|function_calls\.forEach/.test(calleeText)) continue;
 
     const argsText = call.getArguments().map(a => a.getText()).join(' ');
-    if (/\b(execute|call|invoke|run|dispatch)\w*\s*\(/i.test(argsText) &&
+    if (/\b(execute|call|invoke|run|dispatch)\w*\s?\(/i.test(argsText) &&
         /\.name\b|\.function\b/.test(argsText)) {
-      if (!/allowlist\w*\.has\s*\(\s*\w+\.name|whitelist\w*\.has\s*\(\s*\w+\.name|allowed\w*\.includes\s*\(\s*\w+\.name|validTools\w*\.has\s*\(\s*\w+\.name/.test(argsText)) {
+      if (!/allowlist\w*\.has\s?\(\s?\w+\.name|whitelist\w*\.has\s?\(\s?\w+\.name|allowed\w*\.includes\s?\(\s?\w+\.name|validTools\w*\.has\s?\(\s?\w+\.name/.test(argsText)) {
         findings.push(finding('tool-calling-manipulation', 'error', 'bug',
           `LLM-returned tool calls executed without allowlist validation — attacker can invoke arbitrary tools via prompt injection`,
           ctx.filePath, call.getStartLineNumber(),

@@ -21,6 +21,7 @@ interface CodeBuilder {
   stateDecls: StateDecl[];
   logicBlocks: string[];
   i18nEnabled: boolean;
+  hasEventHandlers: boolean;
   colors: Record<string, string> | undefined;
   twProfile: TailwindVersionProfile | undefined;
 }
@@ -318,6 +319,7 @@ function renderButton(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const size = p.size as string || 'md';
   const iconName = p.icon as string;
 
+  ctx.hasEventHandlers = true; // onClick requires 'use client'
   if (variant !== 'primary') {
     ctx.componentImports.add('Button');
     ctx.lines.push(`${indent}<Button variant="${variant}" size="${size}" onClick={${onClick}}>`);
@@ -346,6 +348,7 @@ function renderSlider(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const setter = bindSetter(bind);
   const dblClick = onDoubleClick ? ` onDoubleClick={() => ${setter}(${onDoubleClick})}` : '';
 
+  ctx.hasEventHandlers = true; // onChange requires 'use client'
   ctx.lines.push(`${indent}<input`);
   ctx.lines.push(`${indent}  type="range"`);
   ctx.lines.push(`${indent}  min={${min}}`);
@@ -364,6 +367,7 @@ function renderToggle(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const accent = p.accent as string || '#ea580c';
   const setter = bindSetter(bind);
 
+  ctx.hasEventHandlers = true; // onChange requires 'use client'
   ctx.lines.push(`${indent}<label className="relative inline-flex items-center cursor-pointer">`);
   ctx.lines.push(`${indent}  <input`);
   ctx.lines.push(`${indent}    type="checkbox"`);
@@ -391,6 +395,7 @@ function renderOnHandler(node: IRNode, ctx: CodeBuilder): void {
     return;
   }
 
+  ctx.hasEventHandlers = true; // event handlers require 'use client'
   const fnName = handlerRef || `handle${event.charAt(0).toUpperCase() + event.slice(1)}`;
   const asyncKw = isAsync ? 'async ' : '';
 
@@ -616,6 +621,7 @@ function renderInput(node: IRNode, ctx: CodeBuilder, indent: string): void {
     const bind = p.bind as string;
     const setter = bindSetter(bind);
     attrs.push(`value={${bindVar(bind)}}`);
+    ctx.hasEventHandlers = true; // onChange requires 'use client'
     // Check if onChange is an expression
     if (isExpr(p.onChange)) {
       attrs.push(`onChange={${(p.onChange as { code: string }).code}}`);
@@ -698,6 +704,7 @@ function _transpileTailwindInner(root: IRNode, config?: ResolvedKernConfig): Tra
     stateDecls: [],
     logicBlocks: [],
     i18nEnabled,
+    hasEventHandlers: false,
     colors: config?.colors,
     twProfile: config?.frameworkVersions ? buildTailwindProfile(config.frameworkVersions) : undefined,
   };
@@ -756,7 +763,8 @@ function _transpileTailwindInner(root: IRNode, config?: ResolvedKernConfig): Tra
     const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
     const init = s.initial === 'true' ? 'true' : s.initial === 'false' ? 'false' : isNaN(Number(s.initial)) ? `'${s.initial}'` : s.initial;
     // Check if initial is an expression
-    const initProp = (root.children?.find(c => c.type === 'state' && c.props?.name === s.name)?.props?.initial);
+    const stateNode = root.children?.find(c => c.type === 'state' && c.props?.name === s.name);
+    const initProp = stateNode?.props?.initial;
     const isExpr = typeof initProp === 'object' && initProp !== null && '__expr' in (initProp as object);
     const initVal = isExpr ? (initProp as { code: string }).code : init;
     code.push(`  const [${s.name}, ${setter}] = useState(${initVal});`);
@@ -806,6 +814,7 @@ function _renderTailwindFile(file: PlannedFile, config: ResolvedKernConfig): str
     stateDecls: [],
     logicBlocks: [],
     i18nEnabled,
+    hasEventHandlers: false,
     colors: config.colors,
     twProfile: config.frameworkVersions ? buildTailwindProfile(config.frameworkVersions) : undefined,
   };
@@ -821,8 +830,8 @@ function _renderTailwindFile(file: PlannedFile, config: ResolvedKernConfig): str
 
   const code: string[] = [];
 
-  // For non-entry files with state/logic, add 'use client'
-  const needsClient = hasState || hasLogic;
+  // For non-entry files with state/logic/event handlers, add 'use client'
+  const needsClient = hasState || hasLogic || ctx.hasEventHandlers;
   if (needsClient) {
     code.push(`'use client';`);
     code.push('');
@@ -861,7 +870,7 @@ function _renderTailwindFile(file: PlannedFile, config: ResolvedKernConfig): str
   code.push('');
 
   if (file.isEntry) {
-    code.push(`export function ${name}() {`);
+    code.push(`export default function ${name}() {`);
   } else {
     code.push(`export function ${name}() {`);
   }
@@ -875,7 +884,8 @@ function _renderTailwindFile(file: PlannedFile, config: ResolvedKernConfig): str
     const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
     const init = s.initial === 'true' ? 'true' : s.initial === 'false' ? 'false' : isNaN(Number(s.initial)) ? `'${s.initial}'` : s.initial;
     // Check if initial is an expression
-    const initProp = (rootNode.children?.find(c => c.type === 'state' && c.props?.name === s.name)?.props?.initial);
+    const stateNode = rootNode.children?.find(c => c.type === 'state' && c.props?.name === s.name);
+    const initProp = stateNode?.props?.initial;
     const isExprInit = typeof initProp === 'object' && initProp !== null && '__expr' in (initProp as object);
     const initVal = isExprInit ? (initProp as { code: string }).code : init;
     code.push(`  const [${s.name}, ${setter}] = useState(${initVal});`);

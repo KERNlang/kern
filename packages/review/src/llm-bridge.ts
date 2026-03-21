@@ -115,23 +115,29 @@ export async function runLLMReview(
   const config = resolveConfig(configOverride);
   if (!config.available) return [];
 
-  const allFindings: ReviewFinding[] = [];
+  try {
+    const allFindings: ReviewFinding[] = [];
 
-  // Batch files into a single prompt when small enough, or process individually
-  if (inputs.length <= 3) {
-    // Small batch: single prompt with all files
-    const findings = await reviewBatch(inputs, config);
-    allFindings.push(...findings);
-  } else {
-    // Large batch: process in chunks of 3
-    for (let i = 0; i < inputs.length; i += 3) {
-      const chunk = inputs.slice(i, i + 3);
-      const findings = await reviewBatch(chunk, config);
+    // Batch files into a single prompt when small enough, or process individually
+    if (inputs.length <= 3) {
+      // Small batch: single prompt with all files
+      const findings = await reviewBatch(inputs, config);
       allFindings.push(...findings);
+    } else {
+      // Large batch: process in chunks of 3
+      for (let i = 0; i < inputs.length; i += 3) {
+        const chunk = inputs.slice(i, i + 3);
+        const findings = await reviewBatch(chunk, config);
+        allFindings.push(...findings);
+      }
     }
-  }
 
-  return allFindings;
+    return allFindings;
+  } catch (_err) {
+    // LLM API failures should not crash the review pipeline
+    void _err;
+    return [];
+  }
 }
 
 async function reviewBatch(

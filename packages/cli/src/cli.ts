@@ -68,7 +68,9 @@ if (args[0] === 'dev') {
         if (detected.nextjs) parts.push(`Next.js ${detected.nextjs}`);
         console.log(`  Auto-detected: ${parts.join(', ')}`);
       }
-    } catch {}
+    } catch {
+      // package.json may not exist or may be malformed
+    }
   }
 
   // Load templates before compilation
@@ -252,7 +254,7 @@ function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride
     const outExt = target === 'fastapi' ? '.py'
       : (target === 'vue' || target === 'nuxt') ? '.vue'
       : (target === 'express' || target === 'cli' || target === 'terminal') ? '.ts'
-      : target === 'ink' ? '.tsx' : '.tsx';
+      : '.tsx';
     // For Next.js target, use the file convention name from the transpiler result (page.tsx, layout.tsx, etc.)
     const resultWithFiles = result as { files?: Array<{ path: string; content: string }> };
     const outFileName = (target === 'nextjs' && resultWithFiles.files && resultWithFiles.files.length > 0)
@@ -585,8 +587,9 @@ if (args[0] === 'review') {
   let reviewInput = reviewInputs[0];
   if (diffBase && !reviewInput) {
     try {
-      const { execSync } = await import('child_process');
-      const diffFiles = execSync(`git diff --name-only --diff-filter=ACMR ${diffBase}`, { encoding: 'utf-8' })
+      const { execFileSync } = await import('child_process');
+      const sanitizedBase = diffBase.replace(/[^a-zA-Z0-9_.\/\-~]/g, '');
+      const diffFiles = execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMR', sanitizedBase], { encoding: 'utf-8' })
         .trim()
         .split('\n')
         .filter(f => f.endsWith('.ts') || f.endsWith('.tsx'))
@@ -673,7 +676,9 @@ if (args[0] === 'review') {
             if (tplName) reviewConfig.registeredTemplates!.push(tplName);
             registerTemplate(node, file);
           }
-        } catch {}
+        } catch (e) {
+          console.error(`  Warning: Failed to parse template ${basename(file)}: ${(e as Error).message}`);
+        }
       }
     }
     if (reviewConfig.registeredTemplates!.length > 0) {
@@ -718,7 +723,7 @@ if (args[0] === 'review') {
       const batch = entryFilePaths.slice(i, i + batchSize);
       const batchNum = Math.floor(i / batchSize) + 1;
       for (const f of batch) {
-        try { reports.push(reviewFile(f, reviewConfig)); } catch {}
+        try { reports.push(reviewFile(f, reviewConfig)); } catch (e) { console.error(`  Review error in ${f}: ${(e as Error).message}`); }
       }
       const batchFindings = reports.slice(-batch.length).reduce((sum, r) => sum + r.findings.length, 0);
       console.log(`  Batch ${batchNum}/${totalBatches}: ${batch.length} files reviewed (${batchFindings} findings)`);
@@ -726,7 +731,7 @@ if (args[0] === 'review') {
   } else {
     // Standard mode: review each file individually
     for (const f of entryFilePaths) {
-      try { reports.push(reviewFile(f, reviewConfig)); } catch {}
+      try { reports.push(reviewFile(f, reviewConfig)); } catch (e) { console.error(`  Review error in ${f}: ${(e as Error).message}`); }
     }
   }
 
@@ -1324,6 +1329,7 @@ if (args[0] === 'evolve:discover') {
           const retryPrompt = buildRetryPrompt(proposal, validation.errors);
           budget.add(estimateTokens(retryPrompt));
           const retryResponse = await provider.complete(retryPrompt);
+          if (!retryResponse || typeof retryResponse !== 'string') throw new Error('LLM returned empty or invalid response');
           budget.add(estimateTokens(retryResponse));
 
           // Parse retry response as single object
@@ -1335,16 +1341,17 @@ if (args[0] === 'evolve:discover') {
           if (objStart !== -1 && objEnd > objStart) json = json.slice(objStart, objEnd + 1);
 
           const fixed = JSON.parse(json);
+          if (typeof fixed !== 'object' || fixed === null) throw new Error('LLM retry response is not a JSON object');
           // Merge fixes into proposal
-          if (fixed.kernExample) proposal.kernExample = fixed.kernExample;
-          if (fixed.expectedOutput) proposal.expectedOutput = fixed.expectedOutput;
-          if (fixed.codegenSource) proposal.codegenSource = fixed.codegenSource;
+          if (typeof fixed.kernExample === 'string') proposal.kernExample = fixed.kernExample;
+          if (typeof fixed.expectedOutput === 'string') proposal.expectedOutput = fixed.expectedOutput;
+          if (typeof fixed.codegenSource === 'string') proposal.codegenSource = fixed.codegenSource;
 
           validation = validateEvolveProposal(proposal, existingKw);
           allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
           if (allOk) break;
-        } catch {
-          // Retry failed, continue to next attempt
+        } catch (e) {
+          console.error(`    Retry ${retry} failed: ${(e as Error).message}`);
         }
       }
     }
@@ -1743,7 +1750,11 @@ if (args[0] === 'evolve:backfill') {
     if (objStart !== -1 && objEnd > objStart) json = json.slice(objStart, objEnd + 1);
 
     const parsed = JSON.parse(json);
-    const targetCodegen = parsed.codegenSource as string;
+    if (typeof parsed !== 'object' || parsed === null) {
+      console.error('  LLM response is not a JSON object');
+      process.exit(1);
+    }
+    const targetCodegen = typeof parsed.codegenSource === 'string' ? parsed.codegenSource : undefined;
 
     if (!targetCodegen) {
       console.error('  LLM did not return codegenSource');
@@ -2196,7 +2207,7 @@ if (isStructured) {
   const outExt = target === 'fastapi' ? '.py'
     : (target === 'vue' || target === 'nuxt') ? '.vue'
     : (target === 'express' || target === 'cli' || target === 'terminal') ? '.ts'
-    : target === 'ink' ? '.tsx' : '.tsx';
+    : '.tsx';
   const outFile = resolve(outDir, `${name}${outExt}`);
   mkdirSync(dirname(outFile), { recursive: true });
   writeFileSync(outFile, result.code);

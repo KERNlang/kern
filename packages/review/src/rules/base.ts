@@ -83,10 +83,11 @@ function floatingPromise(ctx: RuleContext): ReviewFinding[] {
       if (asyncFns.has(fnName)) {
         const matchingNode = ctx.inferred.find(r =>
           r.node.type === 'fn' && r.node.props?.name === fnName);
+        const nodeRef = matchingNode != null ? { nodeIds: [matchingNode.nodeId] } : undefined;
         findings.push(finding('floating-promise', 'error', 'bug',
           `Async function '${fnName}()' called without await — floating promise`,
           ctx.filePath, exprStmt.getStartLineNumber(), 1,
-          matchingNode ? { nodeIds: [matchingNode.nodeId] } : undefined));
+          nodeRef));
       }
     }
   }

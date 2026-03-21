@@ -55,8 +55,7 @@ export function listStaged(config?: Partial<EvolveConfig>): StagedProposal[] {
     try {
       const content = readFileSync(resolve(stagingDir, file), 'utf-8');
       proposals.push(JSON.parse(content));
-    } catch {
-      // Skip invalid files
+    } catch { // file may not exist
     }
   }
 
@@ -251,8 +250,7 @@ export function listStagedNodes(config?: Partial<EvolveConfig>): StagedNodePropo
     try {
       const content = readFileSync(resolve(stagingDir, file), 'utf-8');
       proposals.push(JSON.parse(content));
-    } catch {
-      // Skip invalid files
+    } catch { // file may not exist
     }
   }
 
@@ -367,8 +365,7 @@ export function listStagedEvolveV4(): StagedEvolveProposal[] {
     try {
       const content = readFileSync(resolve(stagingDir, file), 'utf-8');
       proposals.push(JSON.parse(content));
-    } catch {
-      // Skip invalid files
+    } catch { // file may not exist
     }
   }
 

@@ -1794,7 +1794,9 @@ export function generateSelect(node: IRNode): string[] {
   if (value) attrs.push(`value={${value}}`);
   if (onChange) attrs.push(`onChange={${onChange}}`);
 
-  const lines: string[] = [`<select ${attrs.join(' ')}>`];
+  // Event handlers like onChange require 'use client' in React/Next.js
+  const lines: string[] = onChange ? [`{/* kern:use-client */}`] : [];
+  lines.push(`<select ${attrs.join(' ')}>`);
   if (placeholder) {
     lines.push(`  <option value="" disabled>${placeholder}</option>`);
   }
@@ -2130,7 +2132,8 @@ export function generateCoreNode(node: IRNode, target?: string): string[] {
     case 'option': return [];
     default: {
       // Check evolved generators (v4) — target-specific first, then default
-      const targetGen = target && _evolvedTargetGenerators.get(node.type)?.get(target);
+      const targetMap = target ? _evolvedTargetGenerators.get(node.type) : undefined;
+      const targetGen = targetMap && target ? targetMap.get(target) : undefined;
       const evolvedGen = targetGen || _evolvedGenerators.get(node.type);
       if (evolvedGen) return evolvedGen(node);
       // Check if this is a template instance

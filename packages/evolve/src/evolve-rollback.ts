@@ -37,10 +37,12 @@ export function findUsages(keyword: string, baseDir: string = process.cwd()): st
             if (re.test(content)) {
               usages.push(full);
             }
-          } catch { /* skip unreadable files */ }
+          } catch { // file may not exist
+          }
         }
       }
-    } catch { /* skip unreadable dirs */ }
+    } catch { // file may not exist
+    }
   }
 
   walk(baseDir);

@@ -79,11 +79,11 @@ function missingErrorMiddleware(ctx: RuleContext): ReviewFinding[] {
   const fullText = ctx.sourceFile.getFullText();
 
   // Check if this file creates an Express app
-  const hasApp = /(?:const|let)\s+\w+\s*=\s*express\s*\(\s*\)/g.test(fullText);
+  const hasApp = /(?:const|let)\s+\w+\s?=\s?express\s?\(\s?\)/.test(fullText);
   if (!hasApp) return findings;
 
   // Check for error middleware (4-parameter function: err, req, res, next)
-  const has4ParamMiddleware = /app\.use\s*\(\s*(?:function\s*)?\(\s*\w+\s*,\s*\w+\s*,\s*\w+\s*,\s*\w+\s*\)/g.test(fullText);
+  const has4ParamMiddleware = /app\.use\s?\(\s?(?:function\s+)?\(\s?\w+,\s?\w+,\s?\w+,\s?\w+\s?\)/.test(fullText);
   const hasErrorHandler = has4ParamMiddleware || fullText.includes('errorHandler') || fullText.includes('error-handler');
 
   if (!hasErrorHandler) {

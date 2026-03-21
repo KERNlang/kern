@@ -38,7 +38,7 @@ const structuralModel: DetectorPack = {
       // Drizzle pgTable/mysqlTable/sqliteTable
       /(?:const|export\s+const)\s+(\w+)\s*=\s*(?:pgTable|mysqlTable|sqliteTable)\s*\(/g,
       // Prisma client usage: prisma.user.findMany() etc
-      /prisma\.(\w+)\.\w+\s*\(/g,
+      /prisma\.(\w+)\.\w+\s{0,20}\(/g,
     ];
 
     for (const pattern of entityPatterns) {
@@ -113,7 +113,7 @@ const structuralDependency: DetectorPack = {
     const results: DetectionResult[] = [];
 
     // Constructor injection: constructor(private readonly userRepo: UserRepository)
-    const ctorInjection = /constructor\s*\(\s*((?:private|protected|public)\s+(?:readonly\s+)?\w+\s*:\s*\w+(?:\s*,\s*(?:private|protected|public)\s+(?:readonly\s+)?\w+\s*:\s*\w+)*)\s*\)/g;
+    const ctorInjection = /constructor\s{0,20}\(\s{0,20}((?:private|protected|public)\s+(?:readonly\s+)?\w+\s{0,10}:\s{0,10}\w+(?:\s{0,10},\s{0,10}(?:private|protected|public)\s+(?:readonly\s+)?\w+\s{0,10}:\s{0,10}\w+){0,20})\s{0,20}\)/g;
     let match: RegExpExecArray | null;
     while ((match = ctorInjection.exec(fullText)) !== null) {
       const params = match[1].split(',').map(p => p.trim());
@@ -268,7 +268,7 @@ const structuralSelect: DetectorPack = {
       // HTML <select> tag
       /<select\s[^>]*name=['"](\w+)['"]/g,
       // Headless UI Listbox
-      /(?:Listbox|Select|Dropdown)\s*(?:\.\w+\s*)?(?:value|onChange)\s*=/g,
+      /(?:Listbox|Select|Dropdown)\s{0,20}(?:\.\w+\s{0,20})?(?:value|onChange)\s{0,20}=/g,
     ];
 
     for (const pattern of selectPatterns) {

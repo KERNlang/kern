@@ -102,7 +102,7 @@ export const EXAMPLES: Example[] = [
 
   col {gap:16}
     text value="Search Inventory" {fs:24,fw:bold,c:#18181b}
-    text value="Type a product name to filter the live results." tag=p {fs:14,c:#52525b}
+    text value="Type a name to filter the live results." tag=p {fs:14,c:#52525b}
     input bind=query placeholder="Search items..." {p:12,br:8,bg:#fff,border:#d4d4d8}
     row {jc:sb,ai:center}
       text value={{ loading ? "Refreshing..." : "Ready" }} {fs:14,c:#18181b}

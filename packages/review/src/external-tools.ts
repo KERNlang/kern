@@ -162,7 +162,11 @@ export function runTSCDiagnosticsFromPaths(filePaths: string[]): ReviewFinding[]
   try {
     const project = createProject();
     for (const fp of filePaths) {
-      try { project.addSourceFileAtPath(fp); } catch (_e) { /* skip unreadable/unparseable files */ }
+      try {
+        project.addSourceFileAtPath(fp);
+      } catch (_e) {
+        void _e; // intentional: skip unreadable/unparseable files
+      }
     }
     return runTSCDiagnostics(project);
   } catch {

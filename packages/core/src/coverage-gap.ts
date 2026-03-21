@@ -82,8 +82,8 @@ export function readCoverageGaps(gapDir: string): CoverageGap[] {
       const content = readFileSync(join(dir, file), 'utf-8');
       const gaps: CoverageGap[] = JSON.parse(content);
       allGaps.push(...gaps);
-    } catch {
-      // Skip invalid files
+    } catch (_e) {
+      // Skip invalid/corrupt gap files — non-fatal during aggregation
     }
   }
 

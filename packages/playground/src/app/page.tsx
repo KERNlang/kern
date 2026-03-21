@@ -112,6 +112,7 @@ function readShareParams(): { source?: string; target?: PlaygroundTarget; mode?:
       example: example || undefined,
     };
   } catch {
+    // intentionally ignored — invalid share params fall back to defaults
     return {};
   }
 }
@@ -149,7 +150,7 @@ function ShareButton() {
   const [copied, setCopied] = useState(false);
 
   const handleShare = useCallback(() => {
-    navigator.clipboard.writeText(window.location.href).then(() => {
+    void navigator.clipboard.writeText(window.location.href).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });

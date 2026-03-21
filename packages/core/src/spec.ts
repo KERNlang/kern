@@ -58,7 +58,7 @@ export const NODE_TYPES = [
   // CLI
   'cli', 'command', 'arg', 'flag', 'import',
   // Terminal
-  'separator', 'table', 'scoreboard', 'metric',
+  'separator', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'scoreboard', 'metric',
   'spinner', 'progress', 'box', 'gradient',
   'state', 'repl', 'guard', 'parallel', 'dispatch', 'then', 'each',
   // Next.js production patterns

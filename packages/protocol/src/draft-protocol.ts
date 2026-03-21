@@ -137,7 +137,7 @@ export function parseKernDraft(output: string): KernDraft | null {
   const stepsMatch = body.match(/steps\s*\{([\s\S]*?)\}/);
   if (stepsMatch) {
     const stepsBody = stepsMatch[1];
-    const stepEntries = [...stepsBody.matchAll(/\d+\s*:\s*"([^"]*?)"/g)];
+    const stepEntries = [...stepsBody.matchAll(/\d+\s?:\s?"([^"]*?)"/g)];
     draft.steps = stepEntries.map(m => m[1]);
   }
 

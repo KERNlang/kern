@@ -25,26 +25,26 @@ export function UserCard({ name, email, avatar }: UserCardProps) {
 
   nextjs: `import { useRouter } from 'next/router';
 
-interface ProductProps {
+interface ProjectProps {
   id: string;
   title: string;
-  price: number;
+  status: string;
   image: string;
 }
 
-export default function ProductPage({ id, title, price, image }: ProductProps) {
+export default function ProjectPage({ id, title, status, image }: ProjectProps) {
   const router = useRouter();
 
   return (
     <div style={{ maxWidth: 600, margin: '0 auto', padding: 24 }}>
       <img src={image} alt={title} style={{ width: '100%', borderRadius: 12 }} />
       <h1 style={{ fontSize: 24, fontWeight: 'bold', marginTop: 16 }}>{title}</h1>
-      <p style={{ fontSize: 20, color: '#007AFF' }}>\${price.toFixed(2)}</p>
+      <p style={{ fontSize: 20, color: '#007AFF' }}>{status}</p>
       <button
-        onClick={() => router.push('/cart')}
+        onClick={() => router.push('/projects')}
         style={{ padding: '12px 24px', borderRadius: 8, background: '#000', color: '#fff', width: '100%' }}
       >
-        Add to Cart
+        View Details
       </button>
     </div>
   );
@@ -242,19 +242,19 @@ function follow() {
 
   nuxt: `<template>
   <div class="page">
-    <h1>{{ product.title }}</h1>
-    <img :src="product.image" :alt="product.title" />
-    <p class="price">\${{ product.price.toFixed(2) }}</p>
-    <button @click="addToCart">Add to Cart</button>
+    <h1>{{ project.title }}</h1>
+    <img :src="project.image" :alt="project.title" />
+    <p class="status">{{ project.status }}</p>
+    <button @click="viewDetails">View Details</button>
   </div>
 </template>
 
 <script setup lang="ts">
 const route = useRoute();
-const { data: product } = await useFetch(\`/api/products/\${route.params.id}\`);
+const { data: project } = await useFetch(\`/api/projects/\${route.params.id}\`);
 
-function addToCart() {
-  navigateTo('/cart');
+function viewDetails() {
+  navigateTo('/projects');
 }
 </script>`,
 };

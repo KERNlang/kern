@@ -153,7 +153,7 @@
   <g class="badge" transform="translate(48 140)">
     <rect x="0" y="0" width="298" height="24" rx="12" fill="#11161d" stroke="#ff6b6b" stroke-width="1"/>
     <circle cx="16" cy="12" r="3.5" fill="#ff6b6b"/>
-    <text x="28" y="16" fill="#f0f6fc" font-size="11" font-weight="700">7 LLMs understand it without ever seeing it</text>
+    <text x="28" y="16" fill="#f0f6fc" font-size="11" font-weight="700">5 LLMs understand it without ever seeing it</text>
   </g>
 
   <!-- Sub-badge: 11 targets -->
