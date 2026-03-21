@@ -28,17 +28,88 @@ function decodeSource(encoded: string): string {
   return decodeURIComponent(escape(atob(encoded)));
 }
 
-function readShareParams(): { source?: string; target?: PlaygroundTarget; mode?: PlaygroundMode } {
+const SECURITY_BENCHMARK = `// KERN CWE-1427 Prompt Injection Benchmark
+// 10 attack vectors — paste into the playground, click infer, check the Review tab.
+// Expected: kern → 10/10 | semgrep → 1/10
+
+// 1. Indirect injection (DB→prompt)
+async function indirectInjection(db: any, llm: any, userId: string) {
+  const history = await db.query(\`SELECT msg FROM chat WHERE user_id = '\${userId}'\`);
+  const prompt = \`Assistant: \${history.rows.map((r: any) => r.msg).join('\\n')}\`;
+  return llm.complete(prompt);
+}
+
+// 2. LLM output execution
+async function llmOutputExecution(llm: any) {
+  const response = await llm.complete("What command should I run?");
+  eval(response.text);
+}
+
+// 3. System prompt leakage
+function systemPromptLeakage(userInput: string) {
+  const systemPrompt = "You are a billing assistant. API key: sk-secret-12345";
+  return \`\${systemPrompt}\\n\\nUser: \${userInput}\`;
+}
+
+// 4. RAG poisoning
+async function ragPoisoning(vectorDb: any, llm: any, query: string) {
+  const docs = await vectorDb.search(query);
+  const context = docs.map((d: any) => d.content).join('\\n');
+  return llm.complete(\`Context: \${context}\\nQuestion: \${query}\`);
+}
+
+// 5. Tool calling manipulation
+async function toolManipulation(llm: any, msg: string) {
+  const response = await llm.complete({ messages: [{ role: 'user', content: msg }], tools: [{ name: 'delete_account' }] });
+  for (const call of response.tool_calls) { await executeTool(call.name, call.params); }
+}
+async function executeTool(name: string, params: any) { /* no allowlist */ }
+
+// 6. Encoding bypass
+function encodingBypass(input: string, llm: any) {
+  const decoded = Buffer.from(input, 'base64').toString('utf-8');
+  return llm.complete(\`Translate: \${decoded}\`);
+}
+
+// 7. Delimiter injection
+function delimiterInjection(userInput: string) {
+  return \`<|system|>You are helpful<|end|>\\n<|user|>\${userInput}<|end|>\`;
+}
+
+// 8. Unsanitized history
+async function unsanitizedHistory(messages: any[], llm: any) {
+  const userMsgs = messages.filter(m => m.role === 'user');
+  return llm.complete({ messages: [{ role: 'system', content: 'Be helpful' }, ...userMsgs] });
+}
+
+// 9. JSON output manipulation
+async function jsonManipulation(llm: any, input: string) {
+  const response = await llm.complete(\`Return JSON for: \${input}\`);
+  const data = JSON.parse(response.text);
+  return data;
+}
+
+// 10. Missing output validation
+async function noValidation(llm: any, desc: string) {
+  const response = await llm.complete(\`Write code: \${desc}\`);
+  return response.text;
+}
+
+export { indirectInjection, llmOutputExecution, systemPromptLeakage, ragPoisoning, toolManipulation, encodingBypass, delimiterInjection, unsanitizedHistory, jsonManipulation, noValidation };`;
+
+function readShareParams(): { source?: string; target?: PlaygroundTarget; mode?: PlaygroundMode; example?: string } {
   if (typeof window === 'undefined') return {};
   const params = new URLSearchParams(window.location.search);
   const source64 = params.get('source');
   const target = params.get('target') as PlaygroundTarget | null;
   const mode = params.get('mode') as PlaygroundMode | null;
+  const example = params.get('example');
   try {
     return {
-      source: source64 ? decodeSource(source64) : undefined,
+      source: example === 'security-benchmark' ? SECURITY_BENCHMARK : source64 ? decodeSource(source64) : undefined,
       target: target || undefined,
-      mode: mode === 'infer' ? 'infer' : undefined,
+      mode: example === 'security-benchmark' ? 'infer' : mode === 'infer' ? 'infer' : undefined,
+      example: example || undefined,
     };
   } catch {
     return {};
@@ -176,6 +247,7 @@ export default function PlaygroundPage() {
   const [inferredKern, setInferredKern] = useState<string | null>(null);
   const [inferStats, setInferStats] = useState<InferResult['stats']>(null);
   const [inferError, setInferError] = useState<InferResult['error']>(null);
+  const [inferFindings, setInferFindings] = useState<InferResult['findings']>([]);
 
   const [isLoading, setIsLoading] = useState(false);
   const [mobileTab, setMobileTab] = useState<'editor' | 'output'>('editor');
@@ -217,6 +289,7 @@ export default function PlaygroundPage() {
     setInferredKern(null);
     setInferStats(null);
     setInferError(null);
+    setInferFindings([]);
   }, [selectedTarget]);
 
   // Switch target: load matching example in infer mode
@@ -276,6 +349,7 @@ export default function PlaygroundPage() {
       setInferredKern(result.kern);
       setInferStats(result.stats);
       setInferError(result.error);
+      setInferFindings(result.findings ?? []);
     } catch {
       setInferError({ message: 'Failed to reach infer endpoint', line: 0, col: 0, codeFrame: '' });
     } finally {
@@ -499,6 +573,7 @@ export default function PlaygroundPage() {
                   inferredKern={inferredKern}
                   inferStats={inferStats}
                   target={selectedTarget}
+                  findings={inferFindings}
                 />
               )
             ) : (

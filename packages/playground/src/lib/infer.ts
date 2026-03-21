@@ -1,4 +1,4 @@
-import { inferFromSource as inferTS } from '@kernlang/review';
+import { inferFromSource as inferTS, reviewSource as reviewTS } from '@kernlang/review';
 import { serializeIR as coreSerializeIR, countTokens as coreCountTokens } from '@kernlang/core';
 import type { ReviewFinding } from '@kernlang/review';
 
@@ -53,9 +53,20 @@ export function inferFromSource(source: string, language: string): InferResult {
     const inputTokens = coreCountTokens(source);
     const kernTokens = coreCountTokens(kern);
 
+    // Run review for security findings
+    const report = reviewTS(source, 'input.tsx');
+    const findings = report.findings
+      .filter((f: ReviewFinding) => f.severity === 'error' || f.severity === 'warning')
+      .map((f: ReviewFinding) => ({
+        ruleId: f.ruleId,
+        severity: f.severity,
+        message: f.message,
+        line: f.primarySpan.startLine,
+      }));
+
     return {
       kern,
-      findings: [],
+      findings,
       stats: {
         inputTokens,
         kernTokens,

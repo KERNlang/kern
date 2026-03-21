@@ -236,8 +236,11 @@ function analyzeTaintAST(inferred: InferResult[], filePath: string, sourceFile: 
   for (const stmt of sourceFile.getVariableStatements()) {
     for (const decl of stmt.getDeclarations()) {
       const init = decl.getInitializer();
-      if (init && (Node.isArrowFunction(init) || Node.isFunctionExpression(init))) {
-        allFns.push({ node: init, startLine: stmt.getStartLineNumber() });
+      if (init) {
+        const initKind = init.getKindName();
+        if (initKind === 'ArrowFunction' || initKind === 'FunctionExpression') {
+          allFns.push({ node: init as any, startLine: stmt.getStartLineNumber() });
+        }
       }
     }
   }
@@ -272,51 +275,61 @@ function analyzeTaintAST(inferred: InferResult[], filePath: string, sourceFile: 
 
     // Walk all variable declarations and track taint flow
     const varDecls: import('ts-morph').VariableDeclaration[] = [];
-    for (const stmt of (Node.isBlock(body) ? body.getStatements() : [])) {
-      if (Node.isVariableStatement(stmt)) {
-        varDecls.push(...stmt.getDeclarations());
+    const bodyKind = body.getKindName();
+    if (bodyKind === 'Block') {
+      for (const stmt of (body as any).getStatements()) {
+        if (stmt.getKindName() === 'VariableStatement') {
+          varDecls.push(...(stmt as any).getDeclarations());
+        }
       }
     }
     // Multiple passes to handle forward dependencies (max 3 hops)
     for (let hop = 0; hop < 3; hop++) {
       for (const decl of varDecls) {
         const nameNode = decl.getNameNode();
+        const nameKind = nameNode.getKindName();
 
         // Simple name binding: const id = parseInt(req.body.id)
-        if (Node.isIdentifier(nameNode)) {
+        if (nameKind === 'Identifier') {
           const declName = nameNode.getText();
           if (taintedNames.has(declName)) continue;
           const init = decl.getInitializer();
           if (!init) continue;
           if (astExprRefersToTainted(init, taintedNames)) {
             taintedNames.add(declName);
-            taintedVars.set(declName, { name: declName, origin: 'derived' });
+            const srcName = findTaintedIdentifier(init, taintedNames);
+            const srcOrigin = srcName ? taintedVars.get(srcName)?.origin : undefined;
+            taintedVars.set(declName, { name: declName, origin: srcOrigin || 'derived' });
           }
         }
 
         // Object destructuring: const { x, y } = taintedObj
-        if (Node.isObjectBindingPattern(nameNode)) {
+        if (nameKind === 'ObjectBindingPattern') {
           const init = decl.getInitializer();
           if (!init || !astExprRefersToTainted(init, taintedNames)) continue;
-          for (const element of nameNode.getElements()) {
+          const srcName = findTaintedIdentifier(init, taintedNames);
+          const srcOrigin = srcName ? taintedVars.get(srcName)?.origin : undefined;
+          for (const element of (nameNode as any).getElements()) {
             const elName = element.getName();
             if (!taintedNames.has(elName)) {
               taintedNames.add(elName);
-              taintedVars.set(elName, { name: elName, origin: 'destructured' });
+              taintedVars.set(elName, { name: elName, origin: srcOrigin || 'destructured' });
             }
           }
         }
 
         // Array destructuring: const [a, b] = taintedArr
-        if (Node.isArrayBindingPattern(nameNode)) {
+        if (nameKind === 'ArrayBindingPattern') {
           const init = decl.getInitializer();
           if (!init || !astExprRefersToTainted(init, taintedNames)) continue;
-          for (const element of nameNode.getElements()) {
-            if (Node.isBindingElement(element)) {
-              const elName = element.getName();
+          const srcName = findTaintedIdentifier(init, taintedNames);
+          const srcOrigin = srcName ? taintedVars.get(srcName)?.origin : undefined;
+          for (const element of (nameNode as any).getElements()) {
+            if (element.getKindName() === 'BindingElement') {
+              const elName = (element as any).getName();
               if (!taintedNames.has(elName)) {
                 taintedNames.add(elName);
-                taintedVars.set(elName, { name: elName, origin: 'destructured' });
+                taintedVars.set(elName, { name: elName, origin: srcOrigin || 'destructured' });
               }
             }
           }
@@ -348,10 +361,13 @@ function analyzeTaintAST(inferred: InferResult[], filePath: string, sourceFile: 
       }
 
       // Also check template literal arguments
-      const templateArgs = call.getArguments().filter(a => Node.isTemplateExpression(a) || Node.isNoSubstitutionTemplateLiteral(a));
+      const templateArgs = call.getArguments().filter(a => {
+        const k = a.getKindName();
+        return k === 'TemplateExpression' || k === 'NoSubstitutionTemplateLiteral';
+      });
       for (const tpl of templateArgs) {
-        if (Node.isTemplateExpression(tpl)) {
-          for (const span of tpl.getTemplateSpans()) {
+        if (tpl.getKindName() === 'TemplateExpression') {
+          for (const span of (tpl as any).getTemplateSpans()) {
             const expr = span.getExpression();
             const taintedArg = findTaintedIdentifier(expr, taintedNames);
             if (taintedArg) {
@@ -401,18 +417,23 @@ function analyzeTaintAST(inferred: InferResult[], filePath: string, sourceFile: 
 
 /** Check if an expression references any tainted variable name */
 function astExprRefersToTainted(expr: Node, taintedNames: Set<string>): boolean {
-  if (Node.isIdentifier(expr) && taintedNames.has(expr.getText())) return true;
-  if (Node.isPropertyAccessExpression(expr)) {
-    return astExprRefersToTainted(expr.getExpression(), taintedNames);
+  const k = expr.getKindName();
+  if (k === 'Identifier' && taintedNames.has(expr.getText())) return true;
+  if (k === 'PropertyAccessExpression') {
+    return astExprRefersToTainted((expr as any).getExpression(), taintedNames);
   }
-  if (Node.isElementAccessExpression(expr)) {
-    return astExprRefersToTainted(expr.getExpression(), taintedNames);
+  if (k === 'ElementAccessExpression') {
+    return astExprRefersToTainted((expr as any).getExpression(), taintedNames);
   }
-  if (Node.isCallExpression(expr)) {
-    return astExprRefersToTainted(expr.getExpression(), taintedNames);
+  if (k === 'CallExpression') {
+    if (astExprRefersToTainted((expr as any).getExpression(), taintedNames)) return true;
+    for (const arg of (expr as any).getArguments()) {
+      if (astExprRefersToTainted(arg, taintedNames)) return true;
+    }
+    return false;
   }
-  if (Node.isAwaitExpression(expr)) {
-    return astExprRefersToTainted(expr.getExpression(), taintedNames);
+  if (k === 'AwaitExpression') {
+    return astExprRefersToTainted((expr as any).getExpression(), taintedNames);
   }
   // Check all children for complex expressions
   for (const child of expr.getChildren()) {
@@ -424,20 +445,22 @@ function astExprRefersToTainted(expr: Node, taintedNames: Set<string>): boolean 
 /** Get the base name of a callee (e.g., exec from child_process.exec, or db.query) */
 function getCalleeBaseName(call: import('ts-morph').CallExpression): string {
   const expr = call.getExpression();
-  if (Node.isIdentifier(expr)) return expr.getText();
-  if (Node.isPropertyAccessExpression(expr)) return expr.getName();
+  const k = expr.getKindName();
+  if (k === 'Identifier') return expr.getText();
+  if (k === 'PropertyAccessExpression') return (expr as any).getName();
   return '';
 }
 
 /** Find the first tainted identifier in an expression tree */
 function findTaintedIdentifier(expr: Node, taintedNames: Set<string>): string | undefined {
-  if (Node.isIdentifier(expr) && taintedNames.has(expr.getText())) return expr.getText();
-  if (Node.isPropertyAccessExpression(expr)) {
-    return findTaintedIdentifier(expr.getExpression(), taintedNames);
+  const k = expr.getKindName();
+  if (k === 'Identifier' && taintedNames.has(expr.getText())) return expr.getText();
+  if (k === 'PropertyAccessExpression') {
+    return findTaintedIdentifier((expr as any).getExpression(), taintedNames);
   }
   // Check binary expressions (string concatenation: 'cmd ' + userInput)
-  if (Node.isBinaryExpression(expr)) {
-    return findTaintedIdentifier(expr.getLeft(), taintedNames) || findTaintedIdentifier(expr.getRight(), taintedNames);
+  if (k === 'BinaryExpression') {
+    return findTaintedIdentifier((expr as any).getLeft(), taintedNames) || findTaintedIdentifier((expr as any).getRight(), taintedNames);
   }
   for (const child of expr.getChildren()) {
     const found = findTaintedIdentifier(child, taintedNames);
@@ -466,8 +489,8 @@ function findSanitizersAST(body: Node, taintedNames: Set<string>): Array<{ name:
 
     // Also check if the result is assigned to a variable (replacing the tainted value)
     const parent = call.getParent();
-    if (parent && Node.isVariableDeclaration(parent)) {
-      const declName = parent.getName();
+    if (parent && parent.getKindName() === 'VariableDeclaration') {
+      const declName = (parent as any).getName();
       sanitizedVars.add(declName);
     }
 

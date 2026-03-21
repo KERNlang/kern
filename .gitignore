@@ -9,3 +9,4 @@ examples/*.tsx
 .claude/docs/plans/*.md
 docs/plans/
 .claude*.tsbuildinfo
+*.tsbuildinfo

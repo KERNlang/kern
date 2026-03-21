@@ -131,9 +131,9 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
   // Phase 1: Infer KERN constructs (reuse existing SourceFile)
   const inferred = safePhase('infer', () => inferFromSourceFile(sourceFile), []);
 
-  // Phase 2: Taint tracking (regex-based; AST-based path exists but needs stabilization)
+  // Phase 2: Taint tracking (AST-based when SourceFile is available)
   allFindings.push(...safePhase('taint', () => {
-    const taintResults = analyzeTaint(inferred, filePath);
+    const taintResults = analyzeTaint(inferred, filePath, sourceFile);
     return taintToFindings(taintResults);
   }, []));
 

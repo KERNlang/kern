@@ -6,23 +6,33 @@ import { PreviewPanel } from './PreviewPanel';
 import { isPreviewable } from '@/lib/preview-templates';
 import type { PlaygroundTarget } from '@/lib/targets';
 
+interface Finding {
+  ruleId: string;
+  severity: string;
+  message: string;
+  line: number;
+}
+
 interface InferOutputPanelProps {
   sourceCode: string;
   inferredKern: string | null;
   inferStats: { inputTokens: number; kernTokens: number; constructs: number; reduction: number } | null;
   target: PlaygroundTarget;
+  findings?: Finding[];
 }
 
-type Tab = 'preview' | 'kern';
+type Tab = 'preview' | 'kern' | 'review';
 
-export function InferOutputPanel({ sourceCode, inferredKern, inferStats, target }: InferOutputPanelProps) {
+export function InferOutputPanel({ sourceCode, inferredKern, inferStats, target, findings = [] }: InferOutputPanelProps) {
   const showPreview = isPreviewable(target) && sourceCode.trim().length > 0;
+  const hasFindings = findings.length > 0;
   const [activeTab, setActiveTab] = useState<Tab>(showPreview ? 'preview' : 'kern');
   const effectiveTab = activeTab === 'preview' && !showPreview ? 'kern' : activeTab;
 
   const tabs: { key: Tab; label: string }[] = [
     ...(showPreview ? [{ key: 'preview' as Tab, label: 'Preview' }] : []),
     { key: 'kern', label: 'Inferred KERN' },
+    { key: 'review', label: 'Review' },
   ];
 
   return (
@@ -55,6 +65,11 @@ export function InferOutputPanel({ sourceCode, inferredKern, inferStats, target 
                 ({inferStats.constructs})
               </span>
             )}
+            {tab.key === 'review' && hasFindings && (
+              <span style={{ marginLeft: 6, color: '#ff6b6b', fontSize: 11, fontWeight: 700 }}>
+                ({findings.length})
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -70,6 +85,36 @@ export function InferOutputPanel({ sourceCode, inferredKern, inferStats, target 
             language="kern"
             readOnly
           />
+        )}
+        {effectiveTab === 'review' && (
+          <div style={{ padding: 16, overflowY: 'auto', height: '100%', fontFamily: 'var(--font-geist-mono)', fontSize: 12, lineHeight: 1.8 }}>
+            {findings.length === 0 ? (
+              <div style={{ color: '#4ecdc4' }}>
+                <span>✓</span> No issues found. Paste vulnerable code to see kern review in action.
+              </div>
+            ) : (
+              <>
+                <div style={{ color: '#8b949e', marginBottom: 12, fontSize: 11 }}>
+                  kern review — {findings.length} finding{findings.length !== 1 ? 's' : ''}
+                </div>
+                {findings.map((f, i) => (
+                  <div key={i} style={{ marginBottom: 12, paddingLeft: 16, borderLeft: `2px solid ${f.severity === 'error' ? '#ff6b6b' : '#ffb347'}` }}>
+                    <div>
+                      <span style={{ color: f.severity === 'error' ? '#ff6b6b' : '#ffb347' }}>
+                        {f.severity === 'error' ? '!' : '~'}
+                      </span>
+                      {' '}
+                      <span style={{ color: f.severity === 'error' ? '#ff6b6b' : '#ffb347', fontWeight: 600 }}>
+                        {f.ruleId}
+                      </span>
+                      <span style={{ color: '#8b949e', marginLeft: 8 }}>L{f.line}</span>
+                    </div>
+                    <div style={{ color: '#c9d1d9', marginTop: 2 }}>{f.message}</div>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
         )}
       </div>
     </div>
