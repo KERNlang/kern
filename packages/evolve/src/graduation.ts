@@ -126,7 +126,7 @@ export function compileCodegenToJS(tsSource: string): string {
   js = js.replace(/(\w|\))\s*:\s*any\b/g, '$1');
   js = js.replace(/(\w|\))\s*:\s*CodegenHelpers\b/g, '$1');
   js = js.replace(/(\w|\))\s*:\s*Record<[^>]+>/g, '$1');
-  js = js.replace(/<[A-Z]\w*(?:,\s?[A-Z]\w*){0,10}>/g, '');
+  js = js.replace(/<[A-Z]\w+(?:,\s?[A-Z]\w+){0,10}>/g, '');
   js = js.replace(/\bas\s{1,20}\w+/g, '');
 
   return js;

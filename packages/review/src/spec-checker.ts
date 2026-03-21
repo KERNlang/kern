@@ -225,7 +225,7 @@ function extractMiddlewareArgs(afterPath: string): string[] {
   const names: string[] = [];
 
   // Match: , identifier, identifier, ... async? (req
-  const argsSection = afterPath.match(/^((,\s?\w+){0,10})\s?,\s?(?:async\s+)?\(/);
+  const argsSection = afterPath.match(/^((?:, ?\w+){0,10}) ?, ?(?:async )?\(/);
   if (!argsSection) return names;
 
   const argsText = argsSection[1];
