@@ -1,7 +1,7 @@
 {
   "name": "@kernlang/review-python",
-  "version": "0.1.0",
-  "description": "Python concept mapper for kern review \u2014 tree-sitter based",
+  "version": "0.2.0",
+  "description": "Python concept mapper for kern review — tree-sitter based",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

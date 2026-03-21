@@ -1,7 +1,7 @@
 {
   "name": "@kernlang/vue",
-  "version": "2.0.0",
-  "description": "Kern Vue/Nuxt transpilers \u2014 Vue 3 SFC + Nuxt 3 output",
+  "version": "3.0.0",
+  "description": "Kern Vue/Nuxt transpilers — Vue 3 SFC + Nuxt 3 output",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

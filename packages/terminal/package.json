@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/terminal",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Kern ANSI terminal rendering transpiler",
   "type": "module",
   "main": "./dist/index.js",

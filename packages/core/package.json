@@ -1,7 +1,7 @@
 {
   "name": "@kernlang/core",
-  "version": "2.0.0",
-  "description": "Kern core \u2014 parser, types, spec, config, style engines, codegen",
+  "version": "3.0.0",
+  "description": "Kern core — parser, types, spec, config, style engines, codegen",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
