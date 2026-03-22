@@ -1,0 +1,829 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Golden Snapshot Tests Nuxt output for nextjs-landing.kern 1`] = `
+"<script setup lang="ts">
+useHead({
+  title: 'SoundKit — Audio Toolkit',
+  meta: [{ name: 'description', content: 'Analyze your mix with AI-powered stem separation and frequency analysis.' }]
+});
+</script>
+
+<template>
+  <div class="page-0">
+    <div class="row-1">
+      <div>
+        <p class="text-2">
+          SoundKit
+        </p>
+      </div>
+      <div class="row-3">
+        <div>
+          <p class="text-4">
+            Features
+          </p>
+        </div>
+        <div>
+          <p class="text-5">
+            Pricing
+          </p>
+        </div>
+        <NuxtLink class="button-6" :to="'/signup'">
+          Get Started
+        </NuxtLink>
+      </div>
+    </div>
+    <div class="col-7">
+      <p class="text-8">
+        Analyze your mix in seconds
+      </p>
+      <p class="text-9">
+        AI-powered stem separation, frequency analysis, and mastering suggestions.
+      </p>
+      <div class="row-10">
+        <NuxtLink class="button-11" :to="'/signup'">
+          Start Free Trial
+        </NuxtLink>
+        <button class="button-12">
+          Watch Demo
+        </button>
+      </div>
+    </div>
+    <div class="grid-13">
+      <div class="card-14">
+        <p class="text-15">
+          Stem Separation
+        </p>
+        <p class="text-16">
+          Split any track into drums, bass, vocals, and more using Demucs ML.
+        </p>
+      </div>
+      <div class="card-17">
+        <p class="text-18">
+          Frequency Analysis
+        </p>
+        <p class="text-19">
+          Identify problematic frequencies and get EQ fix suggestions per stem.
+        </p>
+      </div>
+      <div class="card-20">
+        <p class="text-21">
+          Mastering Chain
+        </p>
+        <p class="text-22">
+          Auto-generated mastering presets based on your genre and reference tracks.
+        </p>
+      </div>
+    </div>
+    <div class="row-23">
+      <p class="text-24">
+        © 2026 SoundKit. Built with Kern.
+      </p>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.page-0 {
+  background-color: #09090b;
+}
+
+.row-1 {
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border: #27272a;
+  display: flex;
+  flex-direction: row;
+}
+
+.text-2 {
+  font-size: 24px;
+  font-weight: bold;
+  color: #fff;
+}
+
+.row-3 {
+  gap: 16px;
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+}
+
+.text-4 {
+  font-size: 14px;
+  color: #a1a1aa;
+}
+
+.text-5 {
+  font-size: 14px;
+  color: #a1a1aa;
+}
+
+.button-6 {
+  background-color: #f97316;
+  color: #fff;
+  border-radius: 8px;
+  padding: 12px;
+  transition: all 0.2s ease;
+}
+
+.col-7 {
+  align-items: center;
+  padding: 80px;
+  gap: 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.text-8 {
+  font-size: 48px;
+  font-weight: 800;
+  color: #fff;
+  text-align: center;
+}
+
+.text-9 {
+  font-size: 18px;
+  color: #a1a1aa;
+  text-align: center;
+}
+
+.row-10 {
+  gap: 16px;
+  display: flex;
+  flex-direction: row;
+}
+
+.button-11 {
+  background-color: #f97316;
+  color: #fff;
+  border-radius: 8px;
+  padding: 16px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.button-12 {
+  background-color: transparent;
+  color: #fff;
+  border-radius: 8px;
+  padding: 16px;
+  font-size: 16px;
+  font-weight: 600;
+  border: #3f3f46;
+}
+
+.grid-13 {
+  padding: 32px;
+  display: grid;
+}
+
+.card-14 {
+  background-color: #18181b;
+  border-radius: 16px;
+  padding: 24px;
+  border: #27272a;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.text-15 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 8px;
+}
+
+.text-16 {
+  font-size: 14px;
+  color: #a1a1aa;
+}
+
+.card-17 {
+  background-color: #18181b;
+  border-radius: 16px;
+  padding: 24px;
+  border: #27272a;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.text-18 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 8px;
+}
+
+.text-19 {
+  font-size: 14px;
+  color: #a1a1aa;
+}
+
+.card-20 {
+  background-color: #18181b;
+  border-radius: 16px;
+  padding: 24px;
+  border: #27272a;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.text-21 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 8px;
+}
+
+.text-22 {
+  font-size: 14px;
+  color: #a1a1aa;
+}
+
+.row-23 {
+  justify-content: center;
+  padding: 32px;
+  border: #27272a;
+  display: flex;
+  flex-direction: row;
+}
+
+.text-24 {
+  font-size: 12px;
+  color: #71717a;
+}
+</style>
+"
+`;
+
+exports[`Golden Snapshot Tests Vue output for audio-settings.kern 1`] = `
+"<script setup lang="ts">
+</script>
+
+<template>
+  <section key="settings.audio" description="Configure analysis sensitivity and audio processing defaults.">
+    <h2>Audio & Analysis</h2>
+    <section key="settings.masteringDefaults">
+      <h2>Mastering Defaults</h2>
+      <p class="text-0" key="settings.masteringDefaults.description" tag="p">
+        Set your preferred starting point for the mastering chain.
+      </p>
+      <div ref="MasteringDefaultsSection">
+      </div>
+    </section>
+    <hr class="divider-1" />
+    <section key="settings.audioDevice">
+      <h2>Audio Output</h2>
+      <div ref="AudioDeviceSelector">
+      </div>
+    </section>
+    <section key="settings.exportDefaults">
+      <h2>Export Defaults</h2>
+      <p class="text-2" key="settings.exportDefaultsDescription" tag="p">
+        Set your preferred export format.
+      </p>
+      <div ref="ExportDefaultsSection" props="isPro,exportFormat,mp3Bitrate">
+      </div>
+    </section>
+    <hr class="divider-3" />
+    <section key="settings.audioTab.defaultSensitivity">
+      <h2>Default Analysis Sensitivity</h2>
+      <div class="card-4">
+        <div ref="PresetSelector" onChange="selectPreset" props="isPro">
+        </div>
+        <p class="text-5">
+          This preset will be used as the starting point when analyzing new tracks.
+        </p>
+      </div>
+    </section>
+    <section key="settings.audioTab.fixStrength" tooltip="fixStrengthNote">
+      <h2>Fix Strength</h2>
+      <div class="card-6">
+        <div class="row-7">
+          <p class="text-8">
+            Controls how aggressive auto-fix EQ cuts are applied.
+          </p>
+          <p class="text-9" format="{v} dB ({presetLabel})">
+          </p>
+        </div>
+        <div min="2" max="6" step="0.1" onDoubleClick="4.0" accent="#f97316">
+        </div>
+        <div class="row-10">
+          <p class="text-11">
+            Conservative (2dB)
+          </p>
+          <p class="text-12">
+            Industry Standard (4dB)
+          </p>
+          <p class="text-13">
+            Aggressive (6dB)
+          </p>
+        </div>
+        <p class="text-14">
+        </p>
+      </div>
+    </section>
+    <section key="settings.audioTab.stemPresence" tooltip="stemPresenceTooltip">
+      <h2>Stem Presence Threshold</h2>
+      <div class="card-15">
+        <p class="text-16">
+          Stems quieter than this threshold are considered not present and skipped.
+        </p>
+        <div class="row-17">
+          <p class="text-18">
+            Threshold
+          </p>
+          <p class="text-19" format="{v} LUFS">
+          </p>
+        </div>
+        <div min="-80" max="-30" step="5" accent="#f97316">
+        </div>
+        <div class="row-20">
+          <p class="text-21">
+            -80 (Sensitive)
+          </p>
+          <p class="text-22">
+            -40 (Standard)
+          </p>
+          <p class="text-23">
+            -30 (Strict)
+          </p>
+        </div>
+        <div class="card-24">
+          <p class="text-25">
+            Current setting:
+          </p>
+          <p class="text-26">
+          </p>
+        </div>
+      </div>
+    </section>
+    <section key="settings.audioTab.perStem" tooltip="perStemTooltip">
+      <h2>Per-Stem Detection Thresholds</h2>
+      <div class="card-27">
+        <p class="text-28">
+          Industry-informed thresholds for each stem type.
+        </p>
+        <div class="grid-29" cols="2" gap="24">
+          <div ref="StemThresholdSlider" stem="drums" default="-30" disabled="!isPro">
+          </div>
+          <div ref="StemThresholdSlider" stem="bass" default="-35" disabled="!isPro">
+          </div>
+          <div ref="StemThresholdSlider" stem="vocals" default="-30" disabled="!isPro">
+          </div>
+          <div ref="StemThresholdSlider" stem="guitar" default="-45" disabled="!isPro">
+          </div>
+          <div ref="StemThresholdSlider" stem="piano" default="-45" disabled="!isPro">
+          </div>
+          <div ref="StemThresholdSlider" stem="other" default="-50" disabled="!isPro">
+          </div>
+        </div>
+        <div if="isPro&perStemMode=manual">
+          <hr class="divider-30" />
+          <button class="button-31" size="sm" onClick="resetPerStemThresholds">
+            Reset to Industry Defaults
+          </button>
+        </div>
+        <div if="!isPro">
+          <hr class="divider-32" />
+          <div class="card-33">
+            <div class="row-34">
+              <div class="icon-35">
+              </div>
+              <div class="col-36">
+                <p class="text-37">
+                  Pro Feature
+                </p>
+                <p class="text-38">
+                  Upgrade to customize individual stem thresholds.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <div if="isPro">
+      <section key="settings.audioTab.customThresholds">
+        <h2>Custom Thresholds Configuration</h2>
+        <div class="card-39">
+          <p class="text-40">
+            Fine-tune the tolerance levels for the Custom preset.
+          </p>
+          <div ref="ToleranceSliders" onChange="setThreshold" disabled="!isPro">
+          </div>
+        </div>
+      </section>
+    </div>
+    <hr class="divider-41" />
+    <section key="settings.audioTab.signalProcessing">
+      <h2>Signal Processing</h2>
+      <div class="card-42">
+        <div class="row-43">
+          <div class="col-44">
+            <p class="text-45">
+              Normalize Reference Loudness
+            </p>
+            <p class="text-46">
+              Automatically adjust reference track gain to match your mix (LUFS matching).
+            </p>
+          </div>
+          <div accent="#ea580c">
+          </div>
+        </div>
+      </div>
+    </section>
+  </section>
+</template>
+
+<style scoped>
+.text-0 {
+  font-size: 12px;
+  color: #71717a;
+  margin-bottom: 12px;
+}
+
+.divider-1 {
+  background-color: #27272a;
+}
+
+.text-2 {
+  font-size: 12px;
+  color: #71717a;
+  margin-bottom: 12px;
+}
+
+.divider-3 {
+  background-color: #27272a;
+}
+
+.card-4 {
+  background-color: #18181b;
+  border-radius: 8px;
+  padding: 16px;
+  border: #27272a;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.text-5 {
+  font-size: 12px;
+  color: #71717a;
+  margin-top: 8px;
+}
+
+.card-6 {
+  background-color: #18181b;
+  border-radius: 8px;
+  padding: 16px;
+  border: #27272a;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.row-7 {
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: row;
+}
+
+.text-8 {
+  font-size: 14px;
+  color: #a1a1aa;
+}
+
+.text-9 {
+  font-size: 14px;
+  color: #f97316;
+  font-weight: 500;
+}
+
+.row-10 {
+  justify-content: space-between;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: row;
+}
+
+.text-11 {
+  font-size: 12px;
+  color: #71717a;
+}
+
+.text-12 {
+  font-size: 12px;
+  color: #71717a;
+}
+
+.text-13 {
+  font-size: 12px;
+  color: #71717a;
+}
+
+.text-14 {
+  font-size: 12px;
+  color: #71717a;
+  margin-top: 12px;
+}
+
+.card-15 {
+  background-color: #18181b;
+  border-radius: 8px;
+  padding: 16px;
+  border: #27272a;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.text-16 {
+  font-size: 14px;
+  color: #a1a1aa;
+  margin-bottom: 16px;
+}
+
+.row-17 {
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: row;
+}
+
+.text-18 {
+  font-size: 14px;
+  color: #d4d4d8;
+}
+
+.text-19 {
+  font-size: 14px;
+  color: #f97316;
+  font-weight: 500;
+}
+
+.row-20 {
+  justify-content: space-between;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: row;
+}
+
+.text-21 {
+  font-size: 12px;
+  color: #71717a;
+}
+
+.text-22 {
+  font-size: 12px;
+  color: #71717a;
+}
+
+.text-23 {
+  font-size: 12px;
+  color: #71717a;
+}
+
+.card-24 {
+  background-color: #09090b;
+  border-radius: 8px;
+  padding: 12px;
+  border: #27272a;
+  margin-top: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.text-25 {
+  font-size: 12px;
+  color: #a1a1aa;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.text-26 {
+  font-size: 12px;
+  color: #71717a;
+}
+
+.card-27 {
+  background-color: #18181b;
+  border-radius: 8px;
+  padding: 16px;
+  border: #27272a;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.text-28 {
+  font-size: 14px;
+  color: #a1a1aa;
+  margin-bottom: 16px;
+}
+
+.grid-29 {
+  display: grid;
+}
+
+.divider-30 {
+  background-color: #27272a;
+  margin-top: 16px;
+}
+
+.button-31 {
+  margin-top: 16px;
+}
+
+.divider-32 {
+  background-color: #27272a;
+  margin-top: 16px;
+}
+
+.card-33 {
+  background-color: #09090b;
+  border-radius: 8px;
+  padding: 12px;
+  border: #27272a;
+  margin-top: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.row-34 {
+  gap: 12px;
+  display: flex;
+  flex-direction: row;
+}
+
+.icon-35 {
+  color: #f97316;
+}
+
+.col-36 {
+  display: flex;
+  flex-direction: column;
+}
+
+.text-37 {
+  font-size: 14px;
+  color: #d4d4d8;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.text-38 {
+  font-size: 14px;
+  color: #a1a1aa;
+}
+
+.card-39 {
+  background-color: #18181b;
+  border-radius: 8px;
+  padding: 24px;
+  border: #27272a;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.text-40 {
+  font-size: 14px;
+  color: #d4d4d8;
+  margin-bottom: 16px;
+}
+
+.divider-41 {
+  background-color: #27272a;
+}
+
+.card-42 {
+  background-color: #18181b;
+  border-radius: 8px;
+  padding: 16px;
+  border: #27272a;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.row-43 {
+  justify-content: space-between;
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+}
+
+.col-44 {
+  display: flex;
+  flex-direction: column;
+}
+
+.text-45 {
+  font-size: 14px;
+  color: #e4e4e7;
+  margin-bottom: 4px;
+}
+
+.text-46 {
+  font-size: 12px;
+  color: #71717a;
+}
+</style>
+"
+`;
+
+exports[`Golden Snapshot Tests Vue output for dashboard.kern 1`] = `
+"<script setup lang="ts">
+import { ref } from 'vue';
+
+const activeTab_6 = ref('0');
+</script>
+
+<template>
+  <div class="screen-0">
+    <div class="row-1">
+      <p class="text-2">
+        FITVT
+      </p>
+      <img class="image-3" :src="'/avatar.png'" alt="avatar" />
+    </div>
+    <div class="card-4">
+      <progress :value="1840" :max="2200">
+        Calories: 1840/2200 kcal
+      </progress>
+      <progress :value="96" :max="140">
+        Protein: 96/140 g
+      </progress>
+      <progress :value="210" :max="260">
+        Carbs: 210/260 g
+      </progress>
+      <progress :value="58" :max="70">
+        Fat: 58/70 g
+      </progress>
+    </div>
+    <button class="button-5" @click="$router.push('/LogMeal')">
+      Log Meal
+    </button>
+    <ul separator="true">
+      <li id="m1" time="08:15" calories="320">
+      </li>
+      <li id="m2" time="12:40" calories="540">
+      </li>
+      <li id="m3" time="15:10" calories="220">
+      </li>
+      <li id="m4" time="18:30" calories="680">
+      </li>
+      <li id="m5" time="21:00" calories="190">
+      </li>
+    </ul>
+    <div>
+      <div class="tab-buttons">
+        <button @click="activeTab_6 = 'Dashboard'" :class="{ active: activeTab_6 === 'Dashboard' }">Dashboard</button>
+        <button @click="activeTab_6 = 'Log'" :class="{ active: activeTab_6 === 'Log' }">Log</button>
+        <button @click="activeTab_6 = 'Stats'" :class="{ active: activeTab_6 === 'Stats' }">Stats</button>
+        <button @click="activeTab_6 = 'Settings'" :class="{ active: activeTab_6 === 'Settings' }">Settings</button>
+      </div>
+      <div v-if="activeTab_6 === 'Dashboard'">
+      </div>
+      <div v-if="activeTab_6 === 'Log'">
+      </div>
+      <div v-if="activeTab_6 === 'Stats'">
+      </div>
+      <div v-if="activeTab_6 === 'Settings'">
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.screen-0 {
+  background-color: #F8F9FA;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.row-1 {
+  padding: 16px;
+  justify-content: space-between;
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+}
+
+.text-2 {
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.image-3 {
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+}
+
+.card-4 {
+  padding: 16px;
+  border-radius: 12px;
+  background-color: #FFF;
+  margin: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.button-5 {
+  width: 100%;
+  border-radius: 8px;
+  background-color: #007AFF;
+  padding: 16px;
+}
+</style>
+"
+`;

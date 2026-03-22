@@ -1,0 +1,539 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Golden Snapshot Tests React Native output for audio-settings.kern 1`] = `
+"import React from 'react';
+import { Text, TouchableOpacity, View, StyleSheet } from 'react-native';
+
+const AppSettings: React.FC = () => {
+  return (
+    <View name="AppSettings" key="settings.audio" title="Audio & Analysis" description="Configure analysis sensitivity and audio processing defaults.">
+      <View key="settings.masteringDefaults" title="Mastering Defaults">
+        <Text style={styles.text_0} key="settings.masteringDefaults.description" tag="p">
+          {"Set your preferred starting point for the mastering chain."}
+        </Text>
+        <View ref="MasteringDefaultsSection" />
+      </View>
+      <View style={styles.divider_1} />
+      <View key="settings.audioDevice" title="Audio Output">
+        <View ref="AudioDeviceSelector" bind="settings.audioOutputDeviceId" />
+      </View>
+      <View key="settings.exportDefaults" title="Export Defaults">
+        <Text style={styles.text_2} key="settings.exportDefaultsDescription" tag="p">
+          {"Set your preferred export format."}
+        </Text>
+        <View ref="ExportDefaultsSection" props="isPro,exportFormat,mp3Bitrate" />
+      </View>
+      <View style={styles.divider_3} />
+      <View key="settings.audioTab.defaultSensitivity" title="Default Analysis Sensitivity">
+        <View style={styles.card_4}>
+          <View ref="PresetSelector" bind="presetId" onChange="selectPreset" props="isPro" />
+          <Text style={styles.text_5}>
+            {"This preset will be used as the starting point when analyzing new tracks."}
+          </Text>
+        </View>
+      </View>
+      <View key="settings.audioTab.fixStrength" title="Fix Strength" icon="infoCircle" tooltip="fixStrengthNote">
+        <View style={styles.card_6}>
+          <View style={styles.row_7}>
+            <Text style={styles.text_8}>
+              {"Controls how aggressive auto-fix EQ cuts are applied."}
+            </Text>
+            <Text style={styles.text_9} bind="fixStrengthDb" format="{v} dB ({presetLabel})" />
+          </View>
+          <View min="2" max="6" step="0.1" bind="fixStrengthDb" onDoubleClick="4.0" accent="#f97316" />
+          <View style={styles.row_10}>
+            <Text style={styles.text_11}>
+              {"Conservative (2dB)"}
+            </Text>
+            <Text style={styles.text_12}>
+              {"Industry Standard (4dB)"}
+            </Text>
+            <Text style={styles.text_13}>
+              {"Aggressive (6dB)"}
+            </Text>
+          </View>
+          <Text style={styles.text_14} bind="strengthDescription" />
+        </View>
+      </View>
+      <View key="settings.audioTab.stemPresence" title="Stem Presence Threshold" icon="infoCircle" tooltip="stemPresenceTooltip">
+        <View style={styles.card_15}>
+          <Text style={styles.text_16}>
+            {"Stems quieter than this threshold are considered not present and skipped."}
+          </Text>
+          <View style={styles.row_17}>
+            <Text style={styles.text_18}>
+              {"Threshold"}
+            </Text>
+            <Text style={styles.text_19} bind="presenceThreshold" format="{v} LUFS" />
+          </View>
+          <View min="-80" max="-30" step="5" bind="presenceThreshold" accent="#f97316" />
+          <View style={styles.row_20}>
+            <Text style={styles.text_21}>
+              {"-80 (Sensitive)"}
+            </Text>
+            <Text style={styles.text_22}>
+              {"-40 (Standard)"}
+            </Text>
+            <Text style={styles.text_23}>
+              {"-30 (Strict)"}
+            </Text>
+          </View>
+          <View style={styles.card_24}>
+            <Text style={styles.text_25}>
+              {"Current setting:"}
+            </Text>
+            <Text style={styles.text_26} bind="presenceDescription" />
+          </View>
+        </View>
+      </View>
+      <View key="settings.audioTab.perStem" title="Per-Stem Detection Thresholds" icon="infoCircle" tooltip="perStemTooltip">
+        <View style={styles.card_27}>
+          <Text style={styles.text_28}>
+            {"Industry-informed thresholds for each stem type."}
+          </Text>
+          <View cols="2" gap="24">
+            <View ref="StemThresholdSlider" stem="drums" bind="perStemThresholds.drums" default="-30" disabled="!isPro" />
+            <View ref="StemThresholdSlider" stem="bass" bind="perStemThresholds.bass" default="-35" disabled="!isPro" />
+            <View ref="StemThresholdSlider" stem="vocals" bind="perStemThresholds.vocals" default="-30" disabled="!isPro" />
+            <View ref="StemThresholdSlider" stem="guitar" bind="perStemThresholds.guitar" default="-45" disabled="!isPro" />
+            <View ref="StemThresholdSlider" stem="piano" bind="perStemThresholds.piano" default="-45" disabled="!isPro" />
+            <View ref="StemThresholdSlider" stem="other" bind="perStemThresholds.other" default="-50" disabled="!isPro" />
+          </View>
+          <View if="isPro&perStemMode=manual">
+            <View style={styles.divider_29} />
+            <TouchableOpacity style={styles.button_30} icon="rotate" variant="secondary" size="sm" onClick="resetPerStemThresholds">
+              <Text style={styles.buttonText}>Reset to Industry Defaults</Text>
+            </TouchableOpacity>
+          </View>
+          <View if="!isPro">
+            <View style={styles.divider_31} />
+            <View style={styles.card_32}>
+              <View style={styles.row_33}>
+                <View style={styles.icon_34} name="lock" />
+                <View>
+                  <Text style={styles.text_35}>
+                    {"Pro Feature"}
+                  </Text>
+                  <Text style={styles.text_36}>
+                    {"Upgrade to customize individual stem thresholds."}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+      </View>
+      <View if="isPro">
+        <View key="settings.audioTab.customThresholds" title="Custom Thresholds Configuration">
+          <View style={styles.card_37}>
+            <Text style={styles.text_38}>
+              {"Fine-tune the tolerance levels for the Custom preset."}
+            </Text>
+            <View ref="ToleranceSliders" bind="customThresholds" onChange="setThreshold" disabled="!isPro" />
+          </View>
+        </View>
+      </View>
+      <View style={styles.divider_39} />
+      <View key="settings.audioTab.signalProcessing" title="Signal Processing">
+        <View style={styles.card_40}>
+          <View style={styles.row_41}>
+            <View>
+              <Text style={styles.text_42}>
+                {"Normalize Reference Loudness"}
+              </Text>
+              <Text style={styles.text_43}>
+                {"Automatically adjust reference track gain to match your mix (LUFS matching)."}
+              </Text>
+            </View>
+            <View bind="normalizeReference" accent="#ea580c" />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  text_0: {
+    fontSize: 12,
+    color: '#71717a',
+    marginBottom: 12,
+  },
+  divider_1: {
+    backgroundColor: '#27272a',
+  },
+  text_2: {
+    fontSize: 12,
+    color: '#71717a',
+    marginBottom: 12,
+  },
+  divider_3: {
+    backgroundColor: '#27272a',
+  },
+  card_4: {
+    backgroundColor: '#18181b',
+    borderRadius: 8,
+    padding: 16,
+    border: '#27272a',
+  },
+  text_5: {
+    fontSize: 12,
+    color: '#71717a',
+    marginTop: 8,
+  },
+  card_6: {
+    backgroundColor: '#18181b',
+    borderRadius: 8,
+    padding: 16,
+    border: '#27272a',
+  },
+  row_7: {
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    flexDirection: 'row',
+  },
+  text_8: {
+    fontSize: 14,
+    color: '#a1a1aa',
+  },
+  text_9: {
+    fontSize: 14,
+    color: '#f97316',
+    fontWeight: 500,
+  },
+  row_10: {
+    justifyContent: 'space-between',
+    marginTop: 4,
+    flexDirection: 'row',
+  },
+  text_11: {
+    fontSize: 12,
+    color: '#71717a',
+  },
+  text_12: {
+    fontSize: 12,
+    color: '#71717a',
+  },
+  text_13: {
+    fontSize: 12,
+    color: '#71717a',
+  },
+  text_14: {
+    fontSize: 12,
+    color: '#71717a',
+    marginTop: 12,
+  },
+  card_15: {
+    backgroundColor: '#18181b',
+    borderRadius: 8,
+    padding: 16,
+    border: '#27272a',
+  },
+  text_16: {
+    fontSize: 14,
+    color: '#a1a1aa',
+    marginBottom: 16,
+  },
+  row_17: {
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    flexDirection: 'row',
+  },
+  text_18: {
+    fontSize: 14,
+    color: '#d4d4d8',
+  },
+  text_19: {
+    fontSize: 14,
+    color: '#f97316',
+    fontWeight: 500,
+  },
+  row_20: {
+    justifyContent: 'space-between',
+    marginTop: 4,
+    flexDirection: 'row',
+  },
+  text_21: {
+    fontSize: 12,
+    color: '#71717a',
+  },
+  text_22: {
+    fontSize: 12,
+    color: '#71717a',
+  },
+  text_23: {
+    fontSize: 12,
+    color: '#71717a',
+  },
+  card_24: {
+    backgroundColor: '#09090b',
+    borderRadius: 8,
+    padding: 12,
+    border: '#27272a',
+    marginTop: 16,
+  },
+  text_25: {
+    fontSize: 12,
+    color: '#a1a1aa',
+    fontWeight: 500,
+    marginBottom: 4,
+  },
+  text_26: {
+    fontSize: 12,
+    color: '#71717a',
+  },
+  card_27: {
+    backgroundColor: '#18181b',
+    borderRadius: 8,
+    padding: 16,
+    border: '#27272a',
+  },
+  text_28: {
+    fontSize: 14,
+    color: '#a1a1aa',
+    marginBottom: 16,
+  },
+  divider_29: {
+    backgroundColor: '#27272a',
+    marginTop: 16,
+  },
+  button_30: {
+    marginTop: 16,
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  divider_31: {
+    backgroundColor: '#27272a',
+    marginTop: 16,
+  },
+  card_32: {
+    backgroundColor: '#09090b',
+    borderRadius: 8,
+    padding: 12,
+    border: '#27272a',
+    marginTop: 16,
+  },
+  row_33: {
+    gap: 12,
+    flexDirection: 'row',
+  },
+  icon_34: {
+    color: '#f97316',
+  },
+  text_35: {
+    fontSize: 14,
+    color: '#d4d4d8',
+    fontWeight: 500,
+    marginBottom: 4,
+  },
+  text_36: {
+    fontSize: 14,
+    color: '#a1a1aa',
+  },
+  card_37: {
+    backgroundColor: '#18181b',
+    borderRadius: 8,
+    padding: 24,
+    border: '#27272a',
+  },
+  text_38: {
+    fontSize: 14,
+    color: '#d4d4d8',
+    marginBottom: 16,
+  },
+  divider_39: {
+    backgroundColor: '#27272a',
+  },
+  card_40: {
+    backgroundColor: '#18181b',
+    borderRadius: 8,
+    padding: 16,
+    border: '#27272a',
+  },
+  row_41: {
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexDirection: 'row',
+  },
+  text_42: {
+    fontSize: 14,
+    color: '#e4e4e7',
+    marginBottom: 4,
+  },
+  text_43: {
+    fontSize: 12,
+    color: '#71717a',
+  },
+});
+
+export default AppSettings;"
+`;
+
+exports[`Golden Snapshot Tests React Native output for dashboard.kern 1`] = `
+"import React from 'react';
+import { Image, Text, TouchableOpacity, View, StyleSheet } from 'react-native';
+
+const Dashboard: React.FC = () => {
+  return (
+    <View style={styles.screen_0} name="Dashboard">
+      <View style={styles.row_1}>
+        <Text style={styles.text_2}>
+          {"FITVT"}
+        </Text>
+        <Image style={styles.image_3} source={require('./avatar')} />
+      </View>
+      <View style={styles.card_4}>
+        <View style={styles.progress_5} label="Calories" current="1840" target="2200" unit="kcal" color="#FF6B6B">
+          <Text>Calories: 1840/2200 kcal</Text>
+          <View style={styles.progressBar_6}>
+            <View style={styles.progressFill_7} />
+          </View>
+        </View>
+        <View style={styles.progress_8} label="Protein" current="96" target="140" unit="g" color="#4ECDC4">
+          <Text>Protein: 96/140 g</Text>
+          <View style={styles.progressBar_9}>
+            <View style={styles.progressFill_10} />
+          </View>
+        </View>
+        <View style={styles.progress_11} label="Carbs" current="210" target="260" unit="g" color="#FFD166">
+          <Text>Carbs: 210/260 g</Text>
+          <View style={styles.progressBar_12}>
+            <View style={styles.progressFill_13} />
+          </View>
+        </View>
+        <View style={styles.progress_14} label="Fat" current="58" target="70" unit="g" color="#6C5CE7">
+          <Text>Fat: 58/70 g</Text>
+          <View style={styles.progressBar_15}>
+            <View style={styles.progressFill_16} />
+          </View>
+        </View>
+      </View>
+      <TouchableOpacity style={styles.button_17} to="LogMeal">
+        <Text style={styles.buttonText}>Log Meal</Text>
+      </TouchableOpacity>
+      <View title="Recent Meals" separator="true">
+        <View id="m1" name="Greek Yogurt Bowl" time="08:15" calories="320" />
+        <View id="m2" name="Chicken Salad" time="12:40" calories="540" />
+        <View id="m3" name="Protein Shake" time="15:10" calories="220" />
+        <View id="m4" name="Salmon Rice Bowl" time="18:30" calories="680" />
+        <View id="m5" name="Casein Pudding" time="21:00" calories="190" />
+      </View>
+      <View active="Dashboard">
+        <TouchableOpacity icon="home" label="Dashboard" />
+        <TouchableOpacity icon="plus" label="Log" />
+        <TouchableOpacity icon="chart" label="Stats" />
+        <TouchableOpacity icon="gear" label="Settings" />
+      </View>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  screen_0: {
+    backgroundColor: '#F8F9FA',
+  },
+  row_1: {
+    padding: 16,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexDirection: 'row',
+  },
+  text_2: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  image_3: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  card_4: {
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#FFF',
+    margin: 16,
+  },
+  progress_5: {
+    height: 8,
+    borderRadius: 4,
+  },
+  progressBar_6: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E0E0E0',
+    overflow: 'hidden',
+  },
+  progressFill_7: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FF6B6B',
+    width: '84%',
+  },
+  progress_8: {
+    height: 8,
+    borderRadius: 4,
+  },
+  progressBar_9: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E0E0E0',
+    overflow: 'hidden',
+  },
+  progressFill_10: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#4ECDC4',
+    width: '69%',
+  },
+  progress_11: {
+    height: 8,
+    borderRadius: 4,
+  },
+  progressBar_12: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E0E0E0',
+    overflow: 'hidden',
+  },
+  progressFill_13: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FFD166',
+    width: '81%',
+  },
+  progress_14: {
+    height: 8,
+    borderRadius: 4,
+  },
+  progressBar_15: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E0E0E0',
+    overflow: 'hidden',
+  },
+  progressFill_16: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#6C5CE7',
+    width: '83%',
+  },
+  button_17: {
+    width: '100%',
+    borderRadius: 8,
+    backgroundColor: '#007AFF',
+    padding: 16,
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+});
+
+export default Dashboard;"
+`;

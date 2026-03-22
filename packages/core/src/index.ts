@@ -3,7 +3,8 @@
  */
 
 // Core
-export { parse, registerParserHints, unregisterParserHints, clearParserHints } from './parser.js';
+export { parse, registerParserHints, unregisterParserHints, clearParserHints, tokenizeLine } from './parser.js';
+export type { Token, TokenKind } from './parser.js';
 export { decompile } from './decompiler.js';
 export { KernParseError } from './errors.js';
 
