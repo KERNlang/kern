@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`Golden Snapshot Tests Next.js output for nextjs-landing.kern 1`] = `
 "'use client';
