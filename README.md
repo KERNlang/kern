@@ -3,6 +3,13 @@
   <img src="assets/banner.svg" alt="KERN — The language LLMs think in" width="100%">
   <br><br>
 
+  [![npm](https://img.shields.io/npm/v/@kernlang/cli?color=cb3837&label=npm)](https://www.npmjs.com/package/@kernlang/cli)
+  [![CI](https://img.shields.io/github/actions/workflow/status/KERNlang/kern/ci.yml?branch=main&label=CI)](https://github.com/KERNlang/kern/actions/workflows/ci.yml)
+  [![GitHub release](https://img.shields.io/github/v/release/KERNlang/kern?label=release)](https://github.com/KERNlang/kern/releases)
+  [![license](https://img.shields.io/github/license/KERNlang/kern)](LICENSE)
+
+  <br>
+
   <strong>You prompt. AI writes KERN. KERN compiles to anything.</strong><br>
   <sub>Humans never write .kern — the AI does.</sub>
 
