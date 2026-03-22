@@ -10,16 +10,10 @@
 - Playground builds separately: `pnpm --filter @kernlang/playground build`
 - Never commit `tsconfig.tsbuildinfo` files — they are gitignored.
 
-## Commits
-
-- On **weekends** or **after 18:00**: Claude may commit and push to `dev` autonomously after verifying tests pass.
-- On **weekdays before 18:00**: Do NOT auto-commit. Leave changes unstaged — user commits manually.
-
 ## Branching
 
-- `dev` = daily work branch. Push here.
+- `dev` = daily work branch.
 - `main` = release branch. Only merge via PR. CI must pass.
-- Never push directly to main.
 
 ## Language
 
