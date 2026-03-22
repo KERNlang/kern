@@ -202,7 +202,45 @@ No other tool combines ALL of:
 
 ---
 
-## 8. Architectural Inspirations to Adopt
+## 8. Additional Findings (Deep Research Round 2)
+
+### Amazon Smithy — Spec Compiler for APIs (MAJOR ANALOG)
+
+[Smithy](https://smithy.io/) is Amazon's Interface Definition Language (IDL) for defining APIs. It generates SDKs in TypeScript, Python, Java, Go, Rust, and more. AWS has used it internally since 2018. In 2025, AWS open-sourced the API models and added MCP server generation for AI agents.
+
+| Aspect | Smithy | Kern |
+|--------|--------|------|
+| Domain | API definitions only | Full-stack (UI + API + backend) |
+| Input | .smithy IDL | .kern specification |
+| Targets | Java, Python, TS, Go, Rust SDKs | React, Vue, Svelte, Express, FastAPI |
+| Self-extending | No | Yes (evolve) |
+| Code review | Validation only | 68+ AST rules + taint tracking |
+
+**Key insight:** Smithy validates Kern's architecture for the API/backend layer. Kern extends beyond APIs into UI.
+
+Source: [Smithy.io](https://smithy.io/), [AWS Blog](https://aws.amazon.com/blogs/aws/introducing-aws-api-models-and-publicly-available-resources-for-aws-api-definitions/)
+
+### MLIR Dialects — Parallel to Kern's Evolved Node Types
+
+[MLIR](https://en.wikipedia.org/wiki/MLIR_(software)) uses "dialects" — domain-specific operation sets that coexist in one IR. Different domains define custom operations while maintaining interoperability. Kern's node types ARE a dialect. Evolved nodes EXTEND the dialect. This is MLIR's architecture at a higher abstraction level.
+
+### Combined Generation + Review — Emerging Category (March 2026)
+
+Anthropic launched "Code Review in Claude Code" (March 9, 2026) — a multi-agent system for reviewing AI-generated code. Qodo combines generation + review. Windsurf has IDE + PR review bot.
+
+But NONE of these are SPEC COMPILERS with review. They review PROGRAMS. Kern reviews GENERATED CODE against SPEC INTENTIONS. Different and deeper.
+
+Source: [TechCrunch — Anthropic Code Review](https://techcrunch.com/2026/03/09/anthropic-launches-code-review-tool-to-check-flood-of-ai-generated-code/)
+
+### No Self-Extending IR Found Anywhere
+
+After exhaustive search: no tool, academic paper, or research project automatically extends its own language/IR from discovered codebase patterns. Pattern mining from code exists (code clone detection, API mining) but no system PROPOSES NEW LANGUAGE ELEMENTS from discovered patterns.
+
+Kern's evolve system is **genuinely novel**. Closest academic work: automated API migration (discovering patterns in library usage), but that MIGRATES code, it doesn't EXTEND a language.
+
+---
+
+## 9. Architectural Inspirations to Adopt
 
 | From | Inspiration | Apply to Kern |
 |------|------------|---------------|
@@ -214,6 +252,9 @@ No other tool combines ALL of:
 | **Protobuf** | Plugin-based multi-target generation | UDR's manifest-per-target approach |
 | **MDA lessons** | Handler escape hatches prevent "generate everything" failure | Kern's `<<<>>>` blocks |
 | **SDD movement** | Industry converging on spec-first development | Kern is early in a growing category |
+| **Smithy (AWS)** | IDL → multi-language SDK generation (TS, Python, Go, Rust) | Validate backend architecture, study Smithy's plugin system |
+| **MLIR** | Dialects = domain-specific operations in shared IR | Kern's node types ARE a dialect. Evolved nodes extend it. |
+| **Qodo/Anthropic** | Combined generation + review emerging as category | Kern is ahead — spec compilation + review since v2 |
 
 ---
 
@@ -235,3 +276,11 @@ No other tool combines ALL of:
 - [AI-Native Programming Languages — Medium](https://medium.com/@yashash.gc/beyond-syntax-the-rise-of-ai-native-programming-languages-77c01ebd18a5)
 - [Spec-Driven Development Overview — Zencoder](https://zencoder.ai/blog/spec-driven-development)
 - [Plasmic](https://github.com/plasmicapp/plasmic)
+- [Amazon Smithy](https://smithy.io/)
+- [AWS Open-Sources Smithy API Models](https://www.infoq.com/news/2025/06/aws-smithy-api-models-opensource/)
+- [Smithy for TypeScript](https://aws.amazon.com/blogs/devops/smithy-server-and-client-generator-for-typescript/)
+- [Smithy for Python](https://aws.amazon.com/blogs/developer/introducing-smithy-for-python/)
+- [MLIR — Wikipedia](https://en.wikipedia.org/wiki/MLIR_(software))
+- [Anthropic Code Review in Claude Code](https://techcrunch.com/2026/03/09/anthropic-launches-code-review-tool-to-check-flood-of-ai-generated-code/)
+- [Qodo — Code Integrity Platform](https://www.qodo.ai/)
+- [Awesome Code LLM — Curated Research List](https://github.com/codefuse-ai/Awesome-Code-LLM)
