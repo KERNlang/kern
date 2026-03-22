@@ -61,11 +61,18 @@ function finding(
   };
 }
 
-/** Find all 1-based line numbers where a pattern matches */
+/** Check if a line is a comment (JS/TS single-line or Python) */
+function isCommentLine(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith('*') || trimmed.startsWith('/*');
+}
+
+/** Find all 1-based line numbers where a pattern matches (skips comment lines) */
 function findLines(source: string, pattern: RegExp): number[] {
   const lines: number[] = [];
   const srcLines = source.split('\n');
   for (let i = 0; i < srcLines.length; i++) {
+    if (isCommentLine(srcLines[i])) continue;
     if (pattern.test(srcLines[i])) lines.push(i + 1);
   }
   return lines;
@@ -176,9 +183,10 @@ function commandInjectionTS(source: string, filePath: string): ReviewFinding[] {
     const block = lines.slice(region.start, region.end).join('\n');
     if (!TS_EXEC_SINKS.test(block)) continue;
 
-    // Check each exec line
+    // Check each exec line (skip comments)
     for (let i = region.start; i < region.end; i++) {
       const line = lines[i];
+      if (isCommentLine(line)) continue;
       if (!TS_EXEC_LINE.test(line) && !/\beval\s*\(/.test(line)) continue;
 
       // Check if line uses template literals or string concat with params
@@ -197,9 +205,10 @@ function commandInjectionTS(source: string, filePath: string): ReviewFinding[] {
     }
   }
 
-  // Detect eval() inside tool handler regions
+  // Detect eval() inside tool handler regions (skip comments)
   for (const region of toolHandlerRegions) {
     for (let i = region.start; i < region.end; i++) {
+      if (isCommentLine(lines[i])) continue;
       if (/\beval\s*\(/.test(lines[i])) {
         findings.push(finding(
           'mcp-command-injection', 'error',
