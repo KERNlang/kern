@@ -216,6 +216,116 @@ function collectOnHandler(node: IRNode, ctx: VueBuilder): void {
   ctx.eventHandlers.push({ event, fnName, code, isAsync, key, paramType });
 }
 
+// ── Node-specific Attribute Builders ─────────────────────────────────────
+
+function addImageAttrs(props: Record<string, unknown>, attrs: string[]): void {
+  if (props.src) {
+    attrs.push(`:src="'/${props.src}.png'"`);
+    attrs.push(`alt="${props.src}"`);
+  }
+}
+
+function addButtonAttrs(props: Record<string, unknown>, attrs: string[]): void {
+  if (props.to) attrs.push(`@click="$router.push('/${props.to}')"`);
+  if (props.action) attrs.push(`@click="${props.action}"`);
+}
+
+function addInputAttrs(props: Record<string, unknown>, attrs: string[]): void {
+  if (props.bind) attrs.push(`v-model="${props.bind}"`);
+  if (props.placeholder) attrs.push(`placeholder="${props.placeholder}"`);
+  if (props.type) attrs.push(`type="${props.type}"`);
+}
+
+function addListAttrs(props: Record<string, unknown>, attrs: string[]): void {
+  if (props.items) {
+    const itemVar = props.itemVar as string || 'item';
+    attrs.push(`v-for="${itemVar} in ${props.items}" :key="${itemVar}.id || ${itemVar}"`);
+  }
+}
+
+function addProgressAttrs(props: Record<string, unknown>, attrs: string[]): void {
+  if (props.current) attrs.push(`:value="${props.current}"`);
+  if (props.target) attrs.push(`:max="${props.target}"`);
+}
+
+const ATTR_BUILDERS: Record<string, (props: Record<string, unknown>, attrs: string[], ctx: VueBuilder) => void> = {
+  image: (p, a) => addImageAttrs(p, a),
+  button: (p, a) => addButtonAttrs(p, a),
+  input: (p, a) => addInputAttrs(p, a),
+  modal: (_p, a) => a.push(':open="true"'),
+  list: (p, a) => addListAttrs(p, a),
+  progress: (p, a) => addProgressAttrs(p, a),
+  tabs: (_p, _a, ctx) => ctx.vueImports.add('ref'),
+};
+
+// ── Node-specific Content Renderers ──────────────────────────────────────
+
+function renderTextContent(props: Record<string, unknown>, ctx: VueBuilder, indent: string): void {
+  if (!props.value) return;
+  const val = props.value as string;
+  if (typeof val === 'string' && val.startsWith('{{') && val.endsWith('}}')) {
+    ctx.templateLines.push(`${indent}  {{ ${val.slice(2, -2).trim()} }}`);
+  } else {
+    ctx.templateLines.push(`${indent}  ${val}`);
+  }
+}
+
+function renderProgressContent(props: Record<string, unknown>, ctx: VueBuilder, indent: string): void {
+  if (!props.label) return;
+  const current = props.current || 0;
+  const target = props.target || 100;
+  const unit = props.unit || '';
+  ctx.templateLines.push(`${indent}  ${props.label}: ${current}/${target} ${unit}`);
+}
+
+function renderTabs(node: IRNode, ctx: VueBuilder, indent: string, el: string): void {
+  const tabs = (node.children || []).filter(c => c.type === 'tab');
+  if (tabs.length === 0) return;
+  const tabVarName = `activeTab_${ctx.classIdx}`;
+  const firstTabName = (getProps(tabs[0]).name as string) || '0';
+  ctx.stateDecls.push({ name: tabVarName, initial: `'${firstTabName}'` });
+
+  ctx.templateLines.push(`${indent}  <div class="tab-buttons">`);
+  for (const tab of tabs) {
+    const tp = getProps(tab);
+    const tabName = tp.name as string || tp.label as string || 'tab';
+    const label = tp.label as string || tp.name as string || 'Tab';
+    ctx.templateLines.push(`${indent}    <button @click="${tabVarName} = '${tabName}'" :class="{ active: ${tabVarName} === '${tabName}' }">${label}</button>`);
+  }
+  ctx.templateLines.push(`${indent}  </div>`);
+
+  for (const tab of tabs) {
+    const tp = getProps(tab);
+    const tabName = tp.name as string || tp.label as string || 'tab';
+    ctx.templateLines.push(`${indent}  <div v-if="${tabVarName} === '${tabName}'">`);
+    if (tab.children) {
+      for (const child of tab.children) {
+        renderNode(child, ctx, indent + '    ');
+      }
+    }
+    ctx.templateLines.push(`${indent}  </div>`);
+  }
+}
+
+function renderChildren(node: IRNode, ctx: VueBuilder, indent: string): void {
+  if (node.children) {
+    for (const child of node.children) {
+      renderNode(child, ctx, indent + '  ');
+    }
+  }
+}
+
+// ── Skipped props for generic passthrough ────────────────────────────────
+
+const SKIP_PROPS = new Set([
+  'styles', 'pseudoStyles', 'themeRefs', 'value', 'text', 'src', 'name',
+  'variant', 'to', 'action', 'bind', 'placeholder', 'type', 'items',
+  'itemVar', 'current', 'target', 'unit', 'color', 'label', 'icon',
+  'title', 'active', 'initial', 'code',
+]);
+
+const NON_VISUAL = new Set(['state', 'logic', 'theme', 'handler', 'on']);
+
 // ── Template Rendering ───────────────────────────────────────────────────
 
 function renderNode(node: IRNode, ctx: VueBuilder, indent: string): void {
@@ -235,88 +345,34 @@ function renderNode(node: IRNode, ctx: VueBuilder, indent: string): void {
       collectOnHandler(node, ctx);
       return;
     case 'theme':
-      return;
     case 'handler':
       return;
     default:
       break;
   }
 
-  // Determine element
-  let el: string;
-  if (node.type === 'text') {
-    el = textElement(props.variant as string | undefined);
-  } else {
-    el = NODE_TO_ELEMENT[node.type] || 'div';
-  }
+  const el = node.type === 'text'
+    ? textElement(props.variant as string | undefined)
+    : NODE_TO_ELEMENT[node.type] || 'div';
 
-  // Styles → scoped CSS class
   let styles = mergeNodeStyles(node, ctx);
   styles = addLayoutDefaults(node.type, styles);
   const className = addClass(ctx, node.type, styles);
 
-  // Build attributes
   const attrs: string[] = [];
   if (className) attrs.push(`class="${className}"`);
 
-  // Node-specific attributes
-  if (node.type === 'image' && props.src) {
-    attrs.push(`:src="'/${props.src}.png'"`);
-    attrs.push(`alt="${props.src}"`);
-  }
+  const attrBuilder = ATTR_BUILDERS[node.type];
+  if (attrBuilder) attrBuilder(props as Record<string, unknown>, attrs, ctx);
 
-  if (node.type === 'button' && props.to) {
-    attrs.push(`@click="$router.push('/${props.to}')"`);
-  }
-
-  if (node.type === 'button' && props.action) {
-    attrs.push(`@click="${props.action}"`);
-  }
-
-  if (node.type === 'input') {
-    if (props.bind) {
-      attrs.push(`v-model="${props.bind}"`);
-    }
-    if (props.placeholder) {
-      attrs.push(`placeholder="${props.placeholder}"`);
-    }
-    if (props.type) {
-      attrs.push(`type="${props.type}"`);
-    }
-  }
-
-  if (node.type === 'modal') {
-    attrs.push(':open="true"');
-  }
-
-  if (node.type === 'list' && props.items) {
-    // Dynamic list with v-for
-    const itemVar = props.itemVar as string || 'item';
-    attrs.push(`v-for="${itemVar} in ${props.items}" :key="${itemVar}.id || ${itemVar}"`);
-  }
-
-  if (node.type === 'progress') {
-    if (props.current) attrs.push(`:value="${props.current}"`);
-    if (props.target) attrs.push(`:max="${props.target}"`);
-  }
-
-  if (node.type === 'tabs') {
-    ctx.vueImports.add('ref');
-  }
-
-  // Generic props passthrough
   for (const [k, v] of Object.entries(props)) {
-    if (['styles', 'pseudoStyles', 'themeRefs', 'value', 'text', 'src', 'name',
-         'variant', 'to', 'action', 'bind', 'placeholder', 'type', 'items',
-         'itemVar', 'current', 'target', 'unit', 'color', 'label', 'icon',
-         'title', 'active', 'initial', 'code'].includes(k)) continue;
+    if (SKIP_PROPS.has(k)) continue;
     attrs.push(`${k}="${v}"`);
   }
 
   const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
 
-  // Children or self-closing
-  const hasContent = (node.children && node.children.some(c => c.type !== 'state' && c.type !== 'logic' && c.type !== 'theme' && c.type !== 'handler' && c.type !== 'on')) ||
+  const hasContent = (node.children && node.children.some(c => !NON_VISUAL.has(c.type))) ||
     (node.type === 'text' && props.value) ||
     (node.type === 'button' && props.text) ||
     (node.type === 'progress' && props.label) ||
@@ -331,69 +387,15 @@ function renderNode(node: IRNode, ctx: VueBuilder, indent: string): void {
 
   ctx.templateLines.push(`${indent}<${el}${attrStr}>`);
 
-  // Inner content
-  if (node.type === 'text' && props.value) {
-    const val = props.value as string;
-    if (typeof val === 'string' && val.startsWith('{{') && val.endsWith('}}')) {
-      // Expression binding
-      ctx.templateLines.push(`${indent}  {{ ${val.slice(2, -2).trim()} }}`);
-    } else {
-      ctx.templateLines.push(`${indent}  ${val}`);
-    }
-  }
+  if (node.type === 'text') renderTextContent(props as Record<string, unknown>, ctx, indent);
+  if (node.type === 'button' && props.text) ctx.templateLines.push(`${indent}  ${props.text}`);
+  if (node.type === 'section' && props.title) ctx.templateLines.push(`${indent}  <h2>${props.title}</h2>`);
+  if (node.type === 'progress') renderProgressContent(props as Record<string, unknown>, ctx, indent);
 
-  if (node.type === 'button' && props.text) {
-    ctx.templateLines.push(`${indent}  ${props.text}`);
-  }
-
-  if (node.type === 'section' && props.title) {
-    ctx.templateLines.push(`${indent}  <h2>${props.title}</h2>`);
-  }
-
-  if (node.type === 'progress' && props.label) {
-    const current = props.current || 0;
-    const target = props.target || 100;
-    const unit = props.unit || '';
-    ctx.templateLines.push(`${indent}  ${props.label}: ${current}/${target} ${unit}`);
-  }
-
-  // Tabs handling — render tab buttons + v-if content panels
   if (node.type === 'tabs') {
-    const tabs = (node.children || []).filter(c => c.type === 'tab');
-    if (tabs.length === 0) {
-      ctx.templateLines.push(`${indent}</${el}>`);
-      return;
-    }
-    const tabVarName = `activeTab_${ctx.classIdx}`;
-    const firstTabName = (getProps(tabs[0]).name as string) || '0';
-    ctx.stateDecls.push({ name: tabVarName, initial: `'${firstTabName}'` });
-
-    // Tab buttons
-    ctx.templateLines.push(`${indent}  <div class="tab-buttons">`);
-    for (const tab of tabs) {
-      const tp = getProps(tab);
-      const tabName = tp.name as string || tp.label as string || 'tab';
-      const label = tp.label as string || tp.name as string || 'Tab';
-      ctx.templateLines.push(`${indent}    <button @click="${tabVarName} = '${tabName}'" :class="{ active: ${tabVarName} === '${tabName}' }">${label}</button>`);
-    }
-    ctx.templateLines.push(`${indent}  </div>`);
-
-    // Tab content panels
-    for (const tab of tabs) {
-      const tp = getProps(tab);
-      const tabName = tp.name as string || tp.label as string || 'tab';
-      ctx.templateLines.push(`${indent}  <div v-if="${tabVarName} === '${tabName}'">`);
-      if (tab.children) {
-        for (const child of tab.children) {
-          renderNode(child, ctx, indent + '    ');
-        }
-      }
-      ctx.templateLines.push(`${indent}  </div>`);
-    }
-  } else if (node.children) {
-    for (const child of node.children) {
-      renderNode(child, ctx, indent + '  ');
-    }
+    renderTabs(node, ctx, indent, el);
+  } else {
+    renderChildren(node, ctx, indent);
   }
 
   ctx.templateLines.push(`${indent}</${el}>`);

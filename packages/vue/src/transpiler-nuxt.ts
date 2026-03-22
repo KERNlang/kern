@@ -173,6 +173,96 @@ function collectOnHandler(node: IRNode, ctx: NuxtBuilder): void {
   ctx.eventHandlers.push({ event, fnName, code, isAsync, key, paramType });
 }
 
+// ── Node-specific Attribute Builders ─────────────────────────────────────
+
+function addButtonAttrs(node: IRNode, props: Record<string, unknown>, attrs: string[]): string {
+  let el = 'button';
+  if (props.to) {
+    el = 'NuxtLink';
+    attrs.push(`:to="'/${props.to}'"`);
+  }
+  if (props.action) attrs.push(`@click="${props.action}"`);
+  return el;
+}
+
+function addImageAttrs(props: Record<string, unknown>, attrs: string[]): void {
+  if (props.src) {
+    attrs.push(`:src="'/${props.src}.png'"`);
+    attrs.push(`alt="${props.src}"`);
+  }
+}
+
+function addInputAttrs(props: Record<string, unknown>, attrs: string[]): void {
+  if (props.bind) attrs.push(`v-model="${props.bind}"`);
+  if (props.placeholder) attrs.push(`placeholder="${props.placeholder}"`);
+  if (props.type) attrs.push(`type="${props.type}"`);
+}
+
+function addListAttrs(props: Record<string, unknown>, attrs: string[]): void {
+  if (props.items) {
+    const itemVar = props.itemVar as string || 'item';
+    attrs.push(`v-for="${itemVar} in ${props.items}" :key="${itemVar}.id || ${itemVar}"`);
+  }
+}
+
+function addProgressAttrs(props: Record<string, unknown>, attrs: string[]): void {
+  if (props.current) attrs.push(`:value="${props.current}"`);
+  if (props.target) attrs.push(`:max="${props.target}"`);
+}
+
+// ── Node-specific Content Renderers ──────────────────────────────────────
+
+function renderTextContent(props: Record<string, unknown>, ctx: NuxtBuilder, indent: string): void {
+  if (!props.value) return;
+  const val = props.value as string;
+  if (typeof val === 'string' && val.startsWith('{{') && val.endsWith('}}')) {
+    ctx.templateLines.push(`${indent}  {{ ${val.slice(2, -2).trim()} }}`);
+  } else {
+    ctx.templateLines.push(`${indent}  ${val}`);
+  }
+}
+
+function renderTabs(node: IRNode, ctx: NuxtBuilder, indent: string, el: string): void {
+  const tabs = (node.children || []).filter(c => c.type === 'tab');
+  if (tabs.length === 0) return;
+  const tabVarName = `activeTab_${ctx.classIdx}`;
+  const firstTabName = (getProps(tabs[0]).name as string) || '0';
+  ctx.stateDecls.push({ name: tabVarName, initial: `'${firstTabName}'` });
+
+  ctx.templateLines.push(`${indent}  <div class="tab-buttons">`);
+  for (const tab of tabs) {
+    const tp = getProps(tab);
+    const tabName = tp.name as string || 'tab';
+    const label = tp.label as string || tp.name as string || 'Tab';
+    ctx.templateLines.push(`${indent}    <button @click="${tabVarName} = '${tabName}'" :class="{ active: ${tabVarName} === '${tabName}' }">${label}</button>`);
+  }
+  ctx.templateLines.push(`${indent}  </div>`);
+
+  for (const tab of tabs) {
+    const tp = getProps(tab);
+    const tabName = tp.name as string || 'tab';
+    ctx.templateLines.push(`${indent}  <div v-if="${tabVarName} === '${tabName}'">`);
+    if (tab.children) {
+      for (const child of tab.children) {
+        renderNode(child, ctx, indent + '    ');
+      }
+    }
+    ctx.templateLines.push(`${indent}  </div>`);
+  }
+}
+
+function renderChildren(node: IRNode, ctx: NuxtBuilder, indent: string): void {
+  if (node.children) {
+    for (const child of node.children) {
+      renderNode(child, ctx, indent + '  ');
+    }
+  }
+}
+
+// ── Skipped props for generic passthrough ────────────────────────────────
+
+const NON_VISUAL = new Set(['state', 'logic', 'theme', 'handler', 'metadata', 'on']);
+
 // ── Template rendering ───────────────────────────────────────────────────
 
 function renderNode(node: IRNode, ctx: NuxtBuilder, indent: string): void {
@@ -192,7 +282,6 @@ function renderNode(node: IRNode, ctx: NuxtBuilder, indent: string): void {
     case 'handler':
       return;
     case 'metadata':
-      // Nuxt useHead
       ctx.hasHead = true;
       if (props.title) ctx.headMeta.title = props.title as string;
       if (props.description) ctx.headMeta.description = props.description as string;
@@ -201,14 +290,10 @@ function renderNode(node: IRNode, ctx: NuxtBuilder, indent: string): void {
       break;
   }
 
-  let el: string;
-  if (node.type === 'text') {
-    el = textElement(props.variant as string | undefined);
-  } else {
-    el = NODE_TO_ELEMENT[node.type] || 'div';
-  }
+  let el = node.type === 'text'
+    ? textElement(props.variant as string | undefined)
+    : NODE_TO_ELEMENT[node.type] || 'div';
 
-  // Styles
   let styles = mergeNodeStyles(node, ctx);
   styles = addLayoutDefaults(node.type, styles);
   const className = addClass(ctx, node.type, styles);
@@ -216,43 +301,17 @@ function renderNode(node: IRNode, ctx: NuxtBuilder, indent: string): void {
   const attrs: string[] = [];
   if (className) attrs.push(`class="${className}"`);
 
-  // Nuxt-specific: use NuxtLink instead of button with to
-  if (node.type === 'button' && props.to) {
-    el = 'NuxtLink';
-    attrs.push(`:to="'/${props.to}'"`);
-  }
-
-  if (node.type === 'button' && props.action) {
-    attrs.push(`@click="${props.action}"`);
-  }
-
-  if (node.type === 'image' && props.src) {
-    attrs.push(`:src="'/${props.src}.png'"`);
-    attrs.push(`alt="${props.src}"`);
-  }
-
-  if (node.type === 'input') {
-    if (props.bind) attrs.push(`v-model="${props.bind}"`);
-    if (props.placeholder) attrs.push(`placeholder="${props.placeholder}"`);
-    if (props.type) attrs.push(`type="${props.type}"`);
-  }
-
-  if (node.type === 'list' && props.items) {
-    const itemVar = props.itemVar as string || 'item';
-    attrs.push(`v-for="${itemVar} in ${props.items}" :key="${itemVar}.id || ${itemVar}"`);
-  }
-
-  if (node.type === 'progress') {
-    if (props.current) attrs.push(`:value="${props.current}"`);
-    if (props.target) attrs.push(`:max="${props.target}"`);
-  }
+  // Node-specific attributes (button may override el to NuxtLink)
+  if (node.type === 'button') el = addButtonAttrs(node, props as Record<string, unknown>, attrs);
+  else if (node.type === 'image') addImageAttrs(props as Record<string, unknown>, attrs);
+  else if (node.type === 'input') addInputAttrs(props as Record<string, unknown>, attrs);
+  else if (node.type === 'list') addListAttrs(props as Record<string, unknown>, attrs);
+  else if (node.type === 'progress') addProgressAttrs(props as Record<string, unknown>, attrs);
 
   const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
   const selfClosing = ['image', 'divider', 'input'].includes(node.type);
 
-  const hasContent = (node.children && node.children.some(c =>
-    c.type !== 'state' && c.type !== 'logic' && c.type !== 'theme' &&
-    c.type !== 'handler' && c.type !== 'metadata' && c.type !== 'on')) ||
+  const hasContent = (node.children && node.children.some(c => !NON_VISUAL.has(c.type))) ||
     (node.type === 'text' && props.value) ||
     (node.type === 'button' && props.text) ||
     (node.type === 'section' && props.title);
@@ -264,58 +323,14 @@ function renderNode(node: IRNode, ctx: NuxtBuilder, indent: string): void {
 
   ctx.templateLines.push(`${indent}<${el}${attrStr}>`);
 
-  if (node.type === 'text' && props.value) {
-    const val = props.value as string;
-    if (typeof val === 'string' && val.startsWith('{{') && val.endsWith('}}')) {
-      ctx.templateLines.push(`${indent}  {{ ${val.slice(2, -2).trim()} }}`);
-    } else {
-      ctx.templateLines.push(`${indent}  ${val}`);
-    }
-  }
+  if (node.type === 'text') renderTextContent(props as Record<string, unknown>, ctx, indent);
+  if (node.type === 'button' && props.text) ctx.templateLines.push(`${indent}  ${props.text}`);
+  if (node.type === 'section' && props.title) ctx.templateLines.push(`${indent}  <h2>${props.title}</h2>`);
 
-  if (node.type === 'button' && props.text) {
-    ctx.templateLines.push(`${indent}  ${props.text}`);
-  }
-
-  if (node.type === 'section' && props.title) {
-    ctx.templateLines.push(`${indent}  <h2>${props.title}</h2>`);
-  }
-
-  // Tabs — same as Vue transpiler
   if (node.type === 'tabs') {
-    const tabs = (node.children || []).filter(c => c.type === 'tab');
-    if (tabs.length === 0) {
-      ctx.templateLines.push(`${indent}</${el}>`);
-      return;
-    }
-    const tabVarName = `activeTab_${ctx.classIdx}`;
-    const firstTabName = (getProps(tabs[0]).name as string) || '0';
-    ctx.stateDecls.push({ name: tabVarName, initial: `'${firstTabName}'` });
-
-    ctx.templateLines.push(`${indent}  <div class="tab-buttons">`);
-    for (const tab of tabs) {
-      const tp = getProps(tab);
-      const tabName = tp.name as string || 'tab';
-      const label = tp.label as string || tp.name as string || 'Tab';
-      ctx.templateLines.push(`${indent}    <button @click="${tabVarName} = '${tabName}'" :class="{ active: ${tabVarName} === '${tabName}' }">${label}</button>`);
-    }
-    ctx.templateLines.push(`${indent}  </div>`);
-
-    for (const tab of tabs) {
-      const tp = getProps(tab);
-      const tabName = tp.name as string || 'tab';
-      ctx.templateLines.push(`${indent}  <div v-if="${tabVarName} === '${tabName}'">`);
-      if (tab.children) {
-        for (const child of tab.children) {
-          renderNode(child, ctx, indent + '    ');
-        }
-      }
-      ctx.templateLines.push(`${indent}  </div>`);
-    }
-  } else if (node.children) {
-    for (const child of node.children) {
-      renderNode(child, ctx, indent + '  ');
-    }
+    renderTabs(node, ctx, indent, el);
+  } else {
+    renderChildren(node, ctx, indent);
   }
 
   ctx.templateLines.push(`${indent}</${el}>`);
