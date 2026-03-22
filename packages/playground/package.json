@@ -19,7 +19,7 @@
     "@kernlang/terminal": "workspace:*",
     "@kernlang/vue": "workspace:*",
     "@monaco-editor/react": "^4.6.0",
-    "monaco-editor": "^0.52.0",
+    "monaco-editor": "^0.55.1",
     "next": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

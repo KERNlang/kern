@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { reviewMCPSource, detectMCPServer } from '../src/index.js';
+import { reviewMCPSource, detectMCPServer, inferMCPNodes, inferMCPNodesPython } from '../src/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = resolve(__dirname, 'fixtures');
@@ -443,5 +443,339 @@ describe('MCP security rules — confidence scores', () => {
       expect(f.confidence).toBeGreaterThanOrEqual(0.70);
       expect(f.confidence).toBeLessThanOrEqual(1.0);
     }
+  });
+});
+
+// ── KERN IR Inference ─────────────────────────────────────────────────
+
+describe('KERN IR inference — TypeScript', () => {
+  test('infers action nodes from server.tool() calls', () => {
+    const source = `
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { execSync } from 'child_process';
+const server = new McpServer({ name: 'test', version: '1.0.0' });
+server.tool('run-cmd', 'Run a command', {}, async (params: any) => {
+  execSync(params.cmd);
+  return { content: [{ type: 'text', text: 'done' }] };
+});`;
+    const nodes = inferMCPNodes(source, 'server.ts');
+    expect(nodes.length).toBe(1);
+    expect(nodes[0].type).toBe('action');
+    expect(nodes[0].props?.name).toBe('run-cmd');
+    expect(nodes[0].props?.trust).toBe('low');
+  });
+
+  test('detects shell-exec effect from execSync', () => {
+    const source = `
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+const server = new McpServer({ name: 'test', version: '1.0.0' });
+server.tool('run', 'Run', {}, async (p: any) => {
+  const r = require('child_process').execSync(p.cmd);
+  return { content: [{ type: 'text', text: String(r) }] };
+});`;
+    const nodes = inferMCPNodes(source, 'server.ts');
+    const effects = (nodes[0]?.children ?? []).filter(c => c.type === 'effect');
+    expect(effects.some(e => e.props?.kind === 'shell-exec')).toBe(true);
+  });
+
+  test('detects fs effect from readFileSync', () => {
+    const source = `
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { readFileSync } from 'fs';
+const server = new McpServer({ name: 'test', version: '1.0.0' });
+server.tool('read', 'Read file', {}, async (p: any) => {
+  return { content: [{ type: 'text', text: readFileSync(p.path, 'utf-8') }] };
+});`;
+    const nodes = inferMCPNodes(source, 'server.ts');
+    const effects = (nodes[0]?.children ?? []).filter(c => c.type === 'effect');
+    expect(effects.some(e => e.props?.kind === 'fs')).toBe(true);
+  });
+
+  test('detects network effect from fetch', () => {
+    const source = `
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+const server = new McpServer({ name: 'test', version: '1.0.0' });
+server.tool('call', 'Call API', {}, async (p: any) => {
+  const res = await fetch(p.url);
+  return { content: [{ type: 'text', text: await res.text() }] };
+});`;
+    const nodes = inferMCPNodes(source, 'server.ts');
+    const effects = (nodes[0]?.children ?? []).filter(c => c.type === 'effect');
+    expect(effects.some(e => e.props?.kind === 'network')).toBe(true);
+  });
+
+  test('detects validation guard from zod .parse()', () => {
+    const source = `
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+const server = new McpServer({ name: 'test', version: '1.0.0' });
+server.tool('safe', 'Safe tool', { input: z.string() }, async (p: any) => {
+  const validated = z.string().parse(p.input);
+  return { content: [{ type: 'text', text: validated }] };
+});`;
+    const nodes = inferMCPNodes(source, 'server.ts');
+    const guards = (nodes[0]?.children ?? []).filter(c => c.type === 'guard');
+    expect(guards.some(g => g.props?.kind === 'validation')).toBe(true);
+  });
+
+  test('detects path-containment guard from resolve + startsWith', () => {
+    const source = `
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { resolve } from 'path';
+import { readFileSync } from 'fs';
+const server = new McpServer({ name: 'test', version: '1.0.0' });
+server.tool('read', 'Read', {}, async (p: any) => {
+  const safe = resolve('/data', p.path);
+  if (!safe.startsWith('/data')) throw new Error('denied');
+  return { content: [{ type: 'text', text: readFileSync(safe, 'utf-8') }] };
+});`;
+    const nodes = inferMCPNodes(source, 'server.ts');
+    const guards = (nodes[0]?.children ?? []).filter(c => c.type === 'guard');
+    const effects = (nodes[0]?.children ?? []).filter(c => c.type === 'effect');
+    expect(guards.some(g => g.props?.kind === 'path-containment')).toBe(true);
+    expect(effects.some(e => e.props?.kind === 'fs')).toBe(true);
+  });
+
+  test('confidence is low (0.2) when effects have no guards', () => {
+    const source = `
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+const server = new McpServer({ name: 'test', version: '1.0.0' });
+server.tool('danger', 'Dangerous', {}, async (p: any) => {
+  require('child_process').execSync(p.cmd);
+  return { content: [{ type: 'text', text: 'done' }] };
+});`;
+    const nodes = inferMCPNodes(source, 'server.ts');
+    expect(nodes[0].props?.confidence).toBe(0.2);
+  });
+
+  test('confidence is high (0.8) when effects have guards', () => {
+    const source = `
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { resolve } from 'path';
+import { readFileSync } from 'fs';
+const server = new McpServer({ name: 'test', version: '1.0.0' });
+server.tool('safe', 'Safe', {}, async (p: any) => {
+  const s = resolve('/data', p.path);
+  if (!s.startsWith('/data')) throw new Error('no');
+  return { content: [{ type: 'text', text: readFileSync(s, 'utf-8') }] };
+});`;
+    const nodes = inferMCPNodes(source, 'server.ts');
+    expect(nodes[0].props?.confidence).toBe(0.8);
+  });
+
+  test('infers multiple tools from same server', () => {
+    const source = `
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+const server = new McpServer({ name: 'test', version: '1.0.0' });
+server.tool('a', 'Tool A', {}, async () => ({ content: [{ type: 'text', text: 'a' }] }));
+server.tool('b', 'Tool B', {}, async () => ({ content: [{ type: 'text', text: 'b' }] }));
+server.tool('c', 'Tool C', {}, async () => ({ content: [{ type: 'text', text: 'c' }] }));`;
+    const nodes = inferMCPNodes(source, 'server.ts');
+    expect(nodes.length).toBe(3);
+    expect(nodes.map(n => n.props?.name)).toEqual(['a', 'b', 'c']);
+  });
+
+  test('returns empty for non-MCP files', () => {
+    const source = 'const x = 1; export default x;';
+    const nodes = inferMCPNodes(source, 'app.ts');
+    expect(nodes).toHaveLength(0);
+  });
+});
+
+describe('KERN IR inference — Python', () => {
+  test('infers action nodes from @mcp.tool() handlers', () => {
+    const source = `
+from mcp.server.fastmcp import FastMCP
+mcp = FastMCP("test")
+
+@mcp.tool()
+def read_file(path: str) -> str:
+    """Read a file"""
+    with open(path) as f:
+        return f.read()
+`;
+    const nodes = inferMCPNodesPython(source, 'server.py');
+    expect(nodes.length).toBe(1);
+    expect(nodes[0].type).toBe('action');
+    expect(nodes[0].props?.name).toBe('read_file');
+  });
+
+  test('detects fs effect from open()', () => {
+    const source = `
+from mcp.server.fastmcp import FastMCP
+mcp = FastMCP("test")
+
+@mcp.tool()
+def read_file(path: str) -> str:
+    """Read a file"""
+    with open(path) as f:
+        return f.read()
+`;
+    const nodes = inferMCPNodesPython(source, 'server.py');
+    const effects = (nodes[0]?.children ?? []).filter(c => c.type === 'effect');
+    expect(effects.some(e => e.props?.kind === 'fs')).toBe(true);
+  });
+
+  test('detects shell-exec effect from os.system', () => {
+    const source = `
+from mcp.server.fastmcp import FastMCP
+import os
+mcp = FastMCP("test")
+
+@mcp.tool()
+def run(cmd: str) -> str:
+    """Run a command"""
+    os.system(cmd)
+    return "done"
+`;
+    const nodes = inferMCPNodesPython(source, 'server.py');
+    const effects = (nodes[0]?.children ?? []).filter(c => c.type === 'effect');
+    expect(effects.some(e => e.props?.kind === 'shell-exec')).toBe(true);
+    expect(nodes[0].props?.confidence).toBe(0.2);
+  });
+
+  test('detects network effect from requests.get', () => {
+    const source = `
+from mcp.server.fastmcp import FastMCP
+mcp = FastMCP("test")
+
+@mcp.tool()
+def fetch_url(url: str) -> str:
+    """Fetch URL"""
+    import requests
+    return requests.get(url).text
+`;
+    const nodes = inferMCPNodesPython(source, 'server.py');
+    const effects = (nodes[0]?.children ?? []).filter(c => c.type === 'effect');
+    expect(effects.some(e => e.props?.kind === 'network')).toBe(true);
+  });
+
+  test('returns empty for non-MCP Python file', () => {
+    const nodes = inferMCPNodesPython('import os\nprint("hello")', 'app.py');
+    expect(nodes).toHaveLength(0);
+  });
+});
+
+describe('KERN IR findings — mcp-ir-unguarded-effect', () => {
+  test('fires on unguarded shell-exec', () => {
+    const source = `
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+const server = new McpServer({ name: 'test', version: '1.0.0' });
+server.tool('run', 'Run', {}, async (p: any) => {
+  require('child_process').execSync(p.cmd);
+  return { content: [{ type: 'text', text: 'done' }] };
+});`;
+    const findings = reviewMCPSource(source, 'server.ts');
+    const irFindings = findings.filter(f => f.ruleId === 'mcp-ir-unguarded-effect');
+    expect(irFindings.length).toBeGreaterThanOrEqual(1);
+    expect(irFindings[0].severity).toBe('error'); // shell-exec = error
+    expect(irFindings[0].message).toContain('shell-exec');
+    expect(irFindings[0].message).toContain('without any guard');
+  });
+
+  test('fires on unguarded fs effect', () => {
+    const source = `
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { readFileSync } from 'fs';
+const server = new McpServer({ name: 'test', version: '1.0.0' });
+server.tool('read', 'Read', {}, async (p: any) => {
+  return { content: [{ type: 'text', text: readFileSync(p.path, 'utf-8') }] };
+});`;
+    const findings = reviewMCPSource(source, 'server.ts');
+    const irFindings = findings.filter(f => f.ruleId === 'mcp-ir-unguarded-effect');
+    expect(irFindings.length).toBeGreaterThanOrEqual(1);
+    expect(irFindings[0].message).toContain('fs');
+  });
+
+  test('does NOT fire when guard is present', () => {
+    const source = `
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { resolve } from 'path';
+import { readFileSync } from 'fs';
+const server = new McpServer({ name: 'test', version: '1.0.0' });
+server.tool('read', 'Read', {}, async (p: any) => {
+  const safe = resolve('/data', p.path);
+  if (!safe.startsWith('/data')) throw new Error('denied');
+  return { content: [{ type: 'text', text: readFileSync(safe, 'utf-8') }] };
+});`;
+    const findings = reviewMCPSource(source, 'server.ts');
+    const irFindings = findings.filter(f => f.ruleId === 'mcp-ir-unguarded-effect');
+    expect(irFindings).toHaveLength(0);
+  });
+
+  test('fires on Python unguarded effect', () => {
+    const source = `
+from mcp.server.fastmcp import FastMCP
+import os
+mcp = FastMCP("test")
+
+@mcp.tool()
+def run(cmd: str) -> str:
+    """Run a command"""
+    os.system(cmd)
+    return "done"
+`;
+    const findings = reviewMCPSource(source, 'server.py');
+    const irFindings = findings.filter(f => f.ruleId === 'mcp-ir-unguarded-effect');
+    expect(irFindings.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('KERN IR findings — mcp-ir-low-confidence', () => {
+  test('fires when confidence <= 0.3', () => {
+    const source = `
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+const server = new McpServer({ name: 'test', version: '1.0.0' });
+server.tool('danger', 'Dangerous', {}, async (p: any) => {
+  eval(p.code);
+  return { content: [{ type: 'text', text: 'done' }] };
+});`;
+    const findings = reviewMCPSource(source, 'server.ts');
+    const lcFindings = findings.filter(f => f.ruleId === 'mcp-ir-low-confidence');
+    expect(lcFindings.length).toBeGreaterThanOrEqual(1);
+    expect(lcFindings[0].message).toContain('low KERN confidence');
+  });
+
+  test('does NOT fire when guards are present', () => {
+    const source = `
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { resolve } from 'path';
+import { readFileSync } from 'fs';
+const server = new McpServer({ name: 'test', version: '1.0.0' });
+server.tool('safe', 'Safe', {}, async (p: any) => {
+  const s = resolve('/data', p.path);
+  if (!s.startsWith('/data')) throw new Error('no');
+  return { content: [{ type: 'text', text: readFileSync(s, 'utf-8') }] };
+});`;
+    const findings = reviewMCPSource(source, 'server.ts');
+    expect(findings.filter(f => f.ruleId === 'mcp-ir-low-confidence')).toHaveLength(0);
+  });
+});
+
+describe('KERN IR — switch/if dispatch detection', () => {
+  test('detects tools from if-else dispatch', () => {
+    const source = `
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
+const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} } });
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const name = request.params.name;
+  if (name === "run_command") {
+    execSync(request.params.arguments.cmd);
+    return { content: [{ type: 'text', text: 'done' }] };
+  } else if (name === "read_file") {
+    const content = readFileSync(request.params.arguments.path, 'utf-8');
+    return { content: [{ type: 'text', text: content }] };
+  }
+});`;
+    const nodes = inferMCPNodes(source, 'server.ts');
+    expect(nodes.length).toBe(2);
+    expect(nodes.map(n => n.props?.name).sort()).toEqual(['read_file', 'run_command']);
+
+    const runCmd = nodes.find(n => n.props?.name === 'run_command');
+    const effects = (runCmd?.children ?? []).filter(c => c.type === 'effect');
+    expect(effects.some(e => e.props?.kind === 'shell-exec')).toBe(true);
   });
 });

@@ -37,11 +37,13 @@ export function findUsages(keyword: string, baseDir: string = process.cwd()): st
             if (re.test(content)) {
               usages.push(full);
             }
-          } catch { // file may not exist
+          } catch {
+            // Intentional: file deleted between listing and read (TOCTOU)
           }
         }
       }
-    } catch { // file may not exist
+    } catch {
+      // Intentional: directory may not exist or be unreadable mid-walk
     }
   }
 

@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`Golden Snapshot Tests Ink output for agon-terminal.kern 1`] = `
 "import React, { useState } from 'react';

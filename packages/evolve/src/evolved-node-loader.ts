@@ -160,7 +160,8 @@ function loadSingleNode(
         const targetGenerator = loadSandboxedGenerator(targetPath);
         registerEvolvedTargetGenerator(keyword, targetName, targetGenerator);
       }
-    } catch { // file may not exist
+    } catch {
+      // Intentional: targets directory may not exist for this keyword
     }
   }
 }

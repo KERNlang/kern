@@ -184,7 +184,7 @@ function detectFromPythonProject(
         return;
       }
     } catch {
-      // parse failed, try next strategy
+      // Expected: pyproject.toml may be unreadable — fall through to requirements.txt
     }
   }
 
@@ -199,7 +199,7 @@ function detectFromPythonProject(
         return;
       }
     } catch {
-      // parse failed, try next strategy
+      // Expected: requirements.txt may be unreadable — no Python target detected
     }
   }
 }
@@ -232,7 +232,7 @@ function detectFromTsconfig(
         baseConfig = parseJsonWithComments(readFileSync(resolvedExtends, 'utf-8'));
       }
     } catch {
-      // parse failed, try next strategy
+      // Expected: extended tsconfig may contain comments/trailing commas or be unreadable — proceed with empty base
     }
   }
 
@@ -280,7 +280,7 @@ function detectFromPrettierrc(
         source = name;
         break;
       } catch {
-        // parse failed, try next strategy
+        // Expected: prettierrc candidate may be unreadable — try next candidate
       }
     }
   }

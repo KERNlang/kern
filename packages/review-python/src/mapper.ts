@@ -477,7 +477,7 @@ function extractDependencyEdges(
   filePath: string,
   edges: ConceptEdge[],
 ): void {
-  const addDependency = (node: Parser.SyntaxNode, specifier: string) => {
+  const addDependency = (node: Parser.SyntaxNode, specifier: string): void => {
     let subtype: 'stdlib' | 'external' | 'internal' = 'external';
     if (specifier.startsWith('.')) {
       subtype = 'internal';

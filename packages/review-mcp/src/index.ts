@@ -47,7 +47,7 @@ export function reviewMCPSource(source: string, filePath: string): ReviewFinding
       findings.push(...irToFindings(irNodes, filePath));
     }
   } catch {
-    // IR inference is best-effort — regex rules always run
+    // Intentional: IR inference is best-effort — regex rules always run regardless
   }
 
   return findings;

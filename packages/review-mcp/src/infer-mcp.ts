@@ -266,12 +266,14 @@ export function inferMCPNodesPython(source: string, filePath: string): IRNode[] 
   }
 
   const lines = source.split('\n');
+  const coveredDefLines = new Set<number>(); // Track lines already covered by decorators
 
   for (let i = 0; i < lines.length; i++) {
     // Match @mcp.tool() or @server.tool() or @server.call_tool() decorators
     const isDecorator = /^\s*@(?:mcp|server)\.(?:tool|call_tool)/.test(lines[i]);
-    // Match class methods for raw protocol servers
-    const isHandlerDef = /^\s*(?:async\s+)?def\s+(?:handle_tools?_call|read_file|write_file|list_directory|execute_code)\s*\(/.test(lines[i]);
+    // Match class methods for raw protocol servers (only if not already covered by a decorator)
+    const isHandlerDef = !coveredDefLines.has(i) &&
+      /^\s*(?:async\s+)?def\s+(?:handle_tools?_call|read_file|write_file|list_directory|execute_code)\s*\(/.test(lines[i]);
 
     if (!isDecorator && !isHandlerDef) continue;
 
@@ -291,6 +293,9 @@ export function inferMCPNodesPython(source: string, filePath: string): IRNode[] 
       }
     }
     if (defLine < 0) continue;
+
+    // Mark this def line as covered so it won't double-match as a handler name
+    if (isDecorator) coveredDefLines.add(defLine);
 
     // Extract function name
     const nameMatch = defContent.match(/def\s+(\w+)/);

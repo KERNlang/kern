@@ -67,11 +67,11 @@ function uncheckedFind(ctx: RuleContext): ReviewFinding[] {
       let guarded = false;
       for (const stmt of statementsAfter) {
         const text = stmt.getText();
-        // Check for null guards: if (x), if (x != null), if (!x), x?.
+        // Check for null guards: if (x), if (x != null), if (!x), x?, x ? (ternary)
         if (text.includes(`if (${varName}`) || text.includes(`if (!${varName}`) ||
             text.includes(`${varName} != null`) || text.includes(`${varName} !== null`) ||
             text.includes(`${varName} !== undefined`) || text.includes(`${varName} != undefined`) ||
-            text.includes(`${varName}?`)) {
+            text.includes(`${varName}?`) || text.includes(`${varName} ?`)) {
           guarded = true;
           break;
         }
@@ -96,10 +96,11 @@ function uncheckedFind(ctx: RuleContext): ReviewFinding[] {
     }
 
     // Direct property access on .find() result: arr.find(x => x.id === id).name
-    const grandparent = parent.getParent();
     if (Node.isPropertyAccessExpression(parent)) {
       // Check for non-null assertion: arr.find(...)!.x — that's intentional
       if (Node.isNonNullExpression(parent.getParent()!)) continue;
+      // Check for optional chaining: arr.find(...)?.x — that's safe
+      if (parent.hasQuestionDotToken()) continue;
 
       findings.push(finding(
         'unchecked-find',

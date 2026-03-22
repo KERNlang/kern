@@ -115,7 +115,7 @@ function extractErrorHandle(sf: SourceFile, filePath: string, nodes: ConceptNode
     const stmts = block.getStatements();
     const errorVar = catchClause.getVariableDeclaration()?.getName();
 
-    const disposition = classifyDisposition(stmts, errorVar);
+    const disposition = classifyDisposition(stmts, errorVar, block);
 
     nodes.push({
       id: conceptId(filePath, 'error_handle', catchClause.getStart()),
@@ -175,9 +175,16 @@ function extractErrorHandle(sf: SourceFile, filePath: string, nodes: ConceptNode
 function classifyDisposition(
   stmts: import('ts-morph').Statement[],
   errorVar?: string,
+  block?: import('ts-morph').Block,
 ): { type: ErrorHandlePayload['disposition']; confidence: number } {
-  // Empty catch → ignored
+  // Empty catch — check for intentional suppression comments
   if (stmts.length === 0) {
+    if (block) {
+      const blockText = block.getText();
+      if (/\/[/*]\s*(Intentional|Expected|@suppress|eslint-disable)/.test(blockText)) {
+        return { type: 'wrapped', confidence: 0.3 };
+      }
+    }
     return { type: 'ignored', confidence: 1.0 };
   }
 
