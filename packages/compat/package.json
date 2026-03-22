@@ -28,9 +28,9 @@
   "author": "cukas",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cukas/KERNlang.git"
+    "url": "git+https://github.com/KERNlang/kern.git"
   },
-  "homepage": "https://github.com/cukas/KERNlang#readme",
+  "homepage": "https://github.com/KERNlang/kern#readme",
   "license": "AGPL-3.0",
   "scripts": {
     "build": "tsc -b"
