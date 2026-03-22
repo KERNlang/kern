@@ -1,5 +1,5 @@
 import type { IRNode, TranspileResult, SourceMapEntry, GeneratedArtifact, ResolvedKernConfig } from '@kernlang/core';
-import { countTokens, serializeIR, isCoreNode, generateCoreNode } from '@kernlang/core';
+import { countTokens, serializeIR, isCoreNode, generateCoreNode, getProps, getChildren, getFirstChild } from '@kernlang/core';
 
 /**
  * Terminal Transpiler — generates ANSI-based CLI rendering code
@@ -126,20 +126,6 @@ function progressBar(value, max, width, color) {
 
 process.on('SIGINT', () => { if (_activeSpinner) _activeSpinner.stop(); process.exit(0); });
 `.trim();
-
-// ── Types ────────────────────────────────────────────────────────────────
-
-function getProps(node: IRNode): Record<string, unknown> {
-  return node.props || {};
-}
-
-function getChildren(node: IRNode, type: string): IRNode[] {
-  return (node.children || []).filter(c => c.type === type);
-}
-
-function getFirstChild(node: IRNode, type: string): IRNode | undefined {
-  return (node.children || []).find(c => c.type === type);
-}
 
 // ── State block generator ────────────────────────────────────────────────
 

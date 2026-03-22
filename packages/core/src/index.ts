@@ -60,6 +60,9 @@ export {
   generatePattern, generateApply,
   emitReasonAnnotations, emitLowConfidenceTodo,
   parseParamList, capitalize,
+  // Shared IR node helpers
+  getProps, getChildren, getFirstChild, getStyles, getPseudoStyles, getThemeRefs,
+  dedent, cssPropertyName, handlerCode,
   // Graduated nodes
   generateConditional, generateSelect,
   generateModel, generateRepository, generateDependency, generateCache,

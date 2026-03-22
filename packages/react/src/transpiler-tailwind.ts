@@ -1,5 +1,5 @@
 import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, TailwindVersionProfile } from '@kernlang/core';
-import { stylesToTailwind, colorToTw, countTokens, serializeIR, camelKey, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, applyTailwindTokenRules } from '@kernlang/core';
+import { stylesToTailwind, colorToTw, countTokens, serializeIR, camelKey, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, applyTailwindTokenRules, getProps, getStyles, getThemeRefs, getPseudoStyles } from '@kernlang/core';
 import { planStructure } from './structure.js';
 import type { PlannedFile } from './structure.js';
 import { buildStructuredArtifacts } from './artifact-utils.js';
@@ -31,21 +31,6 @@ function tText(ctx: CodeBuilder, key: string, value: string): string {
   return ctx.i18nEnabled ? `{t('${escapeJsString(key)}', '${escapeJsString(value)}')}` : escapeJsxText(value);
 }
 
-function getProps(node: IRNode): Record<string, unknown> {
-  return node.props || {};
-}
-
-function getStyles(node: IRNode): Record<string, string> {
-  return (getProps(node).styles as Record<string, string>) || {};
-}
-
-function getThemeRefs(node: IRNode): string[] {
-  return (getProps(node).themeRefs as string[]) || [];
-}
-
-function getPseudoStyles(node: IRNode): Record<string, Record<string, string>> {
-  return (getProps(node).pseudoStyles as Record<string, Record<string, string>>) || {};
-}
 
 function twClasses(node: IRNode, ctx: CodeBuilder, extra: string = ''): string {
   const styles = getStyles(node);

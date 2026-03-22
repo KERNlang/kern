@@ -11,7 +11,7 @@
  */
 
 import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR, cssPropertyName, getProps, getStyles, getThemeRefs } from '@kernlang/core';
 
 // ── Node → HTML Element Mapping (same as Vue) ───────────────────────────
 
@@ -44,10 +44,6 @@ function textElement(variant?: string): string {
   return map[variant] || 'p';
 }
 
-function cssPropertyName(camel: string): string {
-  return camel.replace(/([A-Z])/g, '-$1').toLowerCase();
-}
-
 function cssValue(key: string, value: string | number): string {
   if (typeof value === 'number') {
     const unitless = ['flex', 'fontWeight', 'opacity', 'zIndex', 'lineHeight'];
@@ -55,18 +51,6 @@ function cssValue(key: string, value: string | number): string {
     return `${value}px`;
   }
   return String(value);
-}
-
-function getProps(node: IRNode): Record<string, unknown> {
-  return node.props || {};
-}
-
-function getStyles(node: IRNode): Record<string, string> {
-  return (getProps(node).styles as Record<string, string>) || {};
-}
-
-function getThemeRefs(node: IRNode): string[] {
-  return (getProps(node).themeRefs as string[]) || [];
 }
 
 // ── Event Handler Declarations ──────────────────────────────────────────

@@ -1,5 +1,5 @@
 import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR, cssPropertyName } from '@kernlang/core';
 import { planStructure } from './structure.js';
 import type { PlannedFile } from './structure.js';
 import { buildStructuredArtifacts } from './artifact-utils.js';
@@ -24,9 +24,6 @@ const NODE_TO_ELEMENT: Record<string, string> = {
   header: 'header',
 };
 
-function cssPropertyName(camel: string): string {
-  return camel.replace(/([A-Z])/g, '-$1').toLowerCase();
-}
 
 function cssValue(key: string, value: string | number): string {
   if (typeof value === 'number') {

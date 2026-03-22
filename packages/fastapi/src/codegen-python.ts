@@ -6,6 +6,7 @@
  */
 
 import type { IRNode } from '@kernlang/core';
+import { dedent, handlerCode } from '@kernlang/core';
 import { mapTsTypeToPython, toSnakeCase, toScreamingSnake } from './type-map.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -21,21 +22,6 @@ function kids(node: IRNode, type?: string): IRNode[] {
 
 function firstChild(node: IRNode, type: string): IRNode | undefined {
   return kids(node, type)[0];
-}
-
-function dedent(code: string): string {
-  const lines = code.split('\n');
-  const nonEmpty = lines.filter(l => l.trim().length > 0);
-  if (nonEmpty.length === 0) return code;
-  const min = Math.min(...nonEmpty.map(l => l.match(/^(\s*)/)?.[1].length ?? 0));
-  return lines.map(l => l.slice(min)).join('\n');
-}
-
-function handlerCode(node: IRNode): string {
-  const handler = firstChild(node, 'handler');
-  if (!handler) return '';
-  const raw = p(handler).code as string || '';
-  return dedent(raw);
 }
 
 // ── Type Alias ───────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import type { ResolvedKernConfig, GeneratedArtifact, IRNode, SourceMapEntry, TranspileResult } from '@kernlang/core';
-import { camelKey, countTokens, generateCoreNode, serializeIR } from '@kernlang/core';
+import { camelKey, countTokens, generateCoreNode, getChildren, getFirstChild, getProps, serializeIR } from '@kernlang/core';
 
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'delete']);
 
@@ -303,18 +303,6 @@ function generateRespondExpress(respondNode: IRNode, indent: string): string[] {
     return [`${indent}res.status(${status}).send();`];
   }
   return [`${indent}res.status(200).send();`];
-}
-
-function getProps(node: IRNode): Record<string, unknown> {
-  return node.props || {};
-}
-
-function getChildren(node: IRNode, type: string): IRNode[] {
-  return (node.children || []).filter(child => child.type === type);
-}
-
-function getFirstChild(node: IRNode, type: string): IRNode | undefined {
-  return (node.children || []).find(child => child.type === type);
 }
 
 function pascalCase(value: string): string {
