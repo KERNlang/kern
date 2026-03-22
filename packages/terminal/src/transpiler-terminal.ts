@@ -152,136 +152,132 @@ function generateStateBlock(stateNode: IRNode): string[] {
   return lines;
 }
 
-// ── Node renderer ────────────────────────────────────────────────────────
+// ── Per-node renderers ───────────────────────────────────────────────────
+
+function renderText(p: Record<string, unknown>, indent: string): string[] {
+  const value = p.value as string || '';
+  const styles = (p.styles as Record<string, string>) || {};
+  const styleObj: string[] = [];
+  if (styles.c || styles.color) styleObj.push(`color: ${JSON.stringify(styles.c || styles.color)}`);
+  if (styles.bg) styleObj.push(`bg: ${JSON.stringify(styles.bg)}`);
+  if (styles.fw === 'bold' || styles.bold) styleObj.push('bold: true');
+  if (styles.dim) styleObj.push('dim: true');
+  if (styles.italic) styleObj.push('italic: true');
+
+  if (styleObj.length > 0) {
+    return [`${indent}console.log(style(${JSON.stringify(value)}, { ${styleObj.join(', ')} }));`];
+  }
+  return [`${indent}console.log(${JSON.stringify(value)});`];
+}
+
+function renderSeparator(p: Record<string, unknown>, indent: string): string[] {
+  const width = Number(p.width) || 48;
+  return [`${indent}console.log(separator(${width}));`];
+}
+
+function renderTable(node: IRNode, p: Record<string, unknown>, indent: string): string[] {
+  const lines: string[] = [];
+  const headers = p.headers as string || '[]';
+  lines.push(`${indent}const _tableHeaders = ${headers};`);
+  lines.push(`${indent}const _tableRows: string[][] = [];`);
+  for (const row of getChildren(node, 'row')) {
+    const rowData = getProps(row).data as string || '[]';
+    lines.push(`${indent}_tableRows.push(${rowData});`);
+  }
+  lines.push(`${indent}console.log(table(_tableHeaders, _tableRows));`);
+  return lines;
+}
+
+function renderScoreboard(node: IRNode, p: Record<string, unknown>, indent: string): string[] {
+  const lines: string[] = [];
+  const title = p.title as string || 'Results';
+  const winner = p.winner as string || '';
+  lines.push(`${indent}console.log(style(${JSON.stringify(title)}, { bold: true }));`);
+  if (winner) {
+    lines.push(`${indent}console.log(style('Winner: ${winner}', { color: 'green', bold: true }));`);
+  }
+  for (const metric of getChildren(node, 'metric')) {
+    const mp = getProps(metric);
+    const name = mp.name as string || '';
+    const values = mp.values as string || '[]';
+    lines.push(`${indent}console.log('  ' + style('${name}:', { dim: true }) + ' ' + ${values}.join(' | '));`);
+  }
+  return lines;
+}
+
+function renderSpinner(p: Record<string, unknown>, indent: string): string[] {
+  const message = p.message as string || 'Loading...';
+  const color = p.color as string || 'white';
+  return [
+    `${indent}const _spinner = spinner(${JSON.stringify(message)}, ${JSON.stringify(color)});`,
+    `${indent}_spinner.start();`,
+  ];
+}
+
+function renderProgress(p: Record<string, unknown>, indent: string): string[] {
+  const value = Number(p.value) || 0;
+  const max = Number(p.max) || 100;
+  const color = p.color as string || 'green';
+  return [`${indent}console.log(progressBar(${value}, ${max}, 20, ${JSON.stringify(color)}));`];
+}
+
+function renderBox(node: IRNode, p: Record<string, unknown>, indent: string): string[] {
+  const color = p.color as string || 'white';
+  const width = Number(p.width) || 50;
+  const boxContent: string[] = [];
+  for (const child of node.children || []) {
+    const cp = getProps(child);
+    if (child.type === 'text') {
+      boxContent.push(cp.value as string || '');
+    } else if (child.type === 'separator') {
+      boxContent.push('─'.repeat(Math.min(Number(cp.width) || 40, width - 4)));
+    } else if (child.type === 'progress') {
+      boxContent.push(`[progress: ${cp.value || 0}/${cp.max || 100}]`);
+    } else {
+      boxContent.push(`[${child.type}]`);
+    }
+  }
+  return [`${indent}console.log(box(${JSON.stringify(boxContent.join('\\n'))}, ${JSON.stringify(color)}, ${width}));`];
+}
+
+function renderGradient(p: Record<string, unknown>, indent: string): string[] {
+  const text = p.text as string || '';
+  const colors = p.colors as string || '[]';
+  return [`${indent}console.log(gradient(${JSON.stringify(text)}, ${colors}));`];
+}
+
+function renderHandler(p: Record<string, unknown>, indent: string): string[] {
+  const code = p.code as string || '';
+  return code.split('\n').map(line => `${indent}${line.trim()}`);
+}
+
+// ── Node renderer (dispatch) ─────────────────────────────────────────────
 
 function renderTerminalNode(node: IRNode, indent: string): string[] {
   const p = getProps(node);
   const lines: string[] = [];
 
   switch (node.type) {
-    case 'text': {
-      const value = p.value as string || '';
-      const styles = (p.styles as Record<string, string>) || {};
-      const styleObj: string[] = [];
-      if (styles.c || styles.color) styleObj.push(`color: ${JSON.stringify(styles.c || styles.color)}`);
-      if (styles.bg) styleObj.push(`bg: ${JSON.stringify(styles.bg)}`);
-      if (styles.fw === 'bold' || styles.bold) styleObj.push('bold: true');
-      if (styles.dim) styleObj.push('dim: true');
-      if (styles.italic) styleObj.push('italic: true');
-
-      if (styleObj.length > 0) {
-        lines.push(`${indent}console.log(style(${JSON.stringify(value)}, { ${styleObj.join(', ')} }));`);
-      } else {
-        lines.push(`${indent}console.log(${JSON.stringify(value)});`);
-      }
-      break;
-    }
-
-    case 'separator': {
-      const width = Number(p.width) || 48;
-      lines.push(`${indent}console.log(separator(${width}));`);
-      break;
-    }
-
-    case 'table': {
-      const headers = p.headers as string || '[]';
-      lines.push(`${indent}const _tableHeaders = ${headers};`);
-      lines.push(`${indent}const _tableRows: string[][] = [];`);
-      for (const row of getChildren(node, 'row')) {
-        const rowData = getProps(row).data as string || '[]';
-        lines.push(`${indent}_tableRows.push(${rowData});`);
-      }
-      lines.push(`${indent}console.log(table(_tableHeaders, _tableRows));`);
-      break;
-    }
-
-    case 'scoreboard': {
-      const title = p.title as string || 'Results';
-      const winner = p.winner as string || '';
-      lines.push(`${indent}console.log(style(${JSON.stringify(title)}, { bold: true }));`);
-      if (winner) {
-        lines.push(`${indent}console.log(style('Winner: ${winner}', { color: 'green', bold: true }));`);
-      }
-      for (const metric of getChildren(node, 'metric')) {
-        const mp = getProps(metric);
-        const name = mp.name as string || '';
-        const values = mp.values as string || '[]';
-        lines.push(`${indent}console.log('  ' + style('${name}:', { dim: true }) + ' ' + ${values}.join(' | '));`);
-      }
-      break;
-    }
-
-    case 'spinner': {
-      const message = p.message as string || 'Loading...';
-      const color = p.color as string || 'white';
-      lines.push(`${indent}const _spinner = spinner(${JSON.stringify(message)}, ${JSON.stringify(color)});`);
-      lines.push(`${indent}_spinner.start();`);
-      break;
-    }
-
-    case 'progress': {
-      const value = Number(p.value) || 0;
-      const max = Number(p.max) || 100;
-      const color = p.color as string || 'green';
-      lines.push(`${indent}console.log(progressBar(${value}, ${max}, 20, ${JSON.stringify(color)}));`);
-      break;
-    }
-
-    case 'box': {
-      const color = p.color as string || 'white';
-      const width = Number(p.width) || 50;
-      // Box content from all children (recursive)
-      const boxContent: string[] = [];
-      for (const child of node.children || []) {
-        const cp = getProps(child);
-        if (child.type === 'text') {
-          boxContent.push(cp.value as string || '');
-        } else if (child.type === 'separator') {
-          boxContent.push('─'.repeat(Math.min(Number(cp.width) || 40, width - 4)));
-        } else if (child.type === 'progress') {
-          boxContent.push(`[progress: ${cp.value || 0}/${cp.max || 100}]`);
-        } else {
-          boxContent.push(`[${child.type}]`);
-        }
-      }
-      lines.push(`${indent}console.log(box(${JSON.stringify(boxContent.join('\\n'))}, ${JSON.stringify(color)}, ${width}));`);
-      break;
-    }
-
-    case 'gradient': {
-      const text = p.text as string || '';
-      const colors = p.colors as string || '[]';
-      lines.push(`${indent}console.log(gradient(${JSON.stringify(text)}, ${colors}));`);
-      break;
-    }
-
-    case 'handler': {
-      const code = p.code as string || '';
-      for (const line of code.split('\n')) {
-        lines.push(`${indent}${line.trim()}`);
-      }
-      break;
-    }
-
+    case 'text': return renderText(p as Record<string, unknown>, indent);
+    case 'separator': return renderSeparator(p as Record<string, unknown>, indent);
+    case 'table': return renderTable(node, p as Record<string, unknown>, indent);
+    case 'scoreboard': return renderScoreboard(node, p as Record<string, unknown>, indent);
+    case 'spinner': return renderSpinner(p as Record<string, unknown>, indent);
+    case 'progress': return renderProgress(p as Record<string, unknown>, indent);
+    case 'box': return renderBox(node, p as Record<string, unknown>, indent);
+    case 'gradient': return renderGradient(p as Record<string, unknown>, indent);
+    case 'handler': return renderHandler(p as Record<string, unknown>, indent);
     case 'state':
-      // Handled at top level
-      break;
-
     case 'repl':
-      // Handled at top level
       break;
-
     case 'parallel':
       lines.push(...generateParallelCode(node, indent));
       break;
-
     default:
-      // Core language nodes (type, interface, fn, machine, etc.)
       if (isCoreNode(node.type)) {
         lines.push(...generateCoreNode(node).map(l => `${indent}${l}`));
         break;
       }
-      // Recurse into children for unknown nodes
       if (node.children) {
         for (const child of node.children) {
           lines.push(...renderTerminalNode(child, indent));

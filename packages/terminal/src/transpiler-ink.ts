@@ -308,364 +308,341 @@ function generateOnHook(onNode: IRNode, imports: ImportTracker): string[] {
   return lines;
 }
 
-// ── Node renderer → JSX ─────────────────────────────────────────────────
+// ── Per-node JSX Renderers ───────────────────────────────────────────────
+
+function renderInkText(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Text');
+  const rawValue = p.value;
+  const styles = (p.styles as Record<string, string>) || {};
+  const textProps: string[] = [];
+
+  if (styles.fw === 'bold' || styles.bold) textProps.push('bold');
+  if (styles.dim) textProps.push('dimColor');
+  if (styles.italic) textProps.push('italic');
+  if (styles.c || styles.color) textProps.push(`color=${inkColor(styles.c || styles.color)}`);
+  if (styles.bg) textProps.push(`backgroundColor=${inkColor(styles.bg)}`);
+
+  const propsStr = textProps.length > 0 ? ' ' + textProps.join(' ') : '';
+  if (isExpr(rawValue)) {
+    return [`${indent}<Text${propsStr}>{${(rawValue as { code: string }).code}}</Text>`];
+  }
+  const value = String(rawValue ?? '');
+  return [`${indent}<Text${propsStr}>{${JSON.stringify(value)}}</Text>`];
+}
+
+function renderInkSeparator(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Text');
+  const width = Number(p.width) || 48;
+  return [`${indent}<Text dimColor>{'${'─'.repeat(width)}'}</Text>`];
+}
+
+function renderInkBox(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Box');
+  imports.addInk('Text');
+  const color = p.color as string;
+  const borderStyle = p.borderStyle as string || 'round';
+  const flexDirection = p.flexDirection as string;
+  const width = p.width as string;
+  const flexGrow = p.flexGrow as string;
+  const padding = p.padding as string;
+  const paddingX = p.paddingX as string;
+  const paddingY = p.paddingY as string;
+
+  const boxProps: string[] = [];
+  if (color) boxProps.push(`borderStyle="${borderStyle}"`, `borderColor=${inkColor(color)}`);
+  if (flexDirection) boxProps.push(`flexDirection="${flexDirection}"`);
+  if (width) boxProps.push(`width={${width}}`);
+  if (flexGrow) boxProps.push(`flexGrow={${flexGrow}}`);
+  if (padding) boxProps.push(`padding={${padding}}`);
+  if (paddingX) boxProps.push(`paddingX={${paddingX}}`);
+  if (paddingY) boxProps.push(`paddingY={${paddingY}}`);
+
+  const propsStr = boxProps.length > 0 ? ' ' + boxProps.join(' ') : '';
+  const lines: string[] = [];
+  lines.push(`${indent}<Box${propsStr}>`);
+
+  for (const child of node.children || []) {
+    if (child.type === 'on') continue;
+    lines.push(...renderInkNode(child, indent + '  ', imports));
+  }
+
+  lines.push(`${indent}</Box>`);
+  return lines;
+}
+
+function renderInkTable(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Box');
+  imports.addInk('Text');
+  const headers = p.headers as string || '[]';
+  const rows = getChildren(node, 'row');
+  const lines: string[] = [];
+
+  lines.push(`${indent}<Box flexDirection="column">`);
+  lines.push(`${indent}  <Box>`);
+  lines.push(`${indent}    {(${headers} as string[]).map((h: string, i: number) => (`);
+  lines.push(`${indent}      <Box key={i} width={20}><Text bold>{h}</Text></Box>`);
+  lines.push(`${indent}    ))}`);
+  lines.push(`${indent}  </Box>`);
+  lines.push(`${indent}  <Text dimColor>{'${'─'.repeat(60)}'}</Text>`);
+  for (const row of rows) {
+    const rowData = getProps(row).data as string || '[]';
+    lines.push(`${indent}  <Box>`);
+    lines.push(`${indent}    {(${rowData} as string[]).map((cell: string, i: number) => (`);
+    lines.push(`${indent}      <Box key={i} width={20}><Text>{cell}</Text></Box>`);
+    lines.push(`${indent}    ))}`);
+    lines.push(`${indent}  </Box>`);
+  }
+  lines.push(`${indent}</Box>`);
+  return lines;
+}
+
+function renderInkScoreboard(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Box');
+  imports.addInk('Text');
+  const title = p.title as string || 'Results';
+  const winner = p.winner as string || '';
+  const metrics = getChildren(node, 'metric');
+  const lines: string[] = [];
+
+  lines.push(`${indent}<Box flexDirection="column">`);
+  lines.push(`${indent}  <Text bold>{${JSON.stringify(title)}}</Text>`);
+  if (winner) {
+    lines.push(`${indent}  <Text bold color="green">{'Winner: ${winner}'}</Text>`);
+  }
+  for (const metric of metrics) {
+    const mp = getProps(metric);
+    const mname = mp.name as string || '';
+    const values = mp.values as string || '[]';
+    lines.push(`${indent}  <Box>`);
+    lines.push(`${indent}    <Text dimColor>{${JSON.stringify(mname + ':')}}</Text>`);
+    lines.push(`${indent}    <Text>{' '}{(${values} as string[]).join(' | ')}</Text>`);
+    lines.push(`${indent}  </Box>`);
+  }
+  lines.push(`${indent}</Box>`);
+  return lines;
+}
+
+function renderInkSpinner(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Text');
+  imports.needSpinner();
+  const rawMsg = p.message;
+  const color = p.color as string;
+  const spinnerColor = color ? ` color=${inkColor(color)}` : '';
+  const msgContent = isExpr(rawMsg) ? `{${(rawMsg as { code: string }).code}}` : `{' ${String(rawMsg ?? 'Loading...')}'}`;
+  return [
+    `${indent}<Text>`,
+    `${indent}  <Spinner${spinnerColor} />`,
+    `${indent}  ${msgContent}`,
+    `${indent}</Text>`,
+  ];
+}
+
+function renderInkProgress(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Box');
+  imports.addInk('Text');
+  const rawValue = p.value;
+  const rawMax = p.max;
+  const color = p.color as string || 'green';
+  const barWidth = 20;
+  const lines: string[] = [];
+
+  if (isExpr(rawValue) || isExpr(rawMax)) {
+    const valueExpr = isExpr(rawValue) ? (rawValue as { code: string }).code : String(rawValue ?? 0);
+    const maxExpr = isExpr(rawMax) ? (rawMax as { code: string }).code : String(rawMax ?? 100);
+    lines.push(`${indent}<Box>`);
+    lines.push(`${indent}  {(() => {`);
+    lines.push(`${indent}    const _pct = Math.min(1, Math.max(0, (${valueExpr}) / (${maxExpr})));`);
+    lines.push(`${indent}    const _filled = Math.round(_pct * ${barWidth});`);
+    lines.push(`${indent}    const _empty = ${barWidth} - _filled;`);
+    lines.push(`${indent}    return (<>`);
+    lines.push(`${indent}      <Text color=${inkColor(color)}>${'{'}'▓'.repeat(_filled)${'}'}</Text>`);
+    lines.push(`${indent}      <Text>${'{'}'░'.repeat(_empty)${'}'}</Text>`);
+    lines.push(`${indent}      <Text>{' ' + Math.round(_pct * 100) + '%'}</Text>`);
+    lines.push(`${indent}    </>);`);
+    lines.push(`${indent}  })()}`);
+    lines.push(`${indent}</Box>`);
+  } else {
+    const value = Number(rawValue) || 0;
+    const max = Number(rawMax) || 100;
+    const pct = Math.min(1, Math.max(0, value / max));
+    const filled = Math.round(pct * barWidth);
+    const empty = barWidth - filled;
+
+    lines.push(`${indent}<Box>`);
+    lines.push(`${indent}  <Text color=${inkColor(color)}>{'${'▓'.repeat(filled)}'}</Text>`);
+    lines.push(`${indent}  <Text>{'${'░'.repeat(empty)}'}</Text>`);
+    lines.push(`${indent}  <Text>{' ${Math.round(pct * 100)}%'}</Text>`);
+    lines.push(`${indent}</Box>`);
+  }
+  return lines;
+}
+
+function renderInkGradient(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Text');
+  const text = p.text as string || '';
+  const colors = p.colors as string || '[]';
+  return [
+    `${indent}<Text>`,
+    `${indent}  {${JSON.stringify(text)}.split('').map((ch: string, i: number) => {`,
+    `${indent}    const colors = ${colors} as number[];`,
+    `${indent}    const colorIdx = Math.floor((i / ${text.length}) * colors.length);`,
+    `${indent}    const color = String(colors[Math.min(colorIdx, colors.length - 1)]);`,
+    `${indent}    return <Text key={i} color={color}>{ch}</Text>;`,
+    `${indent}  })}`,
+    `${indent}</Text>`,
+  ];
+}
+
+function renderInkInputArea(node: IRNode, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Box');
+  const lines: string[] = [];
+  lines.push(`${indent}<Box flexDirection="column" borderStyle="single" borderColor="gray">`);
+  for (const child of node.children || []) {
+    if (child.type === 'on') continue;
+    lines.push(...renderInkNode(child, indent + '  ', imports));
+  }
+  lines.push(`${indent}</Box>`);
+  return lines;
+}
+
+function renderInkOutputArea(node: IRNode, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Box');
+  const lines: string[] = [];
+  lines.push(`${indent}<Box flexDirection="column" flexGrow={1}>`);
+  for (const child of node.children || []) {
+    if (child.type === 'on') continue;
+    lines.push(...renderInkNode(child, indent + '  ', imports));
+  }
+  lines.push(`${indent}</Box>`);
+  return lines;
+}
+
+function renderInkTextInput(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.needTextInput();
+  const placeholder = p.placeholder as string || '';
+  const bind = p.bind as string;
+  const history = p.history as string;
+  const onSubmit = p.onSubmit as string;
+  const inputProps: string[] = [];
+  if (placeholder) inputProps.push(`placeholder=${JSON.stringify(placeholder)}`);
+  if (history) inputProps.push(`history={${history}}`);
+  if (bind) {
+    inputProps.push(`value={${bind}}`);
+    inputProps.push(`onChange={set${capitalize(bind)}}`);
+  }
+  if (onSubmit) {
+    inputProps.push(`onSubmit={${onSubmit}}`);
+  }
+  return [`${indent}<TextInput ${inputProps.join(' ')} />`];
+}
+
+function renderInkSelectInput(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.needSelectInput();
+  const rawItems = p.items;
+  const items = isExpr(rawItems) ? (rawItems as { code: string }).code : (rawItems as string || '[]');
+  const onSelect = p.onSelect as string;
+  const selectProps: string[] = [`items={${items}}`];
+  if (onSelect) {
+    selectProps.push(`onSelect={${onSelect}}`);
+  }
+  return [`${indent}<SelectInput ${selectProps.join(' ')} />`];
+}
+
+function renderInkHandler(p: Record<string, unknown>, indent: string): string[] {
+  const code = p.code as string || '';
+  const dedented = dedent(code);
+  return dedented.split('\n').map(line => `${indent}${line}`);
+}
+
+function renderInkEach(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  const rawCollection = p.collection;
+  const collection = isExpr(rawCollection) ? (rawCollection as { code: string }).code : (rawCollection as string || '[]');
+  const item = p.item as string || 'item';
+  const index = p.index as string || 'i';
+  const rawKey = p.key;
+  const key = isExpr(rawKey) ? (rawKey as { code: string }).code : (rawKey as string || index);
+
+  const lines: string[] = [];
+  lines.push(`${indent}{${collection}.map((${item}, ${index}) => (`);
+  const children = node.children || [];
+  if (children.length === 1) {
+    const childLines = renderInkNode(children[0], indent + '  ', imports);
+    if (childLines.length > 0) {
+      childLines[0] = childLines[0].replace(/^(\s*<\w+)/, `$1 key={${key}}`);
+    }
+    lines.push(...childLines);
+  } else {
+    lines.push(`${indent}  <React.Fragment key={${key}}>`);
+    for (const child of children) {
+      lines.push(...renderInkNode(child, indent + '    ', imports));
+    }
+    lines.push(`${indent}  </React.Fragment>`);
+  }
+  lines.push(`${indent}))}`)
+  return lines;
+}
+
+function renderInkConditional(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  const condition = p.if;
+  const jsCondition = irConditionToJs(condition ?? 'true');
+  const lines: string[] = [];
+
+  lines.push(`${indent}{${jsCondition} && (`);
+  lines.push(`${indent}  <>`);
+  for (const child of node.children || []) {
+    lines.push(...renderInkNode(child, indent + '    ', imports));
+  }
+  lines.push(`${indent}  </>`);
+  lines.push(`${indent})}`);
+  return lines;
+}
+
+// ── Node renderer → JSX (dispatcher) ─────────────────────────────────────
 
 function renderInkNode(node: IRNode, indent: string, imports: ImportTracker): string[] {
   const p = getProps(node);
-  const lines: string[] = [];
 
   switch (node.type) {
-    case 'text': {
-      imports.addInk('Text');
-      // Bug #2: Handle __expr objects for dynamic text values
-      const rawValue = p.value;
-      const styles = (p.styles as Record<string, string>) || {};
-      const textProps: string[] = [];
-
-      if (styles.fw === 'bold' || styles.bold) textProps.push('bold');
-      if (styles.dim) textProps.push('dimColor');
-      if (styles.italic) textProps.push('italic');
-      if (styles.c || styles.color) textProps.push(`color=${inkColor(styles.c || styles.color)}`);
-      if (styles.bg) textProps.push(`backgroundColor=${inkColor(styles.bg)}`);
-
-      const propsStr = textProps.length > 0 ? ' ' + textProps.join(' ') : '';
-      if (isExpr(rawValue)) {
-        lines.push(`${indent}<Text${propsStr}>{${(rawValue as { code: string }).code}}</Text>`);
-      } else {
-        const value = String(rawValue ?? '');
-        lines.push(`${indent}<Text${propsStr}>{${JSON.stringify(value)}}</Text>`);
-      }
-      break;
-    }
-
-    case 'separator': {
-      imports.addInk('Text');
-      const width = Number(p.width) || 48;
-      lines.push(`${indent}<Text dimColor>{'${'─'.repeat(width)}'}</Text>`);
-      break;
-    }
-
-    case 'box': {
-      imports.addInk('Box');
-      imports.addInk('Text');
-      const color = p.color as string;
-      const borderStyle = p.borderStyle as string || 'round';
-      const flexDirection = p.flexDirection as string;
-      const width = p.width as string;
-      const flexGrow = p.flexGrow as string;
-      const padding = p.padding as string;
-      const paddingX = p.paddingX as string;
-      const paddingY = p.paddingY as string;
-
-      const boxProps: string[] = [];
-      if (color) boxProps.push(`borderStyle="${borderStyle}"`, `borderColor=${inkColor(color)}`);
-      if (flexDirection) boxProps.push(`flexDirection="${flexDirection}"`);
-      if (width) boxProps.push(`width={${width}}`);
-      if (flexGrow) boxProps.push(`flexGrow={${flexGrow}}`);
-      if (padding) boxProps.push(`padding={${padding}}`);
-      if (paddingX) boxProps.push(`paddingX={${paddingX}}`);
-      if (paddingY) boxProps.push(`paddingY={${paddingY}}`);
-
-      const propsStr = boxProps.length > 0 ? ' ' + boxProps.join(' ') : '';
-      lines.push(`${indent}<Box${propsStr}>`);
-
-      for (const child of node.children || []) {
-        // Skip nested on-nodes in JSX — they're hoisted to component body
-        if (child.type === 'on') continue;
-        lines.push(...renderInkNode(child, indent + '  ', imports));
-      }
-
-      lines.push(`${indent}</Box>`);
-      break;
-    }
-
-    case 'table': {
-      imports.addInk('Box');
-      imports.addInk('Text');
-      const headers = p.headers as string || '[]';
-      const rows = getChildren(node, 'row');
-
-      lines.push(`${indent}<Box flexDirection="column">`);
-      // Header row
-      lines.push(`${indent}  <Box>`);
-      lines.push(`${indent}    {(${headers} as string[]).map((h: string, i: number) => (`);
-      lines.push(`${indent}      <Box key={i} width={20}><Text bold>{h}</Text></Box>`);
-      lines.push(`${indent}    ))}`);
-      lines.push(`${indent}  </Box>`);
-      // Separator
-      lines.push(`${indent}  <Text dimColor>{'${'─'.repeat(60)}'}</Text>`);
-      // Data rows
-      for (const row of rows) {
-        const rowData = getProps(row).data as string || '[]';
-        lines.push(`${indent}  <Box>`);
-        lines.push(`${indent}    {(${rowData} as string[]).map((cell: string, i: number) => (`);
-        lines.push(`${indent}      <Box key={i} width={20}><Text>{cell}</Text></Box>`);
-        lines.push(`${indent}    ))}`);
-        lines.push(`${indent}  </Box>`);
-      }
-      lines.push(`${indent}</Box>`);
-      break;
-    }
-
-    case 'scoreboard': {
-      imports.addInk('Box');
-      imports.addInk('Text');
-      const title = p.title as string || 'Results';
-      const winner = p.winner as string || '';
-      const metrics = getChildren(node, 'metric');
-
-      lines.push(`${indent}<Box flexDirection="column">`);
-      lines.push(`${indent}  <Text bold>{${JSON.stringify(title)}}</Text>`);
-      if (winner) {
-        lines.push(`${indent}  <Text bold color="green">{'Winner: ${winner}'}</Text>`);
-      }
-      for (const metric of metrics) {
-        const mp = getProps(metric);
-        const mname = mp.name as string || '';
-        const values = mp.values as string || '[]';
-        lines.push(`${indent}  <Box>`);
-        lines.push(`${indent}    <Text dimColor>{${JSON.stringify(mname + ':')}}</Text>`);
-        lines.push(`${indent}    <Text>{' '}{(${values} as string[]).join(' | ')}</Text>`);
-        lines.push(`${indent}  </Box>`);
-      }
-      lines.push(`${indent}</Box>`);
-      break;
-    }
-
-    case 'spinner': {
-      imports.addInk('Text');
-      imports.needSpinner();
-      const rawMsg = p.message;
-      const color = p.color as string;
-      const spinnerColor = color ? ` color=${inkColor(color)}` : '';
-      const msgContent = isExpr(rawMsg) ? `{${(rawMsg as { code: string }).code}}` : `{' ${String(rawMsg ?? 'Loading...')}'}`;
-      lines.push(`${indent}<Text>`);
-      lines.push(`${indent}  <Spinner${spinnerColor} />`);
-      lines.push(`${indent}  ${msgContent}`);
-      lines.push(`${indent}</Text>`);
-      break;
-    }
-
-    // Bug #3: Handle dynamic progress values via __expr
-    case 'progress': {
-      imports.addInk('Box');
-      imports.addInk('Text');
-      const rawValue = p.value;
-      const rawMax = p.max;
-      const color = p.color as string || 'green';
-      const barWidth = 20;
-
-      if (isExpr(rawValue) || isExpr(rawMax)) {
-        // Dynamic progress — compute at runtime
-        const valueExpr = isExpr(rawValue) ? (rawValue as { code: string }).code : String(rawValue ?? 0);
-        const maxExpr = isExpr(rawMax) ? (rawMax as { code: string }).code : String(rawMax ?? 100);
-        lines.push(`${indent}<Box>`);
-        lines.push(`${indent}  {(() => {`);
-        lines.push(`${indent}    const _pct = Math.min(1, Math.max(0, (${valueExpr}) / (${maxExpr})));`);
-        lines.push(`${indent}    const _filled = Math.round(_pct * ${barWidth});`);
-        lines.push(`${indent}    const _empty = ${barWidth} - _filled;`);
-        lines.push(`${indent}    return (<>`);
-        lines.push(`${indent}      <Text color=${inkColor(color)}>${'{'}'▓'.repeat(_filled)${'}'}</Text>`);
-        lines.push(`${indent}      <Text>${'{'}'░'.repeat(_empty)${'}'}</Text>`);
-        lines.push(`${indent}      <Text>{' ' + Math.round(_pct * 100) + '%'}</Text>`);
-        lines.push(`${indent}    </>);`);
-        lines.push(`${indent}  })()}`);
-        lines.push(`${indent}</Box>`);
-      } else {
-        // Static progress — compute at compile time
-        const value = Number(rawValue) || 0;
-        const max = Number(rawMax) || 100;
-        const pct = Math.min(1, Math.max(0, value / max));
-        const filled = Math.round(pct * barWidth);
-        const empty = barWidth - filled;
-
-        lines.push(`${indent}<Box>`);
-        lines.push(`${indent}  <Text color=${inkColor(color)}>{'${'▓'.repeat(filled)}'}</Text>`);
-        lines.push(`${indent}  <Text>{'${'░'.repeat(empty)}'}</Text>`);
-        lines.push(`${indent}  <Text>{' ${Math.round(pct * 100)}%'}</Text>`);
-        lines.push(`${indent}</Box>`);
-      }
-      break;
-    }
-
-    case 'gradient': {
-      imports.addInk('Text');
-      const text = p.text as string || '';
-      const colors = p.colors as string || '[]';
-
-      lines.push(`${indent}<Text>`);
-      lines.push(`${indent}  {${JSON.stringify(text)}.split('').map((ch: string, i: number) => {`);
-      lines.push(`${indent}    const colors = ${colors} as number[];`);
-      lines.push(`${indent}    const colorIdx = Math.floor((i / ${text.length}) * colors.length);`);
-      lines.push(`${indent}    const color = String(colors[Math.min(colorIdx, colors.length - 1)]);`);
-      lines.push(`${indent}    return <Text key={i} color={color}>{ch}</Text>;`);
-      lines.push(`${indent}  })}`);
-      lines.push(`${indent}</Text>`);
-      break;
-    }
-
-    case 'input-area': {
-      imports.addInk('Box');
-      const children = node.children || [];
-      lines.push(`${indent}<Box flexDirection="column" borderStyle="single" borderColor="gray">`);
-      for (const child of children) {
-        if (child.type === 'on') continue;
-        lines.push(...renderInkNode(child, indent + '  ', imports));
-      }
-      lines.push(`${indent}</Box>`);
-      break;
-    }
-
-    case 'output-area': {
-      imports.addInk('Box');
-      const children = node.children || [];
-      lines.push(`${indent}<Box flexDirection="column" flexGrow={1}>`);
-      for (const child of children) {
-        if (child.type === 'on') continue;
-        lines.push(...renderInkNode(child, indent + '  ', imports));
-      }
-      lines.push(`${indent}</Box>`);
-      break;
-    }
-
-    // Bug #4: Wire text-input value/onChange for controlled component
-    case 'text-input': {
-      imports.needTextInput();
-      const placeholder = p.placeholder as string || '';
-      const bind = p.bind as string;
-      const history = p.history as string;
-      const onSubmit = p.onSubmit as string;
-      const inputProps: string[] = [];
-      if (placeholder) inputProps.push(`placeholder=${JSON.stringify(placeholder)}`);
-      if (history) inputProps.push(`history={${history}}`);
-      if (bind) {
-        inputProps.push(`value={${bind}}`);
-        inputProps.push(`onChange={set${capitalize(bind)}}`);
-      }
-      if (onSubmit) {
-        inputProps.push(`onSubmit={${onSubmit}}`);
-      }
-      lines.push(`${indent}<TextInput ${inputProps.join(' ')} />`);
-      break;
-    }
-
-    // Bug #5: Wire select-input onSelect handler
-    case 'select-input': {
-      imports.needSelectInput();
-      const rawItems = p.items;
-      const items = isExpr(rawItems) ? (rawItems as { code: string }).code : (rawItems as string || '[]');
-      const onSelect = p.onSelect as string;
-      const selectProps: string[] = [`items={${items}}`];
-      if (onSelect) {
-        selectProps.push(`onSelect={${onSelect}}`);
-      }
-      lines.push(`${indent}<SelectInput ${selectProps.join(' ')} />`);
-      break;
-    }
-
-    // Bug #6: Fix handler indentation — use dedent instead of trim
-    case 'handler': {
-      const code = p.code as string || '';
-      const dedented = dedent(code);
-      for (const line of dedented.split('\n')) {
-        lines.push(`${indent}${line}`);
-      }
-      break;
-    }
-
-    // Feature: each — JSX list iteration
-    // each collection={{items}} item=engine index=i key={{engine.id}}
-    //   box ...
-    // → {items.map((engine, i) => (<Box key={engine.id}>...</Box>))}
-    case 'each': {
-      const rawCollection = p.collection;
-      const collection = isExpr(rawCollection) ? (rawCollection as { code: string }).code : (rawCollection as string || '[]');
-      const item = p.item as string || 'item';
-      const index = p.index as string || 'i';
-      const rawKey = p.key;
-      const key = isExpr(rawKey) ? (rawKey as { code: string }).code : (rawKey as string || index);
-
-      lines.push(`${indent}{${collection}.map((${item}, ${index}) => (`);
-      // If there's one child, render it directly with key; otherwise wrap in fragment
-      const children = node.children || [];
-      if (children.length === 1) {
-        const childLines = renderInkNode(children[0], indent + '  ', imports);
-        // Inject key prop into the first JSX opening tag
-        if (childLines.length > 0) {
-          childLines[0] = childLines[0].replace(/^(\s*<\w+)/, `$1 key={${key}}`);
-        }
-        lines.push(...childLines);
-      } else {
-        lines.push(`${indent}  <React.Fragment key={${key}}>`);
-        for (const child of children) {
-          lines.push(...renderInkNode(child, indent + '    ', imports));
-        }
-        lines.push(`${indent}  </React.Fragment>`);
-      }
-      lines.push(`${indent}))}`)
-      break;
-    }
-
-    // Feature #7: Conditional rendering
-    case 'conditional': {
-      const condition = p.if;
-      const jsCondition = irConditionToJs(condition ?? 'true');
-
-      lines.push(`${indent}{${jsCondition} && (`);
-      lines.push(`${indent}  <>`);
-      for (const child of node.children || []) {
-        lines.push(...renderInkNode(child, indent + '    ', imports));
-      }
-      lines.push(`${indent}  </>`);
-      lines.push(`${indent})}`);
-      break;
-    }
-
+    case 'text':         return renderInkText(p as Record<string, unknown>, indent, imports);
+    case 'separator':    return renderInkSeparator(p as Record<string, unknown>, indent, imports);
+    case 'box':          return renderInkBox(node, p as Record<string, unknown>, indent, imports);
+    case 'table':        return renderInkTable(node, p as Record<string, unknown>, indent, imports);
+    case 'scoreboard':   return renderInkScoreboard(node, p as Record<string, unknown>, indent, imports);
+    case 'spinner':      return renderInkSpinner(p as Record<string, unknown>, indent, imports);
+    case 'progress':     return renderInkProgress(p as Record<string, unknown>, indent, imports);
+    case 'gradient':     return renderInkGradient(p as Record<string, unknown>, indent, imports);
+    case 'input-area':   return renderInkInputArea(node, indent, imports);
+    case 'output-area':  return renderInkOutputArea(node, indent, imports);
+    case 'text-input':   return renderInkTextInput(p as Record<string, unknown>, indent, imports);
+    case 'select-input': return renderInkSelectInput(p as Record<string, unknown>, indent, imports);
+    case 'handler':      return renderInkHandler(p as Record<string, unknown>, indent);
+    case 'each':         return renderInkEach(node, p as Record<string, unknown>, indent, imports);
+    case 'conditional':  return renderInkConditional(node, p as Record<string, unknown>, indent, imports);
     case 'state':
-      // Handled at component level as useState
-      break;
-
     case 'ref':
-      // Handled at component level as useRef
-      break;
-
     case 'stream':
-      // Handled at component level as useEffect with async generator
-      break;
-
     case 'logic':
-      // Handled at component level as useEffect
-      break;
-
     case 'callback':
-      // Handled at component level as useCallback
-      break;
-
-    // Bug #1: Nested on-nodes are hoisted — skip in JSX, emit comment
     case 'on':
-      break;
-
+      return [];
     default: {
-      // Core language nodes emit as-is (they're TypeScript, not JSX)
+      const lines: string[] = [];
       if (isCoreNode(node.type)) {
-        // Machine nodes get useReducer treatment in Ink
         if (node.type === 'machine') {
           lines.push(...generateMachineReducer(node).map(l => l));
         } else {
           lines.push(...generateCoreNode(node));
         }
-        break;
+        return lines;
       }
-      // Recurse into children for unknown nodes
       if (node.children) {
         for (const child of node.children) {
           lines.push(...renderInkNode(child, indent, imports));
         }
       }
+      return lines;
     }
   }
-
-  return lines;
 }
 
 // ── Main export ──────────────────────────────────────────────────────────
