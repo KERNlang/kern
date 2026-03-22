@@ -1,20 +1,24 @@
-name: Release
+name: Version & Publish
 
 on:
-  push:
-    branches: [main]
+  release:
+    types: [published]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  release:
-    name: Version & Publish
+  publish:
+    name: Publish to npm
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - uses: pnpm/action-setup@v4
         with:
@@ -29,19 +33,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Set package versions
+        run: |
+          for pkg in packages/*/package.json; do
+            tmp=$(mktemp)
+            jq --arg v "${{ steps.version.outputs.VERSION }}" '.version = $v' "$pkg" > "$tmp"
+            mv "$tmp" "$pkg"
+          done
+
       - name: Build
         run: pnpm build
 
       - name: Test
         run: pnpm test
 
-      - name: Create Release PR or Publish
-        uses: changesets/action@v1
-        with:
-          publish: pnpm changeset publish
-          title: 'chore: version packages'
-          commit: 'chore: version packages'
+      - name: Publish packages
+        run: pnpm -r publish --no-git-checks --access public
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
