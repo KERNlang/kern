@@ -7,7 +7,7 @@
  */
 
 import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR, cssPropertyName, getProps, getStyles, getPseudoStyles, getThemeRefs } from '@kernlang/core';
 
 // ── Node → HTML Element Mapping ──────────────────────────────────────────
 
@@ -51,10 +51,6 @@ function textElement(variant?: string): string {
 
 // ── Style helpers ────────────────────────────────────────────────────────
 
-function cssPropertyName(camel: string): string {
-  return camel.replace(/([A-Z])/g, '-$1').toLowerCase();
-}
-
 function cssValue(key: string, value: string | number): string {
   if (typeof value === 'number') {
     const unitless = ['flex', 'fontWeight', 'opacity', 'zIndex', 'lineHeight'];
@@ -62,24 +58,6 @@ function cssValue(key: string, value: string | number): string {
     return `${value}px`;
   }
   return String(value);
-}
-
-// ── Props/style accessors ────────────────────────────────────────────────
-
-function getProps(node: IRNode): Record<string, unknown> {
-  return node.props || {};
-}
-
-function getStyles(node: IRNode): Record<string, string> {
-  return (getProps(node).styles as Record<string, string>) || {};
-}
-
-function getPseudoStyles(node: IRNode): Record<string, Record<string, string>> {
-  return (getProps(node).pseudoStyles as Record<string, Record<string, string>>) || {};
-}
-
-function getThemeRefs(node: IRNode): string[] {
-  return (getProps(node).themeRefs as string[]) || [];
 }
 
 // ── State Declarations ───────────────────────────────────────────────────

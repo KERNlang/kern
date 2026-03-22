@@ -1,0 +1,235 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Golden Snapshot Tests Express output for ai-buddies-api.kern 1`] = `
+"import express from 'express';
+import type { NextFunction, Request, Response } from 'express';
+import cors from 'cors';
+import { registerPostApiReviewRoute } from './routes/post-api-review.js';
+import { registerPostApiProvidersToggleRoute } from './routes/post-api-providers-toggle.js';
+import { registerPostApiProvidersTestRoute } from './routes/post-api-providers-test.js';
+import { registerGetHealthRoute } from './routes/get-health.js';
+
+const app = express();
+const port = 3002;
+const serverName = 'ReviewAPI';
+
+app.disable('x-powered-by');
+
+app.use(cors());
+app.use(express.json({ limit: '1mb' }));
+
+registerPostApiReviewRoute(app);
+registerPostApiProvidersToggleRoute(app);
+registerPostApiProvidersTestRoute(app);
+registerGetHealthRoute(app);
+
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ error: 'Not Found' });
+});
+
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  console.error(err);
+  res.status(500).json({ error: 'Internal Server Error' });
+});
+
+app.listen(port, () => {
+  console.log(\`\${serverName} listening on port \${port}\`);
+});
+
+export default app;"
+`;
+
+exports[`Golden Snapshot Tests Express output for api-routes.kern 1`] = `
+"import express from 'express';
+import type { NextFunction, Request, Response } from 'express';
+import cors from 'cors';
+import { verifyToken } from './middleware/auth.js';
+import { registerGetApiTracksRoute } from './routes/get-api-tracks.js';
+import { registerPostApiTracksAnalyzeRoute } from './routes/post-api-tracks-analyze.js';
+import { registerGetApiTracksIdRoute } from './routes/get-api-tracks-id.js';
+import { registerDeleteApiTracksIdRoute } from './routes/delete-api-tracks-id.js';
+
+const app = express();
+const port = 3001;
+const serverName = 'MusicAPI';
+
+app.disable('x-powered-by');
+
+app.use(cors());
+app.use(express.json({ limit: '1mb' }));
+app.use(verifyToken);
+
+registerGetApiTracksRoute(app);
+registerPostApiTracksAnalyzeRoute(app);
+registerGetApiTracksIdRoute(app);
+registerDeleteApiTracksIdRoute(app);
+
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ error: 'Not Found' });
+});
+
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  console.error(err);
+  res.status(500).json({ error: 'Internal Server Error' });
+});
+
+app.listen(port, () => {
+  console.log(\`\${serverName} listening on port \${port}\`);
+});
+
+export default app;"
+`;
+
+exports[`Golden Snapshot Tests Express output for api-routes.kern: artifact: middleware/auth.ts 1`] = `
+"import type { NextFunction, Request, Response } from 'express';
+
+export function verifyToken(req: Request, res: Response, next: NextFunction): void {
+  next();
+}"
+`;
+
+exports[`Golden Snapshot Tests Express output for api-routes.kern: artifact: middleware/requireowner.ts 1`] = `
+"import type { NextFunction, Request, Response } from 'express';
+
+export function requireowner(req: Request, res: Response, next: NextFunction): void {
+  next();
+}"
+`;
+
+exports[`Golden Snapshot Tests Express output for api-routes.kern: artifact: routes/delete-api-tracks-id.ts 1`] = `
+"import { type Express, type NextFunction, type Request, type Response } from 'express';
+import { requireowner } from '../middleware/requireowner.js';
+
+type RouteParams = { id: string };
+type RequestQuery = Record<string, never>;
+type RequestBody = Record<string, never>;
+type ResponseBody = unknown;
+
+function assertRequiredFields(label: string, value: unknown, requiredKeys: string[]): void {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(\`Invalid \${label}: expected object payload\`);
+  }
+  for (const key of requiredKeys) {
+    if (!(key in value)) {
+      throw new Error(\`Invalid \${label}: missing \${key}\`);
+    }
+  }
+}
+
+export function registerDeleteApiTracksIdRoute(app: Express): void {
+  app.delete('/api/tracks/:id', requireowner, async (req: Request<RouteParams, ResponseBody, RequestBody, RequestQuery>, res: Response, next: NextFunction) => {
+    try {
+      assertRequiredFields('params', req.params, ['id']);
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) } as any);
+    }
+
+    try {
+            await db.tracks.delete(req.params.id);
+            res.status(204).send();
+          
+    } catch (error) {
+      next(error);
+    }
+  });
+}"
+`;
+
+exports[`Golden Snapshot Tests Express output for api-routes.kern: artifact: routes/get-api-tracks.ts 1`] = `
+"import { type Express, type NextFunction, type Request, type Response } from 'express';
+
+type RouteParams = Record<string, never>;
+type RequestQuery = Record<string, never>;
+type RequestBody = Record<string, never>;
+type ResponseBody = unknown;
+
+export function registerGetApiTracksRoute(app: Express): void {
+  app.get('/api/tracks', async (req: Request<RouteParams, ResponseBody, RequestBody, RequestQuery>, res: Response, next: NextFunction) => {
+    try {
+            const tracks = await db.tracks.findAll({ userId: req.user.id });
+            res.json(tracks);
+          
+    } catch (error) {
+      next(error);
+    }
+  });
+}"
+`;
+
+exports[`Golden Snapshot Tests Express output for api-routes.kern: artifact: routes/get-api-tracks-id.ts 1`] = `
+"import { type Express, type NextFunction, type Request, type Response } from 'express';
+
+type RouteParams = { id: string };
+type RequestQuery = Record<string, never>;
+type RequestBody = Record<string, never>;
+type ResponseBody = unknown;
+
+function assertRequiredFields(label: string, value: unknown, requiredKeys: string[]): void {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(\`Invalid \${label}: expected object payload\`);
+  }
+  for (const key of requiredKeys) {
+    if (!(key in value)) {
+      throw new Error(\`Invalid \${label}: missing \${key}\`);
+    }
+  }
+}
+
+export function registerGetApiTracksIdRoute(app: Express): void {
+  app.get('/api/tracks/:id', async (req: Request<RouteParams, ResponseBody, RequestBody, RequestQuery>, res: Response, next: NextFunction) => {
+    try {
+      assertRequiredFields('params', req.params, ['id']);
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) } as any);
+    }
+
+    try {
+            const track = await db.tracks.findById(req.params.id);
+            if (!track) return res.status(404).json({ error: 'Not found' });
+            res.json(track);
+          
+    } catch (error) {
+      next(error);
+    }
+  });
+}"
+`;
+
+exports[`Golden Snapshot Tests Express output for api-routes.kern: artifact: routes/post-api-tracks-analyze.ts 1`] = `
+"import { type Express, type NextFunction, type Request, type Response } from 'express';
+
+type RouteParams = Record<string, never>;
+type RequestQuery = Record<string, never>;
+type RequestBody = {trackId: string, options?: {stems: boolean}};
+type ResponseBody = unknown;
+
+function assertRequiredFields(label: string, value: unknown, requiredKeys: string[]): void {
+  if (typeof value !== 'object' || value === null) {
+    throw new Error(\`Invalid \${label}: expected object payload\`);
+  }
+  for (const key of requiredKeys) {
+    if (!(key in value)) {
+      throw new Error(\`Invalid \${label}: missing \${key}\`);
+    }
+  }
+}
+
+export function registerPostApiTracksAnalyzeRoute(app: Express): void {
+  app.post('/api/tracks/analyze', async (req: Request<RouteParams, ResponseBody, RequestBody, RequestQuery>, res: Response, next: NextFunction) => {
+    try {
+      assertRequiredFields('body', req.body, ['trackId']);
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) } as any);
+    }
+
+    try {
+            const { trackId, options } = req.body;
+            const result = await analyzeTrack(trackId, options);
+            res.json(result);
+          
+    } catch (error) {
+      next(error);
+    }
+  });
+}"
+`;

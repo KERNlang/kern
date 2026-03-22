@@ -1,0 +1,24 @@
+{
+  "name": "@kernlang/review-mcp",
+  "version": "0.1.0",
+  "description": "MCP server security scanner — static analysis for Model Context Protocol implementations",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --forceExit --config jest.config.js"
+  },
+  "dependencies": {
+    "@kernlang/core": "workspace:*",
+    "@kernlang/review": "workspace:*",
+    "ts-morph": "^24.0.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "license": "AGPL-3.0"
+}

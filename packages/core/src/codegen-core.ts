@@ -48,23 +48,42 @@ export function hasEvolvedGenerator(type: string): boolean {
   return _evolvedGenerators.has(type);
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────
+// ── Shared IR node helpers ───────────────────────────────────────────────
+// These are used by every transpiler. Exported for reuse.
 
-function p(node: IRNode): Record<string, unknown> {
+/** Extract props from an IR node. */
+export function getProps(node: IRNode): Record<string, unknown> {
   return node.props || {};
 }
 
-function kids(node: IRNode, type?: string): IRNode[] {
+/** Get children, optionally filtered by type. */
+export function getChildren(node: IRNode, type?: string): IRNode[] {
   const c = node.children || [];
   return type ? c.filter(n => n.type === type) : c;
 }
 
-function firstChild(node: IRNode, type: string): IRNode | undefined {
-  return kids(node, type)[0];
+/** Get first child of a given type. */
+export function getFirstChild(node: IRNode, type: string): IRNode | undefined {
+  return getChildren(node, type)[0];
+}
+
+/** Extract styles from node props. */
+export function getStyles(node: IRNode): Record<string, string> {
+  return (getProps(node).styles as Record<string, string>) || {};
+}
+
+/** Extract pseudo-styles from node props. */
+export function getPseudoStyles(node: IRNode): Record<string, Record<string, string>> {
+  return (getProps(node).pseudoStyles as Record<string, Record<string, string>>) || {};
+}
+
+/** Extract theme refs from node props. */
+export function getThemeRefs(node: IRNode): string[] {
+  return (getProps(node).themeRefs as string[]) || [];
 }
 
 /** Strip common leading whitespace from multiline handler code. */
-function dedent(code: string): string {
+export function dedent(code: string): string {
   const lines = code.split('\n');
   const nonEmpty = lines.filter(l => l.trim().length > 0);
   if (nonEmpty.length === 0) return code;
@@ -72,12 +91,23 @@ function dedent(code: string): string {
   return lines.map(l => l.slice(min)).join('\n');
 }
 
-function handlerCode(node: IRNode): string {
-  const handler = firstChild(node, 'handler');
+/** Convert camelCase to kebab-case for CSS property names. */
+export function cssPropertyName(camel: string): string {
+  return camel.replace(/([A-Z])/g, '-$1').toLowerCase();
+}
+
+/** Extract handler code from a node (finds handler child, dedents). */
+export function handlerCode(node: IRNode): string {
+  const handler = getFirstChild(node, 'handler');
   if (!handler) return '';
-  const raw = p(handler).code as string || '';
+  const raw = getProps(handler).code as string || '';
   return dedent(raw);
 }
+
+// Internal aliases for backward compat within this file
+const p = getProps;
+const kids = getChildren;
+const firstChild = getFirstChild;
 
 function exportPrefix(node: IRNode): string {
   return p(node).export === 'false' ? '' : 'export ';

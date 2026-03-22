@@ -1,5 +1,5 @@
 import type { IRNode, TranspileResult, SourceMapEntry, GeneratedArtifact, ResolvedKernConfig } from '@kernlang/core';
-import { countTokens, serializeIR, camelKey } from '@kernlang/core';
+import { countTokens, getProps, serializeIR, camelKey } from '@kernlang/core';
 
 /**
  * CLI Transpiler — generates Commander.js TypeScript from Kern IR
@@ -59,10 +59,6 @@ interface CliInfo {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
-
-function getProps(node: IRNode): Record<string, unknown> {
-  return node.props || {};
-}
 
 function pascalCase(text: string): string {
   const camel = camelKey(text);

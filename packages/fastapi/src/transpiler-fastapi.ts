@@ -6,7 +6,7 @@
  */
 
 import type { ResolvedKernConfig, GeneratedArtifact, IRNode, SourceMapEntry, TranspileResult } from '@kernlang/core';
-import { countTokens, serializeIR } from '@kernlang/core';
+import { countTokens, dedent, getChildren, getFirstChild, getProps, serializeIR } from '@kernlang/core';
 import { generatePythonCoreNode } from './codegen-python.js';
 import { mapTsTypeToPython, toSnakeCase } from './type-map.js';
 
@@ -40,20 +40,6 @@ interface RouteCapabilities {
   streamNode?: IRNode;
   spawnNode?: IRNode;
   timerNode?: IRNode;
-}
-
-// ── IR helpers ───────────────────────────────────────────────────────────
-
-function getProps(node: IRNode): Record<string, unknown> {
-  return node.props || {};
-}
-
-function getChildren(node: IRNode, type: string): IRNode[] {
-  return (node.children || []).filter((child: IRNode) => child.type === type);
-}
-
-function getFirstChild(node: IRNode, type: string): IRNode | undefined {
-  return (node.children || []).find((child: IRNode) => child.type === type);
 }
 
 // ── Portable respond node → FastAPI ──────────────────────────────────────
@@ -289,15 +275,6 @@ function slugify(value: string): string {
 
 function escapePyStr(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
-
-/** Strip common leading whitespace, preserving relative indentation. */
-function dedent(code: string): string {
-  const lines = code.split('\n');
-  const nonEmpty = lines.filter(l => l.trim().length > 0);
-  if (nonEmpty.length === 0) return code;
-  const min = Math.min(...nonEmpty.map(l => l.match(/^(\s*)/)?.[1].length ?? 0));
-  return lines.map(l => l.slice(min)).join('\n');
 }
 
 /** Indent handler code by a fixed prefix, preserving internal structure. */

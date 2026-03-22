@@ -3,6 +3,278 @@ import { KernParseError } from './errors.js';
 
 let _parseWarnings: string[] = [];
 
+// ── Token types ──────────────────────────────────────────────────────────
+
+export type TokenKind =
+  | 'identifier'    // [A-Za-z_][A-Za-z0-9_-]*
+  | 'number'        // \d+
+  | 'equals'        // =
+  | 'quoted'        // "..."
+  | 'expr'          // {{ ... }}
+  | 'style'         // { ... }
+  | 'themeRef'      // $name
+  | 'slash'         // /path/segments
+  | 'comma'         // ,
+  | 'whitespace'    // spaces/tabs
+  | 'unknown';      // anything else
+
+export interface Token {
+  kind: TokenKind;
+  value: string;
+  pos: number;
+}
+
+// ── Tokenizer ────────────────────────────────────────────────────────────
+
+function isIdentStart(ch: string): boolean {
+  return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || ch === '_';
+}
+
+function isIdentChar(ch: string): boolean {
+  return isIdentStart(ch) || (ch >= '0' && ch <= '9') || ch === '-';
+}
+
+function isDigit(ch: string): boolean {
+  return ch >= '0' && ch <= '9';
+}
+
+/** Character-by-character tokenizer for a single KERN line (after indent stripped). */
+export function tokenizeLine(line: string): Token[] {
+  const tokens: Token[] = [];
+  let i = 0;
+
+  while (i < line.length) {
+    const ch = line[i];
+
+    // Whitespace
+    if (ch === ' ' || ch === '\t') {
+      const start = i;
+      while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i++;
+      tokens.push({ kind: 'whitespace', value: line.slice(start, i), pos: start });
+      continue;
+    }
+
+    // Expression block {{ ... }}
+    if (ch === '{' && i + 1 < line.length && line[i + 1] === '{') {
+      const start = i;
+      i += 2;
+      let depth = 1;
+      while (i < line.length - 1 && depth > 0) {
+        if (line[i] === '{' && line[i + 1] === '{') { depth++; i += 2; }
+        else if (line[i] === '}' && line[i + 1] === '}') { depth--; if (depth === 0) break; i += 2; }
+        else i++;
+      }
+      const inner = line.slice(start + 2, i).trim();
+      i += 2;
+      tokens.push({ kind: 'expr', value: inner, pos: start });
+      continue;
+    }
+
+    // Style block { ... } — find matching } respecting quotes
+    if (ch === '{') {
+      const start = i;
+      let inQuote = false;
+      let j = i + 1;
+      while (j < line.length) {
+        if (line[j] === '"') inQuote = !inQuote;
+        if (!inQuote && line[j] === '}') { j++; break; }
+        j++;
+      }
+      tokens.push({ kind: 'style', value: line.slice(start + 1, j - 1), pos: start });
+      i = j;
+      continue;
+    }
+
+    // Quoted string "..."
+    if (ch === '"') {
+      const start = i;
+      i++;
+      while (i < line.length && line[i] !== '"') i++;
+      const inner = line.slice(start + 1, i);
+      i++;
+      tokens.push({ kind: 'quoted', value: inner, pos: start });
+      continue;
+    }
+
+    // Theme ref $name
+    if (ch === '$' && i + 1 < line.length && isIdentStart(line[i + 1])) {
+      const start = i;
+      i++;
+      while (i < line.length && isIdentChar(line[i])) i++;
+      tokens.push({ kind: 'themeRef', value: line.slice(start + 1, i), pos: start });
+      continue;
+    }
+
+    // Equals
+    if (ch === '=') {
+      tokens.push({ kind: 'equals', value: '=', pos: i });
+      i++;
+      continue;
+    }
+
+    // Comma
+    if (ch === ',') {
+      tokens.push({ kind: 'comma', value: ',', pos: i });
+      i++;
+      continue;
+    }
+
+    // Slash-prefixed path: /something
+    if (ch === '/') {
+      const start = i;
+      while (i < line.length && line[i] !== ' ' && line[i] !== '\t' && line[i] !== '{' && line[i] !== '$') i++;
+      tokens.push({ kind: 'slash', value: line.slice(start, i), pos: start });
+      continue;
+    }
+
+    // Number (pure digits)
+    if (isDigit(ch)) {
+      const start = i;
+      while (i < line.length && isDigit(line[i])) i++;
+      tokens.push({ kind: 'number', value: line.slice(start, i), pos: start });
+      continue;
+    }
+
+    // Identifier: [A-Za-z_][A-Za-z0-9_-]*
+    // Handles evolved: prefix (evolved:keyword → strips prefix, returns keyword)
+    if (isIdentStart(ch)) {
+      const start = i;
+      while (i < line.length && isIdentChar(line[i])) i++;
+      if (line[i] === ':' && line.slice(start, i) === 'evolved' && i + 1 < line.length && isIdentStart(line[i + 1])) {
+        i++;
+        const nameStart = i;
+        while (i < line.length && isIdentChar(line[i])) i++;
+        tokens.push({ kind: 'identifier', value: line.slice(nameStart, i), pos: start });
+      } else {
+        tokens.push({ kind: 'identifier', value: line.slice(start, i), pos: start });
+      }
+      continue;
+    }
+
+    // Unknown character
+    tokens.push({ kind: 'unknown', value: ch, pos: i });
+    i++;
+  }
+
+  return tokens;
+}
+
+// ── Token stream ─────────────────────────────────────────────────────────
+// Opus: class-based cursor. Codex contribution: consumeAnyValue for evolved hints.
+
+class TokenStream {
+  private tokens: Token[];
+  private idx = 0;
+
+  constructor(tokens: Token[]) { this.tokens = tokens; }
+
+  peek(): Token | undefined { return this.tokens[this.idx]; }
+  next(): Token | undefined { return this.tokens[this.idx++]; }
+  done(): boolean { return this.idx >= this.tokens.length; }
+  position(): number { return this.idx; }
+  setPosition(pos: number): void { this.idx = pos; }
+
+  skipWS(): void {
+    while (this.idx < this.tokens.length && this.tokens[this.idx].kind === 'whitespace') this.idx++;
+  }
+
+  /** Try to consume an identifier. Returns its value or null. */
+  tryIdent(): string | null {
+    if (this.idx < this.tokens.length && this.tokens[this.idx].kind === 'identifier') {
+      return this.tokens[this.idx++].value;
+    }
+    return null;
+  }
+
+  /** Try to consume a number token. Returns its value or null. */
+  tryNumber(): string | null {
+    if (this.idx < this.tokens.length && this.tokens[this.idx].kind === 'number') {
+      return this.tokens[this.idx++].value;
+    }
+    return null;
+  }
+
+  /** Check if the next non-WS token is an identifier followed by '='. */
+  isKeyValue(): boolean {
+    let j = this.idx;
+    while (j < this.tokens.length && this.tokens[j].kind === 'whitespace') j++;
+    if (j >= this.tokens.length || this.tokens[j].kind !== 'identifier') return false;
+    return j + 1 < this.tokens.length && this.tokens[j + 1].kind === 'equals';
+  }
+
+  /** Check if any remaining token contains '='. */
+  hasEquals(): boolean {
+    for (let j = this.idx; j < this.tokens.length; j++) {
+      if (this.tokens[j].kind === 'equals') return true;
+    }
+    return false;
+  }
+
+  /** Check if there are more non-whitespace tokens. */
+  hasMore(): boolean {
+    let j = this.idx;
+    while (j < this.tokens.length && this.tokens[j].kind === 'whitespace') j++;
+    return j < this.tokens.length;
+  }
+
+  /** Get remaining raw text from current position (for fallback / params). */
+  remainingRaw(line: string): string {
+    if (this.idx >= this.tokens.length) return '';
+    const startPos = this.tokens[this.idx].pos;
+    this.idx = this.tokens.length;
+    return line.slice(startPos);
+  }
+
+  /** Consume any single non-whitespace token as a value (for evolved positional args). */
+  consumeAnyValue(): Token | undefined {
+    this.skipWS();
+    const tok = this.peek();
+    if (!tok || tok.kind === 'whitespace') return undefined;
+    return this.next();
+  }
+}
+
+// ── Prop parsing (extracted from Codex's parsePropToken pattern) ──────────
+
+/** Map a value token to its JS representation. */
+function tokenValue(tok: Token): unknown {
+  if (tok.kind === 'expr') return { __expr: true, code: tok.value };
+  if (tok.kind === 'quoted') return tok.value;
+  return tok.value;
+}
+
+/** Try to parse a key=value prop from the stream. Returns true if consumed. */
+function parseProp(s: TokenStream, props: Record<string, unknown>): boolean {
+  if (!s.isKeyValue()) return false;
+  s.skipWS();
+  const key = s.next()!.value; // identifier
+  s.next(); // =
+  const valTok = s.peek();
+  if (!valTok || valTok.kind === 'whitespace') {
+    props[key] = '';
+    return true;
+  }
+
+  // key={{expr}} or key="quoted"
+  if (valTok.kind === 'expr' || valTok.kind === 'quoted') {
+    props[key] = tokenValue(s.next()!);
+    return true;
+  }
+
+  // key=bareValue — collect tokens up to next WS/style/themeRef
+  let value = '';
+  while (!s.done()) {
+    const vt = s.peek()!;
+    if (vt.kind === 'whitespace' || vt.kind === 'style' || vt.kind === 'themeRef') break;
+    value += vt.value;
+    s.next();
+  }
+  props[key] = value;
+  return true;
+}
+
+// ── ParsedLine ───────────────────────────────────────────────────────────
+
 interface ParsedLine {
   indent: number;
   type: string;
@@ -16,8 +288,6 @@ interface ParsedLine {
 const MULTILINE_BLOCK_TYPES = new Set(['logic', 'handler', 'cleanup', 'body']);
 
 // ── Evolved Node Parser Hints (v4) ──────────────────────────────────────
-// Populated at startup by evolved-node-loader. Tells the parser how to
-// handle evolved nodes with special syntax (positional args, bare words, etc.)
 
 interface ParserHintsConfig {
   positionalArgs?: string[];
@@ -46,111 +316,77 @@ export function unregisterParserHints(keyword: string): void {
 
 /** Clear all parser hints (for test isolation). */
 export function clearParserHints(): void {
-  // Remove evolved entries from MULTILINE_BLOCK_TYPES, keep core ones
   for (const [keyword, hints] of _parserHints) {
     if (hints.multilineBlock) MULTILINE_BLOCK_TYPES.delete(keyword);
   }
   _parserHints.clear();
 }
 
-function parseLine(raw: string, lineNum: number): ParsedLine | null {
-  if (raw.trim() === '') return null;
+// ── Keyword handlers ─────────────────────────────────────────────────────
 
-  const indent = raw.search(/\S/);
-  let rest = raw.slice(indent);
-  const col = indent + 1;
+type KeywordHandler = (s: TokenStream, props: Record<string, unknown>, content: string) => void;
 
-  // Extract type — supports `evolved:keyword` namespace prefix as escape hatch
-  const typeMatch = rest.match(/^(?:evolved:)?([A-Za-z_][A-Za-z0-9_-]*)/);
-  if (!typeMatch) return null;
-  const type = typeMatch[1];
-  rest = rest.slice(typeMatch[0].length);
+/** Consume a bare identifier into props if it's not a key=value pair. */
+function consumeBareIdent(s: TokenStream, props: Record<string, unknown>, propName: string): void {
+  s.skipWS();
+  if (s.isKeyValue()) return;
+  const id = s.tryIdent();
+  if (id) props[propName] = id;
+}
 
-  const props: Record<string, unknown> = {};
-  const styles: Record<string, string> = {};
-  const pseudoStyles: Record<string, Record<string, string>> = {};
-  const themeRefs: string[] = [];
+const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
+  ['theme', (s, props) => {
+    consumeBareIdent(s, props, 'name');
+  }],
 
-  // ── Evolved node parser hints (v4) ──────────────────────────────────
-  // Check if this type has parser hints from graduated evolved nodes.
-  // Must run BEFORE core special cases to allow evolved nodes to use
-  // positional args, bare words, etc.
-  const evolvedHints = _parserHints.get(type);
-  if (evolvedHints) {
-    // Positional args: "api-route GET /users" → props.method="GET", props.path="/users"
-    if (evolvedHints.positionalArgs) {
-      for (const argName of evolvedHints.positionalArgs) {
-        rest = rest.replace(/^ +/, '');
-        const argMatch = rest.match(/^(\S+)/);
-        if (argMatch) {
-          props[argName] = argMatch[1];
-          rest = rest.slice(argMatch[0].length);
-        }
-      }
-    }
-
-    // Bare word: "auth-guard admin" → props.name="admin"
-    if (evolvedHints.bareWord) {
-      rest = rest.replace(/^ +/, '');
-      const bwMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)/);
-      if (bwMatch && !rest.match(/^[A-Za-z_][A-Za-z0-9_-]*=/)) {
-        props[evolvedHints.bareWord] = bwMatch[1];
-        rest = rest.slice(bwMatch[0].length);
-      }
-    }
-  }
-
-  // Special: theme nodes have a bare name after the type: "theme bar {h:8}"
-  if (type === 'theme') {
-    rest = rest.replace(/^ +/, '');
-    const nameMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)/);
-    if (nameMatch) {
-      props.name = nameMatch[1];
-      rest = rest.slice(nameMatch[0].length);
-    }
-  }
-
-  // Special: import nodes support bare words for name and optional "default" flag
-  // Syntax: "import [default] <name> from=<path>"
-  if (type === 'import') {
-    rest = rest.replace(/^ +/, '');
-    // Check for "default" keyword
-    if (rest.startsWith('default')) {
-      const afterDefault = rest.slice(7);
-      if (afterDefault.length === 0 || afterDefault[0] === ' ') {
+  ['import', (s, props) => {
+    s.skipWS();
+    const pos = s.position();
+    const id = s.tryIdent();
+    if (id === 'default') {
+      if (!s.done() && s.peek()?.kind !== 'equals') {
         props.default = true;
-        rest = afterDefault.replace(/^ +/, '');
+        s.skipWS();
+      } else if (s.peek()?.kind === 'equals') {
+        s.setPosition(pos);
+        return;
+      } else {
+        props.default = true;
+        return;
       }
+    } else if (id) {
+      s.setPosition(pos);
     }
-    // Capture the import name (bare word before from=)
-    const nameMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)/);
-    if (nameMatch && !rest.startsWith('from=')) {
-      props.name = nameMatch[1];
-      rest = rest.slice(nameMatch[0].length);
+    if (!s.isKeyValue()) {
+      s.skipWS();
+      const name = s.tryIdent();
+      if (name) props.name = name;
     }
-  }
+  }],
 
-  // Special: route v3 positional syntax — "route GET /api/users"
-  if (type === 'route') {
-    rest = rest.replace(/^ +/, '');
-    const verbMatch = rest.match(/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+/i);
-    if (verbMatch) {
-      props.method = verbMatch[1].toLowerCase();
-      rest = rest.slice(verbMatch[0].length);
-      const pathMatch = rest.match(/^(\/\S*)/);
-      if (pathMatch) {
-        props.path = pathMatch[1];
-        rest = rest.slice(pathMatch[0].length);
+  ['route', (s, props) => {
+    s.skipWS();
+    const pos = s.position();
+    const verb = s.tryIdent();
+    if (verb && /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$/i.test(verb)) {
+      props.method = verb.toLowerCase();
+      s.skipWS();
+      const tok = s.peek();
+      if (tok && tok.kind === 'slash') {
+        props.path = tok.value;
+        s.next();
       }
+    } else if (verb) {
+      s.setPosition(pos);
     }
-  }
+  }],
 
-  // Special: params — "params page:number = 1, limit:number = 20"
-  if (type === 'params') {
-    rest = rest.replace(/^ +/, '');
-    if (rest.length > 0) {
+  ['params', (s, props, content) => {
+    s.skipWS();
+    const remaining = s.remainingRaw(content);
+    if (remaining.length > 0) {
       const items: Array<{ name: string; type: string; default?: string }> = [];
-      const parts = rest.split(',').map(s => s.trim()).filter(Boolean);
+      const parts = remaining.split(',').map(p => p.trim()).filter(Boolean);
       for (const part of parts) {
         const m = part.match(/^([A-Za-z_]\w*):([A-Za-z_]\w*(?:\[\])?)(?:\s*=\s*(.+))?$/);
         if (m) {
@@ -160,211 +396,123 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
         }
       }
       props.items = items;
-      rest = '';
     }
-  }
+  }],
 
-  // Special: auth — "auth required" / "auth optional" / "auth bearer"
-  if (type === 'auth') {
-    rest = rest.replace(/^ +/, '');
-    const modeMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)/);
-    if (modeMatch) {
-      props.mode = modeMatch[1];
-      rest = rest.slice(modeMatch[0].length);
+  ['auth', (s, props) => { consumeBareIdent(s, props, 'mode'); }],
+  ['validate', (s, props) => { consumeBareIdent(s, props, 'schema'); }],
+
+  ['error', (s, props) => {
+    s.skipWS();
+    const num = s.tryNumber();
+    if (num) {
+      props.status = parseInt(num, 10);
+      s.skipWS();
+      const tok = s.peek();
+      if (tok && tok.kind === 'quoted') {
+        props.message = tok.value;
+        s.next();
+      }
     }
-  }
+  }],
 
-  // Special: validate — "validate UserQuerySchema"
-  if (type === 'validate') {
-    rest = rest.replace(/^ +/, '');
-    const schemaMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
-    if (schemaMatch) {
-      props.schema = schemaMatch[1];
-      rest = rest.slice(schemaMatch[0].length);
+  ['derive', (s, props) => { consumeBareIdent(s, props, 'name'); }],
+  ['guard', (s, props) => { consumeBareIdent(s, props, 'name'); }],
+  ['effect', (s, props) => { consumeBareIdent(s, props, 'name'); }],
+  ['strategy', (s, props) => { consumeBareIdent(s, props, 'name'); }],
+  ['trigger', (s, props) => { consumeBareIdent(s, props, 'kind'); }],
+
+  ['respond', (s, props) => {
+    s.skipWS();
+    const num = s.tryNumber();
+    if (num) props.status = parseInt(num, 10);
+  }],
+
+  ['middleware', (s, props, content) => {
+    s.skipWS();
+    if (!s.hasMore()) return;
+    if (s.hasEquals()) return;
+    const remaining = s.remainingRaw(content).trim();
+    if (remaining.length > 0) {
+      const names = remaining.split(',').map(n => n.trim()).filter(Boolean);
+      if (names.length > 1) { props.names = names; }
+      else if (names.length === 1) { props.name = names[0]; }
     }
-  }
+  }],
+]);
 
-  // Special: error with numeric status — "error 401 "Unauthorized""
-  if (type === 'error') {
-    rest = rest.replace(/^ +/, '');
-    const statusMatch = rest.match(/^(\d{3})/);
-    if (statusMatch) {
-      props.status = parseInt(statusMatch[1], 10);
-      rest = rest.slice(statusMatch[0].length).replace(/^ +/, '');
-      if (rest.startsWith('"')) {
-        const endQuote = rest.indexOf('"', 1);
-        if (endQuote > 0) {
-          props.message = rest.slice(1, endQuote);
-          rest = rest.slice(endQuote + 1);
-        }
+// ── parseLine (token-based) ──────────────────────────────────────────────
+
+function parseLine(raw: string, lineNum: number): ParsedLine | null {
+  if (raw.trim() === '') return null;
+
+  const indent = raw.search(/\S/);
+  const content = raw.slice(indent);
+  const col = indent + 1;
+
+  const tokens = tokenizeLine(content);
+  const s = new TokenStream(tokens);
+
+  // First token must be an identifier (the node type)
+  const typeToken = s.tryIdent();
+  if (!typeToken) return null;
+  const type = typeToken;
+
+  const props: Record<string, unknown> = {};
+  const styles: Record<string, string> = {};
+  const pseudoStyles: Record<string, Record<string, string>> = {};
+  const themeRefs: string[] = [];
+
+  // ── Evolved node parser hints (v4) ──────────────────────────────────
+  const evolvedHints = _parserHints.get(type);
+  if (evolvedHints) {
+    if (evolvedHints.positionalArgs) {
+      for (const argName of evolvedHints.positionalArgs) {
+        const tok = s.consumeAnyValue();
+        if (tok) props[argName] = tok.value;
+      }
+    }
+    if (evolvedHints.bareWord) {
+      s.skipWS();
+      if (!s.isKeyValue()) {
+        const id = s.tryIdent();
+        if (id) props[evolvedHints.bareWord] = id;
       }
     }
   }
 
-  // Special: derive with bare name — "derive user expr={{...}}"
-  if (type === 'derive') {
-    rest = rest.replace(/^ +/, '');
-    const nameMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
-    // Only consume bare name if it's NOT a key=value pair (e.g., "derive name=foo" or "derive from=x")
-    if (nameMatch && !rest.match(/^[A-Za-z_][A-Za-z0-9_]*=/)) {
-      props.name = nameMatch[1];
-      rest = rest.slice(nameMatch[0].length);
-    }
-  }
+  // ── Keyword-specific handling ──────────────────────────────────────
+  const handler = KEYWORD_HANDLERS.get(type);
+  if (handler) handler(s, props, content);
 
-  // Special: guard with bare name — "guard exists expr={{...}} else=404"
-  if (type === 'guard') {
-    rest = rest.replace(/^ +/, '');
-    const nameMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
-    if (nameMatch && !rest.match(/^[A-Za-z_][A-Za-z0-9_]*=/)) {
-      props.name = nameMatch[1];
-      rest = rest.slice(nameMatch[0].length);
-    }
-  }
+  // ── Generic prop/style/theme parsing ───────────────────────────────
+  while (!s.done()) {
+    s.skipWS();
+    if (s.done()) break;
 
-  // Special: effect with bare name — "effect fetchUsers"
-  if (type === 'effect') {
-    rest = rest.replace(/^ +/, '');
-    const nameMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
-    if (nameMatch && !rest.match(/^[A-Za-z_][A-Za-z0-9_]*=/)) {
-      props.name = nameMatch[1];
-      rest = rest.slice(nameMatch[0].length);
-    }
-  }
+    const tok = s.peek()!;
 
-  // Special: strategy with bare name — "strategy read-through"
-  if (type === 'strategy') {
-    rest = rest.replace(/^ +/, '');
-    const nameMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)/);
-    if (nameMatch && !rest.match(/^[A-Za-z_][A-Za-z0-9_-]*=/)) {
-      props.name = nameMatch[1];
-      rest = rest.slice(nameMatch[0].length);
-    }
-  }
-
-  // Special: trigger with bare type — "trigger db query=..."
-  if (type === 'trigger') {
-    rest = rest.replace(/^ +/, '');
-    const typeMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
-    if (typeMatch && !rest.match(/^[A-Za-z_][A-Za-z0-9_]*=/)) {
-      props.kind = typeMatch[1];
-      rest = rest.slice(typeMatch[0].length);
-    }
-  }
-
-  // Special: respond with optional status — "respond 200 json=users" / "respond redirect=/login"
-  if (type === 'respond') {
-    rest = rest.replace(/^ +/, '');
-    const statusMatch = rest.match(/^(\d{3})/);
-    if (statusMatch) {
-      props.status = parseInt(statusMatch[1], 10);
-      rest = rest.slice(statusMatch[0].length);
-    }
-  }
-
-  // Special: middleware bare word list — "middleware rateLimit, cors"
-  if (type === 'middleware') {
-    rest = rest.replace(/^ +/, '');
-    if (rest.length > 0 && !rest.includes('=')) {
-      const names = rest.split(',').map(s => s.trim()).filter(Boolean);
-      if (names.length > 1) {
-        props.names = names;
-      } else if (names.length === 1) {
-        props.name = names[0];
-      }
-      rest = '';
-    }
-  }
-
-  // Parse the remainder: props, style blocks, theme refs
-  while (rest.length > 0) {
-    rest = rest.replace(/^ +/, '');
-    if (rest.length === 0) break;
-
-    // Style block — find matching } respecting quotes
-    if (rest[0] === '{') {
-      let close = -1;
-      let inQuote = false;
-      for (let j = 1; j < rest.length; j++) {
-        if (rest[j] === '"') inQuote = !inQuote;
-        if (!inQuote && rest[j] === '}') { close = j; break; }
-      }
-      if (close === -1) break;
-      const block = rest.slice(1, close);
-      parseStyleBlock(block, styles, pseudoStyles);
-      rest = rest.slice(close + 1);
+    // Style block
+    if (tok.kind === 'style') {
+      parseStyleBlock(tok.value, styles, pseudoStyles);
+      s.next();
       continue;
     }
 
     // Theme ref
-    if (rest[0] === '$') {
-      const refMatch = rest.match(/^\$([A-Za-z_][A-Za-z0-9_-]*)/);
-      if (refMatch) {
-        themeRefs.push(refMatch[1]);
-        rest = rest.slice(refMatch[0].length);
-        continue;
-      }
-    }
-
-    // Prop: key={{ expression }}
-    const exprPropMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)=\{\{/);
-    if (exprPropMatch) {
-      const key = exprPropMatch[1];
-      rest = rest.slice(exprPropMatch[0].length);
-      // Find matching }}
-      let depth = 1;
-      let j = 0;
-      for (; j < rest.length - 1; j++) {
-        if (rest[j] === '{' && rest[j + 1] === '{') { depth++; j++; }
-        else if (rest[j] === '}' && rest[j + 1] === '}') { depth--; j++; if (depth === 0) break; }
-      }
-      const expr = rest.slice(0, j - 1).trim();
-      rest = rest.slice(j + 1);
-      props[key] = { __expr: true, code: expr };
+    if (tok.kind === 'themeRef') {
+      themeRefs.push(tok.value);
+      s.next();
       continue;
     }
 
-    // Prop: key=value or key="quoted value"
-    const propMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)=/);
-    if (propMatch) {
-      const key = propMatch[1];
-      rest = rest.slice(propMatch[0].length);
-      let value: string;
-      if (rest[0] === '"') {
-        const endQuote = rest.indexOf('"', 1);
-        value = rest.slice(1, endQuote);
-        rest = rest.slice(endQuote + 1);
-      } else if (rest.startsWith('{{')) {
-        // Bare expression without key= prefix (e.g. value={{ x }})
-        rest = rest.slice(2);
-        let depth = 1;
-        let j = 0;
-        for (; j < rest.length - 1; j++) {
-          if (rest[j] === '{' && rest[j + 1] === '{') { depth++; j++; }
-          else if (rest[j] === '}' && rest[j + 1] === '}') { depth--; j++; if (depth === 0) break; }
-        }
-        const expr = rest.slice(0, j - 1).trim();
-        rest = rest.slice(j + 1);
-        props[key] = { __expr: true, code: expr };
-        continue;
-      } else {
-        const endMatch = rest.match(/^[^\s{$]+/);
-        value = endMatch ? endMatch[0] : '';
-        rest = rest.slice(value.length);
-      }
-      props[key] = value;
-      continue;
-    }
+    // Key=value prop (extracted helper from Codex)
+    if (parseProp(s, props)) continue;
 
-    // Unknown token — collect as warning, skip to next whitespace
-    const skipped = rest.match(/^\S+/);
-    if (skipped) {
-      const errCol = col + (raw.length - rest.length);
-      _parseWarnings.push(`Unexpected token "${skipped[0]}" at line ${lineNum}:${errCol}`);
-      rest = rest.slice(skipped[0].length);
-      continue;
-    }
-    break;
+    // Unknown token — skip with warning
+    const skipped = s.next()!;
+    const errCol = col + skipped.pos;
+    _parseWarnings.push(`Unexpected token "${skipped.value}" at line ${lineNum}:${errCol}`);
   }
 
   return {
@@ -377,6 +525,8 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
     loc: { line: lineNum, col },
   };
 }
+
+// ── Style block parsing (unchanged) ──────────────────────────────────────
 
 function splitStylePairs(block: string): string[] {
   const pairs: string[] = [];
@@ -427,7 +577,6 @@ function parseStyleBlock(
     if (quotedKeyMatch) {
       const key = quotedKeyMatch[1];
       let value = quotedKeyMatch[2].trim();
-      // Strip surrounding quotes from value if present
       if (value.startsWith('"') && value.endsWith('"')) {
         value = value.slice(1, -1);
       }
@@ -440,7 +589,6 @@ function parseStyleBlock(
     if (colonIdx > 0) {
       const key = pair.slice(0, colonIdx).trim();
       let value = pair.slice(colonIdx + 1).trim();
-      // Strip surrounding quotes from value if present
       if (value.startsWith('"') && value.endsWith('"')) {
         value = value.slice(1, -1);
       }
@@ -450,8 +598,6 @@ function parseStyleBlock(
 }
 
 function expandMinified(source: string): string {
-  // Detect minified S-expression format: node(child1,child2)
-  // Convert to indented format for the standard parser
   if (!source.includes('(') || source.split('\n').length > 2) return source;
 
   const result: string[] = [];
@@ -493,7 +639,6 @@ export function getParseWarnings(): string[] { return [..._parseWarnings]; }
 
 export function parse(source: string): IRNode {
   _parseWarnings = [];
-  // Handle minified S-expression format
   source = expandMinified(source);
   const lines = source.split('\n');
   const parsed: ParsedLine[] = [];
@@ -507,7 +652,6 @@ export function parse(source: string): IRNode {
       const codeLines: string[] = [];
       const startLine = i + 1;
       const blockOpen = `${multilineType} <<<`;
-      // Check if inline close on same line
       const afterOpen = trimmed.slice(blockOpen.length);
       if (afterOpen.includes('>>>')) {
         codeLines.push(afterOpen.split('>>>')[0]);
@@ -517,7 +661,6 @@ export function parse(source: string): IRNode {
           codeLines.push(lines[i]);
           i++;
         }
-        // Capture text before >>> on closing line
         if (i < lines.length) {
           const closeLine = lines[i];
           const closeIdx = closeLine.indexOf('>>>');
@@ -557,7 +700,6 @@ export function parse(source: string): IRNode {
     return node;
   }
 
-  // Build tree using indent levels
   const root = toNode(parsed[0]);
   const stack: { node: IRNode; indent: number }[] = [{ node: root, indent: parsed[0].indent }];
 
@@ -565,7 +707,6 @@ export function parse(source: string): IRNode {
     const p = parsed[i];
     const node = toNode(p);
 
-    // Pop stack until we find a parent at a lower indent level
     while (stack.length > 1 && stack[stack.length - 1].indent >= p.indent) {
       stack.pop();
     }

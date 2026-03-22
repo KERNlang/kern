@@ -1,5 +1,5 @@
 import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig } from '@kernlang/core';
-import { countTokens, serializeIR, isCoreNode, generateCoreNode, generateMachineReducer } from '@kernlang/core';
+import { countTokens, serializeIR, isCoreNode, generateCoreNode, generateMachineReducer, getProps, getChildren, dedent } from '@kernlang/core';
 
 /**
  * Ink Transpiler — generates React (Ink) TSX components for terminal UIs
@@ -29,15 +29,6 @@ import { countTokens, serializeIR, isCoreNode, generateCoreNode, generateMachine
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-function getProps(node: IRNode): Record<string, unknown> {
-  return node.props || {};
-}
-
-function getChildren(node: IRNode, type?: string): IRNode[] {
-  const c = node.children || [];
-  return type ? c.filter(ch => ch.type === type) : c;
-}
-
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -51,15 +42,6 @@ function isExpr(v: unknown): v is { __expr: true; code: string } {
 function unwrapProp(v: unknown): string {
   if (isExpr(v)) return (v as { code: string }).code;
   return String(v ?? '');
-}
-
-/** Strip common leading whitespace from multiline handler code. */
-function dedent(code: string): string {
-  const lines = code.split('\n');
-  const nonEmpty = lines.filter(l => l.trim().length > 0);
-  if (nonEmpty.length === 0) return code;
-  const min = Math.min(...nonEmpty.map(l => l.match(/^(\s*)/)?.[1].length ?? 0));
-  return lines.map(l => l.slice(min)).join('\n');
 }
 
 /** Split a comma-separated prop string while respecting angle-bracket/paren depth. */

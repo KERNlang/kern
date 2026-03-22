@@ -6,37 +6,7 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { parseParamList } from '@kernlang/core';
-
-// ── Helpers ──────────────────────────────────────────────────────────────
-
-function p(node: IRNode): Record<string, unknown> {
-  return node.props || {};
-}
-
-function kids(node: IRNode, type?: string): IRNode[] {
-  const c = node.children || [];
-  return type ? c.filter(n => n.type === type) : c;
-}
-
-function firstChild(node: IRNode, type: string): IRNode | undefined {
-  return kids(node, type)[0];
-}
-
-function dedent(code: string): string {
-  const lines = code.split('\n');
-  const nonEmpty = lines.filter(l => l.trim().length > 0);
-  if (nonEmpty.length === 0) return code;
-  const min = Math.min(...nonEmpty.map(l => l.match(/^(\s*)/)?.[1].length ?? 0));
-  return lines.map(l => l.slice(min)).join('\n');
-}
-
-function handlerCode(node: IRNode): string {
-  const handler = firstChild(node, 'handler');
-  if (!handler) return '';
-  const raw = p(handler).code as string || '';
-  return dedent(raw);
-}
+import { parseParamList, getProps, getChildren, getFirstChild, dedent, handlerCode } from '@kernlang/core';
 
 // ── Provider → provide/inject ────────────────────────────────────────────
 // provider name=Search type=UseSearchResult
@@ -51,7 +21,7 @@ function handlerCode(node: IRNode): string {
 //   3. inject() consumer composable (useSearchContext)
 
 export function generateVueProvider(node: IRNode): string[] {
-  const props = p(node);
+  const props = getProps(node);
   const name = props.name as string;
   const valueType = props.type as string;
   const lines: string[] = [];
@@ -65,10 +35,10 @@ export function generateVueProvider(node: IRNode): string[] {
   lines.push('');
 
   // 2. Provider composable
-  const propNodes = kids(node, 'prop');
+  const propNodes = getChildren(node, 'prop');
   const paramParts: string[] = [];
   for (const prop of propNodes) {
-    const pp = p(prop);
+    const pp = getProps(prop);
     const opt = pp.optional === 'true' || pp.optional === true ? '?' : '';
     paramParts.push(`${pp.name}${opt}: ${pp.type}`);
   }
@@ -111,14 +81,14 @@ export function generateVueProvider(node: IRNode): string[] {
 // Generates a composable function that uses onMounted or watch
 
 export function generateVueEffect(node: IRNode): string[] {
-  const props = p(node);
+  const props = getProps(node);
   const name = props.name as string;
   const generic = props.generic as string | undefined;
   const once = props.once === 'true' || props.once === true;
   const deps = props.deps as string || '';
   const lines: string[] = [];
 
-  const cleanupNode = firstChild(node, 'cleanup');
+  const cleanupNode = getFirstChild(node, 'cleanup');
 
   // Collect all imports upfront (no post-hoc mutation)
   const vueImports = new Set<string>();
@@ -136,10 +106,10 @@ export function generateVueEffect(node: IRNode): string[] {
   const genericParam = generic ? `<${generic}>` : '';
 
   // Props interface
-  const propNodes = kids(node, 'prop');
+  const propNodes = getChildren(node, 'prop');
   lines.push(`export interface ${name}Props${genericParam} {`);
   for (const prop of propNodes) {
-    const pp = p(prop);
+    const pp = getProps(prop);
     const opt = pp.optional === 'true' || pp.optional === true ? '?' : '';
     lines.push(`  ${pp.name}${opt}: ${pp.type};`);
   }
@@ -147,7 +117,7 @@ export function generateVueEffect(node: IRNode): string[] {
   lines.push('');
 
   // Composable function
-  const propNames = propNodes.map(pn => p(pn).name as string);
+  const propNames = propNodes.map(pn => getProps(pn).name as string);
   const destructured = propNames.join(', ');
   lines.push(`export function use${name}${genericParam}({ ${destructured} }: ${name}Props${genericParam}) {`);
 
@@ -168,7 +138,7 @@ export function generateVueEffect(node: IRNode): string[] {
       }
     }
     if (hasCleanup) {
-      const cleanupCode = p(cleanupNode!).code as string || '';
+      const cleanupCode = getProps(cleanupNode!).code as string || '';
       const cleanupDedented = dedent(cleanupCode);
       lines.push(`    onCleanup(() => {`);
       for (const line of cleanupDedented.split('\n')) {
@@ -188,7 +158,7 @@ export function generateVueEffect(node: IRNode): string[] {
     lines.push(`  });`);
 
     if (cleanupNode) {
-      const cleanupCode = p(cleanupNode).code as string || '';
+      const cleanupCode = getProps(cleanupNode).code as string || '';
       const cleanupDedented = dedent(cleanupCode);
       lines.push(`  onUnmounted(() => {`);
       for (const line of cleanupDedented.split('\n')) {
@@ -219,7 +189,7 @@ export function generateVueEffect(node: IRNode): string[] {
 // → Vue 3 composable with ref, computed, watch instead of useState, useMemo, useCallback, useEffect
 
 export function generateVueHook(node: IRNode): string[] {
-  const props = p(node);
+  const props = getProps(node);
   const name = props.name as string;
   const params = props.params as string || '';
   const returnsType = props.returns as string | undefined;
@@ -231,12 +201,12 @@ export function generateVueHook(node: IRNode): string[] {
 
   lines.push(`export function ${name}(${paramList})${retClause} {`);
 
-  const children = kids(node);
+  const children = getChildren(node);
   const returnsNode = children.find(c => c.type === 'returns');
   const ordered = children.filter(c => c.type !== 'returns');
 
   for (const child of ordered) {
-    const cp = p(child);
+    const cp = getProps(child);
     switch (child.type) {
       case 'state': {
         vueImports.add('ref');
@@ -300,7 +270,7 @@ export function generateVueHook(node: IRNode): string[] {
       case 'effect': {
         const edeps = cp.deps as string || '';
         const ecode = handlerCode(child);
-        const effectCleanup = firstChild(child, 'cleanup');
+        const effectCleanup = getFirstChild(child, 'cleanup');
         if (edeps) {
           vueImports.add('watch');
           const depsArr = edeps.split(',').map(d => d.trim());
@@ -318,7 +288,7 @@ export function generateVueHook(node: IRNode): string[] {
         }
         // Cleanup — Vue watch uses onCleanup param, onMounted uses return
         if (effectCleanup) {
-          const cleanupCode = p(effectCleanup).code as string || '';
+          const cleanupCode = getProps(effectCleanup).code as string || '';
           const cleanupDedented = dedent(cleanupCode);
           if (edeps) {
             // watch: use onCleanup()
@@ -344,7 +314,7 @@ export function generateVueHook(node: IRNode): string[] {
 
   // Returns
   if (returnsNode) {
-    const rnames = p(returnsNode).names as string || '';
+    const rnames = getProps(returnsNode).names as string || '';
     const entries = rnames.split(',').map(e => {
       const [key, ...valueParts] = e.split(':');
       const value = valueParts.join(':').trim();

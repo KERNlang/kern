@@ -553,6 +553,7 @@ if (args[0] === 'review') {
   const llmMode = args.includes('--llm');
   const cloudMode = args.includes('--cloud');
   const securityMode = args.includes('--security');
+  const mcpMode = args.includes('--mcp');
   const specMode = args.includes('--spec');
   const specFile = args.find(a => a.endsWith('.kern') && a !== 'review');
   const fixMode = args.includes('--fix');
@@ -609,7 +610,7 @@ if (args[0] === 'review') {
   }
 
   if (!reviewInput) {
-    console.error('Usage: kern review <file.ts|dir> [--security] [--llm] [--spec file.kern] [--cloud]');
+    console.error('Usage: kern review <file.ts|dir> [--security] [--mcp] [--llm] [--spec file.kern] [--cloud]');
     console.error('       [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--fix]');
     process.exit(1);
   }
@@ -738,6 +739,30 @@ if (args[0] === 'review') {
   if (reports.length === 0) {
     console.log('  No reviewable files found (.ts/.tsx/.py/.kern).');
     process.exit(0);
+  }
+
+  // MCP security review — --mcp flag or auto-detect MCP server files
+  try {
+    const { reviewIfMCP, reviewMCPSource } = await import('@kernlang/review-mcp');
+    let mcpFileCount = 0;
+    for (const report of reports) {
+      const source = readFileSync(report.filePath, 'utf-8');
+      const mcpFindings = mcpMode
+        ? reviewMCPSource(source, report.filePath)
+        : reviewIfMCP(source, report.filePath);
+      if (mcpFindings && mcpFindings.length > 0) {
+        report.findings.push(...mcpFindings);
+        mcpFileCount++;
+      }
+    }
+    if (mcpFileCount > 0 && !jsonOutput && !sarifOutput) {
+      console.log(`  MCP security: ${mcpFileCount} server file(s) scanned`);
+    }
+  } catch {
+    // @kernlang/review-mcp not installed — skip silently
+    if (mcpMode) {
+      console.error('  @kernlang/review-mcp not installed. Run: pnpm add @kernlang/review-mcp');
+    }
   }
 
   // --export-kern: output KERN IR for AI review (v1 compat)

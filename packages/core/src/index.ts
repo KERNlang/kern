@@ -3,7 +3,8 @@
  */
 
 // Core
-export { parse, registerParserHints, unregisterParserHints, clearParserHints } from './parser.js';
+export { parse, registerParserHints, unregisterParserHints, clearParserHints, tokenizeLine } from './parser.js';
+export type { Token, TokenKind } from './parser.js';
 export { decompile } from './decompiler.js';
 export { KernParseError } from './errors.js';
 
@@ -59,6 +60,9 @@ export {
   generatePattern, generateApply,
   emitReasonAnnotations, emitLowConfidenceTodo,
   parseParamList, capitalize,
+  // Shared IR node helpers
+  getProps, getChildren, getFirstChild, getStyles, getPseudoStyles, getThemeRefs,
+  dedent, cssPropertyName, handlerCode,
   // Graduated nodes
   generateConditional, generateSelect,
   generateModel, generateRepository, generateDependency, generateCache,

@@ -14,6 +14,7 @@
     { "path": "../terminal" },
     { "path": "../vue" },
     { "path": "../review" },
+    { "path": "../review-mcp" },
     { "path": "../metrics" },
     { "path": "../evolve" }
   ]

@@ -1,5 +1,5 @@
 import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, TailwindVersionProfile, NextjsVersionProfile } from '@kernlang/core';
-import { stylesToTailwind, colorToTw, countTokens, serializeIR, camelKey, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, buildNextjsProfile, applyTailwindTokenRules } from '@kernlang/core';
+import { stylesToTailwind, colorToTw, countTokens, serializeIR, camelKey, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, buildNextjsProfile, applyTailwindTokenRules, getProps, getStyles } from '@kernlang/core';
 import { planStructure } from './structure.js';
 import type { PlannedFile } from './structure.js';
 import { buildStructuredArtifacts } from './artifact-utils.js';
@@ -67,9 +67,7 @@ interface Ctx {
   njProfile: NextjsVersionProfile | undefined;
 }
 
-function getProps(node: IRNode): Record<string, unknown> { return node.props || {}; }
 function isExpr(v: unknown): v is { __expr: true; code: string } { return typeof v === 'object' && v !== null && '__expr' in v; }
-function getStyles(node: IRNode): Record<string, string> { return (getProps(node).styles as Record<string, string>) || {}; }
 
 // ── Unified import helpers (from Codex) ──────────────────────────────────
 
