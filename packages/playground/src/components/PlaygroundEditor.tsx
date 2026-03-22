@@ -54,7 +54,7 @@ const KERN_SHORTHANDS = [
 
 function registerKernLanguage(monaco: Monaco) {
   // Only register once
-  if (monaco.languages.getLanguages().some(l => l.id === 'kern')) return;
+  if (monaco.languages.getLanguages().some((l: { id: string }) => l.id === 'kern')) return;
 
   monaco.languages.register({ id: 'kern' });
 
