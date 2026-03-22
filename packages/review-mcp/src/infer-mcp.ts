@@ -20,6 +20,9 @@
 import { SyntaxKind, Project } from 'ts-morph';
 import type { IRNode } from '@kernlang/core';
 
+// Reuse a single Project instance across calls (from forge synthesis)
+const PROJECT = new Project({ useInMemoryFileSystem: true, compilerOptions: { strict: false } });
+
 // ── Effect patterns ──────────────────────────────────────────────────
 
 const SHELL_EXEC_PATTERN = /\b(exec|execSync|execFile|execFileSync|spawn|spawnSync|child_process)\b/;
@@ -77,8 +80,7 @@ export function inferMCPNodes(source: string, filePath: string): IRNode[] {
     return nodes;
   }
 
-  const project = new Project({ useInMemoryFileSystem: true, compilerOptions: { strict: false } });
-  const sf = project.createSourceFile(filePath, source);
+  const sf = PROJECT.createSourceFile(filePath, source);
 
   // Find all .tool() call expressions
   for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
@@ -116,45 +118,20 @@ export function inferMCPNodes(source: string, filePath: string): IRNode[] {
 
     if (!isToolCall || !handlerArg) continue;
 
+    // For setRequestHandler with switch/if dispatch, extract individual tool actions
+    // (from Codex forge contribution — detects if/switch patterns inside handlers)
+    if (toolName === 'call-tool-handler') {
+      const dispatchActions = extractDispatchActions(handlerArg, call.getStartLineNumber());
+      if (dispatchActions.length > 0) {
+        nodes.push(...dispatchActions);
+        continue; // Skip single-action fallback
+      }
+    }
+
     // Extract handler body text
     const handlerText = handlerArg.getText();
     const handlerLine = call.getStartLineNumber();
-    const children: IRNode[] = [];
-
-    // Trigger
-    children.push(node('trigger', handlerLine, { kind: 'tool-call' }));
-
-    // Scan handler body for effects and guards
-    const bodyLines = handlerText.split('\n');
-    for (let i = 0; i < bodyLines.length; i++) {
-      const line = bodyLines[i];
-      const absoluteLine = handlerLine + i;
-
-      // Effects
-      if (SHELL_EXEC_PATTERN.test(line) || EVAL_PATTERN.test(line)) {
-        children.push(node('effect', absoluteLine, { kind: 'shell-exec', trust: 'low' }));
-      }
-      if (FS_PATTERN.test(line)) {
-        children.push(node('effect', absoluteLine, { kind: 'fs', trust: 'low' }));
-      }
-      if (NETWORK_PATTERN.test(line)) {
-        children.push(node('effect', absoluteLine, { kind: 'network', trust: 'low' }));
-      }
-      if (DB_PATTERN.test(line)) {
-        children.push(node('effect', absoluteLine, { kind: 'db', trust: 'low' }));
-      }
-
-      // Guards
-      if (VALIDATION_PATTERN.test(line)) {
-        children.push(node('guard', absoluteLine, { kind: 'validation' }));
-      }
-      if (PATH_CONTAINMENT_PATTERN.test(line) && PATH_RESOLVE_PATTERN.test(handlerText)) {
-        children.push(node('guard', absoluteLine, { kind: 'path-containment' }));
-      }
-      if (AUTH_PATTERN.test(line)) {
-        children.push(node('guard', absoluteLine, { kind: 'auth' }));
-      }
-    }
+    const children = scanBodyForEffectsAndGuards(handlerText, handlerLine);
 
     // Build action node
     const actionNode = node('action', handlerLine, {
@@ -167,7 +144,109 @@ export function inferMCPNodes(source: string, filePath: string): IRNode[] {
     nodes.push(actionNode);
   }
 
+  // Cleanup: remove the temp source file so PROJECT can be reused
+  PROJECT.removeSourceFile(sf);
+
   return nodes;
+}
+
+// ── Body scanning helper ─────────────────────────────────────────────
+
+/** Scan a handler body text for effect and guard IR nodes */
+function scanBodyForEffectsAndGuards(bodyText: string, startLine: number): IRNode[] {
+  const children: IRNode[] = [];
+  children.push(node('trigger', startLine, { kind: 'tool-call' }));
+
+  const bodyLines = bodyText.split('\n');
+  for (let i = 0; i < bodyLines.length; i++) {
+    const line = bodyLines[i];
+    const absoluteLine = startLine + i;
+
+    if (SHELL_EXEC_PATTERN.test(line) || EVAL_PATTERN.test(line)) {
+      children.push(node('effect', absoluteLine, { kind: 'shell-exec', trust: 'low' }));
+    }
+    if (FS_PATTERN.test(line)) {
+      children.push(node('effect', absoluteLine, { kind: 'fs', trust: 'low' }));
+    }
+    if (NETWORK_PATTERN.test(line)) {
+      children.push(node('effect', absoluteLine, { kind: 'network', trust: 'low' }));
+    }
+    if (DB_PATTERN.test(line)) {
+      children.push(node('effect', absoluteLine, { kind: 'db', trust: 'low' }));
+    }
+    if (VALIDATION_PATTERN.test(line)) {
+      children.push(node('guard', absoluteLine, { kind: 'validation' }));
+    }
+    if (PATH_CONTAINMENT_PATTERN.test(line) && PATH_RESOLVE_PATTERN.test(bodyText)) {
+      children.push(node('guard', absoluteLine, { kind: 'path-containment' }));
+    }
+    if (AUTH_PATTERN.test(line)) {
+      children.push(node('guard', absoluteLine, { kind: 'auth' }));
+    }
+  }
+  return children;
+}
+
+// ── Switch/if dispatch detection (from Codex forge) ──────────────────
+
+/**
+ * Extract individual tool actions from a setRequestHandler with switch/if dispatch.
+ * Detects patterns like: if (name === "read_file") { ... } else if (name === "write_file") { ... }
+ * or: switch (name) { case "read_file": ... case "write_file": ... }
+ */
+function extractDispatchActions(handlerArg: import('ts-morph').Node, baseLine: number): IRNode[] {
+  const actions: IRNode[] = [];
+  const handlerText = handlerArg.getText();
+
+  // Look for switch statements on tool name
+  const switchMatches = handlerText.matchAll(/case\s+['"]([^'"]+)['"]\s*:/g);
+  for (const m of switchMatches) {
+    const toolName = m[1];
+    const caseOffset = m.index ?? 0;
+    const caseLine = baseLine + handlerText.substring(0, caseOffset).split('\n').length - 1;
+
+    // Extract case body (rough: from case to next case/break/default)
+    const afterCase = handlerText.substring(caseOffset);
+    const endMatch = afterCase.match(/\b(case\s+['"]|default\s*:|break\s*;)/);
+    const caseBody = endMatch ? afterCase.substring(0, endMatch.index) : afterCase.substring(0, 200);
+
+    const children = scanBodyForEffectsAndGuards(caseBody, caseLine);
+    actions.push(node('action', caseLine, {
+      name: toolName,
+      trust: 'low',
+      confidence: computeConfidence(children),
+    }, children));
+  }
+
+  // Look for if (name === "toolName") patterns
+  const ifMatches = handlerText.matchAll(/(?:if|else\s+if)\s*\(\s*\w+\s*===?\s*['"]([^'"]+)['"]\s*\)/g);
+  for (const m of ifMatches) {
+    const toolName = m[1];
+    const ifOffset = m.index ?? 0;
+    const ifLine = baseLine + handlerText.substring(0, ifOffset).split('\n').length - 1;
+
+    // Extract if-body (rough: content between { })
+    const afterIf = handlerText.substring(ifOffset);
+    const braceStart = afterIf.indexOf('{');
+    if (braceStart < 0) continue;
+    let depth = 0;
+    let bodyEnd = braceStart + 1;
+    for (let j = braceStart; j < afterIf.length; j++) {
+      if (afterIf[j] === '{') depth++;
+      if (afterIf[j] === '}') depth--;
+      if (depth === 0) { bodyEnd = j + 1; break; }
+    }
+    const ifBody = afterIf.substring(braceStart, bodyEnd);
+
+    const children = scanBodyForEffectsAndGuards(ifBody, ifLine);
+    actions.push(node('action', ifLine, {
+      name: toolName,
+      trust: 'low',
+      confidence: computeConfidence(children),
+    }, children));
+  }
+
+  return actions;
 }
 
 // ── Python inference ─────────────────────────────────────────────────
