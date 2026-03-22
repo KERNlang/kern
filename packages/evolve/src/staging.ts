@@ -55,7 +55,8 @@ export function listStaged(config?: Partial<EvolveConfig>): StagedProposal[] {
     try {
       const content = readFileSync(resolve(stagingDir, file), 'utf-8');
       proposals.push(JSON.parse(content));
-    } catch { // file may not exist
+    } catch {
+      // Intentional: file may be concurrently deleted or partially written — skip it
     }
   }
 
@@ -250,7 +251,8 @@ export function listStagedNodes(config?: Partial<EvolveConfig>): StagedNodePropo
     try {
       const content = readFileSync(resolve(stagingDir, file), 'utf-8');
       proposals.push(JSON.parse(content));
-    } catch { // file may not exist
+    } catch {
+      // Intentional: file may be concurrently deleted or partially written — skip it
     }
   }
 
@@ -365,7 +367,8 @@ export function listStagedEvolveV4(): StagedEvolveProposal[] {
     try {
       const content = readFileSync(resolve(stagingDir, file), 'utf-8');
       proposals.push(JSON.parse(content));
-    } catch { // file may not exist
+    } catch {
+      // Intentional: file may be concurrently deleted or partially written — skip it
     }
   }
 

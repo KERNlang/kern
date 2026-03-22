@@ -69,7 +69,7 @@ if (args[0] === 'dev') {
         console.log(`  Auto-detected: ${parts.join(', ')}`);
       }
     } catch {
-      // package.json may not exist or may be malformed
+      // Intentional: package.json detection is optional — build continues without it
     }
   }
 
@@ -183,7 +183,7 @@ function findNearestPackageJson(startDir: string): string | null {
 function findKernFiles(dir: string, singleFile?: string): string[] {
   if (singleFile) return [resolve(dir, singleFile)];
   const files: string[] = [];
-  function walk(d: string) {
+  function walk(d: string): void {
     for (const entry of readdirSync(d)) {
       const full = resolve(d, entry);
       const s = statSync(full);

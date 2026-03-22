@@ -126,7 +126,7 @@ function updateShareUrl(source: string, target: string, mode: PlaygroundMode) {
     url.searchParams.set('mode', mode);
     history.replaceState(null, '', url.toString());
   } catch {
-    // Skip URL update for oversized source or encoding errors
+    // Intentional: skip URL update for oversized source or encoding errors
   }
 }
 

@@ -538,7 +538,6 @@ function generateScriptSetup(ctx: VueBuilder, root: IRNode): string {
 
 export function transpileVue(root: IRNode, config?: ResolvedKernConfig): TranspileResult {
   const ctx = createBuilder(config);
-  const sourceMap: SourceMapEntry[] = [];
 
   // Collect themes
   collectThemes(root, ctx);

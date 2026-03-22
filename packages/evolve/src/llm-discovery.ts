@@ -96,7 +96,8 @@ export function collectTsFiles(dir: string, recursive = true): string[] {
           files.push(full);
         }
       }
-    } catch { // file may not exist
+    } catch {
+      // Intentional: subdirectory may be missing or permission-denied — skip it
     }
   }
 

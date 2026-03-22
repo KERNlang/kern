@@ -83,7 +83,7 @@ export function readCoverageGaps(gapDir: string): CoverageGap[] {
       const gaps: CoverageGap[] = JSON.parse(content);
       allGaps.push(...gaps);
     } catch (_e) {
-      // Skip invalid/corrupt gap files — non-fatal during aggregation
+      // Intentional: skip invalid/corrupt gap files — non-fatal during aggregation
     }
   }
 

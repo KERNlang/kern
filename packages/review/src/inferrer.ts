@@ -304,7 +304,7 @@ function pushFnResult(
     props: {
       name,
       ...(params ? { params } : {}),
-      ...(returnType && returnType !== 'void' ? { returns: returnType } : {}),
+      ...(returnType ? { returns: returnType } : {}),
       ...(isAsync ? { async: 'true' } : {}),
       ...(isExported ? {} : { export: 'false' }),
     },

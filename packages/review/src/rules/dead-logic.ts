@@ -382,6 +382,10 @@ function emptyCollectionAccess(ctx: RuleContext): ReviewFinding[] {
         } else {
           hasRead = true;
         }
+      } else if (parent.getKind() === SyntaxKind.CallExpression) {
+        const callExpr = parent as import('ts-morph').CallExpression;
+        if (callExpr.getExpression() !== ident) hasWrite = true;
+        else hasRead = true;
       } else if (parent.getKind() !== SyntaxKind.VariableDeclaration) {
         hasRead = true;
       }

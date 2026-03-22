@@ -73,7 +73,7 @@ export function scanKernProject(cwd: string, config?: ResolvedKernConfig): Proje
       const ast = parse(source);
       fileMetrics.push(collectLanguageMetrics(ast));
     } catch {
-      // Skip unparseable files
+      // Intentional: skip unparseable files during metrics collection
     }
   }
 

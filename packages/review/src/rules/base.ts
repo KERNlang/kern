@@ -166,6 +166,8 @@ function emptyCatch(ctx: RuleContext): ReviewFinding[] {
     const block = stmt.getBlock();
     const stmts = block.getStatements();
     if (stmts.length === 0) {
+      const blockText = block.getText();
+      if (/\/[/*]\s*(Intentional|Expected|@suppress|eslint-disable)/.test(blockText)) continue;
       const line = stmt.getStartLineNumber();
       findings.push(finding('empty-catch', 'warning', 'bug',
         'Empty catch block swallows exception — at minimum log or rethrow',
