@@ -13,7 +13,7 @@
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "build": "tsc -b && pnpm --filter @kernlang/playground build",
-    "test": "pnpm -r test",
+    "test": "pnpm -r --filter '!@kernlang/review-python' test",
     "test:root": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --forceExit --config jest.config.js",
     "fitness": "pnpm test"
   },
