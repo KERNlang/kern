@@ -430,3 +430,86 @@ Regardless of final architecture, the FIRST implementation step is the same:
 **Build the U layer.** Extract the 18 shared analysis concerns from existing transpilers. This is valuable even if we never build the D+R layers — shared analysis improves code quality, reduces duplication, and enables better `kern review` integration.
 
 The U layer is the foundation. Everything else builds on it.
+
+---
+
+## 13. The Specification Compiler Realization
+
+### Kern is a Specification Compiler
+
+Kern is NOT a program compiler (LLVM, Svelte, TypeScript) and NOT a transpiler (Babel, Sass). It is a **specification compiler** — it expands structural specifications into framework implementations.
+
+Closest analogs: Protobuf codegen, OpenAPI generator, Prisma, GraphQL codegen. NOT: LLVM, Svelte, TypeScript compiler.
+
+This realization collapses the option space:
+- **Option E (LLVM-style multi-level IR) is definitively off the table** — no execution semantics to lower
+- **UDR is confirmed as right-sized** — spec compilation needs declaration collection + template expansion, not program analysis + optimization
+- **Option H (enriched AST) is natural** — specs enrich progressively, programs need transformation
+
+### 8 Core Principles
+
+| # | Principle | Implication |
+|---|-----------|-------------|
+| A | **Kern is a specification compiler** | Not program compiler, not transpiler |
+| B | **UDR is the architecture** | Understand → Decide → Render |
+| C | **Declarations, not programs** | Spec boundary: compile declarations, pass through expressions |
+| D | **Constraints over analysis** | Generate guardrails, don't analyze handler programs |
+| E | **Evolve is spec design** | Evolved nodes = structural abbreviations for repeated patterns |
+| F | **Structural vocabulary > computational capability** | Add node types (constraints, relations), not expressions |
+| G | **Targets are data** | ~100 LOC manifests, ~95% pattern strings |
+| H | **U layer is the foundation** | Build first. Benefits compilation, review, evolve, metrics. |
+
+### The Spec Boundary
+
+What Kern compiles (DECLARATIONS):
+- Types, interfaces, fields
+- State machines (states + transitions)
+- Routes (method, path, middleware)
+- UI structure (screen, row, button)
+- Style declarations
+- Component composition
+
+What passes through (EXPRESSIONS):
+- Handler block code (`<<<...>>>`)
+- Conditional test expressions (`if="count > 10"`)
+- Event handler expressions (`onClick="setCount(count + 1)"`)
+- Derived value expressions
+
+**Rule:** If a proposed feature requires analyzing expression SEMANTICS (type inference, data flow, control flow), it doesn't belong in the spec. It belongs in handler code.
+
+### Constraints Over Analysis
+
+Instead of analyzing handler programs for spec violations:
+
+```kern
+machine Plan enforce=strict
+  state draft
+  state approved
+  transition approve from=draft to=approved
+```
+
+`enforce=strict` → generated code uses private fields / Proxy objects that PREVENT direct state mutation. The constraint is in the SPEC. The enforcement is in the GENERATED CODE. No handler analysis needed.
+
+### Evolve as Spec Design
+
+Evolved nodes are not "compiler extensions." They're **structural abbreviations** — new vocabulary in the spec language.
+
+Validation criteria for evolved nodes:
+1. **Frequency:** Is this pattern repeated across codebases? (structure test)
+2. **Template:** Can it be expressed as a generation pattern? (spec-ability test)
+3. **Compression:** Does it reduce tokens significantly? (value test)
+4. **Portability:** Does it work across targets? (universality test)
+
+These are SPEC DESIGN criteria, not compiler criteria.
+
+### Spec Compiler Precedent
+
+| System | Spec Input | Code Output | LOC per Target |
+|--------|-----------|-------------|----------------|
+| Protobuf | .proto schema | Serialization code | ~500-2000 |
+| OpenAPI | API spec | REST client/server | ~30 template files |
+| Prisma | .prisma schema | ORM client | ~5000 (single target) |
+| GraphQL codegen | .graphql SDL | Typed resolvers | ~500-2000 |
+| **Kern (UDR)** | **.kern spec** | **Framework code** | **~80-100 manifest** |
+
+Kern has the thinnest per-target layer because UDR separates decisions (D, data) from rendering (R, shared engine). Other spec compilers fuse D+R into per-target generators.
