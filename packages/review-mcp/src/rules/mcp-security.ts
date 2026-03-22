@@ -1,7 +1,7 @@
 /**
  * MCP Security Rules — static analysis for Model Context Protocol servers.
  *
- * 8 rules mapped to OWASP MCP Top 10:
+ * 9 rules mapped to OWASP MCP Top 10:
  *   MCP01: command-injection-tool-handler  — user params flow to shell commands
  *   MCP02: path-traversal-tool             — file ops with unvalidated paths
  *   MCP03: tool-description-poisoning      — hidden instructions in tool descriptions
@@ -10,6 +10,7 @@
  *   MCP06: missing-input-validation        — tool params used without validation
  *   MCP07: missing-auth-remote-server      — HTTP/SSE server without auth
  *   MCP08: namespace-typosquatting         — suspicious package name similarity
+ *   MCP09: data-level-injection            — hidden instructions in string literals
  *
  * Supports TypeScript and Python MCP servers.
  * CWE-77, CWE-22, CWE-94, CWE-798, CWE-20, CWE-306
@@ -17,6 +18,20 @@
 
 import type { ReviewFinding, SourceSpan } from '@kernlang/review';
 import { createFingerprint } from '@kernlang/review';
+
+// ── Confidence defaults per rule ──────────────────────────────────────
+
+const RULE_CONFIDENCE: Record<string, number> = {
+  'mcp-command-injection':    0.95,  // Direct code execution
+  'mcp-path-traversal':      0.90,  // Direct vulnerability
+  'mcp-secrets-exposure':    0.90,  // Direct pattern match
+  'mcp-tool-poisoning':      0.85,  // Pattern-based
+  'mcp-typosquatting':       0.85,  // Levenshtein heuristic
+  'mcp-unsanitized-response': 0.80, // Structural
+  'mcp-missing-validation':  0.80,  // Structural
+  'mcp-missing-auth':        0.80,  // Structural
+  'mcp-data-injection':      0.70,  // Data-level heuristic
+};
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -31,6 +46,7 @@ function finding(
   file: string,
   line: number,
   suggestion?: string,
+  confidence?: number,
 ): ReviewFinding {
   return {
     source: 'kern',
@@ -41,6 +57,7 @@ function finding(
     primarySpan: span(file, line),
     fingerprint: createFingerprint(ruleId, line, 1),
     ...(suggestion ? { suggestion } : {}),
+    confidence: confidence ?? RULE_CONFIDENCE[ruleId] ?? 0.80,
   };
 }
 
@@ -108,6 +125,19 @@ const SUSPICIOUS_DESC_PATTERNS = [
 const INVISIBLE_CHARS = /[\u200B\u200C\u200D\u200E\u200F\u202A-\u202E\u2060\u2061\u2062\u2063\u2064\uFEFF\u00AD]/;
 const DIRECTION_OVERRIDE = /[\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069]/;
 
+// Data-level injection patterns — hidden instructions embedded in string literals
+const DATA_INJECTION_PATTERNS: { pattern: RegExp; label: string }[] = [
+  { pattern: /\[SYSTEM INSTRUCTION[:\s]/i,       label: '[SYSTEM INSTRUCTION]' },
+  { pattern: /<!--\s*HIDDEN\s*:/,                label: '<!-- HIDDEN: -->' },
+  { pattern: /___INJECT___/,                     label: '___INJECT___' },
+  { pattern: /___END_INJECT___/,                 label: '___END_INJECT___' },
+  { pattern: /\bAssistant instruction\s*:/i,     label: 'Assistant instruction:' },
+  { pattern: /\bmalicious_instruction\b/,        label: 'malicious_instruction' },
+  { pattern: /\[HIDDEN INSTRUCTIONS?\]/i,        label: '[HIDDEN INSTRUCTION]' },
+  { pattern: /\bINJECT_PAYLOAD\b/,              label: 'INJECT_PAYLOAD' },
+  { pattern: /\bsystem_override\b/i,            label: 'system_override' },
+];
+
 // Auth patterns
 const TS_AUTH_MIDDLEWARE = /\b(authenticate|authorization|auth|verifyToken|requireAuth|isAuthenticated|passport\.authenticate|jwt\.verify|bearerAuth)\b/i;
 const PY_AUTH_MIDDLEWARE = /\b(authenticate|authorization|verify_token|require_auth|is_authenticated|jwt\.decode|HTTPBearer|Depends.*auth|api_key_header)\b/i;
@@ -123,6 +153,9 @@ const KNOWN_MCP_PACKAGES = [
   'mcp-server-brave-search', 'mcp-server-google-maps', 'mcp-server-slack',
   'mcp-server-memory', 'mcp-server-fetch', 'mcp-server-time',
   'mcp-server-sequential-thinking', 'mcp-server-everything',
+  // Common short-form MCP server names
+  'twitter-mcp', 'discord-mcp', 'whatsapp-mcp', 'google-mcp',
+  'slack-mcp', 'github-mcp', 'filesystem-mcp', 'postgres-mcp',
 ];
 
 // ── MCP01: command-injection-tool-handler ─────────────────────────────
@@ -721,26 +754,51 @@ function namespaceTyposquatting(source: string, filePath: string): ReviewFinding
   const findings: ReviewFinding[] = [];
   const lines = source.split('\n');
 
-  // Extract package name from package.json-like content or from import paths
+  // Collect candidate names from multiple sources
+  const candidates: { name: string; source: string }[] = [];
+
+  // Source 1: package.json "name" field
   const packageNameMatch = source.match(/"name"\s*:\s*"([^"]+)"/);
-  if (!packageNameMatch) return findings;
+  if (packageNameMatch) {
+    candidates.push({ name: packageNameMatch[1], source: 'package.json' });
+  }
 
-  const pkgName = packageNameMatch[1].replace(/^@[^/]+\//, ''); // strip scope
+  // Source 2: TS constructor — new Server({name: "..."}) or new McpServer({name: "..."})
+  const tsConstructorMatch = source.match(/new\s+(?:Mcp)?Server\s*\(\s*\{[^}]*name\s*:\s*['"]([^'"]+)['"]/);
+  if (tsConstructorMatch) {
+    candidates.push({ name: tsConstructorMatch[1], source: 'constructor' });
+  }
 
-  for (const known of KNOWN_MCP_PACKAGES) {
-    if (pkgName === known) continue; // Exact match is fine
-    const distance = levenshtein(pkgName, known);
-    const maxLen = Math.max(pkgName.length, known.length);
+  // Source 3: Python constructor — FastMCP("...") or Server("...")
+  const pyConstructorMatch = source.match(/(?:FastMCP|Server)\s*\(\s*['"]([^'"]+)['"]/);
+  if (pyConstructorMatch) {
+    candidates.push({ name: pyConstructorMatch[1], source: 'constructor' });
+  }
 
-    // Flag if edit distance is 1-2 (likely typosquat)
-    if (distance > 0 && distance <= 2 && maxLen > 5) {
-      const lineNum = lines.findIndex(l => l.includes(pkgName)) + 1;
-      findings.push(finding(
-        'mcp-typosquatting', 'warning',
-        `Package name "${pkgName}" is suspiciously similar to known MCP package "${known}" (edit distance: ${distance}) — potential typosquatting`,
-        filePath, lineNum || 1,
-        `Verify this is the intended package. Known package is "${known}".`,
-      ));
+  if (candidates.length === 0) return findings;
+
+  for (const candidate of candidates) {
+    // Strip scope prefix and parenthetical suffixes like " (typosquatted)"
+    const cleanName = candidate.name
+      .replace(/^@[^/]+\//, '')
+      .replace(/\s*\(.*\)\s*$/, '')
+      .trim();
+
+    for (const known of KNOWN_MCP_PACKAGES) {
+      if (cleanName === known) continue;
+      const distance = levenshtein(cleanName, known);
+      const maxLen = Math.max(cleanName.length, known.length);
+
+      if (distance > 0 && distance <= 2 && maxLen > 5) {
+        const lineNum = lines.findIndex(l => l.includes(candidate.name)) + 1;
+        findings.push(finding(
+          'mcp-typosquatting', 'warning',
+          `Server name "${cleanName}" is suspiciously similar to known MCP server "${known}" (edit distance: ${distance}) — potential typosquatting`,
+          filePath, lineNum || 1,
+          `Verify this is the intended name. Known server is "${known}".`,
+        ));
+        break; // One finding per candidate is enough
+      }
     }
   }
 
@@ -859,6 +917,50 @@ function isMCPServer(source: string, filePath: string): boolean {
   return isMCPServerTS(source);
 }
 
+// ── MCP09: data-level-injection ───────────────────────────────────────
+// Hidden instructions embedded in string literals (not just tool descriptions).
+// Catches indirect prompt injection via document/response data.
+// CWE-1427, OWASP MCP02
+
+function dataLevelInjection(source: string, filePath: string): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  if (!isMCPServer(source, filePath)) return findings;
+
+  const lines = source.split('\n');
+  let inBlockComment = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Track block comments (TS: /* */, Python: """ """)
+    if (/^\s*\/\*/.test(line) && !/\*\//.test(line)) { inBlockComment = true; continue; }
+    if (/\*\//.test(line)) { inBlockComment = false; continue; }
+    if (inBlockComment) continue;
+
+    // Skip single-line comments
+    if (/^\s*(\/\/|#|\*)/.test(trimmed)) continue;
+
+    // Skip import/require lines
+    if (/^\s*(import|from|require)\b/.test(trimmed)) continue;
+
+    for (const { pattern, label } of DATA_INJECTION_PATTERNS) {
+      if (pattern.test(line)) {
+        findings.push(finding(
+          'mcp-data-injection', 'warning',
+          `String literal contains injection marker "${label}" — possible data-level prompt injection`,
+          filePath, i + 1,
+          'Remove injection markers from data. If this is test code, use kern-ignore to suppress.',
+        ));
+        break; // One finding per line
+      }
+    }
+  }
+
+  return findings;
+}
+
 // ── Public API ───────────────────────────────────────────────────────
 
 /**
@@ -887,10 +989,17 @@ export function runMCPSecurityRules(source: string, filePath: string): ReviewFin
     findings.push(...missingAuthRemoteTS(source, filePath));
   }
 
-  // Typosquatting works on any file type
+  // Language-agnostic rules
+  findings.push(...dataLevelInjection(source, filePath));
   findings.push(...namespaceTyposquatting(source, filePath));
 
-  return findings;
+  // Dedup: data-injection should not duplicate tool-poisoning on same line
+  const poisoningLines = new Set(
+    findings.filter(f => f.ruleId === 'mcp-tool-poisoning').map(f => f.primarySpan.startLine),
+  );
+  return findings.filter(f =>
+    f.ruleId !== 'mcp-data-injection' || !poisoningLines.has(f.primarySpan.startLine),
+  );
 }
 
 /** All rule IDs exported by this module */
@@ -903,4 +1012,5 @@ export const MCP_RULE_IDS = [
   'mcp-missing-validation',
   'mcp-missing-auth',
   'mcp-typosquatting',
+  'mcp-data-injection',
 ] as const;

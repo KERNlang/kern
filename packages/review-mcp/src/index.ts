@@ -2,7 +2,7 @@
  * @kernlang/review-mcp — MCP server security scanner.
  *
  * Static analysis for Model Context Protocol server implementations.
- * Detects 8 vulnerability classes mapped to OWASP MCP Top 10.
+ * Detects 9 vulnerability classes mapped to OWASP MCP Top 10.
  *
  * Supports TypeScript and Python MCP servers.
  *
