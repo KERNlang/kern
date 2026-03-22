@@ -58,7 +58,7 @@ export const NODE_TYPES = [
   // CLI
   'cli', 'command', 'arg', 'flag', 'import',
   // Terminal
-  'separator', 'table', 'scoreboard', 'metric',
+  'separator', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'scoreboard', 'metric',
   'spinner', 'progress', 'box', 'gradient',
   'state', 'repl', 'guard', 'parallel', 'dispatch', 'then', 'each',
   // Next.js production patterns
@@ -79,6 +79,14 @@ export const NODE_TYPES = [
   'prop', 'returns',
   // Ink — terminal React (Ink) specific nodes
   'input-area', 'output-area', 'text-input', 'select-input',
+  // Backend data layer
+  'model', 'column', 'relation',
+  'repository',
+  'dependency', 'inject',
+  'cache', 'entry', 'invalidate',
+  // UI controls
+  'conditional',
+  'select', 'option',
   // Template system
   'template', 'slot', 'body',
   // Ground layer — semantic reasoning
@@ -93,6 +101,39 @@ export const NODE_TYPES = [
 ] as const;
 
 export type IRNodeType = (typeof NODE_TYPES)[number];
+
+// ── Dynamic Node Types (Evolve v4 — graduated nodes) ────────────────────
+// Evolved nodes register here at startup. Checked by parser alongside NODE_TYPES.
+
+const _dynamicNodeTypes = new Set<string>();
+
+/** Register an evolved node type (called at startup from .kern/evolved/). */
+export function registerEvolvedType(keyword: string): void {
+  _dynamicNodeTypes.add(keyword);
+}
+
+/** Unregister an evolved node type (for rollback/testing). */
+export function unregisterEvolvedType(keyword: string): void {
+  _dynamicNodeTypes.delete(keyword);
+}
+
+/** Check if a type is a known node type (core or evolved). */
+export function isKnownNodeType(type: string): boolean {
+  return (NODE_TYPES as readonly string[]).includes(type) || _dynamicNodeTypes.has(type);
+}
+
+/** Get all dynamically registered evolved types. */
+export function getEvolvedTypes(): ReadonlySet<string> {
+  return _dynamicNodeTypes;
+}
+
+/** Clear all dynamic types (for test isolation). */
+export function clearEvolvedTypes(): void {
+  _dynamicNodeTypes.clear();
+}
+
+/** Reserved keywords — evolved nodes cannot use these. */
+export const KERN_RESERVED = new Set(NODE_TYPES);
 
 // ── Style Shorthands (FROZEN at v1.0 — 30 entries) ──────────────────────
 // Any CSS property not in this map uses the escape hatch: "property":"value"

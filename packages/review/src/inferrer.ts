@@ -241,42 +241,82 @@ function inferInterfaces(sourceFile: SourceFile): InferResult[] {
 function inferFunctions(sourceFile: SourceFile): InferResult[] {
   const inferResults: InferResult[] = [];
 
+  // 1. Top-level FunctionDeclarations (original)
   for (const decl of sourceFile.getFunctions()) {
     if (!decl.getName()) continue;
-    const name = decl.getName()!;
-    const startLine = decl.getStartLineNumber();
-    const endLine = decl.getEndLineNumber();
-    const originalText = decl.getText();
-    const startOffset = decl.getStart();
-    const endOffset = decl.getEnd();
+    pushFnResult(inferResults, sourceFile, decl, decl, decl.getName()!, decl.isExported());
+  }
 
-    const params = decl.getParameters()
-      .map(p => `${p.getName()}:${p.getType().getText(p)}`)
-      .join(',');
+  // 2. Arrow functions and function expressions assigned to variables:
+  //    const handler = (req, res) => { ... }
+  //    export const handler = async (...) => { ... }
+  for (const stmt of sourceFile.getVariableStatements()) {
+    for (const decl of stmt.getDeclarations()) {
+      const init = decl.getInitializer();
+      if (!init) continue;
+      if (init.getKind() !== SyntaxKind.ArrowFunction && init.getKind() !== SyntaxKind.FunctionExpression) continue;
+      const fn = init as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression;
+      pushFnResult(inferResults, sourceFile, stmt, fn, decl.getName(), stmt.isExported());
+    }
+  }
 
-    const returnType = decl.getReturnType().getText(decl);
-    const isAsync = decl.isAsync();
-    const isExported = decl.isExported();
-    const body = decl.getBody()?.getText() || '';
+  // 3. Class methods
+  for (const cls of sourceFile.getClasses()) {
+    const className = cls.getName() ?? 'AnonymousClass';
+    // Skip Error subclasses — handled by inferErrors
+    const extendsExpr = cls.getExtends();
+    if (extendsExpr && extendsExpr.getText().includes('Error')) continue;
 
-    const node: IRNode = {
-      type: 'fn',
-      props: {
-        name,
-        ...(params ? { params } : {}),
-        ...(returnType && returnType !== 'void' ? { returns: returnType } : {}),
-        ...(isAsync ? { async: 'true' } : {}),
-        ...(isExported ? {} : { export: 'false' }),
-      },
-      children: body ? [{ type: 'handler', props: { code: body.slice(1, -1).trim() } }] : [],
-    };
-
-    inferResults.push(makeResult(node, sourceFile, startOffset, endOffset, startLine, endLine,
-      `fn ${name}(${params}) → ${returnType}`,
-      'high', 95, originalText));
+    for (const method of cls.getMethods()) {
+      if (method.isAbstract()) continue;
+      pushFnResult(inferResults, sourceFile, method, method, `${className}.${method.getName()}`, false);
+    }
   }
 
   return inferResults;
+}
+
+/** Shared helper to emit an fn IR node from any function-like AST node. */
+function pushFnResult(
+  results: InferResult[],
+  sourceFile: SourceFile,
+  anchor: import('ts-morph').Node,
+  fn: import('ts-morph').FunctionDeclaration | import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | import('ts-morph').MethodDeclaration,
+  name: string,
+  isExported: boolean,
+): void {
+  const params = fn.getParameters()
+    .map(p => `${p.getName()}:${p.getType().getText(p)}`)
+    .join(',');
+
+  const returnType = fn.getReturnType().getText(fn);
+  const isAsync = fn.isAsync();
+  const body = fn.getBody();
+  let bodyCode = '';
+  if (body) {
+    const text = body.getText();
+    // Block body: strip { } wrapper. Expression body (arrow): wrap in return.
+    bodyCode = body.getKind() === SyntaxKind.Block ? text.slice(1, -1).trim() : `return ${text};`;
+  }
+
+  const node: IRNode = {
+    type: 'fn',
+    props: {
+      name,
+      ...(params ? { params } : {}),
+      ...(returnType && returnType !== 'void' ? { returns: returnType } : {}),
+      ...(isAsync ? { async: 'true' } : {}),
+      ...(isExported ? {} : { export: 'false' }),
+    },
+    children: bodyCode ? [{ type: 'handler', props: { code: bodyCode } }] : [],
+  };
+
+  const startLine = anchor.getStartLineNumber();
+  const endLine = anchor.getEndLineNumber();
+
+  results.push(makeResult(node, sourceFile, anchor.getStart(), anchor.getEnd(), startLine, endLine,
+    `fn ${name}(${params}) → ${returnType}`,
+    'high', 95, anchor.getText()));
 }
 
 // ── Phase 1: Error Classes ───────────────────────────────────────────────

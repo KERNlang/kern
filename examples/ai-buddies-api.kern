@@ -1,12 +1,13 @@
 server name=ReviewAPI port=3002
+  import from="./config.js" names=getReviewPersona,saveConfig
   middleware name=cors
   middleware name=json
+  derive name=registry expr={{req.app.get('registry')}}
 
   route method=post path=/api/review
-    schema body="{diff: string, userNotes?: string}"
+    schema body="{diff: string}"
     stream
       handler <<<
-        const registry = req.app.get('registry');
         const expanded = registry.expandInstances();
         const abortController = new AbortController();
         res.on('close', () => abortController.abort());
@@ -37,16 +38,14 @@ server name=ReviewAPI port=3002
 
   route method=post path=/api/providers/test
     schema body="{id: string}"
-    timer 15
-      handler <<<
-        const provider = registry.get(req.body.id);
-        const result = await provider.test();
-        res.json({ ok: true, message: result });
-      >>>
-      on name=timeout
-        handler <<<
-          res.status(408).json({ ok: false, message: 'Test timed out' });
-        >>>
+    guard expr={{registry.get(req.body.id)}}
+      error status=404 message="Provider not found"
+    handler <<<
+      const provider = registry.get(req.body.id);
+      const result = await provider.test();
+      res.json({ ok: true, message: result });
+    >>>
+    error status=408 message="Test timed out"
 
   route method=get path=/health
     handler <<<

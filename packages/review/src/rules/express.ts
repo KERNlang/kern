@@ -4,6 +4,7 @@
  * Catches common Express security and performance issues.
  */
 
+import { SyntaxKind, Node } from 'ts-morph';
 import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 
@@ -78,11 +79,11 @@ function missingErrorMiddleware(ctx: RuleContext): ReviewFinding[] {
   const fullText = ctx.sourceFile.getFullText();
 
   // Check if this file creates an Express app
-  const hasApp = /(?:const|let)\s+\w+\s*=\s*express\s*\(\s*\)/g.test(fullText);
+  const hasApp = /(?:const|let) \w+ ?= ?express\s?\(\s?\)/.test(fullText);
   if (!hasApp) return findings;
 
   // Check for error middleware (4-parameter function: err, req, res, next)
-  const has4ParamMiddleware = /app\.use\s*\(\s*(?:function\s*)?\(\s*\w+\s*,\s*\w+\s*,\s*\w+\s*,\s*\w+\s*\)/g.test(fullText);
+  const has4ParamMiddleware = /app\.use\s?\(\s?(?:function\s+)?\(\s?\w+,\s?\w+,\s?\w+,\s?\w+\s?\)/.test(fullText);
   const hasErrorHandler = has4ParamMiddleware || fullText.includes('errorHandler') || fullText.includes('error-handler');
 
   if (!hasErrorHandler) {
@@ -137,10 +138,87 @@ function syncInHandler(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: double-response ────────────────────────────────────────────────
+// Express handler sends response (res.json/res.send) more than once without early return
+
+const RESPONSE_METHODS = new Set(['json', 'send', 'end', 'redirect', 'render', 'sendFile', 'sendStatus']);
+
+function doubleResponse(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+  const fullText = ctx.sourceFile.getFullText();
+
+  // Find functions with (req, res) or (req, res, next) parameters
+  const allFns = [
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ArrowFunction),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.FunctionExpression),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.MethodDeclaration),
+  ];
+
+  for (const fn of allFns) {
+    const params = fn.getParameters();
+    const resParam = params.find(p =>
+      /^(res|response)$/i.test(p.getName()) || /\bResponse\b/.test(p.getType().getText(p)));
+    const reqLike = params.some(p =>
+      /^(req|request|ctx)$/i.test(p.getName()) || /\b(Request|NextFunction)\b/.test(p.getType().getText(p)));
+    if (!resParam || !reqLike) continue;
+
+    const resName = resParam.getName();
+    const body = fn.getBody();
+    if (!body || !Node.isBlock(body)) continue;
+
+    // Find all response calls in the body (excluding nested functions)
+    const responseCalls: Array<{ line: number; method: string }> = [];
+    for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      // Skip if inside a nested function
+      let isNested = false;
+      let cur: import('ts-morph').Node | undefined = call.getParent();
+      while (cur && cur !== body) {
+        if (Node.isArrowFunction(cur) || Node.isFunctionExpression(cur) ||
+            Node.isFunctionDeclaration(cur) || Node.isMethodDeclaration(cur)) {
+          isNested = true;
+          break;
+        }
+        cur = cur.getParent();
+      }
+      if (isNested) continue;
+
+      const expr = call.getExpression();
+      if (!Node.isPropertyAccessExpression(expr)) continue;
+      const methodName = expr.getName();
+      if (!RESPONSE_METHODS.has(methodName)) continue;
+
+      // Check if the object is res or res.status(...)
+      const obj = expr.getExpression();
+      const isResCall = Node.isIdentifier(obj) && obj.getText() === resName;
+      const isChainedRes = Node.isCallExpression(obj) && obj.getExpression().getText().startsWith(resName);
+      if (!isResCall && !isChainedRes) continue;
+
+      responseCalls.push({ line: call.getStartLineNumber(), method: methodName });
+    }
+
+    // Check for response calls that aren't in mutually exclusive if/else branches
+    // Simple heuristic: if there are 2+ response calls and any is NOT followed by return/throw, flag it
+    if (responseCalls.length < 2) continue;
+
+    // Flag from the second call onwards
+    for (let i = 1; i < responseCalls.length; i++) {
+      const { line, method } = responseCalls[i];
+      findings.push(finding('double-response', 'error', 'bug',
+        `Possible double response: ${resName}.${method}() may execute after an earlier response — add return after first send`,
+        ctx.filePath, line,
+        { suggestion: 'Return immediately after sending a response to prevent double-send errors' }));
+    }
+  }
+
+  return findings;
+}
+
 // ── Exported Express Rules ───────────────────────────────────────────────
 
 export const expressRules = [
   unvalidatedInput,
   missingErrorMiddleware,
   syncInHandler,
+  doubleResponse,
 ];

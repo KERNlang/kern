@@ -386,23 +386,23 @@ describe('Template Engine', () => {
 
     it('expands SWR hook with all slots', () => {
       const code = expand([
-        'swr-hook hookName=useProducts cacheKey="/api/products" fetcher=apiFetcher',
+        'swr-hook hookName=useArticles cacheKey="/api/articles" fetcher=apiFetcher',
         '  handler <<<',
-        '    const formatted = data?.map(formatProduct);',
+        '    const formatted = data?.map(formatArticle);',
         '  >>>',
       ].join('\n'));
 
       expect(code).toContain("import { useSWR } from 'swr';");
-      expect(code).toContain('export function useProducts() {');
-      expect(code).toContain('/api/products');
+      expect(code).toContain('export function useArticles() {');
+      expect(code).toContain('/api/articles');
       expect(code).toContain('apiFetcher');
-      expect(code).toContain('const formatted = data?.map(formatProduct);');
+      expect(code).toContain('const formatted = data?.map(formatArticle);');
       expect(code).toContain('return { data, error, isLoading };');
     });
 
     it('uses default fetcher when not specified', () => {
-      const code = expand('swr-hook hookName=useCart cacheKey="/api/cart"');
-      expect(code).toContain('export function useCart()');
+      const code = expand('swr-hook hookName=useFavorites cacheKey="/api/favorites"');
+      expect(code).toContain('export function useFavorites()');
       expect(code).toContain('defaultFetcher');
     });
   });

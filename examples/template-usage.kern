@@ -1,13 +1,19 @@
-type name=Product values="physical|digital|subscription"
+interface name=Article
+  field name=id type=string
+  field name=title type=string
+  field name=status type=ArticleStatus
 
-swr-hook hookName=useProducts cacheKey="/api/products" fetcher=apiFetcher
+type name=ArticleStatus values="draft|published|archived"
+
+swr-hook hookName=useArticles cacheKey="/api/articles" fetcher=apiFetcher
   handler <<<
-    const formatted = data?.map(formatProduct);
+    const formatted = data?.map(formatArticle);
+    return formatted;
   >>>
 
-swr-hook hookName=useCart cacheKey="/api/cart"
+swr-hook hookName=useFavorites cacheKey="/api/favorites"
 
-arrow-fn name=formatProduct params="p: Product" returnType=": string"
+arrow-fn name=formatArticle params="a: Article" returnType=": string"
   handler <<<
-    return p.name;
+    return `[${a.status}] ${a.title}`;
   >>>

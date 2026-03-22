@@ -83,10 +83,11 @@ function floatingPromise(ctx: RuleContext): ReviewFinding[] {
       if (asyncFns.has(fnName)) {
         const matchingNode = ctx.inferred.find(r =>
           r.node.type === 'fn' && r.node.props?.name === fnName);
+        const nodeRef = matchingNode != null ? { nodeIds: [matchingNode.nodeId] } : undefined;
         findings.push(finding('floating-promise', 'error', 'bug',
           `Async function '${fnName}()' called without await — floating promise`,
           ctx.filePath, exprStmt.getStartLineNumber(), 1,
-          matchingNode ? { nodeIds: [matchingNode.nodeId] } : undefined));
+          nodeRef));
       }
     }
   }
@@ -808,6 +809,44 @@ function unhandledAsync(ctx: RuleContext): ReviewFinding[] {
 
 // ── Exported Base Rules ──────────────────────────────────────────────────
 
+// ── Rule: sync-in-async ──────────────────────────────────────────────────
+// Blocking I/O (readFileSync, writeFileSync, execSync) inside async functions
+
+const SYNC_BLOCKERS = new Set([
+  'readFileSync', 'writeFileSync', 'appendFileSync', 'mkdirSync', 'rmdirSync',
+  'unlinkSync', 'renameSync', 'copyFileSync', 'readdirSync', 'statSync',
+  'existsSync', 'execSync', 'spawnSync', 'execFileSync',
+]);
+
+function syncInAsync(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  const fns = ctx.sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration)
+    .filter(f => f.isAsync());
+  const arrows = ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ArrowFunction)
+    .filter(f => f.isAsync());
+  const methods = ctx.sourceFile.getDescendantsOfKind(SyntaxKind.MethodDeclaration)
+    .filter(f => f.isAsync());
+
+  for (const fn of [...fns, ...arrows, ...methods]) {
+    const calls = fn.getDescendantsOfKind(SyntaxKind.CallExpression);
+    for (const call of calls) {
+      const callee = call.getExpression().getText();
+      const calleeName = callee.split('.').pop() || callee;
+      if (SYNC_BLOCKERS.has(calleeName)) {
+        const line = call.getStartLineNumber();
+        const fnName = 'getName' in fn && typeof fn.getName === 'function' ? fn.getName() || '<anonymous>' : '<arrow>';
+        findings.push(finding('sync-in-async', 'warning', 'bug',
+          `'${calleeName}' blocks the event loop inside async function '${fnName}' — use the async variant`,
+          ctx.filePath, line, 1,
+          { suggestion: `Replace ${calleeName} with its async counterpart (e.g., readFile, writeFile, exec)` }));
+      }
+    }
+  }
+
+  return findings;
+}
+
 export const baseRules = [
   floatingPromise,
   stateMutation,
@@ -821,4 +860,5 @@ export const baseRules = [
   handlerExtraction,
   memoryLeak,
   unhandledAsync,
+  syncInAsync,
 ];

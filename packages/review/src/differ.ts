@@ -142,6 +142,7 @@ export function structuralDiff(
     } catch (_err) {
       // Recompilation failed — inference was incomplete, skip this construct
       // (e.g., partial machine nodes, unresolvable template references)
+      void _err; // intentional: roundtrip diff is best-effort
     }
   }
 

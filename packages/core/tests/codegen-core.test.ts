@@ -449,10 +449,10 @@ describe('Core Language Codegen', () => {
     it('returns mapped values', () => {
       const code = gen([
         'hook name=useSearch',
-        '  returns names="products:data?.products,isLoading,handleFilter"',
+        '  returns names="articles:data?.articles,isLoading,handleFilter"',
       ].join('\n'));
 
-      expect(code).toContain('return { products: data?.products, isLoading, handleFilter };');
+      expect(code).toContain('return { articles: data?.articles, isLoading, handleFilter };');
     });
   });
 

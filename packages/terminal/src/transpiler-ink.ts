@@ -715,7 +715,8 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
   const logicNodes = getChildren(root, 'logic');
   const callbackNodes = getChildren(root, 'callback');
   // In Ink context, 'each' is a UI node (.map iteration), not a core node (for...of loop)
-  const isInkUiNode = (type: string) => type === 'each';
+  const isInkUiNode = (type: string) => type === 'each' || type === 'conditional' || type === 'select'
+    || type === 'model' || type === 'repository' || type === 'dependency' || type === 'cache';
   const coreChildren = (root.children || []).filter(c => isCoreNode(c.type) && c.type !== 'on' && !isInkUiNode(c.type));
   const uiChildren = (root.children || []).filter(c =>
     c.type !== 'state' && c.type !== 'ref' && c.type !== 'on' && c.type !== 'stream'

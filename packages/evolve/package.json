@@ -1,7 +1,7 @@
 {
   "name": "@kernlang/evolve",
-  "version": "2.0.0",
-  "description": "Kern Evolve \u2014 self-extending template system: detect gaps, propose templates, validate, stage",
+  "version": "3.0.0",
+  "description": "Kern Evolve — self-extending template system: detect gaps, propose templates, validate, stage",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

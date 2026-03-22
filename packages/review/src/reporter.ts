@@ -63,14 +63,17 @@ export function calculateStats(
 
 // ── Dedup ────────────────────────────────────────────────────────────────
 
-/** Deduplicate findings: same line + similar message from different sources → collapse */
+/**
+ * Deduplicate findings using fingerprint + message hash.
+ * Fingerprint alone can collide when a rule emits multiple findings at the same location
+ * (e.g., machine-gap fires once per unreachable state on the same type declaration line).
+ */
 export function dedup(findings: ReviewFinding[]): ReviewFinding[] {
   const seen = new Map<string, ReviewFinding>();
 
   for (const f of findings) {
-    // Dedup key: line + message prefix (collapses same message from different sources,
-    // but keeps different findings at the same line separate)
-    const key = `${f.primarySpan.startLine}:${f.message.substring(0, 60)}`;
+    // Combine fingerprint with message prefix to avoid false merges
+    const key = `${f.fingerprint}:${f.message.substring(0, 40)}`;
     const existing = seen.get(key);
 
     if (existing) {
@@ -84,7 +87,35 @@ export function dedup(findings: ReviewFinding[]): ReviewFinding[] {
     }
   }
 
-  return [...seen.values()];
+  // Suppress empty-catch when ignored-error fires on the same line (concept rule is more semantic)
+  const ignoredErrorLines = new Set<number>();
+  for (const f of seen.values()) {
+    if (f.ruleId === 'ignored-error') ignoredErrorLines.add(f.primarySpan.startLine);
+  }
+  const result: ReviewFinding[] = [];
+  for (const f of seen.values()) {
+    if (f.ruleId === 'empty-catch' && ignoredErrorLines.has(f.primarySpan.startLine)) continue;
+    result.push(f);
+  }
+
+  return result;
+}
+
+/** Sort findings by severity (error > warning > info) then by line. Shared utility. */
+export function sortFindings(findings: ReviewFinding[]): void {
+  const severityOrder: Record<string, number> = { error: 0, warning: 1, info: 2 };
+  findings.sort((a, b) => {
+    const sd = severityOrder[a.severity] - severityOrder[b.severity];
+    if (sd !== 0) return sd;
+    return a.primarySpan.startLine - b.primarySpan.startLine;
+  });
+}
+
+/** Dedup + sort in one call. Replaces the 5 duplicated sort/dedup blocks. */
+export function sortAndDedup(findings: ReviewFinding[]): ReviewFinding[] {
+  const result = dedup(findings);
+  sortFindings(result);
+  return result;
 }
 
 // ── Enforcement ──────────────────────────────────────────────────────────
@@ -358,6 +389,87 @@ export function formatSARIF(reports: ReviewReport[]): string {
       }
       sarif.runs[0].results.push(result);
     }
+  }
+
+  return JSON.stringify(sarif, null, 2);
+}
+
+/**
+ * Format SARIF with suppression metadata.
+ * Suppressed findings appear with a `suppressions` array per SARIF v2.1.0 section 3.35.
+ */
+export function formatSARIFWithSuppressions(
+  reports: ReviewReport[],
+  suppressedFindings?: ReviewFinding[],
+): string {
+  const sarif = {
+    $schema: 'https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0-rtm.5.json',
+    version: '2.1.0',
+    runs: [
+      {
+        tool: {
+          driver: {
+            name: '@kernlang/review',
+            version: '2.0.0',
+            rules: [] as any[]
+          }
+        },
+        results: [] as any[]
+      }
+    ]
+  };
+
+  const rules = new Set<string>();
+  const suppressedSet = new Set(suppressedFindings?.map(f => f.fingerprint) ?? []);
+  const allFindings = [
+    ...reports.flatMap(r => r.findings),
+    ...(suppressedFindings ?? []),
+  ];
+
+  for (const f of allFindings) {
+    if (!rules.has(f.ruleId)) {
+      rules.add(f.ruleId);
+      sarif.runs[0].tool.driver.rules.push({
+        id: f.ruleId,
+        shortDescription: { text: f.ruleId },
+        helpUri: `https://github.com/kern-lang/kern-lang/blob/main/docs/rules.md#${f.ruleId}`
+      });
+    }
+
+    const sarifLevel = f.severity === 'error' ? 'error' : (f.severity === 'warning' ? 'warning' : 'note');
+
+    const result: Record<string, unknown> = {
+      ruleId: f.ruleId,
+      level: sarifLevel,
+      message: { text: f.message },
+      locations: [
+        {
+          physicalLocation: {
+            artifactLocation: { uri: f.primarySpan.file },
+            region: {
+              startLine: f.primarySpan.startLine,
+              startColumn: f.primarySpan.startCol,
+              endLine: f.primarySpan.endLine,
+              endColumn: f.primarySpan.endCol
+            }
+          }
+        }
+      ],
+    };
+
+    if (f.confidence !== undefined) {
+      result.rank = f.confidence * 100;
+      result.properties = { 'kern/confidence': f.confidence };
+    }
+
+    if (suppressedSet.has(f.fingerprint)) {
+      result.suppressions = [{
+        kind: 'inSource',
+        justification: `kern-ignore directive`,
+      }];
+    }
+
+    sarif.runs[0].results.push(result);
   }
 
   return JSON.stringify(sarif, null, 2);

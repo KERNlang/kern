@@ -8,12 +8,16 @@ import { readdirSync, statSync, existsSync } from 'fs';
 import { resolve, join } from 'path';
 import { Project } from 'ts-morph';
 import { detectGaps, detectGapsFromSource } from './gap-detector.js';
-import { analyzePatterns } from './pattern-analyzer.js';
+import { analyzePatterns, analyzeStructuralPatterns } from './pattern-analyzer.js';
 import { proposeTemplates } from './template-proposer.js';
 import { validateProposal } from './template-validator.js';
-import { stageProposal } from './staging.js';
+import { stageProposal, stageNodeProposal } from './staging.js';
 import { DEFAULT_THRESHOLDS } from './quality-scorer.js';
-import type { EvolveConfig, EvolveResult, QualityThresholds, PatternGap, ConceptGapSummary } from './types.js';
+import { scoreExpressibility, isNodeCandidate } from './expressibility-scorer.js';
+import { proposeNodes } from './node-proposer.js';
+import { governanceGate } from './node-governance.js';
+import { validateNodeProposal } from './node-validator.js';
+import type { EvolveConfig, EvolveResult, QualityThresholds, PatternGap, ConceptGapSummary, ExpressibilityScore, NodeProposal } from './types.js';
 
 export interface EvolveOptions {
   recursive?: boolean;
@@ -21,6 +25,7 @@ export interface EvolveOptions {
   thresholds?: Partial<QualityThresholds>;
   tsconfigPath?: string;
   config?: Partial<EvolveConfig>;
+  enableNodeProposals?: boolean;
 }
 
 /**
@@ -55,12 +60,11 @@ export function evolve(
       const sourceFile = project.addSourceFileAtPath(filePath);
       const gaps = detectGaps(sourceFile, filePath);
       allGaps.push(...gaps);
-    } catch {
-      // Skip files that can't be parsed
+    } catch { // file may not exist
     }
   }
 
-  // Phase 2: Analyze and group patterns
+  // Phase 2: Analyze and group patterns (v2 template path)
   const analyzed = analyzePatterns(allGaps, thresholds);
 
   // Phase 3: Propose templates
@@ -79,6 +83,52 @@ export function evolve(
         .filter(v => v.validation.parseOk && v.validation.registerOk && v.validation.expansionOk)
         .map(v => stageProposal(v.proposal, v.validation, options.config));
 
+  // ── v3 branch: Node proposals from structural gaps ──
+  let nodeProposals: NodeProposal[] | undefined;
+  let nodeValidated: Array<{ proposal: NodeProposal; validation: import('./types.js').NodeValidationResult }> | undefined;
+  let stagedNodes: import('./types.js').StagedNodeProposal[] | undefined;
+
+  if (options.enableNodeProposals) {
+    // Phase 2.5: Analyze structural gaps separately
+    const structuralAnalyzed = analyzeStructuralPatterns(allGaps, thresholds);
+
+    // Phase 2.6: Score expressibility for structural gaps
+    const expressScores = new Map<string, ExpressibilityScore>();
+    for (const pattern of structuralAnalyzed) {
+      const snippets = allGaps
+        .filter(g => pattern.gapIds.includes(g.id))
+        .map(g => g.snippet);
+      const score = scoreExpressibility(
+        allGaps.filter(g => pattern.gapIds.includes(g.id)),
+        snippets,
+      );
+      expressScores.set(pattern.structuralHash, score);
+    }
+
+    // Phase 2.7: Propose nodes for high-expressibility patterns
+    const candidatePatterns = structuralAnalyzed.filter(p => {
+      const score = expressScores.get(p.structuralHash);
+      return score && isNodeCandidate(score);
+    });
+    nodeProposals = proposeNodes(candidatePatterns, expressScores);
+
+    // Phase 2.8: Governance gate filter
+    const governed = nodeProposals.filter(np => governanceGate(np).pass);
+
+    // Phase 2.9: Validate governed proposals
+    nodeValidated = governed.map(np => ({
+      proposal: np,
+      validation: validateNodeProposal(np),
+    }));
+
+    // Phase 2.10: Stage validated node proposals
+    stagedNodes = options.preview
+      ? []
+      : nodeValidated
+          .filter(v => v.validation.parseOk && v.validation.codegenOk)
+          .map(v => stageNodeProposal(v.proposal, v.validation, options.config));
+  }
+
   return {
     gaps: allGaps,
     analyzed,
@@ -86,6 +136,9 @@ export function evolve(
     validated,
     staged,
     conceptSummary: buildConceptSummary(allGaps),
+    nodeProposals,
+    nodeValidated,
+    stagedNodes,
   };
 }
 

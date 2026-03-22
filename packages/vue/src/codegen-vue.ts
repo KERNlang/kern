@@ -214,7 +214,7 @@ export function generateVueEffect(node: IRNode): string[] {
 //   memo name=cacheKey deps="query,filters"
 //   callback name=handleFilter params="field:string,value:string" deps="query"
 //   effect deps="query"
-//   returns names="products:data?.products,isLoading,handleFilter,cacheKey"
+//   returns names="articles:data?.articles,isLoading,handleFilter,cacheKey"
 //
 // → Vue 3 composable with ref, computed, watch instead of useState, useMemo, useCallback, useEffect
 

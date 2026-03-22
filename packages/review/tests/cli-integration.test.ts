@@ -178,7 +178,7 @@ describe('CLI --lint: linkToNodes', () => {
 });
 
 describe('CLI --lint: dedup merges kern + tsc findings', () => {
-  it('deduplicates findings with same line and message prefix', () => {
+  it('deduplicates findings with same fingerprint, keeping higher severity', () => {
     const findings: ReviewFinding[] = [
       {
         source: 'kern',
@@ -205,14 +205,14 @@ describe('CLI --lint: dedup merges kern + tsc findings', () => {
         category: 'bug',
         message: 'Floating promise on fetchData()',
         primarySpan: { file: 'a.ts', startLine: 5, startCol: 1, endLine: 5, endCol: 10 },
-        fingerprint: 'fp-3',
+        fingerprint: 'fp-1',
       },
     ];
 
     const deduped = dedup(findings);
     expect(deduped.length).toBe(2);
-    // Higher severity (error) should be kept over warning
-    const kept = deduped.find(f => f.primarySpan.startLine === 5);
+    // Higher severity (error) should be kept over warning for same fingerprint
+    const kept = deduped.find(f => f.fingerprint === 'fp-1');
     expect(kept!.severity).toBe('error');
   });
 });

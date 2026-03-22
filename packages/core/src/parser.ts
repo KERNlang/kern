@@ -15,6 +15,44 @@ interface ParsedLine {
 
 const MULTILINE_BLOCK_TYPES = new Set(['logic', 'handler', 'cleanup', 'body']);
 
+// ── Evolved Node Parser Hints (v4) ──────────────────────────────────────
+// Populated at startup by evolved-node-loader. Tells the parser how to
+// handle evolved nodes with special syntax (positional args, bare words, etc.)
+
+interface ParserHintsConfig {
+  positionalArgs?: string[];
+  bareWord?: string;
+  multilineBlock?: string;
+}
+
+const _parserHints = new Map<string, ParserHintsConfig>();
+
+/** Register parser hints for an evolved node type. */
+export function registerParserHints(keyword: string, hints: ParserHintsConfig): void {
+  _parserHints.set(keyword, hints);
+  if (hints.multilineBlock) {
+    MULTILINE_BLOCK_TYPES.add(keyword);
+  }
+}
+
+/** Unregister parser hints (for rollback/testing). */
+export function unregisterParserHints(keyword: string): void {
+  const hints = _parserHints.get(keyword);
+  if (hints?.multilineBlock) {
+    MULTILINE_BLOCK_TYPES.delete(keyword);
+  }
+  _parserHints.delete(keyword);
+}
+
+/** Clear all parser hints (for test isolation). */
+export function clearParserHints(): void {
+  // Remove evolved entries from MULTILINE_BLOCK_TYPES, keep core ones
+  for (const [keyword, hints] of _parserHints) {
+    if (hints.multilineBlock) MULTILINE_BLOCK_TYPES.delete(keyword);
+  }
+  _parserHints.clear();
+}
+
 function parseLine(raw: string, lineNum: number): ParsedLine | null {
   if (raw.trim() === '') return null;
 
@@ -22,16 +60,45 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
   let rest = raw.slice(indent);
   const col = indent + 1;
 
-  // Extract type
-  const typeMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)/);
+  // Extract type — supports `evolved:keyword` namespace prefix as escape hatch
+  const typeMatch = rest.match(/^(?:evolved:)?([A-Za-z_][A-Za-z0-9_-]*)/);
   if (!typeMatch) return null;
   const type = typeMatch[1];
-  rest = rest.slice(type.length);
+  rest = rest.slice(typeMatch[0].length);
 
   const props: Record<string, unknown> = {};
   const styles: Record<string, string> = {};
   const pseudoStyles: Record<string, Record<string, string>> = {};
   const themeRefs: string[] = [];
+
+  // ── Evolved node parser hints (v4) ──────────────────────────────────
+  // Check if this type has parser hints from graduated evolved nodes.
+  // Must run BEFORE core special cases to allow evolved nodes to use
+  // positional args, bare words, etc.
+  const evolvedHints = _parserHints.get(type);
+  if (evolvedHints) {
+    // Positional args: "api-route GET /users" → props.method="GET", props.path="/users"
+    if (evolvedHints.positionalArgs) {
+      for (const argName of evolvedHints.positionalArgs) {
+        rest = rest.replace(/^ +/, '');
+        const argMatch = rest.match(/^(\S+)/);
+        if (argMatch) {
+          props[argName] = argMatch[1];
+          rest = rest.slice(argMatch[0].length);
+        }
+      }
+    }
+
+    // Bare word: "auth-guard admin" → props.name="admin"
+    if (evolvedHints.bareWord) {
+      rest = rest.replace(/^ +/, '');
+      const bwMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)/);
+      if (bwMatch && !rest.match(/^[A-Za-z_][A-Za-z0-9_-]*=/)) {
+        props[evolvedHints.bareWord] = bwMatch[1];
+        rest = rest.slice(bwMatch[0].length);
+      }
+    }
+  }
 
   // Special: theme nodes have a bare name after the type: "theme bar {h:8}"
   if (type === 'theme') {
@@ -160,6 +227,16 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
     rest = rest.replace(/^ +/, '');
     const nameMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_]*)/);
     if (nameMatch && !rest.match(/^[A-Za-z_][A-Za-z0-9_]*=/)) {
+      props.name = nameMatch[1];
+      rest = rest.slice(nameMatch[0].length);
+    }
+  }
+
+  // Special: strategy with bare name — "strategy read-through"
+  if (type === 'strategy') {
+    rest = rest.replace(/^ +/, '');
+    const nameMatch = rest.match(/^([A-Za-z_][A-Za-z0-9_-]*)/);
+    if (nameMatch && !rest.match(/^[A-Za-z_][A-Za-z0-9_-]*=/)) {
       props.name = nameMatch[1];
       rest = rest.slice(nameMatch[0].length);
     }

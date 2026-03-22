@@ -8,10 +8,13 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
 import { resolve, basename } from 'path';
 import { parse, registerTemplate, clearTemplates } from '@kernlang/core';
-import type { TemplateProposal, ValidationResult, StagedProposal, ProposalStatus, EvolveConfig } from './types.js';
+import type { TemplateProposal, ValidationResult, StagedProposal, ProposalStatus, EvolveConfig, NodeProposal, NodeValidationResult, StagedNodeProposal, NodeProposalStatus } from './types.js';
+import type { EvolveNodeProposal, EvolveV4ValidationResult, StagedEvolveProposal, EvolveV4ProposalStatus } from './evolved-types.js';
 
 const DEFAULT_STAGING_DIR = '.kern/evolve/staged';
 const DEFAULT_PROMOTED_DIR = '.kern/evolve/promoted';
+const DEFAULT_NODE_STAGING_DIR = '.kern/evolve/staged-nodes';
+const DEFAULT_V4_STAGING_DIR = '.kern/evolve/staged-v4';
 
 /**
  * Stage a validated proposal for human review.
@@ -52,8 +55,7 @@ export function listStaged(config?: Partial<EvolveConfig>): StagedProposal[] {
     try {
       const content = readFileSync(resolve(stagingDir, file), 'utf-8');
       proposals.push(JSON.parse(content));
-    } catch {
-      // Skip invalid files
+    } catch { // file may not exist
     }
   }
 
@@ -203,6 +205,303 @@ export function formatSplitView(staged: StagedProposal): string {
 
   lines.push('');
   lines.push('  [a]pprove  [r]eject  [s]kip  [d]etail');
+
+  return lines.join('\n');
+}
+
+// ── Node Staging (v3) ────────────────────────────────────────────────────
+
+/**
+ * Stage a validated node proposal for human review.
+ */
+export function stageNodeProposal(
+  proposal: NodeProposal,
+  validation: NodeValidationResult,
+  config?: Partial<EvolveConfig>,
+): StagedNodeProposal {
+  const stagingDir = resolve(process.cwd(), config?.stagingDir ? `${config.stagingDir}-nodes` : DEFAULT_NODE_STAGING_DIR);
+  mkdirSync(stagingDir, { recursive: true });
+
+  const staged: StagedNodeProposal = {
+    id: proposal.id,
+    proposal,
+    validation,
+    status: 'pending',
+    stagedAt: new Date().toISOString(),
+  };
+
+  const filePath = resolve(stagingDir, `${proposal.id}.json`);
+  writeFileSync(filePath, JSON.stringify(staged, null, 2));
+
+  return staged;
+}
+
+/**
+ * List all staged node proposals.
+ */
+export function listStagedNodes(config?: Partial<EvolveConfig>): StagedNodeProposal[] {
+  const stagingDir = resolve(process.cwd(), config?.stagingDir ? `${config.stagingDir}-nodes` : DEFAULT_NODE_STAGING_DIR);
+  if (!existsSync(stagingDir)) return [];
+
+  const files = readdirSync(stagingDir).filter(f => f.endsWith('.json'));
+  const proposals: StagedNodeProposal[] = [];
+
+  for (const file of files) {
+    try {
+      const content = readFileSync(resolve(stagingDir, file), 'utf-8');
+      proposals.push(JSON.parse(content));
+    } catch { // file may not exist
+    }
+  }
+
+  return proposals.sort((a, b) => b.proposal.qualityScore - a.proposal.qualityScore);
+}
+
+/**
+ * Update the status of a staged node proposal.
+ */
+export function updateStagedNodeStatus(
+  id: string,
+  status: NodeProposalStatus,
+  config?: Partial<EvolveConfig>,
+): StagedNodeProposal | undefined {
+  const stagingDir = resolve(process.cwd(), config?.stagingDir ? `${config.stagingDir}-nodes` : DEFAULT_NODE_STAGING_DIR);
+  const filePath = resolve(stagingDir, `${id}.json`);
+  if (!existsSync(filePath)) return undefined;
+
+  try {
+    const staged: StagedNodeProposal = JSON.parse(readFileSync(filePath, 'utf-8'));
+    staged.status = status;
+    staged.reviewedAt = new Date().toISOString();
+    writeFileSync(filePath, JSON.stringify(staged, null, 2));
+    return staged;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Format a staged node proposal for split-view display.
+ */
+export function formatNodeSplitView(staged: StagedNodeProposal): string {
+  const { proposal, validation } = staged;
+  const lines: string[] = [];
+
+  const nameLen = Math.max(proposal.nodeName.length + 20, 40);
+  const border = '\u2500'.repeat(nameLen + 18);
+
+  lines.push(`\u250C${border}\u2510`);
+  lines.push(`\u2502 NODE: ${proposal.nodeName}${' '.repeat(Math.max(0, nameLen - proposal.nodeName.length - 6))}                 \u2502`);
+  lines.push(`\u2502 Score: ${proposal.qualityScore}  |  Freq: ${proposal.frequency}  |  Express: ${proposal.expressibilityScore.overall}  |  ${staged.status}${' '.repeat(Math.max(0, 10))} \u2502`);
+  lines.push(`\u251C${'─'.repeat(Math.floor(border.length / 2))}\u252C${'─'.repeat(Math.ceil(border.length / 2))}\u2524`);
+
+  // Left: KERN Syntax, Right: Codegen Stub
+  const kernLines = proposal.kernSyntax.split('\n').slice(0, 12);
+  const codeLines = proposal.codegenStub.split('\n').slice(0, 12);
+  const maxLines = Math.max(kernLines.length, codeLines.length);
+  const halfWidth = Math.floor(border.length / 2);
+
+  lines.push(`\u2502 ${'KERN Syntax'.padEnd(halfWidth - 1)}\u2502 ${'Codegen Stub'.padEnd(halfWidth - 2)}\u2502`);
+  lines.push(`\u251C${'─'.repeat(halfWidth)}\u253C${'─'.repeat(halfWidth)}\u2524`);
+
+  for (let i = 0; i < maxLines; i++) {
+    const left = (kernLines[i] || '').substring(0, halfWidth - 2).padEnd(halfWidth - 1);
+    const right = (codeLines[i] || '').substring(0, halfWidth - 3).padEnd(halfWidth - 2);
+    lines.push(`\u2502 ${left}\u2502 ${right}\u2502`);
+  }
+
+  lines.push(`\u251C${'─'.repeat(border.length)}\u2524`);
+  const checks = [
+    validation.parseOk ? '\u2713 Parse' : '\u2717 Parse',
+    validation.codegenOk ? '\u2713 Codegen' : '\u2717 Codegen',
+    `Targets: ${validation.targetCoverage}/11`,
+  ];
+  lines.push(`\u2502 ${checks.join('  |  ').padEnd(border.length - 1)}\u2502`);
+  lines.push(`\u2514${border}\u2518`);
+
+  lines.push('');
+  lines.push('  [a]pprove  [r]eject  [s]kip  [d]etail');
+
+  return lines.join('\n');
+}
+
+// ── Evolve v4 Staging ─────────────────────────────────────────────────────
+
+/**
+ * Stage a validated v4 proposal for human review.
+ */
+export function stageEvolveV4Proposal(
+  proposal: EvolveNodeProposal,
+  validation: EvolveV4ValidationResult,
+): StagedEvolveProposal {
+  const stagingDir = resolve(process.cwd(), DEFAULT_V4_STAGING_DIR);
+  mkdirSync(stagingDir, { recursive: true });
+
+  const staged: StagedEvolveProposal = {
+    id: proposal.id || `${proposal.keyword}-${Date.now()}`,
+    proposal,
+    validation,
+    status: 'pending',
+    stagedAt: new Date().toISOString(),
+  };
+
+  const filePath = resolve(stagingDir, `${staged.id}.json`);
+  writeFileSync(filePath, JSON.stringify(staged, null, 2));
+
+  return staged;
+}
+
+/**
+ * List all staged v4 proposals.
+ */
+export function listStagedEvolveV4(): StagedEvolveProposal[] {
+  const stagingDir = resolve(process.cwd(), DEFAULT_V4_STAGING_DIR);
+  if (!existsSync(stagingDir)) return [];
+
+  const files = readdirSync(stagingDir).filter(f => f.endsWith('.json'));
+  const proposals: StagedEvolveProposal[] = [];
+
+  for (const file of files) {
+    try {
+      const content = readFileSync(resolve(stagingDir, file), 'utf-8');
+      proposals.push(JSON.parse(content));
+    } catch { // file may not exist
+    }
+  }
+
+  return proposals.sort((a, b) =>
+    (b.proposal.reason.frequency) - (a.proposal.reason.frequency),
+  );
+}
+
+/**
+ * Get a single staged v4 proposal by ID.
+ */
+export function getStagedEvolveV4(id: string): StagedEvolveProposal | undefined {
+  const stagingDir = resolve(process.cwd(), DEFAULT_V4_STAGING_DIR);
+  const filePath = resolve(stagingDir, `${id}.json`);
+  if (!existsSync(filePath)) return undefined;
+
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf-8'));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Update the status of a staged v4 proposal.
+ */
+export function updateStagedEvolveV4Status(
+  id: string,
+  status: EvolveV4ProposalStatus,
+): StagedEvolveProposal | undefined {
+  const stagingDir = resolve(process.cwd(), DEFAULT_V4_STAGING_DIR);
+  const filePath = resolve(stagingDir, `${id}.json`);
+  if (!existsSync(filePath)) return undefined;
+
+  try {
+    const staged: StagedEvolveProposal = JSON.parse(readFileSync(filePath, 'utf-8'));
+    staged.status = status;
+    staged.reviewedAt = new Date().toISOString();
+    writeFileSync(filePath, JSON.stringify(staged, null, 2));
+    return staged;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Remove rejected v4 proposals from staging.
+ */
+export function cleanRejectedEvolveV4(): number {
+  const stagingDir = resolve(process.cwd(), DEFAULT_V4_STAGING_DIR);
+  if (!existsSync(stagingDir)) return 0;
+
+  const staged = listStagedEvolveV4();
+  const rejected = staged.filter(s => s.status === 'rejected');
+  let cleaned = 0;
+
+  for (const s of rejected) {
+    const filePath = resolve(stagingDir, `${s.id}.json`);
+    if (existsSync(filePath)) {
+      unlinkSync(filePath);
+      cleaned++;
+    }
+  }
+
+  return cleaned;
+}
+
+/**
+ * Remove approved v4 proposals from staging (after graduation).
+ */
+export function cleanApprovedEvolveV4(id: string): boolean {
+  const stagingDir = resolve(process.cwd(), DEFAULT_V4_STAGING_DIR);
+  const filePath = resolve(stagingDir, `${id}.json`);
+  if (!existsSync(filePath)) return false;
+
+  unlinkSync(filePath);
+  return true;
+}
+
+/**
+ * Format a staged v4 proposal for split-view display.
+ * Matches the design doc UX: KERN syntax | Generated TypeScript, validation badges, reason.
+ */
+export function formatEvolveV4SplitView(staged: StagedEvolveProposal): string {
+  const { proposal, validation } = staged;
+  const lines: string[] = [];
+
+  const width = 60;
+  const border = '\u2500'.repeat(width);
+
+  lines.push(`  \u250C${border}\u2510`);
+  lines.push(`  \u2502 PROPOSED NODE: ${proposal.keyword.padEnd(width - 17)}\u2502`);
+  lines.push(`  \u2502 Freq: ${String(proposal.reason.frequency).padEnd(4)} files  |  Saves: ~${proposal.reason.avgLines} lines/instance${' '.repeat(Math.max(0, width - 45 - String(proposal.reason.frequency).length - String(proposal.reason.avgLines).length))}\u2502`);
+  lines.push(`  \u251C${'─'.repeat(Math.floor(width / 2))}\u252C${'─'.repeat(Math.ceil(width / 2))}\u2524`);
+
+  // Left: KERN Syntax, Right: Generated TypeScript
+  const kernLines = proposal.kernExample.split('\n').slice(0, 10);
+  const tsLines = proposal.expectedOutput.split('\n').slice(0, 10);
+  const maxLines = Math.max(kernLines.length, tsLines.length);
+  const halfWidth = Math.floor(width / 2);
+
+  lines.push(`  \u2502 ${'KERN Syntax'.padEnd(halfWidth - 1)}\u2502 ${'Generated TypeScript'.padEnd(halfWidth - 1)}\u2502`);
+  lines.push(`  \u251C${'─'.repeat(halfWidth)}\u253C${'─'.repeat(halfWidth)}\u2524`);
+
+  for (let i = 0; i < maxLines; i++) {
+    const left = (kernLines[i] || '').substring(0, halfWidth - 2).padEnd(halfWidth - 1);
+    const right = (tsLines[i] || '').substring(0, halfWidth - 2).padEnd(halfWidth - 1);
+    lines.push(`  \u2502 ${left}\u2502 ${right}\u2502`);
+  }
+
+  // Reason
+  lines.push(`  \u251C${'─'.repeat(width)}\u2524`);
+  lines.push(`  \u2502 REASON:${' '.repeat(width - 8)}\u2502`);
+  const reasonLines = [
+    `Observation: ${proposal.reason.observation}`,
+    `Inefficiency: ${proposal.reason.inefficiency}`,
+    `Benefit: ${proposal.reason.kernBenefit}`,
+  ];
+  for (const r of reasonLines) {
+    lines.push(`  \u2502   ${r.substring(0, width - 4).padEnd(width - 3)}\u2502`);
+  }
+
+  // Validation badges
+  lines.push(`  \u251C${'─'.repeat(width)}\u2524`);
+  const checks = [
+    validation.schemaOk ? '\u2713 Schema' : '\u2717 Schema',
+    validation.parseOk ? '\u2713 Parse' : '\u2717 Parse',
+    validation.codegenCompileOk ? '\u2713 Codegen' : '\u2717 Codegen',
+    validation.codegenRunOk ? '\u2713 Run' : '\u2717 Run',
+    validation.goldenDiffOk ? '\u2713 Golden' : '\u2717 Golden',
+    validation.dedupOk ? '\u2713 Dedup' : '\u2717 Dedup',
+  ];
+  lines.push(`  \u2502 ${checks.join('  ').substring(0, width - 2).padEnd(width - 1)}\u2502`);
+  lines.push(`  \u2514${border}\u2518`);
+
+  lines.push(`    [a]pprove --approve=${staged.id}  [r]eject --reject=${staged.id}`);
 
   return lines.join('\n');
 }

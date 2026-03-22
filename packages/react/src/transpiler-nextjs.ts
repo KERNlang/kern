@@ -44,6 +44,11 @@ interface GenerateMetadataInfo {
   handlerCode: string;
 }
 
+interface StateDecl {
+  name: string;
+  initial: string;
+}
+
 interface Ctx {
   lines: string[];
   sourceMap: SourceMapEntry[];
@@ -55,12 +60,15 @@ interface Ctx {
   generateMetadataInfo: GenerateMetadataInfo | null;
   fetchCalls: FetchCall[];
   bodyLines: string[];
+  stateDecls: StateDecl[];
+  logicBlocks: string[];
   colors: Record<string, string> | undefined;
   twProfile: TailwindVersionProfile | undefined;
   njProfile: NextjsVersionProfile | undefined;
 }
 
 function getProps(node: IRNode): Record<string, unknown> { return node.props || {}; }
+function isExpr(v: unknown): v is { __expr: true; code: string } { return typeof v === 'object' && v !== null && '__expr' in v; }
 function getStyles(node: IRNode): Record<string, string> { return (getProps(node).styles as Record<string, string>) || {}; }
 
 // ── Unified import helpers (from Codex) ──────────────────────────────────
@@ -117,10 +125,39 @@ function emitImports(ctx: Ctx): string[] {
 }
 
 function twClasses(node: IRNode, ctx: Ctx, extra: string = ''): string {
-  let tw = stylesToTailwind(getStyles(node), ctx.colors);
+  const styles = getStyles(node);
+  // Extract className pass-through (e.g. {className:doc.page} → className={doc.page})
+  const classNameRef = styles.className;
+  const inlineStyles: Record<string, string> = {};
+  const filteredStyles: Record<string, string> = {};
+  for (const [k, v] of Object.entries(styles)) {
+    if (k === 'className') continue;
+    // CSS custom properties and complex values → inline style
+    if (v.includes('var(') || k === 'borderBottom' || k === 'background' || k === 'color' || k === 'fontFamily') {
+      inlineStyles[k] = v;
+    } else {
+      filteredStyles[k] = v;
+    }
+  }
+  let tw = stylesToTailwind(filteredStyles, ctx.colors);
   if (ctx.twProfile) tw = applyTailwindTokenRules(tw, ctx.twProfile);
   const parts = [tw, extra].filter(Boolean);
-  return parts.length > 0 ? ` className="${parts.join(' ')}"` : '';
+  const attrs: string[] = [];
+  if (classNameRef) {
+    // className is a JS expression reference like doc.page
+    if (parts.length > 0) {
+      attrs.push(` className={\`\${${classNameRef}} ${parts.join(' ')}\`}`);
+    } else {
+      attrs.push(` className={${classNameRef}}`);
+    }
+  } else if (parts.length > 0) {
+    attrs.push(` className="${parts.join(' ')}"`);
+  }
+  if (Object.keys(inlineStyles).length > 0) {
+    const pairs = Object.entries(inlineStyles).map(([k, v]) => `${k}: '${v}'`);
+    attrs.push(` style={{ ${pairs.join(', ')} }}`);
+  }
+  return attrs.join('');
 }
 
 // ── Route path helper ────────────────────────────────────────────────────
@@ -155,7 +192,7 @@ function renderNode(node: IRNode, ctx: Ctx, indent: string): void {
     case 'link': renderLink(node, ctx, indent); break;
     case 'image': renderImage(node, ctx, indent); break;
     case 'codeblock': renderCodeBlock(node, ctx, indent); break;
-    case 'input': ctx.lines.push(`${indent}<input${twClasses(node, ctx)} />`); break;
+    case 'input': case 'textarea': renderInput(node, ctx, indent); break;
     case 'slider': renderSlider(node, ctx, indent); break;
     case 'toggle': renderToggle(node, ctx, indent); break;
     case 'grid': renderGrid(node, ctx, indent); break;
@@ -167,12 +204,30 @@ function renderNode(node: IRNode, ctx: Ctx, indent: string): void {
     case 'progress': renderProgress(node, ctx, indent); break;
     case 'tabs': ctx.lines.push(`${indent}<nav${twClasses(node, ctx, 'flex')}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</nav>`); break;
     case 'tab': ctx.lines.push(`${indent}<button${twClasses(node, ctx)}>${escapeJsxText(String(p.label || ''))}</button>`); break;
+    case 'table': ctx.lines.push(`${indent}<table${twClasses(node, ctx)}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</table>`); break;
+    case 'thead': ctx.lines.push(`${indent}<thead>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</thead>`); break;
+    case 'tbody': ctx.lines.push(`${indent}<tbody>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</tbody>`); break;
+    case 'tr': ctx.lines.push(`${indent}<tr${twClasses(node, ctx)}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</tr>`); break;
+    case 'th': renderTableCell(node, ctx, indent, 'th'); break;
+    case 'td': renderTableCell(node, ctx, indent, 'td'); break;
     case 'generateMetadata': renderGenerateMetadata(node, ctx); break;
     case 'notFound': renderNotFound(node, ctx, indent); break;
     case 'redirect': renderRedirect(node, ctx, indent); break;
     case 'import': renderImport(node, ctx); break;
     case 'fetch': renderFetchNode(node, ctx); break;
     case 'on': renderOnHandler(node, ctx); return;
+    case 'state':
+      ctx.stateDecls.push({ name: String(p.name || ''), initial: String(p.initial ?? '') });
+      ctx.isClient = true; // state requires 'use client'
+      return;
+    case 'logic':
+      if (p.code) ctx.logicBlocks.push(String(p.code));
+      else if (node.children) {
+        const handlerChild = node.children.find(c => c.type === 'handler');
+        if (handlerChild?.props?.code) ctx.logicBlocks.push(String(handlerChild.props.code));
+      }
+      ctx.isClient = true;
+      return;
     case 'theme': break;
     default:
       ctx.lines.push(`${indent}<div${twClasses(node, ctx)}>`);
@@ -246,13 +301,26 @@ function renderCodeBlock(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   const lang = p.lang as string || '';
   const langClass = lang ? ` language-${lang}` : '';
+  const hasCustomStyle = getStyles(node).className || getStyles(node).background;
+  const preAttrs = hasCustomStyle ? twClasses(node, ctx) : ` className="bg-zinc-900 rounded-lg p-4 overflow-x-auto"`;
+  const codeClass = hasCustomStyle
+    ? `className="${langClass.trim()}"` + (getStyles(node).fontFamily ? ` style={{ fontFamily: '${getStyles(node).fontFamily}' }}` : '')
+    : `className="text-sm font-mono text-zinc-100${langClass}"`;
   // Content: inline value prop or body child node
-  let content = p.value as string || '';
+  const rawValue = p.value;
+  if (isExpr(rawValue)) {
+    ctx.lines.push(`${indent}<pre${preAttrs}>`);
+    ctx.lines.push(`${indent}  <code ${codeClass}>{${rawValue.code}}</code>`);
+    ctx.lines.push(`${indent}</pre>`);
+    return;
+  }
+  let content = rawValue as string || '';
   if (!content && node.children) {
     const bodyNode = node.children.find(c => c.type === 'body');
     if (bodyNode) {
       const bp = getProps(bodyNode);
-      content = bp.value as string || '';
+      // body value="..." OR body <<<...>>> (multiline block → code prop)
+      content = (bp.code as string) || (bp.value as string) || '';
     }
   }
   // Escape for JSX template literal: backslashes, backticks, ${
@@ -260,8 +328,8 @@ function renderCodeBlock(node: IRNode, ctx: Ctx, indent: string): void {
     .replace(/\\/g, '\\\\')
     .replace(/`/g, '\\`')
     .replace(/\$\{/g, '\\${');
-  ctx.lines.push(`${indent}<pre className="bg-zinc-900 rounded-lg p-4 overflow-x-auto">`);
-  ctx.lines.push(`${indent}  <code className="text-sm font-mono text-zinc-100${langClass}">{\`${escaped}\`}</code>`);
+  ctx.lines.push(`${indent}<pre${preAttrs}>`);
+  ctx.lines.push(`${indent}  <code ${codeClass}>{\`${escaped}\`}</code>`);
   ctx.lines.push(`${indent}</pre>`);
 }
 
@@ -286,28 +354,57 @@ function renderCard(node: IRNode, ctx: Ctx, indent: string): void {
   }
 }
 
-const TEXT_TAG_MAP: Record<string, string> = { p: 'p', h1: 'h1', h2: 'h2', h3: 'h3', h4: 'h4', h5: 'h5', h6: 'h6', label: 'label', span: 'span' };
+const TEXT_TAG_MAP: Record<string, string> = { p: 'p', h1: 'h1', h2: 'h2', h3: 'h3', h4: 'h4', h5: 'h5', h6: 'h6', label: 'label', span: 'span', pre: 'pre', code: 'code' };
 
 function renderText(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
-  const value = p.value as string;
+  const rawValue = p.value;
   const bind = p.bind as string;
   const el = TEXT_TAG_MAP[p.tag as string] || 'span';
   const tw = twClasses(node, ctx);
-  if (bind) ctx.lines.push(`${indent}<${el}${tw}>{${bind}}</${el}>`);
-  else if (value) ctx.lines.push(`${indent}<${el}${tw}>${escapeJsxText(value)}</${el}>`);
+  if (isExpr(rawValue)) ctx.lines.push(`${indent}<${el}${tw}>{${rawValue.code}}</${el}>`);
+  else if (bind) ctx.lines.push(`${indent}<${el}${tw}>{${bind}}</${el}>`);
+  else if (rawValue) ctx.lines.push(`${indent}<${el}${tw}>${escapeJsxText(rawValue as string)}</${el}>`);
 }
 
 function renderButton(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   const text = p.text as string || '';
   const to = p.to as string;
-  const onClick = p.onClick as string;
+  const rawOnClick = p.onClick;
+  const onClick = isExpr(rawOnClick) ? rawOnClick.code : rawOnClick as string;
   if (to) {
     addDefaultImport(ctx, 'next/link', 'Link');
     ctx.lines.push(`${indent}<Link href="/${to.toLowerCase()}"${twClasses(node, ctx)}>${escapeJsxText(text)}</Link>`);
   } else {
+    ctx.isClient = true; // onClick requires 'use client'
     ctx.lines.push(`${indent}<button${twClasses(node, ctx)} onClick={${onClick || '() => {}'}}>${escapeJsxText(text)}</button>`);
+  }
+}
+
+function renderInput(node: IRNode, ctx: Ctx, indent: string): void {
+  const p = getProps(node);
+  const isTextarea = node.type === 'textarea' || p.type === 'textarea' || p.multiline;
+  const tag = isTextarea ? 'textarea' : 'input';
+  const attrs: string[] = [];
+  const tw = twClasses(node, ctx);
+  if (p.bind) {
+    const bind = p.bind as string;
+    const setter = `set${bind.charAt(0).toUpperCase() + bind.slice(1)}`;
+    attrs.push(`value={${bind}}`);
+    ctx.isClient = true; // onChange requires 'use client'
+    if (isExpr(p.onChange)) attrs.push(`onChange={${p.onChange.code}}`);
+    else if (p.onChange) attrs.push(`onChange={${p.onChange}}`);
+    else attrs.push(`onChange={(e) => ${setter}(e.target.value)}`);
+  }
+  if (p.placeholder) attrs.push(`placeholder="${p.placeholder}"`);
+  if (!isTextarea && p.type && p.type !== 'textarea') attrs.push(`type="${p.type}"`);
+  if (p.spellcheck === 'false' || p.spellcheck === false) attrs.push('spellCheck={false}');
+  const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
+  if (isTextarea) {
+    ctx.lines.push(`${indent}<${tag}${tw}${attrStr} rows={4} />`);
+  } else {
+    ctx.lines.push(`${indent}<${tag}${tw}${attrStr} />`);
   }
 }
 
@@ -341,6 +438,7 @@ function renderSlider(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   const bind = p.bind as string;
   const setter = bind ? `set${bind.charAt(0).toUpperCase() + bind.slice(1)}` : 'setValue';
+  ctx.isClient = true; // onChange requires 'use client'
   ctx.lines.push(`${indent}<input type="range" min={${p.min || 0}} max={${p.max || 100}} step={${p.step || 1}} value={${bind || 'value'}} onChange={(e) => ${setter}(parseFloat(e.target.value))} className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-orange-500" />`);
 }
 
@@ -348,6 +446,7 @@ function renderToggle(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   const bind = p.bind as string;
   const setter = bind ? `set${bind.charAt(0).toUpperCase() + bind.slice(1)}` : 'setValue';
+  ctx.isClient = true; // onChange requires 'use client'
   ctx.lines.push(`${indent}<label className="relative inline-flex items-center cursor-pointer">`);
   ctx.lines.push(`${indent}  <input type="checkbox" className="sr-only peer" checked={${bind || 'value'}} onChange={(e) => ${setter}(e.target.checked)} />`);
   ctx.lines.push(`${indent}  <div className="w-11 h-6 bg-zinc-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600" />`);
@@ -412,6 +511,23 @@ function renderOnHandler(node: IRNode, ctx: Ctx): void {
   }
 }
 
+function renderTableCell(node: IRNode, ctx: Ctx, indent: string, tag: 'th' | 'td'): void {
+  const p = getProps(node);
+  const tw = twClasses(node, ctx);
+  const rawValue = p.value;
+  if (isExpr(rawValue)) {
+    ctx.lines.push(`${indent}<${tag}${tw}>{${rawValue.code}}</${tag}>`);
+  } else if (rawValue) {
+    ctx.lines.push(`${indent}<${tag}${tw}>${escapeJsxText(rawValue as string)}</${tag}>`);
+  } else if (node.children && node.children.length > 0) {
+    ctx.lines.push(`${indent}<${tag}${tw}>`);
+    renderChildren(node, ctx, indent);
+    ctx.lines.push(`${indent}</${tag}>`);
+  } else {
+    ctx.lines.push(`${indent}<${tag}${tw} />`);
+  }
+}
+
 function renderGrid(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   ctx.lines.push(`${indent}<div className="grid grid-cols-1 md:grid-cols-${p.cols || 1} gap-${Math.round(Number(p.gap || 16) / 4)}">`);
@@ -430,13 +546,13 @@ function renderConditional(node: IRNode, ctx: Ctx, indent: string): void {
 
 function renderComponent(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
-  const ref = p.ref as string;
+  const ref = (p.ref || p.name) as string;
   if (!ref) return;
   ctx.componentImports.add(ref);
   const hasOnChange = 'onChange' in p;
   const attrs: string[] = [];
   for (const [k, v] of Object.entries(p)) {
-    if (['ref', 'styles', 'pseudoStyles', 'themeRefs'].includes(k)) continue;
+    if (['ref', 'name', 'styles', 'pseudoStyles', 'themeRefs'].includes(k)) continue;
     if (k === 'bind') { attrs.push(`value={${v}}`); if (!hasOnChange) attrs.push(`onChange={set${(v as string).charAt(0).toUpperCase() + (v as string).slice(1)}}`); }
     else if (k === 'onChange') attrs.push(`onChange={${v}}`);
     else if (k === 'props') { for (const pn of (v as string).split(',')) attrs.push(`${pn.trim()}={${pn.trim()}}`); }
@@ -444,7 +560,14 @@ function renderComponent(node: IRNode, ctx: Ctx, indent: string): void {
     else if (k === 'default') attrs.push(`defaultValue={${JSON.stringify(v)}}`);
     else attrs.push(`${k}={${JSON.stringify(v)}}`);
   }
-  ctx.lines.push(`${indent}<${ref}${attrs.length ? ' ' + attrs.join(' ') : ''} />`);
+  const attrStr = attrs.length ? ' ' + attrs.join(' ') : '';
+  if (node.children && node.children.length > 0) {
+    ctx.lines.push(`${indent}<${ref}${attrStr}>`);
+    renderChildren(node, ctx, indent);
+    ctx.lines.push(`${indent}</${ref}>`);
+  } else {
+    ctx.lines.push(`${indent}<${ref}${attrStr} />`);
+  }
 }
 
 function renderProgress(node: IRNode, ctx: Ctx, indent: string): void {
@@ -545,6 +668,8 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
     generateMetadataInfo: null,
     fetchCalls: [],
     bodyLines: [],
+    stateDecls: [],
+    logicBlocks: [],
     colors: config?.colors,
     twProfile: config?.frameworkVersions ? buildTailwindProfile(config.frameworkVersions) : undefined,
     njProfile: config?.frameworkVersions ? buildNextjsProfile(config.frameworkVersions) : undefined,
@@ -560,6 +685,12 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
 
   // If there are fetch calls, mark page as async
   if (ctx.fetchCalls.length > 0) ctx.isAsync = true;
+
+  // Client components cannot be async in Next.js — client wins, drop server-only patterns
+  if (ctx.isClient && ctx.isAsync) {
+    ctx.isAsync = false;
+    ctx.fetchCalls = [];
+  }
 
   const name = (rootProps.name as string) || 'Page';
   const isLayout = root.type === 'layout';
@@ -592,6 +723,19 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
   // Static metadata needs Metadata type
   if (ctx.metadata && !ctx.isClient && !ctx.generateMetadataInfo) {
     addNamedImport(ctx, 'next', 'Metadata', true);
+  }
+
+  // State requires useState import
+  if (ctx.stateDecls.length > 0) {
+    addNamedImport(ctx, 'react', 'useState');
+  }
+
+  // Detect hook imports from logic blocks before emitting imports
+  for (const block of ctx.logicBlocks) {
+    if (block.includes('useEffect')) addNamedImport(ctx, 'react', 'useEffect');
+    if (block.includes('useCallback')) addNamedImport(ctx, 'react', 'useCallback');
+    if (block.includes('useMemo')) addNamedImport(ctx, 'react', 'useMemo');
+    if (block.includes('useRef')) addNamedImport(ctx, 'react', 'useRef');
   }
 
   // Emit all imports (unified, sorted)
@@ -662,6 +806,36 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
     }
   }
 
+  // Emit useState declarations
+  for (const s of ctx.stateDecls) {
+    const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
+    const stateNode = root.children?.find(c => c.type === 'state' && c.props?.name === s.name);
+    const initProp = stateNode?.props?.initial;
+    const isExprInit = typeof initProp === 'object' && initProp !== null && '__expr' in (initProp as object);
+    let initVal: string;
+    if (isExprInit) {
+      initVal = (initProp as { code: string }).code;
+    } else if (s.initial === 'true' || s.initial === 'false') {
+      initVal = s.initial;
+    } else if (s.initial === '' || s.initial === "''") {
+      initVal = "''";
+    } else if (!isNaN(Number(s.initial)) && s.initial !== '') {
+      initVal = s.initial;
+    } else {
+      initVal = `'${s.initial}'`;
+    }
+    code.push(`  const [${s.name}, ${setter}] = useState(${initVal});`);
+  }
+
+  // Emit logic blocks & detect hook imports
+  for (const block of ctx.logicBlocks) {
+    code.push(`  ${block}`);
+    if (block.includes('useEffect')) addNamedImport(ctx, 'react', 'useEffect');
+    if (block.includes('useCallback')) addNamedImport(ctx, 'react', 'useCallback');
+    if (block.includes('useMemo')) addNamedImport(ctx, 'react', 'useMemo');
+    if (block.includes('useRef')) addNamedImport(ctx, 'react', 'useRef');
+  }
+
   // Emit body lines (notFound, redirect calls)
   for (const line of ctx.bodyLines) {
     code.push(line);
@@ -712,6 +886,8 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
     generateMetadataInfo: null,
     fetchCalls: [],
     bodyLines: [],
+    stateDecls: [],
+    logicBlocks: [],
     colors: config.colors,
     twProfile: config.frameworkVersions ? buildTailwindProfile(config.frameworkVersions) : undefined,
     njProfile: config.frameworkVersions ? buildNextjsProfile(config.frameworkVersions) : undefined,
@@ -731,8 +907,11 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
   const isLayout = rootNode.type === 'layout';
   const isError = rootNode.type === 'error';
 
-  // 'use client' only when the component actually has client-side interactivity
-  // (ctx.isClient is set during rendering by renderPage/renderError/client=true flag)
+  // Client components cannot be async in Next.js — client wins, drop server-only patterns
+  if (ctx.isClient && ctx.isAsync) {
+    ctx.isAsync = false;
+    ctx.fetchCalls = [];
+  }
 
   const code: string[] = [];
 
@@ -761,6 +940,19 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
 
   // If there are fetch calls, mark page as async
   if (ctx.fetchCalls.length > 0) ctx.isAsync = true;
+
+  // State requires useState import
+  if (ctx.stateDecls.length > 0) {
+    addNamedImport(ctx, 'react', 'useState');
+  }
+
+  // Detect hook imports from logic blocks before emitting imports
+  for (const block of ctx.logicBlocks) {
+    if (block.includes('useEffect')) addNamedImport(ctx, 'react', 'useEffect');
+    if (block.includes('useCallback')) addNamedImport(ctx, 'react', 'useCallback');
+    if (block.includes('useMemo')) addNamedImport(ctx, 'react', 'useMemo');
+    if (block.includes('useRef')) addNamedImport(ctx, 'react', 'useRef');
+  }
 
   code.push(...emitImports(ctx));
 
@@ -816,6 +1008,37 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
     }
   } else {
     code.push(`export default function ${name}() {`);
+  }
+
+  // Emit useState declarations
+  for (const s of ctx.stateDecls) {
+    const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
+    const rootNode = file.nodes[0];
+    const stateNode = rootNode?.children?.find((c: IRNode) => c.type === 'state' && c.props?.name === s.name);
+    const initProp = stateNode?.props?.initial;
+    const isExpr = typeof initProp === 'object' && initProp !== null && '__expr' in (initProp as object);
+    let initVal: string;
+    if (isExpr) {
+      initVal = (initProp as { code: string }).code;
+    } else if (s.initial === 'true' || s.initial === 'false') {
+      initVal = s.initial;
+    } else if (s.initial === '' || s.initial === "''") {
+      initVal = "''";
+    } else if (!isNaN(Number(s.initial)) && s.initial !== '') {
+      initVal = s.initial;
+    } else {
+      initVal = `'${s.initial}'`;
+    }
+    code.push(`  const [${s.name}, ${setter}] = useState(${initVal});`);
+  }
+
+  // Emit logic blocks & detect hook imports
+  for (const block of ctx.logicBlocks) {
+    code.push(`  ${block}`);
+    if (block.includes('useEffect')) addNamedImport(ctx, 'react', 'useEffect');
+    if (block.includes('useCallback')) addNamedImport(ctx, 'react', 'useCallback');
+    if (block.includes('useMemo')) addNamedImport(ctx, 'react', 'useMemo');
+    if (block.includes('useRef')) addNamedImport(ctx, 'react', 'useRef');
   }
 
   // Emit fetch calls (inside async function body, before return)

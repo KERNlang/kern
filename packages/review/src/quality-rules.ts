@@ -5,34 +5,27 @@
  */
 
 import type { SourceFile } from 'ts-morph';
-import type { InferResult, TemplateMatch, ReviewConfig, ReviewFinding } from './types.js';
+import type { InferResult, TemplateMatch, ReviewConfig, ReviewFinding, FileRole } from './types.js';
 import { getActiveRules } from './rules/index.js';
 
 /**
  * Run all active quality rules against a source file.
- * Returns unified ReviewFinding[] sorted by severity then line.
+ * Returns unified ReviewFinding[] (sorting is done by caller via sortAndDedup).
  */
 export function runQualityRules(
   sourceFile: SourceFile,
   inferred: InferResult[],
   templateMatches: TemplateMatch[],
   config?: ReviewConfig,
+  fileRole: FileRole = 'runtime',
 ): ReviewFinding[] {
   const filePath = sourceFile.getFilePath() || 'input.ts';
   const rules = getActiveRules(config?.target);
 
   const findings: ReviewFinding[] = [];
   for (const rule of rules) {
-    findings.push(...rule({ sourceFile, inferred, templateMatches, config, filePath }));
+    findings.push(...rule({ sourceFile, inferred, templateMatches, config, filePath, fileRole }));
   }
-
-  // Sort by severity (error > warning > info), then by line
-  const severityOrder: Record<string, number> = { error: 0, warning: 1, info: 2 };
-  findings.sort((a, b) => {
-    const sd = severityOrder[a.severity] - severityOrder[b.severity];
-    if (sd !== 0) return sd;
-    return a.primarySpan.startLine - b.primarySpan.startLine;
-  });
 
   return findings;
 }

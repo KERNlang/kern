@@ -195,7 +195,7 @@ function setupSideEffect(ctx: RuleContext): ReviewFinding[] {
 
   // Check for top-level await without onMounted
   const hasOnMounted = fullText.includes('onMounted');
-  const awaitRegex = /(?:^|\n)\s*(?:const|let|var)?\s*\w*\s*=?\s*await\s/g;
+  const awaitRegex = /(?:^|\n)[ \t]{0,20}(?:(?:const|let|var) \w+ ?= ?)?await /g;
   let match;
 
   while ((match = awaitRegex.exec(fullText)) !== null) {

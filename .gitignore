@@ -4,8 +4,8 @@ packages/*/dist/
 examples/src/generated/
 examples/*.tsx
 *.min.kern
-.changeset/*.md
 .claude/settings.local.json
 .claude/docs/plans/*.md
 docs/plans/
 .claude*.tsbuildinfo
+*.tsbuildinfo

@@ -211,6 +211,45 @@ export default function Page() {
   });
 });
 
+describe('False Positive Regression: server-hook on example files', () => {
+  it('does NOT fire on files named *-examples.ts containing hooks in strings', () => {
+    const source = `
+export const EXAMPLES: Record<string, string> = {
+  counter: \`import React, { useState } from 'react';
+export function Counter() {
+  const [count, setCount] = useState(0);
+  return <div>{count}</div>;
+}\`,
+};
+`;
+    const report = reviewSource(source, 'packages/playground/src/lib/infer-examples.ts', nextjsConfig);
+    const fp = report.findings.find(f => f.ruleId === 'server-hook');
+    expect(fp).toBeUndefined();
+  });
+
+  it('does NOT fire on files named examples.ts containing hooks in strings', () => {
+    const source = `
+export const EXAMPLES = [{ name: 'Counter', source: \`const [count, setCount] = useState(0);\` }];
+`;
+    const report = reviewSource(source, 'src/lib/examples.ts', nextjsConfig);
+    const fp = report.findings.find(f => f.ruleId === 'server-hook');
+    expect(fp).toBeUndefined();
+  });
+
+  it('still fires server-hook on runtime files with hooks', () => {
+    const source = `
+import { useState } from 'react';
+export default function Page() {
+  const [count, setCount] = useState(0);
+  return <div>{count}</div>;
+}
+`;
+    const report = reviewSource(source, 'src/components/page.tsx', nextjsConfig);
+    const hit = report.findings.find(f => f.ruleId === 'server-hook');
+    expect(hit).toBeDefined();
+  });
+});
+
 describe('False Positive Regression: hydration-mismatch (Next.js)', () => {
   it('does NOT fire on Date.now inside useEffect', () => {
     const source = `

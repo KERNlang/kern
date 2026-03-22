@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { resolve, basename, dirname, relative } from 'path';
 import { createJiti } from 'jiti';
-import { parse, decompile, resolveConfig, VALID_TARGETS, VALID_STRUCTURES, generateCoreNode, isCoreNode, detectVersionsFromPackageJson, scanProject, generateConfigSource, formatScanSummary, registerTemplate, isTemplateNode, expandTemplateNode, clearTemplates, detectTemplates, COMMON_TEMPLATES } from '@kernlang/core';
+import { parse, decompile, resolveConfig, VALID_TARGETS, VALID_STRUCTURES, generateCoreNode, isCoreNode, detectVersionsFromPackageJson, scanProject, generateConfigSource, formatScanSummary, registerTemplate, isTemplateNode, expandTemplateNode, clearTemplates, detectTemplates, COMMON_TEMPLATES, collectCoverageGaps, writeCoverageGaps, NODE_TYPES } from '@kernlang/core';
 import type { ResolvedKernConfig, KernTarget, KernStructure, KernConfig, IRNode } from '@kernlang/core';
 import { generateReactNode, isReactNode } from '@kernlang/react';
 import { transpile } from '@kernlang/native';
@@ -13,10 +13,10 @@ import { transpileCliApp } from './transpiler-cli.js';
 import { transpileTerminal, transpileInk } from '@kernlang/terminal';
 import { transpileVue, transpileNuxt } from '@kernlang/vue';
 import { collectLanguageMetrics } from '@kernlang/metrics';
-import { reviewFile, reviewDirectory, reviewSource, reviewGraph, resolveImportGraph, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes } from '@kernlang/review';
-import type { ReviewConfig, ReviewFinding } from '@kernlang/review';
-import { evolve, loadBuiltinDetectors, listStaged, getStaged, updateStagedStatus, promoteLocal, cleanRejected, formatSplitView } from '@kernlang/evolve';
-import type { EvolveOptions } from '@kernlang/evolve';
+import { reviewFile, reviewDirectory, reviewSource, reviewGraph, resolveImportGraph, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes, runLLMReview, isLLMAvailable, analyzeTaint, checkSpecFiles, specViolationsToFindings } from '@kernlang/review';
+import type { ReviewConfig, ReviewFinding, LLMReviewInput } from '@kernlang/review';
+import { evolve, loadBuiltinDetectors, listStaged, getStaged, updateStagedStatus, promoteLocal, cleanRejected, formatSplitView, loadEvolvedNodes, runGoldenTests, formatGoldenTestResults, rollbackNode, restoreNode, readEvolvedManifest, buildDiscoveryPrompt, parseDiscoveryResponse, selectRepresentativeFiles, collectTsFiles, estimateTokens, createLLMProvider, TokenBudget, validateEvolveProposal, graduateNode, compileCodegenToJS, stageEvolveV4Proposal, listStagedEvolveV4, getStagedEvolveV4, updateStagedEvolveV4Status, cleanRejectedEvolveV4, cleanApprovedEvolveV4, formatEvolveV4SplitView, promoteNode, pruneNodes, detectCollisions, renameEvolvedNode, readNodeDefinition, buildBackfillPrompt, buildRetryPrompt, rebuildEvolvedManifest } from '@kernlang/evolve';
+import type { EvolveOptions, LLMProviderOptions } from '@kernlang/evolve';
 
 const args = process.argv.slice(2);
 
@@ -68,11 +68,19 @@ if (args[0] === 'dev') {
         if (detected.nextjs) parts.push(`Next.js ${detected.nextjs}`);
         console.log(`  Auto-detected: ${parts.join(', ')}`);
       }
-    } catch {}
+    } catch {
+      // package.json may not exist or may be malformed
+    }
   }
 
   // Load templates before compilation
   loadTemplates(devConfig);
+
+  // Load evolved nodes (v4) — graduated nodes from .kern/evolved/
+  const evolvedResult = loadEvolvedNodes(process.cwd(), args.includes('--verify'));
+  if (evolvedResult.loaded > 0) {
+    console.log(`  Evolved nodes: ${evolvedResult.loaded} loaded`);
+  }
 
   console.log(`\n  KERN dev — watching for changes`);
   console.log(`  Target: ${devConfig.target}`);
@@ -82,7 +90,7 @@ if (args[0] === 'dev') {
   // Initial build of all .kern files
   const initialFiles = findKernFiles(watchDir, watchPattern);
   for (const file of initialFiles) {
-    transpileAndWrite(file, devConfig, devOutDir);
+    transpileAndWrite(file, devConfig, devOutDir, watchDir);
   }
   if (initialFiles.length > 0) {
     console.log(`  ${initialFiles.length} file(s) compiled.\n`);
@@ -103,7 +111,7 @@ if (args[0] === 'dev') {
       const rel = relative(process.cwd(), filePath);
       const start = performance.now();
       try {
-        transpileAndWrite(filePath, devConfig, devOutDir);
+        transpileAndWrite(filePath, devConfig, devOutDir, watchDir);
         const ms = Math.round(performance.now() - start);
         console.log(`  ${rel} → compiled (${ms}ms)`);
       } catch (err) {
@@ -115,7 +123,7 @@ if (args[0] === 'dev') {
       const rel = relative(process.cwd(), filePath);
       const start = performance.now();
       try {
-        transpileAndWrite(filePath, devConfig, devOutDir);
+        transpileAndWrite(filePath, devConfig, devOutDir, watchDir);
         const ms = Math.round(performance.now() - start);
         console.log(`  ${rel} → compiled (${ms}ms)`);
       } catch (err) {
@@ -127,7 +135,9 @@ if (args[0] === 'dev') {
       const rel = relative(process.cwd(), filePath);
       const ext = filePath.endsWith('.kern') ? '.kern' : '.ir';
       const fileBaseName = basename(filePath, ext);
-      const outDir = resolve(devOutDir ? resolve(devOutDir) : dirname(filePath), devConfig.output.outDir);
+      const unlinkRelDir = relative(resolve(watchDir), dirname(filePath));
+      const unlinkBaseDir = devOutDir ? resolve(resolve(devOutDir), unlinkRelDir) : dirname(filePath);
+      const outDir = resolve(unlinkBaseDir, devConfig.output.outDir);
       const outExt = devConfig.target === 'fastapi' ? '.py'
         : (devConfig.target === 'vue' || devConfig.target === 'nuxt') ? '.vue'
         : (devConfig.target === 'express' || devConfig.target === 'cli' || devConfig.target === 'terminal') ? '.ts' : '.tsx';
@@ -188,7 +198,7 @@ function findKernFiles(dir: string, singleFile?: string): string[] {
   return files;
 }
 
-function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride?: string): void {
+function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride?: string, inputBase?: string): void {
   const source = readFileSync(file, 'utf-8');
   const ast = parse(source);
   const ext = file.endsWith('.kern') ? '.kern' : '.ir';
@@ -196,6 +206,14 @@ function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride
   const target = cfg.target;
   const relSource = relative(process.cwd(), file);
   const header = GENERATED_HEADER + relSource + '\n\n';
+
+  // Emit coverage gaps unless --no-gaps
+  if (!args.includes('--no-gaps')) {
+    const gaps = collectCoverageGaps(ast, file);
+    if (gaps.length > 0) {
+      writeCoverageGaps(gaps, resolve(process.cwd(), '.kern-gaps'));
+    }
+  }
 
   const result = target === 'native'
     ? transpile(ast, cfg)
@@ -219,7 +237,11 @@ function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride
                       ? transpileNuxt(ast, cfg)
                       : transpileNextjs(ast, cfg);
 
-  const outDir = resolve(outDirOverride ? resolve(outDirOverride) : dirname(file), cfg.output.outDir);
+  // Preserve relative directory structure when outDirOverride is set
+  // e.g. kern/llm/patterns.kern with --outdir=app/ → app/llm/page.tsx (not app/page.tsx)
+  const relDir = inputBase ? relative(resolve(inputBase), dirname(file)) : '';
+  const baseDir = outDirOverride ? resolve(resolve(outDirOverride), relDir) : dirname(file);
+  const outDir = resolve(baseDir, cfg.output.outDir);
   mkdirSync(outDir, { recursive: true });
 
   if (result.artifacts && result.artifacts.length > 0 && cfg.structure !== 'flat') {
@@ -232,7 +254,7 @@ function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride
     const outExt = target === 'fastapi' ? '.py'
       : (target === 'vue' || target === 'nuxt') ? '.vue'
       : (target === 'express' || target === 'cli' || target === 'terminal') ? '.ts'
-      : target === 'ink' ? '.tsx' : '.tsx';
+      : '.tsx';
     // For Next.js target, use the file convention name from the transpiler result (page.tsx, layout.tsx, etc.)
     const resultWithFiles = result as { files?: Array<{ path: string; content: string }> };
     const outFileName = (target === 'nextjs' && resultWithFiles.files && resultWithFiles.files.length > 0)
@@ -529,6 +551,10 @@ if (args[0] === 'review') {
   const enforce = args.includes('--enforce');
   const exportKern = args.includes('--export-kern');
   const llmMode = args.includes('--llm');
+  const cloudMode = args.includes('--cloud');
+  const securityMode = args.includes('--security');
+  const specMode = args.includes('--spec');
+  const specFile = args.find(a => a.endsWith('.kern') && a !== 'review');
   const fixMode = args.includes('--fix');
   const lintMode = args.includes('--lint');
   const graphMode = args.includes('--graph');
@@ -549,6 +575,9 @@ if (args[0] === 'review') {
   const showConfidence = args.includes('--confidence');
   const minConfidenceArg = args.find(a => a.startsWith('--min-confidence='))?.split('=')[1];
   const minConfidence = minConfidenceArg ? Number(minConfidenceArg) : undefined;
+  const disableRuleArgs = args.filter(a => a.startsWith('--disable-rule=')).map(a => a.split('=')[1]);
+  const strictArg = args.find(a => a === '--strict' || a.startsWith('--strict='));
+  const strict: false | 'inline' | 'all' = strictArg === '--strict' ? 'inline' : strictArg === '--strict=all' ? 'all' : false;
   const diffBase = args.find(a => a.startsWith('--diff'))
     ? (args.find(a => a.startsWith('--diff='))?.split('=')[1] || args[args.indexOf('--diff') + 1] || 'origin/main')
     : undefined;
@@ -558,8 +587,9 @@ if (args[0] === 'review') {
   let reviewInput = reviewInputs[0];
   if (diffBase && !reviewInput) {
     try {
-      const { execSync } = await import('child_process');
-      const diffFiles = execSync(`git diff --name-only --diff-filter=ACMR ${diffBase}`, { encoding: 'utf-8' })
+      const { execFileSync } = await import('child_process');
+      const sanitizedBase = diffBase.replace(/[^a-zA-Z0-9_.\/\-~]/g, '');
+      const diffFiles = execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMR', sanitizedBase], { encoding: 'utf-8' })
         .trim()
         .split('\n')
         .filter(f => f.endsWith('.ts') || f.endsWith('.tsx'))
@@ -579,7 +609,8 @@ if (args[0] === 'review') {
   }
 
   if (!reviewInput) {
-    console.error('Usage: kern review <file.ts|dir> [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--min-coverage=N] [--max-complexity=N] [--export-kern] [--llm] [--fix]');
+    console.error('Usage: kern review <file.ts|dir> [--security] [--llm] [--spec file.kern] [--cloud]');
+    console.error('       [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--fix]');
     process.exit(1);
   }
 
@@ -602,6 +633,10 @@ if (args[0] === 'review') {
       console.log(`  Target: ${reviewCfg.target} (auto-detected from package.json)`);
     }
   }
+  // Merge disabledRules from config + CLI flags
+  const cfgDisabledRules: string[] = reviewCfg.review.disabledRules ?? [];
+  const mergedDisabledRules = [...new Set([...cfgDisabledRules, ...disableRuleArgs])];
+
   const reviewConfig: ReviewConfig = {
     registeredTemplates: [],
     minCoverage: minCoverage ?? 0,
@@ -612,6 +647,8 @@ if (args[0] === 'review') {
     target: reviewCfg.target,
     showConfidence: showConfidence || reviewCfg.review.showConfidence,
     minConfidence: minConfidence ?? reviewCfg.review.minConfidence,
+    disabledRules: mergedDisabledRules.length > 0 ? mergedDisabledRules : undefined,
+    strict,
   };
 
   // Load templates and collect their names
@@ -639,7 +676,9 @@ if (args[0] === 'review') {
             if (tplName) reviewConfig.registeredTemplates!.push(tplName);
             registerTemplate(node, file);
           }
-        } catch {}
+        } catch (e) {
+          console.error(`  Warning: Failed to parse template ${basename(file)}: ${(e as Error).message}`);
+        }
       }
     }
     if (reviewConfig.registeredTemplates!.length > 0) {
@@ -684,7 +723,7 @@ if (args[0] === 'review') {
       const batch = entryFilePaths.slice(i, i + batchSize);
       const batchNum = Math.floor(i / batchSize) + 1;
       for (const f of batch) {
-        try { reports.push(reviewFile(f, reviewConfig)); } catch {}
+        try { reports.push(reviewFile(f, reviewConfig)); } catch (e) { console.error(`  Review error in ${f}: ${(e as Error).message}`); }
       }
       const batchFindings = reports.slice(-batch.length).reduce((sum, r) => sum + r.findings.length, 0);
       console.log(`  Batch ${batchNum}/${totalBatches}: ${batch.length} files reviewed (${batchFindings} findings)`);
@@ -692,12 +731,12 @@ if (args[0] === 'review') {
   } else {
     // Standard mode: review each file individually
     for (const f of entryFilePaths) {
-      try { reports.push(reviewFile(f, reviewConfig)); } catch {}
+      try { reports.push(reviewFile(f, reviewConfig)); } catch (e) { console.error(`  Review error in ${f}: ${(e as Error).message}`); }
     }
   }
 
   if (reports.length === 0) {
-    console.log('  No .ts/.tsx files found to review.');
+    console.log('  No reviewable files found (.ts/.tsx/.py/.kern).');
     process.exit(0);
   }
 
@@ -710,7 +749,116 @@ if (args[0] === 'review') {
     process.exit(0);
   }
 
-  // --llm: output structured LLM prompt with nodeId aliases
+  // --spec: verify .kern spec contracts against .ts implementation
+  if (specMode && specFile) {
+    const kernFilePath = resolve(specFile);
+    if (!existsSync(kernFilePath)) {
+      console.error(`  .kern spec file not found: ${specFile}`);
+      process.exit(1);
+    }
+
+    console.log(`\n  KERN spec check: ${specFile} → ${reports.length} implementation files\n`);
+
+    let totalViolations = 0;
+    for (const report of reports) {
+      const result = checkSpecFiles(kernFilePath, report.filePath);
+      if (result.violations.length > 0) {
+        const findings = specViolationsToFindings(result);
+        totalViolations += findings.length;
+        report.findings.push(...findings);
+        report.findings = dedup(report.findings);
+
+        for (const v of result.violations) {
+          const icon = v.kind.includes('missing') || v.kind === 'spec-unimplemented' ? '✗' : '~';
+          const sev = v.kind === 'spec-auth-missing' || v.kind === 'spec-unimplemented' ? 'ERROR' : v.kind === 'spec-undeclared' ? 'INFO' : 'WARN';
+          console.log(`    ${icon} [${sev}] ${v.kind}: ${v.detail}`);
+          if (v.suggestion) console.log(`      → ${v.suggestion}`);
+        }
+      }
+
+      if (result.matched.length > 0) {
+        const satisfied = result.matched.length - result.violations.filter(v => v.kind !== 'spec-undeclared' && v.kind !== 'spec-unimplemented').length;
+        console.log(`\n  Matched: ${result.matched.length} routes | Satisfied: ${satisfied} | Violations: ${totalViolations}`);
+        if (result.unmatchedSpecs.length > 0) console.log(`  Unimplemented: ${result.unmatchedSpecs.map(s => s.routeKey).join(', ')}`);
+        if (result.unmatchedImpls.length > 0) console.log(`  Undeclared: ${result.unmatchedImpls.map(i => i.routeKey).join(', ')}`);
+      }
+    }
+
+    if (totalViolations === 0) {
+      console.log('  All spec contracts satisfied.');
+    }
+    console.log('');
+    // Fall through to normal output
+  }
+
+  // --security: show only security-related findings
+  if (securityMode) {
+    const SECURITY_RULES = new Set([
+      'xss-unsafe-html', 'hardcoded-secret', 'command-injection', 'no-eval',
+      'insecure-random', 'cors-wildcard', 'helmet-missing', 'open-redirect',
+      'jwt-weak-verification', 'cookie-hardening', 'csrf-detection', 'csp-strength',
+      'path-traversal', 'weak-password-hashing', 'regex-dos', 'missing-input-validation',
+      'prototype-pollution', 'information-exposure', 'prompt-injection',
+      'taint-command', 'taint-fs', 'taint-sql', 'taint-redirect', 'taint-eval',
+      'taint-insufficient-sanitizer', 'taint-crossfile-command', 'taint-crossfile-fs',
+      'taint-crossfile-sql', 'taint-crossfile-redirect', 'taint-crossfile-eval',
+      'spec-auth-missing', 'spec-validate-missing', 'spec-guard-missing',
+      'spec-middleware-missing', 'spec-unimplemented',
+    ]);
+
+    console.log('\n  KERN Security Report\n');
+
+    let totalSec = 0;
+    for (const report of reports) {
+      const secFindings = report.findings.filter(f => SECURITY_RULES.has(f.ruleId));
+      if (secFindings.length === 0) continue;
+      totalSec += secFindings.length;
+
+      const rel = relative(process.cwd(), report.filePath);
+      console.log(`  ${rel}:`);
+      for (const f of secFindings) {
+        const icon = f.severity === 'error' ? '✗' : f.severity === 'warning' ? '~' : '-';
+        console.log(`    ${icon} L${f.primarySpan.startLine}: [${f.ruleId}] ${f.message}`);
+        if (f.suggestion) console.log(`      → ${f.suggestion}`);
+      }
+      console.log('');
+    }
+
+    if (totalSec === 0) {
+      console.log('  No security issues found.');
+    } else {
+      const errors = reports.flatMap(r => r.findings).filter(f => SECURITY_RULES.has(f.ruleId) && f.severity === 'error').length;
+      const warnings = reports.flatMap(r => r.findings).filter(f => SECURITY_RULES.has(f.ruleId) && f.severity === 'warning').length;
+      console.log(`  Total: ${totalSec} security findings (${errors} errors, ${warnings} warnings)`);
+    }
+
+    console.log('  Rules: OWASP Top 10, OWASP LLM Top 10, Taint Tracking, Spec Contracts');
+    console.log('');
+    process.exit(0);
+  }
+
+  // --cloud: KERN Pro cloud review (coming soon)
+  if (cloudMode) {
+    console.log('');
+    console.log('  KERN Pro — Cloud-powered AI review');
+    console.log('');
+    console.log('  Coming soon. Cloud review will provide:');
+    console.log('    • LLM-powered security analysis without an AI IDE');
+    console.log('    • Team dashboard with trend tracking');
+    console.log('    • Custom rule engine for enterprise');
+    console.log('    • CI/CD integration with quality gates');
+    console.log('');
+    console.log('  For now, use --llm with your AI assistant (Claude Code, Cursor, etc.)');
+    console.log('  The assistant reads the KERN IR output and performs the AI review.');
+    console.log('');
+    console.log('  → kern review src/ --llm');
+    console.log('');
+    console.log('  Join the waitlist: https://kernlang.dev/pro');
+    console.log('');
+    process.exit(0);
+  }
+
+  // --llm: LLM-assisted security review (batch file check)
   if (llmMode) {
     // Build graph context for LLM markers if --graph is active
     const llmGraphContext = graphMode ? (() => {
@@ -720,19 +868,76 @@ if (args[0] === 'review') {
         const distance = finding?.distance ?? 0;
         fileDistances.set(report.filePath, distance);
       }
-      // Entry files always distance 0
       for (const ep of entryFilePaths) {
         fileDistances.set(ep, 0);
       }
       return { fileDistances };
     })() : undefined;
 
-    for (const report of reports) {
-      console.log(`\n// ── ${report.filePath} ──`);
-      console.log(buildLLMPrompt(report.inferred, report.templateMatches, llmGraphContext));
+    if (isLLMAvailable()) {
+      // Phase 3: actual LLM API call with taint context
+      console.log('  LLM review: calling API...');
+      const llmInputs: LLMReviewInput[] = reports.map(report => ({
+        filePath: report.filePath,
+        inferred: report.inferred,
+        templateMatches: report.templateMatches,
+        taintResults: analyzeTaint(report.inferred, report.filePath),
+        graphContext: llmGraphContext,
+      }));
+
+      try {
+        const llmFindings = await runLLMReview(llmInputs);
+        console.log(`  LLM review: ${llmFindings.length} findings from AI`);
+
+        // Merge LLM findings into reports
+        for (const f of llmFindings) {
+          const report = reports.find(r => r.filePath === f.primarySpan.file);
+          if (report) {
+            report.findings.push(f);
+          } else if (reports.length > 0) {
+            reports[0].findings.push(f);
+          }
+        }
+
+        // Dedup after merge
+        for (const report of reports) {
+          report.findings = dedup(report.findings);
+        }
+      } catch (err) {
+        console.error(`  LLM review failed: ${(err as Error).message}`);
+      }
+      // Fall through to normal output (don't exit — show merged findings)
+    } else {
+      // No cloud API key — output static findings + KERN IR for the AI assistant
+      // The LLM running this command (Claude Code, Cursor, etc.) IS the reviewer
+      console.log('\n  ── KERN IR for LLM review ──\n');
+      for (const report of reports) {
+        console.log(`// ── ${report.filePath} ──`);
+        console.log(buildLLMPrompt(report.inferred, report.templateMatches, llmGraphContext));
+
+        // Include taint analysis context
+        const taintResults = analyzeTaint(report.inferred, report.filePath);
+        if (taintResults.length > 0) {
+          console.log('\n// Taint analysis:');
+          for (const t of taintResults) {
+            for (const p of t.paths) {
+              const status = p.sanitized ? `SANITIZED (${p.sanitizer})` : 'UNSANITIZED';
+              console.log(`//   ${t.fnName}: ${p.source.origin} → ${p.sink.name}() [${status}]`);
+            }
+          }
+        }
+        console.log('');
+      }
+
+      // Show static findings summary
+      const totalFindings = reports.reduce((sum, r) => sum + r.findings.length, 0);
+      const errors = reports.reduce((sum, r) => sum + r.findings.filter(f => f.severity === 'error').length, 0);
+      const warnings = reports.reduce((sum, r) => sum + r.findings.filter(f => f.severity === 'warning').length, 0);
+      console.log(`  Static analysis: ${totalFindings} findings (${errors} errors, ${warnings} warnings)`);
+      console.log('  Review the KERN IR above for security issues the static rules may have missed.');
+      console.log('');
     }
-    console.log('\n// Paste the JSON response from your AI to validate and map findings back to TS.');
-    process.exit(0);
+    // Fall through to normal output — show full report with static findings
   }
 
   // --fix: auto-migration — write .kern files from template suggestions, verify roundtrip
@@ -865,9 +1070,11 @@ if (args[0] === 'evolve' && args[1] !== undefined && !args[1].startsWith('evolve
   const minConfArg = args.find(a => a.startsWith('--min-confidence='))?.split('=')[1];
   const minSupportArg = args.find(a => a.startsWith('--min-support='))?.split('=')[1];
 
+  const enableNodes = args.includes('--nodes') || args.includes('--from-gaps');
   const evolveOptions: EvolveOptions = {
     recursive,
     preview,
+    enableNodeProposals: enableNodes,
     thresholds: {
       ...(minConfArg ? { minConfidence: Number(minConfArg) } : {}),
       ...(minSupportArg ? { minSupport: Number(minSupportArg) } : {}),
@@ -906,6 +1113,19 @@ if (args[0] === 'evolve' && args[1] !== undefined && !args[1].startsWith('evolve
         const v = result.validated.find(v => v.proposal.id === p.id);
         const status = v ? (v.validation.parseOk && v.validation.expansionOk ? '✓' : '✗') : '?';
         console.log(`    ${status} ${p.templateName} (${p.namespace}) — score: ${p.qualityScore.overallScore}, instances: ${p.instanceCount}`);
+      }
+    }
+
+    // v3: Node proposals
+    if (result.nodeProposals && result.nodeProposals.length > 0 && !jsonOutput) {
+      console.log(`\n  Node proposals (v3): ${result.nodeProposals.length}`);
+      for (const np of result.nodeProposals) {
+        const nv = result.nodeValidated?.find(v => v.proposal.id === np.id);
+        const status = nv ? (nv.validation.parseOk && nv.validation.codegenOk ? '✓' : '✗') : '?';
+        console.log(`    ${status} ${np.nodeName} — express: ${np.expressibilityScore.overall}, freq: ${np.frequency}, score: ${np.qualityScore}`);
+      }
+      if (result.stagedNodes && result.stagedNodes.length > 0) {
+        console.log(`  Staged nodes:        ${result.stagedNodes.length}`);
       }
     }
   }
@@ -986,6 +1206,687 @@ if (args[0] === 'evolve:review') {
     console.log(formatSplitView(s));
     console.log('');
   }
+  process.exit(0);
+}
+
+// ── kern evolve:discover <dir> [--recursive] [--provider=openai|ollama] [--max-tokens=N] ──
+if (args[0] === 'evolve:discover') {
+  const discoverInput = args[1];
+  if (!discoverInput || discoverInput.startsWith('--')) {
+    console.error('Usage: kern evolve:discover <dir> [--recursive] [--provider=openai|anthropic|ollama] [--max-tokens=N]');
+    process.exit(1);
+  }
+
+  const discoverPath = resolve(discoverInput);
+  if (!existsSync(discoverPath)) {
+    console.error(`Not found: ${discoverInput}`);
+    process.exit(1);
+  }
+
+  const recursive = args.includes('--recursive') || args.includes('-r');
+  const providerArg = args.find(a => a.startsWith('--provider='))?.split('=')[1] as LLMProviderOptions['provider'];
+  const maxTokensArg = args.find(a => a.startsWith('--max-tokens='))?.split('=')[1];
+  const maxTokens = maxTokensArg ? Number(maxTokensArg) : 100000;
+
+  console.log(`\n  KERN evolve:discover — LLM pattern discovery\n`);
+  console.log(`  Input: ${relative(process.cwd(), discoverPath) || '.'}`);
+
+  // Collect files and batch
+  const tsFiles = collectTsFiles(discoverPath, recursive);
+  console.log(`  Files found: ${tsFiles.length}`);
+
+  if (tsFiles.length === 0) {
+    console.log('  No TypeScript files to analyze.');
+    process.exit(0);
+  }
+
+  const batches = selectRepresentativeFiles(tsFiles);
+  console.log(`  Batches: ${batches.length} (sampling representative files)`);
+
+  // Load existing evolved keywords for dedup
+  const manifest = readEvolvedManifest();
+  const evolvedKeywords = manifest ? Object.keys(manifest.nodes) : [];
+
+  // Create LLM provider
+  let provider;
+  try {
+    provider = createLLMProvider({ provider: providerArg });
+  } catch (err) {
+    console.error(`  ${(err as Error).message}`);
+    process.exit(1);
+  }
+  console.log(`  Provider: ${provider.name}`);
+
+  const budget = new TokenBudget(maxTokens);
+  const allProposals: import('@kernlang/evolve').EvolveNodeProposal[] = [];
+  const runId = `run-${Date.now()}`;
+
+  for (let i = 0; i < batches.length; i++) {
+    if (budget.exhausted) {
+      console.log(`  Token budget exhausted (${budget}). Stopping.`);
+      break;
+    }
+
+    const batch = batches[i];
+    const files = batch.map(fp => ({
+      path: relative(process.cwd(), fp),
+      content: readFileSync(fp, 'utf-8'),
+    }));
+
+    const prompt = buildDiscoveryPrompt(files, NODE_TYPES, evolvedKeywords);
+    budget.add(estimateTokens(prompt));
+
+    console.log(`  Batch ${i + 1}/${batches.length}: ${files.map(f => f.path).join(', ')}`);
+
+    try {
+      const response = await provider.complete(prompt);
+      budget.add(estimateTokens(response));
+
+      const proposals = parseDiscoveryResponse(response, runId);
+      allProposals.push(...proposals);
+
+      if (proposals.length > 0) {
+        console.log(`    → ${proposals.length} pattern(s) found: ${proposals.map(p => p.keyword).join(', ')}`);
+      }
+    } catch (err) {
+      console.error(`    → Error: ${(err as Error).message}`);
+    }
+  }
+
+  // Dedup across batches
+  const seen = new Set<string>();
+  const uniqueProposals = allProposals.filter(p => {
+    if (seen.has(p.keyword)) return false;
+    seen.add(p.keyword);
+    return true;
+  });
+
+  console.log(`\n  Discovery complete.`);
+  console.log(`  Tokens used: ${budget}`);
+  console.log(`  Proposals: ${uniqueProposals.length}\n`);
+
+  // Validate and stage proposals (with LLM retry on failure, max 2 retries)
+  const existingKw = [...(NODE_TYPES as readonly string[]), ...evolvedKeywords];
+  let stagedCount = 0;
+  const maxRetries = 2;
+
+  for (let pi = 0; pi < uniqueProposals.length; pi++) {
+    let proposal = uniqueProposals[pi];
+    // Assign ID if missing
+    if (!proposal.id) {
+      proposal.id = `${proposal.keyword}-${Date.now()}`;
+    }
+
+    let validation = validateEvolveProposal(proposal, existingKw);
+    let allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
+
+    // Retry on fixable failures (parse, codegen, typescript, golden diff)
+    const isFixable = validation.schemaOk && validation.keywordOk && !allOk;
+    if (!allOk && isFixable && provider) {
+      for (let retry = 1; retry <= maxRetries; retry++) {
+        console.log(`  \u21BB ${proposal.keyword} — retry ${retry}/${maxRetries} (feeding errors to LLM)`);
+        try {
+          const retryPrompt = buildRetryPrompt(proposal, validation.errors);
+          budget.add(estimateTokens(retryPrompt));
+          const retryResponse = await provider.complete(retryPrompt);
+          if (!retryResponse || typeof retryResponse !== 'string') throw new Error('LLM returned empty or invalid response');
+          budget.add(estimateTokens(retryResponse));
+
+          // Parse retry response as single object
+          let json = retryResponse.trim();
+          const fenceMatch = json.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+          if (fenceMatch) json = fenceMatch[1].trim();
+          const objStart = json.indexOf('{');
+          const objEnd = json.lastIndexOf('}');
+          if (objStart !== -1 && objEnd > objStart) json = json.slice(objStart, objEnd + 1);
+
+          const fixed = JSON.parse(json);
+          if (typeof fixed !== 'object' || fixed === null) throw new Error('LLM retry response is not a JSON object');
+          // Merge fixes into proposal
+          if (typeof fixed.kernExample === 'string') proposal.kernExample = fixed.kernExample;
+          if (typeof fixed.expectedOutput === 'string') proposal.expectedOutput = fixed.expectedOutput;
+          if (typeof fixed.codegenSource === 'string') proposal.codegenSource = fixed.codegenSource;
+
+          validation = validateEvolveProposal(proposal, existingKw);
+          allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
+          if (allOk) break;
+        } catch (e) {
+          console.error(`    Retry ${retry} failed: ${(e as Error).message}`);
+        }
+      }
+    }
+
+    const status = allOk ? '\u2713' : '\u2717';
+    console.log(`  ${status} ${proposal.keyword} — ${proposal.reason.observation}`);
+    if (validation.errors.length > 0) {
+      for (const err of validation.errors.slice(0, 3)) {
+        console.log(`    ${err}`);
+      }
+    }
+
+    // Stage proposals for review (including failed ones — user can inspect)
+    validation.retryCount = allOk ? 0 : maxRetries;
+    stageEvolveV4Proposal(proposal, validation);
+    stagedCount++;
+  }
+
+  if (stagedCount > 0) {
+    console.log(`\n  Staged ${stagedCount} proposal(s).`);
+    console.log(`  Run 'kern evolve:review-v4' to review and graduate proposals.`);
+  }
+
+  console.log('');
+  process.exit(0);
+}
+
+// ── kern evolve:review-v4 [--list] [--approve=<id>] [--reject=<id>] [--detail=<id>] ──
+if (args[0] === 'evolve:review-v4') {
+  const approveV4Id = (() => {
+    const eqArg = args.find(a => a.startsWith('--approve='));
+    if (eqArg) return eqArg.split('=')[1];
+    const idx = args.indexOf('--approve');
+    return idx !== -1 && idx + 1 < args.length ? args[idx + 1] : undefined;
+  })();
+  const rejectV4Id = (() => {
+    const eqArg = args.find(a => a.startsWith('--reject='));
+    if (eqArg) return eqArg.split('=')[1];
+    const idx = args.indexOf('--reject');
+    return idx !== -1 && idx + 1 < args.length ? args[idx + 1] : undefined;
+  })();
+  const detailV4Id = (() => {
+    const eqArg = args.find(a => a.startsWith('--detail='));
+    if (eqArg) return eqArg.split('=')[1];
+    const idx = args.indexOf('--detail');
+    return idx !== -1 && idx + 1 < args.length ? args[idx + 1] : undefined;
+  })();
+
+  if (approveV4Id) {
+    // Approve → validate → compile → graduate
+    const staged = getStagedEvolveV4(approveV4Id);
+    if (!staged) {
+      console.error(`  Not found: ${approveV4Id}`);
+      process.exit(1);
+    }
+
+    const { proposal, validation } = staged;
+    const allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
+    if (!allOk) {
+      console.error(`  Cannot approve — validation failed for '${proposal.keyword}':`);
+      for (const err of validation.errors) {
+        console.error(`    ${err}`);
+      }
+      process.exit(1);
+    }
+
+    // Compile codegen source to JS
+    let compiledJs: string;
+    try {
+      compiledJs = compileCodegenToJS(proposal.codegenSource);
+    } catch (err) {
+      console.error(`  Failed to compile codegen for '${proposal.keyword}': ${(err as Error).message}`);
+      process.exit(1);
+    }
+
+    // Graduate the node
+    const result = graduateNode(proposal, compiledJs);
+    if (result.success) {
+      updateStagedEvolveV4Status(approveV4Id, 'approved');
+      cleanApprovedEvolveV4(approveV4Id);
+      console.log(`  Graduated '${proposal.keyword}' → ${result.path}`);
+      console.log(`  The node is now available in kern compile and kern dev.`);
+    } else {
+      console.error(`  Graduation failed: ${result.error}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  if (rejectV4Id) {
+    const updated = updateStagedEvolveV4Status(rejectV4Id, 'rejected');
+    if (updated) {
+      console.log(`  Rejected: ${updated.proposal.keyword} (${rejectV4Id})`);
+      cleanRejectedEvolveV4();
+    } else {
+      console.error(`  Not found: ${rejectV4Id}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  if (detailV4Id) {
+    const staged = getStagedEvolveV4(detailV4Id);
+    if (!staged) {
+      console.error(`  Not found: ${detailV4Id}`);
+      process.exit(1);
+    }
+    const { proposal, validation } = staged;
+    console.log(`\n  DETAIL: ${proposal.keyword} (${proposal.displayName})\n`);
+    console.log(`  Description: ${proposal.description}`);
+    console.log(`  Props: ${proposal.props.map(p => `${p.name}:${p.type}${p.required ? '*' : ''}`).join(', ')}`);
+    console.log(`  Child types: ${proposal.childTypes.join(', ') || '(none)'}`);
+    console.log(`  Codegen tier: ${proposal.codegenTier}`);
+    console.log(`  Run ID: ${proposal.evolveRunId}`);
+    if (proposal.parserHints) {
+      console.log(`  Parser hints: ${JSON.stringify(proposal.parserHints)}`);
+    }
+    console.log(`\n  --- Codegen Source ---`);
+    console.log(proposal.codegenSource);
+    console.log(`  --- Instances (${proposal.reason.instances.length}) ---`);
+    for (const inst of proposal.reason.instances.slice(0, 10)) {
+      console.log(`    ${inst}`);
+    }
+    if (validation.errors.length > 0) {
+      console.log(`\n  --- Validation Errors ---`);
+      for (const err of validation.errors) {
+        console.log(`    ${err}`);
+      }
+    }
+    console.log('');
+    process.exit(0);
+  }
+
+  // Default: interactive review or list mode
+  const stagedV4 = listStagedEvolveV4();
+  const pendingV4 = stagedV4.filter(s => s.status === 'pending');
+  if (pendingV4.length === 0) {
+    console.log('  No pending v4 proposals. Run \'kern evolve:discover <dir>\' to find patterns.');
+    process.exit(0);
+  }
+
+  const listOnly = args.includes('--list');
+
+  if (listOnly) {
+    console.log(`\n  KERN evolve:review-v4 — ${pendingV4.length} proposal(s)\n`);
+    for (const s of pendingV4) {
+      console.log(formatEvolveV4SplitView(s));
+      console.log('');
+    }
+    process.exit(0);
+  }
+
+  // Interactive review — walk through each proposal
+  const { createInterface } = await import('readline');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (q: string): Promise<string> => new Promise(res => rl.question(q, res));
+
+  console.log(`\n  KERN evolve:review-v4 — ${pendingV4.length} proposal(s)\n`);
+
+  for (const staged of pendingV4) {
+    console.log(formatEvolveV4SplitView(staged));
+    console.log('');
+
+    let decided = false;
+    while (!decided) {
+      const answer = (await ask('  [a]pprove  [r]eject  [s]kip  [d]etail  [q]uit > ')).trim().toLowerCase();
+
+      if (answer === 'a' || answer === 'approve') {
+        const { proposal, validation } = staged;
+        const allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
+        if (!allOk) {
+          console.log(`  Cannot approve — validation failed. Use [d]etail to see errors.\n`);
+          continue;
+        }
+        try {
+          const compiledJs = compileCodegenToJS(proposal.codegenSource);
+          const result = graduateNode(proposal, compiledJs);
+          if (result.success) {
+            updateStagedEvolveV4Status(staged.id, 'approved');
+            cleanApprovedEvolveV4(staged.id);
+            console.log(`  \u2713 Graduated '${proposal.keyword}'\n`);
+          } else {
+            console.log(`  Graduation failed: ${result.error}\n`);
+          }
+        } catch (err) {
+          console.log(`  Error: ${(err as Error).message}\n`);
+        }
+        decided = true;
+      } else if (answer === 'r' || answer === 'reject') {
+        updateStagedEvolveV4Status(staged.id, 'rejected');
+        cleanRejectedEvolveV4();
+        console.log(`  \u2717 Rejected '${staged.proposal.keyword}'\n`);
+        decided = true;
+      } else if (answer === 's' || answer === 'skip') {
+        console.log(`  Skipped.\n`);
+        decided = true;
+      } else if (answer === 'd' || answer === 'detail') {
+        const { proposal, validation } = staged;
+        console.log(`\n  --- Codegen Source ---`);
+        console.log(proposal.codegenSource);
+        console.log(`  --- Instances (${proposal.reason.instances.length}) ---`);
+        for (const inst of proposal.reason.instances.slice(0, 5)) {
+          console.log(`    ${inst}`);
+        }
+        if (validation.errors.length > 0) {
+          console.log(`  --- Errors ---`);
+          for (const err of validation.errors) {
+            console.log(`    ${err}`);
+          }
+        }
+        console.log('');
+      } else if (answer === 'q' || answer === 'quit') {
+        rl.close();
+        process.exit(0);
+      }
+    }
+  }
+
+  rl.close();
+  console.log('  Review complete.\n');
+  process.exit(0);
+}
+
+// ── kern evolve:test ─────────────────────────────────────────────────
+if (args[0] === 'evolve:test') {
+  console.log('\n  KERN evolve:test — golden test runner\n');
+
+  const results = runGoldenTests();
+  console.log(formatGoldenTestResults(results));
+
+  const failed = results.filter(r => !r.pass).length;
+  console.log('');
+  process.exit(failed > 0 ? 1 : 0);
+}
+
+// ── kern evolve:rollback <keyword> [--force] ─────────────────────────
+if (args[0] === 'evolve:rollback') {
+  const keyword = args[1];
+  if (!keyword || keyword.startsWith('--')) {
+    console.error('Usage: kern evolve:rollback <keyword> [--force]');
+    process.exit(1);
+  }
+
+  const force = args.includes('--force');
+  const result = rollbackNode(keyword, process.cwd(), force);
+
+  if (result.success) {
+    console.log(`  Rolled back '${keyword}' (moved to .trash/).`);
+    console.log(`  Restore with: kern evolve:restore ${keyword}`);
+  } else {
+    console.error(`  Failed: ${result.error}`);
+    if (result.usageFiles) {
+      console.error('  Used in:');
+      for (const f of result.usageFiles.slice(0, 5)) {
+        console.error(`    ${relative(process.cwd(), f)}`);
+      }
+    }
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+// ── kern evolve:restore <keyword> ────────────────────────────────────
+if (args[0] === 'evolve:restore') {
+  const keyword = args[1];
+  if (!keyword) {
+    console.error('Usage: kern evolve:restore <keyword>');
+    process.exit(1);
+  }
+
+  const result = restoreNode(keyword);
+  if (result.success) {
+    console.log(`  Restored '${keyword}'.`);
+  } else {
+    console.error(`  Failed: ${result.error}`);
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+// ── kern evolve:list ─────────────────────────────────────────────────
+if (args[0] === 'evolve:list') {
+  const manifest = readEvolvedManifest();
+
+  if (!manifest || Object.keys(manifest.nodes).length === 0) {
+    console.log('\n  No evolved nodes graduated. Run \'kern evolve:discover\' to start.\n');
+    process.exit(0);
+  }
+
+  console.log(`\n  KERN evolved nodes — ${Object.keys(manifest.nodes).length} graduated\n`);
+  for (const [keyword, entry] of Object.entries(manifest.nodes)) {
+    console.log(`  ${keyword} — ${entry.displayName} (graduated ${entry.graduatedAt.split('T')[0]} by ${entry.graduatedBy})`);
+  }
+  console.log('');
+  process.exit(0);
+}
+
+// ── kern evolve:promote <keyword> ────────────────────────────────────
+if (args[0] === 'evolve:promote') {
+  const promoteKeyword = args[1];
+  if (!promoteKeyword || promoteKeyword.startsWith('--')) {
+    console.error('Usage: kern evolve:promote <keyword>');
+    console.error('  Reads codegen from .kern/evolved/<keyword>/ and outputs what to add to core.');
+    process.exit(1);
+  }
+
+  const result = promoteNode(promoteKeyword);
+  if (!result.success) {
+    console.error(`  Failed: ${result.error}`);
+    process.exit(1);
+  }
+
+  const fnName = 'generate' + promoteKeyword.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join('');
+  console.log(`\n  KERN evolve:promote — ${promoteKeyword}\n`);
+  console.log('  To promote this node to core, apply these changes:\n');
+  console.log(`  1. Add '${promoteKeyword}' to NODE_TYPES in packages/core/src/spec.ts`);
+  console.log(`  2. Create packages/core/src/generators/${fnName}.ts with:`);
+  console.log(`     ──────────────────────────────`);
+  for (const line of (result.codegenTs || '').split('\n').slice(0, 20)) {
+    console.log(`     ${line}`);
+  }
+  if ((result.codegenTs || '').split('\n').length > 20) {
+    console.log(`     ... (${(result.codegenTs || '').split('\n').length - 20} more lines)`);
+  }
+  console.log(`     ──────────────────────────────`);
+  console.log(`  3. Add case '${promoteKeyword}': return ${fnName}(node); to generateCoreNode() in codegen-core.ts`);
+  if (result.goldenKern) {
+    console.log(`  4. Move golden test to packages/core/tests/`);
+  }
+  console.log(`  5. Run: kern evolve:rollback ${promoteKeyword} --force`);
+  console.log('');
+  process.exit(0);
+}
+
+// ── kern evolve:backfill <keyword> --target=<target> [--provider=...] ──
+if (args[0] === 'evolve:backfill') {
+  const backfillKeyword = args[1];
+  if (!backfillKeyword || backfillKeyword.startsWith('--')) {
+    console.error('Usage: kern evolve:backfill <keyword> --target=<target> [--provider=openai|anthropic|ollama]');
+    process.exit(1);
+  }
+
+  const backfillTarget = args.find(a => a.startsWith('--target='))?.split('=')[1];
+  if (!backfillTarget) {
+    console.error('  --target=<target> is required');
+    process.exit(1);
+  }
+
+  const def = readNodeDefinition(backfillKeyword);
+  if (!def) {
+    console.error(`  Node '${backfillKeyword}' is not graduated.`);
+    process.exit(1);
+  }
+
+  // Read current codegen source
+  const codegenTsPath = resolve('.kern', 'evolved', backfillKeyword, 'codegen.ts');
+  if (!existsSync(codegenTsPath)) {
+    console.error(`  Missing codegen.ts for '${backfillKeyword}'`);
+    process.exit(1);
+  }
+  const codegenSource = readFileSync(codegenTsPath, 'utf-8');
+  const templateKernPath = resolve('.kern', 'evolved', backfillKeyword, 'template.kern');
+  const kernExample = existsSync(templateKernPath) ? readFileSync(templateKernPath, 'utf-8') : '';
+  const expectedOutputPath = resolve('.kern', 'evolved', backfillKeyword, 'expected-output.ts');
+  const expectedOutput = existsSync(expectedOutputPath) ? readFileSync(expectedOutputPath, 'utf-8') : '';
+
+  console.log(`\n  KERN evolve:backfill — ${backfillKeyword} → ${backfillTarget}\n`);
+
+  const providerArg = args.find(a => a.startsWith('--provider='))?.split('=')[1] as 'openai' | 'anthropic' | 'ollama' | undefined;
+  let provider;
+  try {
+    provider = createLLMProvider({ provider: providerArg });
+  } catch (err) {
+    console.error(`  ${(err as Error).message}`);
+    process.exit(1);
+  }
+  console.log(`  Provider: ${provider.name}`);
+
+  const prompt = buildBackfillPrompt(backfillKeyword, {
+    props: def.props,
+    childTypes: def.childTypes,
+    kernExample,
+    codegenSource,
+    expectedOutput,
+  }, backfillTarget);
+
+  try {
+    const response = await provider.complete(prompt);
+
+    // Parse JSON response
+    let json = response.trim();
+    const fenceMatch = json.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+    if (fenceMatch) json = fenceMatch[1].trim();
+    const objStart = json.indexOf('{');
+    const objEnd = json.lastIndexOf('}');
+    if (objStart !== -1 && objEnd > objStart) json = json.slice(objStart, objEnd + 1);
+
+    const parsed = JSON.parse(json);
+    if (typeof parsed !== 'object' || parsed === null) {
+      console.error('  LLM response is not a JSON object');
+      process.exit(1);
+    }
+    const targetCodegen = typeof parsed.codegenSource === 'string' ? parsed.codegenSource : undefined;
+
+    if (!targetCodegen) {
+      console.error('  LLM did not return codegenSource');
+      process.exit(1);
+    }
+
+    // Write target override
+    const targetsDir = resolve('.kern', 'evolved', backfillKeyword, 'targets');
+    mkdirSync(targetsDir, { recursive: true });
+    writeFileSync(resolve(targetsDir, `${backfillTarget}.js`), targetCodegen);
+
+    console.log(`  Written: .kern/evolved/${backfillKeyword}/targets/${backfillTarget}.js`);
+    if (parsed.expectedOutput) {
+      console.log(`  Expected output preview:`);
+      for (const line of (parsed.expectedOutput as string).split('\n').slice(0, 10)) {
+        console.log(`    ${line}`);
+      }
+    }
+    console.log(`\n  Review the generated codegen before using in production.`);
+  } catch (err) {
+    console.error(`  Error: ${(err as Error).message}`);
+    process.exit(1);
+  }
+
+  console.log('');
+  process.exit(0);
+}
+
+// ── kern evolve:prune [--dry-run] [--days=N] ─────────────────────────
+if (args[0] === 'evolve:prune') {
+  const dryRun = args.includes('--dry-run');
+  const daysArg = args.find(a => a.startsWith('--days='))?.split('=')[1];
+  const thresholdDays = daysArg ? Number(daysArg) : 90;
+
+  console.log(`\n  KERN evolve:prune — removing unused nodes (>${thresholdDays}d)\n`);
+
+  const results = pruneNodes(process.cwd(), thresholdDays, dryRun);
+
+  if (results.length === 0) {
+    console.log('  No nodes eligible for pruning.');
+    process.exit(0);
+  }
+
+  for (const r of results) {
+    if (dryRun) {
+      console.log(`  Would prune: ${r.keyword} (${r.daysUnused}d unused)`);
+    } else if (r.pruned) {
+      console.log(`  Pruned: ${r.keyword} (${r.daysUnused}d unused) → .trash/`);
+    } else {
+      console.log(`  Failed: ${r.keyword} — ${r.error}`);
+    }
+  }
+
+  if (dryRun) {
+    console.log(`\n  Dry run — no changes made. Remove --dry-run to prune.`);
+  }
+
+  console.log('');
+  process.exit(0);
+}
+
+// ── kern evolve:migrate ──────────────────────────────────────────────
+if (args[0] === 'evolve:migrate') {
+  console.log(`\n  KERN evolve:migrate — checking for keyword collisions\n`);
+
+  const collisions = detectCollisions(NODE_TYPES);
+
+  if (collisions.length === 0) {
+    console.log('  No collisions. All evolved nodes are compatible with core.');
+    process.exit(0);
+  }
+
+  console.log(`  Found ${collisions.length} collision(s):\n`);
+  for (const c of collisions) {
+    console.log(`  ${c.keyword} (graduated ${c.graduatedAt.split('T')[0]})`);
+    console.log(`    This keyword now exists in core NODE_TYPES.`);
+    console.log(`    Options:`);
+    console.log(`      kern evolve:migrate --rename=${c.keyword} --to=<new-name>`);
+    console.log(`      kern evolve:migrate --remove=${c.keyword}  (core version supersedes)`);
+    console.log('');
+  }
+
+  // Handle --rename and --remove flags
+  const renameArg = args.find(a => a.startsWith('--rename='))?.split('=')[1];
+  const toArg = args.find(a => a.startsWith('--to='))?.split('=')[1];
+  const removeArg = args.find(a => a.startsWith('--remove='))?.split('=')[1];
+
+  if (renameArg && toArg) {
+    const result = renameEvolvedNode(renameArg, toArg);
+    if (result.success) {
+      console.log(`  Renamed '${renameArg}' → '${toArg}'`);
+      console.log(`  Update your .kern files: replace '${renameArg}' with '${toArg}'.`);
+    } else {
+      console.error(`  Rename failed: ${result.error}`);
+      process.exit(1);
+    }
+  }
+
+  if (removeArg) {
+    const result = rollbackNode(removeArg, process.cwd(), true);
+    if (result.success) {
+      console.log(`  Removed evolved '${removeArg}' — core version will be used.`);
+    } else {
+      console.error(`  Remove failed: ${result.error}`);
+      process.exit(1);
+    }
+  }
+
+  console.log('');
+  process.exit(0);
+}
+
+// ── kern evolve:rebuild ─────────────────────────────────────────────
+if (args[0] === 'evolve:rebuild') {
+  console.log(`\n  KERN evolve:rebuild — rebuilding manifest from disk\n`);
+
+  const result = rebuildEvolvedManifest();
+
+  if (result.errors.length > 0) {
+    for (const err of result.errors) {
+      console.log(`  ⚠  ${err}`);
+    }
+    console.log('');
+  }
+
+  if (result.rebuilt === 0 && result.errors.length > 0) {
+    console.error('  No nodes rebuilt.');
+    process.exit(1);
+  }
+
+  console.log(`  manifest.json rebuilt with ${result.rebuilt} node(s).`);
+  console.log('');
   process.exit(0);
 }
 
@@ -1128,6 +2029,12 @@ if (!inputFile) {
   console.log('  review <file.ts|dir> [options]                Static analysis, Cognitive Complexity & CI Gate');
   console.log('  evolve <dir|file> [options]                   Detect gaps → propose templates');
   console.log('  evolve:review [options]                       Review staged template proposals');
+  console.log('  evolve:review-v4 [options]                    Review & graduate v4 node proposals');
+  console.log('  evolve:promote <keyword>                      Show steps to move evolved → core');
+  console.log('  evolve:backfill <kw> --target=<t>             LLM generates target-specific codegen');
+  console.log('  evolve:prune [--dry-run] [--days=N]           Remove unused nodes (default 90d)');
+  console.log('  evolve:migrate                                Detect & resolve keyword collisions');
+  console.log('  evolve:rebuild                                Rebuild manifest.json from disk definitions');
   console.log('  confidence <file.kern>                        Display confidence graph for a .kern file');
   console.log('');
   console.log('Targets:');
@@ -1176,6 +2083,9 @@ if (existsSync(configPath)) {
 
 // Load templates before transpile
 loadTemplates(config);
+
+// Load evolved nodes (v4) — graduated nodes from .kern/evolved/
+loadEvolvedNodes(process.cwd(), args.includes('--verify'));
 
 // CLI flags override config — target
 const cliTarget = args.find(a => a.startsWith('--target='))?.split('=')[1];
@@ -1297,7 +2207,7 @@ if (isStructured) {
   const outExt = target === 'fastapi' ? '.py'
     : (target === 'vue' || target === 'nuxt') ? '.vue'
     : (target === 'express' || target === 'cli' || target === 'terminal') ? '.ts'
-    : target === 'ink' ? '.tsx' : '.tsx';
+    : '.tsx';
   const outFile = resolve(outDir, `${name}${outExt}`);
   mkdirSync(dirname(outFile), { recursive: true });
   writeFileSync(outFile, result.code);
@@ -1385,6 +2295,10 @@ function collectTsFilesFlat(dirPath: string, recursive: boolean): string[] {
     if (s.isDirectory() && recursive && !entry.startsWith('.') && entry !== 'node_modules' && entry !== 'dist') {
       files.push(...collectTsFilesFlat(full, true));
     } else if ((entry.endsWith('.ts') || entry.endsWith('.tsx')) && !entry.endsWith('.d.ts') && !entry.endsWith('.test.ts')) {
+      files.push(full);
+    } else if (entry.endsWith('.kern')) {
+      files.push(full);
+    } else if (entry.endsWith('.py') && !entry.startsWith('test_') && !entry.endsWith('_test.py')) {
       files.push(full);
     }
   }

@@ -18,12 +18,12 @@ export function PreviewPanel({ compiledCode, target }: PreviewPanelProps) {
   return (
     <iframe
       srcDoc={html}
-      sandbox="allow-scripts allow-same-origin"
+      referrerPolicy="no-referrer"
       style={{
         width: '100%',
         height: '100%',
         border: 'none',
-        background: '#f8f9fa',
+        background: '#f0f0f0',
         borderRadius: 0,
       }}
       title="KERN Preview"

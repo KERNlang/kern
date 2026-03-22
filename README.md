@@ -287,7 +287,7 @@ zustand-store storeName=Toast stateType=ToastState
 
 ## kern review
 
-**Scan existing TypeScript. Find bugs. No AI needed — pure AST analysis.**
+**Scan existing TypeScript. Find bugs. No AI needed — AST analysis + taint tracking + OWASP LLM01 coverage.**
 
 ```bash
 kern review src/stores/toast.ts
@@ -306,17 +306,27 @@ kern review src/stores/toast.ts
   Summary: 87% KERN coverage, ~218 → 70 tokens (68% reduction)
 ```
 
-### 26 AST-based rules across 5 layers
+### 68+ rules across 10 layers
 
-All rules walk the TypeScript AST — zero regex on source text, zero false positives on strings/comments.
+AST-based analysis with taint tracking, concept-level checks, and OWASP LLM01 coverage.
 
 | Layer | Rules | Examples |
 |:------|:------|:--------|
-| **Base** (always active) | 12 | `floating-promise`, `memory-leak`, `state-mutation`, `empty-catch`, `machine-gap`, `config-default-mismatch` |
-| **React** | 6 | `unstable-key`, `hook-order`, `async-effect`, `stale-closure`, `render-side-effect`, `state-explosion` |
+| **Base** (always active) | 13 | `floating-promise`, `memory-leak`, `state-mutation`, `empty-catch`, `machine-gap`, `cognitive-complexity` |
+| **React** | 7 | `unstable-key`, `hook-order`, `async-effect`, `stale-closure`, `render-side-effect`, `effect-self-update-loop` |
 | **Next.js** | 3 | `server-hook`, `hydration-mismatch`, `missing-use-client` |
 | **Vue** | 4 | `missing-ref-value`, `missing-onUnmounted`, `reactive-destructure`, `setup-side-effect` |
-| **Express** | 3 | `unvalidated-input`, `missing-error-middleware`, `sync-in-handler` |
+| **Express** | 4 | `unvalidated-input`, `missing-error-middleware`, `sync-in-handler`, `double-response` |
+| **Security** | 8 | `xss-unsafe-html`, `command-injection`, `hardcoded-secret`, `no-eval`, `cors-wildcard`, `open-redirect` |
+| **Security v2** | 6 | `jwt-weak-verification`, `cookie-hardening`, `csrf-detection`, `csp-strength`, `path-traversal`, `weak-password-hashing` |
+| **Security v3** | 5 | `regex-dos`, `missing-input-validation`, `prototype-pollution`, `information-exposure`, `prompt-injection` |
+| **Security v4** (OWASP LLM01) | 10 | `indirect-prompt-injection`, `llm-output-execution`, `system-prompt-leakage`, `rag-poisoning`, `tool-calling-manipulation` |
+| **Dead logic** | 8 | `identical-conditions`, `all-identical-branches`, `constant-condition`, `one-iteration-loop`, `unused-collection` |
+| **Null safety** | 2 | `unchecked-find`, `unchecked-get` |
+| **Concept rules** | 5 | `ignored-error`, `boundary-mutation`, `unguarded-effect`, `unrecovered-effect`, `illegal-dependency` |
+| **Taint tracking** | dynamic | `taint-command`, `taint-xss`, `taint-sql`, `taint-insufficient-sanitizer` |
+
+Plus suppression directives (`// kern-ignore`, `// kern-ignore-next-line`) for managing findings.
 
 ### Bug detection
 
@@ -367,7 +377,7 @@ kern review --diff origin/main                    # Only changed files
 | audiofacets (Electron + React) | 840 | **90%** | 4,477 findings |
 | audiofacets backend (Express) | 40 | **75%** | 478 findings |
 | audiofacets shop (Next.js) | 47 | **90%** | 176 findings |
-| kern-lang (self-review) | 48 | 88% | 0 |
+| kern-lang (self-review) | 148 | **81%** | 2,407 findings |
 
 `kern review` is not about token compression — it's about **structural confidence**. When the parser accepts your code, you know the interfaces are complete, the handlers exist, and the state transitions are valid.
 
@@ -439,6 +449,8 @@ kern evolve:review --promote --local  # Write to templates/
 
 Evolve scans your TypeScript, finds patterns from 12 library families (react-hook-form, redux-toolkit, framer-motion, axios, yup, valibot, etc.), and generates `.kern` template proposals with typed slots. Each proposal is validated through a 5-step pipeline: parse, register, expand, golden-diff, typecheck.
 
+Full 13-command CLI: `evolve`, `evolve:status`, `evolve:review`, `evolve:diff`, `evolve:approve`, `evolve:reject`, `evolve:promote`, `evolve:rollback`, `evolve:prune`, `evolve:migrate`, `evolve:discover`, `evolve:golden`, `evolve:target`.
+
 ---
 
 ## Version-Aware Compilation
@@ -468,19 +480,20 @@ KERN auto-detects framework versions from `package.json`. Upgrade your framework
 ## Monorepo
 
 ```
-@kernlang/core        Parser, codegen, types — the compiler engine
-@kernlang/cli         CLI tool (compile, transpile, dev, review, evolve)
-@kernlang/react       Next.js, Tailwind, Web transpilers
-@kernlang/vue         Vue 3 SFC, Nuxt 3 transpilers
-@kernlang/native      React Native transpiler
-@kernlang/express     Express backend + WebSocket transpiler
-@kernlang/fastapi     FastAPI Python + WebSocket transpiler
-@kernlang/terminal    ANSI terminal + Ink transpilers
-@kernlang/review      TS → KERN inference, bug detection, enforcement
-@kernlang/evolve      Self-extending template system (detect gaps → propose)
-@kernlang/playground  Interactive compiler UI (Next.js)
-@kernlang/metrics     Language coverage analysis
-@kernlang/protocol    AI draft communication protocol
+@kernlang/core           Parser, codegen, types — the compiler engine
+@kernlang/cli            CLI tool (compile, transpile, dev, review, evolve)
+@kernlang/react          Next.js, Tailwind, Web transpilers
+@kernlang/vue            Vue 3 SFC, Nuxt 3 transpilers
+@kernlang/native         React Native transpiler
+@kernlang/express        Express backend + WebSocket transpiler
+@kernlang/fastapi        FastAPI Python + WebSocket transpiler
+@kernlang/terminal       ANSI terminal + Ink transpilers
+@kernlang/review         68+ rules, taint tracking, OWASP LLM01, suppression
+@kernlang/review-python  Python review support (FastAPI, Django)
+@kernlang/evolve         Self-extending template system (13 commands)
+@kernlang/playground     Interactive compiler UI (Next.js)
+@kernlang/metrics        Language coverage analysis
+@kernlang/protocol       AI draft communication protocol
 ```
 
 ---

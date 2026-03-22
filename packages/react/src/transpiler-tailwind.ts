@@ -21,6 +21,7 @@ interface CodeBuilder {
   stateDecls: StateDecl[];
   logicBlocks: string[];
   i18nEnabled: boolean;
+  hasEventHandlers: boolean;
   colors: Record<string, string> | undefined;
   twProfile: TailwindVersionProfile | undefined;
 }
@@ -167,9 +168,24 @@ function renderChildren(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
 function renderScreen(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'space-y-8')}>`);
+  const styles = getStyles(node);
+  // Auto-detect dark background and add light text
+  const bgColor = styles.backgroundColor || '';
+  const isDark = isDarkColor(bgColor);
+  const textClass = isDark ? 'text-white' : 'text-zinc-900';
+  ctx.lines.push(`${indent}<div${twClasses(node, ctx, `space-y-8 ${textClass} min-h-screen`)}>`);
   renderChildren(node, ctx, indent);
   ctx.lines.push(`${indent}</div>`);
+}
+
+function isDarkColor(hex: string): boolean {
+  if (!hex || !hex.startsWith('#')) return false;
+  const c = hex.replace('#', '');
+  const r = parseInt(c.substring(0, 2), 16);
+  const g = parseInt(c.substring(2, 4), 16);
+  const b = parseInt(c.substring(4, 6), 16);
+  // Relative luminance
+  return (r * 0.299 + g * 0.587 + b * 0.114) < 128;
 }
 
 function renderSection(node: IRNode, ctx: CodeBuilder, indent: string): void {
@@ -229,10 +245,10 @@ function renderCard(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const styles = { ...getStyles(node) };
   const border = styles.border;
   delete styles.border;
-  let extra = '';
+  let extra = 'shadow-sm';
   if (border) {
     const borderClass = colorToTw('border', border, ctx.colors);
-    extra = `border ${borderClass}`;
+    extra = `shadow-sm border ${borderClass}`;
   }
   // Use a shallow-copied styles object to avoid mutating the live IR node
   if (node.props) {
@@ -303,6 +319,7 @@ function renderButton(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const size = p.size as string || 'md';
   const iconName = p.icon as string;
 
+  ctx.hasEventHandlers = true; // onClick requires 'use client'
   if (variant !== 'primary') {
     ctx.componentImports.add('Button');
     ctx.lines.push(`${indent}<Button variant="${variant}" size="${size}" onClick={${onClick}}>`);
@@ -331,6 +348,7 @@ function renderSlider(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const setter = bindSetter(bind);
   const dblClick = onDoubleClick ? ` onDoubleClick={() => ${setter}(${onDoubleClick})}` : '';
 
+  ctx.hasEventHandlers = true; // onChange requires 'use client'
   ctx.lines.push(`${indent}<input`);
   ctx.lines.push(`${indent}  type="range"`);
   ctx.lines.push(`${indent}  min={${min}}`);
@@ -349,6 +367,7 @@ function renderToggle(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const accent = p.accent as string || '#ea580c';
   const setter = bindSetter(bind);
 
+  ctx.hasEventHandlers = true; // onChange requires 'use client'
   ctx.lines.push(`${indent}<label className="relative inline-flex items-center cursor-pointer">`);
   ctx.lines.push(`${indent}  <input`);
   ctx.lines.push(`${indent}    type="checkbox"`);
@@ -376,6 +395,7 @@ function renderOnHandler(node: IRNode, ctx: CodeBuilder): void {
     return;
   }
 
+  ctx.hasEventHandlers = true; // event handlers require 'use client'
   const fnName = handlerRef || `handle${event.charAt(0).toUpperCase() + event.slice(1)}`;
   const asyncKw = isAsync ? 'async ' : '';
 
@@ -496,7 +516,19 @@ function renderIcon(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
 function renderImage(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  ctx.lines.push(`${indent}<img src="/${p.src}.png" alt="${p.src}"${twClasses(node, ctx)} />`);
+  const src = p.src as string || '';
+  const styles = getStyles(node);
+  const w = styles.width || '40';
+  const h = styles.height || '40';
+  const isAvatar = src === 'avatar' || src.includes('avatar');
+  if (isAvatar) {
+    // Render avatar as gradient circle placeholder
+    ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'flex items-center justify-center text-white font-bold')} style={{ background: 'linear-gradient(135deg, #8B5CF6, #00CEFF)' }}>
+${indent}  <svg width="${Math.round(Number(w) * 0.5)}" height="${Math.round(Number(h) * 0.5)}" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+${indent}</div>`);
+  } else {
+    ctx.lines.push(`${indent}<img src="${src.startsWith('http') ? src : `/${src}.png`}" alt="${escapeJsxText(src)}"${twClasses(node, ctx)} />`);
+  }
 }
 
 function renderList(node: IRNode, ctx: CodeBuilder, indent: string): void {
@@ -507,11 +539,10 @@ function renderList(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
 function renderItem(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  const tw = twClasses(node, ctx, 'flex items-center justify-between p-3 border-b border-zinc-800');
   const hasChildren = node.children && node.children.length > 0;
 
   if (hasChildren) {
-    ctx.lines.push(`${indent}<div${tw}>`);
+    ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'flex items-center justify-between py-3 px-1')} style={{ borderBottom: '1px solid #1E2530' }}>`);
     renderChildren(node, ctx, indent);
     ctx.lines.push(`${indent}</div>`);
   } else {
@@ -520,26 +551,46 @@ function renderItem(node: IRNode, ctx: CodeBuilder, indent: string): void {
     const time = p.time as string;
     const calories = p.calories as string;
     const category = p.category as string;
-    ctx.lines.push(`${indent}<div${tw}>`);
-    ctx.lines.push(`${indent}  <div>`);
-    if (name) ctx.lines.push(`${indent}    <span className="text-sm text-white font-medium">${escapeJsxText(name)}</span>`);
-    if (time) ctx.lines.push(`${indent}    <span className="text-xs text-zinc-500 ml-2">${escapeJsxText(time)}</span>`);
-    if (category) ctx.lines.push(`${indent}    <span className="text-xs text-zinc-500 ml-2">${escapeJsxText(category)}</span>`);
+    ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'flex items-center justify-between py-3 px-1')} style={{ borderBottom: '1px solid #1E2530' }}>`);
+    ctx.lines.push(`${indent}  <div className="flex items-center gap-2">`);
+    if (name) ctx.lines.push(`${indent}    <span className="text-sm font-semibold" style={{ color: '#F8FAFC' }}>${escapeJsxText(name)}</span>`);
+    if (time) ctx.lines.push(`${indent}    <span className="text-xs" style={{ color: '#7A7485' }}>${escapeJsxText(time)}</span>`);
+    if (category) ctx.lines.push(`${indent}    <span className="text-xs" style={{ color: '#7A7485' }}>${escapeJsxText(category)}</span>`);
     ctx.lines.push(`${indent}  </div>`);
-    if (calories) ctx.lines.push(`${indent}  <span className="text-sm text-zinc-400">${escapeJsxText(calories)} kcal</span>`);
+    if (calories) ctx.lines.push(`${indent}  <span className="text-sm" style={{ color: '#B8B3C1' }}>${escapeJsxText(calories)} kcal</span>`);
     ctx.lines.push(`${indent}</div>`);
   }
 }
 
 function renderTabs(node: IRNode, ctx: CodeBuilder, indent: string): void {
-  ctx.lines.push(`${indent}<nav${twClasses(node, ctx, 'flex')}>`);
+  ctx.lines.push(`${indent}<nav${twClasses(node, ctx, 'flex justify-around items-center py-3 mt-auto')} style={{ borderTop: '1px solid #2A3441' }}>`);
   renderChildren(node, ctx, indent);
   ctx.lines.push(`${indent}</nav>`);
 }
 
 function renderTab(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  ctx.lines.push(`${indent}<button${twClasses(node, ctx)}>${tText(ctx, camelKey(p.label as string), p.label as string)}</button>`);
+  const label = p.label as string;
+  const icon = p.icon as string;
+  const activeClass = '';
+  ctx.lines.push(`${indent}<button${twClasses(node, ctx, 'flex flex-col items-center gap-1 text-xs')} style={{ color: '#7A7485' }}>`);
+  if (icon) ctx.lines.push(`${indent}  <span dangerouslySetInnerHTML={{ __html: '${iconToSvg(icon).replace(/'/g, "\\'")}' }} />`);
+  ctx.lines.push(`${indent}  ${tText(ctx, camelKey(label), label)}`);
+  ctx.lines.push(`${indent}</button>`);
+}
+
+function iconToSvg(icon: string): string {
+  const svgs: Record<string, string> = {
+    home: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+    plus: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
+    chart: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
+    stats: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
+    search: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+    settings: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>',
+    profile: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+    heart: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
+  };
+  return svgs[icon] || '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4"/></svg>';
 }
 
 function renderProgress(node: IRNode, ctx: CodeBuilder, indent: string): void {
@@ -550,13 +601,13 @@ function renderProgress(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const color = (p.color as string) || '#007AFF';
   const pct = Math.round((current / target) * 100);
 
-  ctx.lines.push(`${indent}<div className="mb-3">`);
-  ctx.lines.push(`${indent}  <div className="flex justify-between text-sm mb-1">`);
-  ctx.lines.push(`${indent}    <span className="text-zinc-300">${escapeJsxText(String(label))}</span>`);
-  ctx.lines.push(`${indent}    <span className="text-zinc-400">${current}/${target} ${escapeJsxText(String(p.unit || ''))}</span>`);
+  ctx.lines.push(`${indent}<div className="mb-4">`);
+  ctx.lines.push(`${indent}  <div className="flex justify-between text-sm mb-1.5">`);
+  ctx.lines.push(`${indent}    <span className="font-semibold" style={{ color: '#F8FAFC' }}>${escapeJsxText(String(label))}</span>`);
+  ctx.lines.push(`${indent}    <span style={{ color: '#B8B3C1' }}>${current}/${target} ${escapeJsxText(String(p.unit || ''))}</span>`);
   ctx.lines.push(`${indent}  </div>`);
-  ctx.lines.push(`${indent}  <div className="h-2 bg-zinc-700 rounded-full overflow-hidden">`);
-  ctx.lines.push(`${indent}    <div className="h-full rounded-full bg-[${color}]" style={{ width: '${pct}%' }} />`);
+  ctx.lines.push(`${indent}  <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: '#1A2030' }}>`);
+  ctx.lines.push(`${indent}    <div className="h-full rounded-full transition-all" style={{ width: '${pct}%', backgroundColor: '${color}' }} />`);
   ctx.lines.push(`${indent}  </div>`);
   ctx.lines.push(`${indent}</div>`);
 }
@@ -570,6 +621,7 @@ function renderInput(node: IRNode, ctx: CodeBuilder, indent: string): void {
     const bind = p.bind as string;
     const setter = bindSetter(bind);
     attrs.push(`value={${bindVar(bind)}}`);
+    ctx.hasEventHandlers = true; // onChange requires 'use client'
     // Check if onChange is an expression
     if (isExpr(p.onChange)) {
       attrs.push(`onChange={${(p.onChange as { code: string }).code}}`);
@@ -652,6 +704,7 @@ function _transpileTailwindInner(root: IRNode, config?: ResolvedKernConfig): Tra
     stateDecls: [],
     logicBlocks: [],
     i18nEnabled,
+    hasEventHandlers: false,
     colors: config?.colors,
     twProfile: config?.frameworkVersions ? buildTailwindProfile(config.frameworkVersions) : undefined,
   };
@@ -710,7 +763,8 @@ function _transpileTailwindInner(root: IRNode, config?: ResolvedKernConfig): Tra
     const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
     const init = s.initial === 'true' ? 'true' : s.initial === 'false' ? 'false' : isNaN(Number(s.initial)) ? `'${s.initial}'` : s.initial;
     // Check if initial is an expression
-    const initProp = (root.children?.find(c => c.type === 'state' && c.props?.name === s.name)?.props?.initial);
+    const stateNode = root.children?.find(c => c.type === 'state' && c.props?.name === s.name);
+    const initProp = stateNode?.props?.initial;
     const isExpr = typeof initProp === 'object' && initProp !== null && '__expr' in (initProp as object);
     const initVal = isExpr ? (initProp as { code: string }).code : init;
     code.push(`  const [${s.name}, ${setter}] = useState(${initVal});`);
@@ -760,6 +814,7 @@ function _renderTailwindFile(file: PlannedFile, config: ResolvedKernConfig): str
     stateDecls: [],
     logicBlocks: [],
     i18nEnabled,
+    hasEventHandlers: false,
     colors: config.colors,
     twProfile: config.frameworkVersions ? buildTailwindProfile(config.frameworkVersions) : undefined,
   };
@@ -775,8 +830,8 @@ function _renderTailwindFile(file: PlannedFile, config: ResolvedKernConfig): str
 
   const code: string[] = [];
 
-  // For non-entry files with state/logic, add 'use client'
-  const needsClient = hasState || hasLogic;
+  // For non-entry files with state/logic/event handlers, add 'use client'
+  const needsClient = hasState || hasLogic || ctx.hasEventHandlers;
   if (needsClient) {
     code.push(`'use client';`);
     code.push('');
@@ -815,7 +870,7 @@ function _renderTailwindFile(file: PlannedFile, config: ResolvedKernConfig): str
   code.push('');
 
   if (file.isEntry) {
-    code.push(`export function ${name}() {`);
+    code.push(`export default function ${name}() {`);
   } else {
     code.push(`export function ${name}() {`);
   }
@@ -829,7 +884,8 @@ function _renderTailwindFile(file: PlannedFile, config: ResolvedKernConfig): str
     const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
     const init = s.initial === 'true' ? 'true' : s.initial === 'false' ? 'false' : isNaN(Number(s.initial)) ? `'${s.initial}'` : s.initial;
     // Check if initial is an expression
-    const initProp = (rootNode.children?.find(c => c.type === 'state' && c.props?.name === s.name)?.props?.initial);
+    const stateNode = rootNode.children?.find(c => c.type === 'state' && c.props?.name === s.name);
+    const initProp = stateNode?.props?.initial;
     const isExprInit = typeof initProp === 'object' && initProp !== null && '__expr' in (initProp as object);
     const initVal = isExprInit ? (initProp as { code: string }).code : init;
     code.push(`  const [${s.name}, ${setter}] = useState(${initVal});`);
