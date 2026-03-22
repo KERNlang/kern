@@ -328,3 +328,105 @@ The dimension analysis and evolution path assume Kern's scope is stable. If thes
 4. **Evolve scope**: Should evolve propose targets (ambitious) or just node types (conservative)? If targets, Option C is mandatory (manifests are LLM-generatable). If nodes only, any option works.
 
 These questions don't invalidate the analysis — they shift WHERE on the evolution path to stop.
+
+---
+
+## 12. The True Pattern — UDR (Understand-Decide-Render)
+
+Every multi-target compiler converges to the same shape. We call it **UDR**.
+
+### The Three Layers
+
+```
+LAYER U — UNDERSTAND (shared, run once, ~1,100 LOC)
+    Parse + analyze: extract semantic meaning from the AST
+    18 concerns: themes, styles, classes, state, handlers, capabilities,
+    conditionals, loops, tabs, text, self-closing, imports, source maps...
+    Output: AnalyzedComponent (target-independent semantic understanding)
+
+LAYER D — DECIDE (per-target, ~100 LOC manifest, mostly data)
+    9 decision categories: state syntax, event syntax, binding mode,
+    conditional mode, loop mode, file mode, style mode, import format,
+    handler rewriting
+    Output: TargetDecisions (pattern strings + mode selections)
+
+LAYER R — RENDER (shared, ~900 LOC engine, driven by D)
+    Walk the analyzed tree, switch on modes, interpolate patterns
+    One function handles ALL targets via strategy switches
+    Output: TranspileResult (code + source map + metrics)
+```
+
+### How All Options Map to UDR
+
+| Option | U | D | R |
+|--------|---|---|---|
+| A (hand-written) | U+D+R FUSED into one transpiler per target |
+| B (hooks) | Shared U | D+R fused into hooks per lineage |
+| C (strategies) | Shared U | Data manifest | Shared engine = **Pure UDR** |
+| D (cross-lang) | Shared U | Framework + language manifests | Engine + language plugins |
+| E (multi-level) | Multiple U layers | Per-level D | Per-level R |
+| F (templates) | Minimal U | Template files | Template interpolation |
+| G (hybrid) | Shared U | Different D per domain | Different R per domain |
+| H (enriched AST) | U enriches AST (not converts) | Same as C | Same as C |
+
+**Options A-H are different IMPLEMENTATIONS of UDR** with varying degrees of separation between layers.
+
+### Validation Against Real Compilers
+
+| System | U (Understand) | D (Decide) | R (Render) |
+|--------|---------------|------------|------------|
+| LLVM | Frontend + optimization passes | TableGen target descriptions | Code emitter per target |
+| Svelte | Analyze phase (8,525 LOC) | `generate: 'client'\|'server'` | Transform visitors |
+| Haxe | Type checker | Target selection | Per-target generator |
+| Fable | F# compiler typing | Target selection | Printer per target |
+| Nim | Semantic analysis | C/JS backend selection | Code generator |
+| JVM | javac/kotlinc frontend | Target JVM bytecode spec | Bytecode emitter |
+
+**The pattern is universal.** Every system that compiles one source to multiple targets separates understanding from rendering, with decisions in between.
+
+### LOC Budget (HYPOTHESIS — validate in implementation)
+
+| Layer | LOC | What |
+|-------|-----|------|
+| U (analyzeUi) | ~800 | Theme/style/state/handler/capability analysis |
+| U (analyzeServer) | ~300 | Route/middleware/validation analysis |
+| D (12 manifests) | ~1,120 | ~100 LOC data per target |
+| R (renderUi) | ~500 | Body walk, strategy switches, file assembly |
+| R (renderServer) | ~300 | Route rendering, entry point |
+| R (shared utils) | ~100 | interpolate(), countTokens(), sourceMap |
+| Plugins | ~400 | TailwindClassifier, Python language |
+| **TOTAL** | **~3,520** | vs current ~10,000 = **~65% reduction** |
+
+**Codex caveat (87% confidence):** "D stops being pure data once targets need semantic rewrites. The LOC estimate is vulnerable to hidden complexity in testing, diagnostics, and edge cases." Realistic total may be ~4,000-4,500. Still a ~55-60% reduction.
+
+**Honest note:** D is ~90% data (pattern strings, mode selections) and ~10% small functions (handler rewriting regex, a few transforms). Not 100% pure data. But dramatically simpler than 800 LOC hook functions.
+
+### Hard Cases Validated
+
+| Case | How UDR Handles It |
+|------|-------------------|
+| **Vue v-if (single child)** | `decorate_child` strategy adds v-if to child element attrs |
+| **Vue v-if (multi child)** | `decorate_child` wraps in `<template v-if>` |
+| **Svelte {#if}** | `wrap_block` strategy emits {#if}...{/if} |
+| **React JSX ternary** | `expr_wrapper` strategy emits `{test && (<>...</>)}` |
+| **Tabs** | U layer decomposes to state + buttons + conditionals. R handles normally. |
+| **SvelteKit routing** | D manifest has routing patterns. R generates artifacts. |
+| **Express/FastAPI** | Separate analyzeServer() + renderServer(). Same UDR pattern. |
+
+### What UDR Means for Kern's Future
+
+**Evolve integration:** Evolved nodes define analysis rules (U) + optional manifest entries (D). R renders automatically.
+
+**AI-generated targets:** LLMs generate D manifests (~100 LOC data). U and R are shared. `kern evolve-target` becomes feasible.
+
+**Cross-language:** D gains language section. R gains language printer plugin. U unchanged.
+
+**Testing:** U unit-tested (18 functions). D schema-validated. R unit-tested (11 functions). Integration via golden tests per target.
+
+### The First Step
+
+Regardless of final architecture, the FIRST implementation step is the same:
+
+**Build the U layer.** Extract the 18 shared analysis concerns from existing transpilers. This is valuable even if we never build the D+R layers — shared analysis improves code quality, reduces duplication, and enables better `kern review` integration.
+
+The U layer is the foundation. Everything else builds on it.
