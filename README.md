@@ -313,7 +313,7 @@ kern review src/stores/toast.ts
   Summary: 87% KERN coverage, ~218 → 70 tokens (68% reduction)
 ```
 
-### 68+ rules across 10 layers
+### 76+ rules across 10 layers
 
 AST-based analysis with taint tracking, concept-level checks, and OWASP LLM01 coverage.
 
@@ -495,7 +495,7 @@ KERN auto-detects framework versions from `package.json`. Upgrade your framework
 @kernlang/express        Express backend + WebSocket transpiler
 @kernlang/fastapi        FastAPI Python + WebSocket transpiler
 @kernlang/terminal       ANSI terminal + Ink transpilers
-@kernlang/review         68+ rules, taint tracking, OWASP LLM01, suppression
+@kernlang/review         76+ rules, taint tracking, OWASP LLM01, suppression
 @kernlang/review-python  Python review support (FastAPI, Django)
 @kernlang/evolve         Self-extending template system (13 commands)
 @kernlang/playground     Interactive compiler UI (Next.js)
