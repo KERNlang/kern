@@ -21,6 +21,6 @@
   },
   "dependencies": {
     "@kernlang/core": "workspace:*",
-    "ts-morph": "^24.0.0"
+    "ts-morph": "^27.0.2"
   }
 }
