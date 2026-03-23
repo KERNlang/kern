@@ -1,12 +1,12 @@
 /**
- * React-specific codegen — generates JSX/TSX code for provider and effect nodes.
+ * React-specific codegen — generates JSX/TSX code for provider, effect, and hook nodes.
  *
- * These nodes live in @kernlang/react because they produce JSX output,
- * unlike hook which generates pure TypeScript and lives in @kernlang/core.
+ * Hook codegen moved here from @kernlang/core because it generates
+ * React-specific imports (useState, useRef, useContext, useMemo, useCallback, useEffect).
  */
 
 import type { IRNode } from '@kernlang/core';
-import { parseParamList, capitalize, generateCoreNode, dedent, handlerCode } from '@kernlang/core';
+import { parseParamList, capitalize, generateCoreNode, dedent, handlerCode, exportPrefix } from '@kernlang/core';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -188,9 +188,9 @@ export function generateEffect(node: IRNode): string[] {
   return lines;
 }
 
-/** Check if a node is a React codegen node (provider or top-level effect). */
+/** Check if a node is a React codegen node (provider, effect, or hook). */
 export function isReactNode(type: string): boolean {
-  return type === 'provider' || type === 'effect';
+  return type === 'provider' || type === 'effect' || type === 'hook';
 }
 
 // ── Ground Layer — React Overrides (Tier 2) ──────────────────────────────
@@ -251,6 +251,142 @@ export function generateReactNode(node: IRNode): string[] {
   switch (node.type) {
     case 'provider': return generateProvider(node);
     case 'effect': return generateEffect(node);
+    case 'hook': return generateHook(node);
     default: return [];
   }
+}
+
+// ── Hook Codegen (moved from @kernlang/core) ─────────────────────────────
+
+export function generateHook(node: IRNode): string[] {
+  const props = p(node);
+  const name = props.name as string;
+  const params = props.params as string || '';
+  const returnsType = props.returns as string | undefined;
+  const exp = exportPrefix(node);
+  const lines: string[] = [];
+  const reactImports = new Set<string>();
+
+  const paramList = parseParamList(params);
+  const retClause = returnsType ? `: ${returnsType}` : '';
+
+  lines.push(`${exp}function ${name}(${paramList})${retClause} {`);
+
+  const children = kids(node);
+  const returnsNode = children.find(c => c.type === 'returns');
+  const ordered = children.filter(c => c.type !== 'returns');
+
+  for (const child of ordered) {
+    const cp = p(child);
+    switch (child.type) {
+      case 'state': {
+        reactImports.add('useState');
+        const sname = cp.name as string;
+        const stype = cp.type as string || 'unknown';
+        const sinit = cp.init as string || 'undefined';
+        const setter = `set${capitalize(sname)}`;
+        lines.push(`  const [${sname}, ${setter}] = useState<${stype}>(${sinit});`);
+        break;
+      }
+      case 'ref': {
+        reactImports.add('useRef');
+        const rname = cp.name as string;
+        const rtype = cp.type as string || 'unknown';
+        const rinit = cp.init as string || 'null';
+        lines.push(`  const ${rname} = useRef<${rtype}>(${rinit});`);
+        break;
+      }
+      case 'context': {
+        reactImports.add('useContext');
+        const cname = cp.name as string;
+        const csource = cp.source as string;
+        lines.push(`  const ${cname} = useContext(${csource});`);
+        break;
+      }
+      case 'handler': {
+        const code = cp.code as string || '';
+        const dedented = dedent(code);
+        for (const line of dedented.split('\n')) {
+          lines.push(`  ${line}`);
+        }
+        break;
+      }
+      case 'memo': {
+        reactImports.add('useMemo');
+        const mname = cp.name as string;
+        const mdeps = cp.deps as string || '';
+        const mcode = handlerCode(child);
+        const depsArr = mdeps ? `[${mdeps}]` : '[]';
+        lines.push(`  const ${mname} = useMemo(() => {`);
+        if (mcode) {
+          for (const line of mcode.split('\n')) {
+            lines.push(`    ${line}`);
+          }
+        }
+        lines.push(`  }, ${depsArr});`);
+        break;
+      }
+      case 'callback': {
+        reactImports.add('useCallback');
+        const cbname = cp.name as string;
+        const cbparams = cp.params as string || '';
+        const cbdeps = cp.deps as string || '';
+        const cbcode = handlerCode(child);
+        const cbParamList = parseParamList(cbparams);
+        const cbDepsArr = cbdeps ? `[${cbdeps}]` : '[]';
+        lines.push(`  const ${cbname} = useCallback((${cbParamList}) => {`);
+        if (cbcode) {
+          for (const line of cbcode.split('\n')) {
+            lines.push(`    ${line}`);
+          }
+        }
+        lines.push(`  }, ${cbDepsArr});`);
+        break;
+      }
+      case 'effect': {
+        reactImports.add('useEffect');
+        const edeps = cp.deps as string || '';
+        const ecode = handlerCode(child);
+        const eDepsArr = edeps ? `[${edeps}]` : '[]';
+        lines.push(`  useEffect(() => {`);
+        if (ecode) {
+          for (const line of ecode.split('\n')) {
+            lines.push(`    ${line}`);
+          }
+        }
+        const cleanupNode = firstChild(child, 'cleanup');
+        if (cleanupNode) {
+          const cleanupCode = p(cleanupNode).code as string || '';
+          const cleanupDedented = dedent(cleanupCode);
+          lines.push(`    return () => {`);
+          for (const line of cleanupDedented.split('\n')) {
+            lines.push(`      ${line}`);
+          }
+          lines.push(`    };`);
+        }
+        lines.push(`  }, ${eDepsArr});`);
+        break;
+      }
+    }
+  }
+
+  if (returnsNode) {
+    const rnames = p(returnsNode).names as string || '';
+    const entries = rnames.split(',').map(e => {
+      const [key, ...valueParts] = e.split(':');
+      const value = valueParts.join(':').trim();
+      return value ? `${key.trim()}: ${value}` : key.trim();
+    });
+    lines.push(`  return { ${entries.join(', ')} };`);
+  }
+
+  lines.push('}');
+
+  if (reactImports.size > 0) {
+    const importLine = `import { ${[...reactImports].sort().join(', ')} } from 'react';`;
+    lines.unshift('');
+    lines.unshift(importLine);
+  }
+
+  return lines;
 }

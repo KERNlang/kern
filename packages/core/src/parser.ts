@@ -85,13 +85,23 @@ export function tokenizeLine(line: string): Token[] {
       continue;
     }
 
-    // Quoted string "..."
+    // Quoted string "..." with \" escape support
     if (ch === '"') {
       const start = i;
       i++;
-      while (i < line.length && line[i] !== '"') i++;
-      const inner = line.slice(start + 1, i);
-      i++;
+      let inner = '';
+      while (i < line.length && line[i] !== '"') {
+        if (line[i] === '\\' && i + 1 < line.length) {
+          const next = line[i + 1];
+          if (next === '"') { inner += '"'; i += 2; }
+          else if (next === '\\') { inner += '\\'; i += 2; }
+          else { inner += line[i]; i++; }
+        } else {
+          inner += line[i];
+          i++;
+        }
+      }
+      i++; // skip closing quote
       tokens.push({ kind: 'quoted', value: inner, pos: start });
       continue;
     }
@@ -428,6 +438,22 @@ const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
     if (num) props.status = parseInt(num, 10);
   }],
 
+  // Rule syntax — native .kern lint rules
+  ['rule', (s, props) => {
+    // rule id severity=error category=bug confidence=0.9
+    consumeBareIdent(s, props, 'id');
+  }],
+
+  ['message', (s, props) => {
+    // message "template with {{interpolation}}"
+    s.skipWS();
+    const tok = s.peek();
+    if (tok && tok.kind === 'quoted') {
+      props.template = tok.value;
+      s.next();
+    }
+  }],
+
   ['middleware', (s, props, content) => {
     s.skipWS();
     if (!s.hasMore()) return;
@@ -657,14 +683,17 @@ export function parse(source: string): IRNode {
         codeLines.push(afterOpen.split('>>>')[0]);
       } else {
         i++;
-        while (i < lines.length && !lines[i].includes('>>>')) {
+        while (i < lines.length && !lines[i].trimStart().startsWith('>>>')) {
           codeLines.push(lines[i]);
           i++;
         }
         if (i < lines.length) {
           const closeLine = lines[i];
           const closeIdx = closeLine.indexOf('>>>');
-          if (closeIdx > 0) codeLines.push(closeLine.slice(0, closeIdx));
+          if (closeIdx > 0) {
+            const before = closeLine.slice(0, closeIdx).trim();
+            if (before) codeLines.push(before);
+          }
         }
       }
       parsed.push({
@@ -717,5 +746,115 @@ export function parse(source: string): IRNode {
     stack.push({ node, indent: p.indent });
   }
 
+  // Compute end-spans for autofix support
+  computeEndSpans(root);
+
   return root;
+}
+
+/**
+ * Parse KERN source into a document-wrapped IR tree.
+ * Unlike parse(), this always returns a `document` root so multiple
+ * top-level nodes (e.g., multiple `rule` definitions) are siblings.
+ */
+export function parseDocument(source: string): IRNode {
+  _parseWarnings = [];
+  source = expandMinified(source);
+  const lines = source.split('\n');
+  const parsed: ParsedLine[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trimStart();
+
+    const multilineType = [...MULTILINE_BLOCK_TYPES].find(type => trimmed.startsWith(`${type} <<<`));
+    if (multilineType) {
+      const indent = lines[i].search(/\S/);
+      const codeLines: string[] = [];
+      const startLine = i + 1;
+      const blockOpen = `${multilineType} <<<`;
+      const afterOpen = trimmed.slice(blockOpen.length);
+      if (afterOpen.includes('>>>')) {
+        codeLines.push(afterOpen.split('>>>')[0]);
+      } else {
+        i++;
+        while (i < lines.length && !lines[i].trimStart().startsWith('>>>')) {
+          codeLines.push(lines[i]);
+          i++;
+        }
+        if (i < lines.length) {
+          const closeLine = lines[i];
+          const closeIdx = closeLine.indexOf('>>>');
+          if (closeIdx > 0) {
+            const before = closeLine.slice(0, closeIdx).trim();
+            if (before) codeLines.push(before);
+          }
+        }
+      }
+      parsed.push({
+        indent: indent / 2,
+        type: multilineType,
+        props: { code: codeLines.join('\n').replace(/^\n+|\n+$/g, '') },
+        styles: {},
+        pseudoStyles: {},
+        themeRefs: [],
+        loc: { line: startLine, col: indent + 1 },
+      });
+      continue;
+    }
+
+    const p = parseLine(lines[i], i + 1);
+    if (p) parsed.push(p);
+  }
+
+  if (parsed.length === 0) {
+    return { type: 'document', children: [], loc: { line: 1, col: 1 } };
+  }
+
+  function toNode(p: ParsedLine): IRNode {
+    const node: IRNode = {
+      type: p.type,
+      loc: p.loc,
+      props: { ...p.props },
+      children: [],
+    };
+    if (Object.keys(p.styles).length > 0) node.props!.styles = p.styles;
+    if (Object.keys(p.pseudoStyles).length > 0) node.props!.pseudoStyles = p.pseudoStyles;
+    if (p.themeRefs.length > 0) node.props!.themeRefs = p.themeRefs;
+    return node;
+  }
+
+  const doc: IRNode = { type: 'document', children: [], loc: { line: 1, col: 1 } };
+  const stack: { node: IRNode; indent: number }[] = [{ node: doc, indent: -1 }];
+
+  for (let i = 0; i < parsed.length; i++) {
+    const p = parsed[i];
+    const node = toNode(p);
+
+    while (stack.length > 1 && stack[stack.length - 1].indent >= p.indent) {
+      stack.pop();
+    }
+
+    const parent = stack[stack.length - 1].node;
+    if (!parent.children) parent.children = [];
+    parent.children.push(node);
+    stack.push({ node, indent: p.indent });
+  }
+
+  computeEndSpans(doc);
+  return doc;
+}
+
+/** Recursively compute endLine/endCol for each node based on its last child. */
+function computeEndSpans(node: IRNode): void {
+  if (node.children && node.children.length > 0) {
+    for (const child of node.children) computeEndSpans(child);
+    const lastChild = node.children[node.children.length - 1];
+    if (lastChild.loc && node.loc) {
+      node.loc.endLine = lastChild.loc.endLine ?? lastChild.loc.line;
+      node.loc.endCol = lastChild.loc.endCol ?? lastChild.loc.col;
+    }
+  } else if (node.loc) {
+    node.loc.endLine = node.loc.line;
+    node.loc.endCol = node.loc.col;
+  }
 }

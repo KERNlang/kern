@@ -162,10 +162,75 @@ describe('React Codegen', () => {
       expect(isReactNode('effect')).toBe(true);
     });
 
+    it('accepts hook as a React node', () => {
+      expect(isReactNode('hook')).toBe(true);
+    });
+
     it('rejects non-React nodes', () => {
-      expect(isReactNode('hook')).toBe(false);
       expect(isReactNode('fn')).toBe(false);
       expect(isReactNode('screen')).toBe(false);
+    });
+  });
+
+  // ── hook (moved from @kernlang/core) ──
+
+  describe('hook', () => {
+    it('generates useState from state children', () => {
+      const code = gen([
+        'hook name=useCounter',
+        '  state name=count type=number init=0',
+      ].join('\n'));
+
+      expect(code).toContain("import { useState } from 'react';");
+      expect(code).toContain('const [count, setCount] = useState<number>(0);');
+      expect(code).toContain('export function useCounter()');
+    });
+
+    it('generates useRef from ref children', () => {
+      const code = gen([
+        'hook name=useAbort',
+        '  ref name=abortCtrl type=AbortController init="new AbortController()"',
+      ].join('\n'));
+
+      expect(code).toContain("useRef } from 'react'");
+      expect(code).toContain('const abortCtrl = useRef<AbortController>(new AbortController());');
+    });
+
+    it('generates useContext from context children', () => {
+      const code = gen([
+        'hook name=useTheme',
+        '  context name=theme type=ThemeConfig source=ThemeContext',
+      ].join('\n'));
+
+      expect(code).toContain("useContext } from 'react'");
+      expect(code).toContain('const theme = useContext(ThemeContext);');
+    });
+
+    it('auto-imports only needed React hooks', () => {
+      const code = gen([
+        'hook name=useSimple',
+        '  state name=val type=string init=""',
+      ].join('\n'));
+
+      expect(code).toContain("import { useState } from 'react';");
+      expect(code).not.toContain('useCallback');
+      expect(code).not.toContain('useMemo');
+      expect(code).not.toContain('useEffect');
+      expect(code).not.toContain('useRef');
+    });
+
+    it('handles params and return type', () => {
+      const code = gen('hook name=useSearch params="initial:SearchState" returns=SearchResult');
+      expect(code).toContain('export function useSearch(initial: SearchState): SearchResult {');
+    });
+
+    it('returns mapped values', () => {
+      const code = gen([
+        'hook name=useSearch',
+        '  returns names="articles:data?.articles,isLoading,handleFilter"',
+      ].join('\n'));
+
+      expect(code).toContain('return { articles: data?.articles, isLoading, handleFilter };');
     });
   });
 });

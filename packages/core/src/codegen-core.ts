@@ -109,7 +109,7 @@ const p = getProps;
 const kids = getChildren;
 const firstChild = getFirstChild;
 
-function exportPrefix(node: IRNode): string {
+export function exportPrefix(node: IRNode): string {
   return p(node).export === 'false' ? '' : 'export ';
 }
 
@@ -1151,166 +1151,7 @@ export function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-// ── Hook ─────────────────────────────────────────────────────────────────
-// hook name=useSearch params="initialState:SearchState" returns=UseSearchResult
-//   state name=query type=string init="initialState.query"
-//   ref name=abortCtrl type=AbortController init="new AbortController()"
-//   context name=env type=EnvConfig source=EnvContext
-//   handler <<<
-//     const { data } = useSWR(cacheKey, fetcher);
-//   >>>
-//   memo name=cacheKey deps="query,filters"
-//     handler <<<
-//       return buildCacheKey(query, filters);
-//     >>>
-//   callback name=handleFilter params="field:string,value:string" deps="query"
-//     handler <<<
-//       setQuery(prev => updateFilter(prev, field, value));
-//     >>>
-//   effect deps="query"
-//     handler <<<
-//       trackSearch(query);
-//     >>>
-//   returns names="articles:data?.articles,isLoading,handleFilter,cacheKey"
-
-export function generateHook(node: IRNode): string[] {
-  const props = p(node);
-  const name = props.name as string;
-  const params = props.params as string || '';
-  const returnsType = props.returns as string | undefined;
-  const exp = exportPrefix(node);
-  const lines: string[] = [];
-  const reactImports = new Set<string>();
-
-  // Parse params
-  const paramList = parseParamList(params);
-  const retClause = returnsType ? `: ${returnsType}` : '';
-
-  lines.push(`${exp}function ${name}(${paramList})${retClause} {`);
-
-  // Emit children in source order — returns is always last
-  const children = kids(node);
-  const returnsNode = children.find(c => c.type === 'returns');
-  const ordered = children.filter(c => c.type !== 'returns');
-
-  for (const child of ordered) {
-    const cp = p(child);
-    switch (child.type) {
-      case 'state': {
-        reactImports.add('useState');
-        const sname = cp.name as string;
-        const stype = cp.type as string || 'unknown';
-        const sinit = cp.init as string || 'undefined';
-        const setter = `set${capitalize(sname)}`;
-        lines.push(`  const [${sname}, ${setter}] = useState<${stype}>(${sinit});`);
-        break;
-      }
-      case 'ref': {
-        reactImports.add('useRef');
-        const rname = cp.name as string;
-        const rtype = cp.type as string || 'unknown';
-        const rinit = cp.init as string || 'null';
-        lines.push(`  const ${rname} = useRef<${rtype}>(${rinit});`);
-        break;
-      }
-      case 'context': {
-        reactImports.add('useContext');
-        const cname = cp.name as string;
-        const csource = cp.source as string;
-        lines.push(`  const ${cname} = useContext(${csource});`);
-        break;
-      }
-      case 'handler': {
-        const code = cp.code as string || '';
-        const dedented = dedent(code);
-        for (const line of dedented.split('\n')) {
-          lines.push(`  ${line}`);
-        }
-        break;
-      }
-      case 'memo': {
-        reactImports.add('useMemo');
-        const mname = cp.name as string;
-        const mdeps = cp.deps as string || '';
-        const mcode = handlerCode(child);
-        const depsArr = mdeps ? `[${mdeps}]` : '[]';
-        lines.push(`  const ${mname} = useMemo(() => {`);
-        if (mcode) {
-          for (const line of mcode.split('\n')) {
-            lines.push(`    ${line}`);
-          }
-        }
-        lines.push(`  }, ${depsArr});`);
-        break;
-      }
-      case 'callback': {
-        reactImports.add('useCallback');
-        const cbname = cp.name as string;
-        const cbparams = cp.params as string || '';
-        const cbdeps = cp.deps as string || '';
-        const cbcode = handlerCode(child);
-        const cbParamList = parseParamList(cbparams);
-        const cbDepsArr = cbdeps ? `[${cbdeps}]` : '[]';
-        lines.push(`  const ${cbname} = useCallback((${cbParamList}) => {`);
-        if (cbcode) {
-          for (const line of cbcode.split('\n')) {
-            lines.push(`    ${line}`);
-          }
-        }
-        lines.push(`  }, ${cbDepsArr});`);
-        break;
-      }
-      case 'effect': {
-        reactImports.add('useEffect');
-        const edeps = cp.deps as string || '';
-        const ecode = handlerCode(child);
-        const eDepsArr = edeps ? `[${edeps}]` : '[]';
-        lines.push(`  useEffect(() => {`);
-        if (ecode) {
-          for (const line of ecode.split('\n')) {
-            lines.push(`    ${line}`);
-          }
-        }
-        // Check for cleanup block
-        const cleanupNode = firstChild(child, 'cleanup');
-        if (cleanupNode) {
-          const cleanupCode = p(cleanupNode).code as string || '';
-          const cleanupDedented = dedent(cleanupCode);
-          lines.push(`    return () => {`);
-          for (const line of cleanupDedented.split('\n')) {
-            lines.push(`      ${line}`);
-          }
-          lines.push(`    };`);
-        }
-        lines.push(`  }, ${eDepsArr});`);
-        break;
-      }
-      // Skip unknown child types silently
-    }
-  }
-
-  // Returns — always last
-  if (returnsNode) {
-    const rnames = p(returnsNode).names as string || '';
-    const entries = rnames.split(',').map(e => {
-      const [key, ...valueParts] = e.split(':');
-      const value = valueParts.join(':').trim();
-      return value ? `${key.trim()}: ${value}` : key.trim();
-    });
-    lines.push(`  return { ${entries.join(', ')} };`);
-  }
-
-  lines.push('}');
-
-  // Prepend React imports
-  if (reactImports.size > 0) {
-    const importLine = `import { ${[...reactImports].sort().join(', ')} } from 'react';`;
-    lines.unshift('');
-    lines.unshift(importLine);
-  }
-
-  return lines;
-}
+// Hook codegen moved to @kernlang/react (generateHook in codegen-react.ts)
 
 // ── Reason & Confidence Annotations ──────────────────────────────────────
 
@@ -2110,7 +1951,7 @@ export function generateCoreNode(node: IRNode, target?: string): string[] {
     case 'event': return generateEvent(node);
     case 'import': return generateImport(node);
     case 'const': return generateConst(node);
-    case 'hook': return generateHook(node);
+    case 'hook': return []; // Handled by @kernlang/react
     case 'on': return generateOn(node);
     case 'websocket': return generateWebSocket(node);
     // Ground layer

@@ -72,8 +72,10 @@ export function dedup(findings: ReviewFinding[]): ReviewFinding[] {
   const seen = new Map<string, ReviewFinding>();
 
   for (const f of findings) {
-    // Combine fingerprint with message prefix to avoid false merges
-    const key = `${f.fingerprint}:${f.message.substring(0, 40)}`;
+    // Fingerprint is collision-free (ruleId:line:col). Add full message to
+    // handle rules that emit multiple findings at the same location with
+    // different messages (e.g. machine-gap per unreachable state).
+    const key = `${f.fingerprint}:${f.message}`;
     const existing = seen.get(key);
 
     if (existing) {

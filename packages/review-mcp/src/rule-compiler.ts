@@ -7,6 +7,7 @@
 
 import { parse } from '@kernlang/core';
 import type { IRNode } from '@kernlang/core';
+import { isReDoSVulnerable } from '@kernlang/review';
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 
@@ -177,6 +178,12 @@ function extractPatterns(children: IRNode[]): CompiledPattern[] {
     const match = String(props.match ?? '');
     const flags = String(props.flags ?? '');
     if (!match) continue;
+    // Reject patterns vulnerable to catastrophic backtracking (ReDoS)
+    const redos = isReDoSVulnerable(match);
+    if (redos) {
+      console.warn(`[kern-rule] Rejecting ReDoS-vulnerable pattern "${match}": ${redos}`);
+      continue;
+    }
     try {
       patterns.push({ lang: lang as 'ts' | 'py', regex: new RegExp(match, flags) });
     } catch {

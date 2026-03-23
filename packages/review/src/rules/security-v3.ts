@@ -48,7 +48,7 @@ function finding(
  * Looks for: nested quantifiers, overlapping alternation with quantifiers,
  * and ambiguous repetition patterns.
  */
-function isReDoSVulnerable(pattern: string): string | null {
+export function isReDoSVulnerable(pattern: string): string | null {
   // Nested quantifiers: (x+)+ , (x*)* , (x+)* , (x*)+, (x{n,})+ etc.
   // These cause exponential backtracking
   if (/\([^)]*[+*]\)[+*{]/.test(pattern)) {
@@ -78,9 +78,15 @@ function isReDoSVulnerable(pattern: string): string | null {
     return '.* or .+ inside quantified group — unbounded matching causes backtracking';
   }
 
-  // Adjacent overlapping quantifiers without separator: \s*\s*, \d+\d+
-  if (/\\[dswDSW][+*]\\[dswDSW][+*]/.test(pattern)) {
-    return 'adjacent overlapping quantifiers — ambiguous boundary causes backtracking';
+  // Adjacent overlapping quantifiers with same class: \s*\s*, \d+\d+, \w*\w+
+  // Only flag when BOTH classes are the same (or uppercase/lowercase pair) — \w*\s* is safe
+  const adjMatch = pattern.match(/\\([dswDSW])[+*]\\([dswDSW])[+*]/);
+  if (adjMatch) {
+    const a = adjMatch[1].toLowerCase();
+    const b = adjMatch[2].toLowerCase();
+    if (a === b) {
+      return 'adjacent overlapping quantifiers — ambiguous boundary causes backtracking';
+    }
   }
 
   return null;

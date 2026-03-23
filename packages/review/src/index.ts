@@ -80,6 +80,9 @@ export type {
 } from './confidence.js';
 export { lintConfidenceGraph, lintMultiFileConfidenceGraph, CONFIDENCE_RULES } from './rules/confidence.js';
 
+// ReDoS detection (reusable by rule compilers)
+export { isReDoSVulnerable } from './rules/security-v3.js';
+
 // Taint tracking (Phase 2 + cross-file)
 export { analyzeTaint, taintToFindings, analyzeTaintCrossFile, crossFileTaintToFindings, buildExportMap, buildImportMap, isSanitizerSufficient } from './taint.js';
 export type { TaintSource, TaintSink, TaintPath, TaintResult, CrossFileTaintResult, ExportedFunction } from './taint.js';

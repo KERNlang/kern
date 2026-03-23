@@ -1,0 +1,4 @@
+rule expect-range-inverted severity=warning category=pattern
+  pattern type=expect
+    expect child-type=guard min=0 max=0
+  message "Expect '{{name}}' has no guards — add validation constraints"

@@ -1,0 +1,4 @@
+rule guard-without-else severity=warning category=pattern
+  pattern type=guard
+    guard not=true prop=else
+  message "Guard '{{name}}' has no else action — failures will throw generic Error"

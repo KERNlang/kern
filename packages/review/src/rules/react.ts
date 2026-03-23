@@ -81,6 +81,9 @@ function renderSideEffect(ctx: RuleContext): ReviewFinding[] {
       const exprStmt = stmt as import('ts-morph').ExpressionStatement;
       const exprText = exprStmt.getExpression().getText();
 
+      // Skip hook calls — setState/fetch inside effects/callbacks is intentional
+      if (/\b(useEffect|useLayoutEffect|useCallback|useMemo|useInsertionEffect)\s*\(/.test(exprText)) continue;
+
       // setState call outside hooks — line number is exact from AST
       if (/\bset[A-Z]\w*\(/.test(exprText) && !exprText.includes('useState')) {
         findings.push(finding('render-side-effect', 'error', 'bug',

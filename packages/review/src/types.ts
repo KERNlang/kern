@@ -37,10 +37,18 @@ export interface SourceSpan {
 
 // ── Unified Finding ──────────────────────────────────────────────────────
 
+/** Structured autofix action */
+export interface FixAction {
+  type: 'replace' | 'insert-before' | 'insert-after' | 'wrap' | 'remove';
+  span: SourceSpan;
+  replacement: string;
+  description: string;
+}
+
 /** Unified finding from any review layer */
 export interface ReviewFinding {
   /** Which layer produced this finding */
-  source: 'kern' | 'eslint' | 'tsc' | 'llm';
+  source: 'kern' | 'kern-native' | 'eslint' | 'tsc' | 'llm';
   /** Rule identifier (e.g., 'memory-leak', 'floating-promise') */
   ruleId: string;
   /** Severity level */
@@ -59,6 +67,8 @@ export interface ReviewFinding {
   suggestion?: string;
   /** Confidence (0-1, for LLM findings) */
   confidence?: number;
+  /** Structured autofix */
+  autofix?: FixAction;
   /** Stable fingerprint for dedup across sources */
   fingerprint: string;
   /** Graph provenance: 'changed' = entry file, 'upstream' = dependency */
@@ -252,12 +262,8 @@ export interface GraphOptions {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-/** Create a stable fingerprint for dedup across sources and runs */
+/** Create a stable fingerprint for dedup across sources and runs.
+ *  Returns the raw composite key — collision-free by construction. */
 export function createFingerprint(ruleId: string, startLine: number, startCol: number): string {
-  const input = `${ruleId}:${startLine}:${startCol}`;
-  let hash = 0;
-  for (let i = 0; i < input.length; i++) {
-    hash = ((hash << 5) - hash + input.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash).toString(36);
+  return `${ruleId}:${startLine}:${startCol}`;
 }
