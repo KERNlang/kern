@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR, buildDiagnostics, accountNode } from '@kernlang/core';
 
 const NODE_TO_COMPONENT: Record<string, string> = {
   screen: 'View',
@@ -237,6 +237,16 @@ export function transpile(root: IRNode, _config?: ResolvedKernConfig): Transpile
     irTokenCount,
     tsTokenCount,
     tokenReduction,
+    diagnostics: (() => {
+      const accounted = new Map<IRNode, AccountedEntry>();
+      accountNode(accounted, root, 'expressed', undefined, true);
+      if (root.children) {
+        for (const child of root.children) {
+          if (child.type === 'theme') accountNode(accounted, child, 'consumed', 'theme pre-pass', true);
+        }
+      }
+      return buildDiagnostics(root, accounted, 'native');
+    })(),
   };
 }
 

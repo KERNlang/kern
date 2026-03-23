@@ -6,8 +6,8 @@
  * via @kernlang/core — this transpiler only handles UI nodes.
  */
 
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR, cssPropertyName, getProps, getStyles, getPseudoStyles, getThemeRefs } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR, cssPropertyName, getProps, getStyles, getPseudoStyles, getThemeRefs, buildDiagnostics, accountNode } from '@kernlang/core';
 
 // ── Node → HTML Element Mapping ──────────────────────────────────────────
 
@@ -586,5 +586,14 @@ export function transpileVue(root: IRNode, config?: ResolvedKernConfig): Transpi
     irTokenCount,
     tsTokenCount,
     tokenReduction,
+    diagnostics: (() => {
+      const accounted = new Map<IRNode, AccountedEntry>();
+      accountNode(accounted, root, 'expressed', undefined, true);
+      const CONSUMED = new Set(['state', 'logic', 'on', 'theme', 'handler']);
+      for (const child of root.children || []) {
+        if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+      }
+      return buildDiagnostics(root, accounted, 'vue');
+    })(),
   };
 }

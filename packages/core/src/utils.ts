@@ -1,4 +1,4 @@
-import type { IRNode } from './types.js';
+import type { IRNode, DiagnosticOutcome, TranspileDiagnostic } from './types.js';
 
 export function countTokens(text: string): number {
   return text.split(/[\s{}()\[\];,.<>:='"]+/).filter(Boolean).length;
@@ -65,4 +65,75 @@ export function escapeJsString(s: string): string {
 /** @deprecated Use escapeJsxText, escapeJsxAttr, or escapeJsString */
 export function escapeJsx(s: string): string {
   return escapeJsxText(s);
+}
+
+// ── Transpile Diagnostics ─────────────────────────────────────────────────
+
+export type AccountedEntry = { outcome: DiagnosticOutcome; reason?: string };
+
+/** Mark a node (and optionally all its descendants) as accounted for in the tracking map. */
+export function accountNode(
+  map: Map<IRNode, AccountedEntry>,
+  node: IRNode,
+  outcome: DiagnosticOutcome,
+  reason?: string,
+  recursive = false,
+): void {
+  map.set(node, { outcome, reason });
+  if (recursive && node.children) {
+    for (const child of node.children) {
+      accountNode(map, child, outcome, reason, true);
+    }
+  }
+}
+
+/** Build diagnostics by diffing all IR nodes against the accounted map. Root-cause-only reporting. */
+export function buildDiagnostics(
+  root: IRNode,
+  accounted: Map<IRNode, AccountedEntry>,
+  target: string,
+): TranspileDiagnostic[] {
+  const diagnostics: TranspileDiagnostic[] = [];
+
+  function countUnaccountedDescendants(node: IRNode): number {
+    let count = 0;
+    for (const child of node.children || []) {
+      if (!accounted.has(child)) {
+        count += 1 + countUnaccountedDescendants(child);
+      }
+    }
+    return count;
+  }
+
+  function walk(node: IRNode, parentUnsupported: boolean): void {
+    const entry = accounted.get(node);
+
+    if (entry) {
+      if (entry.outcome !== 'expressed') {
+        diagnostics.push({
+          nodeType: node.type,
+          outcome: entry.outcome,
+          target,
+          loc: node.loc ? { line: node.loc.line, col: node.loc.col } : undefined,
+          reason: entry.reason,
+        });
+      }
+      for (const child of node.children || []) walk(child, false);
+    } else if (parentUnsupported) {
+      for (const child of node.children || []) walk(child, true);
+    } else {
+      const lost = countUnaccountedDescendants(node);
+      diagnostics.push({
+        nodeType: node.type,
+        outcome: 'unsupported',
+        target,
+        loc: node.loc ? { line: node.loc.line, col: node.loc.col } : undefined,
+        childrenLost: lost || undefined,
+      });
+      for (const child of node.children || []) walk(child, true);
+    }
+  }
+
+  walk(root, false);
+  return diagnostics;
 }

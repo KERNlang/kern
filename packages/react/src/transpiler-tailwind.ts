@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, TailwindVersionProfile } from '@kernlang/core';
-import { stylesToTailwind, colorToTw, countTokens, serializeIR, camelKey, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, applyTailwindTokenRules, getProps, getStyles, getThemeRefs, getPseudoStyles } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, TailwindVersionProfile, AccountedEntry } from '@kernlang/core';
+import { stylesToTailwind, colorToTw, countTokens, serializeIR, camelKey, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, applyTailwindTokenRules, getProps, getStyles, getThemeRefs, getPseudoStyles, buildDiagnostics, accountNode } from '@kernlang/core';
 import { planStructure } from './structure.js';
 import type { PlannedFile } from './structure.js';
 import { buildStructuredArtifacts } from './artifact-utils.js';
@@ -776,12 +776,20 @@ function _transpileTailwindInner(root: IRNode, config?: ResolvedKernConfig): Tra
   const tsTokenCount = countTokens(output);
   const tokenReduction = tsTokenCount > 0 ? Math.round((1 - irTokenCount / tsTokenCount) * 100) : 0;
 
+  const accounted = new Map<IRNode, AccountedEntry>();
+  accountNode(accounted, root, 'expressed', undefined, true);
+  const CONSUMED = new Set(['state', 'logic', 'on', 'theme', 'handler']);
+  for (const child of root.children || []) {
+    if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+  }
+
   return {
     code: output,
     sourceMap: ctx.sourceMap,
     irTokenCount,
     tsTokenCount,
     tokenReduction,
+    diagnostics: buildDiagnostics(root, accounted, 'tailwind'),
   };
 }
 
@@ -909,6 +917,13 @@ function _transpileTailwindStructured(
   const tsTokenCount = countTokens(entryCode);
   const tokenReduction = tsTokenCount > 0 ? Math.round((1 - irTokenCount / tsTokenCount) * 100) : 0;
 
+  const accounted = new Map<IRNode, AccountedEntry>();
+  accountNode(accounted, root, 'expressed', undefined, true);
+  const CONSUMED = new Set(['state', 'logic', 'on', 'theme', 'handler']);
+  for (const child of root.children || []) {
+    if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+  }
+
   return {
     code: entryCode,
     sourceMap: [],
@@ -916,6 +931,7 @@ function _transpileTailwindStructured(
     tsTokenCount,
     tokenReduction,
     artifacts,
+    diagnostics: buildDiagnostics(root, accounted, 'tailwind'),
   };
 }
 

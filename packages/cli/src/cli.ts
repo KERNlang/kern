@@ -2259,6 +2259,20 @@ console.log(`Source map: ${result.sourceMap.length} entries`);
 if (result.artifacts) {
   console.log(`Artifacts:  ${result.artifacts.length}`);
 }
+if (result.diagnostics && result.diagnostics.length > 0) {
+  const counts: Record<string, number> = {};
+  for (const d of result.diagnostics) counts[d.outcome] = (counts[d.outcome] || 0) + 1;
+  const parts = Object.entries(counts).map(([k, v]) => `${v} ${k}`);
+  console.log(`Diagnostics: ${parts.join(', ')}`);
+  const unsupported = result.diagnostics.filter(d => d.outcome === 'unsupported');
+  if (unsupported.length > 0) {
+    for (const d of unsupported) {
+      const loc = d.loc ? `:${d.loc.line}` : '';
+      const lost = d.childrenLost ? ` (+${d.childrenLost} children)` : '';
+      console.log(`  ⚠ ${d.nodeType}${loc} — unsupported in ${d.target}${lost}`);
+    }
+  }
+}
 
 // ── Minify/Pretty implementations ───────────────────────────────────────
 

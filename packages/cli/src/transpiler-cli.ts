@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, GeneratedArtifact, ResolvedKernConfig } from '@kernlang/core';
-import { countTokens, getProps, serializeIR, camelKey } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, GeneratedArtifact, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
+import { countTokens, getProps, serializeIR, camelKey, buildDiagnostics, accountNode } from '@kernlang/core';
 
 /**
  * CLI Transpiler — generates Commander.js TypeScript from Kern IR
@@ -368,5 +368,10 @@ export function transpileCliApp(root: IRNode, _config?: ResolvedKernConfig): Tra
     tsTokenCount,
     tokenReduction,
     artifacts,
+    diagnostics: (() => {
+      const accounted = new Map<IRNode, AccountedEntry>();
+      accountNode(accounted, root, 'expressed', undefined, true);
+      return buildDiagnostics(root, accounted, 'cli');
+    })(),
   };
 }
