@@ -22,19 +22,57 @@ import type { IRNode } from '@kernlang/core';
 import { detectMCPServer } from './detect.js';
 import { runMCPSecurityRules, MCP_RULE_IDS } from './rules/mcp-security.js';
 import { inferMCPNodes, inferMCPNodesPython } from './infer-mcp.js';
+import { loadRuleDirectory } from './rule-compiler.js';
+import { runCompiledRules } from './rule-runner.js';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
 export { detectMCPServer } from './detect.js';
 export { runMCPSecurityRules, MCP_RULE_IDS } from './rules/mcp-security.js';
 export { inferMCPNodes, inferMCPNodesPython } from './infer-mcp.js';
+export { loadRuleDirectory, compileRuleSource } from './rule-compiler.js';
+export { runCompiledRules } from './rule-runner.js';
 export type { ReviewFinding } from '@kernlang/review';
+export type { CompiledMCPRule } from './rule-compiler.js';
+
+// ── Load compiled .kern rules at module init ─────────────────────────
+// Guard: import.meta.url is undefined when bundled as CJS (e.g. esbuild for VS Code worker)
+
+let COMPILED_RULES: import('./rule-compiler.js').CompiledMCPRule[] = [];
+try {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+  const KERN_RULES_DIR = join(__dirname, '..', 'rules');
+  COMPILED_RULES = loadRuleDirectory(KERN_RULES_DIR);
+} catch {
+  // CJS bundle — .kern rules not available, regex + IR rules still work
+}
 
 /**
  * Review an MCP server source file for security vulnerabilities.
- * Combines regex-based rules with KERN IR structural analysis.
+ * Combines regex-based rules, compiled .kern rules, and KERN IR structural analysis.
  */
 export function reviewMCPSource(source: string, filePath: string): ReviewFinding[] {
   // Phase 1: Regex-based rules (fast, pattern matching)
   const findings = runMCPSecurityRules(source, filePath);
+
+  // Phase 1.5: Compiled .kern rules (declarative, human-auditable)
+  try {
+    if (COMPILED_RULES.length > 0) {
+      const kernFindings = runCompiledRules(COMPILED_RULES, source, filePath);
+      // Dedup: skip .kern findings that duplicate legacy regex findings (same ruleId + line)
+      const existingKeys = new Set(findings.map(f => `${f.ruleId}:${f.primarySpan.startLine}`));
+      for (const kf of kernFindings) {
+        const key = `${kf.ruleId}:${kf.primarySpan.startLine}`;
+        if (!existingKeys.has(key)) {
+          findings.push(kf);
+          existingKeys.add(key);
+        }
+      }
+    }
+  } catch {
+    // Best-effort — legacy regex rules always run regardless
+  }
 
   // Phase 2: KERN IR inference — translate to IR and check structure
   try {
