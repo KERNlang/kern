@@ -1,0 +1,22 @@
+action name=mcp-tool-poisoning
+  reason value="CWE-1427, OWASP MCP02"
+  config severity=error confidence=0.85 category=bug
+
+  effect name=prompt-injection kind=injection
+    pattern lang=ts flags=i match="ignore\s+(previous|above|all)\s+(instructions?|prompts?|context)"
+    pattern lang=ts flags=i match="disregard\s+(previous|above|all)"
+    pattern lang=ts flags=i match="you\s+are\s+now\b"
+    pattern lang=ts flags=i match="new\s+instructions?:"
+    pattern lang=py flags=i match="ignore\s+(previous|above|all)\s+(instructions?|prompts?|context)"
+    pattern lang=py flags=i match="disregard\s+(previous|above|all)"
+    pattern lang=py flags=i match="you\s+are\s+now\b"
+    pattern lang=py flags=i match="new\s+instructions?:"
+
+  effect name=invisible-chars kind=injection
+    pattern lang=ts match="[\u200B\u200C\u200D\u200E\u200F\u202A-\u202E\u2060\uFEFF\u00AD]"
+    pattern lang=py match="[\u200B\u200C\u200D\u200E\u200F\u202A-\u202E\u2060\uFEFF\u00AD]"
+
+  invariant name=poisoned-description
+    expect from=tool-description to=prompt-injection guarded-by=""
+    evidence value="Tool description contains prompt injection pattern — tool poisoning risk"
+    suggestion value="Tool descriptions should only describe the tool's functionality. Remove any instruction-like content."

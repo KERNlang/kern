@@ -1,0 +1,20 @@
+action name=mcp-missing-auth
+  reason value="CWE-306, OWASP MCP04"
+  config severity=error confidence=0.80 category=bug
+
+  effect name=remote-server kind=network
+    pattern lang=ts match="\b(createServer|express\s*\(|app\.listen|Hono|fastify|http\.createServer|SSEServerTransport|StreamableHTTPServerTransport)\b"
+    pattern lang=py match="\b(FastAPI|Flask|uvicorn\.run|app\.run|SseServerTransport|StreamableHTTPServer)\b"
+
+  guard name=auth-middleware kind=auth
+    pattern lang=ts flags=i match="\b(authenticate|authorization|auth|verifyToken|requireAuth|isAuthenticated|passport\.authenticate|jwt\.verify|bearerAuth)\b"
+    pattern lang=py flags=i match="\b(authenticate|authorization|verify_token|require_auth|is_authenticated|jwt\.decode|HTTPBearer|Depends.*auth|api_key_header)\b"
+
+  guard name=oauth kind=auth
+    pattern lang=ts flags=i match="authorization.*header|bearer.*token|oauth"
+    pattern lang=py flags=i match="authorization.*header|bearer.*token|oauth"
+
+  invariant name=unauthenticated-server
+    expect from=mcp-server to=remote-server guarded-by="auth-middleware,oauth"
+    evidence value="Remote MCP server (HTTP/SSE) without authentication — any client can connect and use tools"
+    suggestion value="Add authentication middleware (JWT, API key, OAuth). Remote MCP servers MUST verify client identity."

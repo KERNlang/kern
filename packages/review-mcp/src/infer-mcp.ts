@@ -152,6 +152,12 @@ export function inferMCPNodes(source: string, filePath: string): IRNode[] {
 
 // ── Body scanning helper ─────────────────────────────────────────────
 
+/** Check if a line is a comment (JS/TS single-line or Python) */
+function isCommentLine(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith('*') || trimmed.startsWith('/*');
+}
+
 /** Scan a handler body text for effect and guard IR nodes */
 function scanBodyForEffectsAndGuards(bodyText: string, startLine: number): IRNode[] {
   const children: IRNode[] = [];
@@ -160,6 +166,7 @@ function scanBodyForEffectsAndGuards(bodyText: string, startLine: number): IRNod
   const bodyLines = bodyText.split('\n');
   for (let i = 0; i < bodyLines.length; i++) {
     const line = bodyLines[i];
+    if (isCommentLine(line)) continue;
     const absoluteLine = startLine + i;
 
     if (SHELL_EXEC_PATTERN.test(line) || EVAL_PATTERN.test(line)) {
@@ -218,27 +225,29 @@ function extractDispatchActions(handlerArg: import('ts-morph').Node, baseLine: n
     }, children));
   }
 
-  // Look for if (name === "toolName") patterns
-  const ifMatches = handlerText.matchAll(/(?:if|else\s+if)\s*\(\s*\w+\s*===?\s*['"]([^'"]+)['"]\s*\)/g);
+  // Look for if (name === "toolName") patterns — support dotted access (request.params.name)
+  const ifMatches = handlerText.matchAll(/(?:if|else\s+if)\s*\(\s*[\w.]+\s*===?\s*['"]([^'"]+)['"]\s*\)/g);
   for (const m of ifMatches) {
     const toolName = m[1];
     const ifOffset = m.index ?? 0;
     const ifLine = baseLine + handlerText.substring(0, ifOffset).split('\n').length - 1;
 
-    // Extract if-body (rough: content between { })
+    // Extract full branch text: from this if to the next dispatch condition or end of handler.
+    // This captures else branches (e.g., else { try { eval(...) } }) that brace-matching would miss.
     const afterIf = handlerText.substring(ifOffset);
-    const braceStart = afterIf.indexOf('{');
-    if (braceStart < 0) continue;
-    let depth = 0;
-    let bodyEnd = braceStart + 1;
-    for (let j = braceStart; j < afterIf.length; j++) {
-      if (afterIf[j] === '{') depth++;
-      if (afterIf[j] === '}') depth--;
-      if (depth === 0) { bodyEnd = j + 1; break; }
-    }
-    const ifBody = afterIf.substring(braceStart, bodyEnd);
 
-    const children = scanBodyForEffectsAndGuards(ifBody, ifLine);
+    // Find next top-level dispatch pattern (next if/else-if with string comparison) or end
+    const nextDispatchMatch = afterIf.substring(m[0].length).match(/(?:^|\n)\s*(?:if|else\s+if)\s*\(\s*[\w.]+\s*===?\s*['"][^'"]+['"]\s*\)/);
+    let branchEnd: number;
+    if (nextDispatchMatch && nextDispatchMatch.index != null) {
+      branchEnd = m[0].length + nextDispatchMatch.index;
+    } else {
+      // No next dispatch — take everything to end of handler, minus trailing });\n etc.
+      branchEnd = afterIf.length;
+    }
+    const branchBody = afterIf.substring(0, branchEnd);
+
+    const children = scanBodyForEffectsAndGuards(branchBody, ifLine);
     actions.push(node('action', ifLine, {
       name: toolName,
       trust: 'low',
