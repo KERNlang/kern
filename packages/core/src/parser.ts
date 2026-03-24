@@ -76,6 +76,7 @@ export function tokenizeLine(line: string): Token[] {
       let inQuote = false;
       let j = i + 1;
       while (j < line.length) {
+        if (line[j] === '\\' && j + 1 < line.length) { j += 2; continue; }
         if (line[j] === '"') inQuote = !inQuote;
         if (!inQuote && line[j] === '}') { j++; break; }
         j++;
@@ -562,7 +563,10 @@ function splitStylePairs(block: string): string[] {
 
   for (let i = 0; i < block.length; i++) {
     const ch = block[i];
-    if (ch === '"') {
+    if (ch === '\\' && i + 1 < block.length) {
+      current += ch + block[i + 1];
+      i++;
+    } else if (ch === '"') {
       inQuote = !inQuote;
       current += ch;
     } else if (!inQuote && ch === '(') {
@@ -604,7 +608,7 @@ function parseStyleBlock(
       const key = quotedKeyMatch[1];
       let value = quotedKeyMatch[2].trim();
       if (value.startsWith('"') && value.endsWith('"')) {
-        value = value.slice(1, -1);
+        value = value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
       }
       styles[key] = value;
       continue;
@@ -616,7 +620,7 @@ function parseStyleBlock(
       const key = pair.slice(0, colonIdx).trim();
       let value = pair.slice(colonIdx + 1).trim();
       if (value.startsWith('"') && value.endsWith('"')) {
-        value = value.slice(1, -1);
+        value = value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
       }
       styles[key] = value;
     }
@@ -663,10 +667,11 @@ function expandMinified(source: string): string {
 /** Get warnings from the last parse() call */
 export function getParseWarnings(): string[] { return [..._parseWarnings]; }
 
-export function parse(source: string): IRNode {
-  _parseWarnings = [];
-  source = expandMinified(source);
-  const lines = source.split('\n');
+// ── Shared parse helpers ─────────────────────────────────────────────────
+
+/** Process source lines into ParsedLine entries (multiline blocks + regular lines). */
+function parseLines(source: string): ParsedLine[] {
+  const lines = expandMinified(source).split('\n');
   const parsed: ParsedLine[] = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -712,119 +717,26 @@ export function parse(source: string): IRNode {
     if (p) parsed.push(p);
   }
 
-  if (parsed.length === 0) {
-    return { type: 'document', children: [], loc: { line: 1, col: 1 } };
-  }
-
-  function toNode(p: ParsedLine): IRNode {
-    const node: IRNode = {
-      type: p.type,
-      loc: p.loc,
-      props: { ...p.props },
-      children: [],
-    };
-    if (Object.keys(p.styles).length > 0) node.props!.styles = p.styles;
-    if (Object.keys(p.pseudoStyles).length > 0) node.props!.pseudoStyles = p.pseudoStyles;
-    if (p.themeRefs.length > 0) node.props!.themeRefs = p.themeRefs;
-    return node;
-  }
-
-  const root = toNode(parsed[0]);
-  const stack: { node: IRNode; indent: number }[] = [{ node: root, indent: parsed[0].indent }];
-
-  for (let i = 1; i < parsed.length; i++) {
-    const p = parsed[i];
-    const node = toNode(p);
-
-    while (stack.length > 1 && stack[stack.length - 1].indent >= p.indent) {
-      stack.pop();
-    }
-
-    const parent = stack[stack.length - 1].node;
-    if (!parent.children) parent.children = [];
-    parent.children.push(node);
-    stack.push({ node, indent: p.indent });
-  }
-
-  // Compute end-spans for autofix support
-  computeEndSpans(root);
-
-  return root;
+  return parsed;
 }
 
-/**
- * Parse KERN source into a document-wrapped IR tree.
- * Unlike parse(), this always returns a `document` root so multiple
- * top-level nodes (e.g., multiple `rule` definitions) are siblings.
- */
-export function parseDocument(source: string): IRNode {
-  _parseWarnings = [];
-  source = expandMinified(source);
-  const lines = source.split('\n');
-  const parsed: ParsedLine[] = [];
+/** Convert a ParsedLine to an IRNode (no children yet). */
+function toNode(p: ParsedLine): IRNode {
+  const node: IRNode = {
+    type: p.type,
+    loc: p.loc,
+    props: { ...p.props },
+    children: [],
+  };
+  if (Object.keys(p.styles).length > 0) node.props!.styles = p.styles;
+  if (Object.keys(p.pseudoStyles).length > 0) node.props!.pseudoStyles = p.pseudoStyles;
+  if (p.themeRefs.length > 0) node.props!.themeRefs = p.themeRefs;
+  return node;
+}
 
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trimStart();
-
-    const multilineType = [...MULTILINE_BLOCK_TYPES].find(type => trimmed.startsWith(`${type} <<<`));
-    if (multilineType) {
-      const indent = lines[i].search(/\S/);
-      const codeLines: string[] = [];
-      const startLine = i + 1;
-      const blockOpen = `${multilineType} <<<`;
-      const afterOpen = trimmed.slice(blockOpen.length);
-      if (afterOpen.includes('>>>')) {
-        codeLines.push(afterOpen.split('>>>')[0]);
-      } else {
-        i++;
-        while (i < lines.length && !lines[i].trimStart().startsWith('>>>')) {
-          codeLines.push(lines[i]);
-          i++;
-        }
-        if (i < lines.length) {
-          const closeLine = lines[i];
-          const closeIdx = closeLine.indexOf('>>>');
-          if (closeIdx > 0) {
-            const before = closeLine.slice(0, closeIdx).trim();
-            if (before) codeLines.push(before);
-          }
-        }
-      }
-      parsed.push({
-        indent: indent / 2,
-        type: multilineType,
-        props: { code: codeLines.join('\n').replace(/^\n+|\n+$/g, '') },
-        styles: {},
-        pseudoStyles: {},
-        themeRefs: [],
-        loc: { line: startLine, col: indent + 1 },
-      });
-      continue;
-    }
-
-    const p = parseLine(lines[i], i + 1);
-    if (p) parsed.push(p);
-  }
-
-  if (parsed.length === 0) {
-    return { type: 'document', children: [], loc: { line: 1, col: 1 } };
-  }
-
-  function toNode(p: ParsedLine): IRNode {
-    const node: IRNode = {
-      type: p.type,
-      loc: p.loc,
-      props: { ...p.props },
-      children: [],
-    };
-    if (Object.keys(p.styles).length > 0) node.props!.styles = p.styles;
-    if (Object.keys(p.pseudoStyles).length > 0) node.props!.pseudoStyles = p.pseudoStyles;
-    if (p.themeRefs.length > 0) node.props!.themeRefs = p.themeRefs;
-    return node;
-  }
-
-  const doc: IRNode = { type: 'document', children: [], loc: { line: 1, col: 1 } };
-  const stack: { node: IRNode; indent: number }[] = [{ node: doc, indent: -1 }];
+/** Build a tree from parsed lines using indent-based stack. */
+function buildTree(parsed: ParsedLine[], root: IRNode, rootIndent: number): void {
+  const stack: { node: IRNode; indent: number }[] = [{ node: root, indent: rootIndent }];
 
   for (let i = 0; i < parsed.length; i++) {
     const p = parsed[i];
@@ -839,8 +751,42 @@ export function parseDocument(source: string): IRNode {
     parent.children.push(node);
     stack.push({ node, indent: p.indent });
   }
+}
 
+// ── Public parse API ─────────────────────────────────────────────────────
+
+export function parse(source: string): IRNode {
+  _parseWarnings = [];
+  const parsed = parseLines(source);
+
+  if (parsed.length === 0) {
+    return { type: 'document', children: [], loc: { line: 1, col: 1 } };
+  }
+
+  const root = toNode(parsed[0]);
+  buildTree(parsed.slice(1), root, parsed[0].indent);
+  computeEndSpans(root);
+
+  return root;
+}
+
+/**
+ * Parse KERN source into a document-wrapped IR tree.
+ * Unlike parse(), this always returns a `document` root so multiple
+ * top-level nodes (e.g., multiple `rule` definitions) are siblings.
+ */
+export function parseDocument(source: string): IRNode {
+  _parseWarnings = [];
+  const parsed = parseLines(source);
+
+  if (parsed.length === 0) {
+    return { type: 'document', children: [], loc: { line: 1, col: 1 } };
+  }
+
+  const doc: IRNode = { type: 'document', children: [], loc: { line: 1, col: 1 } };
+  buildTree(parsed, doc, -1);
   computeEndSpans(doc);
+
   return doc;
 }
 
