@@ -122,7 +122,7 @@ const SUSPICIOUS_DESC_PATTERNS = [
   /disregard\s+(previous|above|all)/i,
   /you\s+are\s+now\b/i,
   /new\s+instructions?:/i,
-  /system\s*:\s*/i,
+  /^\s*system\s*:\s*/im,  // Only match "system:" at start of line/description, not mid-sentence
   /\<\|system\|\>/,
   /\<\|end\|\>/,
   /\[INST\]/,

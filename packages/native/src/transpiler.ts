@@ -68,9 +68,7 @@ export function transpile(root: IRNode, _config?: ResolvedKernConfig): Transpile
           // Let me check: "theme bar {h:8,br:4}" - type="theme", then "bar" tries to match as prop (no =), fails.
           // So we need to handle theme name specially. For now, get it from the parser result.
           if (props.styles) {
-            // Use first non-style, non-pseudoStyles key as name, or generate one
-            const keys = Object.keys(props).filter(k => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
-            const name = keys[0] || `theme_${styleIdx++}`;
+            const name = (props.name as string) || `theme_${styleIdx++}`;
             themes[name] = props.styles as Record<string, string>;
           }
         }

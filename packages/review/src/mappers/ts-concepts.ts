@@ -192,8 +192,8 @@ function classifyDisposition(
 
   // Check for rethrow
   if (bodyText.includes('throw')) {
-    // throw new XError(err) → wrapped
-    if (errorVar && bodyText.includes(errorVar)) {
+    // throw new XError(err) → wrapped (use word boundary to avoid 'e' matching 'HttpException')
+    if (errorVar && new RegExp(`\\b${errorVar}\\b`).test(bodyText)) {
       return { type: 'wrapped', confidence: 0.95 };
     }
     return { type: 'rethrown', confidence: 0.9 };

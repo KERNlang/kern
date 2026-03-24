@@ -624,7 +624,7 @@ function parseStyleBlock(
 }
 
 function expandMinified(source: string): string {
-  if (!source.includes('(') || source.split('\n').length > 2) return source;
+  if (!source.includes('(') || source.split('\n').length > 1) return source;
 
   const result: string[] = [];
   let depth = 0;

@@ -376,6 +376,7 @@ function promptInjection(ctx: RuleContext): ReviewFinding[] {
     const text = template.getText();
 
     // Does this template contain user input references?
+    // Bare names (question, message) are gated by inPromptContext check below
     const hasUserInput = USER_INPUT_PATTERNS.test(text) ||
       /\b(question|userInput|userMessage|message|input|query|prompt|instruction|caption)\b/.test(text);
     if (!hasUserInput) continue;
@@ -461,8 +462,8 @@ function promptInjection(ctx: RuleContext): ReviewFinding[] {
       /^(question|userInput|message|input|caption|instruction)\b/.test(rightText);
     if (!hasUserInput) continue;
 
-    // Is the left side a prompt-like string?
-    const isPromptConcat = /prompt|instruction|system|you are|analyze|review/i.test(leftText);
+    // Is the left side a prompt-like string? Require LLM-specific context, not generic English
+    const isPromptConcat = /\bprompt\b|instruction|you are\b|as an ai|as a language model/i.test(leftText);
     if (!isPromptConcat) continue;
 
     // Is it sanitized?

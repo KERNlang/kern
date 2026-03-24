@@ -422,7 +422,8 @@ export function formatSARIFWithSuppressions(
   };
 
   const rules = new Set<string>();
-  const suppressedSet = new Set(suppressedFindings?.map(f => f.fingerprint) ?? []);
+  // Include file path in suppression key to avoid cross-file fingerprint collisions
+  const suppressedSet = new Set(suppressedFindings?.map(f => `${f.primarySpan.file}:${f.fingerprint}`) ?? []);
   const allFindings = [
     ...reports.flatMap(r => r.findings),
     ...(suppressedFindings ?? []),
@@ -464,7 +465,7 @@ export function formatSARIFWithSuppressions(
       result.properties = { 'kern/confidence': f.confidence };
     }
 
-    if (suppressedSet.has(f.fingerprint)) {
+    if (suppressedSet.has(`${f.primarySpan.file}:${f.fingerprint}`)) {
       result.suppressions = [{
         kind: 'inSource',
         justification: `kern-ignore directive`,

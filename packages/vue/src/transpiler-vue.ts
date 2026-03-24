@@ -116,8 +116,7 @@ function collectThemes(node: IRNode, ctx: VueBuilder): void {
   if (node.type === 'theme' && node.props) {
     const props = node.props as Record<string, unknown>;
     if (props.styles) {
-      const keys = Object.keys(props).filter(k => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
-      const name = keys[0] || `theme_${ctx.classIdx++}`;
+      const name = (props.name as string) || `theme_${ctx.classIdx++}`;
       ctx.themes[name] = props.styles as Record<string, string>;
     }
   }

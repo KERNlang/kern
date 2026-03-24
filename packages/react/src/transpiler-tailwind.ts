@@ -65,7 +65,12 @@ function renderNode(node: IRNode, ctx: CodeBuilder, indent: string): void {
       return;
     case 'logic':
       // Collect logic blocks — rendered before return statement
-      ctx.logicBlocks.push(p.code as string);
+      if (p.code) {
+        ctx.logicBlocks.push(String(p.code));
+      } else if (node.children) {
+        const handlerChild = node.children.find(c => c.type === 'handler');
+        if (handlerChild?.props?.code) ctx.logicBlocks.push(String(handlerChild.props.code));
+      }
       return;
     case 'screen':
       renderScreen(node, ctx, indent);
@@ -273,7 +278,8 @@ function renderText(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const format = p.format as string;
   const key = p.key as string;
   const tag = p.tag as string || 'span';
-  const el = tag === 'p' ? 'p' : tag === 'h1' ? 'h1' : tag === 'h2' ? 'h2' : tag === 'h3' ? 'h3' : tag === 'label' ? 'label' : 'span';
+  const TEXT_TAG_MAP: Record<string, string> = { p: 'p', h1: 'h1', h2: 'h2', h3: 'h3', h4: 'h4', h5: 'h5', h6: 'h6', label: 'label', span: 'span', pre: 'pre', code: 'code' };
+  const el = TEXT_TAG_MAP[tag] || 'span';
 
   const tw = twClasses(node, ctx);
 

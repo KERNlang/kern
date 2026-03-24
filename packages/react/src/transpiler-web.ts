@@ -58,8 +58,7 @@ function _transpileWebFlat(root: IRNode, _config?: ResolvedKernConfig): Transpil
     if (node.type === 'theme' && node.props) {
       const props = node.props as Record<string, unknown>;
       if (props.styles) {
-        const keys = Object.keys(props).filter(k => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
-        const name = keys[0] || `theme_${classIdx++}`;
+        const name = (props.name as string) || `theme_${classIdx++}`;
         themes[name] = props.styles as Record<string, string>;
       }
     }
@@ -264,8 +263,7 @@ function _renderWebFile(file: PlannedFile, _config: ResolvedKernConfig): string 
   const themes: Record<string, Record<string, string>> = {};
   function collectThemes(node: IRNode): void {
     if (node.type === 'theme' && node.props?.styles) {
-      const keys = Object.keys(node.props).filter(k => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
-      const themeName = keys[0] || `theme_${classIdx++}`;
+      const themeName = (node.props.name as string) || `theme_${classIdx++}`;
       themes[themeName] = node.props.styles as Record<string, string>;
     }
     if (node.children) node.children.forEach(collectThemes);
@@ -373,7 +371,7 @@ function _transpileWebStructured(
     tsTokenCount,
     tokenReduction,
     artifacts,
-    diagnostics: buildDiagnostics(root, new Map<IRNode, AccountedEntry>([[root, { outcome: 'expressed' }]]), 'web'),
+    diagnostics: buildDiagnostics(root, (() => { const m = new Map<IRNode, AccountedEntry>(); accountNode(m, root, 'expressed', undefined, true); return m; })(), 'web'),
   };
 }
 

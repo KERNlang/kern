@@ -116,8 +116,7 @@ function createBuilder(config?: ResolvedKernConfig): NuxtBuilder {
 
 function collectThemes(node: IRNode, ctx: NuxtBuilder): void {
   if (node.type === 'theme' && node.props?.styles) {
-    const keys = Object.keys(node.props).filter(k => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
-    const name = keys[0] || `theme_${ctx.classIdx++}`;
+    const name = (node.props.name as string) || `theme_${ctx.classIdx++}`;
     ctx.themes[name] = node.props.styles as Record<string, string>;
   }
   if (node.children) node.children.forEach(c => collectThemes(c, ctx));
