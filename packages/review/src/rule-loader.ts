@@ -63,38 +63,61 @@ function nativeRuleAdapter(ruleNode: IRNode): KernLintRule {
 // ── Loader ──────────────────────────────────────────────────────────────
 
 /**
+ * Load rules from a single .kern file, resolving imports recursively.
+ * The visited set guards against circular imports.
+ */
+function loadRulesFromFile(filePath: string, rules: KernLintRule[], visited: Set<string>): void {
+  const absPath = resolve(filePath);
+  if (visited.has(absPath)) return;
+  visited.add(absPath);
+
+  if (!existsSync(absPath)) {
+    console.warn(`[kern-native] Import not found: ${absPath}`);
+    return;
+  }
+
+  try {
+    const source = readFileSync(absPath, 'utf-8');
+    const doc = parseDocument(source);
+    const children = doc.children || [];
+
+    // Resolve imports first (relative to importing file)
+    for (const node of children) {
+      if (node.type !== 'import') continue;
+      const from = (node.props?.from as string) || '';
+      if (!from || !from.endsWith('.kern')) continue;
+      const importPath = resolve(dirname(absPath), from);
+      loadRulesFromFile(importPath, rules, visited);
+    }
+
+    // Extract and validate rule nodes
+    for (const ruleNode of children.filter(n => n.type === 'rule')) {
+      const errors = validateRule(ruleNode);
+      if (errors.length > 0) {
+        console.warn(`[kern-native] Skipping invalid rule in ${absPath}: ${errors.join(', ')}`);
+        continue;
+      }
+      rules.push(nativeRuleAdapter(ruleNode));
+    }
+  } catch (err) {
+    console.warn(`[kern-native] Failed to parse ${absPath}: ${(err as Error).message}`);
+  }
+}
+
+/**
  * Load native .kern rule files from a directory.
  * Returns KernLintRule adapters for all valid rules found.
+ * Supports `import from="other.kern"` for rule composition.
  */
 export function loadNativeRules(dirs: string[]): KernLintRule[] {
   const rules: KernLintRule[] = [];
+  const visited = new Set<string>();
 
   for (const dir of dirs) {
     if (!existsSync(dir)) continue;
-
-    // Find .kern files in the directory
     const files = readdirSync(dir).filter((f: string) => f.endsWith('.kern'));
-
     for (const file of files) {
-      const filePath = join(dir, file);
-      try {
-        const source = readFileSync(filePath, 'utf-8');
-        const doc = parseDocument(source);
-
-        // Extract all rule nodes from the document
-        const ruleNodes = (doc.children || []).filter(n => n.type === 'rule');
-
-        for (const ruleNode of ruleNodes) {
-          const errors = validateRule(ruleNode);
-          if (errors.length > 0) {
-            console.warn(`[kern-native] Skipping invalid rule in ${filePath}: ${errors.join(', ')}`);
-            continue;
-          }
-          rules.push(nativeRuleAdapter(ruleNode));
-        }
-      } catch (err) {
-        console.warn(`[kern-native] Failed to parse ${filePath}: ${(err as Error).message}`);
-      }
+      loadRulesFromFile(join(dir, file), rules, visited);
     }
   }
 
