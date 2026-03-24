@@ -27,12 +27,18 @@ import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { runConceptRules } from './concept-rules/index.js';
 import { lintConfidenceGraph } from './rules/confidence.js';
 import { lintKernIR, flattenIR } from './kern-lint.js';
-import { loadBuiltinNativeRules } from './rule-loader.js';
+import { loadBuiltinNativeRules, loadNativeRules } from './rule-loader.js';
 import { lintKernSourceIR, KERN_SOURCE_RULES } from './rules/kern-source.js';
 import { GROUND_LAYER_RULES } from './rules/ground-layer.js';
 
 // Load native .kern rules once at module init
-const NATIVE_RULES = loadBuiltinNativeRules();
+// Guard: import.meta.url is undefined when bundled as CJS (e.g. esbuild for VS Code worker)
+let NATIVE_RULES: import('./kern-lint.js').KernLintRule[] = [];
+try {
+  NATIVE_RULES = loadBuiltinNativeRules();
+} catch {
+  // CJS bundle — native .kern rules not available, regex rules still work
+}
 import { buildConfidenceGraph, serializeGraph, computeConfidenceSummary } from './confidence.js';
 import { analyzeTaint, taintToFindings, analyzeTaintCrossFile, crossFileTaintToFindings } from './taint.js';
 import { applySuppression } from './suppression/index.js';
@@ -172,9 +178,15 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
   for (const f of confFindings) { if (!f.primarySpan.file) f.primarySpan.file = filePath; }
   allFindings.push(...confFindings);
 
-  // Phase 7b: Native .kern rules (with concept matching support)
-  if (NATIVE_RULES.length > 0) {
-    const nativeFindings = safePhase('native-rules', () => lintKernIR(irNodes, NATIVE_RULES, concepts), []);
+  // Phase 7b: Native .kern rules (built-in + custom)
+  const rulesToRun = [...NATIVE_RULES];
+  if (config?.rulesDirs && config.rulesDirs.length > 0) {
+    const builtinIds = new Set(NATIVE_RULES.map(r => r.ruleId).filter(Boolean) as string[]);
+    const customRules = loadNativeRules(config.rulesDirs, builtinIds);
+    rulesToRun.push(...customRules);
+  }
+  if (rulesToRun.length > 0) {
+    const nativeFindings = safePhase('native-rules', () => lintKernIR(irNodes, rulesToRun, concepts), []);
     for (const f of nativeFindings) { if (!f.primarySpan.file) f.primarySpan.file = filePath; }
     allFindings.push(...nativeFindings);
   }
@@ -260,6 +272,19 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
   const kernSourceFindings = safePhase('kern-source-lint', () => lintKernSourceIR(flatNodes, filePath, KERN_SOURCE_RULES), []);
   allFindings.push(...kernSourceFindings);
 
+  // Native .kern rules (built-in + custom)
+  const rulesToRunKern = [...NATIVE_RULES];
+  if (_config?.rulesDirs && _config.rulesDirs.length > 0) {
+    const builtinIds = new Set(NATIVE_RULES.map(r => r.ruleId).filter(Boolean) as string[]);
+    const customRules = loadNativeRules(_config.rulesDirs, builtinIds);
+    rulesToRunKern.push(...customRules);
+  }
+  if (rulesToRunKern.length > 0) {
+    const nativeFindings = safePhase('native-rules', () => lintKernIR(flatNodes, rulesToRunKern), []);
+    for (const f of nativeFindings) { if (!f.primarySpan.file) f.primarySpan.file = filePath; }
+    allFindings.push(...nativeFindings);
+  }
+
   // Confidence graph
   let confidenceGraph: ReviewReport['confidenceGraph'];
   let confidenceSummary: ReviewReport['confidenceSummary'];
@@ -332,9 +357,15 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
     const { extractPythonConcepts } = require('@kernlang/review-python');
     const concepts = extractPythonConcepts(source, filePath);
     conceptFindings = runConceptRules(concepts, filePath);
-    // Native .kern rules with concept matching
-    if (NATIVE_RULES.length > 0) {
-      conceptFindings.push(...lintKernIR([], NATIVE_RULES, concepts));
+    // Native .kern rules with concept matching (built-in + custom)
+    const rulesToRunPy = [...NATIVE_RULES];
+    if (config?.rulesDirs && config.rulesDirs.length > 0) {
+      const builtinIds = new Set(NATIVE_RULES.map(r => r.ruleId).filter(Boolean) as string[]);
+      const customRules = loadNativeRules(config.rulesDirs, builtinIds);
+      rulesToRunPy.push(...customRules);
+    }
+    if (rulesToRunPy.length > 0) {
+      conceptFindings.push(...lintKernIR([], rulesToRunPy, concepts));
     }
   } catch (_err) {
     // @kernlang/review-python not installed — skip concept extraction
