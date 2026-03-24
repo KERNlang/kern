@@ -1,0 +1,367 @@
+import { buildRuleIndex, evaluateRule, matchPattern, conceptNodeToIR } from '../src/rule-eval.js';
+import { parseDocument } from '@kernlang/core';
+import type { IRNode } from '@kernlang/core';
+import type { ConceptMap, ConceptNode } from '@kernlang/core';
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+function makeConceptNode(overrides: Partial<ConceptNode> & { kind: ConceptNode['kind']; payload: ConceptNode['payload'] }): ConceptNode {
+  return {
+    id: `test#${overrides.kind}@0`,
+    primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 10 },
+    evidence: 'test',
+    confidence: 0.9,
+    language: 'ts',
+    ...overrides,
+  };
+}
+
+function makeConcepts(nodes: ConceptNode[]): ConceptMap {
+  return { filePath: 'test.ts', language: 'typescript', nodes, edges: [], extractorVersion: '1' };
+}
+
+function parseRule(source: string): IRNode {
+  const doc = parseDocument(source);
+  const rules = (doc.children || []).filter(n => n.type === 'rule');
+  if (rules.length === 0) throw new Error('No rule found in source');
+  return rules[0];
+}
+
+// ── conceptNodeToIR ──────────────────────────────────────────────────────
+
+describe('conceptNodeToIR', () => {
+  it('converts a concept node to IR shape with _concept marker', () => {
+    const cn = makeConceptNode({
+      kind: 'error_handle',
+      payload: { kind: 'error_handle', disposition: 'ignored', errorVariable: 'e' },
+    });
+    const ir = conceptNodeToIR(cn);
+
+    expect(ir.type).toBe('error_handle');
+    expect(ir.props?._concept).toBe(true);
+    expect(ir.props?.disposition).toBe('ignored');
+    expect(ir.props?.errorVariable).toBe('e');
+    expect(ir.props?.evidence).toBe('test');
+    expect(ir.props?.confidence).toBe(0.9);
+    expect(ir.loc?.line).toBe(1);
+    expect(ir.children).toEqual([]);
+  });
+
+  it('flattens payload — skips kind field (already the node type)', () => {
+    const cn = makeConceptNode({
+      kind: 'effect',
+      payload: { kind: 'effect', subtype: 'network', target: 'fetch', async: true },
+    });
+    const ir = conceptNodeToIR(cn);
+
+    expect(ir.type).toBe('effect');
+    expect(ir.props?.subtype).toBe('network');
+    expect(ir.props?.target).toBe('fetch');
+    expect(ir.props?.async).toBe(true);
+    // 'kind' from payload should NOT be in props (it's the node type)
+    expect(ir.props?.kind).toBeUndefined();
+  });
+
+  it('includes containerId when present', () => {
+    const cn = makeConceptNode({
+      kind: 'guard',
+      containerId: 'test.ts#handleRequest',
+      payload: { kind: 'guard', subtype: 'auth', name: 'isAdmin' },
+    });
+    const ir = conceptNodeToIR(cn);
+    expect(ir.props?.containerId).toBe('test.ts#handleRequest');
+  });
+});
+
+// ── subject=concept filtering ────────────────────────────────────────────
+
+describe('subject=concept filtering in matchPattern', () => {
+  it('subject=concept matches concept nodes', () => {
+    const cn = makeConceptNode({
+      kind: 'error_handle',
+      payload: { kind: 'error_handle', disposition: 'ignored', errorVariable: 'e' },
+    });
+    const irTarget = conceptNodeToIR(cn);
+    const concepts = makeConcepts([cn]);
+    const index = buildRuleIndex([], concepts);
+
+    // Pattern with subject=concept
+    const pattern: IRNode = {
+      type: 'pattern',
+      props: { subject: 'concept', type: 'error_handle', disposition: 'ignored' },
+      children: [],
+    };
+
+    const result = matchPattern(pattern, irTarget, index);
+    expect(result.matched).toBe(true);
+  });
+
+  it('subject=concept rejects IR nodes', () => {
+    const irNode: IRNode = {
+      type: 'guard',
+      props: { name: 'isAuth' },
+      children: [],
+    };
+    const index = buildRuleIndex([irNode]);
+
+    const pattern: IRNode = {
+      type: 'pattern',
+      props: { subject: 'concept', type: 'guard' },
+      children: [],
+    };
+
+    const result = matchPattern(pattern, irNode, index);
+    expect(result.matched).toBe(false);
+  });
+
+  it('default (no subject) excludes concept nodes', () => {
+    const cn = makeConceptNode({
+      kind: 'guard',
+      payload: { kind: 'guard', subtype: 'auth', name: 'isAdmin' },
+    });
+    const irTarget = conceptNodeToIR(cn);
+    const concepts = makeConcepts([cn]);
+    const index = buildRuleIndex([], concepts);
+
+    // Pattern WITHOUT subject — should NOT match concept nodes
+    const pattern: IRNode = {
+      type: 'pattern',
+      props: { type: 'guard' },
+      children: [],
+    };
+
+    const result = matchPattern(pattern, irTarget, index);
+    expect(result.matched).toBe(false);
+  });
+
+  it('default (no subject) still matches IR nodes', () => {
+    const irNode: IRNode = {
+      type: 'guard',
+      props: { name: 'isAuth' },
+      children: [],
+    };
+    const index = buildRuleIndex([irNode]);
+
+    const pattern: IRNode = {
+      type: 'pattern',
+      props: { type: 'guard' },
+      children: [],
+    };
+
+    const result = matchPattern(pattern, irNode, index);
+    expect(result.matched).toBe(true);
+  });
+});
+
+// ── Full rule evaluation with concepts ───────────────────────────────────
+
+describe('evaluateRule with concept matching', () => {
+  it('ignored-error rule fires on ignored error_handle concept', () => {
+    const rule = parseRule(`
+rule ignored-error severity=error category=bug
+  pattern subject=concept type=error_handle disposition=ignored
+  message "Error is caught but ignored — handle, log, or rethrow"
+    `);
+
+    const cn = makeConceptNode({
+      kind: 'error_handle',
+      payload: { kind: 'error_handle', disposition: 'ignored', errorVariable: 'e' },
+    });
+    const concepts = makeConcepts([cn]);
+    const index = buildRuleIndex([], concepts);
+
+    const findings = evaluateRule(rule, index, 'test.ts');
+    expect(findings.length).toBe(1);
+    expect(findings[0].ruleId).toBe('ignored-error');
+    expect(findings[0].severity).toBe('error');
+    expect(findings[0].message).toBe('Error is caught but ignored — handle, log, or rethrow');
+  });
+
+  it('ignored-error rule does NOT fire on logged error_handle', () => {
+    const rule = parseRule(`
+rule ignored-error severity=error category=bug
+  pattern subject=concept type=error_handle disposition=ignored
+  message "Error is caught but ignored — handle, log, or rethrow"
+    `);
+
+    const cn = makeConceptNode({
+      kind: 'error_handle',
+      payload: { kind: 'error_handle', disposition: 'logged', errorVariable: 'e' },
+    });
+    const concepts = makeConcepts([cn]);
+    const index = buildRuleIndex([], concepts);
+
+    const findings = evaluateRule(rule, index, 'test.ts');
+    expect(findings.length).toBe(0);
+  });
+
+  it('boundary-mutation rule fires on global state_mutation', () => {
+    const rule = parseRule(`
+rule boundary-mutation-global severity=warning category=pattern
+  pattern subject=concept type=state_mutation scope=global
+  message "Global state mutation — consider encapsulating in a store or module"
+    `);
+
+    const cn = makeConceptNode({
+      kind: 'state_mutation',
+      payload: { kind: 'state_mutation', scope: 'global', target: 'cache' },
+    });
+    const concepts = makeConcepts([cn]);
+    const index = buildRuleIndex([], concepts);
+
+    const findings = evaluateRule(rule, index, 'test.ts');
+    expect(findings.length).toBe(1);
+    expect(findings[0].ruleId).toBe('boundary-mutation-global');
+  });
+
+  it('boundary-mutation rule does NOT fire on local state_mutation', () => {
+    const rule = parseRule(`
+rule boundary-mutation-global severity=warning category=pattern
+  pattern subject=concept type=state_mutation scope=global
+  message "Global state mutation — consider encapsulating in a store or module"
+    `);
+
+    const cn = makeConceptNode({
+      kind: 'state_mutation',
+      payload: { kind: 'state_mutation', scope: 'local', target: 'x' },
+    });
+    const concepts = makeConcepts([cn]);
+    const index = buildRuleIndex([], concepts);
+
+    const findings = evaluateRule(rule, index, 'test.ts');
+    expect(findings.length).toBe(0);
+  });
+
+  it('concept rules do not interfere with IR-only rules', () => {
+    // An IR-only rule (no subject) should not fire on concept nodes
+    const irRule = parseRule(`
+rule guard-without-else severity=warning category=pattern
+  pattern type=guard
+    guard not=true prop=else
+  message "Guard has no else action"
+    `);
+
+    const cn = makeConceptNode({
+      kind: 'guard',
+      payload: { kind: 'guard', subtype: 'auth', name: 'isAdmin' },
+    });
+    const irNode: IRNode = {
+      type: 'guard',
+      props: { name: 'isAuth' },
+      children: [],
+      loc: { line: 5, col: 3 },
+    };
+    const concepts = makeConcepts([cn]);
+    const index = buildRuleIndex([irNode], concepts);
+
+    const findings = evaluateRule(irRule, index, 'test.ts');
+    // Should only fire on the IR guard (no else prop), not the concept guard
+    expect(findings.length).toBe(1);
+    expect(findings[0].primarySpan.startLine).toBe(5);
+  });
+
+  it('message interpolation works with concept node props', () => {
+    const rule = parseRule(`
+rule effect-unprotected severity=warning category=bug
+  pattern subject=concept type=effect subtype=network
+  message "Unprotected {{subtype}} effect targeting {{target}}"
+    `);
+
+    const cn = makeConceptNode({
+      kind: 'effect',
+      payload: { kind: 'effect', subtype: 'network', target: 'fetch', async: true },
+    });
+    const concepts = makeConcepts([cn]);
+    const index = buildRuleIndex([], concepts);
+
+    const findings = evaluateRule(rule, index, 'test.ts');
+    expect(findings.length).toBe(1);
+    expect(findings[0].message).toBe('Unprotected network effect targeting fetch');
+  });
+
+  it('multiple concept nodes — only matches matching ones', () => {
+    const rule = parseRule(`
+rule ignored-error severity=error category=bug
+  pattern subject=concept type=error_handle disposition=ignored
+  message "Error is caught but ignored"
+    `);
+
+    const ignored = makeConceptNode({
+      kind: 'error_handle',
+      payload: { kind: 'error_handle', disposition: 'ignored', errorVariable: 'e' },
+    });
+    const logged = makeConceptNode({
+      kind: 'error_handle',
+      payload: { kind: 'error_handle', disposition: 'logged', errorVariable: 'err' },
+    });
+    const effect = makeConceptNode({
+      kind: 'effect',
+      payload: { kind: 'effect', subtype: 'network', target: 'fetch', async: true },
+    });
+    const concepts = makeConcepts([ignored, logged, effect]);
+    const index = buildRuleIndex([], concepts);
+
+    const findings = evaluateRule(rule, index, 'test.ts');
+    expect(findings.length).toBe(1);
+  });
+
+  it('works with empty IR nodes (Python path)', () => {
+    const rule = parseRule(`
+rule ignored-error severity=error category=bug
+  pattern subject=concept type=error_handle disposition=ignored
+  message "Error is caught but ignored"
+    `);
+
+    const cn = makeConceptNode({
+      kind: 'error_handle',
+      payload: { kind: 'error_handle', disposition: 'ignored', errorVariable: 'e' },
+    });
+    const concepts = makeConcepts([cn]);
+    // Empty IR nodes — this is the Python review path
+    const index = buildRuleIndex([], concepts);
+
+    const findings = evaluateRule(rule, index, 'test.py');
+    expect(findings.length).toBe(1);
+    expect(findings[0].primarySpan.file).toBe('test.py');
+  });
+});
+
+// ── Subject edge cases (from review feedback) ───────────────────────────
+
+describe('subject edge cases', () => {
+  it('subject=ir does NOT match concept nodes', () => {
+    const cn = makeConceptNode({
+      kind: 'guard',
+      payload: { kind: 'guard', subtype: 'auth', name: 'isAdmin' },
+    });
+    const irTarget = conceptNodeToIR(cn);
+    const index = buildRuleIndex([], makeConcepts([cn]));
+
+    const pattern: IRNode = {
+      type: 'pattern',
+      props: { subject: 'ir', type: 'guard' },
+      children: [],
+    };
+
+    const result = matchPattern(pattern, irTarget, index);
+    expect(result.matched).toBe(false);
+  });
+
+  it('unknown subject value does NOT match concept nodes', () => {
+    const cn = makeConceptNode({
+      kind: 'effect',
+      payload: { kind: 'effect', subtype: 'network', target: 'fetch', async: true },
+    });
+    const irTarget = conceptNodeToIR(cn);
+    const index = buildRuleIndex([], makeConcepts([cn]));
+
+    const pattern: IRNode = {
+      type: 'pattern',
+      props: { subject: 'unknown', type: 'effect' },
+      children: [],
+    };
+
+    const result = matchPattern(pattern, irTarget, index);
+    expect(result.matched).toBe(false);
+  });
+});

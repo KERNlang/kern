@@ -1,0 +1,3 @@
+rule boundary-mutation-global severity=warning category=pattern
+  pattern subject=concept type=state_mutation scope=global
+  message "Global state mutation — consider encapsulating in a store or module"

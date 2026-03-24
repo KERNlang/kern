@@ -27,8 +27,12 @@ import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { runConceptRules } from './concept-rules/index.js';
 import { lintConfidenceGraph } from './rules/confidence.js';
 import { lintKernIR, flattenIR } from './kern-lint.js';
+import { loadBuiltinNativeRules } from './rule-loader.js';
 import { lintKernSourceIR, KERN_SOURCE_RULES } from './rules/kern-source.js';
 import { GROUND_LAYER_RULES } from './rules/ground-layer.js';
+
+// Load native .kern rules once at module init
+const NATIVE_RULES = loadBuiltinNativeRules();
 import { buildConfidenceGraph, serializeGraph, computeConfidenceSummary } from './confidence.js';
 import { analyzeTaint, taintToFindings, analyzeTaintCrossFile, crossFileTaintToFindings } from './taint.js';
 import { applySuppression } from './suppression/index.js';
@@ -161,8 +165,19 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
 
   // Phase 7: KERN-IR lint (ground layer + confidence rules on inferred nodes)
   const irNodes = inferred.map(r => r.node);
-  allFindings.push(...safePhase('ground-lint', () => lintKernIR(irNodes, GROUND_LAYER_RULES), []));
-  allFindings.push(...safePhase('confidence-lint', () => lintConfidenceGraph(irNodes), []));
+  const groundFindings = safePhase('ground-lint', () => lintKernIR(irNodes, GROUND_LAYER_RULES), []);
+  for (const f of groundFindings) { if (!f.primarySpan.file) f.primarySpan.file = filePath; }
+  allFindings.push(...groundFindings);
+  const confFindings = safePhase('confidence-lint', () => lintConfidenceGraph(irNodes), []);
+  for (const f of confFindings) { if (!f.primarySpan.file) f.primarySpan.file = filePath; }
+  allFindings.push(...confFindings);
+
+  // Phase 7b: Native .kern rules (with concept matching support)
+  if (NATIVE_RULES.length > 0) {
+    const nativeFindings = safePhase('native-rules', () => lintKernIR(irNodes, NATIVE_RULES, concepts), []);
+    for (const f of nativeFindings) { if (!f.primarySpan.file) f.primarySpan.file = filePath; }
+    allFindings.push(...nativeFindings);
+  }
 
   // Phase 8: TSC diagnostics — native TypeScript compiler errors
   allFindings.push(...safePhase('tsc', () => runTSCDiagnostics(project), []));
@@ -317,6 +332,10 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
     const { extractPythonConcepts } = require('@kernlang/review-python');
     const concepts = extractPythonConcepts(source, filePath);
     conceptFindings = runConceptRules(concepts, filePath);
+    // Native .kern rules with concept matching
+    if (NATIVE_RULES.length > 0) {
+      conceptFindings.push(...lintKernIR([], NATIVE_RULES, concepts));
+    }
   } catch (_err) {
     // @kernlang/review-python not installed — skip concept extraction
     conceptFindings = [{
@@ -424,12 +443,21 @@ export function reviewGraph(
   const crossFileResults = analyzeTaintCrossFile(inferredPerFile, graphImports);
   if (crossFileResults.length > 0) {
     const crossFileFindings = crossFileTaintToFindings(crossFileResults);
-    // Add cross-file findings to the caller's report
+    // Add cross-file findings to the caller's report, then re-run suppression
     for (const f of crossFileFindings) {
       const callerReport = reports.find(r => r.filePath === f.primarySpan.file);
       if (callerReport) {
         callerReport.findings.push(f);
-        callerReport.findings = sortAndDedup(callerReport.findings);
+      }
+    }
+    // Re-run suppression + dedup on affected reports (cross-file findings were injected after initial suppression)
+    for (const report of reports) {
+      try {
+        const source = readFileSync(report.filePath, 'utf-8');
+        const suppression = applySuppression(report.findings, source, report.filePath, config, config?.strict ?? false);
+        report.findings = sortAndDedup(suppression.findings);
+      } catch {
+        report.findings = sortAndDedup(report.findings);
       }
     }
   }

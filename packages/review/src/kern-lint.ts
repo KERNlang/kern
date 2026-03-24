@@ -7,22 +7,23 @@
  */
 
 import type { IRNode } from '@kernlang/core';
+import type { ConceptMap } from '@kernlang/core';
 import type { ReviewFinding } from './types.js';
 
-export type KernLintRule = (nodes: IRNode[]) => ReviewFinding[];
+export type KernLintRule = (nodes: IRNode[], concepts?: ConceptMap) => ReviewFinding[];
 
 // Re-export for consumers
 export { loadNativeRules, loadBuiltinNativeRules } from './rule-loader.js';
-export { buildRuleIndex, evaluateRule } from './rule-eval.js';
+export { buildRuleIndex, evaluateRule, conceptNodeToIR } from './rule-eval.js';
 
 /**
  * Run KERN-IR lint rules against a list of IR nodes.
- * Returns all findings, deduplicated.
+ * When concepts are provided, native rules with `subject=concept` can match concept nodes.
  */
-export function lintKernIR(nodes: IRNode[], rules: KernLintRule[]): ReviewFinding[] {
+export function lintKernIR(nodes: IRNode[], rules: KernLintRule[], concepts?: ConceptMap): ReviewFinding[] {
   return rules.flatMap(rule => {
     try {
-      return rule(nodes);
+      return rule(nodes, concepts);
     } catch (err) {
       return [{
         source: 'kern' as const,

@@ -7,8 +7,46 @@
  */
 
 import type { IRNode } from '@kernlang/core';
+import type { ConceptMap, ConceptNode, ConceptNodePayload } from '@kernlang/core';
 import type { ReviewFinding, FixAction } from './types.js';
 import { createFingerprint } from './types.js';
+
+// ── Concept → IR Wrapper ────────────────────────────────────────────────
+
+/** Flatten a ConceptNodePayload into plain props (skip 'kind' — it becomes node type). */
+function flattenPayload(payload: ConceptNodePayload): Record<string, unknown> {
+  const flat: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(payload)) {
+    if (k === 'kind') continue;
+    flat[k] = v;
+  }
+  return flat;
+}
+
+/** Convert a ConceptNode to an IRNode-shaped wrapper for the pattern matcher. */
+export function conceptNodeToIR(concept: ConceptNode): IRNode {
+  const props: Record<string, unknown> = {
+    ...flattenPayload(concept.payload),
+    // Metadata after payload — metadata always wins on collision
+    _concept: true,
+    evidence: concept.evidence,
+    confidence: concept.confidence,
+    language: concept.language,
+  };
+  if (concept.containerId) props.containerId = concept.containerId;
+
+  return {
+    type: concept.kind,
+    loc: {
+      line: concept.primarySpan.startLine,
+      col: concept.primarySpan.startCol,
+      endLine: concept.primarySpan.endLine,
+      endCol: concept.primarySpan.endCol,
+    },
+    props,
+    children: [],
+  };
+}
 
 // ── Rule Index ──────────────────────────────────────────────────────────
 
@@ -22,8 +60,8 @@ export interface RuleIndex {
   allNodes: IRNode[];
 }
 
-/** Build a rule index from a list of IR nodes. */
-export function buildRuleIndex(nodes: IRNode[]): RuleIndex {
+/** Build a rule index from a list of IR nodes, optionally including concept nodes. */
+export function buildRuleIndex(nodes: IRNode[], concepts?: ConceptMap): RuleIndex {
   const nodesByType = new Map<string, IRNode[]>();
   const parentMap = new Map<IRNode, IRNode | undefined>();
   const allNodes: IRNode[] = [];
@@ -42,6 +80,14 @@ export function buildRuleIndex(nodes: IRNode[]): RuleIndex {
   }
 
   for (const node of nodes) walk(node);
+
+  // Add concept nodes as flat IRNode wrappers (no parent, no children)
+  if (concepts) {
+    for (const cn of concepts.nodes) {
+      walk(conceptNodeToIR(cn));
+    }
+  }
+
   return { nodesByType, parentMap, allNodes };
 }
 
@@ -83,6 +129,13 @@ export function matchPattern(pattern: IRNode, target: IRNode, index: RuleIndex):
   const pp = p(pattern);
   const tp = p(target);
   const bindings = new Map<string, unknown>();
+
+  // Subject filtering — concept nodes isolated from IR nodes
+  // subject=concept → only concept nodes; anything else → only IR nodes
+  const subject = pp.subject as string | undefined;
+  const isConcept = tp._concept === true;
+  if (subject === 'concept' && !isConcept) return NO_MATCH;
+  if (subject !== 'concept' && isConcept) return NO_MATCH;
 
   // Type check
   if (pp.type && pp.type !== target.type) return NO_MATCH;
@@ -260,6 +313,8 @@ function buildFixAction(fixNode: IRNode, target: IRNode, bindings: Map<string, u
 /**
  * Evaluate a single native KERN rule against an indexed IR tree.
  * Returns findings for all matched nodes.
+ * When concepts are provided, concept nodes are included in the index
+ * and accessible via `subject=concept` in pattern nodes.
  */
 export function evaluateRule(rule: IRNode, index: RuleIndex, filePath: string): ReviewFinding[] {
   const rp = p(rule);

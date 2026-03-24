@@ -1,0 +1,3 @@
+rule ignored-error severity=error category=bug
+  pattern subject=concept type=error_handle disposition=ignored
+  message "Error is caught but ignored — handle, log, or rethrow"

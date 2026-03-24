@@ -10,6 +10,7 @@ import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parseDocument } from '@kernlang/core';
 import type { IRNode } from '@kernlang/core';
+import type { ConceptMap } from '@kernlang/core';
 import type { KernLintRule } from './kern-lint.js';
 import type { ReviewFinding } from './types.js';
 import { buildRuleIndex, evaluateRule } from './rule-eval.js';
@@ -48,10 +49,11 @@ function validateRule(rule: IRNode): string[] {
 /**
  * Wrap a parsed rule IRNode into a KernLintRule function.
  * The adapter builds a RuleIndex from the target nodes and evaluates the rule.
+ * When concepts are provided, concept nodes are included in the index.
  */
 function nativeRuleAdapter(ruleNode: IRNode): KernLintRule {
-  return (nodes: IRNode[]): ReviewFinding[] => {
-    const index = buildRuleIndex(nodes);
+  return (nodes: IRNode[], concepts?: ConceptMap): ReviewFinding[] => {
+    const index = buildRuleIndex(nodes, concepts);
     // Pass empty filePath — the review pipeline patches it downstream
     // (same pattern as ground-layer rules in ground-layer.ts:45)
     return evaluateRule(ruleNode, index, '');
