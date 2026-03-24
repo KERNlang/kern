@@ -194,6 +194,57 @@ function scanBodyForEffectsAndGuards(bodyText: string, startLine: number): IRNod
   return children;
 }
 
+// ── Brace-aware extraction ───────────────────────────────────────────
+
+/**
+ * Extract text from the first `{` to its matching `}`, respecting nesting.
+ * Skips braces inside string literals and comments.
+ * Returns the content between braces, or null if no opening brace found.
+ */
+function extractBraceBlock(text: string): string | null {
+  let depth = 0;
+  let started = false;
+  let startIdx = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inTemplate = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = i + 1 < text.length ? text[i + 1] : '';
+
+    // Track comment state
+    if (!inSingleQuote && !inDoubleQuote && !inTemplate) {
+      if (inLineComment) { if (ch === '\n') inLineComment = false; continue; }
+      if (inBlockComment) { if (ch === '*' && next === '/') { inBlockComment = false; i++; } continue; }
+      if (ch === '/' && next === '/') { inLineComment = true; continue; }
+      if (ch === '/' && next === '*') { inBlockComment = true; i++; continue; }
+    }
+
+    // Track string state
+    if (!inLineComment && !inBlockComment) {
+      if (ch === "'" && !inDoubleQuote && !inTemplate) { inSingleQuote = !inSingleQuote; continue; }
+      if (ch === '"' && !inSingleQuote && !inTemplate) { inDoubleQuote = !inDoubleQuote; continue; }
+      if (ch === '`' && !inSingleQuote && !inDoubleQuote) { inTemplate = !inTemplate; continue; }
+    }
+    if (inSingleQuote || inDoubleQuote || inTemplate) continue;
+
+    // Track brace depth
+    if (ch === '{') {
+      if (!started) { started = true; startIdx = i + 1; }
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (started && depth === 0) {
+        return text.substring(startIdx, i);
+      }
+    }
+  }
+  return null;
+}
+
 // ── Switch/if dispatch detection (from Codex forge) ──────────────────
 
 /**
@@ -232,20 +283,9 @@ function extractDispatchActions(handlerArg: import('ts-morph').Node, baseLine: n
     const ifOffset = m.index ?? 0;
     const ifLine = baseLine + handlerText.substring(0, ifOffset).split('\n').length - 1;
 
-    // Extract full branch text: from this if to the next dispatch condition or end of handler.
-    // This captures else branches (e.g., else { try { eval(...) } }) that brace-matching would miss.
-    const afterIf = handlerText.substring(ifOffset);
-
-    // Find next top-level dispatch pattern (next if/else-if with string comparison) or end
-    const nextDispatchMatch = afterIf.substring(m[0].length).match(/(?:^|\n)\s*(?:if|else\s+if)\s*\(\s*[\w.]+\s*===?\s*['"][^'"]+['"]\s*\)/);
-    let branchEnd: number;
-    if (nextDispatchMatch && nextDispatchMatch.index != null) {
-      branchEnd = m[0].length + nextDispatchMatch.index;
-    } else {
-      // No next dispatch — take everything to end of handler, minus trailing });\n etc.
-      branchEnd = afterIf.length;
-    }
-    const branchBody = afterIf.substring(0, branchEnd);
+    // Extract branch body using brace-depth tracking to avoid truncating on nested if/else
+    const afterIf = handlerText.substring(ifOffset + m[0].length);
+    const branchBody = extractBraceBlock(afterIf) || afterIf.substring(0, 200);
 
     const children = scanBodyForEffectsAndGuards(branchBody, ifLine);
     actions.push(node('action', ifLine, {
