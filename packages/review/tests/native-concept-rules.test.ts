@@ -1,7 +1,8 @@
-import { buildRuleIndex, evaluateRule, matchPattern, conceptNodeToIR } from '../src/rule-eval.js';
+import { buildRuleIndex, evaluateRule, matchPattern, conceptEdgeToIR, conceptNodeToIR } from '../src/rule-eval.js';
+import { lintKernIR, loadBuiltinNativeRules } from '../src/kern-lint.js';
 import { parseDocument } from '@kernlang/core';
 import type { IRNode } from '@kernlang/core';
-import type { ConceptMap, ConceptNode } from '@kernlang/core';
+import type { ConceptEdge, ConceptMap, ConceptNode } from '@kernlang/core';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -16,8 +17,21 @@ function makeConceptNode(overrides: Partial<ConceptNode> & { kind: ConceptNode['
   };
 }
 
-function makeConcepts(nodes: ConceptNode[]): ConceptMap {
-  return { filePath: 'test.ts', language: 'typescript', nodes, edges: [], extractorVersion: '1' };
+function makeConceptEdge(overrides: Partial<ConceptEdge> & { kind: ConceptEdge['kind']; payload: ConceptEdge['payload'] }): ConceptEdge {
+  return {
+    id: `test#${overrides.kind}@0`,
+    sourceId: 'test.ts',
+    targetId: 'target',
+    primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 10 },
+    evidence: 'test',
+    confidence: 0.9,
+    language: 'ts',
+    ...overrides,
+  };
+}
+
+function makeConcepts(nodes: ConceptNode[], edges: ConceptEdge[] = []): ConceptMap {
+  return { filePath: 'test.ts', language: 'typescript', nodes, edges, extractorVersion: '1' };
 }
 
 function parseRule(source: string): IRNode {
@@ -70,6 +84,29 @@ describe('conceptNodeToIR', () => {
     });
     const ir = conceptNodeToIR(cn);
     expect(ir.props?.containerId).toBe('test.ts#handleRequest');
+  });
+});
+
+// ── conceptEdgeToIR ──────────────────────────────────────────────────────
+
+describe('conceptEdgeToIR', () => {
+  it('converts a concept edge to IR shape with edge metadata and upLevels', () => {
+    const ce = makeConceptEdge({
+      kind: 'dependency',
+      targetId: '../../../shared/module',
+      payload: { kind: 'dependency', subtype: 'internal', specifier: '../../../shared/module' },
+    });
+    const ir = conceptEdgeToIR(ce);
+
+    expect(ir.type).toBe('dependency');
+    expect(ir.props?._concept).toBe(true);
+    expect(ir.props?._edge).toBe(true);
+    expect(ir.props?.subtype).toBe('internal');
+    expect(ir.props?.specifier).toBe('../../../shared/module');
+    expect(ir.props?.upLevels).toBe(3);
+    expect(ir.props?.sourceId).toBe('test.ts');
+    expect(ir.props?.targetId).toBe('../../../shared/module');
+    expect(ir.children).toEqual([]);
   });
 });
 
@@ -421,6 +458,46 @@ describe('OR matching with pipe-separated values', () => {
   });
 });
 
+// ── Numeric prop comparisons ─────────────────────────────────────────────
+
+describe('numeric prop comparisons in matchPattern', () => {
+  it('min-upLevels matches concept dependency edges with enough ../ segments', () => {
+    const edge = makeConceptEdge({
+      kind: 'dependency',
+      payload: { kind: 'dependency', subtype: 'internal', specifier: '../../../shared/module' },
+    });
+    const concepts = makeConcepts([], [edge]);
+    const index = buildRuleIndex([], concepts);
+    const target = conceptEdgeToIR(edge);
+
+    const pattern: IRNode = {
+      type: 'pattern',
+      props: { subject: 'concept', type: 'dependency', subtype: 'internal', 'min-upLevels': 3 },
+      children: [],
+    };
+
+    expect(matchPattern(pattern, target, index).matched).toBe(true);
+  });
+
+  it('max-upLevels rejects concept dependency edges above the limit', () => {
+    const edge = makeConceptEdge({
+      kind: 'dependency',
+      payload: { kind: 'dependency', subtype: 'internal', specifier: '../../../shared/module' },
+    });
+    const concepts = makeConcepts([], [edge]);
+    const index = buildRuleIndex([], concepts);
+    const target = conceptEdgeToIR(edge);
+
+    const pattern: IRNode = {
+      type: 'pattern',
+      props: { subject: 'concept', type: 'dependency', 'max-upLevels': 2 },
+      children: [],
+    };
+
+    expect(matchPattern(pattern, target, index).matched).toBe(false);
+  });
+});
+
 // ── Peer guards (container-scoped) ───────────────────────────────────────
 
 describe('peer guards (container-scoped concept matching)', () => {
@@ -566,5 +643,32 @@ rule unguarded-effect severity=warning category=bug
     // guard not=true peer=containerId: target has no containerId → peer check fails → result=false → negated → true
     // So the pattern matches (unguarded)
     expect(findings.length).toBe(1);
+  });
+});
+
+// ── Built-in native rules on concept edges ───────────────────────────────
+
+describe('illegal-dependency native rule', () => {
+  it('fires on deep internal dependency edges from the built-in .kern rule', () => {
+    const rules = loadBuiltinNativeRules();
+    const concepts = makeConcepts([], [
+      makeConceptEdge({
+        kind: 'dependency',
+        payload: { kind: 'dependency', subtype: 'internal', specifier: '../../../shared/module' },
+      }),
+      makeConceptEdge({
+        id: 'test#dependency@1',
+        kind: 'dependency',
+        payload: { kind: 'dependency', subtype: 'internal', specifier: '../../shared/module' },
+      }),
+    ]);
+
+    const findings = lintKernIR([], rules, concepts).filter(f => f.ruleId === 'illegal-dependency');
+
+    expect(findings.length).toBe(1);
+    expect(findings[0].message).toBe('Deep cross-boundary import — may violate module architecture');
+    expect(findings[0].severity).toBe('warning');
+    expect(findings[0].category).toBe('structure');
+    expect(findings[0].confidence).toBe(0.8);
   });
 });

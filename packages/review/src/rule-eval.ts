@@ -7,20 +7,26 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import type { ConceptMap, ConceptNode, ConceptNodePayload } from '@kernlang/core';
+import type { ConceptMap, ConceptEdge, ConceptNode, ConceptEdgePayload, ConceptNodePayload } from '@kernlang/core';
 import type { ReviewFinding, FixAction } from './types.js';
 import { createFingerprint } from './types.js';
 
 // ── Concept → IR Wrapper ────────────────────────────────────────────────
 
-/** Flatten a ConceptNodePayload into plain props (skip 'kind' — it becomes node type). */
-function flattenPayload(payload: ConceptNodePayload): Record<string, unknown> {
+/** Flatten a concept payload into plain props (skip 'kind' — it becomes node type). */
+function flattenPayload(payload: ConceptNodePayload | ConceptEdgePayload): Record<string, unknown> {
   const flat: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(payload)) {
     if (k === 'kind') continue;
     flat[k] = v;
   }
   return flat;
+}
+
+function countUpLevels(specifier: string): number {
+  const match = specifier.match(/^(\.\.\/)+/);
+  if (!match) return 0;
+  return match[0].length / 3;
 }
 
 /** Convert a ConceptNode to an IRNode-shaped wrapper for the pattern matcher. */
@@ -48,6 +54,36 @@ export function conceptNodeToIR(concept: ConceptNode): IRNode {
   };
 }
 
+/** Convert a ConceptEdge to an IRNode-shaped wrapper for the pattern matcher. */
+export function conceptEdgeToIR(edge: ConceptEdge): IRNode {
+  const props: Record<string, unknown> = {
+    ...flattenPayload(edge.payload),
+    _concept: true,
+    _edge: true,
+    sourceId: edge.sourceId,
+    targetId: edge.targetId,
+    evidence: edge.evidence,
+    confidence: edge.confidence,
+    language: edge.language,
+  };
+
+  if ('specifier' in edge.payload && typeof edge.payload.specifier === 'string') {
+    props.upLevels = countUpLevels(edge.payload.specifier);
+  }
+
+  return {
+    type: edge.kind,
+    loc: {
+      line: edge.primarySpan.startLine,
+      col: edge.primarySpan.startCol,
+      endLine: edge.primarySpan.endLine,
+      endCol: edge.primarySpan.endCol,
+    },
+    props,
+    children: [],
+  };
+}
+
 // ── Rule Index ──────────────────────────────────────────────────────────
 
 /** Pre-computed index for efficient rule evaluation. */
@@ -62,7 +98,7 @@ export interface RuleIndex {
   peerIndex: Map<string, Map<string, IRNode[]>>;
 }
 
-/** Build a rule index from a list of IR nodes, optionally including concept nodes. */
+/** Build a rule index from a list of IR nodes, optionally including concept nodes and edges. */
 export function buildRuleIndex(nodes: IRNode[], concepts?: ConceptMap): RuleIndex {
   const nodesByType = new Map<string, IRNode[]>();
   const parentMap = new Map<IRNode, IRNode | undefined>();
@@ -83,10 +119,13 @@ export function buildRuleIndex(nodes: IRNode[], concepts?: ConceptMap): RuleInde
 
   for (const node of nodes) walk(node);
 
-  // Add concept nodes as flat IRNode wrappers (no parent, no children)
+  // Add concept nodes and edges as flat IRNode wrappers (no parent, no children)
   if (concepts) {
     for (const cn of concepts.nodes) {
       walk(conceptNodeToIR(cn));
+    }
+    for (const ce of concepts.edges) {
+      walk(conceptEdgeToIR(ce));
     }
   }
 
@@ -166,6 +205,15 @@ export function matchPattern(pattern: IRNode, target: IRNode, index: RuleIndex):
   // Supports pipe-separated OR: subtype=auth|validation matches either
   for (const [key, val] of Object.entries(pp)) {
     if (['type', 'prop', 'subject', 'not'].includes(key)) continue;
+    if (key.startsWith('min-') || key.startsWith('max-')) {
+      const propName = key.slice(4);
+      const targetNum = Number(tp[propName]);
+      const bound = Number(val);
+      if (propName.length === 0 || Number.isNaN(targetNum) || Number.isNaN(bound)) return NO_MATCH;
+      if (key.startsWith('min-') && targetNum < bound) return NO_MATCH;
+      if (key.startsWith('max-') && targetNum > bound) return NO_MATCH;
+      continue;
+    }
     if (tp[key] === undefined) continue;
     const strVal = String(val);
     const targetVal = String(tp[key]);

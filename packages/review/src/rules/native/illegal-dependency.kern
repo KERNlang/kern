@@ -1,0 +1,3 @@
+rule illegal-dependency severity=warning category=structure confidence=0.8
+  pattern subject=concept type=dependency subtype=internal min-upLevels=3
+  message "Deep cross-boundary import — may violate module architecture"
