@@ -6,7 +6,7 @@
 
 - 2523ee7: KERN 3.0 — security hardening, self-review clean, 68+ review rules
 
-  - **kern review**: 68+ rules across 10 layers — base, React, Next.js, Vue, Express, security (v1-v4), dead logic, null safety, concept rules, taint tracking
+  - **kern review**: 76+ rules across 10 layers — base, React, Next.js, Vue, Express, security (v1-v4), dead logic, null safety, concept rules, taint tracking
   - **OWASP LLM01**: 10 prompt injection detection rules — indirect injection, output execution, system prompt leakage, RAG poisoning, tool manipulation
   - **Taint tracking**: source-to-sink analysis on KERN IR with cross-file tracking
   - **Suppression engine**: `// kern-ignore` and `// kern-ignore-next-line` directives

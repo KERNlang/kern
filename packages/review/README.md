@@ -1,6 +1,6 @@
 # @kernlang/review
 
-Kern Review -- 68+ rules, taint tracking, OWASP LLM01 coverage
+Kern Review -- 76+ rules, taint tracking, OWASP LLM01 coverage
 
 Part of the [KERN monorepo](https://github.com/KERNlang/kern).
 
