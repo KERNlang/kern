@@ -315,7 +315,7 @@ kern review src/stores/toast.ts
 
 ### MCP Server Security: `kern review-mcp`
 
-Scan MCP (Model Context Protocol) servers for vulnerabilities. 11 rules mapped to the [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/).
+Scan MCP (Model Context Protocol) servers for vulnerabilities. 13 rules mapped to the [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/).
 
 ```bash
 npx kern-mcp-security ./src/server.ts
