@@ -543,7 +543,7 @@ if (args[0] === 'init-templates') {
   process.exit(0);
 }
 
-// ── kern review <file|dir|--diff base> [--json] [--sarif] [--recursive] [--enforce] [--min-coverage=N] [--max-complexity=N] [--export-kern] [--llm] [--fix] [--lint] ──
+// ── kern review <file|dir|--diff base> [--json] [--sarif] [--recursive] [--enforce] [--min-coverage=N] [--max-complexity=N] [--export-kern] [--llm] [--fix] [--autofix] [--lint] ──
 if (args[0] === 'review') {
   const jsonOutput = args.includes('--json');
   const sarifOutput = args.includes('--sarif') || args.includes('--format=sarif');
@@ -557,6 +557,7 @@ if (args[0] === 'review') {
   const specMode = args.includes('--spec');
   const specFile = args.find(a => a.endsWith('.kern') && a !== 'review');
   const fixMode = args.includes('--fix');
+  const autofixMode = args.includes('--autofix');
   const lintMode = args.includes('--lint');
   const graphMode = args.includes('--graph');
   const batchMode = args.includes('--batch');
@@ -611,7 +612,7 @@ if (args[0] === 'review') {
 
   if (!reviewInput) {
     console.error('Usage: kern review <file.ts|dir> [--security] [--mcp] [--llm] [--spec file.kern] [--cloud]');
-    console.error('       [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--fix]');
+    console.error('       [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--fix] [--autofix]');
     process.exit(1);
   }
 
@@ -994,6 +995,82 @@ if (args[0] === 'review') {
     } else {
       console.log(`\n  ${fixed} .kern file(s) written, ${verified} verified.`);
     }
+    process.exit(0);
+  }
+
+  // --autofix: apply structured source edits from finding autofixes
+  if (autofixMode) {
+    // Collect all findings with autofix, grouped by file
+    const fixesByFile = new Map<string, { finding: ReviewFinding; fix: NonNullable<ReviewFinding['autofix']> }[]>();
+    for (const report of reports) {
+      for (const f of report.findings) {
+        if (!f.autofix) continue;
+        const file = f.autofix.span.file || report.filePath;
+        if (!fixesByFile.has(file)) fixesByFile.set(file, []);
+        fixesByFile.get(file)!.push({ finding: f, fix: f.autofix });
+      }
+    }
+
+    if (fixesByFile.size === 0) {
+      console.log('  No autofixes available in findings.');
+      process.exit(0);
+    }
+
+    let totalApplied = 0;
+    let totalSkipped = 0;
+
+    for (const [file, fixes] of fixesByFile) {
+      if (!existsSync(file)) {
+        console.error(`  Skipping ${file} — file not found`);
+        totalSkipped += fixes.length;
+        continue;
+      }
+
+      // Sort bottom-up: highest line first, then highest col, to avoid offset shifts
+      fixes.sort((a, b) => {
+        const lineDiff = b.fix.span.startLine - a.fix.span.startLine;
+        if (lineDiff !== 0) return lineDiff;
+        return b.fix.span.startCol - a.fix.span.startCol;
+      });
+
+      const lines = readFileSync(file, 'utf-8').split('\n');
+      let applied = 0;
+
+      for (const { finding, fix } of fixes) {
+        const { startLine, startCol, endLine, endCol } = fix.span;
+        // Lines are 1-indexed, array is 0-indexed
+        const sl = startLine - 1;
+        const el = endLine - 1;
+
+        if (sl < 0 || el >= lines.length) {
+          console.error(`  Skipping ${finding.ruleId}@${startLine}:${startCol} — span out of range`);
+          totalSkipped++;
+          continue;
+        }
+
+        if (fix.type === 'replace') {
+          const before = lines[sl].slice(0, startCol - 1);
+          const after = lines[el].slice(endCol - 1);
+          const replacementLines = fix.replacement.split('\n');
+          replacementLines[0] = before + replacementLines[0];
+          replacementLines[replacementLines.length - 1] += after;
+          lines.splice(sl, el - sl + 1, ...replacementLines);
+        } else if (fix.type === 'insert-before') {
+          lines.splice(sl, 0, fix.replacement);
+        } else if (fix.type === 'insert-after') {
+          lines.splice(el + 1, 0, fix.replacement);
+        } else if (fix.type === 'remove') {
+          lines.splice(sl, el - sl + 1);
+        }
+        applied++;
+      }
+
+      writeFileSync(file, lines.join('\n'));
+      console.log(`  ${file}: ${applied} fix${applied === 1 ? '' : 'es'} applied`);
+      totalApplied += applied;
+    }
+
+    console.log(`\n  ${totalApplied} autofix${totalApplied === 1 ? '' : 'es'} applied, ${totalSkipped} skipped.`);
     process.exit(0);
   }
 
