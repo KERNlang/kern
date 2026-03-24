@@ -60,13 +60,25 @@ export function reviewMCPSource(source: string, filePath: string): ReviewFinding
   try {
     if (COMPILED_RULES.length > 0) {
       const kernFindings = runCompiledRules(COMPILED_RULES, source, filePath);
-      // Dedup: skip .kern findings that duplicate legacy regex findings (same ruleId + line)
-      const existingKeys = new Set(findings.map(f => `${f.ruleId}:${f.primarySpan.startLine}`));
+      // Dedup: merge .kern findings with legacy regex findings (same ruleId + line)
+      // When both exist, prefer higher severity
+      const SEVERITY_RANK: Record<string, number> = { error: 3, warning: 2, info: 1 };
+      const existingByKey = new Map<string, number>(
+        findings.map((f, i) => [`${f.ruleId}:${f.primarySpan.startLine}`, i])
+      );
       for (const kf of kernFindings) {
         const key = `${kf.ruleId}:${kf.primarySpan.startLine}`;
-        if (!existingKeys.has(key)) {
+        const existingIdx = existingByKey.get(key);
+        if (existingIdx === undefined) {
+          existingByKey.set(key, findings.length);
           findings.push(kf);
-          existingKeys.add(key);
+        } else {
+          // Replace if .kern finding has higher severity
+          const existingSev = SEVERITY_RANK[findings[existingIdx].severity] || 0;
+          const kernSev = SEVERITY_RANK[kf.severity] || 0;
+          if (kernSev > existingSev) {
+            findings[existingIdx] = kf;
+          }
         }
       }
     }
