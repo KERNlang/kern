@@ -3,7 +3,7 @@
  */
 
 // Core
-export { parse, registerParserHints, unregisterParserHints, clearParserHints, tokenizeLine } from './parser.js';
+export { parse, parseDocument, registerParserHints, unregisterParserHints, clearParserHints, tokenizeLine } from './parser.js';
 export type { Token, TokenKind } from './parser.js';
 export { decompile } from './decompiler.js';
 export { KernParseError } from './errors.js';
@@ -14,6 +14,8 @@ export type {
   IRSourceLocation,
   SourceMapEntry,
   TranspileResult,
+  TranspileDiagnostic,
+  DiagnosticOutcome,
   DecompileResult,
   GeneratedArtifact,
   KernEngine,
@@ -51,7 +53,7 @@ export {
   generateType, generateInterface, generateUnion, generateService, generateFunction,
   generateMachine, generateMachineReducer, generateError, generateModule,
   generateConfig, generateStore, generateTest, generateEvent,
-  generateImport, generateConst, generateHook,
+  generateImport, generateConst,
   generateOn, generateWebSocket,
   // Ground layer
   generateDerive, generateTransform, generateAction, generateGuard,
@@ -59,7 +61,7 @@ export {
   generateBranch, generateResolve, generateExpect, generateRecover,
   generatePattern, generateApply,
   emitReasonAnnotations, emitLowConfidenceTodo,
-  parseParamList, capitalize,
+  parseParamList, capitalize, exportPrefix,
   // Shared IR node helpers
   getProps, getChildren, getFirstChild, getStyles, getPseudoStyles, getThemeRefs,
   dedent, cssPropertyName, handlerCode,
@@ -104,4 +106,5 @@ export type {
 } from './concepts.js';
 
 // Utilities
-export { countTokens, serializeIR, camelKey, escapeJsx, escapeJsxText, escapeJsxAttr, escapeJsString } from './utils.js';
+export { countTokens, serializeIR, camelKey, escapeJsx, escapeJsxText, escapeJsxAttr, escapeJsString, buildDiagnostics, accountNode } from './utils.js';
+export type { AccountedEntry } from './utils.js';

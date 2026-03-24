@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, TailwindVersionProfile } from '@kernlang/core';
-import { stylesToTailwind, colorToTw, countTokens, serializeIR, camelKey, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, applyTailwindTokenRules, getProps, getStyles, getThemeRefs, getPseudoStyles } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, TailwindVersionProfile, AccountedEntry } from '@kernlang/core';
+import { stylesToTailwind, colorToTw, countTokens, serializeIR, camelKey, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, applyTailwindTokenRules, getProps, getStyles, getThemeRefs, getPseudoStyles, buildDiagnostics, accountNode } from '@kernlang/core';
 import { planStructure } from './structure.js';
 import type { PlannedFile } from './structure.js';
 import { buildStructuredArtifacts } from './artifact-utils.js';
@@ -65,7 +65,12 @@ function renderNode(node: IRNode, ctx: CodeBuilder, indent: string): void {
       return;
     case 'logic':
       // Collect logic blocks — rendered before return statement
-      ctx.logicBlocks.push(p.code as string);
+      if (p.code) {
+        ctx.logicBlocks.push(String(p.code));
+      } else if (node.children) {
+        const handlerChild = node.children.find(c => c.type === 'handler');
+        if (handlerChild?.props?.code) ctx.logicBlocks.push(String(handlerChild.props.code));
+      }
       return;
     case 'screen':
       renderScreen(node, ctx, indent);
@@ -273,7 +278,8 @@ function renderText(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const format = p.format as string;
   const key = p.key as string;
   const tag = p.tag as string || 'span';
-  const el = tag === 'p' ? 'p' : tag === 'h1' ? 'h1' : tag === 'h2' ? 'h2' : tag === 'h3' ? 'h3' : tag === 'label' ? 'label' : 'span';
+  const TEXT_TAG_MAP: Record<string, string> = { p: 'p', h1: 'h1', h2: 'h2', h3: 'h3', h4: 'h4', h5: 'h5', h6: 'h6', label: 'label', span: 'span', pre: 'pre', code: 'code' };
+  const el = TEXT_TAG_MAP[tag] || 'span';
 
   const tw = twClasses(node, ctx);
 
@@ -776,12 +782,20 @@ function _transpileTailwindInner(root: IRNode, config?: ResolvedKernConfig): Tra
   const tsTokenCount = countTokens(output);
   const tokenReduction = tsTokenCount > 0 ? Math.round((1 - irTokenCount / tsTokenCount) * 100) : 0;
 
+  const accounted = new Map<IRNode, AccountedEntry>();
+  accountNode(accounted, root, 'expressed', undefined, true);
+  const CONSUMED = new Set(['state', 'logic', 'on', 'theme', 'handler']);
+  for (const child of root.children || []) {
+    if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+  }
+
   return {
     code: output,
     sourceMap: ctx.sourceMap,
     irTokenCount,
     tsTokenCount,
     tokenReduction,
+    diagnostics: buildDiagnostics(root, accounted, 'tailwind'),
   };
 }
 
@@ -909,6 +923,13 @@ function _transpileTailwindStructured(
   const tsTokenCount = countTokens(entryCode);
   const tokenReduction = tsTokenCount > 0 ? Math.round((1 - irTokenCount / tsTokenCount) * 100) : 0;
 
+  const accounted = new Map<IRNode, AccountedEntry>();
+  accountNode(accounted, root, 'expressed', undefined, true);
+  const CONSUMED = new Set(['state', 'logic', 'on', 'theme', 'handler']);
+  for (const child of root.children || []) {
+    if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+  }
+
   return {
     code: entryCode,
     sourceMap: [],
@@ -916,6 +937,7 @@ function _transpileTailwindStructured(
     tsTokenCount,
     tokenReduction,
     artifacts,
+    diagnostics: buildDiagnostics(root, accounted, 'tailwind'),
   };
 }
 

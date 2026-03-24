@@ -729,20 +729,27 @@ function memoryLeak(ctx: RuleContext): ReviewFinding[] {
 
     let hasCleanupReturn = false;
 
-    // For block bodies, check top-level return statements
+    // Check ALL return statements in the callback (including inside conditionals)
     if (callbackBody.getKind() === SyntaxKind.Block) {
-      const block = callbackBody as import('ts-morph').Block;
-      for (const stmt of block.getStatements()) {
-        if (stmt.getKind() !== SyntaxKind.ReturnStatement) continue;
-        const retStmt = stmt as import('ts-morph').ReturnStatement;
+      for (const retStmt of callbackBody.getDescendantsOfKind(SyntaxKind.ReturnStatement)) {
+        // Skip returns inside nested functions (they're not cleanup returns)
+        let inNested = false;
+        let cur: import('ts-morph').Node | undefined = retStmt.getParent();
+        while (cur && cur !== callbackBody) {
+          const k = cur.getKind();
+          if (k === SyntaxKind.ArrowFunction || k === SyntaxKind.FunctionExpression || k === SyntaxKind.FunctionDeclaration) {
+            inNested = true;
+            break;
+          }
+          cur = cur.getParent();
+        }
+        if (inNested) continue;
+
         const retExpr = retStmt.getExpression();
         if (!retExpr) continue;
 
-        // return () => { ... } — ArrowFunction
         if (retExpr.getKind() === SyntaxKind.ArrowFunction) { hasCleanupReturn = true; break; }
-        // return function() { ... } — FunctionExpression
         if (retExpr.getKind() === SyntaxKind.FunctionExpression) { hasCleanupReturn = true; break; }
-        // return cleanup — Identifier (variable reference)
         if (retExpr.getKind() === SyntaxKind.Identifier) { hasCleanupReturn = true; break; }
       }
     }
@@ -770,9 +777,11 @@ function unhandledAsync(ctx: RuleContext): ReviewFinding[] {
     const name = fn.getName() || 'anonymous';
     const line = fn.getStartLineNumber();
 
-    const hasTryCatch = body.includes('try') && body.includes('catch');
+    // Use AST to check for try/catch — string matching is defeated by comments/strings
+    const bodyNode = fn.getBody();
+    const hasTryCatch = bodyNode ? bodyNode.getDescendantsOfKind(SyntaxKind.TryStatement).length > 0 : false;
     const hasDotCatch = body.includes('.catch(') || body.includes('.catch (');
-    const hasThrow = body.includes('throw ');
+    const hasThrow = bodyNode ? bodyNode.getDescendantsOfKind(SyntaxKind.ThrowStatement).length > 0 : false;
 
     if (!hasTryCatch && !hasDotCatch && !hasThrow) {
       const hasAwait = body.includes('await ');
@@ -833,6 +842,20 @@ function syncInAsync(ctx: RuleContext): ReviewFinding[] {
   for (const fn of [...fns, ...arrows, ...methods]) {
     const calls = fn.getDescendantsOfKind(SyntaxKind.CallExpression);
     for (const call of calls) {
+      // Skip calls inside nested (non-async) functions — those have their own scope
+      let nestedFn = false;
+      let cur = call.getParent();
+      while (cur && cur !== fn) {
+        const k = cur.getKind();
+        if ((k === SyntaxKind.FunctionDeclaration || k === SyntaxKind.ArrowFunction ||
+             k === SyntaxKind.FunctionExpression || k === SyntaxKind.MethodDeclaration) && cur !== fn) {
+          nestedFn = true;
+          break;
+        }
+        cur = cur.getParent();
+      }
+      if (nestedFn) continue;
+
       const callee = call.getExpression().getText();
       const calleeName = callee.split('.').pop() || callee;
       if (SYNC_BLOCKERS.has(calleeName)) {

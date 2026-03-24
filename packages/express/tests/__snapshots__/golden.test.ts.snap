@@ -127,7 +127,6 @@ export function registerDeleteApiTracksIdRoute(app: Express): void {
     try {
             await db.tracks.delete(req.params.id);
             res.status(204).send();
-          
     } catch (error) {
       next(error);
     }
@@ -148,7 +147,6 @@ export function registerGetApiTracksRoute(app: Express): void {
     try {
             const tracks = await db.tracks.findAll({ userId: req.user.id });
             res.json(tracks);
-          
     } catch (error) {
       next(error);
     }
@@ -187,7 +185,6 @@ export function registerGetApiTracksIdRoute(app: Express): void {
             const track = await db.tracks.findById(req.params.id);
             if (!track) return res.status(404).json({ error: 'Not found' });
             res.json(track);
-          
     } catch (error) {
       next(error);
     }
@@ -226,7 +223,6 @@ export function registerPostApiTracksAnalyzeRoute(app: Express): void {
             const { trackId, options } = req.body;
             const result = await analyzeTrack(trackId, options);
             res.json(result);
-          
     } catch (error) {
       next(error);
     }

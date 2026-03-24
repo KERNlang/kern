@@ -98,6 +98,8 @@ export const NODE_TYPES = [
   'reason', 'evidence',
   // Confidence layer — evidence gaps
   'needs',
+  // Rule layer — native .kern lint rules
+  'rule', 'message',
 ] as const;
 
 export type IRNodeType = (typeof NODE_TYPES)[number];

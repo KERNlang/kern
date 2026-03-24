@@ -1,0 +1,16 @@
+action name=mcp-unsanitized-response
+  reason value="CWE-1427, OWASP MCP05"
+  config severity=warning confidence=0.80 category=bug
+
+  effect name=external-data kind=network
+    pattern lang=ts match="\b(fetch|axios\.\w+|got\.\w+|db\.query|findOne|findMany|findById|collection\.find|\.findUnique|\.findFirst|readFile|readFileSync|createReadStream)\s*\("
+    pattern lang=py match="\b(requests\.get|requests\.post|httpx\.\w+|aiohttp|cursor\.execute|\.fetchall|\.fetchone|open\s*\()\b"
+
+  guard name=sanitize kind=validation
+    pattern lang=ts match="\bsanitize\w*\s*\(|\bescape\w*\s*\(|\bcleanForPrompt\s*\(|\bstripTags\s*\("
+    pattern lang=py match="\bsanitize\w*\s*\(|\bescape\w*\s*\(|\bclean\w*\s*\("
+
+  invariant name=raw-response
+    expect from=external-data to=external-data guarded-by="sanitize"
+    evidence value="MCP tool returns data from external source without sanitization — indirect prompt injection risk"
+    suggestion value="Sanitize external data before including in tool responses. External content may contain prompt injection payloads."

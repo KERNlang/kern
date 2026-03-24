@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR, buildDiagnostics, accountNode } from '@kernlang/core';
 
 const NODE_TO_COMPONENT: Record<string, string> = {
   screen: 'View',
@@ -68,9 +68,7 @@ export function transpile(root: IRNode, _config?: ResolvedKernConfig): Transpile
           // Let me check: "theme bar {h:8,br:4}" - type="theme", then "bar" tries to match as prop (no =), fails.
           // So we need to handle theme name specially. For now, get it from the parser result.
           if (props.styles) {
-            // Use first non-style, non-pseudoStyles key as name, or generate one
-            const keys = Object.keys(props).filter(k => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
-            const name = keys[0] || `theme_${styleIdx++}`;
+            const name = (props.name as string) || `theme_${styleIdx++}`;
             themes[name] = props.styles as Record<string, string>;
           }
         }
@@ -237,6 +235,16 @@ export function transpile(root: IRNode, _config?: ResolvedKernConfig): Transpile
     irTokenCount,
     tsTokenCount,
     tokenReduction,
+    diagnostics: (() => {
+      const accounted = new Map<IRNode, AccountedEntry>();
+      accountNode(accounted, root, 'expressed', undefined, true);
+      if (root.children) {
+        for (const child of root.children) {
+          if (child.type === 'theme') accountNode(accounted, child, 'consumed', 'theme pre-pass', true);
+        }
+      }
+      return buildDiagnostics(root, accounted, 'native');
+    })(),
   };
 }
 

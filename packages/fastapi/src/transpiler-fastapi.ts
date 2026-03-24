@@ -5,8 +5,8 @@
  * Blueprint: transpiler-express.ts — same IR nodes, same multi-file pattern, Python output.
  */
 
-import type { ResolvedKernConfig, GeneratedArtifact, IRNode, SourceMapEntry, TranspileResult } from '@kernlang/core';
-import { countTokens, dedent, getChildren, getFirstChild, getProps, serializeIR } from '@kernlang/core';
+import type { ResolvedKernConfig, GeneratedArtifact, IRNode, SourceMapEntry, TranspileResult, AccountedEntry } from '@kernlang/core';
+import { countTokens, dedent, getChildren, getFirstChild, getProps, serializeIR, buildDiagnostics, accountNode } from '@kernlang/core';
 import { generatePythonCoreNode } from './codegen-python.js';
 import { mapTsTypeToPython, toSnakeCase } from './type-map.js';
 
@@ -907,14 +907,20 @@ function buildWebSocketArtifact(
 
 export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): TranspileResult {
   const sourceMap: SourceMapEntry[] = [];
+  const accounted = new Map<IRNode, AccountedEntry>();
   const middlewareArtifacts = new Map<string, MiddlewareArtifactRef>();
   const serverNode = findServerNode(root) || root;
+  accountNode(accounted, root, 'consumed', 'parse root');
+  if (serverNode !== root) accountNode(accounted, serverNode, 'consumed', 'server container');
   const serverProps = getProps(serverNode);
   const serverName = String(serverProps.name || 'KernFastAPIServer');
   const port = String(serverProps.port || '8000');
   const serverMiddlewares = getChildren(serverNode, 'middleware');
+  for (const mw of serverMiddlewares) accountNode(accounted, mw, 'consumed', 'server middleware', true);
   const routeNodes = getChildren(serverNode, 'route');
+  for (const rn of routeNodes) accountNode(accounted, rn, 'consumed', 'route artifact', true);
   const websocketNodes = getChildren(serverNode, 'websocket');
+  for (const ws of websocketNodes) accountNode(accounted, ws, 'consumed', 'websocket handler', true);
 
   const isStrict = !_config || (_config.fastapi?.security ?? 'strict') === 'strict';
   const corsEnabled = _config?.fastapi?.cors ?? false;
@@ -943,6 +949,7 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   if (TOP_LEVEL_CORE.has(root.type) && root !== serverNode) {
     coreNodes.unshift(root);
   }
+  for (const cn of coreNodes) accountNode(accounted, cn, 'expressed', 'core artifact', true);
 
   const serverImports = new Set<string>();
   const middlewareLines: string[] = [];
@@ -1105,5 +1112,6 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     tsTokenCount,
     tokenReduction,
     artifacts,
+    diagnostics: buildDiagnostics(root, accounted, 'fastapi'),
   };
 }

@@ -40,7 +40,8 @@ export function unrecoveredEffect(ctx: ConceptRuleContext): ReviewFinding[] {
     if (node.containerId && recoveredContainers.has(node.containerId)) continue;
 
     // Also check if there's any error_handle in the same container (even logged)
-    const hasAnyHandler = ctx.concepts.nodes.some(n =>
+    // Guard: undefined === undefined would match unrelated top-level nodes
+    const hasAnyHandler = node.containerId !== undefined && ctx.concepts.nodes.some(n =>
       n.kind === 'error_handle' && n.containerId === node.containerId
     );
     if (hasAnyHandler) continue;

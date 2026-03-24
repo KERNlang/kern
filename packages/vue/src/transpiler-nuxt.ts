@@ -10,8 +10,8 @@
  * - Uses Nuxt composables: useHead, useRoute, navigateTo
  */
 
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR, cssPropertyName, getProps, getStyles, getThemeRefs } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, AccountedEntry } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR, cssPropertyName, getProps, getStyles, getThemeRefs, buildDiagnostics, accountNode } from '@kernlang/core';
 
 // ── Node → HTML Element Mapping (same as Vue) ───────────────────────────
 
@@ -116,8 +116,7 @@ function createBuilder(config?: ResolvedKernConfig): NuxtBuilder {
 
 function collectThemes(node: IRNode, ctx: NuxtBuilder): void {
   if (node.type === 'theme' && node.props?.styles) {
-    const keys = Object.keys(node.props).filter(k => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
-    const name = keys[0] || `theme_${ctx.classIdx++}`;
+    const name = (node.props.name as string) || `theme_${ctx.classIdx++}`;
     ctx.themes[name] = node.props.styles as Record<string, string>;
   }
   if (node.children) node.children.forEach(c => collectThemes(c, ctx));
@@ -545,6 +544,15 @@ export function transpileNuxt(root: IRNode, config?: ResolvedKernConfig): Transp
     tsTokenCount,
     tokenReduction,
     artifacts: artifacts.length > 0 ? artifacts : undefined,
+    diagnostics: (() => {
+      const accounted = new Map<IRNode, AccountedEntry>();
+      accountNode(accounted, root, 'expressed', undefined, true);
+      const CONSUMED = new Set(['state', 'logic', 'on', 'theme', 'handler']);
+      for (const child of root.children || []) {
+        if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+      }
+      return buildDiagnostics(root, accounted, 'nuxt');
+    })(),
   };
 }
 

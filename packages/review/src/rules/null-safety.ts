@@ -67,16 +67,18 @@ function uncheckedFind(ctx: RuleContext): ReviewFinding[] {
       let guarded = false;
       for (const stmt of statementsAfter) {
         const text = stmt.getText();
-        // Check for null guards: if (x), if (x != null), if (!x), x?, x ? (ternary)
-        if (text.includes(`if (${varName}`) || text.includes(`if (!${varName}`) ||
-            text.includes(`${varName} != null`) || text.includes(`${varName} !== null`) ||
-            text.includes(`${varName} !== undefined`) || text.includes(`${varName} != undefined`) ||
-            text.includes(`${varName}?`) || text.includes(`${varName} ?`)) {
+        // Check for null guards using word boundaries to avoid substring matches
+        // (e.g., var 'el' must not match 'elementCount')
+        const guardRe = new RegExp(`\\b${varName}\\b\\s*(!==?\\s*null|!==?\\s*undefined|\\?[.:]|\\s\\?)`, '');
+        const ifGuardRe = new RegExp(`if\\s*\\(!?\\b${varName}\\b[^.]`, '');
+        if (guardRe.test(text) || ifGuardRe.test(text)) {
           guarded = true;
           break;
         }
-        // Used before guard — flag it
-        if (text.includes(`${varName}.`) && !text.includes(`${varName}?.`)) {
+        // Used before guard — flag it (word boundary prevents 'el' matching 'element.foo')
+        const accessRe = new RegExp(`\\b${varName}\\b\\.`, '');
+        const optionalRe = new RegExp(`\\b${varName}\\b\\?\\.`, '');
+        if (accessRe.test(text) && !optionalRe.test(text)) {
           findings.push(finding(
             'unchecked-find',
             'warning',

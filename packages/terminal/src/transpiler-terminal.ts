@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, GeneratedArtifact, ResolvedKernConfig } from '@kernlang/core';
-import { countTokens, serializeIR, isCoreNode, generateCoreNode, getProps, getChildren, getFirstChild } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, GeneratedArtifact, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
+import { countTokens, serializeIR, isCoreNode, generateCoreNode, getProps, getChildren, getFirstChild, buildDiagnostics, accountNode } from '@kernlang/core';
 
 /**
  * Terminal Transpiler — generates ANSI-based CLI rendering code
@@ -502,6 +502,15 @@ export function transpileTerminal(root: IRNode, _config?: ResolvedKernConfig): T
     irTokenCount,
     tsTokenCount,
     tokenReduction,
+    diagnostics: (() => {
+      const accounted = new Map<IRNode, AccountedEntry>();
+      accountNode(accounted, root, 'expressed', undefined, true);
+      const CONSUMED = new Set(['state', 'repl', 'on', 'handler']);
+      for (const child of root.children || []) {
+        if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+      }
+      return buildDiagnostics(root, accounted, 'terminal');
+    })(),
   };
 }
 

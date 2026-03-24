@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, TailwindVersionProfile, NextjsVersionProfile } from '@kernlang/core';
-import { stylesToTailwind, colorToTw, countTokens, serializeIR, camelKey, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, buildNextjsProfile, applyTailwindTokenRules, getProps, getStyles } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, TailwindVersionProfile, NextjsVersionProfile, AccountedEntry } from '@kernlang/core';
+import { stylesToTailwind, colorToTw, countTokens, serializeIR, camelKey, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, buildNextjsProfile, applyTailwindTokenRules, getProps, getStyles, buildDiagnostics, accountNode } from '@kernlang/core';
 import { planStructure } from './structure.js';
 import type { PlannedFile } from './structure.js';
 import { buildStructuredArtifacts } from './artifact-utils.js';
@@ -860,6 +860,13 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
   else if (isError) files.push({ path: `${routePrefix}error.tsx`, content: output });
   else files.push({ path: `${routePrefix}page.tsx`, content: output });
 
+  const accounted = new Map<IRNode, AccountedEntry>();
+  accountNode(accounted, root, 'expressed', undefined, true);
+  const CONSUMED = new Set(['state', 'logic', 'on', 'theme', 'handler']);
+  for (const child of root.children || []) {
+    if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+  }
+
   return {
     code: output,
     sourceMap: ctx.sourceMap,
@@ -867,6 +874,7 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
     tsTokenCount,
     tokenReduction,
     files,
+    diagnostics: buildDiagnostics(root, accounted, 'nextjs'),
   };
 }
 
@@ -1091,6 +1099,7 @@ function _transpileNextjsStructured(
     tokenReduction,
     files,
     artifacts,
+    diagnostics: buildDiagnostics(root, new Map<IRNode, AccountedEntry>([[root, { outcome: 'expressed' }]]), 'nextjs'),
   };
 }
 

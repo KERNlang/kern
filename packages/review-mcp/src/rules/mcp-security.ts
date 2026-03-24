@@ -61,11 +61,18 @@ function finding(
   };
 }
 
-/** Find all 1-based line numbers where a pattern matches */
+/** Check if a line is a comment (JS/TS single-line or Python) */
+export function isCommentLine(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith('*') || trimmed.startsWith('/*');
+}
+
+/** Find all 1-based line numbers where a pattern matches (skips comment lines) */
 function findLines(source: string, pattern: RegExp): number[] {
   const lines: number[] = [];
   const srcLines = source.split('\n');
   for (let i = 0; i < srcLines.length; i++) {
+    if (isCommentLine(srcLines[i])) continue;
     if (pattern.test(srcLines[i])) lines.push(i + 1);
   }
   return lines;
@@ -99,6 +106,8 @@ const PY_PATH_SANITIZE = /\b(os\.path\.abspath|os\.path\.realpath|pathlib\.Path.
 
 // Secret patterns (high precision)
 const SECRET_PATTERNS = /(?:api[_-]?key|secret[_-]?key|password|token|private[_-]?key|auth[_-]?token|access[_-]?key|client[_-]?secret)\s*[:=]\s*['"][^'"]{8,}['"]/i;
+// Quoted object/header keys: "X-Api-Key": "value", 'Authorization': 'Bearer ...'
+const QUOTED_SECRET_KEY = /['"](?:[\w-]*(?:api[_-]?key|secret|token|password|authorization)[\w-]*)['"]?\s*:\s*['"][^'"]{8,}['"]/i;
 const HARDCODED_KEY = /['"](?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|AKIA[A-Z0-9]{16}|xox[bpas]-[a-zA-Z0-9-]{10,})['"]/;
 // Obfuscated secrets: base64-encoded credential arrays with deobfuscation function
 const BASE64_OBFUSCATION = /Buffer\.from\s*\([^,]+,\s*['"]base64['"]\)|atob\s*\(|base64\.b64decode\s*\(/;
@@ -113,7 +122,7 @@ const SUSPICIOUS_DESC_PATTERNS = [
   /disregard\s+(previous|above|all)/i,
   /you\s+are\s+now\b/i,
   /new\s+instructions?:/i,
-  /system\s*:\s*/i,
+  /^\s*system\s*:\s*/im,  // Only match "system:" at start of line/description, not mid-sentence
   /\<\|system\|\>/,
   /\<\|end\|\>/,
   /\[INST\]/,
@@ -176,9 +185,10 @@ function commandInjectionTS(source: string, filePath: string): ReviewFinding[] {
     const block = lines.slice(region.start, region.end).join('\n');
     if (!TS_EXEC_SINKS.test(block)) continue;
 
-    // Check each exec line
+    // Check each exec line (skip comments)
     for (let i = region.start; i < region.end; i++) {
       const line = lines[i];
+      if (isCommentLine(line)) continue;
       if (!TS_EXEC_LINE.test(line) && !/\beval\s*\(/.test(line)) continue;
 
       // Check if line uses template literals or string concat with params
@@ -197,9 +207,10 @@ function commandInjectionTS(source: string, filePath: string): ReviewFinding[] {
     }
   }
 
-  // Detect eval() inside tool handler regions
+  // Detect eval() inside tool handler regions (skip comments)
   for (const region of toolHandlerRegions) {
     for (let i = region.start; i < region.end; i++) {
+      if (isCommentLine(lines[i])) continue;
       if (/\beval\s*\(/.test(lines[i])) {
         findings.push(finding(
           'mcp-command-injection', 'error',
@@ -526,6 +537,19 @@ function secretsInMetadata(source: string, filePath: string): ReviewFinding[] {
         'Move API keys to environment variables. Rotate the exposed key immediately.',
       ));
     }
+
+    // Quoted header/object keys: "X-Api-Key": "bjlYhh..."
+    if (QUOTED_SECRET_KEY.test(line) && !SECRET_PATTERNS.test(line)) {
+      if (/process\.env|os\.environ|os\.getenv|ENV\[|config\.|settings\./.test(line)) continue;
+      if (/['"]<[^>]+>['"]|['"]\{[^}]+\}['"]|['"]YOUR_|['"]REPLACE_|['"]xxx|['"]changeme/i.test(line)) continue;
+
+      findings.push(finding(
+        'mcp-secrets-exposure', 'error',
+        `Hardcoded secret in quoted header/object key — credential exposure risk`,
+        filePath, i + 1,
+        'Use environment variables for API keys in headers. Never hardcode credentials.',
+      ));
+    }
   }
 
   // Detect base64 obfuscation of secrets — arrays of base64 strings with deobfuscation function
@@ -651,6 +675,25 @@ function missingInputValidationTS(source: string, filePath: string): ReviewFindi
         filePath, region.start + 1,
         'Validate tool parameters with a schema (Zod, joi, etc.) or explicit type checks before use.',
       ));
+    }
+
+    // Param-to-eval flow: params flow to eval()/new Function() without Zod schema protection.
+    // Array.isArray or typeof on unrelated vars don't protect against eval injection.
+    // Only eval/new Function — execFile/spawn with array args are handled by command-injection rule.
+    if (hasParams && !hasZodSchema && /\beval\s*\(|\bnew\s+Function\s*\(/.test(block)) {
+      // Find the eval line for precise reporting
+      for (let i = region.start; i < region.end; i++) {
+        if (isCommentLine(lines[i])) continue;
+        if (/\beval\s*\(|\bnew\s+Function\s*\(/.test(lines[i])) {
+          findings.push(finding(
+            'mcp-missing-validation', 'error',
+            `Tool parameters flow to eval/Function sink without schema validation — code execution via unvalidated input`,
+            filePath, i + 1,
+            'Validate and sanitize parameters with a schema (Zod, joi) before passing to eval. Use allowlists for acceptable values.',
+          ));
+          break; // One per region
+        }
+      }
     }
   }
 
@@ -824,12 +867,12 @@ function levenshtein(a: string, b: string): number {
 
 // ── Tool handler region detection ────────────────────────────────────
 
-interface CodeRegion {
+export interface CodeRegion {
   start: number; // 0-based line index
   end: number;   // 0-based line index (exclusive)
 }
 
-function findToolHandlerRegions(lines: string[], language: 'typescript' | 'python'): CodeRegion[] {
+export function findToolHandlerRegions(lines: string[], language: 'typescript' | 'python'): CodeRegion[] {
   const regions: CodeRegion[] = [];
 
   if (language === 'typescript') {
@@ -912,7 +955,7 @@ function isMCPServerPython(source: string): boolean {
     (/['"]tools\/list['"]/.test(source) && /['"]tools\/call['"]/.test(source));
 }
 
-function isMCPServer(source: string, filePath: string): boolean {
+export function isMCPServer(source: string, filePath: string): boolean {
   if (filePath.endsWith('.py')) return isMCPServerPython(source);
   return isMCPServerTS(source);
 }

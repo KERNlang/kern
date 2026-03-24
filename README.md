@@ -313,6 +313,31 @@ kern review src/stores/toast.ts
   Summary: 87% KERN coverage, ~218 → 70 tokens (68% reduction)
 ```
 
+### MCP Server Security: `kern review-mcp`
+
+Scan MCP (Model Context Protocol) servers for vulnerabilities. 13 rules mapped to the [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/).
+
+```bash
+npx kern-mcp-security ./src/server.ts
+```
+
+```
+KERN MCP Security Score: A (96/100)
+  Guard coverage:    100%
+  Input validation:  100%
+  Rule compliance:   79%
+  Auth posture:      100%
+
+4 MCP server file(s) scanned:
+  index.ts — A (8 findings)
+    [WARN] L73 mcp-path-traversal: File system operation without path containment validation
+    [WARN] L175 mcp-path-traversal: File system operation without path containment validation
+```
+
+Detects command injection, path traversal, missing auth, secrets exposure, prompt injection, typosquatting, and more — in TypeScript and Python MCP servers.
+
+Available as: **[VS Code extension](https://github.com/KERNlang/kern-sight-mcp)** | **CLI** (`npx kern-mcp-security`) | **[GitHub Action](https://github.com/KERNlang/kern-sight-mcp/tree/main/ci)**
+
 ### 76+ rules across 10 layers
 
 AST-based analysis with taint tracking, concept-level checks, and OWASP LLM01 coverage.
@@ -496,6 +521,7 @@ KERN auto-detects framework versions from `package.json`. Upgrade your framework
 @kernlang/fastapi        FastAPI Python + WebSocket transpiler
 @kernlang/terminal       ANSI terminal + Ink transpilers
 @kernlang/review         76+ rules, taint tracking, OWASP LLM01, suppression
+@kernlang/review-mcp     MCP server security scanner (11 rules, OWASP MCP Top 10)
 @kernlang/review-python  Python review support (FastAPI, Django)
 @kernlang/evolve         Self-extending template system (13 commands)
 @kernlang/playground     Interactive compiler UI (Next.js)

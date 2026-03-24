@@ -1,0 +1,23 @@
+action name=mcp-command-injection
+  reason value="CWE-77, OWASP MCP04"
+  config severity=error confidence=0.95 category=bug
+
+  effect name=shell-exec kind=shell-exec
+    pattern lang=ts match="\b(exec|execSync|execFile|execFileSync|spawn|spawnSync|child_process)\s*\("
+    pattern lang=py match="\b(os\.system|os\.popen|subprocess\.run|subprocess\.call|subprocess\.Popen|subprocess\.check_output|asyncio\.create_subprocess_exec|asyncio\.create_subprocess_shell)\s*\("
+
+  effect name=eval-exec kind=shell-exec
+    pattern lang=ts match="\beval\s*\(|\bnew\s+Function\s*\("
+    pattern lang=py match="\b(eval|exec)\s*\("
+
+  guard name=array-args kind=validation
+    pattern lang=ts match="\b(?:execFile|execFileSync|spawn|spawnSync)\s*\(\s*['\"][^'\"]+['\"],\s*\["
+
+  guard name=schema-validation kind=validation
+    pattern lang=ts match="z\.\w+\("
+    pattern lang=py match="\bpydantic\b|\.model_validate\b"
+
+  invariant name=param-to-exec
+    expect from=tool-params to=shell-exec guarded-by="array-args,schema-validation"
+    evidence value="Shell command execution in MCP tool handler with interpolated parameters — command injection risk"
+    suggestion value="Use execFile/spawn with array arguments instead of exec with string interpolation. Validate parameters against an allowlist."

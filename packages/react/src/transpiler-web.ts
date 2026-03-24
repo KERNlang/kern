@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR, cssPropertyName } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, AccountedEntry } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR, cssPropertyName, buildDiagnostics, accountNode } from '@kernlang/core';
 import { planStructure } from './structure.js';
 import type { PlannedFile } from './structure.js';
 import { buildStructuredArtifacts } from './artifact-utils.js';
@@ -58,8 +58,7 @@ function _transpileWebFlat(root: IRNode, _config?: ResolvedKernConfig): Transpil
     if (node.type === 'theme' && node.props) {
       const props = node.props as Record<string, unknown>;
       if (props.styles) {
-        const keys = Object.keys(props).filter(k => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
-        const name = keys[0] || `theme_${classIdx++}`;
+        const name = (props.name as string) || `theme_${classIdx++}`;
         themes[name] = props.styles as Record<string, string>;
       }
     }
@@ -233,12 +232,20 @@ function _transpileWebFlat(root: IRNode, _config?: ResolvedKernConfig): Transpil
   const tsTokenCount = countTokens(output);
   const tokenReduction = tsTokenCount > 0 ? Math.round((1 - irTokenCount / tsTokenCount) * 100) : 0;
 
+  const accounted = new Map<IRNode, AccountedEntry>();
+  accountNode(accounted, root, 'expressed', undefined, true);
+  const CONSUMED = new Set(['state', 'logic', 'on', 'theme', 'handler']);
+  for (const child of root.children || []) {
+    if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+  }
+
   return {
     code: output,
     sourceMap,
     irTokenCount,
     tsTokenCount,
     tokenReduction,
+    diagnostics: buildDiagnostics(root, accounted, 'web'),
   };
 }
 
@@ -256,8 +263,7 @@ function _renderWebFile(file: PlannedFile, _config: ResolvedKernConfig): string 
   const themes: Record<string, Record<string, string>> = {};
   function collectThemes(node: IRNode): void {
     if (node.type === 'theme' && node.props?.styles) {
-      const keys = Object.keys(node.props).filter(k => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
-      const themeName = keys[0] || `theme_${classIdx++}`;
+      const themeName = (node.props.name as string) || `theme_${classIdx++}`;
       themes[themeName] = node.props.styles as Record<string, string>;
     }
     if (node.children) node.children.forEach(collectThemes);
@@ -365,6 +371,7 @@ function _transpileWebStructured(
     tsTokenCount,
     tokenReduction,
     artifacts,
+    diagnostics: buildDiagnostics(root, (() => { const m = new Map<IRNode, AccountedEntry>(); accountNode(m, root, 'expressed', undefined, true); return m; })(), 'web'),
   };
 }
 

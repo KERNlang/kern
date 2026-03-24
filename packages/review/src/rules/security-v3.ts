@@ -48,7 +48,7 @@ function finding(
  * Looks for: nested quantifiers, overlapping alternation with quantifiers,
  * and ambiguous repetition patterns.
  */
-function isReDoSVulnerable(pattern: string): string | null {
+export function isReDoSVulnerable(pattern: string): string | null {
   // Nested quantifiers: (x+)+ , (x*)* , (x+)* , (x*)+, (x{n,})+ etc.
   // These cause exponential backtracking
   if (/\([^)]*[+*]\)[+*{]/.test(pattern)) {
@@ -78,9 +78,15 @@ function isReDoSVulnerable(pattern: string): string | null {
     return '.* or .+ inside quantified group — unbounded matching causes backtracking';
   }
 
-  // Adjacent overlapping quantifiers without separator: \s*\s*, \d+\d+
-  if (/\\[dswDSW][+*]\\[dswDSW][+*]/.test(pattern)) {
-    return 'adjacent overlapping quantifiers — ambiguous boundary causes backtracking';
+  // Adjacent overlapping quantifiers with same class: \s*\s*, \d+\d+, \w*\w+
+  // Only flag when BOTH classes are the same (or uppercase/lowercase pair) — \w*\s* is safe
+  const adjMatch = pattern.match(/\\([dswDSW])[+*]\\([dswDSW])[+*]/);
+  if (adjMatch) {
+    const a = adjMatch[1].toLowerCase();
+    const b = adjMatch[2].toLowerCase();
+    if (a === b) {
+      return 'adjacent overlapping quantifiers — ambiguous boundary causes backtracking';
+    }
   }
 
   return null;
@@ -370,6 +376,7 @@ function promptInjection(ctx: RuleContext): ReviewFinding[] {
     const text = template.getText();
 
     // Does this template contain user input references?
+    // Bare names (question, message) are gated by inPromptContext check below
     const hasUserInput = USER_INPUT_PATTERNS.test(text) ||
       /\b(question|userInput|userMessage|message|input|query|prompt|instruction|caption)\b/.test(text);
     if (!hasUserInput) continue;
@@ -455,8 +462,8 @@ function promptInjection(ctx: RuleContext): ReviewFinding[] {
       /^(question|userInput|message|input|caption|instruction)\b/.test(rightText);
     if (!hasUserInput) continue;
 
-    // Is the left side a prompt-like string?
-    const isPromptConcat = /prompt|instruction|system|you are|analyze|review/i.test(leftText);
+    // Is the left side a prompt-like string? Require LLM-specific context, not generic English
+    const isPromptConcat = /\bprompt\b|instruction|you are\b|as an ai|as a language model/i.test(leftText);
     if (!isPromptConcat) continue;
 
     // Is it sanitized?

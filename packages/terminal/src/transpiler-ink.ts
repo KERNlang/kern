@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig } from '@kernlang/core';
-import { countTokens, serializeIR, isCoreNode, generateCoreNode, generateMachineReducer, getProps, getChildren, dedent } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
+import { countTokens, serializeIR, isCoreNode, generateCoreNode, generateMachineReducer, getProps, getChildren, dedent, buildDiagnostics, accountNode } from '@kernlang/core';
 
 /**
  * Ink Transpiler — generates React (Ink) TSX components for terminal UIs
@@ -793,5 +793,14 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     irTokenCount,
     tsTokenCount,
     tokenReduction,
+    diagnostics: (() => {
+      const accounted = new Map<IRNode, AccountedEntry>();
+      accountNode(accounted, root, 'expressed', undefined, true);
+      const CONSUMED = new Set(['state', 'on', 'handler']);
+      for (const child of root.children || []) {
+        if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+      }
+      return buildDiagnostics(root, accounted, 'ink');
+    })(),
   };
 }

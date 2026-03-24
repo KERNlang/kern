@@ -1,5 +1,5 @@
-import type { ResolvedKernConfig, GeneratedArtifact, IRNode, SourceMapEntry, TranspileResult } from '@kernlang/core';
-import { camelKey, countTokens, generateCoreNode, getChildren, getFirstChild, getProps, serializeIR } from '@kernlang/core';
+import type { ResolvedKernConfig, GeneratedArtifact, IRNode, SourceMapEntry, TranspileResult, AccountedEntry } from '@kernlang/core';
+import { camelKey, countTokens, generateCoreNode, getChildren, getFirstChild, getProps, serializeIR, buildDiagnostics, accountNode } from '@kernlang/core';
 
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'delete']);
 
@@ -966,13 +966,18 @@ function buildCoreArtifact(node: IRNode): CoreArtifactRef {
 
 export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): TranspileResult {
   const sourceMap: SourceMapEntry[] = [];
+  const accounted = new Map<IRNode, AccountedEntry>();
   const middlewareArtifacts = new Map<string, MiddlewareArtifactRef>();
   const serverNode = findServerNode(root) || root;
+  accountNode(accounted, root, 'consumed', 'parse root');
+  if (serverNode !== root) accountNode(accounted, serverNode, 'consumed', 'server container');
   const serverProps = getProps(serverNode);
   const serverName = String(serverProps.name || 'KernExpressServer');
   const port = String(serverProps.port || '3000');
   const serverMiddlewares = getChildren(serverNode, 'middleware');
+  for (const mw of serverMiddlewares) accountNode(accounted, mw, 'consumed', 'server middleware', true);
   const routeNodes = getChildren(serverNode, 'route');
+  for (const rn of routeNodes) accountNode(accounted, rn, 'consumed', 'route artifact', true);
 
   const isStrict = !_config || _config.express.security === 'strict';
   const hasJsonMiddleware = serverMiddlewares.some(m => String(getProps(m).name || '') === 'json');
@@ -1012,8 +1017,10 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
     coreNodes.unshift(root);
   }
   const coreArtifactRefs = coreNodes.map(n => buildCoreArtifact(n));
+  for (const cn of coreNodes) accountNode(accounted, cn, 'expressed', 'core artifact', true);
 
   const websocketNodes = getChildren(serverNode, 'websocket');
+  for (const ws of websocketNodes) accountNode(accounted, ws, 'consumed', 'websocket handler', true);
   const routeArtifacts = routeNodes.map((routeNode, index) => buildRouteArtifact(routeNode, index, middlewareArtifacts, sourceMap));
 
   const lines: string[] = [];
@@ -1214,5 +1221,6 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
     tsTokenCount,
     tokenReduction,
     artifacts,
+    diagnostics: buildDiagnostics(root, accounted, 'express'),
   };
 }

@@ -59,41 +59,56 @@ function asyncEffect(ctx: RuleContext): ReviewFinding[] {
 function renderSideEffect(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
-  // AST-based: walk function component bodies and find side effects
-  for (const fn of ctx.sourceFile.getFunctions()) {
-    const name = fn.getName() || '';
-    if (!name || name[0] !== name[0].toUpperCase()) continue; // not a component
-
-    const body = fn.getBody();
-    if (!body || body.getKind() !== SyntaxKind.Block) continue;
-    const block = body as import('ts-morph').Block;
-
-    // Walk top-level statements in the function body (not nested in hooks)
+  function checkBlock(block: import('ts-morph').Block, name: string): void {
     for (const stmt of block.getStatements()) {
-      // Skip return statements and variable declarations (hooks)
       if (stmt.getKind() === SyntaxKind.ReturnStatement) continue;
       if (stmt.getKind() === SyntaxKind.VariableStatement) {
         const text = stmt.getText();
-        if (/\buse[A-Z]/.test(text)) continue; // hook declaration
+        if (/\buse[A-Z]/.test(text)) continue;
       }
 
       if (stmt.getKind() !== SyntaxKind.ExpressionStatement) continue;
       const exprStmt = stmt as import('ts-morph').ExpressionStatement;
       const exprText = exprStmt.getExpression().getText();
 
-      // setState call outside hooks — line number is exact from AST
-      if (/\bset[A-Z]\w*\(/.test(exprText) && !exprText.includes('useState')) {
+      if (/\b(useEffect|useLayoutEffect|useCallback|useMemo|useInsertionEffect)\s*\(/.test(exprText)) continue;
+
+      if (/\bset[A-Z]\w*\(/.test(exprText) && !exprText.includes('useState') &&
+          !/\b(setTimeout|setInterval|setImmediate|setAttribute|setProperty|setHeader|setRequestHeader|setItem|setCustomValidity)\s*\(/.test(exprText)) {
         findings.push(finding('render-side-effect', 'error', 'bug',
           `setState called in render body of '${name}' — move to useEffect or event handler`,
           ctx.filePath, stmt.getStartLineNumber()));
       }
 
-      // fetch call in render body
       if (/\bfetch\s*\(/.test(exprText)) {
         findings.push(finding('render-side-effect', 'error', 'bug',
           `fetch() called in render body of '${name}' — move to useEffect or event handler`,
           ctx.filePath, stmt.getStartLineNumber()));
       }
+    }
+  }
+
+  // Function declaration components
+  for (const fn of ctx.sourceFile.getFunctions()) {
+    const name = fn.getName() || '';
+    if (!name || name[0] !== name[0].toUpperCase()) continue;
+    const body = fn.getBody();
+    if (!body || body.getKind() !== SyntaxKind.Block) continue;
+    checkBlock(body as import('ts-morph').Block, name);
+  }
+
+  // Arrow function components: const App = () => { ... }
+  for (const stmt of ctx.sourceFile.getVariableStatements()) {
+    for (const decl of stmt.getDeclarations()) {
+      const name = decl.getName();
+      if (!name || name[0] !== name[0].toUpperCase()) continue;
+      const init = decl.getInitializer();
+      if (!init) continue;
+      if (init.getKind() !== SyntaxKind.ArrowFunction) continue;
+      const arrow = init as import('ts-morph').ArrowFunction;
+      const body = arrow.getBody();
+      if (!body || body.getKind() !== SyntaxKind.Block) continue;
+      checkBlock(body as import('ts-morph').Block, name);
     }
   }
 
@@ -286,17 +301,25 @@ function hookOrder(ctx: RuleContext): ReviewFinding[] {
   ];
 
   for (const cfNode of controlFlowNodes) {
+    // Only flag hooks inside components (capitalized) or custom hooks (use*)
+    let enclosingFn = cfNode.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration)
+      || cfNode.getFirstAncestorByKind(SyntaxKind.ArrowFunction)
+      || cfNode.getFirstAncestorByKind(SyntaxKind.FunctionExpression);
+    if (!enclosingFn) continue;
+    const fnName = (enclosingFn as any).getName?.() || '';
+    // Skip if not a component (capitalized) or custom hook (use*)
+    if (fnName && fnName[0] !== fnName[0].toUpperCase() && !/^use[A-Z]/.test(fnName)) continue;
+
     const isConditional = cfNode.getKind() === SyntaxKind.IfStatement;
     const label = isConditional ? 'conditional' : 'loop';
 
-    // Walk actual CallExpression descendants — not string matches
     const reported = new Set<string>();
     for (const callExpr of cfNode.getDescendantsOfKind(SyntaxKind.CallExpression)) {
       const callee = callExpr.getExpression();
       if (callee.getKind() !== SyntaxKind.Identifier) continue;
       const hookName = callee.getText();
       if (!HOOK_NAMES.has(hookName)) continue;
-      if (reported.has(hookName)) continue; // one finding per hook per block
+      if (reported.has(hookName)) continue;
       reported.add(hookName);
 
       findings.push(finding('hook-order', 'error', 'bug',
