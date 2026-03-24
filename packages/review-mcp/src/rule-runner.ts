@@ -16,6 +16,26 @@ import { findToolHandlerRegions, isCommentLine, isMCPServer } from './rules/mcp-
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
+/**
+ * Extract the tool description string from a .tool() call.
+ * Scans from the region start line for quoted strings (the 2nd arg to server.tool()).
+ */
+function extractToolDescription(lines: string[], regionStart: number): string | null {
+  // Look at the .tool() call line and a few lines after for the description argument
+  const searchBlock = lines.slice(regionStart, Math.min(regionStart + 5, lines.length)).join('\n');
+  // Match: .tool('name', 'description', ...) or .tool("name", "description", ...)
+  // or: .tool('name', `template description`, ...)
+  const match = searchBlock.match(/\.tool\s*\(\s*(?:['"`][^'"`]*['"`])\s*,\s*(['"`])([\s\S]*?)\1/);
+  if (match) return match[2];
+  // Also try multi-line or variable-based descriptions (just grab all quoted strings in region)
+  const allQuoted = [...searchBlock.matchAll(/['"`]([^'"`]{10,})['"`]/g)];
+  // Return the longest quoted string (likely the description)
+  if (allQuoted.length > 1) {
+    return allQuoted.reduce((a, b) => (a[1].length > b[1].length ? a : b))[1];
+  }
+  return null;
+}
+
 function span(file: string, line: number): SourceSpan {
   return { file, startLine: line, startCol: 1, endLine: line, endCol: 1 };
 }
@@ -148,12 +168,20 @@ function runSingleRule(
 
       if (guardsSatisfied) continue;
 
-      // Check source presence (param flow)
+      // Check source presence based on invariant scope
       if (inv.from === 'tool-params') {
         const hasParams = /\b(request\.params|params\.|arguments\??\.)\b/.test(block) ||
           /\b(params|arguments|args|input)\b/.test(block);
         if (!hasParams) continue;
+      } else if (inv.from === 'tool-description') {
+        // Extract tool description from the .tool() call line region
+        const descText = extractToolDescription(lines, region.start);
+        if (!descText) continue;
+        // Check if any target sink patterns appear in the description
+        const sinkPatterns = targetSinks.flatMap(ms => langPatterns(ms.sink.patterns, lang));
+        if (sinkPatterns.length > 0 && !sinkPatterns.some(p => p.test(descText))) continue;
       }
+      // from=source-code: no additional from-check — sinks already matched in block
 
       // Invariant violated — emit finding at first sink match line
       const firstSinkLine = targetSinks[0].matchLines[0];
