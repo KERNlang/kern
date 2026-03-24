@@ -365,3 +365,206 @@ describe('subject edge cases', () => {
     expect(result.matched).toBe(false);
   });
 });
+
+// ── OR matching (pipe-separated values) ──────────────────────────────────
+
+describe('OR matching with pipe-separated values', () => {
+  it('subtype=network|db matches network', () => {
+    const cn = makeConceptNode({
+      kind: 'effect',
+      payload: { kind: 'effect', subtype: 'network', target: 'fetch', async: true },
+    });
+    const irTarget = conceptNodeToIR(cn);
+    const index = buildRuleIndex([], makeConcepts([cn]));
+
+    const pattern: IRNode = {
+      type: 'pattern',
+      props: { subject: 'concept', type: 'effect', subtype: 'network|db' },
+      children: [],
+    };
+
+    expect(matchPattern(pattern, irTarget, index).matched).toBe(true);
+  });
+
+  it('subtype=network|db matches db', () => {
+    const cn = makeConceptNode({
+      kind: 'effect',
+      payload: { kind: 'effect', subtype: 'db', target: 'pg', async: true },
+    });
+    const irTarget = conceptNodeToIR(cn);
+    const index = buildRuleIndex([], makeConcepts([cn]));
+
+    const pattern: IRNode = {
+      type: 'pattern',
+      props: { subject: 'concept', type: 'effect', subtype: 'network|db' },
+      children: [],
+    };
+
+    expect(matchPattern(pattern, irTarget, index).matched).toBe(true);
+  });
+
+  it('subtype=network|db rejects fs', () => {
+    const cn = makeConceptNode({
+      kind: 'effect',
+      payload: { kind: 'effect', subtype: 'fs', target: 'readFile', async: true },
+    });
+    const irTarget = conceptNodeToIR(cn);
+    const index = buildRuleIndex([], makeConcepts([cn]));
+
+    const pattern: IRNode = {
+      type: 'pattern',
+      props: { subject: 'concept', type: 'effect', subtype: 'network|db' },
+      children: [],
+    };
+
+    expect(matchPattern(pattern, irTarget, index).matched).toBe(false);
+  });
+});
+
+// ── Peer guards (container-scoped) ───────────────────────────────────────
+
+describe('peer guards (container-scoped concept matching)', () => {
+  it('unguarded-effect fires when no auth guard in same container', () => {
+    const rule = parseRule(`
+rule unguarded-effect severity=warning category=bug
+  pattern subject=concept type=effect subtype=network|db
+    guard not=true peer=containerId
+      pattern subject=concept type=guard subtype=auth|validation
+  message "Network/DB effect without auth/validation guard"
+    `);
+
+    const effect = makeConceptNode({
+      kind: 'effect',
+      containerId: 'test.ts#handler',
+      payload: { kind: 'effect', subtype: 'network', target: 'fetch', async: true },
+    });
+    const concepts = makeConcepts([effect]);
+    const index = buildRuleIndex([], concepts);
+
+    const findings = evaluateRule(rule, index, 'test.ts');
+    expect(findings.length).toBe(1);
+    expect(findings[0].ruleId).toBe('unguarded-effect');
+  });
+
+  it('unguarded-effect does NOT fire when auth guard exists in same container', () => {
+    const rule = parseRule(`
+rule unguarded-effect severity=warning category=bug
+  pattern subject=concept type=effect subtype=network|db
+    guard not=true peer=containerId
+      pattern subject=concept type=guard subtype=auth|validation
+  message "Network/DB effect without auth/validation guard"
+    `);
+
+    const effect = makeConceptNode({
+      kind: 'effect',
+      containerId: 'test.ts#handler',
+      payload: { kind: 'effect', subtype: 'network', target: 'fetch', async: true },
+    });
+    const guard = makeConceptNode({
+      kind: 'guard',
+      containerId: 'test.ts#handler',
+      payload: { kind: 'guard', subtype: 'auth', name: 'isAdmin' },
+    });
+    const concepts = makeConcepts([effect, guard]);
+    const index = buildRuleIndex([], concepts);
+
+    const findings = evaluateRule(rule, index, 'test.ts');
+    expect(findings.length).toBe(0);
+  });
+
+  it('guard in different container does NOT suppress the finding', () => {
+    const rule = parseRule(`
+rule unguarded-effect severity=warning category=bug
+  pattern subject=concept type=effect subtype=network|db
+    guard not=true peer=containerId
+      pattern subject=concept type=guard subtype=auth|validation
+  message "Network/DB effect without auth/validation guard"
+    `);
+
+    const effect = makeConceptNode({
+      kind: 'effect',
+      containerId: 'test.ts#handler',
+      payload: { kind: 'effect', subtype: 'network', target: 'fetch', async: true },
+    });
+    const guard = makeConceptNode({
+      kind: 'guard',
+      containerId: 'test.ts#otherHandler',
+      payload: { kind: 'guard', subtype: 'auth', name: 'isAdmin' },
+    });
+    const concepts = makeConcepts([effect, guard]);
+    const index = buildRuleIndex([], concepts);
+
+    const findings = evaluateRule(rule, index, 'test.ts');
+    expect(findings.length).toBe(1);
+  });
+
+  it('unrecovered-effect fires when no error_handle in same container', () => {
+    const rule = parseRule(`
+rule unrecovered-effect severity=warning category=bug
+  pattern subject=concept type=effect subtype=network|db
+    guard not=true peer=containerId
+      pattern subject=concept type=error_handle disposition=wrapped|returned|rethrown|retried
+  message "effect without error recovery"
+    `);
+
+    const effect = makeConceptNode({
+      kind: 'effect',
+      containerId: 'test.ts#handler',
+      payload: { kind: 'effect', subtype: 'db', target: 'pg', async: true },
+    });
+    const concepts = makeConcepts([effect]);
+    const index = buildRuleIndex([], concepts);
+
+    const findings = evaluateRule(rule, index, 'test.ts');
+    expect(findings.length).toBe(1);
+  });
+
+  it('unrecovered-effect suppressed by wrapped error_handle in same container', () => {
+    const rule = parseRule(`
+rule unrecovered-effect severity=warning category=bug
+  pattern subject=concept type=effect subtype=network|db
+    guard not=true peer=containerId
+      pattern subject=concept type=error_handle disposition=wrapped|returned|rethrown|retried
+  message "effect without error recovery"
+    `);
+
+    const effect = makeConceptNode({
+      kind: 'effect',
+      containerId: 'test.ts#handler',
+      payload: { kind: 'effect', subtype: 'network', target: 'fetch', async: true },
+    });
+    const handler = makeConceptNode({
+      kind: 'error_handle',
+      containerId: 'test.ts#handler',
+      payload: { kind: 'error_handle', disposition: 'wrapped', errorVariable: 'e' },
+    });
+    const concepts = makeConcepts([effect, handler]);
+    const index = buildRuleIndex([], concepts);
+
+    const findings = evaluateRule(rule, index, 'test.ts');
+    expect(findings.length).toBe(0);
+  });
+
+  it('effect without containerId still fires (no peers to find)', () => {
+    const rule = parseRule(`
+rule unguarded-effect severity=warning category=bug
+  pattern subject=concept type=effect subtype=network|db
+    guard not=true peer=containerId
+      pattern subject=concept type=guard subtype=auth|validation
+  message "Unguarded effect"
+    `);
+
+    const effect = makeConceptNode({
+      kind: 'effect',
+      // no containerId
+      payload: { kind: 'effect', subtype: 'network', target: 'fetch', async: true },
+    });
+    const concepts = makeConcepts([effect]);
+    const index = buildRuleIndex([], concepts);
+
+    const findings = evaluateRule(rule, index, 'test.ts');
+    // guard not=true peer=containerId: target has no containerId → peer check fails → result=false → negated → true
+    // So the pattern matches (unguarded)
+    expect(findings.length).toBe(1);
+  });
+});

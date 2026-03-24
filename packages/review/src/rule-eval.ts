@@ -58,6 +58,8 @@ export interface RuleIndex {
   parentMap: Map<IRNode, IRNode | undefined>;
   /** All flattened nodes. */
   allNodes: IRNode[];
+  /** Peer index: prop field → value → nodes sharing that value. For container-scoped guards. */
+  peerIndex: Map<string, Map<string, IRNode[]>>;
 }
 
 /** Build a rule index from a list of IR nodes, optionally including concept nodes. */
@@ -88,7 +90,21 @@ export function buildRuleIndex(nodes: IRNode[], concepts?: ConceptMap): RuleInde
     }
   }
 
-  return { nodesByType, parentMap, allNodes };
+  // Build peer index — index nodes by prop values for peer-scoped guards
+  const peerIndex = new Map<string, Map<string, IRNode[]>>();
+  for (const node of allNodes) {
+    const np = node.props || {};
+    for (const [field, val] of Object.entries(np)) {
+      if (typeof val !== 'string' || field.startsWith('_')) continue;
+      let fieldMap = peerIndex.get(field);
+      if (!fieldMap) { fieldMap = new Map(); peerIndex.set(field, fieldMap); }
+      let list = fieldMap.get(val);
+      if (!list) { list = []; fieldMap.set(val, list); }
+      list.push(node);
+    }
+  }
+
+  return { nodesByType, parentMap, allNodes, peerIndex };
 }
 
 // ── Pattern Matching ────────────────────────────────────────────────────
@@ -147,9 +163,18 @@ export function matchPattern(pattern: IRNode, target: IRNode, index: RuleIndex):
   }
 
   // Direct prop value matching (name=value checks target.props.name === value)
+  // Supports pipe-separated OR: subtype=auth|validation matches either
   for (const [key, val] of Object.entries(pp)) {
     if (['type', 'prop', 'subject', 'not'].includes(key)) continue;
-    if (tp[key] !== undefined && String(tp[key]) !== String(val)) return NO_MATCH;
+    if (tp[key] === undefined) continue;
+    const strVal = String(val);
+    const targetVal = String(tp[key]);
+    if (strVal.includes('|')) {
+      const alternatives = strVal.split('|');
+      if (!alternatives.includes(targetVal)) return NO_MATCH;
+    } else {
+      if (targetVal !== strVal) return NO_MATCH;
+    }
   }
 
   // Capture all target props as bindings for message interpolation
@@ -200,9 +225,11 @@ export function matchPattern(pattern: IRNode, target: IRNode, index: RuleIndex):
  * - not=true: negate the result
  * - prop=X: check if target has prop X (negated: check target does NOT have prop X)
  * - scope=X: check if any ancestor has type X
+ * - peer=X: check if any node sharing the same value of prop X matches child patterns
  *
  * Guard children:
  * - pattern: must match against target (negated: must NOT match)
+ *   When peer=X is set, child patterns match against peer nodes instead of target
  */
 export function evaluateGuard(guard: IRNode, target: IRNode, index: RuleIndex): boolean {
   const gp = p(guard);
@@ -229,10 +256,35 @@ export function evaluateGuard(guard: IRNode, target: IRNode, index: RuleIndex): 
     if (!found) result = false;
   }
 
-  // Child pattern matching
-  for (const subPattern of childrenOf(guard, 'pattern')) {
-    const subResult = matchPattern(subPattern, target, index);
-    if (!subResult.matched) { result = false; break; }
+  // Peer check — find nodes sharing the same prop value, match child patterns against them
+  if (result && gp.peer) {
+    const peerField = gp.peer as string;
+    const targetValue = p(target)[peerField];
+    if (!targetValue || typeof targetValue !== 'string') {
+      result = false;
+    } else {
+      const peerPatterns = childrenOf(guard, 'pattern');
+      if (peerPatterns.length > 0) {
+        const fieldMap = index.peerIndex.get(peerField);
+        const peers = fieldMap?.get(targetValue) || [];
+        let anyPeerMatch = false;
+        for (const peer of peers) {
+          if (peer === target) continue; // skip self
+          let allMatch = true;
+          for (const pp of peerPatterns) {
+            if (!matchPattern(pp, peer, index).matched) { allMatch = false; break; }
+          }
+          if (allMatch) { anyPeerMatch = true; break; }
+        }
+        result = anyPeerMatch;
+      }
+    }
+  } else {
+    // Child pattern matching (non-peer: match against target itself)
+    for (const subPattern of childrenOf(guard, 'pattern')) {
+      const subResult = matchPattern(subPattern, target, index);
+      if (!subResult.matched) { result = false; break; }
+    }
   }
 
   return isNegated ? !result : result;
