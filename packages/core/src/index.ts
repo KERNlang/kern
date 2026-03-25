@@ -62,6 +62,8 @@ export {
   generatePattern, generateApply,
   emitReasonAnnotations, emitLowConfidenceTodo,
   parseParamList, capitalize, exportPrefix,
+  // Safe emitters (prompt-injection immunity)
+  emitIdentifier, emitStringLiteral, emitPath, emitTemplateSafe,
   // Shared IR node helpers
   getProps, getChildren, getFirstChild, getStyles, getPseudoStyles, getThemeRefs,
   dedent, cssPropertyName, handlerCode,
@@ -100,7 +102,7 @@ export type {
   ConceptNode, ConceptEdge, ConceptMap, ConceptSpan,
   ConceptNodeKind, ConceptEdgeKind,
   ConceptNodePayload, ConceptEdgePayload,
-  EntrypointPayload, EffectPayload, StateMutationPayload,
+  EntrypointPayload, EffectPayload, StateMutationPayload, FunctionDeclarationPayload,
   ErrorRaisePayload, ErrorHandlePayload, GuardPayload,
   CallPayload, DependencyPayload,
 } from './concepts.js';

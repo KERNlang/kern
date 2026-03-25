@@ -6,7 +6,7 @@
  */
 
 import type { IRNode, TemplateDefinition, TemplateSlot, TemplateImport, TemplateSlotType } from './types.js';
-import { generateCoreNode } from './codegen-core.js';
+import { generateCoreNode, emitIdentifier, emitTemplateSafe } from './codegen-core.js';
 
 // ── Registry ────────────────────────────────────────────────────────────
 
@@ -170,7 +170,9 @@ export function expandTemplateNode(node: IRNode, _depth = 0): string[] {
     if (rawValue !== undefined && rawValue !== null) {
       const value = String(rawValue);
       validateSlotValue(slot.name, value, slot.slotType);
-      slotValues.set(slot.name, value);
+      // Sanitize based on slot type — identifiers are validated, strings are escaped
+      const safeValue = slot.slotType === 'identifier' ? emitIdentifier(value, value) : value;
+      slotValues.set(slot.name, safeValue);
     } else if (slot.optional) {
       slotValues.set(slot.name, slot.defaultValue ?? '');
     } else {
@@ -212,9 +214,10 @@ export function expandTemplateNode(node: IRNode, _depth = 0): string[] {
     });
   }
 
-  // Replace {{slotName}} placeholders
+  // Replace {{slotName}} placeholders — escape slot names for safe RegExp
   for (const [name, value] of slotValues) {
-    const re = new RegExp(`\\{\\{${name}\\}\\}`, 'g');
+    const safeName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`\\{\\{${safeName}\\}\\}`, 'g');
     body = body.replace(re, value);
   }
 
@@ -225,7 +228,8 @@ export function expandTemplateNode(node: IRNode, _depth = 0): string[] {
     const importLines: string[] = [];
     for (const imp of template.imports) {
       const nameList = imp.names.split(',').map(s => s.trim()).join(', ');
-      importLines.push(`import { ${nameList} } from '${imp.from}';`);
+      const safeFrom = emitTemplateSafe(imp.from);
+      importLines.push(`import { ${nameList} } from '${safeFrom}';`);
     }
     importLines.push('');
     lines.unshift(...importLines);
