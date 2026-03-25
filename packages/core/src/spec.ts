@@ -124,9 +124,9 @@ export function isKnownNodeType(type: string): boolean {
   return (NODE_TYPES as readonly string[]).includes(type) || _dynamicNodeTypes.has(type);
 }
 
-/** Get all dynamically registered evolved types. */
+/** Get all dynamically registered evolved types (defensive copy). */
 export function getEvolvedTypes(): ReadonlySet<string> {
-  return _dynamicNodeTypes;
+  return new Set(_dynamicNodeTypes);
 }
 
 /** Clear all dynamic types (for test isolation). */
@@ -135,7 +135,7 @@ export function clearEvolvedTypes(): void {
 }
 
 /** Reserved keywords — evolved nodes cannot use these. */
-export const KERN_RESERVED = new Set(NODE_TYPES);
+export const KERN_RESERVED: ReadonlySet<string> = Object.freeze(new Set(NODE_TYPES));
 
 // ── Style Shorthands (FROZEN at v1.0 — 30 entries) ──────────────────────
 // Any CSS property not in this map uses the escape hatch: "property":"value"

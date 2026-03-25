@@ -64,8 +64,11 @@ export function tokenizeLine(line: string): Token[] {
         else if (line[i] === '}' && line[i + 1] === '}') { depth--; if (depth === 0) break; i += 2; }
         else i++;
       }
+      if (depth > 0) {
+        _parseWarnings.push(`Unclosed expression block '{{' at column ${start + 1}`);
+      }
       const inner = line.slice(start + 2, i).trim();
-      i += 2;
+      if (i < line.length - 1) i += 2; else i = line.length;
       tokens.push({ kind: 'expr', value: inner, pos: start });
       continue;
     }
@@ -75,13 +78,17 @@ export function tokenizeLine(line: string): Token[] {
       const start = i;
       let inQuote = false;
       let j = i + 1;
+      let closed = false;
       while (j < line.length) {
         if (line[j] === '\\' && j + 1 < line.length) { j += 2; continue; }
         if (line[j] === '"') inQuote = !inQuote;
-        if (!inQuote && line[j] === '}') { j++; break; }
+        if (!inQuote && line[j] === '}') { j++; closed = true; break; }
         j++;
       }
-      tokens.push({ kind: 'style', value: line.slice(start + 1, j - 1), pos: start });
+      if (!closed) {
+        _parseWarnings.push(`Unclosed style block '{' at column ${start + 1}`);
+      }
+      tokens.push({ kind: 'style', value: line.slice(start + 1, closed ? j - 1 : j), pos: start });
       i = j;
       continue;
     }
@@ -102,7 +109,11 @@ export function tokenizeLine(line: string): Token[] {
           i++;
         }
       }
-      i++; // skip closing quote
+      if (i >= line.length) {
+        _parseWarnings.push(`Unclosed quoted string at column ${start + 1}`);
+      } else {
+        i++; // skip closing quote
+      }
       tokens.push({ kind: 'quoted', value: inner, pos: start });
       continue;
     }
@@ -543,7 +554,7 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
   }
 
   return {
-    indent: indent / 2,
+    indent,
     type,
     props,
     styles,
@@ -702,7 +713,7 @@ function parseLines(source: string): ParsedLine[] {
         }
       }
       parsed.push({
-        indent: indent / 2,
+        indent,
         type: multilineType,
         props: { code: codeLines.join('\n').replace(/^\n+|\n+$/g, '') },
         styles: {},
@@ -755,6 +766,13 @@ function buildTree(parsed: ParsedLine[], root: IRNode, rootIndent: number): void
 
 // ── Public parse API ─────────────────────────────────────────────────────
 
+/**
+ * Parse KERN source into an IR tree. The first node becomes the root.
+ * WARNING: For multi-root content (e.g., multiple `rule` definitions),
+ * use `parseDocument()` instead — this function treats subsequent
+ * top-level nodes as children of the first node.
+ * @see parseDocument
+ */
 export function parse(source: string): IRNode {
   _parseWarnings = [];
   const parsed = parseLines(source);

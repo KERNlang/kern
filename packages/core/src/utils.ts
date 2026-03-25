@@ -9,7 +9,9 @@ export function serializeIR(node: IRNode, indent = ''): string {
   const props = node.props || {};
   for (const [k, v] of Object.entries(props)) {
     if (k === 'styles' || k === 'pseudoStyles' || k === 'themeRefs') continue;
-    line += ` ${k}=${typeof v === 'string' && v.includes(' ') ? `"${v}"` : v}`;
+    const sv = String(v);
+    const needsQuote = typeof v === 'string' && (sv.includes(' ') || sv.includes('"'));
+    line += ` ${k}=${needsQuote ? `"${sv.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : sv}`;
   }
   if (props.styles) {
     const pairs = Object.entries(props.styles as Record<string, string>)
@@ -49,6 +51,7 @@ export function escapeJsxAttr(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
@@ -58,6 +61,9 @@ export function escapeJsString(s: string): string {
   return s
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/`/g, '\\`')
+    .replace(/\$/g, '\\$')
     .replace(/\n/g, '\\n')
     .replace(/\r/g, '\\r');
 }

@@ -273,16 +273,14 @@ function analyzeTaintAST(inferred: InferResult[], filePath: string, sourceFile: 
     const taintedVars = new Map<string, TaintSource>();
     for (const p of taintedParams) taintedVars.set(p.name, p);
 
-    // Walk all variable declarations and track taint flow
+    // Walk ALL variable declarations including nested scopes (if/for/while)
+    // forEachDescendant visits in document order = parent-before-child
     const varDecls: import('ts-morph').VariableDeclaration[] = [];
-    const bodyKind = body.getKindName();
-    if (bodyKind === 'Block') {
-      for (const stmt of (body as any).getStatements()) {
-        if (stmt.getKindName() === 'VariableStatement') {
-          varDecls.push(...(stmt as any).getDeclarations());
-        }
+    body.forEachDescendant((node) => {
+      if (node.getKind() === SyntaxKind.VariableDeclaration) {
+        varDecls.push(node as import('ts-morph').VariableDeclaration);
       }
-    }
+    });
     // Multiple passes to handle forward dependencies (max 3 hops)
     for (let hop = 0; hop < 3; hop++) {
       for (const decl of varDecls) {
@@ -395,9 +393,16 @@ function analyzeTaintAST(inferred: InferResult[], filePath: string, sourceFile: 
     const paths: TaintPath[] = [];
     for (const sink of sinks) {
       const source = taintedVars.get(sink.taintedArg) || taintedParams[0];
-      const sanitizer = foundSanitizers.find(s =>
-        s.sanitizedVars.has(sink.taintedArg)
-      );
+      // Subtree matching: sanitize(req.query) covers req.query.id but not req.body.cmd
+      // parseInt(req.query.id) does NOT cover exec(req) — only the specific property is safe
+      const sanitizer = foundSanitizers.find(s => {
+        for (const sv of s.sanitizedVars) {
+          if (sv === sink.taintedArg) return true;
+          // Sanitized path is a prefix → covers all sub-properties
+          if (sink.taintedArg.startsWith(sv + '.')) return true;
+        }
+        return false;
+      });
       const hasSanitizer = sanitizer != null;
       const sufficient = sanitizer != null ? isSanitizerSufficient(sanitizer.name, sink.category) : false;
 
@@ -455,6 +460,17 @@ function getCalleeBaseName(call: import('ts-morph').CallExpression): string {
 }
 
 /** Find the first tainted identifier in an expression tree */
+/** Get the full static access path (e.g., req.query.id). Returns undefined for dynamic access. */
+function getStaticAccessPath(expr: Node): string | undefined {
+  const k = expr.getKindName();
+  if (k === 'Identifier') return expr.getText();
+  if (k === 'PropertyAccessExpression') {
+    const obj = getStaticAccessPath((expr as any).getExpression());
+    if (obj) return `${obj}.${(expr as any).getName()}`;
+  }
+  return undefined;
+}
+
 function findTaintedIdentifier(expr: Node, taintedNames: Set<string>): string | undefined {
   const k = expr.getKindName();
   if (k === 'Identifier' && taintedNames.has(expr.getText())) return expr.getText();
@@ -486,8 +502,14 @@ function findSanitizersAST(body: Node, taintedNames: Set<string>): Array<{ name:
     // Track which tainted vars are sanitized by this call
     const sanitizedVars = new Set<string>();
     for (const arg of call.getArguments()) {
-      const tainted = findTaintedIdentifier(arg, taintedNames);
-      if (tainted) sanitizedVars.add(tainted);
+      // Track the FULL access path so parseInt(req.query.id) sanitizes 'req.query.id', not 'req'
+      const fullPath = getStaticAccessPath(arg);
+      if (fullPath && findTaintedIdentifier(arg, taintedNames)) {
+        sanitizedVars.add(fullPath);
+      } else {
+        const tainted = findTaintedIdentifier(arg, taintedNames);
+        if (tainted) sanitizedVars.add(tainted);
+      }
     }
 
     // Also check if the result is assigned to a variable (replacing the tainted value)

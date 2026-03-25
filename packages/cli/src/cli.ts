@@ -578,6 +578,16 @@ if (args[0] === 'review') {
   const minConfidenceArg = args.find(a => a.startsWith('--min-confidence='))?.split('=')[1];
   const minConfidence = minConfidenceArg ? Number(minConfidenceArg) : undefined;
   const disableRuleArgs = args.filter(a => a.startsWith('--disable-rule=')).map(a => a.split('=')[1]);
+  // --rules-dir: collect custom rule directories (supports --rules-dir=dir and --rules-dir dir)
+  const rulesDirs: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--rules-dir' && args[i + 1] && !args[i + 1].startsWith('--')) {
+      rulesDirs.push(resolve(args[i + 1]));
+      i++; // skip next
+    } else if (args[i].startsWith('--rules-dir=')) {
+      rulesDirs.push(resolve(args[i].split('=')[1]));
+    }
+  }
   const strictArg = args.find(a => a === '--strict' || a.startsWith('--strict='));
   const strict: false | 'inline' | 'all' = strictArg === '--strict' ? 'inline' : strictArg === '--strict=all' ? 'all' : false;
   const diffBase = args.find(a => a.startsWith('--diff'))
@@ -612,7 +622,7 @@ if (args[0] === 'review') {
 
   if (!reviewInput) {
     console.error('Usage: kern review <file.ts|dir> [--security] [--mcp] [--llm] [--spec file.kern] [--cloud]');
-    console.error('       [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--fix] [--autofix]');
+    console.error('       [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--fix] [--autofix] [--rules-dir <dir>]');
     process.exit(1);
   }
 
@@ -650,6 +660,7 @@ if (args[0] === 'review') {
     showConfidence: showConfidence || reviewCfg.review.showConfidence,
     minConfidence: minConfidence ?? reviewCfg.review.minConfidence,
     disabledRules: mergedDisabledRules.length > 0 ? mergedDisabledRules : undefined,
+    rulesDirs: rulesDirs.length > 0 ? rulesDirs : undefined,
     strict,
   };
 

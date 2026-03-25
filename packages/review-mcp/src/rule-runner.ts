@@ -74,6 +74,239 @@ function findMatchLines(lines: string[], patterns: RegExp[], startIdx: number): 
   return result;
 }
 
+// ── Mini Taint Tracker ────────────────────────────────────────────────
+//
+// Tracks variable assignments within a handler block to follow data flow.
+// Not full dataflow analysis, but handles the common patterns:
+//   const url = params.url;  →  taint: {url}
+//   const target = url;      →  taint: {url, target}
+//   fetch(target);           →  tainted var reaches sink
+
+/** Patterns that indicate param/input sources */
+const PARAM_SOURCE_TS = /\b(request\.params|params\.|args\.|input\.|request\.\w+)\b|\b(params|arguments|args|input)\s*[\[.]/;
+const PARAM_SOURCE_PY = /\b(request\.params|params\[|args\[|kwargs\[|arguments\s*\[)/;
+
+/**
+ * Extract tainted variable names from a handler block.
+ * Follows assignments transitively up to MAX_HOPS.
+ *
+ * Handles:
+ *   const url = params.url           →  taint {url}
+ *   const { path, query } = params   →  taint {path, query}
+ *   const target = url               →  taint {target} (if url is tainted)
+ *   const full = `prefix${target}`   →  taint {full} (if target is tainted)
+ */
+function collectTaintedVars(
+  lines: string[],
+  regionStart: number,
+  regionEnd: number,
+  sourcePattern: RegExp,
+): Set<string> {
+  const tainted = new Set<string>();
+  const MAX_HOPS = 3;
+
+  // Pass 1: Find direct assignments from source
+  for (let i = regionStart; i < regionEnd; i++) {
+    const line = lines[i];
+    if (isCommentLine(line)) continue;
+
+    // const/let/var name = <source>
+    const assignMatch = line.match(/\b(?:const|let|var)\s+(\w+)\s*=\s*(.*)/);
+    if (assignMatch && sourcePattern.test(assignMatch[2])) {
+      tainted.add(assignMatch[1]);
+    }
+
+    // Destructuring: const { a, b } = <source>
+    const destructMatch = line.match(/\b(?:const|let|var)\s+\{\s*([^}]+)\}\s*=\s*(.*)/);
+    if (destructMatch && sourcePattern.test(destructMatch[2])) {
+      for (const name of destructMatch[1].split(',')) {
+        const clean = name.trim().split(/\s*[:=]\s*/)[0].trim();
+        if (clean && /^\w+$/.test(clean)) tainted.add(clean);
+      }
+    }
+
+    // Python: name = <source>
+    const pyAssign = line.match(/^\s*(\w+)\s*=\s*(.*)/);
+    if (pyAssign && sourcePattern.test(pyAssign[2])) {
+      tainted.add(pyAssign[1]);
+    }
+  }
+
+  // Pass 2+: Follow transitive assignments (up to MAX_HOPS)
+  for (let hop = 0; hop < MAX_HOPS; hop++) {
+    const prevSize = tainted.size;
+    for (let i = regionStart; i < regionEnd; i++) {
+      const line = lines[i];
+      if (isCommentLine(line)) continue;
+
+      // const/let/var name = <tainted_var>
+      // BUT: skip function call results — `res = await fetch(tainted)` does NOT taint `res`
+      // The return value of a function is not the same as its arguments.
+      const assignMatch = line.match(/\b(?:const|let|var)\s+(\w+)\s*=\s*(.*)/);
+      if (assignMatch && !tainted.has(assignMatch[1])) {
+        const rhs = assignMatch[2].trim();
+        // Skip if RHS is a function/method call (return value ≠ argument flow)
+        const isCallResult = /^(?:await\s+)?\w[\w.]*\s*\(/.test(rhs);
+        if (!isCallResult) {
+          for (const tv of tainted) {
+            if (new RegExp(`\\b${tv}\\b`).test(rhs)) {
+              tainted.add(assignMatch[1]);
+              break;
+            }
+          }
+        }
+      }
+
+      // Python assignment (same call-result exclusion)
+      const pyAssign = line.match(/^\s*(\w+)\s*=\s*(.*)/);
+      if (pyAssign && !tainted.has(pyAssign[1])) {
+        const rhs = pyAssign[2].trim();
+        const isCallResult = /^(?:await\s+)?\w[\w.]*\s*\(/.test(rhs);
+        if (!isCallResult) {
+          for (const tv of tainted) {
+            if (new RegExp(`\\b${tv}\\b`).test(rhs)) {
+              tainted.add(pyAssign[1]);
+              break;
+            }
+          }
+        }
+      }
+    }
+    if (tainted.size === prevSize) break; // No new tainted vars found
+  }
+
+  return tainted;
+}
+
+/**
+ * Check if param-tainted data flows to any of the sink match lines.
+ * Uses variable tracking instead of proximity — follows assignments transitively.
+ */
+function hasParamFlowToSink(
+  lines: string[],
+  sinkMatchLines: number[],
+  regionStart: number,
+  regionEnd: number,
+  lang: 'ts' | 'py',
+): boolean {
+  const sourcePattern = lang === 'py' ? PARAM_SOURCE_PY : PARAM_SOURCE_TS;
+
+  // Check if params appear directly on any sink line (inline flow)
+  for (const sinkLine of sinkMatchLines) {
+    if (sourcePattern.test(lines[sinkLine - 1])) return true;
+  }
+
+  // Collect tainted variables from param sources
+  const tainted = collectTaintedVars(lines, regionStart, regionEnd, sourcePattern);
+  if (tainted.size === 0) return false;
+
+  // Check if any tainted variable appears on a sink line
+  for (const sinkLine of sinkMatchLines) {
+    const line = lines[sinkLine - 1];
+    for (const tv of tainted) {
+      if (new RegExp(`\\b${tv}\\b`).test(line)) return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Check if secret-tainted data flows into response content lines.
+ * Collects variables assigned from secret patterns, follows assignments,
+ * then checks if they appear in return/content blocks.
+ */
+function hasSecretFlowToResponse(
+  lines: string[],
+  regionStart: number,
+  regionEnd: number,
+  secretPatterns: RegExp[],
+  lang: 'ts' | 'py',
+): boolean {
+  // Build a combined source pattern from all secret sink patterns
+  const combinedSource = new RegExp(secretPatterns.map(p => p.source).join('|'), 'i');
+
+  // Check if secrets appear directly in response lines
+  const response = extractResponseContentLines(lines, regionStart, regionEnd);
+  if (response.lineNumbers.length === 0) return false;
+
+  // Direct match: secret pattern in response block
+  for (const lineNum of response.lineNumbers) {
+    if (secretPatterns.some(p => p.test(lines[lineNum - 1]))) return true;
+  }
+
+  // Taint tracking: follow secret assignments to response
+  const tainted = collectTaintedVars(lines, regionStart, regionEnd, combinedSource);
+  if (tainted.size === 0) return false;
+
+  for (const lineNum of response.lineNumbers) {
+    const line = lines[lineNum - 1];
+    for (const tv of tainted) {
+      if (new RegExp(`\\b${tv}\\b`).test(line)) return true;
+    }
+  }
+
+  return false;
+}
+
+// ── Response content extraction ───────────────────────────────────────
+
+/**
+ * Extract lines that are part of the response/return content in a handler.
+ * Matches: return { content: [...] }, return { text: ... }, return statements,
+ * and content array construction.
+ */
+function extractResponseContentLines(
+  lines: string[],
+  regionStart: number,
+  regionEnd: number,
+): { text: string; lineNumbers: number[] } {
+  const responseLines: string[] = [];
+  const lineNumbers: number[] = [];
+
+  let inReturn = false;
+  let braceDepth = 0;
+
+  for (let i = regionStart; i < regionEnd; i++) {
+    const line = lines[i];
+    if (isCommentLine(line)) continue;
+
+    // Detect return statements and content blocks
+    if (/\breturn\s*[{\[(]/.test(line) || /\breturn\s*$/.test(line)) {
+      inReturn = true;
+      braceDepth = 0;
+    }
+
+    // Track content: [...] and text: constructions
+    if (/\bcontent\s*:\s*\[/.test(line) || /\btext\s*:/.test(line)) {
+      inReturn = true;
+      braceDepth = 0;
+    }
+
+    if (inReturn) {
+      responseLines.push(line);
+      lineNumbers.push(i + 1); // 1-based
+
+      // Track brace depth to know when the return block ends
+      for (const ch of line) {
+        if (ch === '{' || ch === '[' || ch === '(') braceDepth++;
+        if (ch === '}' || ch === ']' || ch === ')') braceDepth--;
+      }
+
+      // If we hit a semicolon or braces close, return block is done
+      if (/;\s*$/.test(line) && braceDepth <= 0) {
+        inReturn = false;
+      }
+      if (braceDepth < 0) {
+        inReturn = false;
+        braceDepth = 0;
+      }
+    }
+  }
+
+  return { text: responseLines.join('\n'), lineNumbers };
+}
+
 // ── Main runner ──────────────────────────────────────────────────────
 
 /** Run all compiled rules against an MCP server source file */
@@ -129,7 +362,7 @@ function runSingleRule(
       if (!anyMatchSkipComments(patterns, block)) continue;
 
       const matchLines = findMatchLines(lines, patterns, region.start)
-        .filter(l => l > region.start && l <= region.end);
+        .filter(l => l >= region.start && l <= region.end);
       if (matchLines.length > 0) {
         matchedSinks.push({ sink, matchLines });
       }
@@ -158,9 +391,12 @@ function runSingleRule(
 
     // ── Layer 2: Flow assertion (invariants) ────────────────────────
     for (const inv of rule.invariants) {
+      // from=tool-handler skips sink check — fires for every handler region
+      const isHandlerScope = inv.from === 'tool-handler';
+
       // Find sinks referenced by this invariant
       const targetSinks = matchedSinks.filter(ms => ms.sink.name === inv.to || ms.sink.kind === inv.to);
-      if (targetSinks.length === 0) continue;
+      if (!isHandlerScope && targetSinks.length === 0) continue;
 
       // Check if required guards are present
       const guardsSatisfied = inv.guardedBy.length === 0 ||
@@ -169,10 +405,14 @@ function runSingleRule(
       if (guardsSatisfied) continue;
 
       // Check source presence based on invariant scope
-      if (inv.from === 'tool-params') {
-        const hasParams = /\b(request\.params|params\.|arguments\??\.)\b/.test(block) ||
-          /\b(params|arguments|args|input)\b/.test(block);
-        if (!hasParams) continue;
+      if (inv.from === 'tool-handler') {
+        // Always matches — fires for every handler region (used for absence checks like "no logging")
+        // The guard check above handles the logic: if guard is present, guardsSatisfied = true → continue (skip)
+        // If no guard → falls through to finding emission below
+      } else if (inv.from === 'tool-params') {
+        // Proximity-based flow: params must appear near the sink match lines
+        const allSinkLines = targetSinks.flatMap(ms => ms.matchLines);
+        if (!hasParamFlowToSink(lines, allSinkLines, region.start, region.end, lang)) continue;
       } else if (inv.from === 'tool-description') {
         // Extract tool description from the .tool() call line region
         const descText = extractToolDescription(lines, region.start);
@@ -180,11 +420,18 @@ function runSingleRule(
         // Check if any target sink patterns appear in the description
         const sinkPatterns = targetSinks.flatMap(ms => langPatterns(ms.sink.patterns, lang));
         if (sinkPatterns.length > 0 && !sinkPatterns.some(p => p.test(descText))) continue;
+      } else if (inv.from === 'response-content') {
+        // Taint-tracked: check if secret patterns flow to response content
+        const sinkPatterns = targetSinks.flatMap(ms => langPatterns(ms.sink.patterns, lang));
+        if (sinkPatterns.length === 0) continue;
+        if (!hasSecretFlowToResponse(lines, region.start, region.end, sinkPatterns, lang)) continue;
       }
       // from=source-code: no additional from-check — sinks already matched in block
 
-      // Invariant violated — emit finding at first sink match line
-      const firstSinkLine = targetSinks[0].matchLines[0];
+      // Invariant violated — emit finding at first sink match line (or region start for absence rules)
+      const firstSinkLine = targetSinks.length > 0
+        ? targetSinks[0].matchLines[0]
+        : region.start + 1;
       findings.push({
         source: 'kern',
         ruleId: rule.ruleId,

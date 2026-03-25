@@ -14,6 +14,14 @@
   "files": [
     "dist"
   ],
+  "keywords": [
+    "kern",
+    "llm",
+    "react-native",
+    "mobile",
+    "transpiler",
+    "ai"
+  ],
   "license": "AGPL-3.0",
   "scripts": {
     "build": "tsc -b",

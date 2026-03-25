@@ -11,6 +11,56 @@ import type { IRNode } from './types.js';
 import { isTemplateNode, expandTemplateNode } from './template-engine.js';
 import { KernCodegenError } from './errors.js';
 
+// ── Safe Emitters (prompt-injection immunity) ────────────────────────────
+// Every prop value interpolated into generated code MUST go through these.
+// Raw string splicing is the root cause of codegen injection (audit 2026-03-25).
+
+// Matches valid JS/TS identifiers — KERN hyphens are converted to camelCase by the parser.
+// Allows $ for React patterns (e.g., $state). Does NOT allow hyphens since
+// generated TypeScript rejects them (e.g., `interface My-User` is invalid TS).
+const SAFE_IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const SAFE_PATH_RE = /^[A-Za-z0-9/_.\-~]+$/;
+
+/** Validate and emit a safe identifier for generated code. Throws on invalid. */
+export function emitIdentifier(value: string | undefined, fallback: string, node?: IRNode): string {
+  const v = value || fallback;
+  if (!SAFE_IDENT_RE.test(v)) {
+    throw new KernCodegenError(`Invalid identifier: '${v.slice(0, 50)}' — must match KERN identifier grammar [A-Za-z_$][A-Za-z0-9_$-]*`, node);
+  }
+  return v;
+}
+
+/** Escape a string for safe interpolation into a single-quoted JS string literal. */
+export function emitStringLiteral(value: string): string {
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/`/g, '\\`')
+    .replace(/\$/g, '\\$')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r');
+  return `'${escaped}'`;
+}
+
+/** Validate and emit a safe filesystem path for generated code. */
+export function emitPath(value: string, node?: IRNode): string {
+  if (!SAFE_PATH_RE.test(value)) {
+    throw new KernCodegenError(`Invalid path: '${value.slice(0, 80)}' — contains unsafe characters`, node);
+  }
+  if (value.includes('..')) {
+    throw new KernCodegenError(`Invalid path: '${value.slice(0, 80)}' — path traversal (..) not allowed`, node);
+  }
+  return emitStringLiteral(value);
+}
+
+/** Escape a value for interpolation into a template literal in generated code. */
+export function emitTemplateSafe(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/`/g, '\\`')
+    .replace(/\$\{/g, '\\${');
+}
+
 // ── Evolved Generators (v4) ─────────────────────────────────────────────
 // Populated at startup by evolved-node-loader. Checked in generateCoreNode
 // before the default case, allowing graduated nodes to produce output.
@@ -118,11 +168,12 @@ export function exportPrefix(node: IRNode): string {
 // → export type PlanState = 'draft' | 'approved' | 'running' | ...;
 
 export function generateType(node: IRNode): string[] {
-  const { name, values, alias } = p(node) as Record<string, string>;
+  const { name: rawName, values, alias } = p(node) as Record<string, string>;
+  const name = emitIdentifier(rawName, 'UnknownType', node);
   const exp = exportPrefix(node);
 
   if (values) {
-    const members = values.split('|').map(v => `'${v.trim()}'`).join(' | ');
+    const members = values.split('|').map(v => `'${emitTemplateSafe(v.trim())}'`).join(' | ');
     return [`${exp}type ${name} = ${members};`];
   }
   if (alias) {
@@ -140,7 +191,7 @@ export function generateType(node: IRNode): string[] {
 
 export function generateInterface(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'UnknownInterface', node);
   const ext = props.extends ? ` extends ${props.extends}` : '';
   const exp = exportPrefix(node);
   const lines: string[] = [];
@@ -148,8 +199,9 @@ export function generateInterface(node: IRNode): string[] {
   lines.push(`${exp}interface ${name}${ext} {`);
   for (const field of kids(node, 'field')) {
     const fp = p(field);
+    const fieldName = emitIdentifier(fp.name as string, 'field', field);
     const opt = fp.optional === 'true' || fp.optional === true ? '?' : '';
-    lines.push(`  ${fp.name}${opt}: ${fp.type};`);
+    lines.push(`  ${fieldName}${opt}: ${fp.type};`);
   }
   lines.push('}');
   return lines;
@@ -168,8 +220,8 @@ export function generateInterface(node: IRNode): string[] {
 
 export function generateUnion(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
-  const discriminant = props.discriminant as string || 'type';
+  const name = emitIdentifier(props.name as string, 'UnknownUnion', node);
+  const discriminant = emitIdentifier(props.discriminant as string, 'type', node);
   const exp = exportPrefix(node);
   const variants = kids(node, 'variant');
 
@@ -180,9 +232,9 @@ export function generateUnion(node: IRNode): string[] {
   const lines: string[] = [`${exp}type ${name} =`];
   for (let i = 0; i < variants.length; i++) {
     const vp = p(variants[i]);
-    const vname = vp.name as string;
+    const vname = emitIdentifier(vp.name as string, 'variant', variants[i]);
     const fields = kids(variants[i], 'field');
-    const fieldParts = [`${discriminant}: '${vname}'`];
+    const fieldParts = [`${discriminant}: '${emitTemplateSafe(vname)}'`];
     for (const field of fields) {
       const fp = p(field);
       const opt = fp.optional === 'true' || fp.optional === true ? '?' : '';
@@ -211,7 +263,7 @@ export function generateUnion(node: IRNode): string[] {
 
 export function generateService(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'UnknownService', node);
   const impl = props.implements as string;
   const exp = exportPrefix(node);
   const lines: string[] = [];
@@ -249,7 +301,7 @@ export function generateService(node: IRNode): string[] {
   // Methods
   for (const method of kids(node, 'method')) {
     const mp = p(method);
-    const mname = mp.name as string;
+    const mname = emitIdentifier(mp.name as string, 'method', method);
     const mparams = mp.params ? parseParamList(mp.params as string) : '';
     const isAsync = mp.async === 'true' || mp.async === true;
     const isStream = mp.stream === 'true' || mp.stream === true;
@@ -280,8 +332,8 @@ export function generateService(node: IRNode): string[] {
   // Singleton instances
   for (const singleton of kids(node, 'singleton')) {
     const sp = p(singleton);
-    const sname = sp.name as string;
-    const stype = sp.type as string || name;
+    const sname = emitIdentifier(sp.name as string, 'instance', singleton);
+    const stype = emitIdentifier(sp.type as string, name, singleton);
     lines.push('');
     lines.push(`${exp}const ${sname} = new ${stype}();`);
   }
@@ -297,7 +349,7 @@ export function generateService(node: IRNode): string[] {
 
 export function generateFunction(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'unknownFn', node);
   const params = props.params as string || '';
   const returns = props.returns as string;
   const isAsync = props.async === 'true' || props.async === true;
@@ -338,7 +390,7 @@ export function generateFunction(node: IRNode): string[] {
 
   // Signal → AbortController setup
   if (hasSignal) {
-    const signalName = (p(signalNode!).name as string) || 'abort';
+    const signalName = emitIdentifier((p(signalNode!).name as string), 'abort', signalNode);
     lines.push(`  const ${signalName} = new AbortController();`);
   }
 
@@ -378,8 +430,8 @@ export function generateFunction(node: IRNode): string[] {
 
 export function generateError(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
-  const ext = props.extends as string || 'Error';
+  const name = emitIdentifier(props.name as string, 'UnknownError', node);
+  const ext = emitIdentifier(props.extends as string, 'Error', node);
   const message = props.message as string;
   const exp = exportPrefix(node);
   const fields = kids(node, 'field');
@@ -464,7 +516,7 @@ export function generateError(node: IRNode): string[] {
 
 export function generateMachine(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'UnknownMachine', node);
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
@@ -472,12 +524,12 @@ export function generateMachine(node: IRNode): string[] {
   const states = kids(node, 'state');
   const stateNames = states.map(s => {
     const sp = p(s);
-    return (sp.name || sp.value) as string;
+    return emitIdentifier((sp.name || sp.value) as string, 'state', s);
   });
 
   // State type
   const stateType = `${name}State`;
-  lines.push(`${exp}type ${stateType} = ${stateNames.map(s => `'${s}'`).join(' | ')};`);
+  lines.push(`${exp}type ${stateType} = ${stateNames.map(s => `'${emitTemplateSafe(s)}'`).join(' | ')};`);
   lines.push('');
 
   // Error class
@@ -498,7 +550,7 @@ export function generateMachine(node: IRNode): string[] {
   const transitions = kids(node, 'transition');
   for (const t of transitions) {
     const tp = p(t);
-    const tname = tp.name as string;
+    const tname = emitIdentifier(tp.name as string, 'transition', t);
     const from = tp.from as string;
     const to = tp.to as string;
 
@@ -542,7 +594,7 @@ export function generateMachine(node: IRNode): string[] {
 
 export function generateMachineReducer(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'UnknownMachine', node);
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
@@ -562,7 +614,7 @@ export function generateMachineReducer(node: IRNode): string[] {
   const stateType = `${name}State`;
 
   // Action type union
-  const actionNames = transitions.map(t => (p(t).name as string));
+  const actionNames = transitions.map(t => emitIdentifier(p(t).name as string, 'action', t));
   lines.push(`${exp}type ${name}Action = ${actionNames.map(a => `'${a}'`).join(' | ')};`);
   lines.push('');
 
@@ -572,9 +624,9 @@ export function generateMachineReducer(node: IRNode): string[] {
   lines.push(`  switch (action) {`);
   for (const t of transitions) {
     const tp = p(t);
-    const tname = tp.name as string;
+    const tname = emitIdentifier(tp.name as string, 'action', t);
     const fnName = `${tname}${name}`;
-    lines.push(`    case '${tname}': return ${fnName}(entity).state;`);
+    lines.push(`    case '${emitTemplateSafe(tname)}': return ${fnName}(entity).state;`);
   }
   lines.push(`    default: return state;`);
   lines.push(`  }`);
@@ -598,7 +650,7 @@ export function generateMachineReducer(node: IRNode): string[] {
 
 export function generateConfig(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'Config', node);
   const exp = exportPrefix(node);
   const fields = kids(node, 'field');
   const lines: string[] = [];
@@ -607,8 +659,9 @@ export function generateConfig(node: IRNode): string[] {
   lines.push(`${exp}interface ${name} {`);
   for (const field of fields) {
     const fp = p(field);
+    const fieldName = emitIdentifier(fp.name as string, 'field', field);
     const opt = fp.default !== undefined ? '?' : '';
-    lines.push(`  ${fp.name}${opt}: ${fp.type};`);
+    lines.push(`  ${fieldName}${opt}: ${fp.type};`);
   }
   lines.push('}');
   lines.push('');
@@ -617,6 +670,7 @@ export function generateConfig(node: IRNode): string[] {
   lines.push(`${exp}const DEFAULT_${name.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase()}: Required<${name}> = {`);
   for (const field of fields) {
     const fp = p(field);
+    const fieldName = emitIdentifier(fp.name as string, 'field', field);
     const ftype = fp.type as string;
     let def = fp.default as string;
 
@@ -626,10 +680,10 @@ export function generateConfig(node: IRNode): string[] {
       else if (ftype.endsWith('[]')) def = '[]';
       else def = "''";
     } else if (ftype === 'string' || (!['number', 'boolean'].includes(ftype) && !ftype.endsWith('[]') && !def.startsWith("'") && !def.startsWith('"'))) {
-      def = `'${def}'`;
+      def = emitStringLiteral(def);
     }
 
-    lines.push(`  ${fp.name}: ${def},`);
+    lines.push(`  ${fieldName}: ${def},`);
   }
   lines.push('};');
 
@@ -642,17 +696,18 @@ export function generateConfig(node: IRNode): string[] {
 
 export function generateStore(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
-  const storePath = props.path as string || '~/.data';
-  const key = props.key as string || 'id';
-  const model = props.model as string || 'unknown';
+  const name = emitIdentifier(props.name as string, 'Store', node);
+  const rawPath = props.path as string || '~/.data';
+  const key = emitIdentifier(props.key as string, 'id', node);
+  const model = emitIdentifier(props.model as string, 'unknown', node);
   const exp = exportPrefix(node);
   const lines: string[] = [];
   const dirConst = `${name.toUpperCase()}_DIR`;
 
-  const resolvedPath = storePath.startsWith('~/')
-    ? `join(homedir(), '${storePath.slice(2)}')`
-    : `'${storePath}'`;
+  // Validate path before interpolation — blocks injection + traversal via storePath
+  const resolvedPath = rawPath.startsWith('~/')
+    ? `join(homedir(), ${emitPath(rawPath.slice(2), node)})`
+    : emitPath(rawPath, node);
 
   lines.push(`import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';`);
   lines.push(`import { join, resolve } from 'node:path';`);
@@ -666,6 +721,7 @@ export function generateStore(node: IRNode): string[] {
   lines.push('');
   lines.push(`function safe${name}Path(id: string): string {`);
   lines.push(`  const sanitized = id.replace(/[^a-zA-Z0-9_-]/g, '');`);
+  lines.push(`  if (!sanitized) throw new Error(\`Invalid ID: \${id}\`);`);
   lines.push(`  const full = resolve(${dirConst}, \`\${sanitized}.json\`);`);
   lines.push(`  if (!full.startsWith(resolve(${dirConst}))) throw new Error(\`Invalid ID: \${id}\`);`);
   lines.push(`  return full;`);
@@ -678,17 +734,18 @@ export function generateStore(node: IRNode): string[] {
   lines.push('');
   lines.push(`${exp}function load${name}(id: string): ${model} | null {`);
   lines.push(`  try { return JSON.parse(readFileSync(safe${name}Path(id), 'utf-8')) as ${model}; }`);
-  lines.push(`  catch { return null; }`);
+  lines.push(`  catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; }`);
   lines.push('}');
   lines.push('');
   lines.push(`${exp}function list${name}s(limit = 20): ${model}[] {`);
   lines.push(`  ensure${name}Dir();`);
-  lines.push(`  try {`);
-  lines.push(`    return readdirSync(${dirConst}).filter(f => f.endsWith('.json'))`);
-  lines.push(`      .map(f => JSON.parse(readFileSync(join(${dirConst}, f), 'utf-8')) as ${model})`);
-  lines.push(`      .sort((a: any, b: any) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))`);
-  lines.push(`      .slice(0, limit);`);
-  lines.push(`  } catch { return []; }`);
+  lines.push(`  const files = readdirSync(${dirConst}).filter(f => f.endsWith('.json'));`);
+  lines.push(`  const items: ${model}[] = [];`);
+  lines.push(`  for (const f of files) {`);
+  lines.push(`    try { items.push(JSON.parse(readFileSync(join(${dirConst}, f), 'utf-8')) as ${model}); }`);
+  lines.push(`    catch { /* skip corrupt files */ }`);
+  lines.push(`  }`);
+  lines.push(`  return items.sort((a: any, b: any) => (b.updatedAt || '').localeCompare(a.updatedAt || '')).slice(0, limit);`);
   lines.push('}');
   lines.push('');
   lines.push(`${exp}function delete${name}(id: string): boolean {`);
@@ -709,7 +766,7 @@ export function generateStore(node: IRNode): string[] {
 
 export function generateTest(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
+  const name = emitTemplateSafe(props.name as string || 'UnknownTest');
   const lines: string[] = [];
 
   lines.push(`import { describe, it, expect } from 'vitest';`);
@@ -725,11 +782,11 @@ export function generateTest(node: IRNode): string[] {
   lines.push(`describe('${name}', () => {`);
 
   for (const desc of kids(node, 'describe')) {
-    const dname = p(desc).name as string;
+    const dname = emitTemplateSafe(p(desc).name as string || 'describe');
     lines.push(`  describe('${dname}', () => {`);
 
     for (const test of kids(desc, 'it')) {
-      const tname = p(test).name as string;
+      const tname = emitTemplateSafe(p(test).name as string || 'test');
       const code = handlerCode(test);
       lines.push(`    it('${tname}', () => {`);
       if (code) {
@@ -743,7 +800,7 @@ export function generateTest(node: IRNode): string[] {
 
   // Top-level it blocks
   for (const test of kids(node, 'it')) {
-    const tname = p(test).name as string;
+    const tname = emitTemplateSafe(p(test).name as string || 'test');
     const code = handlerCode(test);
     lines.push(`  it('${tname}', () => {`);
     if (code) {
@@ -764,13 +821,13 @@ export function generateTest(node: IRNode): string[] {
 
 export function generateEvent(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'UnknownEvent', node);
   const exp = exportPrefix(node);
   const types = kids(node, 'type');
   const lines: string[] = [];
 
   // Event type union
-  lines.push(`${exp}type ${name}Type = ${types.map(t => `'${(p(t).name || p(t).value) as string}'`).join(' | ')};`);
+  lines.push(`${exp}type ${name}Type = ${types.map(t => `'${emitTemplateSafe((p(t).name || p(t).value) as string)}'`).join(' | ')};`);
   lines.push('');
 
   // Event interface
@@ -785,7 +842,7 @@ export function generateEvent(node: IRNode): string[] {
   lines.push(`${exp}interface ${name}Map {`);
   for (const t of types) {
     const tp = p(t);
-    const tname = (tp.name || tp.value) as string;
+    const tname = emitTemplateSafe((tp.name || tp.value) as string);
     const data = tp.data as string || 'Record<string, unknown>';
     lines.push(`  '${tname}': ${data};`);
   }
@@ -960,7 +1017,7 @@ export function generateWebSocket(node: IRNode): string[] {
 
 export function generateModule(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
+  const name = emitTemplateSafe(props.name as string || 'unknown');
   const lines: string[] = [];
 
   lines.push(`// ── Module: ${name} ──`);
@@ -1066,7 +1123,7 @@ export function generateImport(node: IRNode): string[] {
 
 export function generateConst(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'unknownConst', node);
   const constType = props.type as string | undefined;
   const value = props.value as string | undefined;
   const exp = exportPrefix(node);
@@ -1207,7 +1264,7 @@ export function generateDerive(node: IRNode): string[] {
   const conf = p(node).confidence as string | undefined;
   const todo = emitLowConfidenceTodo(node, conf);
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'derived', node);
   const expr = props.expr as string;
   const constType = props.type as string | undefined;
   const exp = exportPrefix(node);
@@ -1225,7 +1282,7 @@ export function generateTransform(node: IRNode): string[] {
   const conf = p(node).confidence as string | undefined;
   const todo = emitLowConfidenceTodo(node, conf);
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'transform', node);
   const target = props.target as string | undefined;
   const via = props.via as string | undefined;
   const constType = props.type as string | undefined;
@@ -1263,7 +1320,7 @@ export function generateAction(node: IRNode): string[] {
   const conf = p(node).confidence as string | undefined;
   const todo = emitLowConfidenceTodo(node, conf);
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'action', node);
   const idempotent = props.idempotent === 'true' || props.idempotent === true;
   const reversible = props.reversible === 'true' || props.reversible === true;
   const params = props.params as string || '';
@@ -1396,7 +1453,7 @@ export function generateCollect(node: IRNode): string[] {
   const conf = p(node).confidence as string | undefined;
   const todo = emitLowConfidenceTodo(node, conf);
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'collected', node);
   const from = props.from as string;
   const where = props.where as string | undefined;
   const limit = props.limit as string | undefined;
@@ -1459,7 +1516,7 @@ export function generateResolve(node: IRNode): string[] {
   const conf = p(node).confidence as string | undefined;
   const todo = emitLowConfidenceTodo(node, conf);
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'resolver', node);
   const candidates = kids(node, 'candidate');
   const discriminator = firstChild(node, 'discriminator');
 
@@ -1475,7 +1532,7 @@ export function generateResolve(node: IRNode): string[] {
   lines.push(`const _${name}_candidates = [`);
   for (const c of candidates) {
     const cp = p(c);
-    const cname = cp.name as string;
+    const cname = emitIdentifier(cp.name as string, 'candidate', c);
     const code = handlerCode(c);
     lines.push(`  { name: '${cname}', fn: (signal: unknown) => { ${code.trim()} } },`);
   }
@@ -1543,7 +1600,7 @@ export function generateRecover(node: IRNode): string[] {
   const conf = p(node).confidence as string | undefined;
   const todo = emitLowConfidenceTodo(node, conf);
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'recovery', node);
   const strategies = kids(node, 'strategy');
 
   const hasFallback = strategies.some(s => (p(s).name as string) === 'fallback');
@@ -1555,7 +1612,7 @@ export function generateRecover(node: IRNode): string[] {
 
   for (const strategy of strategies) {
     const sp = p(strategy);
-    const sname = sp.name as string;
+    const sname = emitIdentifier(sp.name as string, 'strategy', strategy);
     const code = handlerCode(strategy);
 
     if (sname === 'retry') {
@@ -1601,16 +1658,16 @@ export function generatePattern(node: IRNode): string[] {
   return [];
 }
 
-export function generateApply(node: IRNode): string[] {
+export function generateApply(node: IRNode, _depth = 0): string[] {
   // apply nodes expand the referenced pattern
   const props = p(node);
   const patternName = props.pattern as string;
   if (!patternName) return [];
 
-  // Delegate to template expansion with the pattern name as node type
+  // Delegate to template expansion — propagate depth to prevent infinite recursion
   const syntheticNode: IRNode = { ...node, type: patternName };
   if (isTemplateNode(patternName)) {
-    return expandTemplateNode(syntheticNode);
+    return expandTemplateNode(syntheticNode, _depth + 1);
   }
   return [`// apply: pattern '${patternName}' not found`];
 }
@@ -1669,12 +1726,12 @@ export function generateSelect(node: IRNode): string[] {
   const lines: string[] = onChange ? [`{/* kern:use-client */}`] : [];
   lines.push(`<select ${attrs.join(' ')}>`);
   if (placeholder) {
-    lines.push(`  <option value="" disabled>${placeholder}</option>`);
+    lines.push(`  <option value="" disabled>${emitTemplateSafe(placeholder)}</option>`);
   }
   for (const opt of kids(node, 'option')) {
     const op = p(opt);
-    const optValue = op.value as string || '';
-    const optLabel = op.label as string || optValue;
+    const optValue = emitTemplateSafe(op.value as string || '');
+    const optLabel = emitTemplateSafe(op.label as string || op.value as string || '');
     lines.push(`  <option value="${optValue}">${optLabel}</option>`);
   }
   lines.push(`</select>`);
@@ -1689,7 +1746,7 @@ export function generateSelect(node: IRNode): string[] {
 
 export function generateModel(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'UnknownModel', node);
   const table = props.table as string;
   const exp = exportPrefix(node);
   const lines: string[] = [];
@@ -1698,14 +1755,14 @@ export function generateModel(node: IRNode): string[] {
   lines.push(`${exp}interface ${name} {`);
   for (const col of kids(node, 'column')) {
     const cp = p(col);
-    const colName = cp.name as string;
+    const colName = emitIdentifier(cp.name as string, 'column', col);
     const colType = mapColumnType(cp.type as string);
     const opt = cp.optional === 'true' || cp.optional === true ? '?' : '';
     lines.push(`  ${colName}${opt}: ${colType};`);
   }
   for (const rel of kids(node, 'relation')) {
     const rp = p(rel);
-    const relName = rp.name as string;
+    const relName = emitIdentifier(rp.name as string, 'relation', rel);
     const target = rp.target as string;
     const kind = rp.kind as string || 'one-to-many';
     const relType = kind.includes('many') ? `${target}[]` : target;
@@ -1740,7 +1797,7 @@ function mapColumnType(kernType: string): string {
 
 export function generateRepository(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'UnknownRepo', node);
   const model = props.model as string;
   const exp = exportPrefix(node);
   const lines: string[] = [];
@@ -1753,7 +1810,7 @@ export function generateRepository(node: IRNode): string[] {
 
   for (const method of kids(node, 'method')) {
     const mp = p(method);
-    const mname = mp.name as string;
+    const mname = emitIdentifier(mp.name as string, 'method', method);
     const mparams = mp.params ? parseParamList(mp.params as string) : '';
     const isAsync = mp.async === 'true' || mp.async === true;
     const asyncKw = isAsync ? 'async ' : '';
@@ -1782,7 +1839,7 @@ export function generateRepository(node: IRNode): string[] {
 
 export function generateDependency(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'unknownDep', node);
   const scope = props.scope as string || 'transient';
   const exp = exportPrefix(node);
   const lines: string[] = [];
@@ -1804,7 +1861,7 @@ export function generateDependency(node: IRNode): string[] {
 
   for (const inj of injects) {
     const ip = p(inj);
-    const injName = ip.name as string;
+    const injName = emitIdentifier(ip.name as string, 'dep', inj);
     const injType = ip.type as string;
     const injFrom = ip.from as string;
     const injWith = ip.with as string;
@@ -1842,7 +1899,7 @@ export function generateDependency(node: IRNode): string[] {
 
 export function generateCache(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
+  const name = emitIdentifier(props.name as string, 'unknownCache', node);
   const backend = props.backend as string || 'memory';
   const prefix = props.prefix as string || '';
   const ttl = props.ttl as string;
@@ -1858,7 +1915,7 @@ export function generateCache(node: IRNode): string[] {
   // Entry methods
   for (const entry of kids(node, 'entry')) {
     const ep = p(entry);
-    const entryName = ep.name as string;
+    const entryName = emitIdentifier(ep.name as string, 'entry', entry);
     const key = ep.key as string || entryName;
     const strategyNode = firstChild(entry, 'strategy');
     const strategy = strategyNode ? (p(strategyNode).name as string || 'cache-aside') : 'cache-aside';

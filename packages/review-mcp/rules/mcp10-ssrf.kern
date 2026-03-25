@@ -1,0 +1,32 @@
+action name=mcp-ssrf
+  reason value="CWE-918, OWASP MCP01"
+  config severity=error confidence=0.85 category=bug
+
+  effect name=network-fetch kind=network
+    pattern lang=ts match="\b(fetch|axios\.\w+|got\.\w+|http\.request|https\.request)\s*\("
+    pattern lang=py match="\b(requests\.(get|post|put|delete|patch)|httpx\.\w+|urllib\.request\.urlopen|aiohttp\.ClientSession)\s*\("
+
+  guard name=url-parse kind=validation
+    pattern lang=ts match="\bnew\s+URL\s*\("
+    pattern lang=py match="\burlparse\s*\("
+
+  guard name=url-allowlist kind=validation
+    pattern lang=ts match="\b(allowlist|whitelist|allowed_hosts|ALLOWED_URLS)\b"
+    pattern lang=ts match="\.includes\s*\(\s*\w*[Hh]ost"
+    pattern lang=ts match="\.startsWith\s*\(\s*['\"]https?://"
+    pattern lang=py match="\b(allowlist|whitelist|allowed_hosts|ALLOWED_URLS)\b"
+    pattern lang=py match="\.startswith\s*\(\s*['\"]https?://"
+
+  guard name=hardcoded-host kind=validation
+    pattern lang=ts match="['\"`]https?://[a-zA-Z0-9.-]+"
+    pattern lang=py match="['\"]https?://[a-zA-Z0-9.-]+"
+
+  guard name=schema-validation kind=validation
+    pattern lang=ts match="z\.string\(\)\.url\(\)"
+    pattern lang=ts match="z\.string\(\)\.regex\("
+    pattern lang=py match="HttpUrl|AnyHttpUrl|\.model_validate"
+
+  invariant name=param-to-fetch
+    expect from=tool-params to=network-fetch guarded-by="url-parse,url-allowlist,schema-validation,hardcoded-host"
+    evidence value="MCP tool passes user-controlled params to network request without URL validation — SSRF risk"
+    suggestion value="Validate URLs against an allowlist or parse with new URL() and check the hostname before making requests."

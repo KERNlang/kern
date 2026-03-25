@@ -36,10 +36,9 @@ export function getUser(id: string): User { return {} as User; }
   describe('buildLLMPrompt', () => {
     it('builds structured prompt with valid aliases', () => {
       const prompt = buildLLMPrompt(inferred, []);
-      expect(prompt).toContain('Review this KERN IR');
-      expect(prompt).toContain('JSON array');
+      // Instructions moved to system prompt (llm-bridge.ts) — only data in buildLLMPrompt
       expect(prompt).toContain('Valid aliases:');
-      expect(prompt).toContain('nodeAlias');
+      expect(prompt).toContain('KERN IR:');
     });
 
     it('lists all non-import aliases', () => {

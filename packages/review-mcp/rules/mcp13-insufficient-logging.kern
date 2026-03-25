@@ -1,0 +1,24 @@
+action name=mcp-insufficient-logging
+  reason value="CWE-778, OWASP MCP09"
+  config severity=warning confidence=0.75 category=pattern
+
+  effect name=handler-entry kind=audit
+    pattern lang=ts match="server\.tool\s*\("
+    pattern lang=py match="@\w+\.tool"
+
+  guard name=console-logging kind=audit
+    pattern lang=ts match="\bconsole\.(log|warn|error|info|debug)\s*\("
+    pattern lang=py match="\b(print|logging\.\w+)\s*\("
+
+  guard name=logger-call kind=audit
+    pattern lang=ts match="\b(logger|log|winston|pino|bunyan)\.\w+\s*\("
+    pattern lang=py match="\b(logger|log)\.\w+\s*\("
+
+  guard name=audit-trail kind=audit
+    pattern lang=ts match="\b(audit|track|record|emit)\s*\("
+    pattern lang=py match="\b(audit|track|record|emit)\s*\("
+
+  invariant name=no-logging
+    expect from=tool-handler to=handler-entry guarded-by="console-logging,logger-call,audit-trail"
+    evidence value="MCP tool handler has no logging — tool invocations leave no audit trail"
+    suggestion value="Add logging to tool handlers for auditability. Log tool name, params (sanitized), and result status."

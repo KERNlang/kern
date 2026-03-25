@@ -216,6 +216,8 @@ export interface ReviewConfig {
   showConfidence?: boolean;
   /** Rule IDs to disable project-wide (findings generated but excluded from report) */
   disabledRules?: string[];
+  /** Custom rule directories for .kern files */
+  rulesDirs?: string[];
   /** Strict mode for CI: false = respect all suppressions, 'inline' = ignore inline comments, 'all' = ignore all suppressions */
   strict?: false | 'inline' | 'all';
 }

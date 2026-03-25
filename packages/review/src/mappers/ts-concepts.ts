@@ -50,6 +50,7 @@ export function extractTsConcepts(sourceFile: SourceFile, filePath: string): Con
   extractEntrypoints(sourceFile, filePath, nodes);
   extractGuards(sourceFile, filePath, nodes);
   extractStateMutation(sourceFile, filePath, nodes);
+  extractFunctionDeclarations(sourceFile, filePath, nodes);
   extractDependencyEdges(sourceFile, filePath, edges);
 
   return {
@@ -441,7 +442,7 @@ function extractStateMutation(sf: SourceFile, filePath: string, nodes: ConceptNo
       confidence: scope === 'module' ? 0.9 : 0.75,
       language: 'ts',
       containerId: getContainerId(binExpr, filePath),
-      payload: { kind: 'state_mutation', target: leftText, scope },
+      payload: { kind: 'state_mutation', target: leftText, scope, via: 'assignment' },
     });
   }
 
@@ -470,7 +471,173 @@ function extractStateMutation(sf: SourceFile, filePath: string, nodes: ConceptNo
       confidence: 0.85,
       language: 'ts',
       containerId: getContainerId(unary, filePath),
-      payload: { kind: 'state_mutation', target: operandText, scope },
+      payload: { kind: 'state_mutation', target: operandText, scope, via: 'increment' },
+    });
+  }
+
+  // Call-based: setState(), setCount(), dispatch(), store.dispatch()
+  const NON_STATE_SETTERS = /^(setTimeout|setInterval|setImmediate|setAttribute|setProperty|setHeader|setRequestHeader|setItem|setCustomValidity)$/;
+  for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const calleeText = call.getExpression().getText();
+    let target = calleeText;
+    let scope: 'local' | 'module' | 'global' | 'shared' = 'local';
+    let api: string | undefined;
+    let isStateMutation = false;
+
+    if (calleeText === 'dispatch' || calleeText === 'this.setState') {
+      isStateMutation = true;
+      scope = calleeText.startsWith('this.') ? 'module' : 'local';
+      api = calleeText === 'this.setState' ? 'setState' : 'dispatch';
+    } else if (/^store\.dispatch|\.dispatch$/.test(calleeText)) {
+      isStateMutation = true;
+      scope = 'shared';
+      api = 'dispatch';
+    } else if (/^set[A-Z]/.test(calleeText) && !NON_STATE_SETTERS.test(calleeText)) {
+      isStateMutation = true;
+      scope = 'local';
+      api = 'setter';
+    }
+
+    if (!isStateMutation) continue;
+
+    nodes.push({
+      id: conceptId(filePath, 'state_mutation', call.getStart()),
+      kind: 'state_mutation',
+      primarySpan: span(filePath, call),
+      evidence: call.getText().substring(0, 100),
+      confidence: 0.85,
+      language: 'ts',
+      containerId: getContainerId(call, filePath),
+      payload: { kind: 'state_mutation', target, scope, via: 'call', api },
+    });
+  }
+}
+
+// ── function declarations ─────────────────────────────────────────────────
+
+function hasAwaitInBody(node: import('ts-morph').Node): boolean {
+  // Check for AwaitExpression or ForOfStatement with await
+  for (const desc of node.getDescendants()) {
+    const kind = desc.getKind();
+    if (kind === SyntaxKind.AwaitExpression) {
+      // Verify this await is not inside a nested function
+      let parent = desc.getParent();
+      let isNested = false;
+      while (parent && parent !== node) {
+        const pk = parent.getKind();
+        if (pk === SyntaxKind.FunctionDeclaration ||
+            pk === SyntaxKind.FunctionExpression ||
+            pk === SyntaxKind.ArrowFunction ||
+            pk === SyntaxKind.MethodDeclaration) {
+          isNested = true;
+          break;
+        }
+        parent = parent.getParent();
+      }
+      if (!isNested) return true;
+    }
+    if (kind === SyntaxKind.ForOfStatement) {
+      // Check for `for await` by looking at the text
+      if (/\bfor\s+await\b/.test(desc.getText().substring(0, 20))) {
+        let parent = desc.getParent();
+        let isNested = false;
+        while (parent && parent !== node) {
+          const pk = parent.getKind();
+          if (pk === SyntaxKind.FunctionDeclaration ||
+              pk === SyntaxKind.FunctionExpression ||
+              pk === SyntaxKind.ArrowFunction ||
+              pk === SyntaxKind.MethodDeclaration) {
+            isNested = true;
+            break;
+          }
+          parent = parent.getParent();
+        }
+        if (!isNested) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function extractFunctionDeclarations(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
+  // FunctionDeclaration
+  for (const fn of sf.getDescendantsOfKind(SyntaxKind.FunctionDeclaration)) {
+    const name = fn.getName() || 'anonymous';
+    const isAsync = fn.isAsync();
+    const isExport = fn.isExported();
+    const isComponent = /^[A-Z]/.test(name);
+    nodes.push({
+      id: conceptId(filePath, 'function_declaration', fn.getStart()),
+      kind: 'function_declaration',
+      primarySpan: span(filePath, fn),
+      evidence: `function ${name}`,
+      confidence: 0.95,
+      language: 'ts',
+      containerId: getContainerId(fn, filePath),
+      payload: {
+        kind: 'function_declaration',
+        name,
+        async: isAsync,
+        hasAwait: isAsync ? hasAwaitInBody(fn) : false,
+        isComponent,
+        isExport,
+      },
+    });
+  }
+
+  // MethodDeclaration
+  for (const method of sf.getDescendantsOfKind(SyntaxKind.MethodDeclaration)) {
+    const name = method.getName();
+    const isAsync = method.isAsync();
+    nodes.push({
+      id: conceptId(filePath, 'function_declaration', method.getStart()),
+      kind: 'function_declaration',
+      primarySpan: span(filePath, method),
+      evidence: `method ${name}`,
+      confidence: 0.95,
+      language: 'ts',
+      containerId: getContainerId(method, filePath),
+      payload: {
+        kind: 'function_declaration',
+        name,
+        async: isAsync,
+        hasAwait: isAsync ? hasAwaitInBody(method) : false,
+        isComponent: false,
+        isExport: false,
+      },
+    });
+  }
+
+  // ArrowFunction / FunctionExpression assigned to named variables
+  for (const varDecl of sf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = varDecl.getInitializer();
+    if (!init) continue;
+    const initKind = init.getKind();
+    if (initKind !== SyntaxKind.ArrowFunction && initKind !== SyntaxKind.FunctionExpression) continue;
+
+    const name = varDecl.getName();
+    const fn = init as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression;
+    const isAsync = (fn as any).isAsync?.() ?? /^async\s/.test(fn.getText());
+    const isComponent = /^[A-Z]/.test(name);
+    const varStmt = varDecl.getParent()?.getParent();
+    const isExport = varStmt ? /^export\s/.test(varStmt.getText()) : false;
+
+    nodes.push({
+      id: conceptId(filePath, 'function_declaration', varDecl.getStart()),
+      kind: 'function_declaration',
+      primarySpan: span(filePath, varDecl),
+      evidence: `${isAsync ? 'async ' : ''}${name}`,
+      confidence: 0.90,
+      language: 'ts',
+      containerId: getContainerId(varDecl, filePath),
+      payload: {
+        kind: 'function_declaration',
+        name,
+        async: isAsync,
+        hasAwait: isAsync ? hasAwaitInBody(fn) : false,
+        isComponent,
+        isExport,
+      },
     });
   }
 }
@@ -521,14 +688,34 @@ function span(filePath: string, node: import('ts-morph').Node): ConceptSpan {
   );
 }
 
+// Incidental HOF callbacks — these are NOT logical containers
+const SKIP_CALLBACKS = new Set([
+  'forEach', 'map', 'filter', 'reduce', 'some', 'every',
+  'find', 'findIndex', 'flatMap', 'sort', 'then', 'catch', 'finally',
+]);
+
 function getContainerId(node: import('ts-morph').Node, filePath: string): string | undefined {
   let parent = node.getParent();
   while (parent) {
     const kind = parent.getKind();
-    if (kind === SyntaxKind.FunctionDeclaration ||
-        kind === SyntaxKind.MethodDeclaration ||
-        kind === SyntaxKind.ArrowFunction ||
-        kind === SyntaxKind.FunctionExpression) {
+    if (kind === SyntaxKind.FunctionDeclaration || kind === SyntaxKind.MethodDeclaration) {
+      const name = (parent as any).getName?.() || 'anonymous';
+      return `${filePath}#fn:${name}@${parent.getStart()}`;
+    }
+    if (kind === SyntaxKind.ArrowFunction || kind === SyntaxKind.FunctionExpression) {
+      // Skip if this function is an argument to an incidental HOF (forEach, map, etc.)
+      const grandparent = parent.getParent();
+      if (grandparent?.getKind() === SyntaxKind.CallExpression) {
+        const callee = (grandparent as import('ts-morph').CallExpression).getExpression();
+        if (callee.getKind() === SyntaxKind.PropertyAccessExpression) {
+          const methodName = (callee as import('ts-morph').PropertyAccessExpression).getName();
+          if (SKIP_CALLBACKS.has(methodName)) {
+            parent = grandparent.getParent();
+            continue;
+          }
+        }
+      }
+      // Not a skippable callback — this IS the container
       const name = (parent as any).getName?.() || 'anonymous';
       return `${filePath}#fn:${name}@${parent.getStart()}`;
     }

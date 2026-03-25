@@ -1,0 +1,41 @@
+action name=mcp-rug-pull
+  reason value="CWE-829, OWASP MCP02"
+  config severity=warning confidence=0.80 category=bug
+
+  effect name=dynamic-handler kind=mutation
+    pattern lang=ts match="server\.tool\s*\([^,]+,\s*[^,]+,\s*[^,]+,\s*\w+\s*\)"
+    pattern lang=ts match="server\.tool\s*\([^,]+,\s*[^,]+,\s*\w+\s*\)"
+    pattern lang=py match="@\w+\.tool\s*\(\s*\w+\s*\)"
+
+  effect name=dynamic-description kind=mutation
+    pattern lang=ts match="server\.tool\s*\(\s*\w+\s*,"
+    pattern lang=ts match="server\.tool\s*\([^,]*Buffer\.from\s*\("
+    pattern lang=ts match="server\.tool\s*\([^,]*atob\s*\("
+    pattern lang=py match="@\w+\.tool\s*\(\s*name\s*=\s*\w+[^'\"]"
+    pattern lang=py match="base64\.b64decode\s*\("
+
+  effect name=dynamic-code-exec kind=mutation
+    pattern lang=ts match="\b(eval|Function)\s*\("
+    pattern lang=ts match="\bimport\s*\("
+    pattern lang=ts match="\brequire\s*\(\s*[^'\"]"
+    pattern lang=py match="\b(eval|exec|compile)\s*\("
+    pattern lang=py match="\b__import__\s*\("
+
+  guard name=none kind=validation
+    pattern lang=ts match="THIS_GUARD_NEVER_MATCHES_SENTINEL_DO_NOT_REMOVE"
+    pattern lang=py match="THIS_GUARD_NEVER_MATCHES_SENTINEL_DO_NOT_REMOVE"
+
+  invariant name=mutable-handler
+    expect from=source-code to=dynamic-handler guarded-by="none"
+    evidence value="Tool handler is a variable reference, not an inline function — handler can be swapped at runtime (rug pull)"
+    suggestion value="Define tool handlers as inline functions to prevent runtime replacement."
+
+  invariant name=mutable-description
+    expect from=source-code to=dynamic-description guarded-by="none"
+    evidence value="Tool name or description comes from a variable — can be changed after user approval (rug pull)"
+    suggestion value="Use string literals for tool names and descriptions, not variables."
+
+  invariant name=dynamic-execution
+    expect from=source-code to=dynamic-code-exec guarded-by="none"
+    evidence value="Tool handler uses eval/import()/Function — behavior can change at runtime (rug pull)"
+    suggestion value="Remove dynamic code execution from tool handlers. Use static imports and fixed logic."

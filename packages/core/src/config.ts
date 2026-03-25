@@ -156,7 +156,7 @@ export const DEFAULT_CONFIG: ResolvedKernConfig = {
 };
 
 export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
-  if (!user) return { ...DEFAULT_CONFIG };
+  if (!user) return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
 
   // Validate target
   if (user.target && !VALID_TARGETS.includes(user.target)) {
@@ -203,7 +203,7 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
       uvicorn: {
         host: user.fastapi?.uvicorn?.host ?? DEFAULT_CONFIG.fastapi.uvicorn.host,
         reload: user.fastapi?.uvicorn?.reload ?? DEFAULT_CONFIG.fastapi.uvicorn.reload,
-        ...(user.fastapi?.uvicorn?.workers ? { workers: user.fastapi.uvicorn.workers } : {}),
+        ...(user.fastapi?.uvicorn?.workers !== undefined ? { workers: user.fastapi.uvicorn.workers } : {}),
       },
     },
     review: {
