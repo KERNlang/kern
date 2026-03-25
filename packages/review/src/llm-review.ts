@@ -70,14 +70,9 @@ export function buildLLMPrompt(
     .filter(r => r.node.type !== 'import')
     .map(r => r.promptAlias);
 
-  lines.push('Review this KERN IR. Return ONLY a JSON array of findings.');
-  lines.push(`Schema: [{"nodeAlias":"N3","severity":"warning","category":"structure","message":"...","evidence":"..."}]`);
-  lines.push('');
+  // NOTE: instructions are in the system prompt (llm-bridge.ts buildSystemPrompt).
+  // Only data goes here — this content is wrapped in <kern-file> (untrusted boundary).
   lines.push(`Valid aliases: ${aliases.join(', ')}`);
-  lines.push('Any alias not in this list will be rejected.');
-  lines.push('');
-  lines.push('Categories: bug, type, pattern, style, structure');
-  lines.push('Severities: error, warning, info');
 
   // Graph context instructions for LLM (Gemini feedback: be explicit about what markers mean)
   if (graphContext) {
@@ -250,8 +245,10 @@ function serializeNodeWithBody(node: import('@kernlang/core').IRNode, indent: st
     for (const [k, v] of Object.entries(node.props)) {
       if (typeof v === 'string') {
         if (k === 'code') {
-          // Include handler bodies in LLM prompt (wrapped in <<<>>>)
-          parts.push(`<<<\n${v}\n>>>`);
+          // Include handler bodies in LLM prompt (wrapped in XML-style tags)
+          // Escape any closing tags in the source to prevent breakout
+          const escaped = v.replace(/<\/kern-code>/gi, '&lt;/kern-code&gt;');
+          parts.push(`<kern-code>\n${escaped}\n</kern-code>`);
         } else {
           parts.push(v.includes(' ') ? `${k}="${v}"` : `${k}=${v}`);
         }

@@ -1,0 +1,3 @@
+rule async-without-await severity=warning category=bug
+  pattern subject=concept type=function_declaration async=true hasAwait=false
+  message "Async function '{{name}}' never uses await — remove async keyword or add awaited call"

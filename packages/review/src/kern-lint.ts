@@ -10,7 +10,7 @@ import type { IRNode } from '@kernlang/core';
 import type { ConceptMap } from '@kernlang/core';
 import type { ReviewFinding } from './types.js';
 
-export type KernLintRule = (nodes: IRNode[], concepts?: ConceptMap) => ReviewFinding[];
+export type KernLintRule = ((nodes: IRNode[], concepts?: ConceptMap) => ReviewFinding[]) & { ruleId?: string };
 
 // Re-export for consumers
 export { loadNativeRules, loadBuiltinNativeRules } from './rule-loader.js';

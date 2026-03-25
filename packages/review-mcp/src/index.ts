@@ -100,7 +100,21 @@ export function reviewMCPSource(source: string, filePath: string): ReviewFinding
     // Intentional: IR inference is best-effort — regex rules always run regardless
   }
 
-  return findings;
+  // Phase 3: Post-processing — confidence floor + test file demotion
+  const MIN_CONFIDENCE = 0.70;
+  const isTestFile = /\.(test|spec)\.[jt]sx?$|__tests__|\/tests\/|\/fixtures\//.test(filePath);
+
+  return findings.filter(f => {
+    // Suppress low-confidence fallback findings (noisy regex-without-handler-region)
+    if (f.confidence !== undefined && f.confidence < MIN_CONFIDENCE) return false;
+
+    // Demote test file findings to info (don't suppress — tests may intentionally contain patterns)
+    if (isTestFile && f.severity !== 'info') {
+      f.severity = 'info';
+    }
+
+    return true;
+  });
 }
 
 /**

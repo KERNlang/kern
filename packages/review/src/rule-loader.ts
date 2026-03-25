@@ -5,7 +5,7 @@
  * and wraps each rule in a KernLintRule adapter for the existing pipeline.
  */
 
-import { readFileSync, existsSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, readdirSync, realpathSync } from 'fs';
 import { resolve, join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parseDocument } from '@kernlang/core';
@@ -52,12 +52,15 @@ function validateRule(rule: IRNode): string[] {
  * When concepts are provided, concept nodes are included in the index.
  */
 function nativeRuleAdapter(ruleNode: IRNode): KernLintRule {
-  return (nodes: IRNode[], concepts?: ConceptMap): ReviewFinding[] => {
+  const ruleId = (ruleNode.props?.id as string) || 'unnamed-rule';
+  const adapter = (nodes: IRNode[], concepts?: ConceptMap): ReviewFinding[] => {
     const index = buildRuleIndex(nodes, concepts);
     // Pass empty filePath — the review pipeline patches it downstream
     // (same pattern as ground-layer rules in ground-layer.ts:45)
     return evaluateRule(ruleNode, index, '');
   };
+  (adapter as KernLintRule).ruleId = ruleId;
+  return adapter as KernLintRule;
 }
 
 // ── Loader ──────────────────────────────────────────────────────────────
@@ -65,8 +68,9 @@ function nativeRuleAdapter(ruleNode: IRNode): KernLintRule {
 /**
  * Load rules from a single .kern file, resolving imports recursively.
  * The visited set guards against circular imports.
+ * allowedRoots constrains import resolution — imports that escape these dirs are rejected.
  */
-function loadRulesFromFile(filePath: string, rules: KernLintRule[], visited: Set<string>): void {
+function loadRulesFromFile(filePath: string, rules: KernLintRule[], visited: Set<string>, skipIds: Set<string> = new Set(), allowedRoots: string[] = []): void {
   const absPath = resolve(filePath);
   if (visited.has(absPath)) return;
   visited.add(absPath);
@@ -87,7 +91,17 @@ function loadRulesFromFile(filePath: string, rules: KernLintRule[], visited: Set
       const from = (node.props?.from as string) || '';
       if (!from || !from.endsWith('.kern')) continue;
       const importPath = resolve(dirname(absPath), from);
-      loadRulesFromFile(importPath, rules, visited);
+      // Containment check: resolved import must be inside an allowed root
+      if (allowedRoots.length > 0) {
+        let realImportPath: string;
+        try { realImportPath = realpathSync(importPath); } catch { realImportPath = importPath; }
+        const confined = allowedRoots.some(root => realImportPath.startsWith(root + '/') || realImportPath === root);
+        if (!confined) {
+          console.warn(`[kern-native] Import '${from}' escapes allowed roots — skipped`);
+          continue;
+        }
+      }
+      loadRulesFromFile(importPath, rules, visited, skipIds, allowedRoots);
     }
 
     // Extract and validate rule nodes
@@ -97,7 +111,14 @@ function loadRulesFromFile(filePath: string, rules: KernLintRule[], visited: Set
         console.warn(`[kern-native] Skipping invalid rule in ${absPath}: ${errors.join(', ')}`);
         continue;
       }
-      rules.push(nativeRuleAdapter(ruleNode));
+      const ruleId = (ruleNode.props?.id as string);
+      if (ruleId && skipIds.has(ruleId)) {
+        console.warn(`[kern-native] Skipping duplicate ruleId '${ruleId}' from ${absPath} (already loaded)`);
+        continue;
+      }
+      const adapter = nativeRuleAdapter(ruleNode);
+      rules.push(adapter);
+      if (ruleId) skipIds.add(ruleId);
     }
   } catch (err) {
     console.warn(`[kern-native] Failed to parse ${absPath}: ${(err as Error).message}`);
@@ -109,15 +130,17 @@ function loadRulesFromFile(filePath: string, rules: KernLintRule[], visited: Set
  * Returns KernLintRule adapters for all valid rules found.
  * Supports `import from="other.kern"` for rule composition.
  */
-export function loadNativeRules(dirs: string[]): KernLintRule[] {
+export function loadNativeRules(dirs: string[], skipIds: Set<string> = new Set()): KernLintRule[] {
   const rules: KernLintRule[] = [];
   const visited = new Set<string>();
+  // Compute real paths of allowed roots for containment checks
+  const allowedRoots = dirs.map(d => { try { return realpathSync(resolve(d)); } catch { return resolve(d); } });
 
   for (const dir of dirs) {
     if (!existsSync(dir)) continue;
     const files = readdirSync(dir).filter((f: string) => f.endsWith('.kern'));
     for (const file of files) {
-      loadRulesFromFile(join(dir, file), rules, visited);
+      loadRulesFromFile(join(dir, file), rules, visited, skipIds, allowedRoots);
     }
   }
 
@@ -129,6 +152,9 @@ export function loadNativeRules(dirs: string[]): KernLintRule[] {
  */
 export function loadBuiltinNativeRules(): KernLintRule[] {
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  const builtinDir = resolve(__dirname, 'rules', 'native');
+  // Try dist/rules/native first, fall back to src/rules/native (dev mode)
+  const distDir = resolve(__dirname, 'rules', 'native');
+  const srcDir = resolve(__dirname, '..', 'src', 'rules', 'native');
+  const builtinDir = existsSync(distDir) ? distDir : srcDir;
   return loadNativeRules([builtinDir]);
 }
