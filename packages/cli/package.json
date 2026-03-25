@@ -15,6 +15,15 @@
   "files": [
     "dist"
   ],
+  "keywords": [
+    "kern",
+    "llm",
+    "cli",
+    "transpiler",
+    "compiler",
+    "review",
+    "ai"
+  ],
   "license": "AGPL-3.0",
   "scripts": {
     "build": "tsc -b",

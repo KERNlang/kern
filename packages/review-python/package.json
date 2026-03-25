@@ -19,6 +19,15 @@
     "ts-morph": "^27.0.0",
     "typescript": "^5.7.0"
   },
+  "keywords": [
+    "kern",
+    "llm",
+    "python",
+    "review",
+    "tree-sitter",
+    "static-analysis",
+    "ai"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

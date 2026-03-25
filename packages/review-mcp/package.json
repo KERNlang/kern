@@ -20,5 +20,14 @@
       "default": "./dist/index.js"
     }
   },
+  "keywords": [
+    "kern",
+    "llm",
+    "mcp",
+    "security",
+    "static-analysis",
+    "owasp",
+    "ai"
+  ],
   "license": "AGPL-3.0"
 }
