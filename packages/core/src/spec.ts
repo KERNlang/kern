@@ -59,7 +59,7 @@ export const NODE_TYPES = [
   'cli', 'command', 'arg', 'flag', 'import',
   // Terminal
   'separator', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'scoreboard', 'metric',
-  'spinner', 'progress', 'box', 'gradient',
+  'spinner', 'box', 'gradient',
   'state', 'repl', 'guard', 'parallel', 'dispatch', 'then', 'each',
   // Next.js production patterns
   'generateMetadata', 'notFound', 'redirect', 'fetch',
@@ -75,7 +75,7 @@ export const NODE_TYPES = [
   'event',
   // React — hooks, providers, effects
   'hook', 'provider', 'effect',
-  'memo', 'callback', 'ref', 'context', 'cleanup',
+  'memo', 'callback', 'ref', 'context',
   'prop', 'returns',
   // Ink — terminal React (Ink) specific nodes
   'input-area', 'output-area', 'text-input', 'select-input',

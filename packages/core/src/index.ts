@@ -3,7 +3,7 @@
  */
 
 // Core
-export { parse, parseDocument, registerParserHints, unregisterParserHints, clearParserHints, tokenizeLine } from './parser.js';
+export { parse, parseDocument, parseWithDiagnostics, parseDocumentWithDiagnostics, parseStrict, parseDocumentStrict, getParseDiagnostics, registerParserHints, unregisterParserHints, clearParserHints, tokenizeLine } from './parser.js';
 export type { Token, TokenKind } from './parser.js';
 export { decompile } from './decompiler.js';
 export { KernParseError } from './errors.js';
@@ -19,6 +19,10 @@ export type {
   DecompileResult,
   GeneratedArtifact,
   KernEngine,
+  ParseDiagnostic,
+  ParseDiagnosticSeverity,
+  ParseErrorCode,
+  ParseResult,
 } from './types.js';
 
 // Config
