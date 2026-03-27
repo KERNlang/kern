@@ -11,8 +11,8 @@
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { resolve, relative, join } from 'path';
-import { parse as parseKern, countTokens, serializeIR } from '@kernlang/core';
-import type { IRNode } from '@kernlang/core';
+import { parseWithDiagnostics, countTokens, serializeIR } from '@kernlang/core';
+import type { IRNode, ParseDiagnostic } from '@kernlang/core';
 import { inferFromSource, inferFromFile, inferFromSourceFile, createInMemoryProject } from './inferrer.js';
 import { resolveImportGraph } from './graph.js';
 import type { GraphOptions } from './types.js';
@@ -247,42 +247,63 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
     }
   }
 
-  // Parse .kern → IR tree
-  const root = safePhase('parse', () => parseKern(source), { type: 'document' } as IRNode);
+  // Parse .kern → IR tree + structured diagnostics
+  const { root, diagnostics: parseDiags } = safePhase(
+    'parse',
+    () => parseWithDiagnostics(source),
+    { root: { type: 'document' } as IRNode, diagnostics: [] as ParseDiagnostic[] },
+  );
+
+  // Map parse diagnostics → ReviewFindings (severity capped at 'warning' to avoid breaking --enforce)
+  const hasParseErrors = parseDiags.some(d => d.severity === 'error');
+  for (const d of parseDiags) {
+    allFindings.push({
+      source: 'kern',
+      ruleId: `parse/${d.code}`,
+      severity: d.severity === 'error' ? 'warning' : d.severity,
+      category: 'bug',
+      message: d.message,
+      primarySpan: { file: filePath, startLine: d.line, startCol: d.col, endLine: d.line, endCol: d.endCol },
+      suggestion: d.suggestion,
+      fingerprint: createFingerprint(`parse/${d.code}`, d.line, d.col),
+    });
+  }
 
   // Flatten IR tree for rule consumption
   const flatNodes = flattenIR(root).filter(n => n.type !== 'document');
 
-  // Ground-layer rules on IR nodes
-  const groundFindings = safePhase('ground-lint', () => lintKernIR(flatNodes, GROUND_LAYER_RULES), []);
-  // Attach filePath to findings (ground rules may leave file empty)
-  for (const f of groundFindings) {
-    if (!f.primarySpan.file) f.primarySpan.file = filePath;
-  }
-  allFindings.push(...groundFindings);
+  // Skip structural lint when parse has errors — partial tree causes cascading false positives
+  if (!hasParseErrors) {
+    // Ground-layer rules on IR nodes
+    const groundFindings = safePhase('ground-lint', () => lintKernIR(flatNodes, GROUND_LAYER_RULES), []);
+    for (const f of groundFindings) {
+      if (!f.primarySpan.file) f.primarySpan.file = filePath;
+    }
+    allFindings.push(...groundFindings);
 
-  // Confidence rules on IR nodes
-  const confFindings = safePhase('confidence-lint', () => lintConfidenceGraph(flatNodes), []);
-  for (const f of confFindings) {
-    if (!f.primarySpan.file) f.primarySpan.file = filePath;
-  }
-  allFindings.push(...confFindings);
+    // Confidence rules on IR nodes
+    const confFindings = safePhase('confidence-lint', () => lintConfidenceGraph(flatNodes), []);
+    for (const f of confFindings) {
+      if (!f.primarySpan.file) f.primarySpan.file = filePath;
+    }
+    allFindings.push(...confFindings);
 
-  // File-aware .kern review rules on flattened IR nodes
-  const kernSourceFindings = safePhase('kern-source-lint', () => lintKernSourceIR(flatNodes, filePath, KERN_SOURCE_RULES), []);
-  allFindings.push(...kernSourceFindings);
+    // File-aware .kern review rules on flattened IR nodes
+    const kernSourceFindings = safePhase('kern-source-lint', () => lintKernSourceIR(flatNodes, filePath, KERN_SOURCE_RULES), []);
+    allFindings.push(...kernSourceFindings);
 
-  // Native .kern rules (built-in + custom)
-  const rulesToRunKern = [...NATIVE_RULES];
-  if (_config?.rulesDirs && _config.rulesDirs.length > 0) {
-    const builtinIds = new Set(NATIVE_RULES.map(r => r.ruleId).filter(Boolean) as string[]);
-    const customRules = loadNativeRules(_config.rulesDirs, builtinIds);
-    rulesToRunKern.push(...customRules);
-  }
-  if (rulesToRunKern.length > 0) {
-    const nativeFindings = safePhase('native-rules', () => lintKernIR(flatNodes, rulesToRunKern), []);
-    for (const f of nativeFindings) { if (!f.primarySpan.file) f.primarySpan.file = filePath; }
-    allFindings.push(...nativeFindings);
+    // Native .kern rules (built-in + custom)
+    const rulesToRunKern = [...NATIVE_RULES];
+    if (_config?.rulesDirs && _config.rulesDirs.length > 0) {
+      const builtinIds = new Set(NATIVE_RULES.map(r => r.ruleId).filter(Boolean) as string[]);
+      const customRules = loadNativeRules(_config.rulesDirs, builtinIds);
+      rulesToRunKern.push(...customRules);
+    }
+    if (rulesToRunKern.length > 0) {
+      const nativeFindings = safePhase('native-rules', () => lintKernIR(flatNodes, rulesToRunKern), []);
+      for (const f of nativeFindings) { if (!f.primarySpan.file) f.primarySpan.file = filePath; }
+      allFindings.push(...nativeFindings);
+    }
   }
 
   // Confidence graph
