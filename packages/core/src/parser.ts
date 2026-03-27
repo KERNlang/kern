@@ -1,6 +1,9 @@
 import type { IRNode, IRSourceLocation, ParseDiagnostic, ParseErrorCode, ParseResult } from './types.js';
 import { KernParseError } from './errors.js';
 import { isKnownNodeType } from './spec.js';
+import { defaultRuntime } from './runtime.js';
+import type { ParserHintsConfig } from './runtime.js';
+import { validateSchema } from './schema.js';
 
 interface ParseState {
   diagnostics: ParseDiagnostic[];
@@ -11,7 +14,7 @@ interface EmitDiagnosticOptions {
   suggestion?: string;
 }
 
-let _lastParseDiagnostics: ParseDiagnostic[] = [];
+// Parse diagnostics now live in defaultRuntime. This alias provides backward compatibility.
 
 const DIAGNOSTIC_SUGGESTIONS: Record<ParseErrorCode, string> = {
   UNCLOSED_EXPR: 'Close the `{{ ... }}` expression or move the unfinished code into a quoted string.',
@@ -31,7 +34,7 @@ function createParseState(): ParseState {
 }
 
 function commitParseState(state: ParseState): void {
-  _lastParseDiagnostics = state.diagnostics.map(d => ({ ...d }));
+  defaultRuntime.lastParseDiagnostics = state.diagnostics.map(d => ({ ...d }));
 }
 
 function emitDiagnostic(
@@ -375,41 +378,26 @@ interface ParsedLine {
   loc: IRSourceLocation;
 }
 
-const MULTILINE_BLOCK_TYPES = new Set(['logic', 'handler', 'cleanup', 'body']);
+// defaultRuntime.multilineBlockTypes now lives in defaultRuntime.multilineBlockTypes
+// (initialized with 'logic', 'handler', 'cleanup', 'body' by the KernRuntime constructor).
 
 // ── Evolved Node Parser Hints (v4) ──────────────────────────────────────
 
-interface ParserHintsConfig {
-  positionalArgs?: string[];
-  bareWord?: string;
-  multilineBlock?: string;
-}
-
-const _parserHints = new Map<string, ParserHintsConfig>();
+// ParserHintsConfig is now defined in runtime.ts. Parser hints live in defaultRuntime.
 
 /** Register parser hints for an evolved node type. */
 export function registerParserHints(keyword: string, hints: ParserHintsConfig): void {
-  _parserHints.set(keyword, hints);
-  if (hints.multilineBlock) {
-    MULTILINE_BLOCK_TYPES.add(keyword);
-  }
+  defaultRuntime.registerParserHints(keyword, hints);
 }
 
 /** Unregister parser hints (for rollback/testing). */
 export function unregisterParserHints(keyword: string): void {
-  const hints = _parserHints.get(keyword);
-  if (hints?.multilineBlock) {
-    MULTILINE_BLOCK_TYPES.delete(keyword);
-  }
-  _parserHints.delete(keyword);
+  defaultRuntime.unregisterParserHints(keyword);
 }
 
 /** Clear all parser hints (for test isolation). */
 export function clearParserHints(): void {
-  for (const [keyword, hints] of _parserHints) {
-    if (hints.multilineBlock) MULTILINE_BLOCK_TYPES.delete(keyword);
-  }
-  _parserHints.clear();
+  defaultRuntime.clearParserHints();
 }
 
 // ── Keyword handlers ─────────────────────────────────────────────────────
@@ -584,7 +572,7 @@ function parseLine(state: ParseState, raw: string, lineNum: number): ParsedLine 
     return null;
   }
   const type = typeToken;
-  if (!isKnownNodeType(type) && !MULTILINE_BLOCK_TYPES.has(type)) {
+  if (!isKnownNodeType(type) && !defaultRuntime.multilineBlockTypes.has(type)) {
     emitDiagnostic(state, 'UNKNOWN_NODE_TYPE', 'warning', `Unknown node type '${type}' at line ${lineNum}`, lineNum, col, {
       endCol: col + type.length,
     });
@@ -596,7 +584,7 @@ function parseLine(state: ParseState, raw: string, lineNum: number): ParsedLine 
   const themeRefs: string[] = [];
 
   // ── Evolved node parser hints (v4) ──────────────────────────────────
-  const evolvedHints = _parserHints.get(type);
+  const evolvedHints = defaultRuntime.parserHints.get(type);
   if (evolvedHints) {
     if (evolvedHints.positionalArgs) {
       for (const argName of evolvedHints.positionalArgs) {
@@ -774,7 +762,7 @@ function expandMinified(source: string): string {
 
 /** Get warnings from the last parse() call */
 export function getParseWarnings(): string[] {
-  return _lastParseDiagnostics.map(d => d.message);
+  return defaultRuntime.lastParseDiagnostics.map(d => d.message);
 }
 
 // ── Shared parse helpers ─────────────────────────────────────────────────
@@ -787,7 +775,7 @@ function parseLines(state: ParseState, source: string): ParsedLine[] {
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trimStart();
 
-    const multilineType = [...MULTILINE_BLOCK_TYPES].find(type => trimmed.startsWith(`${type} <<<`));
+    const multilineType = [...defaultRuntime.multilineBlockTypes].find(type => trimmed.startsWith(`${type} <<<`));
     if (multilineType) {
       const indent = lines[i].search(/\S/);
       const codeLines: string[] = [];
@@ -953,7 +941,7 @@ function computeEndSpans(node: IRNode): void {
 // ── Diagnostics API ──────────────────────────────────────────────────────
 
 /** Get structured diagnostics from the last parse() call. */
-export function getParseDiagnostics(): ParseDiagnostic[] { return [..._lastParseDiagnostics]; }
+export function getParseDiagnostics(): ParseDiagnostic[] { return [...defaultRuntime.lastParseDiagnostics]; }
 
 /** Parse with diagnostics — returns both tree and structured diagnostics. */
 export function parseWithDiagnostics(source: string): ParseResult {
@@ -965,7 +953,7 @@ export function parseDocumentWithDiagnostics(source: string): ParseResult {
   return parseInternal(source, true);
 }
 
-/** Strict parse — throws KernParseError if any diagnostic has severity=error. */
+/** Strict parse — throws KernParseError if any diagnostic has severity=error or schema violation. */
 export function parseStrict(source: string): IRNode {
   const { root, diagnostics } = parseWithDiagnostics(source);
   const errors = diagnostics.filter(d => d.severity === 'error');
@@ -975,16 +963,32 @@ export function parseStrict(source: string): IRNode {
     err.diagnostics = diagnostics;
     throw err;
   }
+  // Schema validation — catch malformed ASTs before they reach codegen
+  const violations = validateSchema(root);
+  if (violations.length > 0) {
+    const first = violations[0];
+    const err = new KernParseError(first.message, first.line ?? 1, first.col ?? 1, source);
+    err.diagnostics = diagnostics;
+    throw err;
+  }
   return root;
 }
 
-/** Strict document parse — throws KernParseError if any diagnostic has severity=error. */
+/** Strict document parse — throws KernParseError if any diagnostic has severity=error or schema violation. */
 export function parseDocumentStrict(source: string): IRNode {
   const { root, diagnostics } = parseDocumentWithDiagnostics(source);
   const errors = diagnostics.filter(d => d.severity === 'error');
   if (errors.length > 0) {
     const first = errors[0];
     const err = new KernParseError(first.message, first.line, first.col, source);
+    err.diagnostics = diagnostics;
+    throw err;
+  }
+  // Schema validation — catch malformed ASTs before they reach codegen
+  const violations = validateSchema(root);
+  if (violations.length > 0) {
+    const first = violations[0];
+    const err = new KernParseError(first.message, first.line ?? 1, first.col ?? 1, source);
     err.diagnostics = diagnostics;
     throw err;
   }

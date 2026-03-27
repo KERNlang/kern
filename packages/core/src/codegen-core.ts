@@ -10,158 +10,63 @@
 import type { IRNode } from './types.js';
 import { isTemplateNode, expandTemplateNode } from './template-engine.js';
 import { KernCodegenError } from './errors.js';
+import { defaultRuntime } from './runtime.js';
 
-// ── Safe Emitters (prompt-injection immunity) ────────────────────────────
-// Every prop value interpolated into generated code MUST go through these.
-// Raw string splicing is the root cause of codegen injection (audit 2026-03-25).
+// Re-export emitters and helpers from extracted modules for backward compatibility.
+// All existing `import { emitIdentifier } from './codegen-core.js'` paths continue to work.
+export { emitIdentifier, emitStringLiteral, emitPath, emitTemplateSafe, emitTypeAnnotation, emitImportSpecifier } from './codegen/emitters.js';
+export { getProps, getChildren, getFirstChild, getStyles, getPseudoStyles, getThemeRefs, dedent, cssPropertyName, handlerCode, exportPrefix, capitalize, parseParamList, emitReasonAnnotations, emitLowConfidenceTodo } from './codegen/helpers.js';
 
-// Matches valid JS/TS identifiers — KERN hyphens are converted to camelCase by the parser.
-// Allows $ for React patterns (e.g., $state). Does NOT allow hyphens since
-// generated TypeScript rejects them (e.g., `interface My-User` is invalid TS).
-const SAFE_IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-const SAFE_PATH_RE = /^[A-Za-z0-9/_.\-~]+$/;
+// Import for local use within this file
+import { emitIdentifier, emitStringLiteral, emitPath, emitTemplateSafe, emitTypeAnnotation, emitImportSpecifier } from './codegen/emitters.js';
+import { getProps, getChildren, getFirstChild, dedent, handlerCode, exportPrefix, capitalize, parseParamList, emitReasonAnnotations, emitLowConfidenceTodo } from './codegen/helpers.js';
 
-/** Validate and emit a safe identifier for generated code. Throws on invalid. */
-export function emitIdentifier(value: string | undefined, fallback: string, node?: IRNode): string {
-  const v = value || fallback;
-  if (!SAFE_IDENT_RE.test(v)) {
-    throw new KernCodegenError(`Invalid identifier: '${v.slice(0, 50)}' — must match KERN identifier grammar [A-Za-z_$][A-Za-z0-9_$-]*`, node);
-  }
-  return v;
-}
+// ── Safe Emitters & Helpers ───────────────────────────────────────────────
+// Implementations extracted to codegen/emitters.ts and codegen/helpers.ts.
+// Re-exported above for backward compatibility.
 
-/** Escape a string for safe interpolation into a single-quoted JS string literal. */
-export function emitStringLiteral(value: string): string {
-  const escaped = value
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'")
-    .replace(/`/g, '\\`')
-    .replace(/\$/g, '\\$')
-    .replace(/\n/g, '\\n')
-    .replace(/\r/g, '\\r');
-  return `'${escaped}'`;
-}
+// (emitter implementations in codegen/emitters.ts)
 
-/** Validate and emit a safe filesystem path for generated code. */
-export function emitPath(value: string, node?: IRNode): string {
-  if (!SAFE_PATH_RE.test(value)) {
-    throw new KernCodegenError(`Invalid path: '${value.slice(0, 80)}' — contains unsafe characters`, node);
-  }
-  if (value.includes('..')) {
-    throw new KernCodegenError(`Invalid path: '${value.slice(0, 80)}' — path traversal (..) not allowed`, node);
-  }
-  return emitStringLiteral(value);
-}
-
-/** Escape a value for interpolation into a template literal in generated code. */
-export function emitTemplateSafe(value: string): string {
-  return value
-    .replace(/\\/g, '\\\\')
-    .replace(/`/g, '\\`')
-    .replace(/\$\{/g, '\\${');
-}
+// (emitTypeAnnotation, emitImportSpecifier implementations in codegen/emitters.ts)
 
 // ── Evolved Generators (v4) ─────────────────────────────────────────────
 // Populated at startup by evolved-node-loader. Checked in generateCoreNode
 // before the default case, allowing graduated nodes to produce output.
 
-const _evolvedGenerators = new Map<string, (node: IRNode) => string[]>();
-const _evolvedTargetGenerators = new Map<string, Map<string, (node: IRNode) => string[]>>();
+// Evolved generators now live in defaultRuntime. These functions delegate for backward compatibility.
 
 /** Register an evolved generator (called at startup). */
 export function registerEvolvedGenerator(keyword: string, fn: (node: IRNode) => string[]): void {
-  _evolvedGenerators.set(keyword, fn);
+  defaultRuntime.registerEvolvedGenerator(keyword, fn);
 }
 
 /** Register a target-specific evolved generator (called at startup). */
 export function registerEvolvedTargetGenerator(keyword: string, target: string, fn: (node: IRNode) => string[]): void {
-  if (!_evolvedTargetGenerators.has(keyword)) {
-    _evolvedTargetGenerators.set(keyword, new Map());
-  }
-  _evolvedTargetGenerators.get(keyword)!.set(target, fn);
+  defaultRuntime.registerEvolvedTargetGenerator(keyword, target, fn);
 }
 
 /** Unregister an evolved generator (for rollback/testing). */
 export function unregisterEvolvedGenerator(keyword: string): void {
-  _evolvedGenerators.delete(keyword);
-  _evolvedTargetGenerators.delete(keyword);
+  defaultRuntime.unregisterEvolvedGenerator(keyword);
 }
 
 /** Clear all evolved generators (for test isolation). */
 export function clearEvolvedGenerators(): void {
-  _evolvedGenerators.clear();
-  _evolvedTargetGenerators.clear();
+  defaultRuntime.clearEvolvedGenerators();
 }
 
 /** Check if an evolved generator exists for a type. */
 export function hasEvolvedGenerator(type: string): boolean {
-  return _evolvedGenerators.has(type);
+  return defaultRuntime.hasEvolvedGenerator(type);
 }
 
 // ── Shared IR node helpers ───────────────────────────────────────────────
-// These are used by every transpiler. Exported for reuse.
+// Implementations extracted to codegen/helpers.ts. Re-exported above.
 
-/** Extract props from an IR node. */
-export function getProps(node: IRNode): Record<string, unknown> {
-  return node.props || {};
-}
-
-/** Get children, optionally filtered by type. */
-export function getChildren(node: IRNode, type?: string): IRNode[] {
-  const c = node.children || [];
-  return type ? c.filter(n => n.type === type) : c;
-}
-
-/** Get first child of a given type. */
-export function getFirstChild(node: IRNode, type: string): IRNode | undefined {
-  return getChildren(node, type)[0];
-}
-
-/** Extract styles from node props. */
-export function getStyles(node: IRNode): Record<string, string> {
-  return (getProps(node).styles as Record<string, string>) || {};
-}
-
-/** Extract pseudo-styles from node props. */
-export function getPseudoStyles(node: IRNode): Record<string, Record<string, string>> {
-  return (getProps(node).pseudoStyles as Record<string, Record<string, string>>) || {};
-}
-
-/** Extract theme refs from node props. */
-export function getThemeRefs(node: IRNode): string[] {
-  return (getProps(node).themeRefs as string[]) || [];
-}
-
-/** Strip common leading whitespace from multiline handler code. */
-export function dedent(code: string): string {
-  const lines = code.split('\n');
-  const nonEmpty = lines.filter(l => l.trim().length > 0);
-  if (nonEmpty.length === 0) return code;
-  const min = Math.min(...nonEmpty.map(l => l.match(/^(\s*)/)?.[1].length ?? 0));
-  return lines.map(l => l.slice(min)).join('\n');
-}
-
-/** Convert camelCase to kebab-case for CSS property names. */
-export function cssPropertyName(camel: string): string {
-  return camel.replace(/([A-Z])/g, '-$1').toLowerCase();
-}
-
-/** Extract handler code from a node (finds handler child, dedents). */
-export function handlerCode(node: IRNode): string {
-  const handler = getFirstChild(node, 'handler');
-  if (!handler) return '';
-  const raw = getProps(handler).code as string || '';
-  return dedent(raw);
-}
-
-// Internal aliases for backward compat within this file
+// Internal aliases for local use within this file
 const p = getProps;
 const kids = getChildren;
 const firstChild = getFirstChild;
-
-export function exportPrefix(node: IRNode): string {
-  return p(node).export === 'false' ? '' : 'export ';
-}
 
 // ── Type Alias ───────────────────────────────────────────────────────────
 // type name=PlanState values="draft|approved|running|paused|completed|failed|cancelled"
@@ -177,7 +82,7 @@ export function generateType(node: IRNode): string[] {
     return [`${exp}type ${name} = ${members};`];
   }
   if (alias) {
-    return [`${exp}type ${name} = ${alias};`];
+    return [`${exp}type ${name} = ${emitTypeAnnotation(alias, 'unknown', node)};`];
   }
   return [`${exp}type ${name} = unknown;`];
 }
@@ -192,7 +97,7 @@ export function generateType(node: IRNode): string[] {
 export function generateInterface(node: IRNode): string[] {
   const props = p(node);
   const name = emitIdentifier(props.name as string, 'UnknownInterface', node);
-  const ext = props.extends ? ` extends ${props.extends}` : '';
+  const ext = props.extends ? ` extends ${emitTypeAnnotation(props.extends as string, 'unknown', node)}` : '';
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
@@ -201,7 +106,7 @@ export function generateInterface(node: IRNode): string[] {
     const fp = p(field);
     const fieldName = emitIdentifier(fp.name as string, 'field', field);
     const opt = fp.optional === 'true' || fp.optional === true ? '?' : '';
-    lines.push(`  ${fieldName}${opt}: ${fp.type};`);
+    lines.push(`  ${fieldName}${opt}: ${emitTypeAnnotation(fp.type as string, 'unknown', field)};`);
   }
   lines.push('}');
   return lines;
@@ -238,7 +143,7 @@ export function generateUnion(node: IRNode): string[] {
     for (const field of fields) {
       const fp = p(field);
       const opt = fp.optional === 'true' || fp.optional === true ? '?' : '';
-      fieldParts.push(`${fp.name}${opt}: ${fp.type}`);
+      fieldParts.push(`${emitIdentifier(fp.name as string, 'field', field)}${opt}: ${emitTypeAnnotation(fp.type as string, 'unknown', field)}`);
     }
     const semi = i === variants.length - 1 ? ';' : '';
     lines.push(`  | { ${fieldParts.join('; ')} }${semi}`);
@@ -268,18 +173,20 @@ export function generateService(node: IRNode): string[] {
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
-  const implClause = impl ? ` implements ${impl}` : '';
+  const implClause = impl ? ` implements ${emitTypeAnnotation(impl, 'unknown', node)}` : '';
   lines.push(`${exp}class ${name}${implClause} {`);
 
   // Fields
   for (const field of kids(node, 'field')) {
     const fp = p(field);
+    const fieldName = emitIdentifier(fp.name as string, 'field', field);
     const vis = fp.private === 'true' || fp.private === true ? 'private ' : '';
     const readonly = fp.readonly === 'true' || fp.readonly === true ? 'readonly ' : '';
-    const typeAnnotation = fp.type ? `: ${fp.type}` : '';
+    const typeAnnotation = fp.type ? `: ${emitTypeAnnotation(fp.type as string, 'unknown', field)}` : '';
     const defaultVal = fp.default as string;
+    // default values are by-design raw code (escape hatch) — documented, not sanitized
     const init = defaultVal !== undefined ? ` = ${defaultVal}` : '';
-    lines.push(`  ${vis}${readonly}${fp.name}${typeAnnotation}${init};`);
+    lines.push(`  ${vis}${readonly}${fieldName}${typeAnnotation}${init};`);
   }
 
   // Constructor (if any constructor child exists)
@@ -314,8 +221,8 @@ export function generateService(node: IRNode): string[] {
 
     // stream=true → AsyncGenerator return type
     const mreturns = isStream
-      ? `: AsyncGenerator<${mp.returns || 'unknown'}>`
-      : mp.returns ? `: ${mp.returns}` : '';
+      ? `: AsyncGenerator<${emitTypeAnnotation(mp.returns as string, 'unknown', method)}>`
+      : mp.returns ? `: ${emitTypeAnnotation(mp.returns as string, 'unknown', method)}` : '';
 
     lines.push('');
     lines.push(`  ${vis}${staticKw}${asyncKw}${star}${mname}(${mparams})${mreturns} {`);
@@ -363,7 +270,7 @@ export function generateFunction(node: IRNode): string[] {
 
   // stream=true → async generator function
   if (isStream) {
-    const yieldType = returns || 'unknown';
+    const yieldType = emitTypeAnnotation(returns as string, 'unknown', node);
     const retClause = `: AsyncGenerator<${yieldType}>`;
     const code = handlerCode(node);
     lines.push(`${exp}async function* ${name}(${paramList})${retClause} {`);
@@ -376,7 +283,7 @@ export function generateFunction(node: IRNode): string[] {
     return lines;
   }
 
-  const retClause = returns ? `: ${returns}` : '';
+  const retClause = returns ? `: ${emitTypeAnnotation(returns as string, 'unknown', node)}` : '';
   const asyncKw = isAsync ? 'async ' : '';
   const code = handlerCode(node);
 
@@ -450,10 +357,12 @@ export function generateError(node: IRNode): string[] {
       const opt = fp.optional === 'true' || fp.optional === true ? '?' : '';
       const isMessage = (fp.name as string) === 'message';
       // 'message' param is not readonly — it's passed to super
+      const fName = emitIdentifier(fp.name as string, 'field', field);
+      const fType = emitTypeAnnotation(fp.type as string, 'unknown', field);
       if (isMessage) {
-        lines.push(`    ${fp.name}${opt}: ${fp.type},`);
+        lines.push(`    ${fName}${opt}: ${fType},`);
       } else {
-        lines.push(`    public readonly ${fp.name}${opt}: ${fp.type},`);
+        lines.push(`    public readonly ${fName}${opt}: ${fType},`);
       }
     }
     lines.push(`  ) {`);
@@ -661,7 +570,7 @@ export function generateConfig(node: IRNode): string[] {
     const fp = p(field);
     const fieldName = emitIdentifier(fp.name as string, 'field', field);
     const opt = fp.default !== undefined ? '?' : '';
-    lines.push(`  ${fieldName}${opt}: ${fp.type};`);
+    lines.push(`  ${fieldName}${opt}: ${emitTypeAnnotation(fp.type as string, 'unknown', field)};`);
   }
   lines.push('}');
   lines.push('');
@@ -671,7 +580,7 @@ export function generateConfig(node: IRNode): string[] {
   for (const field of fields) {
     const fp = p(field);
     const fieldName = emitIdentifier(fp.name as string, 'field', field);
-    const ftype = fp.type as string;
+    const ftype = emitTypeAnnotation(fp.type as string, 'unknown', field);
     let def = fp.default as string;
 
     if (def === undefined) {
@@ -843,7 +752,7 @@ export function generateEvent(node: IRNode): string[] {
   for (const t of types) {
     const tp = p(t);
     const tname = emitTemplateSafe((tp.name || tp.value) as string);
-    const data = tp.data as string || 'Record<string, unknown>';
+    const data = emitTypeAnnotation(tp.data as string, 'Record<string, unknown>', t);
     lines.push(`  '${tname}': ${data};`);
   }
   lines.push('}');
@@ -1025,39 +934,42 @@ export function generateModule(node: IRNode): string[] {
 
   for (const exp of kids(node, 'export')) {
     const ep = p(exp);
-    const from = ep.from as string;
-    const names = ep.names as string;
-    const typeNames = ep.types as string;
+    const rawFrom = ep.from as string;
+    const safeFrom = rawFrom ? emitImportSpecifier(rawFrom, exp) : '';
+    const rawNames = ep.names as string;
+    const safeNames = rawNames ? rawNames.split(',').map(s => emitIdentifier(s.trim(), 'export', exp)).join(', ') : '';
+    const rawTypeNames = ep.types as string;
+    const safeTypeNames = rawTypeNames ? rawTypeNames.split(',').map(s => emitIdentifier(s.trim(), 'export', exp)).join(', ') : '';
     const star = ep.star === 'true' || ep.star === true;
-    const defaultExport = ep.default as string;
+    const safeDefault = ep.default ? emitIdentifier(ep.default as string, 'default', exp) : '';
 
     // export * from './foo.js'
-    if (from && !names && !typeNames && star) {
-      lines.push(`export * from '${from}';`);
+    if (safeFrom && !safeNames && !safeTypeNames && star) {
+      lines.push(`export * from '${safeFrom}';`);
     }
     // export { a, b } from './foo.js'
-    if (from && names) {
-      lines.push(`export { ${names.split(',').map(s => s.trim()).join(', ')} } from '${from}';`);
+    if (safeFrom && safeNames) {
+      lines.push(`export { ${safeNames} } from '${safeFrom}';`);
     }
     // export type { A, B } from './types.js'
-    if (from && typeNames) {
-      lines.push(`export type { ${typeNames.split(',').map(s => s.trim()).join(', ')} } from '${from}';`);
+    if (safeFrom && safeTypeNames) {
+      lines.push(`export type { ${safeTypeNames} } from '${safeFrom}';`);
     }
     // export default foo
-    if (defaultExport && !from) {
-      lines.push(`export default ${defaultExport};`);
+    if (safeDefault && !safeFrom) {
+      lines.push(`export default ${safeDefault};`);
     }
     // export default from './foo.js' (re-export default)
-    if (defaultExport && from) {
-      lines.push(`export { default as ${defaultExport} } from '${from}';`);
+    if (safeDefault && safeFrom) {
+      lines.push(`export { default as ${safeDefault} } from '${safeFrom}';`);
     }
     // export { a, b } (no from — local re-export)
-    if (!from && names && !defaultExport) {
-      lines.push(`export { ${names.split(',').map(s => s.trim()).join(', ')} };`);
+    if (!safeFrom && safeNames && !safeDefault) {
+      lines.push(`export { ${safeNames} };`);
     }
     // export type { A, B } (no from — local type re-export)
-    if (!from && typeNames && !defaultExport) {
-      lines.push(`export type { ${typeNames.split(',').map(s => s.trim()).join(', ')} };`);
+    if (!safeFrom && safeTypeNames && !safeDefault) {
+      lines.push(`export type { ${safeTypeNames} };`);
     }
   }
 
@@ -1093,22 +1005,24 @@ export function generateImport(node: IRNode): string[] {
 
   if (!from) return [];
 
+  const safePath = emitImportSpecifier(from, node);
   const typeKw = isTypeOnly ? 'type ' : '';
+  const safeDefault = defaultImport ? emitIdentifier(defaultImport, 'default', node) : '';
   const namedList = names
-    ? names.split(',').map(s => s.trim()).join(', ')
+    ? names.split(',').map(s => emitIdentifier(s.trim(), 'import', node)).join(', ')
     : '';
 
-  if (defaultImport && namedList) {
-    return [`import ${typeKw}${defaultImport}, { ${namedList} } from '${from}';`];
+  if (safeDefault && namedList) {
+    return [`import ${typeKw}${safeDefault}, { ${namedList} } from '${safePath}';`];
   }
-  if (defaultImport) {
-    return [`import ${typeKw}${defaultImport} from '${from}';`];
+  if (safeDefault) {
+    return [`import ${typeKw}${safeDefault} from '${safePath}';`];
   }
   if (namedList) {
-    return [`import ${typeKw}{ ${namedList} } from '${from}';`];
+    return [`import ${typeKw}{ ${namedList} } from '${safePath}';`];
   }
   // Side-effect import
-  return [`import '${from}';`];
+  return [`import '${safePath}';`];
 }
 
 // ── Const ───────────────────────────────────────────────────────────────
@@ -1129,7 +1043,7 @@ export function generateConst(node: IRNode): string[] {
   const exp = exportPrefix(node);
   const code = handlerCode(node);
 
-  const typeAnnotation = constType ? `: ${constType}` : '';
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
 
   if (code) {
     return [`${exp}const ${name}${typeAnnotation} = ${code.trim()};`];
@@ -1140,120 +1054,9 @@ export function generateConst(node: IRNode): string[] {
   return [`${exp}const ${name}${typeAnnotation};`];
 }
 
-// ── Shared Helpers (exported for @kernlang/react) ────────────────────────────
-
-/** Parse "name:Type,name2:Type2,spread:number=8" → "name: Type, name2: Type2, spread: number = 8"
- *  Supports default values via = after the type. */
-export function parseParamList(params: string): string {
-  if (!params) return '';
-  return splitParamsRespectingDepth(params).map(s => {
-    const trimmed = s.trim();
-    // Split name from type:default — find the first ':'
-    const colonIdx = trimmed.indexOf(':');
-    if (colonIdx === -1) return trimmed;
-
-    const pname = trimmed.slice(0, colonIdx).trim();
-    const rest = trimmed.slice(colonIdx + 1).trim();
-
-    // Split type from default value — find '=' not inside angle brackets or parens
-    const eqIdx = findDefaultSeparator(rest);
-    if (eqIdx === -1) {
-      return `${pname}: ${rest}`;
-    }
-    const ptype = rest.slice(0, eqIdx).trim();
-    const pdefault = rest.slice(eqIdx + 1).trim();
-    return `${pname}: ${ptype} = ${pdefault}`;
-  }).join(', ');
-}
-
-/** Split param string on commas while respecting <>, (), {} depth.
- *  Handles => (arrow) without decrementing depth. */
-function splitParamsRespectingDepth(s: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let current = '';
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
-    if (ch === '<' || ch === '(' || ch === '{') depth++;
-    else if ((ch === '>' || ch === ')' || ch === '}') && depth > 0) depth--;
-    if (ch === ',' && depth === 0) {
-      parts.push(current);
-      current = '';
-    } else {
-      current += ch;
-    }
-  }
-  if (current.trim()) parts.push(current);
-  return parts;
-}
-
-/** Find the index of '=' that separates type from default value,
- *  skipping '=' inside arrow functions (=>), generics, or parens. */
-function findDefaultSeparator(rest: string): number {
-  let depth = 0;
-  for (let i = 0; i < rest.length; i++) {
-    const ch = rest[i];
-    if (ch === '<' || ch === '(' || ch === '{') depth++;
-    else if (ch === '>' || ch === ')' || ch === '}') depth--;
-    else if (ch === '=' && depth === 0) {
-      // Skip '=>' (arrow function in type)
-      if (rest[i + 1] === '>') continue;
-      return i;
-    }
-  }
-  return -1;
-}
-
-export function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-// Hook codegen moved to @kernlang/react (generateHook in codegen-react.ts)
-
-// ── Reason & Confidence Annotations ──────────────────────────────────────
-
-export function emitReasonAnnotations(node: IRNode): string[] {
-  const reasonNode = firstChild(node, 'reason');
-  const evidenceNode = firstChild(node, 'evidence');
-  const needsNodes = kids(node, 'needs');
-  const confidence = p(node).confidence as string | undefined;
-
-  if (!reasonNode && !evidenceNode && !confidence && needsNodes.length === 0) return [];
-
-  const lines: string[] = ['/**'];
-  if (confidence) lines.push(` * @confidence ${confidence}`);
-  if (reasonNode) {
-    const rp = p(reasonNode);
-    lines.push(` * @reason ${rp.because || ''}`);
-    if (rp.basis) lines.push(` * @basis ${rp.basis}`);
-    if (rp.survives) lines.push(` * @survives ${rp.survives}`);
-  }
-  if (evidenceNode) {
-    const ep = p(evidenceNode);
-    const parts = [`source=${ep.source}`];
-    if (ep.method) parts.push(`method=${ep.method}`);
-    if (ep.authority) parts.push(`authority=${ep.authority}`);
-    lines.push(` * @evidence ${parts.join(', ')}`);
-  }
-  for (const needsNode of needsNodes) {
-    const np = p(needsNode);
-    const desc = np.what as string || np.description as string || '';
-    const wouldRaise = np['would-raise-to'] as string;
-    const tag = wouldRaise ? `${desc} (would raise to ${wouldRaise})` : desc;
-    lines.push(` * @needs ${tag}`);
-  }
-  lines.push(' */');
-  return lines;
-}
-
-/** Emit a TODO comment for nodes with low literal confidence (< 0.5). */
-export function emitLowConfidenceTodo(node: IRNode, confidence: string | undefined): string[] {
-  if (!confidence) return [];
-  const val = parseFloat(confidence);
-  if (isNaN(val) || val >= 0.5 || confidence.includes(':')) return [];
-  const name = p(node).name as string || node.type;
-  return [`// TODO(low-confidence): ${name} confidence=${confidence}`];
-}
+// ── Shared Helpers ───────────────────────────────────────────────────────
+// parseParamList, capitalize, emitReasonAnnotations, emitLowConfidenceTodo
+// implementations extracted to codegen/helpers.ts. Re-exported at top of file.
 
 // ── Ground Layer: derive ─────────────────────────────────────────────────
 // derive name=loudness expr={{average(stems)}} type=number deps="stems"
@@ -1265,11 +1068,12 @@ export function generateDerive(node: IRNode): string[] {
   const todo = emitLowConfidenceTodo(node, conf);
   const props = p(node);
   const name = emitIdentifier(props.name as string, 'derived', node);
+  // expr is by-design raw code (escape hatch)
   const expr = props.expr as string;
   const constType = props.type as string | undefined;
   const exp = exportPrefix(node);
 
-  const typeAnnotation = constType ? `: ${constType}` : '';
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
   return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = ${expr};`];
 }
 
@@ -1283,13 +1087,14 @@ export function generateTransform(node: IRNode): string[] {
   const todo = emitLowConfidenceTodo(node, conf);
   const props = p(node);
   const name = emitIdentifier(props.name as string, 'transform', node);
+  // target and via are by-design raw code (escape hatches)
   const target = props.target as string | undefined;
   const via = props.via as string | undefined;
   const constType = props.type as string | undefined;
   const exp = exportPrefix(node);
   const code = handlerCode(node);
 
-  const typeAnnotation = constType ? `: ${constType}` : '';
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
 
   if (code) {
     // Handler block form — generate a function
@@ -1339,7 +1144,7 @@ export function generateAction(node: IRNode): string[] {
   }
 
   const paramList = params ? parseParamList(params) : '';
-  const retClause = returns ? `: Promise<${returns}>` : ': Promise<void>';
+  const retClause = returns ? `: Promise<${emitTypeAnnotation(returns, 'void', node)}>` : ': Promise<void>';
   lines.push(`${exp}async function ${name}(${paramList})${retClause} {`);
   if (code) {
     for (const line of code.split('\n')) {
@@ -1814,7 +1619,7 @@ export function generateRepository(node: IRNode): string[] {
     const mparams = mp.params ? parseParamList(mp.params as string) : '';
     const isAsync = mp.async === 'true' || mp.async === true;
     const asyncKw = isAsync ? 'async ' : '';
-    const mreturns = mp.returns ? `: ${mp.returns}` : '';
+    const mreturns = mp.returns ? `: ${emitTypeAnnotation(mp.returns as string, 'unknown', method)}` : '';
     const mcode = handlerCode(method);
 
     lines.push(`  ${asyncKw}${mname}(${mparams})${mreturns} {`);
@@ -2060,9 +1865,9 @@ export function generateCoreNode(node: IRNode, target?: string): string[] {
     case 'option': return [];
     default: {
       // Check evolved generators (v4) — target-specific first, then default
-      const targetMap = target ? _evolvedTargetGenerators.get(node.type) : undefined;
+      const targetMap = target ? defaultRuntime.evolvedTargetGenerators.get(node.type) : undefined;
       const targetGen = targetMap && target ? targetMap.get(target) : undefined;
-      const evolvedGen = targetGen || _evolvedGenerators.get(node.type);
+      const evolvedGen = targetGen || defaultRuntime.evolvedGenerators.get(node.type);
       if (evolvedGen) return evolvedGen(node);
       // Check if this is a template instance
       if (isTemplateNode(node.type)) return expandTemplateNode(node);

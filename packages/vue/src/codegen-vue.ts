@@ -6,7 +6,7 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { parseParamList, getProps, getChildren, getFirstChild, dedent, handlerCode } from '@kernlang/core';
+import { parseParamList, getProps, getChildren, getFirstChild, dedent, handlerCode, emitIdentifier, emitTypeAnnotation } from '@kernlang/core';
 
 // ── Provider → provide/inject ────────────────────────────────────────────
 // provider name=Search type=UseSearchResult
@@ -22,8 +22,8 @@ import { parseParamList, getProps, getChildren, getFirstChild, dedent, handlerCo
 
 export function generateVueProvider(node: IRNode): string[] {
   const props = getProps(node);
-  const name = props.name as string;
-  const valueType = props.type as string;
+  const name = emitIdentifier(props.name as string, 'Provider', node);
+  const valueType = emitTypeAnnotation(props.type as string, 'unknown', node);
   const lines: string[] = [];
 
   lines.push("import type { InjectionKey } from 'vue';");
@@ -39,8 +39,10 @@ export function generateVueProvider(node: IRNode): string[] {
   const paramParts: string[] = [];
   for (const prop of propNodes) {
     const pp = getProps(prop);
+    const propName = emitIdentifier(pp.name as string, 'prop', prop);
+    const propType = emitTypeAnnotation(pp.type as string, 'unknown', prop);
     const opt = pp.optional === 'true' || pp.optional === true ? '?' : '';
-    paramParts.push(`${pp.name}${opt}: ${pp.type}`);
+    paramParts.push(`${propName}${opt}: ${propType}`);
   }
   const paramStr = paramParts.length > 0 ? paramParts.join(', ') : '';
 

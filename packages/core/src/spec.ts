@@ -107,31 +107,31 @@ export type IRNodeType = (typeof NODE_TYPES)[number];
 // ── Dynamic Node Types (Evolve v4 — graduated nodes) ────────────────────
 // Evolved nodes register here at startup. Checked by parser alongside NODE_TYPES.
 
-const _dynamicNodeTypes = new Set<string>();
+import { defaultRuntime } from './runtime.js';
 
 /** Register an evolved node type (called at startup from .kern/evolved/). */
 export function registerEvolvedType(keyword: string): void {
-  _dynamicNodeTypes.add(keyword);
+  defaultRuntime.registerEvolvedType(keyword);
 }
 
 /** Unregister an evolved node type (for rollback/testing). */
 export function unregisterEvolvedType(keyword: string): void {
-  _dynamicNodeTypes.delete(keyword);
+  defaultRuntime.unregisterEvolvedType(keyword);
 }
 
 /** Check if a type is a known node type (core or evolved). */
 export function isKnownNodeType(type: string): boolean {
-  return (NODE_TYPES as readonly string[]).includes(type) || _dynamicNodeTypes.has(type);
+  return (NODE_TYPES as readonly string[]).includes(type) || defaultRuntime.dynamicNodeTypes.has(type);
 }
 
 /** Get all dynamically registered evolved types (defensive copy). */
 export function getEvolvedTypes(): ReadonlySet<string> {
-  return new Set(_dynamicNodeTypes);
+  return defaultRuntime.getEvolvedTypes();
 }
 
 /** Clear all dynamic types (for test isolation). */
 export function clearEvolvedTypes(): void {
-  _dynamicNodeTypes.clear();
+  defaultRuntime.clearEvolvedTypes();
 }
 
 /** Reserved keywords — evolved nodes cannot use these. */

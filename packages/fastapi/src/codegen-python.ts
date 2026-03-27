@@ -6,7 +6,7 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { dedent, handlerCode } from '@kernlang/core';
+import { dedent, handlerCode, emitIdentifier } from '@kernlang/core';
 import { mapTsTypeToPython, toSnakeCase, toScreamingSnake } from './type-map.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -53,8 +53,8 @@ export function generateType(node: IRNode): string[] {
 
 export function generateInterface(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
-  const ext = props.extends ? props.extends as string : 'BaseModel';
+  const name = emitIdentifier(props.name as string, 'Model', node);
+  const ext = props.extends ? emitIdentifier(props.extends as string, 'BaseModel', node) : 'BaseModel';
   const lines: string[] = [];
 
   lines.push(`class ${name}(${ext}):`);

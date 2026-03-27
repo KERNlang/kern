@@ -6,7 +6,7 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { parseParamList, capitalize, generateCoreNode, dedent, handlerCode, exportPrefix } from '@kernlang/core';
+import { parseParamList, capitalize, generateCoreNode, dedent, handlerCode, exportPrefix, emitIdentifier, emitTypeAnnotation } from '@kernlang/core';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -39,8 +39,8 @@ function firstChild(node: IRNode, type: string): IRNode | undefined {
 
 export function generateProvider(node: IRNode): string[] {
   const props = p(node);
-  const name = props.name as string;
-  const valueType = props.type as string;
+  const name = emitIdentifier(props.name as string, 'Provider', node);
+  const valueType = emitTypeAnnotation(props.type as string, 'unknown', node);
   const lines: string[] = [];
 
   lines.push("'use client';");
@@ -59,8 +59,10 @@ export function generateProvider(node: IRNode): string[] {
   lines.push(`  children: ReactNode;`);
   for (const prop of propNodes) {
     const pp = p(prop);
+    const propName = emitIdentifier(pp.name as string, 'prop', prop);
+    const propType = emitTypeAnnotation(pp.type as string, 'unknown', prop);
     const opt = pp.optional === 'true' || pp.optional === true ? '?' : '';
-    lines.push(`  ${pp.name}${opt}: ${pp.type};`);
+    lines.push(`  ${propName}${opt}: ${propType};`);
   }
   lines.push('}');
   lines.push('');

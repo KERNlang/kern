@@ -9,7 +9,7 @@ import {
   generateType, generateInterface, generateFunction,
   generateMachine, generateError, generateConfig,
   generateStore, generateTest, generateEvent, generateModule,
-  generateCoreNode, emitIdentifier, emitStringLiteral, emitPath,
+  generateCoreNode, emitIdentifier, emitStringLiteral, emitPath, emitTypeAnnotation, emitImportSpecifier,
   generateUnion, generateService, generateDerive, generateTransform,
   generateAction, generateGuard, generateInvariant, generateEach,
   generateCollect, generateBranch, generateResolve, generateRecover,
@@ -186,6 +186,137 @@ describe('Codegen Injection Immunity', () => {
     test('escapes backslashes', () => {
       const result = emitStringLiteral('path\\to\\file');
       expect(result).toContain('\\\\');
+    });
+  });
+
+  describe('emitTypeAnnotation validates TS types', () => {
+    test('accepts simple types', () => {
+      expect(emitTypeAnnotation('string', 'unknown')).toBe('string');
+      expect(emitTypeAnnotation('number', 'unknown')).toBe('number');
+      expect(emitTypeAnnotation('boolean', 'unknown')).toBe('boolean');
+      expect(emitTypeAnnotation('void', 'unknown')).toBe('void');
+      expect(emitTypeAnnotation('any', 'unknown')).toBe('any');
+      expect(emitTypeAnnotation('unknown', 'fallback')).toBe('unknown');
+      expect(emitTypeAnnotation('never', 'unknown')).toBe('never');
+    });
+
+    test('accepts generics', () => {
+      expect(emitTypeAnnotation('Map<string, number>', 'unknown')).toBe('Map<string, number>');
+      expect(emitTypeAnnotation('Promise<void>', 'unknown')).toBe('Promise<void>');
+      expect(emitTypeAnnotation('Array<T>', 'unknown')).toBe('Array<T>');
+      expect(emitTypeAnnotation('Record<string, unknown>', 'unknown')).toBe('Record<string, unknown>');
+    });
+
+    test('accepts arrays', () => {
+      expect(emitTypeAnnotation('string[]', 'unknown')).toBe('string[]');
+      expect(emitTypeAnnotation('number[][]', 'unknown')).toBe('number[][]');
+      expect(emitTypeAnnotation('Promise<User>[]', 'unknown')).toBe('Promise<User>[]');
+    });
+
+    test('accepts unions and intersections', () => {
+      expect(emitTypeAnnotation('string | number', 'unknown')).toBe('string | number');
+      expect(emitTypeAnnotation('Foo | null', 'unknown')).toBe('Foo | null');
+      expect(emitTypeAnnotation('A & B', 'unknown')).toBe('A & B');
+      expect(emitTypeAnnotation('(string | number)[]', 'unknown')).toBe('(string | number)[]');
+    });
+
+    test('accepts tuples', () => {
+      expect(emitTypeAnnotation('[string, number]', 'unknown')).toBe('[string, number]');
+      expect(emitTypeAnnotation('[string, ...number[]]', 'unknown')).toBe('[string, ...number[]]');
+    });
+
+    test('accepts function types', () => {
+      expect(emitTypeAnnotation('(x: number) => void', 'unknown')).toBe('(x: number) => void');
+      expect(emitTypeAnnotation('() => Promise<void>', 'unknown')).toBe('() => Promise<void>');
+    });
+
+    test('accepts nested generics', () => {
+      expect(emitTypeAnnotation('Map<string, Promise<User[]>>', 'unknown')).toBe('Map<string, Promise<User[]>>');
+    });
+
+    test('accepts string literal types', () => {
+      expect(emitTypeAnnotation("'active' | 'paused'", 'unknown')).toBe("'active' | 'paused'");
+    });
+
+    test('accepts typeof and keyof', () => {
+      expect(emitTypeAnnotation('typeof Foo', 'unknown')).toBe('typeof Foo');
+      expect(emitTypeAnnotation('keyof T', 'unknown')).toBe('keyof T');
+    });
+
+    test('rejects backticks (template literal injection)', () => {
+      expect(() => emitTypeAnnotation('`${evil}`', 'unknown')).toThrow(KernCodegenError);
+      expect(() => emitTypeAnnotation('string`', 'unknown')).toThrow(KernCodegenError);
+    });
+
+    test('rejects template interpolation', () => {
+      expect(() => emitTypeAnnotation('${process.exit(1)}', 'unknown')).toThrow(KernCodegenError);
+    });
+
+    test('rejects semicolons (statement injection)', () => {
+      expect(() => emitTypeAnnotation('string; console.log(1)', 'unknown')).toThrow(KernCodegenError);
+    });
+
+    test('rejects dynamic imports', () => {
+      expect(() => emitTypeAnnotation('import("fs")', 'unknown')).toThrow(KernCodegenError);
+      expect(() => emitTypeAnnotation('typeof import("evil")', 'unknown')).toThrow(KernCodegenError);
+    });
+
+    test('rejects comments', () => {
+      expect(() => emitTypeAnnotation('string // evil', 'unknown')).toThrow(KernCodegenError);
+      expect(() => emitTypeAnnotation('string /* evil */', 'unknown')).toThrow(KernCodegenError);
+    });
+
+    test('rejects unbalanced brackets', () => {
+      expect(() => emitTypeAnnotation('Map<string', 'unknown')).toThrow(KernCodegenError);
+      expect(() => emitTypeAnnotation('string>', 'unknown')).toThrow(KernCodegenError);
+      expect(() => emitTypeAnnotation('[string', 'unknown')).toThrow(KernCodegenError);
+      expect(() => emitTypeAnnotation('((string)', 'unknown')).toThrow(KernCodegenError);
+    });
+
+    test('rejects unclosed string literals', () => {
+      expect(() => emitTypeAnnotation("'unclosed", 'unknown')).toThrow(KernCodegenError);
+    });
+
+    test('uses fallback for empty/undefined', () => {
+      expect(emitTypeAnnotation(undefined, 'unknown')).toBe('unknown');
+      expect(emitTypeAnnotation('', 'fallback')).toBe('fallback');
+    });
+  });
+
+  describe('emitImportSpecifier validates import paths', () => {
+    test('accepts relative paths', () => {
+      expect(emitImportSpecifier('./utils')).toBe('./utils');
+      expect(emitImportSpecifier('../lib/helpers')).toBe('../lib/helpers');
+    });
+
+    test('accepts bare specifiers', () => {
+      expect(emitImportSpecifier('express')).toBe('express');
+      expect(emitImportSpecifier('lodash/merge')).toBe('lodash/merge');
+    });
+
+    test('accepts scoped packages', () => {
+      expect(emitImportSpecifier('@kernlang/core')).toBe('@kernlang/core');
+      expect(emitImportSpecifier('@types/node')).toBe('@types/node');
+    });
+
+    test('rejects single-quote breaking', () => {
+      expect(() => emitImportSpecifier("'; process.exit(1); //")).toThrow(KernCodegenError);
+    });
+
+    test('rejects backticks', () => {
+      expect(() => emitImportSpecifier('`evil`')).toThrow(KernCodegenError);
+    });
+
+    test('rejects semicolons', () => {
+      expect(() => emitImportSpecifier('foo; bar')).toThrow(KernCodegenError);
+    });
+
+    test('rejects template interpolation', () => {
+      expect(() => emitImportSpecifier('${evil}')).toThrow(KernCodegenError);
+    });
+
+    test('rejects empty specifier', () => {
+      expect(() => emitImportSpecifier('')).toThrow(KernCodegenError);
     });
   });
 
