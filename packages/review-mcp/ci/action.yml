@@ -1,0 +1,153 @@
+name: 'KERN MCP Security'
+description: 'Security scanner for MCP servers — score, SARIF, PR comment. OWASP MCP Top 10.'
+branding:
+  icon: shield
+  color: orange
+
+inputs:
+  path:
+    description: 'Path to scan (default: current directory)'
+    default: '.'
+  threshold:
+    description: 'Minimum score to pass (0-100). Fails the check if below.'
+    default: '0'
+  sarif:
+    description: 'Upload SARIF to GitHub Code Scanning'
+    default: 'true'
+  comment:
+    description: 'Post/update PR comment with findings'
+    default: 'true'
+  token:
+    description: 'GitHub token for PR comments (default: github.token)'
+    default: ${{ github.token }}
+
+outputs:
+  score:
+    description: 'Security score (0-100)'
+  grade:
+    description: 'Grade (A-F)'
+  findings:
+    description: 'Number of findings'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install KERN MCP Security
+      shell: bash
+      run: |
+        npm install -g @kernlang/review-mcp@latest 2>/dev/null || true
+        if ! command -v kern-mcp-security &>/dev/null; then
+          cd ${{ github.action_path }}/..
+          npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
+          npm run build
+        fi
+
+    - name: Run KERN MCP Security Scan
+      id: scan
+      shell: bash
+      run: |
+        SCAN_PATH="${{ inputs.path }}"
+        THRESHOLD="${{ inputs.threshold }}"
+
+        node "${{ github.action_path }}/../dist/cli.js" \
+          --format json \
+          --output kern-mcp-security.json \
+          "$SCAN_PATH" || true
+
+        node "${{ github.action_path }}/../dist/cli.js" \
+          --format sarif \
+          --output kern-mcp-security.sarif \
+          "$SCAN_PATH" || true
+
+        RESULT=$(node "${{ github.action_path }}/../dist/cli.js" \
+          --quiet \
+          --threshold "$THRESHOLD" \
+          "$SCAN_PATH" 2>&1) || EXIT_CODE=$?
+
+        GRADE=$(echo "$RESULT" | head -1 | awk '{print $1}')
+        SCORE=$(echo "$RESULT" | head -1 | awk '{print $2}')
+
+        echo "grade=$GRADE" >> $GITHUB_OUTPUT
+        echo "score=$SCORE" >> $GITHUB_OUTPUT
+
+        if [ -f kern-mcp-security.json ]; then
+          FINDINGS=$(node -e "console.log(require('./kern-mcp-security.json').findingsCount || 0)")
+          echo "findings=$FINDINGS" >> $GITHUB_OUTPUT
+        fi
+
+        if [ "${EXIT_CODE:-0}" != "0" ]; then
+          echo "::error::KERN MCP Security score $SCORE is below threshold $THRESHOLD"
+          exit 1
+        fi
+
+    - name: Upload SARIF
+      if: inputs.sarif == 'true' && always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: kern-mcp-security.sarif
+        category: kern-mcp-security
+      continue-on-error: true
+
+    - name: Post PR Comment
+      if: inputs.comment == 'true' && github.event_name == 'pull_request' && always()
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.token }}
+        script: |
+          const fs = require('fs');
+          let report;
+          try {
+            report = JSON.parse(fs.readFileSync('kern-mcp-security.json', 'utf-8'));
+          } catch { return; }
+
+          const score = report.score;
+          const grade = score.grade;
+          const total = score.total;
+          const color = { A: '22c55e', B: '84cc16', C: 'f97316', D: 'f59e0b', F: 'ef4444' }[grade];
+          const badge = `![Score](https://img.shields.io/badge/KERN_MCP_Security-${grade}_(${total}%25)-${color})`;
+
+          let body = `## KERN MCP Security Report\n\n${badge}\n\n`;
+          body += `| Metric | Score |\n|--------|-------|\n`;
+          body += `| Guard Coverage | ${score.guardCoverage}% |\n`;
+          body += `| Input Validation | ${score.inputValidation}% |\n`;
+          body += `| Rule Compliance | ${score.ruleCompliance}% |\n`;
+          body += `| Auth Posture | ${score.authPosture}% |\n\n`;
+
+          if (report.perTool && report.perTool.length > 0) {
+            body += `### Tools\n\n| Tool | Score | Grade | Guards |\n|------|-------|-------|--------|\n`;
+            for (const t of report.perTool) {
+              body += `| ${t.toolName} | ${t.total} | ${t.grade} | ${t.guards}/${t.effects} |\n`;
+            }
+            body += '\n';
+          }
+
+          body += `**${report.findingsCount} finding(s)** across ${report.meta?.fileName || 'workspace'}\n\n`;
+          body += `> Scanned by [KERN MCP Security](https://github.com/KERNlang/kern-sight-mcp)`;
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          const existing = comments.find(c => c.body?.includes('KERN MCP Security Report'));
+
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+          }

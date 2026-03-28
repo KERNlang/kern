@@ -36,6 +36,7 @@ export type { ReviewFinding } from '@kernlang/review';
 export type { CompiledMCPRule } from './rule-compiler.js';
 
 // ── CLI / CI engine exports (migrated from kern-sight-mcp) ───────────
+/*
 export { computeSecurityScore, gradeColor } from './score.js';
 export type { SecurityScore, ToolScore, Grade } from './score.js';
 export { runPostScan } from './post-scan.js';
@@ -46,6 +47,7 @@ export type { LockFile, ToolPin, PinDrift } from './tool-pin.js';
 export { generateReportJSON, generateBadgeMarkdown, generateToolTable, updateReadme } from './badge.js';
 export { scanWorkspace } from './workspace-scan.js';
 export type { McpReviewResult } from './scan-types.js';
+*/
 
 // ── Load compiled .kern rules at module init ─────────────────────────
 // Guard: import.meta.url is undefined when bundled as CJS (e.g. esbuild for VS Code worker)
