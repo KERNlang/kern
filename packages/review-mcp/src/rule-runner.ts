@@ -452,31 +452,50 @@ function runSingleRule(
       }
       // fallthrough: other from values — sinks already matched in block
 
-      // Invariant violated — emit finding at first sink match line (or region start for absence rules)
-      // For source-code scope, use the file-wide match line
-      let firstSinkLine: number;
-      if (targetSinks.length > 0) {
-        firstSinkLine = targetSinks[0].matchLines[0];
-      } else if (isSourceScope) {
-        // Find first sink match in the full file for source-code scope
+      // Invariant violated — emit findings
+      if (isSourceScope) {
+        // Source-code scope: emit per distinct match line so helper functions
+        // outside the handler region each get their own finding.
+        // Cap at MAX_SOURCE_SCOPE_FINDINGS to avoid noise (e.g. rug-pull on
+        // every variable-based tool name in the same file).
+        const MAX_SOURCE_SCOPE_FINDINGS = 5;
         const allSP = rule.sinks.filter(s => s.name === inv.to || s.kind === inv.to).flatMap(s => langPatterns(s.patterns, lang));
         const fml = findMatchLines(lines, allSP, 0);
-        firstSinkLine = fml.length > 0 ? fml[0] : region.start + 1;
+        const matchesToEmit = fml.length > 0 ? fml.slice(0, MAX_SOURCE_SCOPE_FINDINGS) : [region.start + 1];
+        for (const matchLine of matchesToEmit) {
+          findings.push({
+            source: 'kern',
+            ruleId: rule.ruleId,
+            severity: rule.severity,
+            category: 'bug',
+            message: inv.evidence || `MCP security rule "${rule.ruleId}" violated — ${inv.name}`,
+            primarySpan: span(filePath, matchLine),
+            fingerprint: createFingerprint(rule.ruleId, matchLine, 1),
+            suggestion: inv.suggestion,
+            confidence: rule.confidence,
+          });
+        }
       } else {
-        firstSinkLine = region.start + 1;
+        // Handler-scoped: one finding per invariant per region
+        let firstSinkLine: number;
+        if (targetSinks.length > 0) {
+          firstSinkLine = targetSinks[0].matchLines[0];
+        } else {
+          firstSinkLine = region.start + 1;
+        }
+        findings.push({
+          source: 'kern',
+          ruleId: rule.ruleId,
+          severity: rule.severity,
+          category: 'bug',
+          message: inv.evidence || `MCP security rule "${rule.ruleId}" violated — ${inv.name}`,
+          primarySpan: span(filePath, firstSinkLine),
+          fingerprint: createFingerprint(rule.ruleId, firstSinkLine, 1),
+          suggestion: inv.suggestion,
+          confidence: rule.confidence,
+        });
       }
-      findings.push({
-        source: 'kern',
-        ruleId: rule.ruleId,
-        severity: rule.severity,
-        category: 'bug',
-        message: inv.evidence || `MCP security rule "${rule.ruleId}" violated — ${inv.name}`,
-        primarySpan: span(filePath, firstSinkLine),
-        fingerprint: createFingerprint(rule.ruleId, firstSinkLine, 1),
-        suggestion: inv.suggestion,
-        confidence: rule.confidence,
-      });
-      break;  // One finding per invariant per region
+      break;  // One invariant check per region (source-code emits per-match above)
     }
 
     // If no invariants, fall back to structural check: sinks without guards
