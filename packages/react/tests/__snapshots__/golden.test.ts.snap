@@ -3,7 +3,14 @@
 exports[`Golden Snapshot Tests Next.js output for nextjs-landing.kern 1`] = `
 "'use client';
 
+import type { Metadata } from 'next';
 import Link from 'next/link';
+
+export const metadata: Metadata = {
+  title: 'SoundKit — Audio Toolkit',
+  description: 'Analyze your mix with AI-powered stem separation and frequency analysis.',
+  keywords: 'audio,mixing,mastering,AI',
+};
 
 export default function LandingPage() {
   return (

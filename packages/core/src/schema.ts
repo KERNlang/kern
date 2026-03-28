@@ -16,7 +16,7 @@
  *   - 'number'         → numeric value
  */
 
-import type { IRNode, ParseDiagnostic } from './types.js';
+import type { IRNode } from './types.js';
 
 export type PropKind = 'identifier' | 'typeAnnotation' | 'importPath' | 'rawExpr' | 'rawBlock' | 'string' | 'boolean' | 'number';
 
@@ -337,6 +337,103 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: ['prop', 'handler', 'cleanup'],
   },
+  // ── Web / UI node types ──────────────────────────────────────────────
+  page: {
+    props: {
+      name: { required: true, kind: 'identifier' },
+      client: { kind: 'boolean' },
+      async: { kind: 'boolean' },
+      route: { kind: 'string' },
+      segment: { kind: 'string' },
+    },
+  },
+  layout: {
+    props: {
+      lang: { kind: 'string' },
+      route: { kind: 'string' },
+    },
+  },
+  loading: {
+    props: {},
+  },
+  metadata: {
+    props: {
+      title: { kind: 'string' },
+      description: { kind: 'string' },
+      keywords: { kind: 'string' },
+      ogImage: { kind: 'string' },
+    },
+  },
+  link: {
+    props: {
+      to: { required: true, kind: 'string' },
+    },
+  },
+  textarea: {
+    props: {
+      bind: { kind: 'identifier' },
+      placeholder: { kind: 'string' },
+      spellcheck: { kind: 'boolean' },
+    },
+  },
+  slider: {
+    props: {
+      bind: { kind: 'identifier' },
+      min: { kind: 'number' },
+      max: { kind: 'number' },
+      step: { kind: 'number' },
+    },
+  },
+  toggle: {
+    props: {
+      bind: { kind: 'identifier' },
+    },
+  },
+  grid: {
+    props: {
+      cols: { kind: 'number' },
+      gap: { kind: 'number' },
+    },
+  },
+  component: {
+    props: {
+      ref: { kind: 'identifier' },
+      name: { kind: 'identifier' },
+      bind: { kind: 'identifier' },
+      onChange: { kind: 'rawExpr' },
+      props: { kind: 'string' },
+      disabled: { kind: 'rawExpr' },
+    },
+  },
+  icon: {
+    props: {
+      name: { required: true, kind: 'identifier' },
+    },
+  },
+  logic: {
+    props: {
+      code: { kind: 'rawBlock' },
+    },
+    allowedChildren: ['handler'],
+  },
+  form: {
+    props: {
+      action: { kind: 'string' },
+      method: { kind: 'string' },
+    },
+  },
+  svg: {
+    props: {
+      icon: { kind: 'string' },
+      size: { kind: 'number' },
+      viewBox: { kind: 'string' },
+      width: { kind: 'number' },
+      height: { kind: 'number' },
+      content: { kind: 'string' },
+      fill: { kind: 'string' },
+      stroke: { kind: 'string' },
+    },
+  },
 };
 
 // ── Validation ──────────────────────────────────────────────────────────
@@ -374,6 +471,16 @@ function validateNode(node: IRNode, violations: SchemaViolation[]): void {
           col: node.loc?.col,
         });
       }
+    }
+
+    // Cross-prop validation: component needs ref or name
+    if (node.type === 'component' && !('ref' in props) && !('name' in props)) {
+      violations.push({
+        nodeType: 'component',
+        message: "'component' requires either 'ref' or 'name' prop",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
     }
 
     // Check allowed children

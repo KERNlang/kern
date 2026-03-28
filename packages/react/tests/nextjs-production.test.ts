@@ -427,4 +427,101 @@ describe('Next.js 15 Production Patterns', () => {
       expect(result.code).toContain('<span');
     });
   });
+
+  // ── Node type registration ────────────────────────────────────────────
+
+  describe('node type registration', () => {
+    test('all 15 new node types are in NODE_TYPES', async () => {
+      const { NODE_TYPES } = await import('../../core/src/spec.js');
+      const required = [
+        'page', 'layout', 'loading', 'metadata', 'link',
+        'textarea', 'slider', 'toggle', 'grid', 'component',
+        'icon', 'logic', 'form', 'const', 'svg',
+      ];
+      for (const type of required) {
+        expect((NODE_TYPES as readonly string[]).includes(type)).toBe(true);
+      }
+    });
+  });
+
+  // ── SVG node ──────────────────────────────────────────────────────────
+
+  describe('svg node', () => {
+    test('icon shorthand renders SVG markup', () => {
+      const ast = parse('page name=Test\n  svg icon=heart size=20');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('<svg');
+      expect(result.code).toContain('width={20}');
+      expect(result.code).toContain('M20.84 4.61');
+    });
+
+    test('custom SVG renders with viewBox and content', () => {
+      const ast = parse('page name=Test\n  svg viewBox="0 0 100 100" width=32 height=32 content="<rect width=100 height=100 />"');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('viewBox="0 0 100 100"');
+      expect(result.code).toContain('width={32}');
+      expect(result.code).toContain('width={100}');
+    });
+
+    test('unknown icon falls back to circle', () => {
+      const ast = parse('page name=Test\n  svg icon=nonexistent');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('<circle');
+    });
+  });
+
+  // ── Grid NaN fix ──────────────────────────────────────────────────────
+
+  describe('grid gap NaN fix', () => {
+    test('numeric gap produces valid class', () => {
+      const ast = parse('page name=Test\n  grid cols=3 gap=32\n    text value=A');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('gap-8');
+      expect(result.code).not.toContain('NaN');
+    });
+
+    test('string gap with px suffix does not produce NaN', () => {
+      const ast = parse('page name=Test\n  grid cols=2 gap=8px\n    text value=A');
+      const result = transpileNextjs(ast);
+      expect(result.code).not.toContain('NaN');
+      expect(result.code).toContain('gap-2');
+    });
+  });
+
+  // ── Form node ─────────────────────────────────────────────────────────
+
+  describe('form node', () => {
+    test('renders form element', () => {
+      const ast = parse('page name=Test\n  form\n    input placeholder="Name"');
+      const result = transpileNextjs(ast);
+      expect(result.code).toContain('<form');
+      expect(result.code).toContain('</form>');
+    });
+  });
+
+  // ── Component cross-prop validation ───────────────────────────────────
+
+  describe('component schema validation', () => {
+    test('component without ref or name produces violation', async () => {
+      const { validateSchema } = await import('../../core/src/schema.js');
+      const node = { type: 'component', props: { bind: 'value' } };
+      const violations = validateSchema(node as any);
+      expect(violations.length).toBeGreaterThan(0);
+      expect(violations[0].message).toContain('ref');
+    });
+
+    test('component with ref passes validation', async () => {
+      const { validateSchema } = await import('../../core/src/schema.js');
+      const node = { type: 'component', props: { ref: 'MyWidget' } };
+      const violations = validateSchema(node as any);
+      expect(violations.length).toBe(0);
+    });
+
+    test('component with name passes validation', async () => {
+      const { validateSchema } = await import('../../core/src/schema.js');
+      const node = { type: 'component', props: { name: 'MyWidget' } };
+      const violations = validateSchema(node as any);
+      expect(violations.length).toBe(0);
+    });
+  });
 });

@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, TailwindVersionProfile, AccountedEntry } from '@kernlang/core';
-import { stylesToTailwind, colorToTw, countTokens, serializeIR, camelKey, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, applyTailwindTokenRules, getProps, getStyles, getThemeRefs, getPseudoStyles, buildDiagnostics, accountNode } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, TailwindVersionProfile, AccountedEntry } from '@kernlang/core';
+import { stylesToTailwind, colorToTw, countTokens, serializeIR, camelKey, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, applyTailwindTokenRules, getProps, getStyles, getPseudoStyles, buildDiagnostics, accountNode } from '@kernlang/core';
 import { planStructure } from './structure.js';
 import type { PlannedFile } from './structure.js';
 import { buildStructuredArtifacts } from './artifact-utils.js';
@@ -113,6 +113,14 @@ function renderNode(node: IRNode, ctx: CodeBuilder, indent: string): void {
       break;
     case 'icon':
       renderIcon(node, ctx, indent);
+      break;
+    case 'svg':
+      renderSvgNode(node, ctx, indent);
+      break;
+    case 'form':
+      ctx.lines.push(`${indent}<form${twClasses(node, ctx)}>`);
+      renderChildren(node, ctx, indent);
+      ctx.lines.push(`${indent}</form>`);
       break;
     case 'image':
       renderImage(node, ctx, indent);
@@ -440,11 +448,43 @@ function renderOnHandler(node: IRNode, ctx: CodeBuilder): void {
 
 function renderGrid(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  const cols = p.cols || 1;
-  const gap = p.gap || 16;
-  ctx.lines.push(`${indent}<div className="grid grid-cols-1 md:grid-cols-${cols} gap-${Math.round(Number(gap) / 4)}">`);
+  const cols = parseInt(String(p.cols || 1), 10) || 1;
+  const gap = parseInt(String(p.gap || 16), 10) || 16;
+  ctx.lines.push(`${indent}<div className="grid grid-cols-1 md:grid-cols-${cols} gap-${Math.round(gap / 4)}">`);
   renderChildren(node, ctx, indent);
   ctx.lines.push(`${indent}</div>`);
+}
+
+const SVG_ICON_INNER: Record<string, string> = {
+  home: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  plus: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>',
+  chart: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+  search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>',
+  heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+  profile: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  check: '<polyline points="20 6 9 17 4 12"/>',
+  x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  arrow: '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
+};
+
+function renderSvgNode(node: IRNode, ctx: CodeBuilder, indent: string): void {
+  const p = getProps(node);
+  const icon = p.icon as string;
+  const size = parseInt(String(p.size || 24), 10) || 24;
+
+  if (icon) {
+    const inner = SVG_ICON_INNER[icon] || '<circle cx="12" cy="12" r="4"/>';
+    ctx.lines.push(`${indent}<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"${twClasses(node, ctx)}>${inner}</svg>`);
+  } else {
+    const viewBox = (p.viewBox as string) || '0 0 24 24';
+    const width = parseInt(String(p.width || size), 10) || size;
+    const height = parseInt(String(p.height || size), 10) || size;
+    const fill = (p.fill as string) || 'none';
+    const stroke = (p.stroke as string) || 'currentColor';
+    const content = (p.content as string) || '';
+    ctx.lines.push(`${indent}<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${viewBox}" fill="${fill}" stroke="${stroke}" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"${twClasses(node, ctx)}>${content}</svg>`);
+  }
 }
 
 function renderConditional(node: IRNode, ctx: CodeBuilder, indent: string): void {
@@ -461,7 +501,7 @@ function renderConditional(node: IRNode, ctx: CodeBuilder, indent: string): void
 
 function renderComponent(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  const ref = p.ref as string;
+  const ref = (p.ref || p.name) as string;
   if (!ref) return;
 
   ctx.componentImports.add(ref);
