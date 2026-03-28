@@ -7,6 +7,7 @@
  *   [vue]      Active when target = vue | nuxt
  *   [express]  Active when target = express
  *   [nextjs]   Active when target = nextjs (on top of react)
+ *   [nuxt]     Active when target = nuxt (on top of vue)
  */
 
 import type { ReviewRule } from '../types.js';
@@ -19,6 +20,7 @@ import { deadLogicRules } from './dead-logic.js';
 import { reactRules } from './react.js';
 import { vueRules } from './vue.js';
 import { nextjsRules } from './nextjs.js';
+import { nuxtRules } from './nuxt.js';
 import { expressRules } from './express.js';
 import { nullSafetyRules } from './null-safety.js';
 
@@ -44,9 +46,158 @@ export function getActiveRules(target?: string): ReviewRule[] {
     rules.push(...nextjsRules);
   }
 
+  if (target === 'nuxt') {
+    rules.push(...nuxtRules);
+  }
+
   if (target === 'express') {
     rules.push(...expressRules);
   }
 
   return rules;
+}
+
+// ── Rule Registry — metadata for --list-rules ───────────────────────────
+
+export interface RuleInfo {
+  id: string;
+  layer: string;
+  severity: 'error' | 'warning' | 'info';
+  description: string;
+}
+
+const REGISTRY: RuleInfo[] = [
+  // Base (always active)
+  { id: 'floating-promise', layer: 'base', severity: 'error', description: 'Unresolved async operation — missing await/void/return' },
+  { id: 'state-mutation', layer: 'base', severity: 'error', description: 'Illegal state mutation outside designated setter' },
+  { id: 'empty-catch', layer: 'base', severity: 'warning', description: 'Catch block swallows exception silently' },
+  { id: 'machine-gap', layer: 'base', severity: 'warning', description: 'Unreachable state or missing transition in state machine' },
+  { id: 'config-default-mismatch', layer: 'base', severity: 'warning', description: 'Config schema default does not match type' },
+  { id: 'event-map-mismatch', layer: 'base', severity: 'warning', description: 'Event handler type mismatch with event map' },
+  { id: 'non-exhaustive-switch', layer: 'base', severity: 'warning', description: 'Switch/map missing cases for known variants' },
+  { id: 'cognitive-complexity', layer: 'base', severity: 'warning', description: 'Function exceeds cognitive complexity threshold' },
+  { id: 'template-available', layer: 'base', severity: 'info', description: 'Pattern matches a registered KERN template' },
+  { id: 'handler-extraction', layer: 'base', severity: 'info', description: 'Handler-like pattern could be extracted to KERN' },
+  { id: 'memory-leak', layer: 'base', severity: 'error', description: 'Event listener added without cleanup' },
+  { id: 'unhandled-async', layer: 'base', severity: 'warning', description: 'Async function without error handling' },
+  { id: 'sync-in-async', layer: 'base', severity: 'warning', description: 'Synchronous blocking call inside async function' },
+  { id: 'bare-rethrow', layer: 'base', severity: 'warning', description: 'Catch rethrows error without adding context' },
+
+  // Security
+  { id: 'xss-unsafe-html', layer: 'security', severity: 'error', description: 'innerHTML/dangerouslySetInnerHTML with untrusted data' },
+  { id: 'hardcoded-secret', layer: 'security', severity: 'error', description: 'API key, password, or secret in source code' },
+  { id: 'command-injection', layer: 'security', severity: 'error', description: 'exec/spawn with user-controlled input' },
+  { id: 'no-eval', layer: 'security', severity: 'error', description: 'eval() or Function() constructor usage' },
+  { id: 'insecure-random', layer: 'security', severity: 'warning', description: 'Math.random() used for security-sensitive operations' },
+  { id: 'cors-wildcard', layer: 'security', severity: 'warning', description: 'CORS wildcard (*) origin allowed' },
+  { id: 'helmet-missing', layer: 'security', severity: 'warning', description: 'Express app without helmet security headers' },
+  { id: 'open-redirect', layer: 'security', severity: 'error', description: 'Unvalidated redirect target from user input' },
+
+  // Security v2
+  { id: 'jwt-weak-verification', layer: 'security-v2', severity: 'warning', description: 'JWT verified without algorithm restriction' },
+  { id: 'cookie-hardening', layer: 'security-v2', severity: 'error', description: 'Cookie missing secure/httpOnly/sameSite flags' },
+  { id: 'csrf-detection', layer: 'security-v2', severity: 'error', description: 'State-changing endpoint without CSRF protection' },
+  { id: 'csp-strength', layer: 'security-v2', severity: 'warning', description: 'Weak Content-Security-Policy headers' },
+  { id: 'path-traversal', layer: 'security-v2', severity: 'error', description: 'File path from user input without sanitization' },
+  { id: 'weak-password-hashing', layer: 'security-v2', severity: 'error', description: 'MD5/SHA1 for password hashing instead of bcrypt/argon2' },
+
+  // Security v3 — OWASP gap closure
+  { id: 'regex-dos', layer: 'security-v3', severity: 'warning', description: 'Regex vulnerable to catastrophic backtracking (ReDoS)' },
+  { id: 'missing-input-validation', layer: 'security-v3', severity: 'warning', description: 'User input used without validation' },
+  { id: 'prototype-pollution', layer: 'security-v3', severity: 'error', description: 'Object.prototype mutation via user-controlled keys' },
+  { id: 'information-exposure', layer: 'security-v3', severity: 'error', description: 'Stack traces or internal details in error responses' },
+  { id: 'prompt-injection', layer: 'security-v3', severity: 'warning', description: 'User input concatenated into LLM prompts' },
+
+  // Security v4 — LLM attack surface
+  { id: 'indirect-prompt-injection', layer: 'security-v4', severity: 'warning', description: 'LLM prompt includes data from external/DB sources' },
+  { id: 'llm-output-execution', layer: 'security-v4', severity: 'error', description: 'LLM-generated code executed without sandboxing' },
+  { id: 'system-prompt-leakage', layer: 'security-v4', severity: 'warning', description: 'System prompt exposed in error paths or responses' },
+  { id: 'rag-poisoning', layer: 'security-v4', severity: 'warning', description: 'RAG documents injected without provenance check' },
+  { id: 'tool-calling-manipulation', layer: 'security-v4', severity: 'error', description: 'Tool/function call parameters from untrusted LLM output' },
+  { id: 'encoding-bypass', layer: 'security-v4', severity: 'warning', description: 'Base64/unicode encoding used to bypass prompt filters' },
+  { id: 'delimiter-injection', layer: 'security-v4', severity: 'warning', description: 'Prompt delimiter breakout via user input' },
+  { id: 'unsanitized-history', layer: 'security-v4', severity: 'warning', description: 'Chat history concatenated without sanitization' },
+  { id: 'json-output-manipulation', layer: 'security-v4', severity: 'warning', description: 'LLM JSON output used without schema validation' },
+  { id: 'missing-output-validation', layer: 'security-v4', severity: 'warning', description: 'LLM output consumed without validation' },
+
+  // Dead logic
+  { id: 'identical-conditions', layer: 'dead-logic', severity: 'error', description: 'Duplicate conditions in if/else chain' },
+  { id: 'identical-expressions', layer: 'dead-logic', severity: 'error', description: 'Same expression on both sides of operator' },
+  { id: 'all-identical-branches', layer: 'dead-logic', severity: 'error', description: 'All branches produce identical code' },
+  { id: 'constant-condition', layer: 'dead-logic', severity: 'warning', description: 'Condition is always true or always false' },
+  { id: 'one-iteration-loop', layer: 'dead-logic', severity: 'warning', description: 'Loop body always exits on first iteration' },
+  { id: 'unused-collection', layer: 'dead-logic', severity: 'warning', description: 'Collection created but never read' },
+  { id: 'empty-collection-access', layer: 'dead-logic', severity: 'warning', description: 'Accessing elements of provably empty collection' },
+  { id: 'redundant-jump', layer: 'dead-logic', severity: 'info', description: 'Unreachable code after return/break/continue' },
+
+  // Null safety
+  { id: 'unchecked-find', layer: 'null-safety', severity: 'warning', description: 'array.find() result used without null check' },
+  { id: 'optional-chain-bang', layer: 'null-safety', severity: 'warning', description: 'Optional chain (?) immediately negated by non-null assertion (!)' },
+  { id: 'unchecked-cast', layer: 'null-safety', severity: 'warning', description: 'Unsafe type assertion without runtime guard' },
+
+  // React (target: nextjs, tailwind, web, native)
+  { id: 'async-effect', layer: 'react', severity: 'error', description: 'Async function passed directly to useEffect' },
+  { id: 'render-side-effect', layer: 'react', severity: 'error', description: 'Side effect (fetch, mutation) during render' },
+  { id: 'unstable-key', layer: 'react', severity: 'warning', description: 'Non-stable key prop (index, random, Date.now)' },
+  { id: 'stale-closure', layer: 'react', severity: 'warning', description: 'Stale variable captured in hook closure' },
+  { id: 'state-explosion', layer: 'react', severity: 'warning', description: 'Excessive useState calls — consider useReducer' },
+  { id: 'hook-order', layer: 'react', severity: 'error', description: 'React hook called inside condition or loop' },
+  { id: 'effect-self-update-loop', layer: 'react', severity: 'error', description: 'useEffect updates its own dependency — infinite loop' },
+
+  // Vue (target: vue, nuxt)
+  { id: 'missing-ref-value', layer: 'vue', severity: 'warning', description: 'ref() used without .value in script setup' },
+  { id: 'missing-onUnmounted', layer: 'vue', severity: 'error', description: 'watch/addEventListener without onUnmounted cleanup' },
+  { id: 'setup-side-effect', layer: 'vue', severity: 'warning', description: 'Top-level await in setup without onMounted' },
+  { id: 'reactive-destructure', layer: 'vue', severity: 'warning', description: 'Destructuring reactive() loses reactivity' },
+
+  // Next.js (target: nextjs)
+  { id: 'server-hook', layer: 'nextjs', severity: 'error', description: 'React hook used in Server Component' },
+  { id: 'hydration-mismatch', layer: 'nextjs', severity: 'warning', description: 'Nondeterministic expression causes SSR/client mismatch' },
+  { id: 'missing-use-client', layer: 'nextjs', severity: 'warning', description: 'Event handler in Server Component — needs use client' },
+
+  // Nuxt (target: nuxt)
+  { id: 'missing-ssr-guard', layer: 'nuxt', severity: 'error', description: 'Browser global accessed without SSR guard' },
+  { id: 'nuxt-direct-fetch', layer: 'nuxt', severity: 'warning', description: 'Raw fetch() instead of $fetch/useFetch in Nuxt component' },
+  { id: 'server-route-leak', layer: 'nuxt', severity: 'error', description: 'Server API route may expose sensitive fields' },
+
+  // Express (target: express)
+  { id: 'unvalidated-input', layer: 'express', severity: 'error', description: 'req.body/params/query used without validation' },
+  { id: 'missing-error-middleware', layer: 'express', severity: 'warning', description: 'Express app without error-handling middleware' },
+  { id: 'sync-in-handler', layer: 'express', severity: 'warning', description: 'Blocking I/O in request handler' },
+  { id: 'double-response', layer: 'express', severity: 'error', description: 'Response sent twice without early return' },
+
+  // Concept rules (always active, language-agnostic)
+  { id: 'boundary-mutation', layer: 'concept', severity: 'warning', description: 'Global/shared state mutation across boundaries' },
+  { id: 'ignored-error', layer: 'concept', severity: 'warning', description: 'Caught exception silently ignored' },
+  { id: 'unguarded-effect', layer: 'concept', severity: 'warning', description: 'Network/DB effect without auth/validation guard' },
+  { id: 'unrecovered-effect', layer: 'concept', severity: 'warning', description: 'Network/DB effect without error recovery' },
+];
+
+/** Layer → target mapping for filtering */
+const LAYER_TARGET_MAP: Record<string, string[] | null> = {
+  base: null, // always active
+  security: null,
+  'security-v2': null,
+  'security-v3': null,
+  'security-v4': null,
+  'dead-logic': null,
+  'null-safety': null,
+  concept: null,
+  react: ['nextjs', 'tailwind', 'web', 'native'],
+  vue: ['vue', 'nuxt'],
+  nextjs: ['nextjs'],
+  nuxt: ['nuxt'],
+  express: ['express'],
+};
+
+/**
+ * Get the rule registry, optionally filtered by target.
+ * Returns all rules active for the given target (universal + framework-specific).
+ */
+export function getRuleRegistry(target?: string): RuleInfo[] {
+  if (!target) return [...REGISTRY];
+  return REGISTRY.filter(r => {
+    const targets = LAYER_TARGET_MAP[r.layer];
+    return targets === null || targets.includes(target);
+  });
 }

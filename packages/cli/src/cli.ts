@@ -13,7 +13,7 @@ import { transpileCliApp } from './transpiler-cli.js';
 import { transpileTerminal, transpileInk } from '@kernlang/terminal';
 import { transpileVue, transpileNuxt } from '@kernlang/vue';
 import { collectLanguageMetrics } from '@kernlang/metrics';
-import { reviewFile, reviewGraph, resolveImportGraph, formatReport, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes, runLLMReview, isLLMAvailable, analyzeTaint, checkSpecFiles, specViolationsToFindings, clearReviewCache } from '@kernlang/review';
+import { reviewFile, reviewGraph, resolveImportGraph, formatReport, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes, runLLMReview, isLLMAvailable, analyzeTaint, checkSpecFiles, specViolationsToFindings, clearReviewCache, getRuleRegistry } from '@kernlang/review';
 import type { ReviewConfig, ReviewFinding, LLMReviewInput } from '@kernlang/review';
 import { evolve, loadBuiltinDetectors, listStaged, getStaged, updateStagedStatus, promoteLocal, cleanRejected, formatSplitView, loadEvolvedNodes, runGoldenTests, formatGoldenTestResults, rollbackNode, restoreNode, readEvolvedManifest, buildDiscoveryPrompt, parseDiscoveryResponse, selectRepresentativeFiles, collectTsFiles, estimateTokens, createLLMProvider, TokenBudget, validateEvolveProposal, graduateNode, compileCodegenToJS, stageEvolveV4Proposal, listStagedEvolveV4, getStagedEvolveV4, updateStagedEvolveV4Status, cleanRejectedEvolveV4, cleanApprovedEvolveV4, formatEvolveV4SplitView, promoteNode, pruneNodes, detectCollisions, renameEvolvedNode, readNodeDefinition, buildBackfillPrompt, buildRetryPrompt, rebuildEvolvedManifest } from '@kernlang/evolve';
 import type { EvolveOptions, LLMProviderOptions } from '@kernlang/evolve';
@@ -1104,9 +1104,33 @@ if (args[0] === 'review') {
   const strictArg = args.find(a => a === '--strict' || a.startsWith('--strict='));
   const strict: false | 'inline' | 'all' = strictArg === '--strict' ? 'inline' : strictArg === '--strict=all' ? 'all' : false;
   const strictParse = args.includes('--strict-parse');
+  const listRules = args.includes('--list-rules');
   const diffBase = args.find(a => a.startsWith('--diff'))
     ? (args.find(a => a.startsWith('--diff='))?.split('=')[1] || args[args.indexOf('--diff') + 1] || 'origin/main')
     : undefined;
+
+  // --list-rules: print all active rules and exit
+  if (listRules) {
+    const reviewCfg = loadConfig();
+    const targetArg = args.find(a => a.startsWith('--target='))?.split('=')[1];
+    const target = targetArg || reviewCfg.target;
+    const rules = getRuleRegistry(target);
+    const layers = new Map<string, typeof rules>();
+    for (const r of rules) {
+      if (!layers.has(r.layer)) layers.set(r.layer, []);
+      layers.get(r.layer)!.push(r);
+    }
+    console.log(`\n  KERN Review Rules (target: ${target}) — ${rules.length} rules active\n`);
+    for (const [layer, layerRules] of layers) {
+      console.log(`  [${layer}] (${layerRules.length} rules)`);
+      for (const r of layerRules) {
+        const sev = r.severity === 'error' ? 'ERR' : r.severity === 'warning' ? 'WRN' : 'INF';
+        console.log(`    ${sev}  ${r.id.padEnd(30)} ${r.description}`);
+      }
+      console.log();
+    }
+    process.exit(0);
+  }
 
   // --diff mode: get changed files from git
   const reviewInputs = args.filter(a => !a.startsWith('--') && a !== 'review');

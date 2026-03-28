@@ -872,6 +872,55 @@ function syncInAsync(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule 14: bare-rethrow ────────────────────────────────────────────────
+// catch(e) { throw e } — pointless rethrow that adds no context
+
+function bareRethrow(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const catchClause of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CatchClause)) {
+    const block = catchClause.getBlock();
+    const stmts = block.getStatements();
+    if (stmts.length === 0) continue; // empty-catch handles this
+
+    // Get the caught variable name
+    const varDecl = catchClause.getVariableDeclaration();
+    if (!varDecl) continue;
+    const errorVar = varDecl.getName();
+
+    // Find the throw statement — must be the ONLY statement (or last after logging)
+    const lastStmt = stmts[stmts.length - 1];
+    if (lastStmt.getKind() !== SyntaxKind.ThrowStatement) continue;
+
+    const throwStmt = lastStmt as import('ts-morph').ThrowStatement;
+    const throwExpr = throwStmt.getExpression();
+    if (!throwExpr) continue;
+
+    // Only flag if throwing the exact same error variable (bare rethrow)
+    if (throwExpr.getText() !== errorVar) continue;
+
+    // Skip if other statements do meaningful work (logging is OK but still flagged if ONLY logging + rethrow)
+    // If there are 2+ statements before the throw, assume intentional (side effects before rethrow)
+    if (stmts.length > 2) continue;
+
+    // If there's exactly one statement before throw, check if it's just console.log/warn/error
+    if (stmts.length === 2) {
+      const firstStmt = stmts[0];
+      const firstText = firstStmt.getText();
+      // Only flag if the pre-throw statement is pure logging — otherwise the catch does real work
+      if (!/^console\.(log|warn|error|info|debug)\s*\(/.test(firstText.trim())) continue;
+    }
+
+    const line = catchClause.getStartLineNumber();
+    findings.push(finding('bare-rethrow', 'warning', 'pattern',
+      `Catch rethrows '${errorVar}' without adding context — wrap with new Error('context', { cause: ${errorVar} })`,
+      ctx.filePath, line, 1,
+      { suggestion: `throw new Error('descriptive message', { cause: ${errorVar} })` }));
+  }
+
+  return findings;
+}
+
 export const baseRules = [
   floatingPromise,
   stateMutation,
@@ -886,4 +935,5 @@ export const baseRules = [
   memoryLeak,
   unhandledAsync,
   syncInAsync,
+  bareRethrow,
 ];

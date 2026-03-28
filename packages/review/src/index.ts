@@ -56,6 +56,8 @@ export { classifyFileRole } from './file-role.js';
 export { detectTemplates } from './template-detector.js';
 export { structuralDiff } from './differ.js';
 export { runQualityRules } from './quality-rules.js';
+export { getRuleRegistry } from './rules/index.js';
+export type { RuleInfo } from './rules/index.js';
 export { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSARIFWithSuppressions, formatSummary, checkEnforcement, formatEnforcement, dedup, sortAndDedup, sortFindings } from './reporter.js';
 export { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
 export type { LLMGraphContext } from './llm-review.js';
@@ -521,15 +523,50 @@ export function reviewGraph(
         callerReport.findings.push(f);
       }
     }
-    // Re-run suppression + dedup on affected reports (cross-file findings were injected after initial suppression)
-    for (const report of reports) {
-      try {
-        const source = readFileSync(report.filePath, 'utf-8');
-        const suppression = applySuppression(report.findings, source, report.filePath, config, config?.strict ?? false);
-        report.findings = sortAndDedup(suppression.findings);
-      } catch {
-        report.findings = sortAndDedup(report.findings);
+  }
+
+  // Cross-file concept analysis — re-run concept rules with full graph context
+  // This fixes false positives where guards are in middleware files and effects in handlers
+  const allConcepts = new Map<string, import('@kernlang/core').ConceptMap>();
+  for (const report of reports) {
+    const filePath = report.filePath;
+    try {
+      const source = readFileSync(filePath, 'utf-8');
+      if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) {
+        const project = createInMemoryProject();
+        const sf = project.createSourceFile(filePath, source);
+        allConcepts.set(filePath, extractTsConcepts(sf, filePath));
       }
+    } catch {
+      // Skip files that fail concept extraction
+    }
+  }
+
+  if (allConcepts.size > 0) {
+    // Concept rule IDs to replace (remove per-file findings, add cross-file ones)
+    const CONCEPT_RULE_IDS = new Set(['boundary-mutation', 'ignored-error', 'unguarded-effect', 'unrecovered-effect']);
+
+    for (const report of reports) {
+      const concepts = allConcepts.get(report.filePath);
+      if (!concepts) continue;
+
+      // Remove per-file concept findings (they were run without cross-file context)
+      report.findings = report.findings.filter(f => !CONCEPT_RULE_IDS.has(f.ruleId));
+
+      // Re-run concept rules with cross-file context
+      const crossFileConceptFindings = runConceptRules(concepts, report.filePath, allConcepts, graphImports);
+      report.findings.push(...crossFileConceptFindings);
+    }
+  }
+
+  // Re-run suppression + dedup on all reports (cross-file findings were injected after initial suppression)
+  for (const report of reports) {
+    try {
+      const source = readFileSync(report.filePath, 'utf-8');
+      const suppression = applySuppression(report.findings, source, report.filePath, config, config?.strict ?? false);
+      report.findings = sortAndDedup(suppression.findings);
+    } catch {
+      report.findings = sortAndDedup(report.findings);
     }
   }
 
