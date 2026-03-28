@@ -37,17 +37,17 @@ NL         = "\\n" | EOF
 // ── Node Types ──────────────────────────────────────────────────────────
 export const NODE_TYPES = [
   // Layout
-  'screen', 'row', 'col', 'card', 'scroll',
+  'screen', 'page', 'row', 'col', 'card', 'grid', 'scroll',
   // Content
   'text', 'image', 'progress', 'divider', 'codeblock',
   // Structural
-  'section',
+  'section', 'form',
   // Interactive
-  'button', 'input', 'modal',
+  'button', 'input', 'textarea', 'slider', 'toggle', 'modal',
   // Lists
   'list', 'item',
   // Navigation
-  'tabs', 'tab', 'header',
+  'tabs', 'tab', 'header', 'link',
   // Meta
   'theme',
   // Backend
@@ -61,10 +61,12 @@ export const NODE_TYPES = [
   'separator', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'scoreboard', 'metric',
   'spinner', 'box', 'gradient',
   'state', 'repl', 'guard', 'parallel', 'dispatch', 'then', 'each',
+  // Next.js App Router
+  'layout', 'loading',
   // Next.js production patterns
-  'generateMetadata', 'notFound', 'redirect', 'fetch',
+  'metadata', 'generateMetadata', 'notFound', 'redirect', 'fetch',
   // Core Language — type system, functions, state machines
-  'type', 'interface', 'field', 'fn',
+  'type', 'interface', 'field', 'fn', 'const',
   'union', 'variant',
   'service', 'method', 'singleton', 'constructor',
   'signal', 'cleanup',
@@ -74,7 +76,7 @@ export const NODE_TYPES = [
   'test', 'describe', 'it',
   'event',
   // React — hooks, providers, effects
-  'hook', 'provider', 'effect',
+  'hook', 'provider', 'effect', 'logic',
   'memo', 'callback', 'ref', 'context',
   'prop', 'returns',
   // Ink — terminal React (Ink) specific nodes
@@ -85,8 +87,10 @@ export const NODE_TYPES = [
   'dependency', 'inject',
   'cache', 'entry', 'invalidate',
   // UI controls
-  'conditional',
+  'conditional', 'component',
   'select', 'option',
+  // Graphics
+  'icon', 'svg',
   // Template system
   'template', 'slot', 'body',
   // Ground layer — semantic reasoning
@@ -107,7 +111,7 @@ export type IRNodeType = (typeof NODE_TYPES)[number];
 // ── Dynamic Node Types (Evolve v4 — graduated nodes) ────────────────────
 // Evolved nodes register here at startup. Checked by parser alongside NODE_TYPES.
 
-import { defaultRuntime } from './runtime.js';
+import { defaultRuntime, type KernRuntime } from './runtime.js';
 
 /** Register an evolved node type (called at startup from .kern/evolved/). */
 export function registerEvolvedType(keyword: string): void {
@@ -120,8 +124,9 @@ export function unregisterEvolvedType(keyword: string): void {
 }
 
 /** Check if a type is a known node type (core or evolved). */
-export function isKnownNodeType(type: string): boolean {
-  return (NODE_TYPES as readonly string[]).includes(type) || defaultRuntime.dynamicNodeTypes.has(type);
+export function isKnownNodeType(type: string, runtime?: KernRuntime): boolean {
+  const rt = runtime ?? defaultRuntime;
+  return (NODE_TYPES as readonly string[]).includes(type) || rt.dynamicNodeTypes.has(type);
 }
 
 /** Get all dynamically registered evolved types (defensive copy). */
@@ -143,10 +148,16 @@ export const KERN_RESERVED: ReadonlySet<string> = Object.freeze(new Set(NODE_TYP
 export const STYLE_SHORTHANDS: Record<string, string> = {
   // Spacing
   p: 'padding', m: 'margin',
+  px: 'paddingX', py: 'paddingY',
   pt: 'paddingTop', pb: 'paddingBottom', pl: 'paddingLeft', pr: 'paddingRight',
+  mx: 'marginX', my: 'marginY',
   mt: 'marginTop', mb: 'marginBottom', ml: 'marginLeft', mr: 'marginRight',
   // Sizing
   w: 'width', h: 'height', f: 'flex',
+  'max-width': 'maxWidth', 'min-width': 'minWidth',
+  'max-height': 'maxHeight', 'min-height': 'minHeight',
+  // Positioning
+  'z-index': 'zIndex',
   // Colors
   bg: 'backgroundColor', c: 'color', bc: 'borderColor',
   // Typography

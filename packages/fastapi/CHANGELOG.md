@@ -1,5 +1,11 @@
 # @kernlang/fastapi
 
+## Unreleased
+
+### Bug Fixes
+
+- Removed unused import: `dedent` (codegen-python.ts)
+
 ## 3.0.0
 
 ### Major Changes

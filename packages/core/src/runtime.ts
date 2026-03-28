@@ -1,9 +1,10 @@
 /**
  * KernRuntime — instance-based state for KERN's parser, codegen, and template engine.
  *
- * Replaces 6 module-level global registries with a single owning instance.
- * This eliminates deterministic corruption under concurrent usage (e.g., LSP,
- * serverless, worker threads, or parallel test runs).
+ * Centralizes 6 module-level global registries into a single owning instance.
+ * All public APIs (parse, parseDocument, generateCoreNode, isTemplateNode,
+ * expandTemplateNode, isKnownNodeType) accept an optional `runtime` parameter
+ * for true instance isolation (LSP, serverless, worker threads, parallel tests).
  *
  * Usage:
  *   const runtime = new KernRuntime();

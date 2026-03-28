@@ -1,4 +1,4 @@
-import type { IRNode, TranspileResult, SourceMapEntry, GeneratedArtifact, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
 import { countTokens, serializeIR, isCoreNode, generateCoreNode, getProps, getChildren, getFirstChild, buildDiagnostics, accountNode } from '@kernlang/core';
 
 /**

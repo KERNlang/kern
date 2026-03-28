@@ -7,7 +7,7 @@
 
 import type { IRNode, TemplateDefinition, TemplateSlot, TemplateImport, TemplateSlotType } from './types.js';
 import { generateCoreNode, emitIdentifier, emitTemplateSafe } from './codegen-core.js';
-import { defaultRuntime } from './runtime.js';
+import { defaultRuntime, type KernRuntime } from './runtime.js';
 
 // ── Registry — now delegates to defaultRuntime ──────────────────────────
 
@@ -108,8 +108,9 @@ export function registerTemplate(node: IRNode, sourceFile?: string): void {
 }
 
 /** Check if a node type matches a registered template. */
-export function isTemplateNode(type: string): boolean {
-  return defaultRuntime.isTemplateNode(type);
+export function isTemplateNode(type: string, runtime?: KernRuntime): boolean {
+  const rt = runtime ?? defaultRuntime;
+  return rt.isTemplateNode(type);
 }
 
 /** Clear all registered templates (for test isolation). */
@@ -147,14 +148,15 @@ function dedentBody(code: string): string {
  * 4. Handle {{CHILDREN}}: iterate child nodes through codegen
  * 5. Prepend import lines
  */
-export function expandTemplateNode(node: IRNode, _depth = 0): string[] {
+export function expandTemplateNode(node: IRNode, _depth = 0, runtime?: KernRuntime): string[] {
+  const rt = runtime ?? defaultRuntime;
   if (_depth > MAX_EXPANSION_DEPTH) {
     throw new KernTemplateError(
       `Template expansion depth exceeded ${MAX_EXPANSION_DEPTH} — possible recursion in template '${node.type}'`
     );
   }
 
-  const template = defaultRuntime.templateRegistry.get(node.type);
+  const template = rt.templateRegistry.get(node.type);
   if (!template) {
     throw new KernTemplateError(`No template registered for type '${node.type}'`);
   }
@@ -194,9 +196,9 @@ export function expandTemplateNode(node: IRNode, _depth = 0): string[] {
       }
     } else {
       // Other children go through codegen (supports nested templates)
-      const expanded = isTemplateNode(child.type)
-        ? expandTemplateNode(child, _depth + 1)
-        : generateCoreNode(child);
+      const expanded = isTemplateNode(child.type, rt)
+        ? expandTemplateNode(child, _depth + 1, rt)
+        : generateCoreNode(child, undefined, rt);
       childrenLines.push(...expanded);
     }
   }

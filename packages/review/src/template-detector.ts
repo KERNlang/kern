@@ -8,7 +8,7 @@
  * generates suggested .kern rewrites with actual slot values filled in.
  */
 
-import { SourceFile, SyntaxKind } from 'ts-morph';
+import { SourceFile } from 'ts-morph';
 import { countTokens } from '@kernlang/core';
 import type { TemplateMatch, ReviewConfig } from './types.js';
 

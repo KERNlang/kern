@@ -1,5 +1,21 @@
 # @kernlang/cli
 
+## Unreleased
+
+### Features
+
+- fef17d7: **Parse diagnostics in CLI** — `surfaceParseDiagnostics()` writes structured parse errors/warnings to stderr
+- **`--strict-parse` flag** — when combined with `--enforce`, parse errors count as errors (not downgraded to warnings)
+
+### Bug Fixes
+
+- Removed unused imports: `reviewDirectory`, `reviewSource`, `formatReportJSON`, `parseLLMResponse`
+
+### Dependencies
+
+- @kernlang/core (parseWithDiagnostics, ParseDiagnostic)
+- @kernlang/review (strictParse config)
+
 ## 3.0.0
 
 ### Major Changes

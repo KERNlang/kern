@@ -5,7 +5,7 @@
  * Used by validation pipeline and `kern evolve test` command.
  */
 
-import { existsSync, readFileSync, readdirSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { resolve, join } from 'path';
 import { parse } from '@kernlang/core';
 import { loadSandboxedGenerator } from './sandboxed-generator.js';

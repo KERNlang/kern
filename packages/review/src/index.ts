@@ -10,7 +10,7 @@
  */
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
-import { resolve, relative, join } from 'path';
+import { relative, join } from 'path';
 import { parseWithDiagnostics, countTokens, serializeIR } from '@kernlang/core';
 import type { IRNode, ParseDiagnostic } from '@kernlang/core';
 import { inferFromSource, inferFromFile, inferFromSourceFile, createInMemoryProject } from './inferrer.js';
@@ -254,13 +254,13 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
     { root: { type: 'document' } as IRNode, diagnostics: [] as ParseDiagnostic[] },
   );
 
-  // Map parse diagnostics → ReviewFindings (severity capped at 'warning' to avoid breaking --enforce)
+  // Map parse diagnostics → ReviewFindings (severity capped at 'warning' unless --strict-parse is enabled)
   const hasParseErrors = parseDiags.some(d => d.severity === 'error');
   for (const d of parseDiags) {
     allFindings.push({
       source: 'kern',
       ruleId: `parse/${d.code}`,
-      severity: d.severity === 'error' ? 'warning' : d.severity,
+      severity: d.severity === 'error' ? (_config?.strictParse ? 'error' : 'warning') : d.severity,
       category: 'bug',
       message: d.message,
       primarySpan: { file: filePath, startLine: d.line, startCol: d.col, endLine: d.line, endCol: d.endCol },

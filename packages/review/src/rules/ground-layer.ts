@@ -10,7 +10,6 @@ import type { IRNode } from '@kernlang/core';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
 import type { KernLintRule } from '../kern-lint.js';
-import { flattenIR } from '../kern-lint.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 

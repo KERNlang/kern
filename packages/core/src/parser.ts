@@ -1,7 +1,7 @@
 import type { IRNode, IRSourceLocation, ParseDiagnostic, ParseErrorCode, ParseResult } from './types.js';
 import { KernParseError } from './errors.js';
 import { isKnownNodeType } from './spec.js';
-import { defaultRuntime } from './runtime.js';
+import { defaultRuntime, type KernRuntime } from './runtime.js';
 import type { ParserHintsConfig } from './runtime.js';
 import { validateSchema } from './schema.js';
 
@@ -33,8 +33,8 @@ function createParseState(): ParseState {
   return { diagnostics: [] };
 }
 
-function commitParseState(state: ParseState): void {
-  defaultRuntime.lastParseDiagnostics = state.diagnostics.map(d => ({ ...d }));
+function commitParseState(state: ParseState, runtime: KernRuntime = defaultRuntime): void {
+  runtime.lastParseDiagnostics = state.diagnostics.map(d => ({ ...d }));
 }
 
 function emitDiagnostic(
@@ -537,7 +537,7 @@ const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
 
 // ── parseLine (token-based) ──────────────────────────────────────────────
 
-function parseLine(state: ParseState, raw: string, lineNum: number): ParsedLine | null {
+function parseLine(state: ParseState, raw: string, lineNum: number, runtime: KernRuntime = defaultRuntime): ParsedLine | null {
   if (raw.trim() === '') return null;
 
   const indent = raw.search(/\S/);
@@ -572,7 +572,7 @@ function parseLine(state: ParseState, raw: string, lineNum: number): ParsedLine 
     return null;
   }
   const type = typeToken;
-  if (!isKnownNodeType(type) && !defaultRuntime.multilineBlockTypes.has(type)) {
+  if (!isKnownNodeType(type, runtime) && !runtime.multilineBlockTypes.has(type) && !runtime.isTemplateNode(type)) {
     emitDiagnostic(state, 'UNKNOWN_NODE_TYPE', 'warning', `Unknown node type '${type}' at line ${lineNum}`, lineNum, col, {
       endCol: col + type.length,
     });
@@ -584,7 +584,7 @@ function parseLine(state: ParseState, raw: string, lineNum: number): ParsedLine 
   const themeRefs: string[] = [];
 
   // ── Evolved node parser hints (v4) ──────────────────────────────────
-  const evolvedHints = defaultRuntime.parserHints.get(type);
+  const evolvedHints = runtime.parserHints.get(type);
   if (evolvedHints) {
     if (evolvedHints.positionalArgs) {
       for (const argName of evolvedHints.positionalArgs) {
@@ -768,14 +768,14 @@ export function getParseWarnings(): string[] {
 // ── Shared parse helpers ─────────────────────────────────────────────────
 
 /** Process source lines into ParsedLine entries (multiline blocks + regular lines). */
-function parseLines(state: ParseState, source: string): ParsedLine[] {
+function parseLines(state: ParseState, source: string, runtime: KernRuntime = defaultRuntime): ParsedLine[] {
   const lines = expandMinified(source).split('\n');
   const parsed: ParsedLine[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trimStart();
 
-    const multilineType = [...defaultRuntime.multilineBlockTypes].find(type => trimmed.startsWith(`${type} <<<`));
+    const multilineType = [...runtime.multilineBlockTypes].find(type => trimmed.startsWith(`${type} <<<`));
     if (multilineType) {
       const indent = lines[i].search(/\S/);
       const codeLines: string[] = [];
@@ -826,7 +826,7 @@ function parseLines(state: ParseState, source: string): ParsedLine[] {
       continue;
     }
 
-    const p = parseLine(state, lines[i], i + 1);
+    const p = parseLine(state, lines[i], i + 1, runtime);
     if (p) parsed.push(p);
   }
 
@@ -883,16 +883,17 @@ function buildTree(state: ParseState, parsed: ParsedLine[], root: IRNode, rootIn
  * top-level nodes as children of the first node.
  * @see parseDocument
  */
-function parseInternal(source: string, asDocument: boolean): ParseResult {
+function parseInternal(source: string, asDocument: boolean, runtime?: KernRuntime): ParseResult {
+  const rt = runtime ?? defaultRuntime;
   const state = createParseState();
-  const parsed = parseLines(state, source);
+  const parsed = parseLines(state, source, rt);
 
   if (parsed.length === 0) {
     if (source.trim() === '') {
       emitDiagnostic(state, 'EMPTY_DOCUMENT', 'info', 'Source document is empty', 1, 1, { endCol: 1 });
     }
     const root = { type: 'document', children: [], loc: { line: 1, col: 1, endLine: 1, endCol: 1 } };
-    commitParseState(state);
+    commitParseState(state, rt);
     return { root, diagnostics: [...state.diagnostics] };
   }
 
@@ -906,12 +907,12 @@ function parseInternal(source: string, asDocument: boolean): ParseResult {
   }
 
   computeEndSpans(root);
-  commitParseState(state);
+  commitParseState(state, rt);
   return { root, diagnostics: [...state.diagnostics] };
 }
 
-export function parse(source: string): IRNode {
-  return parseInternal(source, false).root;
+export function parse(source: string, runtime?: KernRuntime): IRNode {
+  return parseInternal(source, false, runtime).root;
 }
 
 /**
@@ -919,8 +920,8 @@ export function parse(source: string): IRNode {
  * Unlike parse(), this always returns a `document` root so multiple
  * top-level nodes (e.g., multiple `rule` definitions) are siblings.
  */
-export function parseDocument(source: string): IRNode {
-  return parseInternal(source, true).root;
+export function parseDocument(source: string, runtime?: KernRuntime): IRNode {
+  return parseInternal(source, true, runtime).root;
 }
 
 /** Recursively compute endLine/endCol for each node based on its last child. */
@@ -941,21 +942,24 @@ function computeEndSpans(node: IRNode): void {
 // ── Diagnostics API ──────────────────────────────────────────────────────
 
 /** Get structured diagnostics from the last parse() call. */
-export function getParseDiagnostics(): ParseDiagnostic[] { return [...defaultRuntime.lastParseDiagnostics]; }
+export function getParseDiagnostics(runtime?: KernRuntime): ParseDiagnostic[] {
+  const rt = runtime ?? defaultRuntime;
+  return [...rt.lastParseDiagnostics];
+}
 
 /** Parse with diagnostics — returns both tree and structured diagnostics. */
-export function parseWithDiagnostics(source: string): ParseResult {
-  return parseInternal(source, false);
+export function parseWithDiagnostics(source: string, runtime?: KernRuntime): ParseResult {
+  return parseInternal(source, false, runtime);
 }
 
 /** Parse with diagnostics (document mode). */
-export function parseDocumentWithDiagnostics(source: string): ParseResult {
-  return parseInternal(source, true);
+export function parseDocumentWithDiagnostics(source: string, runtime?: KernRuntime): ParseResult {
+  return parseInternal(source, true, runtime);
 }
 
 /** Strict parse — throws KernParseError if any diagnostic has severity=error or schema violation. */
-export function parseStrict(source: string): IRNode {
-  const { root, diagnostics } = parseWithDiagnostics(source);
+export function parseStrict(source: string, runtime?: KernRuntime): IRNode {
+  const { root, diagnostics } = parseWithDiagnostics(source, runtime);
   const errors = diagnostics.filter(d => d.severity === 'error');
   if (errors.length > 0) {
     const first = errors[0];
@@ -975,8 +979,8 @@ export function parseStrict(source: string): IRNode {
 }
 
 /** Strict document parse — throws KernParseError if any diagnostic has severity=error or schema violation. */
-export function parseDocumentStrict(source: string): IRNode {
-  const { root, diagnostics } = parseDocumentWithDiagnostics(source);
+export function parseDocumentStrict(source: string, runtime?: KernRuntime): IRNode {
+  const { root, diagnostics } = parseDocumentWithDiagnostics(source, runtime);
   const errors = diagnostics.filter(d => d.severity === 'error');
   if (errors.length > 0) {
     const first = errors[0];

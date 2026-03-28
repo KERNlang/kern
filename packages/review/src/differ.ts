@@ -4,7 +4,6 @@
  * v2: Returns unified ReviewFinding[] instead of DiffFinding[].
  */
 
-import type { IRNode } from '@kernlang/core';
 import { generateCoreNode, isCoreNode } from '@kernlang/core';
 import type { InferResult, ReviewFinding, SourceSpan } from './types.js';
 import { createFingerprint } from './types.js';

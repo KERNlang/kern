@@ -7,7 +7,7 @@
 import { readdirSync, statSync, existsSync } from 'fs';
 import { resolve, join } from 'path';
 import { Project } from 'ts-morph';
-import { detectGaps, detectGapsFromSource } from './gap-detector.js';
+import { detectGaps } from './gap-detector.js';
 import { analyzePatterns, analyzeStructuralPatterns } from './pattern-analyzer.js';
 import { proposeTemplates } from './template-proposer.js';
 import { validateProposal } from './template-validator.js';

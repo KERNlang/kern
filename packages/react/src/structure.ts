@@ -9,7 +9,6 @@
  */
 
 import type { IRNode, GeneratedArtifact, ResolvedKernConfig } from '@kernlang/core';
-import type { KernStructure } from '@kernlang/core';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -49,7 +48,7 @@ export interface ExtractedHook {
 const SURFACE_TYPES = new Set(['screen', 'page', 'modal']);
 const BLOCK_TYPES = new Set(['card', 'section', 'form', 'list', 'grid', 'tabs']);
 const CONTAINER_TYPES = new Set(['row', 'col']);
-const ELEMENT_TYPES = new Set(['text', 'button', 'input', 'progress', 'separator', 'divider', 'image', 'icon', 'slider', 'toggle', 'tab', 'item']);
+const ELEMENT_TYPES = new Set(['text', 'button', 'input', 'textarea', 'progress', 'separator', 'divider', 'image', 'icon', 'svg', 'link', 'slider', 'toggle', 'tab', 'item', 'component']);
 const GROUND_LAYER_TYPES = new Set([
   'derive', 'transform', 'action', 'guard', 'assume', 'invariant',
   'each', 'collect', 'branch', 'resolve', 'expect', 'recover',

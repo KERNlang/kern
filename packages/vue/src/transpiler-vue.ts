@@ -7,7 +7,7 @@
  */
 
 import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR, cssPropertyName, getProps, getStyles, getPseudoStyles, getThemeRefs, buildDiagnostics, accountNode } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR, cssPropertyName, getProps, getStyles, getThemeRefs, buildDiagnostics, accountNode } from '@kernlang/core';
 
 // ── Node → HTML Element Mapping ──────────────────────────────────────────
 

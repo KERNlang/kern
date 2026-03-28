@@ -7,10 +7,10 @@
 
 import { Project, type SourceFile } from 'ts-morph';
 import { reviewFile } from '@kernlang/review';
-import type { ReviewReport, TemplateMatch } from '@kernlang/review';
-import { getAllDetectors, getDetectorsForImport, getUniversalDetectors } from './detector-registry.js';
+import type { ReviewReport } from '@kernlang/review';
+import { getDetectorsForImport, getUniversalDetectors } from './detector-registry.js';
 import { detectConceptualGaps } from './concept-gap-adapter.js';
-import type { PatternGap, DetectorPack, DetectionResult } from './types.js';
+import type { PatternGap, DetectorPack } from './types.js';
 
 let _gapIdCounter = 0;
 

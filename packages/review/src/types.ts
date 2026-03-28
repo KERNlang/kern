@@ -220,6 +220,8 @@ export interface ReviewConfig {
   rulesDirs?: string[];
   /** Strict mode for CI: false = respect all suppressions, 'inline' = ignore inline comments, 'all' = ignore all suppressions */
   strict?: false | 'inline' | 'all';
+  /** When true, parse errors keep 'error' severity instead of being downgraded to 'warning'. Use with --enforce for strict CI. */
+  strictParse?: boolean;
 }
 
 // ── Rule Context ─────────────────────────────────────────────────────────

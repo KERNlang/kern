@@ -10,7 +10,7 @@
 import type { IRNode } from './types.js';
 import { isTemplateNode, expandTemplateNode } from './template-engine.js';
 import { KernCodegenError } from './errors.js';
-import { defaultRuntime } from './runtime.js';
+import { defaultRuntime, type KernRuntime } from './runtime.js';
 
 // Re-export emitters and helpers from extracted modules for backward compatibility.
 // All existing `import { emitIdentifier } from './codegen-core.js'` paths continue to work.
@@ -1797,7 +1797,8 @@ export function isCoreNode(type: string): boolean {
 }
 
 /** Generate TypeScript for any core language node. */
-export function generateCoreNode(node: IRNode, target?: string): string[] {
+export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRuntime): string[] {
+  const rt = runtime ?? defaultRuntime;
   switch (node.type) {
     case 'type': return generateType(node);
     case 'interface': return generateInterface(node);
@@ -1865,12 +1866,12 @@ export function generateCoreNode(node: IRNode, target?: string): string[] {
     case 'option': return [];
     default: {
       // Check evolved generators (v4) — target-specific first, then default
-      const targetMap = target ? defaultRuntime.evolvedTargetGenerators.get(node.type) : undefined;
+      const targetMap = target ? rt.evolvedTargetGenerators.get(node.type) : undefined;
       const targetGen = targetMap && target ? targetMap.get(target) : undefined;
-      const evolvedGen = targetGen || defaultRuntime.evolvedGenerators.get(node.type);
+      const evolvedGen = targetGen || rt.evolvedGenerators.get(node.type);
       if (evolvedGen) return evolvedGen(node);
       // Check if this is a template instance
-      if (isTemplateNode(node.type)) return expandTemplateNode(node);
+      if (isTemplateNode(node.type, rt)) return expandTemplateNode(node, 0, rt);
       return [];
     }
   }

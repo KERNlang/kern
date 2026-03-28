@@ -13,7 +13,7 @@ import { transpileCliApp } from './transpiler-cli.js';
 import { transpileTerminal, transpileInk } from '@kernlang/terminal';
 import { transpileVue, transpileNuxt } from '@kernlang/vue';
 import { collectLanguageMetrics } from '@kernlang/metrics';
-import { reviewFile, reviewDirectory, reviewSource, reviewGraph, resolveImportGraph, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, parseLLMResponse, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes, runLLMReview, isLLMAvailable, analyzeTaint, checkSpecFiles, specViolationsToFindings } from '@kernlang/review';
+import { reviewFile, reviewGraph, resolveImportGraph, formatReport, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes, runLLMReview, isLLMAvailable, analyzeTaint, checkSpecFiles, specViolationsToFindings } from '@kernlang/review';
 import type { ReviewConfig, ReviewFinding, LLMReviewInput } from '@kernlang/review';
 import { evolve, loadBuiltinDetectors, listStaged, getStaged, updateStagedStatus, promoteLocal, cleanRejected, formatSplitView, loadEvolvedNodes, runGoldenTests, formatGoldenTestResults, rollbackNode, restoreNode, readEvolvedManifest, buildDiscoveryPrompt, parseDiscoveryResponse, selectRepresentativeFiles, collectTsFiles, estimateTokens, createLLMProvider, TokenBudget, validateEvolveProposal, graduateNode, compileCodegenToJS, stageEvolveV4Proposal, listStagedEvolveV4, getStagedEvolveV4, updateStagedEvolveV4Status, cleanRejectedEvolveV4, cleanApprovedEvolveV4, formatEvolveV4SplitView, promoteNode, pruneNodes, detectCollisions, renameEvolvedNode, readNodeDefinition, buildBackfillPrompt, buildRetryPrompt, rebuildEvolvedManifest } from '@kernlang/evolve';
 import type { EvolveOptions, LLMProviderOptions } from '@kernlang/evolve';
@@ -317,7 +317,11 @@ function autoDetectTarget(): import('@kernlang/core').KernTarget | null {
     if (allDeps['nuxt']) return 'nuxt' as any;
     if (allDeps['vue']) return 'vue';
     if (allDeps['react-native']) return 'native';
-    if (allDeps['fastapi'] || allDeps['flask'] || allDeps['django']) return 'express' as any; // Python web → express rules are closest
+    if (allDeps['fastapi']) return 'fastapi';
+    if (allDeps['flask'] || allDeps['django']) {
+      console.warn(`Warning: ${allDeps['flask'] ? 'Flask' : 'Django'} detected but no dedicated target — falling back to 'express' (generates TypeScript, not Python). Use --target=fastapi for Python output.`);
+      return 'express' as any;
+    }
     if (allDeps['express'] || allDeps['fastify'] || allDeps['koa'] || allDeps['hono']) return 'express';
     if (allDeps['tailwindcss'] && allDeps['react']) return 'tailwind';
     if (allDeps['react']) return 'web';
@@ -558,7 +562,7 @@ if (args[0] === 'init-templates') {
   process.exit(0);
 }
 
-// ── kern review <file|dir|--diff base> [--json] [--sarif] [--recursive] [--enforce] [--min-coverage=N] [--max-complexity=N] [--export-kern] [--llm] [--fix] [--autofix] [--lint] ──
+// ── kern review <file|dir|--diff base> [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--min-coverage=N] [--max-complexity=N] [--export-kern] [--llm] [--fix] [--autofix] [--lint] ──
 if (args[0] === 'review') {
   const jsonOutput = args.includes('--json');
   const sarifOutput = args.includes('--sarif') || args.includes('--format=sarif');
@@ -605,6 +609,7 @@ if (args[0] === 'review') {
   }
   const strictArg = args.find(a => a === '--strict' || a.startsWith('--strict='));
   const strict: false | 'inline' | 'all' = strictArg === '--strict' ? 'inline' : strictArg === '--strict=all' ? 'all' : false;
+  const strictParse = args.includes('--strict-parse');
   const diffBase = args.find(a => a.startsWith('--diff'))
     ? (args.find(a => a.startsWith('--diff='))?.split('=')[1] || args[args.indexOf('--diff') + 1] || 'origin/main')
     : undefined;
@@ -637,7 +642,7 @@ if (args[0] === 'review') {
 
   if (!reviewInput) {
     console.error('Usage: kern review <file.ts|dir> [--security] [--mcp] [--llm] [--spec file.kern] [--cloud]');
-    console.error('       [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--fix] [--autofix] [--rules-dir <dir>]');
+    console.error('       [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--fix] [--autofix] [--rules-dir <dir>]');
     process.exit(1);
   }
 
@@ -654,6 +659,10 @@ if (args[0] === 'review') {
   // Load kern.config.ts to get registered templates and target
   // Auto-detects target from package.json if no config exists
   const reviewCfg = loadConfig();
+  if (!VALID_TARGETS.includes(reviewCfg.target)) {
+    console.error(`Invalid target '${reviewCfg.target}' in config. Valid: ${VALID_TARGETS.join(', ')}`);
+    process.exit(1);
+  }
   if (!jsonOutput && !sarifOutput) {
     const configExists = existsSync(resolve(process.cwd(), 'kern.config.ts'));
     if (!configExists) {
@@ -677,6 +686,7 @@ if (args[0] === 'review') {
     disabledRules: mergedDisabledRules.length > 0 ? mergedDisabledRules : undefined,
     rulesDirs: rulesDirs.length > 0 ? rulesDirs : undefined,
     strict,
+    strictParse,
   };
 
   // Load templates and collect their names
@@ -1059,6 +1069,12 @@ if (args[0] === 'review') {
         return b.fix.span.startCol - a.fix.span.startCol;
       });
 
+      // Detect overlapping fixes — skip later ones that overlap with already-applied spans
+      const appliedSpans: { sl: number; el: number }[] = [];
+      function overlaps(sl: number, el: number): boolean {
+        return appliedSpans.some(s => sl <= s.el && el >= s.sl);
+      }
+
       const lines = readFileSync(file, 'utf-8').split('\n');
       let applied = 0;
 
@@ -1070,6 +1086,12 @@ if (args[0] === 'review') {
 
         if (sl < 0 || el >= lines.length) {
           console.error(`  Skipping ${finding.ruleId}@${startLine}:${startCol} — span out of range`);
+          totalSkipped++;
+          continue;
+        }
+
+        if (overlaps(sl, el)) {
+          console.error(`  Skipping ${finding.ruleId}@${startLine}:${startCol} — overlaps with a previously applied fix`);
           totalSkipped++;
           continue;
         }
@@ -1087,7 +1109,12 @@ if (args[0] === 'review') {
           lines.splice(el + 1, 0, fix.replacement);
         } else if (fix.type === 'remove') {
           lines.splice(sl, el - sl + 1);
+        } else if (fix.type === 'wrap') {
+          const original = lines.slice(sl, el + 1).join('\n');
+          const wrapped = fix.replacement.replace('$0', original);
+          lines.splice(sl, el - sl + 1, ...wrapped.split('\n'));
         }
+        appliedSpans.push({ sl, el });
         applied++;
       }
 

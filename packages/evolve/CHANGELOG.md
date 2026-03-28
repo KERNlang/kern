@@ -1,5 +1,11 @@
 # @kernlang/evolve
 
+## Unreleased
+
+### Bug Fixes
+
+- Removed unused imports across 8 files: `detectGapsFromSource`, `NODE_TYPES`, `TemplateMatch`, `getAllDetectors`, `DetectionResult`, `readdirSync`, `renameSync`, `readFileSync`, `relative`, `basename`, `extname`, `registerTemplate`, `clearTemplates`, `createHash`, `ExtractedParam`, `ImportDecl`
+
 ## 3.0.0
 
 ### Major Changes

@@ -6,7 +6,7 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { dedent, handlerCode, emitIdentifier } from '@kernlang/core';
+import { handlerCode, emitIdentifier } from '@kernlang/core';
 import { mapTsTypeToPython, toSnakeCase, toScreamingSnake } from './type-map.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
