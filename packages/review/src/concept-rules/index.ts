@@ -15,6 +15,10 @@ import { unrecoveredEffect } from './unrecovered-effect.js';
 export interface ConceptRuleContext {
   concepts: ConceptMap;
   filePath: string;
+  /** Cross-file concept maps — present when running in graph mode (reviewGraph) */
+  allConcepts?: Map<string, ConceptMap>;
+  /** Resolved import graph — filePath → imported file paths */
+  graphImports?: Map<string, string[]>;
 }
 
 export type ConceptRule = (ctx: ConceptRuleContext) => ReviewFinding[];
@@ -26,8 +30,13 @@ export const conceptRules: ConceptRule[] = [
   unrecoveredEffect,
 ];
 
-export function runConceptRules(concepts: ConceptMap, filePath: string): ReviewFinding[] {
-  const ctx: ConceptRuleContext = { concepts, filePath };
+export function runConceptRules(
+  concepts: ConceptMap,
+  filePath: string,
+  allConcepts?: Map<string, ConceptMap>,
+  graphImports?: Map<string, string[]>,
+): ReviewFinding[] {
+  const ctx: ConceptRuleContext = { concepts, filePath, allConcepts, graphImports };
   const findings: ReviewFinding[] = [];
   for (const rule of conceptRules) {
     findings.push(...rule(ctx));

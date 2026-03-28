@@ -2,18 +2,26 @@ import { ReviewReport, ReviewConfig } from './types.js';
 import { createHash } from 'crypto';
 import { readFileSync, readdirSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
+import { homedir } from 'os';
 
 export class ReviewCache {
   private l1 = new Map<string, ReviewReport>();
-  private cacheDir = join(process.cwd(), '.kern/cache/review/');
+  private cacheDir: string;
 
   constructor() {
+    // Use home directory to avoid writing to root (/) when cwd is unavailable (e.g. VS Code extension host)
+    const base = process.cwd() === '/' ? homedir() : process.cwd();
+    this.cacheDir = join(base, '.kern/cache/review/');
     this.ensureCacheDir();
   }
 
   private ensureCacheDir() {
-    if (!existsSync(this.cacheDir)) {
-      mkdirSync(this.cacheDir, { recursive: true });
+    try {
+      if (!existsSync(this.cacheDir)) {
+        mkdirSync(this.cacheDir, { recursive: true });
+      }
+    } catch {
+      // Fallback: if we can't create the cache dir, L1 (in-memory) still works
     }
   }
 
