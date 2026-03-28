@@ -10,3 +10,5 @@ docs/plans/
 .claude*.tsbuildinfo
 *.tsbuildinfo
 .pnpm-store/
+.kern/
+.next/
