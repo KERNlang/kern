@@ -9,6 +9,26 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./codegen": {
+      "types": "./dist/codegen-core.d.ts",
+      "default": "./dist/codegen-core.js"
+    },
+    "./codegen/emitters": {
+      "types": "./dist/codegen/emitters.d.ts",
+      "default": "./dist/codegen/emitters.js"
+    },
+    "./codegen/helpers": {
+      "types": "./dist/codegen/helpers.d.ts",
+      "default": "./dist/codegen/helpers.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "default": "./dist/runtime.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "default": "./dist/schema.js"
     }
   },
   "files": [

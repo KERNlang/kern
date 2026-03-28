@@ -5,7 +5,7 @@
  * Walks the IRNode tree to extract action→effect/guard/invariant structure.
  */
 
-import { parse } from '@kernlang/core';
+import { parseWithDiagnostics } from '@kernlang/core';
 import type { IRNode } from '@kernlang/core';
 import { isReDoSVulnerable } from '@kernlang/review';
 import { readFileSync, readdirSync } from 'fs';
@@ -61,7 +61,13 @@ export interface CompiledMCPRule {
 
 /** Compile a .kern rule file source into runtime rule objects */
 export function compileRuleSource(source: string): CompiledMCPRule[] {
-  const root = parse(source);
+  const { root, diagnostics } = parseWithDiagnostics(source);
+  const errors = diagnostics.filter(d => d.severity === 'error');
+  if (errors.length > 0) {
+    const msgs = errors.map(d => `L${d.line}: ${d.message}`);
+    console.warn(`[kern-rule] Skipping rule with parse errors:\n  ${msgs.join('\n  ')}`);
+    return [];
+  }
   const rules: CompiledMCPRule[] = [];
 
   // The root is the first top-level node. If it's an action, compile it directly.

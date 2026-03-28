@@ -6,8 +6,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
-import { resolve, basename } from 'path';
-import { parse, registerTemplate, clearTemplates } from '@kernlang/core';
+import { resolve } from 'path';
 import type { TemplateProposal, ValidationResult, StagedProposal, ProposalStatus, EvolveConfig, NodeProposal, NodeValidationResult, StagedNodeProposal, NodeProposalStatus } from './types.js';
 import type { EvolveNodeProposal, EvolveV4ValidationResult, StagedEvolveProposal, EvolveV4ProposalStatus } from './evolved-types.js';
 

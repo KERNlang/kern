@@ -5,7 +5,7 @@
  * updates the manifest, and makes the node available at next compile.
  */
 
-import { mkdirSync, writeFileSync, readFileSync, existsSync, renameSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs';
 import { resolve, join } from 'path';
 import { createHash } from 'crypto';
 import { KERN_VERSION } from '@kernlang/core';

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
+import { readFileSync, readdirSync, statSync } from 'fs';
 import { resolve, relative, join } from 'path';
 import { parse, resolveConfig } from '@kernlang/core';
 import type { ResolvedKernConfig, KernTarget } from '@kernlang/core';

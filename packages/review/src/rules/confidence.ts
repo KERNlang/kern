@@ -8,7 +8,6 @@
 import type { IRNode } from '@kernlang/core';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
-import { flattenIR } from '../kern-lint.js';
 import { buildConfidenceGraph, buildMultiFileConfidenceGraph, parseConfidence } from '../confidence.js';
 import type { ConfidenceGraph, MultiFileConfidenceGraph } from '../confidence.js';
 

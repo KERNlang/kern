@@ -85,6 +85,37 @@ export interface TranspileResult {
   diagnostics?: TranspileDiagnostic[];
 }
 
+// ── Parse Diagnostics ────────────────────────────────────────────────────
+
+export type ParseErrorCode =
+  | 'UNCLOSED_EXPR'
+  | 'UNCLOSED_STYLE'
+  | 'UNCLOSED_STRING'
+  | 'UNEXPECTED_TOKEN'
+  | 'EMPTY_DOCUMENT'
+  | 'INVALID_INDENT'
+  | 'UNKNOWN_NODE_TYPE'
+  | 'INDENT_JUMP'
+  | 'DUPLICATE_PROP'
+  | 'DROPPED_LINE';
+
+export type ParseDiagnosticSeverity = 'error' | 'warning' | 'info';
+
+export interface ParseDiagnostic {
+  code: ParseErrorCode;
+  severity: ParseDiagnosticSeverity;
+  message: string;
+  line: number;
+  col: number;
+  endCol: number;
+  suggestion: string;
+}
+
+export interface ParseResult {
+  root: IRNode;
+  diagnostics: ParseDiagnostic[];
+}
+
 /** Result of decompilation (IR → human-readable) */
 export interface DecompileResult {
   /** Human-readable TypeScript representation */

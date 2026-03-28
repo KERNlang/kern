@@ -1,5 +1,11 @@
 # @kernlang/vue
 
+## Unreleased
+
+### Bug Fixes
+
+- Removed unused import: `getPseudoStyles` (transpiler-vue.ts)
+
 ## 3.0.0
 
 ### Major Changes

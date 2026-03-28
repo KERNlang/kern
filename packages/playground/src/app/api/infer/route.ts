@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { inferFromSource, serializeIR, countTokens } from '@/lib/infer';
+import { inferFromSource } from '@/lib/infer';
 
 export async function POST(request: Request) {
   try {

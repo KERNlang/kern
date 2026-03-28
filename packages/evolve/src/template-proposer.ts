@@ -6,8 +6,7 @@
  * .kern template syntax with typed slots.
  */
 
-import { createHash } from 'crypto';
-import type { AnalyzedPattern, TemplateProposal, ExtractedParam, ImportDecl } from './types.js';
+import type { AnalyzedPattern, TemplateProposal } from './types.js';
 
 /**
  * Generate a proposal ID from the template name and structural hash.

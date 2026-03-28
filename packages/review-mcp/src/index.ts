@@ -35,17 +35,58 @@ export { runCompiledRules } from './rule-runner.js';
 export type { ReviewFinding } from '@kernlang/review';
 export type { CompiledMCPRule } from './rule-compiler.js';
 
+// ── CLI / CI engine exports (migrated from kern-sight-mcp) ───────────
+/*
+export { computeSecurityScore, gradeColor } from './score.js';
+export type { SecurityScore, ToolScore, Grade } from './score.js';
+export { runPostScan } from './post-scan.js';
+export { scanMcpConfigs } from './config-scan.js';
+export type { ConfigScanResult, McpServerEntry, ConfigIssue } from './config-scan.js';
+export { generateLockFile, verifyLockFile } from './tool-pin.js';
+export type { LockFile, ToolPin, PinDrift } from './tool-pin.js';
+export { generateReportJSON, generateBadgeMarkdown, generateToolTable, updateReadme } from './badge.js';
+export { scanWorkspace } from './workspace-scan.js';
+export type { McpReviewResult } from './scan-types.js';
+*/
+
 // ── Load compiled .kern rules at module init ─────────────────────────
 // Guard: import.meta.url is undefined when bundled as CJS (e.g. esbuild for VS Code worker)
 
 let COMPILED_RULES: import('./rule-compiler.js').CompiledMCPRule[] = [];
+
+// Strategy 1: ESM — use import.meta.url to find rules/ directory on disk
 try {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
-  const KERN_RULES_DIR = join(__dirname, '..', 'rules');
-  COMPILED_RULES = loadRuleDirectory(KERN_RULES_DIR);
+  COMPILED_RULES = loadRuleDirectory(join(__dirname, '..', 'rules'));
 } catch {
-  // CJS bundle — .kern rules not available, regex + IR rules still work
+  // Strategy 2: Pre-compiled JSON — works in CJS bundles where import.meta.url is undefined.
+  // esbuild inlines require('../rules-compiled.json') as a static object at build time.
+  // Run `node scripts/compile-rules.mjs` to regenerate after changing .kern files.
+  try {
+    const precompiled = require('../rules-compiled.json');
+    if (Array.isArray(precompiled)) {
+      COMPILED_RULES = precompiled.map((rule: any) => ({
+        ...rule,
+        sinks: rule.sinks.map((s: any) => ({
+          ...s,
+          patterns: s.patterns.map((p: any) => ({
+            ...p,
+            regex: new RegExp(p.source, (p.flags ?? '').replace(/g/g, '')),
+          })),
+        })),
+        guards: rule.guards.map((g: any) => ({
+          ...g,
+          patterns: g.patterns.map((p: any) => ({
+            ...p,
+            regex: new RegExp(p.source, (p.flags ?? '').replace(/g/g, '')),
+          })),
+        })),
+      }));
+    }
+  } catch {
+    // No rules available — regex + IR rules still work
+  }
 }
 
 /**

@@ -7,10 +7,9 @@
 
 import type { IRNode, TemplateDefinition, TemplateSlot, TemplateImport, TemplateSlotType } from './types.js';
 import { generateCoreNode, emitIdentifier, emitTemplateSafe } from './codegen-core.js';
+import { defaultRuntime, type KernRuntime } from './runtime.js';
 
-// ── Registry ────────────────────────────────────────────────────────────
-
-const _registry = new Map<string, TemplateDefinition>();
+// ── Registry — now delegates to defaultRuntime ──────────────────────────
 
 const MAX_EXPANSION_DEPTH = 10;
 
@@ -105,27 +104,28 @@ export function registerTemplate(node: IRNode, sourceFile?: string): void {
   }
   const body = (p(bodyNode).code as string) || '';
 
-  _registry.set(name, { name, slots, imports, body, sourceFile });
+  defaultRuntime.registerTemplate(name, { name, slots, imports, body, sourceFile });
 }
 
 /** Check if a node type matches a registered template. */
-export function isTemplateNode(type: string): boolean {
-  return _registry.has(type);
+export function isTemplateNode(type: string, runtime?: KernRuntime): boolean {
+  const rt = runtime ?? defaultRuntime;
+  return rt.isTemplateNode(type);
 }
 
 /** Clear all registered templates (for test isolation). */
 export function clearTemplates(): void {
-  _registry.clear();
+  defaultRuntime.clearTemplates();
 }
 
 /** Get a registered template definition by name. */
 export function getTemplate(name: string): TemplateDefinition | undefined {
-  return _registry.get(name);
+  return defaultRuntime.getTemplate(name);
 }
 
 /** Get count of registered templates. */
 export function templateCount(): number {
-  return _registry.size;
+  return defaultRuntime.templateCount();
 }
 
 // ── Expansion ───────────────────────────────────────────────────────────
@@ -148,14 +148,15 @@ function dedentBody(code: string): string {
  * 4. Handle {{CHILDREN}}: iterate child nodes through codegen
  * 5. Prepend import lines
  */
-export function expandTemplateNode(node: IRNode, _depth = 0): string[] {
+export function expandTemplateNode(node: IRNode, _depth = 0, runtime?: KernRuntime): string[] {
+  const rt = runtime ?? defaultRuntime;
   if (_depth > MAX_EXPANSION_DEPTH) {
     throw new KernTemplateError(
       `Template expansion depth exceeded ${MAX_EXPANSION_DEPTH} — possible recursion in template '${node.type}'`
     );
   }
 
-  const template = _registry.get(node.type);
+  const template = rt.templateRegistry.get(node.type);
   if (!template) {
     throw new KernTemplateError(`No template registered for type '${node.type}'`);
   }
@@ -195,9 +196,9 @@ export function expandTemplateNode(node: IRNode, _depth = 0): string[] {
       }
     } else {
       // Other children go through codegen (supports nested templates)
-      const expanded = isTemplateNode(child.type)
-        ? expandTemplateNode(child, _depth + 1)
-        : generateCoreNode(child);
+      const expanded = isTemplateNode(child.type, rt)
+        ? expandTemplateNode(child, _depth + 1, rt)
+        : generateCoreNode(child, undefined, rt);
       childrenLines.push(...expanded);
     }
   }

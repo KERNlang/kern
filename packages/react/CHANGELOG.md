@@ -1,5 +1,11 @@
 # @kernlang/react
 
+## Unreleased
+
+### Bug Fixes
+
+- Removed unused imports: `GeneratedArtifact` (nextjs, tailwind, web), `camelKey` (nextjs), `getThemeRefs` (tailwind), `cssPropertyName` (web), `KernStructure` (structure.ts)
+
 ## 3.0.0
 
 ### Major Changes

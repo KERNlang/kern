@@ -33,11 +33,15 @@ export function stylesToTailwind(styles: Record<string, string>, colors?: Record
 
     switch (expanded) {
       case 'padding': classes.push(pxToTw('p', v)); break;
+      case 'paddingX': classes.push(pxToTw('px', v)); break;
+      case 'paddingY': classes.push(pxToTw('py', v)); break;
       case 'paddingTop': classes.push(pxToTw('pt', v)); break;
       case 'paddingBottom': classes.push(pxToTw('pb', v)); break;
       case 'paddingLeft': classes.push(pxToTw('pl', v)); break;
       case 'paddingRight': classes.push(pxToTw('pr', v)); break;
       case 'margin': classes.push(pxToTw('m', v)); break;
+      case 'marginX': classes.push(pxToTw('mx', v)); break;
+      case 'marginY': classes.push(pxToTw('my', v)); break;
       case 'marginTop': classes.push(pxToTw('mt', v)); break;
       case 'marginBottom': classes.push(pxToTw('mb', v)); break;
       case 'marginLeft': classes.push(pxToTw('ml', v)); break;
@@ -49,6 +53,10 @@ export function stylesToTailwind(styles: Record<string, string>, colors?: Record
       case 'borderRadius': classes.push(pxToTw('rounded', v)); break;
       case 'width': v === '100%' ? classes.push('w-full') : classes.push(`w-[${addPx(v)}]`); break;
       case 'height': v === '100%' ? classes.push('h-full') : classes.push(`h-[${addPx(v)}]`); break;
+      case 'maxWidth': classes.push(`max-w-[${addPx(v)}]`); break;
+      case 'minWidth': classes.push(`min-w-[${addPx(v)}]`); break;
+      case 'maxHeight': classes.push(`max-h-[${addPx(v)}]`); break;
+      case 'minHeight': classes.push(`min-h-[${addPx(v)}]`); break;
       case 'justifyContent':
         if (v === 'space-between') classes.push('justify-between');
         else if (v === 'space-around') classes.push('justify-around');
@@ -87,6 +95,9 @@ export function stylesToTailwind(styles: Record<string, string>, colors?: Record
 }
 
 export function pxToTw(prefix: string, v: string): string {
+  // Tailwind-native keyword values
+  if (v === 'auto') return `${prefix}-auto`;
+  if (v === '0') return `${prefix}-0`;
   const n = Number(v);
   if (isNaN(n)) return `${prefix}-[${v}]`;
 

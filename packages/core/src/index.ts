@@ -2,8 +2,12 @@
  * @kernlang/core — parser, types, spec, config, style engines, codegen
  */
 
+// Runtime (instance-based state)
+export { KernRuntime, defaultRuntime } from './runtime.js';
+export type { ParserHintsConfig } from './runtime.js';
+
 // Core
-export { parse, parseDocument, registerParserHints, unregisterParserHints, clearParserHints, tokenizeLine } from './parser.js';
+export { parse, parseDocument, parseWithDiagnostics, parseDocumentWithDiagnostics, parseStrict, parseDocumentStrict, getParseDiagnostics, registerParserHints, unregisterParserHints, clearParserHints, tokenizeLine } from './parser.js';
 export type { Token, TokenKind } from './parser.js';
 export { decompile } from './decompiler.js';
 export { KernParseError } from './errors.js';
@@ -19,6 +23,10 @@ export type {
   DecompileResult,
   GeneratedArtifact,
   KernEngine,
+  ParseDiagnostic,
+  ParseDiagnosticSeverity,
+  ParseErrorCode,
+  ParseResult,
 } from './types.js';
 
 // Config
@@ -43,34 +51,26 @@ export {
   registerEvolvedType, unregisterEvolvedType, isKnownNodeType, getEvolvedTypes, clearEvolvedTypes, KERN_RESERVED,
 } from './spec.js';
 
+// Schema validation
+export { validateSchema, NODE_SCHEMAS } from './schema.js';
+export type { NodeSchema, PropSchema, PropKind, SchemaViolation } from './schema.js';
+
 // Style engines
 export { stylesToTailwind, colorToTw, pxToTw, DEFAULT_COLORS } from './styles-tailwind.js';
 export { expandStyles, expandStyleKey, expandStyleValue } from './styles-react.js';
 
-// Codegen core
+// Codegen — public entry points
 export {
   generateCoreNode, isCoreNode, CORE_NODE_TYPES,
-  generateType, generateInterface, generateUnion, generateService, generateFunction,
-  generateMachine, generateMachineReducer, generateError, generateModule,
-  generateConfig, generateStore, generateTest, generateEvent,
-  generateImport, generateConst,
-  generateOn, generateWebSocket,
-  // Ground layer
-  generateDerive, generateTransform, generateAction, generateGuard,
-  generateAssume, generateInvariant, generateEach, generateCollect,
-  generateBranch, generateResolve, generateExpect, generateRecover,
-  generatePattern, generateApply,
-  emitReasonAnnotations, emitLowConfidenceTodo,
-  parseParamList, capitalize, exportPrefix,
+  generateMachineReducer,
   // Safe emitters (prompt-injection immunity)
-  emitIdentifier, emitStringLiteral, emitPath, emitTemplateSafe,
-  // Shared IR node helpers
+  emitIdentifier, emitStringLiteral, emitPath, emitTemplateSafe, emitTypeAnnotation, emitImportSpecifier,
+  // Shared IR node helpers (used by transpiler packages)
   getProps, getChildren, getFirstChild, getStyles, getPseudoStyles, getThemeRefs,
-  dedent, cssPropertyName, handlerCode,
-  // Graduated nodes
-  generateConditional, generateSelect,
-  generateModel, generateRepository, generateDependency, generateCache,
-  // Evolved generators (v4)
+  dedent, cssPropertyName, handlerCode, exportPrefix,
+  parseParamList, capitalize,
+  emitReasonAnnotations, emitLowConfidenceTodo,
+  // Evolved generators — prefer KernRuntime for new code
   registerEvolvedGenerator, registerEvolvedTargetGenerator, unregisterEvolvedGenerator, clearEvolvedGenerators, hasEvolvedGenerator,
 } from './codegen-core.js';
 

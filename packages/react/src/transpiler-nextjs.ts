@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, TailwindVersionProfile, NextjsVersionProfile, AccountedEntry } from '@kernlang/core';
-import { stylesToTailwind, colorToTw, countTokens, serializeIR, camelKey, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, buildNextjsProfile, applyTailwindTokenRules, getProps, getStyles, buildDiagnostics, accountNode } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, TailwindVersionProfile, NextjsVersionProfile, AccountedEntry } from '@kernlang/core';
+import { stylesToTailwind, colorToTw, countTokens, serializeIR, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, buildNextjsProfile, applyTailwindTokenRules, getProps, getStyles, buildDiagnostics, accountNode } from '@kernlang/core';
 import { planStructure } from './structure.js';
 import type { PlannedFile } from './structure.js';
 import { buildStructuredArtifacts } from './artifact-utils.js';
@@ -123,15 +123,29 @@ function emitImports(ctx: Ctx): string[] {
 }
 
 function twClasses(node: IRNode, ctx: Ctx, extra: string = ''): string {
-  const styles = getStyles(node);
+  const rawStyles = getStyles(node);
+  // Expand semicolon-separated values that the parser merged into one entry
+  const styles: Record<string, string> = {};
+  for (const [k, v] of Object.entries(rawStyles)) {
+    if (v.includes(';')) {
+      const segs = v.split(';').map(s => s.trim()).filter(Boolean);
+      styles[k] = segs[0];
+      for (let i = 1; i < segs.length; i++) {
+        const ci = segs[i].indexOf(':');
+        if (ci > 0) styles[segs[i].slice(0, ci).trim()] = segs[i].slice(ci + 1).trim();
+      }
+    } else {
+      styles[k] = v;
+    }
+  }
   // Extract className pass-through (e.g. {className:doc.page} → className={doc.page})
   const classNameRef = styles.className;
   const inlineStyles: Record<string, string> = {};
   const filteredStyles: Record<string, string> = {};
   for (const [k, v] of Object.entries(styles)) {
     if (k === 'className') continue;
-    // CSS custom properties and complex values → inline style
-    if (v.includes('var(') || k === 'borderBottom' || k === 'background' || k === 'color' || k === 'fontFamily') {
+    // Vendor-prefixed properties, CSS custom properties, and complex values → inline style
+    if (k.startsWith('-') || v.includes('var(') || k === 'borderBottom' || k === 'background' || k === 'color' || k === 'fontFamily') {
       inlineStyles[k] = v;
     } else {
       filteredStyles[k] = v;
@@ -142,17 +156,37 @@ function twClasses(node: IRNode, ctx: Ctx, extra: string = ''): string {
   const parts = [tw, extra].filter(Boolean);
   const attrs: string[] = [];
   if (classNameRef) {
-    // className is a JS expression reference like doc.page
-    if (parts.length > 0) {
-      attrs.push(` className={\`\${${classNameRef}} ${parts.join(' ')}\`}`);
+    // Detect if className is a JS expression (contains . or [) vs a plain CSS class string
+    const isExpr = /[.\[\](]/.test(classNameRef);
+    if (isExpr) {
+      if (parts.length > 0) {
+        attrs.push(` className={\`\${${classNameRef}} ${parts.join(' ')}\`}`);
+      } else {
+        attrs.push(` className={${classNameRef}}`);
+      }
     } else {
-      attrs.push(` className={${classNameRef}}`);
+      // Plain CSS class name(s) — quote them
+      if (parts.length > 0) {
+        attrs.push(` className="${classNameRef} ${parts.join(' ')}"`);
+      } else {
+        attrs.push(` className="${classNameRef}"`);
+      }
     }
   } else if (parts.length > 0) {
     attrs.push(` className="${parts.join(' ')}"`);
   }
   if (Object.keys(inlineStyles).length > 0) {
-    const pairs = Object.entries(inlineStyles).map(([k, v]) => `${k}: '${v}'`);
+    const pairs = Object.entries(inlineStyles).map(([k, v]) => {
+      let jsKey: string;
+      if (k.startsWith('-')) {
+        // Vendor prefix: -webkit-background-clip → WebkitBackgroundClip
+        jsKey = k.slice(1).replace(/-([a-z])/g, (_, c) => c.toUpperCase())
+          .replace(/^[a-z]/, c => c.toUpperCase());
+      } else {
+        jsKey = k.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      }
+      return `${jsKey}: '${v}'`;
+    });
     attrs.push(` style={{ ${pairs.join(', ')} }}`);
   }
   return attrs.join('');
@@ -197,6 +231,8 @@ function renderNode(node: IRNode, ctx: Ctx, indent: string): void {
     case 'conditional': renderConditional(node, ctx, indent); break;
     case 'component': renderComponent(node, ctx, indent); break;
     case 'icon': ctx.componentImports.add('Icon'); ctx.lines.push(`${indent}<Icon name="${p.name}" size="sm"${twClasses(node, ctx)} />`); break;
+    case 'svg': renderSvg(node, ctx, indent); break;
+    case 'form': ctx.lines.push(`${indent}<form${twClasses(node, ctx)}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</form>`); break;
     case 'list': ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'space-y-2')}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</div>`); break;
     case 'item': ctx.lines.push(`${indent}<div${twClasses(node, ctx)}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</div>`); break;
     case 'progress': renderProgress(node, ctx, indent); break;
@@ -528,9 +564,56 @@ function renderTableCell(node: IRNode, ctx: Ctx, indent: string, tag: 'th' | 'td
 
 function renderGrid(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
-  ctx.lines.push(`${indent}<div className="grid grid-cols-1 md:grid-cols-${p.cols || 1} gap-${Math.round(Number(p.gap || 16) / 4)}">`);
+  const cols = parseInt(String(p.cols || 1), 10) || 1;
+  const gap = parseInt(String(p.gap || 16), 10) || 16;
+  ctx.lines.push(`${indent}<div className="grid grid-cols-1 md:grid-cols-${cols} gap-${Math.round(gap / 4)}">`);
   renderChildren(node, ctx, indent);
   ctx.lines.push(`${indent}</div>`);
+}
+
+const SVG_ICONS: Record<string, string> = {
+  home: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  plus: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>',
+  chart: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+  search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>',
+  heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+  profile: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  check: '<polyline points="20 6 9 17 4 12"/>',
+  x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  arrow: '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
+};
+
+/** Convert raw HTML-style SVG attributes to JSX-safe syntax. */
+function htmlAttrsToJsx(html: string): string {
+  // Convert unquoted numeric attrs: width=52 → width={52}
+  // Convert unquoted string attrs: fill=#E63946 → fill="#E63946"
+  return html.replace(/(\w+)=([^\s"'{/>]+)/g, (_match, key: string, val: string) => {
+    if (/^[\d.]+$/.test(val)) return `${key}={${val}}`;
+    return `${key}="${val}"`;
+  });
+}
+
+function renderSvg(node: IRNode, ctx: Ctx, indent: string): void {
+  const p = getProps(node);
+  const icon = p.icon as string;
+  const size = parseInt(String(p.size || 24), 10) || 24;
+
+  if (icon) {
+    const inner = SVG_ICONS[icon] || `<circle cx="12" cy="12" r="4"/>`;
+    ctx.lines.push(`${indent}<svg xmlns="http://www.w3.org/2000/svg" width={${size}} height={${size}} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"${twClasses(node, ctx)}>${inner}</svg>`);
+  } else {
+    // Custom SVG — only emit attributes the user explicitly set (no Feather defaults)
+    const viewBox = (p.viewBox as string) || '0 0 24 24';
+    const width = parseInt(String(p.width || size), 10) || size;
+    const height = parseInt(String(p.height || size), 10) || size;
+    const content = htmlAttrsToJsx((p.content as string) || '');
+    const optAttrs: string[] = [];
+    if (p.fill) optAttrs.push(`fill="${p.fill}"`);
+    if (p.stroke) optAttrs.push(`stroke="${p.stroke}"`);
+    const extra = optAttrs.length ? ' ' + optAttrs.join(' ') : '';
+    ctx.lines.push(`${indent}<svg xmlns="http://www.w3.org/2000/svg" width={${width}} height={${height}} viewBox="${viewBox}"${extra}${twClasses(node, ctx)}>${content}</svg>`);
+  }
 }
 
 function renderConditional(node: IRNode, ctx: Ctx, indent: string): void {
@@ -627,7 +710,11 @@ function renderImport(node: IRNode, ctx: Ctx): void {
     if (isDefault) {
       addDefaultImport(ctx, from, name);
     } else {
-      addNamedImport(ctx, from, name);
+      // Support comma-separated named imports: name=Foo,Bar,Baz
+      const names = name.split(',').map(n => n.trim()).filter(Boolean);
+      for (const n of names) {
+        addNamedImport(ctx, from, n);
+      }
     }
   }
 }
@@ -708,18 +795,24 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
     addNamedImport(ctx, 'next', 'Metadata', true);
   }
 
-  // Component imports → add to unified import map
+  // Component imports → add to unified import map (skip if already imported explicitly)
   const uiLib = config?.components?.uiLibrary ?? '@/components/ui';
   const compRoot = config?.components?.componentRoot ?? '@/components';
   if (ctx.componentImports.size > 0) {
-    const uiImports = [...ctx.componentImports].filter(c => ['Icon', 'Button'].includes(c));
-    const others = [...ctx.componentImports].filter(c => !['Icon', 'Button'].includes(c));
+    // Collect names already imported via explicit import nodes
+    const alreadyImported = new Set<string>();
+    for (const spec of ctx.imports.values()) {
+      if (spec.defaultImport) alreadyImported.add(spec.defaultImport);
+      for (const n of spec.namedImports) alreadyImported.add(n);
+    }
+    const uiImports = [...ctx.componentImports].filter(c => ['Icon', 'Button'].includes(c) && !alreadyImported.has(c));
+    const others = [...ctx.componentImports].filter(c => !['Icon', 'Button'].includes(c) && !alreadyImported.has(c));
     for (const name of uiImports) addNamedImport(ctx, uiLib, name);
     for (const name of others) addDefaultImport(ctx, `${compRoot}/${name}`, name);
   }
 
   // Static metadata needs Metadata type
-  if (ctx.metadata && !ctx.isClient && !ctx.generateMetadataInfo) {
+  if (ctx.metadata && !ctx.generateMetadataInfo) {
     addNamedImport(ctx, 'next', 'Metadata', true);
   }
 
@@ -741,8 +834,10 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
 
   if (code.length > 0 && code[code.length - 1] !== '') code.push('');
 
-  // Metadata export (server components only) -- static metadata
-  if (ctx.metadata && !ctx.isClient) {
+  // Metadata export — static metadata
+  // Note: In Next.js, metadata must be in a server component. If the page is client-side,
+  // emit it anyway (user may split into layout.tsx or remove client=true).
+  if (ctx.metadata) {
     const useSatisfies = ctx.njProfile?.outputRules.metadataStyle === 'satisfies';
     code.push(useSatisfies ? `export const metadata = {` : `export const metadata: Metadata = {`);
     for (const [k, v] of Object.entries(ctx.metadata)) {
@@ -929,8 +1024,13 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
   const uiLib = config.components?.uiLibrary ?? '@/components/ui';
   const compRoot = config.components?.componentRoot ?? '@/components';
   if (ctx.componentImports.size > 0) {
-    const uiImports = [...ctx.componentImports].filter(c => ['Icon', 'Button'].includes(c));
-    const others = [...ctx.componentImports].filter(c => !['Icon', 'Button'].includes(c));
+    const alreadyImported = new Set<string>();
+    for (const spec of ctx.imports.values()) {
+      if (spec.defaultImport) alreadyImported.add(spec.defaultImport);
+      for (const n of spec.namedImports) alreadyImported.add(n);
+    }
+    const uiImports = [...ctx.componentImports].filter(c => ['Icon', 'Button'].includes(c) && !alreadyImported.has(c));
+    const others = [...ctx.componentImports].filter(c => !['Icon', 'Button'].includes(c) && !alreadyImported.has(c));
     for (const name of uiImports) addNamedImport(ctx, uiLib, name);
     for (const name of others) addDefaultImport(ctx, `${compRoot}/${name}`, name);
   }
@@ -940,7 +1040,7 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
     addNamedImport(ctx, 'next', 'Metadata', true);
   }
 
-  if (ctx.metadata && !ctx.isClient && !ctx.generateMetadataInfo) {
+  if (ctx.metadata && !ctx.generateMetadataInfo) {
     addNamedImport(ctx, 'next', 'Metadata', true);
   }
 
@@ -964,8 +1064,8 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
 
   if (code.length > 0 && code[code.length - 1] !== '') code.push('');
 
-  // Metadata (server components only)
-  if (ctx.metadata && !ctx.isClient) {
+  // Metadata — emit even for client components (user may split into layout.tsx)
+  if (ctx.metadata) {
     const useSatisfies = ctx.njProfile?.outputRules.metadataStyle === 'satisfies';
     code.push(useSatisfies ? `export const metadata = {` : `export const metadata: Metadata = {`);
     for (const [k, v] of Object.entries(ctx.metadata)) {

@@ -18,8 +18,8 @@ action name=mcp-ssrf
     pattern lang=py match="\.startswith\s*\(\s*['\"]https?://"
 
   guard name=hardcoded-host kind=validation
-    pattern lang=ts match="['\"`]https?://[a-zA-Z0-9.-]+"
-    pattern lang=py match="['\"]https?://[a-zA-Z0-9.-]+"
+    pattern lang=ts match="fetch\s*\(\s*['\"`]https?://[a-zA-Z0-9.-]+"
+    pattern lang=py match="requests\.\w+\s*\(\s*[fFrRbB]*['\"]https?://[a-zA-Z0-9.-]+"
 
   guard name=schema-validation kind=validation
     pattern lang=ts match="z\.string\(\)\.url\(\)"
@@ -30,3 +30,8 @@ action name=mcp-ssrf
     expect from=tool-params to=network-fetch guarded-by="url-parse,url-allowlist,schema-validation,hardcoded-host"
     evidence value="MCP tool passes user-controlled params to network request without URL validation — SSRF risk"
     suggestion value="Validate URLs against an allowlist or parse with new URL() and check the hostname before making requests."
+
+  invariant name=unguarded-fetch
+    expect from=source-code to=network-fetch guarded-by="url-parse,url-allowlist,schema-validation,hardcoded-host"
+    evidence value="MCP server makes network requests without URL validation — SSRF risk even if params don't flow directly"
+    suggestion value="All fetch/request calls in MCP servers should validate URLs against an allowlist."

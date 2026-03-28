@@ -11,7 +11,7 @@
 
 import type { ReviewFinding, SourceSpan } from '@kernlang/review';
 import { createFingerprint } from '@kernlang/review';
-import type { CompiledMCPRule, CompiledSink, CompiledGuard, CompiledInvariant } from './rule-compiler.js';
+import type { CompiledMCPRule, CompiledSink } from './rule-compiler.js';
 import { findToolHandlerRegions, isCommentLine, isMCPServer } from './rules/mcp-security.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -116,12 +116,15 @@ function collectTaintedVars(
       tainted.add(assignMatch[1]);
     }
 
-    // Destructuring: const { a, b } = <source>
+    // Destructuring: const { a, b, prop: alias } = <source>
+    // For renaming destructuring (prop: alias), taint the LOCAL alias, not the property name
     const destructMatch = line.match(/\b(?:const|let|var)\s+\{\s*([^}]+)\}\s*=\s*(.*)/);
     if (destructMatch && sourcePattern.test(destructMatch[2])) {
       for (const name of destructMatch[1].split(',')) {
-        const clean = name.trim().split(/\s*[:=]\s*/)[0].trim();
-        if (clean && /^\w+$/.test(clean)) tainted.add(clean);
+        const parts = name.trim().split(/\s*:\s*/);
+        // { prop: alias } → taint "alias"; { prop } → taint "prop"
+        const localName = (parts.length > 1 ? parts[parts.length - 1] : parts[0]).trim().split(/\s*=\s*/)[0].trim();
+        if (localName && /^\w+$/.test(localName)) tainted.add(localName);
       }
     }
 
@@ -141,13 +144,14 @@ function collectTaintedVars(
 
       // const/let/var name = <tainted_var>
       // BUT: skip function call results — `res = await fetch(tainted)` does NOT taint `res`
-      // The return value of a function is not the same as its arguments.
+      // EXCEPT: taint-preserving transforms that pass data through unchanged
       const assignMatch = line.match(/\b(?:const|let|var)\s+(\w+)\s*=\s*(.*)/);
       if (assignMatch && !tainted.has(assignMatch[1])) {
         const rhs = assignMatch[2].trim();
-        // Skip if RHS is a function/method call (return value ≠ argument flow)
         const isCallResult = /^(?:await\s+)?\w[\w.]*\s*\(/.test(rhs);
-        if (!isCallResult) {
+        // Taint-preserving: encodeURIComponent(x), encodeURI(x), String(x), x.trim(), x.toString(), etc.
+        const isTaintPreserving = isCallResult && /^(?:encodeURIComponent|encodeURI|String|decodeURIComponent|decodeURI|JSON\.stringify)\s*\(/.test(rhs);
+        if (!isCallResult || isTaintPreserving) {
           for (const tv of tainted) {
             if (new RegExp(`\\b${tv}\\b`).test(rhs)) {
               tainted.add(assignMatch[1]);
@@ -157,12 +161,13 @@ function collectTaintedVars(
         }
       }
 
-      // Python assignment (same call-result exclusion)
+      // Python assignment (same call-result exclusion + taint-preserving)
       const pyAssign = line.match(/^\s*(\w+)\s*=\s*(.*)/);
       if (pyAssign && !tainted.has(pyAssign[1])) {
         const rhs = pyAssign[2].trim();
         const isCallResult = /^(?:await\s+)?\w[\w.]*\s*\(/.test(rhs);
-        if (!isCallResult) {
+        const isTaintPreservingPy = isCallResult && /^(?:str|urllib\.parse\.quote|urllib\.parse\.urlencode|json\.dumps)\s*\(/.test(rhs);
+        if (!isCallResult || isTaintPreservingPy) {
           for (const tv of tainted) {
             if (new RegExp(`\\b${tv}\\b`).test(rhs)) {
               tainted.add(pyAssign[1]);
@@ -368,7 +373,8 @@ function runSingleRule(
       }
     }
 
-    if (matchedSinks.length === 0) continue;
+    // Allow through if invariants use source-code scope (sinks may be in helper functions)
+    if (matchedSinks.length === 0 && !rule.invariants.some(i => i.from === 'source-code' || i.from === 'tool-handler')) continue;
 
     // Check which guards are present in this handler (skip comment lines)
     const matchedGuards = new Set<string>();
@@ -396,7 +402,8 @@ function runSingleRule(
 
       // Find sinks referenced by this invariant
       const targetSinks = matchedSinks.filter(ms => ms.sink.name === inv.to || ms.sink.kind === inv.to);
-      if (!isHandlerScope && targetSinks.length === 0) continue;
+      const isSourceScope = inv.from === 'source-code';
+      if (!isHandlerScope && !isSourceScope && targetSinks.length === 0) continue;
 
       // Check if required guards are present
       const guardsSatisfied = inv.guardedBy.length === 0 ||
@@ -425,25 +432,70 @@ function runSingleRule(
         const sinkPatterns = targetSinks.flatMap(ms => langPatterns(ms.sink.patterns, lang));
         if (sinkPatterns.length === 0) continue;
         if (!hasSecretFlowToResponse(lines, region.start, region.end, sinkPatterns, lang)) continue;
+      } else if (inv.from === 'source-code') {
+        // Source-code scope: check the ENTIRE file, not just handler region.
+        // Real code calls helper functions from handlers — sinks may be outside the region.
+        const allSinkPatterns = rule.sinks
+          .filter(s => s.name === inv.to || s.kind === inv.to)
+          .flatMap(s => langPatterns(s.patterns, lang));
+        if (allSinkPatterns.length === 0) continue;
+        const fileMatchLines = findMatchLines(lines, allSinkPatterns, 0);
+        if (fileMatchLines.length === 0) continue;
+        // Check if any guard is present anywhere in the file
+        const fileBlock = source;
+        const hasFileGuard = inv.guardedBy.some(g => {
+          const guard = rule.guards.find(gd => gd.name === g);
+          if (!guard) return false;
+          return anyMatch(langPatterns(guard.patterns, lang), fileBlock);
+        });
+        if (hasFileGuard) continue;
       }
-      // from=source-code: no additional from-check — sinks already matched in block
+      // fallthrough: other from values — sinks already matched in block
 
-      // Invariant violated — emit finding at first sink match line (or region start for absence rules)
-      const firstSinkLine = targetSinks.length > 0
-        ? targetSinks[0].matchLines[0]
-        : region.start + 1;
-      findings.push({
-        source: 'kern',
-        ruleId: rule.ruleId,
-        severity: rule.severity,
-        category: 'bug',
-        message: inv.evidence || `MCP security rule "${rule.ruleId}" violated — ${inv.name}`,
-        primarySpan: span(filePath, firstSinkLine),
-        fingerprint: createFingerprint(rule.ruleId, firstSinkLine, 1),
-        suggestion: inv.suggestion,
-        confidence: rule.confidence,
-      });
-      break;  // One finding per invariant per region
+      // Invariant violated — emit findings
+      if (isSourceScope) {
+        // Source-code scope: emit per distinct match line so helper functions
+        // outside the handler region each get their own finding.
+        // Cap at MAX_SOURCE_SCOPE_FINDINGS to avoid noise (e.g. rug-pull on
+        // every variable-based tool name in the same file).
+        const MAX_SOURCE_SCOPE_FINDINGS = 5;
+        const allSP = rule.sinks.filter(s => s.name === inv.to || s.kind === inv.to).flatMap(s => langPatterns(s.patterns, lang));
+        const fml = findMatchLines(lines, allSP, 0);
+        const matchesToEmit = fml.length > 0 ? fml.slice(0, MAX_SOURCE_SCOPE_FINDINGS) : [region.start + 1];
+        for (const matchLine of matchesToEmit) {
+          findings.push({
+            source: 'kern',
+            ruleId: rule.ruleId,
+            severity: rule.severity,
+            category: 'bug',
+            message: inv.evidence || `MCP security rule "${rule.ruleId}" violated — ${inv.name}`,
+            primarySpan: span(filePath, matchLine),
+            fingerprint: createFingerprint(rule.ruleId, matchLine, 1),
+            suggestion: inv.suggestion,
+            confidence: rule.confidence,
+          });
+        }
+      } else {
+        // Handler-scoped: one finding per invariant per region
+        let firstSinkLine: number;
+        if (targetSinks.length > 0) {
+          firstSinkLine = targetSinks[0].matchLines[0];
+        } else {
+          firstSinkLine = region.start + 1;
+        }
+        findings.push({
+          source: 'kern',
+          ruleId: rule.ruleId,
+          severity: rule.severity,
+          category: 'bug',
+          message: inv.evidence || `MCP security rule "${rule.ruleId}" violated — ${inv.name}`,
+          primarySpan: span(filePath, firstSinkLine),
+          fingerprint: createFingerprint(rule.ruleId, firstSinkLine, 1),
+          suggestion: inv.suggestion,
+          confidence: rule.confidence,
+        });
+      }
+      break;  // One invariant check per region (source-code emits per-match above)
     }
 
     // If no invariants, fall back to structural check: sinks without guards

@@ -5,8 +5,11 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "kern-mcp-security": "./dist/cli.js"
+  },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && node scripts/compile-rules.mjs",
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --forceExit --config jest.config.js"
   },
   "dependencies": {

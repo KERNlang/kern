@@ -6,7 +6,7 @@
  */
 
 import { parse } from '@kernlang/core';
-import { KERN_RESERVED, NODE_TYPES, registerParserHints, unregisterParserHints } from '@kernlang/core';
+import { KERN_RESERVED, registerParserHints, unregisterParserHints } from '@kernlang/core';
 import { ts } from 'ts-morph';
 import { compileSandboxedGenerator } from './sandboxed-generator.js';
 import { checkDedup } from './evolve-dedup.js';

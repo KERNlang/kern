@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, AccountedEntry } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR, cssPropertyName, buildDiagnostics, accountNode } from '@kernlang/core';
+import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR, buildDiagnostics, accountNode } from '@kernlang/core';
 import { planStructure } from './structure.js';
 import type { PlannedFile } from './structure.js';
 import { buildStructuredArtifacts } from './artifact-utils.js';
@@ -22,6 +22,12 @@ const NODE_TO_ELEMENT: Record<string, string> = {
   tabs: 'nav',
   tab: 'button',
   header: 'header',
+  form: 'form',
+  textarea: 'textarea',
+  page: 'div',
+  grid: 'div',
+  section: 'section',
+  svg: 'svg',
 };
 
 

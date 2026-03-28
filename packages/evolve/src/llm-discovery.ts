@@ -8,9 +8,8 @@
  * The actual LLM call is handled by llm-provider.ts.
  */
 
-import { readdirSync, readFileSync, statSync } from 'fs';
-import { resolve, join, relative, dirname, basename, extname } from 'path';
-import { NODE_TYPES } from '@kernlang/core';
+import { readdirSync, statSync } from 'fs';
+import { resolve, join, dirname } from 'path';
 import type { EvolveNodeProposal, EvolvedNodeProp } from './evolved-types.js';
 
 // ── File Selection ───────────────────────────────────────────────────────

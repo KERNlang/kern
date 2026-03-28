@@ -1,3 +1,5 @@
+import type { ParseDiagnostic } from './types.js';
+
 /**
  * Kern Error Types
  */
@@ -18,6 +20,8 @@ export class KernError extends Error {
 }
 
 export class KernParseError extends KernError {
+  diagnostics: ParseDiagnostic[] = [];
+
   constructor(message: string, line: number, col: number, source: string) {
     super(`Parse error: ${message}`, line, col, source);
     this.name = 'KernParseError';

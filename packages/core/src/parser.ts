@@ -1,7 +1,61 @@
-import type { IRNode, IRSourceLocation } from './types.js';
+import type { IRNode, IRSourceLocation, ParseDiagnostic, ParseErrorCode, ParseResult } from './types.js';
 import { KernParseError } from './errors.js';
+import { isKnownNodeType } from './spec.js';
+import { defaultRuntime, type KernRuntime } from './runtime.js';
+import type { ParserHintsConfig } from './runtime.js';
+import { validateSchema } from './schema.js';
 
-let _parseWarnings: string[] = [];
+interface ParseState {
+  diagnostics: ParseDiagnostic[];
+}
+
+interface EmitDiagnosticOptions {
+  endCol?: number;
+  suggestion?: string;
+}
+
+// Parse diagnostics now live in defaultRuntime. This alias provides backward compatibility.
+
+const DIAGNOSTIC_SUGGESTIONS: Record<ParseErrorCode, string> = {
+  UNCLOSED_EXPR: 'Close the `{{ ... }}` expression or move the unfinished code into a quoted string.',
+  UNCLOSED_STYLE: 'Close the `{ ... }` style block with `}` and keep any commas inside the block.',
+  UNCLOSED_STRING: 'Add the missing closing quote or escape any embedded quotes inside the string.',
+  UNEXPECTED_TOKEN: 'Remove the stray token or quote it so the parser can treat it as a value.',
+  EMPTY_DOCUMENT: 'Add at least one root KERN node such as `screen`, `view`, or `text`.',
+  INVALID_INDENT: 'Replace tabs with spaces so indentation is consistent across sibling nodes.',
+  UNKNOWN_NODE_TYPE: 'Rename this node to a supported KERN keyword or register it as an evolved node type.',
+  INDENT_JUMP: 'Align this line with an existing indentation level so the parent-child structure is unambiguous.',
+  DUPLICATE_PROP: 'Remove the duplicate property or merge the values into a single prop assignment.',
+  DROPPED_LINE: 'Rewrite this line so it starts with a valid KERN node type and move stray symbols into props.',
+};
+
+function createParseState(): ParseState {
+  return { diagnostics: [] };
+}
+
+function commitParseState(state: ParseState, runtime: KernRuntime = defaultRuntime): void {
+  runtime.lastParseDiagnostics = state.diagnostics.map(d => ({ ...d }));
+}
+
+function emitDiagnostic(
+  state: ParseState,
+  code: ParseErrorCode,
+  severity: ParseDiagnostic['severity'],
+  message: string,
+  line: number,
+  col: number,
+  options: EmitDiagnosticOptions = {},
+): void {
+  state.diagnostics.push({
+    code,
+    severity,
+    message,
+    line,
+    col,
+    endCol: Math.max(options.endCol ?? (col + 1), col),
+    suggestion: options.suggestion ?? DIAGNOSTIC_SUGGESTIONS[code],
+  });
+}
 
 // ── Token types ──────────────────────────────────────────────────────────
 
@@ -39,7 +93,7 @@ function isDigit(ch: string): boolean {
 }
 
 /** Character-by-character tokenizer for a single KERN line (after indent stripped). */
-export function tokenizeLine(line: string): Token[] {
+function tokenizeLineInternal(line: string, state?: ParseState): Token[] {
   const tokens: Token[] = [];
   let i = 0;
 
@@ -65,7 +119,9 @@ export function tokenizeLine(line: string): Token[] {
         else i++;
       }
       if (depth > 0) {
-        _parseWarnings.push(`Unclosed expression block '{{' at column ${start + 1}`);
+        if (state) {
+          emitDiagnostic(state, 'UNCLOSED_EXPR', 'error', `Unclosed expression block '{{' at column ${start + 1}`, 0, start + 1, { endCol: start + 3 });
+        }
       }
       const inner = line.slice(start + 2, i).trim();
       if (i < line.length - 1) i += 2; else i = line.length;
@@ -86,7 +142,9 @@ export function tokenizeLine(line: string): Token[] {
         j++;
       }
       if (!closed) {
-        _parseWarnings.push(`Unclosed style block '{' at column ${start + 1}`);
+        if (state) {
+          emitDiagnostic(state, 'UNCLOSED_STYLE', 'error', `Unclosed style block '{' at column ${start + 1}`, 0, start + 1, { endCol: start + 2 });
+        }
       }
       tokens.push({ kind: 'style', value: line.slice(start + 1, closed ? j - 1 : j), pos: start });
       i = j;
@@ -110,7 +168,9 @@ export function tokenizeLine(line: string): Token[] {
         }
       }
       if (i >= line.length) {
-        _parseWarnings.push(`Unclosed quoted string at column ${start + 1}`);
+        if (state) {
+          emitDiagnostic(state, 'UNCLOSED_STRING', 'error', `Unclosed quoted string at column ${start + 1}`, 0, start + 1, { endCol: start + 2 });
+        }
       } else {
         i++; // skip closing quote
       }
@@ -179,6 +239,10 @@ export function tokenizeLine(line: string): Token[] {
   }
 
   return tokens;
+}
+
+export function tokenizeLine(line: string): Token[] {
+  return tokenizeLineInternal(line);
 }
 
 // ── Token stream ─────────────────────────────────────────────────────────
@@ -266,11 +330,17 @@ function tokenValue(tok: Token): unknown {
 }
 
 /** Try to parse a key=value prop from the stream. Returns true if consumed. */
-function parseProp(s: TokenStream, props: Record<string, unknown>): boolean {
+function parseProp(state: ParseState, s: TokenStream, props: Record<string, unknown>, lineNum?: number, col?: number): boolean {
   if (!s.isKeyValue()) return false;
   s.skipWS();
-  const key = s.next()!.value; // identifier
+  const keyTok = s.next()!;
+  const key = keyTok.value; // identifier
   s.next(); // =
+  if (key in props) {
+    emitDiagnostic(state, 'DUPLICATE_PROP', 'warning', `Duplicate property '${key}' at line ${lineNum ?? 0}`, lineNum ?? 0, (col ?? 0) + keyTok.pos, {
+      endCol: (col ?? 0) + keyTok.pos + key.length,
+    });
+  }
   const valTok = s.peek();
   if (!valTok || valTok.kind === 'whitespace') {
     props[key] = '';
@@ -299,6 +369,7 @@ function parseProp(s: TokenStream, props: Record<string, unknown>): boolean {
 
 interface ParsedLine {
   indent: number;
+  rawLength: number;
   type: string;
   props: Record<string, unknown>;
   styles: Record<string, string>;
@@ -307,41 +378,26 @@ interface ParsedLine {
   loc: IRSourceLocation;
 }
 
-const MULTILINE_BLOCK_TYPES = new Set(['logic', 'handler', 'cleanup', 'body']);
+// defaultRuntime.multilineBlockTypes now lives in defaultRuntime.multilineBlockTypes
+// (initialized with 'logic', 'handler', 'cleanup', 'body' by the KernRuntime constructor).
 
 // ── Evolved Node Parser Hints (v4) ──────────────────────────────────────
 
-interface ParserHintsConfig {
-  positionalArgs?: string[];
-  bareWord?: string;
-  multilineBlock?: string;
-}
-
-const _parserHints = new Map<string, ParserHintsConfig>();
+// ParserHintsConfig is now defined in runtime.ts. Parser hints live in defaultRuntime.
 
 /** Register parser hints for an evolved node type. */
 export function registerParserHints(keyword: string, hints: ParserHintsConfig): void {
-  _parserHints.set(keyword, hints);
-  if (hints.multilineBlock) {
-    MULTILINE_BLOCK_TYPES.add(keyword);
-  }
+  defaultRuntime.registerParserHints(keyword, hints);
 }
 
 /** Unregister parser hints (for rollback/testing). */
 export function unregisterParserHints(keyword: string): void {
-  const hints = _parserHints.get(keyword);
-  if (hints?.multilineBlock) {
-    MULTILINE_BLOCK_TYPES.delete(keyword);
-  }
-  _parserHints.delete(keyword);
+  defaultRuntime.unregisterParserHints(keyword);
 }
 
 /** Clear all parser hints (for test isolation). */
 export function clearParserHints(): void {
-  for (const [keyword, hints] of _parserHints) {
-    if (hints.multilineBlock) MULTILINE_BLOCK_TYPES.delete(keyword);
-  }
-  _parserHints.clear();
+  defaultRuntime.clearParserHints();
 }
 
 // ── Keyword handlers ─────────────────────────────────────────────────────
@@ -481,20 +537,46 @@ const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
 
 // ── parseLine (token-based) ──────────────────────────────────────────────
 
-function parseLine(raw: string, lineNum: number): ParsedLine | null {
+function parseLine(state: ParseState, raw: string, lineNum: number, runtime: KernRuntime = defaultRuntime): ParsedLine | null {
   if (raw.trim() === '') return null;
 
   const indent = raw.search(/\S/);
+  const indentText = raw.slice(0, indent);
   const content = raw.slice(indent);
   const col = indent + 1;
 
-  const tokens = tokenizeLine(content);
+  if (indentText.includes('\t')) {
+    emitDiagnostic(state, 'INVALID_INDENT', 'warning', `Tab indentation at line ${lineNum}`, lineNum, 1, {
+      endCol: indent + 1,
+    });
+  }
+
+  const diagBefore = state.diagnostics.length;
+  const tokens = tokenizeLineInternal(content, state);
+  for (let d = diagBefore; d < state.diagnostics.length; d++) {
+    if (state.diagnostics[d].line === 0) state.diagnostics[d].line = lineNum;
+    state.diagnostics[d].col += indent;
+    state.diagnostics[d].endCol += indent;
+  }
   const s = new TokenStream(tokens);
 
   // First token must be an identifier (the node type)
   const typeToken = s.tryIdent();
-  if (!typeToken) return null;
+  if (!typeToken) {
+    const firstToken = tokens.find(tok => tok.kind !== 'whitespace');
+    if (firstToken) {
+      emitDiagnostic(state, 'DROPPED_LINE', 'error', `Dropped line ${lineNum}: expected a node type at the start of the line`, lineNum, col + firstToken.pos, {
+        endCol: col + content.length,
+      });
+    }
+    return null;
+  }
   const type = typeToken;
+  if (!isKnownNodeType(type, runtime) && !runtime.multilineBlockTypes.has(type) && !runtime.isTemplateNode(type)) {
+    emitDiagnostic(state, 'UNKNOWN_NODE_TYPE', 'warning', `Unknown node type '${type}' at line ${lineNum}`, lineNum, col, {
+      endCol: col + type.length,
+    });
+  }
 
   const props: Record<string, unknown> = {};
   const styles: Record<string, string> = {};
@@ -502,7 +584,7 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
   const themeRefs: string[] = [];
 
   // ── Evolved node parser hints (v4) ──────────────────────────────────
-  const evolvedHints = _parserHints.get(type);
+  const evolvedHints = runtime.parserHints.get(type);
   if (evolvedHints) {
     if (evolvedHints.positionalArgs) {
       for (const argName of evolvedHints.positionalArgs) {
@@ -545,22 +627,25 @@ function parseLine(raw: string, lineNum: number): ParsedLine | null {
     }
 
     // Key=value prop (extracted helper from Codex)
-    if (parseProp(s, props)) continue;
+    if (parseProp(state, s, props, lineNum, col)) continue;
 
     // Unknown token — skip with warning
     const skipped = s.next()!;
     const errCol = col + skipped.pos;
-    _parseWarnings.push(`Unexpected token "${skipped.value}" at line ${lineNum}:${errCol}`);
+    emitDiagnostic(state, 'UNEXPECTED_TOKEN', 'warning', `Unexpected token "${skipped.value}" at line ${lineNum}:${errCol}`, lineNum, errCol, {
+      endCol: errCol + skipped.value.length,
+    });
   }
 
   return {
     indent,
+    rawLength: content.length,
     type,
     props,
     styles,
     pseudoStyles,
     themeRefs,
-    loc: { line: lineNum, col },
+    loc: { line: lineNum, col, endLine: lineNum, endCol: col + content.length },
   };
 }
 
@@ -676,26 +761,30 @@ function expandMinified(source: string): string {
 }
 
 /** Get warnings from the last parse() call */
-export function getParseWarnings(): string[] { return [..._parseWarnings]; }
+export function getParseWarnings(): string[] {
+  return defaultRuntime.lastParseDiagnostics.map(d => d.message);
+}
 
 // ── Shared parse helpers ─────────────────────────────────────────────────
 
 /** Process source lines into ParsedLine entries (multiline blocks + regular lines). */
-function parseLines(source: string): ParsedLine[] {
+function parseLines(state: ParseState, source: string, runtime: KernRuntime = defaultRuntime): ParsedLine[] {
   const lines = expandMinified(source).split('\n');
   const parsed: ParsedLine[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trimStart();
 
-    const multilineType = [...MULTILINE_BLOCK_TYPES].find(type => trimmed.startsWith(`${type} <<<`));
+    const multilineType = [...runtime.multilineBlockTypes].find(type => trimmed.startsWith(`${type} <<<`));
     if (multilineType) {
       const indent = lines[i].search(/\S/);
       const codeLines: string[] = [];
       const startLine = i + 1;
       const blockOpen = `${multilineType} <<<`;
       const afterOpen = trimmed.slice(blockOpen.length);
+      let closed = false;
       if (afterOpen.includes('>>>')) {
+        closed = true;
         codeLines.push(afterOpen.split('>>>')[0]);
       } else {
         i++;
@@ -704,6 +793,7 @@ function parseLines(source: string): ParsedLine[] {
           i++;
         }
         if (i < lines.length) {
+          closed = true;
           const closeLine = lines[i];
           const closeIdx = closeLine.indexOf('>>>');
           if (closeIdx > 0) {
@@ -712,19 +802,31 @@ function parseLines(source: string): ParsedLine[] {
           }
         }
       }
+      if (!closed) {
+        emitDiagnostic(state, 'UNEXPECTED_TOKEN', 'error', `Unclosed multiline block '${multilineType} <<<' at line ${startLine}`, startLine, indent + 1, {
+          endCol: indent + 1 + blockOpen.length,
+          suggestion: `Close the '${multilineType} <<<' block with a matching '>>>' marker before the file ends.`,
+        });
+      }
       parsed.push({
         indent,
+        rawLength: lines[startLine - 1].slice(indent).length,
         type: multilineType,
         props: { code: codeLines.join('\n').replace(/^\n+|\n+$/g, '') },
         styles: {},
         pseudoStyles: {},
         themeRefs: [],
-        loc: { line: startLine, col: indent + 1 },
+        loc: {
+          line: startLine,
+          col: indent + 1,
+          endLine: startLine,
+          endCol: indent + 1 + lines[startLine - 1].slice(indent).length,
+        },
       });
       continue;
     }
 
-    const p = parseLine(lines[i], i + 1);
+    const p = parseLine(state, lines[i], i + 1, runtime);
     if (p) parsed.push(p);
   }
 
@@ -746,17 +848,25 @@ function toNode(p: ParsedLine): IRNode {
 }
 
 /** Build a tree from parsed lines using indent-based stack. */
-function buildTree(parsed: ParsedLine[], root: IRNode, rootIndent: number): void {
+function buildTree(state: ParseState, parsed: ParsedLine[], root: IRNode, rootIndent: number): void {
   const stack: { node: IRNode; indent: number }[] = [{ node: root, indent: rootIndent }];
+  const seenIndents = new Set<number>([rootIndent]);
 
   for (let i = 0; i < parsed.length; i++) {
     const p = parsed[i];
     const node = toNode(p);
 
+    if (p.indent < (stack[stack.length - 1]?.indent ?? 0) && !seenIndents.has(p.indent)) {
+      emitDiagnostic(state, 'INDENT_JUMP', 'warning', `Dedent to unseen indent level ${p.indent} at line ${p.loc.line}`, p.loc.line, p.loc.col, {
+        endCol: p.loc.col + p.type.length,
+      });
+    }
+
     while (stack.length > 1 && stack[stack.length - 1].indent >= p.indent) {
       stack.pop();
     }
 
+    seenIndents.add(p.indent);
     const parent = stack[stack.length - 1].node;
     if (!parent.children) parent.children = [];
     parent.children.push(node);
@@ -773,19 +883,36 @@ function buildTree(parsed: ParsedLine[], root: IRNode, rootIndent: number): void
  * top-level nodes as children of the first node.
  * @see parseDocument
  */
-export function parse(source: string): IRNode {
-  _parseWarnings = [];
-  const parsed = parseLines(source);
+function parseInternal(source: string, asDocument: boolean, runtime?: KernRuntime): ParseResult {
+  const rt = runtime ?? defaultRuntime;
+  const state = createParseState();
+  const parsed = parseLines(state, source, rt);
 
   if (parsed.length === 0) {
-    return { type: 'document', children: [], loc: { line: 1, col: 1 } };
+    if (source.trim() === '') {
+      emitDiagnostic(state, 'EMPTY_DOCUMENT', 'info', 'Source document is empty', 1, 1, { endCol: 1 });
+    }
+    const root = { type: 'document', children: [], loc: { line: 1, col: 1, endLine: 1, endCol: 1 } };
+    commitParseState(state, rt);
+    return { root, diagnostics: [...state.diagnostics] };
   }
 
-  const root = toNode(parsed[0]);
-  buildTree(parsed.slice(1), root, parsed[0].indent);
-  computeEndSpans(root);
+  let root: IRNode;
+  if (asDocument) {
+    root = { type: 'document', children: [], loc: { line: 1, col: 1 } };
+    buildTree(state, parsed, root, -1);
+  } else {
+    root = toNode(parsed[0]);
+    buildTree(state, parsed.slice(1), root, parsed[0].indent);
+  }
 
-  return root;
+  computeEndSpans(root);
+  commitParseState(state, rt);
+  return { root, diagnostics: [...state.diagnostics] };
+}
+
+export function parse(source: string, runtime?: KernRuntime): IRNode {
+  return parseInternal(source, false, runtime).root;
 }
 
 /**
@@ -793,19 +920,8 @@ export function parse(source: string): IRNode {
  * Unlike parse(), this always returns a `document` root so multiple
  * top-level nodes (e.g., multiple `rule` definitions) are siblings.
  */
-export function parseDocument(source: string): IRNode {
-  _parseWarnings = [];
-  const parsed = parseLines(source);
-
-  if (parsed.length === 0) {
-    return { type: 'document', children: [], loc: { line: 1, col: 1 } };
-  }
-
-  const doc: IRNode = { type: 'document', children: [], loc: { line: 1, col: 1 } };
-  buildTree(parsed, doc, -1);
-  computeEndSpans(doc);
-
-  return doc;
+export function parseDocument(source: string, runtime?: KernRuntime): IRNode {
+  return parseInternal(source, true, runtime).root;
 }
 
 /** Recursively compute endLine/endCol for each node based on its last child. */
@@ -818,7 +934,67 @@ function computeEndSpans(node: IRNode): void {
       node.loc.endCol = lastChild.loc.endCol ?? lastChild.loc.col;
     }
   } else if (node.loc) {
-    node.loc.endLine = node.loc.line;
-    node.loc.endCol = node.loc.col;
+    node.loc.endLine = node.loc.endLine ?? node.loc.line;
+    node.loc.endCol = node.loc.endCol ?? node.loc.col;
   }
+}
+
+// ── Diagnostics API ──────────────────────────────────────────────────────
+
+/** Get structured diagnostics from the last parse() call. */
+export function getParseDiagnostics(runtime?: KernRuntime): ParseDiagnostic[] {
+  const rt = runtime ?? defaultRuntime;
+  return [...rt.lastParseDiagnostics];
+}
+
+/** Parse with diagnostics — returns both tree and structured diagnostics. */
+export function parseWithDiagnostics(source: string, runtime?: KernRuntime): ParseResult {
+  return parseInternal(source, false, runtime);
+}
+
+/** Parse with diagnostics (document mode). */
+export function parseDocumentWithDiagnostics(source: string, runtime?: KernRuntime): ParseResult {
+  return parseInternal(source, true, runtime);
+}
+
+/** Strict parse — throws KernParseError if any diagnostic has severity=error or schema violation. */
+export function parseStrict(source: string, runtime?: KernRuntime): IRNode {
+  const { root, diagnostics } = parseWithDiagnostics(source, runtime);
+  const errors = diagnostics.filter(d => d.severity === 'error');
+  if (errors.length > 0) {
+    const first = errors[0];
+    const err = new KernParseError(first.message, first.line, first.col, source);
+    err.diagnostics = diagnostics;
+    throw err;
+  }
+  // Schema validation — catch malformed ASTs before they reach codegen
+  const violations = validateSchema(root);
+  if (violations.length > 0) {
+    const first = violations[0];
+    const err = new KernParseError(first.message, first.line ?? 1, first.col ?? 1, source);
+    err.diagnostics = diagnostics;
+    throw err;
+  }
+  return root;
+}
+
+/** Strict document parse — throws KernParseError if any diagnostic has severity=error or schema violation. */
+export function parseDocumentStrict(source: string, runtime?: KernRuntime): IRNode {
+  const { root, diagnostics } = parseDocumentWithDiagnostics(source, runtime);
+  const errors = diagnostics.filter(d => d.severity === 'error');
+  if (errors.length > 0) {
+    const first = errors[0];
+    const err = new KernParseError(first.message, first.line, first.col, source);
+    err.diagnostics = diagnostics;
+    throw err;
+  }
+  // Schema validation — catch malformed ASTs before they reach codegen
+  const violations = validateSchema(root);
+  if (violations.length > 0) {
+    const first = violations[0];
+    const err = new KernParseError(first.message, first.line ?? 1, first.col ?? 1, source);
+    err.diagnostics = diagnostics;
+    throw err;
+  }
+  return root;
 }

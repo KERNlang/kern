@@ -1,5 +1,11 @@
 # @kernlang/metrics
 
+## Unreleased
+
+### Bug Fixes
+
+- Removed unused import: `existsSync` (context-export.ts)
+
 ## 3.0.0
 
 ### Major Changes
