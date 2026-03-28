@@ -101,6 +101,10 @@ export type { TaintSource, TaintSink, TaintPath, TaintResult, CrossFileTaintResu
 export { runLLMReview, isLLMAvailable } from './llm-bridge.js';
 export type { LLMBridgeConfig, LLMReviewInput } from './llm-bridge.js';
 
+// Cache (Phase 0)
+import { computeCacheKey, reviewCache, clearReviewCache } from './cache.js';
+export { clearReviewCache };
+
 // Spec checker — .kern contract vs .ts implementation
 export { checkSpec, checkSpecFiles, extractSpecContracts, extractImplRoutes, matchRoutes, verifyRouteContract, specViolationsToFindings } from './spec-checker.js';
 export type { SpecContract, ImplRoute, SpecViolation, SpecCheckResult, ViolationKind } from './spec-checker.js';
@@ -111,13 +115,28 @@ export type { SpecContract, ImplRoute, SpecViolation, SpecCheckResult, Violation
  */
 export function reviewFile(filePath: string, config?: ReviewConfig): ReviewReport {
   const source = readFileSync(filePath, 'utf-8');
+
+  let key: string | undefined;
+  if (config?.noCache !== true) {
+    key = computeCacheKey(source, config || {}, filePath);
+    const cached = reviewCache.get(key);
+    if (cached) return cached;
+  }
+
+  let report: ReviewReport;
   if (filePath.endsWith('.kern')) {
-    return reviewKernSource(source, filePath, config);
+    report = reviewKernSource(source, filePath, config);
+  } else if (filePath.endsWith('.py')) {
+    report = reviewPythonSource(source, filePath, config);
+  } else {
+    report = reviewSource(source, filePath, config);
   }
-  if (filePath.endsWith('.py')) {
-    return reviewPythonSource(source, filePath, config);
+
+  if (key) {
+    reviewCache.set(key, report);
   }
-  return reviewSource(source, filePath, config);
+
+  return report;
 }
 
 /**
