@@ -11,6 +11,8 @@ import { ts } from 'ts-morph';
 import { compileSandboxedGenerator } from './sandboxed-generator.js';
 import { checkDedup } from './evolve-dedup.js';
 import { compareGoldenOutput } from './golden-test-runner.js';
+import { compileCodegenToJS } from './graduation.js';
+import type { IRNode } from '@kernlang/core';
 import type { EvolveNodeProposal, EvolveV4ValidationResult } from './evolved-types.js';
 
 /**
@@ -41,38 +43,66 @@ export function validateEvolveProposal(
   result.keywordOk = validateKeyword(proposal.keyword, result.errors, existingKeywords);
   if (!result.keywordOk) return result;
 
-  // Step 3: Parse check
-  result.parseOk = validateParse(proposal, result.errors);
+  // Register parser hints once for all parse-dependent steps (3, 5, 6, 7)
+  if (proposal.parserHints) {
+    registerParserHints(proposal.keyword, proposal.parserHints);
+  }
 
-  // Step 4: Codegen compile
-  let generator: ((node: any) => string[]) | null = null;
   try {
-    generator = compileSandboxedGenerator(wrapAsCommonJS(proposal.codegenSource));
-    result.codegenCompileOk = true;
-  } catch (err) {
-    result.errors.push(`Codegen compile failed: ${(err as Error).message}`);
-    result.codegenCompileOk = false;
-  }
+    // Step 3: Parse check — parse once, reuse AST for steps 5-7
+    let ast: IRNode | null = null;
+    try {
+      const parsed = parse(proposal.kernExample);
+      if (!parsed || !parsed.type) {
+        result.errors.push('kernExample parsed to empty AST');
+        result.parseOk = false;
+      } else if (parsed.type !== proposal.keyword) {
+        result.errors.push(`kernExample root type '${parsed.type}' does not match keyword '${proposal.keyword}'`);
+        result.parseOk = false;
+      } else {
+        result.parseOk = true;
+        ast = parsed;
+      }
+    } catch (err) {
+      result.errors.push(`Parse failed: ${(err as Error).message}`);
+      result.parseOk = false;
+    }
 
-  // Step 5: Codegen dry-run
-  if (generator && result.parseOk) {
-    result.codegenRunOk = validateCodegenRun(proposal, generator, result.errors);
-  }
+    // Step 4: Codegen compile (uses compileCodegenToJS from graduation for
+    // consistent TS→JS stripping — same logic used at graduation time)
+    let generator: ((node: any) => string[]) | null = null;
+    try {
+      generator = compileSandboxedGenerator(compileCodegenToJS(proposal.codegenSource));
+      result.codegenCompileOk = true;
+    } catch (err) {
+      result.errors.push(`Codegen compile failed: ${(err as Error).message}`);
+      result.codegenCompileOk = false;
+    }
 
-  // Step 6: TypeScript syntax check
-  if (result.codegenRunOk && generator) {
-    result.typescriptOk = validateTypeScript(proposal, generator, result.errors);
-  }
+    // Step 5: Codegen dry-run
+    if (generator && ast) {
+      result.codegenRunOk = validateCodegenRun(ast, generator, result.errors);
+    }
 
-  // Step 7: Golden diff
-  if (result.codegenRunOk && generator) {
-    result.goldenDiffOk = validateGoldenDiff(proposal, generator, result.errors);
-  }
+    // Step 6: TypeScript syntax check
+    if (result.codegenRunOk && generator && ast) {
+      result.typescriptOk = validateTypeScript(ast, generator, result.errors);
+    }
 
-  // Step 8: Dedup check
-  result.dedupOk = checkDedup(proposal, existingKeywords || []);
-  if (!result.dedupOk) {
-    result.errors.push(`Duplicate: keyword '${proposal.keyword}' is too similar to an existing node`);
+    // Step 7: Golden diff
+    if (result.codegenRunOk && generator && ast) {
+      result.goldenDiffOk = validateGoldenDiff(ast, proposal, generator, result.errors);
+    }
+
+    // Step 8: Dedup check
+    result.dedupOk = checkDedup(proposal, existingKeywords || []);
+    if (!result.dedupOk) {
+      result.errors.push(`Duplicate: keyword '${proposal.keyword}' is too similar to an existing node`);
+    }
+  } finally {
+    if (proposal.parserHints) {
+      unregisterParserHints(proposal.keyword);
+    }
   }
 
   return result;
@@ -124,45 +154,22 @@ function validateKeyword(keyword: string, errors: string[], existing?: string[])
   return true;
 }
 
-function validateParse(proposal: EvolveNodeProposal, errors: string[]): boolean {
-  // Temporarily register parser hints if provided
-  if (proposal.parserHints) {
-    registerParserHints(proposal.keyword, proposal.parserHints);
-  }
-
-  try {
-    const ast = parse(proposal.kernExample);
-    if (!ast || !ast.type) {
-      errors.push('kernExample parsed to empty AST');
-      return false;
-    }
-    // Root node should match the proposed keyword
-    if (ast.type !== proposal.keyword) {
-      errors.push(`kernExample root type '${ast.type}' does not match keyword '${proposal.keyword}'`);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    errors.push(`Parse failed: ${(err as Error).message}`);
-    return false;
-  } finally {
-    if (proposal.parserHints) {
-      unregisterParserHints(proposal.keyword);
-    }
-  }
+/**
+ * Run generator on a cloned AST to preserve mutation isolation.
+ * Each step gets its own copy so user-provided generators can't
+ * corrupt the AST for subsequent steps.
+ */
+function runGenerator(ast: IRNode, generator: (node: any) => string[]): string[] {
+  return generator(structuredClone(ast));
 }
 
 function validateCodegenRun(
-  proposal: EvolveNodeProposal,
+  ast: IRNode,
   generator: (node: any) => string[],
   errors: string[],
 ): boolean {
-  if (proposal.parserHints) {
-    registerParserHints(proposal.keyword, proposal.parserHints);
-  }
   try {
-    const ast = parse(proposal.kernExample);
-    const output = generator(ast);
+    const output = runGenerator(ast, generator);
     if (!Array.isArray(output) || output.length === 0) {
       errors.push('Codegen produced empty output');
       return false;
@@ -171,24 +178,16 @@ function validateCodegenRun(
   } catch (err) {
     errors.push(`Codegen run failed: ${(err as Error).message}`);
     return false;
-  } finally {
-    if (proposal.parserHints) {
-      unregisterParserHints(proposal.keyword);
-    }
   }
 }
 
 function validateTypeScript(
-  proposal: EvolveNodeProposal,
+  ast: IRNode,
   generator: (node: any) => string[],
   errors: string[],
 ): boolean {
-  if (proposal.parserHints) {
-    registerParserHints(proposal.keyword, proposal.parserHints);
-  }
   try {
-    const ast = parse(proposal.kernExample);
-    const output = generator(ast).join('\n');
+    const output = runGenerator(ast, generator).join('\n');
 
     // Real TypeScript syntax validation via ts.transpileModule
     // Enable JSX since KERN generates React/JSX output for frontend targets
@@ -220,24 +219,17 @@ function validateTypeScript(
   } catch (err) {
     errors.push(`TypeScript check failed: ${(err as Error).message}`);
     return false;
-  } finally {
-    if (proposal.parserHints) {
-      unregisterParserHints(proposal.keyword);
-    }
   }
 }
 
 function validateGoldenDiff(
+  ast: IRNode,
   proposal: EvolveNodeProposal,
   generator: (node: any) => string[],
   errors: string[],
 ): boolean {
-  if (proposal.parserHints) {
-    registerParserHints(proposal.keyword, proposal.parserHints);
-  }
   try {
-    const ast = parse(proposal.kernExample);
-    const actual = generator(ast).join('\n');
+    const actual = runGenerator(ast, generator).join('\n');
     const match = compareGoldenOutput(actual, proposal.expectedOutput);
     if (!match) {
       errors.push('Golden diff mismatch: codegen output differs from expectedOutput');
@@ -247,37 +239,5 @@ function validateGoldenDiff(
   } catch (err) {
     errors.push(`Golden diff failed: ${(err as Error).message}`);
     return false;
-  } finally {
-    if (proposal.parserHints) {
-      unregisterParserHints(proposal.keyword);
-    }
   }
-}
-
-/**
- * Wrap raw generator source as CommonJS for the sandbox.
- * Handles both "export default function..." and plain "function generate..." patterns.
- */
-function wrapAsCommonJS(source: string): string {
-  // Already CommonJS
-  if (source.includes('module.exports')) return source;
-
-  // ES module: export default function(node, helpers) { ... }
-  let wrapped = source
-    .replace(/^export\s+default\s+/m, 'module.exports = ')
-    .replace(/^export\s+function\s+(\w+)/m, 'module.exports = function $1');
-
-  // If still no module.exports, wrap the whole thing
-  if (!wrapped.includes('module.exports')) {
-    wrapped = `module.exports = ${wrapped}`;
-  }
-
-  // Strip TypeScript type annotations for the sandbox (runs as JS)
-  wrapped = wrapped
-    .replace(/:\s*IRNode/g, '')
-    .replace(/:\s*string\[\]/g, '')
-    .replace(/:\s*CodegenHelpers/g, '')
-    .replace(/import\s+.*?from\s+['"].*?['"];?\n?/g, '');
-
-  return wrapped;
 }
