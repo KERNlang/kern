@@ -30,6 +30,7 @@ import { lintKernIR, flattenIR } from './kern-lint.js';
 import { loadBuiltinNativeRules, loadNativeRules } from './rule-loader.js';
 import { lintKernSourceIR, KERN_SOURCE_RULES } from './rules/kern-source.js';
 import { GROUND_LAYER_RULES } from './rules/ground-layer.js';
+import { runFastapiConceptRules } from './rules/fastapi.js';
 
 // Load native .kern rules once at module init
 // Guard: import.meta.url is undefined when bundled as CJS (e.g. esbuild for VS Code worker)
@@ -399,6 +400,9 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
     const { extractPythonConcepts } = require('@kernlang/review-python');
     const concepts = extractPythonConcepts(source, filePath);
     conceptFindings = runConceptRules(concepts, filePath);
+    if (config?.target === 'fastapi') {
+      conceptFindings.push(...runFastapiConceptRules(concepts, filePath, source));
+    }
     // Native .kern rules with concept matching (built-in + custom)
     const rulesToRunPy = [...NATIVE_RULES];
     if (config?.rulesDirs && config.rulesDirs.length > 0) {

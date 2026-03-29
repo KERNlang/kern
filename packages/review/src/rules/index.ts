@@ -3,9 +3,13 @@
  *
  * Layers:
  *   [base]     Always active — universal TS/KERN rules
- *   [react]    Active when target = nextjs | tailwind | web | native
+ *   [react]    Active when target = nextjs | tailwind | web | native | ink
+ *   [ink]      Active when target = ink (on top of react)
  *   [vue]      Active when target = vue | nuxt
  *   [express]  Active when target = express
+ *   [cli]      Active when target = cli
+ *   [terminal] Active when target = terminal
+ *   [fastapi]  Active when target = fastapi (Python concept layer)
  *   [nextjs]   Active when target = nextjs (on top of react)
  *   [nuxt]     Active when target = nuxt (on top of vue)
  */
@@ -22,9 +26,13 @@ import { vueRules } from './vue.js';
 import { nextjsRules } from './nextjs.js';
 import { nuxtRules } from './nuxt.js';
 import { expressRules } from './express.js';
+import { cliRules } from './cli.js';
+import { terminalRules } from './terminal.js';
+import { inkRules } from './ink.js';
+import { fastapiRules } from './fastapi.js';
 import { nullSafetyRules } from './null-safety.js';
 
-const REACT_TARGETS = new Set(['nextjs', 'tailwind', 'web', 'native']);
+const REACT_TARGETS = new Set(['nextjs', 'tailwind', 'web', 'native', 'ink']);
 const VUE_TARGETS = new Set(['vue', 'nuxt']);
 
 /**
@@ -52,6 +60,22 @@ export function getActiveRules(target?: string): ReviewRule[] {
 
   if (target === 'express') {
     rules.push(...expressRules);
+  }
+
+  if (target === 'cli') {
+    rules.push(...cliRules);
+  }
+
+  if (target === 'terminal') {
+    rules.push(...terminalRules);
+  }
+
+  if (target === 'ink') {
+    rules.push(...inkRules);
+  }
+
+  if (target === 'fastapi') {
+    rules.push(...fastapiRules);
   }
 
   return rules;
@@ -135,7 +159,7 @@ const REGISTRY: RuleInfo[] = [
   { id: 'optional-chain-bang', layer: 'null-safety', severity: 'warning', description: 'Optional chain (?) immediately negated by non-null assertion (!)' },
   { id: 'unchecked-cast', layer: 'null-safety', severity: 'warning', description: 'Unsafe type assertion without runtime guard' },
 
-  // React (target: nextjs, tailwind, web, native)
+  // React (target: nextjs, tailwind, web, native, ink)
   { id: 'async-effect', layer: 'react', severity: 'error', description: 'Async function passed directly to useEffect' },
   { id: 'render-side-effect', layer: 'react', severity: 'error', description: 'Side effect (fetch, mutation) during render' },
   { id: 'unstable-key', layer: 'react', severity: 'warning', description: 'Non-stable key prop (index, random, Date.now)' },
@@ -144,11 +168,34 @@ const REGISTRY: RuleInfo[] = [
   { id: 'hook-order', layer: 'react', severity: 'error', description: 'React hook called inside condition or loop' },
   { id: 'effect-self-update-loop', layer: 'react', severity: 'error', description: 'useEffect updates its own dependency — infinite loop' },
 
+  // CLI (target: cli)
+  { id: 'cli-missing-shebang', layer: 'cli', severity: 'warning', description: 'Commander CLI entrypoint missing #!/usr/bin/env node' },
+  { id: 'cli-missing-parse', layer: 'cli', severity: 'error', description: 'Command instance created without parse()/parseAsync()' },
+  { id: 'cli-async-parse-sync', layer: 'cli', severity: 'error', description: 'Async Commander action paired with parse() instead of parseAsync()' },
+  { id: 'cli-process-exit-in-action', layer: 'cli', severity: 'warning', description: 'Commander action handler calls process.exit() directly' },
+
   // Vue (target: vue, nuxt)
   { id: 'missing-ref-value', layer: 'vue', severity: 'warning', description: 'ref() used without .value in script setup' },
   { id: 'missing-onUnmounted', layer: 'vue', severity: 'error', description: 'watch/addEventListener without onUnmounted cleanup' },
   { id: 'setup-side-effect', layer: 'vue', severity: 'warning', description: 'Top-level await in setup without onMounted' },
   { id: 'reactive-destructure', layer: 'vue', severity: 'warning', description: 'Destructuring reactive() loses reactivity' },
+
+  // Terminal (target: terminal)
+  { id: 'terminal-missing-tty-guard', layer: 'terminal', severity: 'warning', description: 'Interactive terminal code runs without TTY guard' },
+  { id: 'terminal-raw-mode-no-restore', layer: 'terminal', severity: 'error', description: 'stdin raw mode enabled without restore on exit' },
+  { id: 'terminal-readline-no-close', layer: 'terminal', severity: 'warning', description: 'Readline interface never closed — process can hang' },
+  { id: 'terminal-alt-screen-no-restore', layer: 'terminal', severity: 'warning', description: 'Alternate screen entered without restore on exit' },
+  { id: 'terminal-missing-signal-handler', layer: 'terminal', severity: 'warning', description: 'No SIGINT/SIGTERM handler for cleanup' },
+  { id: 'terminal-cursor-not-restored', layer: 'terminal', severity: 'warning', description: 'Cursor hidden without restore on exit' },
+  { id: 'terminal-unthrottled-render', layer: 'terminal', severity: 'warning', description: 'Render loop with excessive refresh rate' },
+
+  // Ink (target: ink, on top of React)
+  { id: 'ink-console-output', layer: 'ink', severity: 'warning', description: 'console.* output corrupts Ink terminal rendering' },
+  { id: 'ink-direct-stdout', layer: 'ink', severity: 'error', description: 'Direct stdout/stderr writes bypass Ink renderer' },
+  { id: 'ink-process-exit', layer: 'ink', severity: 'warning', description: 'process.exit() used instead of useApp().exit()' },
+  { id: 'ink-stdin-bypass', layer: 'ink', severity: 'warning', description: 'Raw stdin/readline listeners bypass Ink useInput()' },
+  { id: 'ink-uncleared-interval', layer: 'ink', severity: 'warning', description: 'setInterval without cleanup in Ink component' },
+  { id: 'ink-missing-error-boundary', layer: 'ink', severity: 'warning', description: 'Ink render() without error handling' },
 
   // Next.js (target: nextjs)
   { id: 'server-hook', layer: 'nextjs', severity: 'error', description: 'React hook used in Server Component' },
@@ -165,6 +212,12 @@ const REGISTRY: RuleInfo[] = [
   { id: 'missing-error-middleware', layer: 'express', severity: 'warning', description: 'Express app without error-handling middleware' },
   { id: 'sync-in-handler', layer: 'express', severity: 'warning', description: 'Blocking I/O in request handler' },
   { id: 'double-response', layer: 'express', severity: 'error', description: 'Response sent twice without early return' },
+
+  // FastAPI (target: fastapi, concept-based Python pipeline)
+  { id: 'fastapi-missing-response-model', layer: 'fastapi', severity: 'warning', description: 'Endpoint without response_model — undocumented response' },
+  { id: 'fastapi-blocking-sync-route', layer: 'fastapi', severity: 'warning', description: 'Blocking call in async route stalls event loop' },
+  { id: 'fastapi-shared-state', layer: 'fastapi', severity: 'error', description: 'Route mutates global/module state — race condition' },
+  { id: 'fastapi-broad-except', layer: 'fastapi', severity: 'warning', description: 'Broad except without re-raising HTTPException' },
 
   // Concept rules (always active, language-agnostic)
   { id: 'boundary-mutation', layer: 'concept', severity: 'warning', description: 'Global/shared state mutation across boundaries' },
@@ -183,11 +236,15 @@ const LAYER_TARGET_MAP: Record<string, string[] | null> = {
   'dead-logic': null,
   'null-safety': null,
   concept: null,
-  react: ['nextjs', 'tailwind', 'web', 'native'],
+  react: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
+  cli: ['cli'],
   vue: ['vue', 'nuxt'],
+  ink: ['ink'],
+  terminal: ['terminal'],
   nextjs: ['nextjs'],
   nuxt: ['nuxt'],
   express: ['express'],
+  fastapi: ['fastapi'],
 };
 
 /**
