@@ -61,7 +61,7 @@ jobs:
 
       - name: Upload SARIF to Code Scanning
         if: always() && hashFiles('kern-mcp-security.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: kern-mcp-security.sarif
           category: kern-mcp-security
