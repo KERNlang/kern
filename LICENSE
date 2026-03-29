@@ -659,3 +659,20 @@ specific requirements.
 if any, to sign a "copyright disclaimer" for the program, if necessary.
 For more information on this, and how to apply and follow the GNU AGPL, see
 <https://www.gnu.org/licenses/>.
+
+===============================================================================
+
+Copyright (c) 2026 KERNlang
+
+Additional permission under GNU AGPL version 3 section 7:
+
+If you modify this Program, or any covered work, by linking or combining
+it with other code, such other code is not for that reason alone subject
+to any of the requirements of the GNU Affero GPL version 3.
+
+---
+
+COMMERCIAL USE
+
+Using this software as part of a paid product or service requires a
+commercial license. Contact: hello@kernlang.dev
