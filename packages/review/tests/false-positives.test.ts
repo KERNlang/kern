@@ -5,13 +5,25 @@
  * on code that looks similar to a violation but isn't one.
  */
 
-import { reviewSource } from '../src/index.js';
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { reviewGraph, reviewSource } from '../src/index.js';
 import type { ReviewConfig } from '../src/types.js';
 
 const reactConfig: ReviewConfig = { target: 'web' };
 const nextjsConfig: ReviewConfig = { target: 'nextjs' };
 const vueConfig: ReviewConfig = { target: 'vue' };
 const expressConfig: ReviewConfig = { target: 'express' };
+const TMP = join(tmpdir(), 'kern-review-false-positives');
+
+beforeAll(() => {
+  mkdirSync(TMP, { recursive: true });
+});
+
+afterAll(() => {
+  rmSync(TMP, { recursive: true, force: true });
+});
 
 describe('False Positive Regression: floating-promise', () => {
   it('does NOT fire on .then in regex patterns', () => {
@@ -189,6 +201,96 @@ export function Component() {
     const report = reviewSource(source, 'comp.tsx', reactConfig);
     const fp = report.findings.find(f => f.ruleId === 'hook-order');
     expect(fp).toBeUndefined();
+  });
+});
+
+describe('False Positive Regression: reviewGraph client boundaries (Next.js)', () => {
+  it('suppresses server-hook through a transitive client boundary', () => {
+    const dir = join(TMP, 'nextjs-client-boundary-server-hook');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'page.tsx'), `
+'use client';
+import { Widget } from './widget.js';
+export default function Page() {
+  return <Widget />;
+}
+`);
+    writeFileSync(join(dir, 'widget.tsx'), `
+import { useThing } from './use-thing.js';
+export function Widget() {
+  return <div>{useThing()}</div>;
+}
+`);
+    writeFileSync(join(dir, 'use-thing.ts'), `
+import { useState } from 'react';
+export function useThing() {
+  const [count] = useState(0);
+  return count;
+}
+`);
+
+    const reports = reviewGraph([join(dir, 'page.tsx')], nextjsConfig);
+    const hookReport = reports.find(r => r.filePath === join(dir, 'use-thing.ts'));
+    expect(hookReport?.findings.find(f => f.ruleId === 'server-hook')).toBeUndefined();
+  });
+
+  it('suppresses missing-use-client when all importers are within a client boundary', () => {
+    const dir = join(TMP, 'nextjs-client-boundary-missing-use-client');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'page.tsx'), `
+'use client';
+import { Panel } from './panel.js';
+export default function Page() {
+  return <Panel />;
+}
+`);
+    writeFileSync(join(dir, 'panel.tsx'), `
+import { Button } from './button.js';
+export function Panel() {
+  return <Button />;
+}
+`);
+    writeFileSync(join(dir, 'button.tsx'), `
+export function Button() {
+  return <button onClick={() => {}}>Push</button>;
+}
+`);
+
+    const reports = reviewGraph([join(dir, 'page.tsx')], nextjsConfig);
+    const buttonReport = reports.find(r => r.filePath === join(dir, 'button.tsx'));
+    expect(buttonReport?.findings.find(f => f.ruleId === 'missing-use-client')).toBeUndefined();
+  });
+
+  it('keeps server-hook when a file is also imported outside the client boundary', () => {
+    const dir = join(TMP, 'nextjs-client-boundary-mixed-importers');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'client-page.tsx'), `
+'use client';
+import { useThing } from './use-thing.js';
+export default function ClientPage() {
+  return <div>{useThing()}</div>;
+}
+`);
+    writeFileSync(join(dir, 'server-page.tsx'), `
+import { useThing } from './use-thing.js';
+export default function ServerPage() {
+  return <div>{useThing()}</div>;
+}
+`);
+    writeFileSync(join(dir, 'use-thing.ts'), `
+import { useState } from 'react';
+export function useThing() {
+  const [count] = useState(0);
+  return count;
+}
+`);
+
+    const reports = reviewGraph([join(dir, 'client-page.tsx'), join(dir, 'server-page.tsx')], nextjsConfig);
+    const hookReport = reports.find(r => r.filePath === join(dir, 'use-thing.ts'));
+    expect(hookReport?.findings.find(f => f.ruleId === 'server-hook')).toBeDefined();
   });
 });
 
