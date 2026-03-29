@@ -11,7 +11,7 @@
  */
 
 import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, AccountedEntry } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR, cssPropertyName, getProps, getStyles, getThemeRefs, buildDiagnostics, accountNode } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR, cssPropertyName, camelKey, escapeJsString, getProps, getStyles, getThemeRefs, buildDiagnostics, accountNode } from '@kernlang/core';
 
 // ── Node → HTML Element Mapping (same as Vue) ───────────────────────────
 
@@ -93,6 +93,7 @@ interface NuxtBuilder {
   hasHead: boolean;
   headMeta: Record<string, string>;
   config: ResolvedKernConfig | undefined;
+  i18nEnabled: boolean;
 }
 
 function createBuilder(config?: ResolvedKernConfig): NuxtBuilder {
@@ -109,7 +110,14 @@ function createBuilder(config?: ResolvedKernConfig): NuxtBuilder {
     hasHead: false,
     headMeta: {},
     config,
+    i18nEnabled: config?.i18n?.enabled ?? false,
   };
+}
+
+// ── i18n helper ──────────────────────────────────────────────────────────
+
+function tText(ctx: NuxtBuilder, key: string, value: string): string {
+  return ctx.i18nEnabled ? `{{ $t('${escapeJsString(key)}', '${escapeJsString(value)}') }}` : value;
 }
 
 // ── Theme Collection ─────────────────────────────────────────────────────
@@ -213,11 +221,19 @@ function addProgressAttrs(props: Record<string, unknown>, attrs: string[]): void
 
 function renderTextContent(props: Record<string, unknown>, ctx: NuxtBuilder, indent: string): void {
   if (!props.value) return;
-  const val = props.value as string;
-  if (typeof val === 'string' && val.startsWith('{{') && val.endsWith('}}')) {
+  const rawVal = props.value;
+  // Expression object: { __expr: true, code: "count" } → {{ count }}
+  if (typeof rawVal === 'object' && rawVal !== null && '__expr' in rawVal) {
+    ctx.templateLines.push(`${indent}  {{ ${(rawVal as unknown as { code: string }).code} }}`);
+    return;
+  }
+  const val = rawVal as string;
+  if (typeof val !== 'string') return;
+  if (val.startsWith('{{') && val.endsWith('}}')) {
     ctx.templateLines.push(`${indent}  {{ ${val.slice(2, -2).trim()} }}`);
   } else {
-    ctx.templateLines.push(`${indent}  ${val}`);
+    const key = (props.key as string) || camelKey(val);
+    ctx.templateLines.push(`${indent}  ${tText(ctx, key, val)}`);
   }
 }
 

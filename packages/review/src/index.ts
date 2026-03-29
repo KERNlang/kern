@@ -563,6 +563,58 @@ export function reviewGraph(
     }
   }
 
+  // ── Post-filter: suppress server-hook / missing-use-client false positives ──
+  // In graph mode, if ALL importers of a file are within a client boundary
+  // ('use client' — recursively), hooks and event handlers are safe on the client.
+  if (config?.target === 'nextjs') {
+    const NEXTJS_CLIENT_RULES = new Set(['server-hook', 'missing-use-client']);
+    const hasNextjsFindings = reports.some(r =>
+      r.findings.some(f => NEXTJS_CLIENT_RULES.has(f.ruleId)));
+
+    if (hasNextjsFindings) {
+      const importedByMap = new Map<string, string[]>();
+      for (const gf of graph.files) {
+        importedByMap.set(gf.path, gf.importedBy);
+      }
+
+      const useClientCache = new Map<string, boolean>();
+      function hasUseClient(fp: string): boolean {
+        let r = useClientCache.get(fp);
+        if (r !== undefined) return r;
+        try {
+          const src = readFileSync(fp, 'utf-8');
+          r = /^['"]use client['"];?\s*$/m.test(src.substring(0, 200));
+        } catch { r = false; }
+        useClientCache.set(fp, r);
+        return r;
+      }
+
+      const boundaryCache = new Map<string, boolean>();
+      function isWithinClientBoundary(fp: string, visiting: Set<string>): boolean {
+        if (hasUseClient(fp)) return true;
+        const c = boundaryCache.get(fp);
+        if (c !== undefined) return c;
+        // Entry files without 'use client' are server components by definition
+        if (entrySet.has(fp)) { boundaryCache.set(fp, false); return false; }
+        if (visiting.has(fp)) return true; // cycle — optimistic
+        const importers = importedByMap.get(fp);
+        if (!importers || importers.length === 0) { boundaryCache.set(fp, false); return false; }
+        visiting.add(fp);
+        const ok = importers.every(i => isWithinClientBoundary(i, visiting));
+        visiting.delete(fp);
+        boundaryCache.set(fp, ok);
+        return ok;
+      }
+
+      for (const report of reports) {
+        if (!report.findings.some(f => NEXTJS_CLIENT_RULES.has(f.ruleId))) continue;
+        if (isWithinClientBoundary(report.filePath, new Set())) {
+          report.findings = report.findings.filter(f => !NEXTJS_CLIENT_RULES.has(f.ruleId));
+        }
+      }
+    }
+  }
+
   // Re-run suppression + dedup on all reports (cross-file findings were injected after initial suppression)
   for (const report of reports) {
     try {

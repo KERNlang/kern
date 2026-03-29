@@ -1,9 +1,29 @@
 import type { IRNode, DiagnosticOutcome, TranspileDiagnostic } from './types.js';
 
+/**
+ * Approximate token count using a punctuation/whitespace split heuristic.
+ *
+ * @remarks This is NOT aligned with any specific BPE tokenizer (GPT, Claude, etc.).
+ * Do not use for billing calculations or precise context-window budgeting.
+ * Intended for relative comparisons (IR vs generated output).
+ *
+ * @param text - The text to estimate tokens for
+ * @returns Approximate token count
+ */
 export function countTokens(text: string): number {
   return text.split(/[\s{}()\[\];,.<>:='"]+/).filter(Boolean).length;
 }
 
+/**
+ * Serialize an IR tree to a compact KERN-like text format.
+ *
+ * Used for token-count comparisons and IR debugging. Outputs one line per node
+ * with props inline and children indented.
+ *
+ * @param node - The IR node to serialize
+ * @param indent - Current indentation prefix (used in recursion)
+ * @returns Compact string representation of the IR tree
+ */
 export function serializeIR(node: IRNode, indent = ''): string {
   let line = `${indent}${node.type}`;
   const props = node.props || {};

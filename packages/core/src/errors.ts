@@ -28,6 +28,13 @@ export class KernParseError extends KernError {
   }
 }
 
+export class KernConfigError extends Error {
+  constructor(message: string, public readonly field: string, public readonly value: string) {
+    super(`Config error: invalid ${field} '${value}'. ${message}`);
+    this.name = 'KernConfigError';
+  }
+}
+
 export class KernCodegenError extends Error {
   constructor(message: string, public readonly node?: { type: string; loc?: { line: number; col: number } }) {
     const loc = node?.loc ? ` at ${node.type}:${node.loc.line}:${node.loc.col}` : node ? ` at ${node.type}` : '';

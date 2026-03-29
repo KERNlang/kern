@@ -760,7 +760,12 @@ function expandMinified(source: string): string {
   return result.join('\n');
 }
 
-/** Get warnings from the last parse() call */
+/**
+ * Get diagnostic messages from the last parse() call as plain strings.
+ *
+ * @remarks Returns messages for all severities (error, warning, info).
+ * For structured diagnostics with severity filtering, use {@link getParseDiagnostics}.
+ */
 export function getParseWarnings(): string[] {
   return defaultRuntime.lastParseDiagnostics.map(d => d.message);
 }
@@ -911,6 +916,25 @@ function parseInternal(source: string, asDocument: boolean, runtime?: KernRuntim
   return { root, diagnostics: [...state.diagnostics] };
 }
 
+/**
+ * Parse KERN source into an IR node tree.
+ *
+ * Recovers from errors gracefully — malformed lines produce `DROPPED_LINE`
+ * diagnostics but never throw. Use {@link parseStrict} if you want errors to throw.
+ *
+ * @param source - KERN indentation-based source text
+ * @param runtime - Optional KernRuntime instance for isolation (defaults to shared singleton)
+ * @returns Root IRNode of the parsed tree
+ *
+ * @example
+ * ```ts
+ * const root = parse('page "Home"\n  text "Hello"');
+ * // root.type === 'page', root.children[0].type === 'text'
+ * ```
+ *
+ * @see {@link parseWithDiagnostics} to also receive parse diagnostics
+ * @see {@link parseStrict} to throw on errors
+ */
 export function parse(source: string, runtime?: KernRuntime): IRNode {
   return parseInternal(source, false, runtime).root;
 }
@@ -947,7 +971,16 @@ export function getParseDiagnostics(runtime?: KernRuntime): ParseDiagnostic[] {
   return [...rt.lastParseDiagnostics];
 }
 
-/** Parse with diagnostics — returns both tree and structured diagnostics. */
+/**
+ * Parse KERN source and return both the IR tree and structured diagnostics.
+ *
+ * Unlike {@link parse}, this returns a {@link ParseResult} containing the full
+ * diagnostics array, useful for editor integrations and lint-style reporting.
+ *
+ * @param source - KERN indentation-based source text
+ * @param runtime - Optional KernRuntime instance for isolation
+ * @returns `{ root: IRNode, diagnostics: ParseDiagnostic[] }`
+ */
 export function parseWithDiagnostics(source: string, runtime?: KernRuntime): ParseResult {
   return parseInternal(source, false, runtime);
 }
@@ -957,7 +990,15 @@ export function parseDocumentWithDiagnostics(source: string, runtime?: KernRunti
   return parseInternal(source, true, runtime);
 }
 
-/** Strict parse — throws KernParseError if any diagnostic has severity=error or schema violation. */
+/**
+ * Strict parse — throws if any diagnostic has severity `'error'` or a schema violation is found.
+ *
+ * @param source - KERN indentation-based source text
+ * @param runtime - Optional KernRuntime instance for isolation
+ * @returns Root IRNode of the parsed tree
+ * @throws {KernParseError} When the source contains errors or schema violations.
+ *   The error includes a code frame and the full diagnostics array.
+ */
 export function parseStrict(source: string, runtime?: KernRuntime): IRNode {
   const { root, diagnostics } = parseWithDiagnostics(source, runtime);
   const errors = diagnostics.filter(d => d.severity === 'error');

@@ -6,7 +6,7 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { parseParamList, getProps, getChildren, getFirstChild, dedent, handlerCode, emitIdentifier, emitTypeAnnotation } from '@kernlang/core';
+import { parseParamList, getProps, getChildren, getFirstChild, dedent, handlerCode, emitIdentifier, emitTypeAnnotation, generateCoreNode } from '@kernlang/core';
 
 // ── Provider → provide/inject ────────────────────────────────────────────
 // provider name=Search type=UseSearchResult
@@ -335,6 +335,60 @@ export function generateVueHook(node: IRNode): string[] {
   }
 
   return lines;
+}
+
+// ── Ground Layer — Vue Overrides (Tier 2) ───────────────────────────────
+
+const GROUND_NODE_TYPES = new Set([
+  'derive', 'transform', 'action', 'guard', 'assume', 'invariant',
+  'each', 'collect', 'branch', 'resolve', 'expect', 'recover',
+  'pattern', 'apply',
+]);
+
+/** Check if a node is a ground-layer node that may have Vue-specific overrides. */
+export function isVueGroundNode(type: string): boolean {
+  return GROUND_NODE_TYPES.has(type);
+}
+
+/** Vue Tier 2 override for derive → computed(). */
+function generateVueDerive(node: IRNode): string[] {
+  const props = getProps(node);
+  const name = props.name as string;
+  const expr = props.expr as string;
+
+  return [`const ${name} = computed(() => ${expr});`];
+}
+
+/** Vue Tier 2 override for each → v-for template rendering. */
+function generateVueEach(node: IRNode): string[] {
+  const props = getProps(node);
+  const itemName = props.name as string || 'item';
+  const collection = props.in as string;
+  const index = props.index as string | undefined;
+
+  const lines: string[] = [];
+  const iterVar = index ? `(${itemName}, ${index})` : itemName;
+  lines.push(`<template v-for="${iterVar} in ${collection}" :key="${itemName}.id ?? ${itemName}">`);
+  for (const child of getChildren(node)) {
+    // Try Vue-specific codegen first, fall back to core codegen
+    const childLines = isVueNode(child.type)
+      ? generateVueNode(child)
+      : generateCoreNode(child);
+    for (const line of childLines) {
+      lines.push(`  ${line}`);
+    }
+  }
+  lines.push(`</template>`);
+  return lines;
+}
+
+/** Generate Vue-overridden ground-layer node. Returns null for non-overridden nodes (fall through to core). */
+export function generateVueGroundNode(node: IRNode): string[] | null {
+  switch (node.type) {
+    case 'derive': return generateVueDerive(node);
+    case 'each': return generateVueEach(node);
+    default: return null; // No Vue override — fall through to core
+  }
 }
 
 // ── Dispatcher ───────────────────────────────────────────────────────────

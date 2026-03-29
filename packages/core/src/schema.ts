@@ -446,8 +446,13 @@ export interface SchemaViolation {
 }
 
 /**
- * Validate an IRNode tree against the schema definitions.
- * Returns violations found. Empty array = valid.
+ * Validate an IR tree against the schema definitions (required props, allowed children, cross-prop rules).
+ *
+ * Walks the full tree recursively. Returns an empty array when the tree is valid.
+ * Node types without a registered schema are silently accepted.
+ *
+ * @param root - The root IRNode to validate
+ * @returns Array of {@link SchemaViolation} — empty means valid
  */
 export function validateSchema(root: IRNode): SchemaViolation[] {
   const violations: SchemaViolation[] = [];
