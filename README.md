@@ -275,7 +275,7 @@ jobs:
 ### VS Code Extensions
 
 - **[Kern Sight MCP](https://github.com/KERNlang/kern-sight-mcp)** — MCP security scanner with inline findings, Security Score, autofixes
-- **Kern Sight** — Review findings as inline diagnostics + webview code review panel
+- **Kern Sight** *(coming soon)* — Review findings as inline diagnostics + webview code review panel
 
 ---
 
