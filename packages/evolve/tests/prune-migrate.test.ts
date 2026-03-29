@@ -13,9 +13,7 @@ let TEST_DIR: string;
 let EVOLVED_DIR: string;
 
 function daysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString();
+  return new Date(Date.now() - (n * 24 * 60 * 60 * 1000)).toISOString();
 }
 
 function makeManifestEntry(
