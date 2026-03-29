@@ -6,8 +6,9 @@
  * to propose new IR nodes.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, renameSync } from 'fs';
 import { resolve, join } from 'path';
+import { randomBytes } from 'crypto';
 import type { IRNode } from './types.js';
 
 export interface CoverageGap {
@@ -64,7 +65,10 @@ export function writeCoverageGaps(gaps: CoverageGap[], gapDir: string): void {
   const safeFileName = sourceFile.replace(/[/\\:]/g, '_').replace(/^_+/, '') + '.json';
   const filePath = resolve(dir, safeFileName);
 
-  writeFileSync(filePath, JSON.stringify(gaps, null, 2));
+  // Atomic write: write to temp file then rename to prevent partial reads during parallel compilation
+  const tmpPath = filePath + '.' + randomBytes(4).toString('hex') + '.tmp';
+  writeFileSync(tmpPath, JSON.stringify(gaps, null, 2));
+  renameSync(tmpPath, filePath);
 }
 
 /**

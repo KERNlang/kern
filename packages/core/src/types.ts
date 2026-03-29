@@ -8,10 +8,16 @@
  * 4. Source map generation for debugging
  */
 
+/** Expression object produced by the parser for inline expressions */
+export interface ExprObject {
+  __expr: true;
+  code: string;
+}
+
 /** Base node in the IR tree */
 export interface IRNode {
-  /** Node type identifier */
-  type: string;
+  /** Node type identifier — known types have autocomplete, custom/evolved types accepted as string */
+  type: import('./spec.js').IRNodeType | (string & {});
   /** Source location for source maps */
   loc?: IRSourceLocation;
   /** Child nodes */

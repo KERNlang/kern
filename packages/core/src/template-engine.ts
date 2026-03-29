@@ -142,11 +142,16 @@ function dedentBody(code: string): string {
 /**
  * Expand a template instance node into TypeScript lines.
  *
- * 1. Look up template definition
- * 2. Validate required slots against node.props
- * 3. Replace {{slotName}} placeholders in body
- * 4. Handle {{CHILDREN}}: iterate child nodes through codegen
- * 5. Prepend import lines
+ * Looks up the template definition by `node.type`, validates required slots against
+ * `node.props`, replaces `{{slotName}}` placeholders, handles `{{CHILDREN}}` recursion,
+ * and prepends import lines.
+ *
+ * @param node - IR node whose `type` matches a registered template name
+ * @param _depth - Internal recursion depth counter (do not set manually)
+ * @param runtime - Optional KernRuntime instance
+ * @returns Array of generated TypeScript source lines
+ * @throws {KernTemplateError} If expansion depth exceeds 10 (recursion guard)
+ *   or required slots are missing
  */
 export function expandTemplateNode(node: IRNode, _depth = 0, runtime?: KernRuntime): string[] {
   const rt = runtime ?? defaultRuntime;

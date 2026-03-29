@@ -18,8 +18,11 @@ npm install @kernlang/core
 ```ts
 import { parse, resolveConfig } from '@kernlang/core';
 
-const config = resolveConfig({ target: 'react-tailwind' });
-const ir = parse(`page "Home" { text "Hello" }`);
+const config = resolveConfig({ target: 'nextjs' });
+const ir = parse(`
+page "Home"
+  text "Hello"
+`);
 ```
 
 ## License

@@ -3,6 +3,7 @@
  */
 
 import { DEFAULT_COLORS } from './styles-tailwind.js';
+import { KernConfigError } from './errors.js';
 
 export type KernTarget = 'nextjs' | 'tailwind' | 'web' | 'native' | 'express' | 'cli' | 'terminal' | 'ink' | 'vue' | 'nuxt' | 'fastapi';
 
@@ -155,17 +156,30 @@ export const DEFAULT_CONFIG: ResolvedKernConfig = {
   },
 };
 
+/**
+ * Merge a partial user config with defaults to produce a fully resolved config.
+ *
+ * @param user - Partial config overrides. Omit for defaults.
+ * @returns A deep-cloned {@link ResolvedKernConfig} with all fields populated.
+ * @throws {KernConfigError} If `target` or `structure` values are not in the valid set.
+ *
+ * @example
+ * ```ts
+ * const cfg = resolveConfig({ target: 'express', express: { helmet: true } });
+ * // cfg.target === 'express', cfg.i18n.enabled === true (default)
+ * ```
+ */
 export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
   if (!user) return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
 
   // Validate target
   if (user.target && !VALID_TARGETS.includes(user.target)) {
-    throw new Error(`Unknown target: '${user.target}'. Valid targets: ${VALID_TARGETS.join(', ')}`);
+    throw new KernConfigError(`Valid targets: ${VALID_TARGETS.join(', ')}`, 'target', user.target);
   }
 
   // Validate structure
   if (user.structure && !VALID_STRUCTURES.includes(user.structure)) {
-    throw new Error(`Unknown structure: '${user.structure}'. Valid structures: ${VALID_STRUCTURES.join(', ')}`);
+    throw new KernConfigError(`Valid structures: ${VALID_STRUCTURES.join(', ')}`, 'structure', user.structure);
   }
 
   return {

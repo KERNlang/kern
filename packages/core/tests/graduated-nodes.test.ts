@@ -37,9 +37,8 @@ describe('Graduated Nodes', () => {
       expect(code).toContain('<>');
     });
 
-    it('handles missing if prop gracefully', () => {
-      const code = gen('conditional');
-      expect(code).toContain('missing');
+    it('throws on missing if prop', () => {
+      expect(() => gen('conditional')).toThrow("conditional node requires an 'if' prop");
     });
   });
 

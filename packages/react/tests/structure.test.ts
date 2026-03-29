@@ -548,7 +548,7 @@ describe('Structure Planner', () => {
 
     test('resolveConfig throws on unknown structure', async () => {
       const { resolveConfig } = await import('../../core/src/config.js');
-      expect(() => resolveConfig({ structure: 'invalid' as any })).toThrow('Unknown structure');
+      expect(() => resolveConfig({ structure: 'invalid' as any })).toThrow('Config error');
     });
   });
 });

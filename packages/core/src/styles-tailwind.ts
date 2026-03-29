@@ -24,6 +24,16 @@ export const DEFAULT_COLORS: Record<string, string> = {
 
 // ── Style-to-Tailwind mapping ───────────────────────────────────────────
 
+/**
+ * Convert KERN style properties to a Tailwind CSS class string.
+ *
+ * Handles shorthands (e.g., `p` → `padding`), value aliases (e.g., `md` → `16px`),
+ * color mapping, and responsive/pseudo variants.
+ *
+ * @param styles - Key-value pairs of KERN style properties
+ * @param colors - Optional color map override (defaults to {@link DEFAULT_COLORS})
+ * @returns Space-separated Tailwind class string
+ */
 export function stylesToTailwind(styles: Record<string, string>, colors?: Record<string, string>): string {
   const classes: string[] = [];
 

@@ -149,7 +149,7 @@ describe('Kern Core', () => {
 
     test('resolveConfig throws on unknown target', async () => {
       const { resolveConfig } = await import('../src/config.js');
-      expect(() => resolveConfig({ target: 'invalid-target' as any })).toThrow('Unknown target');
+      expect(() => resolveConfig({ target: 'invalid-target' as any })).toThrow('Config error');
     });
 
     test('resolveConfig accepts express as a valid target', async () => {
