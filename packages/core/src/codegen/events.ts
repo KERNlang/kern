@@ -5,6 +5,7 @@
  */
 
 import type { IRNode } from '../types.js';
+import { propsOf } from '../node-props.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
 import { getProps, getChildren, handlerCode, exportPrefix, capitalize } from './helpers.js';
 
@@ -14,13 +15,13 @@ const kids = getChildren;
 // ── Event ────────────────────────────────────────────────────────────────
 
 export function generateEvent(node: IRNode): string[] {
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'UnknownEvent', node);
+  const props = propsOf<'event'>(node);
+  const name = emitIdentifier(props.name, 'UnknownEvent', node);
   const exp = exportPrefix(node);
   const types = kids(node, 'type');
   const lines: string[] = [];
 
-  // Event type union
+  // Event type union — 'type' children don't have a typed interface in NodePropsMap
   lines.push(`${exp}type ${name}Type = ${types.map(t => `'${emitTemplateSafe((p(t).name || p(t).value) as string)}'`).join(' | ')};`);
   lines.push('');
 
@@ -52,10 +53,10 @@ export function generateEvent(node: IRNode): string[] {
 // ── On — generic event handler ────────────────────────────────────────────
 
 export function generateOn(node: IRNode): string[] {
-  const props = p(node);
-  const event = (props.event || props.name) as string;
-  const handlerName = props.handler as string;
-  const key = props.key as string;
+  const props = propsOf<'on'>(node);
+  const event = ((props as Record<string, unknown>).event as string) || props.name || '';
+  const handlerName = props.handler;
+  const key = props.key;
   const code = handlerCode(node);
   const exp = exportPrefix(node);
   const lines: string[] = [];
@@ -81,7 +82,7 @@ export function generateOn(node: IRNode): string[] {
     : `e: Event`;
 
   const fnName = handlerName || `handle${capitalize(event)}`;
-  const isAsync = props.async === 'true' || props.async === true;
+  const isAsync = (props as Record<string, unknown>).async === 'true' || (props as Record<string, unknown>).async === true;
   const asyncKw = isAsync ? 'async ' : '';
 
   // Key filter guard
@@ -101,9 +102,9 @@ export function generateOn(node: IRNode): string[] {
 // ── WebSocket — bidirectional communication ──────────────────────────────
 
 export function generateWebSocket(node: IRNode): string[] {
-  const props = p(node);
-  const path = (props.path || '/ws') as string;
-  const name = props.name as string || 'ws';
+  const props = propsOf<'websocket'>(node);
+  const path = (props as Record<string, unknown>).path as string || '/ws';
+  const name = props.name || 'ws';
   const exp = exportPrefix(node);
   const lines: string[] = [];
 

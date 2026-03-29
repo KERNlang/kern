@@ -5,6 +5,7 @@
  */
 
 import type { IRNode } from '../types.js';
+import { propsOf } from '../node-props.js';
 import { emitIdentifier, emitStringLiteral, emitPath, emitTypeAnnotation } from './emitters.js';
 import { getProps, getChildren, getFirstChild, handlerCode, exportPrefix, parseParamList } from './helpers.js';
 
@@ -15,8 +16,8 @@ const firstChild = getFirstChild;
 // ── Config ───────────────────────────────────────────────────────────────
 
 export function generateConfig(node: IRNode): string[] {
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'Config', node);
+  const props = propsOf<'config'>(node);
+  const name = emitIdentifier(props.name, 'Config', node);
   const exp = exportPrefix(node);
   const fields = kids(node, 'field');
   const lines: string[] = [];
@@ -24,10 +25,10 @@ export function generateConfig(node: IRNode): string[] {
   // Interface
   lines.push(`${exp}interface ${name} {`);
   for (const field of fields) {
-    const fp = p(field);
-    const fieldName = emitIdentifier(fp.name as string, 'field', field);
+    const fp = propsOf<'field'>(field);
+    const fieldName = emitIdentifier(fp.name, 'field', field);
     const opt = fp.default !== undefined ? '?' : '';
-    lines.push(`  ${fieldName}${opt}: ${emitTypeAnnotation(fp.type as string, 'unknown', field)};`);
+    lines.push(`  ${fieldName}${opt}: ${emitTypeAnnotation(fp.type, 'unknown', field)};`);
   }
   lines.push('}');
   lines.push('');
@@ -35,10 +36,10 @@ export function generateConfig(node: IRNode): string[] {
   // Defaults object
   lines.push(`${exp}const DEFAULT_${name.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase()}: Required<${name}> = {`);
   for (const field of fields) {
-    const fp = p(field);
-    const fieldName = emitIdentifier(fp.name as string, 'field', field);
-    const ftype = emitTypeAnnotation(fp.type as string, 'unknown', field);
-    let def = fp.default as string;
+    const fp = propsOf<'field'>(field);
+    const fieldName = emitIdentifier(fp.name, 'field', field);
+    const ftype = emitTypeAnnotation(fp.type, 'unknown', field);
+    let def = fp.default;
 
     if (def === undefined) {
       if (ftype === 'number') def = '0';
@@ -59,11 +60,11 @@ export function generateConfig(node: IRNode): string[] {
 // ── Store ────────────────────────────────────────────────────────────────
 
 export function generateStore(node: IRNode): string[] {
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'Store', node);
-  const rawPath = props.path as string || '~/.data';
-  const key = emitIdentifier(props.key as string, 'id', node);
-  const model = emitIdentifier(props.model as string, 'unknown', node);
+  const props = propsOf<'store'>(node);
+  const name = emitIdentifier(props.name, 'Store', node);
+  const rawPath = props.path || '~/.data';
+  const key = emitIdentifier(props.key, 'id', node);
+  const model = emitIdentifier(props.model, 'unknown', node);
   const exp = exportPrefix(node);
   const lines: string[] = [];
   const dirConst = `${name.toUpperCase()}_DIR`;
@@ -123,9 +124,9 @@ export function generateStore(node: IRNode): string[] {
 // ── Repository ───────────────────────────────────────────────────────────
 
 export function generateRepository(node: IRNode): string[] {
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'UnknownRepo', node);
-  const model = props.model as string;
+  const props = propsOf<'repository'>(node);
+  const name = emitIdentifier(props.name, 'UnknownRepo', node);
+  const model = props.model;
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
@@ -136,12 +137,12 @@ export function generateRepository(node: IRNode): string[] {
   }
 
   for (const method of kids(node, 'method')) {
-    const mp = p(method);
-    const mname = emitIdentifier(mp.name as string, 'method', method);
-    const mparams = mp.params ? parseParamList(mp.params as string) : '';
-    const isAsync = mp.async === 'true' || mp.async === true;
+    const mp = propsOf<'method'>(method);
+    const mname = emitIdentifier(mp.name, 'method', method);
+    const mparams = mp.params ? parseParamList(mp.params) : '';
+    const isAsync = (mp as Record<string, unknown>).async === 'true' || (mp as Record<string, unknown>).async === true;
     const asyncKw = isAsync ? 'async ' : '';
-    const mreturns = mp.returns ? `: ${emitTypeAnnotation(mp.returns as string, 'unknown', method)}` : '';
+    const mreturns = mp.returns ? `: ${emitTypeAnnotation(mp.returns, 'unknown', method)}` : '';
     const mcode = handlerCode(method);
 
     lines.push(`  ${asyncKw}${mname}(${mparams})${mreturns} {`);
@@ -161,11 +162,11 @@ export function generateRepository(node: IRNode): string[] {
 // ── Cache ────────────────────────────────────────────────────────────────
 
 export function generateCache(node: IRNode): string[] {
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'unknownCache', node);
-  const backend = props.backend as string || 'memory';
-  const prefix = props.prefix as string || '';
-  const ttl = props.ttl as string;
+  const props = propsOf<'cache'>(node);
+  const name = emitIdentifier(props.name, 'unknownCache', node);
+  const backend = props.backend || 'memory';
+  const prefix = props.prefix || '';
+  const ttl = props.ttl;
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
@@ -179,9 +180,9 @@ export function generateCache(node: IRNode): string[] {
   for (const entry of kids(node, 'entry')) {
     const ep = p(entry);
     const entryName = emitIdentifier(ep.name as string, 'entry', entry);
-    const key = ep.key as string || entryName;
+    const key = (ep.key as string) || entryName;
     const strategyNode = firstChild(entry, 'strategy');
-    const strategy = strategyNode ? (p(strategyNode).name as string || 'cache-aside') : 'cache-aside';
+    const strategy = strategyNode ? ((p(strategyNode).name as string) || 'cache-aside') : 'cache-aside';
 
     lines.push(`  async get${entryName[0].toUpperCase()}${entryName.slice(1)}(id: string) {`);
     lines.push(`    const key = \`${prefix}${key.replace(/\{id\}/g, '${id}')}\`;`);
@@ -196,8 +197,8 @@ export function generateCache(node: IRNode): string[] {
   // Invalidation methods
   for (const inv of kids(node, 'invalidate')) {
     const ip = p(inv);
-    const on = ip.on as string || 'update';
-    const tags = ip.tags as string || '';
+    const on = (ip.on as string) || 'update';
+    const tags = (ip.tags as string) || '';
 
     lines.push(`  async invalidateOn${on[0].toUpperCase()}${on.slice(1)}(id: string) {`);
     const invalidateKey = tags
@@ -216,15 +217,15 @@ export function generateCache(node: IRNode): string[] {
 // ── Dependency ───────────────────────────────────────────────────────────
 
 export function generateDependency(node: IRNode): string[] {
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'unknownDep', node);
-  const scope = props.scope as string || 'transient';
+  const props = propsOf<'dependency'>(node);
+  const name = emitIdentifier(props.name, 'unknownDep', node);
+  const scope = props.scope || 'transient';
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
   const injects = kids(node, 'inject');
   const returnsNode = firstChild(node, 'returns');
-  const returnsType = returnsNode ? (p(returnsNode).name || p(returnsNode).type || 'unknown') as string : 'unknown';
+  const returnsType = returnsNode ? ((p(returnsNode).name || p(returnsNode).type || 'unknown') as string) : 'unknown';
 
   if (scope === 'singleton') {
     lines.push(`let _${name}Instance: ${returnsType} | null = null;`);
@@ -252,7 +253,7 @@ export function generateDependency(node: IRNode): string[] {
     }
   }
 
-  const returnsWith = returnsNode ? p(returnsNode).with as string : undefined;
+  const returnsWith = returnsNode ? (p(returnsNode).with as string) : undefined;
   if (returnsWith) {
     lines.push(`  const instance = new ${returnsType}(${returnsWith});`);
   } else {
@@ -272,26 +273,26 @@ export function generateDependency(node: IRNode): string[] {
 // ── Model ────────────────────────────────────────────────────────────────
 
 export function generateModel(node: IRNode): string[] {
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'UnknownModel', node);
-  const table = props.table as string;
+  const props = propsOf<'model'>(node);
+  const name = emitIdentifier(props.name, 'UnknownModel', node);
+  const table = props.table;
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
   // Generate TypeScript interface
   lines.push(`${exp}interface ${name} {`);
   for (const col of kids(node, 'column')) {
-    const cp = p(col);
-    const colName = emitIdentifier(cp.name as string, 'column', col);
-    const colType = mapColumnType(cp.type as string);
-    const opt = cp.optional === 'true' || cp.optional === true ? '?' : '';
+    const cp = propsOf<'column'>(col);
+    const colName = emitIdentifier(cp.name, 'column', col);
+    const colType = mapColumnType(cp.type || 'unknown');
+    const opt = (cp as Record<string, unknown>).optional === 'true' || (cp as Record<string, unknown>).optional === true ? '?' : '';
     lines.push(`  ${colName}${opt}: ${colType};`);
   }
   for (const rel of kids(node, 'relation')) {
-    const rp = p(rel);
-    const relName = emitIdentifier(rp.name as string, 'relation', rel);
-    const target = rp.target as string;
-    const kind = rp.kind as string || 'one-to-many';
+    const rp = propsOf<'relation'>(rel);
+    const relName = emitIdentifier(rp.name, 'relation', rel);
+    const target = (rp as Record<string, unknown>).target as string;
+    const kind = (rp as Record<string, unknown>).kind as string || 'one-to-many';
     const relType = kind.includes('many') ? `${target}[]` : target;
     lines.push(`  ${relName}?: ${relType};`);
   }

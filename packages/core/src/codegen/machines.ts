@@ -6,6 +6,7 @@
  */
 
 import type { IRNode } from '../types.js';
+import { propsOf } from '../node-props.js';
 import { emitIdentifier, emitTemplateSafe } from './emitters.js';
 import { getProps, getChildren, handlerCode, exportPrefix } from './helpers.js';
 
@@ -15,16 +16,16 @@ const kids = getChildren;
 // ── State Machine ────────────────────────────────────────────────────────
 
 export function generateMachine(node: IRNode): string[] {
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'UnknownMachine', node);
+  const props = propsOf<'machine'>(node);
+  const name = emitIdentifier(props.name, 'UnknownMachine', node);
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
   // Collect states
   const states = kids(node, 'state');
   const stateNames = states.map(s => {
-    const sp = p(s);
-    return emitIdentifier((sp.name || sp.value) as string, 'state', s);
+    const sp = propsOf<'state'>(s);
+    return emitIdentifier(sp.name || sp.value, 'state', s);
   });
 
   // State type
@@ -49,10 +50,10 @@ export function generateMachine(node: IRNode): string[] {
   // Transition functions
   const transitions = kids(node, 'transition');
   for (const t of transitions) {
-    const tp = p(t);
-    const tname = emitIdentifier(tp.name as string, 'transition', t);
-    const from = tp.from as string;
-    const to = tp.to as string;
+    const tp = propsOf<'transition'>(t);
+    const tname = emitIdentifier(tp.name, 'transition', t);
+    const from = tp.from || '';
+    const to = tp.to || '';
 
     const fromStates = from.split('|').map(s => s.trim());
     const isMultiFrom = fromStates.length > 1;
@@ -91,8 +92,8 @@ export function generateMachine(node: IRNode): string[] {
 // ── Machine → useReducer (Ink target) ────────────────────────────────────
 
 export function generateMachineReducer(node: IRNode): string[] {
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'UnknownMachine', node);
+  const props = propsOf<'machine'>(node);
+  const name = emitIdentifier(props.name, 'UnknownMachine', node);
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
@@ -105,17 +106,20 @@ export function generateMachineReducer(node: IRNode): string[] {
   // Collect states + transitions
   const states = kids(node, 'state');
   const stateNames = states.map(s => {
-    const sp = p(s);
-    return (sp.name || sp.value) as string;
+    const sp = propsOf<'state'>(s);
+    return sp.name || sp.value || '';
   });
-  const initialState = states.find(s => p(s).initial === 'true' || p(s).initial === true);
-  const initialName = initialState ? (p(initialState).name || p(initialState).value) as string : stateNames[0];
+  const initialState = states.find(s => {
+    const sp = propsOf<'state'>(s);
+    return sp.initial === 'true' || sp.initial === true;
+  });
+  const initialName = initialState ? (propsOf<'state'>(initialState).name || propsOf<'state'>(initialState).value || '') : stateNames[0];
 
   const transitions = kids(node, 'transition');
   const stateType = `${name}State`;
 
   // Action type union
-  const actionNames = transitions.map(t => emitIdentifier(p(t).name as string, 'action', t));
+  const actionNames = transitions.map(t => emitIdentifier(propsOf<'transition'>(t).name, 'action', t));
   lines.push(`${exp}type ${name}Action = ${actionNames.map(a => `'${a}'`).join(' | ')};`);
   lines.push('');
 
@@ -124,8 +128,8 @@ export function generateMachineReducer(node: IRNode): string[] {
   lines.push(`  const entity = { state };`);
   lines.push(`  switch (action) {`);
   for (const t of transitions) {
-    const tp = p(t);
-    const tname = emitIdentifier(tp.name as string, 'action', t);
+    const tp = propsOf<'transition'>(t);
+    const tname = emitIdentifier(tp.name, 'action', t);
     const fnName = `${tname}${name}`;
     lines.push(`    case '${emitTemplateSafe(tname)}': return ${fnName}(entity).state;`);
   }

@@ -9,6 +9,7 @@
  */
 
 import type { IRNode } from '../types.js';
+import { propsOf } from '../node-props.js';
 import { isTemplateNode, expandTemplateNode } from '../template-engine.js';
 import { KernCodegenError } from '../errors.js';
 import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
@@ -22,13 +23,13 @@ const firstChild = getFirstChild;
 
 export function generateDerive(node: IRNode): string[] {
   const annotations = emitReasonAnnotations(node);
-  const conf = p(node).confidence as string | undefined;
+  const props = propsOf<'derive'>(node);
+  const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'derived', node);
+  const name = emitIdentifier(props.name, 'derived', node);
   // expr is by-design raw code (escape hatch)
-  const expr = props.expr as string;
-  const constType = props.type as string | undefined;
+  const expr = props.expr;
+  const constType = props.type;
   const exp = exportPrefix(node);
 
   const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
@@ -39,14 +40,14 @@ export function generateDerive(node: IRNode): string[] {
 
 export function generateTransform(node: IRNode): string[] {
   const annotations = emitReasonAnnotations(node);
-  const conf = p(node).confidence as string | undefined;
+  const props = propsOf<'transform'>(node);
+  const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'transform', node);
+  const name = emitIdentifier(props.name, 'transform', node);
   // target and via are by-design raw code (escape hatches)
-  const target = props.target as string | undefined;
-  const via = props.via as string | undefined;
-  const constType = props.type as string | undefined;
+  const target = props.target;
+  const via = props.via;
+  const constType = props.type;
   const exp = exportPrefix(node);
   const code = handlerCode(node);
 
@@ -76,14 +77,14 @@ export function generateTransform(node: IRNode): string[] {
 
 export function generateAction(node: IRNode): string[] {
   const annotations = emitReasonAnnotations(node);
-  const conf = p(node).confidence as string | undefined;
+  const props = propsOf<'action'>(node);
+  const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'action', node);
-  const idempotent = props.idempotent === 'true' || props.idempotent === true;
-  const reversible = props.reversible === 'true' || props.reversible === true;
-  const params = props.params as string || '';
-  const returns = props.returns as string | undefined;
+  const name = emitIdentifier(props.name, 'action', node);
+  const idempotent = (props as Record<string, unknown>).idempotent === 'true' || (props as Record<string, unknown>).idempotent === true;
+  const reversible = (props as Record<string, unknown>).reversible === 'true' || (props as Record<string, unknown>).reversible === true;
+  const params = props.params || '';
+  const returns = props.returns;
   const exp = exportPrefix(node);
   const code = handlerCode(node);
 
@@ -113,12 +114,12 @@ export function generateAction(node: IRNode): string[] {
 
 export function generateGuard(node: IRNode): string[] {
   const annotations = emitReasonAnnotations(node);
-  const conf = p(node).confidence as string | undefined;
+  const props = propsOf<'guard'>(node);
+  const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
-  const props = p(node);
-  const name = props.name as string || 'guard';
-  const expr = props.expr as string;
-  const elseCode = props.else as string | undefined;
+  const name = props.name || 'guard';
+  const expr = (props as Record<string, unknown>).expr as string;
+  const elseCode = (props as Record<string, unknown>).else as string | undefined;
 
   const lines: string[] = [...todo, ...annotations];
 
@@ -136,13 +137,13 @@ export function generateGuard(node: IRNode): string[] {
 
 export function generateAssume(node: IRNode): string[] {
   const annotations = emitReasonAnnotations(node);
-  const conf = p(node).confidence as string | undefined;
+  const props = propsOf<'assume'>(node);
+  const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
-  const props = p(node);
-  const expr = props.expr as string;
-  const scope = props.scope as string || 'request';
-  const evidence = props.evidence as string | undefined;
-  const fallback = props.fallback as string | undefined;
+  const expr = props.expr;
+  const scope = (props as Record<string, unknown>).scope as string || 'request';
+  const evidence = (props as Record<string, unknown>).evidence as string | undefined;
+  const fallback = (props as Record<string, unknown>).fallback as string | undefined;
 
   if (!evidence) throw new KernCodegenError('assume requires evidence prop', node);
   if (!fallback) throw new KernCodegenError('assume requires fallback prop', node);
@@ -159,11 +160,11 @@ export function generateAssume(node: IRNode): string[] {
 
 export function generateInvariant(node: IRNode): string[] {
   const annotations = emitReasonAnnotations(node);
-  const conf = p(node).confidence as string | undefined;
+  const props = propsOf<'invariant'>(node);
+  const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
-  const props = p(node);
-  const name = props.name as string || 'invariant';
-  const expr = props.expr as string;
+  const name = props.name || 'invariant';
+  const expr = props.expr;
 
   const lines: string[] = [...todo, ...annotations];
   lines.push(`console.assert(${expr}, 'Invariant: ${name}');`);
@@ -174,14 +175,14 @@ export function generateInvariant(node: IRNode): string[] {
 
 export function generateCollect(node: IRNode): string[] {
   const annotations = emitReasonAnnotations(node);
-  const conf = p(node).confidence as string | undefined;
+  const props = propsOf<'collect'>(node);
+  const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'collected', node);
-  const from = props.from as string;
-  const where = props.where as string | undefined;
-  const limit = props.limit as string | undefined;
-  const order = props.order as string | undefined;
+  const name = emitIdentifier(props.name, 'collected', node);
+  const from = props.from;
+  const where = props.where;
+  const limit = props.limit;
+  const order = props.order;
   const exp = exportPrefix(node);
 
   let chain = from;
@@ -196,10 +197,10 @@ export function generateCollect(node: IRNode): string[] {
 
 export function generateResolve(node: IRNode): string[] {
   const annotations = emitReasonAnnotations(node);
-  const conf = p(node).confidence as string | undefined;
+  const props = propsOf<'resolve'>(node);
+  const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'resolver', node);
+  const name = emitIdentifier(props.name, 'resolver', node);
   const candidates = kids(node, 'candidate');
   const discriminator = firstChild(node, 'discriminator');
 
@@ -207,8 +208,8 @@ export function generateResolve(node: IRNode): string[] {
 
   const lines: string[] = [...todo, ...annotations];
   const dp = p(discriminator);
-  const method = dp.method as string || 'select';
-  const metric = dp.metric as string || '';
+  const method = (dp.method as string) || 'select';
+  const metric = (dp.metric as string) || '';
 
   // Candidate array
   lines.push(`/** resolve: ${name} */`);
@@ -241,14 +242,14 @@ export function generateResolve(node: IRNode): string[] {
 
 export function generateExpect(node: IRNode): string[] {
   const annotations = emitReasonAnnotations(node);
-  const conf = p(node).confidence as string | undefined;
+  const props = propsOf<'expect'>(node);
+  const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
-  const props = p(node);
-  const name = props.name as string || 'expected';
-  const expr = props.expr as string;
-  const within = props.within as string | undefined;
-  const max = props.max as string | undefined;
-  const min = props.min as string | undefined;
+  const name = props.name || 'expected';
+  const expr = props.expr;
+  const within = props.within;
+  const max = props.max;
+  const min = props.min;
 
   const lines: string[] = [...todo, ...annotations];
   lines.push(`if (process.env.NODE_ENV !== 'production') {`);
@@ -275,10 +276,10 @@ export function generateExpect(node: IRNode): string[] {
 
 export function generateRecover(node: IRNode): string[] {
   const annotations = emitReasonAnnotations(node);
-  const conf = p(node).confidence as string | undefined;
+  const props = propsOf<'recover'>(node);
+  const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'recovery', node);
+  const name = emitIdentifier(props.name, 'recovery', node);
   const strategies = kids(node, 'strategy');
 
   const hasFallback = strategies.some(s => (p(s).name as string) === 'fallback');
@@ -336,8 +337,8 @@ export function generatePattern(_node: IRNode): string[] {
 
 export function generateApply(node: IRNode, _depth = 0): string[] {
   // apply nodes expand the referenced pattern
-  const props = p(node);
-  const patternName = props.pattern as string;
+  const props = propsOf<'pattern'>(node);
+  const patternName = props.pattern;
   if (!patternName) return [];
 
   // Delegate to template expansion — propagate depth to prevent infinite recursion

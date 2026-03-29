@@ -8,6 +8,7 @@
  */
 
 import type { IRNode } from '../types.js';
+import { propsOf } from '../node-props.js';
 import { emitIdentifier, emitImportSpecifier } from './emitters.js';
 import { getProps } from './helpers.js';
 
@@ -16,10 +17,10 @@ const p = getProps;
 // ── Import ──────────────────────────────────────────────────────────────
 
 export function generateImport(node: IRNode): string[] {
-  const props = p(node);
-  const from = props.from as string;
-  const names = props.names as string | undefined;
-  const defaultImport = props.default as string | undefined;
+  const props = propsOf<'import'>(node);
+  const from = props.from;
+  const names = props.names;
+  const defaultImport = props.default;
   const isTypeOnly = props.types === 'true' || props.types === true;
 
   if (!from) return [];

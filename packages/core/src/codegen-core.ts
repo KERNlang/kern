@@ -12,6 +12,7 @@
  */
 
 import type { IRNode, ExprObject } from './types.js';
+import { propsOf } from './node-props.js';
 import { isTemplateNode, expandTemplateNode } from './template-engine.js';
 import { KernCodegenError } from './errors.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
@@ -86,13 +87,14 @@ export function hasEvolvedGenerator(type: string): boolean {
 //   export from="./plan.js" names="createPlan,advanceStep"
 
 export function generateModule(node: IRNode): string[] {
-  const props = p(node);
-  const name = emitTemplateSafe(props.name as string || 'unknown');
+  const props = propsOf<'module'>(node);
+  const name = emitTemplateSafe(props.name || 'unknown');
   const lines: string[] = [];
 
   lines.push(`// ── Module: ${name} ──`);
   lines.push('');
 
+  // 'export' children don't have a typed interface in NodePropsMap
   for (const exp of kids(node, 'export')) {
     const ep = p(exp);
     const rawFrom = ep.from as string;
@@ -151,12 +153,12 @@ export function generateModule(node: IRNode): string[] {
 
 export function generateEach(node: IRNode): string[] {
   const annotations = emitReasonAnnotations(node);
-  const conf = p(node).confidence as string | undefined;
+  const props = propsOf<'each'>(node);
+  const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
-  const props = p(node);
-  const name = props.name as string || 'item';
-  const collection = props.in as string;
-  const index = props.index as string | undefined;
+  const name = props.name || 'item';
+  const collection = props.in;
+  const index = props.index;
 
   const lines: string[] = [...todo, ...annotations];
   if (index) {
@@ -183,17 +185,18 @@ export function generateEach(node: IRNode): string[] {
 
 export function generateBranch(node: IRNode): string[] {
   const annotations = emitReasonAnnotations(node);
-  const conf = p(node).confidence as string | undefined;
+  const props = propsOf<'branch'>(node);
+  const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
-  const props = p(node);
-  const name = props.name as string || 'branch';
-  const on = props.on as string;
+  const name = props.name || 'branch';
+  const on = props.on;
   const paths = kids(node, 'path');
 
   const lines: string[] = [...todo, ...annotations];
   lines.push(`/** branch: ${name} */`);
   lines.push(`switch (${on}) {`);
 
+  // 'path' children don't have a typed interface in NodePropsMap
   for (const pathNode of paths) {
     const pp = p(pathNode);
     const value = pp.value as string;
@@ -218,7 +221,7 @@ export function generateBranch(node: IRNode): string[] {
 // → {isPro && (<>..children..</>)}
 
 export function generateConditional(node: IRNode): string[] {
-  const props = p(node);
+  const props = propsOf<'conditional'>(node);
   const rawCondition = props.if;
   // Handle expression objects: { __expr: true, code: 'loading' }
   const condition = rawCondition && typeof rawCondition === 'object' && (rawCondition as ExprObject).__expr
@@ -252,11 +255,11 @@ export function generateConditional(node: IRNode): string[] {
 //   option value=pending label="Pending"
 
 export function generateSelect(node: IRNode): string[] {
-  const props = p(node);
-  const name = props.name as string || 'select';
-  const value = props.value as string;
-  const placeholder = props.placeholder as string;
-  const onChange = props.onChange as string;
+  const props = propsOf<'select'>(node);
+  const name = props.name || 'select';
+  const value = props.value;
+  const placeholder = props.placeholder;
+  const onChange = props.onChange;
 
   const attrs: string[] = [`name="${name}"`];
   if (value) attrs.push(`value={${value}}`);
@@ -269,9 +272,9 @@ export function generateSelect(node: IRNode): string[] {
     lines.push(`  <option value="" disabled>${emitTemplateSafe(placeholder)}</option>`);
   }
   for (const opt of kids(node, 'option')) {
-    const op = p(opt);
-    const optValue = emitTemplateSafe(op.value as string || '');
-    const optLabel = emitTemplateSafe(op.label as string || op.value as string || '');
+    const op = propsOf<'option'>(opt);
+    const optValue = emitTemplateSafe(op.value || '');
+    const optLabel = emitTemplateSafe(op.label || op.value || '');
     lines.push(`  <option value="${optValue}">${optLabel}</option>`);
   }
   lines.push(`</select>`);

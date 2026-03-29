@@ -5,6 +5,7 @@
  */
 
 import type { IRNode } from '../types.js';
+import { propsOf } from '../node-props.js';
 import { emitTemplateSafe } from './emitters.js';
 import { getProps, getChildren, handlerCode } from './helpers.js';
 
@@ -14,8 +15,8 @@ const kids = getChildren;
 // ── Test ─────────────────────────────────────────────────────────────────
 
 export function generateTest(node: IRNode): string[] {
-  const props = p(node);
-  const name = emitTemplateSafe(props.name as string || 'UnknownTest');
+  const props = propsOf<'test'>(node);
+  const name = emitTemplateSafe(props.name || 'UnknownTest');
   const lines: string[] = [];
 
   lines.push(`import { describe, it, expect } from 'vitest';`);
@@ -30,12 +31,13 @@ export function generateTest(node: IRNode): string[] {
 
   lines.push(`describe('${name}', () => {`);
 
+  // 'describe' and 'it' children don't have typed interfaces in NodePropsMap
   for (const desc of kids(node, 'describe')) {
-    const dname = emitTemplateSafe(p(desc).name as string || 'describe');
+    const dname = emitTemplateSafe((p(desc).name as string) || 'describe');
     lines.push(`  describe('${dname}', () => {`);
 
     for (const test of kids(desc, 'it')) {
-      const tname = emitTemplateSafe(p(test).name as string || 'test');
+      const tname = emitTemplateSafe((p(test).name as string) || 'test');
       const code = handlerCode(test);
       lines.push(`    it('${tname}', () => {`);
       if (code) {
@@ -49,7 +51,7 @@ export function generateTest(node: IRNode): string[] {
 
   // Top-level it blocks
   for (const test of kids(node, 'it')) {
-    const tname = emitTemplateSafe(p(test).name as string || 'test');
+    const tname = emitTemplateSafe((p(test).name as string) || 'test');
     const code = handlerCode(test);
     lines.push(`  it('${tname}', () => {`);
     if (code) {

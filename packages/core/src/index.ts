@@ -116,6 +116,21 @@ export type { AccountedEntry } from './utils.js';
 export { walkIR, getNodeAtPosition } from './walk.js';
 export type { WalkContext, VisitorFn, Visitor, VisitorMap } from './walk.js';
 
+// Typed node props
+export { propsOf, propsUntyped } from './node-props.js';
+export type {
+  NodePropsMap,
+  TypeProps, InterfaceProps, UnionProps, ServiceProps, ConstProps,
+  FnProps, ErrorProps, MachineProps,
+  ConfigProps, StoreProps, RepositoryProps, CacheProps, DependencyProps, ModelProps,
+  EventProps, OnProps, WebSocketProps,
+  DeriveProps, TransformProps, ActionProps, GuardProps, AssumeProps, InvariantProps,
+  EachProps, CollectProps, BranchProps, ResolveProps, ExpectProps, RecoverProps, PatternProps,
+  ConditionalProps, SelectProps,
+  ModuleProps, ImportProps, FieldProps, VariantProps, MethodProps,
+  TransitionProps, StateProps, ColumnProps, RelationProps, OptionProps, TestProps,
+} from './node-props.js';
+
 // Source map serialization
 export { serializeSourceMap } from './source-map.js';
 export type { SourceMapV3 } from './source-map.js';

@@ -5,6 +5,7 @@
  */
 
 import type { IRNode } from '../types.js';
+import { propsOf } from '../node-props.js';
 import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { getProps, getChildren, getFirstChild, dedent, handlerCode, exportPrefix, parseParamList } from './helpers.js';
 
@@ -15,10 +16,10 @@ const firstChild = getFirstChild;
 // ── Function ─────────────────────────────────────────────────────────────
 
 export function generateFunction(node: IRNode): string[] {
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'unknownFn', node);
-  const params = props.params as string || '';
-  const returns = props.returns as string;
+  const props = propsOf<'fn'>(node);
+  const name = emitIdentifier(props.name, 'unknownFn', node);
+  const params = props.params || '';
+  const returns = props.returns;
   const isAsync = props.async === 'true' || props.async === true;
   const isStream = props.stream === 'true' || props.stream === true;
   const exp = exportPrefix(node);
@@ -30,7 +31,7 @@ export function generateFunction(node: IRNode): string[] {
 
   // stream=true → async generator function
   if (isStream) {
-    const yieldType = emitTypeAnnotation(returns as string, 'unknown', node);
+    const yieldType = emitTypeAnnotation(returns, 'unknown', node);
     const retClause = `: AsyncGenerator<${yieldType}>`;
     const code = handlerCode(node);
     lines.push(`${exp}async function* ${name}(${paramList})${retClause} {`);
@@ -43,7 +44,7 @@ export function generateFunction(node: IRNode): string[] {
     return lines;
   }
 
-  const retClause = returns ? `: ${emitTypeAnnotation(returns as string, 'unknown', node)}` : '';
+  const retClause = returns ? `: ${emitTypeAnnotation(returns, 'unknown', node)}` : '';
   const asyncKw = isAsync ? 'async ' : '';
   const code = handlerCode(node);
 
@@ -91,10 +92,10 @@ export function generateFunction(node: IRNode): string[] {
 // ── Error Class ──────────────────────────────────────────────────────────
 
 export function generateError(node: IRNode): string[] {
-  const props = p(node);
-  const name = emitIdentifier(props.name as string, 'UnknownError', node);
-  const ext = emitIdentifier(props.extends as string, 'Error', node);
-  const message = props.message as string;
+  const props = propsOf<'error'>(node);
+  const name = emitIdentifier(props.name, 'UnknownError', node);
+  const ext = emitIdentifier(props.extends, 'Error', node);
+  const message = props.message;
   const exp = exportPrefix(node);
   const fields = kids(node, 'field');
   const lines: string[] = [];
@@ -106,14 +107,14 @@ export function generateError(node: IRNode): string[] {
   if (fields.length > 0) {
     lines.push(`  constructor(`);
     // Check if first field is 'message' — special case: pass to super
-    const hasMessageParam = (p(fields[0]).name as string) === 'message';
+    const hasMessageParam = propsOf<'field'>(fields[0]).name === 'message';
     for (const field of fields) {
-      const fp = p(field);
+      const fp = propsOf<'field'>(field);
       const opt = fp.optional === 'true' || fp.optional === true ? '?' : '';
-      const isMessage = (fp.name as string) === 'message';
+      const isMessage = fp.name === 'message';
       // 'message' param is not readonly — it's passed to super
-      const fName = emitIdentifier(fp.name as string, 'field', field);
-      const fType = emitTypeAnnotation(fp.type as string, 'unknown', field);
+      const fName = emitIdentifier(fp.name, 'field', field);
+      const fType = emitTypeAnnotation(fp.type, 'unknown', field);
       if (isMessage) {
         lines.push(`    ${fName}${opt}: ${fType},`);
       } else {
@@ -129,11 +130,11 @@ export function generateError(node: IRNode): string[] {
     } else if (message) {
       // Check if message references array fields that need formatting
       const arrayFields = fields.filter(f => {
-        const ft = p(f).type as string;
+        const ft = propsOf<'field'>(f).type || '';
         return ft.includes('[]') || ft.includes('string |') || ft.includes('| string');
       });
       for (const f of arrayFields) {
-        const fn = p(f).name as string;
+        const fn = propsOf<'field'>(f).name || 'field';
         lines.push(`    const ${fn}Str = Array.isArray(${fn}) ? ${fn}.join(' | ') : ${fn};`);
       }
       lines.push(`    super(\`${message}\`);`);
