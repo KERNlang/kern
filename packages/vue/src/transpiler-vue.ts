@@ -7,7 +7,7 @@
  */
 
 import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR, cssPropertyName, getProps, getStyles, getThemeRefs, buildDiagnostics, accountNode } from '@kernlang/core';
+import { expandStyles, countTokens, serializeIR, cssPropertyName, camelKey, escapeJsString, getProps, getStyles, getThemeRefs, buildDiagnostics, accountNode } from '@kernlang/core';
 
 // ── Node → HTML Element Mapping ──────────────────────────────────────────
 
@@ -47,6 +47,12 @@ function textElement(variant?: string): string {
   if (variant === 'caption' || variant === 'small') return 'small';
   if (variant === 'code') return 'code';
   return 'p';
+}
+
+// ── i18n helper ──────────────────────────────────────────────────────────
+
+function tText(ctx: VueBuilder, key: string, value: string): string {
+  return ctx.i18nEnabled ? `{{ t('${escapeJsString(key)}', '${escapeJsString(value)}') }}` : value;
 }
 
 // ── Style helpers ────────────────────────────────────────────────────────
@@ -92,6 +98,7 @@ interface VueBuilder {
   classIdx: number;
   themes: Record<string, Record<string, string>>;
   config: ResolvedKernConfig | undefined;
+  i18nEnabled: boolean;
 }
 
 function createBuilder(config?: ResolvedKernConfig): VueBuilder {
@@ -107,6 +114,7 @@ function createBuilder(config?: ResolvedKernConfig): VueBuilder {
     classIdx: 0,
     themes: {},
     config,
+    i18nEnabled: config?.i18n?.enabled ?? false,
   };
 }
 
@@ -261,11 +269,19 @@ const ATTR_BUILDERS: Record<string, (props: Record<string, unknown>, attrs: stri
 
 function renderTextContent(props: Record<string, unknown>, ctx: VueBuilder, indent: string): void {
   if (!props.value) return;
-  const val = props.value as string;
-  if (typeof val === 'string' && val.startsWith('{{') && val.endsWith('}}')) {
+  const rawVal = props.value;
+  // Expression object: { __expr: true, code: "count" } → {{ count }}
+  if (typeof rawVal === 'object' && rawVal !== null && '__expr' in rawVal) {
+    ctx.templateLines.push(`${indent}  {{ ${(rawVal as unknown as { code: string }).code} }}`);
+    return;
+  }
+  const val = rawVal as string;
+  if (typeof val !== 'string') return;
+  if (val.startsWith('{{') && val.endsWith('}}')) {
     ctx.templateLines.push(`${indent}  {{ ${val.slice(2, -2).trim()} }}`);
   } else {
-    ctx.templateLines.push(`${indent}  ${val}`);
+    const key = (props.key as string) || camelKey(val);
+    ctx.templateLines.push(`${indent}  ${tText(ctx, key, val)}`);
   }
 }
 
@@ -426,6 +442,18 @@ function generateScriptSetup(ctx: VueBuilder, root: IRNode): string {
   // Vue imports
   if (ctx.vueImports.size > 0) {
     lines.push(`import { ${[...ctx.vueImports].sort().join(', ')} } from 'vue';`);
+    lines.push('');
+  }
+
+  // i18n import — use Vue-native defaults, override React defaults from resolveConfig
+  if (ctx.i18nEnabled) {
+    const rawHook = ctx.config?.i18n?.hookName;
+    const rawImport = ctx.config?.i18n?.importPath;
+    const hookName = (rawHook && rawHook !== 'useTranslation') ? rawHook : 'useI18n';
+    const importPath = (rawImport && rawImport !== 'react-i18next') ? rawImport : 'vue-i18n';
+    lines.push(`import { ${hookName} } from '${importPath}';`);
+    lines.push('');
+    lines.push(`const { t } = ${hookName}();`);
     lines.push('');
   }
 
