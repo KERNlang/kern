@@ -941,6 +941,22 @@ export function generateRecover(node: IRNode): string[] {
 // → class User(SQLModel, table=True): ...
 
 /** Map KERN column type to Python/SQLModel field type. */
+/** Convert a KERN default value to valid Python syntax. */
+function formatPythonDefault(value: string, kernType: string): string {
+  const trimmed = value.trim();
+  if (trimmed === 'true') return 'True';
+  if (trimmed === 'false') return 'False';
+  if (trimmed === 'null' || trimmed === 'undefined') return 'None';
+  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) return trimmed;
+  if (/^(["']).*\1$/.test(trimmed)) return trimmed;
+  if (/^[A-Za-z_]\w*\([^)]*\)$/.test(trimmed)) return trimmed;
+  // String types get quoted
+  if (['string', 'text', 'Email', 'URL', 'PhoneNumber', 'PersonName', 'uuid'].includes(kernType)) {
+    return `"${trimmed}"`;
+  }
+  return trimmed;
+}
+
 function mapColumnToPython(kernType: string): string {
   const map: Record<string, string> = {
     uuid: 'UUID', string: 'str', text: 'str',
@@ -986,7 +1002,7 @@ export function generatePythonModel(node: IRNode): string[] {
     const fieldArgs: string[] = [];
     if (isPrimary) fieldArgs.push('primary_key=True');
     if (isUnique) fieldArgs.push('unique=True');
-    if (defaultVal !== undefined) fieldArgs.push(`default=${defaultVal}`);
+    if (defaultVal !== undefined) fieldArgs.push(`default=${formatPythonDefault(defaultVal, cp.type || '')}`);
     else if (isNullable) fieldArgs.push('default=None');
 
     const typeStr = isNullable ? `${colType} | None` : colType;
@@ -1097,10 +1113,11 @@ export function generatePythonCache(node: IRNode): string[] {
     const ep = p(entry);
     const entryName = toSnakeCase(ep.name as string || 'entry');
     const key = (ep.key as string) || entryName;
-    const keyExpr = key.replace(/\{id\}/g, '{id}');
+    // If key already contains the prefix pattern, use it as-is; otherwise prepend prefix
+    const keyExpr = key.includes(prefix) ? key.replace(/\{id\}/g, '{id}') : `${prefix}${key.replace(/\{id\}/g, '{id}')}`;
 
     lines.push(`    async def get_${entryName}(self, id: str):`);
-    lines.push(`        key = f"${prefix}${keyExpr}"`);
+    lines.push(`        key = f"${keyExpr}"`);
     lines.push(`        return ${backend === 'redis' ? 'await redis.get(key)' : 'self._cache.get(key)'}`);
     lines.push('');
   }
@@ -1110,9 +1127,8 @@ export function generatePythonCache(node: IRNode): string[] {
     const ip = p(inv);
     const on = toSnakeCase((ip.on as string) || 'update');
     const tags = (ip.tags as string) || '';
-    const invKey = tags
-      ? `${prefix}${tags.replace(/\{id\}/g, '{id}')}`
-      : `${prefix}{id}`;
+    const rawInvKey = tags ? tags.replace(/\{id\}/g, '{id}') : `{id}`;
+    const invKey = rawInvKey.includes(prefix) ? rawInvKey : `${prefix}${rawInvKey}`;
 
     lines.push(`    async def invalidate_on_${on}(self, id: str):`);
     lines.push(`        key = f"${invKey}"`);

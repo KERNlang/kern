@@ -941,9 +941,13 @@ const TOP_LEVEL_CORE = new Set([
 
 // ── Prisma Schema Artifact ───────────────────────────────────────────────
 
-/** Map KERN column type to Prisma schema type. */
-function mapColumnToPrisma(kernType: string): string {
-  return mapSemanticType(kernType, 'prisma');
+/** Map KERN column type to Prisma schema type. Strips @db.* decorators for non-PostgreSQL providers. */
+function mapColumnToPrisma(kernType: string, provider: string): string {
+  const mapped = mapSemanticType(kernType, 'prisma');
+  if (provider !== 'postgresql') {
+    return mapped.replace(/ @db\.\w+/g, '');
+  }
+  return mapped;
 }
 
 /**
@@ -990,7 +994,7 @@ export function buildPrismaArtifact(modelNodes: IRNode[], config?: ResolvedKernC
     for (const col of columns) {
       const cp = propsOf<'column'>(col);
       const colName = cp.name || 'column';
-      const rawType = mapColumnToPrisma(cp.type || 'String');
+      const rawType = mapColumnToPrisma(cp.type || 'String', provider);
       // Split off Prisma decorators embedded in the type (e.g., 'String @db.Uuid')
       const [prismaType, ...typeDecorators] = rawType.split(' ');
       const decorators: string[] = [...typeDecorators];

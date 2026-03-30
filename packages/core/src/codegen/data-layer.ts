@@ -193,7 +193,8 @@ export function generateCache(node: IRNode): string[] {
     const strategy = strategyNode ? ((p(strategyNode).name as string) || 'cache-aside') : 'cache-aside';
 
     lines.push(`  async get${entryName[0].toUpperCase()}${entryName.slice(1)}(id: string) {`);
-    lines.push(`    const key = \`${prefix}${key.replace(/\{id\}/g, '${id}')}\`;`);
+    const keyExpr = key.includes(prefix) ? key.replace(/\{id\}/g, '${id}') : `${prefix}${key.replace(/\{id\}/g, '${id}')}`;
+    lines.push(`    const key = \`${keyExpr}\`;`);
     if (strategy === 'read-through') {
       lines.push(`    // read-through: check cache, fetch if miss, populate cache`);
     }
@@ -209,9 +210,8 @@ export function generateCache(node: IRNode): string[] {
     const tags = (ip.tags as string) || '';
 
     lines.push(`  async invalidateOn${on[0].toUpperCase()}${on.slice(1)}(id: string) {`);
-    const invalidateKey = tags
-      ? `\`${prefix}${tags.replace(/\{id\}/g, '${id}')}\``
-      : `\`${prefix}\${id}\``;
+    const rawInvKey = tags ? tags.replace(/\{id\}/g, '${id}') : `\${id}`;
+    const invalidateKey = rawInvKey.includes(prefix) ? `\`${rawInvKey}\`` : `\`${prefix}${rawInvKey}\``;
     lines.push(`    const key = ${invalidateKey};`);
     lines.push(`    ${backend === 'redis' ? `await redis.del(key)` : `cache.delete(key)`};`);
     lines.push(`  },`);
