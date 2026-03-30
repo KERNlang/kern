@@ -9,6 +9,7 @@ import { transpile } from '@kernlang/native';
 import { transpileWeb, transpileTailwind, transpileNextjs } from '@kernlang/react';
 import { transpileExpress } from '@kernlang/express';
 import { transpileFastAPI } from '@kernlang/fastapi';
+import { transpileMCP } from '@kernlang/mcp';
 import { transpileCliApp } from './transpiler-cli.js';
 import { transpileTerminal, transpileInk } from '@kernlang/terminal';
 import { transpileVue, transpileNuxt } from '@kernlang/vue';
@@ -236,21 +237,23 @@ function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride
       ? transpileWeb(ast, cfg)
       : target === 'tailwind'
         ? transpileTailwind(ast, cfg)
-        : target === 'express'
-          ? transpileExpress(ast, cfg)
-          : target === 'fastapi'
-            ? transpileFastAPI(ast, cfg)
-            : target === 'cli'
-              ? transpileCliApp(ast, cfg)
-              : target === 'terminal'
-                ? transpileTerminal(ast, cfg)
-                : target === 'ink'
-                  ? transpileInk(ast, cfg)
-                  : target === 'vue'
-                    ? transpileVue(ast, cfg)
-                    : target === 'nuxt'
-                      ? transpileNuxt(ast, cfg)
-                      : transpileNextjs(ast, cfg);
+        : target === 'mcp'
+          ? transpileMCP(ast, cfg)
+          : target === 'express'
+            ? transpileExpress(ast, cfg)
+            : target === 'fastapi'
+              ? transpileFastAPI(ast, cfg)
+              : target === 'cli'
+                ? transpileCliApp(ast, cfg)
+                : target === 'terminal'
+                  ? transpileTerminal(ast, cfg)
+                  : target === 'ink'
+                    ? transpileInk(ast, cfg)
+                    : target === 'vue'
+                      ? transpileVue(ast, cfg)
+                      : target === 'nuxt'
+                        ? transpileNuxt(ast, cfg)
+                        : transpileNextjs(ast, cfg);
 
   // Preserve relative directory structure when outDirOverride is set
   // e.g. kern/llm/patterns.kern with --outdir=app/ → app/llm/page.tsx (not app/page.tsx)
@@ -268,7 +271,7 @@ function transpileAndWrite(file: string, cfg: ResolvedKernConfig, outDirOverride
   } else {
     const outExt = target === 'fastapi' ? '.py'
       : (target === 'vue' || target === 'nuxt') ? '.vue'
-      : (target === 'express' || target === 'cli' || target === 'terminal') ? '.ts'
+      : (target === 'express' || target === 'cli' || target === 'terminal' || target === 'mcp') ? '.ts'
       : '.tsx';
     // For Next.js target, use the file convention name from the transpiler result (page.tsx, layout.tsx, etc.)
     const resultWithFiles = result as { files?: Array<{ path: string; content: string }> };
@@ -2434,20 +2437,22 @@ const result = target === 'native'
     ? transpileWeb(ast, config)
     : target === 'tailwind'
       ? transpileTailwind(ast, config)
-      : target === 'express'
-        ? transpileExpress(ast, config)
-        : target === 'fastapi'
-          ? transpileFastAPI(ast, config)
-          : target === 'cli'
-            ? transpileCliApp(ast, config)
-            : target === 'terminal'
-              ? transpileTerminal(ast, config)
-              : target === 'ink'
-                ? transpileInk(ast, config)
-                : target === 'vue'
-                ? transpileVue(ast, config)
-                : target === 'nuxt'
-                  ? transpileNuxt(ast, config)
+      : target === 'mcp'
+        ? transpileMCP(ast, config)
+        : target === 'express'
+          ? transpileExpress(ast, config)
+          : target === 'fastapi'
+            ? transpileFastAPI(ast, config)
+            : target === 'cli'
+              ? transpileCliApp(ast, config)
+              : target === 'terminal'
+                ? transpileTerminal(ast, config)
+                : target === 'ink'
+                  ? transpileInk(ast, config)
+                  : target === 'vue'
+                    ? transpileVue(ast, config)
+                    : target === 'nuxt'
+                      ? transpileNuxt(ast, config)
                   : transpileNextjs(ast, config);
 
 const outDir = resolve(dirname(inputFile), config.output.outDir);

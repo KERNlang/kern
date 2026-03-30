@@ -5,9 +5,9 @@
 import { DEFAULT_COLORS } from './styles-tailwind.js';
 import { KernConfigError } from './errors.js';
 
-export type KernTarget = 'nextjs' | 'tailwind' | 'web' | 'native' | 'express' | 'cli' | 'terminal' | 'ink' | 'vue' | 'nuxt' | 'fastapi';
+export type KernTarget = 'nextjs' | 'tailwind' | 'web' | 'native' | 'express' | 'cli' | 'terminal' | 'ink' | 'vue' | 'nuxt' | 'fastapi' | 'mcp';
 
-export const VALID_TARGETS: KernTarget[] = ['nextjs', 'tailwind', 'web', 'native', 'express', 'cli', 'terminal', 'ink', 'vue', 'nuxt', 'fastapi'];
+export const VALID_TARGETS: KernTarget[] = ['nextjs', 'tailwind', 'web', 'native', 'express', 'cli', 'terminal', 'ink', 'vue', 'nuxt', 'fastapi', 'mcp'];
 
 export type KernStructure = 'flat' | 'bulletproof' | 'atomic' | 'kern';
 
@@ -49,6 +49,9 @@ export interface KernConfig {
     security?: ExpressSecurityLevel;
     helmet?: boolean;
     compression?: boolean;
+    prisma?: {
+      provider?: 'postgresql' | 'mysql' | 'sqlite' | 'sqlserver' | 'mongodb';
+    };
   };
 
   fastapi?: {
@@ -100,6 +103,9 @@ export interface ResolvedKernConfig {
     security: ExpressSecurityLevel;
     helmet: boolean;
     compression: boolean;
+    prisma: {
+      provider: 'postgresql' | 'mysql' | 'sqlite' | 'sqlserver' | 'mongodb';
+    };
   };
 
   fastapi: {
@@ -141,6 +147,9 @@ export const DEFAULT_CONFIG: ResolvedKernConfig = {
     security: 'strict',
     helmet: false,
     compression: false,
+    prisma: {
+      provider: 'postgresql',
+    },
   },
   fastapi: {
     security: 'strict',
@@ -209,6 +218,9 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
       security: user.express?.security ?? DEFAULT_CONFIG.express.security,
       helmet: user.express?.helmet ?? DEFAULT_CONFIG.express.helmet,
       compression: user.express?.compression ?? DEFAULT_CONFIG.express.compression,
+      prisma: {
+        provider: user.express?.prisma?.provider ?? DEFAULT_CONFIG.express.prisma.provider,
+      },
     },
     fastapi: {
       security: user.fastapi?.security ?? DEFAULT_CONFIG.fastapi.security,

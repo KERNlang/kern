@@ -1,48 +1,47 @@
 {
-  "name": "@kernlang/cli",
+  "name": "@kernlang/mcp-server",
   "version": "3.0.0",
-  "description": "KERN CLI — transpile, compile, minify, and analyze .kern files",
+  "description": "KERN MCP server — compile, review, and analyze .kern files via MCP",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "kern": "./dist/cli.js"
+    "kern-mcp": "./dist/index.js"
   },
   "exports": {
-    ".": "./dist/index.js",
-    "./transpiler-cli": "./dist/transpiler-cli.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
     "dist"
   ],
   "keywords": [
     "kern",
-    "llm",
-    "cli",
+    "mcp",
+    "model-context-protocol",
+    "ai",
     "transpiler",
-    "compiler",
     "review",
-    "ai"
+    "security"
   ],
   "license": "AGPL-3.0",
   "scripts": {
     "build": "tsc -b",
-    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
+    "start": "node dist/index.js"
   },
   "dependencies": {
     "@kernlang/core": "workspace:*",
-    "@kernlang/evolve": "workspace:*",
     "@kernlang/express": "workspace:*",
     "@kernlang/fastapi": "workspace:*",
     "@kernlang/mcp": "workspace:*",
-    "@kernlang/metrics": "workspace:*",
-    "@kernlang/native": "workspace:*",
     "@kernlang/react": "workspace:*",
     "@kernlang/review": "workspace:*",
     "@kernlang/review-mcp": "workspace:*",
     "@kernlang/terminal": "workspace:*",
     "@kernlang/vue": "workspace:*",
-    "chokidar": "^5.0.0",
-    "jiti": "^2.6.1"
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.24.4"
   }
 }

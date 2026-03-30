@@ -132,7 +132,7 @@ export function generateRepository(node: IRNode): string[] {
 
   lines.push(`${exp}class ${name} {`);
   if (model) {
-    lines.push(`  constructor(private readonly model: typeof ${model}) {}`);
+    lines.push(`  readonly modelType = '${model}';`);
     lines.push('');
   }
 
@@ -170,6 +170,14 @@ export function generateCache(node: IRNode): string[] {
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
+  // Emit backend preamble so generated code compiles
+  if (backend === 'redis') {
+    lines.push(`import Redis from 'ioredis';`);
+    lines.push(`const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');`);
+  } else {
+    lines.push(`const cache = new Map<string, unknown>();`);
+  }
+  lines.push('');
   lines.push(`${exp}const ${name} = {`);
   lines.push(`  prefix: '${prefix}',`);
   if (ttl) lines.push(`  ttl: ${ttl},`);
@@ -185,7 +193,8 @@ export function generateCache(node: IRNode): string[] {
     const strategy = strategyNode ? ((p(strategyNode).name as string) || 'cache-aside') : 'cache-aside';
 
     lines.push(`  async get${entryName[0].toUpperCase()}${entryName.slice(1)}(id: string) {`);
-    lines.push(`    const key = \`${prefix}${key.replace(/\{id\}/g, '${id}')}\`;`);
+    const keyExpr = key.includes(prefix) ? key.replace(/\{id\}/g, '${id}') : `${prefix}${key.replace(/\{id\}/g, '${id}')}`;
+    lines.push(`    const key = \`${keyExpr}\`;`);
     if (strategy === 'read-through') {
       lines.push(`    // read-through: check cache, fetch if miss, populate cache`);
     }
@@ -201,9 +210,8 @@ export function generateCache(node: IRNode): string[] {
     const tags = (ip.tags as string) || '';
 
     lines.push(`  async invalidateOn${on[0].toUpperCase()}${on.slice(1)}(id: string) {`);
-    const invalidateKey = tags
-      ? `\`${prefix}${tags.replace(/\{id\}/g, '${id}')}\``
-      : `\`${prefix}\${id}\``;
+    const rawInvKey = tags ? tags.replace(/\{id\}/g, '${id}') : `\${id}`;
+    const invalidateKey = rawInvKey.includes(prefix) ? `\`${rawInvKey}\`` : `\`${prefix}${rawInvKey}\``;
     lines.push(`    const key = ${invalidateKey};`);
     lines.push(`    ${backend === 'redis' ? `await redis.del(key)` : `cache.delete(key)`};`);
     lines.push(`  },`);
@@ -285,15 +293,15 @@ export function generateModel(node: IRNode): string[] {
     const cp = propsOf<'column'>(col);
     const colName = emitIdentifier(cp.name, 'column', col);
     const colType = mapColumnType(cp.type || 'unknown');
-    const opt = (cp as Record<string, unknown>).optional === 'true' || (cp as Record<string, unknown>).optional === true ? '?' : '';
+    const opt = cp.optional === 'true' || cp.optional === true ? '?' : '';
     lines.push(`  ${colName}${opt}: ${colType};`);
   }
   for (const rel of kids(node, 'relation')) {
     const rp = propsOf<'relation'>(rel);
     const relName = emitIdentifier(rp.name, 'relation', rel);
-    const target = (rp as Record<string, unknown>).target as string;
-    const kind = (rp as Record<string, unknown>).kind as string || 'one-to-many';
-    const relType = kind.includes('many') ? `${target}[]` : target;
+    const target = rp.target as string;
+    const kind = rp.kind || 'one-to-many';
+    const relType = (kind === 'one-to-many' || kind === 'many-to-many') ? `${target}[]` : target;
     lines.push(`  ${relName}?: ${relType};`);
   }
   lines.push('}');

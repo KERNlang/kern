@@ -934,6 +934,8 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   const TOP_LEVEL_CORE = new Set([
     'type', 'interface', 'fn', 'machine', 'error', 'module',
     'config', 'store', 'test', 'event', 'import', 'const',
+    // Data layer
+    'model', 'repository', 'cache', 'dependency', 'service', 'union',
     // Ground layer
     'derive', 'transform', 'action', 'guard', 'assume', 'invariant',
     'each', 'collect', 'branch', 'resolve', 'expect', 'recover',
@@ -1004,6 +1006,31 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   // WebSocket imports
   for (const ws of wsArtifacts) {
     serverImports.add(`from ws.${ws.fileBase} import ${ws.funcName}`);
+  }
+
+  // Collect imports needed by core language nodes
+  const coreTypes = new Set(coreNodes.map(n => n.type));
+  if (coreTypes.has('model')) {
+    serverImports.add('from sqlmodel import SQLModel, Field, Relationship');
+  }
+  if (coreTypes.has('union')) {
+    serverImports.add('from pydantic import BaseModel');
+    serverImports.add('from typing import Literal, Union');
+  }
+  if (coreTypes.has('repository')) {
+    serverImports.add('from sqlalchemy.ext.asyncio import AsyncSession');
+  }
+  // Scan model columns for type-specific imports
+  for (const node of coreNodes) {
+    if (node.type === 'model') {
+      for (const col of getChildren(node, 'column')) {
+        const colType = (col.props?.type as string) || '';
+        if (colType === 'uuid') serverImports.add('from uuid import UUID');
+        if (['date', 'datetime', 'timestamp', 'Timestamp'].includes(colType)) serverImports.add('from datetime import date, datetime');
+        if (['decimal', 'Money'].includes(colType)) serverImports.add('from decimal import Decimal');
+        if (colType === 'json') serverImports.add('from typing import Any');
+      }
+    }
   }
 
   // ── Generate main.py ──────────────────────────────────────────────────

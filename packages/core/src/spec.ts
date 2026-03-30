@@ -104,6 +104,8 @@ export const NODE_TYPES = [
   'needs',
   // Rule layer — native .kern lint rules
   'rule', 'message',
+  // MCP — Model Context Protocol server definitions
+  'mcp', 'tool', 'resource', 'prompt', 'param', 'description',
 ] as const;
 
 export type IRNodeType = (typeof NODE_TYPES)[number];

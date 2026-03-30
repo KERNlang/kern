@@ -1,7 +1,7 @@
 {
-  "name": "@kernlang/vue",
+  "name": "@kernlang/mcp",
   "version": "3.0.0",
-  "description": "Kern Vue/Nuxt transpilers — Vue 3 SFC + Nuxt 3 output",
+  "description": "Kern MCP server transpiler — compile .kern to secure MCP servers",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -17,15 +17,16 @@
   "keywords": [
     "kern",
     "llm",
-    "vue",
-    "nuxt",
+    "mcp",
+    "model-context-protocol",
     "transpiler",
-    "ai"
+    "ai",
+    "security"
   ],
   "license": "AGPL-3.0",
   "scripts": {
     "build": "tsc -b",
-    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --passWithNoTests --config jest.config.js"
   },
   "dependencies": {
     "@kernlang/core": "workspace:*"

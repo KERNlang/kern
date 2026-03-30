@@ -7,16 +7,13 @@
   "include": ["src/**/*"],
   "references": [
     { "path": "../core" },
-    { "path": "../native" },
+    { "path": "../mcp" },
     { "path": "../react" },
     { "path": "../express" },
     { "path": "../fastapi" },
-    { "path": "../mcp" },
     { "path": "../terminal" },
     { "path": "../vue" },
     { "path": "../review" },
-    { "path": "../review-mcp" },
-    { "path": "../metrics" },
-    { "path": "../evolve" }
+    { "path": "../review-mcp" }
   ]
 }
