@@ -15,6 +15,7 @@
     { "path": "packages/review" },
     { "path": "packages/review-python" },
     { "path": "packages/review-mcp" },
-    { "path": "packages/vue" }
+    { "path": "packages/vue" },
+    { "path": "packages/mcp" }
   ]
 }

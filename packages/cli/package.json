@@ -34,6 +34,7 @@
     "@kernlang/evolve": "workspace:*",
     "@kernlang/express": "workspace:*",
     "@kernlang/fastapi": "workspace:*",
+    "@kernlang/mcp": "workspace:*",
     "@kernlang/metrics": "workspace:*",
     "@kernlang/native": "workspace:*",
     "@kernlang/react": "workspace:*",

@@ -11,6 +11,7 @@
     { "path": "../react" },
     { "path": "../express" },
     { "path": "../fastapi" },
+    { "path": "../mcp" },
     { "path": "../terminal" },
     { "path": "../vue" },
     { "path": "../review" },

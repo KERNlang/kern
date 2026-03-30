@@ -38,6 +38,9 @@ importers:
       '@kernlang/fastapi':
         specifier: workspace:*
         version: link:../fastapi
+      '@kernlang/mcp':
+        specifier: workspace:*
+        version: link:../mcp
       '@kernlang/metrics':
         specifier: workspace:*
         version: link:../metrics
@@ -120,6 +123,12 @@ importers:
         version: link:../core
 
   packages/fastapi:
+    dependencies:
+      '@kernlang/core':
+        specifier: workspace:*
+        version: link:../core
+
+  packages/mcp:
     dependencies:
       '@kernlang/core':
         specifier: workspace:*
