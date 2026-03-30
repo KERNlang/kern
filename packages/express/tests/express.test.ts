@@ -792,4 +792,117 @@ describe('Express Transpiler', () => {
       expect(pyRoute!.content).toContain('return fetch_users');
     });
   });
+
+  describe('Prisma Schema Generation', () => {
+    test('buildPrismaArtifact generates schema.prisma from model nodes', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { buildPrismaArtifact } = await import('../src/transpiler-express.js');
+
+      const model = parse([
+        'model name=User table=users',
+        '  column name=id type=uuid primary=true',
+        '  column name=email type=string unique=true',
+        '  column name=active type=boolean',
+      ].join('\n'));
+
+      const artifact = buildPrismaArtifact([model]);
+      expect(artifact).not.toBeNull();
+      expect(artifact!.path).toBe('prisma/schema.prisma');
+      expect(artifact!.type).toBe('prisma');
+      expect(artifact!.content).toContain('generator client {');
+      expect(artifact!.content).toContain('provider = "prisma-client-js"');
+      expect(artifact!.content).toContain('provider = "postgresql"');
+      expect(artifact!.content).toContain('model User {');
+      expect(artifact!.content).toContain('@id');
+      expect(artifact!.content).toContain('@unique');
+      expect(artifact!.content).toContain('Boolean');
+      expect(artifact!.content).toContain('@@map("users")');
+    });
+
+    test('buildPrismaArtifact returns null for empty model list', async () => {
+      const { buildPrismaArtifact } = await import('../src/transpiler-express.js');
+      expect(buildPrismaArtifact([])).toBeNull();
+    });
+
+    test('buildPrismaArtifact handles relations', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { buildPrismaArtifact } = await import('../src/transpiler-express.js');
+
+      const model = parse([
+        'model name=User',
+        '  column name=id type=uuid primary=true',
+        '  relation name=posts target=Post kind=one-to-many',
+      ].join('\n'));
+
+      const artifact = buildPrismaArtifact([model]);
+      expect(artifact!.content).toContain('posts Post[]');
+    });
+
+    test('buildPrismaArtifact respects config provider', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { resolveConfig } = await import('../../core/src/config.js');
+      const { buildPrismaArtifact } = await import('../src/transpiler-express.js');
+
+      const config = resolveConfig({ target: 'express', express: { prisma: { provider: 'sqlite' } } });
+      const model = parse('model name=Item\n  column name=id type=uuid primary=true');
+      const artifact = buildPrismaArtifact([model], config);
+      expect(artifact!.content).toContain('provider = "sqlite"');
+    });
+
+    test('transpileExpress includes prisma artifact when model nodes present', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+
+      const source = [
+        'model name=User table=users',
+        '  column name=id type=uuid primary=true',
+        '  column name=email type=string unique=true',
+        'server name=Test',
+        '  route method=get path=/health',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+
+      const result = transpileExpress(parse(source));
+      const prismaArtifact = result.artifacts?.find((a: any) => a.type === 'prisma');
+      expect(prismaArtifact).toBeDefined();
+      expect(prismaArtifact!.path).toBe('prisma/schema.prisma');
+      expect(prismaArtifact!.content).toContain('model User {');
+    });
+  });
+
+  describe('PATCH method', () => {
+    test('PATCH route generates correct method binding', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route method=patch path=/api/users/:id',
+        '    handler <<<',
+        '      res.json({ updated: true });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route).toBeDefined();
+      expect(route!.content).toContain("app.patch('/api/users/:id'");
+    });
+
+    test('PATCH v3 syntax route works', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  route PATCH /api/users/:id',
+        '    handler <<<',
+        '      res.json({ patched: true });',
+        '    >>>',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const route = result.artifacts!.find((a: any) => a.path.includes('route'));
+      expect(route).toBeDefined();
+      expect(route!.content).toContain("app.patch('/api/users/:id'");
+    });
+  });
 });

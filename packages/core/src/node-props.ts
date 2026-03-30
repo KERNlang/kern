@@ -228,12 +228,15 @@ export interface ColumnProps extends BaseProps {
   unique?: string | boolean;
   nullable?: string | boolean;
   default?: string;
+  optional?: string | boolean;
 }
 
 export interface RelationProps extends BaseProps {
   type?: string;
   model?: string;
   foreignKey?: string;
+  target?: string;
+  kind?: string;
 }
 
 export interface OptionProps extends BaseProps {

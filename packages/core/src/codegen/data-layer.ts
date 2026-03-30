@@ -293,15 +293,15 @@ export function generateModel(node: IRNode): string[] {
     const cp = propsOf<'column'>(col);
     const colName = emitIdentifier(cp.name, 'column', col);
     const colType = mapColumnType(cp.type || 'unknown');
-    const opt = (cp as Record<string, unknown>).optional === 'true' || (cp as Record<string, unknown>).optional === true ? '?' : '';
+    const opt = cp.optional === 'true' || cp.optional === true ? '?' : '';
     lines.push(`  ${colName}${opt}: ${colType};`);
   }
   for (const rel of kids(node, 'relation')) {
     const rp = propsOf<'relation'>(rel);
     const relName = emitIdentifier(rp.name, 'relation', rel);
-    const target = (rp as Record<string, unknown>).target as string;
-    const kind = ((rp as Record<string, unknown>).kind as string) || 'one-to-many';
-    const relType = kind.includes('many') ? `${target}[]` : target;
+    const target = rp.target as string;
+    const kind = rp.kind || 'one-to-many';
+    const relType = (kind === 'one-to-many' || kind === 'many-to-many') ? `${target}[]` : target;
     lines.push(`  ${relName}?: ${relType};`);
   }
   lines.push('}');

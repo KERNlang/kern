@@ -221,6 +221,164 @@ describe('FastAPI Transpiler', () => {
     });
   });
 
+  // ── Model & Union ────────────────────────────────────────────────────
+
+  describe('Model & Union', () => {
+    test('generates SQLModel class for model node', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonModel } = await import('../src/codegen-python.js');
+
+      const ast = parse([
+        'model name=User table=users',
+        '  column name=id type=uuid primary=true',
+        '  column name=email type=string unique=true',
+        '  column name=bio type=text nullable=true',
+      ].join('\n'));
+      const output = generatePythonModel(ast).join('\n');
+
+      expect(output).toContain('class User(SQLModel, table=True):');
+      expect(output).toContain('__tablename__ = "users"');
+      expect(output).toContain('id: UUID = Field(primary_key=True)');
+      expect(output).toContain('email: str = Field(unique=True)');
+      expect(output).toContain('bio: str | None');
+    });
+
+    test('generates SQLModel with relations', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonModel } = await import('../src/codegen-python.js');
+
+      const ast = parse([
+        'model name=User table=users',
+        '  column name=id type=uuid primary=true',
+        '  relation name=posts target=Post kind=one-to-many',
+      ].join('\n'));
+      const output = generatePythonModel(ast).join('\n');
+
+      expect(output).toContain('posts: list["Post"] = Relationship(back_populates="user")');
+    });
+
+    test('generates SQLModel with default value', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonModel } = await import('../src/codegen-python.js');
+
+      const ast = parse([
+        'model name=Config',
+        '  column name=retries type=int default=3',
+      ].join('\n'));
+      const output = generatePythonModel(ast).join('\n');
+
+      expect(output).toContain('retries: int = Field(default=3)');
+    });
+
+    test('generates discriminated union from union node', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonUnion } = await import('../src/codegen-python.js');
+
+      const ast = parse([
+        'union name=Shape discriminant=kind',
+        '  variant name=Circle',
+        '    field name=radius type=number',
+        '  variant name=Square',
+        '    field name=side type=number',
+      ].join('\n'));
+      const output = generatePythonUnion(ast).join('\n');
+
+      expect(output).toContain('class Circle');
+      expect(output).toContain('(BaseModel):');
+      expect(output).toContain('Literal["Circle"]');
+      expect(output).toContain('radius: float');
+      expect(output).toContain('class Square');
+      expect(output).toContain('side: float');
+      expect(output).toContain('Shape = Union[');
+    });
+
+    test('model and union dispatch from generatePythonCoreNode', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const modelAst = parse('model name=Item\n  column name=id type=uuid primary=true');
+      const modelOutput = generatePythonCoreNode(modelAst).join('\n');
+      expect(modelOutput).toContain('class Item(SQLModel, table=True):');
+
+      const unionAst = parse('union name=Event discriminant=type\n  variant name=Click\n    field name=x type=number');
+      const unionOutput = generatePythonCoreNode(unionAst).join('\n');
+      expect(unionOutput).toContain('Event = Union[');
+    });
+
+    test('generates Python repository class', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse([
+        'repository name=UserRepository model=User',
+        '  method name=findByEmail params="email:string" returns="User | null" async=true',
+        '    handler <<<',
+        '      return await self.session.get(User, email)',
+        '    >>>',
+      ].join('\n'));
+      const output = generatePythonCoreNode(ast).join('\n');
+
+      expect(output).toContain('class UserRepository:');
+      expect(output).toContain('def __init__(self, session: AsyncSession):');
+      expect(output).toContain('async def find_by_email(self, email: str) -> User | None:');
+    });
+
+    test('generates Python cache class', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse([
+        'cache name=userCache backend=redis prefix="user:" ttl=3600',
+        '  entry name=profile key="user:{id}"',
+        '  invalidate on=userUpdate tags="user:{id}"',
+      ].join('\n'));
+      const output = generatePythonCoreNode(ast).join('\n');
+
+      expect(output).toContain('class UserCache:');
+      expect(output).toContain('prefix = "user:"');
+      expect(output).toContain('ttl = 3600');
+      expect(output).toContain('async def get_profile(self, id: str):');
+      expect(output).toContain('await redis.get(key)');
+      expect(output).toContain('async def invalidate_on_user_update(self, id: str):');
+    });
+
+    test('generates Python dependency factory', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse([
+        'dependency name=authService scope=singleton',
+        '  inject db from=database',
+      ].join('\n'));
+      const output = generatePythonCoreNode(ast).join('\n');
+
+      expect(output).toContain('_auth_service_instance = None');
+      expect(output).toContain('def create_auth_service()');
+      expect(output).toContain('global _auth_service_instance');
+      expect(output).toContain('= database');
+    });
+
+    test('generates Python service class', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse([
+        'service name=AuthService',
+        '  field name=repo type=UserRepository private=true',
+        '  method name=findByEmail params="email:string" returns="User | null" async=true',
+        '    handler <<<',
+        '      return await self._repo.find_by_email(email)',
+        '    >>>',
+      ].join('\n'));
+      const output = generatePythonCoreNode(ast).join('\n');
+
+      expect(output).toContain('class AuthService:');
+      expect(output).toContain('def __init__(self, repo: UserRepository):');
+      expect(output).toContain('self._repo = repo');
+      expect(output).toContain('async def find_by_email(self, email: str) -> User | None:');
+    });
+  });
+
   // ── FastAPI Transpiler ────────────────────────────────────────────────
 
   describe('Server Generation', () => {

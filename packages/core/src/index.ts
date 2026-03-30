@@ -73,7 +73,9 @@ export {
   emitReasonAnnotations, emitLowConfidenceTodo,
   // Evolved generators — prefer KernRuntime for new code
   registerEvolvedGenerator, registerEvolvedTargetGenerator, unregisterEvolvedGenerator, clearEvolvedGenerators, hasEvolvedGenerator,
+  mapSemanticType, SEMANTIC_TYPE_MAP,
 } from './codegen-core.js';
+export type { SemanticTypeMapping } from './codegen-core.js';
 
 // Codegen errors
 export { KernCodegenError } from './errors.js';

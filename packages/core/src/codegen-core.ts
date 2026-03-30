@@ -30,6 +30,8 @@ export { generateDerive, generateTransform, generateAction, generateGuard, gener
 export { generateEvent, generateOn, generateWebSocket } from './codegen/events.js';
 export { generateImport } from './codegen/modules.js';
 export { generateTest } from './codegen/test-gen.js';
+export { mapSemanticType, SEMANTIC_TYPE_MAP } from './codegen/semantic-types.js';
+export type { SemanticTypeMapping } from './codegen/semantic-types.js';
 
 // ── Imports for local use within this file ──────────────────────────────
 import { emitIdentifier, emitTemplateSafe, emitImportSpecifier } from './codegen/emitters.js';
