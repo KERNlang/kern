@@ -10,7 +10,7 @@
 
   <br>
 
-  **Built for humans and AI.** 192-line spec. 11 compile targets. 76 review rules.<br>
+  **Built for humans and AI.** 192-line spec. 12 compile targets. 76 review rules.<br>
   <sub>LLMs write .kern in 85% fewer tokens. 7 LLMs verified.</sub>
 
   <br>
@@ -42,10 +42,10 @@ kern dev src/ --target=nextjs                      # Watch & hot-transpile
 
 **KERN is a structural language with five capabilities: Compile, Review, Evolve, Infer, and MCP Security.**
 
-Write `.kern` once, compile to 11 targets. Or skip `.kern` entirely and use `kern review` to scan your existing TypeScript and Python for security bugs, unguarded effects, and prompt injection — 76 AST-based rules that catch what ESLint misses.
+Write `.kern` once, compile to 12 targets. Or skip `.kern` entirely and use `kern review` to scan your existing TypeScript and Python for security bugs, unguarded effects, and prompt injection — 76 AST-based rules that catch what ESLint misses.
 
 ```
-Same .kern → Next.js, React, Vue, Nuxt, Express, FastAPI, Native, CLI, Terminal, Ink, Tailwind
+Same .kern → Next.js, React, Vue, Nuxt, Express, FastAPI, Native, CLI, Terminal, Ink, Tailwind, MCP
 ```
 
 For detailed examples, interactive demos, and the full rule reference, visit **[kernlang.dev](https://kernlang.dev)**.
@@ -92,6 +92,33 @@ npx kern-mcp-security ./src/server.ts
 ```
 
 Available as: **[VS Code Extension](https://github.com/KERNlang/kern-sight-mcp)** | **CLI** (`npx kern-mcp-security`) | **GitHub Action** (see CI/CD below)
+
+### MCP Server
+
+KERN ships its own MCP server. AI agents can compile, review, and analyze `.kern` files via the Model Context Protocol.
+
+```bash
+npx @kernlang/mcp-server                   # Start KERN MCP server (stdio)
+```
+
+**Claude Desktop** — add to `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "kern": { "command": "npx", "args": ["@kernlang/mcp-server"] }
+  }
+}
+```
+
+**5 tools:** `compile`, `review`, `parse`, `validate`, `list-targets`
+**2 resources:** `kern://spec` (language spec), `kern://targets` (available targets)
+**1 prompt:** `write-kern` (system prompt with full language spec)
+
+You can also compile your own MCP servers from `.kern`:
+
+```bash
+kern compile server.kern --target=mcp       # .kern → MCP server
+```
 
 ---
 
@@ -265,6 +292,8 @@ jobs:
 | @kernlang/native | React Native transpiler |
 | @kernlang/express | Express backend + WebSocket transpiler |
 | @kernlang/fastapi | FastAPI Python + WebSocket transpiler |
+| @kernlang/mcp | MCP server transpiler — .kern to secure MCP servers |
+| @kernlang/mcp-server | KERN's own MCP server — compile, review, parse via MCP |
 | @kernlang/terminal | ANSI terminal + Ink transpilers |
 | @kernlang/evolve | Self-extending template system |
 | @kernlang/review-python | Python review support (FastAPI, Django) |

@@ -16,6 +16,7 @@
     { "path": "packages/review-python" },
     { "path": "packages/review-mcp" },
     { "path": "packages/vue" },
-    { "path": "packages/mcp" }
+    { "path": "packages/mcp" },
+    { "path": "packages/mcp-server" }
   ]
 }
