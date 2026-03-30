@@ -119,7 +119,7 @@ describe('Graduated Nodes', () => {
         '    handler <<<return this.findOne({ email });>>>',
       ].join('\n'));
       expect(code).toContain('export class UserRepo {');
-      expect(code).toContain('constructor(private readonly model: typeof User) {}');
+      expect(code).toContain("readonly modelType = 'User';");
       expect(code).toContain('findByEmail(email: string): User|null {');
       expect(code).toContain('return this.findOne({ email });');
     });
@@ -184,6 +184,8 @@ describe('Graduated Nodes', () => {
       expect(code).toContain('read-through');
       expect(code).toContain('invalidateOnUserUpdate');
       expect(code).toContain('redis.del');
+      expect(code).toContain("import Redis from 'ioredis'");
+      expect(code).toContain('const redis = new Redis');
     });
 
     it('generates memory cache', () => {
@@ -193,6 +195,7 @@ describe('Graduated Nodes', () => {
       ].join('\n'));
       expect(code).toContain("backend: 'memory'");
       expect(code).toContain('cache.get(key)');
+      expect(code).toContain('const cache = new Map<string, unknown>()');
     });
   });
 

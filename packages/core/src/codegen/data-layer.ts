@@ -132,7 +132,7 @@ export function generateRepository(node: IRNode): string[] {
 
   lines.push(`${exp}class ${name} {`);
   if (model) {
-    lines.push(`  constructor(private readonly model: typeof ${model}) {}`);
+    lines.push(`  readonly modelType = '${model}';`);
     lines.push('');
   }
 
@@ -170,6 +170,14 @@ export function generateCache(node: IRNode): string[] {
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
+  // Emit backend preamble so generated code compiles
+  if (backend === 'redis') {
+    lines.push(`import Redis from 'ioredis';`);
+    lines.push(`const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');`);
+  } else {
+    lines.push(`const cache = new Map<string, unknown>();`);
+  }
+  lines.push('');
   lines.push(`${exp}const ${name} = {`);
   lines.push(`  prefix: '${prefix}',`);
   if (ttl) lines.push(`  ttl: ${ttl},`);
@@ -292,7 +300,7 @@ export function generateModel(node: IRNode): string[] {
     const rp = propsOf<'relation'>(rel);
     const relName = emitIdentifier(rp.name, 'relation', rel);
     const target = (rp as Record<string, unknown>).target as string;
-    const kind = (rp as Record<string, unknown>).kind as string || 'one-to-many';
+    const kind = ((rp as Record<string, unknown>).kind as string) || 'one-to-many';
     const relType = kind.includes('many') ? `${target}[]` : target;
     lines.push(`  ${relName}?: ${relType};`);
   }
