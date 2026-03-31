@@ -92,6 +92,7 @@ export interface DependencyProps extends BaseProps {
 
 export interface ModelProps extends BaseProps {
   table?: string;
+  extends?: string;
 }
 
 // ── Events ──────────────────────────────────────────────────────────────

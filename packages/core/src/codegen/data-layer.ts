@@ -285,11 +285,13 @@ export function generateModel(node: IRNode): string[] {
   const props = propsOf<'model'>(node);
   const name = emitIdentifier(props.name, 'UnknownModel', node);
   const table = props.table;
+  const extendsModel = props.extends;
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
   // Generate TypeScript interface
-  lines.push(`${exp}interface ${name} {`);
+  const extendsClause = extendsModel ? ` extends ${emitIdentifier(extendsModel, 'Model', node)}` : '';
+  lines.push(`${exp}interface ${name}${extendsClause} {`);
   for (const col of kids(node, 'column')) {
     const cp = propsOf<'column'>(col);
     const colName = emitIdentifier(cp.name, 'column', col);

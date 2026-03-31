@@ -277,9 +277,8 @@ describe('Express Transpiler', () => {
       // cors should be resolved to cors() with import
       expect(route!.content).toContain('cors()');
       expect(route!.content).toContain("import cors from 'cors'");
-      // rateLimit is resolved through custom middleware artifact
-      const mwArtifact = result.artifacts!.find((a: any) => a.type === 'middleware');
-      expect(mwArtifact).toBeDefined();
+      // rateLimit is now a built-in — resolved to express-rate-limit import + invocation
+      expect(route!.content).toContain('rateLimit(');
     });
 
     test('query params without defaults coerce safely', async () => {
