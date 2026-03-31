@@ -3,7 +3,7 @@ import { accountNode, buildDiagnostics, camelKey, countTokens, getChildren, getF
 
 // ── Types (from Codex — proper typed interfaces) ────────────────────────
 
-type GuardKind = 'sanitize' | 'pathContainment' | 'validate';
+type GuardKind = 'sanitize' | 'pathContainment' | 'validate' | 'auth' | 'rateLimit' | 'sizeLimit' | 'sanitizeOutput';
 
 interface GuardDefinition {
   kind: GuardKind;
@@ -15,6 +15,14 @@ interface GuardDefinition {
   regex?: string;
   allowlist: string[];
   baseDir?: string;
+  // auth guard
+  envVar?: string;
+  header?: string;
+  // rateLimit guard
+  windowMs?: string;
+  maxRequests?: string;
+  // sizeLimit guard
+  maxBytes?: string;
 }
 
 interface ParamDefinition {
@@ -74,10 +82,11 @@ function guardTarget(props: Record<string, unknown>): string | undefined {
 function collectGuard(node: IRNode, fallbackAllowlist: string[]): GuardDefinition | null {
   const props = getProps(node);
   const kind = str(props.name) || str(props.kind) || str(props.type);
-  if (kind !== 'sanitize' && kind !== 'pathContainment' && kind !== 'validate') return null;
+  const validKinds: GuardKind[] = ['sanitize', 'pathContainment', 'validate', 'auth', 'rateLimit', 'sizeLimit', 'sanitizeOutput'];
+  if (!validKinds.includes(kind as GuardKind)) return null;
   const rawAllow = splitCsv(str(props.allowlist) || str(props.allow) || str(props.roots));
   return {
-    kind,
+    kind: kind as GuardKind,
     target: guardTarget(props),
     pattern: str(props.pattern),
     replacement: str(props.replacement),
@@ -86,11 +95,16 @@ function collectGuard(node: IRNode, fallbackAllowlist: string[]): GuardDefinitio
     regex: str(props.regex),
     baseDir: str(props.baseDir) || str(props.base) || str(props.root),
     allowlist: rawAllow.length > 0 ? rawAllow : fallbackAllowlist,
+    envVar: str(props.envVar) || str(props.env),
+    header: str(props.header),
+    windowMs: str(props.windowMs) || str(props.window),
+    maxRequests: str(props.maxRequests) || str(props.requests),
+    maxBytes: str(props.maxBytes) || ((kind as GuardKind) === 'sizeLimit' ? str(props.max) : undefined),
   };
 }
 
 function isPathLikeParam(name: string): boolean {
-  return /(?:path|file|dir|root|workspace)/i.test(name);
+  return /(?:^|[_A-Z])(?:path|file|dir(?:ectory)?|root|workspace)(?:$|[_A-Z])/i.test(name);
 }
 
 function collectParams(node: IRNode, fallbackAllowlist: string[]): ParamDefinition[] {
@@ -141,19 +155,21 @@ function zodForParam(param: ParamDefinition): string {
     default: expr = 'z.string()'; break;
   }
 
-  // Apply validate guards
+  // Apply validate guards — skip NaN values from malformed .kern input
   for (const guard of param.guards.filter(g => g.kind === 'validate')) {
-    if (guard.min) expr += `.min(${Number(guard.min)})`;
-    if (guard.max) expr += `.max(${Number(guard.max)})`;
-    if (guard.regex) expr += `.regex(new RegExp(${json(guard.regex)}))`;
+    if (guard.min && !Number.isNaN(Number(guard.min))) expr += `.min(${Number(guard.min)})`;
+    if (guard.max && !Number.isNaN(Number(guard.max))) expr += `.max(${Number(guard.max)})`;
+    if (guard.regex) {
+      try { new RegExp(guard.regex); expr += `.regex(new RegExp(${json(guard.regex)}))`; } catch { /* skip invalid regex — ReDoS prevention */ }
+    }
   }
 
-  // Apply inline min/max/regex from param props
+  // Apply inline min/max from param props — skip NaN
   const pp = getProps(param.node);
-  if (pp.min !== undefined && !param.guards.some(g => g.kind === 'validate' && g.min)) {
+  if (pp.min !== undefined && !Number.isNaN(Number(pp.min)) && !param.guards.some(g => g.kind === 'validate' && g.min)) {
     expr += `.min(${Number(pp.min)})`;
   }
-  if (pp.max !== undefined && !param.guards.some(g => g.kind === 'validate' && g.max)) {
+  if (pp.max !== undefined && !Number.isNaN(Number(pp.max)) && !param.guards.some(g => g.kind === 'validate' && g.max)) {
     expr += `.max(${Number(pp.max)})`;
   }
 
@@ -162,7 +178,13 @@ function zodForParam(param: ParamDefinition): string {
   }
 
   if (param.defaultValue !== undefined) {
-    const dv = param.type === 'number' || param.type === 'int' ? param.defaultValue : json(param.defaultValue);
+    const t = param.type;
+    const isNumeric = t === 'number' || t === 'float' || t === 'int' || t === 'integer';
+    const dv = isNumeric
+      ? (Number.isNaN(Number(param.defaultValue)) ? '0' : param.defaultValue)
+      : (t === 'boolean' || t === 'bool')
+        ? (param.defaultValue === 'true' ? 'true' : 'false')
+        : json(param.defaultValue);
     expr += `.default(${dv})`;
   } else if (param.optional) {
     expr += '.optional()';
@@ -179,27 +201,85 @@ function emitGuardLines(params: ParamDefinition[]): string[] {
     const accessor = `params[${json(param.name)}]`;
     for (const guard of param.guards.filter(g => g.kind === 'sanitize')) {
       const pattern = guard.pattern || '[^\\w./ -]';
+      // Validate regex at transpile time to prevent ReDoS in generated code
+      try { new RegExp(pattern); } catch { continue; }
       lines.push(`${accessor} = sanitizeValue(${accessor}, ${json(pattern)}, ${json(guard.replacement || '')});`);
     }
     const pathGuard = param.guards.find(g => g.kind === 'pathContainment');
     if (pathGuard) {
+      // Guard against undefined/null becoming the string "undefined"
+      lines.push(`if (${accessor} == null || ${accessor} === "") throw new Error("${param.name} is required for path containment check");`);
       const base = pathGuard.baseDir
         ? `path.resolve(${json(pathGuard.baseDir)}, String(${accessor}))`
         : `path.resolve(String(${accessor}))`;
-      lines.push(`${accessor} = ensurePathContainment(${base}, ALLOWED_PATHS);`);
+      // Use guard-specific allowlist if set, otherwise fall back to global ALLOWED_PATHS
+      const hasExplicitAllowlist = pathGuard.allowlist.length > 0
+        && !(pathGuard.allowlist.length === 1 && pathGuard.allowlist[0] === 'process.cwd()');
+      if (hasExplicitAllowlist) {
+        const inlineList = `[${pathGuard.allowlist.map(v => json(v)).join(', ')}].map(r => path.resolve(r))`;
+        lines.push(`${accessor} = ensurePathContainment(${base}, ${inlineList});`);
+      } else {
+        lines.push(`${accessor} = ensurePathContainment(${base}, ALLOWED_PATHS);`);
+      }
+    }
+    // sizeLimit guard — check byte length of string params
+    for (const guard of param.guards.filter(g => g.kind === 'sizeLimit')) {
+      const maxBytes = guard.maxBytes || guard.max || '1048576';
+      lines.push(`if (typeof ${accessor} === "string" && Buffer.byteLength(${accessor}) > ${maxBytes}) throw new Error("Input ${param.name} exceeds size limit of ${maxBytes} bytes");`);
     }
   }
   return lines;
 }
 
+/** Emit tool-level (non-param) guard lines — auth and rateLimit apply per-tool, not per-param. */
+function emitToolGuardLines(node: IRNode): { pre: string[]; helpers: Set<string>; sanitizeOutput: boolean } {
+  const guards = getChildren(node, 'guard');
+  const pre: string[] = [];
+  const helpers = new Set<string>();
+  let sanitizeOutput = false;
+
+  for (const g of guards) {
+    const props = getProps(g);
+    const kind = str(props.name) || str(props.kind) || str(props.type);
+
+    if (kind === 'auth') {
+      const envVar = str(props.envVar) || str(props.env) || 'MCP_AUTH_TOKEN';
+      const header = str(props.header) || 'authorization';
+      helpers.add('auth');
+      pre.push(`checkAuth(${json(envVar)}, ${json(header)});`);
+    }
+
+    if (kind === 'rateLimit') {
+      const windowMs = str(props.windowMs) || str(props.window) || '60000';
+      const maxReqs = str(props.maxRequests) || str(props.requests) || '100';
+      helpers.add('rateLimit');
+      pre.push(`checkRateLimit(${json(str(getProps(node).name) || 'tool')}, ${windowMs}, ${maxReqs});`);
+    }
+
+    if (kind === 'sanitizeOutput') {
+      sanitizeOutput = true;
+      helpers.add('sanitizeOutput');
+    }
+  }
+
+  return { pre, helpers, sanitizeOutput };
+}
+
 // ── Tool / Resource / Prompt emission ───────────────────────────────────
 
-function emitTool(node: IRNode, fallbackAllowlist: string[]): string[] {
+function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Set<string>): string[] {
   const name = str(getProps(node).name) || 'tool';
   const description = extractDescription(node) || `Run ${name}`;
   const params = collectParams(node, fallbackAllowlist);
   const handlerNode = getFirstChild(node, 'handler');
   const handlerCode = handlerNode ? str(getProps(handlerNode).code) || '' : '';
+  const toolGuards = emitToolGuardLines(node);
+  for (const h of toolGuards.helpers) requiredHelpers.add(h);
+
+  // Detect sampling/elicitation children — if present, handler gets extra context
+  const hasSampling = getFirstChild(node, 'sampling') !== undefined;
+  const hasElicitation = getFirstChild(node, 'elicitation') !== undefined;
+  const needsContext = hasSampling || hasElicitation;
 
   const lines: string[] = [];
 
@@ -213,27 +293,76 @@ function emitTool(node: IRNode, fallbackAllowlist: string[]): string[] {
     lines.push('');
   }
 
-  lines.push(`server.tool(${json(name)}, ${json(description)}, ${params.length > 0 ? `${camelKey(name)}Schema` : '{}'}, async (input) => {`);
+  lines.push(`server.tool(${json(name)}, ${json(description)}, ${params.length > 0 ? `${camelKey(name)}Schema` : '{}'}, async (input${needsContext ? ', extra' : ''}) => {`);
   lines.push(`  const requestId = nextRequestId();`);
   lines.push(`  logger.info("tool:call", { requestId, tool: ${json(name)} });`);
   lines.push(`  try {`);
 
-  if (params.length > 0) {
-    lines.push(`    const params = { ...input } as Record<string, unknown>;`);
-    for (const line of emitGuardLines(params)) {
-      lines.push(`    ${line}`);
-    }
+  // Tool-level guards (auth, rateLimit)
+  for (const line of toolGuards.pre) {
+    lines.push(`    ${line}`);
   }
 
-  lines.push(`    const result = await (async () => {`);
-  if (handlerCode) {
-    lines.push(...indent(handlerCode, 6));
+  if (params.length > 0) {
+    const hasRuntimeGuards = params.some(p => p.guards.some(g => g.kind === 'sanitize' || g.kind === 'pathContainment' || g.kind === 'sizeLimit'));
+    if (hasRuntimeGuards) {
+      // Guards may mutate values — use Record<string, unknown> for mutation, then expose as args
+      lines.push(`    const params = { ...input } as Record<string, unknown>;`);
+      for (const line of emitGuardLines(params)) {
+        lines.push(`    ${line}`);
+      }
+      lines.push(`    const args = params as typeof input;`);
+    } else {
+      // No runtime param mutations — preserve original types
+      lines.push(`    const args = input;`);
+    }
   } else {
-    lines.push(`      return { content: [{ type: "text" as const, text: ${json(`${name} completed`)} }] };`);
+    lines.push(`    const args = input ?? {};`);
   }
-  lines.push(`    })();`);
-  lines.push(`    logger.info("tool:ok", { requestId, tool: ${json(name)} });`);
-  lines.push(`    return normalizeToolResult(result);`);
+
+  // Inject sampling/elicitation context helpers
+  if (hasSampling) {
+    const samplingNode = getFirstChild(node, 'sampling')!;
+    const sp = getProps(samplingNode);
+    const maxTokens = str(sp.maxTokens) || '500';
+    lines.push(`    // Sampling — request LLM completion from the client`);
+    lines.push(`    async function requestSampling(prompt: string): Promise<string> {`);
+    lines.push(`      const response = await server.server.createMessage({`);
+    lines.push(`        messages: [{ role: "user", content: { type: "text", text: prompt } }],`);
+    lines.push(`        maxTokens: ${maxTokens},`);
+    lines.push(`      });`);
+    lines.push(`      return response.content.type === "text" ? response.content.text : JSON.stringify(response.content);`);
+    lines.push(`    }`);
+  }
+
+  if (hasElicitation) {
+    const elicitNode = getFirstChild(node, 'elicitation')!;
+    const ep = getProps(elicitNode);
+    const elicitMessage = str(ep.message) || str(ep.text) || 'Please provide input';
+    lines.push(`    // Elicitation — request structured user input`);
+    lines.push(`    async function requestInput(message = ${json(elicitMessage)}): Promise<Record<string, unknown> | null> {`);
+    lines.push(`      const result = await server.server.elicitInput({ message, requestedSchema: { type: "object", properties: {} } });`);
+    lines.push(`      return result.action === "accept" ? (result.content || {}) : null;`);
+    lines.push(`    }`);
+  }
+
+  if (toolGuards.sanitizeOutput) {
+    // Wrap handler in output sanitization — strips prompt injection markers from responses
+    lines.push(`    const _rawResult = await (async () => {`);
+    if (handlerCode) {
+      lines.push(...indent(handlerCode, 6));
+    } else {
+      lines.push(`      return { content: [{ type: "text" as const, text: ${json(`${name} completed`)} }] };`);
+    }
+    lines.push(`    })();`);
+    lines.push(`    return sanitizeToolOutput(_rawResult);`);
+  } else {
+    if (handlerCode) {
+      lines.push(...indent(handlerCode, 4));
+    } else {
+      lines.push(`    return { content: [{ type: "text" as const, text: ${json(`${name} completed`)} }] };`);
+    }
+  }
   lines.push(`  } catch (error) {`);
   lines.push(`    logger.error("tool:error", { requestId, tool: ${json(name)}, error: fmtError(error) });`);
   lines.push(`    return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };`);
@@ -268,16 +397,16 @@ function emitResource(node: IRNode, fallbackAllowlist: string[]): string[] {
     for (const line of emitGuardLines(params)) {
       lines.push(`    ${line}`);
     }
+    lines.push(`    const args = params;`);
+  } else {
+    lines.push(`    const args = ${hasTemplate ? 'variables ?? {}' : '{}'};`);
   }
 
-  lines.push(`    const result = await (async () => {`);
   if (handlerCode) {
-    lines.push(...indent(handlerCode, 6));
+    lines.push(...indent(handlerCode, 4));
   } else {
-    lines.push(`      return { contents: [{ uri: uri.href, text: ${json(`${name} content`)} }] };`);
+    lines.push(`    return { contents: [{ uri: uri.href, text: ${json(`${name} content`)} }] };`);
   }
-  lines.push(`    })();`);
-  lines.push(`    return result;`);
   lines.push(`  } catch (error) {`);
   lines.push(`    logger.error("resource:error", { resource: ${json(name)}, error: fmtError(error) });`);
   lines.push(`    throw error;`);
@@ -286,27 +415,37 @@ function emitResource(node: IRNode, fallbackAllowlist: string[]): string[] {
   return lines;
 }
 
-function emitPrompt(node: IRNode): string[] {
+function emitPrompt(node: IRNode, fallbackAllowlist: string[]): string[] {
   const name = str(getProps(node).name) || 'prompt';
   const description = extractDescription(node);
   const paramNodes = getChildren(node, 'param');
+  const params = collectParams(node, fallbackAllowlist);
   const handlerNode = getFirstChild(node, 'handler');
   const handlerCode = handlerNode ? str(getProps(handlerNode).code) || '' : '';
 
   const lines: string[] = [];
   if (description) lines.push(`// ${description}`);
 
-  lines.push(`server.prompt(${json(name)}, ${json(description || name)}, [`);
-  for (const p of paramNodes) {
-    const pp = getProps(p);
-    const pName = str(pp.name) || 'input';
-    const required = str(pp.required) !== 'false';
-    lines.push(`  { name: ${json(pName)}, required: ${required} },`);
+  if (params.length > 0) {
+    lines.push(`server.prompt(${json(name)}, ${json(description || name)}, {`);
+    for (const param of params) {
+      lines.push(`  ${json(param.name)}: z.string()${param.optional ? '.optional()' : ''},`);
+    }
+    lines.push(`}, async (args) => {`);
+  } else {
+    lines.push(`server.prompt(${json(name)}, ${json(description || name)}, async (args) => {`);
   }
-  lines.push(`], async (args) => {`);
   lines.push(`  const requestId = nextRequestId();`);
   lines.push(`  logger.info("prompt:call", { requestId, prompt: ${json(name)} });`);
   lines.push(`  try {`);
+  lines.push(`    const params = args;`);
+
+  // Apply guards to prompt params (Bug 4 fix)
+  if (params.length > 0) {
+    for (const line of emitGuardLines(params)) {
+      lines.push(`    ${line}`);
+    }
+  }
 
   if (handlerCode) {
     lines.push(...indent(handlerCode, 4));
@@ -361,6 +500,9 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
     || allParams.some(p => p.guards.some(g => g.kind === 'pathContainment'));
   const needsResourceTemplate = resourceNodes.some(r => (str(getProps(r).uri) || '').includes('{'));
 
+  const transportType = str(props.transport) || 'stdio';
+  const needsSizeLimit = allParams.some(p => p.guards.some(g => g.kind === 'sizeLimit'));
+
   const allowlistLiteral = `[${allowlist.map(v => v === 'process.cwd()' ? 'process.cwd()' : json(v)).join(', ')}]`;
   const sourceMap: SourceMapEntry[] = [];
   const lines: string[] = [];
@@ -371,10 +513,13 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
   } else {
     lines.push(`import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";`);
   }
-  lines.push(`import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";`);
+  if (transportType === 'stdio') {
+    lines.push(`import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";`);
+  }
   lines.push(`import { z } from "zod";`);
   if (needsPath) {
     lines.push(`import path from "node:path";`);
+    lines.push(`import { realpathSync as _realpathSync } from "node:fs";`);
   }
   lines.push('');
 
@@ -387,7 +532,7 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
 
   // ── Runtime helpers (auto-injected — from Codex's structured approach)
   if (needsPath) {
-    lines.push(`const ALLOWED_PATHS = ${allowlistLiteral}.map(r => path.resolve(r));`);
+    lines.push(`const ALLOWED_PATHS = ${allowlistLiteral}.map(r => { try { return _realpathSync(r); } catch { return path.resolve(r); } });`);
     lines.push('');
   }
 
@@ -412,14 +557,16 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
   if (allParams.some(p => p.guards.some(g => g.kind === 'sanitize'))) {
     lines.push(`function sanitizeValue(value: unknown, pattern: string, replacement: string): unknown {`);
     lines.push(`  if (typeof value !== "string") return value;`);
-    lines.push(`  return value.replace(new RegExp(pattern, "g"), replacement);`);
+    lines.push(`  try { return value.replace(new RegExp(pattern, "g"), replacement); }`);
+    lines.push(`  catch { return value; }`);
     lines.push(`}`);
     lines.push('');
   }
 
   if (needsPath) {
     lines.push(`function ensurePathContainment(candidate: string, allowlist: string[]): string {`);
-    lines.push(`  const resolved = path.resolve(candidate);`);
+    lines.push(`  let resolved: string;`);
+    lines.push(`  try { resolved = _realpathSync(candidate); } catch { resolved = path.resolve(candidate); }`);
     lines.push('  const ok = allowlist.some(root => resolved === root || resolved.startsWith(`${root}${path.sep}`));');
     lines.push(`  if (!ok) throw new Error("Path escapes allowed directories: " + candidate);`);
     lines.push(`  return resolved;`);
@@ -427,16 +574,11 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
     lines.push('');
   }
 
-  lines.push(`function normalizeToolResult(result: unknown): { content: Array<{ type: "text"; text: string }> } {`);
-  lines.push(`  if (result && typeof result === "object" && "content" in result) return result as { content: Array<{ type: "text"; text: string }> };`);
-  lines.push(`  return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result, null, 2) }] };`);
-  lines.push(`}`);
-  lines.push('');
-
-  // ── Registrations
+  // ── Registrations (collect required helpers from tool guards)
+  const requiredHelpers = new Set<string>();
   for (const toolNode of toolNodes) {
     sourceMap.push({ irLine: toolNode.loc?.line || 0, irCol: toolNode.loc?.col || 1, outLine: lines.length + 1, outCol: 1 });
-    lines.push(...emitTool(toolNode, allowlist), '');
+    lines.push(...emitTool(toolNode, allowlist, requiredHelpers), '');
   }
   for (const resourceNode of resourceNodes) {
     sourceMap.push({ irLine: resourceNode.loc?.line || 0, irCol: resourceNode.loc?.col || 1, outLine: lines.length + 1, outCol: 1 });
@@ -444,14 +586,87 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
   }
   for (const promptNode of promptNodes) {
     sourceMap.push({ irLine: promptNode.loc?.line || 0, irCol: promptNode.loc?.col || 1, outLine: lines.length + 1, outCol: 1 });
-    lines.push(...emitPrompt(promptNode), '');
+    lines.push(...emitPrompt(promptNode, allowlist), '');
   }
 
-  // ── Main entrypoint (from Codex — proper async main + fatal handler)
+  // ── Inject auth/rateLimit helpers if any tool uses them (after registrations so we know what's needed)
+  const helperBlock: string[] = [];
+  if (requiredHelpers.has('auth')) {
+    helperBlock.push(`function checkAuth(envVar: string, _header: string): void {`);
+    helperBlock.push(`  const token = process.env[envVar];`);
+    helperBlock.push(`  if (!token) throw new Error("Authentication required: set " + envVar + " environment variable");`);
+    helperBlock.push(`}`);
+    helperBlock.push('');
+  }
+  if (requiredHelpers.has('rateLimit')) {
+    helperBlock.push(`const _rateLimitStore = new Map<string, { count: number; resetAt: number }>();`);
+    helperBlock.push(`function checkRateLimit(toolName: string, windowMs: number, maxRequests: number): void {`);
+    helperBlock.push(`  const now = Date.now();`);
+    helperBlock.push(`  const entry = _rateLimitStore.get(toolName);`);
+    helperBlock.push(`  if (!entry || now > entry.resetAt) {`);
+    helperBlock.push(`    _rateLimitStore.set(toolName, { count: 1, resetAt: now + windowMs });`);
+    helperBlock.push(`    return;`);
+    helperBlock.push(`  }`);
+    helperBlock.push(`  entry.count++;`);
+    helperBlock.push(`  if (entry.count > maxRequests) throw new Error(\`Rate limit exceeded for \${toolName}: \${maxRequests} requests per \${windowMs}ms\`);`);
+    helperBlock.push(`}`);
+    helperBlock.push('');
+  }
+  if (requiredHelpers.has('sanitizeOutput')) {
+    helperBlock.push(`/** Strip prompt injection markers from tool output — defense against indirect injection. */`);
+    helperBlock.push(`function sanitizeToolOutput<T extends { content: Array<{ type: "text"; text: string }> }>(result: T): T {`);
+    helperBlock.push(`  const INJECTION_PATTERNS = [`);
+    helperBlock.push(`    /\\b(?:ignore|disregard|forget)\\s+(?:all\\s+)?(?:previous|above|prior)\\s+instructions?/gi,`);
+    helperBlock.push(`    /\\b(?:you\\s+are|act\\s+as|pretend\\s+to\\s+be|roleplay\\s+as)\\b/gi,`);
+    helperBlock.push(`    /\\b(?:system\\s*prompt|\\<\\/?(?:system|user|assistant)\\>)/gi,`);
+    helperBlock.push(`    /\\[(?:INST|SYS|\\/?SYSTEM)\\]/gi,`);
+    helperBlock.push(`  ];`);
+    helperBlock.push(`  return {`);
+    helperBlock.push(`    ...result,`);
+    helperBlock.push(`    content: result.content.map(c => {`);
+    helperBlock.push(`      if (c.type !== "text") return c;`);
+    helperBlock.push(`      let text = c.text;`);
+    helperBlock.push(`      for (const pattern of INJECTION_PATTERNS) text = text.replace(pattern, "[FILTERED]");`);
+    helperBlock.push(`      return { ...c, text };`);
+    helperBlock.push(`    }) as T["content"],`);
+    helperBlock.push(`  };`);
+    helperBlock.push(`}`);
+    helperBlock.push('');
+  }
+  // Insert helpers before registrations
+  if (helperBlock.length > 0) {
+    const insertIdx = lines.findIndex(l => l.includes('server.tool(') || l.includes('server.resource(') || l.includes('server.prompt('));
+    if (insertIdx >= 0) {
+      lines.splice(insertIdx, 0, ...helperBlock);
+    } else {
+      lines.push(...helperBlock);
+    }
+  }
+
+  // ── Transport detection — check mcp node for transport prop
+  const transport = str(props.transport) || 'stdio';
+  const port = str(props.port) || '3000';
+
+  // ── Main entrypoint
   lines.push(`async function main(): Promise<void> {`);
-  lines.push(`  logger.info("server:start", { server: ${json(serverName)}, version: ${json(serverVersion)} });`);
-  lines.push(`  const transport = new StdioServerTransport();`);
-  lines.push(`  await server.connect(transport);`);
+  lines.push(`  logger.info("server:start", { server: ${json(serverName)}, version: ${json(serverVersion)}, transport: ${json(transport)} });`);
+
+  if (transport === 'http' || transport === 'streamable-http') {
+    lines.push(`  const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");`);
+    lines.push(`  const _express = (await import("express")).default;`);
+    lines.push(`  const app = _express();`);
+    lines.push(`  app.use(_express.json());`);
+    lines.push(`  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });`);
+    lines.push(`  await server.connect(transport);`);
+    lines.push(`  app.post("/mcp", async (req, res) => {`);
+    lines.push(`    await transport.handleRequest(req, res, req.body);`);
+    lines.push(`  });`);
+    lines.push(`  app.listen(${port}, () => logger.info("server:listening", { port: ${port} }));`);
+  } else {
+    lines.push(`  const transport = new StdioServerTransport();`);
+    lines.push(`  await server.connect(transport);`);
+  }
+
   lines.push(`}`);
   lines.push('');
   lines.push(`void main().catch((error) => {`);
