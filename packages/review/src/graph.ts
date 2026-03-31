@@ -71,10 +71,12 @@ export function resolveImportGraph(
     const refs: Array<{ specifier: string; resolved: SourceFile | undefined }> = [];
 
     for (const decl of sf.getImportDeclarations()) {
-      refs.push({
-        specifier: decl.getModuleSpecifierValue(),
-        resolved: decl.getModuleSpecifierSourceFile(),
-      });
+      try {
+        refs.push({
+          specifier: decl.getModuleSpecifierValue(),
+          resolved: decl.getModuleSpecifierSourceFile(),
+        });
+      } catch { /* skip dynamic imports with non-literal specifiers */ }
     }
     for (const decl of sf.getExportDeclarations()) {
       const spec = decl.getModuleSpecifierValue();
