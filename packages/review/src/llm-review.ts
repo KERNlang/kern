@@ -247,7 +247,9 @@ function serializeNodeWithBody(node: import('@kernlang/core').IRNode, indent: st
         if (k === 'code') {
           // Include handler bodies in LLM prompt (wrapped in XML-style tags)
           // Escape any closing tags in the source to prevent breakout
-          const escaped = v.replace(/<\/kern-code>/gi, '&lt;/kern-code&gt;');
+          const escaped = v
+            .replace(/<kern-code>/gi, '&lt;kern-code&gt;')
+            .replace(/<\/kern-code>/gi, '&lt;/kern-code&gt;');
           parts.push(`<kern-code>\n${escaped}\n</kern-code>`);
         } else {
           parts.push(v.includes(' ') ? `${k}="${v}"` : `${k}=${v}`);

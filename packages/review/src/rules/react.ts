@@ -8,6 +8,19 @@ import { SyntaxKind, Node } from 'ts-morph';
 import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 
+/**
+ * Check if a file is actually a React file — has JSX syntax or React imports.
+ * Backend/utility files in a React-targeted project should not trigger React rules.
+ */
+function isReactFile(ctx: RuleContext): boolean {
+  const fullText = ctx.sourceFile.getFullText();
+  if (/\bfrom\s+['"]react['"]/.test(fullText)) return true;
+  if (ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxOpeningElement).length > 0) return true;
+  if (ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).length > 0) return true;
+  if (/\buse(?:State|Effect|Ref|Callback|Memo|Reducer|Context)\s*[<(]/.test(fullText)) return true;
+  return false;
+}
+
 function span(file: string, line: number, col = 1): SourceSpan {
   return { file, startLine: line, startCol: col, endLine: line, endCol: col };
 }
@@ -58,6 +71,9 @@ function asyncEffect(ctx: RuleContext): ReviewFinding[] {
 
 function renderSideEffect(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
+
+  // Gate: skip non-React files
+  if (!isReactFile(ctx)) return findings;
 
   function checkBlock(block: import('ts-morph').Block, name: string): void {
     for (const stmt of block.getStatements()) {

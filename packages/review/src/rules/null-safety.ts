@@ -182,4 +182,54 @@ function uncheckedAssertion(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
-export const nullSafetyRules = [uncheckedFind, optionalChainBang, uncheckedAssertion];
+// ── Rule 4: type-checked nullable access ────────────────────────────────
+// Uses TypeChecker to catch property access on any nullable type (not just .find())
+// Catches: Map.get().prop, optional params used without guard, etc.
+
+function typeCheckedNullable(ctx: RuleContext): ReviewFinding[] {
+  if (!ctx.project) return []; // TypeChecker not available
+  const findings: ReviewFinding[] = [];
+  const sf = ctx.sourceFile;
+
+  // Find all property access expressions
+  for (const prop of sf.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
+    // Skip if already using optional chaining
+    if (prop.hasQuestionDotToken()) continue;
+
+    const obj = prop.getExpression();
+
+    // Skip simple identifiers (too noisy — they'd be caught by TS strict mode)
+    // Focus on call results: foo().prop, map.get(key).prop
+    if (!Node.isCallExpression(obj)) continue;
+
+    // Skip if already caught by unchecked-find (avoid duplicate findings)
+    if (Node.isPropertyAccessExpression(obj.getExpression())) {
+      const methodName = (obj.getExpression() as import('ts-morph').PropertyAccessExpression).getName();
+      if (NULLABLE_METHODS.has(methodName)) continue;
+    }
+
+    try {
+      const returnType = obj.getReturnType();
+      const typeText = returnType.getText();
+      // Check if the return type includes undefined or null
+      if (typeText.includes('undefined') || typeText.includes('null')) {
+        const callText = obj.getExpression().getText().substring(0, 30);
+        findings.push(finding(
+          'unchecked-find',
+          'warning',
+          `Property access on nullable return from '${callText}(...)' (type: ${typeText.substring(0, 50)}). May throw at runtime.`,
+          ctx.filePath,
+          prop.getStartLineNumber(),
+          1,
+          { suggestion: `Use optional chaining (?.) or add a null guard before accessing .${prop.getName()}.` },
+        ));
+      }
+    } catch {
+      // TypeChecker may fail on some expressions — skip gracefully
+    }
+  }
+
+  return findings;
+}
+
+export const nullSafetyRules = [uncheckedFind, optionalChainBang, uncheckedAssertion, typeCheckedNullable];

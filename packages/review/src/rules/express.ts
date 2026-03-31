@@ -49,8 +49,11 @@ function unvalidatedInput(ctx: RuleContext): ReviewFinding[] {
 
   if (hasValidation) return findings; // file uses a validation library
 
-  // Check for req.body access patterns
-  const reqBodyRegex = /\breq\.(body|params|query)(?:\.\w+|\[)/g;
+  // Check for custom validation functions (isValid*, validate*, check*)
+  const hasCustomValidation = /\b(?:isValid\w*|validate\w*|check\w*)\s*\(/.test(fullText);
+
+  // Check for req.body access patterns (property access, bracket access, AND destructuring)
+  const reqBodyRegex = /\breq\.(body|params|query)\b/g;
   let match;
 
   while ((match = reqBodyRegex.exec(fullText)) !== null) {
@@ -61,6 +64,11 @@ function unvalidatedInput(ctx: RuleContext): ReviewFinding[] {
     if (lineText.includes(' as ') || lineText.includes('typeof') ||
         lineText.includes('validate') || lineText.includes('.parse(') ||
         lineText.includes('schema')) continue;
+
+    // Skip if the enclosing function has a validation guard before this access
+    // Look for if(!isValid...) or if(!validate...) pattern before this line
+    const linesBefore = lines.slice(0, line - 1).join('\n');
+    if (hasCustomValidation && /if\s*\(\s*!?\s*(?:isValid\w*|validate\w*|check\w*)\s*\(/.test(linesBefore)) continue;
 
     findings.push(finding('unvalidated-input', 'error', 'bug',
       `req.${match[1]} used without validation — potential injection vector`,
@@ -168,7 +176,7 @@ function doubleResponse(ctx: RuleContext): ReviewFinding[] {
     if (!body || !Node.isBlock(body)) continue;
 
     // Find all response calls in the body (excluding nested functions)
-    const responseCalls: Array<{ line: number; method: string }> = [];
+    const responseCalls: Array<{ line: number; method: string; hasReturn: boolean }> = [];
     for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
       // Skip if inside a nested function
       let isNested = false;
@@ -194,15 +202,30 @@ function doubleResponse(ctx: RuleContext): ReviewFinding[] {
       const isChainedRes = Node.isCallExpression(obj) && obj.getExpression().getText().startsWith(resName);
       if (!isResCall && !isChainedRes) continue;
 
-      responseCalls.push({ line: call.getStartLineNumber(), method: methodName });
+      // Check if the response call is followed by a return/throw statement
+      const exprStmt = call.getFirstAncestorByKind(SyntaxKind.ExpressionStatement);
+      let hasReturn = false;
+      if (exprStmt) {
+        const nextSibling = exprStmt.getNextSibling();
+        if (nextSibling) {
+          const nextKind = nextSibling.getKind();
+          hasReturn = nextKind === SyntaxKind.ReturnStatement || nextKind === SyntaxKind.ThrowStatement;
+        }
+      }
+
+      responseCalls.push({ line: call.getStartLineNumber(), method: methodName, hasReturn });
     }
 
     // Check for response calls that aren't in mutually exclusive if/else branches
-    // Simple heuristic: if there are 2+ response calls and any is NOT followed by return/throw, flag it
     if (responseCalls.length < 2) continue;
 
-    // Flag from the second call onwards
+    // Only flag if a previous response call does NOT have a return after it
+    const hasUnguardedPrior = responseCalls.slice(0, -1).some(c => !c.hasReturn);
+    if (!hasUnguardedPrior) continue;
+
+    // Flag from the second call onwards (only if a prior call lacks return)
     for (let i = 1; i < responseCalls.length; i++) {
+      if (responseCalls[i - 1].hasReturn) continue; // prior call is guarded
       const { line, method } = responseCalls[i];
       findings.push(finding('double-response', 'error', 'bug',
         `Possible double response: ${resName}.${method}() may execute after an earlier response — add return after first send`,

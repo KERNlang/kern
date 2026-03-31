@@ -70,9 +70,19 @@ function floatingPromise(ctx: RuleContext): ReviewFinding[] {
       const propAccess = calleeExpr as import('ts-morph').PropertyAccessExpression;
       if (propAccess.getName() === 'then') {
         const objText = propAccess.getExpression().getText();
+        const thenLine = exprStmt.getStartLineNumber();
+        const lastNlThen = ctx.sourceFile.getFullText().lastIndexOf('\n', exprStmt.getStart());
+        const thenCol = lastNlThen === -1 ? exprStmt.getStart() + 1 : exprStmt.getStart() - lastNlThen;
         findings.push(finding('floating-promise', 'error', 'bug',
           `Promise chain '${objText}.then(...)' is not awaited, returned, or voided`,
-          ctx.filePath, exprStmt.getStartLineNumber()));
+          ctx.filePath, thenLine, 1, {
+            autofix: {
+              type: 'insert-before',
+              span: span(ctx.filePath, thenLine, thenCol),
+              replacement: 'await ',
+              description: 'Add await to handle the promise',
+            },
+          }));
         continue;
       }
     }
@@ -84,10 +94,47 @@ function floatingPromise(ctx: RuleContext): ReviewFinding[] {
         const matchingNode = ctx.inferred.find(r =>
           r.node.type === 'fn' && r.node.props?.name === fnName);
         const nodeRef = matchingNode != null ? { nodeIds: [matchingNode.nodeId] } : undefined;
+        const asyncLine = exprStmt.getStartLineNumber();
+        const lastNlAsync = ctx.sourceFile.getFullText().lastIndexOf('\n', exprStmt.getStart());
+        const asyncCol = lastNlAsync === -1 ? exprStmt.getStart() + 1 : exprStmt.getStart() - lastNlAsync;
         findings.push(finding('floating-promise', 'error', 'bug',
           `Async function '${fnName}()' called without await — floating promise`,
-          ctx.filePath, exprStmt.getStartLineNumber(), 1,
-          nodeRef));
+          ctx.filePath, asyncLine, 1, {
+            ...nodeRef,
+            autofix: {
+              type: 'insert-before',
+              span: span(ctx.filePath, asyncLine, asyncCol),
+              replacement: 'await ',
+              description: `Add await before ${fnName}()`,
+            },
+          }));
+        continue;
+      }
+    }
+
+    // Case 3: TypeChecker — any call returning Promise<T> (catches fetch, imported async fns)
+    if (ctx.project) {
+      try {
+        const returnType = callExpr.getReturnType();
+        const typeText = returnType.getText();
+        if (typeText.startsWith('Promise<') || typeText === 'Promise') {
+          const callText = calleeExpr.getText().substring(0, 40);
+          const promiseLine = exprStmt.getStartLineNumber();
+          const lastNlPromise = ctx.sourceFile.getFullText().lastIndexOf('\n', exprStmt.getStart());
+          const promiseCol = lastNlPromise === -1 ? exprStmt.getStart() + 1 : exprStmt.getStart() - lastNlPromise;
+          findings.push(finding('floating-promise', 'error', 'bug',
+            `Call '${callText}(...)' returns Promise but is not awaited, returned, or voided`,
+            ctx.filePath, promiseLine, 1, {
+              autofix: {
+                type: 'insert-before',
+                span: span(ctx.filePath, promiseLine, promiseCol),
+                replacement: 'await ',
+                description: `Add await before ${callText}()`,
+              },
+            }));
+        }
+      } catch {
+        // TypeChecker may fail on some expressions — skip gracefully
       }
     }
   }
@@ -169,9 +216,20 @@ function emptyCatch(ctx: RuleContext): ReviewFinding[] {
       const blockText = block.getText();
       if (/\/[/*]\s*(Intentional|Expected|@suppress|eslint-disable)/.test(blockText)) continue;
       const line = stmt.getStartLineNumber();
+      // Build autofix: insert console.error into empty catch block
+      const catchParam = stmt.getVariableDeclaration()?.getName() || 'error';
+      const blockStartLine = block.getStartLineNumber();
+      const blockStartCol = block.getStart() - ctx.sourceFile.getFullText().lastIndexOf('\n', block.getStart()) || 1;
       findings.push(finding('empty-catch', 'warning', 'bug',
         'Empty catch block swallows exception — at minimum log or rethrow',
-        ctx.filePath, line));
+        ctx.filePath, line, 1, {
+          autofix: {
+            type: 'insert-after',
+            span: span(ctx.filePath, blockStartLine, 1),
+            replacement: `    console.error(${catchParam});`,
+            description: `Log caught ${catchParam} to console`,
+          },
+        }));
     }
   }
 
@@ -760,6 +818,28 @@ function memoryLeak(ctx: RuleContext): ReviewFinding[] {
       `Effect creates ${subscriptionLabel}() but has no cleanup — memory leak`,
       ctx.filePath, call.getStartLineNumber(), 1,
       { suggestion: 'Add cleanup: return () => { /* remove listener/clear interval */ }' }));
+  }
+
+  // Also check class methods and standalone functions for addEventListener without removeEventListener
+  const fullText = ctx.sourceFile.getFullText();
+  for (const cls of ctx.sourceFile.getClasses()) {
+    for (const method of cls.getMethods()) {
+      const body = method.getBody();
+      if (!body) continue;
+      const bodyText = body.getText();
+
+      // Check if method adds listeners
+      if (bodyText.includes('addEventListener')) {
+        // Check if ANY method in the class removes listeners
+        const clsText = cls.getText();
+        if (!clsText.includes('removeEventListener')) {
+          findings.push(finding('memory-leak', 'error', 'bug',
+            `Class '${cls.getName() || 'anonymous'}' adds event listener in '${method.getName()}' but never removes it`,
+            ctx.filePath, method.getStartLineNumber(), 1,
+            { suggestion: 'Add removeEventListener in a cleanup/destroy/dispose method' }));
+        }
+      }
+    }
   }
 
   return findings;

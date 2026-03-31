@@ -38,6 +38,22 @@ function isClientComponent(fullText: string): boolean {
   return /^['"]use client['"];?\s*$/m.test(fullText.substring(0, 200));
 }
 
+/**
+ * Check if a file is actually a React file — has JSX syntax or React imports.
+ * Backend/utility files in a Next.js project should not trigger React rules.
+ */
+function isReactFile(ctx: RuleContext): boolean {
+  const fullText = ctx.sourceFile.getFullText();
+  // Has React/Next imports
+  if (/\bfrom\s+['"]react['"]/.test(fullText) || /\bfrom\s+['"]next\//.test(fullText)) return true;
+  // Has JSX syntax (opening tags or self-closing)
+  if (ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxOpeningElement).length > 0) return true;
+  if (ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).length > 0) return true;
+  // Has React hooks
+  if (/\buse(?:State|Effect|Ref|Callback|Memo|Reducer|Context)\s*[<(]/.test(fullText)) return true;
+  return false;
+}
+
 // ── Rule 21: server-hook ─────────────────────────────────────────────────
 // React hooks (useState, useEffect, etc.) in a Server Component.
 // Only fires on runtime files — codegen/examples/rules/barrels are skipped.
@@ -54,6 +70,10 @@ function serverHook(ctx: RuleContext): ReviewFinding[] {
 
   const fullText = ctx.sourceFile.getFullText();
   if (isClientComponent(fullText)) return findings;
+
+  // Gate: if import graph says this file is within a client boundary, hooks are fine
+  if (ctx.fileContext?.isClientBoundary) return findings;
+  if (ctx.fileContext?.boundary === 'client') return findings;
 
   // AST-aware: walk actual CallExpression nodes, not regex on raw text
   const calls = ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
@@ -100,6 +120,15 @@ function serverHook(ctx: RuleContext): ReviewFinding[] {
 
 function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
+
+  // Gate: skip non-React files — backend code with Date.now()/Math.random() is fine
+  if (!isReactFile(ctx)) return findings;
+
+  // Gate: if import graph says this file is purely client-side, hydration mismatch
+  // is less of a concern (no SSR). But still relevant for SSR'd client components.
+  // Skip only for API routes and middleware — they never render.
+  if (ctx.fileContext?.boundary === 'api' || ctx.fileContext?.boundary === 'middleware') return findings;
+
   const fullText = ctx.sourceFile.getFullText();
 
   // Build a set of character ranges that are inside useEffect/useMemo/event handlers
@@ -153,6 +182,15 @@ function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
 
 function missingUseClient(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
+
+  // Gate: skip non-React files — only JSX files can have event handler props
+  if (!isReactFile(ctx)) return findings;
+
+  // Gate: if import graph says this file is already within a client boundary,
+  // it doesn't need its own 'use client' directive
+  if (ctx.fileContext?.isClientBoundary) return findings;
+  if (ctx.fileContext?.boundary === 'client') return findings;
+
   const fullText = ctx.sourceFile.getFullText();
 
   if (isClientComponent(fullText)) return findings;
@@ -173,7 +211,15 @@ function missingUseClient(ctx: RuleContext): ReviewFinding[] {
       findings.push(finding('missing-use-client', 'warning', 'pattern',
         `'${handler}' in Server Component — needs 'use client' directive`,
         ctx.filePath, line,
-        { suggestion: "Add 'use client' at the top of the file, or extract to a Client Component" }));
+        {
+          suggestion: "Add 'use client' at the top of the file, or extract to a Client Component",
+          autofix: {
+            type: 'insert-before',
+            span: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+            replacement: "'use client';\n\n",
+            description: "Prepend 'use client' directive",
+          },
+        }));
     }
   }
 

@@ -109,20 +109,38 @@ function hardcodedSecret(ctx: RuleContext): ReviewFinding[] {
         // Skip if it's clearly an env reference placeholder
         if (value.startsWith('process.env') || value === '' || value === 'TODO' || value === 'CHANGE_ME') continue;
 
+        const envVar = varName.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
         findings.push(finding('hardcoded-secret', 'error', 'bug',
           `Hardcoded secret in '${varName}' — use environment variables`,
           ctx.filePath, stmt.getStartLineNumber(),
-          { suggestion: `Replace with process.env.${varName.toUpperCase()} or a secret manager` }));
+          {
+            suggestion: `Replace with process.env.${envVar} or a secret manager`,
+            autofix: {
+              type: 'replace',
+              span: { file: ctx.filePath, startLine: init.getStartLineNumber(), startCol: init.getStart() - ctx.sourceFile.getFullText().lastIndexOf('\n', init.getStart()), endLine: init.getEndLineNumber(), endCol: init.getEnd() - ctx.sourceFile.getFullText().lastIndexOf('\n', init.getEnd() - 1) },
+              replacement: `process.env.${envVar}`,
+              description: `Replace hardcoded secret with process.env.${envVar}`,
+            },
+          }));
         continue;
       }
 
       // Check if value matches known secret patterns
       for (const { pattern, label } of SECRET_PATTERNS) {
         if (pattern.test(value)) {
+          const envKey = varName.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
           findings.push(finding('hardcoded-secret', 'error', 'bug',
             `Hardcoded ${label} detected in '${varName}' — use environment variables`,
             ctx.filePath, stmt.getStartLineNumber(),
-            { suggestion: `Move to .env file and use process.env.${varName.toUpperCase()}` }));
+            {
+              suggestion: `Move to .env file and use process.env.${envKey}`,
+              autofix: {
+                type: 'replace',
+                span: { file: ctx.filePath, startLine: init.getStartLineNumber(), startCol: init.getStart() - ctx.sourceFile.getFullText().lastIndexOf('\n', init.getStart()), endLine: init.getEndLineNumber(), endCol: init.getEnd() - ctx.sourceFile.getFullText().lastIndexOf('\n', init.getEnd() - 1) },
+                replacement: `process.env.${envKey}`,
+                description: `Replace hardcoded ${label} with process.env.${envKey}`,
+              },
+            }));
           break;
         }
       }

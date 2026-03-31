@@ -697,16 +697,20 @@ function jsonOutputManipulation(ctx: RuleContext): ReviewFinding[] {
       parsedVar = (parent as import('ts-morph').VariableDeclaration).getName();
     }
 
-    // Check if schema validation follows (exclude JSON.parse itself from matches)
+    // Check if schema validation follows THIS specific JSON.parse call
     const fnBody = call.getFirstAncestorByKind(SyntaxKind.Block);
     if (!fnBody) continue;
-    const parseIdx = fnBody.getText().indexOf('JSON.parse');
-    const bodyAfterParse = fnBody.getText().slice(parseIdx);
+    // Use the call's position relative to the block, not indexOf (which finds the first occurrence)
+    const callOffset = call.getStart() - fnBody.getStart();
+    const bodyAfterParse = fnBody.getText().slice(callOffset);
     // Remove the JSON.parse call itself to avoid false positive on .parse()
     const bodyAfterParseCall = bodyAfterParse.replace(/JSON\.parse\s*\([^)]*\)/, '');
 
-    const hasValidation = VALIDATION_CALL.test(bodyAfterParseCall) &&
-      (parsedVar ? new RegExp(`\\b${parsedVar}\\b`).test(bodyAfterParseCall) : true);
+    // Only suppress if parsedVar is known AND validated — empty parsedVar means we can't
+    // verify which variable is being validated, so don't assume validation
+    const hasValidation = parsedVar !== '' &&
+      VALIDATION_CALL.test(bodyAfterParseCall) &&
+      new RegExp(`\\b${parsedVar}\\b`).test(bodyAfterParseCall);
     if (hasValidation) continue;
 
     findings.push(finding('json-output-manipulation', 'warning', 'bug',

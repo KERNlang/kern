@@ -1,0 +1,44 @@
+[
+  {
+    "file": "/Users/nicolascukas/KERN/kern-lang/examples/mcp-server.kern",
+    "line": 7,
+    "nodeType": "handler",
+    "handlerLength": 188,
+    "timestamp": "2026-03-31T06:31:24.016Z"
+  },
+  {
+    "file": "/Users/nicolascukas/KERN/kern-lang/examples/mcp-server.kern",
+    "line": 19,
+    "nodeType": "handler",
+    "handlerLength": 217,
+    "timestamp": "2026-03-31T06:31:24.016Z"
+  },
+  {
+    "file": "/Users/nicolascukas/KERN/kern-lang/examples/mcp-server.kern",
+    "line": 30,
+    "nodeType": "handler",
+    "handlerLength": 219,
+    "timestamp": "2026-03-31T06:31:24.016Z"
+  },
+  {
+    "file": "/Users/nicolascukas/KERN/kern-lang/examples/mcp-server.kern",
+    "line": 38,
+    "nodeType": "handler",
+    "handlerLength": 221,
+    "timestamp": "2026-03-31T06:31:24.016Z"
+  },
+  {
+    "file": "/Users/nicolascukas/KERN/kern-lang/examples/mcp-server.kern",
+    "line": 46,
+    "nodeType": "handler",
+    "handlerLength": 201,
+    "timestamp": "2026-03-31T06:31:24.016Z"
+  },
+  {
+    "file": "/Users/nicolascukas/KERN/kern-lang/examples/mcp-server.kern",
+    "line": 55,
+    "nodeType": "handler",
+    "handlerLength": 317,
+    "timestamp": "2026-03-31T06:31:24.016Z"
+  }
+]

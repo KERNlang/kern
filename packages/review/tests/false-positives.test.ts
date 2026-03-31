@@ -596,3 +596,98 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     expect(fp).toBeUndefined();
   });
 });
+
+// ── New guard false-positive tests (target-aware + file context) ────────
+
+describe('False Positive Regression: hydration-mismatch on backend', () => {
+  it('does NOT flag Date.now() in Express handler', () => {
+    const source = `
+export function handler(req: any, res: any) {
+  const timestamp = Date.now();
+  res.json({ timestamp });
+}
+`;
+    // File has no JSX, no React imports — isReactFile guard should skip
+    const report = reviewSource(source, 'api-handler.ts', nextjsConfig);
+    const fp = report.findings.find(f => f.ruleId === 'hydration-mismatch');
+    expect(fp).toBeUndefined();
+  });
+
+  it('does NOT flag Math.random() in utility function', () => {
+    const source = `
+export function generateId(): string {
+  return Math.random().toString(36).slice(2);
+}
+`;
+    const report = reviewSource(source, 'utils.ts', nextjsConfig);
+    const fp = report.findings.find(f => f.ruleId === 'hydration-mismatch');
+    expect(fp).toBeUndefined();
+  });
+
+  it('does NOT flag new Date() in server-side data loader', () => {
+    const source = `
+export async function getServerSideProps() {
+  const now = new Date();
+  return { props: { timestamp: now.toISOString() } };
+}
+`;
+    const report = reviewSource(source, 'page-data.ts', nextjsConfig);
+    const fp = report.findings.find(f => f.ruleId === 'hydration-mismatch');
+    expect(fp).toBeUndefined();
+  });
+});
+
+describe('False Positive Regression: server-hook in client boundary', () => {
+  it('does NOT flag useState in file within client boundary (graph mode)', () => {
+    const dir = join(TMP, 'client-boundary-hook');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+
+    // Parent has 'use client' — child inherits client boundary
+    writeFileSync(join(dir, 'page.ts'), `
+'use client';
+import { useCounter } from './counter.js';
+export const page = useCounter;
+`);
+    writeFileSync(join(dir, 'counter.ts'), `
+import { useState } from 'react';
+export function useCounter() {
+  const [count, setCount] = useState(0);
+  return { count, setCount };
+}
+`);
+
+    const reports = reviewGraph([join(dir, 'page.ts')], nextjsConfig);
+    const counterReport = reports.find(r => r.filePath.includes('counter'));
+    if (counterReport) {
+      const fp = counterReport.findings.find(f => f.ruleId === 'server-hook');
+      expect(fp).toBeUndefined();
+    }
+  });
+});
+
+describe('False Positive Regression: missing-use-client in client boundary', () => {
+  it('does NOT flag onClick in file within client boundary (graph mode)', () => {
+    const dir = join(TMP, 'client-boundary-event');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+
+    writeFileSync(join(dir, 'app.ts'), `
+'use client';
+import { Button } from './button.js';
+export const app = Button;
+`);
+    writeFileSync(join(dir, 'button.tsx'), `
+export function Button() {
+  return <button onClick={() => alert('hi')}>Click</button>;
+}
+`);
+
+    const reports = reviewGraph([join(dir, 'app.ts')], nextjsConfig);
+    const buttonReport = reports.find(r => r.filePath.includes('button'));
+    if (buttonReport) {
+      const fp = buttonReport.findings.find(f => f.ruleId === 'missing-use-client');
+      expect(fp).toBeUndefined();
+    }
+  });
+});

@@ -224,6 +224,34 @@ export interface ReviewConfig {
   strictParse?: boolean;
   /** When true, skip layered ReviewReport cache. */
   noCache?: boolean;
+  /** Pre-computed file context map from import graph (populated by reviewGraph) */
+  fileContextMap?: Map<string, FileContext>;
+}
+
+// ── File Context (import chain awareness) ───────────────────────────────
+
+/** Runtime boundary determined by position in the import tree */
+export type RuntimeBoundary = 'server' | 'client' | 'api' | 'middleware' | 'shared' | 'unknown';
+
+/**
+ * Context derived from the import graph — where this file sits in the project.
+ * Populated when reviewing with --graph or --recursive on a directory.
+ */
+export interface FileContext {
+  /** Which runtime boundary this file belongs to (based on import chain, not just file content) */
+  boundary: RuntimeBoundary;
+  /** Entry points that eventually import this file */
+  entryPoints: string[];
+  /** Import chain from nearest entry point to this file */
+  importChain: string[];
+  /** Distance from nearest entry point (0 = is an entry point) */
+  depth: number;
+  /** All files that import this file */
+  importedBy: string[];
+  /** Whether this file is within a 'use client' boundary (Next.js) */
+  isClientBoundary: boolean;
+  /** Whether this file has its own 'use client' directive */
+  hasUseClientDirective: boolean;
 }
 
 // ── Rule Context ─────────────────────────────────────────────────────────
@@ -231,11 +259,15 @@ export interface ReviewConfig {
 /** Context passed to each review rule */
 export interface RuleContext {
   sourceFile: import('ts-morph').SourceFile;
+  /** ts-morph Project — enables TypeChecker access for type-aware rules */
+  project?: import('ts-morph').Project;
   inferred: InferResult[];
   templateMatches: TemplateMatch[];
   config?: ReviewConfig;
   filePath: string;
   fileRole: FileRole;
+  /** Import chain context — present when reviewing with graph awareness */
+  fileContext?: FileContext;
 }
 
 /** A review rule function */
