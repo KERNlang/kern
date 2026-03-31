@@ -1311,11 +1311,34 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   const modelNodes = coreNodes.filter(n => n.type === 'model');
   const prismaArtifact = buildPrismaArtifact(modelNodes, _config);
 
+  // DB connection: implicit path — auto-generate when models exist but no explicit dependency kind=database
+  const hasExplicitDb = coreNodes.some(n => n.type === 'dependency' && String((n.props || {}).kind) === 'database');
+  let dbArtifact: GeneratedArtifact | null = null;
+  if (modelNodes.length > 0 && !hasExplicitDb) {
+    dbArtifact = {
+      path: 'lib/db.ts',
+      content: [
+        `import { PrismaClient } from '@prisma/client';`,
+        ``,
+        `const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };`,
+        ``,
+        `export const prisma = globalForPrisma.prisma ?? new PrismaClient();`,
+        ``,
+        `if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;`,
+        ``,
+        `export default prisma;`,
+      ].join('\n'),
+      type: 'lib',
+    };
+    dependencyComments.push('@prisma/client');
+  }
+
   const artifacts: GeneratedArtifact[] = [
     ...routeArtifacts.map(route => route.artifact),
     ...[...middlewareArtifacts.values()].map(entry => entry.artifact),
     ...coreArtifactRefs.map(ref => ref.artifact),
     ...(prismaArtifact ? [prismaArtifact] : []),
+    ...(dbArtifact ? [dbArtifact] : []),
   ];
 
   const output = lines.join('\n');

@@ -381,6 +381,28 @@ describe('FastAPI Transpiler', () => {
 
   // ── FastAPI Transpiler ────────────────────────────────────────────────
 
+  describe('DB Connection', () => {
+    test('generates implicit DB boilerplate when models exist', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'model name=User table=users',
+        '  column name=id type=uuid primary=true',
+        'server name=Test',
+        '  route method=get path=/health',
+        '    handler <<<',
+        '      return {"status": "ok"}',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      expect(result.code).toContain('create_async_engine');
+      expect(result.code).toContain('DATABASE_URL');
+      expect(result.code).toContain('async def get_db()');
+      expect(result.code).toContain('async def init_db()');
+      expect(result.code).toContain('@app.on_event("startup")');
+    });
+  });
+
   describe('Server Generation', () => {
     test('generates FastAPI main.py with routes and middleware', async () => {
       const { parse } = await import('../../core/src/parser.js');

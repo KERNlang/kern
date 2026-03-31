@@ -1010,8 +1010,15 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
 
   // Collect imports needed by core language nodes
   const coreTypes = new Set(coreNodes.map(n => n.type));
+  const hasExplicitDb = coreNodes.some(n => n.type === 'dependency' && String((n.props || {}).kind) === 'database');
   if (coreTypes.has('model')) {
     serverImports.add('from sqlmodel import SQLModel, Field, Relationship');
+    // Implicit DB connection: add engine/session imports when models exist but no explicit database dependency
+    if (!hasExplicitDb) {
+      serverImports.add('import os');
+      serverImports.add('from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession');
+      serverImports.add('from sqlalchemy.orm import sessionmaker');
+    }
   }
   if (coreTypes.has('union')) {
     serverImports.add('from pydantic import BaseModel');
@@ -1055,9 +1062,37 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     }
   }
 
+  // Implicit DB connection boilerplate (when models exist but no explicit database dependency)
+  if (coreTypes.has('model') && !hasExplicitDb) {
+    lines.push('# Database connection');
+    lines.push('DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./app.db")');
+    lines.push('engine = create_async_engine(DATABASE_URL, echo=False)');
+    lines.push('async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)');
+    lines.push('');
+    lines.push('');
+    lines.push('async def get_db():');
+    lines.push('    async with async_session() as session:');
+    lines.push('        yield session');
+    lines.push('');
+    lines.push('');
+    lines.push('async def init_db():');
+    lines.push('    async with engine.begin() as conn:');
+    lines.push('        await conn.run_sync(SQLModel.metadata.create_all)');
+    lines.push('');
+  }
+
   // App instantiation
   lines.push(`app = FastAPI(title="${serverName}")`);
   lines.push('');
+
+  // DB startup event
+  if (coreTypes.has('model') && !hasExplicitDb) {
+    lines.push('');
+    lines.push('@app.on_event("startup")');
+    lines.push('async def startup():');
+    lines.push('    await init_db()');
+    lines.push('');
+  }
 
   // Middleware
   for (const mLine of middlewareLines) {

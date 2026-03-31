@@ -7,7 +7,7 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { handlerCode, emitIdentifier, propsOf } from '@kernlang/core';
+import { handlerCode, emitIdentifier, propsOf, mapSemanticType } from '@kernlang/core';
 import { mapTsTypeToPython, toSnakeCase, toScreamingSnake } from './type-map.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -957,17 +957,14 @@ function formatPythonDefault(value: string, kernType: string): string {
   return trimmed;
 }
 
+// SQLModel column override: pydantic validator types → plain DB types for column declarations
+const SQLMODEL_COLUMN_OVERRIDE: Record<string, string> = {
+  Email: 'str', URL: 'str', PhoneNumber: 'str',
+};
+
+/** Map KERN type to Python/SQLModel column type. Uses shared semantic type map + SQLModel overrides. */
 function mapColumnToPython(kernType: string): string {
-  const map: Record<string, string> = {
-    uuid: 'UUID', string: 'str', text: 'str',
-    int: 'int', integer: 'int', float: 'float', decimal: 'Decimal',
-    boolean: 'bool', bool: 'bool',
-    date: 'date', datetime: 'datetime', timestamp: 'datetime',
-    json: 'dict[str, Any]',
-    Email: 'str', URL: 'str', PhoneNumber: 'str', PersonName: 'str',
-    Money: 'Decimal', Timestamp: 'datetime',
-  };
-  return map[kernType] ?? kernType;
+  return SQLMODEL_COLUMN_OVERRIDE[kernType] ?? mapSemanticType(kernType, 'pydantic');
 }
 
 export function generatePythonModel(node: IRNode): string[] {

@@ -870,6 +870,27 @@ describe('Express Transpiler', () => {
       expect(prismaArtifact!.path).toBe('prisma/schema.prisma');
       expect(prismaArtifact!.content).toContain('model User {');
     });
+
+    test('transpileExpress generates implicit db.ts when models exist', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+
+      const source = [
+        'model name=User table=users',
+        '  column name=id type=uuid primary=true',
+        'server name=Test',
+        '  route method=get path=/health',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+      ].join('\n');
+
+      const result = transpileExpress(parse(source));
+      const dbArtifact = result.artifacts?.find((a: any) => a.path === 'lib/db.ts');
+      expect(dbArtifact).toBeDefined();
+      expect(dbArtifact!.content).toContain('PrismaClient');
+      expect(dbArtifact!.content).toContain('export const prisma');
+    });
   });
 
   describe('PATCH method', () => {
