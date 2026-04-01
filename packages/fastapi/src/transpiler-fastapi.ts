@@ -988,7 +988,10 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   })) {
     serverImports.add('from fastapi import HTTPException');
   }
-  if (isStrict) serverImports.add('import logging');
+  if (isStrict) {
+    serverImports.add('import logging');
+    serverImports.add('from uuid import uuid4');
+  }
   serverImports.add('import uvicorn');
 
   // Config-level cors/gzip
@@ -1172,6 +1175,19 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     lines.push('@app.on_event("startup")');
     lines.push('async def startup():');
     lines.push('    await init_db()');
+    lines.push('');
+  }
+
+  // Request ID middleware (strict mode)
+  if (isStrict) {
+    lines.push('');
+    lines.push('@app.middleware("http")');
+    lines.push('async def add_request_id(request, call_next):');
+    lines.push('    request_id = str(uuid4())');
+    lines.push('    request.state.request_id = request_id');
+    lines.push('    response = await call_next(request)');
+    lines.push('    response.headers["X-Request-ID"] = request_id');
+    lines.push('    return response');
     lines.push('');
   }
 

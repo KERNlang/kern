@@ -1,7 +1,8 @@
 // Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`Golden Snapshot Tests Express output for ai-buddies-api.kern 1`] = `
-"import express from 'express';
+"import crypto from 'node:crypto';
+import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import { registerPostApiReviewRoute } from './routes/post-api-review.js';
@@ -14,6 +15,12 @@ const port = 3002;
 const serverName = 'ReviewAPI';
 
 app.disable('x-powered-by');
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  const id = crypto.randomUUID();
+  res.setHeader('X-Request-ID', id);
+  (req as any).requestId = id;
+  next();
+});
 
 app.use(cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
@@ -50,7 +57,8 @@ export default app;"
 `;
 
 exports[`Golden Snapshot Tests Express output for api-routes.kern 1`] = `
-"import express from 'express';
+"import crypto from 'node:crypto';
+import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import { verifyToken } from './middleware/auth.js';
@@ -64,6 +72,12 @@ const port = 3001;
 const serverName = 'MusicAPI';
 
 app.disable('x-powered-by');
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  const id = crypto.randomUUID();
+  res.setHeader('X-Request-ID', id);
+  (req as any).requestId = id;
+  next();
+});
 
 app.use(cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true }));
 app.use(express.json({ limit: '1mb' }));
@@ -129,13 +143,17 @@ type RequestQuery = Record<string, never>;
 type RequestBody = Record<string, never>;
 type ResponseBody = unknown;
 
-function assertRequiredFields(label: string, value: unknown, requiredKeys: string[]): void {
+function assertRequiredFields(label: string, value: unknown, fields: Array<{ key: string; type: string }>): void {
   if (typeof value !== 'object' || value === null) {
     throw new Error(\`Invalid \${label}: expected object payload\`);
   }
-  for (const key of requiredKeys) {
-    if (!(key in value)) {
+  const obj = value as Record<string, unknown>;
+  for (const { key, type } of fields) {
+    if (!(key in obj)) {
       throw new Error(\`Invalid \${label}: missing \${key}\`);
+    }
+    if (type !== 'any' && typeof obj[key] !== type) {
+      throw new Error(\`Invalid \${label}: \${key} must be \${type}, got \${typeof obj[key]}\`);
     }
   }
 }
@@ -143,7 +161,7 @@ function assertRequiredFields(label: string, value: unknown, requiredKeys: strin
 export function registerDeleteApiTracksIdRoute(app: Express): void {
   app.delete('/api/tracks/:id', requireowner, async (req: Request<RouteParams, ResponseBody, RequestBody, RequestQuery>, res: Response, next: NextFunction) => {
     try {
-      assertRequiredFields('params', req.params, ['id']);
+      assertRequiredFields('params', req.params, [{ key: 'id', type: 'string' }]);
     } catch (err) {
       return res.status(400).json({ error: err instanceof Error ? err.message : String(err) } as any);
     }
@@ -186,13 +204,17 @@ type RequestQuery = Record<string, never>;
 type RequestBody = Record<string, never>;
 type ResponseBody = unknown;
 
-function assertRequiredFields(label: string, value: unknown, requiredKeys: string[]): void {
+function assertRequiredFields(label: string, value: unknown, fields: Array<{ key: string; type: string }>): void {
   if (typeof value !== 'object' || value === null) {
     throw new Error(\`Invalid \${label}: expected object payload\`);
   }
-  for (const key of requiredKeys) {
-    if (!(key in value)) {
+  const obj = value as Record<string, unknown>;
+  for (const { key, type } of fields) {
+    if (!(key in obj)) {
       throw new Error(\`Invalid \${label}: missing \${key}\`);
+    }
+    if (type !== 'any' && typeof obj[key] !== type) {
+      throw new Error(\`Invalid \${label}: \${key} must be \${type}, got \${typeof obj[key]}\`);
     }
   }
 }
@@ -200,7 +222,7 @@ function assertRequiredFields(label: string, value: unknown, requiredKeys: strin
 export function registerGetApiTracksIdRoute(app: Express): void {
   app.get('/api/tracks/:id', async (req: Request<RouteParams, ResponseBody, RequestBody, RequestQuery>, res: Response, next: NextFunction) => {
     try {
-      assertRequiredFields('params', req.params, ['id']);
+      assertRequiredFields('params', req.params, [{ key: 'id', type: 'string' }]);
     } catch (err) {
       return res.status(400).json({ error: err instanceof Error ? err.message : String(err) } as any);
     }
@@ -224,13 +246,17 @@ type RequestQuery = Record<string, never>;
 type RequestBody = {trackId: string, options?: {stems: boolean}};
 type ResponseBody = unknown;
 
-function assertRequiredFields(label: string, value: unknown, requiredKeys: string[]): void {
+function assertRequiredFields(label: string, value: unknown, fields: Array<{ key: string; type: string }>): void {
   if (typeof value !== 'object' || value === null) {
     throw new Error(\`Invalid \${label}: expected object payload\`);
   }
-  for (const key of requiredKeys) {
-    if (!(key in value)) {
+  const obj = value as Record<string, unknown>;
+  for (const { key, type } of fields) {
+    if (!(key in obj)) {
       throw new Error(\`Invalid \${label}: missing \${key}\`);
+    }
+    if (type !== 'any' && typeof obj[key] !== type) {
+      throw new Error(\`Invalid \${label}: \${key} must be \${type}, got \${typeof obj[key]}\`);
     }
   }
 }
@@ -238,7 +264,7 @@ function assertRequiredFields(label: string, value: unknown, requiredKeys: strin
 export function registerPostApiTracksAnalyzeRoute(app: Express): void {
   app.post('/api/tracks/analyze', async (req: Request<RouteParams, ResponseBody, RequestBody, RequestQuery>, res: Response, next: NextFunction) => {
     try {
-      assertRequiredFields('body', req.body, ['trackId']);
+      assertRequiredFields('body', req.body, [{ key: 'trackId', type: 'string' }]);
     } catch (err) {
       return res.status(400).json({ error: err instanceof Error ? err.message : String(err) } as any);
     }

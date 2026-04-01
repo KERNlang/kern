@@ -360,18 +360,41 @@ function splitTopLevel(value: string): string[] {
   return parts;
 }
 
+interface KeyTypeInfo {
+  key: string;
+  type: string;  // 'string' | 'number' | 'boolean' | 'object' — JS typeof categories
+}
+
+/** Map TS/KERN schema types to JS typeof categories for runtime validation. */
+function toTypeofCategory(tsType: string): string | undefined {
+  const t = tsType.trim().replace(/\s*\|\s*undefined$/, '').replace(/\s*\|\s*null$/, '');
+  if (t === 'string') return 'string';
+  if (t === 'number' || t === 'int' || t === 'float') return 'number';
+  if (t === 'boolean' || t === 'bool') return 'boolean';
+  return undefined; // complex types — skip typeof check
+}
+
 function extractRequiredKeys(schemaType: string): string[] {
+  return extractRequiredKeyTypes(schemaType).map(k => k.key);
+}
+
+function extractRequiredKeyTypes(schemaType: string): KeyTypeInfo[] {
   const trimmed = schemaType.trim();
   if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return [];
 
-  const keys: string[] = [];
+  const keys: KeyTypeInfo[] = [];
   const inner = trimmed.slice(1, -1);
   for (const part of splitTopLevel(inner)) {
     const colonIdx = part.indexOf(':');
     if (colonIdx === -1) continue;
     const rawKey = part.slice(0, colonIdx).trim();
     if (!rawKey || rawKey.endsWith('?')) continue;
-    keys.push(rawKey.replace(/^['"]|['"]$/g, ''));
+    const rawType = part.slice(colonIdx + 1).trim();
+    const typeofCat = toTypeofCategory(rawType);
+    keys.push({
+      key: rawKey.replace(/^['"]|['"]$/g, ''),
+      type: typeofCat || 'any',
+    });
   }
   return keys;
 }
@@ -771,18 +794,22 @@ function buildRouteArtifact(
   const requestType = `Request<RouteParams, ResponseBody, RequestBody, RequestQuery>`;
 
   const validationLines: string[] = [];
-  const requiredParams = schema.params ? extractRequiredKeys(schema.params) : derivePathParams(path);
-  const requiredBody = schema.body ? extractRequiredKeys(schema.body) : [];
-  const requiredQuery = schema.query ? extractRequiredKeys(schema.query) : [];
+  const requiredParamKeys = schema.params ? extractRequiredKeyTypes(schema.params) : derivePathParams(path).map(k => ({ key: k, type: 'string' }));
+  const requiredBodyKeys = schema.body ? extractRequiredKeyTypes(schema.body) : [];
+  const requiredQueryKeys = schema.query ? extractRequiredKeyTypes(schema.query) : [];
 
-  if (requiredParams.length > 0) {
-    validationLines.push(`assertRequiredFields('params', req.params, [${requiredParams.map(key => `'${escapeSingleQuotes(key)}'`).join(', ')}]);`);
+  function formatFieldSpec(fields: KeyTypeInfo[]): string {
+    return `[${fields.map(f => `{ key: '${escapeSingleQuotes(f.key)}', type: '${f.type}' }`).join(', ')}]`;
   }
-  if (requiredBody.length > 0) {
-    validationLines.push(`assertRequiredFields('body', req.body, [${requiredBody.map(key => `'${escapeSingleQuotes(key)}'`).join(', ')}]);`);
+
+  if (requiredParamKeys.length > 0) {
+    validationLines.push(`assertRequiredFields('params', req.params, ${formatFieldSpec(requiredParamKeys)});`);
   }
-  if (requiredQuery.length > 0) {
-    validationLines.push(`assertRequiredFields('query', req.query, [${requiredQuery.map(key => `'${escapeSingleQuotes(key)}'`).join(', ')}]);`);
+  if (requiredBodyKeys.length > 0) {
+    validationLines.push(`assertRequiredFields('body', req.body, ${formatFieldSpec(requiredBodyKeys)});`);
+  }
+  if (requiredQueryKeys.length > 0) {
+    validationLines.push(`assertRequiredFields('query', req.query, ${formatFieldSpec(requiredQueryKeys)});`);
   }
 
   const lines: string[] = [];
@@ -804,13 +831,17 @@ function buildRouteArtifact(
   lines.push(`type ResponseBody = ${responseType};`);
   if (validationLines.length > 0) {
     lines.push('');
-    lines.push(`function assertRequiredFields(label: string, value: unknown, requiredKeys: string[]): void {`);
+    lines.push(`function assertRequiredFields(label: string, value: unknown, fields: Array<{ key: string; type: string }>): void {`);
     lines.push(`  if (typeof value !== 'object' || value === null) {`);
     lines.push(`    throw new Error(\`Invalid \${label}: expected object payload\`);`);
     lines.push('  }');
-    lines.push(`  for (const key of requiredKeys) {`);
-    lines.push(`    if (!(key in value)) {`);
+    lines.push(`  const obj = value as Record<string, unknown>;`);
+    lines.push(`  for (const { key, type } of fields) {`);
+    lines.push(`    if (!(key in obj)) {`);
     lines.push(`      throw new Error(\`Invalid \${label}: missing \${key}\`);`);
+    lines.push('    }');
+    lines.push(`    if (type !== 'any' && typeof obj[key] !== type) {`);
+    lines.push(`      throw new Error(\`Invalid \${label}: \${key} must be \${type}, got \${typeof obj[key]}\`);`);
     lines.push('    }');
     lines.push('  }');
     lines.push('}');
@@ -1225,6 +1256,9 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   if (dependencyComments.length > 0) {
     lines.push(`// Dependencies: ${dependencyComments.join(', ')}`);
   }
+  if (isStrict) {
+    lines.push(`import crypto from 'node:crypto';`);
+  }
   lines.push(`import express from 'express';`);
   lines.push(`import type { NextFunction, Request, Response } from 'express';`);
   if (websocketNodes.length > 0) {
@@ -1251,6 +1285,12 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   // Hardened defaults (strict mode)
   if (isStrict) {
     lines.push(`app.disable('x-powered-by');`);
+    lines.push(`app.use((_req: Request, res: Response, next: NextFunction) => {`);
+    lines.push(`  const id = crypto.randomUUID();`);
+    lines.push(`  res.setHeader('X-Request-ID', id);`);
+    lines.push(`  (req as any).requestId = id;`);
+    lines.push(`  next();`);
+    lines.push(`});`);
     if (!hasJsonMiddleware) {
       lines.push(`app.use(express.json({ limit: '1mb' }));`);
     }
