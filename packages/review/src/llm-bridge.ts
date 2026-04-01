@@ -15,7 +15,7 @@
 import type { InferResult, ReviewFinding } from './types.js';
 import type { TaintResult } from './taint.js';
 import { buildLLMPrompt, parseLLMResponse } from './llm-review.js';
-import type { LLMGraphContext } from './llm-review.js';
+import type { LLMGraphContext, SerializationMode } from './llm-review.js';
 import type { TemplateMatch } from './types.js';
 
 // ── Prompt Sanitization ──────────────────────────────────────────────────
@@ -157,16 +157,35 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+/** Check if a file is a CHANGED file (distance=0) or has no graph context. */
+function isChangedFile(input: LLMReviewInput): boolean {
+  if (!input.graphContext) return true; // no graph = treat all as changed
+  const distance = input.graphContext.fileDistances.get(input.filePath);
+  return distance === undefined || distance === 0;
+}
+
 /** Estimate total tokens for an input including all context that reviewBatch will add. */
 function estimateInputTokens(input: LLMReviewInput, cachedIR: string): number {
   const SYSTEM_PROMPT_TOKENS = 2500; // ~2000-2500 tokens for the system prompt
   const OVERHEAD_TOKENS = 500;       // XML wrappers, joins, tags
   let tokens = SYSTEM_PROMPT_TOKENS + OVERHEAD_TOKENS;
   tokens += estimateTokens(cachedIR);
-  if (input.source) tokens += estimateTokens(input.source);
+  // Only count source tokens for CHANGED files (CONTEXT files get IR only)
+  if (input.source && isChangedFile(input)) tokens += estimateTokens(input.source);
   if (input.taintResults) tokens += estimateTokens(JSON.stringify(input.taintResults));
-  if (input.staticFindings) tokens += estimateTokens(JSON.stringify(input.staticFindings));
+  if (input.staticFindings) {
+    const highValue = input.staticFindings.filter(isHighValueFinding);
+    tokens += estimateTokens(JSON.stringify(highValue));
+  }
   return tokens;
+}
+
+/**
+ * Filter predicate for static findings sent to the LLM.
+ * Excludes info-severity and low-confidence findings to save tokens.
+ */
+export function isHighValueFinding(f: ReviewFinding): boolean {
+  return f.severity !== 'info' && (f.confidence === undefined || f.confidence >= 0.5);
 }
 
 /** Max input tokens per batch. Conservative — leaves room for output + overhead. */
@@ -254,16 +273,22 @@ async function reviewBatch(
   // Build combined prompt
   const parts: string[] = [];
   const allInferred: InferResult[] = [];
-  const hasSource = inputs.some(i => i.source);
+  let anySourceIncluded = false;
 
   for (const input of inputs) {
-    const prompt = irCache?.get(input) ?? buildLLMPrompt(input.inferred, input.templateMatches, input.graphContext);
+    // Graph-aware source budgeting: include source only for CHANGED files
+    const includeSource = !!input.source && isChangedFile(input);
+    const fileMode: SerializationMode = includeSource ? 'deep' : 'ir-only';
+
+    // Build IR prompt with correct mode (don't use irCache — it was built with ir-only for estimation)
+    const prompt = buildLLMPrompt(input.inferred, input.templateMatches, input.graphContext, fileMode);
     parts.push(`<kern-file path="${sanitizeFilePath(input.filePath)}">\n${prompt}\n</kern-file>`);
     allInferred.push(...input.inferred);
 
-    // Include actual source code when available (deep review mode)
-    if (input.source) {
-      const escapedSource = sanitizeForPrompt(input.source)
+    // Include actual source code only for CHANGED files (deep review mode)
+    if (includeSource) {
+      anySourceIncluded = true;
+      const escapedSource = sanitizeForPrompt(input.source!)
         .replace(/<\/kern-source>/gi, '&lt;/kern-source&gt;');
       parts.push(`<kern-source path="${sanitizeFilePath(input.filePath)}">\n${escapedSource}\n</kern-source>`);
     }
@@ -273,13 +298,13 @@ async function reviewBatch(
       parts.push(formatTaintContext(input.taintResults));
     }
 
-    // Add static findings context if available
+    // Add static findings context if available (filtered to high-value only)
     if (input.staticFindings && input.staticFindings.length > 0) {
       parts.push(formatStaticFindings(input.staticFindings, input.filePath));
     }
   }
 
-  const systemPrompt = buildSystemPrompt(hasSource);
+  const systemPrompt = buildSystemPrompt(anySourceIncluded);
   const userPrompt = parts.join('\n\n');
 
   try {
@@ -354,6 +379,11 @@ Each <kern-file> contains KERN IR nodes with aliases like N1, N2, etc.
 Valid aliases are listed at the top of each <kern-file> block.
 Any alias not in that list must be rejected.
 
+Handler bodies in the IR may appear as:
+- Verbatim code in <kern-code> tags (small handlers or context-only files)
+- Compressed summaries in <kern-code> tags (large handlers: line count, calls, control flow, security-relevant excerpts)
+- Line references like "lines=42-67" — cross-reference these with the <kern-source> block for the same file
+
 Categories: bug, type, pattern, style, structure
 Severities: error (definitely a bug), warning (likely a bug or serious concern), info (suggestion)
 
@@ -396,6 +426,11 @@ Each <kern-file> contains KERN IR nodes with aliases like N1, N2, etc.
 Valid aliases are listed at the top of each <kern-file> block.
 Any alias not in that list must be rejected.
 
+Handler bodies in <kern-code> tags may be:
+- Verbatim source code (small handlers)
+- Compressed summaries (large handlers: line count, function calls, control flow counts, security-relevant excerpts)
+Analyze both forms for security issues. Compressed summaries highlight the most security-relevant lines.
+
 Categories: bug, type, pattern, style, structure
 Severities: error, warning, info
 
@@ -416,9 +451,10 @@ function formatStaticFindings(findings: ReviewFinding[], filePath: string): stri
   lines.push('  Instead, look for RELATED issues the static analyzer missed.');
   lines.push('');
 
-  // Group by severity
-  const errors = findings.filter(f => f.severity === 'error');
-  const warnings = findings.filter(f => f.severity === 'warning');
+  // Filter to high-value findings only, then group by severity
+  const highValue = findings.filter(isHighValueFinding);
+  const errors = highValue.filter(f => f.severity === 'error');
+  const warnings = highValue.filter(f => f.severity === 'warning');
 
   for (const f of [...errors, ...warnings]) {
     const conf = f.confidence !== undefined ? ` (confidence: ${f.confidence.toFixed(2)})` : '';

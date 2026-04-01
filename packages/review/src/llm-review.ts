@@ -10,6 +10,13 @@
 import type { InferResult, TemplateMatch, ReviewFinding, SourceSpan } from './types.js';
 import { createFingerprint } from './types.js';
 
+/**
+ * Controls how handler bodies are serialized in LLM prompts.
+ * - 'deep': source is available in <kern-source>, emit line references only
+ * - 'ir-only': no source available, inline code (small) or compress (large)
+ */
+export type SerializationMode = 'deep' | 'ir-only';
+
 // ── Export KERN IR (v1 compat + v2 enhanced) ─────────────────────────────
 
 /**
@@ -62,6 +69,7 @@ export function buildLLMPrompt(
   inferred: InferResult[],
   templateMatches: TemplateMatch[],
   graphContext?: LLMGraphContext,
+  mode: SerializationMode = 'ir-only',
 ): string {
   const lines: string[] = [];
 
@@ -100,7 +108,7 @@ export function buildLLMPrompt(
       }
     }
 
-    lines.push(`[${r.promptAlias}]${marker} ${serializeNodeWithBody(r.node, '')}`);
+    lines.push(`[${r.promptAlias}]${marker} ${serializeNodeWithBody(r.node, '', mode, r.startLine, r.endLine)}`);
   }
 
   for (const t of templateMatches) {
@@ -239,18 +247,102 @@ function serializeNode(node: import('@kernlang/core').IRNode, indent: string): s
   return result;
 }
 
-function serializeNodeWithBody(node: import('@kernlang/core').IRNode, indent: string): string {
+/** Max handler lines before compression kicks in (IR-only mode). */
+const HANDLER_COMPRESS_THRESHOLD = 30;
+
+const CONTROL_FLOW_KEYWORDS = new Set([
+  'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'try', 'catch', 'finally',
+  'return', 'throw', 'new', 'typeof', 'instanceof', 'void', 'delete', 'await',
+]);
+
+// Security-sensitive patterns to preserve verbatim in compressed output.
+// These are detection patterns for code review, not actual usage.
+const SECURITY_PATTERN = /\b(exec|eval|spawn|sql|query|auth|token|password|cookie|header|redirect|innerHTML|dangerouslySetInnerHTML|crypto|hash|sign|verify|decrypt|encrypt)\b/i; // eslint-disable-line -- detection pattern, not usage
+
+/**
+ * Compress a large handler body into a structural summary with security-relevant excerpts.
+ * Uses regex extraction — no AST re-parse needed.
+ */
+export function compressHandlerBody(code: string): string {
+  const lines = code.split('\n');
+  const summary: string[] = [];
+
+  summary.push(`// ${lines.length} lines`);
+
+  // Function calls (deduplicated)
+  const calls = new Set<string>();
+  for (const line of lines) {
+    for (const m of line.matchAll(/\b(\w+)\s*\(/g)) {
+      if (!CONTROL_FLOW_KEYWORDS.has(m[1])) calls.add(m[1]);
+    }
+  }
+  if (calls.size > 0) summary.push(`// calls: ${[...calls].join(', ')}`);
+
+  // External API references
+  const apiCount = lines.filter(l => /\b(db|sql|query|http|fetch|axios|fs\.|crypto|process\.env)/i.test(l)).length;
+  if (apiCount > 0) summary.push(`// external APIs: ${apiCount} references`);
+
+  // Control flow counts
+  const ifCount = lines.filter(l => /\bif\s*\(/.test(l)).length;
+  const loopCount = lines.filter(l => /\b(for|while)\s*\(/.test(l)).length;
+  const tryCount = lines.filter(l => /\btry\s*\{/.test(l)).length;
+  const switchCount = lines.filter(l => /\bswitch\s*\(/.test(l)).length;
+  const flow: string[] = [];
+  if (ifCount) flow.push(`${ifCount} if`);
+  if (loopCount) flow.push(`${loopCount} loop`);
+  if (tryCount) flow.push(`${tryCount} try`);
+  if (switchCount) flow.push(`${switchCount} switch`);
+  if (flow.length > 0) summary.push(`// control flow: ${flow.join(', ')}`);
+
+  // Return statements
+  const returnCount = lines.filter(l => /\breturn\b/.test(l)).length;
+  if (returnCount > 0) summary.push(`// returns: ${returnCount}`);
+
+  // Security-relevant verbatim snippets (capped at 10)
+  const securityLines = lines
+    .map((l, i) => ({ line: l.trim(), num: i + 1 }))
+    .filter(({ line }) => SECURITY_PATTERN.test(line));
+
+  if (securityLines.length > 0) {
+    summary.push('// security-relevant:');
+    for (const { line, num } of securityLines.slice(0, 10)) {
+      const escaped = line
+        .replace(/<kern-code>/gi, '&lt;kern-code&gt;')
+        .replace(/<\/kern-code>/gi, '&lt;/kern-code&gt;');
+      summary.push(`//   L${num}: ${escaped}`);
+    }
+  }
+
+  return summary.join('\n');
+}
+
+export function serializeNodeWithBody(
+  node: import('@kernlang/core').IRNode,
+  indent: string,
+  mode: SerializationMode = 'ir-only',
+  nodeStartLine?: number,
+  nodeEndLine?: number,
+): string {
   const parts = [node.type];
   if (node.props) {
     for (const [k, v] of Object.entries(node.props)) {
       if (typeof v === 'string') {
         if (k === 'code') {
-          // Include handler bodies in LLM prompt (wrapped in XML-style tags)
-          // Escape any closing tags in the source to prevent breakout
-          const escaped = v
-            .replace(/<kern-code>/gi, '&lt;kern-code&gt;')
-            .replace(/<\/kern-code>/gi, '&lt;/kern-code&gt;');
-          parts.push(`<kern-code>\n${escaped}\n</kern-code>`);
+          if (mode === 'deep' && nodeStartLine !== undefined && nodeEndLine !== undefined) {
+            // Deep mode: LLM has full source in <kern-source>, just reference lines
+            parts.push(`lines=${nodeStartLine}-${nodeEndLine}`);
+          } else {
+            // IR-only mode: inline small handlers, compress large ones
+            const lineCount = v.split('\n').length;
+            if (lineCount > HANDLER_COMPRESS_THRESHOLD) {
+              parts.push(`<kern-code>\n${compressHandlerBody(v)}\n</kern-code>`);
+            } else {
+              const escaped = v
+                .replace(/<kern-code>/gi, '&lt;kern-code&gt;')
+                .replace(/<\/kern-code>/gi, '&lt;/kern-code&gt;');
+              parts.push(`<kern-code>\n${escaped}\n</kern-code>`);
+            }
+          }
         } else {
           parts.push(v.includes(' ') ? `${k}="${v}"` : `${k}=${v}`);
         }
@@ -260,7 +352,7 @@ function serializeNodeWithBody(node: import('@kernlang/core').IRNode, indent: st
   let result = indent + parts.join(' ');
   if (node.children) {
     for (const child of node.children) {
-      result += '\n' + serializeNodeWithBody(child, indent + '  ');
+      result += '\n' + serializeNodeWithBody(child, indent + '  ', mode, nodeStartLine, nodeEndLine);
     }
   }
   return result;
