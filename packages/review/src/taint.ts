@@ -26,7 +26,7 @@ export interface TaintSource {
 
 export interface TaintSink {
   name: string;         // Sink function (e.g., "exec", "writeFileSync")
-  category: 'command' | 'fs' | 'sql' | 'redirect' | 'eval' | 'template';
+  category: 'command' | 'fs' | 'sql' | 'redirect' | 'eval' | 'template' | 'codegen';
   taintedArg: string;   // The tainted variable used in the call
   line?: number;
 }
@@ -112,6 +112,10 @@ const SINK_PATTERNS: SinkPattern[] = [
   // VM execution sinks (LLM output execution)
   { pattern: /\bvm\.runInContext\s*\(/, name: 'vm.runInContext', category: 'eval' },
   { pattern: /\bvm\.runInNewContext\s*\(/, name: 'vm.runInNewContext', category: 'eval' },
+  // Code generation sinks — external values interpolated into generated source code
+  { pattern: /\blines\.push\s*\(`/, name: 'lines.push(template)', category: 'codegen' },
+  { pattern: /\bhelperBlock\.push\s*\(`/, name: 'helperBlock.push(template)', category: 'codegen' },
+  { pattern: /\bcode\s*\+=\s*`/, name: 'code += template', category: 'codegen' },
 ];
 
 // ── Sanitizer Detection ─────────────────────────────────────────────────
@@ -208,6 +212,96 @@ export interface ExportedFunction {
   sinks: TaintSink[];
 }
 
+// ── Intra-File Call Graph (for interprocedural taint) ────────────────────
+
+/** A function in the file that contains sinks — tracks which params flow to those sinks */
+interface InternalSinkFunction {
+  name: string;
+  /** Parameter indices whose values reach a sink in the function body */
+  taintedParamIndices: Set<number>;
+  /** Sink categories reachable from each param index (multiple categories per param) */
+  sinkCategories: Map<number, Set<TaintSink['category']>>;
+}
+
+/**
+ * Build a map of internal functions that contain sinks.
+ * For each function, determine which parameters flow to sinks.
+ * This enables interprocedural taint: processInput(req.body) → exec() is now visible.
+ */
+function buildInternalSinkMap(sourceFile: SourceFile): Map<string, InternalSinkFunction> {
+  const sinkMap = new Map<string, InternalSinkFunction>();
+
+  const allFns: Array<{ name: string; node: FunctionDeclaration | ArrowFunction | FunctionExpression | MethodDeclaration }> = [];
+  for (const fn of sourceFile.getFunctions()) {
+    const name = fn.getName();
+    if (name) allFns.push({ name, node: fn });
+  }
+  for (const stmt of sourceFile.getVariableStatements()) {
+    for (const decl of stmt.getDeclarations()) {
+      const init = decl.getInitializer();
+      if (init && (init.getKindName() === 'ArrowFunction' || init.getKindName() === 'FunctionExpression')) {
+        allFns.push({ name: decl.getName(), node: init as any });
+      }
+    }
+  }
+
+  for (const { name, node: fn } of allFns) {
+    const params = fn.getParameters();
+    const body = fn.getBody();
+    if (!body || params.length === 0) continue;
+
+    // Collect all calls in the body that hit a known sink
+    const calls: import('ts-morph').CallExpression[] = [];
+    body.forEachDescendant(n => { if (n.getKindName() === 'CallExpression') calls.push(n as import('ts-morph').CallExpression); });
+
+    const taintedParamIndices = new Set<number>();
+    const sinkCategories = new Map<number, Set<TaintSink['category']>>();
+
+    for (const call of calls) {
+      const calleeName = getCalleeBaseName(call);
+      const sinkDef = SINK_NAMES.get(calleeName);
+      if (!sinkDef) continue;
+
+      // Check which parameter names appear in the sink's arguments
+      for (const arg of call.getArguments()) {
+        const argText = arg.getText();
+        for (let i = 0; i < params.length; i++) {
+          const paramName = params[i].getName();
+          if (argText === paramName || argText.startsWith(paramName + '.') || argText.startsWith(paramName + '[')) {
+            taintedParamIndices.add(i);
+            if (!sinkCategories.has(i)) sinkCategories.set(i, new Set());
+            sinkCategories.get(i)!.add(sinkDef);
+          }
+        }
+      }
+
+      // Also check template literal arguments
+      for (const arg of call.getArguments()) {
+        if (arg.getKindName() === 'TemplateExpression') {
+          for (const tplSpan of (arg as any).getTemplateSpans()) {
+            const expr = tplSpan.getExpression();
+            const exprText = expr.getText();
+            for (let i = 0; i < params.length; i++) {
+              const paramName = params[i].getName();
+              if (exprText === paramName || exprText.startsWith(paramName + '.')) {
+                taintedParamIndices.add(i);
+                if (!sinkCategories.has(i)) sinkCategories.set(i, new Set());
+                sinkCategories.get(i)!.add(sinkDef);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (taintedParamIndices.size > 0) {
+      sinkMap.set(name, { name, taintedParamIndices, sinkCategories });
+    }
+  }
+
+  return sinkMap;
+}
+
 // ── Main Analysis ────────────────────────────────────────────────────────
 
 /**
@@ -229,6 +323,9 @@ export function analyzeTaint(inferred: InferResult[], filePath: string, sourceFi
  */
 function analyzeTaintAST(inferred: InferResult[], filePath: string, sourceFile: SourceFile): TaintResult[] {
   const results: TaintResult[] = [];
+
+  // Build intra-file call graph: which internal functions contain sinks?
+  const internalSinkMap = buildInternalSinkMap(sourceFile);
 
   // Collect all function-like AST nodes from the SourceFile
   const allFns: Array<{ node: FunctionDeclaration | ArrowFunction | FunctionExpression | MethodDeclaration; startLine: number }> = [];
@@ -384,6 +481,34 @@ function analyzeTaintAST(inferred: InferResult[], filePath: string, sourceFile: 
       }
     }
 
+    // Step 3b: Interprocedural — check calls to internal functions that contain sinks
+    for (const call of calls) {
+      const calleeName = getCalleeBaseName(call);
+      // Skip if it's already a known sink (handled above)
+      if (SINK_NAMES.has(calleeName)) continue;
+      const internalFn = internalSinkMap.get(calleeName);
+      if (!internalFn) continue;
+
+      // Check if tainted data is passed to a parameter that reaches a sink
+      const callArgs = call.getArguments();
+      for (const [paramIdx, categories] of internalFn.sinkCategories) {
+        if (paramIdx >= callArgs.length) continue;
+        const arg = callArgs[paramIdx];
+        const taintedArg = findTaintedIdentifier(arg, taintedNames);
+        if (taintedArg) {
+          // Emit one sink per category (a param may reach both exec() and query())
+          for (const sinkCategory of categories) {
+            sinks.push({
+              name: `${calleeName} → sink`,
+              category: sinkCategory,
+              taintedArg,
+              line: call.getStartLineNumber(),
+            });
+          }
+        }
+      }
+    }
+
     if (sinks.length === 0) continue;
 
     // Step 4: Check for sanitizers (AST-based)
@@ -531,7 +656,8 @@ function findSanitizersAST(body: Node, taintedNames: Set<string>): Array<{ name:
 const SINK_NAMES = new Map<string, TaintSink['category']>([
   ['exec', 'command'], ['execSync', 'command'], ['spawn', 'command'],
   ['spawnSync', 'command'], ['execFile', 'command'], ['execFileSync', 'command'],
-  ['writeFile', 'fs'], ['writeFileSync', 'fs'], ['createWriteStream', 'fs'],
+  ['readFile', 'fs'], ['readFileSync', 'fs'],
+  ['writeFile', 'fs'], ['writeFileSync', 'fs'], ['createWriteStream', 'fs'], ['createReadStream', 'fs'],
   ['unlink', 'fs'], ['unlinkSync', 'fs'],
   ['query', 'sql'], ['$execute', 'sql'], ['raw', 'sql'],
   ['$queryRaw', 'sql'], ['$queryRawUnsafe', 'sql'],
@@ -960,6 +1086,7 @@ export function taintToFindings(results: TaintResult[]): ReviewFinding[] {
     redirect: 'open redirect',
     eval: 'code injection',
     template: 'template injection',
+    codegen: 'code generation injection',
   };
 
   for (const r of results) {
@@ -970,6 +1097,8 @@ export function taintToFindings(results: TaintResult[]): ReviewFinding[] {
     for (const path of reportable) {
       const severity = path.sink.category === 'command' || path.sink.category === 'eval'
         ? 'error' as const
+        : path.sink.category === 'codegen'
+        ? 'warning' as const  // codegen injection: external values in generated source — validate type/format
         : 'warning' as const;
 
       const primarySpan: SourceSpan = {
@@ -1021,6 +1150,7 @@ function getSuggestion(category: TaintSink['category']): string {
     case 'redirect': return 'Validate redirect URL against an allowlist of safe destinations';
     case 'eval': return 'Never pass user input to eval() or new Function() — use safe alternatives';
     case 'template': return 'Sanitize user input before embedding in templates';
+    case 'codegen': return 'Validate type and format of external values before interpolating into generated source code (e.g., parseInt for numeric values)';
   }
 }
 
@@ -1228,6 +1358,7 @@ export function crossFileTaintToFindings(results: CrossFileTaintResult[]): Revie
     redirect: 'open redirect',
     eval: 'code injection',
     template: 'template injection',
+    codegen: 'code generation injection',
   };
 
   for (const r of results) {

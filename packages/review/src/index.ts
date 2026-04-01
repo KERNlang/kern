@@ -19,8 +19,11 @@ import type { GraphOptions } from './types.js';
 import { detectTemplates } from './template-detector.js';
 import { structuralDiff } from './differ.js';
 import { runQualityRules } from './quality-rules.js';
-import { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, dedup, sortAndDedup, sortFindings } from './reporter.js';
+import { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, dedup, sortAndDedup, sortFindings, assignDefaultConfidence } from './reporter.js';
 import { classifyFileRole } from './file-role.js';
+import { buildFileContextMap } from './file-context.js';
+import { buildCallGraph } from './call-graph.js';
+import { deadExportRule, crossFileAsyncRule } from './rules/dead-code.js';
 import { runTSCDiagnostics } from './external-tools.js';
 import { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
@@ -54,12 +57,16 @@ export { resolveImportGraph } from './graph.js';
 export { createFingerprint } from './types.js';
 export { inferFromSource, inferFromFile } from './inferrer.js';
 export { classifyFileRole } from './file-role.js';
+export { buildFileContextMap, clearFileContextCache } from './file-context.js';
+export { buildCallGraph } from './call-graph.js';
+export type { CallSite, FunctionNode, CallGraph } from './call-graph.js';
+export type { FileContext, RuntimeBoundary } from './types.js';
 export { detectTemplates } from './template-detector.js';
 export { structuralDiff } from './differ.js';
 export { runQualityRules } from './quality-rules.js';
 export { getRuleRegistry } from './rules/index.js';
 export type { RuleInfo } from './rules/index.js';
-export { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSARIFWithSuppressions, formatSummary, checkEnforcement, formatEnforcement, dedup, sortAndDedup, sortFindings } from './reporter.js';
+export { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSARIFWithSuppressions, formatSummary, checkEnforcement, formatEnforcement, dedup, sortAndDedup, sortFindings, assignDefaultConfidence } from './reporter.js';
 export { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
 export type { LLMGraphContext } from './llm-review.js';
 export { runESLint, runTSCDiagnostics, runTSCDiagnosticsFromPaths, linkToNodes } from './external-tools.js';
@@ -112,8 +119,35 @@ export { clearReviewCache };
 export { checkSpec, checkSpecFiles, extractSpecContracts, extractImplRoutes, matchRoutes, verifyRouteContract, specViolationsToFindings } from './spec-checker.js';
 export type { SpecContract, ImplRoute, SpecViolation, SpecCheckResult, ViolationKind } from './spec-checker.js';
 
+/** Shared filesystem-backed Project for type-aware analysis (reused across reviewFile calls) */
+let _fsProject: import('ts-morph').Project | undefined;
+function getOrCreateFsProject(): import('ts-morph').Project {
+  if (!_fsProject) {
+    const { Project } = require('ts-morph') as typeof import('ts-morph');
+    _fsProject = new Project({
+      compilerOptions: {
+        strict: true,
+        target: 99, /* Latest */
+        module: 99, /* ESNext */
+        moduleResolution: 100, /* Bundler */
+        skipLibCheck: true,
+        noEmit: true,
+      },
+      useInMemoryFileSystem: false,
+      skipAddingFilesFromTsConfig: true,
+    });
+  }
+  return _fsProject!;
+}
+
+/** Reset the shared project (for tests / watch mode) */
+export function resetFsProject(): void {
+  _fsProject = undefined;
+}
+
 /**
  * Review a single file. Auto-detects language from extension.
+ * Uses a filesystem-backed ts-morph Project for type-aware analysis.
  * Supports: .ts, .tsx, .py, .kern
  */
 export function reviewFile(filePath: string, config?: ReviewConfig): ReviewReport {
@@ -132,7 +166,8 @@ export function reviewFile(filePath: string, config?: ReviewConfig): ReviewRepor
   } else if (filePath.endsWith('.py')) {
     report = reviewPythonSource(source, filePath, config);
   } else {
-    report = reviewSource(source, filePath, config);
+    // Use filesystem-backed project for real files (enables TypeChecker)
+    report = reviewSourceWithProject(source, filePath, config);
   }
 
   if (key) {
@@ -143,14 +178,47 @@ export function reviewFile(filePath: string, config?: ReviewConfig): ReviewRepor
 }
 
 /**
- * Review TypeScript source code (string).
+ * Review TypeScript source with a filesystem-backed project.
+ * The fs project enables .getReturnType() to resolve types from node_modules.
+ */
+function reviewSourceWithProject(source: string, filePath: string, config?: ReviewConfig): ReviewReport {
+  try {
+    const fsProject = getOrCreateFsProject();
+    // Add or update the file in the project
+    let sf = fsProject.getSourceFile(filePath);
+    if (sf) {
+      sf.replaceWithText(source);
+    } else {
+      sf = fsProject.addSourceFileAtPath(filePath);
+    }
+    return reviewSourceInternal(source, filePath, config, fsProject, sf);
+  } catch {
+    // Fallback to in-memory project if fs project fails
+    return reviewSource(source, filePath, config);
+  }
+}
+
+/**
+ * Review TypeScript source code (string). Uses in-memory project (no type resolution).
+ * For file-from-disk review with type resolution, use reviewFile() instead.
  */
 export function reviewSource(source: string, filePath = 'input.ts', config?: ReviewConfig): ReviewReport {
-  const totalLines = source.split('\n').length;
-
-  // ── Shared context: single AST parse, shared across all phases ──
   const project = createInMemoryProject();
   const sourceFile = project.createSourceFile(filePath, source);
+  return reviewSourceInternal(source, filePath, config, project, sourceFile);
+}
+
+/**
+ * Internal review implementation — shared between reviewSource (in-memory) and reviewFile (filesystem).
+ */
+function reviewSourceInternal(
+  source: string,
+  filePath: string,
+  config: ReviewConfig | undefined,
+  project: import('ts-morph').Project,
+  sourceFile: import('ts-morph').SourceFile,
+): ReviewReport {
+  const totalLines = source.split('\n').length;
   const fileRole = classifyFileRole(sourceFile, filePath);
 
   // Helper: run a phase safely, collect findings even if a phase throws
@@ -184,7 +252,7 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
   allFindings.push(...safePhase('diff', () => structuralDiff(source, inferred, filePath), []));
 
   // Phase 5: Quality rules → unified findings (receives fileRole)
-  allFindings.push(...safePhase('quality', () => runQualityRules(sourceFile, inferred, templateMatches, config, fileRole), []));
+  allFindings.push(...safePhase('quality', () => runQualityRules(sourceFile, inferred, templateMatches, config, fileRole, project), []));
 
   // Phase 6: Concept extraction + concept rules (universal, cross-language)
   const emptyConcepts = { filePath, language: 'typescript', nodes: [], edges: [], extractorVersion: '0' };
@@ -228,6 +296,9 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
 
   // Merge, dedup, sort — single shared utility
   const dedupedFindings = sortAndDedup(allFindings);
+
+  // Assign calibrated confidence scores to all findings
+  assignDefaultConfidence(dedupedFindings);
 
   // Apply suppression (inline comments + config disabledRules)
   const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
@@ -363,6 +434,7 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
   });
 
   const dedupedFindings = sortAndDedup(allFindings);
+  assignDefaultConfidence(dedupedFindings);
   const suppression = applySuppression(dedupedFindings, source, filePath, _config, _config?.strict ?? false);
   const findings = sortAndDedup(suppression.findings);
   const kernTokens = countTokens(source);
@@ -427,6 +499,7 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
   }
 
   const dedupedFindings = sortAndDedup(conceptFindings);
+  assignDefaultConfidence(dedupedFindings);
   const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
   const findings = sortAndDedup(suppression.findings);
 
@@ -478,10 +551,14 @@ export function reviewGraph(
   const entrySet = new Set(graph.entryFiles);
   const reports: ReviewReport[] = [];
 
+  // Build file context map — every file gets import chain awareness
+  const fileContextMap = buildFileContextMap(graph);
+  const graphConfig: ReviewConfig = { ...config, fileContextMap };
+
   for (const gf of graph.files) {
     if (!existsSync(gf.path)) continue;
     try {
-      const report = reviewFile(gf.path, config);
+      const report = reviewFile(gf.path, graphConfig);
       const isEntry = entrySet.has(gf.path);
 
       // Tag every finding with provenance
@@ -563,56 +640,36 @@ export function reviewGraph(
     }
   }
 
-  // ── Post-filter: suppress server-hook / missing-use-client false positives ──
-  // In graph mode, if ALL importers of a file are within a client boundary
-  // ('use client' — recursively), hooks and event handlers are safe on the client.
-  if (config?.target === 'nextjs') {
-    const NEXTJS_CLIENT_RULES = new Set(['server-hook', 'missing-use-client']);
-    const hasNextjsFindings = reports.some(r =>
-      r.findings.some(f => NEXTJS_CLIENT_RULES.has(f.ruleId)));
+  // Note: server-hook / missing-use-client client boundary suppression is now handled
+  // by FileContext in the rules themselves (ctx.fileContext.isClientBoundary).
 
-    if (hasNextjsFindings) {
-      const importedByMap = new Map<string, string[]>();
+  // ── Call graph analysis: dead exports + cross-file async ──
+  try {
+    // Use provided project, or build one with all graph files loaded
+    let cgProject = graphOptions?.project;
+    if (!cgProject) {
+      const { Project } = require('ts-morph') as typeof import('ts-morph');
+      cgProject = new Project({
+        compilerOptions: { strict: true, target: 99, module: 99, moduleResolution: 100, skipLibCheck: true },
+        useInMemoryFileSystem: false,
+        skipAddingFilesFromTsConfig: true,
+      });
       for (const gf of graph.files) {
-        importedByMap.set(gf.path, gf.importedBy);
-      }
-
-      const useClientCache = new Map<string, boolean>();
-      function hasUseClient(fp: string): boolean {
-        let r = useClientCache.get(fp);
-        if (r !== undefined) return r;
-        try {
-          const src = readFileSync(fp, 'utf-8');
-          r = /^['"]use client['"];?\s*$/m.test(src.substring(0, 200));
-        } catch { r = false; }
-        useClientCache.set(fp, r);
-        return r;
-      }
-
-      const boundaryCache = new Map<string, boolean>();
-      function isWithinClientBoundary(fp: string, visiting: Set<string>): boolean {
-        if (hasUseClient(fp)) return true;
-        const c = boundaryCache.get(fp);
-        if (c !== undefined) return c;
-        // Entry files without 'use client' are server components by definition
-        if (entrySet.has(fp)) { boundaryCache.set(fp, false); return false; }
-        if (visiting.has(fp)) return true; // cycle — optimistic
-        const importers = importedByMap.get(fp);
-        if (!importers || importers.length === 0) { boundaryCache.set(fp, false); return false; }
-        visiting.add(fp);
-        const ok = importers.every(i => isWithinClientBoundary(i, visiting));
-        visiting.delete(fp);
-        boundaryCache.set(fp, ok);
-        return ok;
-      }
-
-      for (const report of reports) {
-        if (!report.findings.some(f => NEXTJS_CLIENT_RULES.has(f.ruleId))) continue;
-        if (isWithinClientBoundary(report.filePath, new Set())) {
-          report.findings = report.findings.filter(f => !NEXTJS_CLIENT_RULES.has(f.ruleId));
-        }
+        try { cgProject.addSourceFileAtPath(gf.path); } catch { /* skip unresolvable */ }
       }
     }
+
+    const callGraph = buildCallGraph(graph, cgProject);
+
+    for (const report of reports) {
+      const deadExportFindings = deadExportRule(callGraph, report.filePath);
+      report.findings.push(...deadExportFindings);
+
+      const asyncFindings = crossFileAsyncRule(callGraph, report.filePath);
+      report.findings.push(...asyncFindings);
+    }
+  } catch {
+    // Call graph build failure should not crash the review pipeline
   }
 
   // Re-run suppression + dedup on all reports (cross-file findings were injected after initial suppression)

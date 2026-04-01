@@ -160,7 +160,7 @@ export function runTSCDiagnosticsFromPaths(filePaths: string[]): ReviewFinding[]
   if (filePaths.length === 0) return [];
 
   try {
-    const project = createProject();
+    const project = createProject(filePaths[0]);
     for (const fp of filePaths) {
       try {
         project.addSourceFileAtPath(fp);

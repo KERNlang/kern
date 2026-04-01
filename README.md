@@ -76,10 +76,26 @@ kern review src/ --recursive            # Full scan
 kern review src/ --enforce --min-coverage=80  # CI gate
 kern review --diff origin/main          # Only changed files
 kern review src/ --lint                 # KERN + ESLint + tsc unified
-kern review src/ --llm                  # Export IR for AI review
+kern review src/ --llm                  # AI review (see below)
 ```
 
 **76 rules** across 10 layers: Base, React, Next.js, Vue, Express, Security (v1-v4), Dead Logic, Null Safety, Concept Rules, Taint Tracking.
+
+### AI-Assisted Review (`--llm`)
+
+`--llm` translates your code to KERN IR — a compressed semantic representation that strips framework sugar and gives raw meaning. Two modes:
+
+**Inside an AI CLI** (Claude Code, Codex, Cursor) — no env vars needed:
+```bash
+kern review src/ --llm    # Outputs KERN IR + findings + taint for the AI to review
+```
+
+**CI/CD pipeline** — set both env vars to call an LLM API directly:
+```bash
+KERN_LLM_API_KEY=sk-... KERN_LLM_MODEL=gpt-4o kern review src/ --llm
+```
+
+No hardcoded model — you choose via `KERN_LLM_MODEL`. Files are batched by token size, not count.
 
 Full rule reference: **[kernlang.dev/review](https://kernlang.dev/review)**
 
@@ -161,6 +177,13 @@ jobs:
       # Optional: enforce minimum coverage
       # - name: KERN Review (enforced)
       #   run: npx @kernlang/cli review src/ --recursive --enforce --min-coverage=80
+
+      # Optional: LLM-assisted review (set secrets in repo settings)
+      # - name: KERN Review (AI)
+      #   run: npx @kernlang/cli review src/ --recursive --llm
+      #   env:
+      #     KERN_LLM_API_KEY: ${{ secrets.KERN_LLM_API_KEY }}
+      #     KERN_LLM_MODEL: ${{ vars.KERN_LLM_MODEL }}
 ```
 
 ### MCP Security — GitHub Action

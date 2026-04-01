@@ -406,6 +406,23 @@ if (args[0] === 'compile') {
   const compileConfig = loadConfig();
   loadTemplates(compileConfig);
 
+  // Check for --target flag — use target-aware transpiler when specified
+  const targetArg = args.find(a => a.startsWith('--target='))?.split('=')[1] as KernTarget | undefined;
+
+  if (targetArg) {
+    // Target-aware compilation via transpileAndWrite
+    const cfg = resolveConfig({ ...compileConfig, target: targetArg });
+    let compiled = 0;
+    for (const file of kernFiles) {
+      transpileAndWrite(file, cfg, outDir);
+      console.log(`  ${basename(file)} → ${targetArg}`);
+      compiled++;
+    }
+    console.log(`\nCompiled ${compiled}/${kernFiles.length} files (target: ${targetArg}) → ${outDir}`);
+    process.exit(0);
+  }
+
+  // Default: core-only codegen (no --target flag)
   let compiled = 0;
   for (const file of kernFiles) {
     const source = readFileSync(file, 'utf-8');
@@ -657,6 +674,45 @@ async function runReviewPipeline(
     }
   }
 
+  // ── Auto LLM review: when API key is set, run automatically (no --llm needed) ──
+  if (!llmMode && isLLMAvailable()) {
+    const llmInputs: LLMReviewInput[] = reports.map(report => {
+      let source: string | undefined;
+      try { source = readFileSync(report.filePath, 'utf-8'); } catch { /* fallback to IR-only */ }
+      return {
+        filePath: report.filePath,
+        inferred: report.inferred,
+        templateMatches: report.templateMatches,
+        taintResults: analyzeTaint(report.inferred, report.filePath),
+        source,
+        staticFindings: report.findings,
+        target: reviewConfig.target,
+      };
+    });
+
+    try {
+      const llmFindings = await runLLMReview(llmInputs);
+      if (llmFindings.length > 0) {
+        if (!jsonOutput && !sarifOutput) {
+          console.log(`  LLM review (auto): ${llmFindings.length} finding(s) from AI`);
+        }
+        for (const f of llmFindings) {
+          const report = reports.find(r => r.filePath === f.primarySpan.file);
+          if (report) {
+            report.findings.push(f);
+          } else if (reports.length > 0) {
+            reports[0].findings.push(f);
+          }
+        }
+        for (const report of reports) {
+          report.findings = dedup(report.findings);
+        }
+      }
+    } catch {
+      // Auto LLM review failed silently — not user-requested, don't error
+    }
+  }
+
   // --export-kern: output KERN IR for AI review (v1 compat)
   if (exportKern) {
     for (const report of reports) {
@@ -792,15 +848,22 @@ async function runReviewPipeline(
     })() : undefined;
 
     if (isLLMAvailable()) {
-      // Phase 3: actual LLM API call with taint context
-      console.log('  LLM review: calling API...');
-      const llmInputs: LLMReviewInput[] = reports.map(report => ({
-        filePath: report.filePath,
-        inferred: report.inferred,
-        templateMatches: report.templateMatches,
-        taintResults: analyzeTaint(report.inferred, report.filePath),
-        graphContext: llmGraphContext,
-      }));
+      // Deep LLM review: send actual source code + static findings + taint context
+      console.log('  LLM review: calling API (deep mode — source + static findings)...');
+      const llmInputs: LLMReviewInput[] = reports.map(report => {
+        let source: string | undefined;
+        try { source = readFileSync(report.filePath, 'utf-8'); } catch { /* fallback to IR-only */ }
+        return {
+          filePath: report.filePath,
+          inferred: report.inferred,
+          templateMatches: report.templateMatches,
+          taintResults: analyzeTaint(report.inferred, report.filePath),
+          graphContext: llmGraphContext,
+          source,
+          staticFindings: report.findings,
+          target: reviewConfig.target,
+        };
+      });
 
       try {
         const llmFindings = await runLLMReview(llmInputs);
@@ -825,36 +888,90 @@ async function runReviewPipeline(
       }
       // Fall through to normal output (don't exit — show merged findings)
     } else {
-      // No cloud API key — output static findings + KERN IR for the AI assistant
-      // The LLM running this command (Claude Code, Cursor, etc.) IS the reviewer
-      console.log('\n  ── KERN IR for LLM review ──\n');
-      for (const report of reports) {
-        console.log(`// ── ${report.filePath} ──`);
-        console.log(buildLLMPrompt(report.inferred, report.templateMatches, llmGraphContext));
+      // No API key — the AI CLI tool (Claude Code, Cursor, Codex) IS the reviewer.
+      // Output KERN IR (compressed semantic representation — no syntactic sugar),
+      // static findings, and taint analysis. The IR is the "native LLM language" —
+      // it strips framework boilerplate and gives raw code meaning.
+      // NO full source dump — the AI CLI can Read files itself if needed.
 
-        // Include taint analysis context
+      for (const report of reports) {
+        const rel = relative(process.cwd(), report.filePath);
+
+        // 1. KERN IR — compressed semantic representation (the core value)
+        console.log(`<kern-ir path="${rel}">`);
+        console.log(buildLLMPrompt(report.inferred, report.templateMatches, llmGraphContext));
+        console.log('</kern-ir>\n');
+
+        // 2. Static findings
+        if (report.findings.length > 0) {
+          const errors = report.findings.filter(f => f.severity === 'error');
+          const warnings = report.findings.filter(f => f.severity === 'warning');
+          console.log(`<kern-findings path="${rel}">`);
+          for (const f of [...errors, ...warnings]) {
+            const conf = f.confidence !== undefined ? ` (${(f.confidence * 100).toFixed(0)}%)` : '';
+            console.log(`  L${f.primarySpan.startLine} [${f.severity}] ${f.ruleId}: ${f.message}${conf}`);
+            if (f.suggestion) console.log(`    → ${f.suggestion}`);
+          }
+          console.log('</kern-findings>\n');
+        }
+
+        // 3. Taint analysis — data flow from sources to sinks
         const taintResults = analyzeTaint(report.inferred, report.filePath);
         if (taintResults.length > 0) {
-          console.log('\n// Taint analysis:');
+          console.log(`<kern-taint path="${rel}">`);
           for (const t of taintResults) {
+            console.log(`  fn ${t.fnName} (L${t.startLine}):`);
             for (const p of t.paths) {
-              const status = p.sanitized ? `SANITIZED (${p.sanitizer})` : 'UNSANITIZED';
-              console.log(`//   ${t.fnName}: ${p.source.origin} → ${p.sink.name}() [${status}]`);
+              const status = p.sanitized ? `SANITIZED by ${p.sanitizer}` : 'UNSANITIZED';
+              const insufficient = p.insufficientSanitizer ? ` (${p.insufficientSanitizer} is NOT sufficient for ${p.sink.category})` : '';
+              console.log(`    ${p.source.origin} → ${p.sink.name}() [${p.sink.category}] ${status}${insufficient}`);
             }
           }
+          console.log('</kern-taint>\n');
         }
-        console.log('');
       }
 
-      // Show static findings summary
-      const totalFindings = reports.reduce((sum, r) => sum + r.findings.length, 0);
-      const errors = reports.reduce((sum, r) => sum + r.findings.filter(f => f.severity === 'error').length, 0);
-      const warnings = reports.reduce((sum, r) => sum + r.findings.filter(f => f.severity === 'warning').length, 0);
-      console.log(`  Static analysis: ${totalFindings} findings (${errors} errors, ${warnings} warnings)`);
-      console.log('  Review the KERN IR above for security issues the static rules may have missed.');
-      console.log('');
+      console.log(`── Review Instructions ──
+Validate the static findings (real bug or false positive?), then find what was MISSED.
+Focus on: correctness, error handling, data flow, security, concurrency, API contracts.
+The KERN IR above is a compressed semantic representation — read source files for full context.
+`);
     }
     // Fall through to normal output — show full report with static findings
+  }
+
+  // ── Diff-aware precision: filter findings to changed lines only ──
+  // Must run before --fix and --autofix so they only touch changed code.
+  const diffRanges = (globalThis as any).__diffRanges as Map<string, Array<[number, number]>> | undefined;
+  if (diffRanges && diffRanges.size > 0) {
+    const DIFF_CONTEXT = 3; // include findings within ±3 lines of a change
+    let filtered = 0;
+    for (const report of reports) {
+      const relPath = relative(process.cwd(), report.filePath);
+      const ranges = diffRanges.get(relPath);
+      if (!ranges || ranges.length === 0) continue;
+
+      // Sort ranges once for binary search (O(n log n) instead of O(findings × hunks))
+      const sorted = [...ranges].sort((a, b) => a[0] - b[0]);
+
+      const before = report.findings.length;
+      report.findings = report.findings.filter(f => {
+        const line = f.primarySpan.startLine;
+        // Binary search for the range that could contain this line
+        let lo = 0, hi = sorted.length - 1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (line < sorted[mid][0] - DIFF_CONTEXT) hi = mid - 1;
+          else if (line > sorted[mid][1] + DIFF_CONTEXT) lo = mid + 1;
+          else return true; // within range ± context
+        }
+        return false;
+      });
+      filtered += before - report.findings.length;
+    }
+    if (filtered > 0 && !jsonOutput && !sarifOutput) {
+      console.log(`  Diff filter: ${filtered} finding(s) outside changed lines suppressed`);
+    }
   }
 
   // --fix: auto-migration — write .kern files from template suggestions, verify roundtrip
@@ -1075,7 +1192,9 @@ if (args[0] === 'review') {
   const fixMode = args.includes('--fix');
   const autofixMode = args.includes('--autofix');
   const lintMode = args.includes('--lint');
-  const graphMode = args.includes('--graph');
+  // Auto-enable graph mode when reviewing multiple files (--recursive or --graph)
+  // This gives every file import chain context, file boundary classification, and call graph analysis
+  const graphMode = args.includes('--graph') || recursive;
   const batchMode = args.includes('--batch');
   const maxDepthArg = args.find(a => a.startsWith('--max-depth='))?.split('=')[1];
   const maxDepth = maxDepthArg ? Number(maxDepthArg) : 3;
@@ -1135,7 +1254,7 @@ if (args[0] === 'review') {
     process.exit(0);
   }
 
-  // --diff mode: get changed files from git
+  // --diff mode: get changed files from git + parse changed line ranges
   const reviewInputs = args.filter(a => !a.startsWith('--') && a !== 'review');
   let reviewInput = reviewInputs[0];
   if (diffBase && !reviewInput) {
@@ -1152,9 +1271,38 @@ if (args[0] === 'review') {
         process.exit(0);
       }
       console.log(`  Reviewing ${diffFiles.length} changed files (diff from ${diffBase})\n`);
+
+      // Parse changed line ranges from unified diff (--unified=0 for exact ranges)
+      const diffRanges = new Map<string, Array<[number, number]>>();
+      try {
+        const unifiedDiff = execFileSync('git', ['diff', '--unified=0', '--diff-filter=ACMR', sanitizedBase], { encoding: 'utf-8', env: { ...process.env, LC_ALL: 'C' } });
+        let currentFile = '';
+        for (const line of unifiedDiff.split('\n')) {
+          // +++ b/path/to/file.ts
+          if (line.startsWith('+++ b/')) {
+            currentFile = line.slice(6);
+            if (!diffRanges.has(currentFile)) diffRanges.set(currentFile, []);
+          }
+          // @@ -old,count +new,count @@ — we want the +new,count part
+          if (line.startsWith('@@') && currentFile) {
+            const match = line.match(/\+(\d+)(?:,(\d+))?/);
+            if (match) {
+              const start = parseInt(match[1]);
+              const count = match[2] ? parseInt(match[2]) : 1;
+              if (count > 0) {
+                diffRanges.get(currentFile)!.push([start, start + count - 1]);
+              }
+            }
+          }
+        }
+      } catch {
+        // If unified diff parsing fails, proceed without line filtering
+      }
+
       // Process each file individually below
       reviewInput = '__diff__';
       (globalThis as any).__diffFiles = diffFiles;
+      (globalThis as any).__diffRanges = diffRanges;
     } catch (err) {
       console.error(`  git diff failed: ${(err as Error).message}`);
       process.exit(1);

@@ -7,3 +7,4 @@
  * are auto-injected.
  */
 export { transpileMCP, transpileMCPResult } from './transpiler-mcp.js';
+export { transpileMCPPython } from './transpiler-mcp-python.js';

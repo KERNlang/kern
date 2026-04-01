@@ -34,6 +34,8 @@ import { nullSafetyRules } from './null-safety.js';
 
 const REACT_TARGETS = new Set(['nextjs', 'tailwind', 'web', 'native', 'ink']);
 const VUE_TARGETS = new Set(['vue', 'nuxt']);
+/** Backend targets — never load frontend-specific rules */
+const BACKEND_TARGETS = new Set(['express', 'fastapi', 'mcp', 'cli', 'terminal']);
 
 /**
  * Get all active review rules for a given target.
@@ -42,19 +44,22 @@ const VUE_TARGETS = new Set(['vue', 'nuxt']);
 export function getActiveRules(target?: string): ReviewRule[] {
   const rules: ReviewRule[] = [...baseRules, ...securityRules, ...securityV2Rules, ...securityV3Rules, ...securityV4Rules, ...deadLogicRules, ...nullSafetyRules];
 
-  if (target && REACT_TARGETS.has(target)) {
+  // Backend targets never load frontend-specific rules
+  const isBackend = target ? BACKEND_TARGETS.has(target) : false;
+
+  if (!isBackend && target && REACT_TARGETS.has(target)) {
     rules.push(...reactRules);
   }
 
-  if (target && VUE_TARGETS.has(target)) {
+  if (!isBackend && target && VUE_TARGETS.has(target)) {
     rules.push(...vueRules);
   }
 
-  if (target === 'nextjs') {
+  if (!isBackend && target === 'nextjs') {
     rules.push(...nextjsRules);
   }
 
-  if (target === 'nuxt') {
+  if (!isBackend && target === 'nuxt') {
     rules.push(...nuxtRules);
   }
 

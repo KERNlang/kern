@@ -4,7 +4,8 @@
  * Does NOT call real LLM APIs — tests the plumbing.
  */
 
-import { isLLMAvailable, runLLMReview } from '../src/llm-bridge.js';
+import { isLLMAvailable, runLLMReview, isHighValueFinding } from '../src/llm-bridge.js';
+import type { ReviewFinding } from '../src/types.js';
 
 describe('isLLMAvailable', () => {
   it('returns false when no API key', () => {
@@ -47,6 +48,27 @@ describe('runLLMReview — no API key', () => {
   });
 });
 
+describe('runLLMReview — missing model', () => {
+  it('returns error finding when API key set but model missing', async () => {
+    const findings = await runLLMReview(
+      [{
+        filePath: 'test.ts',
+        inferred: [],
+        templateMatches: [],
+      }],
+      {
+        apiKey: 'fake-key',
+        model: '', // No model
+        timeout: 2000,
+      },
+    );
+
+    expect(findings.length).toBe(1);
+    expect(findings[0].ruleId).toBe('llm-error');
+    expect(findings[0].message).toContain('KERN_LLM_MODEL');
+  });
+});
+
 describe('runLLMReview — API failure', () => {
   it('returns info finding on API error, does not crash', async () => {
     const findings = await runLLMReview(
@@ -57,6 +79,7 @@ describe('runLLMReview — API failure', () => {
       }],
       {
         apiKey: 'fake-key',
+        model: 'test-model',
         baseUrl: 'http://localhost:1', // Will fail to connect
         timeout: 2000,
       },
@@ -66,5 +89,97 @@ describe('runLLMReview — API failure', () => {
     expect(findings.length).toBe(1);
     expect(findings[0].ruleId).toBe('llm-error');
     expect(findings[0].severity).toBe('info');
+  });
+});
+
+// ── isHighValueFinding ──
+
+describe('isHighValueFinding', () => {
+  const makeFinding = (severity: string, confidence?: number): ReviewFinding => ({
+    source: 'kern',
+    ruleId: 'test',
+    severity: severity as ReviewFinding['severity'],
+    category: 'bug',
+    message: 'test',
+    primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+    fingerprint: 'test',
+    ...(confidence !== undefined ? { confidence } : {}),
+  });
+
+  it('keeps errors with no confidence', () => {
+    expect(isHighValueFinding(makeFinding('error'))).toBe(true);
+  });
+
+  it('keeps warnings with high confidence', () => {
+    expect(isHighValueFinding(makeFinding('warning', 0.8))).toBe(true);
+  });
+
+  it('keeps warnings with no confidence (undefined)', () => {
+    expect(isHighValueFinding(makeFinding('warning'))).toBe(true);
+  });
+
+  it('filters info severity', () => {
+    expect(isHighValueFinding(makeFinding('info'))).toBe(false);
+  });
+
+  it('filters low confidence warnings', () => {
+    expect(isHighValueFinding(makeFinding('warning', 0.3))).toBe(false);
+  });
+
+  it('filters low confidence errors', () => {
+    expect(isHighValueFinding(makeFinding('error', 0.4))).toBe(false);
+  });
+
+  it('keeps findings at exactly 0.5 confidence', () => {
+    expect(isHighValueFinding(makeFinding('warning', 0.5))).toBe(true);
+  });
+});
+
+// ── Graph-aware source budgeting ──
+
+describe('graph-aware source budgeting', () => {
+  it('does not skip large CONTEXT files (source excluded from estimation)', async () => {
+    // A file with source > MAX_SINGLE_FILE_TOKENS chars (~125K tokens)
+    const hugeSource = 'x'.repeat(500_000);
+    const graphContext = { fileDistances: new Map([['context.ts', 2]]) };
+
+    const findings = await runLLMReview([{
+      filePath: 'context.ts',
+      inferred: [],
+      templateMatches: [],
+      source: hugeSource,
+      graphContext,
+    }], {
+      apiKey: 'fake-key',
+      model: 'test-model',
+      baseUrl: 'http://localhost:1',
+      timeout: 1000,
+    });
+
+    // Without graph-aware budgeting, this would be skipped as "too large"
+    // With budgeting, source is excluded for distance>0, so it fits
+    expect(findings.every(f => f.ruleId !== 'llm-skipped')).toBe(true);
+  });
+
+  it('still includes source for CHANGED files in estimation', async () => {
+    // A CHANGED file with huge source SHOULD be skipped if over limit
+    const hugeSource = 'x'.repeat(500_000);
+    const graphContext = { fileDistances: new Map([['changed.ts', 0]]) };
+
+    const findings = await runLLMReview([{
+      filePath: 'changed.ts',
+      inferred: [],
+      templateMatches: [],
+      source: hugeSource,
+      graphContext,
+    }], {
+      apiKey: 'fake-key',
+      model: 'test-model',
+      baseUrl: 'http://localhost:1',
+      timeout: 1000,
+    });
+
+    // CHANGED file with huge source should still be skipped
+    expect(findings.some(f => f.ruleId === 'llm-skipped')).toBe(true);
   });
 });

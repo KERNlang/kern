@@ -1,6 +1,8 @@
-import { exportKernIR, buildLLMPrompt, parseLLMResponse } from '../src/llm-review.js';
+import { exportKernIR, buildLLMPrompt, parseLLMResponse, serializeNodeWithBody, compressHandlerBody } from '../src/llm-review.js';
+import type { SerializationMode } from '../src/llm-review.js';
 import { inferFromSource } from '../src/inferrer.js';
 import type { InferResult, TemplateMatch } from '../src/types.js';
+import type { IRNode } from '@kernlang/core';
 
 describe('LLM Review', () => {
   const source = `
@@ -151,6 +153,146 @@ export function getUser(id: string): User { return {} as User; }
 
       const findings = parseLLMResponse(response, inferred);
       expect(findings[0].confidence).toBe(0.7);
+    });
+  });
+
+  // ── serializeNodeWithBody ──
+
+  describe('serializeNodeWithBody', () => {
+    const fnNode: IRNode = {
+      type: 'fn',
+      props: { name: 'handleRequest', params: 'req:Request' },
+      children: [{
+        type: 'handler',
+        props: { code: 'const x = 1;\nreturn x;' },
+      }],
+    };
+
+    it('emits line references in deep mode instead of code', () => {
+      const result = serializeNodeWithBody(fnNode, '', 'deep', 10, 25);
+      expect(result).not.toContain('<kern-code>');
+      expect(result).not.toContain('const x = 1');
+      expect(result).toContain('lines=10-25');
+    });
+
+    it('keeps small handlers verbatim in ir-only mode', () => {
+      const result = serializeNodeWithBody(fnNode, '', 'ir-only');
+      expect(result).toContain('<kern-code>');
+      expect(result).toContain('const x = 1');
+    });
+
+    it('compresses large handlers in ir-only mode', () => {
+      // NOTE: test data contains security-sensitive strings (exec, query, token)
+      // as sample code for compression analysis — not actual process calls.
+      const largeCode = Array.from({ length: 50 }, (_, i) => {
+        if (i === 5) return '  const result = db.query(sql);';
+        if (i === 10) return '  if (user.token) {';
+        if (i === 20) return '  runExec(command);'; // eslint-disable-line -- test data, not real exec
+        return `  const v${i} = process(${i});`;
+      }).join('\n');
+      const largeNode: IRNode = {
+        type: 'fn',
+        props: { name: 'large' },
+        children: [{ type: 'handler', props: { code: largeCode } }],
+      };
+      const result = serializeNodeWithBody(largeNode, '', 'ir-only');
+      expect(result).toContain('<kern-code>');
+      expect(result).toContain('// 50 lines');
+      expect(result).toContain('// calls:');
+      expect(result).toContain('// security-relevant:');
+      expect(result).toContain('db.query');
+      // Should NOT contain all 50 verbatim lines
+      expect(result).not.toContain('v49');
+    });
+
+    it('defaults to ir-only mode', () => {
+      const result = serializeNodeWithBody(fnNode, '');
+      expect(result).toContain('<kern-code>');
+    });
+  });
+
+  // ── compressHandlerBody ──
+
+  describe('compressHandlerBody', () => {
+    it('includes line count', () => {
+      const code = Array(40).fill('  x();').join('\n');
+      const result = compressHandlerBody(code);
+      expect(result).toContain('// 40 lines');
+    });
+
+    it('extracts function calls excluding control flow keywords', () => {
+      const code = Array(35).fill('').map((_, i) => {
+        if (i === 0) return '  fetchData();';
+        if (i === 1) return '  if (x) {}';
+        if (i === 2) return '  processResult();';
+        return '  noop();';
+      }).join('\n');
+      const result = compressHandlerBody(code);
+      expect(result).toContain('fetchData');
+      expect(result).toContain('processResult');
+      expect(result).not.toMatch(/\bcalls:.*\bif\b/);
+    });
+
+    it('detects external API references', () => {
+      const code = Array(35).fill('  x;').map((_, i) => {
+        if (i === 0) return '  db.query("SELECT *");';
+        if (i === 1) return '  const key = process.env.KEY;';
+        return '  x;';
+      }).join('\n');
+      const result = compressHandlerBody(code);
+      expect(result).toContain('// external APIs: 2 references');
+    });
+
+    it('reports control flow counts', () => {
+      const code = Array(35).fill('  x;').map((_, i) => {
+        if (i === 0) return '  if (a) {}';
+        if (i === 1) return '  if (b) {}';
+        if (i === 2) return '  for (const x of arr) {}';
+        if (i === 3) return '  try {';
+        return '  x;';
+      }).join('\n');
+      const result = compressHandlerBody(code);
+      expect(result).toContain('2 if');
+      expect(result).toContain('1 loop');
+      expect(result).toContain('1 try');
+    });
+
+    it('preserves security-relevant lines verbatim', () => {
+      // NOTE: strings below are test data for security pattern detection, not real calls
+      const code = Array(35).fill('  x;').map((_, i) => {
+        if (i === 5) return '  runExec(userInput);'; // eslint-disable-line -- test data
+        if (i === 10) return '  const hash = crypto.createHash("sha256");';
+        return '  x;';
+      }).join('\n');
+      const result = compressHandlerBody(code);
+      expect(result).toContain('// security-relevant:');
+      expect(result).toContain('crypto.createHash');
+    });
+
+    it('caps security excerpts at 10', () => {
+      // NOTE: test data for pattern detection — generates lines matching security patterns
+      const code = Array(35).fill('').map((_, i) => `  checkAuth(user${i});`).join('\n');
+      const result = compressHandlerBody(code);
+      const excerptLines = result.split('\n').filter(l => l.startsWith('//   L'));
+      expect(excerptLines.length).toBeLessThanOrEqual(10);
+    });
+  });
+
+  // ── buildLLMPrompt with mode ──
+
+  describe('buildLLMPrompt with SerializationMode', () => {
+    it('accepts mode parameter without error', () => {
+      const deepPrompt = buildLLMPrompt(inferred, [], undefined, 'deep');
+      const irPrompt = buildLLMPrompt(inferred, [], undefined, 'ir-only');
+      // Both should produce valid output
+      expect(deepPrompt).toContain('Valid aliases:');
+      expect(irPrompt).toContain('Valid aliases:');
+    });
+
+    it('defaults to ir-only mode', () => {
+      const defaultPrompt = buildLLMPrompt(inferred, []);
+      const irPrompt = buildLLMPrompt(inferred, [], undefined, 'ir-only');
+      expect(defaultPrompt).toBe(irPrompt);
     });
   });
 });

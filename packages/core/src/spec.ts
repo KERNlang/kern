@@ -106,6 +106,7 @@ export const NODE_TYPES = [
   'rule', 'message',
   // MCP — Model Context Protocol server definitions
   'mcp', 'tool', 'resource', 'prompt', 'param', 'description',
+  'sampling', 'elicitation',
 ] as const;
 
 export type IRNodeType = (typeof NODE_TYPES)[number];

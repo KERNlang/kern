@@ -8,6 +8,7 @@ import type { IRNode } from '../types.js';
 import { propsOf } from '../node-props.js';
 import { emitIdentifier, emitStringLiteral, emitPath, emitTypeAnnotation } from './emitters.js';
 import { getProps, getChildren, getFirstChild, handlerCode, exportPrefix, parseParamList } from './helpers.js';
+import { mapSemanticType } from './semantic-types.js';
 
 const p = getProps;
 const kids = getChildren;
@@ -284,15 +285,17 @@ export function generateModel(node: IRNode): string[] {
   const props = propsOf<'model'>(node);
   const name = emitIdentifier(props.name, 'UnknownModel', node);
   const table = props.table;
+  const extendsModel = props.extends;
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
   // Generate TypeScript interface
-  lines.push(`${exp}interface ${name} {`);
+  const extendsClause = extendsModel ? ` extends ${emitIdentifier(extendsModel, 'Model', node)}` : '';
+  lines.push(`${exp}interface ${name}${extendsClause} {`);
   for (const col of kids(node, 'column')) {
     const cp = propsOf<'column'>(col);
     const colName = emitIdentifier(cp.name, 'column', col);
-    const colType = mapColumnType(cp.type || 'unknown');
+    const colType = mapSemanticType(cp.type || 'unknown', 'typescript');
     const opt = cp.optional === 'true' || cp.optional === true ? '?' : '';
     lines.push(`  ${colName}${opt}: ${colType};`);
   }
@@ -306,22 +309,7 @@ export function generateModel(node: IRNode): string[] {
   }
   lines.push('}');
 
-  // Prisma-hint comment
-  if (table) {
-    lines.push('');
-    lines.push(`// Prisma: @@map("${table}")`);
-  }
-
   return lines;
 }
 
-function mapColumnType(kernType: string): string {
-  const typeMap: Record<string, string> = {
-    uuid: 'string', string: 'string', text: 'string',
-    int: 'number', integer: 'number', float: 'number', decimal: 'number',
-    boolean: 'boolean', bool: 'boolean',
-    date: 'Date', datetime: 'Date', timestamp: 'Date',
-    json: 'Record<string, unknown>',
-  };
-  return typeMap[kernType] || kernType;
-}
+// mapColumnType removed — unified into mapSemanticType(type, 'typescript') from semantic-types.ts

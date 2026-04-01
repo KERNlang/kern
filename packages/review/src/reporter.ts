@@ -8,6 +8,46 @@
 import type { ReviewReport, ReviewStats, ReviewFinding, InferResult, TemplateMatch, EnforceResult, ReviewConfig } from './types.js';
 import { buildLLMPrompt, exportKernIR } from './llm-review.js';
 
+// ── Default Confidence Assignment ────────────────────────────────────────
+
+/**
+ * Default confidence by finding source.
+ * TSC is compiler-verified (1.0), kern AST rules are high (0.85),
+ * native .kern rules slightly lower (0.80), ESLint is mature (0.90),
+ * LLM findings already have 0.70 set.
+ */
+const SOURCE_CONFIDENCE: Record<string, number> = {
+  tsc: 1.0,
+  eslint: 0.90,
+  kern: 0.85,
+  'kern-native': 0.80,
+  llm: 0.70,
+};
+
+/** Taint rules get higher confidence — they trace actual data flow */
+const TAINT_RULE_PREFIX = 'taint-';
+
+/** Structural diff findings are heuristic — lower confidence */
+const LOW_CONFIDENCE_RULES = new Set(['extra-code', 'inconsistent-pattern', 'style-difference', 'missing-type']);
+
+/**
+ * Assign calibrated confidence scores to findings that don't already have one.
+ * Call after all phases, before filtering/display.
+ */
+export function assignDefaultConfidence(findings: ReviewFinding[]): void {
+  for (const f of findings) {
+    if (f.confidence !== undefined) continue;
+
+    if (f.ruleId.startsWith(TAINT_RULE_PREFIX)) {
+      f.confidence = 0.95;
+    } else if (LOW_CONFIDENCE_RULES.has(f.ruleId)) {
+      f.confidence = 0.60;
+    } else {
+      f.confidence = SOURCE_CONFIDENCE[f.source] ?? 0.85;
+    }
+  }
+}
+
 // ── Stats Calculation ────────────────────────────────────────────────────
 
 export function calculateStats(
@@ -232,7 +272,8 @@ export function formatReport(report: ReviewReport, config?: ReviewConfig): strin
 
   // Unified findings — sorted by severity, with source tags
   const showConf = config?.showConfidence === true;
-  const allFindings = dedup(report.findings);
+  const minConf = config?.minConfidence ?? 0;
+  const allFindings = dedup(report.findings).filter(f => (f.confidence ?? 1.0) >= minConf);
   if (allFindings.length > 0) {
     const errors = allFindings.filter(f => f.severity === 'error');
     const warnings = allFindings.filter(f => f.severity === 'warning');

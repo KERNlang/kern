@@ -419,11 +419,11 @@ function weakPasswordHashing(ctx: RuleContext): ReviewFinding[] {
   for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const callee = call.getExpression();
 
-    // crypto.createHash('md5'|'sha1') in password context
-    if (callee.getKind() === SyntaxKind.PropertyAccessExpression) {
-      const pa = callee as import('ts-morph').PropertyAccessExpression;
-
-      if (pa.getName() === 'createHash') {
+    // crypto.createHash('md5'|'sha1') or direct createHash() import — in password context
+    const isCreateHash = callee.getKind() === SyntaxKind.PropertyAccessExpression
+      ? (callee as import('ts-morph').PropertyAccessExpression).getName() === 'createHash'
+      : callee.getKind() === SyntaxKind.Identifier && callee.getText() === 'createHash';
+    if (isCreateHash) {
         const args = call.getArguments();
         if (args.length > 0 && args[0].getKind() === SyntaxKind.StringLiteral) {
           const algo = (args[0] as import('ts-morph').StringLiteral).getLiteralValue().toLowerCase();
@@ -462,7 +462,6 @@ function weakPasswordHashing(ctx: RuleContext): ReviewFinding[] {
             }
           }
         }
-      }
     }
 
     // bcrypt.hash with low rounds

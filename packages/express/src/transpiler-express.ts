@@ -360,18 +360,41 @@ function splitTopLevel(value: string): string[] {
   return parts;
 }
 
+interface KeyTypeInfo {
+  key: string;
+  type: string;  // 'string' | 'number' | 'boolean' | 'object' — JS typeof categories
+}
+
+/** Map TS/KERN schema types to JS typeof categories for runtime validation. */
+function toTypeofCategory(tsType: string): string | undefined {
+  const t = tsType.trim().replace(/\s*\|\s*undefined$/, '').replace(/\s*\|\s*null$/, '');
+  if (t === 'string') return 'string';
+  if (t === 'number' || t === 'int' || t === 'float') return 'number';
+  if (t === 'boolean' || t === 'bool') return 'boolean';
+  return undefined; // complex types — skip typeof check
+}
+
 function extractRequiredKeys(schemaType: string): string[] {
+  return extractRequiredKeyTypes(schemaType).map(k => k.key);
+}
+
+function extractRequiredKeyTypes(schemaType: string): KeyTypeInfo[] {
   const trimmed = schemaType.trim();
   if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return [];
 
-  const keys: string[] = [];
+  const keys: KeyTypeInfo[] = [];
   const inner = trimmed.slice(1, -1);
   for (const part of splitTopLevel(inner)) {
     const colonIdx = part.indexOf(':');
     if (colonIdx === -1) continue;
     const rawKey = part.slice(0, colonIdx).trim();
     if (!rawKey || rawKey.endsWith('?')) continue;
-    keys.push(rawKey.replace(/^['"]|['"]$/g, ''));
+    const rawType = part.slice(colonIdx + 1).trim();
+    const typeofCat = toTypeofCategory(rawType);
+    keys.push({
+      key: rawKey.replace(/^['"]|['"]$/g, ''),
+      type: typeofCat || 'any',
+    });
   }
   return keys;
 }
@@ -479,12 +502,22 @@ function resolveMiddlewareUsage(
   const name = String(props.name || 'middleware');
 
   if (name === 'cors') {
-    return { importLine: `import cors from 'cors';`, invocation: 'cors()' };
+    const invocation = securityLevel === 'strict'
+      ? `cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true })`
+      : 'cors()';
+    return { importLine: `import cors from 'cors';`, invocation };
   }
 
   if (name === 'json') {
     const invocation = securityLevel === 'relaxed' ? 'express.json()' : `express.json({ limit: '1mb' })`;
     return { invocation };
+  }
+
+  if (name === 'rateLimit' || name === 'rate-limit' || name === 'rateLimiter') {
+    return {
+      importLine: `import rateLimit from 'express-rate-limit';`,
+      invocation: `rateLimit({ windowMs: 15 * 60 * 1000, max: 100 })`,
+    };
   }
 
   const artifact = ensureCustomMiddlewareArtifact(node, middlewareArtifacts);
@@ -662,6 +695,7 @@ function buildRouteArtifact(
   routeIndex: number,
   middlewareArtifacts: Map<string, MiddlewareArtifactRef>,
   sourceMap: SourceMapEntry[],
+  securityLevel: 'strict' | 'relaxed',
 ): RouteArtifactRef {
   const props = getProps(routeNode);
   const method = String(props.method || 'get').toLowerCase();
@@ -710,16 +744,16 @@ function buildRouteArtifact(
     if (mwNames && Array.isArray(mwNames)) {
       for (const mwName of mwNames) {
         const syntheticNode: IRNode = { type: 'middleware', props: { name: mwName }, children: [] };
-        const mwUsage = resolveMiddlewareUsage(syntheticNode, middlewareArtifacts, '../');
+        const mwUsage = resolveMiddlewareUsage(syntheticNode, middlewareArtifacts, '../', securityLevel);
         if (mwUsage.importLine) routeImports.add(mwUsage.importLine);
-        if (mwUsage.invocation === 'express.json()') needsExpressDefaultImport = true;
+        if (mwUsage.invocation.startsWith('express.json(')) needsExpressDefaultImport = true;
         middlewareInvocations.push(mwUsage.invocation);
       }
       continue;
     }
-    const usage = resolveMiddlewareUsage(middlewareNode, middlewareArtifacts, '../');
+    const usage = resolveMiddlewareUsage(middlewareNode, middlewareArtifacts, '../', securityLevel);
     if (usage.importLine) routeImports.add(usage.importLine);
-    if (usage.invocation === 'express.json()') needsExpressDefaultImport = true;
+    if (usage.invocation.startsWith('express.json(')) needsExpressDefaultImport = true;
     middlewareInvocations.push(usage.invocation);
   }
 
@@ -760,18 +794,24 @@ function buildRouteArtifact(
   const requestType = `Request<RouteParams, ResponseBody, RequestBody, RequestQuery>`;
 
   const validationLines: string[] = [];
-  const requiredParams = schema.params ? extractRequiredKeys(schema.params) : derivePathParams(path);
-  const requiredBody = schema.body ? extractRequiredKeys(schema.body) : [];
-  const requiredQuery = schema.query ? extractRequiredKeys(schema.query) : [];
+  // Params and query arrive as strings in Express — only check existence, not typeof.
+  // Body comes from JSON parsing and has real types — check both existence and typeof.
+  const requiredParamKeys = (schema.params ? extractRequiredKeyTypes(schema.params) : derivePathParams(path).map(k => ({ key: k, type: 'any' }))).map(k => ({ ...k, type: 'any' }));
+  const requiredBodyKeys = schema.body ? extractRequiredKeyTypes(schema.body) : [];
+  const requiredQueryKeys = (schema.query ? extractRequiredKeyTypes(schema.query) : []).map(k => ({ ...k, type: 'any' }));
 
-  if (requiredParams.length > 0) {
-    validationLines.push(`assertRequiredFields('params', req.params, [${requiredParams.map(key => `'${escapeSingleQuotes(key)}'`).join(', ')}]);`);
+  function formatFieldSpec(fields: KeyTypeInfo[]): string {
+    return `[${fields.map(f => `{ key: '${escapeSingleQuotes(f.key)}', type: '${f.type}' }`).join(', ')}]`;
   }
-  if (requiredBody.length > 0) {
-    validationLines.push(`assertRequiredFields('body', req.body, [${requiredBody.map(key => `'${escapeSingleQuotes(key)}'`).join(', ')}]);`);
+
+  if (requiredParamKeys.length > 0) {
+    validationLines.push(`assertRequiredFields('params', req.params, ${formatFieldSpec(requiredParamKeys)});`);
   }
-  if (requiredQuery.length > 0) {
-    validationLines.push(`assertRequiredFields('query', req.query, [${requiredQuery.map(key => `'${escapeSingleQuotes(key)}'`).join(', ')}]);`);
+  if (requiredBodyKeys.length > 0) {
+    validationLines.push(`assertRequiredFields('body', req.body, ${formatFieldSpec(requiredBodyKeys)});`);
+  }
+  if (requiredQueryKeys.length > 0) {
+    validationLines.push(`assertRequiredFields('query', req.query, ${formatFieldSpec(requiredQueryKeys)});`);
   }
 
   const lines: string[] = [];
@@ -793,13 +833,17 @@ function buildRouteArtifact(
   lines.push(`type ResponseBody = ${responseType};`);
   if (validationLines.length > 0) {
     lines.push('');
-    lines.push(`function assertRequiredFields(label: string, value: unknown, requiredKeys: string[]): void {`);
+    lines.push(`function assertRequiredFields(label: string, value: unknown, fields: Array<{ key: string; type: string }>): void {`);
     lines.push(`  if (typeof value !== 'object' || value === null) {`);
     lines.push(`    throw new Error(\`Invalid \${label}: expected object payload\`);`);
     lines.push('  }');
-    lines.push(`  for (const key of requiredKeys) {`);
-    lines.push(`    if (!(key in value)) {`);
+    lines.push(`  const obj = value as Record<string, unknown>;`);
+    lines.push(`  for (const { key, type } of fields) {`);
+    lines.push(`    if (!(key in obj)) {`);
     lines.push(`      throw new Error(\`Invalid \${label}: missing \${key}\`);`);
+    lines.push('    }');
+    lines.push(`    if (type !== 'any' && typeof obj[key] !== type) {`);
+    lines.push(`      throw new Error(\`Invalid \${label}: \${key} must be \${type}, got \${typeof obj[key]}\`);`);
     lines.push('    }');
     lines.push('  }');
     lines.push('}');
@@ -937,6 +981,8 @@ const TOP_LEVEL_CORE = new Set([
   'module', 'config', 'store', 'event', 'const',
   // Data layer
   'model', 'repository', 'cache', 'dependency',
+  // Backend infrastructure
+  'job', 'storage', 'email',
 ]);
 
 // ── Prisma Schema Artifact ───────────────────────────────────────────────
@@ -971,6 +1017,11 @@ export function buildPrismaArtifact(modelNodes: IRNode[], config?: ResolvedKernC
   const provider = config?.express?.prisma?.provider ?? 'postgresql';
 
   const lines: string[] = [
+    '// Generated by KERN. Run migrations:',
+    '//   npx prisma generate',
+    '//   npx prisma migrate dev --name init',
+    '//   npx prisma db push  (for prototyping)',
+    '',
     'generator client {',
     '  provider = "prisma-client-js"',
     '}',
@@ -1127,11 +1178,88 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
 
   const websocketNodes = getChildren(serverNode, 'websocket');
   for (const ws of websocketNodes) accountNode(accounted, ws, 'consumed', 'websocket handler', true);
-  const routeArtifacts = routeNodes.map((routeNode, index) => buildRouteArtifact(routeNode, index, middlewareArtifacts, sourceMap));
+  const routeArtifacts = routeNodes.map((routeNode, index) => buildRouteArtifact(
+    routeNode,
+    index,
+    middlewareArtifacts,
+    sourceMap,
+    isStrict ? 'strict' : 'relaxed',
+  ));
+  const hasHealthRoute = routeNodes.some((routeNode) => {
+    const props = getProps(routeNode);
+    return String(props.path || '/') === '/health' && String(props.method || 'get').toLowerCase() === 'get';
+  });
+
+  // Auth middleware: generate real JWT implementation when any route uses auth
+  const hasAuth = routeNodes.some(r => getFirstChild(r, 'auth'));
+  if (hasAuth && !middlewareArtifacts.has('auth')) {
+    const authArtifact: GeneratedArtifact = {
+      path: 'middleware/auth.ts',
+      content: [
+        `import type { NextFunction, Request, Response } from 'express';`,
+        `import jwt from 'jsonwebtoken';`,
+        ``,
+        ...(isStrict
+          ? [
+              `const JWT_SECRET = process.env.JWT_SECRET;`,
+              ``,
+              `if (!JWT_SECRET) {`,
+              `  throw new Error('JWT_SECRET environment variable is required in strict mode');`,
+              `}`,
+            ]
+          : [`const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';`]),
+        `const JWT_ALGORITHM = process.env.JWT_ALGORITHM || 'HS256';`,
+        ``,
+        `export interface AuthUser {`,
+        `  id: string;`,
+        `  [key: string]: unknown;`,
+        `}`,
+        ``,
+        `declare global {`,
+        `  namespace Express {`,
+        `    interface Request {`,
+        `      user?: AuthUser;`,
+        `    }`,
+        `  }`,
+        `}`,
+        ``,
+        `export function authRequired(req: Request, res: Response, next: NextFunction): void {`,
+        `  const header = req.headers.authorization;`,
+        `  if (!header?.startsWith('Bearer ')) {`,
+        `    res.status(401).json({ error: 'Missing or invalid Authorization header' });`,
+        `    return;`,
+        `  }`,
+        `  try {`,
+        `    const payload = jwt.verify(header.slice(7), JWT_SECRET, { algorithms: [JWT_ALGORITHM] }) as AuthUser;`,
+        `    req.user = payload;`,
+        `    next();`,
+        `  } catch {`,
+        `    res.status(401).json({ error: 'Invalid or expired token' });`,
+        `  }`,
+        `}`,
+        ``,
+        `export function authOptional(req: Request, res: Response, next: NextFunction): void {`,
+        `  const header = req.headers.authorization;`,
+        `  if (header?.startsWith('Bearer ')) {`,
+        `    try {`,
+        `      req.user = jwt.verify(header.slice(7), JWT_SECRET, { algorithms: [JWT_ALGORITHM] }) as AuthUser;`,
+        `    } catch { /* token invalid — proceed without user */ }`,
+        `  }`,
+        `  next();`,
+        `}`,
+      ].join('\n'),
+      type: 'middleware',
+    };
+    middlewareArtifacts.set('auth', { artifact: authArtifact, exportName: 'authRequired', fileBase: 'auth' });
+    dependencyComments.push('jsonwebtoken');
+  }
 
   const lines: string[] = [];
   if (dependencyComments.length > 0) {
     lines.push(`// Dependencies: ${dependencyComments.join(', ')}`);
+  }
+  if (isStrict) {
+    lines.push(`import crypto from 'node:crypto';`);
   }
   lines.push(`import express from 'express';`);
   lines.push(`import type { NextFunction, Request, Response } from 'express';`);
@@ -1159,6 +1287,12 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   // Hardened defaults (strict mode)
   if (isStrict) {
     lines.push(`app.disable('x-powered-by');`);
+    lines.push(`app.use((req: Request, res: Response, next: NextFunction) => {`);
+    lines.push(`  const id = crypto.randomUUID();`);
+    lines.push(`  res.setHeader('X-Request-ID', id);`);
+    lines.push(`  (req as any).requestId = id;`);
+    lines.push(`  next();`);
+    lines.push(`});`);
     if (!hasJsonMiddleware) {
       lines.push(`app.use(express.json({ limit: '1mb' }));`);
     }
@@ -1171,6 +1305,14 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   if (serverMiddlewareInvocations.length > 0 && routeArtifacts.length > 0) {
     lines.push('');
   }
+  // Health check — before user routes so it can't be shadowed by catch-all
+  if (isStrict && !hasHealthRoute) {
+    lines.push(`app.get('/health', (_req: Request, res: Response) => {`);
+    lines.push(`  res.status(200).json({ status: 'ok' });`);
+    lines.push('});');
+    lines.push('');
+  }
+
   for (const routeArtifact of routeArtifacts) {
     lines.push(`${routeArtifact.registerName}(app);`);
   }
@@ -1236,7 +1378,13 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
       });
       lines.push('');
       lines.push(`  ws.on('message', (raw: Buffer) => {`);
-      lines.push(`    const data = JSON.parse(raw.toString());`);
+      lines.push(`    let data: any;`);
+      lines.push(`    try {`);
+      lines.push(`      data = JSON.parse(raw.toString());`);
+      lines.push(`    } catch {`);
+      lines.push(`      ws.send(JSON.stringify({ error: 'Invalid JSON payload' }));`);
+      lines.push(`      return;`);
+      lines.push(`    }`);
       if (messageNode) {
         const handlerChild = getChildren(messageNode, 'handler')[0];
         const code = handlerChild ? String(getProps(handlerChild).code || '') : '';
@@ -1291,11 +1439,36 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
     lines.push(`server.listen(port, () => {`);
     lines.push(`  console.log(\`\${serverName} listening on port \${port}\`);`);
     lines.push('});');
+    lines.push(`const shutdown = (signal: string) => {`);
+    lines.push(`  console.log(\`\${signal} received, shutting down gracefully...\`);`);
+    for (const wsNode of websocketNodes) {
+      const wsName = String(getProps(wsNode).name || 'ws');
+      lines.push(`  ${wsName}Server.clients.forEach((client: WebSocket) => client.terminate());`);
+      lines.push(`  ${wsName}Server.close();`);
+    }
+    lines.push(`  server.close(() => {`);
+    lines.push(`    console.log('Server closed');`);
+    lines.push(`    process.exit(0);`);
+    lines.push(`  });`);
+    lines.push(`  setTimeout(() => { console.error('Forced shutdown'); process.exit(1); }, 30000);`);
+    lines.push(`};`);
+    lines.push(`process.on('SIGTERM', () => shutdown('SIGTERM'));`);
+    lines.push(`process.on('SIGINT', () => shutdown('SIGINT'));`);
   } else {
     lines.push('');
-    lines.push(`app.listen(port, () => {`);
+    lines.push(`const server = app.listen(port, () => {`);
     lines.push(`  console.log(\`\${serverName} listening on port \${port}\`);`);
     lines.push('});');
+    lines.push(`const shutdown = (signal: string) => {`);
+    lines.push(`  console.log(\`\${signal} received, shutting down gracefully...\`);`);
+    lines.push(`  server.close(() => {`);
+    lines.push(`    console.log('Server closed');`);
+    lines.push(`    process.exit(0);`);
+    lines.push(`  });`);
+    lines.push(`  setTimeout(() => { console.error('Forced shutdown'); process.exit(1); }, 30000);`);
+    lines.push(`};`);
+    lines.push(`process.on('SIGTERM', () => shutdown('SIGTERM'));`);
+    lines.push(`process.on('SIGINT', () => shutdown('SIGINT'));`);
   }
   lines.push('');
   lines.push('export default app;');
@@ -1311,11 +1484,137 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   const modelNodes = coreNodes.filter(n => n.type === 'model');
   const prismaArtifact = buildPrismaArtifact(modelNodes, _config);
 
+  // DB connection: implicit path — auto-generate when models exist but no explicit dependency kind=database
+  const hasExplicitDb = coreNodes.some(n => n.type === 'dependency' && String((n.props || {}).kind) === 'database');
+  let dbArtifact: GeneratedArtifact | null = null;
+  if (modelNodes.length > 0 && !hasExplicitDb) {
+    dbArtifact = {
+      path: 'lib/db.ts',
+      content: [
+        `import { PrismaClient } from '@prisma/client';`,
+        ``,
+        `const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };`,
+        ``,
+        `export const prisma = globalForPrisma.prisma ?? new PrismaClient();`,
+        ``,
+        `if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;`,
+        ``,
+        `export default prisma;`,
+      ].join('\n'),
+      type: 'lib',
+    };
+    dependencyComments.push('@prisma/client');
+  }
+
+  // Backend infrastructure artifacts (job, storage, email)
+  const infraArtifacts: GeneratedArtifact[] = [];
+  for (const node of coreNodes) {
+    const np = getProps(node);
+    const nodeName = String(np.name || node.type);
+    if (node.type === 'job') {
+      const queue = String(np.queue || nodeName);
+      const code = getFirstChild(node, 'handler') ? String(getProps(getFirstChild(node, 'handler')!).code || '') : '';
+      infraArtifacts.push({
+        path: `jobs/${nodeName}.ts`,
+        content: [
+          `import { Worker, Queue } from 'bullmq';`,
+          ``,
+          `export const ${nodeName}Queue = new Queue('${queue}');`,
+          ``,
+          `// Run: npx tsx jobs/${nodeName}.ts`,
+          `const worker = new Worker('${queue}', async (job) => {`,
+          ...(code ? code.split('\n').map((l: string) => `  ${l}`) : [`  // TODO: implement ${nodeName}`]),
+          `});`,
+          ``,
+          `worker.on('completed', (job) => console.log(\`Job \${job.id} completed\`));`,
+          `worker.on('failed', (job, err) => console.error(\`Job \${job?.id} failed:\`, err));`,
+          ``,
+          `export default worker;`,
+        ].join('\n'),
+        type: 'lib',
+      });
+      dependencyComments.push('bullmq');
+    } else if (node.type === 'storage') {
+      const provider = String(np.provider || 's3');
+      const bucket = String(np.bucket || 'my-app-uploads');
+      infraArtifacts.push({
+        path: `lib/${nodeName}.ts`,
+        content: provider === 's3' ? [
+          `import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';`,
+          `import { getSignedUrl } from '@aws-sdk/s3-request-presigner';`,
+          ``,
+          `const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });`,
+          `const BUCKET = process.env.S3_BUCKET || '${bucket}';`,
+          ``,
+          `export async function uploadFile(key: string, body: Buffer, contentType: string): Promise<string> {`,
+          `  await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: body, ContentType: contentType }));`,
+          `  return key;`,
+          `}`,
+          ``,
+          `export async function getDownloadUrl(key: string, expiresIn = 3600): Promise<string> {`,
+          `  return getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET, Key: key }), { expiresIn });`,
+          `}`,
+        ].join('\n') : [
+          `import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';`,
+          `import { join } from 'node:path';`,
+          ``,
+          `const STORAGE_DIR = process.env.STORAGE_DIR || './uploads';`,
+          `mkdirSync(STORAGE_DIR, { recursive: true });`,
+          ``,
+          `export function uploadFile(key: string, body: Buffer): string {`,
+          `  writeFileSync(join(STORAGE_DIR, key), body);`,
+          `  return key;`,
+          `}`,
+          ``,
+          `export function readFile(key: string): Buffer {`,
+          `  return readFileSync(join(STORAGE_DIR, key));`,
+          `}`,
+        ].join('\n'),
+        type: 'lib',
+      });
+      if (provider === 's3') dependencyComments.push('@aws-sdk/client-s3', '@aws-sdk/s3-request-presigner');
+    } else if (node.type === 'email') {
+      const provider = String(np.provider || 'smtp');
+      const from = String(np.from || 'noreply@example.com');
+      infraArtifacts.push({
+        path: `lib/${nodeName}.ts`,
+        content: provider === 'sendgrid' ? [
+          `const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || '';`,
+          `const DEFAULT_FROM = '${from}';`,
+          ``,
+          `export async function sendEmail(to: string, subject: string, html: string, from = DEFAULT_FROM): Promise<void> {`,
+          `  await fetch('https://api.sendgrid.com/v3/mail/send', {`,
+          `    method: 'POST',`,
+          `    headers: { Authorization: \`Bearer \${SENDGRID_API_KEY}\`, 'Content-Type': 'application/json' },`,
+          `    body: JSON.stringify({ personalizations: [{ to: [{ email: to }] }], from: { email: from }, subject, content: [{ type: 'text/html', value: html }] }),`,
+          `  });`,
+          `}`,
+        ].join('\n') : [
+          `import { createTransport } from 'nodemailer';`,
+          ``,
+          `const transporter = createTransport({`,
+          `  host: process.env.SMTP_HOST || 'localhost',`,
+          `  port: Number(process.env.SMTP_PORT || 587),`,
+          `  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },`,
+          `});`,
+          ``,
+          `export async function sendEmail(to: string, subject: string, html: string, from = '${from}'): Promise<void> {`,
+          `  await transporter.sendMail({ from, to, subject, html });`,
+          `}`,
+        ].join('\n'),
+        type: 'lib',
+      });
+      if (provider !== 'sendgrid') dependencyComments.push('nodemailer');
+    }
+  }
+
   const artifacts: GeneratedArtifact[] = [
     ...routeArtifacts.map(route => route.artifact),
     ...[...middlewareArtifacts.values()].map(entry => entry.artifact),
     ...coreArtifactRefs.map(ref => ref.artifact),
     ...(prismaArtifact ? [prismaArtifact] : []),
+    ...(dbArtifact ? [dbArtifact] : []),
+    ...infraArtifacts,
   ];
 
   const output = lines.join('\n');

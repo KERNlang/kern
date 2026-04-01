@@ -773,9 +773,16 @@ interface MiddlewareUsage {
   addLine: string;
 }
 
+function buildCorsMiddlewareLine(isStrict: boolean): string {
+  return isStrict
+    ? 'app.add_middleware(CORSMiddleware, allow_origins=[origin.strip() for origin in os.environ.get("CORS_ORIGINS", "").split(",") if origin.strip()], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])'
+    : 'app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])';
+}
+
 function resolveMiddlewareUsage(
   node: IRNode,
   middlewareArtifacts: Map<string, MiddlewareArtifactRef>,
+  isStrict = false,
 ): MiddlewareUsage {
   const props = getProps(node);
   const name = String(props.name || 'middleware');
@@ -783,7 +790,7 @@ function resolveMiddlewareUsage(
   if (name === 'cors') {
     return {
       importLine: 'from fastapi.middleware.cors import CORSMiddleware',
-      addLine: 'app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])',
+      addLine: buildCorsMiddlewareLine(isStrict),
     };
   }
 
@@ -797,6 +804,13 @@ function resolveMiddlewareUsage(
   if (name === 'json') {
     // FastAPI handles JSON automatically via Pydantic — no-op
     return { addLine: '# JSON parsing handled automatically by FastAPI/Pydantic' };
+  }
+
+  if (name === 'rateLimit' || name === 'rate-limit' || name === 'rateLimiter') {
+    return {
+      importLine: 'from slowapi import Limiter, _rate_limit_exceeded_handler\nfrom slowapi.util import get_remote_address\nfrom slowapi.errors import RateLimitExceeded',
+      addLine: 'limiter = Limiter(key_func=get_remote_address)\napp.state.limiter = limiter\napp.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)',
+    };
   }
 
   // Custom middleware
@@ -857,6 +871,7 @@ function buildWebSocketArtifact(
   const lines: string[] = [];
 
   // Imports
+  lines.push('import json');
   lines.push('from fastapi import WebSocket');
   lines.push('from starlette.websockets import WebSocketDisconnect');
   lines.push('');
@@ -873,7 +888,11 @@ function buildWebSocketArtifact(
   // Message loop + disconnect
   lines.push('    try:');
   lines.push('        while True:');
-  lines.push('            data = await websocket.receive_json()');
+  lines.push('            try:');
+  lines.push('                data = json.loads(await websocket.receive_text())');
+  lines.push('            except json.JSONDecodeError:');
+  lines.push('                await websocket.send_json({"error": "Invalid JSON payload"})');
+  lines.push('                continue');
   if (messageCode) {
     lines.push(...indentHandler(messageCode, '            '));
   }
@@ -921,6 +940,10 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   for (const rn of routeNodes) accountNode(accounted, rn, 'consumed', 'route artifact', true);
   const websocketNodes = getChildren(serverNode, 'websocket');
   for (const ws of websocketNodes) accountNode(accounted, ws, 'consumed', 'websocket handler', true);
+  const hasHealthRoute = routeNodes.some((routeNode) => {
+    const props = getProps(routeNode);
+    return String(props.path || '/') === '/health' && String(props.method || 'get').toLowerCase() === 'get';
+  });
 
   const isStrict = !_config || (_config.fastapi?.security ?? 'strict') === 'strict';
   const corsEnabled = _config?.fastapi?.cors ?? false;
@@ -936,6 +959,8 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     'config', 'store', 'test', 'event', 'import', 'const',
     // Data layer
     'model', 'repository', 'cache', 'dependency', 'service', 'union',
+    // Backend infrastructure
+    'job', 'storage', 'email',
     // Ground layer
     'derive', 'transform', 'action', 'guard', 'assume', 'invariant',
     'each', 'collect', 'branch', 'resolve', 'expect', 'recover',
@@ -963,12 +988,17 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   })) {
     serverImports.add('from fastapi import HTTPException');
   }
+  if (isStrict) {
+    serverImports.add('import logging');
+    serverImports.add('from uuid import uuid4');
+  }
   serverImports.add('import uvicorn');
 
   // Config-level cors/gzip
   if (corsEnabled) {
+    if (isStrict) serverImports.add('import os');
     serverImports.add('from fastapi.middleware.cors import CORSMiddleware');
-    middlewareLines.push('app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])');
+    middlewareLines.push(buildCorsMiddlewareLine(isStrict));
   }
   if (gzipEnabled) {
     serverImports.add('from fastapi.middleware.gzip import GZipMiddleware');
@@ -977,7 +1007,10 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
 
   // IR-level middleware
   for (const middlewareNode of serverMiddlewares) {
-    const usage = resolveMiddlewareUsage(middlewareNode, middlewareArtifacts);
+    if (isStrict && String(getProps(middlewareNode).name || '') === 'cors') {
+      serverImports.add('import os');
+    }
+    const usage = resolveMiddlewareUsage(middlewareNode, middlewareArtifacts, isStrict);
     if (usage.importLine) serverImports.add(usage.importLine);
     middlewareLines.push(usage.addLine);
   }
@@ -986,6 +1019,57 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   const routeArtifacts = routeNodes.map((routeNode, index) =>
     buildRouteArtifact(routeNode, index, sourceMap),
   );
+
+  // Auth: generate auth.py artifact when any route uses auth
+  const hasAuth = routeNodes.some(r => getFirstChild(r, 'auth'));
+  let authArtifact: GeneratedArtifact | null = null;
+  if (hasAuth) {
+    authArtifact = {
+      path: 'auth.py',
+      content: [
+        `from fastapi import Depends, HTTPException`,
+        `from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials`,
+        `from jose import JWTError, jwt`,
+        `import os`,
+        ``,
+        ...(isStrict
+          ? [
+              `JWT_SECRET = os.environ.get("JWT_SECRET")`,
+              ``,
+              `if not JWT_SECRET:`,
+              `    raise RuntimeError("JWT_SECRET environment variable is required in strict mode")`,
+            ]
+          : [`JWT_SECRET = os.environ.get("JWT_SECRET", "change-me-in-production")`]),
+        `JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")`,
+        ``,
+        `security = HTTPBearer()`,
+        `security_optional = HTTPBearer(auto_error=False)`,
+        ``,
+        ``,
+        `async def auth_required(`,
+        `    credentials: HTTPAuthorizationCredentials = Depends(security),`,
+        `) -> dict:`,
+        `    try:`,
+        `        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])`,
+        `        return payload`,
+        `    except JWTError:`,
+        `        raise HTTPException(status_code=401, detail="Invalid or expired token")`,
+        ``,
+        ``,
+        `async def auth_optional(`,
+        `    credentials: HTTPAuthorizationCredentials | None = Depends(security_optional),`,
+        `) -> dict | None:`,
+        `    if not credentials:`,
+        `        return None`,
+        `    try:`,
+        `        return jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])`,
+        `    except JWTError:`,
+        `        return None`,
+      ].join('\n'),
+      type: 'lib' as GeneratedArtifact['type'],
+    };
+    serverImports.add('from auth import auth_required, auth_optional');
+  }
 
   // Build websocket artifacts
   const wsArtifacts = websocketNodes.map((wsNode, index) =>
@@ -1010,8 +1094,15 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
 
   // Collect imports needed by core language nodes
   const coreTypes = new Set(coreNodes.map(n => n.type));
+  const hasExplicitDb = coreNodes.some(n => n.type === 'dependency' && String((n.props || {}).kind) === 'database');
   if (coreTypes.has('model')) {
     serverImports.add('from sqlmodel import SQLModel, Field, Relationship');
+    // Implicit DB connection: add engine/session imports when models exist but no explicit database dependency
+    if (!hasExplicitDb) {
+      serverImports.add('import os');
+      serverImports.add('from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession');
+      serverImports.add('from sqlalchemy.orm import sessionmaker');
+    }
   }
   if (coreTypes.has('union')) {
     serverImports.add('from pydantic import BaseModel');
@@ -1055,15 +1146,64 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     }
   }
 
+  // Implicit DB connection boilerplate (when models exist but no explicit database dependency)
+  if (coreTypes.has('model') && !hasExplicitDb) {
+    lines.push('# Database connection');
+    lines.push('DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./app.db")');
+    lines.push('engine = create_async_engine(DATABASE_URL, echo=False)');
+    lines.push('async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)');
+    lines.push('');
+    lines.push('');
+    lines.push('async def get_db():');
+    lines.push('    async with async_session() as session:');
+    lines.push('        yield session');
+    lines.push('');
+    lines.push('');
+    lines.push('async def init_db():');
+    lines.push('    async with engine.begin() as conn:');
+    lines.push('        await conn.run_sync(SQLModel.metadata.create_all)');
+    lines.push('');
+  }
+
   // App instantiation
   lines.push(`app = FastAPI(title="${serverName}")`);
   lines.push('');
+
+  // DB startup event
+  if (coreTypes.has('model') && !hasExplicitDb) {
+    lines.push('');
+    lines.push('@app.on_event("startup")');
+    lines.push('async def startup():');
+    lines.push('    await init_db()');
+    lines.push('');
+  }
+
+  // Request ID middleware (strict mode)
+  if (isStrict) {
+    lines.push('');
+    lines.push('@app.middleware("http")');
+    lines.push('async def add_request_id(request, call_next):');
+    lines.push('    request_id = str(uuid4())');
+    lines.push('    request.state.request_id = request_id');
+    lines.push('    response = await call_next(request)');
+    lines.push('    response.headers["X-Request-ID"] = request_id');
+    lines.push('    return response');
+    lines.push('');
+  }
 
   // Middleware
   for (const mLine of middlewareLines) {
     lines.push(mLine);
   }
   if (middlewareLines.length > 0) {
+    lines.push('');
+  }
+
+  // Health check — before user routes so it can't be shadowed by catch-all
+  if (isStrict && !hasHealthRoute) {
+    lines.push('@app.get("/health")');
+    lines.push('async def health_check():');
+    lines.push('    return {"status": "ok"}');
     lines.push('');
   }
 
@@ -1089,6 +1229,7 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     lines.push('@app.exception_handler(Exception)');
     lines.push('async def global_exception_handler(request, exc):');
     lines.push('    from fastapi.responses import JSONResponse');
+    lines.push('    logging.exception("Unhandled exception")');
     lines.push('    return JSONResponse(status_code=500, content={"error": "Internal Server Error"})');
   } else {
     lines.push('');
@@ -1101,8 +1242,9 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   lines.push('');
   lines.push('');
   lines.push('if __name__ == "__main__":');
+  const uvicornTarget = uvicornReload || (uvicornWorkers !== undefined && uvicornWorkers > 1) ? '"main:app"' : 'app';
   const uvicornOpts: string[] = [
-    `app`,
+    uvicornTarget,
     `host="${uvicornHost}"`,
     `port=${port}`,
   ];
@@ -1119,10 +1261,74 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     outCol: 1,
   });
 
+  // Alembic migration scaffolding when models exist
+  const alembicArtifacts: GeneratedArtifact[] = [];
+  if (coreTypes.has('model')) {
+    alembicArtifacts.push({
+      path: 'alembic.ini',
+      content: [
+        '# Generated by KERN. Run migrations:',
+        '#   alembic revision --autogenerate -m "init"',
+        '#   alembic upgrade head',
+        '',
+        '[alembic]',
+        'script_location = alembic',
+        'sqlalchemy.url = sqlite+aiosqlite:///./app.db',
+      ].join('\n'),
+      type: 'config',
+    });
+    alembicArtifacts.push({
+      path: 'alembic/env.py',
+      content: [
+        `from logging.config import fileConfig`,
+        `from sqlalchemy import engine_from_config, pool`,
+        `from alembic import context`,
+        `from sqlmodel import SQLModel`,
+        ``,
+        `# Import models so metadata is populated`,
+        `from main import *  # noqa: F403`,
+        ``,
+        `config = context.config`,
+        `if config.config_file_name is not None:`,
+        `    fileConfig(config.config_file_name)`,
+        ``,
+        `target_metadata = SQLModel.metadata`,
+        ``,
+        ``,
+        `def run_migrations_offline():`,
+        `    url = config.get_main_option("sqlalchemy.url")`,
+        `    context.configure(url=url, target_metadata=target_metadata, literal_binds=True)`,
+        `    with context.begin_transaction():`,
+        `        context.run_migrations()`,
+        ``,
+        ``,
+        `def run_migrations_online():`,
+        `    connectable = engine_from_config(`,
+        `        config.get_section(config.config_ini_section, {}),`,
+        `        prefix="sqlalchemy.",`,
+        `        poolclass=pool.NullPool,`,
+        `    )`,
+        `    with connectable.connect() as connection:`,
+        `        context.configure(connection=connection, target_metadata=target_metadata)`,
+        `        with context.begin_transaction():`,
+        `            context.run_migrations()`,
+        ``,
+        ``,
+        `if context.is_offline_mode():`,
+        `    run_migrations_offline()`,
+        `else:`,
+        `    run_migrations_online()`,
+      ].join('\n'),
+      type: 'config',
+    });
+  }
+
   const artifacts: GeneratedArtifact[] = [
     ...routeArtifacts.map(r => r.artifact),
     ...wsArtifacts.map(w => w.artifact),
     ...[...middlewareArtifacts.values()].map(m => m.artifact),
+    ...(authArtifact ? [authArtifact] : []),
+    ...alembicArtifacts,
   ];
 
   const output = lines.join('\n');
