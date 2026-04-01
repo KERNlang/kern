@@ -64,12 +64,13 @@ export interface LLMBridgeConfig {
 
 function resolveConfig(override?: LLMBridgeConfig): Required<LLMBridgeConfig> & { available: boolean } {
   const apiKey = override?.apiKey || process.env.KERN_LLM_API_KEY || '';
+  const model = override?.model || process.env.KERN_LLM_MODEL || '';
   return {
     apiKey,
-    model: override?.model || process.env.KERN_LLM_MODEL || 'gpt-4o-mini',
+    model,
     baseUrl: (override?.baseUrl || process.env.KERN_LLM_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, ''),
-    timeout: override?.timeout || 30_000,
-    maxTokens: override?.maxTokens || 4096,
+    timeout: override?.timeout || 60_000,
+    maxTokens: override?.maxTokens || 16384,
     available: apiKey.length > 0,
   };
 }
@@ -95,6 +96,9 @@ interface ChatResponse {
 }
 
 async function callLLM(messages: ChatMessage[], config: Required<LLMBridgeConfig>): Promise<string> {
+  if (!config.model) {
+    throw new Error('KERN_LLM_MODEL not set. Set it to your preferred model (e.g. gpt-4o, claude-sonnet-4-20250514).');
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeout);
 
@@ -148,6 +152,14 @@ export interface LLMReviewInput {
  *
  * When API key is not available, returns empty array (CI/CD safe).
  */
+/** Rough token estimate — ~4 chars per token for code. */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/** Max input tokens per batch — leave headroom for output. */
+const MAX_BATCH_TOKENS = 80_000;
+
 export async function runLLMReview(
   inputs: LLMReviewInput[],
   configOverride?: LLMBridgeConfig,
@@ -158,18 +170,29 @@ export async function runLLMReview(
   try {
     const allFindings: ReviewFinding[] = [];
 
-    // Batch files into a single prompt when small enough, or process individually
-    if (inputs.length <= 3) {
-      // Small batch: single prompt with all files
-      const findings = await reviewBatch(inputs, config);
-      allFindings.push(...findings);
-    } else {
-      // Large batch: process in chunks of 3
-      for (let i = 0; i < inputs.length; i += 3) {
-        const chunk = inputs.slice(i, i + 3);
-        const findings = await reviewBatch(chunk, config);
-        allFindings.push(...findings);
+    // Size-aware batching: group inputs by estimated token count
+    const batches: LLMReviewInput[][] = [];
+    let currentBatch: LLMReviewInput[] = [];
+    let currentTokens = 0;
+
+    for (const input of inputs) {
+      const inputTokens = estimateTokens(input.source || '') + estimateTokens(
+        buildLLMPrompt(input.inferred, input.templateMatches, input.graphContext),
+      );
+      // Start new batch if adding this input would exceed budget
+      if (currentBatch.length > 0 && currentTokens + inputTokens > MAX_BATCH_TOKENS) {
+        batches.push(currentBatch);
+        currentBatch = [];
+        currentTokens = 0;
       }
+      currentBatch.push(input);
+      currentTokens += inputTokens;
+    }
+    if (currentBatch.length > 0) batches.push(currentBatch);
+
+    for (const batch of batches) {
+      const findings = await reviewBatch(batch, config);
+      allFindings.push(...findings);
     }
 
     return allFindings;

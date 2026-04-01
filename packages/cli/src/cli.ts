@@ -889,42 +889,33 @@ async function runReviewPipeline(
       // Fall through to normal output (don't exit — show merged findings)
     } else {
       // No API key — the AI CLI tool (Claude Code, Cursor, Codex) IS the reviewer.
-      // Output everything it needs: source code, KERN IR, static findings, taint analysis.
-      console.log('\n  ── KERN Review Context for AI Review ──\n');
+      // Output KERN IR (compressed semantic representation — no syntactic sugar),
+      // static findings, and taint analysis. The IR is the "native LLM language" —
+      // it strips framework boilerplate and gives raw code meaning.
+      // NO full source dump — the AI CLI can Read files itself if needed.
 
       for (const report of reports) {
         const rel = relative(process.cwd(), report.filePath);
 
-        // 1. Actual source code — the AI needs to read the real code
-        console.log(`<kern-source path="${rel}">`);
-        try {
-          const source = readFileSync(report.filePath, 'utf-8');
-          console.log(source);
-        } catch { console.log('// [source not readable]'); }
-        console.log('</kern-source>\n');
-
-        // 2. KERN IR — compressed representation with aliases
+        // 1. KERN IR — compressed semantic representation (the core value)
         console.log(`<kern-ir path="${rel}">`);
         console.log(buildLLMPrompt(report.inferred, report.templateMatches, llmGraphContext));
         console.log('</kern-ir>\n');
 
-        // 3. Static findings — what automated analysis already caught
+        // 2. Static findings
         if (report.findings.length > 0) {
           const errors = report.findings.filter(f => f.severity === 'error');
           const warnings = report.findings.filter(f => f.severity === 'warning');
           console.log(`<kern-findings path="${rel}">`);
-          console.log(`  Static analysis found ${errors.length} errors, ${warnings.length} warnings.`);
-          console.log('  Validate these findings — are they real bugs or false positives?');
-          console.log('  Then find additional issues the static analyzer missed.\n');
           for (const f of [...errors, ...warnings]) {
-            const conf = f.confidence !== undefined ? ` (${(f.confidence * 100).toFixed(0)}% confidence)` : '';
+            const conf = f.confidence !== undefined ? ` (${(f.confidence * 100).toFixed(0)}%)` : '';
             console.log(`  L${f.primarySpan.startLine} [${f.severity}] ${f.ruleId}: ${f.message}${conf}`);
             if (f.suggestion) console.log(`    → ${f.suggestion}`);
           }
           console.log('</kern-findings>\n');
         }
 
-        // 4. Taint analysis — data flow from sources to sinks
+        // 3. Taint analysis — data flow from sources to sinks
         const taintResults = analyzeTaint(report.inferred, report.filePath);
         if (taintResults.length > 0) {
           console.log(`<kern-taint path="${rel}">`);
@@ -936,23 +927,15 @@ async function runReviewPipeline(
               console.log(`    ${p.source.origin} → ${p.sink.name}() [${p.sink.category}] ${status}${insufficient}`);
             }
           }
-          console.log('  Are the unsanitized paths exploitable? Are the sanitizers sufficient?');
           console.log('</kern-taint>\n');
         }
       }
 
-      // Review instructions for the AI assistant
-      console.log('  ── Review Instructions ──\n');
-      console.log('  You are reviewing TypeScript code. Focus on:');
-      console.log('  1. CORRECTNESS: Logic bugs, missing edge cases, wrong comparisons');
-      console.log('  2. ERROR HANDLING: Unhandled rejections, catch-and-swallow, missing cleanup');
-      console.log('  3. DATA FLOW: Variables built from partial data used in broader contexts');
-      console.log('  4. SECURITY: Injection, auth bypass, data exposure (use taint results above)');
-      console.log('  5. CONCURRENCY: Race conditions, shared mutable state across async');
-      console.log('  6. API CONTRACTS: Callers assuming behavior the callee doesn\'t guarantee\n');
-      console.log('  Static findings above are what automated analysis caught.');
-      console.log('  Validate them, then find what the static analyzer MISSED.');
-      console.log('');
+      console.log(`── Review Instructions ──
+Validate the static findings (real bug or false positive?), then find what was MISSED.
+Focus on: correctness, error handling, data flow, security, concurrency, API contracts.
+The KERN IR above is a compressed semantic representation — read source files for full context.
+`);
     }
     // Fall through to normal output — show full report with static findings
   }

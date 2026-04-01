@@ -47,6 +47,27 @@ describe('runLLMReview — no API key', () => {
   });
 });
 
+describe('runLLMReview — missing model', () => {
+  it('returns error finding when API key set but model missing', async () => {
+    const findings = await runLLMReview(
+      [{
+        filePath: 'test.ts',
+        inferred: [],
+        templateMatches: [],
+      }],
+      {
+        apiKey: 'fake-key',
+        model: '', // No model
+        timeout: 2000,
+      },
+    );
+
+    expect(findings.length).toBe(1);
+    expect(findings[0].ruleId).toBe('llm-error');
+    expect(findings[0].message).toContain('KERN_LLM_MODEL');
+  });
+});
+
 describe('runLLMReview — API failure', () => {
   it('returns info finding on API error, does not crash', async () => {
     const findings = await runLLMReview(
@@ -57,6 +78,7 @@ describe('runLLMReview — API failure', () => {
       }],
       {
         apiKey: 'fake-key',
+        model: 'test-model',
         baseUrl: 'http://localhost:1', // Will fail to connect
         timeout: 2000,
       },
