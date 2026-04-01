@@ -76,6 +76,7 @@ function pyType(kernType: string): string {
 
 function emitPyGuards(node: IRNode): string[] {
   const guards = getChildren(node, 'guard');
+  const toolName = str(getProps(node).name) || 'unknown';
   const lines: string[] = [];
 
   for (const g of guards) {
@@ -116,7 +117,9 @@ function emitPyGuards(node: IRNode): string[] {
     }
 
     if (kind === 'rateLimit') {
-      lines.push(`    # Rate limiting handled by middleware`);
+      const windowMs = parseInt(str(props.window) || '60000', 10) || 60000;
+      const maxReqs = parseInt(str(props.requests) || str(props.maxRequests) || '100', 10) || 100;
+      lines.push(`    _check_rate_limit(${pyStr(toolName)}, ${windowMs}, ${maxReqs})`);
     }
 
     if (kind === 'sizeLimit' && param) {
@@ -162,6 +165,7 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
     const k = guardKind(g);
     return k === 'pathContainment' || k === 'auth';
   });
+  const needsRateLimit = allGuards.some(g => guardKind(g) === 'rateLimit');
 
   const transport = str(props.transport) || 'stdio';
   const sourceMap: SourceMapEntry[] = [];
@@ -173,6 +177,7 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
   lines.push('import logging');
   if (needsOs) lines.push('import os');
   if (needsRe) lines.push('import re');
+  if (needsRateLimit) lines.push('import time');
   lines.push('');
   lines.push('from mcp.server.fastmcp import FastMCP');
   lines.push('from mcp.shared.exceptions import McpError');
@@ -199,6 +204,23 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
   lines.push('logger.addHandler(_handler)');
   lines.push('logger.setLevel(logging.INFO)');
   lines.push('');
+
+  if (needsRateLimit) {
+    lines.push('_rate_limit_store: dict[str, dict] = {}');
+    lines.push('');
+    lines.push('');
+    lines.push('def _check_rate_limit(tool_name: str, window_ms: int, max_requests: int) -> None:');
+    lines.push('    now = time.time() * 1000');
+    lines.push('    entry = _rate_limit_store.get(tool_name)');
+    lines.push('    if entry is None or now > entry["reset_at"]:');
+    lines.push('        _rate_limit_store[tool_name] = {"count": 1, "reset_at": now + window_ms}');
+    lines.push('        return');
+    lines.push('    entry["count"] += 1');
+    lines.push('    if entry["count"] > max_requests:');
+    lines.push('        raise McpError(INTERNAL_ERROR, f"Rate limit exceeded for {tool_name}: {max_requests} requests per {window_ms}ms")');
+    lines.push('');
+    lines.push('');
+  }
 
   // ── Tools
   for (const toolNode of toolNodes) {

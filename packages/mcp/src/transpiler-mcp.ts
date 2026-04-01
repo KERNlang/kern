@@ -592,6 +592,8 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
   // ── Inject auth/rateLimit helpers if any tool uses them (after registrations so we know what's needed)
   const helperBlock: string[] = [];
   if (requiredHelpers.has('auth')) {
+    helperBlock.push(`// NOTE: checkAuth is a bootstrap check — it verifies the env var exists, not that`);
+    helperBlock.push(`// the caller is authenticated. For production, add real token verification logic.`);
     helperBlock.push(`function checkAuth(envVar: string, _header: string): void {`);
     helperBlock.push(`  const token = process.env[envVar];`);
     helperBlock.push(`  if (!token) throw new Error("Authentication required: set " + envVar + " environment variable");`);

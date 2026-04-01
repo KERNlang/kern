@@ -51,11 +51,31 @@ const PY_MCP_RAW = [
   /handle_tools?_call/,           // Common handler method name
 ];
 
+// ── Code generator detection ────────────────────────────────────────
+// Files that GENERATE MCP server code (transpilers, codegen) should not
+// be reviewed as MCP servers themselves. MCP patterns in string literals
+// would cause false positives.
+
+function isCodeGenerator(source: string, filePath: string): boolean {
+  // Path-based: transpiler/codegen files
+  if (/transpil|codegen|emit|generator/i.test(filePath)) return true;
+  // Content-based: files that build source code via string push/concat
+  const pushCount = (source.match(/\blines\.push\s*\(`/g) || []).length;
+  if (pushCount > 10) return true;
+  // Imports from KERN compiler packages
+  if (/@kernlang\/(core|mcp)/.test(source) && /\btranspile|buildDiagnostics/.test(source)) return true;
+  return false;
+}
+
 /**
  * Detect if source code implements an MCP server.
  * Returns the detected language or null.
+ * Skips code generators that produce MCP server code (transpilers, codegen).
  */
 export function detectMCPServer(source: string, filePath: string): 'typescript' | 'python' | null {
+  // Code generators contain MCP patterns as string literals — skip them
+  if (isCodeGenerator(source, filePath)) return null;
+
   const isPython = filePath.endsWith('.py');
   const isTS = filePath.endsWith('.ts') || filePath.endsWith('.tsx') || filePath.endsWith('.js');
 

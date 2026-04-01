@@ -18,7 +18,42 @@ import type { InferResult, Confidence, SourceSpan } from './types.js';
 
 // ── Create Project ───────────────────────────────────────────────────────
 
-export function createProject(): Project {
+import { existsSync } from 'fs';
+import { resolve, dirname } from 'path';
+
+/**
+ * Walk up from a directory to find the nearest tsconfig.json.
+ * Returns the path or undefined if not found.
+ */
+function findTsConfig(startDir: string): string | undefined {
+  let dir = startDir;
+  for (let i = 0; i < 20; i++) {
+    const candidate = resolve(dir, 'tsconfig.json');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
+/**
+ * Create a ts-morph Project for analysis.
+ * If startPath is provided, finds the nearest tsconfig.json and uses it
+ * for module resolution (paths, references, moduleResolution). This fixes
+ * false "Cannot find module" errors in monorepo packages.
+ */
+export function createProject(startPath?: string): Project {
+  const tsConfigFilePath = startPath ? findTsConfig(dirname(startPath)) : undefined;
+
+  if (tsConfigFilePath) {
+    return new Project({
+      tsConfigFilePath,
+      skipAddingFilesFromTsConfig: true, // Only load files we explicitly add
+    });
+  }
+
+  // Fallback: no tsconfig found — use strict defaults
   return new Project({
     compilerOptions: { strict: true, target: 99 /* Latest */ },
     useInMemoryFileSystem: false,
@@ -43,7 +78,7 @@ export function inferFromSource(source: string, filePath = 'input.ts'): InferRes
 }
 
 export function inferFromFile(filePath: string): InferResult[] {
-  const project = createProject();
+  const project = createProject(filePath);
   const sourceFile = project.addSourceFileAtPath(filePath);
   return inferFromSourceFile(sourceFile);
 }

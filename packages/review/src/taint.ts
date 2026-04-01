@@ -26,7 +26,7 @@ export interface TaintSource {
 
 export interface TaintSink {
   name: string;         // Sink function (e.g., "exec", "writeFileSync")
-  category: 'command' | 'fs' | 'sql' | 'redirect' | 'eval' | 'template';
+  category: 'command' | 'fs' | 'sql' | 'redirect' | 'eval' | 'template' | 'codegen';
   taintedArg: string;   // The tainted variable used in the call
   line?: number;
 }
@@ -112,6 +112,10 @@ const SINK_PATTERNS: SinkPattern[] = [
   // VM execution sinks (LLM output execution)
   { pattern: /\bvm\.runInContext\s*\(/, name: 'vm.runInContext', category: 'eval' },
   { pattern: /\bvm\.runInNewContext\s*\(/, name: 'vm.runInNewContext', category: 'eval' },
+  // Code generation sinks — external values interpolated into generated source code
+  { pattern: /\blines\.push\s*\(`/, name: 'lines.push(template)', category: 'codegen' },
+  { pattern: /\bhelperBlock\.push\s*\(`/, name: 'helperBlock.push(template)', category: 'codegen' },
+  { pattern: /\bcode\s*\+=\s*`/, name: 'code += template', category: 'codegen' },
 ];
 
 // ── Sanitizer Detection ─────────────────────────────────────────────────
@@ -1082,6 +1086,7 @@ export function taintToFindings(results: TaintResult[]): ReviewFinding[] {
     redirect: 'open redirect',
     eval: 'code injection',
     template: 'template injection',
+    codegen: 'code generation injection',
   };
 
   for (const r of results) {
@@ -1092,6 +1097,8 @@ export function taintToFindings(results: TaintResult[]): ReviewFinding[] {
     for (const path of reportable) {
       const severity = path.sink.category === 'command' || path.sink.category === 'eval'
         ? 'error' as const
+        : path.sink.category === 'codegen'
+        ? 'warning' as const  // codegen injection: external values in generated source — validate type/format
         : 'warning' as const;
 
       const primarySpan: SourceSpan = {
@@ -1143,6 +1150,7 @@ function getSuggestion(category: TaintSink['category']): string {
     case 'redirect': return 'Validate redirect URL against an allowlist of safe destinations';
     case 'eval': return 'Never pass user input to eval() or new Function() — use safe alternatives';
     case 'template': return 'Sanitize user input before embedding in templates';
+    case 'codegen': return 'Validate type and format of external values before interpolating into generated source code (e.g., parseInt for numeric values)';
   }
 }
 
@@ -1350,6 +1358,7 @@ export function crossFileTaintToFindings(results: CrossFileTaintResult[]): Revie
     redirect: 'open redirect',
     eval: 'code injection',
     template: 'template injection',
+    codegen: 'code generation injection',
   };
 
   for (const r of results) {
