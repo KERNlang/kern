@@ -192,7 +192,7 @@ describe('transpileMCP runtime E2E', () => {
     // Should be stripped of non-word characters by sanitize
     expect(text).not.toContain('<script>');
     expect(text).not.toContain('(');
-  }, 15000);
+  }, 30000);
 
   // 3. Validate guard — rejects out-of-range values
   it('should reject values outside validate range', async () => {

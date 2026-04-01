@@ -382,9 +382,9 @@ function runPythonMCP(code: string, messages: object[], timeoutMs = 5000): Promi
     const pyFile = join(dir, 'server.py');
     writeFileSync(pyFile, code);
 
-    const cp = spawn('python3', [pyFile], {
+    const cp = spawn('python3', ['-u', pyFile], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
+      env: { ...process.env, PYTHONUNBUFFERED: '1' },
     });
     let stdout = '';
     let stderr = '';
