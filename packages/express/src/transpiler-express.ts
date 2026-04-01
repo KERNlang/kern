@@ -794,9 +794,11 @@ function buildRouteArtifact(
   const requestType = `Request<RouteParams, ResponseBody, RequestBody, RequestQuery>`;
 
   const validationLines: string[] = [];
-  const requiredParamKeys = schema.params ? extractRequiredKeyTypes(schema.params) : derivePathParams(path).map(k => ({ key: k, type: 'string' }));
+  // Params and query arrive as strings in Express — only check existence, not typeof.
+  // Body comes from JSON parsing and has real types — check both existence and typeof.
+  const requiredParamKeys = (schema.params ? extractRequiredKeyTypes(schema.params) : derivePathParams(path).map(k => ({ key: k, type: 'any' }))).map(k => ({ ...k, type: 'any' }));
   const requiredBodyKeys = schema.body ? extractRequiredKeyTypes(schema.body) : [];
-  const requiredQueryKeys = schema.query ? extractRequiredKeyTypes(schema.query) : [];
+  const requiredQueryKeys = (schema.query ? extractRequiredKeyTypes(schema.query) : []).map(k => ({ ...k, type: 'any' }));
 
   function formatFieldSpec(fields: KeyTypeInfo[]): string {
     return `[${fields.map(f => `{ key: '${escapeSingleQuotes(f.key)}', type: '${f.type}' }`).join(', ')}]`;
@@ -1285,7 +1287,7 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   // Hardened defaults (strict mode)
   if (isStrict) {
     lines.push(`app.disable('x-powered-by');`);
-    lines.push(`app.use((_req: Request, res: Response, next: NextFunction) => {`);
+    lines.push(`app.use((req: Request, res: Response, next: NextFunction) => {`);
     lines.push(`  const id = crypto.randomUUID();`);
     lines.push(`  res.setHeader('X-Request-ID', id);`);
     lines.push(`  (req as any).requestId = id;`);

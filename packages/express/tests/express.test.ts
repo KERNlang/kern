@@ -36,7 +36,7 @@ describe('Express Transpiler', () => {
     const result = transpileExpress(parse(source));
     const routeArtifact = result.artifacts?.find((artifact: any) => artifact.path === 'routes/post-tracks-id.ts');
 
-    expect(routeArtifact?.content).toContain(`assertRequiredFields('params', req.params, [{ key: 'id', type: 'string' }]);`);
+    expect(routeArtifact?.content).toContain(`assertRequiredFields('params', req.params, [{ key: 'id', type: 'any' }]);`);
     expect(routeArtifact?.content).toContain(`assertRequiredFields('body', req.body,`);
     expect(routeArtifact?.content).not.toContain('IgnoreMe');
     expect(result.code).not.toContain('IgnoreMe');

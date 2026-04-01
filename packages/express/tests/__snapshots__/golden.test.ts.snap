@@ -15,7 +15,7 @@ const port = 3002;
 const serverName = 'ReviewAPI';
 
 app.disable('x-powered-by');
-app.use((_req: Request, res: Response, next: NextFunction) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   const id = crypto.randomUUID();
   res.setHeader('X-Request-ID', id);
   (req as any).requestId = id;
@@ -72,7 +72,7 @@ const port = 3001;
 const serverName = 'MusicAPI';
 
 app.disable('x-powered-by');
-app.use((_req: Request, res: Response, next: NextFunction) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   const id = crypto.randomUUID();
   res.setHeader('X-Request-ID', id);
   (req as any).requestId = id;
@@ -161,7 +161,7 @@ function assertRequiredFields(label: string, value: unknown, fields: Array<{ key
 export function registerDeleteApiTracksIdRoute(app: Express): void {
   app.delete('/api/tracks/:id', requireowner, async (req: Request<RouteParams, ResponseBody, RequestBody, RequestQuery>, res: Response, next: NextFunction) => {
     try {
-      assertRequiredFields('params', req.params, [{ key: 'id', type: 'string' }]);
+      assertRequiredFields('params', req.params, [{ key: 'id', type: 'any' }]);
     } catch (err) {
       return res.status(400).json({ error: err instanceof Error ? err.message : String(err) } as any);
     }
@@ -222,7 +222,7 @@ function assertRequiredFields(label: string, value: unknown, fields: Array<{ key
 export function registerGetApiTracksIdRoute(app: Express): void {
   app.get('/api/tracks/:id', async (req: Request<RouteParams, ResponseBody, RequestBody, RequestQuery>, res: Response, next: NextFunction) => {
     try {
-      assertRequiredFields('params', req.params, [{ key: 'id', type: 'string' }]);
+      assertRequiredFields('params', req.params, [{ key: 'id', type: 'any' }]);
     } catch (err) {
       return res.status(400).json({ error: err instanceof Error ? err.message : String(err) } as any);
     }
