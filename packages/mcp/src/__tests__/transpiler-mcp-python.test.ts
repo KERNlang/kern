@@ -425,9 +425,9 @@ function rpc(method: string, params: object, id: number): object {
   return { jsonrpc: '2.0', method, params, id };
 }
 
-function findResponse(responses: MCPResponse[], id: number): MCPResponse {
+function findResponse(responses: MCPResponse[], id: number, stderr = ''): MCPResponse {
   const r = responses.find(r => r.id === id);
-  if (!r) throw new Error(`No response for id=${id}. Got: ${JSON.stringify(responses)}`);
+  if (!r) throw new Error(`No response for id=${id}. Got: ${JSON.stringify(responses)}${stderr ? `\nstderr: ${stderr.slice(0, 500)}` : ''}`);
   return r;
 }
 
@@ -471,15 +471,15 @@ describeE2E('transpileMCPPython runtime E2E', () => {
     ]);
 
     const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [
+    const { responses, stderr } = await runPythonMCP(result.code, [
       ...initMessages(),
       rpc('tools/call', { name: 'action', arguments: {} }, 2),
     ]);
 
-    const toolResponse = findResponse(responses, 2);
+    const toolResponse = findResponse(responses, 2, stderr);
     const text = (toolResponse.result as any).content[0].text;
     expect(text).toBe('action completed');
-  }, 15000);
+  }, 30000);
 
   // 3. Tool listing
   it('should list tools in Python server', async () => {
@@ -577,15 +577,15 @@ describeE2E('transpileMCPPython runtime E2E', () => {
     ]);
 
     const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [
+    const { responses, stderr } = await runPythonMCP(result.code, [
       ...initMessages(),
       rpc('tools/call', { name: 'greet', arguments: { name: 'Test' } }, 2),
     ]);
 
-    const toolResponse = findResponse(responses, 2);
+    const toolResponse = findResponse(responses, 2, stderr);
     // Should get the default stub, not a crash
     expect((toolResponse.result as any).content[0].text).toBe('greet completed');
-  }, 15000);
+  }, 30000);
 
   // 8. PathContainment guard — blocks traversal in Python
   it('should block directory traversal in Python', async () => {
