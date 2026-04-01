@@ -431,7 +431,16 @@ function findResponse(responses: MCPResponse[], id: number): MCPResponse {
   return r;
 }
 
-describe('transpileMCPPython runtime E2E', () => {
+// Check if Python + mcp package are available — skip E2E tests if not
+let hasPythonMCP = false;
+try {
+  execSync('python3 -c "from mcp.server.fastmcp import FastMCP"', { stdio: 'pipe', timeout: 10000 });
+  hasPythonMCP = true;
+} catch { /* python3 or mcp not installed */ }
+
+const describeE2E = hasPythonMCP ? describe : describe.skip;
+
+describeE2E('transpileMCPPython runtime E2E', () => {
   // 1. Basic tool call with Python handler
   it('should handle a tool call at runtime with lang=python handler', async () => {
     const ast = node('mcp', { name: 'GreetPyE2E' }, [
