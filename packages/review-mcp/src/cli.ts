@@ -141,7 +141,7 @@ function toSARIF(result: WorkspaceScanResult): object {
             },
           },
         }],
-        ...(f.suggestion ? { fixes: [{ description: { text: f.suggestion } }] } : {}),
+        ...(f.suggestion ? { fixes: [{ description: { text: f.suggestion }, artifactChanges: [] }] } : {}),
       });
     }
   }
