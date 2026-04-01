@@ -773,9 +773,16 @@ interface MiddlewareUsage {
   addLine: string;
 }
 
+function buildCorsMiddlewareLine(isStrict: boolean): string {
+  return isStrict
+    ? 'app.add_middleware(CORSMiddleware, allow_origins=[origin.strip() for origin in os.environ.get("CORS_ORIGINS", "").split(",") if origin.strip()], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])'
+    : 'app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])';
+}
+
 function resolveMiddlewareUsage(
   node: IRNode,
   middlewareArtifacts: Map<string, MiddlewareArtifactRef>,
+  isStrict = false,
 ): MiddlewareUsage {
   const props = getProps(node);
   const name = String(props.name || 'middleware');
@@ -783,7 +790,7 @@ function resolveMiddlewareUsage(
   if (name === 'cors') {
     return {
       importLine: 'from fastapi.middleware.cors import CORSMiddleware',
-      addLine: 'app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])',
+      addLine: buildCorsMiddlewareLine(isStrict),
     };
   }
 
@@ -864,6 +871,7 @@ function buildWebSocketArtifact(
   const lines: string[] = [];
 
   // Imports
+  lines.push('import json');
   lines.push('from fastapi import WebSocket');
   lines.push('from starlette.websockets import WebSocketDisconnect');
   lines.push('');
@@ -880,7 +888,11 @@ function buildWebSocketArtifact(
   // Message loop + disconnect
   lines.push('    try:');
   lines.push('        while True:');
-  lines.push('            data = await websocket.receive_json()');
+  lines.push('            try:');
+  lines.push('                data = json.loads(await websocket.receive_text())');
+  lines.push('            except json.JSONDecodeError:');
+  lines.push('                await websocket.send_json({"error": "Invalid JSON payload"})');
+  lines.push('                continue');
   if (messageCode) {
     lines.push(...indentHandler(messageCode, '            '));
   }
@@ -928,6 +940,10 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   for (const rn of routeNodes) accountNode(accounted, rn, 'consumed', 'route artifact', true);
   const websocketNodes = getChildren(serverNode, 'websocket');
   for (const ws of websocketNodes) accountNode(accounted, ws, 'consumed', 'websocket handler', true);
+  const hasHealthRoute = routeNodes.some((routeNode) => {
+    const props = getProps(routeNode);
+    return String(props.path || '/') === '/health' && String(props.method || 'get').toLowerCase() === 'get';
+  });
 
   const isStrict = !_config || (_config.fastapi?.security ?? 'strict') === 'strict';
   const corsEnabled = _config?.fastapi?.cors ?? false;
@@ -972,12 +988,14 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   })) {
     serverImports.add('from fastapi import HTTPException');
   }
+  if (isStrict) serverImports.add('import logging');
   serverImports.add('import uvicorn');
 
   // Config-level cors/gzip
   if (corsEnabled) {
+    if (isStrict) serverImports.add('import os');
     serverImports.add('from fastapi.middleware.cors import CORSMiddleware');
-    middlewareLines.push('app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])');
+    middlewareLines.push(buildCorsMiddlewareLine(isStrict));
   }
   if (gzipEnabled) {
     serverImports.add('from fastapi.middleware.gzip import GZipMiddleware');
@@ -986,7 +1004,10 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
 
   // IR-level middleware
   for (const middlewareNode of serverMiddlewares) {
-    const usage = resolveMiddlewareUsage(middlewareNode, middlewareArtifacts);
+    if (isStrict && String(getProps(middlewareNode).name || '') === 'cors') {
+      serverImports.add('import os');
+    }
+    const usage = resolveMiddlewareUsage(middlewareNode, middlewareArtifacts, isStrict);
     if (usage.importLine) serverImports.add(usage.importLine);
     middlewareLines.push(usage.addLine);
   }
@@ -1008,10 +1029,18 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
         `from jose import JWTError, jwt`,
         `import os`,
         ``,
-        `JWT_SECRET = os.environ.get("JWT_SECRET", "change-me-in-production")`,
-        `JWT_ALGORITHM = "HS256"`,
+        ...(isStrict
+          ? [
+              `JWT_SECRET = os.environ.get("JWT_SECRET")`,
+              ``,
+              `if not JWT_SECRET:`,
+              `    raise RuntimeError("JWT_SECRET environment variable is required in strict mode")`,
+            ]
+          : [`JWT_SECRET = os.environ.get("JWT_SECRET", "change-me-in-production")`]),
+        `JWT_ALGORITHM = os.environ.get("JWT_ALGORITHM", "HS256")`,
         ``,
         `security = HTTPBearer()`,
+        `security_optional = HTTPBearer(auto_error=False)`,
         ``,
         ``,
         `async def auth_required(`,
@@ -1025,7 +1054,7 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
         ``,
         ``,
         `async def auth_optional(`,
-        `    credentials: HTTPAuthorizationCredentials | None = Depends(security),`,
+        `    credentials: HTTPAuthorizationCredentials | None = Depends(security_optional),`,
         `) -> dict | None:`,
         `    if not credentials:`,
         `        return None`,
@@ -1154,6 +1183,14 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     lines.push('');
   }
 
+  // Health check — before user routes so it can't be shadowed by catch-all
+  if (isStrict && !hasHealthRoute) {
+    lines.push('@app.get("/health")');
+    lines.push('async def health_check():');
+    lines.push('    return {"status": "ok"}');
+    lines.push('');
+  }
+
   // Router includes
   for (const route of routeArtifacts) {
     lines.push(`app.include_router(${route.routerName})`);
@@ -1176,6 +1213,7 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     lines.push('@app.exception_handler(Exception)');
     lines.push('async def global_exception_handler(request, exc):');
     lines.push('    from fastapi.responses import JSONResponse');
+    lines.push('    logging.exception("Unhandled exception")');
     lines.push('    return JSONResponse(status_code=500, content={"error": "Internal Server Error"})');
   } else {
     lines.push('');
@@ -1188,8 +1226,9 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   lines.push('');
   lines.push('');
   lines.push('if __name__ == "__main__":');
+  const uvicornTarget = uvicornReload || (uvicornWorkers !== undefined && uvicornWorkers > 1) ? '"main:app"' : 'app';
   const uvicornOpts: string[] = [
-    `app`,
+    uvicornTarget,
     `host="${uvicornHost}"`,
     `port=${port}`,
   ];

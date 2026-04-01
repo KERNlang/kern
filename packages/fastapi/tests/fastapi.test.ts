@@ -480,6 +480,54 @@ describe('FastAPI Transpiler', () => {
       expect(result.code).toContain('str(exc)');
     });
 
+    test('strict mode hardens auth, cors, websocket parsing, health checks, and exception logging', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { resolveConfig } = await import('../../core/src/config.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const config = resolveConfig({ target: 'fastapi' as any, fastapi: { cors: true } } as any);
+      const source = [
+        'server name=Test',
+        '  route GET /api/private',
+        '    auth optional',
+        '    handler <<<',
+        '      return {"ok": True}',
+        '    >>>',
+        '  websocket path=/ws',
+        '    on event=message',
+        '      handler <<<',
+        '        await websocket.send_json(data)',
+        '      >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source), config);
+      const authArtifact = result.artifacts?.find(a => a.path === 'auth.py');
+      const wsArtifact = result.artifacts?.find(a => a.type === 'websocket');
+
+      expect(result.code).toContain('import logging');
+      expect(result.code).toContain('import os');
+      expect(result.code).toContain('allow_origins=[origin.strip() for origin in os.environ.get("CORS_ORIGINS", "").split(",") if origin.strip()]');
+      expect(result.code).toContain('@app.get("/health")');
+      expect(result.code).toContain('logging.exception("Unhandled exception")');
+      expect(authArtifact?.content).toContain('JWT_SECRET = os.environ.get("JWT_SECRET")');
+      expect(authArtifact?.content).toContain('raise RuntimeError("JWT_SECRET environment variable is required in strict mode")');
+      expect(authArtifact?.content).toContain('security_optional = HTTPBearer(auto_error=False)');
+      expect(authArtifact?.content).toContain('Depends(security_optional)');
+      expect(wsArtifact?.content).toContain('import json');
+      expect(wsArtifact?.content).toContain('data = json.loads(await websocket.receive_text())');
+      expect(wsArtifact?.content).toContain('except json.JSONDecodeError:');
+    });
+
+    test('reload uses uvicorn string app path', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { resolveConfig } = await import('../../core/src/config.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const config = resolveConfig({ target: 'fastapi' as any, fastapi: { security: 'relaxed', uvicorn: { reload: true } } } as any);
+      const ast = parse('server name=Test\n  route method=get path=/health\n    handler <<<\n      return {"ok": True}\n    >>>');
+      const result = transpileFastAPI(ast, config);
+
+      expect(result.code).toContain('uvicorn.run("main:app"');
+      expect(result.code).toContain('reload=True');
+    });
+
     test('custom middleware generates BaseHTTPMiddleware artifact', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
@@ -615,7 +663,7 @@ describe('FastAPI Transpiler', () => {
       expect(content).toContain('await websocket.accept()');
       expect(content).toContain('await websocket.send_json({"type": "welcome"})');
       expect(content).toContain('while True:');
-      expect(content).toContain('await websocket.receive_json()');
+      expect(content).toContain('data = json.loads(await websocket.receive_text())');
       expect(content).toContain('await broadcast(data)');
       expect(content).toContain('except WebSocketDisconnect:');
       expect(content).toContain('print("client left")');

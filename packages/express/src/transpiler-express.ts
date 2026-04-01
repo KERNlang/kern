@@ -479,7 +479,10 @@ function resolveMiddlewareUsage(
   const name = String(props.name || 'middleware');
 
   if (name === 'cors') {
-    return { importLine: `import cors from 'cors';`, invocation: 'cors()' };
+    const invocation = securityLevel === 'strict'
+      ? `cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true })`
+      : 'cors()';
+    return { importLine: `import cors from 'cors';`, invocation };
   }
 
   if (name === 'json') {
@@ -669,6 +672,7 @@ function buildRouteArtifact(
   routeIndex: number,
   middlewareArtifacts: Map<string, MiddlewareArtifactRef>,
   sourceMap: SourceMapEntry[],
+  securityLevel: 'strict' | 'relaxed',
 ): RouteArtifactRef {
   const props = getProps(routeNode);
   const method = String(props.method || 'get').toLowerCase();
@@ -717,16 +721,16 @@ function buildRouteArtifact(
     if (mwNames && Array.isArray(mwNames)) {
       for (const mwName of mwNames) {
         const syntheticNode: IRNode = { type: 'middleware', props: { name: mwName }, children: [] };
-        const mwUsage = resolveMiddlewareUsage(syntheticNode, middlewareArtifacts, '../');
+        const mwUsage = resolveMiddlewareUsage(syntheticNode, middlewareArtifacts, '../', securityLevel);
         if (mwUsage.importLine) routeImports.add(mwUsage.importLine);
-        if (mwUsage.invocation === 'express.json()') needsExpressDefaultImport = true;
+        if (mwUsage.invocation.startsWith('express.json(')) needsExpressDefaultImport = true;
         middlewareInvocations.push(mwUsage.invocation);
       }
       continue;
     }
-    const usage = resolveMiddlewareUsage(middlewareNode, middlewareArtifacts, '../');
+    const usage = resolveMiddlewareUsage(middlewareNode, middlewareArtifacts, '../', securityLevel);
     if (usage.importLine) routeImports.add(usage.importLine);
-    if (usage.invocation === 'express.json()') needsExpressDefaultImport = true;
+    if (usage.invocation.startsWith('express.json(')) needsExpressDefaultImport = true;
     middlewareInvocations.push(usage.invocation);
   }
 
@@ -1141,7 +1145,17 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
 
   const websocketNodes = getChildren(serverNode, 'websocket');
   for (const ws of websocketNodes) accountNode(accounted, ws, 'consumed', 'websocket handler', true);
-  const routeArtifacts = routeNodes.map((routeNode, index) => buildRouteArtifact(routeNode, index, middlewareArtifacts, sourceMap));
+  const routeArtifacts = routeNodes.map((routeNode, index) => buildRouteArtifact(
+    routeNode,
+    index,
+    middlewareArtifacts,
+    sourceMap,
+    isStrict ? 'strict' : 'relaxed',
+  ));
+  const hasHealthRoute = routeNodes.some((routeNode) => {
+    const props = getProps(routeNode);
+    return String(props.path || '/') === '/health' && String(props.method || 'get').toLowerCase() === 'get';
+  });
 
   // Auth middleware: generate real JWT implementation when any route uses auth
   const hasAuth = routeNodes.some(r => getFirstChild(r, 'auth'));
@@ -1152,7 +1166,16 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
         `import type { NextFunction, Request, Response } from 'express';`,
         `import jwt from 'jsonwebtoken';`,
         ``,
-        `const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';`,
+        ...(isStrict
+          ? [
+              `const JWT_SECRET = process.env.JWT_SECRET;`,
+              ``,
+              `if (!JWT_SECRET) {`,
+              `  throw new Error('JWT_SECRET environment variable is required in strict mode');`,
+              `}`,
+            ]
+          : [`const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';`]),
+        `const JWT_ALGORITHM = process.env.JWT_ALGORITHM || 'HS256';`,
         ``,
         `export interface AuthUser {`,
         `  id: string;`,
@@ -1174,7 +1197,7 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
         `    return;`,
         `  }`,
         `  try {`,
-        `    const payload = jwt.verify(header.slice(7), JWT_SECRET) as AuthUser;`,
+        `    const payload = jwt.verify(header.slice(7), JWT_SECRET, { algorithms: [JWT_ALGORITHM] }) as AuthUser;`,
         `    req.user = payload;`,
         `    next();`,
         `  } catch {`,
@@ -1186,7 +1209,7 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
         `  const header = req.headers.authorization;`,
         `  if (header?.startsWith('Bearer ')) {`,
         `    try {`,
-        `      req.user = jwt.verify(header.slice(7), JWT_SECRET) as AuthUser;`,
+        `      req.user = jwt.verify(header.slice(7), JWT_SECRET, { algorithms: [JWT_ALGORITHM] }) as AuthUser;`,
         `    } catch { /* token invalid — proceed without user */ }`,
         `  }`,
         `  next();`,
@@ -1240,6 +1263,14 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   if (serverMiddlewareInvocations.length > 0 && routeArtifacts.length > 0) {
     lines.push('');
   }
+  // Health check — before user routes so it can't be shadowed by catch-all
+  if (isStrict && !hasHealthRoute) {
+    lines.push(`app.get('/health', (_req: Request, res: Response) => {`);
+    lines.push(`  res.status(200).json({ status: 'ok' });`);
+    lines.push('});');
+    lines.push('');
+  }
+
   for (const routeArtifact of routeArtifacts) {
     lines.push(`${routeArtifact.registerName}(app);`);
   }
@@ -1305,7 +1336,13 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
       });
       lines.push('');
       lines.push(`  ws.on('message', (raw: Buffer) => {`);
-      lines.push(`    const data = JSON.parse(raw.toString());`);
+      lines.push(`    let data: any;`);
+      lines.push(`    try {`);
+      lines.push(`      data = JSON.parse(raw.toString());`);
+      lines.push(`    } catch {`);
+      lines.push(`      ws.send(JSON.stringify({ error: 'Invalid JSON payload' }));`);
+      lines.push(`      return;`);
+      lines.push(`    }`);
       if (messageNode) {
         const handlerChild = getChildren(messageNode, 'handler')[0];
         const code = handlerChild ? String(getProps(handlerChild).code || '') : '';
@@ -1360,11 +1397,36 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
     lines.push(`server.listen(port, () => {`);
     lines.push(`  console.log(\`\${serverName} listening on port \${port}\`);`);
     lines.push('});');
+    lines.push(`const shutdown = (signal: string) => {`);
+    lines.push(`  console.log(\`\${signal} received, shutting down gracefully...\`);`);
+    for (const wsNode of websocketNodes) {
+      const wsName = String(getProps(wsNode).name || 'ws');
+      lines.push(`  ${wsName}Server.clients.forEach((client: WebSocket) => client.terminate());`);
+      lines.push(`  ${wsName}Server.close();`);
+    }
+    lines.push(`  server.close(() => {`);
+    lines.push(`    console.log('Server closed');`);
+    lines.push(`    process.exit(0);`);
+    lines.push(`  });`);
+    lines.push(`  setTimeout(() => { console.error('Forced shutdown'); process.exit(1); }, 30000);`);
+    lines.push(`};`);
+    lines.push(`process.on('SIGTERM', () => shutdown('SIGTERM'));`);
+    lines.push(`process.on('SIGINT', () => shutdown('SIGINT'));`);
   } else {
     lines.push('');
-    lines.push(`app.listen(port, () => {`);
+    lines.push(`const server = app.listen(port, () => {`);
     lines.push(`  console.log(\`\${serverName} listening on port \${port}\`);`);
     lines.push('});');
+    lines.push(`const shutdown = (signal: string) => {`);
+    lines.push(`  console.log(\`\${signal} received, shutting down gracefully...\`);`);
+    lines.push(`  server.close(() => {`);
+    lines.push(`    console.log('Server closed');`);
+    lines.push(`    process.exit(0);`);
+    lines.push(`  });`);
+    lines.push(`  setTimeout(() => { console.error('Forced shutdown'); process.exit(1); }, 30000);`);
+    lines.push(`};`);
+    lines.push(`process.on('SIGTERM', () => shutdown('SIGTERM'));`);
+    lines.push(`process.on('SIGINT', () => shutdown('SIGINT'));`);
   }
   lines.push('');
   lines.push('export default app;');

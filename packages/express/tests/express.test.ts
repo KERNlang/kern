@@ -13,7 +13,7 @@ describe('Express Transpiler', () => {
 
     expect(result.code).toContain(`import { verifyToken } from './middleware/auth.js';`);
     expect(result.code).toContain(`import { registerGetApiTracksRoute } from './routes/get-api-tracks.js';`);
-    expect(result.code).toContain('app.use(cors());');
+    expect(result.code).toContain(`app.use(cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true }));`);
     expect(result.code).toContain(`app.use(express.json({ limit: '1mb' }));`);
     expect(result.artifacts).toBeDefined();
     expect(result.artifacts?.some((artifact: any) => artifact.path === 'routes/post-api-tracks-analyze.ts')).toBe(true);
@@ -157,6 +157,38 @@ describe('Express Transpiler', () => {
       expect(result.code).toContain('app.use(helmet())');
       expect(result.code).toContain('// Dependencies: helmet');
     });
+
+    test('strict mode hardens auth, cors, websocket parsing, health checks, and shutdown', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileExpress } = await import('../src/transpiler-express.js');
+      const source = [
+        'server name=Test',
+        '  middleware name=cors',
+        '  route GET /api/private',
+        '    auth required',
+        '    handler <<<',
+        '      res.json({ ok: true });',
+        '    >>>',
+        '  websocket path=/ws',
+        '    on event=message',
+        '      handler <<<',
+        '        ws.send(JSON.stringify(data));',
+        '      >>>',
+      ].join('\n');
+      const result = transpileExpress(parse(source));
+      const authArtifact = result.artifacts?.find((artifact: any) => artifact.path === 'middleware/auth.ts');
+
+      expect(result.code).toContain(`app.use(cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true }));`);
+      expect(result.code).toContain(`app.get('/health'`);
+      expect(result.code).toContain(`let data: any;`);
+      expect(result.code).toContain(`ws.send(JSON.stringify({ error: 'Invalid JSON payload' }));`);
+      expect(result.code).toContain(`process.on('SIGTERM', () => shutdown('SIGTERM'));`);
+      expect(result.code).toContain(`process.on('SIGINT', () => shutdown('SIGINT'));`);
+      expect(authArtifact?.content).toContain(`const JWT_SECRET = process.env.JWT_SECRET;`);
+      expect(authArtifact?.content).toContain(`throw new Error('JWT_SECRET environment variable is required in strict mode');`);
+      expect(authArtifact?.content).toContain(`const JWT_ALGORITHM = process.env.JWT_ALGORITHM || 'HS256';`);
+      expect(authArtifact?.content).toContain(`jwt.verify(header.slice(7), JWT_SECRET, { algorithms: [JWT_ALGORITHM] })`);
+    });
   });
 
   describe('Route v3 — framework-agnostic syntax', () => {
@@ -274,8 +306,8 @@ describe('Express Transpiler', () => {
       ].join('\n');
       const result = transpileExpress(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
-      // cors should be resolved to cors() with import
-      expect(route!.content).toContain('cors()');
+      // strict mode should resolve cors with env-driven origins
+      expect(route!.content).toContain(`cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true })`);
       expect(route!.content).toContain("import cors from 'cors'");
       // rateLimit is now a built-in — resolved to express-rate-limit import + invocation
       expect(route!.content).toContain('rateLimit(');
@@ -316,8 +348,8 @@ describe('Express Transpiler', () => {
       expect(getUsersRoute!.content).toContain('validate(UserQuerySchema)');
       expect(getUsersRoute!.content).toContain('Number(req.query.page)');
       expect(getUsersRoute!.content).toContain(': 1;');
-      // Bare middleware cors should resolve to cors() with import
-      expect(getUsersRoute!.content).toContain('cors()');
+      // Bare middleware cors should resolve to strict env-driven cors with import
+      expect(getUsersRoute!.content).toContain(`cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true })`);
       expect(getUsersRoute!.content).toContain("import cors from 'cors'");
 
       const postUsersRoute = result.artifacts!.find((a: any) => a.path.includes('post-api-users'));
