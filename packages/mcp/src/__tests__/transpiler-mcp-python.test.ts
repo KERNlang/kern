@@ -386,31 +386,107 @@ function runPythonMCP(code: string, messages: object[], timeoutMs = 5000): Promi
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, PYTHONUNBUFFERED: '1' },
     });
-    let stdout = '';
     let stderr = '';
+    let stdoutBuffer = '';
+    const responses: MCPResponse[] = [];
+    let settled = false;
+    let timer: NodeJS.Timeout | undefined;
 
-    cp.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    const requestIds = messages.flatMap((msg) => {
+      const id = (msg as { id?: unknown }).id;
+      return typeof id === 'number' ? [id] : [];
+    });
+    const initRequest = messages.find((msg) => (msg as { method?: unknown }).method === 'initialize');
+    const initializedNotification = messages.find((msg) => (msg as { method?: unknown }).method === 'notifications/initialized');
+    const followupMessages = messages.filter(msg => msg !== initRequest && msg !== initializedNotification);
+    const initId = typeof (initRequest as { id?: unknown } | undefined)?.id === 'number'
+      ? (initRequest as { id: number }).id
+      : undefined;
+    let postInitSent = initRequest === undefined;
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+    };
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (!cp.killed) cp.kill();
+      rmSync(dir, { recursive: true, force: true });
+      resolve({ responses, stderr });
+    };
+
+    const armTimeout = () => {
+      cleanup();
+      timer = setTimeout(finish, timeoutMs);
+    };
+
+    const maybeFinish = () => {
+      if (requestIds.every(id => responses.some(response => response.id === id))) {
+        finish();
+      }
+    };
+
+    const sendMessage = (msg: object) => {
+      cp.stdin.write(JSON.stringify(msg) + '\n');
+    };
+
+    const sendPostInit = () => {
+      if (postInitSent) return;
+      postInitSent = true;
+      if (initializedNotification) sendMessage(initializedNotification);
+      for (const msg of followupMessages) {
+        sendMessage(msg);
+      }
+      armTimeout();
+      maybeFinish();
+    };
+
+    cp.stdout.on('data', (d: Buffer) => {
+      stdoutBuffer += d.toString();
+      let newlineIndex = stdoutBuffer.indexOf('\n');
+      while (newlineIndex >= 0) {
+        const line = stdoutBuffer.slice(0, newlineIndex).trim();
+        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
+        if (line) {
+          try {
+            const response = JSON.parse(line) as MCPResponse;
+            responses.push(response);
+            if (initId !== undefined && !postInitSent && response.id === initId) {
+              sendPostInit();
+            }
+            maybeFinish();
+          } catch {
+            // Ignore non-JSON stdout noise from subprocess startup.
+          }
+        }
+        newlineIndex = stdoutBuffer.indexOf('\n');
+      }
+    });
     cp.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
 
-    for (const msg of messages) {
-      cp.stdin.write(JSON.stringify(msg) + '\n');
-    }
-
-    setTimeout(() => {
-      cp.kill();
-      rmSync(dir, { recursive: true, force: true });
-      const responses = stdout
-        .split('\n')
-        .filter(Boolean)
-        .map(line => { try { return JSON.parse(line) as MCPResponse; } catch { return null; } })
-        .filter((r): r is MCPResponse => r !== null);
-      resolve({ responses, stderr });
-    }, timeoutMs);
+    cp.on('close', () => {
+      if (!settled) finish();
+    });
 
     cp.on('error', (err) => {
-      rmSync(dir, { recursive: true, force: true });
+      if (!settled) {
+        cleanup();
+        rmSync(dir, { recursive: true, force: true });
+      }
       reject(err);
     });
+
+    if (initRequest) {
+      sendMessage(initRequest);
+      armTimeout();
+    } else {
+      for (const msg of messages) {
+        sendMessage(msg);
+      }
+      armTimeout();
+    }
   });
 }
 
