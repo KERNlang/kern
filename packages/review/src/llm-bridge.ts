@@ -58,8 +58,8 @@ export interface LLMBridgeConfig {
   apiKey?: string;
   model?: string;
   baseUrl?: string;
-  timeout?: number;      // ms, default 30000
-  maxTokens?: number;    // default 4096
+  timeout?: number;      // ms, default 60000
+  maxTokens?: number;    // default 16384
 }
 
 function resolveConfig(override?: LLMBridgeConfig): Required<LLMBridgeConfig> & { available: boolean } {
@@ -157,8 +157,23 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-/** Max input tokens per batch — leave headroom for output. */
-const MAX_BATCH_TOKENS = 80_000;
+/** Estimate total tokens for an input including all context that reviewBatch will add. */
+function estimateInputTokens(input: LLMReviewInput, cachedIR: string): number {
+  const SYSTEM_PROMPT_TOKENS = 2500; // ~2000-2500 tokens for the system prompt
+  const OVERHEAD_TOKENS = 500;       // XML wrappers, joins, tags
+  let tokens = SYSTEM_PROMPT_TOKENS + OVERHEAD_TOKENS;
+  tokens += estimateTokens(cachedIR);
+  if (input.source) tokens += estimateTokens(input.source);
+  if (input.taintResults) tokens += estimateTokens(JSON.stringify(input.taintResults));
+  if (input.staticFindings) tokens += estimateTokens(JSON.stringify(input.staticFindings));
+  return tokens;
+}
+
+/** Max input tokens per batch. Conservative — leaves room for output + overhead. */
+const MAX_BATCH_TOKENS = 60_000;
+
+/** Max tokens for a single file. Files above this are skipped with a warning finding. */
+const MAX_SINGLE_FILE_TOKENS = 100_000;
 
 export async function runLLMReview(
   inputs: LLMReviewInput[],
@@ -167,45 +182,72 @@ export async function runLLMReview(
   const config = resolveConfig(configOverride);
   if (!config.available) return [];
 
-  try {
-    const allFindings: ReviewFinding[] = [];
+  const allFindings: ReviewFinding[] = [];
 
-    // Size-aware batching: group inputs by estimated token count
-    const batches: LLMReviewInput[][] = [];
-    let currentBatch: LLMReviewInput[] = [];
-    let currentTokens = 0;
-
-    for (const input of inputs) {
-      const inputTokens = estimateTokens(input.source || '') + estimateTokens(
-        buildLLMPrompt(input.inferred, input.templateMatches, input.graphContext),
-      );
-      // Start new batch if adding this input would exceed budget
-      if (currentBatch.length > 0 && currentTokens + inputTokens > MAX_BATCH_TOKENS) {
-        batches.push(currentBatch);
-        currentBatch = [];
-        currentTokens = 0;
-      }
-      currentBatch.push(input);
-      currentTokens += inputTokens;
-    }
-    if (currentBatch.length > 0) batches.push(currentBatch);
-
-    for (const batch of batches) {
-      const findings = await reviewBatch(batch, config);
-      allFindings.push(...findings);
-    }
-
-    return allFindings;
-  } catch (_err) {
-    // LLM API failures should not crash the review pipeline
-    void _err;
-    return [];
+  // Pre-compute IR for each input (used for both estimation and prompt building)
+  const irCache = new Map<LLMReviewInput, string>();
+  for (const input of inputs) {
+    irCache.set(input, buildLLMPrompt(input.inferred, input.templateMatches, input.graphContext));
   }
+
+  // Size-aware batching: group inputs by estimated token count
+  const batches: LLMReviewInput[][] = [];
+  let currentBatch: LLMReviewInput[] = [];
+  let currentTokens = 0;
+
+  for (const input of inputs) {
+    const inputTokens = estimateInputTokens(input, irCache.get(input)!);
+
+    // Skip files that are too large for any single API call
+    if (inputTokens > MAX_SINGLE_FILE_TOKENS) {
+      allFindings.push({
+        source: 'llm',
+        ruleId: 'llm-skipped',
+        severity: 'info',
+        category: 'structure',
+        message: `File too large for LLM review (~${Math.round(inputTokens / 1000)}K tokens). Consider splitting.`,
+        primarySpan: { file: input.filePath, startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
+        fingerprint: `llm-skipped-${input.filePath}`,
+      });
+      continue;
+    }
+
+    // Start new batch if adding this input would exceed budget
+    if (currentBatch.length > 0 && currentTokens + inputTokens > MAX_BATCH_TOKENS) {
+      batches.push(currentBatch);
+      currentBatch = [];
+      currentTokens = 0;
+    }
+    currentBatch.push(input);
+    currentTokens += inputTokens;
+  }
+  if (currentBatch.length > 0) batches.push(currentBatch);
+
+  // Process batches — errors in one batch don't discard findings from others
+  for (const batch of batches) {
+    try {
+      const findings = await reviewBatch(batch, config, irCache);
+      allFindings.push(...findings);
+    } catch (err) {
+      allFindings.push({
+        source: 'llm',
+        ruleId: 'llm-error',
+        severity: 'info',
+        category: 'bug',
+        message: `LLM batch failed: ${(err as Error).message}`,
+        primarySpan: { file: batch[0]?.filePath || '', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
+        fingerprint: `llm-error-batch-${batch[0]?.filePath || ''}`,
+      });
+    }
+  }
+
+  return allFindings;
 }
 
 async function reviewBatch(
   inputs: LLMReviewInput[],
   config: Required<LLMBridgeConfig>,
+  irCache?: Map<LLMReviewInput, string>,
 ): Promise<ReviewFinding[]> {
   const allFindings: ReviewFinding[] = [];
 
@@ -215,7 +257,7 @@ async function reviewBatch(
   const hasSource = inputs.some(i => i.source);
 
   for (const input of inputs) {
-    const prompt = buildLLMPrompt(input.inferred, input.templateMatches, input.graphContext);
+    const prompt = irCache?.get(input) ?? buildLLMPrompt(input.inferred, input.templateMatches, input.graphContext);
     parts.push(`<kern-file path="${sanitizeFilePath(input.filePath)}">\n${prompt}\n</kern-file>`);
     allInferred.push(...input.inferred);
 
