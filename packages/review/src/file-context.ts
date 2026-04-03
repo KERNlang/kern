@@ -23,12 +23,10 @@ function classifyEntryPoint(filePath: string): RuntimeBoundary {
   if (/\/api\//.test(lower)) return 'api';
   if (/\/middleware\.(ts|tsx|js|jsx)$/.test(lower)) return 'middleware';
 
-  // Check for 'use client' / 'use server' directives
+  // Check for 'use client' directive
   try {
     const source = readFileSync(filePath, 'utf-8');
     if (/^['"]use client['"];?\s*$/m.test(source.substring(0, 200))) return 'client';
-    // Server actions handle user input — classify as 'api' boundary
-    if (/^['"]use server['"];?\s*$/m.test(source.substring(0, 200))) return 'api';
   } catch { /* can't read — fall through */ }
 
   // Next.js: page.tsx, layout.tsx, loading.tsx, error.tsx, template.tsx = server by default
