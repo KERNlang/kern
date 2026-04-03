@@ -416,7 +416,12 @@ OUTPUT FORMAT:
 - Include specific evidence — quote the relevant code from the IR.
 - For bugs, explain the IMPACT (what goes wrong, for whom, when).
 - Prioritize: bugs > security > error handling > data flow > concurrency > API contracts.
-- Use the Read tool to check original source files when the IR summary is insufficient.`;
+- Use the Read tool to check original source files when the IR summary is insufficient.
+
+If <kern-diff> is present, PRIORITIZE reviewing semantic changes:
+- guard-removed and error-handling-removed are HIGH PRIORITY — verify the removal was intentional.
+- effect-added means new I/O — check for missing error handling and validation.
+- param-changed may break callers — check all call sites.`;
   }
 
   if (hasInlineSource) {

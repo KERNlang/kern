@@ -28,6 +28,8 @@ import { runTSCDiagnostics } from './external-tools.js';
 import { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { runConceptRules } from './concept-rules/index.js';
+import { mineNorms } from './norm-miner.js';
+import { synthesizeObligations } from './obligations.js';
 import { lintConfidenceGraph } from './rules/confidence.js';
 import { lintKernIR, flattenIR } from './kern-lint.js';
 import { loadBuiltinNativeRules, loadNativeRules } from './rule-loader.js';
@@ -46,8 +48,6 @@ try {
 import { buildConfidenceGraph, serializeGraph, computeConfidenceSummary } from './confidence.js';
 import { analyzeTaint, taintToFindings, analyzeTaintCrossFile, crossFileTaintToFindings } from './taint.js';
 import { applySuppression } from './suppression/index.js';
-import { mineNorms } from './norm-miner.js';
-import { synthesizeObligations } from './obligations.js';
 import type { ReviewReport, InferResult, TemplateMatch, ReviewConfig, EnforceResult, ReviewFinding, SourceSpan } from './types.js';
 import { createFingerprint } from './types.js';
 
@@ -75,6 +75,12 @@ export { runESLint, runTSCDiagnostics, runTSCDiagnosticsFromPaths, linkToNodes }
 export { extractTsConcepts } from './mappers/ts-concepts.js';
 export { runConceptRules } from './concept-rules/index.js';
 export type { ConceptRule, ConceptRuleContext } from './concept-rules/index.js';
+
+// Norm mining + obligations
+export { mineNorms } from './norm-miner.js';
+export type { NormViolation } from './norm-miner.js';
+export { synthesizeObligations, obligationsFromStructure, obligationsFromNorms } from './obligations.js';
+export type { ProofObligation, ObligationType } from './obligations.js';
 
 // Suppression
 export { applySuppression, parseDirectives, configDirectives, isConceptRule } from './suppression/index.js';
@@ -112,12 +118,6 @@ export type { TaintSource, TaintSink, TaintPath, TaintResult, CrossFileTaintResu
 // LLM bridge (Phase 3)
 export { runLLMReview, isLLMAvailable, buildReviewInstructions } from './llm-bridge.js';
 export type { LLMBridgeConfig, LLMReviewInput, ReviewInstructionOptions } from './llm-bridge.js';
-
-// Norm mining + proof obligations
-export { mineNorms } from './norm-miner.js';
-export type { NormProfile, NormViolation, MineNormsResult } from './norm-miner.js';
-export { synthesizeObligations } from './obligations.js';
-export type { ProofObligation } from './obligations.js';
 
 // Semantic diff
 export { computeSemanticDiff, computeSemanticDiffFromSource, semanticChangesToFindings, getOldFileContent, formatSemanticDiff } from './semantic-diff.js';
@@ -616,7 +616,7 @@ export function reviewGraph(
         callerReport.findings.push(f);
       }
     }
-    // Also attach raw cross-file taint results for structured output
+    // Attach raw cross-file taint results for structured output
     for (const result of crossFileResults) {
       const callerReport = reports.find(r => r.filePath === result.callerFile);
       if (callerReport) {
@@ -663,6 +663,16 @@ export function reviewGraph(
   // Note: server-hook / missing-use-client client boundary suppression is now handled
   // by FileContext in the rules themselves (ctx.fileContext.isClientBoundary).
 
+  // ── Norm mining + proof obligations ──
+  if (allConcepts.size > 0) {
+    const normViolations = mineNorms(allConcepts);
+    for (const report of reports) {
+      const obligations = synthesizeObligations(allConcepts, fileContextMap, report.filePath, normViolations);
+      // Attach obligations to the report (as metadata, not findings — they're for the LLM reviewer)
+      (report as any).obligations = obligations;
+    }
+  }
+
   // ── Call graph analysis: dead exports + cross-file async ──
   try {
     // Use provided project, or build one with all graph files loaded
@@ -687,40 +697,6 @@ export function reviewGraph(
 
       const asyncFindings = crossFileAsyncRule(callGraph, report.filePath);
       report.findings.push(...asyncFindings);
-    }
-
-    // ── Norm mining + proof obligations ──
-    if (allConcepts.size > 0) {
-      try {
-        const { violations } = mineNorms(allConcepts, inferredPerFile, fileContextMap, callGraph);
-
-        const violationsByFile = new Map<string, import('./norm-miner.js').NormViolation[]>();
-        for (const v of violations) {
-          let arr = violationsByFile.get(v.filePath);
-          if (!arr) {
-            arr = [];
-            violationsByFile.set(v.filePath, arr);
-          }
-          arr.push(v);
-        }
-
-        for (const report of reports) {
-          const fileViolations = violationsByFile.get(report.filePath) ?? [];
-          const taintResults = analyzeTaint(report.inferred, report.filePath);
-          const obligations = synthesizeObligations(
-            fileViolations,
-            taintResults,
-            callGraph,
-            allConcepts,
-            report.filePath,
-          );
-          if (obligations.length > 0) {
-            report.obligations = obligations;
-          }
-        }
-      } catch {
-        // Norm mining failure should not crash the review pipeline
-      }
     }
   } catch {
     // Call graph build failure should not crash the review pipeline

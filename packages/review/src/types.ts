@@ -157,6 +157,8 @@ export interface ReviewReport {
   confidenceSummary?: import('./confidence.js').ConfidenceSummary;
   /** Proof obligations for AI verification (present in graph mode) */
   obligations?: import('./obligations.js').ProofObligation[];
+  /** Semantic changes between old and new versions (present in --diff mode) */
+  semanticChanges?: import('./semantic-diff.js').SemanticChange[];
 }
 
 /** Summary statistics for a review */

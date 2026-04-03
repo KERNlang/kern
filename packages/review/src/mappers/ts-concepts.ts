@@ -640,6 +640,77 @@ function extractFunctionDeclarations(sf: SourceFile, filePath: string, nodes: Co
       },
     });
   }
+
+  // Express route handler arrow/function callbacks: router.get('/path', async (req, res) => { ... })
+  // These are NOT assigned to named variables, so the block above misses them.
+  // We synthesize a function name from the HTTP method + route path.
+  extractExpressCallbacks(sf, filePath, nodes);
+}
+
+// ── Express route handler callbacks ──────────────────────────────────────
+
+const EXPRESS_ROUTE_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch', 'use', 'all']);
+
+function extractExpressCallbacks(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
+  // Track offsets already emitted as function_declaration to avoid duplicates
+  const emittedOffsets = new Set<number>();
+  for (const n of nodes) {
+    if (n.kind === 'function_declaration') emittedOffsets.add(n.primarySpan.startLine);
+  }
+
+  for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) continue;
+    const pa = callee as import('ts-morph').PropertyAccessExpression;
+    const methodName = pa.getName();
+    if (!EXPRESS_ROUTE_METHODS.has(methodName)) continue;
+
+    const objText = pa.getExpression().getText();
+    if (!/app|router|server/i.test(objText)) continue;
+
+    const args = call.getArguments();
+    if (args.length < 2) continue;
+
+    // Extract route path from first argument (string literal)
+    let routePath: string | undefined;
+    if (args[0].getKind() === SyntaxKind.StringLiteral) {
+      routePath = (args[0] as import('ts-morph').StringLiteral).getLiteralValue();
+    }
+
+    // Check all arguments after the first for arrow functions / function expressions
+    for (let i = 1; i < args.length; i++) {
+      const arg = args[i];
+      const argKind = arg.getKind();
+      if (argKind !== SyntaxKind.ArrowFunction && argKind !== SyntaxKind.FunctionExpression) continue;
+
+      const fn = arg as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression;
+      const offset = fn.getStart();
+
+      // Skip if already emitted (e.g., assigned to a variable first)
+      if (emittedOffsets.has(fn.getStartLineNumber())) continue;
+
+      const syntheticName = `${methodName.toUpperCase()}_${routePath || '/'}`;
+      const isAsync = (fn as any).isAsync?.() ?? /^async\s/.test(fn.getText());
+
+      nodes.push({
+        id: conceptId(filePath, 'function_declaration', offset),
+        kind: 'function_declaration',
+        primarySpan: span(filePath, fn),
+        evidence: `${isAsync ? 'async ' : ''}${syntheticName}`,
+        confidence: 0.85,
+        language: 'ts',
+        containerId: getContainerId(fn, filePath),
+        payload: {
+          kind: 'function_declaration',
+          name: syntheticName,
+          async: isAsync,
+          hasAwait: isAsync ? hasAwaitInBody(fn) : false,
+          isComponent: false,
+          isExport: false,
+        },
+      });
+    }
+  }
 }
 
 // ── dependency edges ─────────────────────────────────────────────────────
