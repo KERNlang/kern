@@ -7,8 +7,36 @@
 
 import { SyntaxKind } from 'ts-morph';
 import { countTokens } from '@kernlang/core';
-import type { ReviewFinding, RuleContext } from '../types.js';
-import { span, finding } from './utils.js';
+import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
+import { createFingerprint } from '../types.js';
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+function span(file: string, line: number, col = 1, endLine?: number, endCol?: number): SourceSpan {
+  return { file, startLine: line, startCol: col, endLine: endLine ?? line, endCol: endCol ?? col };
+}
+
+function finding(
+  ruleId: string,
+  severity: 'error' | 'warning' | 'info',
+  category: ReviewFinding['category'],
+  message: string,
+  file: string,
+  line: number,
+  col = 1,
+  extra?: Partial<ReviewFinding>,
+): ReviewFinding {
+  return {
+    source: 'kern',
+    ruleId,
+    severity,
+    category,
+    message,
+    primarySpan: span(file, line, col),
+    fingerprint: createFingerprint(ruleId, line, col),
+    ...extra,
+  };
+}
 
 // ── Rule 1: floating-promise ─────────────────────────────────────────────
 // fn body with call returning Promise but no await/void/return
@@ -186,7 +214,7 @@ function emptyCatch(ctx: RuleContext): ReviewFinding[] {
     const stmts = block.getStatements();
     if (stmts.length === 0) {
       const blockText = block.getText();
-      if (/\/[/*]\s*(Intentional|Expected|@suppress|eslint-disable)/.test(blockText)) continue;
+      if (/\/[/*].*?(Intentional|Expected|@suppress|eslint-disable|fall[\s-]?through|ignore[d]?|ok to ignore)/i.test(blockText)) continue;
       const line = stmt.getStartLineNumber();
       // Build autofix: insert console.error into empty catch block
       const catchParam = stmt.getVariableDeclaration()?.getName() || 'error';

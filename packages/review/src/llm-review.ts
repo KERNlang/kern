@@ -124,17 +124,7 @@ export function buildLLMPrompt(
     lines.push('');
     lines.push('<kern-obligations>');
     for (const o of obligations) {
-      lines.push(`  [${o.id}] (${o.type}) L${o.line}: ${o.claim}`);
-      if (o.evidence_for.length > 0) {
-        lines.push(`    Evidence FOR: ${o.evidence_for.join('; ')}`);
-      }
-      if (o.evidence_against.length > 0) {
-        lines.push(`    Evidence AGAINST: ${o.evidence_against.join('; ')}`);
-      }
-      if (o.prevalence !== undefined) {
-        lines.push(`    Peer prevalence: ${Math.round(o.prevalence * 100)}%`);
-      }
-      lines.push(`    Check: ${o.suggested_check}`);
+      lines.push(`  (${o.type}) ${o.functionName} L${o.line}: ${o.claim}`);
     }
     lines.push('</kern-obligations>');
   }
