@@ -30,7 +30,7 @@ describe('obligations e2e — norm mining pipeline', () => {
   });
 
   it('synthesizeObligations handles empty inputs', () => {
-    const obligations = synthesizeObligations([], [], undefined, new Map(), '/test.ts');
+    const obligations = synthesizeObligations(new Map(), undefined, '/test.ts', []);
     expect(obligations).toEqual([]);
   });
 });
