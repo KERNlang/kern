@@ -14,7 +14,7 @@ import { transpileCliApp } from './transpiler-cli.js';
 import { transpileTerminal, transpileInk } from '@kernlang/terminal';
 import { transpileVue, transpileNuxt } from '@kernlang/vue';
 import { collectLanguageMetrics } from '@kernlang/metrics';
-import { reviewFile, reviewGraph, resolveImportGraph, formatReport, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes, runLLMReview, isLLMAvailable, analyzeTaint, checkSpecFiles, specViolationsToFindings, clearReviewCache, getRuleRegistry } from '@kernlang/review';
+import { reviewFile, reviewGraph, resolveImportGraph, formatReport, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, dedup, runESLint, runTSCDiagnosticsFromPaths, linkToNodes, runLLMReview, isLLMAvailable, analyzeTaint, checkSpecFiles, specViolationsToFindings, clearReviewCache, getRuleRegistry, buildReviewInstructions } from '@kernlang/review';
 import type { ReviewConfig, ReviewFinding, LLMReviewInput } from '@kernlang/review';
 import { evolve, loadBuiltinDetectors, listStaged, getStaged, updateStagedStatus, promoteLocal, cleanRejected, formatSplitView, loadEvolvedNodes, runGoldenTests, formatGoldenTestResults, rollbackNode, restoreNode, readEvolvedManifest, buildDiscoveryPrompt, parseDiscoveryResponse, selectRepresentativeFiles, collectTsFiles, estimateTokens, createLLMProvider, TokenBudget, validateEvolveProposal, graduateNode, compileCodegenToJS, stageEvolveV4Proposal, listStagedEvolveV4, getStagedEvolveV4, updateStagedEvolveV4Status, cleanRejectedEvolveV4, cleanApprovedEvolveV4, formatEvolveV4SplitView, promoteNode, pruneNodes, detectCollisions, renameEvolvedNode, readNodeDefinition, buildBackfillPrompt, buildRetryPrompt, rebuildEvolvedManifest } from '@kernlang/evolve';
 import type { EvolveOptions, LLMProviderOptions } from '@kernlang/evolve';
@@ -889,20 +889,13 @@ async function runReviewPipeline(
       // Fall through to normal output (don't exit — show merged findings)
     } else {
       // No API key — the AI CLI tool (Claude Code, Cursor, Codex) IS the reviewer.
-      // Output KERN IR (compressed semantic representation — no syntactic sugar),
-      // static findings, and taint analysis. The IR is the "native LLM language" —
-      // it strips framework boilerplate and gives raw code meaning.
-      // NO full source dump — the AI CLI can Read files itself if needed.
+      // Output static findings first, then taint, then KERN IR.
+      // Finish with structured review instructions sharing categories with the API path.
 
       for (const report of reports) {
         const rel = relative(process.cwd(), report.filePath);
 
-        // 1. KERN IR — compressed semantic representation (the core value)
-        console.log(`<kern-ir path="${rel}">`);
-        console.log(buildLLMPrompt(report.inferred, report.templateMatches, llmGraphContext));
-        console.log('</kern-ir>\n');
-
-        // 2. Static findings
+        // 1. Static findings — what automated analysis already caught
         if (report.findings.length > 0) {
           const errors = report.findings.filter(f => f.severity === 'error');
           const warnings = report.findings.filter(f => f.severity === 'warning');
@@ -915,7 +908,7 @@ async function runReviewPipeline(
           console.log('</kern-findings>\n');
         }
 
-        // 3. Taint analysis — data flow from sources to sinks
+        // 2. Taint analysis — data flow from sources to sinks
         const taintResults = analyzeTaint(report.inferred, report.filePath);
         if (taintResults.length > 0) {
           console.log(`<kern-taint path="${rel}">`);
@@ -929,13 +922,34 @@ async function runReviewPipeline(
           }
           console.log('</kern-taint>\n');
         }
+
+        // 3. Proof obligations — verification claims for the AI reviewer
+        if (report.obligations && report.obligations.length > 0) {
+          console.log(`<kern-obligations path="${rel}">`);
+          for (const o of report.obligations) {
+            console.log(`  [${o.id}] (${o.type}) L${o.line}: ${o.claim}`);
+            if (o.evidence_for.length > 0) {
+              console.log(`    Evidence FOR: ${o.evidence_for.join('; ')}`);
+            }
+            if (o.evidence_against.length > 0) {
+              console.log(`    Evidence AGAINST: ${o.evidence_against.join('; ')}`);
+            }
+            if (o.prevalence !== undefined) {
+              console.log(`    Peer prevalence: ${Math.round(o.prevalence * 100)}%`);
+            }
+            console.log(`    Check: ${o.suggested_check}`);
+          }
+          console.log('</kern-obligations>\n');
+        }
+
+        // 4. KERN IR — compiled semantic representation for deep review
+        console.log(`<kern-ir path="${rel}">`);
+        console.log(buildLLMPrompt(report.inferred, report.templateMatches, llmGraphContext));
+        console.log('</kern-ir>\n');
       }
 
-      console.log(`── Review Instructions ──
-Validate the static findings (real bug or false positive?), then find what was MISSED.
-Focus on: correctness, error handling, data flow, security, concurrency, API contracts.
-The KERN IR above is a compressed semantic representation — read source files for full context.
-`);
+      // 4. Structured review instructions (shared categories with API path's buildSystemPrompt)
+      console.log(`── KERN Review Instructions ──\n${buildReviewInstructions({ target: 'assistant', hasInlineSource: false })}\n`);
     }
     // Fall through to normal output — show full report with static findings
   }

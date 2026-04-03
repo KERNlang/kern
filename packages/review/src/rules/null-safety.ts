@@ -8,33 +8,8 @@
  */
 
 import { SyntaxKind, Node } from 'ts-morph';
-import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
-import { createFingerprint } from '../types.js';
-
-function span(file: string, line: number, col = 1): SourceSpan {
-  return { file, startLine: line, startCol: col, endLine: line, endCol: col };
-}
-
-function finding(
-  ruleId: string,
-  severity: 'error' | 'warning',
-  message: string,
-  file: string,
-  line: number,
-  col = 1,
-  extra?: Partial<ReviewFinding>,
-): ReviewFinding {
-  return {
-    source: 'kern',
-    ruleId,
-    severity,
-    category: 'bug',
-    message,
-    primarySpan: span(file, line, col),
-    fingerprint: createFingerprint(ruleId, line, col),
-    ...extra,
-  };
-}
+import type { ReviewFinding, RuleContext } from '../types.js';
+import { finding } from './utils.js';
 
 // ── Rule 1: unchecked-find ───────────────────────────────────────────────
 // .find() returns T | undefined — using result without null check is a bug.
@@ -82,6 +57,7 @@ function uncheckedFind(ctx: RuleContext): ReviewFinding[] {
           findings.push(finding(
             'unchecked-find',
             'warning',
+            'bug',
             `Result of .${methodName}() used without null check. '${varName}' may be undefined.`,
             ctx.filePath,
             stmt.getStartLineNumber(),
@@ -107,6 +83,7 @@ function uncheckedFind(ctx: RuleContext): ReviewFinding[] {
       findings.push(finding(
         'unchecked-find',
         'warning',
+        'bug',
         `Direct property access on .${methodName}() result without null check. May throw at runtime.`,
         ctx.filePath,
         call.getStartLineNumber(),
@@ -134,6 +111,7 @@ function optionalChainBang(ctx: RuleContext): ReviewFinding[] {
       findings.push(finding(
         'optional-chain-bang',
         'warning',
+        'bug',
         `Optional chain with non-null assertion (?.…!) — the ?. admits null but ! forces it away. Pick one.`,
         ctx.filePath,
         nonNull.getStartLineNumber(),
@@ -171,6 +149,7 @@ function uncheckedAssertion(ctx: RuleContext): ReviewFinding[] {
     findings.push(finding(
       'unchecked-cast',
       'warning',
+      'bug',
       `Casting .${methodName}() result 'as ${targetType}' hides potential null/undefined. Validate first.`,
       ctx.filePath,
       asExpr.getStartLineNumber(),
@@ -217,6 +196,7 @@ function typeCheckedNullable(ctx: RuleContext): ReviewFinding[] {
         findings.push(finding(
           'unchecked-find',
           'warning',
+          'bug',
           `Property access on nullable return from '${callText}(...)' (type: ${typeText.substring(0, 50)}). May throw at runtime.`,
           ctx.filePath,
           prop.getStartLineNumber(),

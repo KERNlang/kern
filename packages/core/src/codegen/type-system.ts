@@ -69,7 +69,7 @@ export function generateUnion(node: IRNode): string[] {
   const lines: string[] = [`${exp}type ${name} =`];
   for (let i = 0; i < variants.length; i++) {
     const vp = propsOf<'variant'>(variants[i]);
-    const vname = emitIdentifier(vp.name, 'variant', variants[i]);
+    const vname = emitTemplateSafe(vp.name ?? 'variant');
     const fields = kids(variants[i], 'field');
     const fieldParts = [`${discriminant}: '${emitTemplateSafe(vname)}'`];
     for (const field of fields) {

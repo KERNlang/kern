@@ -217,12 +217,14 @@ const REGISTRY: RuleInfo[] = [
   { id: 'missing-error-middleware', layer: 'express', severity: 'warning', description: 'Express app without error-handling middleware' },
   { id: 'sync-in-handler', layer: 'express', severity: 'warning', description: 'Blocking I/O in request handler' },
   { id: 'double-response', layer: 'express', severity: 'error', description: 'Response sent twice without early return' },
+  { id: 'express-missing-next', layer: 'express', severity: 'error', description: 'Middleware accepts next but never calls it — request hangs' },
 
   // FastAPI (target: fastapi, concept-based Python pipeline)
   { id: 'fastapi-missing-response-model', layer: 'fastapi', severity: 'warning', description: 'Endpoint without response_model — undocumented response' },
   { id: 'fastapi-blocking-sync-route', layer: 'fastapi', severity: 'warning', description: 'Blocking call in async route stalls event loop' },
   { id: 'fastapi-shared-state', layer: 'fastapi', severity: 'error', description: 'Route mutates global/module state — race condition' },
   { id: 'fastapi-broad-except', layer: 'fastapi', severity: 'warning', description: 'Broad except without re-raising HTTPException' },
+  { id: 'fastapi-broad-cors', layer: 'fastapi', severity: 'warning', description: 'CORSMiddleware with allow_origins=["*"] — overly permissive' },
 
   // Concept rules (always active, language-agnostic)
   { id: 'boundary-mutation', layer: 'concept', severity: 'warning', description: 'Global/shared state mutation across boundaries' },

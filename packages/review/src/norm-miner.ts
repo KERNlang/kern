@@ -1,0 +1,247 @@
+/**
+ * Norm Miner — discovers behavioral norms from concept clustering, flags deviations.
+ *
+ * Strategy:
+ *   1. Profile each function by its concept nodes (guards, error handling, effects).
+ *   2. Cluster profiles by (boundary + hasEffect) — peers that should behave similarly.
+ *   3. Compute prevalence of each property within clusters (% that have guards, etc.).
+ *   4. Flag functions that deviate from norms with >=70% prevalence.
+ *
+ * This gives the AI reviewer signal it CANNOT derive from reading source alone:
+ * "7/8 peer handlers validate input, but this one doesn't."
+ */
+
+import type { ConceptMap, ConceptNode } from '@kernlang/core';
+import type { InferResult, FileContext } from './types.js';
+import type { CallGraph } from './call-graph.js';
+
+// ── Types ────────────────────────────────────────────────────────────────
+
+export interface NormProfile {
+  functionId: string;
+  filePath: string;
+  boundary: string;
+  conceptKinds: Set<string>;
+  hasGuard: boolean;
+  hasErrorHandle: boolean;
+  effectSubtypes: Set<string>;
+}
+
+export interface NormViolation {
+  functionId: string;
+  filePath: string;
+  line: number;
+  norm: string;
+  prevalence: number;
+  peerCount: number;
+  peerExamples: string[];
+  violationType: 'missing-guard' | 'missing-error-handle' | 'missing-validation' | 'missing-resource-cleanup' | 'inconsistent-pattern';
+}
+
+// ── Profile Building ─────────────────────────────────────────────────────
+
+/**
+ * Build a NormProfile for each function_declaration concept node.
+ * The profile summarizes what concept kinds exist within its container scope.
+ */
+function buildProfiles(
+  allConcepts: Map<string, ConceptMap>,
+  fileContextMap: Map<string, FileContext>,
+): NormProfile[] {
+  const profiles: NormProfile[] = [];
+
+  for (const [filePath, concepts] of allConcepts) {
+    // Find all function declarations in this file
+    const functionNodes = concepts.nodes.filter(n => n.kind === 'function_declaration');
+    if (functionNodes.length === 0) continue;
+
+    // Determine boundary from file context
+    const fileCtx = fileContextMap.get(filePath);
+    const boundary = fileCtx?.boundary ?? 'unknown';
+
+    for (const fnNode of functionNodes) {
+      const fnId = fnNode.id;
+      const conceptKinds = new Set<string>();
+      let hasGuard = false;
+      let hasErrorHandle = false;
+      const effectSubtypes = new Set<string>();
+
+      // Collect all concepts whose containerId matches this function
+      for (const node of concepts.nodes) {
+        if (node.containerId !== fnId && node.id !== fnId) continue;
+
+        conceptKinds.add(node.kind);
+
+        if (node.kind === 'guard') {
+          hasGuard = true;
+        }
+        if (node.kind === 'error_handle') {
+          hasErrorHandle = true;
+        }
+        if (node.kind === 'effect' && node.payload.kind === 'effect') {
+          effectSubtypes.add(node.payload.subtype);
+        }
+      }
+
+      profiles.push({
+        functionId: fnId,
+        filePath,
+        boundary,
+        conceptKinds,
+        hasGuard,
+        hasErrorHandle,
+        effectSubtypes,
+      });
+    }
+  }
+
+  return profiles;
+}
+
+// ── Clustering ───────────────────────────────────────────────────────────
+
+type ClusterKey = string;
+
+function clusterKey(profile: NormProfile): ClusterKey {
+  const hasEffect = profile.effectSubtypes.size > 0;
+  return `${profile.boundary}:${hasEffect ? 'effect' : 'pure'}`;
+}
+
+function clusterProfiles(profiles: NormProfile[]): Map<ClusterKey, NormProfile[]> {
+  const clusters = new Map<ClusterKey, NormProfile[]>();
+  for (const p of profiles) {
+    const key = clusterKey(p);
+    let arr = clusters.get(key);
+    if (!arr) {
+      arr = [];
+      clusters.set(key, arr);
+    }
+    arr.push(p);
+  }
+  return clusters;
+}
+
+// ── Norm Computation & Violation Detection ───────────────────────────────
+
+const PREVALENCE_THRESHOLD = 0.7;
+const MIN_CLUSTER_SIZE = 3;
+
+interface ClusterNorm {
+  guardPrevalence: number;
+  errorHandlePrevalence: number;
+  peerCount: number;
+}
+
+function computeClusterNorm(cluster: NormProfile[]): ClusterNorm {
+  const total = cluster.length;
+  return {
+    guardPrevalence: cluster.filter(p => p.hasGuard).length / total,
+    errorHandlePrevalence: cluster.filter(p => p.hasErrorHandle).length / total,
+    peerCount: total,
+  };
+}
+
+function findFunctionLine(
+  allConcepts: Map<string, ConceptMap>,
+  functionId: string,
+  filePath: string,
+): number {
+  const concepts = allConcepts.get(filePath);
+  if (!concepts) return 1;
+  const node = concepts.nodes.find(n => n.id === functionId);
+  return node?.primarySpan.startLine ?? 1;
+}
+
+function extractFunctionName(functionId: string): string {
+  // ID format: filePath#function_declaration@offset
+  const hashIdx = functionId.lastIndexOf('#');
+  if (hashIdx === -1) return functionId;
+  const afterHash = functionId.slice(hashIdx + 1);
+  const atIdx = afterHash.lastIndexOf('@');
+  if (atIdx === -1) return afterHash;
+  return afterHash.slice(0, atIdx);
+}
+
+function detectViolations(
+  clusters: Map<ClusterKey, NormProfile[]>,
+  allConcepts: Map<string, ConceptMap>,
+): NormViolation[] {
+  const violations: NormViolation[] = [];
+
+  for (const [_key, cluster] of clusters) {
+    if (cluster.length < MIN_CLUSTER_SIZE) continue;
+
+    const norm = computeClusterNorm(cluster);
+
+    for (const profile of cluster) {
+      // Check: guard norm violation
+      if (!profile.hasGuard && norm.guardPrevalence >= PREVALENCE_THRESHOLD) {
+        const peerExamples = cluster
+          .filter(p => p.hasGuard && p.functionId !== profile.functionId)
+          .slice(0, 3)
+          .map(p => extractFunctionName(p.functionId));
+
+        violations.push({
+          functionId: profile.functionId,
+          filePath: profile.filePath,
+          line: findFunctionLine(allConcepts, profile.functionId, profile.filePath),
+          norm: `${Math.round(norm.guardPrevalence * 100)}% of peer ${profile.boundary} handlers have input guards`,
+          prevalence: norm.guardPrevalence,
+          peerCount: norm.peerCount,
+          peerExamples,
+          violationType: 'missing-guard',
+        });
+      }
+
+      // Check: error handling norm violation
+      if (!profile.hasErrorHandle && norm.errorHandlePrevalence >= PREVALENCE_THRESHOLD) {
+        const peerExamples = cluster
+          .filter(p => p.hasErrorHandle && p.functionId !== profile.functionId)
+          .slice(0, 3)
+          .map(p => extractFunctionName(p.functionId));
+
+        violations.push({
+          functionId: profile.functionId,
+          filePath: profile.filePath,
+          line: findFunctionLine(allConcepts, profile.functionId, profile.filePath),
+          norm: `${Math.round(norm.errorHandlePrevalence * 100)}% of peer ${profile.boundary} handlers have error handling`,
+          prevalence: norm.errorHandlePrevalence,
+          peerCount: norm.peerCount,
+          peerExamples,
+          violationType: 'missing-error-handle',
+        });
+      }
+    }
+  }
+
+  return violations;
+}
+
+// ── Public API ───────────────────────────────────────────────────────────
+
+export interface MineNormsResult {
+  profiles: NormProfile[];
+  violations: NormViolation[];
+}
+
+/**
+ * Mine behavioral norms from cross-file concept maps and flag deviations.
+ *
+ * @param allConcepts - Map of filePath → ConceptMap for all files in the graph
+ * @param inferredPerFile - Map of filePath → InferResult[] (for future enrichment)
+ * @param fileContextMap - Map of filePath → FileContext (boundary classification)
+ * @param callGraph - Optional call graph (for future enrichment)
+ * @returns Profiles and violations
+ */
+export function mineNorms(
+  allConcepts: Map<string, ConceptMap>,
+  _inferredPerFile: Map<string, InferResult[]>,
+  fileContextMap: Map<string, FileContext>,
+  _callGraph?: CallGraph,
+): MineNormsResult {
+  const profiles = buildProfiles(allConcepts, fileContextMap);
+  const clusters = clusterProfiles(profiles);
+  const violations = detectViolations(clusters, allConcepts);
+
+  return { profiles, violations };
+}

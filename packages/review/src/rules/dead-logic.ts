@@ -9,33 +9,8 @@
  */
 
 import { SyntaxKind } from 'ts-morph';
-import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
-import { createFingerprint } from '../types.js';
-
-function span(file: string, line: number, col = 1): SourceSpan {
-  return { file, startLine: line, startCol: col, endLine: line, endCol: col };
-}
-
-function finding(
-  ruleId: string,
-  severity: 'error' | 'warning' | 'info',
-  category: ReviewFinding['category'],
-  message: string,
-  file: string,
-  line: number,
-  extra?: Partial<ReviewFinding>,
-): ReviewFinding {
-  return {
-    source: 'kern',
-    ruleId,
-    severity,
-    category,
-    message,
-    primarySpan: span(file, line),
-    fingerprint: createFingerprint(ruleId, line, 1),
-    ...extra,
-  };
-}
+import type { ReviewFinding, RuleContext } from '../types.js';
+import { span, finding } from './utils.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -64,7 +39,7 @@ function identicalConditions(ctx: RuleContext): ReviewFinding[] {
       if (duplicate) {
         findings.push(finding('identical-conditions', 'error', 'bug',
           `Duplicate condition '${condText.substring(0, 60)}' — already checked at line ${duplicate.line}`,
-          ctx.filePath, condLine,
+          ctx.filePath, condLine, 1,
           { relatedSpans: [span(ctx.filePath, duplicate.line)] }));
       }
       conditions.push({ text: condText, line: condLine });
@@ -267,7 +242,7 @@ function oneIterationLoop(ctx: RuleContext): ReviewFinding[] {
         if (!hasContinue) {
           findings.push(finding('one-iteration-loop', 'warning', 'bug',
             'Loop runs at most one iteration — unconditional exit at end of body',
-            ctx.filePath, loop.getStartLineNumber(),
+            ctx.filePath, loop.getStartLineNumber(), 1,
             { suggestion: 'If intentional, use an if statement instead of a loop' }));
         }
       }
@@ -430,7 +405,7 @@ function redundantJump(ctx: RuleContext): ReviewFinding[] {
         if (!contStmt.getLabel()) {
           findings.push(finding('redundant-jump', 'info', 'style',
             'Redundant continue at end of loop body',
-            ctx.filePath, last.getStartLineNumber(),
+            ctx.filePath, last.getStartLineNumber(), 1,
             { suggestion: 'Remove — loop naturally continues at end of body' }));
         }
       }
@@ -452,7 +427,7 @@ function redundantJump(ctx: RuleContext): ReviewFinding[] {
       if (!retStmt.getExpression()) {
         findings.push(finding('redundant-jump', 'info', 'style',
           'Redundant return at end of function',
-          ctx.filePath, last.getStartLineNumber(),
+          ctx.filePath, last.getStartLineNumber(), 1,
           { suggestion: 'Remove — function returns void naturally' }));
         }
     }

@@ -46,6 +46,8 @@ try {
 import { buildConfidenceGraph, serializeGraph, computeConfidenceSummary } from './confidence.js';
 import { analyzeTaint, taintToFindings, analyzeTaintCrossFile, crossFileTaintToFindings } from './taint.js';
 import { applySuppression } from './suppression/index.js';
+import { mineNorms } from './norm-miner.js';
+import { synthesizeObligations } from './obligations.js';
 import type { ReviewReport, InferResult, TemplateMatch, ReviewConfig, EnforceResult, ReviewFinding, SourceSpan } from './types.js';
 import { createFingerprint } from './types.js';
 
@@ -108,8 +110,14 @@ export { analyzeTaint, taintToFindings, analyzeTaintCrossFile, crossFileTaintToF
 export type { TaintSource, TaintSink, TaintPath, TaintResult, CrossFileTaintResult, ExportedFunction } from './taint.js';
 
 // LLM bridge (Phase 3)
-export { runLLMReview, isLLMAvailable } from './llm-bridge.js';
-export type { LLMBridgeConfig, LLMReviewInput } from './llm-bridge.js';
+export { runLLMReview, isLLMAvailable, buildReviewInstructions } from './llm-bridge.js';
+export type { LLMBridgeConfig, LLMReviewInput, ReviewInstructionOptions } from './llm-bridge.js';
+
+// Norm mining + proof obligations
+export { mineNorms } from './norm-miner.js';
+export type { NormProfile, NormViolation, MineNormsResult } from './norm-miner.js';
+export { synthesizeObligations } from './obligations.js';
+export type { ProofObligation } from './obligations.js';
 
 // Cache (Phase 0)
 import { computeCacheKey, reviewCache, clearReviewCache } from './cache.js';
@@ -667,6 +675,40 @@ export function reviewGraph(
 
       const asyncFindings = crossFileAsyncRule(callGraph, report.filePath);
       report.findings.push(...asyncFindings);
+    }
+
+    // ── Norm mining + proof obligations ──
+    if (allConcepts.size > 0) {
+      try {
+        const { violations } = mineNorms(allConcepts, inferredPerFile, fileContextMap, callGraph);
+
+        const violationsByFile = new Map<string, import('./norm-miner.js').NormViolation[]>();
+        for (const v of violations) {
+          let arr = violationsByFile.get(v.filePath);
+          if (!arr) {
+            arr = [];
+            violationsByFile.set(v.filePath, arr);
+          }
+          arr.push(v);
+        }
+
+        for (const report of reports) {
+          const fileViolations = violationsByFile.get(report.filePath) ?? [];
+          const taintResults = analyzeTaint(report.inferred, report.filePath);
+          const obligations = synthesizeObligations(
+            fileViolations,
+            taintResults,
+            callGraph,
+            allConcepts,
+            report.filePath,
+          );
+          if (obligations.length > 0) {
+            report.obligations = obligations;
+          }
+        }
+      } catch {
+        // Norm mining failure should not crash the review pipeline
+      }
     }
   } catch {
     // Call graph build failure should not crash the review pipeline

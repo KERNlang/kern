@@ -152,6 +152,8 @@ export interface ReviewReport {
   confidenceGraph?: import('./confidence.js').SerializedConfidenceGraph;
   /** Confidence summary bands */
   confidenceSummary?: import('./confidence.js').ConfidenceSummary;
+  /** Proof obligations for AI verification (present in graph mode) */
+  obligations?: import('./obligations.js').ProofObligation[];
 }
 
 /** Summary statistics for a review */

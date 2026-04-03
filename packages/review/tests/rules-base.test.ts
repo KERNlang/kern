@@ -259,6 +259,126 @@ const useBearStore = create<BearState>((set) => ({
     });
   });
 
+  // ── floating-promise ──
+
+  describe('floating-promise', () => {
+    it('detects .then() chain without await', () => {
+      const source = `
+export function doWork() {
+  fetch('/api').then(res => res.json());
+}
+`;
+      const report = reviewSource(source, 'work.ts');
+      const f = report.findings.find(f => f.ruleId === 'floating-promise');
+      expect(f).toBeDefined();
+      expect(f!.message).toContain('.then(');
+    });
+
+    it('does not flag awaited promise', () => {
+      const source = `
+export async function doWork() {
+  await fetch('/api').then(res => res.json());
+}
+`;
+      const report = reviewSource(source, 'work.ts');
+      const f = report.findings.find(f => f.ruleId === 'floating-promise');
+      expect(f).toBeUndefined();
+    });
+  });
+
+  // ── state-mutation ──
+
+  describe('state-mutation', () => {
+    it('detects state.push()', () => {
+      const source = `
+const state = { items: [] as string[] };
+state.items.push('new');
+`;
+      const report = reviewSource(source, 'store.ts');
+      const f = report.findings.find(f => f.ruleId === 'state-mutation');
+      expect(f).toBeDefined();
+      expect(f!.message).toContain('push');
+    });
+
+    it('does not flag mutation inside produce()', () => {
+      const source = `
+import { produce } from 'immer';
+const next = produce(state, draft => {
+  draft.items.push('new');
+});
+`;
+      const report = reviewSource(source, 'store.ts');
+      const f = report.findings.find(f => f.ruleId === 'state-mutation');
+      expect(f).toBeUndefined();
+    });
+  });
+
+  // ── sync-in-async ──
+
+  describe('sync-in-async', () => {
+    it('detects readFileSync inside async function', () => {
+      const source = `
+import { readFileSync } from 'fs';
+export async function loadConfig() {
+  const data = readFileSync('/etc/config.json', 'utf-8');
+  return JSON.parse(data);
+}
+`;
+      const report = reviewSource(source, 'config.ts');
+      const f = report.findings.find(f => f.ruleId === 'sync-in-async');
+      expect(f).toBeDefined();
+      expect(f!.message).toContain('readFileSync');
+    });
+
+    it('does not flag sync ops in synchronous function', () => {
+      const source = `
+import { readFileSync } from 'fs';
+export function loadConfig() {
+  return readFileSync('/etc/config.json', 'utf-8');
+}
+`;
+      const report = reviewSource(source, 'config.ts');
+      const f = report.findings.find(f => f.ruleId === 'sync-in-async');
+      expect(f).toBeUndefined();
+    });
+  });
+
+  // ── bare-rethrow ──
+
+  describe('bare-rethrow', () => {
+    it('detects catch that only rethrows the same error', () => {
+      const source = `
+export function doWork() {
+  try {
+    riskyOperation();
+  } catch (err) {
+    throw err;
+  }
+}
+function riskyOperation() {}
+`;
+      const report = reviewSource(source, 'work.ts');
+      const f = report.findings.find(f => f.ruleId === 'bare-rethrow');
+      expect(f).toBeDefined();
+    });
+
+    it('does not flag catch that wraps the error', () => {
+      const source = `
+export function doWork() {
+  try {
+    riskyOperation();
+  } catch (err) {
+    throw new Error('failed to do work', { cause: err });
+  }
+}
+function riskyOperation() {}
+`;
+      const report = reviewSource(source, 'work.ts');
+      const f = report.findings.find(f => f.ruleId === 'bare-rethrow');
+      expect(f).toBeUndefined();
+    });
+  });
+
   // ── Unified finding structure ──
 
   describe('finding structure', () => {

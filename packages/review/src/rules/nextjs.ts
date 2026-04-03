@@ -5,33 +5,8 @@
  */
 
 import { SyntaxKind } from 'ts-morph';
-import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
-import { createFingerprint } from '../types.js';
-
-function span(file: string, line: number, col = 1): SourceSpan {
-  return { file, startLine: line, startCol: col, endLine: line, endCol: col };
-}
-
-function finding(
-  ruleId: string,
-  severity: 'error' | 'warning' | 'info',
-  category: ReviewFinding['category'],
-  message: string,
-  file: string,
-  line: number,
-  extra?: Partial<ReviewFinding>,
-): ReviewFinding {
-  return {
-    source: 'kern',
-    ruleId,
-    severity,
-    category,
-    message,
-    primarySpan: span(file, line),
-    fingerprint: createFingerprint(ruleId, line, 1),
-    ...extra,
-  };
-}
+import type { ReviewFinding, RuleContext } from '../types.js';
+import { finding } from './utils.js';
 
 function isClientComponent(fullText: string): boolean {
   // Check for 'use client' directive (must be at the top of the file)
@@ -108,7 +83,7 @@ function serverHook(ctx: RuleContext): ReviewFinding[] {
     const line = call.getStartLineNumber();
     findings.push(finding('server-hook', 'error', 'bug',
       `'${hookName}' used in Server Component — add 'use client' directive or move to a Client Component`,
-      ctx.filePath, line,
+      ctx.filePath, line, 1,
       { suggestion: "Add 'use client' at the top of the file" }));
   }
 
@@ -169,7 +144,7 @@ function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
 
       findings.push(finding('hydration-mismatch', 'warning', 'bug',
         `${name} in render produces different values on server vs client — hydration mismatch`,
-        ctx.filePath, line,
+        ctx.filePath, line, 1,
         { suggestion: `Move to useEffect or use a stable seed. For IDs, use React.useId()` }));
     }
   }
@@ -210,7 +185,7 @@ function missingUseClient(ctx: RuleContext): ReviewFinding[] {
       const line = fullText.substring(0, match.index).split('\n').length;
       findings.push(finding('missing-use-client', 'warning', 'pattern',
         `'${handler}' in Server Component — needs 'use client' directive`,
-        ctx.filePath, line,
+        ctx.filePath, line, 1,
         {
           suggestion: "Add 'use client' at the top of the file, or extract to a Client Component",
           autofix: {

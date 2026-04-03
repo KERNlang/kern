@@ -197,10 +197,9 @@ export function getUser(id: string): User { return {} as User; }
       };
       const result = serializeNodeWithBody(largeNode, '', 'ir-only');
       expect(result).toContain('<kern-code>');
-      expect(result).toContain('// 50 lines');
-      expect(result).toContain('// calls:');
-      expect(result).toContain('// security-relevant:');
+      expect(result).toContain('// 50 lines, logic skeleton:');
       expect(result).toContain('db.query');
+      expect(result).toContain('[EFFECT:db]');
       // Should NOT contain all 50 verbatim lines
       expect(result).not.toContain('v49');
     });
@@ -214,50 +213,40 @@ export function getUser(id: string): User { return {} as User; }
   // ── compressHandlerBody ──
 
   describe('compressHandlerBody', () => {
-    it('includes line count', () => {
+    it('includes line count and skeleton header', () => {
       const code = Array(40).fill('  x();').join('\n');
       const result = compressHandlerBody(code);
-      expect(result).toContain('// 40 lines');
+      expect(result).toContain('// 40 lines, logic skeleton:');
     });
 
-    it('extracts function calls excluding control flow keywords', () => {
-      const code = Array(35).fill('').map((_, i) => {
-        if (i === 0) return '  fetchData();';
-        if (i === 1) return '  if (x) {}';
-        if (i === 2) return '  processResult();';
-        return '  noop();';
-      }).join('\n');
-      const result = compressHandlerBody(code);
-      expect(result).toContain('fetchData');
-      expect(result).toContain('processResult');
-      expect(result).not.toMatch(/\bcalls:.*\bif\b/);
-    });
-
-    it('detects external API references', () => {
+    it('preserves control flow lines with annotations', () => {
       const code = Array(35).fill('  x;').map((_, i) => {
-        if (i === 0) return '  db.query("SELECT *");';
-        if (i === 1) return '  const key = process.env.KEY;';
+        if (i === 0) return '  if (a) {';
+        if (i === 1) return '  } else {';
+        if (i === 5) return '  for (const x of arr) {';
+        if (i === 10) return '  try {';
+        if (i === 15) return '  return result;';
         return '  x;';
       }).join('\n');
       const result = compressHandlerBody(code);
-      expect(result).toContain('// external APIs: 2 references');
+      expect(result).toContain('if (a)');
+      expect(result).toContain('for (const x of arr)');
+      expect(result).toContain('try {');
+      expect(result).toContain('return result');
     });
 
-    it('reports control flow counts', () => {
+    it('annotates effect lines with EFFECT markers', () => {
       const code = Array(35).fill('  x;').map((_, i) => {
-        if (i === 0) return '  if (a) {}';
-        if (i === 1) return '  if (b) {}';
-        if (i === 2) return '  for (const x of arr) {}';
-        if (i === 3) return '  try {';
+        if (i === 0) return '  const data = await db.query("SELECT *");';
+        if (i === 5) return '  await fetch("/api/data");';
         return '  x;';
       }).join('\n');
       const result = compressHandlerBody(code);
-      expect(result).toContain('2 if');
-      expect(result).toContain('1 loop');
-      expect(result).toContain('1 try');
+      expect(result).toContain('[EFFECT:db]');
+      expect(result).toContain('[EFFECT:net]');
     });
 
-    it('preserves security-relevant lines verbatim', () => {
+    it('preserves security-relevant lines with annotations', () => {
       // NOTE: strings below are test data for security pattern detection, not real calls
       const code = Array(35).fill('  x;').map((_, i) => {
         if (i === 5) return '  runExec(userInput);'; // eslint-disable-line -- test data
@@ -265,16 +254,22 @@ export function getUser(id: string): User { return {} as User; }
         return '  x;';
       }).join('\n');
       const result = compressHandlerBody(code);
-      expect(result).toContain('// security-relevant:');
       expect(result).toContain('crypto.createHash');
+      expect(result).toContain('[EFFECT:crypto]');
     });
 
-    it('caps security excerpts at 10', () => {
-      // NOTE: test data for pattern detection — generates lines matching security patterns
-      const code = Array(35).fill('').map((_, i) => `  checkAuth(user${i});`).join('\n');
+    it('annotates error handling with ERROR markers', () => {
+      const code = Array(35).fill('  x;').map((_, i) => {
+        if (i === 0) return '  try {';
+        if (i === 5) return '  catch (err) {';
+        if (i === 6) return '  throw err;';
+        if (i === 10) return '  throw new Error("fail");';
+        return '  x;';
+      }).join('\n');
       const result = compressHandlerBody(code);
-      const excerptLines = result.split('\n').filter(l => l.startsWith('//   L'));
-      expect(excerptLines.length).toBeLessThanOrEqual(10);
+      expect(result).toContain('[ERROR:handle]');
+      expect(result).toContain('[ERROR:propagate]');
+      expect(result).toContain('[ERROR:raise]');
     });
   });
 
