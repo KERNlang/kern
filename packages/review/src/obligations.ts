@@ -69,6 +69,10 @@ function obligationsFromNorms(violations: NormViolation[]): ProofObligation[] {
         claim = `${fnName} deviates from the pattern used by ${Math.round(v.prevalence * 100)}% of peers. Prove the deviation is intentional.`;
         suggestedCheck = `Compare ${fnName} with ${peerList} and verify the difference is deliberate.`;
         break;
+      case 'missing-error-raise':
+        claim = `${fnName} does not throw on failure, but ${v.peerCount - 1}/${v.peerCount} peer handlers do (e.g., ${peerList}). Prove silent failure is safe.`;
+        suggestedCheck = `Check if ${fnName} silently swallows errors or returns undefined when peers would throw.`;
+        break;
     }
 
     obligations.push({

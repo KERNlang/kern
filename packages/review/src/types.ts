@@ -6,6 +6,7 @@
  */
 
 import type { IRNode } from '@kernlang/core';
+import type { CrossFileTaintResult } from './taint.js';
 
 // ── File Role ─────────────────────────────────────────────────────────────
 
@@ -148,6 +149,8 @@ export interface ReviewReport {
   findings: ReviewFinding[];
   /** Summary stats */
   stats: ReviewStats;
+  /** Cross-file taint results (present when graph-aware review detects cross-module taint) */
+  crossFileTaint?: CrossFileTaintResult[];
   /** Confidence graph (present when confidence layer is active) */
   confidenceGraph?: import('./confidence.js').SerializedConfidenceGraph;
   /** Confidence summary bands */

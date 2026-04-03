@@ -34,7 +34,7 @@ function sanitizeForPrompt(input: string): string {
     // Neutralize "ignore previous" style attacks
     .replace(/ignore\s+(all\s+)?previous\s+instructions/gi, '[filtered]')
     // Neutralize attempts to close XML-style delimiters we use
-    .replace(/<\/?kern-(file|taint|code|obligations)>/gi, '&lt;$1&gt;');
+    .replace(/<\/?kern-(file|taint|taint-cross-file|code|obligations)>/gi, '&lt;$1&gt;');
 }
 
 /** Escape a string for use inside an XML attribute value */
@@ -392,11 +392,12 @@ STEP 1: VALIDATE STATIC FINDINGS (<kern-findings>)
 For each finding, determine: is this a real bug or a false positive?
 If real, assess severity and impact. If false positive, explain why.
 
-STEP 2: ANALYZE TAINT PATHS (<kern-taint>)
+STEP 2: ANALYZE TAINT PATHS (<kern-taint> and <kern-taint-cross-file>)
 For each taint path, determine:
 - Is the path actually exploitable? Under what conditions?
 - Are the sanitizers sufficient for the sink category?
 - Are there edge cases where sanitization could be bypassed?
+Cross-file taint paths show data flowing across module boundaries — these are high priority since sanitization gaps at module boundaries are common.
 
 STEP 3: REVIEW THE KERN IR (<kern-ir>) FOR WHAT STATIC ANALYSIS MISSED
 The IR contains nodes with aliases (N1, N2, N3, etc.). Reference these aliases in your findings.

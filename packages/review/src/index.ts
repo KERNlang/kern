@@ -612,6 +612,14 @@ export function reviewGraph(
         callerReport.findings.push(f);
       }
     }
+    // Also attach raw cross-file taint results for structured output
+    for (const result of crossFileResults) {
+      const callerReport = reports.find(r => r.filePath === result.callerFile);
+      if (callerReport) {
+        if (!callerReport.crossFileTaint) callerReport.crossFileTaint = [];
+        callerReport.crossFileTaint.push(result);
+      }
+    }
   }
 
   // Cross-file concept analysis — re-run concept rules with full graph context

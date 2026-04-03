@@ -436,7 +436,7 @@ if (args[0] === 'compile') {
         lines.push(...generateCoreNode(node));
         lines.push('');
         // hook generates React imports, so flag it
-        if (node.type === 'hook') hasReactNodes = true;
+        if (node.type === 'hook' || node.type === 'screen') hasReactNodes = true;
       } else if (isTemplateNode(node.type)) {
         lines.push(...expandTemplateNode(node));
         lines.push('');
@@ -921,6 +921,17 @@ async function runReviewPipeline(
             }
           }
           console.log('</kern-taint>\n');
+        }
+
+        // 2b. Cross-file taint — data flowing across module boundaries
+        if (report.crossFileTaint && report.crossFileTaint.length > 0) {
+          console.log(`<kern-taint-cross-file path="${rel}">`);
+          for (const t of report.crossFileTaint) {
+            const calleeRel = relative(process.cwd(), t.calleeFile);
+            console.log(`  ${t.source.origin} in ${t.callerFn}() L${t.callerLine} → ${t.calleeFn}() in ${calleeRel} → ${t.sinkInCallee.name}() [${t.sinkInCallee.category}] UNSANITIZED`);
+            console.log(`    Tainted args: ${t.taintedArgs.join(', ')}`);
+          }
+          console.log('</kern-taint-cross-file>\n');
         }
 
         // 3. Proof obligations — verification claims for the AI reviewer

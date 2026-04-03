@@ -92,17 +92,12 @@ export function generateScreen(node: IRNode): string[] {
   if (needsCallback) reactImports.push('useCallback');
   if (needsRef) reactImports.push('useRef');
 
-  // Only add React import if this is likely a standalone screen
-  // (multi-screen files should use KERN import nodes instead)
-  const hookList = reactImports.slice(1);
-  if (hookList.length > 0) {
-    lines.push(`import React, { ${hookList.join(', ')} } from 'react';`);
-  } else {
-    lines.push(`import React from 'react';`);
-  }
-  if (target === 'ink') {
-    lines.push(`import { Box, Text } from 'ink';`);
-  }
+  // Don't emit imports here — KERN import nodes at file level handle React/Ink imports.
+  // Screen codegen only emits the component function. This avoids duplicate imports
+  // when multiple screens are in one file.
+  //
+  // Files MUST have: import from="ink" names="Box,Text"
+  // If hooks are used, the file needs: import from="react" names="React,useState,useEffect,..."
   lines.push('');
 
   // Parse props

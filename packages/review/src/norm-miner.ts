@@ -23,7 +23,11 @@ export interface NormProfile {
   boundary: string;
   conceptKinds: Set<string>;
   hasGuard: boolean;
+  hasValidation: boolean;
+  hasAuth: boolean;
   hasErrorHandle: boolean;
+  hasErrorRaise: boolean;
+  hasStateMutation: boolean;
   effectSubtypes: Set<string>;
 }
 
@@ -35,7 +39,7 @@ export interface NormViolation {
   prevalence: number;
   peerCount: number;
   peerExamples: string[];
-  violationType: 'missing-guard' | 'missing-error-handle' | 'missing-validation' | 'missing-resource-cleanup' | 'inconsistent-pattern';
+  violationType: 'missing-guard' | 'missing-error-handle' | 'missing-validation' | 'missing-resource-cleanup' | 'inconsistent-pattern' | 'missing-error-raise';
 }
 
 // ── Profile Building ─────────────────────────────────────────────────────
@@ -63,7 +67,11 @@ function buildProfiles(
       const fnId = fnNode.id;
       const conceptKinds = new Set<string>();
       let hasGuard = false;
+      let hasValidation = false;
+      let hasAuth = false;
       let hasErrorHandle = false;
+      let hasErrorRaise = false;
+      let hasStateMutation = false;
       const effectSubtypes = new Set<string>();
 
       // Collect all concepts whose containerId matches this function
@@ -74,10 +82,15 @@ function buildProfiles(
 
         if (node.kind === 'guard') {
           hasGuard = true;
+          if (node.payload.kind === 'guard') {
+            const subtype = (node.payload as { kind: 'guard'; subtype: string }).subtype;
+            if (subtype === 'validation') hasValidation = true;
+            if (subtype === 'auth') hasAuth = true;
+          }
         }
-        if (node.kind === 'error_handle') {
-          hasErrorHandle = true;
-        }
+        if (node.kind === 'error_handle') hasErrorHandle = true;
+        if (node.kind === 'error_raise') hasErrorRaise = true;
+        if (node.kind === 'state_mutation') hasStateMutation = true;
         if (node.kind === 'effect' && node.payload.kind === 'effect') {
           effectSubtypes.add(node.payload.subtype);
         }
@@ -89,7 +102,11 @@ function buildProfiles(
         boundary,
         conceptKinds,
         hasGuard,
+        hasValidation,
+        hasAuth,
         hasErrorHandle,
+        hasErrorRaise,
+        hasStateMutation,
         effectSubtypes,
       });
     }
@@ -128,7 +145,11 @@ const MIN_CLUSTER_SIZE = 3;
 
 interface ClusterNorm {
   guardPrevalence: number;
+  validationPrevalence: number;
+  authPrevalence: number;
   errorHandlePrevalence: number;
+  errorRaisePrevalence: number;
+  stateMutationPrevalence: number;
   peerCount: number;
 }
 
@@ -136,7 +157,11 @@ function computeClusterNorm(cluster: NormProfile[]): ClusterNorm {
   const total = cluster.length;
   return {
     guardPrevalence: cluster.filter(p => p.hasGuard).length / total,
+    validationPrevalence: cluster.filter(p => p.hasValidation).length / total,
+    authPrevalence: cluster.filter(p => p.hasAuth).length / total,
     errorHandlePrevalence: cluster.filter(p => p.hasErrorHandle).length / total,
+    errorRaisePrevalence: cluster.filter(p => p.hasErrorRaise).length / total,
+    stateMutationPrevalence: cluster.filter(p => p.hasStateMutation).length / total,
     peerCount: total,
   };
 }
@@ -209,6 +234,82 @@ function detectViolations(
           peerCount: norm.peerCount,
           peerExamples,
           violationType: 'missing-error-handle',
+        });
+      }
+
+      // Check: validation norm violation
+      if (!profile.hasValidation && norm.validationPrevalence >= PREVALENCE_THRESHOLD) {
+        const peerExamples = cluster
+          .filter(p => p.hasValidation && p.functionId !== profile.functionId)
+          .slice(0, 3)
+          .map(p => extractFunctionName(p.functionId));
+
+        violations.push({
+          functionId: profile.functionId,
+          filePath: profile.filePath,
+          line: findFunctionLine(allConcepts, profile.functionId, profile.filePath),
+          norm: `${Math.round(norm.validationPrevalence * 100)}% of peer ${profile.boundary} handlers validate input`,
+          prevalence: norm.validationPrevalence,
+          peerCount: norm.peerCount,
+          peerExamples,
+          violationType: 'missing-validation',
+        });
+      }
+
+      // Check: auth norm violation
+      if (!profile.hasAuth && norm.authPrevalence >= PREVALENCE_THRESHOLD) {
+        const peerExamples = cluster
+          .filter(p => p.hasAuth && p.functionId !== profile.functionId)
+          .slice(0, 3)
+          .map(p => extractFunctionName(p.functionId));
+
+        violations.push({
+          functionId: profile.functionId,
+          filePath: profile.filePath,
+          line: findFunctionLine(allConcepts, profile.functionId, profile.filePath),
+          norm: `${Math.round(norm.authPrevalence * 100)}% of peer ${profile.boundary} handlers check auth`,
+          prevalence: norm.authPrevalence,
+          peerCount: norm.peerCount,
+          peerExamples,
+          violationType: 'missing-guard',
+        });
+      }
+
+      // Check: error raise consistency (silent failure detection)
+      if (!profile.hasErrorRaise && norm.errorRaisePrevalence >= PREVALENCE_THRESHOLD) {
+        const peerExamples = cluster
+          .filter(p => p.hasErrorRaise && p.functionId !== profile.functionId)
+          .slice(0, 3)
+          .map(p => extractFunctionName(p.functionId));
+
+        violations.push({
+          functionId: profile.functionId,
+          filePath: profile.filePath,
+          line: findFunctionLine(allConcepts, profile.functionId, profile.filePath),
+          norm: `${Math.round(norm.errorRaisePrevalence * 100)}% of peer ${profile.boundary} handlers throw on failure`,
+          prevalence: norm.errorRaisePrevalence,
+          peerCount: norm.peerCount,
+          peerExamples,
+          violationType: 'missing-error-raise',
+        });
+      }
+
+      // Check: state mutation outlier (this function mutates state but peers don't)
+      if (profile.hasStateMutation && (1 - norm.stateMutationPrevalence) >= PREVALENCE_THRESHOLD) {
+        const peerExamples = cluster
+          .filter(p => !p.hasStateMutation && p.functionId !== profile.functionId)
+          .slice(0, 3)
+          .map(p => extractFunctionName(p.functionId));
+
+        violations.push({
+          functionId: profile.functionId,
+          filePath: profile.filePath,
+          line: findFunctionLine(allConcepts, profile.functionId, profile.filePath),
+          norm: `${Math.round((1 - norm.stateMutationPrevalence) * 100)}% of peer ${profile.boundary} handlers don't mutate state`,
+          prevalence: 1 - norm.stateMutationPrevalence,
+          peerCount: norm.peerCount,
+          peerExamples,
+          violationType: 'inconsistent-pattern',
         });
       }
     }

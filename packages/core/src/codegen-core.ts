@@ -28,6 +28,7 @@ export { generateMachine, generateMachineReducer } from './codegen/machines.js';
 export { generateConfig, generateStore, generateRepository, generateCache, generateDependency, generateModel } from './codegen/data-layer.js';
 export { generateDerive, generateTransform, generateAction, generateGuard, generateAssume, generateInvariant, generateCollect, generateResolve, generateExpect, generateRecover, generatePattern, generateApply } from './codegen/ground-layer.js';
 export { generateEvent, generateOn, generateWebSocket } from './codegen/events.js';
+export { generateScreen } from './codegen/screens.js';
 export { generateImport } from './codegen/modules.js';
 export { generateTest } from './codegen/test-gen.js';
 export { mapSemanticType, SEMANTIC_TYPE_MAP } from './codegen/semantic-types.js';
@@ -40,6 +41,7 @@ import { getProps, getChildren, getFirstChild, handlerCode, exportPrefix, capita
 import { generateType, generateInterface, generateUnion, generateService, generateConst } from './codegen/type-system.js';
 import { generateFunction, generateError } from './codegen/functions.js';
 import { generateMachine } from './codegen/machines.js';
+import { generateScreen } from './codegen/screens.js';
 import { generateConfig, generateStore, generateRepository, generateCache, generateDependency, generateModel } from './codegen/data-layer.js';
 import { generateDerive, generateTransform, generateAction, generateGuard, generateAssume, generateInvariant, generateCollect, generateResolve, generateExpect, generateRecover, generatePattern, generateApply } from './codegen/ground-layer.js';
 import { generateEvent, generateOn, generateWebSocket } from './codegen/events.js';
@@ -317,6 +319,8 @@ export const CORE_NODE_TYPES = new Set([
   // UI controls (graduated nodes)
   'conditional',
   'select', 'option',
+  // Screen (React/Ink component)
+  'screen',
 ]);
 
 /** Check if a node type is a core language construct. */
@@ -345,6 +349,7 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
     case 'service': return generateService(node);
     case 'fn': return generateFunction(node);
     case 'machine': return generateMachine(node);
+    case 'screen': return generateScreen(node);
     case 'error': return generateError(node);
     case 'module': return generateModule(node);
     case 'config': return generateConfig(node);

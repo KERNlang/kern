@@ -78,7 +78,7 @@ export const NODE_TYPES = [
   // React — hooks, providers, effects
   'hook', 'provider', 'effect', 'logic',
   'memo', 'callback', 'ref', 'context',
-  'prop', 'returns',
+  'prop', 'returns', 'render',
   // Ink — terminal React (Ink) specific nodes
   'input-area', 'output-area', 'text-input', 'select-input',
   // Backend data layer
