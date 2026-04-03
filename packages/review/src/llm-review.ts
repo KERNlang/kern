@@ -8,6 +8,7 @@
  */
 
 import type { InferResult, TemplateMatch, ReviewFinding, SourceSpan } from './types.js';
+import type { ProofObligation } from './obligations.js';
 import { createFingerprint } from './types.js';
 
 /**
@@ -70,6 +71,7 @@ export function buildLLMPrompt(
   templateMatches: TemplateMatch[],
   graphContext?: LLMGraphContext,
   mode: SerializationMode = 'ir-only',
+  obligations?: ProofObligation[],
 ): string {
   const lines: string[] = [];
 
@@ -115,6 +117,26 @@ export function buildLLMPrompt(
     if (t.suggestedKern) {
       lines.push(`// template: ${t.suggestedKern}`);
     }
+  }
+
+  // Obligations section — verification claims for the AI reviewer
+  if (obligations && obligations.length > 0) {
+    lines.push('');
+    lines.push('<kern-obligations>');
+    for (const o of obligations) {
+      lines.push(`  [${o.id}] (${o.type}) L${o.line}: ${o.claim}`);
+      if (o.evidence_for.length > 0) {
+        lines.push(`    Evidence FOR: ${o.evidence_for.join('; ')}`);
+      }
+      if (o.evidence_against.length > 0) {
+        lines.push(`    Evidence AGAINST: ${o.evidence_against.join('; ')}`);
+      }
+      if (o.prevalence !== undefined) {
+        lines.push(`    Peer prevalence: ${Math.round(o.prevalence * 100)}%`);
+      }
+      lines.push(`    Check: ${o.suggested_check}`);
+    }
+    lines.push('</kern-obligations>');
   }
 
   return lines.join('\n');
@@ -250,70 +272,108 @@ function serializeNode(node: import('@kernlang/core').IRNode, indent: string): s
 /** Max handler lines before compression kicks in (IR-only mode). */
 const HANDLER_COMPRESS_THRESHOLD = 30;
 
-const CONTROL_FLOW_KEYWORDS = new Set([
-  'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'try', 'catch', 'finally',
-  'return', 'throw', 'new', 'typeof', 'instanceof', 'void', 'delete', 'await',
-]);
-
 // Security-sensitive patterns to preserve verbatim in compressed output.
 // These are detection patterns for code review, not actual usage.
 const SECURITY_PATTERN = /\b(exec|eval|spawn|sql|query|auth|token|password|cookie|header|redirect|innerHTML|dangerouslySetInnerHTML|crypto|hash|sign|verify|decrypt|encrypt)\b/i; // eslint-disable-line -- detection pattern, not usage
 
+// ── Effect annotation patterns ──────────────────────────────────────────
+const EFFECT_DB_PATTERN = /\b(db|sql|query|mongo|prisma|knex|sequelize|typeorm|drizzle)\b/i;
+const EFFECT_FS_PATTERN = /\b(fs\.|readFile|writeFile|readdir|mkdir|unlink|createReadStream|createWriteStream)\b/i;
+const EFFECT_NET_PATTERN = /\b(fetch|axios|http|https|request|got|superagent|XMLHttpRequest|WebSocket)\b/i;
+const EFFECT_EXEC_PATTERN = /\b(exec|execSync|spawn|spawnSync|fork|execFile)\b/i; // eslint-disable-line -- detection pattern
+const EFFECT_CRYPTO_PATTERN = /\b(crypto|hash|sign|verify|decrypt|encrypt|createHash|createHmac|randomBytes)\b/i;
+
+const STRIP_PATTERNS = [
+  /^\s*\/\//, /^\s*\/?\*/, /^\s*console\.(log|debug|info|trace|dir|table|time|timeEnd|count|group|groupEnd)\b/,
+  /^\s*logger\.(debug|trace|verbose)\b/, /^\s*debugger\b/, /^\s*\/\*\*/, /^\s*\*\s/, /^\s*\*\//, /^\s*$/,
+];
+const TYPE_ONLY_PATTERN = /^\s*(type\s|interface\s|as\s+\w|<\w+>$)/;
+const CONTROL_FLOW_LINE = /^\s*(if|else\s*if|else|for|while|do|switch|case|default|try|catch|finally)\b/;
+const EXIT_PATTERN = /^\s*(return|yield|throw)\b/;
+const CLOSE_BRACE = /^\s*\}(\s*(else|catch|finally)\b.*)?;?\s*$/;
+const ASSIGNMENT_PATTERN = /^\s*(const|let|var)\s+(\w+)\s*=/;
+const CLEANUP_PATTERN = /\b(release|close|destroy|disconnect|dispose|cleanup|teardown|end)\s*\(/;
+const AWAIT_PATTERN = /\bawait\b/;
+
+function annotateLine(trimmed: string): string {
+  const annotations: string[] = [];
+  if (EFFECT_DB_PATTERN.test(trimmed)) annotations.push('[EFFECT:db]');
+  if (EFFECT_FS_PATTERN.test(trimmed)) annotations.push('[EFFECT:fs]');
+  if (EFFECT_NET_PATTERN.test(trimmed)) annotations.push('[EFFECT:net]');
+  if (EFFECT_EXEC_PATTERN.test(trimmed)) annotations.push('[EFFECT:exec]');
+  if (EFFECT_CRYPTO_PATTERN.test(trimmed)) annotations.push('[EFFECT:crypto]');
+  if (SECURITY_PATTERN.test(trimmed) && !annotations.some(a => a.startsWith('[EFFECT:'))) annotations.push('[TAINT:sink]');
+  if (/^\s*(if|else\s+if)\s*\(/.test(trimmed) && /\b(auth|admin|permission|role|valid|check|verify|allowed|forbidden|unauthorized)\b/i.test(trimmed)) annotations.push('[GUARD]');
+  if (/^\s*catch\b/.test(trimmed)) annotations.push('[ERROR:handle]');
+  else if (/^\s*throw\b/.test(trimmed) && /\b(err|error|e)\s*;?\s*$/.test(trimmed)) annotations.push('[ERROR:propagate]');
+  else if (/^\s*throw\b/.test(trimmed)) annotations.push('[ERROR:raise]');
+  if (CLEANUP_PATTERN.test(trimmed)) annotations.push('[CLEANUP]');
+  return annotations.length > 0 ? ' ' + annotations.join(' ') : '';
+}
+
+function isStrippableLine(trimmed: string): boolean {
+  return STRIP_PATTERNS.some(p => p.test(trimmed)) || TYPE_ONLY_PATTERN.test(trimmed);
+}
+
+function isEffectLine(trimmed: string): boolean {
+  return EFFECT_DB_PATTERN.test(trimmed) || EFFECT_FS_PATTERN.test(trimmed) ||
+    EFFECT_NET_PATTERN.test(trimmed) || EFFECT_EXEC_PATTERN.test(trimmed) ||
+    EFFECT_CRYPTO_PATTERN.test(trimmed) || AWAIT_PATTERN.test(trimmed);
+}
+
 /**
- * Compress a large handler body into a structural summary with security-relevant excerpts.
- * Uses regex extraction — no AST re-parse needed.
+ * Compress a large handler body into a logic-flow skeleton that preserves
+ * the decision structure, effects, error handling, and return paths.
+ * Uses line-based regex analysis — no AST re-parse needed.
  */
 export function compressHandlerBody(code: string): string {
   const lines = code.split('\n');
-  const summary: string[] = [];
+  const totalLines = lines.length;
+  const keptIndices = new Set<number>();
+  const lineData = lines.map((raw, idx) => ({ raw, trimmed: raw.trim(), idx, lineNum: idx + 1 }));
 
-  summary.push(`// ${lines.length} lines`);
-
-  // Function calls (deduplicated)
-  const calls = new Set<string>();
-  for (const line of lines) {
-    for (const m of line.matchAll(/\b(\w+)\s*\(/g)) {
-      if (!CONTROL_FLOW_KEYWORDS.has(m[1])) calls.add(m[1]);
-    }
-  }
-  if (calls.size > 0) summary.push(`// calls: ${[...calls].join(', ')}`);
-
-  // External API references
-  const apiCount = lines.filter(l => /\b(db|sql|query|http|fetch|axios|fs\.|crypto|process\.env)/i.test(l)).length;
-  if (apiCount > 0) summary.push(`// external APIs: ${apiCount} references`);
-
-  // Control flow counts
-  const ifCount = lines.filter(l => /\bif\s*\(/.test(l)).length;
-  const loopCount = lines.filter(l => /\b(for|while)\s*\(/.test(l)).length;
-  const tryCount = lines.filter(l => /\btry\s*\{/.test(l)).length;
-  const switchCount = lines.filter(l => /\bswitch\s*\(/.test(l)).length;
-  const flow: string[] = [];
-  if (ifCount) flow.push(`${ifCount} if`);
-  if (loopCount) flow.push(`${loopCount} loop`);
-  if (tryCount) flow.push(`${tryCount} try`);
-  if (switchCount) flow.push(`${switchCount} switch`);
-  if (flow.length > 0) summary.push(`// control flow: ${flow.join(', ')}`);
-
-  // Return statements
-  const returnCount = lines.filter(l => /\breturn\b/.test(l)).length;
-  if (returnCount > 0) summary.push(`// returns: ${returnCount}`);
-
-  // Security-relevant verbatim snippets (capped at 10)
-  const securityLines = lines
-    .map((l, i) => ({ line: l.trim(), num: i + 1 }))
-    .filter(({ line }) => SECURITY_PATTERN.test(line));
-
-  if (securityLines.length > 0) {
-    summary.push('// security-relevant:');
-    for (const { line, num } of securityLines.slice(0, 10)) {
-      const escaped = line
-        .replace(/<kern-code>/gi, '&lt;kern-code&gt;')
-        .replace(/<\/kern-code>/gi, '&lt;/kern-code&gt;');
-      summary.push(`//   L${num}: ${escaped}`);
+  // Pass 1: classify every line
+  for (const { trimmed, idx } of lineData) {
+    if (trimmed === '') continue;
+    if (CONTROL_FLOW_LINE.test(trimmed)) { keptIndices.add(idx); continue; }
+    if (EXIT_PATTERN.test(trimmed)) { keptIndices.add(idx); continue; }
+    if (CLOSE_BRACE.test(trimmed)) { keptIndices.add(idx); continue; }
+    if (SECURITY_PATTERN.test(trimmed)) { keptIndices.add(idx); continue; }
+    if (isEffectLine(trimmed)) { keptIndices.add(idx); continue; }
+    if (CLEANUP_PATTERN.test(trimmed)) { keptIndices.add(idx); continue; }
+    if (isStrippableLine(trimmed)) continue;
+    if (ASSIGNMENT_PATTERN.test(trimmed) && (AWAIT_PATTERN.test(trimmed) || /=\s*new\s+/.test(trimmed))) {
+      keptIndices.add(idx); continue;
     }
   }
 
-  return summary.join('\n');
+  // Pass 2: backfill assignments whose variables are referenced in kept lines
+  const keptContent = [...keptIndices].map(i => lineData[i].trimmed).join('\n');
+  for (const { trimmed, idx } of lineData) {
+    if (keptIndices.has(idx)) continue;
+    const assignMatch = trimmed.match(ASSIGNMENT_PATTERN);
+    if (assignMatch) {
+      const varName = assignMatch[2];
+      if (new RegExp(`\\b${varName}\\b`).test(keptContent)) keptIndices.add(idx);
+    }
+  }
+
+  // Pass 3: build skeleton
+  const skeleton: string[] = [`// ${totalLines} lines, logic skeleton:`];
+  const sortedIndices = [...keptIndices].sort((a, b) => a - b);
+  let prevIdx = -1;
+  for (const idx of sortedIndices) {
+    const { raw, trimmed, lineNum } = lineData[idx];
+    if (prevIdx >= 0 && idx - prevIdx > 1) {
+      const hasContent = lineData.slice(prevIdx + 1, idx).some(l => l.trimmed !== '' && l.trimmed !== '}');
+      if (hasContent) skeleton.push(`  // ... (${idx - prevIdx - 1} lines)`);
+    }
+    const escaped = raw.replace(/<kern-code>/gi, '&lt;kern-code&gt;').replace(/<\/kern-code>/gi, '&lt;/kern-code&gt;');
+    const annotations = annotateLine(trimmed);
+    skeleton.push(`${escaped}${' '.repeat(Math.max(1, 40 - escaped.length))}// L${lineNum}${annotations}`);
+    prevIdx = idx;
+  }
+  return skeleton.join('\n');
 }
 
 export function serializeNodeWithBody(

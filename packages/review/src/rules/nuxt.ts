@@ -5,33 +5,8 @@
  */
 
 import { SyntaxKind } from 'ts-morph';
-import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
-import { createFingerprint } from '../types.js';
-
-function span(file: string, line: number, col = 1): SourceSpan {
-  return { file, startLine: line, startCol: col, endLine: line, endCol: col };
-}
-
-function finding(
-  ruleId: string,
-  severity: 'error' | 'warning' | 'info',
-  category: ReviewFinding['category'],
-  message: string,
-  file: string,
-  line: number,
-  extra?: Partial<ReviewFinding>,
-): ReviewFinding {
-  return {
-    source: 'kern',
-    ruleId,
-    severity,
-    category,
-    message,
-    primarySpan: span(file, line),
-    fingerprint: createFingerprint(ruleId, line, 1),
-    ...extra,
-  };
-}
+import type { ReviewFinding, RuleContext } from '../types.js';
+import { finding } from './utils.js';
 
 // ── Rule: missing-ssr-guard ─────────────────────────────────────────────
 // window / document / localStorage access without process.client or import.meta.client guard
@@ -107,7 +82,7 @@ function missingSsrGuard(ctx: RuleContext): ReviewFinding[] {
       const line = fullText.substring(0, match.index).split('\n').length;
       findings.push(finding('missing-ssr-guard', 'error', 'bug',
         `'${global}' accessed without SSR guard — will crash during server rendering`,
-        ctx.filePath, line,
+        ctx.filePath, line, 1,
         { suggestion: `Wrap in if (process.client) { ... } or use onMounted()` }));
     }
   }
@@ -140,7 +115,7 @@ function nuxtDirectFetch(ctx: RuleContext): ReviewFinding[] {
     const line = call.getStartLineNumber();
     findings.push(finding('nuxt-direct-fetch', 'warning', 'pattern',
       `Raw fetch() in Nuxt component — use $fetch or useFetch for SSR support and auto-dedup`,
-      ctx.filePath, line,
+      ctx.filePath, line, 1,
       { suggestion: 'Replace fetch() with $fetch() or useFetch() for proper SSR hydration' }));
     break; // One finding per file
   }
@@ -177,7 +152,7 @@ function serverRouteLeak(ctx: RuleContext): ReviewFinding[] {
         const line = ret.getStartLineNumber();
         findings.push(finding('server-route-leak', 'error', 'bug',
           `Server API route may expose '${field}' — filter sensitive fields before returning`,
-          ctx.filePath, line,
+          ctx.filePath, line, 1,
           { suggestion: 'Destructure and return only needed fields: const { password, ...safe } = user; return safe;' }));
         return findings; // One finding per file
       }

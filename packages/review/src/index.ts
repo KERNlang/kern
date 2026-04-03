@@ -28,6 +28,8 @@ import { runTSCDiagnostics } from './external-tools.js';
 import { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { runConceptRules } from './concept-rules/index.js';
+import { mineNorms } from './norm-miner.js';
+import { synthesizeObligations } from './obligations.js';
 import { lintConfidenceGraph } from './rules/confidence.js';
 import { lintKernIR, flattenIR } from './kern-lint.js';
 import { loadBuiltinNativeRules, loadNativeRules } from './rule-loader.js';
@@ -74,6 +76,12 @@ export { extractTsConcepts } from './mappers/ts-concepts.js';
 export { runConceptRules } from './concept-rules/index.js';
 export type { ConceptRule, ConceptRuleContext } from './concept-rules/index.js';
 
+// Norm mining + obligations
+export { mineNorms } from './norm-miner.js';
+export type { NormViolation } from './norm-miner.js';
+export { synthesizeObligations, obligationsFromStructure, obligationsFromNorms } from './obligations.js';
+export type { ProofObligation, ObligationType } from './obligations.js';
+
 // Suppression
 export { applySuppression, parseDirectives, configDirectives, isConceptRule } from './suppression/index.js';
 export type { SuppressionDirective, SuppressionResult, StrictMode } from './suppression/index.js';
@@ -108,8 +116,12 @@ export { analyzeTaint, taintToFindings, analyzeTaintCrossFile, crossFileTaintToF
 export type { TaintSource, TaintSink, TaintPath, TaintResult, CrossFileTaintResult, ExportedFunction } from './taint.js';
 
 // LLM bridge (Phase 3)
-export { runLLMReview, isLLMAvailable } from './llm-bridge.js';
-export type { LLMBridgeConfig, LLMReviewInput } from './llm-bridge.js';
+export { runLLMReview, isLLMAvailable, buildReviewInstructions } from './llm-bridge.js';
+export type { LLMBridgeConfig, LLMReviewInput, ReviewInstructionOptions } from './llm-bridge.js';
+
+// Semantic diff
+export { computeSemanticDiff, computeSemanticDiffFromSource, semanticChangesToFindings, getOldFileContent, formatSemanticDiff } from './semantic-diff.js';
+export type { SemanticChange } from './semantic-diff.js';
 
 // Cache (Phase 0)
 import { computeCacheKey, reviewCache, clearReviewCache } from './cache.js';
@@ -604,6 +616,14 @@ export function reviewGraph(
         callerReport.findings.push(f);
       }
     }
+    // Attach raw cross-file taint results for structured output
+    for (const result of crossFileResults) {
+      const callerReport = reports.find(r => r.filePath === result.callerFile);
+      if (callerReport) {
+        if (!callerReport.crossFileTaint) callerReport.crossFileTaint = [];
+        callerReport.crossFileTaint.push(result);
+      }
+    }
   }
 
   // Cross-file concept analysis — re-run concept rules with full graph context
@@ -642,6 +662,16 @@ export function reviewGraph(
 
   // Note: server-hook / missing-use-client client boundary suppression is now handled
   // by FileContext in the rules themselves (ctx.fileContext.isClientBoundary).
+
+  // ── Norm mining + proof obligations ──
+  if (allConcepts.size > 0) {
+    const normViolations = mineNorms(allConcepts);
+    for (const report of reports) {
+      const obligations = synthesizeObligations(allConcepts, fileContextMap, report.filePath, normViolations);
+      // Attach obligations to the report (as metadata, not findings — they're for the LLM reviewer)
+      (report as any).obligations = obligations;
+    }
+  }
 
   // ── Call graph analysis: dead exports + cross-file async ──
   try {

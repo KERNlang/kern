@@ -96,7 +96,7 @@ function bodyLine(route: RouteBlock, index: number): number {
 
 function missingResponseModel(ctx: FastApiConceptRuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
-  const plainReturn = /\breturn\s+(?!None\b)(?!JSONResponse\b)(?!PlainTextResponse\b)(?!StreamingResponse\b)(?!FileResponse\b)(?!RedirectResponse\b)(?!HTMLResponse\b)(?!TemplateResponse\b)(?!Response\b)(?:\{|\[|[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)/;
+  const plainReturn = /\breturn\s+(?!None\b)(?!JSONResponse\b)(?!ORJSONResponse\b)(?!UJSONResponse\b)(?!PlainTextResponse\b)(?!StreamingResponse\b)(?!FileResponse\b)(?!RedirectResponse\b)(?!HTMLResponse\b)(?!TemplateResponse\b)(?!Response\b)(?:\{|\[|[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)/;
 
   for (const route of extractRoutes(ctx.source, ctx.concepts)) {
     if (/response_model\s*=/.test(route.decoratorText)) continue;
@@ -218,11 +218,38 @@ function broadExcept(ctx: FastApiConceptRuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: fastapi-broad-cors ──────────────────────────────────────────────
+
+function broadCors(ctx: FastApiConceptRuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+  const corsRegex = /allow_origins\s*=\s*\[([^\]]*)\]/g;
+
+  let match: RegExpExecArray | null;
+  while ((match = corsRegex.exec(ctx.source)) !== null) {
+    if (!match[1].includes('"*"') && !match[1].includes("'*'")) continue;
+
+    const line = lineForIndex(ctx.source, match.index);
+    findings.push(finding(
+      'fastapi-broad-cors',
+      'warning',
+      'pattern',
+      'CORSMiddleware uses allow_origins=["*"] — any origin can make credentialed requests if allow_credentials is also True',
+      ctx.filePath,
+      line,
+      1,
+      { suggestion: 'Restrict allow_origins to specific trusted domains instead of wildcard' },
+    ));
+  }
+
+  return findings;
+}
+
 const FASTAPI_CONCEPT_RULES = [
   missingResponseModel,
   blockingSyncRoute,
   sharedState,
   broadExcept,
+  broadCors,
 ];
 
 export function runFastapiConceptRules(

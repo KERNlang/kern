@@ -60,9 +60,15 @@ const BUG_EXPECTATIONS: Record<string, string[]> = {
   'unused-collection.ts': ['unused-collection'],
   // React (need web/nextjs config)
   'hook-in-condition.ts': ['hook-order'],
+  'unstable-key.ts': ['unstable-key'],
+  'render-side-effect.ts': ['render-side-effect'],
   // Express (need express config)
   'double-response.ts': ['double-response'],
   'unvalidated-input.ts': ['unvalidated-input'],
+  // Null safety
+  'unchecked-map-get.ts': ['unchecked-find'],
+  // Base
+  'non-exhaustive-switch.ts': ['non-exhaustive-switch'],
 };
 
 function getCorpusFiles(dir: string): string[] {
@@ -174,10 +180,15 @@ describe('Corpus Stats', () => {
       const fname = file.split('/').pop()!;
       const config = configForFile(fname, source);
       const report = reviewSource(source, file, config);
+      // Use same exclusion set as precision tests for consistent measurement
       const EXCLUDED = new Set([
         'extra-code', 'style-difference', 'inconsistent-pattern', 'handler-extraction',
         'unguarded-effect', 'unrecovered-effect', 'bare-rethrow', 'unhandled-async',
         'missing-type', 'cognitive-complexity', 'async-without-await',
+        'ignored-error', 'boundary-mutation',
+        'taint-redirect', 'taint-command', 'taint-sql', 'taint-fs', 'taint-eval',
+        'taint-insufficient-sanitizer',
+        'unvalidated-input', 'double-response',
       ]);
       const fps = report.findings.filter(f =>
         f.source !== 'tsc' && f.severity !== 'info' && !EXCLUDED.has(f.ruleId)

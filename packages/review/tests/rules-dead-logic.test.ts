@@ -147,6 +147,17 @@ describe('Dead Logic Rules', () => {
       const f = report.findings.filter(f => f.ruleId === 'constant-condition');
       expect(f.length).toBe(1);
     });
+
+    it('does not flag variable condition', () => {
+      const source = `
+        function check(enabled: boolean) {
+          if (enabled) { doSomething(); }
+        }
+      `;
+      const report = reviewSource(source, 'test.ts');
+      const f = report.findings.filter(f => f.ruleId === 'constant-condition');
+      expect(f.length).toBe(0);
+    });
   });
 
   // ── one-iteration-loop ─────────────────────────────────────────────────

@@ -4,7 +4,7 @@
  * Does NOT call real LLM APIs — tests the plumbing.
  */
 
-import { isLLMAvailable, runLLMReview, isHighValueFinding } from '../src/llm-bridge.js';
+import { isLLMAvailable, runLLMReview, isHighValueFinding, buildReviewInstructions } from '../src/llm-bridge.js';
 import type { ReviewFinding } from '../src/types.js';
 
 describe('isLLMAvailable', () => {
@@ -89,6 +89,33 @@ describe('runLLMReview — API failure', () => {
     expect(findings.length).toBe(1);
     expect(findings[0].ruleId).toBe('llm-error');
     expect(findings[0].severity).toBe('info');
+  });
+});
+
+// ── buildReviewInstructions ──
+
+describe('buildReviewInstructions', () => {
+  it('builds assistant instructions with 3-step workflow and all review categories', () => {
+    const instructions = buildReviewInstructions({ target: 'assistant', hasInlineSource: false });
+    expect(instructions).toContain('STEP 1: VALIDATE STATIC FINDINGS');
+    expect(instructions).toContain('STEP 2: ANALYZE TAINT PATHS');
+    expect(instructions).toContain('STEP 3: REVIEW THE KERN IR');
+    expect(instructions).toContain('1. CORRECTNESS');
+    expect(instructions).toContain('7. RESOURCE MANAGEMENT');
+    expect(instructions).toContain('node alias (N1, N2, etc.)');
+  });
+
+  it('builds API instructions with JSON response contract', () => {
+    const instructions = buildReviewInstructions({ target: 'api', hasInlineSource: true });
+    expect(instructions).toContain('Return ONLY a JSON array of findings');
+    expect(instructions).toContain('Do NOT repeat findings already listed in <kern-findings>');
+    expect(instructions).toContain('Use aliases from the Valid aliases list ONLY');
+  });
+
+  it('builds IR-only API instructions when no source available', () => {
+    const instructions = buildReviewInstructions({ target: 'api', hasInlineSource: false });
+    expect(instructions).toContain('security code reviewer');
+    expect(instructions).toContain('Explain HOW an attacker could exploit');
   });
 });
 

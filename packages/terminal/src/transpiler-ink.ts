@@ -153,10 +153,13 @@ function generateStateHook(stateNode: IRNode, imports: ImportTracker): string[] 
       : initial === 'true' ? 'true'
       : initial === 'false' ? 'false'
       : initial.startsWith('[') || initial.startsWith('{') ? initial
+      : initial.startsWith("'") || initial.startsWith('"') ? initial
+      : initial.includes('(') || initial.includes('.') ? initial
       : isNaN(Number(initial)) ? `'${initial}'`
       : String(initial);
     const setter = `set${capitalize(name)}`;
-    lines.push(`  const [${name}, ${setter}] = useState(${initVal});`);
+    const typeAnnotation = props.type ? `<${props.type as string}>` : '';
+    lines.push(`  const [${name}, ${setter}] = useState${typeAnnotation}(${initVal});`);
   }
 
   return lines;
@@ -175,7 +178,9 @@ function generateRefHook(refNode: IRNode, imports: ImportTracker): string[] {
     const initVal = initialProp === undefined ? 'null'
       : isExpr(initialProp) ? unwrapProp(initialProp)
       : String(initialProp);
-    lines.push(`  const ${name}Ref = useRef(${initVal});`);
+    const refName = name.endsWith('Ref') ? name : `${name}Ref`;
+    const typeAnnotation = props.type ? `<${props.type as string}>` : '';
+    lines.push(`  const ${refName} = useRef${typeAnnotation}(${initVal});`);
   }
 
   return lines;
@@ -218,8 +223,10 @@ function generateStreamEffect(streamNode: IRNode, imports: ImportTracker): strin
 function generateLogicEffect(logicNode: IRNode, imports: ImportTracker): string[] {
   const lines: string[] = [];
   const props = getProps(logicNode);
-  const code = props.code as string || '';
   const deps = props.deps as string;
+  // Support both inline code prop and handler child
+  const handlerChild = (logicNode.children || []).find(c => c.type === 'handler');
+  const code = handlerChild ? (getProps(handlerChild).code as string || '') : (props.code as string || '');
 
   if (code) {
     imports.addReact('useEffect');
@@ -249,6 +256,9 @@ function generateCallbackHook(callbackNode: IRNode, imports: ImportTracker): str
 
   if (name && code) {
     imports.addReact('useCallback');
+    // Auto-detect hooks used inside callback handler code
+    if (code.includes('useMemo')) imports.addReact('useMemo');
+    if (code.includes('useRef')) imports.addReact('useRef');
     const dedented = dedent(code);
     const depsStr = deps ? `[${deps}]` : '[]';
     const isAsync = props.async === 'true' || props.async === true;
@@ -652,38 +662,57 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
   const imports = new ImportTracker();
   const lines: string[] = [];
 
-  const rootProps = getProps(root);
-  const screenName = rootProps.name as string || 'App';
+  // Handle file-level AST: find the screen node, keep siblings as file-level nodes
+  const screenNode = root.type === 'screen' ? root
+    : (root.children || []).find(c => c.type === 'screen') || root;
+  const fileLevelNodes = root.type === 'screen' ? []
+    : (root.children || []).filter(c => c !== screenNode);
 
-  // Feature #9: Component props from screen attributes
-  const propsAttr = rootProps.props as string;
-  const propParts = propsAttr ? splitPropsRespectingDepth(propsAttr) : [];
+  const screenProps = getProps(screenNode);
+  const screenName = screenProps.name as string || 'App';
+
+  // Component props from screen attributes OR prop child nodes
+  const propsAttr = screenProps.props as string;
+  const propChildren = getChildren(screenNode, 'prop');
+  let propParts = propsAttr ? splitPropsRespectingDepth(propsAttr) : [];
+  for (const pc of propChildren) {
+    const pp = getProps(pc);
+    const pName = pp.name as string;
+    const pType = pp.type as string || 'any';
+    const optional = pp.optional === 'true' || pp.optional === true;
+    if (pName) propParts.push(`${pName}${optional ? '?' : ''}:${pType}`);
+  }
   const propsParam = propParts.length > 0
-    ? `{ ${propParts.map(p => p.trim().split(':')[0].trim()).join(', ')} }: { ${propParts.map(p => {
+    ? `{ ${propParts.map(p => p.trim().split(':')[0].replace('?', '').trim()).join(', ')} }: { ${propParts.map(p => {
         const trimmed = p.trim();
         if (trimmed.includes(':')) return trimmed;
         return `${trimmed}: any`;
       }).join('; ')} }`
     : '';
 
-  // Separate node categories
-  const stateNodes = getChildren(root, 'state');
-  const refNodes = getChildren(root, 'ref');
-  const onNodes = getChildren(root, 'on');
-  const streamNodes = getChildren(root, 'stream');
-  const logicNodes = getChildren(root, 'logic');
-  const callbackNodes = getChildren(root, 'callback');
-  // In Ink context, 'each' is a UI node (.map iteration), not a core node (for...of loop)
+  // Separate node categories — search inside the screen node
+  const stateNodes = getChildren(screenNode, 'state');
+  const refNodes = getChildren(screenNode, 'ref');
+  const onNodes = getChildren(screenNode, 'on');
+  const streamNodes = getChildren(screenNode, 'stream');
+  const logicNodes = [...getChildren(screenNode, 'logic'), ...getChildren(screenNode, 'effect')];
+  const callbackNodes = getChildren(screenNode, 'callback');
   const isInkUiNode = (type: string) => type === 'each' || type === 'conditional' || type === 'select'
     || type === 'model' || type === 'repository' || type === 'dependency' || type === 'cache';
-  const coreChildren = (root.children || []).filter(c => isCoreNode(c.type) && c.type !== 'on' && !isInkUiNode(c.type));
-  const uiChildren = (root.children || []).filter(c =>
+  // File-level imports go before component; file-level fn/const go after
+  const coreChildren = [
+    ...fileLevelNodes.filter(c => isCoreNode(c.type) && c.type !== 'screen' && c.type !== 'fn' && c.type !== 'const'),
+    ...(screenNode.children || []).filter(c => isCoreNode(c.type) && c.type !== 'on' && !isInkUiNode(c.type)),
+  ];
+  const uiChildren = (screenNode.children || []).filter(c =>
     c.type !== 'state' && c.type !== 'ref' && c.type !== 'on' && c.type !== 'stream'
-    && c.type !== 'logic' && c.type !== 'callback' && (!isCoreNode(c.type) || isInkUiNode(c.type))
+    && c.type !== 'logic' && c.type !== 'effect' && c.type !== 'callback' && c.type !== 'prop'
+    && (!isCoreNode(c.type) || isInkUiNode(c.type))
   );
+  const fileLevelFns = fileLevelNodes.filter(c => c.type === 'fn' || c.type === 'const');
 
   // Bug #1: Collect nested on-nodes from UI tree and hoist to component level
-  const nestedOnNodes = collectNestedOnNodes(root);
+  const nestedOnNodes = collectNestedOnNodes(screenNode);
   // Deduplicate — top-level on-nodes are already in onNodes
   const allOnNodes = [...onNodes];
   for (const nested of nestedOnNodes) {
@@ -698,9 +727,23 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     coreLines.push('// ── Core ───────────────────────────────────────────────');
     for (const child of coreChildren) {
       if (child.type === 'machine') {
-        // Machine nodes get useReducer treatment
         imports.addReact('useReducer');
         coreLines.push(...generateMachineReducer(child));
+      } else if (child.type === 'import') {
+        // Merge react/ink imports into tracker to avoid duplicates
+        const ip = getProps(child);
+        const from = ip.from as string;
+        if (from === 'react') {
+          const names = (ip.names as string || '').split(',').map((n: string) => n.trim()).filter(Boolean);
+          for (const n of names) imports.addReact(n);
+          continue;
+        }
+        if (from === 'ink') {
+          const names = (ip.names as string || '').split(',').map((n: string) => n.trim()).filter(Boolean);
+          for (const n of names) imports.addInk(n);
+          continue;
+        }
+        coreLines.push(...generateCoreNode(child));
       } else {
         coreLines.push(...generateCoreNode(child));
       }
@@ -772,6 +815,15 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
   lines.push(`export default function ${screenName}(${propsParam}) {`);
   lines.push(...bodyLines);
   lines.push('}');
+
+  // File-level functions/constants emitted after the screen component
+  if (fileLevelFns.length > 0) {
+    lines.push('');
+    for (const fn of fileLevelFns) {
+      lines.push(...generateCoreNode(fn));
+      lines.push('');
+    }
+  }
 
   // Source map
   sourceMap.push({
