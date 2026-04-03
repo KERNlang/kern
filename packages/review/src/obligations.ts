@@ -20,6 +20,8 @@ import type { NormViolation } from './norm-miner.js';
 export type ObligationType = 'norm-violation' | 'structural';
 
 export interface ProofObligation {
+  /** Unique ID for this obligation */
+  id: string;
   /** What kind of evidence produced this obligation */
   type: ObligationType;
   /** The function this obligation targets */
@@ -36,6 +38,14 @@ export interface ProofObligation {
   filePath: string;
   /** Line number of the function */
   line: number;
+  /** Evidence supporting the claim */
+  evidence_for: string[];
+  /** Evidence against the claim */
+  evidence_against: string[];
+  /** How common this pattern is among peer functions (0-1) */
+  prevalence?: number;
+  /** Suggested verification action for the reviewer */
+  suggested_check: string;
 }
 
 // ── Priority ────────────────────────────────────────────────────────────
@@ -92,6 +102,7 @@ export function obligationsFromStructure(
           .filter((s: string | undefined): s is string => s !== undefined),
       )];
       obligations.push({
+        id: `struct-errh-${fnId}`,
         type: 'structural',
         functionId: fnId,
         functionName: fnName,
@@ -100,6 +111,9 @@ export function obligationsFromStructure(
         priority: TYPE_PRIORITY['structural'],
         filePath,
         line: fnNode.primarySpan.startLine,
+        evidence_for: [`Has ${effects.length} effect(s): ${effectSubtypes.join(', ')}`],
+        evidence_against: [],
+        suggested_check: 'Verify error handling is truly missing, not handled by a parent caller',
       });
     }
 
@@ -110,6 +124,7 @@ export function obligationsFromStructure(
         .map((e: ConceptNode) => e.payload.kind === 'effect' ? e.payload.subtype : undefined)
         .filter((s: string | undefined): s is string => s !== undefined);
       obligations.push({
+        id: `struct-guard-${fnId}`,
         type: 'structural',
         functionId: fnId,
         functionName: fnName,
@@ -118,6 +133,9 @@ export function obligationsFromStructure(
         priority: TYPE_PRIORITY['structural'],
         filePath,
         line: fnNode.primarySpan.startLine,
+        evidence_for: [`API boundary function with ${effects.length} unguarded effect(s)`],
+        evidence_against: [],
+        suggested_check: 'Check if validation is handled by middleware or a parent router',
       });
     }
 
@@ -130,6 +148,7 @@ export function obligationsFromStructure(
     );
     if (hasDbEffect && !hasValidationGuard) {
       obligations.push({
+        id: `struct-dbval-${fnId}`,
         type: 'structural',
         functionId: fnId,
         functionName: fnName,
@@ -138,6 +157,9 @@ export function obligationsFromStructure(
         priority: TYPE_PRIORITY['structural'],
         filePath,
         line: fnNode.primarySpan.startLine,
+        evidence_for: ['Has DB effect without validation guard'],
+        evidence_against: [],
+        suggested_check: 'Verify no ORM-level or middleware validation exists',
       });
     }
   }
@@ -160,6 +182,7 @@ export function obligationsFromNorms(violations: NormViolation[]): ProofObligati
       ? v.functionNode.payload.name
       : 'anonymous';
     return {
+      id: `norm-${v.functionNode.id}-${v.missingKind}`,
       type: 'norm-violation' as const,
       functionId: v.functionNode.id,
       functionName: fnName,
@@ -168,6 +191,10 @@ export function obligationsFromNorms(violations: NormViolation[]): ProofObligati
       priority: TYPE_PRIORITY['norm-violation'],
       filePath: v.functionNode.primarySpan.file,
       line: v.functionNode.primarySpan.startLine,
+      evidence_for: [`${v.peerCount} peer(s) have this pattern, ${Math.round(v.prevalence * 100)}% prevalence`],
+      evidence_against: v.weakNorm ? ['Limited peer evidence — only 1 matching peer'] : [],
+      prevalence: v.prevalence,
+      suggested_check: `Verify ${v.missingKind} is truly needed here, not handled elsewhere`,
     };
   });
 }
