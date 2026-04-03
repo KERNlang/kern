@@ -160,12 +160,29 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
   // Check what imports we need — match prop priority: name > kind > type (same as emitPyGuards)
   const allGuards = [...toolNodes, ...resourceNodes, ...promptNodes].flatMap(n => getChildren(n, 'guard'));
   const guardKind = (g: IRNode) => str(getProps(g).name) || str(getProps(g).kind) || str(getProps(g).type);
-  const needsRe = allGuards.some(g => guardKind(g) === 'sanitize');
-  const needsOs = allGuards.some(g => {
+
+  // Pre-scan handlers for effect-based auto-injection (determines imports + sanitizeOutput)
+  const PRE_FILE_IO = /\b(open|read|write|readlines|os\.path|os\.listdir|os\.remove|os\.unlink|os\.rename|os\.mkdir|shutil\.|pathlib\.|readFile|readFileSync|writeFile|readdir)\b/;
+  const PRE_SHELL = /\b(subprocess|os\.system|os\.popen|execSync|execFile|spawn|spawnSync)\b/;
+  const PRE_NETWORK = /\b(requests\.|httpx\.|aiohttp\.|urllib\.|fetch|http\.request)\b/;
+  const willAutoInjectOs = toolNodes.some(n => {
+    const hCode = findPythonHandler(n);
+    const existingKinds = new Set(getChildren(n, 'guard').map(g => guardKind(g)));
+    return hCode && PRE_FILE_IO.test(hCode) && !existingKinds.has('pathContainment');
+  });
+  const willAutoInjectRe = toolNodes.some(n => {
+    const hCode = findPythonHandler(n);
+    return hCode && PRE_SHELL.test(hCode);
+  });
+
+  const needsRe = willAutoInjectRe || allGuards.some(g => guardKind(g) === 'sanitize');
+  const needsOs = willAutoInjectOs || allGuards.some(g => {
     const k = guardKind(g);
     return k === 'pathContainment' || k === 'auth';
   });
   const needsRateLimit = allGuards.some(g => guardKind(g) === 'rateLimit');
+  let needsSanitizeOutput = allGuards.some(g => guardKind(g) === 'sanitizeOutput')
+    || toolNodes.some(n => { const hCode = findPythonHandler(n); return hCode && PRE_NETWORK.test(hCode); });
 
   const transport = str(props.transport) || 'stdio';
   const sourceMap: SourceMapEntry[] = [];
@@ -176,7 +193,7 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
   lines.push('');
   lines.push('import logging');
   if (needsOs) lines.push('import os');
-  if (needsRe) lines.push('import re');
+  if (needsRe || needsSanitizeOutput) lines.push('import re');
   if (needsRateLimit) lines.push('import time');
   lines.push('');
   lines.push('from mcp.server.fastmcp import FastMCP');
@@ -218,6 +235,24 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
     lines.push('    entry["count"] += 1');
     lines.push('    if entry["count"] > max_requests:');
     lines.push('        raise McpError(INTERNAL_ERROR, f"Rate limit exceeded for {tool_name}: {max_requests} requests per {window_ms}ms")');
+    lines.push('');
+    lines.push('');
+  }
+
+  if (needsSanitizeOutput) {
+    lines.push('_INJECTION_PATTERNS = [');
+    lines.push('    re.compile(r"\\b(?:ignore|disregard|forget)\\s+(?:all\\s+)?(?:previous|above|prior)\\s+instructions?", re.IGNORECASE),');
+    lines.push('    re.compile(r"\\b(?:you\\s+are|act\\s+as|pretend\\s+to\\s+be|roleplay\\s+as)\\b", re.IGNORECASE),');
+    lines.push('    re.compile(r"\\b(?:system\\s*prompt|</?(?:system|user|assistant)>)", re.IGNORECASE),');
+    lines.push('    re.compile(r"\\[(?:INST|SYS|/?SYSTEM)\\]", re.IGNORECASE),');
+    lines.push(']');
+    lines.push('');
+    lines.push('');
+    lines.push('def _sanitize_output(result: str) -> str:');
+    lines.push('    """Strip prompt injection markers from tool output."""');
+    lines.push('    for pattern in _INJECTION_PATTERNS:');
+    lines.push('        result = pattern.sub("[FILTERED]", result)');
+    lines.push('    return result');
     lines.push('');
     lines.push('');
   }
@@ -274,16 +309,55 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
     if (desc) lines.push(`    """${desc}"""`);
     lines.push(`    logger.info("tool:call", extra={"tool": ${pyStr(name)}})`);
 
+    // Auto-inject guards based on handler effects (secure by construction)
+    const FILE_IO_PY = /\b(open|read|write|readlines|os\.path|os\.listdir|os\.remove|os\.unlink|os\.rename|os\.mkdir|shutil\.|pathlib\.|readFile|readFileSync|writeFile|readdir)\b/;
+    const SHELL_EXEC_PY = /\b(subprocess|os\.system|os\.popen|execSync|execFile|spawn|spawnSync)\b/;
+    const NETWORK_PY = /\b(requests\.|httpx\.|aiohttp\.|urllib\.|fetch|http\.request)\b/;
+    if (handlerCode) {
+      const allToolGuards = getChildren(toolNode, 'guard');
+      const allToolKinds = new Set(allToolGuards.map(g => guardKind(g)));
+      const stringParams = paramNodes.filter(p => (str(getProps(p).type) || 'string') === 'string');
+
+      if (FILE_IO_PY.test(handlerCode) && !allToolKinds.has('pathContainment') && stringParams.length > 0) {
+        for (const p of stringParams) {
+          const pName = str(getProps(p).name) || 'input';
+          if (!toolNode.children) toolNode.children = [];
+          toolNode.children.push({ type: 'guard', props: { type: 'pathContainment', param: pName } });
+        }
+      }
+      if (SHELL_EXEC_PY.test(handlerCode) && stringParams.length > 0) {
+        for (const p of stringParams) {
+          const pName = str(getProps(p).name) || 'input';
+          const existingGuards = getChildren(toolNode, 'guard').filter(g => str(getProps(g).param) === pName);
+          if (!existingGuards.some(g => guardKind(g) === 'sanitize')) {
+            if (!toolNode.children) toolNode.children = [];
+            toolNode.children.push({ type: 'guard', props: { type: 'sanitize', param: pName } });
+          }
+        }
+      }
+    }
+    const hasSanitizeOutput = getChildren(toolNode, 'guard').some(g => guardKind(g) === 'sanitizeOutput')
+      || (handlerCode && NETWORK_PY.test(handlerCode));
+
     lines.push('    try:');
 
     // Guards — inside try so exceptions become MCP errors
     const guardLines = emitPyGuards(toolNode);
     if (guardLines.length > 0) {
-      // Re-indent guards to be inside try block (add 4 more spaces)
       lines.push(...guardLines.map(l => l.length > 0 ? '    ' + l : ''));
     }
 
-    if (handlerCode) {
+    if (hasSanitizeOutput) {
+      needsSanitizeOutput = true;
+      // Wrap handler in nested async function, sanitize its return value
+      lines.push(`        async def _handler():`);
+      if (handlerCode) {
+        lines.push(...ind(handlerCode.split('\n'), 12));
+      } else {
+        lines.push(`            return f"${name} completed"`);
+      }
+      lines.push(`        return _sanitize_output(await _handler())`);
+    } else if (handlerCode) {
       lines.push(...ind(handlerCode.split('\n'), 8));
     } else {
       lines.push(`        return f"${name} completed"`);
