@@ -48,9 +48,11 @@ export function extractTsConcepts(sourceFile: SourceFile, filePath: string): Con
   extractErrorHandle(sourceFile, filePath, nodes);
   extractEffects(sourceFile, filePath, nodes);
   extractEntrypoints(sourceFile, filePath, nodes);
+  extractNextjsHandlers(sourceFile, filePath, nodes);
   extractGuards(sourceFile, filePath, nodes);
   extractStateMutation(sourceFile, filePath, nodes);
   extractFunctionDeclarations(sourceFile, filePath, nodes);
+  extractReactWrapperComponents(sourceFile, filePath, nodes);
   extractDependencyEdges(sourceFile, filePath, edges);
 
   return {
@@ -355,6 +357,165 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
         }
       }
     }
+  }
+}
+
+// ── Next.js handlers & server actions ────────────────────────────────────
+
+const NEXTJS_HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']);
+
+function hasUseServerDirective(sf: SourceFile): boolean {
+  const text = sf.getFullText();
+  return /^\s*['"]use server['"];?\s*$/m.test(text.substring(0, 200));
+}
+
+function extractNextjsHandlers(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
+  // Track offsets we already emitted as entrypoints, to avoid duplication with extractEntrypoints
+  const emittedOffsets = new Set<number>();
+
+  // 1. App Router API route handlers: export async function GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS
+  for (const [name, decls] of sf.getExportedDeclarations()) {
+    if (!NEXTJS_HTTP_METHODS.has(name)) continue;
+    for (const decl of decls) {
+      if (decl.getKind() !== SyntaxKind.FunctionDeclaration) continue;
+      const fn = decl as import('ts-morph').FunctionDeclaration;
+      emittedOffsets.add(fn.getStart());
+      nodes.push({
+        id: conceptId(filePath, 'entrypoint', fn.getStart()),
+        kind: 'entrypoint',
+        primarySpan: span(filePath, fn),
+        evidence: fn.getText().substring(0, 120),
+        confidence: 0.95,
+        language: 'ts',
+        payload: {
+          kind: 'entrypoint',
+          subtype: 'route',
+          name,
+          httpMethod: name,
+        },
+      });
+    }
+  }
+
+  // 2. Pages Router: default export with NextApiRequest/NextApiResponse params OR file in api/ path
+  const isApiPath = /\/api\//.test(filePath) || /\/pages\/api\//.test(filePath);
+  for (const [name, decls] of sf.getExportedDeclarations()) {
+    if (name !== 'default') continue;
+    for (const decl of decls) {
+      if (decl.getKind() !== SyntaxKind.FunctionDeclaration) continue;
+      const fn = decl as import('ts-morph').FunctionDeclaration;
+      if (emittedOffsets.has(fn.getStart())) continue;
+
+      const params = fn.getParameters();
+      const paramTypes = params.map(p => p.getType().getText()).join(',');
+      const hasNextApiParams = /NextApiRequest|NextApiResponse/.test(paramTypes) ||
+                                /NextApiRequest|NextApiResponse/.test(params.map(p => p.getText()).join(','));
+
+      if (hasNextApiParams || isApiPath) {
+        emittedOffsets.add(fn.getStart());
+        nodes.push({
+          id: conceptId(filePath, 'entrypoint', fn.getStart()),
+          kind: 'entrypoint',
+          primarySpan: span(filePath, fn),
+          evidence: fn.getText().substring(0, 120),
+          confidence: hasNextApiParams ? 0.95 : 0.85,
+          language: 'ts',
+          payload: {
+            kind: 'entrypoint',
+            subtype: 'handler',
+            name: fn.getName() || 'default',
+          },
+        });
+      }
+    }
+  }
+
+  // 3. Server actions: files with 'use server' directive — all exported async functions are server actions
+  if (hasUseServerDirective(sf)) {
+    for (const [name, decls] of sf.getExportedDeclarations()) {
+      if (name === 'default') continue;
+      for (const decl of decls) {
+        if (decl.getKind() !== SyntaxKind.FunctionDeclaration) continue;
+        const fn = decl as import('ts-morph').FunctionDeclaration;
+        if (!fn.isAsync()) continue;
+        if (emittedOffsets.has(fn.getStart())) continue;
+
+        nodes.push({
+          id: conceptId(filePath, 'entrypoint', fn.getStart()),
+          kind: 'entrypoint',
+          primarySpan: span(filePath, fn),
+          evidence: fn.getText().substring(0, 120),
+          confidence: 0.95,
+          language: 'ts',
+          payload: {
+            kind: 'entrypoint',
+            subtype: 'handler',
+            name: fn.getName() || name,
+          },
+        });
+      }
+    }
+  }
+}
+
+// ── React wrapper components (memo, forwardRef) ─────────────────────────
+
+const REACT_WRAPPERS = new Set(['memo', 'forwardRef']);
+const REACT_QUALIFIED_WRAPPERS = new Set(['React.memo', 'React.forwardRef']);
+
+function extractReactWrapperComponents(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
+  // Detect: const MyComponent = React.memo(() => { ... })
+  //         const MyComponent = memo(() => { ... })
+  //         const MyComponent = React.forwardRef((props, ref) => { ... })
+  //         const MyComponent = forwardRef((props, ref) => { ... })
+  //
+  // These are NOT caught by extractFunctionDeclarations because the initializer
+  // is a CallExpression, not ArrowFunction/FunctionExpression.
+  for (const varDecl of sf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = varDecl.getInitializer();
+    if (!init || init.getKind() !== SyntaxKind.CallExpression) continue;
+
+    const call = init as import('ts-morph').CallExpression;
+    const calleeText = call.getExpression().getText();
+
+    // Check if the callee is a known React wrapper
+    const isWrapper = REACT_WRAPPERS.has(calleeText) || REACT_QUALIFIED_WRAPPERS.has(calleeText);
+    if (!isWrapper) continue;
+
+    const name = varDecl.getName();
+    // React components must start with uppercase
+    if (!/^[A-Z]/.test(name)) continue;
+
+    const args = call.getArguments();
+    if (args.length === 0) continue;
+
+    // The first argument should be an arrow function or function expression
+    const innerFn = args[0];
+    const innerKind = innerFn.getKind();
+    if (innerKind !== SyntaxKind.ArrowFunction && innerKind !== SyntaxKind.FunctionExpression) continue;
+
+    const fn = innerFn as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression;
+    const isAsync = (fn as any).isAsync?.() ?? /^async\s/.test(fn.getText());
+    const varStmt = varDecl.getParent()?.getParent();
+    const isExport = varStmt ? /^export\s/.test(varStmt.getText()) : false;
+
+    nodes.push({
+      id: conceptId(filePath, 'function_declaration', varDecl.getStart()),
+      kind: 'function_declaration',
+      primarySpan: span(filePath, varDecl),
+      evidence: `${calleeText}(${name})`,
+      confidence: 0.90,
+      language: 'ts',
+      containerId: getContainerId(varDecl, filePath),
+      payload: {
+        kind: 'function_declaration',
+        name,
+        async: isAsync,
+        hasAwait: isAsync ? hasAwaitInBody(fn) : false,
+        isComponent: true,
+        isExport,
+      },
+    });
   }
 }
 
