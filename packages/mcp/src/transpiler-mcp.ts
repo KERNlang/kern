@@ -107,6 +107,69 @@ function isPathLikeParam(name: string): boolean {
   return /(?:^|[_A-Z])(?:path|file|dir(?:ectory)?|root|workspace)(?:$|[_A-Z])/i.test(name);
 }
 
+// ── Handler effect detection — auto-inject guards for effects found in handler code ──
+
+const FILE_IO_PATTERN = /\b(readFile|readFileSync|writeFile|writeFileSync|readdir|readdirSync|unlink|unlinkSync|copyFile|rename|mkdir|rmdir|openSync|createReadStream|createWriteStream)\b/;
+const SHELL_EXEC_PATTERN = /\b(exec|execSync|execFile|execFileSync|spawn|spawnSync|child_process)\b/;
+const NETWORK_PATTERN = /\b(fetch|http\.request|https\.request|axios|got\.get|got\.post)\b/;
+
+interface DetectedEffects {
+  fileIO: boolean;
+  shellExec: boolean;
+  network: boolean;
+}
+
+function detectHandlerEffects(handlerCode: string): DetectedEffects {
+  return {
+    fileIO: FILE_IO_PATTERN.test(handlerCode),
+    shellExec: SHELL_EXEC_PATTERN.test(handlerCode),
+    network: NETWORK_PATTERN.test(handlerCode),
+  };
+}
+
+/**
+ * Auto-inject missing guards based on handler code effects.
+ * If handler uses readFileSync but no param has pathContainment → inject on string params.
+ * If handler uses exec but no param has sanitize → inject sanitize on string params.
+ */
+function autoInjectEffectGuards(
+  params: ParamDefinition[],
+  parentGuards: GuardDefinition[],
+  effects: DetectedEffects,
+  fallbackAllowlist: string[],
+): void {
+  const allGuards = [...params.flatMap(p => p.guards), ...parentGuards];
+  const stringParams = params.filter(p => p.type === 'string');
+  if (stringParams.length === 0) return;
+
+  // File I/O without pathContainment → inject on all string params
+  if (effects.fileIO && !allGuards.some(g => g.kind === 'pathContainment')) {
+    for (const p of stringParams) {
+      if (!p.guards.some(g => g.kind === 'pathContainment')) {
+        p.guards.push({ kind: 'pathContainment', target: p.name, allowlist: fallbackAllowlist });
+      }
+    }
+  }
+
+  // Shell exec without sanitize on all string params → inject
+  if (effects.shellExec) {
+    for (const p of stringParams) {
+      if (!p.guards.some(g => g.kind === 'sanitize')) {
+        p.guards.push({ kind: 'sanitize', target: p.name, allowlist: [] });
+      }
+    }
+  }
+
+  // Network calls without sanitize → inject sanitize on string params
+  if (effects.network) {
+    for (const p of stringParams) {
+      if (!p.guards.some(g => g.kind === 'sanitize')) {
+        p.guards.push({ kind: 'sanitize', target: p.name, allowlist: [] });
+      }
+    }
+  }
+}
+
 function collectParams(node: IRNode, fallbackAllowlist: string[]): ParamDefinition[] {
   const paramNodes = getChildren(node, 'param');
   const parentGuards = getChildren(node, 'guard')
@@ -273,6 +336,22 @@ function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Se
   const params = collectParams(node, fallbackAllowlist);
   const handlerNode = getFirstChild(node, 'handler');
   const handlerCode = handlerNode ? str(getProps(handlerNode).code) || '' : '';
+
+  // Auto-inject guards based on handler effects (secure by construction)
+  const effects = detectHandlerEffects(handlerCode);
+  const parentGuards = getChildren(node, 'guard')
+    .map(g => collectGuard(g, fallbackAllowlist))
+    .filter((g): g is GuardDefinition => !!g);
+  autoInjectEffectGuards(params, parentGuards, effects, fallbackAllowlist);
+
+  // Auto-inject sanitizeOutput if handler calls external APIs and no sanitizeOutput guard exists
+  if (effects.network && !getChildren(node, 'guard').some(g => str(getProps(g).type) === 'sanitizeOutput')) {
+    // Add sanitizeOutput as a tool-level guard node so emitToolGuardLines picks it up
+    const syntheticGuard: IRNode = { type: 'guard', props: { type: 'sanitizeOutput' } };
+    if (!node.children) node.children = [];
+    node.children.push(syntheticGuard);
+  }
+
   const toolGuards = emitToolGuardLines(node);
   for (const h of toolGuards.helpers) requiredHelpers.add(h);
 

@@ -119,6 +119,10 @@ export type { NormProfile, NormViolation, MineNormsResult } from './norm-miner.j
 export { synthesizeObligations } from './obligations.js';
 export type { ProofObligation } from './obligations.js';
 
+// Semantic diff
+export { computeSemanticDiff, computeSemanticDiffFromSource, semanticChangesToFindings, getOldFileContent, formatSemanticDiff } from './semantic-diff.js';
+export type { SemanticChange } from './semantic-diff.js';
+
 // Cache (Phase 0)
 import { computeCacheKey, reviewCache, clearReviewCache } from './cache.js';
 export { clearReviewCache };
