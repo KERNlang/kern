@@ -77,12 +77,14 @@ export function generateScreen(node: IRNode): string[] {
   const effectNodes = getChildren(node, 'effect');
   const renderNode = getFirstChild(node, 'render');
   const callbackNodes = getChildren(node, 'callback');
+  const memoNodes = getChildren(node, 'memo');
   const refNodes = getChildren(node, 'ref');
 
   // Determine which React hooks are needed
   const needsState = stateNodes.length > 0;
   const needsEffect = effectNodes.length > 0;
   const needsCallback = callbackNodes.length > 0;
+  const needsMemo = memoNodes.length > 0;
   const needsRef = refNodes.length > 0;
 
   // Imports
@@ -90,6 +92,7 @@ export function generateScreen(node: IRNode): string[] {
   if (needsState) reactImports.push('useState');
   if (needsEffect) reactImports.push('useEffect');
   if (needsCallback) reactImports.push('useCallback');
+  if (needsMemo) reactImports.push('useMemo');
   if (needsRef) reactImports.push('useRef');
 
   // Don't emit imports here — KERN import nodes at file level handle React/Ink imports.
@@ -145,31 +148,49 @@ export function generateScreen(node: IRNode): string[] {
 
   if (stateNodes.length > 0 || refNodes.length > 0) lines.push('');
 
+  // Memos
+  for (const mn of memoNodes) {
+    const mp = propsOf(mn);
+    const mName = emitIdentifier(mp.name as string, 'memo', mn);
+    const mDeps = mp.deps as string || '';
+    const mDepsArr = mDeps && mDeps !== '[]' ? `[${mDeps}]` : '[]';
+    const body = handlerContent(mn);
+    lines.push(`  const ${mName} = useMemo(() => {`);
+    for (const line of body.split('\n')) {
+      lines.push(`    ${line}`);
+    }
+    lines.push(`  }, ${mDepsArr});`);
+    lines.push('');
+  }
+
   // Callbacks
   for (const cn of callbackNodes) {
     const cp = propsOf(cn);
     const cName = emitIdentifier(cp.name as string, 'handler', cn);
     const cParams = cp.params as string || '';
-    const cDeps = cp.deps as string || '[]';
+    const cDeps = cp.deps as string || '';
+    const cDepsArr = cDeps && cDeps !== '[]' ? `[${cDeps}]` : '[]';
+    const isAsync = cp.async === true || cp.async === 'true';
     const body = handlerContent(cn);
-    lines.push(`  const ${cName} = useCallback(${cParams ? `(${cParams})` : '()'} => {`);
+    lines.push(`  const ${cName} = useCallback(${isAsync ? 'async ' : ''}${cParams ? `(${cParams})` : '()'} => {`);
     for (const line of body.split('\n')) {
       lines.push(`    ${line}`);
     }
-    lines.push(`  }, ${cDeps});`);
+    lines.push(`  }, ${cDepsArr});`);
     lines.push('');
   }
 
   // Effects
   for (const en of effectNodes) {
     const ep = propsOf(en);
-    const eDeps = ep.deps as string || '[]';
+    const eDeps = ep.deps as string || '';
+    const eDepsArr = eDeps && eDeps !== '[]' ? `[${eDeps}]` : '[]';
     const body = handlerContent(en);
     lines.push(`  useEffect(() => {`);
     for (const line of body.split('\n')) {
       lines.push(`    ${line}`);
     }
-    lines.push(`  }, ${eDeps});`);
+    lines.push(`  }, ${eDepsArr});`);
     lines.push('');
   }
 
