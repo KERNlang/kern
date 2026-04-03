@@ -536,8 +536,11 @@ describe('Core Language Codegen', () => {
       expect(isCoreNode('hook')).toBe(true);
     });
 
+    it('identifies graduated screen node', () => {
+      expect(isCoreNode('screen')).toBe(true);
+    });
+
     it('rejects non-core nodes', () => {
-      expect(isCoreNode('screen')).toBe(false);
       expect(isCoreNode('button')).toBe(false);
       expect(isCoreNode('route')).toBe(false);
     });
