@@ -25,8 +25,7 @@ describe('obligations e2e — norm mining pipeline', () => {
     const allConcepts = new Map();
     const inferredPerFile = new Map();
     const fileContextMap = new Map<string, FileContext>();
-    const { profiles, violations } = mineNorms(allConcepts, inferredPerFile, fileContextMap);
-    expect(profiles).toEqual([]);
+    const violations = mineNorms(allConcepts);
     expect(violations).toEqual([]);
   });
 

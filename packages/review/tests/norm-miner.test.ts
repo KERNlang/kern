@@ -4,7 +4,7 @@
 
 import type { ConceptMap, ConceptNode, ConceptSpan } from '@kernlang/core';
 import type { FileContext } from '../src/types.js';
-import { mineNorms, type NormProfile, type NormViolation } from '../src/norm-miner.js';
+import { mineNorms, type NormViolation } from '../src/norm-miner.js';
 
 // ── Test Helpers ─────────────────────────────────────────────────────────
 
