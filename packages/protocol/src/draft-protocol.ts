@@ -27,8 +27,9 @@ export function buildKernDraftPrompt(opts: {
   mode: 'brainstorm' | 'forge-plan' | 'tribunal-position';
 }): string {
   const modeInstructions: Record<string, string> = {
-    'brainstorm': 'You are proposing an approach to a technical question. Be creative but specific.',
-    'forge-plan': 'You are planning an implementation that will be scored against competing implementations. Be precise about files and steps.',
+    brainstorm: 'You are proposing an approach to a technical question. Be creative but specific.',
+    'forge-plan':
+      'You are planning an implementation that will be scored against competing implementations. Be precise about files and steps.',
     'tribunal-position': 'You are taking a position in a technical tribunal. State your case clearly with evidence.',
   };
 
@@ -80,7 +81,9 @@ export function buildKernDraftPrompt(opts: {
 export function buildKernRankPrompt(drafts: { engineId: string; draft: KernDraft }[]): string {
   const lines: string[] = [];
 
-  lines.push('Rank these drafts by: specificity (concrete vs vague), feasibility (can it actually work), and fit to project context.');
+  lines.push(
+    'Rank these drafts by: specificity (concrete vs vague), feasibility (can it actually work), and fit to project context.',
+  );
   lines.push('');
 
   for (const { engineId, draft } of drafts) {
@@ -138,7 +141,7 @@ export function parseKernDraft(output: string): KernDraft | null {
   if (stepsMatch) {
     const stepsBody = stepsMatch[1];
     const stepEntries = [...stepsBody.matchAll(/\d+\s?:\s?"([^"]*?)"/g)];
-    draft.steps = stepEntries.map(m => m[1]);
+    draft.steps = stepEntries.map((m) => m[1]);
   }
 
   // Validate: must have at least an approach
@@ -168,5 +171,5 @@ function parseQuotedList(body: string, key: string): string[] {
   const match = body.match(regex);
   if (!match) return [];
   const values = [...match[1].matchAll(/"([^"]*?)"/g)];
-  return values.map(m => m[1]);
+  return values.map((m) => m[1]);
 }

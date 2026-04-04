@@ -5,9 +5,9 @@
  * Templates are registered at config/CLI time, then expanded during codegen.
  */
 
-import type { IRNode, TemplateDefinition, TemplateSlot, TemplateImport, TemplateSlotType } from './types.js';
-import { generateCoreNode, emitIdentifier, emitTemplateSafe } from './codegen-core.js';
+import { emitIdentifier, emitTemplateSafe, generateCoreNode } from './codegen-core.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
+import type { IRNode, TemplateDefinition, TemplateImport, TemplateSlot, TemplateSlotType } from './types.js';
 
 // ── Registry — now delegates to defaultRuntime ──────────────────────────
 
@@ -30,17 +30,13 @@ function validateSlotValue(name: string, value: string, slotType: TemplateSlotTy
   switch (slotType) {
     case 'identifier':
       if (!IDENTIFIER_RE.test(value)) {
-        throw new KernTemplateError(
-          `Slot '${name}' requires a valid identifier, got '${value}'`
-        );
+        throw new KernTemplateError(`Slot '${name}' requires a valid identifier, got '${value}'`);
       }
       break;
     case 'type':
     case 'expr':
       if (!value || value.trim().length === 0) {
-        throw new KernTemplateError(
-          `Slot '${name}' (${slotType}) must be non-empty`
-        );
+        throw new KernTemplateError(`Slot '${name}' (${slotType}) must be non-empty`);
       }
       break;
     case 'block':
@@ -57,7 +53,7 @@ function p(node: IRNode): Record<string, unknown> {
 
 function kids(node: IRNode, type?: string): IRNode[] {
   const c = node.children || [];
-  return type ? c.filter(n => n.type === type) : c;
+  return type ? c.filter((n) => n.type === type) : c;
 }
 
 /**
@@ -133,10 +129,10 @@ export function templateCount(): number {
 /** Strip common leading whitespace from multiline body text. */
 function dedentBody(code: string): string {
   const lines = code.split('\n');
-  const nonEmpty = lines.filter(l => l.trim().length > 0);
+  const nonEmpty = lines.filter((l) => l.trim().length > 0);
   if (nonEmpty.length === 0) return code;
-  const min = Math.min(...nonEmpty.map(l => l.match(/^(\s*)/)?.[1].length ?? 0));
-  return lines.map(l => l.slice(min)).join('\n');
+  const min = Math.min(...nonEmpty.map((l) => l.match(/^(\s*)/)?.[1].length ?? 0));
+  return lines.map((l) => l.slice(min)).join('\n');
 }
 
 /**
@@ -157,7 +153,7 @@ export function expandTemplateNode(node: IRNode, _depth = 0, runtime?: KernRunti
   const rt = runtime ?? defaultRuntime;
   if (_depth > MAX_EXPANSION_DEPTH) {
     throw new KernTemplateError(
-      `Template expansion depth exceeded ${MAX_EXPANSION_DEPTH} — possible recursion in template '${node.type}'`
+      `Template expansion depth exceeded ${MAX_EXPANSION_DEPTH} — possible recursion in template '${node.type}'`,
     );
   }
 
@@ -182,9 +178,7 @@ export function expandTemplateNode(node: IRNode, _depth = 0, runtime?: KernRunti
     } else if (slot.optional) {
       slotValues.set(slot.name, slot.defaultValue ?? '');
     } else {
-      throw new KernTemplateError(
-        `Template '${template.name}': required slot '${slot.name}' not provided`
-      );
+      throw new KernTemplateError(`Template '${template.name}': required slot '${slot.name}' not provided`);
     }
   }
 
@@ -216,7 +210,7 @@ export function expandTemplateNode(node: IRNode, _depth = 0, runtime?: KernRunti
     // Preserve indentation: find indent before {{CHILDREN}} and apply to each child line
     body = body.replace(/^([ \t]*)(\{\{CHILDREN\}\})/gm, (_match, indent: string) => {
       if (childrenLines.length === 0) return '';
-      return childrenLines.map(l => indent + l).join('\n');
+      return childrenLines.map((l) => indent + l).join('\n');
     });
   }
 
@@ -233,7 +227,10 @@ export function expandTemplateNode(node: IRNode, _depth = 0, runtime?: KernRunti
   if (template.imports.length > 0) {
     const importLines: string[] = [];
     for (const imp of template.imports) {
-      const nameList = imp.names.split(',').map(s => s.trim()).join(', ');
+      const nameList = imp.names
+        .split(',')
+        .map((s) => s.trim())
+        .join(', ');
       const safeFrom = emitTemplateSafe(imp.from);
       importLines.push(`import { ${nameList} } from '${safeFrom}';`);
     }

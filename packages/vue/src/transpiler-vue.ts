@@ -6,8 +6,20 @@
  * via @kernlang/core — this transpiler only handles UI nodes.
  */
 
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR, cssPropertyName, camelKey, escapeJsString, getProps, getStyles, getThemeRefs, buildDiagnostics, accountNode } from '@kernlang/core';
+import type { AccountedEntry, IRNode, ResolvedKernConfig, SourceMapEntry, TranspileResult } from '@kernlang/core';
+import {
+  accountNode,
+  buildDiagnostics,
+  camelKey,
+  countTokens,
+  cssPropertyName,
+  escapeJsString,
+  expandStyles,
+  getProps,
+  getStyles,
+  getThemeRefs,
+  serializeIR,
+} from '@kernlang/core';
 
 // ── Node → HTML Element Mapping ──────────────────────────────────────────
 
@@ -60,7 +72,7 @@ function tText(ctx: VueBuilder, key: string, value: string): string {
 function cssValue(key: string, value: string | number): string {
   if (typeof value === 'number') {
     const unitless = ['flex', 'fontWeight', 'opacity', 'zIndex', 'lineHeight'];
-    if (unitless.some(u => key.toLowerCase().includes(u.toLowerCase()))) return String(value);
+    if (unitless.some((u) => key.toLowerCase().includes(u.toLowerCase()))) return String(value);
     return `${value}px`;
   }
   return String(value);
@@ -128,7 +140,7 @@ function collectThemes(node: IRNode, ctx: VueBuilder): void {
       ctx.themes[name] = props.styles as Record<string, string>;
     }
   }
-  if (node.children) node.children.forEach(c => collectThemes(c, ctx));
+  if (node.children) node.children.forEach((c) => collectThemes(c, ctx));
 }
 
 // ── CSS Class Generation ─────────────────────────────────────────────────
@@ -194,7 +206,8 @@ function eventParamType(event: string): string {
   if (event === 'scroll') return 'e: Event';
   if (event === 'resize') return '';
   if (event === 'input') return 'e: Event';
-  if (event === 'mouseover' || event === 'mouseout' || event === 'mouseenter' || event === 'mouseleave') return 'e: MouseEvent';
+  if (event === 'mouseover' || event === 'mouseout' || event === 'mouseenter' || event === 'mouseleave')
+    return 'e: MouseEvent';
   return 'e: Event';
 }
 
@@ -205,8 +218,8 @@ function collectOnHandler(node: IRNode, ctx: VueBuilder): void {
   const key = props.key as string;
   const isAsync = props.async === 'true' || props.async === true;
 
-  const handlerChild = (node.children || []).find(c => c.type === 'handler');
-  const code = handlerChild ? (getProps(handlerChild).code as string || '') : '';
+  const handlerChild = (node.children || []).find((c) => c.type === 'handler');
+  const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
 
   if (handlerRef && !code) return;
 
@@ -245,7 +258,7 @@ function addInputAttrs(props: Record<string, unknown>, attrs: string[]): void {
 
 function addListAttrs(props: Record<string, unknown>, attrs: string[]): void {
   if (props.items) {
-    const itemVar = props.itemVar as string || 'item';
+    const itemVar = (props.itemVar as string) || 'item';
     attrs.push(`v-for="${itemVar} in ${props.items}" :key="${itemVar}.id || ${itemVar}"`);
   }
 }
@@ -293,8 +306,8 @@ function renderProgressContent(props: Record<string, unknown>, ctx: VueBuilder, 
   ctx.templateLines.push(`${indent}  ${props.label}: ${current}/${target} ${unit}`);
 }
 
-function renderTabs(node: IRNode, ctx: VueBuilder, indent: string, el: string): void {
-  const tabs = (node.children || []).filter(c => c.type === 'tab');
+function renderTabs(node: IRNode, ctx: VueBuilder, indent: string, _el: string): void {
+  const tabs = (node.children || []).filter((c) => c.type === 'tab');
   if (tabs.length === 0) return;
   const tabVarName = `activeTab_${ctx.classIdx}`;
   const firstTabName = (getProps(tabs[0]).name as string) || '0';
@@ -303,19 +316,21 @@ function renderTabs(node: IRNode, ctx: VueBuilder, indent: string, el: string): 
   ctx.templateLines.push(`${indent}  <div class="tab-buttons">`);
   for (const tab of tabs) {
     const tp = getProps(tab);
-    const tabName = tp.name as string || tp.label as string || 'tab';
-    const label = tp.label as string || tp.name as string || 'Tab';
-    ctx.templateLines.push(`${indent}    <button @click="${tabVarName} = '${tabName}'" :class="{ active: ${tabVarName} === '${tabName}' }">${label}</button>`);
+    const tabName = (tp.name as string) || (tp.label as string) || 'tab';
+    const label = (tp.label as string) || (tp.name as string) || 'Tab';
+    ctx.templateLines.push(
+      `${indent}    <button @click="${tabVarName} = '${tabName}'" :class="{ active: ${tabVarName} === '${tabName}' }">${label}</button>`,
+    );
   }
   ctx.templateLines.push(`${indent}  </div>`);
 
   for (const tab of tabs) {
     const tp = getProps(tab);
-    const tabName = tp.name as string || tp.label as string || 'tab';
+    const tabName = (tp.name as string) || (tp.label as string) || 'tab';
     ctx.templateLines.push(`${indent}  <div v-if="${tabVarName} === '${tabName}'">`);
     if (tab.children) {
       for (const child of tab.children) {
-        renderNode(child, ctx, indent + '    ');
+        renderNode(child, ctx, `${indent}    `);
       }
     }
     ctx.templateLines.push(`${indent}  </div>`);
@@ -325,7 +340,7 @@ function renderTabs(node: IRNode, ctx: VueBuilder, indent: string, el: string): 
 function renderChildren(node: IRNode, ctx: VueBuilder, indent: string): void {
   if (node.children) {
     for (const child of node.children) {
-      renderNode(child, ctx, indent + '  ');
+      renderNode(child, ctx, `${indent}  `);
     }
   }
 }
@@ -333,10 +348,31 @@ function renderChildren(node: IRNode, ctx: VueBuilder, indent: string): void {
 // ── Skipped props for generic passthrough ────────────────────────────────
 
 const SKIP_PROPS = new Set([
-  'styles', 'pseudoStyles', 'themeRefs', 'value', 'text', 'src', 'name',
-  'variant', 'to', 'action', 'bind', 'placeholder', 'type', 'items',
-  'itemVar', 'current', 'target', 'unit', 'color', 'label', 'icon',
-  'title', 'active', 'initial', 'code',
+  'styles',
+  'pseudoStyles',
+  'themeRefs',
+  'value',
+  'text',
+  'src',
+  'name',
+  'variant',
+  'to',
+  'action',
+  'bind',
+  'placeholder',
+  'type',
+  'items',
+  'itemVar',
+  'current',
+  'target',
+  'unit',
+  'color',
+  'label',
+  'icon',
+  'title',
+  'active',
+  'initial',
+  'code',
 ]);
 
 const NON_VISUAL = new Set(['state', 'logic', 'theme', 'handler', 'on']);
@@ -366,9 +402,8 @@ function renderNode(node: IRNode, ctx: VueBuilder, indent: string): void {
       break;
   }
 
-  const el = node.type === 'text'
-    ? textElement(props.variant as string | undefined)
-    : NODE_TO_ELEMENT[node.type] || 'div';
+  const el =
+    node.type === 'text' ? textElement(props.variant as string | undefined) : NODE_TO_ELEMENT[node.type] || 'div';
 
   let styles = mergeNodeStyles(node, ctx);
   styles = addLayoutDefaults(node.type, styles);
@@ -385,9 +420,10 @@ function renderNode(node: IRNode, ctx: VueBuilder, indent: string): void {
     attrs.push(`${k}="${v}"`);
   }
 
-  const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
+  const attrStr = attrs.length > 0 ? ` ${attrs.join(' ')}` : '';
 
-  const hasContent = (node.children && node.children.some(c => !NON_VISUAL.has(c.type))) ||
+  const hasContent =
+    node.children?.some((c) => !NON_VISUAL.has(c.type)) ||
     (node.type === 'text' && props.value) ||
     (node.type === 'button' && props.text) ||
     (node.type === 'progress' && props.label) ||
@@ -437,7 +473,7 @@ function generateScopedCSS(ctx: VueBuilder): string {
 
 function generateScriptSetup(ctx: VueBuilder, root: IRNode): string {
   const lines: string[] = [];
-  const props = getProps(root);
+  const _props = getProps(root);
 
   // Vue imports
   if (ctx.vueImports.size > 0) {
@@ -449,8 +485,8 @@ function generateScriptSetup(ctx: VueBuilder, root: IRNode): string {
   if (ctx.i18nEnabled) {
     const rawHook = ctx.config?.i18n?.hookName;
     const rawImport = ctx.config?.i18n?.importPath;
-    const hookName = (rawHook && rawHook !== 'useTranslation') ? rawHook : 'useI18n';
-    const importPath = (rawImport && rawImport !== 'react-i18next') ? rawImport : 'vue-i18n';
+    const hookName = rawHook && rawHook !== 'useTranslation' ? rawHook : 'useI18n';
+    const importPath = rawImport && rawImport !== 'react-i18next' ? rawImport : 'vue-i18n';
     lines.push(`import { ${hookName} } from '${importPath}';`);
     lines.push('');
     lines.push(`const { t } = ${hookName}();`);
@@ -464,7 +500,7 @@ function generateScriptSetup(ctx: VueBuilder, root: IRNode): string {
   if (ctx.scriptImports.size > 0) lines.push('');
 
   // Component props via defineProps
-  const propNodes = (root.children || []).filter(c => c.type === 'prop');
+  const propNodes = (root.children || []).filter((c) => c.type === 'prop');
   if (propNodes.length > 0) {
     lines.push('const props = defineProps<{');
     for (const pn of propNodes) {
@@ -477,13 +513,13 @@ function generateScriptSetup(ctx: VueBuilder, root: IRNode): string {
   }
 
   // Emits
-  const emitNodes = (root.children || []).filter(c => c.type === 'emit');
+  const emitNodes = (root.children || []).filter((c) => c.type === 'emit');
   if (emitNodes.length > 0) {
-    const emitNames = emitNodes.map(e => `'${getProps(e).name}'`).join(' | ');
+    const _emitNames = emitNodes.map((e) => `'${getProps(e).name}'`).join(' | ');
     lines.push(`const emit = defineEmits<{`);
     for (const e of emitNodes) {
       const ep = getProps(e);
-      const payload = ep.type as string || 'void';
+      const payload = (ep.type as string) || 'void';
       lines.push(`  (e: '${ep.name}', payload: ${payload}): void;`);
     }
     lines.push(`}>()`);
@@ -498,9 +534,14 @@ function generateScriptSetup(ctx: VueBuilder, root: IRNode): string {
       lines.push(`const ${s.name} = ref();`);
     } else if (initial === 'true' || initial === 'false') {
       lines.push(`const ${s.name} = ref(${initial});`);
-    } else if (!isNaN(Number(initial))) {
+    } else if (!Number.isNaN(Number(initial))) {
       lines.push(`const ${s.name} = ref(${initial});`);
-    } else if (initial.startsWith("'") || initial.startsWith('"') || initial.startsWith('[') || initial.startsWith('{')) {
+    } else if (
+      initial.startsWith("'") ||
+      initial.startsWith('"') ||
+      initial.startsWith('[') ||
+      initial.startsWith('{')
+    ) {
       lines.push(`const ${s.name} = ref(${initial});`);
     } else {
       lines.push(`const ${s.name} = ref('${initial}');`);
@@ -520,8 +561,8 @@ function generateScriptSetup(ctx: VueBuilder, root: IRNode): string {
     const keyGuard = handler.key ? `  if ((e as KeyboardEvent).key !== '${handler.key}') return;\n` : '';
 
     // For key/resize events, generate a plain function + onMounted/onUnmounted
-    const needsMounted = handler.event === 'key' || handler.event === 'keydown' ||
-                         handler.event === 'keyup' || handler.event === 'resize';
+    const needsMounted =
+      handler.event === 'key' || handler.event === 'keydown' || handler.event === 'keyup' || handler.event === 'resize';
 
     if (needsMounted) {
       // Generate the function
@@ -600,7 +641,7 @@ export function transpileVue(root: IRNode, config?: ResolvedKernConfig): Transpi
     sfc.push('</style>');
   }
 
-  const code = sfc.join('\n') + '\n';
+  const code = `${sfc.join('\n')}\n`;
 
   const irText = serializeIR(root);
   const irTokenCount = countTokens(irText);
@@ -618,7 +659,7 @@ export function transpileVue(root: IRNode, config?: ResolvedKernConfig): Transpi
       accountNode(accounted, root, 'expressed', undefined, true);
       const CONSUMED = new Set(['state', 'logic', 'on', 'theme', 'handler']);
       for (const child of root.children || []) {
-        if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+        if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', `${child.type} pre-pass`, true);
       }
       return buildDiagnostics(root, accounted, 'vue');
     })(),

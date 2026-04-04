@@ -2,7 +2,7 @@
 import { exec } from 'child_process';
 
 export function convert(userFilename: string): void {
-  exec('convert ' + userFilename + ' output.png', (err) => {
+  exec(`convert ${userFilename} output.png`, (err) => {
     if (err) console.error(err);
   });
 }

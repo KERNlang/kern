@@ -3,8 +3,15 @@
  */
 
 import { reviewSource } from '../src/index.js';
-import { analyzeTaint, taintToFindings, isSanitizerSufficient, buildExportMap, analyzeTaintCrossFile, crossFileTaintToFindings, propagateTaintMultiHop } from '../src/taint.js';
 import { inferFromSource } from '../src/inferrer.js';
+import {
+  analyzeTaint,
+  buildExportMap,
+  crossFileTaintToFindings,
+  isSanitizerSufficient,
+  propagateTaintMultiHop,
+  taintToFindings,
+} from '../src/taint.js';
 
 // ── Direct taint analysis tests ───────────────────────────────────────
 
@@ -24,7 +31,7 @@ export function runJob(req: Request, res: Response): void {
     const r = results[0];
     expect(r.fnName).toBe('runJob');
 
-    const unsanitized = r.paths.filter(p => !p.sanitized);
+    const unsanitized = r.paths.filter((p) => !p.sanitized);
     expect(unsanitized.length).toBeGreaterThanOrEqual(1);
     expect(unsanitized[0].sink.category).toBe('command');
   });
@@ -41,7 +48,7 @@ export function saveFile(req: Request, res: Response): void {
     const results = analyzeTaint(inferred, 'handler.ts');
 
     expect(results.length).toBeGreaterThanOrEqual(1);
-    const unsanitized = results[0].paths.filter(p => !p.sanitized);
+    const unsanitized = results[0].paths.filter((p) => !p.sanitized);
     expect(unsanitized.length).toBeGreaterThanOrEqual(1);
     expect(unsanitized[0].sink.category).toBe('fs');
   });
@@ -58,7 +65,7 @@ export function createUser(req: Request, res: Response): void {
     const results = analyzeTaint(inferred, 'handler.ts');
 
     expect(results.length).toBeGreaterThanOrEqual(1);
-    const unsanitized = results[0].paths.filter(p => !p.sanitized);
+    const unsanitized = results[0].paths.filter((p) => !p.sanitized);
     expect(unsanitized.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -75,7 +82,7 @@ export function getItem(req: Request, res: Response): void {
 
     // Should have a path but it should be marked as sanitized
     if (results.length > 0) {
-      const sanitized = results[0].paths.filter(p => p.sanitized);
+      const sanitized = results[0].paths.filter((p) => p.sanitized);
       expect(sanitized.length).toBeGreaterThanOrEqual(0); // parseInt found
     }
   });
@@ -93,7 +100,7 @@ export function updateUser(req: Request, res: Response): void {
 
     // Sanitizer should be detected
     if (results.length > 0) {
-      const sanitized = results[0].paths.filter(p => p.sanitized);
+      const sanitized = results[0].paths.filter((p) => p.sanitized);
       expect(sanitized.length).toBeGreaterThanOrEqual(0);
     }
   });
@@ -122,7 +129,7 @@ export function deleteFile(req: Request, res: Response): void {
 }
 `;
     const report = reviewSource(source, 'handler.ts');
-    const taintFindings = report.findings.filter(f => f.ruleId.startsWith('taint-'));
+    const taintFindings = report.findings.filter((f) => f.ruleId.startsWith('taint-'));
     expect(taintFindings.length).toBeGreaterThanOrEqual(1);
     expect(taintFindings[0].ruleId).toBe('taint-fs');
   });
@@ -136,7 +143,7 @@ export function runCommand(req: Request, res: Response): void {
 }
 `;
     const report = reviewSource(source, 'handler.ts');
-    const taintFindings = report.findings.filter(f => f.ruleId === 'taint-command');
+    const taintFindings = report.findings.filter((f) => f.ruleId === 'taint-command');
     expect(taintFindings.length).toBeGreaterThanOrEqual(1);
     expect(taintFindings[0].suggestion).toBeDefined();
     expect(taintFindings[0].severity).toBe('error');
@@ -147,16 +154,20 @@ export function runCommand(req: Request, res: Response): void {
 
 describe('taintToFindings', () => {
   it('converts TaintResult to ReviewFinding with correct severity', () => {
-    const results = [{
-      fnName: 'handler',
-      filePath: 'test.ts',
-      startLine: 5,
-      paths: [{
-        source: { name: 'cmd', origin: 'req.body.cmd' },
-        sink: { name: 'exec', category: 'command' as const, taintedArg: 'cmd' },
-        sanitized: false,
-      }],
-    }];
+    const results = [
+      {
+        fnName: 'handler',
+        filePath: 'test.ts',
+        startLine: 5,
+        paths: [
+          {
+            source: { name: 'cmd', origin: 'req.body.cmd' },
+            sink: { name: 'exec', category: 'command' as const, taintedArg: 'cmd' },
+            sanitized: false,
+          },
+        ],
+      },
+    ];
 
     const findings = taintToFindings(results);
     expect(findings.length).toBe(1);
@@ -167,35 +178,41 @@ describe('taintToFindings', () => {
   });
 
   it('skips sanitized paths', () => {
-    const results = [{
-      fnName: 'handler',
-      filePath: 'test.ts',
-      startLine: 5,
-      paths: [{
-        source: { name: 'id', origin: 'req.params.id' },
-        sink: { name: 'query', category: 'sql' as const, taintedArg: 'id' },
-        sanitized: true,
-        sanitizer: 'parseInt',
-      }],
-    }];
+    const results = [
+      {
+        fnName: 'handler',
+        filePath: 'test.ts',
+        startLine: 5,
+        paths: [
+          {
+            source: { name: 'id', origin: 'req.params.id' },
+            sink: { name: 'query', category: 'sql' as const, taintedArg: 'id' },
+            sanitized: true,
+            sanitizer: 'parseInt',
+          },
+        ],
+      },
+    ];
 
     const findings = taintToFindings(results);
     expect(findings.length).toBe(0); // sanitized = no finding
   });
 
   it('command/eval sinks are error severity, others are warning', () => {
-    const results = [{
-      fnName: 'handler',
-      filePath: 'test.ts',
-      startLine: 5,
-      paths: [
-        {
-          source: { name: 'path', origin: 'req.query.path' },
-          sink: { name: 'writeFile', category: 'fs' as const, taintedArg: 'path' },
-          sanitized: false,
-        },
-      ],
-    }];
+    const results = [
+      {
+        fnName: 'handler',
+        filePath: 'test.ts',
+        startLine: 5,
+        paths: [
+          {
+            source: { name: 'path', origin: 'req.query.path' },
+            sink: { name: 'writeFile', category: 'fs' as const, taintedArg: 'path' },
+            sanitized: false,
+          },
+        ],
+      },
+    ];
 
     const findings = taintToFindings(results);
     expect(findings[0].severity).toBe('warning'); // fs = warning, not error
@@ -255,7 +272,7 @@ export function runJob(req: Request, res: Response): void {
 }
 `;
     const report = reviewSource(source, 'handler.ts');
-    const f = report.findings.find(f => f.ruleId === 'taint-insufficient-sanitizer');
+    const f = report.findings.find((f) => f.ruleId === 'taint-insufficient-sanitizer');
     expect(f).toBeDefined();
     expect(f!.message).toContain('parseInt');
     expect(f!.message).toContain('command injection');
@@ -284,16 +301,18 @@ export function runQuery(sql: string): void {
 
 describe('crossFileTaintToFindings', () => {
   it('converts cross-file results to findings with related spans', () => {
-    const results = [{
-      callerFile: 'routes.ts',
-      callerFn: 'handleRequest',
-      callerLine: 10,
-      calleeFile: 'db.ts',
-      calleeFn: 'runQuery',
-      taintedArgs: ['userInput'],
-      sinkInCallee: { name: 'query', category: 'sql' as const, taintedArg: 'sql' },
-      source: { name: 'userInput', origin: 'req.body.query' },
-    }];
+    const results = [
+      {
+        callerFile: 'routes.ts',
+        callerFn: 'handleRequest',
+        callerLine: 10,
+        calleeFile: 'db.ts',
+        calleeFn: 'runQuery',
+        taintedArgs: ['userInput'],
+        sinkInCallee: { name: 'query', category: 'sql' as const, taintedArg: 'sql' },
+        source: { name: 'userInput', origin: 'req.body.query' },
+      },
+    ];
 
     const findings = crossFileTaintToFindings(results);
     expect(findings.length).toBe(1);

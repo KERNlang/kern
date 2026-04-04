@@ -1,7 +1,7 @@
-import { resolve, dirname } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const _ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('Structure Planner', () => {
   // ── classifyNode ─────────────────────────────────────────────────────────
@@ -85,12 +85,12 @@ describe('Structure Planner', () => {
         children: [
           { type: 'state', props: { name: 'count', initial: '0' } },
           { type: 'logic', props: { code: 'useEffect(() => {}, []);' } },
-          { type: 'card', props: { name: 'CalorieCard' }, children: [
-            { type: 'text', props: { value: 'Calories' } },
-          ]},
-          { type: 'card', props: { name: 'ProgressCard' }, children: [
-            { type: 'progress', props: { current: '50', target: '100' } },
-          ]},
+          { type: 'card', props: { name: 'CalorieCard' }, children: [{ type: 'text', props: { value: 'Calories' } }] },
+          {
+            type: 'card',
+            props: { name: 'ProgressCard' },
+            children: [{ type: 'progress', props: { current: '50', target: '100' } }],
+          },
         ],
       };
 
@@ -99,24 +99,24 @@ describe('Structure Planner', () => {
       expect(plan!.files.length).toBeGreaterThanOrEqual(4); // entry + 2 cards + hooks + types
 
       // Verify entry file
-      const entry = plan!.files.find(f => f.isEntry);
+      const entry = plan!.files.find((f) => f.isEntry);
       expect(entry).toBeDefined();
       expect(entry!.path).toContain('features/dashboard/');
 
       // Verify component files
-      const components = plan!.files.filter(f => f.artifactType === 'component');
+      const components = plan!.files.filter((f) => f.artifactType === 'component');
       expect(components.length).toBe(2);
       expect(components[0].path).toContain('features/dashboard/components/');
       expect(components[1].path).toContain('features/dashboard/components/');
 
       // Verify hooks
-      const hooks = plan!.files.filter(f => f.artifactType === 'hook');
+      const hooks = plan!.files.filter((f) => f.artifactType === 'hook');
       expect(hooks.length).toBe(2); // state + logic
-      expect(hooks.some(h => h.path.includes('useDashboardState'))).toBe(true);
-      expect(hooks.some(h => h.path.includes('useDashboardLogic'))).toBe(true);
+      expect(hooks.some((h) => h.path.includes('useDashboardState'))).toBe(true);
+      expect(hooks.some((h) => h.path.includes('useDashboardLogic'))).toBe(true);
 
       // Verify types
-      const types = plan!.files.filter(f => f.artifactType === 'types');
+      const types = plan!.files.filter((f) => f.artifactType === 'types');
       expect(types.length).toBe(1);
       expect(types[0].path).toContain('types/dashboard.types.ts');
     });
@@ -160,21 +160,21 @@ describe('Structure Planner', () => {
       expect(plan).not.toBeNull();
 
       // Page
-      const page = plan!.files.find(f => f.artifactType === 'page');
+      const page = plan!.files.find((f) => f.artifactType === 'page');
       expect(page).toBeDefined();
       expect(page!.path).toContain('pages/DashboardPage.tsx');
 
       // Template
-      const template = plan!.files.find(f => f.artifactType === 'template');
+      const template = plan!.files.find((f) => f.artifactType === 'template');
       expect(template).toBeDefined();
       expect(template!.path).toContain('templates/DashboardTemplate.tsx');
 
       // Organisms (blocks)
-      const organisms = plan!.files.filter(f => f.path.includes('organisms/'));
+      const organisms = plan!.files.filter((f) => f.path.includes('organisms/'));
       expect(organisms.length).toBe(2);
 
       // Hooks
-      const hooks = plan!.files.filter(f => f.artifactType === 'hook');
+      const hooks = plan!.files.filter((f) => f.artifactType === 'hook');
       expect(hooks.length).toBe(1); // state only (no logic nodes)
       expect(hooks[0].path).toContain('hooks/useDashboardState.ts');
     });
@@ -202,27 +202,27 @@ describe('Structure Planner', () => {
       expect(plan).not.toBeNull();
 
       // Surface
-      const surface = plan!.files.find(f => f.isEntry);
+      const surface = plan!.files.find((f) => f.isEntry);
       expect(surface).toBeDefined();
       expect(surface!.path).toContain('surfaces/Dashboard.surface.tsx');
 
       // Block
-      const blocks = plan!.files.filter(f => f.path.includes('blocks/'));
+      const blocks = plan!.files.filter((f) => f.path.includes('blocks/'));
       expect(blocks.length).toBe(1);
       expect(blocks[0].path).toContain('.block.tsx');
 
       // Signals (hooks)
-      const signals = plan!.files.filter(f => f.path.includes('signals/'));
+      const signals = plan!.files.filter((f) => f.path.includes('signals/'));
       expect(signals.length).toBe(2); // state + logic
-      expect(signals.some(s => s.path.includes('useDashboardState'))).toBe(true);
-      expect(signals.some(s => s.path.includes('useDashboardLogic'))).toBe(true);
+      expect(signals.some((s) => s.path.includes('useDashboardState'))).toBe(true);
+      expect(signals.some((s) => s.path.includes('useDashboardLogic'))).toBe(true);
 
       // Tokens (theme)
-      const tokens = plan!.files.filter(f => f.path.includes('tokens/'));
+      const tokens = plan!.files.filter((f) => f.path.includes('tokens/'));
       expect(tokens.length).toBe(1);
 
       // Models (types)
-      const models = plan!.files.filter(f => f.path.includes('models/'));
+      const models = plan!.files.filter((f) => f.path.includes('models/'));
       expect(models.length).toBe(1);
     });
   });
@@ -236,15 +236,13 @@ describe('Structure Planner', () => {
         { type: 'state', props: { name: 'count', initial: '0' } },
         { type: 'state', props: { name: 'loading', initial: 'true' } },
       ];
-      const logicNodes = [
-        { type: 'logic', props: { code: 'const handleClick = () => setCount(count + 1);' } },
-      ];
+      const logicNodes = [{ type: 'logic', props: { code: 'const handleClick = () => setCount(count + 1);' } }];
 
       const hooks = extractHooks('Dashboard', stateNodes, logicNodes, 'hooks');
       expect(hooks.length).toBe(2);
 
       // State hook
-      const stateHook = hooks.find(h => h.hookName === 'useDashboardState');
+      const stateHook = hooks.find((h) => h.hookName === 'useDashboardState');
       expect(stateHook).toBeDefined();
       expect(stateHook!.stateDecls.length).toBe(2);
       expect(stateHook!.returnedValues).toContain('count');
@@ -253,7 +251,7 @@ describe('Structure Planner', () => {
       expect(stateHook!.returnedValues).toContain('setLoading');
 
       // Logic hook
-      const logicHook = hooks.find(h => h.hookName === 'useDashboardLogic');
+      const logicHook = hooks.find((h) => h.hookName === 'useDashboardLogic');
       expect(logicHook).toBeDefined();
       expect(logicHook!.logicBlocks.length).toBe(1);
     });
@@ -339,30 +337,32 @@ describe('Structure Planner', () => {
       const { resolveConfig } = await import('../../core/src/config.js');
 
       const config = resolveConfig({ target: 'tailwind', structure: 'bulletproof' });
-      const ast = parse([
-        'screen name=Dashboard',
-        '  state name=count initial=0',
-        '  card name=CalorieCard',
-        '    text value=Calories',
-        '  text value=Hello',
-      ].join('\n'));
+      const ast = parse(
+        [
+          'screen name=Dashboard',
+          '  state name=count initial=0',
+          '  card name=CalorieCard',
+          '    text value=Calories',
+          '  text value=Hello',
+        ].join('\n'),
+      );
 
       const result = transpileTailwind(ast, config);
       expect(result.artifacts).toBeDefined();
       expect(result.artifacts!.length).toBeGreaterThanOrEqual(3); // entry + component + hooks + types
 
       // Entry artifact exists
-      const entry = result.artifacts!.find(a => a.type === 'entry');
+      const entry = result.artifacts!.find((a) => a.type === 'entry');
       expect(entry).toBeDefined();
       expect(entry!.content).toContain('Dashboard');
 
       // Hook artifact exists
-      const hook = result.artifacts!.find(a => a.type === 'hook');
+      const hook = result.artifacts!.find((a) => a.type === 'hook');
       expect(hook).toBeDefined();
       expect(hook!.content).toContain('useState');
 
       // Component artifact exists
-      const component = result.artifacts!.find(a => a.type === 'component');
+      const component = result.artifacts!.find((a) => a.type === 'component');
       expect(component).toBeDefined();
       expect(component!.path).toContain('components/');
     });
@@ -375,26 +375,28 @@ describe('Structure Planner', () => {
       const { resolveConfig } = await import('../../core/src/config.js');
 
       const config = resolveConfig({ target: 'tailwind', structure: 'atomic' });
-      const ast = parse([
-        'screen name=Dashboard',
-        '  state name=count initial=0',
-        '  card name=CalorieCard',
-        '    text value=Calories',
-      ].join('\n'));
+      const ast = parse(
+        [
+          'screen name=Dashboard',
+          '  state name=count initial=0',
+          '  card name=CalorieCard',
+          '    text value=Calories',
+        ].join('\n'),
+      );
 
       const result = transpileTailwind(ast, config);
       expect(result.artifacts).toBeDefined();
 
       // Page artifact
-      const page = result.artifacts!.find(a => a.path.includes('pages/'));
+      const page = result.artifacts!.find((a) => a.path.includes('pages/'));
       expect(page).toBeDefined();
 
       // Organism artifact
-      const organism = result.artifacts!.find(a => a.path.includes('organisms/'));
+      const organism = result.artifacts!.find((a) => a.path.includes('organisms/'));
       expect(organism).toBeDefined();
 
       // Hook artifact
-      const hook = result.artifacts!.find(a => a.type === 'hook');
+      const hook = result.artifacts!.find((a) => a.type === 'hook');
       expect(hook).toBeDefined();
     });
   });
@@ -406,31 +408,33 @@ describe('Structure Planner', () => {
       const { resolveConfig } = await import('../../core/src/config.js');
 
       const config = resolveConfig({ target: 'tailwind', structure: 'kern' });
-      const ast = parse([
-        'screen name=Dashboard',
-        '  state name=count initial=0',
-        '  logic <<<',
-        '    const handleClick = () => {};',
-        '  >>>',
-        '  card name=CalorieCard',
-        '    text value=Calories',
-      ].join('\n'));
+      const ast = parse(
+        [
+          'screen name=Dashboard',
+          '  state name=count initial=0',
+          '  logic <<<',
+          '    const handleClick = () => {};',
+          '  >>>',
+          '  card name=CalorieCard',
+          '    text value=Calories',
+        ].join('\n'),
+      );
 
       const result = transpileTailwind(ast, config);
       expect(result.artifacts).toBeDefined();
 
       // Surface
-      const surface = result.artifacts!.find(a => a.path.includes('surfaces/'));
+      const surface = result.artifacts!.find((a) => a.path.includes('surfaces/'));
       expect(surface).toBeDefined();
       expect(surface!.path).toContain('.surface.tsx');
 
       // Block
-      const block = result.artifacts!.find(a => a.path.includes('blocks/'));
+      const block = result.artifacts!.find((a) => a.path.includes('blocks/'));
       expect(block).toBeDefined();
       expect(block!.path).toContain('.block.tsx');
 
       // Signals
-      const signals = result.artifacts!.filter(a => a.path.includes('signals/'));
+      const signals = result.artifacts!.filter((a) => a.path.includes('signals/'));
       expect(signals.length).toBe(2); // state + logic
     });
   });
@@ -442,18 +446,14 @@ describe('Structure Planner', () => {
       const { resolveConfig } = await import('../../core/src/config.js');
 
       const config = resolveConfig({ target: 'nextjs', structure: 'bulletproof' });
-      const ast = parse([
-        'screen name=Dashboard',
-        '  card name=CalorieCard',
-        '    text value=Calories',
-      ].join('\n'));
+      const ast = parse(['screen name=Dashboard', '  card name=CalorieCard', '    text value=Calories'].join('\n'));
 
       const result = transpileNextjs(ast, config);
       expect(result.artifacts).toBeDefined();
       expect(result.artifacts!.length).toBeGreaterThanOrEqual(2);
 
       // Check that component files exist
-      const component = result.artifacts!.find(a => a.type === 'component');
+      const component = result.artifacts!.find((a) => a.type === 'component');
       expect(component).toBeDefined();
     });
   });
@@ -465,21 +465,19 @@ describe('Structure Planner', () => {
       const { resolveConfig } = await import('../../core/src/config.js');
 
       const config = resolveConfig({ target: 'web', structure: 'kern' });
-      const ast = parse([
-        'screen name=Dashboard',
-        '  card name=CalorieCard {p:16,br:8}',
-        '    text value=Calories',
-      ].join('\n'));
+      const ast = parse(
+        ['screen name=Dashboard', '  card name=CalorieCard {p:16,br:8}', '    text value=Calories'].join('\n'),
+      );
 
       const result = transpileWeb(ast, config);
       expect(result.artifacts).toBeDefined();
 
       // Surface
-      const surface = result.artifacts!.find(a => a.path.includes('surfaces/'));
+      const surface = result.artifacts!.find((a) => a.path.includes('surfaces/'));
       expect(surface).toBeDefined();
 
       // Block
-      const block = result.artifacts!.find(a => a.path.includes('blocks/'));
+      const block = result.artifacts!.find((a) => a.path.includes('blocks/'));
       expect(block).toBeDefined();
     });
   });

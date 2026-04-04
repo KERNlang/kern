@@ -5,17 +5,17 @@ import { emitDiagnostic } from './parser-diagnostics.js';
 // ── Token types ──────────────────────────────────────────────────────────
 
 export type TokenKind =
-  | 'identifier'    // [A-Za-z_][A-Za-z0-9_-]*
-  | 'number'        // \d+
-  | 'equals'        // =
-  | 'quoted'        // "..."
-  | 'expr'          // {{ ... }}
-  | 'style'         // { ... }
-  | 'themeRef'      // $name
-  | 'slash'         // /path/segments
-  | 'comma'         // ,
-  | 'whitespace'    // spaces/tabs
-  | 'unknown';      // anything else
+  | 'identifier' // [A-Za-z_][A-Za-z0-9_-]*
+  | 'number' // \d+
+  | 'equals' // =
+  | 'quoted' // "..."
+  | 'expr' // {{ ... }}
+  | 'style' // { ... }
+  | 'themeRef' // $name
+  | 'slash' // /path/segments
+  | 'comma' // ,
+  | 'whitespace' // spaces/tabs
+  | 'unknown'; // anything else
 
 export interface Token {
   kind: TokenKind;
@@ -59,17 +59,31 @@ export function tokenizeLineInternal(line: string, state?: ParseState): Token[] 
       i += 2;
       let depth = 1;
       while (i < line.length - 1 && depth > 0) {
-        if (line[i] === '{' && line[i + 1] === '{') { depth++; i += 2; }
-        else if (line[i] === '}' && line[i + 1] === '}') { depth--; if (depth === 0) break; i += 2; }
-        else i++;
+        if (line[i] === '{' && line[i + 1] === '{') {
+          depth++;
+          i += 2;
+        } else if (line[i] === '}' && line[i + 1] === '}') {
+          depth--;
+          if (depth === 0) break;
+          i += 2;
+        } else i++;
       }
       if (depth > 0) {
         if (state) {
-          emitDiagnostic(state, 'UNCLOSED_EXPR', 'error', `Unclosed expression block '{{' at column ${start + 1}`, 0, start + 1, { endCol: start + 3 });
+          emitDiagnostic(
+            state,
+            'UNCLOSED_EXPR',
+            'error',
+            `Unclosed expression block '{{' at column ${start + 1}`,
+            0,
+            start + 1,
+            { endCol: start + 3 },
+          );
         }
       }
       const inner = line.slice(start + 2, i).trim();
-      if (i < line.length - 1) i += 2; else i = line.length;
+      if (i < line.length - 1) i += 2;
+      else i = line.length;
       tokens.push({ kind: 'expr', value: inner, pos: start });
       continue;
     }
@@ -81,14 +95,29 @@ export function tokenizeLineInternal(line: string, state?: ParseState): Token[] 
       let j = i + 1;
       let closed = false;
       while (j < line.length) {
-        if (line[j] === '\\' && j + 1 < line.length) { j += 2; continue; }
+        if (line[j] === '\\' && j + 1 < line.length) {
+          j += 2;
+          continue;
+        }
         if (line[j] === '"') inQuote = !inQuote;
-        if (!inQuote && line[j] === '}') { j++; closed = true; break; }
+        if (!inQuote && line[j] === '}') {
+          j++;
+          closed = true;
+          break;
+        }
         j++;
       }
       if (!closed) {
         if (state) {
-          emitDiagnostic(state, 'UNCLOSED_STYLE', 'error', `Unclosed style block '{' at column ${start + 1}`, 0, start + 1, { endCol: start + 2 });
+          emitDiagnostic(
+            state,
+            'UNCLOSED_STYLE',
+            'error',
+            `Unclosed style block '{' at column ${start + 1}`,
+            0,
+            start + 1,
+            { endCol: start + 2 },
+          );
         }
       }
       tokens.push({ kind: 'style', value: line.slice(start + 1, closed ? j - 1 : j), pos: start });
@@ -104,9 +133,16 @@ export function tokenizeLineInternal(line: string, state?: ParseState): Token[] 
       while (i < line.length && line[i] !== '"') {
         if (line[i] === '\\' && i + 1 < line.length) {
           const next = line[i + 1];
-          if (next === '"') { inner += '"'; i += 2; }
-          else if (next === '\\') { inner += '\\'; i += 2; }
-          else { inner += line[i]; i++; }
+          if (next === '"') {
+            inner += '"';
+            i += 2;
+          } else if (next === '\\') {
+            inner += '\\';
+            i += 2;
+          } else {
+            inner += line[i];
+            i++;
+          }
         } else {
           inner += line[i];
           i++;
@@ -114,7 +150,15 @@ export function tokenizeLineInternal(line: string, state?: ParseState): Token[] 
       }
       if (i >= line.length) {
         if (state) {
-          emitDiagnostic(state, 'UNCLOSED_STRING', 'error', `Unclosed quoted string at column ${start + 1}`, 0, start + 1, { endCol: start + 2 });
+          emitDiagnostic(
+            state,
+            'UNCLOSED_STRING',
+            'error',
+            `Unclosed quoted string at column ${start + 1}`,
+            0,
+            start + 1,
+            { endCol: start + 2 },
+          );
         }
       } else {
         i++; // skip closing quote

@@ -14,7 +14,7 @@ const count = ref(0);
 const double = count * 2;
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-ref-value');
+      const f = report.findings.find((f) => f.ruleId === 'missing-ref-value');
       expect(f).toBeDefined();
       expect(f!.message).toContain('count.value');
     });
@@ -26,7 +26,7 @@ const name = ref('world');
 const greeting = \`hello \${name}\`;
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-ref-value');
+      const f = report.findings.find((f) => f.ruleId === 'missing-ref-value');
       expect(f).toBeDefined();
     });
 
@@ -37,7 +37,7 @@ const count = ref(0);
 const double = count.value * 2;
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-ref-value');
+      const f = report.findings.find((f) => f.ruleId === 'missing-ref-value');
       expect(f).toBeUndefined();
     });
 
@@ -48,7 +48,7 @@ const count = ref(0);
 watch(count, (val) => console.log(val));
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-ref-value');
+      const f = report.findings.find((f) => f.ruleId === 'missing-ref-value');
       expect(f).toBeUndefined();
     });
 
@@ -61,7 +61,7 @@ function getCount() {
 }
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-ref-value');
+      const f = report.findings.find((f) => f.ruleId === 'missing-ref-value');
       // return statement is a flagged context
       expect(f).toBeDefined();
     });
@@ -73,7 +73,7 @@ const count = ref(0);
 const obj = { count };
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-ref-value');
+      const f = report.findings.find((f) => f.ruleId === 'missing-ref-value');
       expect(f).toBeUndefined();
     });
   });
@@ -88,7 +88,7 @@ const count = ref(0);
 watch(count, () => {});
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-onUnmounted');
+      const f = report.findings.find((f) => f.ruleId === 'missing-onUnmounted');
       expect(f).toBeDefined();
       expect(f!.message).toContain('watch()');
     });
@@ -99,7 +99,7 @@ import { watchEffect } from 'vue';
 watchEffect(() => {});
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-onUnmounted');
+      const f = report.findings.find((f) => f.ruleId === 'missing-onUnmounted');
       expect(f).toBeDefined();
       expect(f!.message).toContain('watchEffect()');
     });
@@ -110,7 +110,7 @@ import { watchSyncEffect } from 'vue';
 watchSyncEffect(() => {});
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-onUnmounted');
+      const f = report.findings.find((f) => f.ruleId === 'missing-onUnmounted');
       expect(f).toBeDefined();
     });
 
@@ -119,7 +119,7 @@ watchSyncEffect(() => {});
 window.addEventListener('resize', handler);
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-onUnmounted');
+      const f = report.findings.find((f) => f.ruleId === 'missing-onUnmounted');
       expect(f).toBeDefined();
       expect(f!.message).toContain('addEventListener');
     });
@@ -131,7 +131,7 @@ const count = ref(0);
 const stop = watch(count, () => {});
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-onUnmounted');
+      const f = report.findings.find((f) => f.ruleId === 'missing-onUnmounted');
       expect(f).toBeUndefined();
     });
 
@@ -143,7 +143,7 @@ watch(count, () => {});
 onUnmounted(() => {});
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-onUnmounted');
+      const f = report.findings.find((f) => f.ruleId === 'missing-onUnmounted');
       expect(f).toBeUndefined();
     });
 
@@ -155,7 +155,7 @@ watch(count, () => {});
 onBeforeUnmount(() => {});
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-onUnmounted');
+      const f = report.findings.find((f) => f.ruleId === 'missing-onUnmounted');
       expect(f).toBeUndefined();
     });
 
@@ -166,7 +166,9 @@ window.addEventListener('resize', handler);
 window.removeEventListener('resize', handler);
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-onUnmounted' && f.message.includes('addEventListener'));
+      const f = report.findings.find(
+        (f) => f.ruleId === 'missing-onUnmounted' && f.message.includes('addEventListener'),
+      );
       expect(f).toBeUndefined();
     });
   });
@@ -184,7 +186,7 @@ export default defineComponent({
 });
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'setup-side-effect');
+      const f = report.findings.find((f) => f.ruleId === 'setup-side-effect');
       expect(f).toBeDefined();
     });
 
@@ -193,7 +195,7 @@ export default defineComponent({
 const data = await fetch('/api');
 `;
       const report = reviewSource(source, 'comp.vue', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'setup-side-effect');
+      const f = report.findings.find((f) => f.ruleId === 'setup-side-effect');
       expect(f).toBeDefined();
     });
 
@@ -205,7 +207,7 @@ async function loadData() {
 }
 `;
       const report = reviewSource(source, 'utils.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'setup-side-effect');
+      const f = report.findings.find((f) => f.ruleId === 'setup-side-effect');
       expect(f).toBeUndefined();
     });
 
@@ -221,7 +223,7 @@ export default defineComponent({
 });
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'setup-side-effect');
+      const f = report.findings.find((f) => f.ruleId === 'setup-side-effect');
       expect(f).toBeUndefined();
     });
 
@@ -238,7 +240,7 @@ export default defineComponent({
 });
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'setup-side-effect');
+      const f = report.findings.find((f) => f.ruleId === 'setup-side-effect');
       expect(f).toBeUndefined();
     });
 
@@ -255,7 +257,7 @@ export default defineComponent({
 });
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'setup-side-effect');
+      const f = report.findings.find((f) => f.ruleId === 'setup-side-effect');
       expect(f).toBeUndefined();
     });
   });
@@ -269,7 +271,7 @@ import { reactive } from 'vue';
 const { x, y } = reactive({ x: 0, y: 0 });
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'reactive-destructure');
+      const f = report.findings.find((f) => f.ruleId === 'reactive-destructure');
       expect(f).toBeDefined();
       expect(f!.severity).toBe('warning');
     });
@@ -280,7 +282,7 @@ import { reactive } from 'vue';
 let { count } = reactive({ count: 0 });
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'reactive-destructure');
+      const f = report.findings.find((f) => f.ruleId === 'reactive-destructure');
       expect(f).toBeDefined();
     });
 
@@ -291,7 +293,7 @@ const state = reactive({ x: 0, y: 0 });
 const x = state.x;
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'reactive-destructure');
+      const f = report.findings.find((f) => f.ruleId === 'reactive-destructure');
       expect(f).toBeUndefined();
     });
 
@@ -300,7 +302,7 @@ const x = state.x;
 const { x, y } = someFunction();
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'reactive-destructure');
+      const f = report.findings.find((f) => f.ruleId === 'reactive-destructure');
       expect(f).toBeUndefined();
     });
 
@@ -311,7 +313,7 @@ const state = reactive({ foo: 1, bar: 2 });
 const { foo, bar } = toRefs(state);
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'reactive-destructure');
+      const f = report.findings.find((f) => f.ruleId === 'reactive-destructure');
       expect(f).toBeUndefined();
     });
 
@@ -322,7 +324,7 @@ const state = reactive({ count: 0 });
 console.log(state.count);
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'reactive-destructure');
+      const f = report.findings.find((f) => f.ruleId === 'reactive-destructure');
       expect(f).toBeUndefined();
     });
   });
@@ -340,7 +342,7 @@ const double = computed(() => {
 });
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'computed-side-effect');
+      const f = report.findings.find((f) => f.ruleId === 'computed-side-effect');
       expect(f).toBeDefined();
     });
 
@@ -354,7 +356,7 @@ const double = computed(() => {
 });
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'computed-side-effect');
+      const f = report.findings.find((f) => f.ruleId === 'computed-side-effect');
       expect(f).toBeDefined();
     });
 
@@ -367,7 +369,7 @@ const data = computed(() => {
 });
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'computed-side-effect');
+      const f = report.findings.find((f) => f.ruleId === 'computed-side-effect');
       expect(f).toBeDefined();
     });
 
@@ -378,7 +380,7 @@ const count = ref(0);
 const double = computed(() => count.value * 2);
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'computed-side-effect');
+      const f = report.findings.find((f) => f.ruleId === 'computed-side-effect');
       expect(f).toBeUndefined();
     });
 
@@ -393,7 +395,7 @@ const fullName = computed({
 });
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'computed-side-effect');
+      const f = report.findings.find((f) => f.ruleId === 'computed-side-effect');
       expect(f).toBeUndefined();
     });
 
@@ -407,7 +409,7 @@ const doubled = computed(() => {
 });
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'computed-side-effect');
+      const f = report.findings.find((f) => f.ruleId === 'computed-side-effect');
       expect(f).toBeDefined();
     });
   });
@@ -422,7 +424,7 @@ const state = shallowRef({ count: 1 });
 state.value.count = 2;
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'shallow-ref-mutation');
+      const f = report.findings.find((f) => f.ruleId === 'shallow-ref-mutation');
       expect(f).toBeDefined();
       expect(f!.message).toContain('shallowRef');
     });
@@ -434,7 +436,7 @@ const state = shallowRef({ count: 0 });
 state.value.count += 1;
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'shallow-ref-mutation');
+      const f = report.findings.find((f) => f.ruleId === 'shallow-ref-mutation');
       expect(f).toBeDefined();
     });
 
@@ -445,7 +447,7 @@ const state = shallowRef({ count: 1 });
 state.value = { count: 2 };
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'shallow-ref-mutation');
+      const f = report.findings.find((f) => f.ruleId === 'shallow-ref-mutation');
       expect(f).toBeUndefined();
     });
 
@@ -457,7 +459,7 @@ state.value.greet = 'Hi';
 triggerRef(state);
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'shallow-ref-mutation');
+      const f = report.findings.find((f) => f.ruleId === 'shallow-ref-mutation');
       expect(f).toBeUndefined();
     });
 
@@ -468,7 +470,7 @@ const state = ref({ count: 0 });
 state.value.count = 1;
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'shallow-ref-mutation');
+      const f = report.findings.find((f) => f.ruleId === 'shallow-ref-mutation');
       expect(f).toBeUndefined();
     });
 
@@ -479,7 +481,7 @@ const state = shallowRef({ count: 0 });
 console.log(state.value.count);
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'shallow-ref-mutation');
+      const f = report.findings.find((f) => f.ruleId === 'shallow-ref-mutation');
       expect(f).toBeUndefined();
     });
 
@@ -492,7 +494,7 @@ state.value.count = 1;
 triggerRef(cache);
 `;
       const report = reviewSource(source, 'comp.ts', vueConfig);
-      const f = report.findings.find(f => f.ruleId === 'shallow-ref-mutation');
+      const f = report.findings.find((f) => f.ruleId === 'shallow-ref-mutation');
       expect(f).toBeDefined();
       expect(f!.message).toContain('state');
     });

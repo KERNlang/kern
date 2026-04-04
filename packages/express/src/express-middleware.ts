@@ -19,9 +19,7 @@ export function buildSchema(node?: IRNode): SchemaShape {
 export function buildMiddlewareArtifact(node: IRNode, exportName: string): GeneratedArtifact {
   const handlerNode = getFirstChild(node, 'handler');
   const handlerProps = handlerNode ? getProps(handlerNode) : {};
-  const handlerCode = typeof handlerProps.code === 'string'
-    ? String(handlerProps.code)
-    : '';
+  const handlerCode = typeof handlerProps.code === 'string' ? String(handlerProps.code) : '';
 
   const lines: string[] = [];
   lines.push(`import type { NextFunction, Request, Response } from 'express';`);
@@ -68,9 +66,10 @@ export function resolveMiddlewareUsage(
   const name = String(props.name || 'middleware');
 
   if (name === 'cors') {
-    const invocation = securityLevel === 'strict'
-      ? `cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true })`
-      : 'cors()';
+    const invocation =
+      securityLevel === 'strict'
+        ? `cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true })`
+        : 'cors()';
     return { importLine: `import cors from 'cors';`, invocation };
   }
 

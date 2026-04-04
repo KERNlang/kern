@@ -91,13 +91,13 @@ function encodeMappings(entries: SourceMapEntry[]): string {
     prevIrCol = irCol;
   }
 
-  return lines.map(segs => segs.join(',')).join(';');
+  return lines.map((segs) => segs.join(',')).join(';');
 }
 
 /** Encode a single integer as a Base64 VLQ string. */
 function encodeVLQ(value: number): string {
   const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  let vlq = value < 0 ? ((-value) << 1) | 1 : value << 1;
+  let vlq = value < 0 ? (-value << 1) | 1 : value << 1;
   let encoded = '';
 
   do {

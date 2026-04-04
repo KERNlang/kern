@@ -4,10 +4,10 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
-import type { IRNode } from '../types.js';
 import { propsOf } from '../node-props.js';
+import type { IRNode } from '../types.js';
 import { emitTemplateSafe } from './emitters.js';
-import { getProps, getChildren, handlerCode } from './helpers.js';
+import { getChildren, getProps, handlerCode } from './helpers.js';
 
 const p = getProps;
 const kids = getChildren;

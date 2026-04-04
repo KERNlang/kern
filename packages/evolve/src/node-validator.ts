@@ -42,7 +42,7 @@ function validateKernSyntax(syntax: string, errors: string[]): boolean {
   }
 
   // Check the syntax has proper indentation structure
-  const lines = syntax.split('\n').filter(l => l.trim().length > 0);
+  const lines = syntax.split('\n').filter((l) => l.trim().length > 0);
   if (lines.length === 0) {
     errors.push('KERN syntax has no non-empty lines');
     return false;

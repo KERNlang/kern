@@ -6,9 +6,15 @@
  * under a `rule` root node.
  */
 
-import type { IRNode } from '@kernlang/core';
-import type { ConceptMap, ConceptEdge, ConceptNode, ConceptEdgePayload, ConceptNodePayload } from '@kernlang/core';
-import type { ReviewFinding, FixAction } from './types.js';
+import type {
+  ConceptEdge,
+  ConceptEdgePayload,
+  ConceptMap,
+  ConceptNode,
+  ConceptNodePayload,
+  IRNode,
+} from '@kernlang/core';
+import type { FixAction, ReviewFinding } from './types.js';
 import { createFingerprint } from './types.js';
 
 // ── Concept → IR Wrapper ────────────────────────────────────────────────
@@ -136,9 +142,15 @@ export function buildRuleIndex(nodes: IRNode[], concepts?: ConceptMap): RuleInde
     for (const [field, val] of Object.entries(np)) {
       if (typeof val !== 'string' || field.startsWith('_')) continue;
       let fieldMap = peerIndex.get(field);
-      if (!fieldMap) { fieldMap = new Map(); peerIndex.set(field, fieldMap); }
+      if (!fieldMap) {
+        fieldMap = new Map();
+        peerIndex.set(field, fieldMap);
+      }
       let list = fieldMap.get(val);
-      if (!list) { list = []; fieldMap.set(val, list); }
+      if (!list) {
+        list = [];
+        fieldMap.set(val, list);
+      }
       list.push(node);
     }
   }
@@ -164,7 +176,7 @@ function p(node: IRNode): Record<string, unknown> {
 /** Get children of a specific type. */
 function childrenOf(node: IRNode, type?: string): IRNode[] {
   const c = node.children || [];
-  return type ? c.filter(n => n.type === type) : c;
+  return type ? c.filter((n) => n.type === type) : c;
 }
 
 /**
@@ -245,9 +257,7 @@ export function matchPattern(pattern: IRNode, target: IRNode, index: RuleIndex):
   for (const subPattern of childrenOf(pattern, 'pattern')) {
     const subPp = p(subPattern);
     const matchType = subPp.type as string | undefined;
-    const targetChildren = matchType
-      ? childrenOf(target, matchType)
-      : (target.children || []);
+    const targetChildren = matchType ? childrenOf(target, matchType) : target.children || [];
 
     let anyMatch = false;
     for (const child of targetChildren) {
@@ -298,7 +308,10 @@ export function evaluateGuard(guard: IRNode, target: IRNode, index: RuleIndex): 
     let current = index.parentMap.get(target);
     let found = false;
     while (current) {
-      if (current.type === scopeType) { found = true; break; }
+      if (current.type === scopeType) {
+        found = true;
+        break;
+      }
       current = index.parentMap.get(current);
     }
     if (!found) result = false;
@@ -320,9 +333,15 @@ export function evaluateGuard(guard: IRNode, target: IRNode, index: RuleIndex): 
           if (peer === target) continue; // skip self
           let allMatch = true;
           for (const pp of peerPatterns) {
-            if (!matchPattern(pp, peer, index).matched) { allMatch = false; break; }
+            if (!matchPattern(pp, peer, index).matched) {
+              allMatch = false;
+              break;
+            }
           }
-          if (allMatch) { anyPeerMatch = true; break; }
+          if (allMatch) {
+            anyPeerMatch = true;
+            break;
+          }
         }
         result = anyPeerMatch;
       }
@@ -331,7 +350,10 @@ export function evaluateGuard(guard: IRNode, target: IRNode, index: RuleIndex): 
     // Child pattern matching (non-peer: match against target itself)
     for (const subPattern of childrenOf(guard, 'pattern')) {
       const subResult = matchPattern(subPattern, target, index);
-      if (!subResult.matched) { result = false; break; }
+      if (!subResult.matched) {
+        result = false;
+        break;
+      }
     }
   }
 
@@ -352,7 +374,7 @@ export function evaluateGuard(guard: IRNode, target: IRNode, index: RuleIndex): 
 export function evaluateExpect(expect: IRNode, target: IRNode): boolean {
   const ep = p(expect);
   const childType = ep['child-type'] as string | undefined;
-  const matching = childType ? childrenOf(target, childType) : (target.children || []);
+  const matching = childType ? childrenOf(target, childType) : target.children || [];
   const count = matching.length;
 
   const min = ep.min !== undefined ? Number(ep.min) : undefined;
@@ -387,7 +409,7 @@ function buildFixAction(fixNode: IRNode, target: IRNode, bindings: Map<string, u
   const fp = p(fixNode);
   const op = (fp.op as string) || 'insert-after';
   const bodyNode = childrenOf(fixNode, 'body')[0];
-  const code = bodyNode ? (p(bodyNode).code as string || '') : '';
+  const code = bodyNode ? (p(bodyNode).code as string) || '' : '';
 
   if (!code) return undefined;
 
@@ -436,9 +458,7 @@ export function evaluateRule(rule: IRNode, index: RuleIndex, filePath: string): 
 
   // Determine which nodes to check based on pattern type
   const patternType = p(patternNode).type as string | undefined;
-  const candidates = patternType
-    ? (index.nodesByType.get(patternType) || [])
-    : index.allNodes;
+  const candidates = patternType ? index.nodesByType.get(patternType) || [] : index.allNodes;
 
   const findings: ReviewFinding[] = [];
 

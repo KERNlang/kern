@@ -10,7 +10,7 @@ describe('Null Safety Rules', () => {
       console.log(user.name);
     `;
     const report = reviewSource(source, 'test.ts');
-    const findings = report.findings.filter(f => f.ruleId === 'unchecked-find');
+    const findings = report.findings.filter((f) => f.ruleId === 'unchecked-find');
     expect(findings.length).toBe(1);
     expect(findings[0].message).toContain('.find()');
     expect(findings[0].message).toContain('user');
@@ -25,7 +25,7 @@ describe('Null Safety Rules', () => {
       }
     `;
     const report = reviewSource(source, 'test.ts');
-    const findings = report.findings.filter(f => f.ruleId === 'unchecked-find');
+    const findings = report.findings.filter((f) => f.ruleId === 'unchecked-find');
     expect(findings.length).toBe(0);
   });
 
@@ -36,7 +36,7 @@ describe('Null Safety Rules', () => {
       console.log(user?.name);
     `;
     const report = reviewSource(source, 'test.ts');
-    const findings = report.findings.filter(f => f.ruleId === 'unchecked-find');
+    const findings = report.findings.filter((f) => f.ruleId === 'unchecked-find');
     expect(findings.length).toBe(0);
   });
 
@@ -50,7 +50,7 @@ describe('Null Safety Rules', () => {
       }
     `;
     const report = reviewSource(source, 'test.ts');
-    const findings = report.findings.filter(f => f.ruleId === 'optional-chain-bang');
+    const findings = report.findings.filter((f) => f.ruleId === 'optional-chain-bang');
     expect(findings.length).toBe(1);
     expect(findings[0].message).toContain('?.');
   });
@@ -62,7 +62,7 @@ describe('Null Safety Rules', () => {
       }
     `;
     const report = reviewSource(source, 'test.ts');
-    const findings = report.findings.filter(f => f.ruleId === 'optional-chain-bang');
+    const findings = report.findings.filter((f) => f.ruleId === 'optional-chain-bang');
     expect(findings.length).toBe(0);
   });
 
@@ -75,7 +75,7 @@ describe('Null Safety Rules', () => {
       const item = items.find(i => i.id === 1) as Item;
     `;
     const report = reviewSource(source, 'test.ts');
-    const findings = report.findings.filter(f => f.ruleId === 'unchecked-cast');
+    const findings = report.findings.filter((f) => f.ruleId === 'unchecked-cast');
     expect(findings.length).toBe(1);
     expect(findings[0].message).toContain('.find()');
     expect(findings[0].message).toContain('as Item');
@@ -88,7 +88,7 @@ describe('Null Safety Rules', () => {
       const item = items.find(i => i.id === 1) as Item | undefined;
     `;
     const report = reviewSource(source, 'test.ts');
-    const findings = report.findings.filter(f => f.ruleId === 'unchecked-cast');
+    const findings = report.findings.filter((f) => f.ruleId === 'unchecked-cast');
     expect(findings.length).toBe(0);
   });
 });

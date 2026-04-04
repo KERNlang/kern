@@ -8,6 +8,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   publish:
     name: Publish to npm
@@ -15,6 +18,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract version from tag
         id: version
@@ -35,6 +41,12 @@ jobs:
 
       - name: Set package versions
         run: |
+          # Root monorepo package
+          tmp=$(mktemp)
+          jq --arg v "${{ steps.version.outputs.VERSION }}" '.version = $v' package.json > "$tmp"
+          mv "$tmp" package.json
+
+          # All workspace packages
           for pkg in packages/*/package.json; do
             tmp=$(mktemp)
             jq --arg v "${{ steps.version.outputs.VERSION }}" '.version = $v' "$pkg" > "$tmp"
@@ -51,3 +63,25 @@ jobs:
         run: pnpm -r publish --no-git-checks --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Sync versions back to dev
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout dev
+          git pull origin dev
+
+          # Apply same version bump to dev
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          tmp=$(mktemp)
+          jq --arg v "$VERSION" '.version = $v' package.json > "$tmp"
+          mv "$tmp" package.json
+          for pkg in packages/*/package.json; do
+            tmp=$(mktemp)
+            jq --arg v "$VERSION" '.version = $v' "$pkg" > "$tmp"
+            mv "$tmp" "$pkg"
+          done
+
+          git add package.json packages/*/package.json
+          git commit -m "chore: sync versions to v${VERSION} [skip ci]" || echo "No version changes to commit"
+          git push origin dev

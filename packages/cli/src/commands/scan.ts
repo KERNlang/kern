@@ -1,7 +1,13 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
+import {
+  COMMON_TEMPLATES,
+  detectTemplates,
+  formatScanSummary,
+  generateConfigSource,
+  scanProject,
+} from '@kernlang/core';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
-import { scanProject, generateConfigSource, formatScanSummary, detectTemplates, COMMON_TEMPLATES } from '@kernlang/core';
-import { hasFlag, findNearestPackageJson } from '../shared.js';
+import { findNearestPackageJson, hasFlag } from '../shared.js';
 
 export function runScan(args: string[]): void {
   const scanCwd = process.cwd();
@@ -88,13 +94,9 @@ export function runInitTemplates(args: string[]): void {
       console.log("    templates: ['./templates/'],\n");
     }
   } else {
-    const configSource = [
-      'export default {',
-      "  target: 'web',",
-      "  templates: ['./templates/'],",
-      '};',
-      '',
-    ].join('\n');
+    const configSource = ['export default {', "  target: 'web',", "  templates: ['./templates/'],", '};', ''].join(
+      '\n',
+    );
     writeFileSync(configPath, configSource);
     console.log('  wrote: kern.config.ts');
     written++;
@@ -102,7 +104,7 @@ export function runInitTemplates(args: string[]): void {
 
   console.log(`\n  Done: ${written} written, ${skipped} skipped.`);
   if (detected.length > 0) {
-    console.log(`  Templates ready for: ${detected.map(d => d.libraryName).join(', ')}`);
+    console.log(`  Templates ready for: ${detected.map((d) => d.libraryName).join(', ')}`);
   }
   console.log('');
   process.exit(0);

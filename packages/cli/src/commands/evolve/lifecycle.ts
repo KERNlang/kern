@@ -1,17 +1,24 @@
-import { relative } from 'path';
 import { NODE_TYPES } from '@kernlang/core';
 import {
-  runGoldenTests, formatGoldenTestResults, rollbackNode, restoreNode,
-  readEvolvedManifest, promoteNode, pruneNodes, detectCollisions,
-  renameEvolvedNode, rebuildEvolvedManifest,
+  detectCollisions,
+  formatGoldenTestResults,
+  promoteNode,
+  pruneNodes,
+  readEvolvedManifest,
+  rebuildEvolvedManifest,
+  renameEvolvedNode,
+  restoreNode,
+  rollbackNode,
+  runGoldenTests,
 } from '@kernlang/evolve';
-import { parseFlag, hasFlag } from '../../shared.js';
+import { relative } from 'path';
+import { hasFlag, parseFlag } from '../../shared.js';
 
 export function runEvolveTest(): void {
   console.log('\n  KERN evolve:test — golden test runner\n');
   const results = runGoldenTests();
   console.log(formatGoldenTestResults(results));
-  const failed = results.filter(r => !r.pass).length;
+  const failed = results.filter((r) => !r.pass).length;
   console.log('');
   process.exit(failed > 0 ? 1 : 0);
 }
@@ -63,13 +70,15 @@ export function runEvolveList(): void {
   const manifest = readEvolvedManifest();
 
   if (!manifest || Object.keys(manifest.nodes).length === 0) {
-    console.log('\n  No evolved nodes graduated. Run \'kern evolve:discover\' to start.\n');
+    console.log("\n  No evolved nodes graduated. Run 'kern evolve:discover' to start.\n");
     process.exit(0);
   }
 
   console.log(`\n  KERN evolved nodes — ${Object.keys(manifest.nodes).length} graduated\n`);
   for (const [keyword, entry] of Object.entries(manifest.nodes)) {
-    console.log(`  ${keyword} — ${entry.displayName} (graduated ${entry.graduatedAt.split('T')[0]} by ${entry.graduatedBy})`);
+    console.log(
+      `  ${keyword} — ${entry.displayName} (graduated ${entry.graduatedAt.split('T')[0]} by ${entry.graduatedBy})`,
+    );
   }
   console.log('');
   process.exit(0);
@@ -89,7 +98,12 @@ export function runEvolvePromote(args: string[]): void {
     process.exit(1);
   }
 
-  const fnName = 'generate' + promoteKeyword.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join('');
+  const fnName =
+    'generate' +
+    promoteKeyword
+      .split('-')
+      .map((w) => w[0].toUpperCase() + w.slice(1))
+      .join('');
   console.log(`\n  KERN evolve:promote — ${promoteKeyword}\n`);
   console.log('  To promote this node to core, apply these changes:\n');
   console.log(`  1. Add '${promoteKeyword}' to NODE_TYPES in packages/core/src/spec.ts`);

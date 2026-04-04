@@ -12,7 +12,7 @@ describe('Nuxt Rules', () => {
 const width = window.innerWidth;
 `;
       const report = reviewSource(source, 'composables/useWidth.ts', nuxtConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-ssr-guard');
+      const f = report.findings.find((f) => f.ruleId === 'missing-ssr-guard');
       expect(f).toBeDefined();
       expect(f!.message).toContain('window');
     });
@@ -22,7 +22,7 @@ const width = window.innerWidth;
 const el = document.getElementById('app');
 `;
       const report = reviewSource(source, 'composables/useDom.ts', nuxtConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-ssr-guard');
+      const f = report.findings.find((f) => f.ruleId === 'missing-ssr-guard');
       expect(f).toBeDefined();
       expect(f!.message).toContain('document');
     });
@@ -32,7 +32,7 @@ const el = document.getElementById('app');
 const token = localStorage.getItem('token');
 `;
       const report = reviewSource(source, 'composables/useAuth.ts', nuxtConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-ssr-guard');
+      const f = report.findings.find((f) => f.ruleId === 'missing-ssr-guard');
       expect(f).toBeDefined();
       expect(f!.message).toContain('localStorage');
     });
@@ -44,7 +44,7 @@ if (process.client) {
 }
 `;
       const report = reviewSource(source, 'composables/useWidth.ts', nuxtConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-ssr-guard');
+      const f = report.findings.find((f) => f.ruleId === 'missing-ssr-guard');
       expect(f).toBeUndefined();
     });
 
@@ -55,7 +55,7 @@ onMounted(() => {
 });
 `;
       const report = reviewSource(source, 'composables/useWidth.ts', nuxtConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-ssr-guard');
+      const f = report.findings.find((f) => f.ruleId === 'missing-ssr-guard');
       expect(f).toBeUndefined();
     });
 
@@ -64,7 +64,7 @@ onMounted(() => {
 const width = window.innerWidth;
 `;
       const report = reviewSource(source, 'plugins/analytics.client.ts', nuxtConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-ssr-guard');
+      const f = report.findings.find((f) => f.ruleId === 'missing-ssr-guard');
       expect(f).toBeUndefined();
     });
   });
@@ -77,7 +77,7 @@ const width = window.innerWidth;
 const data = await fetch('/api/users');
 `;
       const report = reviewSource(source, 'pages/users.ts', nuxtConfig);
-      const f = report.findings.find(f => f.ruleId === 'nuxt-direct-fetch');
+      const f = report.findings.find((f) => f.ruleId === 'nuxt-direct-fetch');
       expect(f).toBeDefined();
       expect(f!.message).toContain('fetch()');
     });
@@ -88,7 +88,7 @@ const data = await $fetch('/api/users');
 fetch('/external');
 `;
       const report = reviewSource(source, 'pages/users.ts', nuxtConfig);
-      const f = report.findings.find(f => f.ruleId === 'nuxt-direct-fetch');
+      const f = report.findings.find((f) => f.ruleId === 'nuxt-direct-fetch');
       expect(f).toBeUndefined();
     });
 
@@ -97,7 +97,7 @@ fetch('/external');
 const data = await fetch('https://api.example.com');
 `;
       const report = reviewSource(source, 'server/api/proxy.ts', nuxtConfig);
-      const f = report.findings.find(f => f.ruleId === 'nuxt-direct-fetch');
+      const f = report.findings.find((f) => f.ruleId === 'nuxt-direct-fetch');
       expect(f).toBeUndefined();
     });
 
@@ -106,7 +106,7 @@ const data = await fetch('https://api.example.com');
 export async function fetchData() { return fetch('/api'); }
 `;
       const report = reviewSource(source, 'lib/http.ts', nuxtConfig);
-      const f = report.findings.find(f => f.ruleId === 'nuxt-direct-fetch');
+      const f = report.findings.find((f) => f.ruleId === 'nuxt-direct-fetch');
       expect(f).toBeUndefined();
     });
   });
@@ -122,7 +122,7 @@ export default defineEventHandler(async (event) => {
 });
 `;
       const report = reviewSource(source, 'server/api/user.ts', nuxtConfig);
-      const f = report.findings.find(f => f.ruleId === 'server-route-leak');
+      const f = report.findings.find((f) => f.ruleId === 'server-route-leak');
       expect(f).toBeDefined();
       expect(f!.message).toContain('password');
     });
@@ -135,7 +135,7 @@ export default defineEventHandler(async (event) => {
 });
 `;
       const report = reviewSource(source, 'server/api/user.ts', nuxtConfig);
-      const f = report.findings.find(f => f.ruleId === 'server-route-leak');
+      const f = report.findings.find((f) => f.ruleId === 'server-route-leak');
       expect(f).toBeUndefined();
     });
 
@@ -144,7 +144,7 @@ export default defineEventHandler(async (event) => {
 return { password: 'hunter2' };
 `;
       const report = reviewSource(source, 'pages/login.ts', nuxtConfig);
-      const f = report.findings.find(f => f.ruleId === 'server-route-leak');
+      const f = report.findings.find((f) => f.ruleId === 'server-route-leak');
       expect(f).toBeUndefined();
     });
   });

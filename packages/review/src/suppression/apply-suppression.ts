@@ -3,10 +3,9 @@
  * Runs after sortAndDedup(), before checkEnforcement().
  */
 
-import type { ReviewFinding } from '../types.js';
-import type { SuppressionDirective, SuppressionResult, StrictMode } from './types.js';
-import { parseDirectives, configDirectives } from './parse-directives.js';
-import type { ReviewConfig } from '../types.js';
+import type { ReviewConfig, ReviewFinding } from '../types.js';
+import { configDirectives, parseDirectives } from './parse-directives.js';
+import type { StrictMode, SuppressionDirective, SuppressionResult } from './types.js';
 
 function isSuppressed(finding: ReviewFinding, directive: SuppressionDirective): boolean {
   // Rule ID must match
@@ -67,7 +66,7 @@ export function applySuppression(
   const suppressed: ReviewFinding[] = [];
 
   for (const finding of findings) {
-    const matchingDirective = activeDirectives.find(d => isSuppressed(finding, d));
+    const matchingDirective = activeDirectives.find((d) => isSuppressed(finding, d));
     if (matchingDirective) {
       matchedDirectives.add(matchingDirective);
       suppressed.push(finding);
@@ -77,7 +76,7 @@ export function applySuppression(
   }
 
   // Find unused inline directives (config-level ones are intentionally exempt)
-  const unusedDirectives = inlineDirectives.filter(d => !matchedDirectives.has(d));
+  const unusedDirectives = inlineDirectives.filter((d) => !matchedDirectives.has(d));
 
   // Add warnings from parsing + unused directive warnings
   const allWarnings = [...warnings];

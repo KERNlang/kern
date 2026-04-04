@@ -1,13 +1,8 @@
-import { Project } from 'ts-morph';
-import {
-  detectGaps,
-  detectGapsFromSource,
-  resetGapIds,
-} from '../src/gap-detector.js';
 import { resetConceptGapIds } from '../src/concept-gap-adapter.js';
-import { analyzePatterns } from '../src/pattern-analyzer.js';
 import { clearDetectors } from '../src/detector-registry.js';
 import { evolveSource } from '../src/evolve-runner.js';
+import { detectGapsFromSource, resetGapIds } from '../src/gap-detector.js';
+import { analyzePatterns } from '../src/pattern-analyzer.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -28,12 +23,12 @@ export async function loadData() {
 }
 `;
     const gaps = detectGapsFromSource(source, 'handler.ts');
-    const conceptGaps = gaps.filter(g => g.libraryName === 'structural');
+    const conceptGaps = gaps.filter((g) => g.libraryName === 'structural');
 
     // Should find at least one structural gap (unguarded-effect or unrecovered-effect)
     expect(conceptGaps.length).toBeGreaterThan(0);
-    expect(conceptGaps.every(g => g.patternKind === 'structural')).toBe(true);
-    expect(conceptGaps.every(g => g.detectorId.startsWith('concept-'))).toBe(true);
+    expect(conceptGaps.every((g) => g.patternKind === 'structural')).toBe(true);
+    expect(conceptGaps.every((g) => g.detectorId.startsWith('concept-'))).toBe(true);
   });
 
   it('does not flag fetch() inside try/catch with proper error handling', () => {
@@ -49,7 +44,7 @@ export async function loadData() {
 }
 `;
     const gaps = detectGapsFromSource(source, 'handler.ts');
-    const ignoredErrors = gaps.filter(g => g.detectorId === 'concept-ignored-error');
+    const ignoredErrors = gaps.filter((g) => g.detectorId === 'concept-ignored-error');
 
     // Properly handled catch block should not produce ignored-error
     expect(ignoredErrors.length).toBe(0);
@@ -67,7 +62,7 @@ export async function loadData() {
 }
 `;
     const gaps = detectGapsFromSource(source, 'handler.ts');
-    const ignoredErrors = gaps.filter(g => g.detectorId === 'concept-ignored-error');
+    const ignoredErrors = gaps.filter((g) => g.detectorId === 'concept-ignored-error');
 
     expect(ignoredErrors.length).toBeGreaterThan(0);
     expect(ignoredErrors[0].confidencePct).toBeGreaterThan(0);
@@ -82,7 +77,7 @@ export async function handler() {
 }
 `;
     const gaps = detectGapsFromSource(source, 'test.ts');
-    const conceptGaps = gaps.filter(g => g.libraryName === 'structural');
+    const conceptGaps = gaps.filter((g) => g.libraryName === 'structural');
 
     for (const gap of conceptGaps) {
       expect(gap.id).toMatch(/^concept-gap-/);
@@ -105,14 +100,14 @@ export async function handler() {
 }
 `;
     const gaps = detectGapsFromSource(source, 'test.ts');
-    const conceptGaps = gaps.filter(g => g.libraryName === 'structural');
+    const conceptGaps = gaps.filter((g) => g.libraryName === 'structural');
 
     // Concept gaps should exist
     expect(conceptGaps.length).toBeGreaterThan(0);
 
     // But they should NOT produce analyzed patterns (template proposals)
     const analyzed = analyzePatterns(gaps);
-    const structuralPatterns = analyzed.filter(p => p.namespace === 'structural');
+    const structuralPatterns = analyzed.filter((p) => p.namespace === 'structural');
     expect(structuralPatterns.length).toBe(0);
   });
 
@@ -124,7 +119,7 @@ export async function handler() {
 }
 `;
     const result = evolveSource(source, 'test.ts');
-    const conceptGaps = result.gaps.filter(g => g.libraryName === 'structural');
+    const conceptGaps = result.gaps.filter((g) => g.libraryName === 'structural');
 
     if (conceptGaps.length > 0) {
       expect(result.conceptSummary).toBeDefined();

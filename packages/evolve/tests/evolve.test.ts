@@ -1,58 +1,30 @@
-import { Project } from 'ts-morph';
 import {
-  registerDetector,
   clearDetectors,
   detectorCount,
-  getDetector,
   getAllDetectors,
+  getDetector,
   getDetectorsForImport,
+  registerDetector,
   registerDetectors,
 } from '../src/detector-registry.js';
-import {
-  detectGaps,
-  detectGapsFromSource,
-  resetGapIds,
-} from '../src/gap-detector.js';
-import {
-  scorePattern,
-  passesThresholds,
-  DEFAULT_THRESHOLDS,
-} from '../src/quality-scorer.js';
-import {
-  analyzePatterns,
-  computeStructuralHash,
-  deriveTemplateName,
-} from '../src/pattern-analyzer.js';
-import {
-  proposeTemplates,
-  generateKernSource,
-} from '../src/template-proposer.js';
-import {
-  validateProposal,
-} from '../src/template-validator.js';
-import {
-  stageProposal,
-  listStaged,
-  getStaged,
-  updateStagedStatus,
-  formatSplitView,
-} from '../src/staging.js';
-import {
-  evolveSource,
-} from '../src/evolve-runner.js';
-import type {
-  DetectorPack,
-  PatternGap,
-  ExtractedParam,
-  QualityThresholds,
-  AnalyzedPattern,
-  TemplateProposal,
-  ValidationResult,
-} from '../src/types.js';
-
 // Import built-in detectors
 import { detectors as reactFormDetectors } from '../src/detectors/react-forms.js';
 import { detectors as stateMgmtDetectors } from '../src/detectors/state-mgmt.js';
+import { evolveSource } from '../src/evolve-runner.js';
+import { detectGapsFromSource, resetGapIds } from '../src/gap-detector.js';
+import { analyzePatterns, computeStructuralHash, deriveTemplateName } from '../src/pattern-analyzer.js';
+import { DEFAULT_THRESHOLDS, passesThresholds, scorePattern } from '../src/quality-scorer.js';
+import { formatSplitView, getStaged, listStaged, stageProposal, updateStagedStatus } from '../src/staging.js';
+import { generateKernSource, proposeTemplates } from '../src/template-proposer.js';
+import { validateProposal } from '../src/template-validator.js';
+import type {
+  AnalyzedPattern,
+  DetectorPack,
+  PatternGap,
+  QualityThresholds,
+  TemplateProposal,
+  ValidationResult,
+} from '../src/types.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -129,8 +101,8 @@ describe('Detector Registry', () => {
     registerDetectors(reactFormDetectors);
     const all = getAllDetectors();
     expect(all.length).toBe(2);
-    expect(all.map(d => d.id)).toContain('react-hook-form');
-    expect(all.map(d => d.id)).toContain('formik');
+    expect(all.map((d) => d.id)).toContain('react-hook-form');
+    expect(all.map((d) => d.id)).toContain('formik');
   });
 });
 
@@ -167,7 +139,7 @@ export function LoginForm() {
     expect(gaps[0].confidencePct).toBeGreaterThanOrEqual(75);
 
     // Should extract schema type
-    const schemaParam = gaps[0].extractedParams.find(p => p.name === 'schema');
+    const schemaParam = gaps[0].extractedParams.find((p) => p.name === 'schema');
     expect(schemaParam).toBeDefined();
     expect(schemaParam!.value).toBe('LoginSchema');
   });
@@ -195,7 +167,7 @@ export default counterSlice.reducer;
     expect(gaps.length).toBeGreaterThanOrEqual(1);
     expect(gaps[0].detectorId).toBe('redux-toolkit-slice');
 
-    const sliceNameParam = gaps[0].extractedParams.find(p => p.name === 'sliceName');
+    const sliceNameParam = gaps[0].extractedParams.find((p) => p.name === 'sliceName');
     expect(sliceNameParam).toBeDefined();
     expect(sliceNameParam!.value).toBe('counter');
   });
@@ -220,8 +192,15 @@ export function Counter() {
 describe('Quality Scorer', () => {
   it('scores a group of gaps', () => {
     const gaps = [
-      createGap({ confidencePct: 90, snippet: 'const result = testFn({ key: "value", options: { timeout: 5000, retry: 3 } });' }),
-      createGap({ id: 'gap-2', confidencePct: 85, snippet: 'const other = testFn({ key: "other", options: { timeout: 3000, retry: 1 } });' }),
+      createGap({
+        confidencePct: 90,
+        snippet: 'const result = testFn({ key: "value", options: { timeout: 5000, retry: 3 } });',
+      }),
+      createGap({
+        id: 'gap-2',
+        confidencePct: 85,
+        snippet: 'const other = testFn({ key: "other", options: { timeout: 3000, retry: 1 } });',
+      }),
     ];
 
     const score = scorePattern(gaps);
@@ -232,9 +211,7 @@ describe('Quality Scorer', () => {
   });
 
   it('gives low relevance to short one-liner snippets', () => {
-    const gaps = [
-      createGap({ snippet: 'cors()', extractedParams: [] }),
-    ];
+    const gaps = [createGap({ snippet: 'cors()', extractedParams: [] })];
 
     const score = scorePattern(gaps);
     expect(score.relevanceScore).toBeLessThan(0.3);
@@ -278,7 +255,8 @@ describe('Pattern Analyzer', () => {
   });
 
   it('separates gaps with different structures', () => {
-    const longSnippet = 'const result = testFn({ key: "value", options: { timeout: 5000, retry: 3 } });\nconst other = doSomething(result);';
+    const longSnippet =
+      'const result = testFn({ key: "value", options: { timeout: 5000, retry: 3 } });\nconst other = doSomething(result);';
     const gap1 = createGap({
       id: 'gap-1',
       detectorId: 'detector-a',
@@ -301,7 +279,10 @@ describe('Pattern Analyzer', () => {
     });
 
     const patterns = analyzePatterns([gap1, gap2], {
-      minConfidence: 60, minSupport: 1, maxVariability: 1, minRelevance: 0.1,
+      minConfidence: 60,
+      minSupport: 1,
+      maxVariability: 1,
+      minRelevance: 0.1,
     });
     expect(patterns.length).toBe(2);
   });
@@ -380,7 +361,11 @@ describe('Template Proposer', () => {
       instanceCount: 2,
       qualityScore: { confidence: 80, supportCount: 2, variability: 0, relevanceScore: 0.7, overallScore: 70 },
       representativeSnippet: 'const foo = test()',
-      goldenExample: { originalTs: 'const foo = test()', expectedExpansion: 'const foo = test()', slotValues: { name: 'foo' } },
+      goldenExample: {
+        originalTs: 'const foo = test()',
+        expectedExpansion: 'const foo = test()',
+        slotValues: { name: 'foo' },
+      },
       imports: [{ from: 'test-lib', names: ['test'] }],
       gapIds: ['gap-1', 'gap-2'],
     };
@@ -464,7 +449,8 @@ describe('Staging', () => {
     id: 'test-staging-abc',
     templateName: 'test-staged',
     namespace: 'Test',
-    kernSource: 'template name=test-staged\n  slot name=x type=identifier\n  body <<<\n    export const {{x}} = 42;\n  >>>',
+    kernSource:
+      'template name=test-staged\n  slot name=x type=identifier\n  body <<<\n    export const {{x}} = 42;\n  >>>',
     slots: [{ name: 'x', slotType: 'identifier', value: 'foo', optional: false }],
     imports: [],
     goldenExample: { originalTs: 'const foo = 42;', expectedExpansion: 'const foo = 42;', slotValues: { x: 'foo' } },

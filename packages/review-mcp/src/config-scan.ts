@@ -5,9 +5,9 @@
  * dependencies. Replicates the pure detection logic from config-guardian.ts.
  */
 
-import { readFileSync, existsSync } from 'fs';
-import * as path from 'path';
+import { existsSync, readFileSync } from 'fs';
 import * as os from 'os';
+import * as path from 'path';
 
 export interface ConfigIssue {
   type: 'hardcoded-secret' | 'unscanned-path' | 'missing-version-pin' | 'wide-permission';
@@ -37,7 +37,8 @@ export interface ConfigScanResult {
 }
 
 const SECRET_PREFIXES = /^(sk-|ghp_|gho_|github_pat_|xox[bpas]-|AKIA|AIza|Bearer\s|glpat-|npm_|pypi-)/;
-const SECRET_KEY_NAMES = /^(api[_-]?key|secret[_-]?key|password|token|private[_-]?key|auth[_-]?token|access[_-]?key|client[_-]?secret|database[_-]?url)$/i;
+const SECRET_KEY_NAMES =
+  /^(api[_-]?key|secret[_-]?key|password|token|private[_-]?key|auth[_-]?token|access[_-]?key|client[_-]?secret|database[_-]?url)$/i;
 
 function shannonEntropy(s: string): number {
   if (s.length === 0) return 0;
@@ -60,7 +61,7 @@ function isLikelySecret(key: string, value: string): boolean {
 
 function redact(value: string): string {
   if (value.length <= 8) return '****';
-  return value.slice(0, 4) + '...' + value.slice(-4);
+  return `${value.slice(0, 4)}...${value.slice(-4)}`;
 }
 
 interface ConfigTarget {
@@ -74,11 +75,20 @@ function discoverConfigPaths(workspaceRoot?: string): ConfigTarget[] {
   const targets: ConfigTarget[] = [];
 
   if (platform === 'darwin') {
-    targets.push({ path: path.join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json'), source: 'claude-desktop' });
+    targets.push({
+      path: path.join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json'),
+      source: 'claude-desktop',
+    });
   } else if (platform === 'win32') {
-    targets.push({ path: path.join(home, 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json'), source: 'claude-desktop' });
+    targets.push({
+      path: path.join(home, 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json'),
+      source: 'claude-desktop',
+    });
   } else {
-    targets.push({ path: path.join(home, '.config', 'claude', 'claude_desktop_config.json'), source: 'claude-desktop' });
+    targets.push({
+      path: path.join(home, '.config', 'claude', 'claude_desktop_config.json'),
+      source: 'claude-desktop',
+    });
   }
 
   targets.push({ path: path.join(home, '.claude', 'claude_code_config.json'), source: 'claude-code' });
@@ -94,11 +104,14 @@ function discoverConfigPaths(workspaceRoot?: string): ConfigTarget[] {
 }
 
 interface RawMcpConfig {
-  mcpServers?: Record<string, {
-    command?: string;
-    args?: string[];
-    env?: Record<string, string>;
-  }>;
+  mcpServers?: Record<
+    string,
+    {
+      command?: string;
+      args?: string[];
+      env?: Record<string, string>;
+    }
+  >;
 }
 
 function analyzeConfig(raw: string, source: string, configPath: string): McpServerEntry[] {
@@ -129,7 +142,7 @@ function analyzeConfig(raw: string, source: string, configPath: string): McpServ
       }
     }
 
-    if (/\bnpx\b/.test(command) || args.some(a => /\bnpx\b/.test(a))) {
+    if (/\bnpx\b/.test(command) || args.some((a) => /\bnpx\b/.test(a))) {
       const fullCmd = [command, ...args].join(' ');
       const hasExactPin = /@\d/.test(fullCmd) && !/@latest\b/.test(fullCmd);
       if (!hasExactPin) {
@@ -145,7 +158,7 @@ function analyzeConfig(raw: string, source: string, configPath: string): McpServ
       }
     }
 
-    if (/\buvx\b/.test(command) || args.some(a => /\buvx\b/.test(a))) {
+    if (/\buvx\b/.test(command) || args.some((a) => /\buvx\b/.test(a))) {
       const fullCmd = [command, ...args].join(' ');
       const hasUvxPin = /==\d/.test(fullCmd) || (/@\d/.test(fullCmd) && !/@latest\b/.test(fullCmd));
       if (!hasUvxPin) {
@@ -183,7 +196,7 @@ function analyzeConfig(raw: string, source: string, configPath: string): McpServ
     }
 
     let trust: TrustLevel = 'verified';
-    if (issues.some(i => i.severity === 'error')) {
+    if (issues.some((i) => i.severity === 'error')) {
       trust = 'risky';
     } else if (issues.length > 0 || !isLocalPath) {
       trust = 'unknown';

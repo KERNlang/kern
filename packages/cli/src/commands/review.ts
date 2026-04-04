@@ -1,18 +1,33 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { resolve, basename, relative } from 'path';
-import { VALID_TARGETS, registerTemplate, clearTemplates } from '@kernlang/core';
 import type { IRNode } from '@kernlang/core';
+import { clearTemplates, registerTemplate, VALID_TARGETS } from '@kernlang/core';
+import type { LLMReviewInput, ReviewConfig, ReviewFinding, ReviewReport } from '@kernlang/review';
 import {
-  reviewFile, reviewGraph, resolveImportGraph, formatReport, formatSARIF, formatSummary,
-  checkEnforcement, formatEnforcement, exportKernIR, buildLLMPrompt, dedup,
-  runESLint, runTSCDiagnosticsFromPaths, linkToNodes, runLLMReview, isLLMAvailable,
-  analyzeTaint, checkSpecFiles, specViolationsToFindings, clearReviewCache,
-  getRuleRegistry, buildReviewInstructions,
+  analyzeTaint,
+  buildLLMPrompt,
+  buildReviewInstructions,
+  checkEnforcement,
+  checkSpecFiles,
+  clearReviewCache,
+  dedup,
+  exportKernIR,
+  formatEnforcement,
+  formatReport,
+  formatSARIF,
+  formatSummary,
+  getRuleRegistry,
+  isLLMAvailable,
+  linkToNodes,
+  resolveImportGraph,
+  reviewFile,
+  reviewGraph,
+  runESLint,
+  runLLMReview,
+  runTSCDiagnosticsFromPaths,
+  specViolationsToFindings,
 } from '@kernlang/review';
-import type { ReviewConfig, ReviewFinding, LLMReviewInput, ReviewReport } from '@kernlang/review';
-import {
-  parseFlag, parseFlagOrNext, hasFlag, loadConfig, parseAndSurface, collectTsFilesFlat,
-} from '../shared.js';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { basename, relative, resolve } from 'path';
+import { collectTsFilesFlat, hasFlag, loadConfig, parseAndSurface, parseFlag } from '../shared.js';
 
 // ── Review pipeline ──────────────────────────────────────────────────────
 
@@ -20,20 +35,55 @@ async function runReviewPipeline(
   reviewConfig: ReviewConfig,
   entryFilePaths: string[],
   modes: {
-    graphMode: boolean; batchMode: boolean; llmMode: boolean; cloudMode: boolean;
-    securityMode: boolean; mcpMode: boolean; specMode: boolean; fixMode: boolean;
-    autofixMode: boolean; lintMode: boolean; exportKern: boolean; enforce: boolean;
-    jsonOutput: boolean; sarifOutput: boolean; strictParse: boolean;
-    maxDepth: number; batchSize: number; tsconfigPath?: string; specFile?: string;
-    minCoverageArg?: string | number; maxComplexityArg?: string | number;
-    maxErrorsArg?: string | number; maxWarningsArg?: string | number;
+    graphMode: boolean;
+    batchMode: boolean;
+    llmMode: boolean;
+    cloudMode: boolean;
+    securityMode: boolean;
+    mcpMode: boolean;
+    specMode: boolean;
+    fixMode: boolean;
+    autofixMode: boolean;
+    lintMode: boolean;
+    exportKern: boolean;
+    enforce: boolean;
+    jsonOutput: boolean;
+    sarifOutput: boolean;
+    strictParse: boolean;
+    maxDepth: number;
+    batchSize: number;
+    tsconfigPath?: string;
+    specFile?: string;
+    minCoverageArg?: string | number;
+    maxComplexityArg?: string | number;
+    maxErrorsArg?: string | number;
+    maxWarningsArg?: string | number;
     showConfidence: boolean;
   },
 ): Promise<{ reports: ReviewReport[]; exitCode: number }> {
   const {
-    graphMode, batchMode, llmMode, cloudMode, securityMode, mcpMode, specMode, fixMode, autofixMode, lintMode, exportKern, enforce,
-    jsonOutput, sarifOutput, maxDepth, batchSize, tsconfigPath, specFile, minCoverageArg, maxComplexityArg, maxErrorsArg,
-    maxWarningsArg, showConfidence,
+    graphMode,
+    batchMode,
+    llmMode,
+    cloudMode,
+    securityMode,
+    mcpMode,
+    specMode,
+    fixMode,
+    autofixMode,
+    lintMode,
+    exportKern,
+    enforce,
+    jsonOutput,
+    sarifOutput,
+    maxDepth,
+    batchSize,
+    tsconfigPath,
+    specFile,
+    minCoverageArg,
+    maxComplexityArg,
+    maxErrorsArg,
+    maxWarningsArg,
   } = modes;
 
   let reports: ReviewReport[] = [];
@@ -49,14 +99,22 @@ async function runReviewPipeline(
       const batch = entryFilePaths.slice(i, i + batchSize);
       const batchNum = Math.floor(i / batchSize) + 1;
       for (const f of batch) {
-        try { reports.push(reviewFile(f, reviewConfig)); } catch (e) { console.error(`  Review error in ${f}: ${(e as Error).message}`); }
+        try {
+          reports.push(reviewFile(f, reviewConfig));
+        } catch (e) {
+          console.error(`  Review error in ${f}: ${(e as Error).message}`);
+        }
       }
       const batchFindings = reports.slice(-batch.length).reduce((sum, r) => sum + r.findings.length, 0);
       console.log(`  Batch ${batchNum}/${totalBatches}: ${batch.length} files reviewed (${batchFindings} findings)`);
     }
   } else {
     for (const f of entryFilePaths) {
-      try { reports.push(reviewFile(f, reviewConfig)); } catch (e) { console.error(`  Review error in ${f}: ${(e as Error).message}`); }
+      try {
+        reports.push(reviewFile(f, reviewConfig));
+      } catch (e) {
+        console.error(`  Review error in ${f}: ${(e as Error).message}`);
+      }
     }
   }
 
@@ -71,9 +129,7 @@ async function runReviewPipeline(
     let mcpFileCount = 0;
     for (const report of reports) {
       const source = readFileSync(report.filePath, 'utf-8');
-      const mcpFindings = mcpMode
-        ? reviewMCPSource(source, report.filePath)
-        : reviewIfMCP(source, report.filePath);
+      const mcpFindings = mcpMode ? reviewMCPSource(source, report.filePath) : reviewIfMCP(source, report.filePath);
       if (mcpFindings && mcpFindings.length > 0) {
         report.findings.push(...mcpFindings);
         mcpFileCount++;
@@ -90,9 +146,13 @@ async function runReviewPipeline(
 
   // Auto LLM review when API key is set
   if (!llmMode && isLLMAvailable()) {
-    const llmInputs: LLMReviewInput[] = reports.map(report => {
+    const llmInputs: LLMReviewInput[] = reports.map((report) => {
       let source: string | undefined;
-      try { source = readFileSync(report.filePath, 'utf-8'); } catch { /* fallback */ }
+      try {
+        source = readFileSync(report.filePath, 'utf-8');
+      } catch {
+        /* fallback */
+      }
       return {
         filePath: report.filePath,
         inferred: report.inferred,
@@ -111,7 +171,7 @@ async function runReviewPipeline(
           console.log(`  LLM review (auto): ${llmFindings.length} finding(s) from AI`);
         }
         for (const f of llmFindings) {
-          const report = reports.find(r => r.filePath === f.primarySpan.file);
+          const report = reports.find((r) => r.filePath === f.primarySpan.file);
           if (report) report.findings.push(f);
           else if (reports.length > 0) reports[0].findings.push(f);
         }
@@ -153,17 +213,28 @@ async function runReviewPipeline(
 
         for (const v of result.violations) {
           const icon = v.kind.includes('missing') || v.kind === 'spec-unimplemented' ? '✗' : '~';
-          const sev = v.kind === 'spec-auth-missing' || v.kind === 'spec-unimplemented' ? 'ERROR' : v.kind === 'spec-undeclared' ? 'INFO' : 'WARN';
+          const sev =
+            v.kind === 'spec-auth-missing' || v.kind === 'spec-unimplemented'
+              ? 'ERROR'
+              : v.kind === 'spec-undeclared'
+                ? 'INFO'
+                : 'WARN';
           console.log(`    ${icon} [${sev}] ${v.kind}: ${v.detail}`);
           if (v.suggestion) console.log(`      → ${v.suggestion}`);
         }
       }
 
       if (result.matched.length > 0) {
-        const satisfied = result.matched.length - result.violations.filter(v => v.kind !== 'spec-undeclared' && v.kind !== 'spec-unimplemented').length;
-        console.log(`\n  Matched: ${result.matched.length} routes | Satisfied: ${satisfied} | Violations: ${totalViolations}`);
-        if (result.unmatchedSpecs.length > 0) console.log(`  Unimplemented: ${result.unmatchedSpecs.map(s => s.routeKey).join(', ')}`);
-        if (result.unmatchedImpls.length > 0) console.log(`  Undeclared: ${result.unmatchedImpls.map(i => i.routeKey).join(', ')}`);
+        const satisfied =
+          result.matched.length -
+          result.violations.filter((v) => v.kind !== 'spec-undeclared' && v.kind !== 'spec-unimplemented').length;
+        console.log(
+          `\n  Matched: ${result.matched.length} routes | Satisfied: ${satisfied} | Violations: ${totalViolations}`,
+        );
+        if (result.unmatchedSpecs.length > 0)
+          console.log(`  Unimplemented: ${result.unmatchedSpecs.map((s) => s.routeKey).join(', ')}`);
+        if (result.unmatchedImpls.length > 0)
+          console.log(`  Undeclared: ${result.unmatchedImpls.map((i) => i.routeKey).join(', ')}`);
       }
     }
 
@@ -176,23 +247,48 @@ async function runReviewPipeline(
   // Security mode
   if (securityMode) {
     const SECURITY_RULES = new Set([
-      'xss-unsafe-html', 'hardcoded-secret', 'command-injection', 'no-eval',
-      'insecure-random', 'cors-wildcard', 'helmet-missing', 'open-redirect',
-      'jwt-weak-verification', 'cookie-hardening', 'csrf-detection', 'csp-strength',
-      'path-traversal', 'weak-password-hashing', 'regex-dos', 'missing-input-validation',
-      'prototype-pollution', 'information-exposure', 'prompt-injection',
-      'taint-command', 'taint-fs', 'taint-sql', 'taint-redirect', 'taint-eval',
-      'taint-insufficient-sanitizer', 'taint-crossfile-command', 'taint-crossfile-fs',
-      'taint-crossfile-sql', 'taint-crossfile-redirect', 'taint-crossfile-eval',
-      'spec-auth-missing', 'spec-validate-missing', 'spec-guard-missing',
-      'spec-middleware-missing', 'spec-unimplemented',
+      'xss-unsafe-html',
+      'hardcoded-secret',
+      'command-injection',
+      'no-eval',
+      'insecure-random',
+      'cors-wildcard',
+      'helmet-missing',
+      'open-redirect',
+      'jwt-weak-verification',
+      'cookie-hardening',
+      'csrf-detection',
+      'csp-strength',
+      'path-traversal',
+      'weak-password-hashing',
+      'regex-dos',
+      'missing-input-validation',
+      'prototype-pollution',
+      'information-exposure',
+      'prompt-injection',
+      'taint-command',
+      'taint-fs',
+      'taint-sql',
+      'taint-redirect',
+      'taint-eval',
+      'taint-insufficient-sanitizer',
+      'taint-crossfile-command',
+      'taint-crossfile-fs',
+      'taint-crossfile-sql',
+      'taint-crossfile-redirect',
+      'taint-crossfile-eval',
+      'spec-auth-missing',
+      'spec-validate-missing',
+      'spec-guard-missing',
+      'spec-middleware-missing',
+      'spec-unimplemented',
     ]);
 
     console.log('\n  KERN Security Report\n');
 
     let totalSec = 0;
     for (const report of reports) {
-      const secFindings = report.findings.filter(f => SECURITY_RULES.has(f.ruleId));
+      const secFindings = report.findings.filter((f) => SECURITY_RULES.has(f.ruleId));
       if (secFindings.length === 0) continue;
       totalSec += secFindings.length;
 
@@ -209,8 +305,12 @@ async function runReviewPipeline(
     if (totalSec === 0) {
       console.log('  No security issues found.');
     } else {
-      const errors = reports.flatMap(r => r.findings).filter(f => SECURITY_RULES.has(f.ruleId) && f.severity === 'error').length;
-      const warnings = reports.flatMap(r => r.findings).filter(f => SECURITY_RULES.has(f.ruleId) && f.severity === 'warning').length;
+      const errors = reports
+        .flatMap((r) => r.findings)
+        .filter((f) => SECURITY_RULES.has(f.ruleId) && f.severity === 'error').length;
+      const warnings = reports
+        .flatMap((r) => r.findings)
+        .filter((f) => SECURITY_RULES.has(f.ruleId) && f.severity === 'warning').length;
       console.log(`  Total: ${totalSec} security findings (${errors} errors, ${warnings} warnings)`);
     }
 
@@ -242,24 +342,30 @@ async function runReviewPipeline(
 
   // LLM mode
   if (llmMode) {
-    const llmGraphContext = graphMode ? (() => {
-      const fileDistances = new Map<string, number>();
-      for (const report of reports) {
-        const finding = report.findings[0];
-        const distance = finding?.distance ?? 0;
-        fileDistances.set(report.filePath, distance);
-      }
-      for (const ep of entryFilePaths) {
-        fileDistances.set(ep, 0);
-      }
-      return { fileDistances };
-    })() : undefined;
+    const llmGraphContext = graphMode
+      ? (() => {
+          const fileDistances = new Map<string, number>();
+          for (const report of reports) {
+            const finding = report.findings[0];
+            const distance = finding?.distance ?? 0;
+            fileDistances.set(report.filePath, distance);
+          }
+          for (const ep of entryFilePaths) {
+            fileDistances.set(ep, 0);
+          }
+          return { fileDistances };
+        })()
+      : undefined;
 
     if (isLLMAvailable()) {
       console.log('  LLM review: calling API (deep mode — source + static findings)...');
-      const llmInputs: LLMReviewInput[] = reports.map(report => {
+      const llmInputs: LLMReviewInput[] = reports.map((report) => {
         let source: string | undefined;
-        try { source = readFileSync(report.filePath, 'utf-8'); } catch { /* fallback */ }
+        try {
+          source = readFileSync(report.filePath, 'utf-8');
+        } catch {
+          /* fallback */
+        }
         return {
           filePath: report.filePath,
           inferred: report.inferred,
@@ -277,7 +383,7 @@ async function runReviewPipeline(
         console.log(`  LLM review: ${llmFindings.length} findings from AI`);
 
         for (const f of llmFindings) {
-          const report = reports.find(r => r.filePath === f.primarySpan.file);
+          const report = reports.find((r) => r.filePath === f.primarySpan.file);
           if (report) report.findings.push(f);
           else if (reports.length > 0) reports[0].findings.push(f);
         }
@@ -294,8 +400,8 @@ async function runReviewPipeline(
         const rel = relative(process.cwd(), report.filePath);
 
         if (report.findings.length > 0) {
-          const errors = report.findings.filter(f => f.severity === 'error');
-          const warnings = report.findings.filter(f => f.severity === 'warning');
+          const errors = report.findings.filter((f) => f.severity === 'error');
+          const warnings = report.findings.filter((f) => f.severity === 'warning');
           console.log(`<kern-findings path="${rel}">`);
           for (const f of [...errors, ...warnings]) {
             const conf = f.confidence !== undefined ? ` (${(f.confidence * 100).toFixed(0)}%)` : '';
@@ -312,7 +418,9 @@ async function runReviewPipeline(
             console.log(`  fn ${t.fnName} (L${t.startLine}):`);
             for (const p of t.paths) {
               const status = p.sanitized ? `SANITIZED by ${p.sanitizer}` : 'UNSANITIZED';
-              const insufficient = p.insufficientSanitizer ? ` (${p.insufficientSanitizer} is NOT sufficient for ${p.sink.category})` : '';
+              const insufficient = p.insufficientSanitizer
+                ? ` (${p.insufficientSanitizer} is NOT sufficient for ${p.sink.category})`
+                : '';
               console.log(`    ${p.source.origin} → ${p.sink.name}() [${p.sink.category}] ${status}${insufficient}`);
             }
           }
@@ -323,7 +431,9 @@ async function runReviewPipeline(
           console.log(`<kern-taint-cross-file path="${rel}">`);
           for (const t of report.crossFileTaint) {
             const calleeRel = relative(process.cwd(), t.calleeFile);
-            console.log(`  ${t.source.origin} in ${t.callerFn}() L${t.callerLine} → ${t.calleeFn}() in ${calleeRel} → ${t.sinkInCallee.name}() [${t.sinkInCallee.category}] UNSANITIZED`);
+            console.log(
+              `  ${t.source.origin} in ${t.callerFn}() L${t.callerLine} → ${t.calleeFn}() in ${calleeRel} → ${t.sinkInCallee.name}() [${t.sinkInCallee.category}] UNSANITIZED`,
+            );
             console.log(`    Tainted args: ${t.taintedArgs.join(', ')}`);
           }
           console.log('</kern-taint-cross-file>\n');
@@ -350,7 +460,9 @@ async function runReviewPipeline(
         console.log('</kern-ir>\n');
       }
 
-      console.log(`── KERN Review Instructions ──\n${buildReviewInstructions({ target: 'assistant', hasInlineSource: false })}\n`);
+      console.log(
+        `── KERN Review Instructions ──\n${buildReviewInstructions({ target: 'assistant', hasInlineSource: false })}\n`,
+      );
     }
   }
 
@@ -367,9 +479,10 @@ async function runReviewPipeline(
       const sorted = [...ranges].sort((a, b) => a[0] - b[0]);
 
       const before = report.findings.length;
-      report.findings = report.findings.filter(f => {
+      report.findings = report.findings.filter((f) => {
         const line = f.primarySpan.startLine;
-        let lo = 0, hi = sorted.length - 1;
+        let lo = 0,
+          hi = sorted.length - 1;
         while (lo <= hi) {
           const mid = (lo + hi) >> 1;
           if (line < sorted[mid][0] - DIFF_CONTEXT) hi = mid - 1;
@@ -394,7 +507,7 @@ async function runReviewPipeline(
         if (!t.suggestedKern) continue;
         const kernFileName = report.filePath.replace(/\.tsx?$/, '.kern');
         try {
-          writeFileSync(kernFileName, t.suggestedKern + '\n');
+          writeFileSync(kernFileName, `${t.suggestedKern}\n`);
           try {
             parseAndSurface(readFileSync(kernFileName, 'utf-8'), kernFileName);
             console.log(`  ${report.filePath} → ${kernFileName} (verified)`);
@@ -451,7 +564,7 @@ async function runReviewPipeline(
 
       const appliedSpans: { sl: number; el: number }[] = [];
       function overlaps(sl: number, el: number): boolean {
-        return appliedSpans.some(s => sl <= s.el && el >= s.sl);
+        return appliedSpans.some((s) => sl <= s.el && el >= s.sl);
       }
 
       const lines = readFileSync(file, 'utf-8').split('\n');
@@ -469,7 +582,9 @@ async function runReviewPipeline(
         }
 
         if (overlaps(sl, el)) {
-          console.error(`  Skipping ${finding.ruleId}@${startLine}:${startCol} — overlaps with a previously applied fix`);
+          console.error(
+            `  Skipping ${finding.ruleId}@${startLine}:${startCol} — overlaps with a previously applied fix`,
+          );
           totalSkipped++;
           continue;
         }
@@ -507,13 +622,13 @@ async function runReviewPipeline(
 
   // Lint mode
   if (lintMode) {
-    const filePaths = reports.map(r => r.filePath).filter(f => existsSync(f));
+    const filePaths = reports.map((r) => r.filePath).filter((f) => existsSync(f));
 
     const eslintFindings: ReviewFinding[] = await runESLint(filePaths, process.cwd());
     if (eslintFindings.length > 0) {
       console.log(`  ESLint: ${eslintFindings.length} findings`);
       for (const report of reports) {
-        const fileFindings = eslintFindings.filter(f => f.primarySpan.file === report.filePath);
+        const fileFindings = eslintFindings.filter((f) => f.primarySpan.file === report.filePath);
         const linked = linkToNodes(fileFindings, report.inferred);
         report.findings = dedup([...report.findings, ...linked]);
       }
@@ -525,7 +640,7 @@ async function runReviewPipeline(
     if (tscFindings.length > 0) {
       console.log(`  tsc: ${tscFindings.length} findings`);
       for (const report of reports) {
-        const fileFindings = tscFindings.filter(f => f.primarySpan.file === report.filePath);
+        const fileFindings = tscFindings.filter((f) => f.primarySpan.file === report.filePath);
         const linked = linkToNodes(fileFindings, report.inferred);
         report.findings = dedup([...report.findings, ...linked]);
       }
@@ -536,7 +651,7 @@ async function runReviewPipeline(
 
   // Output
   if (jsonOutput) {
-    const enriched = reports.map(report => {
+    const enriched = reports.map((report) => {
       const llmPrompt = buildLLMPrompt(report.inferred, report.templateMatches);
       const kernIR = exportKernIR(report.inferred, report.templateMatches);
       return { ...report, kernIR, llmPrompt };
@@ -554,7 +669,11 @@ async function runReviewPipeline(
       console.log(formatSummary(reports));
     }
 
-    const hasThresholds = minCoverageArg !== undefined || maxComplexityArg !== undefined || maxErrorsArg !== undefined || maxWarningsArg !== undefined;
+    const hasThresholds =
+      minCoverageArg !== undefined ||
+      maxComplexityArg !== undefined ||
+      maxErrorsArg !== undefined ||
+      maxWarningsArg !== undefined;
     if (enforce || hasThresholds) {
       console.log('');
       let allPassed = true;
@@ -592,7 +711,7 @@ export async function runReview(args: string[]): Promise<void> {
   const securityMode = hasFlag(args, '--security');
   const mcpMode = hasFlag(args, '--mcp');
   const specMode = hasFlag(args, '--spec');
-  const specFile = args.find(a => a.endsWith('.kern') && a !== 'review');
+  const specFile = args.find((a) => a.endsWith('.kern') && a !== 'review');
   const fixMode = hasFlag(args, '--fix');
   const autofixMode = hasFlag(args, '--autofix');
   const lintMode = hasFlag(args, '--lint');
@@ -612,7 +731,7 @@ export async function runReview(args: string[]): Promise<void> {
   const showConfidence = hasFlag(args, '--confidence');
   const minConfidenceArg = parseFlag(args, '--min-confidence');
   const minConfidence = minConfidenceArg ? Number(minConfidenceArg) : undefined;
-  const disableRuleArgs = args.filter(a => a.startsWith('--disable-rule=')).map(a => a.split('=')[1]);
+  const disableRuleArgs = args.filter((a) => a.startsWith('--disable-rule=')).map((a) => a.split('=')[1]);
 
   const rulesDirs: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -624,12 +743,13 @@ export async function runReview(args: string[]): Promise<void> {
     }
   }
 
-  const strictArg = args.find(a => a === '--strict' || a.startsWith('--strict='));
-  const strict: false | 'inline' | 'all' = strictArg === '--strict' ? 'inline' : strictArg === '--strict=all' ? 'all' : false;
+  const strictArg = args.find((a) => a === '--strict' || a.startsWith('--strict='));
+  const strict: false | 'inline' | 'all' =
+    strictArg === '--strict' ? 'inline' : strictArg === '--strict=all' ? 'all' : false;
   const strictParse = hasFlag(args, '--strict-parse');
   const listRules = hasFlag(args, '--list-rules');
-  const diffBase = args.find(a => a.startsWith('--diff'))
-    ? (parseFlag(args, '--diff') || args[args.indexOf('--diff') + 1] || 'origin/main')
+  const diffBase = args.find((a) => a.startsWith('--diff'))
+    ? parseFlag(args, '--diff') || args[args.indexOf('--diff') + 1] || 'origin/main'
     : undefined;
 
   // --list-rules
@@ -656,26 +776,31 @@ export async function runReview(args: string[]): Promise<void> {
   }
 
   // Diff mode
-  const reviewInputs = args.filter(a => !a.startsWith('--') && a !== 'review');
+  const reviewInputs = args.filter((a) => !a.startsWith('--') && a !== 'review');
   let reviewInput = reviewInputs[0];
   if (diffBase && !reviewInput) {
     try {
       const { execFileSync } = await import('child_process');
-      const sanitizedBase = diffBase.replace(/[^a-zA-Z0-9_.\/\-~]/g, '');
-      const diffFiles = execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMR', sanitizedBase], { encoding: 'utf-8' })
+      const sanitizedBase = diffBase.replace(/[^a-zA-Z0-9_./\-~]/g, '');
+      const diffFiles = execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMR', sanitizedBase], {
+        encoding: 'utf-8',
+      })
         .trim()
         .split('\n')
-        .filter(f => f.endsWith('.ts') || f.endsWith('.tsx'))
-        .filter(f => !f.endsWith('.d.ts') && !f.endsWith('.test.ts'));
+        .filter((f) => f.endsWith('.ts') || f.endsWith('.tsx'))
+        .filter((f) => !f.endsWith('.d.ts') && !f.endsWith('.test.ts'));
       if (diffFiles.length === 0) {
-        console.log('  No changed .ts/.tsx files since ' + diffBase);
+        console.log(`  No changed .ts/.tsx files since ${diffBase}`);
         process.exit(0);
       }
       console.log(`  Reviewing ${diffFiles.length} changed files (diff from ${diffBase})\n`);
 
       const diffRanges = new Map<string, Array<[number, number]>>();
       try {
-        const unifiedDiff = execFileSync('git', ['diff', '--unified=0', '--diff-filter=ACMR', sanitizedBase], { encoding: 'utf-8', env: { ...process.env, LC_ALL: 'C' } });
+        const unifiedDiff = execFileSync('git', ['diff', '--unified=0', '--diff-filter=ACMR', sanitizedBase], {
+          encoding: 'utf-8',
+          env: { ...process.env, LC_ALL: 'C' },
+        });
         let currentFile = '';
         for (const line of unifiedDiff.split('\n')) {
           if (line.startsWith('+++ b/')) {
@@ -685,8 +810,8 @@ export async function runReview(args: string[]): Promise<void> {
           if (line.startsWith('@@') && currentFile) {
             const match = line.match(/\+(\d+)(?:,(\d+))?/);
             if (match) {
-              const start = parseInt(match[1]);
-              const count = match[2] ? parseInt(match[2]) : 1;
+              const start = parseInt(match[1], 10);
+              const count = match[2] ? parseInt(match[2], 10) : 1;
               if (count > 0) {
                 diffRanges.get(currentFile)!.push([start, start + count - 1]);
               }
@@ -708,7 +833,9 @@ export async function runReview(args: string[]): Promise<void> {
 
   if (!reviewInput) {
     console.error('Usage: kern review <file.ts|dir> [--security] [--mcp] [--llm] [--spec file.kern] [--cloud]');
-    console.error('       [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--fix] [--autofix] [--rules-dir <dir>]');
+    console.error(
+      '       [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--fix] [--autofix] [--rules-dir <dir>]',
+    );
     process.exit(1);
   }
 
@@ -771,9 +898,10 @@ export async function runReview(args: string[]): Promise<void> {
         try {
           const source = readFileSync(file, 'utf-8');
           const ast = parseAndSurface(source, file);
-          const nodes = ast.type === 'template' ? [ast] : (ast.children || []).filter((n: IRNode) => n.type === 'template');
+          const nodes =
+            ast.type === 'template' ? [ast] : (ast.children || []).filter((n: IRNode) => n.type === 'template');
           for (const node of nodes) {
-            const tplName = (node.props?.name as string);
+            const tplName = node.props?.name as string;
             if (tplName) reviewConfig.registeredTemplates!.push(tplName);
             registerTemplate(node, file);
           }
@@ -792,7 +920,7 @@ export async function runReview(args: string[]): Promise<void> {
 
   if (reviewInput === '__diff__') {
     const diffFiles = (globalThis as any).__diffFiles as string[];
-    entryFilePaths = diffFiles.map(f => resolve(f)).filter(f => existsSync(f));
+    entryFilePaths = diffFiles.map((f) => resolve(f)).filter((f) => existsSync(f));
   } else {
     const paths = reviewInputs.length > 0 ? reviewInputs : [reviewInput];
     for (const p of paths) {
@@ -808,9 +936,30 @@ export async function runReview(args: string[]): Promise<void> {
   }
 
   const modes = {
-    graphMode, batchMode, llmMode, cloudMode, securityMode, mcpMode, specMode, fixMode, autofixMode, lintMode, exportKern, enforce,
-    jsonOutput, sarifOutput, strictParse, maxDepth, batchSize, tsconfigPath, specFile, minCoverageArg, maxComplexityArg,
-    maxErrorsArg, maxWarningsArg, showConfidence,
+    graphMode,
+    batchMode,
+    llmMode,
+    cloudMode,
+    securityMode,
+    mcpMode,
+    specMode,
+    fixMode,
+    autofixMode,
+    lintMode,
+    exportKern,
+    enforce,
+    jsonOutput,
+    sarifOutput,
+    strictParse,
+    maxDepth,
+    batchSize,
+    tsconfigPath,
+    specFile,
+    minCoverageArg,
+    maxComplexityArg,
+    maxErrorsArg,
+    maxWarningsArg,
+    showConfidence,
   };
 
   const noCache = hasFlag(args, '--no-cache');

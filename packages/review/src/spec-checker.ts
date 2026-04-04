@@ -8,16 +8,16 @@
  * No other tool can do this — .kern IS the spec, and this verifies reality.
  */
 
-import { readFileSync } from 'fs';
-import { parse } from '@kernlang/core';
 import type { IRNode } from '@kernlang/core';
+import { parse } from '@kernlang/core';
+import { readFileSync } from 'fs';
 import type { ReviewFinding, SourceSpan } from './types.js';
 import { createFingerprint } from './types.js';
 
 // ── Contract types ───────────────────────────────────────────────────────
 
 export interface AuthContract {
-  mode: string;  // 'required' | 'optional' | 'bearer' | custom
+  mode: string; // 'required' | 'optional' | 'bearer' | custom
 }
 
 export interface ValidateContract {
@@ -154,9 +154,10 @@ function collectRoutes(node: IRNode, out: SpecContract[], kernFile: string): voi
           case 'error':
             if (child.props?.status) {
               contract.errors.push({
-                status: typeof child.props.status === 'number'
-                  ? child.props.status
-                  : parseInt(String(child.props.status), 10),
+                status:
+                  typeof child.props.status === 'number'
+                    ? child.props.status
+                    : parseInt(String(child.props.status), 10),
                 message: child.props?.message ? String(child.props.message) : undefined,
               });
             }
@@ -185,7 +186,7 @@ const ROUTE_REGEX = /\b(app|router|server)\.(get|post|put|delete|patch|head|opti
 
 export function extractImplRoutes(tsSource: string, filePath: string): ImplRoute[] {
   const routes: ImplRoute[] = [];
-  const lines = tsSource.split('\n');
+  const _lines = tsSource.split('\n');
 
   let match;
   ROUTE_REGEX.lastIndex = 0;
@@ -229,7 +230,10 @@ function extractMiddlewareArgs(afterPath: string): string[] {
   if (!argsSection) return names;
 
   const argsText = argsSection[1];
-  const parts = argsText.split(',').map(s => s.trim()).filter(Boolean);
+  const parts = argsText
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   for (const part of parts) {
     if (/^\w+$/.test(part)) {
       names.push(part);
@@ -286,7 +290,11 @@ function pathsMatch(a: string, b: string): boolean {
 export function matchRoutes(
   specs: SpecContract[],
   impls: ImplRoute[],
-): { matched: Array<{ spec: SpecContract; impl: ImplRoute }>; unmatchedSpecs: SpecContract[]; unmatchedImpls: ImplRoute[] } {
+): {
+  matched: Array<{ spec: SpecContract; impl: ImplRoute }>;
+  unmatchedSpecs: SpecContract[];
+  unmatchedImpls: ImplRoute[];
+} {
   const matched: Array<{ spec: SpecContract; impl: ImplRoute }> = [];
   const usedImpls = new Set<number>();
 
@@ -296,10 +304,8 @@ export function matchRoutes(
 
     // Fallback: fuzzy path match (handles :id vs :userId)
     if (implIdx < 0) {
-      implIdx = impls.findIndex((impl, i) =>
-        !usedImpls.has(i) &&
-        impl.method === spec.method &&
-        pathsMatch(impl.path, spec.path)
+      implIdx = impls.findIndex(
+        (impl, i) => !usedImpls.has(i) && impl.method === spec.method && pathsMatch(impl.path, spec.path),
       );
     }
 
@@ -309,7 +315,7 @@ export function matchRoutes(
     }
   }
 
-  const unmatchedSpecs = specs.filter(s => !matched.some(m => m.spec === s));
+  const unmatchedSpecs = specs.filter((s) => !matched.some((m) => m.spec === s));
   const unmatchedImpls = impls.filter((_, i) => !usedImpls.has(i));
 
   return { matched, unmatchedSpecs, unmatchedImpls };
@@ -317,7 +323,8 @@ export function matchRoutes(
 
 // ── Contract verification ────────────────────────────────────────────────
 
-const AUTH_MIDDLEWARE = /\b(auth|authenticate|requireAuth|requireLicense|verifyToken|jwtVerify|bearerAuth|isAuthenticated|authMiddleware|passport|requirePro)\b/i;
+const AUTH_MIDDLEWARE =
+  /\b(auth|authenticate|requireAuth|requireLicense|verifyToken|jwtVerify|bearerAuth|isAuthenticated|authMiddleware|passport|requirePro)\b/i;
 const AUTH_BODY = /\breq\.(user|auth)\b|verifyToken\s*\(|authenticate\s*\(|checkAuth\s*\(|requireLicense\b/;
 const VALIDATION_CALL = /\.(parse|safeParse|validate|validateSync)\s?\(/;
 const GUARD_CONDITIONAL = /if\s?\(\s?!?\s?\w+/;
@@ -325,7 +332,7 @@ const GUARD_CONDITIONAL = /if\s?\(\s?!?\s?\w+/;
 function checkAuth(spec: SpecContract, impl: ImplRoute): SpecViolation | null {
   if (!spec.auth) return null;
 
-  const hasAuthMiddleware = impl.middlewareArgs.some(a => AUTH_MIDDLEWARE.test(a));
+  const hasAuthMiddleware = impl.middlewareArgs.some((a) => AUTH_MIDDLEWARE.test(a));
   const hasAuthInBody = AUTH_BODY.test(impl.handlerBody);
 
   if (!hasAuthMiddleware && !hasAuthInBody) {
@@ -346,7 +353,7 @@ function checkValidate(spec: SpecContract, impl: ImplRoute): SpecViolation | nul
   if (!spec.validate) return null;
 
   const hasValidation = VALIDATION_CALL.test(impl.handlerBody);
-  const hasSchemaRef = impl.handlerBody.includes(spec.validate.schema);
+  const _hasSchemaRef = impl.handlerBody.includes(spec.validate.schema);
 
   if (!hasValidation) {
     return {
@@ -367,7 +374,8 @@ function checkGuards(spec: SpecContract, impl: ImplRoute): SpecViolation[] {
 
   for (const guard of spec.guards) {
     const hasConditional = GUARD_CONDITIONAL.test(impl.handlerBody);
-    const hasStatus = new RegExp(`\\.status\\s*\\(\\s*${guard.elseStatus}\\s*\\)`).test(impl.handlerBody) ||
+    const hasStatus =
+      new RegExp(`\\.status\\s*\\(\\s*${guard.elseStatus}\\s*\\)`).test(impl.handlerBody) ||
       new RegExp(`sendStatus\\s*\\(\\s*${guard.elseStatus}\\s*\\)`).test(impl.handlerBody);
 
     if (!hasConditional || !hasStatus) {
@@ -418,7 +426,8 @@ function checkErrors(spec: SpecContract, impl: ImplRoute): SpecViolation[] {
     // 500 is special — try/catch satisfies it
     if (err.status === 500 && /try\s*\{[\s\S]*?\}\s*catch/.test(impl.handlerBody)) continue;
 
-    const hasStatus = new RegExp(`\\.status\\s*\\(\\s*${err.status}\\s*\\)`).test(impl.handlerBody) ||
+    const hasStatus =
+      new RegExp(`\\.status\\s*\\(\\s*${err.status}\\s*\\)`).test(impl.handlerBody) ||
       new RegExp(`sendStatus\\s*\\(\\s*${err.status}\\s*\\)`).test(impl.handlerBody);
 
     if (!hasStatus) {
@@ -499,7 +508,7 @@ const SEVERITY_MAP: Record<ViolationKind, 'error' | 'warning' | 'info'> = {
 };
 
 export function specViolationsToFindings(result: SpecCheckResult): ReviewFinding[] {
-  return result.violations.map(v => {
+  return result.violations.map((v) => {
     const file = v.kernFile || v.tsFile || '';
     const line = v.kernLine || v.tsLine || 1;
 

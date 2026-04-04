@@ -2,20 +2,18 @@
  * Taint Tracking — shared types, classification tables, and sanitizer sufficiency.
  */
 
-import type { SourceFile, FunctionDeclaration, ArrowFunction, FunctionExpression, MethodDeclaration } from 'ts-morph';
-
 // ── Types ────────────────────────────────────────────────────────────────
 
 export interface TaintSource {
-  name: string;         // Variable name (e.g., "req", "userId")
-  origin: string;       // Where it came from (e.g., "req.body", "req.query.id")
-  line?: number;        // Approximate line in handler body
+  name: string; // Variable name (e.g., "req", "userId")
+  origin: string; // Where it came from (e.g., "req.body", "req.query.id")
+  line?: number; // Approximate line in handler body
 }
 
 export interface TaintSink {
-  name: string;         // Sink function (e.g., "exec", "writeFileSync")
+  name: string; // Sink function (e.g., "exec", "writeFileSync")
   category: 'command' | 'fs' | 'sql' | 'redirect' | 'eval' | 'template' | 'codegen';
-  taintedArg: string;   // The tainted variable used in the call
+  taintedArg: string; // The tainted variable used in the call
   line?: number;
 }
 
@@ -23,8 +21,8 @@ export interface TaintPath {
   source: TaintSource;
   sink: TaintSink;
   sanitized: boolean;
-  sanitizer?: string;              // What sanitized it (e.g., "parseInt", "schema.parse")
-  insufficientSanitizer?: string;  // Sanitizer present but wrong for this sink type
+  sanitizer?: string; // What sanitized it (e.g., "parseInt", "schema.parse")
+  insufficientSanitizer?: string; // Sanitizer present but wrong for this sink type
 }
 
 export interface TaintResult {
@@ -40,17 +38,17 @@ export interface CrossFileTaintResult {
   callerLine: number;
   calleeFile: string;
   calleeFn: string;
-  taintedArgs: string[];   // Which args are tainted
+  taintedArgs: string[]; // Which args are tainted
   sinkInCallee: TaintSink; // The sink reached in the callee
-  source: TaintSource;     // Original taint source
+  source: TaintSource; // Original taint source
 }
 
 /** Map of exported function names → file path + param info */
 export interface ExportedFunction {
   filePath: string;
   fnName: string;
-  params: string;   // Raw params string
-  hasSink: boolean;  // Does this function contain a dangerous sink?
+  params: string; // Raw params string
+  hasSink: boolean; // Does this function contain a dangerous sink?
   sinks: TaintSink[];
 }
 
@@ -157,7 +155,7 @@ export const SANITIZER_PATTERNS = [
   { pattern: /\bencodeURI(Component)?\s*\(/, name: 'encodeURIComponent' },
   // Path sanitization
   { pattern: /path\.(resolve|normalize|basename)\s*\(/, name: 'path.normalize' },
-  { pattern: /\.replace\s*\(\s*\/.*\.\.\//,  name: 'replace(../)' },
+  { pattern: /\.replace\s*\(\s*\/.*\.\.\//, name: 'replace(../)' },
   // SQL parameterization
   { pattern: /\$\d+/, name: 'parameterized query ($N)' },
   { pattern: /\?\s*,/, name: 'parameterized query (?)' },
@@ -176,26 +174,26 @@ export const SANITIZER_PATTERNS = [
 export type SinkCategory = TaintSink['category'];
 
 const SANITIZER_SUFFICIENCY: Record<string, Set<SinkCategory>> = {
-  'parseInt':                 new Set(['sql']),
-  'parseFloat':               new Set(['sql']),
-  'Number()':                 new Set(['sql']),
-  'Boolean()':                new Set([]),  // too weak for anything
-  'schema.parse':             new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template']),
-  'schema.safeParse':         new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template']),
-  'schema.validate':          new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template']),
-  'schema.validateSync':      new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template']),
-  'sanitize()':               new Set(['template']),
-  'escape()':                 new Set(['sql', 'template']),
-  'DOMPurify':                new Set(['template']),
-  'encodeURIComponent':       new Set(['redirect']),
-  'path.normalize':           new Set(['fs']),
-  'replace(../)':             new Set(['fs']),
+  parseInt: new Set(['sql']),
+  parseFloat: new Set(['sql']),
+  'Number()': new Set(['sql']),
+  'Boolean()': new Set([]), // too weak for anything
+  'schema.parse': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template']),
+  'schema.safeParse': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template']),
+  'schema.validate': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template']),
+  'schema.validateSync': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template']),
+  'sanitize()': new Set(['template']),
+  'escape()': new Set(['sql', 'template']),
+  DOMPurify: new Set(['template']),
+  encodeURIComponent: new Set(['redirect']),
+  'path.normalize': new Set(['fs']),
+  'replace(../)': new Set(['fs']),
   'parameterized query ($N)': new Set(['sql']),
-  'parameterized query (?)':  new Set(['sql']),
-  'sanitizeForPrompt':        new Set(['template']),
-  'escapePrompt':             new Set(['template']),
-  'stripDelimiters':          new Set(['template']),
-  'cleanForPrompt':           new Set(['template']),
+  'parameterized query (?)': new Set(['sql']),
+  sanitizeForPrompt: new Set(['template']),
+  escapePrompt: new Set(['template']),
+  stripDelimiters: new Set(['template']),
+  cleanForPrompt: new Set(['template']),
 };
 
 /**
@@ -213,22 +211,48 @@ export function isSanitizerSufficient(sanitizerName: string, sinkCategory: SinkC
 
 // Sink name → category lookup (flat map from SINK_PATTERNS)
 export const SINK_NAMES = new Map<string, TaintSink['category']>([
-  ['exec', 'command'], ['execSync', 'command'], ['spawn', 'command'],
-  ['spawnSync', 'command'], ['execFile', 'command'], ['execFileSync', 'command'],
-  ['readFile', 'fs'], ['readFileSync', 'fs'],
-  ['writeFile', 'fs'], ['writeFileSync', 'fs'], ['createWriteStream', 'fs'], ['createReadStream', 'fs'],
-  ['unlink', 'fs'], ['unlinkSync', 'fs'],
-  ['query', 'sql'], ['$execute', 'sql'], ['raw', 'sql'],
-  ['$queryRaw', 'sql'], ['$queryRawUnsafe', 'sql'],
+  ['exec', 'command'],
+  ['execSync', 'command'],
+  ['spawn', 'command'],
+  ['spawnSync', 'command'],
+  ['execFile', 'command'],
+  ['execFileSync', 'command'],
+  ['readFile', 'fs'],
+  ['readFileSync', 'fs'],
+  ['writeFile', 'fs'],
+  ['writeFileSync', 'fs'],
+  ['createWriteStream', 'fs'],
+  ['createReadStream', 'fs'],
+  ['unlink', 'fs'],
+  ['unlinkSync', 'fs'],
+  ['query', 'sql'],
+  ['$execute', 'sql'],
+  ['raw', 'sql'],
+  ['$queryRaw', 'sql'],
+  ['$queryRawUnsafe', 'sql'],
   ['redirect', 'redirect'],
-  ['eval', 'eval'], ['Function', 'eval'],
+  ['eval', 'eval'],
+  ['Function', 'eval'],
 ]);
 
 // Sanitizer names to detect (from SANITIZER_PATTERNS)
 export const SANITIZER_PATTERN_NAMES = [
-  'parseInt', 'parseFloat', 'Number', 'Boolean', 'String',
-  'encodeURI', 'encodeURIComponent', 'escape',
-  'sanitize', 'DOMPurify', 'purify', 'xss',
-  'escapeHtml', 'sqlstring', 'parameterized',
-  'parse', 'safeParse', 'validate',
+  'parseInt',
+  'parseFloat',
+  'Number',
+  'Boolean',
+  'String',
+  'encodeURI',
+  'encodeURIComponent',
+  'escape',
+  'sanitize',
+  'DOMPurify',
+  'purify',
+  'xss',
+  'escapeHtml',
+  'sqlstring',
+  'parameterized',
+  'parse',
+  'safeParse',
+  'validate',
 ];

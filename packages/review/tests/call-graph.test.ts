@@ -5,7 +5,7 @@
 import { Project } from 'ts-morph';
 import { buildCallGraph } from '../src/call-graph.js';
 import { resolveImportGraph } from '../src/graph.js';
-import { deadExportRule, crossFileAsyncRule } from '../src/rules/dead-code.js';
+import { crossFileAsyncRule, deadExportRule } from '../src/rules/dead-code.js';
 
 function createTestProject(): Project {
   return new Project({
@@ -18,30 +18,36 @@ function createTestProject(): Project {
 describe('Call Graph: intra-file', () => {
   it('resolves direct function calls within a file', () => {
     const project = createTestProject();
-    project.createSourceFile('/src/main.ts', `
+    project.createSourceFile(
+      '/src/main.ts',
+      `
 export function a() { b(); }
 function b() { c(); }
 function c() { return 42; }
-`);
+`,
+    );
 
     const graph = resolveImportGraph(['/src/main.ts'], { project });
     const callGraph = buildCallGraph(graph, project);
 
     const fnA = callGraph.functions.get('/src/main.ts#a');
     expect(fnA).toBeDefined();
-    expect(fnA!.calls.some(c => c.targetName === 'b' && c.resolved)).toBe(true);
+    expect(fnA!.calls.some((c) => c.targetName === 'b' && c.resolved)).toBe(true);
 
     const fnB = callGraph.functions.get('/src/main.ts#b');
     expect(fnB).toBeDefined();
-    expect(fnB!.calls.some(c => c.targetName === 'c' && c.resolved)).toBe(true);
+    expect(fnB!.calls.some((c) => c.targetName === 'c' && c.resolved)).toBe(true);
   });
 
   it('detects orphan functions (not exported, not called)', () => {
     const project = createTestProject();
-    project.createSourceFile('/src/main.ts', `
+    project.createSourceFile(
+      '/src/main.ts',
+      `
 export function used() { return 1; }
 function orphan() { return 2; }
-`);
+`,
+    );
 
     const graph = resolveImportGraph(['/src/main.ts'], { project });
     const callGraph = buildCallGraph(graph, project);
@@ -51,10 +57,13 @@ function orphan() { return 2; }
 
   it('does NOT mark non-exported function as orphan if called internally', () => {
     const project = createTestProject();
-    project.createSourceFile('/src/main.ts', `
+    project.createSourceFile(
+      '/src/main.ts',
+      `
 export function main() { helper(); }
 function helper() { return 42; }
-`);
+`,
+    );
 
     const graph = resolveImportGraph(['/src/main.ts'], { project });
     const callGraph = buildCallGraph(graph, project);
@@ -66,20 +75,26 @@ function helper() { return 42; }
 describe('Call Graph: cross-file', () => {
   it('resolves imported function calls', () => {
     const project = createTestProject();
-    project.createSourceFile('/src/main.ts', `
+    project.createSourceFile(
+      '/src/main.ts',
+      `
 import { helper } from './helper.js';
 export function main() { helper(); }
-`);
-    project.createSourceFile('/src/helper.ts', `
+`,
+    );
+    project.createSourceFile(
+      '/src/helper.ts',
+      `
 export function helper() { return 42; }
-`);
+`,
+    );
 
     const graph = resolveImportGraph(['/src/main.ts'], { project });
     const callGraph = buildCallGraph(graph, project);
 
     const fnMain = callGraph.functions.get('/src/main.ts#main');
     expect(fnMain).toBeDefined();
-    const helperCall = fnMain!.calls.find(c => c.targetName === 'helper');
+    const helperCall = fnMain!.calls.find((c) => c.targetName === 'helper');
     expect(helperCall).toBeDefined();
     expect(helperCall!.resolved).toBe(true);
     expect(helperCall!.targetFile).toBe('/src/helper.ts');
@@ -92,14 +107,20 @@ export function helper() { return 42; }
 
   it('detects dead exports (exported but never imported)', () => {
     const project = createTestProject();
-    project.createSourceFile('/src/main.ts', `
+    project.createSourceFile(
+      '/src/main.ts',
+      `
 import { used } from './lib.js';
 export function main() { used(); }
-`);
-    project.createSourceFile('/src/lib.ts', `
+`,
+    );
+    project.createSourceFile(
+      '/src/lib.ts',
+      `
 export function used() { return 1; }
 export function unused() { return 2; }
-`);
+`,
+    );
 
     const graph = resolveImportGraph(['/src/main.ts'], { project });
     const callGraph = buildCallGraph(graph, project);
@@ -112,53 +133,69 @@ export function unused() { return 2; }
 describe('Dead export rule', () => {
   it('produces finding for dead exports', () => {
     const project = createTestProject();
-    project.createSourceFile('/src/main.ts', `
+    project.createSourceFile(
+      '/src/main.ts',
+      `
 import { used } from './lib.js';
 export function main() { used(); }
-`);
-    project.createSourceFile('/src/lib.ts', `
+`,
+    );
+    project.createSourceFile(
+      '/src/lib.ts',
+      `
 export function used() { return 1; }
 export function unused() { return 2; }
-`);
+`,
+    );
 
     const graph = resolveImportGraph(['/src/main.ts'], { project });
     const callGraph = buildCallGraph(graph, project);
 
     const findings = deadExportRule(callGraph, '/src/lib.ts');
-    expect(findings.some(f => f.ruleId === 'dead-export' && f.message.includes('unused'))).toBe(true);
-    expect(findings.some(f => f.message.includes('used') && !f.message.includes('unused'))).toBe(false);
+    expect(findings.some((f) => f.ruleId === 'dead-export' && f.message.includes('unused'))).toBe(true);
+    expect(findings.some((f) => f.message.includes('used') && !f.message.includes('unused'))).toBe(false);
   });
 });
 
 describe('Cross-file async rule', () => {
   it('detects missing await on imported async function', () => {
     const project = createTestProject();
-    project.createSourceFile('/src/main.ts', `
+    project.createSourceFile(
+      '/src/main.ts',
+      `
 import { fetchData } from './api.js';
 export function handler() { fetchData(); }
-`);
-    project.createSourceFile('/src/api.ts', `
+`,
+    );
+    project.createSourceFile(
+      '/src/api.ts',
+      `
 export async function fetchData() { return []; }
-`);
+`,
+    );
 
     const graph = resolveImportGraph(['/src/main.ts'], { project });
     const callGraph = buildCallGraph(graph, project);
 
     const findings = crossFileAsyncRule(callGraph, '/src/main.ts');
-    expect(findings.some(f =>
-      f.ruleId === 'floating-promise' && f.message.includes('fetchData')
-    )).toBe(true);
+    expect(findings.some((f) => f.ruleId === 'floating-promise' && f.message.includes('fetchData'))).toBe(true);
   });
 
   it('does NOT flag awaited calls', () => {
     const project = createTestProject();
-    project.createSourceFile('/src/main.ts', `
+    project.createSourceFile(
+      '/src/main.ts',
+      `
 import { fetchData } from './api.js';
 export async function handler() { await fetchData(); }
-`);
-    project.createSourceFile('/src/api.ts', `
+`,
+    );
+    project.createSourceFile(
+      '/src/api.ts',
+      `
 export async function fetchData() { return []; }
-`);
+`,
+    );
 
     const graph = resolveImportGraph(['/src/main.ts'], { project });
     const callGraph = buildCallGraph(graph, project);

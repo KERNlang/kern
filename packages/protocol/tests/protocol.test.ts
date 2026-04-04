@@ -1,6 +1,3 @@
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
-
 describe('Draft Protocol', () => {
   describe('parseKernDraft', () => {
     test('parses a well-formed draft block', async () => {

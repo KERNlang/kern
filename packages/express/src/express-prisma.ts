@@ -8,26 +8,50 @@ import { slugify } from './express-utils.js';
 /** Map core node type → output directory + artifact type. */
 export function coreNodeMeta(type: string): { dir: string; artifactType: GeneratedArtifact['type'] } {
   switch (type) {
-    case 'interface': return { dir: 'models', artifactType: 'model' };
-    case 'model':     return { dir: 'models', artifactType: 'model' };
-    case 'repository':return { dir: 'models', artifactType: 'repository' };
-    case 'cache':     return { dir: 'lib', artifactType: 'lib' };
-    case 'dependency':return { dir: 'lib', artifactType: 'lib' };
-    case 'service':   return { dir: 'services', artifactType: 'service' };
-    case 'type':      return { dir: 'types', artifactType: 'types' };
-    case 'config':    return { dir: 'config', artifactType: 'config' };
-    case 'error':     return { dir: 'errors', artifactType: 'error' };
-    default:          return { dir: 'lib', artifactType: 'lib' };
+    case 'interface':
+      return { dir: 'models', artifactType: 'model' };
+    case 'model':
+      return { dir: 'models', artifactType: 'model' };
+    case 'repository':
+      return { dir: 'models', artifactType: 'repository' };
+    case 'cache':
+      return { dir: 'lib', artifactType: 'lib' };
+    case 'dependency':
+      return { dir: 'lib', artifactType: 'lib' };
+    case 'service':
+      return { dir: 'services', artifactType: 'service' };
+    case 'type':
+      return { dir: 'types', artifactType: 'types' };
+    case 'config':
+      return { dir: 'config', artifactType: 'config' };
+    case 'error':
+      return { dir: 'errors', artifactType: 'error' };
+    default:
+      return { dir: 'lib', artifactType: 'lib' };
   }
 }
 
 export const TOP_LEVEL_CORE = new Set([
-  'type', 'interface', 'service', 'fn', 'machine', 'error',
-  'module', 'config', 'store', 'event', 'const',
+  'type',
+  'interface',
+  'service',
+  'fn',
+  'machine',
+  'error',
+  'module',
+  'config',
+  'store',
+  'event',
+  'const',
   // Data layer
-  'model', 'repository', 'cache', 'dependency',
+  'model',
+  'repository',
+  'cache',
+  'dependency',
   // Backend infrastructure
-  'job', 'storage', 'email',
+  'job',
+  'storage',
+  'email',
 ]);
 
 // ── Prisma Schema Artifact ───────────────────────────────────────────────
@@ -104,7 +128,7 @@ export function buildPrismaArtifact(modelNodes: IRNode[], config?: ResolvedKernC
       if (defaultVal !== undefined) decorators.push(`@default(${formatPrismaDefault(defaultVal)})`);
 
       const nullMark = isNullable ? '?' : '';
-      const decoStr = decorators.length > 0 ? ' ' + decorators.join(' ') : '';
+      const decoStr = decorators.length > 0 ? ` ${decorators.join(' ')}` : '';
       lines.push(`  ${colName} ${prismaType}${nullMark}${decoStr}`);
     }
 
@@ -136,7 +160,7 @@ export function buildPrismaArtifact(modelNodes: IRNode[], config?: ResolvedKernC
 }
 
 export function buildCoreArtifact(node: IRNode): CoreArtifactRef {
-  const name = String((node.props || {}).name || node.type);
+  const name = String(node.props?.name || node.type);
   const fileBase = slugify(name);
   const { dir, artifactType } = coreNodeMeta(node.type);
   const tsLines = generateCoreNode(node);

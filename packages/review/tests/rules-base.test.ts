@@ -17,7 +17,7 @@ export function Component() {
 function handleResize() {}
 `;
       const report = reviewSource(source, 'comp.tsx');
-      const leak = report.findings.find(f => f.ruleId === 'memory-leak');
+      const leak = report.findings.find((f) => f.ruleId === 'memory-leak');
       expect(leak).toBeDefined();
       expect(leak!.severity).toBe('error');
     });
@@ -37,7 +37,7 @@ export function Component() {
 function handleResize() {}
 `;
       const report = reviewSource(source, 'comp.tsx');
-      const leak = report.findings.find(f => f.ruleId === 'memory-leak');
+      const leak = report.findings.find((f) => f.ruleId === 'memory-leak');
       expect(leak).toBeUndefined();
     });
   });
@@ -53,7 +53,7 @@ export async function fetchData(url: string): Promise<any> {
 }
 `;
       const report = reviewSource(source, 'api.ts');
-      const finding = report.findings.find(f => f.ruleId === 'unhandled-async');
+      const finding = report.findings.find((f) => f.ruleId === 'unhandled-async');
       expect(finding).toBeDefined();
       expect(finding!.severity).toBe('warning');
     });
@@ -71,7 +71,7 @@ export async function fetchData(url: string): Promise<any> {
 }
 `;
       const report = reviewSource(source, 'api.ts');
-      const finding = report.findings.find(f => f.ruleId === 'unhandled-async');
+      const finding = report.findings.find((f) => f.ruleId === 'unhandled-async');
       expect(finding).toBeUndefined();
     });
   });
@@ -91,11 +91,11 @@ function riskyOperation(): void {}
 `;
       const report = reviewSource(source, 'ops.ts');
       // ignored-error (concept rule) fires and suppresses empty-catch (base rule)
-      const ignoredError = report.findings.find(f => f.ruleId === 'ignored-error');
+      const ignoredError = report.findings.find((f) => f.ruleId === 'ignored-error');
       expect(ignoredError).toBeDefined();
       expect(ignoredError!.severity).toBe('error');
       // empty-catch should be suppressed when ignored-error covers the same line
-      const emptyCatch = report.findings.find(f => f.ruleId === 'empty-catch');
+      const emptyCatch = report.findings.find((f) => f.ruleId === 'empty-catch');
       expect(emptyCatch).toBeUndefined();
     });
 
@@ -111,7 +111,7 @@ export function doSomething(): void {
 function riskyOperation(): void {}
 `;
       const report = reviewSource(source, 'ops.ts');
-      const finding = report.findings.find(f => f.ruleId === 'empty-catch');
+      const finding = report.findings.find((f) => f.ruleId === 'empty-catch');
       expect(finding).toBeUndefined();
     });
   });
@@ -134,13 +134,11 @@ export function shipOrder<T extends { state: OrderState }>(e: T): T {
 }
 `;
       const report = reviewSource(source, 'order.ts');
-      const machine = report.inferred.find(r => r.node.type === 'machine');
+      const machine = report.inferred.find((r) => r.node.type === 'machine');
       expect(machine).toBeDefined();
 
       // 'orphaned' has no transition leading to it
-      const gap = report.findings.find(f =>
-        f.ruleId === 'machine-gap' && f.message.includes('orphaned')
-      );
+      const gap = report.findings.find((f) => f.ruleId === 'machine-gap' && f.message.includes('orphaned'));
       expect(gap).toBeDefined();
     });
   });
@@ -175,7 +173,7 @@ function complex(a: number, b: string, c: boolean) {
 }
 `;
       const report = reviewSource(source, 'complex.ts');
-      const cc = report.findings.find(f => f.ruleId === 'cognitive-complexity');
+      const cc = report.findings.find((f) => f.ruleId === 'cognitive-complexity');
       expect(cc).toBeDefined();
       expect(cc!.severity).toBe('warning');
       expect(cc!.message).toContain('cognitive complexity');
@@ -189,7 +187,7 @@ function simple(x: number) {
 }
 `;
       const report = reviewSource(source, 'simple.ts');
-      const cc = report.findings.find(f => f.ruleId === 'cognitive-complexity');
+      const cc = report.findings.find((f) => f.ruleId === 'cognitive-complexity');
       expect(cc).toBeUndefined();
     });
   });
@@ -213,7 +211,7 @@ export function describe(c: Color): string {
 }
 `;
       const report = reviewSource(source, 'color.ts');
-      const finding = report.findings.find(f => f.ruleId === 'non-exhaustive-switch');
+      const finding = report.findings.find((f) => f.ruleId === 'non-exhaustive-switch');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('blue');
     });
@@ -230,7 +228,7 @@ export function describe(c: Color): string {
 }
 `;
       const report = reviewSource(source, 'color.ts');
-      const finding = report.findings.find(f => f.ruleId === 'non-exhaustive-switch');
+      const finding = report.findings.find((f) => f.ruleId === 'non-exhaustive-switch');
       expect(finding).toBeUndefined();
     });
   });
@@ -253,7 +251,7 @@ const useBearStore = create<BearState>((set) => ({
         registeredTemplates: ['zustand-store'],
       };
       const report = reviewSource(source, 'store.ts', config);
-      const finding = report.findings.find(f => f.ruleId === 'template-available');
+      const finding = report.findings.find((f) => f.ruleId === 'template-available');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('zustand');
     });
@@ -269,7 +267,7 @@ export function doWork() {
 }
 `;
       const report = reviewSource(source, 'work.ts');
-      const f = report.findings.find(f => f.ruleId === 'floating-promise');
+      const f = report.findings.find((f) => f.ruleId === 'floating-promise');
       expect(f).toBeDefined();
       expect(f!.message).toContain('.then(');
     });
@@ -281,7 +279,7 @@ export async function doWork() {
 }
 `;
       const report = reviewSource(source, 'work.ts');
-      const f = report.findings.find(f => f.ruleId === 'floating-promise');
+      const f = report.findings.find((f) => f.ruleId === 'floating-promise');
       expect(f).toBeUndefined();
     });
   });
@@ -295,7 +293,7 @@ const state = { items: [] as string[] };
 state.items.push('new');
 `;
       const report = reviewSource(source, 'store.ts');
-      const f = report.findings.find(f => f.ruleId === 'state-mutation');
+      const f = report.findings.find((f) => f.ruleId === 'state-mutation');
       expect(f).toBeDefined();
       expect(f!.message).toContain('push');
     });
@@ -308,7 +306,7 @@ const next = produce(state, draft => {
 });
 `;
       const report = reviewSource(source, 'store.ts');
-      const f = report.findings.find(f => f.ruleId === 'state-mutation');
+      const f = report.findings.find((f) => f.ruleId === 'state-mutation');
       expect(f).toBeUndefined();
     });
   });
@@ -325,7 +323,7 @@ export async function loadConfig() {
 }
 `;
       const report = reviewSource(source, 'config.ts');
-      const f = report.findings.find(f => f.ruleId === 'sync-in-async');
+      const f = report.findings.find((f) => f.ruleId === 'sync-in-async');
       expect(f).toBeDefined();
       expect(f!.message).toContain('readFileSync');
     });
@@ -338,7 +336,7 @@ export function loadConfig() {
 }
 `;
       const report = reviewSource(source, 'config.ts');
-      const f = report.findings.find(f => f.ruleId === 'sync-in-async');
+      const f = report.findings.find((f) => f.ruleId === 'sync-in-async');
       expect(f).toBeUndefined();
     });
   });
@@ -358,7 +356,7 @@ export function doWork() {
 function riskyOperation() {}
 `;
       const report = reviewSource(source, 'work.ts');
-      const f = report.findings.find(f => f.ruleId === 'bare-rethrow');
+      const f = report.findings.find((f) => f.ruleId === 'bare-rethrow');
       expect(f).toBeDefined();
     });
 
@@ -374,7 +372,7 @@ export function doWork() {
 function riskyOperation() {}
 `;
       const report = reviewSource(source, 'work.ts');
-      const f = report.findings.find(f => f.ruleId === 'bare-rethrow');
+      const f = report.findings.find((f) => f.ruleId === 'bare-rethrow');
       expect(f).toBeUndefined();
     });
   });

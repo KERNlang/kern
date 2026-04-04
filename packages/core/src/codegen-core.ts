@@ -11,47 +11,125 @@
  * Generators that call generateCoreNode recursively remain here to avoid circular imports.
  */
 
-import type { IRNode, ExprObject } from './types.js';
-import { propsOf } from './node-props.js';
-import { isTemplateNode, expandTemplateNode } from './template-engine.js';
 import { KernCodegenError } from './errors.js';
+import { propsOf } from './node-props.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
+import { expandTemplateNode, isTemplateNode } from './template-engine.js';
+import type { ExprObject, IRNode } from './types.js';
 
+export {
+  generateCache,
+  generateConfig,
+  generateDependency,
+  generateModel,
+  generateRepository,
+  generateStore,
+} from './codegen/data-layer.js';
 // ── Re-exports: emitters & helpers (backward compatibility) ─────────────
-export { emitIdentifier, emitStringLiteral, emitPath, emitTemplateSafe, emitTypeAnnotation, emitImportSpecifier } from './codegen/emitters.js';
-export { getProps, getChildren, getFirstChild, getStyles, getPseudoStyles, getThemeRefs, dedent, cssPropertyName, handlerCode, exportPrefix, capitalize, parseParamList, emitReasonAnnotations, emitLowConfidenceTodo } from './codegen/helpers.js';
-
-// ── Re-exports: domain generators (backward compatibility) ──────────────
-export { generateType, generateInterface, generateUnion, generateService, generateConst } from './codegen/type-system.js';
-export { generateFunction, generateError } from './codegen/functions.js';
-export { generateMachine, generateMachineReducer } from './codegen/machines.js';
-export { generateConfig, generateStore, generateRepository, generateCache, generateDependency, generateModel } from './codegen/data-layer.js';
-export { generateDerive, generateTransform, generateAction, generateGuard, generateAssume, generateInvariant, generateCollect, generateResolve, generateExpect, generateRecover, generatePattern, generateApply } from './codegen/ground-layer.js';
+export {
+  emitIdentifier,
+  emitImportSpecifier,
+  emitPath,
+  emitStringLiteral,
+  emitTemplateSafe,
+  emitTypeAnnotation,
+} from './codegen/emitters.js';
 export { generateEvent, generateOn, generateWebSocket } from './codegen/events.js';
-export { generateScreen } from './codegen/screens.js';
+export { generateError, generateFunction } from './codegen/functions.js';
+export {
+  generateAction,
+  generateApply,
+  generateAssume,
+  generateCollect,
+  generateDerive,
+  generateExpect,
+  generateGuard,
+  generateInvariant,
+  generatePattern,
+  generateRecover,
+  generateResolve,
+  generateTransform,
+} from './codegen/ground-layer.js';
+export {
+  capitalize,
+  cssPropertyName,
+  dedent,
+  emitLowConfidenceTodo,
+  emitReasonAnnotations,
+  exportPrefix,
+  getChildren,
+  getFirstChild,
+  getProps,
+  getPseudoStyles,
+  getStyles,
+  getThemeRefs,
+  handlerCode,
+  parseParamList,
+} from './codegen/helpers.js';
+export { generateMachine, generateMachineReducer } from './codegen/machines.js';
 export { generateImport } from './codegen/modules.js';
-export { generateTest } from './codegen/test-gen.js';
-export { mapSemanticType, SEMANTIC_TYPE_MAP } from './codegen/semantic-types.js';
+export { generateScreen } from './codegen/screens.js';
 export type { SemanticTypeMapping } from './codegen/semantic-types.js';
+export { mapSemanticType, SEMANTIC_TYPE_MAP } from './codegen/semantic-types.js';
+export { generateTest } from './codegen/test-gen.js';
+// ── Re-exports: domain generators (backward compatibility) ──────────────
+export {
+  generateConst,
+  generateInterface,
+  generateService,
+  generateType,
+  generateUnion,
+} from './codegen/type-system.js';
 
+import {
+  generateCache,
+  generateConfig,
+  generateDependency,
+  generateModel,
+  generateRepository,
+  generateStore,
+} from './codegen/data-layer.js';
 // ── Imports for local use within this file ──────────────────────────────
-import { emitIdentifier, emitTemplateSafe, emitImportSpecifier } from './codegen/emitters.js';
-import { getProps, getChildren, getFirstChild, handlerCode, exportPrefix, capitalize, emitReasonAnnotations, emitLowConfidenceTodo } from './codegen/helpers.js';
-
-import { generateType, generateInterface, generateUnion, generateService, generateConst } from './codegen/type-system.js';
-import { generateFunction, generateError } from './codegen/functions.js';
-import { generateMachine } from './codegen/machines.js';
-import { generateScreen } from './codegen/screens.js';
-import { generateConfig, generateStore, generateRepository, generateCache, generateDependency, generateModel } from './codegen/data-layer.js';
-import { generateDerive, generateTransform, generateAction, generateGuard, generateAssume, generateInvariant, generateCollect, generateResolve, generateExpect, generateRecover, generatePattern, generateApply } from './codegen/ground-layer.js';
+import { emitIdentifier, emitImportSpecifier, emitTemplateSafe } from './codegen/emitters.js';
 import { generateEvent, generateOn, generateWebSocket } from './codegen/events.js';
+import { generateError, generateFunction } from './codegen/functions.js';
+import {
+  generateAction,
+  generateApply,
+  generateAssume,
+  generateCollect,
+  generateDerive,
+  generateExpect,
+  generateGuard,
+  generateInvariant,
+  generatePattern,
+  generateRecover,
+  generateResolve,
+  generateTransform,
+} from './codegen/ground-layer.js';
+import {
+  emitLowConfidenceTodo,
+  emitReasonAnnotations,
+  getChildren,
+  getFirstChild,
+  getProps,
+} from './codegen/helpers.js';
+import { generateMachine } from './codegen/machines.js';
 import { generateImport } from './codegen/modules.js';
+import { generateScreen } from './codegen/screens.js';
 import { generateTest } from './codegen/test-gen.js';
+import {
+  generateConst,
+  generateInterface,
+  generateService,
+  generateType,
+  generateUnion,
+} from './codegen/type-system.js';
 
 // ── Internal aliases ────────────────────────────────────────────────────
 const p = getProps;
 const kids = getChildren;
-const firstChild = getFirstChild;
+const _firstChild = getFirstChild;
 
 // ── Evolved Generators (v4) ─────────────────────────────────────────────
 // Populated at startup by evolved-node-loader. Checked in generateCoreNode
@@ -104,9 +182,19 @@ export function generateModule(node: IRNode): string[] {
     const rawFrom = ep.from as string;
     const safeFrom = rawFrom ? emitImportSpecifier(rawFrom, exp) : '';
     const rawNames = ep.names as string;
-    const safeNames = rawNames ? rawNames.split(',').map(s => emitIdentifier(s.trim(), 'export', exp)).join(', ') : '';
+    const safeNames = rawNames
+      ? rawNames
+          .split(',')
+          .map((s) => emitIdentifier(s.trim(), 'export', exp))
+          .join(', ')
+      : '';
     const rawTypeNames = ep.types as string;
-    const safeTypeNames = rawTypeNames ? rawTypeNames.split(',').map(s => emitIdentifier(s.trim(), 'export', exp)).join(', ') : '';
+    const safeTypeNames = rawTypeNames
+      ? rawTypeNames
+          .split(',')
+          .map((s) => emitIdentifier(s.trim(), 'export', exp))
+          .join(', ')
+      : '';
     const star = ep.star === 'true' || ep.star === true;
     const safeDefault = ep.default ? emitIdentifier(ep.default as string, 'default', exp) : '';
 
@@ -149,7 +237,6 @@ export function generateModule(node: IRNode): string[] {
 
   return lines;
 }
-
 
 // ── Each (ground-layer, calls generateCoreNode) ─────────────────────────
 // each name=stem in="track.stems"
@@ -228,9 +315,10 @@ export function generateConditional(node: IRNode): string[] {
   const props = propsOf<'conditional'>(node);
   const rawCondition = props.if;
   // Handle expression objects: { __expr: true, code: 'loading' }
-  const condition = rawCondition && typeof rawCondition === 'object' && (rawCondition as ExprObject).__expr
-    ? (rawCondition as ExprObject).code
-    : rawCondition as string;
+  const condition =
+    rawCondition && typeof rawCondition === 'object' && (rawCondition as ExprObject).__expr
+      ? (rawCondition as ExprObject).code
+      : (rawCondition as string);
   if (!condition) throw new KernCodegenError("conditional node requires an 'if' prop", node);
 
   const childLines: string[] = [];
@@ -244,13 +332,7 @@ export function generateConditional(node: IRNode): string[] {
   if (childLines.length === 1) {
     return [`{${condition} && (${childLines[0].trim()})}`];
   }
-  return [
-    `{${condition} && (`,
-    `  <>`,
-    ...childLines.map(l => `    ${l}`),
-    `  </>`,
-    `)}`,
-  ];
+  return [`{${condition} && (`, `  <>`, ...childLines.map((l) => `    ${l}`), `  </>`, `)}`];
 }
 
 // ── Select ───────────────────────────────────────────────────────────────
@@ -288,37 +370,76 @@ export function generateSelect(node: IRNode): string[] {
 // ── Dispatcher ───────────────────────────────────────────────────────────
 
 export const CORE_NODE_TYPES = new Set([
-  'type', 'interface', 'field', 'fn',
-  'union', 'variant',
-  'service', 'method', 'singleton', 'constructor',
-  'machine', 'transition',
-  'error', 'module', 'export',
-  'config', 'store',
-  'test', 'describe', 'it',
-  'event', 'import', 'const',
+  'type',
+  'interface',
+  'field',
+  'fn',
+  'union',
+  'variant',
+  'service',
+  'method',
+  'singleton',
+  'constructor',
+  'machine',
+  'transition',
+  'error',
+  'module',
+  'export',
+  'config',
+  'store',
+  'test',
+  'describe',
+  'it',
+  'event',
+  'import',
+  'const',
   'hook',
-  'on', 'websocket',
-  'template', 'slot', 'body',
+  'on',
+  'websocket',
+  'template',
+  'slot',
+  'body',
   // Async extensions
-  'signal', 'cleanup',
+  'signal',
+  'cleanup',
   // Ground layer
-  'derive', 'transform', 'action', 'guard', 'assume', 'invariant',
-  'each', 'collect', 'branch', 'path',
-  'resolve', 'candidate', 'discriminator',
-  'expect', 'recover', 'strategy',
-  'pattern', 'apply',
+  'derive',
+  'transform',
+  'action',
+  'guard',
+  'assume',
+  'invariant',
+  'each',
+  'collect',
+  'branch',
+  'path',
+  'resolve',
+  'candidate',
+  'discriminator',
+  'expect',
+  'recover',
+  'strategy',
+  'pattern',
+  'apply',
   // Reason layer
-  'reason', 'evidence',
+  'reason',
+  'evidence',
   // Confidence layer
   'needs',
   // Backend data layer (graduated nodes)
-  'model', 'column', 'relation',
+  'model',
+  'column',
+  'relation',
   'repository',
-  'dependency', 'inject',
-  'cache', 'entry', 'invalidate',
+  'dependency',
+  'inject',
+  'cache',
+  'entry',
+  'invalidate',
   // UI controls (graduated nodes)
   'conditional',
-  'select', 'option',
+  'select',
+  'option',
   // Screen (React/Ink component)
   'screen',
 ]);
@@ -343,71 +464,131 @@ export function isCoreNode(type: string): boolean {
 export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRuntime): string[] {
   const rt = runtime ?? defaultRuntime;
   switch (node.type) {
-    case 'type': return generateType(node);
-    case 'interface': return generateInterface(node);
-    case 'union': return generateUnion(node);
-    case 'service': return generateService(node);
-    case 'fn': return generateFunction(node);
-    case 'machine': return generateMachine(node);
-    case 'screen': return generateScreen(node);
-    case 'error': return generateError(node);
-    case 'module': return generateModule(node);
-    case 'config': return generateConfig(node);
-    case 'store': return generateStore(node);
-    case 'test': return generateTest(node);
-    case 'event': return generateEvent(node);
-    case 'import': return generateImport(node);
-    case 'const': return generateConst(node);
-    case 'hook': return []; // Handled by @kernlang/react
-    case 'on': return generateOn(node);
-    case 'websocket': return generateWebSocket(node);
+    case 'type':
+      return generateType(node);
+    case 'interface':
+      return generateInterface(node);
+    case 'union':
+      return generateUnion(node);
+    case 'service':
+      return generateService(node);
+    case 'fn':
+      return generateFunction(node);
+    case 'machine':
+      return generateMachine(node);
+    case 'screen':
+      return generateScreen(node);
+    case 'error':
+      return generateError(node);
+    case 'module':
+      return generateModule(node);
+    case 'config':
+      return generateConfig(node);
+    case 'store':
+      return generateStore(node);
+    case 'test':
+      return generateTest(node);
+    case 'event':
+      return generateEvent(node);
+    case 'import':
+      return generateImport(node);
+    case 'const':
+      return generateConst(node);
+    case 'hook':
+      return []; // Handled by @kernlang/react
+    case 'on':
+      return generateOn(node);
+    case 'websocket':
+      return generateWebSocket(node);
     // Ground layer
-    case 'derive': return generateDerive(node);
-    case 'transform': return generateTransform(node);
-    case 'action': return generateAction(node);
-    case 'guard': return generateGuard(node);
-    case 'assume': return generateAssume(node);
-    case 'invariant': return generateInvariant(node);
-    case 'each': return generateEach(node);
-    case 'collect': return generateCollect(node);
-    case 'branch': return generateBranch(node);
-    case 'resolve': return generateResolve(node);
-    case 'expect': return generateExpect(node);
-    case 'recover': return generateRecover(node);
-    case 'pattern': return generatePattern(node);
-    case 'apply': return generateApply(node);
+    case 'derive':
+      return generateDerive(node);
+    case 'transform':
+      return generateTransform(node);
+    case 'action':
+      return generateAction(node);
+    case 'guard':
+      return generateGuard(node);
+    case 'assume':
+      return generateAssume(node);
+    case 'invariant':
+      return generateInvariant(node);
+    case 'each':
+      return generateEach(node);
+    case 'collect':
+      return generateCollect(node);
+    case 'branch':
+      return generateBranch(node);
+    case 'resolve':
+      return generateResolve(node);
+    case 'expect':
+      return generateExpect(node);
+    case 'recover':
+      return generateRecover(node);
+    case 'pattern':
+      return generatePattern(node);
+    case 'apply':
+      return generateApply(node);
     // Template / structural definitions produce no output
-    case 'template': return [];
-    case 'slot': return [];
-    case 'body': return [];
-    case 'path': return [];
-    case 'candidate': return [];
-    case 'discriminator': return [];
-    case 'strategy': return [];
-    case 'reason': return [];
-    case 'evidence': return [];
-    case 'needs': return [];
+    case 'template':
+      return [];
+    case 'slot':
+      return [];
+    case 'body':
+      return [];
+    case 'path':
+      return [];
+    case 'candidate':
+      return [];
+    case 'discriminator':
+      return [];
+    case 'strategy':
+      return [];
+    case 'reason':
+      return [];
+    case 'evidence':
+      return [];
+    case 'needs':
+      return [];
     // Graduated nodes — backend data layer
-    case 'model': return generateModel(node);
-    case 'repository': return generateRepository(node);
-    case 'dependency': return generateDependency(node);
-    case 'cache': return generateCache(node);
+    case 'model':
+      return generateModel(node);
+    case 'repository':
+      return generateRepository(node);
+    case 'dependency':
+      return generateDependency(node);
+    case 'cache':
+      return generateCache(node);
     // Graduated nodes — UI controls
-    case 'conditional': return generateConditional(node);
-    case 'select': return generateSelect(node);
+    case 'conditional':
+      return generateConditional(node);
+    case 'select':
+      return generateSelect(node);
     // Structural children consumed by parents
-    case 'variant': return [];
-    case 'method': return [];
-    case 'singleton': return [];
-    case 'constructor': return [];
-    case 'signal': return [];
-    case 'cleanup': return [];
-    case 'column': return [];
-    case 'relation': return [];
-    case 'inject': return [];
-    case 'entry': return [];
-    case 'invalidate': return [];
-    case 'option': return [];
+    case 'variant':
+      return [];
+    case 'method':
+      return [];
+    case 'singleton':
+      return [];
+    case 'constructor':
+      return [];
+    case 'signal':
+      return [];
+    case 'cleanup':
+      return [];
+    case 'column':
+      return [];
+    case 'relation':
+      return [];
+    case 'inject':
+      return [];
+    case 'entry':
+      return [];
+    case 'invalidate':
+      return [];
+    case 'option':
+      return [];
     default: {
       // Check evolved generators (v4) — target-specific first, then default
       const targetMap = target ? rt.evolvedTargetGenerators.get(node.type) : undefined;

@@ -5,8 +5,8 @@
  */
 
 import type { ReviewFinding } from '@kernlang/review';
-import { finding } from '../mcp-types.js';
 import { findToolHandlerRegions } from '../mcp-regions.js';
+import { finding } from '../mcp-types.js';
 
 export function unsanitizedToolResponseTS(source: string, filePath: string): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -16,7 +16,8 @@ export function unsanitizedToolResponseTS(source: string, filePath: string): Rev
   if (toolHandlerRegions.length === 0) return findings;
 
   // External data sources that could contain injection payloads
-  const externalDataSources = /\b(fetch|axios\.\w+|got\.\w+|db\.query|findOne|findMany|findById|collection\.find|\.findUnique|\.findFirst|readFile|readFileSync|createReadStream)\s*\(/;
+  const externalDataSources =
+    /\b(fetch|axios\.\w+|got\.\w+|db\.query|findOne|findMany|findById|collection\.find|\.findUnique|\.findFirst|readFile|readFileSync|createReadStream)\s*\(/;
   const sanitizeCall = /\bsanitize\w*\s*\(|\bescape\w*\s*\(|\bcleanForPrompt\s*\(|\bstripTags\s*\(/;
 
   for (const region of toolHandlerRegions) {
@@ -31,12 +32,16 @@ export function unsanitizedToolResponseTS(source: string, filePath: string): Rev
         // Check if the returned value comes from an external source
         const blockAbove = lines.slice(region.start, i + 1).join('\n');
         if (externalDataSources.test(blockAbove) && !sanitizeCall.test(blockAbove)) {
-          findings.push(finding(
-            'mcp-unsanitized-response', 'warning',
-            `MCP tool returns data from external source without sanitization — indirect prompt injection risk`,
-            filePath, i + 1,
-            'Sanitize external data before including in tool responses. External content may contain prompt injection payloads.',
-          ));
+          findings.push(
+            finding(
+              'mcp-unsanitized-response',
+              'warning',
+              `MCP tool returns data from external source without sanitization — indirect prompt injection risk`,
+              filePath,
+              i + 1,
+              'Sanitize external data before including in tool responses. External content may contain prompt injection payloads.',
+            ),
+          );
           break; // One per handler
         }
       }
@@ -53,7 +58,8 @@ export function unsanitizedToolResponsePython(source: string, filePath: string):
   const toolHandlerRegions = findToolHandlerRegions(lines, 'python');
   if (toolHandlerRegions.length === 0) return findings;
 
-  const externalDataSources = /\b(requests\.get|requests\.post|httpx\.\w+|aiohttp|cursor\.execute|\.fetchall|\.fetchone|open\s*\()\b/;
+  const externalDataSources =
+    /\b(requests\.get|requests\.post|httpx\.\w+|aiohttp|cursor\.execute|\.fetchall|\.fetchone|open\s*\()\b/;
   const sanitizeCall = /\bsanitize\w*\s*\(|\bescape\w*\s*\(|\bclean\w*\s*\(/;
 
   for (const region of toolHandlerRegions) {
@@ -65,12 +71,16 @@ export function unsanitizedToolResponsePython(source: string, filePath: string):
       if (/\breturn\b/.test(lines[i])) {
         const blockAbove = lines.slice(region.start, i + 1).join('\n');
         if (externalDataSources.test(blockAbove)) {
-          findings.push(finding(
-            'mcp-unsanitized-response', 'warning',
-            `MCP tool returns data from external source without sanitization — indirect prompt injection risk`,
-            filePath, i + 1,
-            'Sanitize external data before returning from tool handlers.',
-          ));
+          findings.push(
+            finding(
+              'mcp-unsanitized-response',
+              'warning',
+              `MCP tool returns data from external source without sanitization — indirect prompt injection risk`,
+              filePath,
+              i + 1,
+              'Sanitize external data before returning from tool handlers.',
+            ),
+          );
           break;
         }
       }

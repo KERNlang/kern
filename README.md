@@ -11,7 +11,7 @@
   <br>
 
   **Built for humans and AI.** 192-line spec. 12 compile targets. 76 review rules.<br>
-  <sub>LLMs write .kern in 85% fewer tokens. 7 LLMs verified.</sub>
+  <sub>LLMs write .kern in up to 85% fewer tokens. 7 LLMs verified.</sub>
 
   <br>
 
@@ -333,9 +333,11 @@ jobs:
 
 ## License
 
-**AGPL-3.0** — Swiss-engineered with precision.
+**AGPL-3.0** — free for individuals, open-source projects, and non-commercial use.
 
-Copyright (c) 2026 cukas
+Companies using KERN in paid products or services need a **commercial license**. Contact **hello@kernlang.dev** or see [kernlang.dev](https://kernlang.dev) for details.
+
+Copyright (c) 2026 KERNlang
 
 ---
 

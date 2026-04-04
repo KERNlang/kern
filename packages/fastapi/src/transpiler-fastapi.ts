@@ -5,13 +5,28 @@
  * Blueprint: transpiler-express.ts — same IR nodes, same multi-file pattern, Python output.
  */
 
-import type { ResolvedKernConfig, GeneratedArtifact, IRNode, SourceMapEntry, TranspileResult, AccountedEntry } from '@kernlang/core';
-import { countTokens, getChildren, getFirstChild, getProps, serializeIR, buildDiagnostics, accountNode } from '@kernlang/core';
+import type {
+  AccountedEntry,
+  GeneratedArtifact,
+  IRNode,
+  ResolvedKernConfig,
+  SourceMapEntry,
+  TranspileResult,
+} from '@kernlang/core';
+import {
+  accountNode,
+  buildDiagnostics,
+  countTokens,
+  getChildren,
+  getFirstChild,
+  getProps,
+  serializeIR,
+} from '@kernlang/core';
 import { generatePythonCoreNode } from './codegen-python.js';
-import type { MiddlewareArtifactRef } from './fastapi-types.js';
-import { findServerNode, analyzeRouteCapabilities } from './fastapi-utils.js';
-import { buildRouteArtifact } from './fastapi-route.js';
 import { buildCorsMiddlewareLine, resolveMiddlewareUsage } from './fastapi-middleware.js';
+import { buildRouteArtifact } from './fastapi-route.js';
+import type { MiddlewareArtifactRef } from './fastapi-types.js';
+import { analyzeRouteCapabilities, findServerNode } from './fastapi-utils.js';
 import { buildWebSocketArtifact } from './fastapi-websocket.js';
 
 // ── Main transpiler ──────────────────────────────────────────────────────
@@ -48,22 +63,49 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   // Collect top-level core language nodes (type, interface, fn, machine, etc.)
   // Exclude child-only types (field, transition, handler, describe, it, etc.)
   const TOP_LEVEL_CORE = new Set([
-    'type', 'interface', 'fn', 'machine', 'error', 'module',
-    'config', 'store', 'test', 'event', 'import', 'const',
+    'type',
+    'interface',
+    'fn',
+    'machine',
+    'error',
+    'module',
+    'config',
+    'store',
+    'test',
+    'event',
+    'import',
+    'const',
     // Data layer
-    'model', 'repository', 'cache', 'dependency', 'service', 'union',
+    'model',
+    'repository',
+    'cache',
+    'dependency',
+    'service',
+    'union',
     // Backend infrastructure
-    'job', 'storage', 'email',
+    'job',
+    'storage',
+    'email',
     // Ground layer
-    'derive', 'transform', 'action', 'guard', 'assume', 'invariant',
-    'each', 'collect', 'branch', 'resolve', 'expect', 'recover',
+    'derive',
+    'transform',
+    'action',
+    'guard',
+    'assume',
+    'invariant',
+    'each',
+    'collect',
+    'branch',
+    'resolve',
+    'expect',
+    'recover',
   ]);
   // Core nodes may live as siblings of server under the parse root, or as server children.
   const rootChildren = root.children || [];
-  const serverChildren = serverNode !== root ? (serverNode.children || []) : [];
+  const serverChildren = serverNode !== root ? serverNode.children || [] : [];
   const coreNodes = [
-    ...rootChildren.filter(c => TOP_LEVEL_CORE.has(c.type)),
-    ...serverChildren.filter(c => TOP_LEVEL_CORE.has(c.type)),
+    ...rootChildren.filter((c) => TOP_LEVEL_CORE.has(c.type)),
+    ...serverChildren.filter((c) => TOP_LEVEL_CORE.has(c.type)),
   ];
   // If the root itself is a core node (parser wraps first top-level node as root), include it
   if (TOP_LEVEL_CORE.has(root.type) && root !== serverNode) {
@@ -75,10 +117,13 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   const middlewareLines: string[] = [];
 
   serverImports.add('from fastapi import FastAPI');
-  if (!isStrict || routeNodes.some(r => {
-    const caps = analyzeRouteCapabilities(r);
-    return caps.hasTimer;
-  })) {
+  if (
+    !isStrict ||
+    routeNodes.some((r) => {
+      const caps = analyzeRouteCapabilities(r);
+      return caps.hasTimer;
+    })
+  ) {
     serverImports.add('from fastapi import HTTPException');
   }
   if (isStrict) {
@@ -109,12 +154,10 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   }
 
   // Build route artifacts
-  const routeArtifacts = routeNodes.map((routeNode, index) =>
-    buildRouteArtifact(routeNode, index, sourceMap),
-  );
+  const routeArtifacts = routeNodes.map((routeNode, index) => buildRouteArtifact(routeNode, index, sourceMap));
 
   // Auth: generate auth.py artifact when any route uses auth
-  const hasAuth = routeNodes.some(r => getFirstChild(r, 'auth'));
+  const hasAuth = routeNodes.some((r) => getFirstChild(r, 'auth'));
   let authArtifact: GeneratedArtifact | null = null;
   if (hasAuth) {
     authArtifact = {
@@ -165,9 +208,7 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   }
 
   // Build websocket artifacts
-  const wsArtifacts = websocketNodes.map((wsNode, index) =>
-    buildWebSocketArtifact(wsNode, index, sourceMap),
-  );
+  const wsArtifacts = websocketNodes.map((wsNode, index) => buildWebSocketArtifact(wsNode, index, sourceMap));
 
   // WebSocket imports
   if (wsArtifacts.length > 0) {
@@ -186,8 +227,8 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   }
 
   // Collect imports needed by core language nodes
-  const coreTypes = new Set(coreNodes.map(n => n.type));
-  const hasExplicitDb = coreNodes.some(n => n.type === 'dependency' && String((n.props || {}).kind) === 'database');
+  const coreTypes = new Set(coreNodes.map((n) => n.type));
+  const hasExplicitDb = coreNodes.some((n) => n.type === 'dependency' && String(n.props?.kind) === 'database');
   if (coreTypes.has('model')) {
     serverImports.add('from sqlmodel import SQLModel, Field, Relationship');
     // Implicit DB connection: add engine/session imports when models exist but no explicit database dependency
@@ -210,7 +251,8 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
       for (const col of getChildren(node, 'column')) {
         const colType = (col.props?.type as string) || '';
         if (colType === 'uuid') serverImports.add('from uuid import UUID');
-        if (['date', 'datetime', 'timestamp', 'Timestamp'].includes(colType)) serverImports.add('from datetime import date, datetime');
+        if (['date', 'datetime', 'timestamp', 'Timestamp'].includes(colType))
+          serverImports.add('from datetime import date, datetime');
         if (['decimal', 'Money'].includes(colType)) serverImports.add('from decimal import Decimal');
         if (colType === 'json') serverImports.add('from typing import Any');
       }
@@ -336,11 +378,7 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   lines.push('');
   lines.push('if __name__ == "__main__":');
   const uvicornTarget = uvicornReload || (uvicornWorkers !== undefined && uvicornWorkers > 1) ? '"main:app"' : 'app';
-  const uvicornOpts: string[] = [
-    uvicornTarget,
-    `host="${uvicornHost}"`,
-    `port=${port}`,
-  ];
+  const uvicornOpts: string[] = [uvicornTarget, `host="${uvicornHost}"`, `port=${port}`];
   if (uvicornReload) uvicornOpts.push('reload=True');
   if (uvicornWorkers && uvicornWorkers > 1) uvicornOpts.push(`workers=${uvicornWorkers}`);
   lines.push(`    uvicorn.run(${uvicornOpts.join(', ')})`);
@@ -417,16 +455,16 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   }
 
   const artifacts: GeneratedArtifact[] = [
-    ...routeArtifacts.map(r => r.artifact),
-    ...wsArtifacts.map(w => w.artifact),
-    ...[...middlewareArtifacts.values()].map(m => m.artifact),
+    ...routeArtifacts.map((r) => r.artifact),
+    ...wsArtifacts.map((w) => w.artifact),
+    ...[...middlewareArtifacts.values()].map((m) => m.artifact),
     ...(authArtifact ? [authArtifact] : []),
     ...alembicArtifacts,
   ];
 
   const output = lines.join('\n');
   const irText = serializeIR(root);
-  const allText = [output, ...artifacts.map(a => a.content)].join('\n');
+  const allText = [output, ...artifacts.map((a) => a.content)].join('\n');
   const irTokenCount = countTokens(irText);
   const tsTokenCount = countTokens(allText);
   const tokenReduction = Math.round((1 - irTokenCount / tsTokenCount) * 100);

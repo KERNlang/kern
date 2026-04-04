@@ -4,24 +4,24 @@
  * Written based on findings from Evil Twin + Codex + Gemini + 4 tribunal modes.
  */
 
-import { parse, parseDocument, getParseWarnings, tokenizeLine } from '../src/parser.js';
 import {
-  generateType, generateInterface, generateFunction,
-  generateMachine, generateError, generateConfig,
-  generateStore, generateTest, generateEvent, generateModule,
-  generateCoreNode, emitIdentifier, emitStringLiteral, emitPath, emitTypeAnnotation, emitImportSpecifier,
-  generateUnion, generateService, generateDerive, generateTransform,
-  generateAction, generateGuard, generateInvariant, generateEach,
-  generateCollect, generateBranch, generateResolve, generateRecover,
-  generateExpect, generateConst, generateOn,
+  emitIdentifier,
+  emitImportSpecifier,
+  emitStringLiteral,
+  emitTypeAnnotation,
+  generateCoreNode,
 } from '../src/codegen-core.js';
 import { resolveConfig } from '../src/config.js';
-import { getEvolvedTypes, isKnownNodeType, registerEvolvedType, unregisterEvolvedType, KERN_RESERVED } from '../src/spec.js';
-import { escapeJsString, escapeJsxAttr, escapeJsxText } from '../src/utils.js';
-import {
-  registerTemplate, expandTemplateNode, clearTemplates,
-} from '../src/template-engine.js';
 import { KernCodegenError } from '../src/errors.js';
+import { getParseWarnings, parse, parseDocument } from '../src/parser.js';
+import {
+  getEvolvedTypes,
+  isKnownNodeType,
+  KERN_RESERVED,
+  registerEvolvedType,
+  unregisterEvolvedType,
+} from '../src/spec.js';
+import { escapeJsString, escapeJsxAttr, escapeJsxText } from '../src/utils.js';
 
 // Helper: parse and codegen
 function gen(source: string): string {
@@ -36,19 +36,19 @@ describe('Parser Hardening', () => {
     test('unclosed quote produces warning', () => {
       parse('text value="hello world');
       const warnings = getParseWarnings();
-      expect(warnings.some(w => w.includes('Unclosed quoted string'))).toBe(true);
+      expect(warnings.some((w) => w.includes('Unclosed quoted string'))).toBe(true);
     });
 
     test('unclosed {{ produces warning', () => {
       parse('text value={{foo');
       const warnings = getParseWarnings();
-      expect(warnings.some(w => w.includes('Unclosed expression'))).toBe(true);
+      expect(warnings.some((w) => w.includes('Unclosed expression'))).toBe(true);
     });
 
     test('unclosed { style block produces warning', () => {
       parse('text {bg:red,fs:14');
       const warnings = getParseWarnings();
-      expect(warnings.some(w => w.includes('Unclosed style block'))).toBe(true);
+      expect(warnings.some((w) => w.includes('Unclosed style block'))).toBe(true);
     });
 
     test('unclosed quote does not crash — returns a node', () => {
@@ -91,7 +91,7 @@ describe('Parser Hardening', () => {
     test('deeply nested (50-level) indentation does not crash', () => {
       const lines = ['screen'];
       for (let i = 1; i <= 50; i++) {
-        lines.push('  '.repeat(i) + `col name=level${i}`);
+        lines.push(`${'  '.repeat(i)}col name=level${i}`);
       }
       const result = parse(lines.join('\n'));
       expect(result).toBeDefined();
@@ -322,8 +322,7 @@ describe('Codegen Injection Immunity', () => {
 
   describe('generateStore injection vectors', () => {
     test('malicious name throws', () => {
-      expect(() => gen("store name=\"'; process.exit(1); //\" path=\"~/.data\" key=id model=Plan"))
-        .toThrow();
+      expect(() => gen('store name="\'; process.exit(1); //" path="~/.data" key=id model=Plan')).toThrow();
     });
 
     test('valid store generates clean code', () => {
@@ -334,8 +333,7 @@ describe('Codegen Injection Immunity', () => {
     });
 
     test('storePath with quotes is rejected', () => {
-      expect(() => gen("store name=Test path=\"~/test's\" key=id model=Test"))
-        .toThrow();
+      expect(() => gen('store name=Test path="~/test\'s" key=id model=Test')).toThrow();
     });
   });
 
@@ -347,8 +345,7 @@ describe('Codegen Injection Immunity', () => {
     });
 
     test('field names are validated', () => {
-      expect(() => gen('config name=Cfg\n  field name="x;alert()" type=string'))
-        .toThrow();
+      expect(() => gen('config name=Cfg\n  field name="x;alert()" type=string')).toThrow();
     });
   });
 
@@ -371,7 +368,10 @@ describe('Round-Trip Codegen', () => {
     ['interface', 'interface name=User\n  field name=id type=string\n  field name=email type=string'],
     ['union', 'union name=Shape discriminant=kind\n  variant name=circle\n    field name=radius type=number'],
     ['fn', 'fn name=greet params="name:string" returns=string\n  handler <<<\n    return `Hello ${name}`;\n  >>>'],
-    ['machine', 'machine name=Light\n  state name=off initial=true\n  state name=on\n  transition name=toggle from=off to=on'],
+    [
+      'machine',
+      'machine name=Light\n  state name=off initial=true\n  state name=on\n  transition name=toggle from=off to=on',
+    ],
     ['error', 'error name=AppError extends=Error'],
     ['config', 'config name=AppConfig\n  field name=port type=number default=3000'],
     ['store', 'store name=Item path="~/.data/items" key=id model=Item'],
@@ -385,7 +385,10 @@ describe('Round-Trip Codegen', () => {
     ['collect', 'collect name=active from="users" where={{u.active}}'],
     ['branch', 'branch name=router on="action"\n  path value="create"\n    derive name=result expr={{create()}}'],
     ['expect', 'expect name=score expr={{totalScore}} within="0..100"'],
-    ['recover', 'recover name=api\n  strategy name=retry max=3 delay=1000\n  strategy name=fallback\n    handler <<<\n      throw new Error("failed");\n    >>>'],
+    [
+      'recover',
+      'recover name=api\n  strategy name=retry max=3 delay=1000\n  strategy name=fallback\n    handler <<<\n      throw new Error("failed");\n    >>>',
+    ],
     ['const', 'const name=API_URL type=string value="https://example.com"'],
     ['import', 'import from="node:fs" names="readFileSync"'],
     ['on', 'on event=click\n  handler <<<\n    handleClick();\n  >>>'],

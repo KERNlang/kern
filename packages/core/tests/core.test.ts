@@ -1,5 +1,5 @@
-import { readFileSync, existsSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { existsSync, readFileSync } from 'fs';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -81,7 +81,7 @@ describe('Kern Core', () => {
       const styles = card?.props?.styles as Record<string, string>;
       expect(styles).toBeDefined();
       expect(styles['backdrop-filter']).toBe('blur(8px)');
-      expect(styles['p']).toBe('16');
+      expect(styles.p).toBe('16');
     });
 
     test('parser supports server, schema, and handler backend nodes', async () => {
@@ -173,7 +173,23 @@ describe('Kern Core', () => {
     test('GeneratedArtifact type exists on TranspileResult', async () => {
       const types = readFileSync(resolve(ROOT, 'packages/core/src/types.ts'), 'utf-8');
       expect(types).toContain('export interface GeneratedArtifact');
-      expect(types).toContain("'page' | 'layout' | 'route' | 'middleware' | 'component' | 'config' | 'entry' | 'command' | 'hook' | 'types' | 'barrel' | 'theme' | 'template'");
+      for (const kind of [
+        'page',
+        'layout',
+        'route',
+        'middleware',
+        'component',
+        'config',
+        'entry',
+        'command',
+        'hook',
+        'types',
+        'barrel',
+        'theme',
+        'template',
+      ]) {
+        expect(types).toContain(`'${kind}'`);
+      }
       expect(types).toContain('artifacts?: GeneratedArtifact[]');
     });
   });
@@ -337,14 +353,14 @@ describe('Kern Core', () => {
       expect(ast.props?.path).toBe('/api/users');
       expect(ast.children).toHaveLength(7); // params, auth, validate, middleware, handler, error x2
 
-      const types = ast.children!.map(c => c.type);
+      const types = ast.children!.map((c) => c.type);
       expect(types).toContain('params');
       expect(types).toContain('auth');
       expect(types).toContain('validate');
       expect(types).toContain('middleware');
       expect(types).toContain('handler');
       expect(types).toContain('error');
-      expect(types.filter(t => t === 'error')).toHaveLength(2);
+      expect(types.filter((t) => t === 'error')).toHaveLength(2);
     });
   });
 });

@@ -6,9 +6,9 @@
  * to propose new IR nodes.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, renameSync } from 'fs';
-import { resolve, join } from 'path';
 import { randomBytes } from 'crypto';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
+import { join, resolve } from 'path';
 import type { IRNode } from './types.js';
 
 export interface CoverageGap {
@@ -62,11 +62,11 @@ export function writeCoverageGaps(gaps: CoverageGap[], gapDir: string): void {
 
   // Write as a single file per source file (overwrite on recompile)
   const sourceFile = gaps[0].file;
-  const safeFileName = sourceFile.replace(/[/\\:]/g, '_').replace(/^_+/, '') + '.json';
+  const safeFileName = `${sourceFile.replace(/[/\\:]/g, '_').replace(/^_+/, '')}.json`;
   const filePath = resolve(dir, safeFileName);
 
   // Atomic write: write to temp file then rename to prevent partial reads during parallel compilation
-  const tmpPath = filePath + '.' + randomBytes(4).toString('hex') + '.tmp';
+  const tmpPath = `${filePath}.${randomBytes(4).toString('hex')}.tmp`;
   writeFileSync(tmpPath, JSON.stringify(gaps, null, 2));
   renameSync(tmpPath, filePath);
 }
@@ -79,7 +79,7 @@ export function readCoverageGaps(gapDir: string): CoverageGap[] {
   if (!existsSync(dir)) return [];
 
   const allGaps: CoverageGap[] = [];
-  const files = readdirSync(dir).filter(f => f.endsWith('.json'));
+  const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
 
   for (const file of files) {
     try {

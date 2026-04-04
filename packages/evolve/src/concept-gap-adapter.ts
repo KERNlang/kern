@@ -5,9 +5,9 @@
  * into PatternGap[] so evolve can report structural issues alongside import-based gaps.
  */
 
-import type { SourceFile } from 'ts-morph';
-import { extractTsConcepts, runConceptRules } from '@kernlang/review';
 import type { ReviewFinding } from '@kernlang/review';
+import { extractTsConcepts, runConceptRules } from '@kernlang/review';
+import type { SourceFile } from 'ts-morph';
 import type { PatternGap } from './types.js';
 
 let _conceptGapCounter = 0;
@@ -27,13 +27,10 @@ export function resetConceptGapIds(): void {
  * Runs the universal concept model (effect, guard, state_mutation, error handling)
  * and converts findings into PatternGap[] with patternKind='structural'.
  */
-export function detectConceptualGaps(
-  sourceFile: SourceFile,
-  filePath: string,
-): PatternGap[] {
+export function detectConceptualGaps(sourceFile: SourceFile, filePath: string): PatternGap[] {
   const concepts = extractTsConcepts(sourceFile, filePath);
   const findings = runConceptRules(concepts, filePath);
-  return findings.map(f => findingToGap(f, filePath));
+  return findings.map((f) => findingToGap(f, filePath));
 }
 
 function findingToGap(finding: ReviewFinding, filePath: string): PatternGap {

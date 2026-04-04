@@ -1,10 +1,18 @@
-import type { ResolvedKernConfig, GeneratedArtifact, IRNode, TranspileResult, AccountedEntry } from '@kernlang/core';
-import { countTokens, getChildren, getFirstChild, getProps, serializeIR, buildDiagnostics, accountNode } from '@kernlang/core';
+import type { AccountedEntry, GeneratedArtifact, IRNode, ResolvedKernConfig, TranspileResult } from '@kernlang/core';
+import {
+  accountNode,
+  buildDiagnostics,
+  countTokens,
+  getChildren,
+  getFirstChild,
+  getProps,
+  serializeIR,
+} from '@kernlang/core';
+import { resolveMiddlewareUsage } from './express-middleware.js';
+import { buildCoreArtifact, buildPrismaArtifact, TOP_LEVEL_CORE } from './express-prisma.js';
+import { buildRouteArtifact } from './express-route.js';
 import type { MiddlewareArtifactRef } from './express-types.js';
 import { escapeSingleQuotes, findServerNode } from './express-utils.js';
-import { resolveMiddlewareUsage } from './express-middleware.js';
-import { buildRouteArtifact } from './express-route.js';
-import { TOP_LEVEL_CORE, buildPrismaArtifact, buildCoreArtifact } from './express-prisma.js';
 
 // Re-export buildPrismaArtifact for external consumers
 export { buildPrismaArtifact } from './express-prisma.js';
@@ -25,7 +33,7 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   for (const rn of routeNodes) accountNode(accounted, rn, 'consumed', 'route artifact', true);
 
   const isStrict = !_config || _config.express.security === 'strict';
-  const hasJsonMiddleware = serverMiddlewares.some(m => String(getProps(m).name || '') === 'json');
+  const hasJsonMiddleware = serverMiddlewares.some((m) => String(getProps(m).name || '') === 'json');
 
   const serverImports = new Set<string>();
   const serverMiddlewareInvocations: string[] = [];
@@ -52,34 +60,30 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   // Collect top-level core language nodes (type, interface, service, config, etc.)
   // Core nodes may live as siblings of server under the parse root, or as server children.
   const rootChildren = root.children || [];
-  const serverChildren = serverNode !== root ? (serverNode.children || []) : [];
+  const serverChildren = serverNode !== root ? serverNode.children || [] : [];
   const coreNodes = [
-    ...rootChildren.filter(c => TOP_LEVEL_CORE.has(c.type)),
-    ...serverChildren.filter(c => TOP_LEVEL_CORE.has(c.type)),
+    ...rootChildren.filter((c) => TOP_LEVEL_CORE.has(c.type)),
+    ...serverChildren.filter((c) => TOP_LEVEL_CORE.has(c.type)),
   ];
   // If the root itself is a core node (parser wraps first top-level node as root), include it
   if (TOP_LEVEL_CORE.has(root.type) && root !== serverNode) {
     coreNodes.unshift(root);
   }
-  const coreArtifactRefs = coreNodes.map(n => buildCoreArtifact(n));
+  const coreArtifactRefs = coreNodes.map((n) => buildCoreArtifact(n));
   for (const cn of coreNodes) accountNode(accounted, cn, 'expressed', 'core artifact', true);
 
   const websocketNodes = getChildren(serverNode, 'websocket');
   for (const ws of websocketNodes) accountNode(accounted, ws, 'consumed', 'websocket handler', true);
-  const routeArtifacts = routeNodes.map((routeNode, index) => buildRouteArtifact(
-    routeNode,
-    index,
-    middlewareArtifacts,
-    sourceMap,
-    isStrict ? 'strict' : 'relaxed',
-  ));
+  const routeArtifacts = routeNodes.map((routeNode, index) =>
+    buildRouteArtifact(routeNode, index, middlewareArtifacts, sourceMap, isStrict ? 'strict' : 'relaxed'),
+  );
   const hasHealthRoute = routeNodes.some((routeNode) => {
     const props = getProps(routeNode);
     return String(props.path || '/') === '/health' && String(props.method || 'get').toLowerCase() === 'get';
   });
 
   // Auth middleware: generate real JWT implementation when any route uses auth
-  const hasAuth = routeNodes.some(r => getFirstChild(r, 'auth'));
+  const hasAuth = routeNodes.some((r) => getFirstChild(r, 'auth'));
   if (hasAuth && !middlewareArtifacts.has('auth')) {
     const authArtifact: GeneratedArtifact = {
       path: 'middleware/auth.ts',
@@ -245,7 +249,7 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
       lines.push(`${wsName}Server.on('connection', (ws: WebSocket) => {`);
 
       // on event=connect
-      const connectNode = wsOnNodes.find(n => {
+      const connectNode = wsOnNodes.find((n) => {
         const e = String(getProps(n).event || getProps(n).name || '');
         return e === 'connect' || e === 'connection';
       });
@@ -260,7 +264,7 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
       }
 
       // on event=message
-      const messageNode = wsOnNodes.find(n => {
+      const messageNode = wsOnNodes.find((n) => {
         const e = String(getProps(n).event || getProps(n).name || '');
         return e === 'message';
       });
@@ -285,7 +289,7 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
       lines.push(`  });`);
 
       // on event=error
-      const errorNode = wsOnNodes.find(n => {
+      const errorNode = wsOnNodes.find((n) => {
         const e = String(getProps(n).event || getProps(n).name || '');
         return e === 'error';
       });
@@ -303,7 +307,7 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
       }
 
       // on event=disconnect/close
-      const closeNode = wsOnNodes.find(n => {
+      const closeNode = wsOnNodes.find((n) => {
         const e = String(getProps(n).event || getProps(n).name || '');
         return e === 'disconnect' || e === 'close';
       });
@@ -369,11 +373,11 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   });
 
   // Build Prisma schema artifact from model nodes
-  const modelNodes = coreNodes.filter(n => n.type === 'model');
+  const modelNodes = coreNodes.filter((n) => n.type === 'model');
   const prismaArtifact = buildPrismaArtifact(modelNodes, _config);
 
   // DB connection: implicit path — auto-generate when models exist but no explicit dependency kind=database
-  const hasExplicitDb = coreNodes.some(n => n.type === 'dependency' && String((n.props || {}).kind) === 'database');
+  const hasExplicitDb = coreNodes.some((n) => n.type === 'dependency' && String(n.props?.kind) === 'database');
   let dbArtifact: GeneratedArtifact | null = null;
   if (modelNodes.length > 0 && !hasExplicitDb) {
     dbArtifact = {
@@ -427,37 +431,40 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
       const bucket = String(np.bucket || 'my-app-uploads');
       infraArtifacts.push({
         path: `lib/${nodeName}.ts`,
-        content: provider === 's3' ? [
-          `import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';`,
-          `import { getSignedUrl } from '@aws-sdk/s3-request-presigner';`,
-          ``,
-          `const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });`,
-          `const BUCKET = process.env.S3_BUCKET || '${bucket}';`,
-          ``,
-          `export async function uploadFile(key: string, body: Buffer, contentType: string): Promise<string> {`,
-          `  await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: body, ContentType: contentType }));`,
-          `  return key;`,
-          `}`,
-          ``,
-          `export async function getDownloadUrl(key: string, expiresIn = 3600): Promise<string> {`,
-          `  return getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET, Key: key }), { expiresIn });`,
-          `}`,
-        ].join('\n') : [
-          `import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';`,
-          `import { join } from 'node:path';`,
-          ``,
-          `const STORAGE_DIR = process.env.STORAGE_DIR || './uploads';`,
-          `mkdirSync(STORAGE_DIR, { recursive: true });`,
-          ``,
-          `export function uploadFile(key: string, body: Buffer): string {`,
-          `  writeFileSync(join(STORAGE_DIR, key), body);`,
-          `  return key;`,
-          `}`,
-          ``,
-          `export function readFile(key: string): Buffer {`,
-          `  return readFileSync(join(STORAGE_DIR, key));`,
-          `}`,
-        ].join('\n'),
+        content:
+          provider === 's3'
+            ? [
+                `import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';`,
+                `import { getSignedUrl } from '@aws-sdk/s3-request-presigner';`,
+                ``,
+                `const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });`,
+                `const BUCKET = process.env.S3_BUCKET || '${bucket}';`,
+                ``,
+                `export async function uploadFile(key: string, body: Buffer, contentType: string): Promise<string> {`,
+                `  await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: body, ContentType: contentType }));`,
+                `  return key;`,
+                `}`,
+                ``,
+                `export async function getDownloadUrl(key: string, expiresIn = 3600): Promise<string> {`,
+                `  return getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET, Key: key }), { expiresIn });`,
+                `}`,
+              ].join('\n')
+            : [
+                `import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';`,
+                `import { join } from 'node:path';`,
+                ``,
+                `const STORAGE_DIR = process.env.STORAGE_DIR || './uploads';`,
+                `mkdirSync(STORAGE_DIR, { recursive: true });`,
+                ``,
+                `export function uploadFile(key: string, body: Buffer): string {`,
+                `  writeFileSync(join(STORAGE_DIR, key), body);`,
+                `  return key;`,
+                `}`,
+                ``,
+                `export function readFile(key: string): Buffer {`,
+                `  return readFileSync(join(STORAGE_DIR, key));`,
+                `}`,
+              ].join('\n'),
         type: 'lib',
       });
       if (provider === 's3') dependencyComments.push('@aws-sdk/client-s3', '@aws-sdk/s3-request-presigner');
@@ -466,30 +473,33 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
       const from = String(np.from || 'noreply@example.com');
       infraArtifacts.push({
         path: `lib/${nodeName}.ts`,
-        content: provider === 'sendgrid' ? [
-          `const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || '';`,
-          `const DEFAULT_FROM = '${from}';`,
-          ``,
-          `export async function sendEmail(to: string, subject: string, html: string, from = DEFAULT_FROM): Promise<void> {`,
-          `  await fetch('https://api.sendgrid.com/v3/mail/send', {`,
-          `    method: 'POST',`,
-          `    headers: { Authorization: \`Bearer \${SENDGRID_API_KEY}\`, 'Content-Type': 'application/json' },`,
-          `    body: JSON.stringify({ personalizations: [{ to: [{ email: to }] }], from: { email: from }, subject, content: [{ type: 'text/html', value: html }] }),`,
-          `  });`,
-          `}`,
-        ].join('\n') : [
-          `import { createTransport } from 'nodemailer';`,
-          ``,
-          `const transporter = createTransport({`,
-          `  host: process.env.SMTP_HOST || 'localhost',`,
-          `  port: Number(process.env.SMTP_PORT || 587),`,
-          `  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },`,
-          `});`,
-          ``,
-          `export async function sendEmail(to: string, subject: string, html: string, from = '${from}'): Promise<void> {`,
-          `  await transporter.sendMail({ from, to, subject, html });`,
-          `}`,
-        ].join('\n'),
+        content:
+          provider === 'sendgrid'
+            ? [
+                `const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || '';`,
+                `const DEFAULT_FROM = '${from}';`,
+                ``,
+                `export async function sendEmail(to: string, subject: string, html: string, from = DEFAULT_FROM): Promise<void> {`,
+                `  await fetch('https://api.sendgrid.com/v3/mail/send', {`,
+                `    method: 'POST',`,
+                `    headers: { Authorization: \`Bearer \${SENDGRID_API_KEY}\`, 'Content-Type': 'application/json' },`,
+                `    body: JSON.stringify({ personalizations: [{ to: [{ email: to }] }], from: { email: from }, subject, content: [{ type: 'text/html', value: html }] }),`,
+                `  });`,
+                `}`,
+              ].join('\n')
+            : [
+                `import { createTransport } from 'nodemailer';`,
+                ``,
+                `const transporter = createTransport({`,
+                `  host: process.env.SMTP_HOST || 'localhost',`,
+                `  port: Number(process.env.SMTP_PORT || 587),`,
+                `  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },`,
+                `});`,
+                ``,
+                `export async function sendEmail(to: string, subject: string, html: string, from = '${from}'): Promise<void> {`,
+                `  await transporter.sendMail({ from, to, subject, html });`,
+                `}`,
+              ].join('\n'),
         type: 'lib',
       });
       if (provider !== 'sendgrid') dependencyComments.push('nodemailer');
@@ -497,9 +507,9 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   }
 
   const artifacts: GeneratedArtifact[] = [
-    ...routeArtifacts.map(route => route.artifact),
-    ...[...middlewareArtifacts.values()].map(entry => entry.artifact),
-    ...coreArtifactRefs.map(ref => ref.artifact),
+    ...routeArtifacts.map((route) => route.artifact),
+    ...[...middlewareArtifacts.values()].map((entry) => entry.artifact),
+    ...coreArtifactRefs.map((ref) => ref.artifact),
     ...(prismaArtifact ? [prismaArtifact] : []),
     ...(dbArtifact ? [dbArtifact] : []),
     ...infraArtifacts,
@@ -507,7 +517,7 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
 
   const output = lines.join('\n');
   const irText = serializeIR(root);
-  const tsText = [output, ...artifacts.map(artifact => artifact.content)].join('\n');
+  const tsText = [output, ...artifacts.map((artifact) => artifact.content)].join('\n');
   const irTokenCount = countTokens(irText);
   const tsTokenCount = countTokens(tsText);
   const tokenReduction = Math.round((1 - irTokenCount / tsTokenCount) * 100);

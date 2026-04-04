@@ -11,7 +11,6 @@
  */
 
 import type { IRNode } from './types.js';
-import type { IRNodeType } from './spec.js';
 
 // ── Common prop shape (shared by most nodes) ────────────────────────────
 

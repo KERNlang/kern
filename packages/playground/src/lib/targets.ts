@@ -1,14 +1,28 @@
 /** Client-safe target definitions — no @kernlang/core import to avoid Node.js fs dependency */
 
 export type PlaygroundTarget =
-  | 'nextjs' | 'tailwind' | 'web' | 'native'
-  | 'express' | 'fastapi' | 'terminal' | 'ink'
-  | 'vue' | 'nuxt';
+  | 'nextjs'
+  | 'tailwind'
+  | 'web'
+  | 'native'
+  | 'express'
+  | 'fastapi'
+  | 'terminal'
+  | 'ink'
+  | 'vue'
+  | 'nuxt';
 
 export const PLAYGROUND_TARGETS: PlaygroundTarget[] = [
-  'nextjs', 'tailwind', 'web', 'native',
-  'express', 'fastapi', 'terminal', 'ink',
-  'vue', 'nuxt',
+  'nextjs',
+  'tailwind',
+  'web',
+  'native',
+  'express',
+  'fastapi',
+  'terminal',
+  'ink',
+  'vue',
+  'nuxt',
 ];
 
 export const TARGET_LABELS: Record<PlaygroundTarget, string> = {

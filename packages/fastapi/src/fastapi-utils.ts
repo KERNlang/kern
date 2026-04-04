@@ -3,16 +3,18 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { dedent, getChildren, getFirstChild, getProps } from '@kernlang/core';
+import { dedent, getFirstChild, getProps } from '@kernlang/core';
+import type { RouteCapabilities, SchemaShape } from './fastapi-types.js';
 import { mapTsTypeToPython, toSnakeCase } from './type-map.js';
-import type { SchemaShape, RouteCapabilities } from './fastapi-types.js';
 
 export function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '') || 'generated';
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'generated'
+  );
 }
 
 export function escapePyStr(value: string): string {
@@ -22,9 +24,10 @@ export function escapePyStr(value: string): string {
 /** Indent handler code by a fixed prefix, preserving internal structure. */
 export function indentHandler(code: string, indent: string): string[] {
   const dedented = dedent(code);
-  return dedented.split('\n')
-    .filter(l => l.trim().length > 0)
-    .map(l => `${indent}${l}`);
+  return dedented
+    .split('\n')
+    .filter((l) => l.trim().length > 0)
+    .map((l) => `${indent}${l}`);
 }
 
 export function findServerNode(root: IRNode): IRNode | undefined {
@@ -43,7 +46,7 @@ export function convertPath(expressPath: string): string {
 
 export function derivePathParams(path: string): string[] {
   const matches = path.matchAll(/:([A-Za-z_][A-Za-z0-9_]*)/g);
-  return [...matches].map(match => match[1]);
+  return [...matches].map((match) => match[1]);
 }
 
 export function analyzeRouteCapabilities(routeNode: IRNode): RouteCapabilities {

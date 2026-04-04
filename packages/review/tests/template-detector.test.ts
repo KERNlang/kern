@@ -20,7 +20,7 @@ const useBearStore = create<BearState>((set) => ({
   increase: () => set((state) => ({ bears: state.bears + 1 })),
 }));`;
       const matches = detect(source);
-      const zustand = matches.find(m => m.templateName === 'zustand-store');
+      const zustand = matches.find((m) => m.templateName === 'zustand-store');
       expect(zustand).toBeDefined();
       expect(zustand!.confidencePct).toBeGreaterThanOrEqual(85);
       expect(zustand!.libraryName).toBe('zustand');
@@ -37,7 +37,7 @@ function useUser(id: string) {
   return { user: data, isLoading: !data && !error, error };
 }`;
       const matches = detect(source);
-      const swr = matches.find(m => m.templateName === 'swr-hook');
+      const swr = matches.find((m) => m.templateName === 'swr-hook');
       expect(swr).toBeDefined();
       expect(swr!.confidencePct).toBeGreaterThanOrEqual(85);
     });
@@ -52,7 +52,7 @@ function useTodos() {
   return useQuery({ queryKey: ['todos'], queryFn: fetchTodos });
 }`;
       const matches = detect(source);
-      const query = matches.find(m => m.templateName === 'query-hook');
+      const query = matches.find((m) => m.templateName === 'query-hook');
       expect(query).toBeDefined();
       expect(query!.libraryName).toBe('TanStack Query');
     });
@@ -68,7 +68,7 @@ const UserSchema = z.object({
   age: z.number(),
 });`;
       const matches = detect(source);
-      const zod = matches.find(m => m.templateName === 'zod-schema');
+      const zod = matches.find((m) => m.templateName === 'zod-schema');
       expect(zod).toBeDefined();
       expect(zod!.libraryName).toBe('Zod');
     });
@@ -82,7 +82,7 @@ import { atom } from 'jotai';
 const countAtom = atom(0);
 const doubleAtom = atom((get) => get(countAtom) * 2);`;
       const matches = detect(source);
-      const jotai = matches.find(m => m.templateName === 'jotai-atom');
+      const jotai = matches.find((m) => m.templateName === 'jotai-atom');
       expect(jotai).toBeDefined();
       expect(jotai!.libraryName).toBe('Jotai');
     });

@@ -53,8 +53,12 @@ export function walkIR(root: IRNode, visitors: VisitorMap): void {
     let skipped = false;
 
     const ctx: WalkContext = {
-      skip() { skipped = true; },
-      stop() { stopped = true; },
+      skip() {
+        skipped = true;
+      },
+      stop() {
+        stopped = true;
+      },
       parent,
       depth,
     };

@@ -5,13 +5,19 @@ export function isExpr(v: unknown): v is { __expr: true; code: string } {
 }
 
 export function addDefaultImport(ctx: Ctx, source: string, name: string): void {
-  const spec: JSImportSpec = ctx.imports.get(source) || { namedImports: new Set<string>(), typeOnlyImports: new Set<string>() };
+  const spec: JSImportSpec = ctx.imports.get(source) || {
+    namedImports: new Set<string>(),
+    typeOnlyImports: new Set<string>(),
+  };
   spec.defaultImport = name;
   ctx.imports.set(source, spec);
 }
 
 export function addNamedImport(ctx: Ctx, source: string, name: string, typeOnly?: boolean): void {
-  const spec: JSImportSpec = ctx.imports.get(source) || { namedImports: new Set<string>(), typeOnlyImports: new Set<string>() };
+  const spec: JSImportSpec = ctx.imports.get(source) || {
+    namedImports: new Set<string>(),
+    typeOnlyImports: new Set<string>(),
+  };
   if (typeOnly) {
     spec.typeOnlyImports.add(name);
   } else {
@@ -32,7 +38,7 @@ export function emitImports(ctx: Ctx): string[] {
   const lines: string[] = [];
   for (const [source, spec] of [...ctx.imports.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     // Separate type-only imports from value imports
-    const typeImports = [...spec.typeOnlyImports].filter(n => !spec.namedImports.has(n));
+    const typeImports = [...spec.typeOnlyImports].filter((n) => !spec.namedImports.has(n));
     const valueImports = [...spec.namedImports];
 
     // Emit type-only import statement if there are type imports and no value imports sharing the source

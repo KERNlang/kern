@@ -5,24 +5,36 @@
 
 import type { IRNode } from '@kernlang/core';
 import { handlerCode } from '@kernlang/core';
+import { kids, p } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
-import { p, kids } from '../codegen-helpers.js';
 
 // ── Job (arq worker) ────────────────────────────────────────────────────
 
 export function generatePythonJob(node: IRNode): string[] {
   const props = p(node);
-  const name = toSnakeCase(props.name as string || 'job');
-  const queue = props.queue as string || name;
+  const name = toSnakeCase((props.name as string) || 'job');
+  const _queue = (props.queue as string) || name;
   const code = handlerCode(node);
   const lines: string[] = [];
   lines.push(`# Run: arq main.WorkerSettings`);
   lines.push(`from arq import create_pool, func`);
   lines.push(`from arq.connections import RedisSettings`);
   lines.push('');
-  lines.push(`async def ${name}(ctx${kids(node, 'field').length > 0 ? ', ' + kids(node, 'field').map(f => `${toSnakeCase(p(f).name as string)}: ${mapTsTypeToPython(p(f).type as string || 'Any')}`).join(', ') : ''}):`);
-  if (code) { for (const line of code.split('\n')) lines.push(`    ${line}`); }
-  else { lines.push(`    pass`); }
+  lines.push(
+    `async def ${name}(ctx${
+      kids(node, 'field').length > 0
+        ? ', ' +
+          kids(node, 'field')
+            .map((f) => `${toSnakeCase(p(f).name as string)}: ${mapTsTypeToPython((p(f).type as string) || 'Any')}`)
+            .join(', ')
+        : ''
+    }):`,
+  );
+  if (code) {
+    for (const line of code.split('\n')) lines.push(`    ${line}`);
+  } else {
+    lines.push(`    pass`);
+  }
   lines.push('');
   lines.push('');
   lines.push(`class WorkerSettings:`);
@@ -35,8 +47,8 @@ export function generatePythonJob(node: IRNode): string[] {
 
 export function generatePythonStorage(node: IRNode): string[] {
   const props = p(node);
-  const provider = props.provider as string || 's3';
-  const bucket = props.bucket as string || 'my-app-uploads';
+  const provider = (props.provider as string) || 's3';
+  const bucket = (props.bucket as string) || 'my-app-uploads';
   const lines: string[] = [];
   if (provider === 's3') {
     lines.push(`import aioboto3`);
@@ -53,7 +65,9 @@ export function generatePythonStorage(node: IRNode): string[] {
     lines.push('');
     lines.push(`async def get_signed_url(key: str, expires_in: int = 3600) -> str:`);
     lines.push(`    async with session.client("s3", region_name=REGION) as s3:`);
-    lines.push(`        return await s3.generate_presigned_url("get_object", Params={"Bucket": BUCKET, "Key": key}, ExpiresIn=expires_in)`);
+    lines.push(
+      `        return await s3.generate_presigned_url("get_object", Params={"Bucket": BUCKET, "Key": key}, ExpiresIn=expires_in)`,
+    );
   } else {
     lines.push(`from pathlib import Path`);
     lines.push('');
@@ -74,8 +88,8 @@ export function generatePythonStorage(node: IRNode): string[] {
 
 export function generatePythonEmail(node: IRNode): string[] {
   const props = p(node);
-  const provider = props.provider as string || 'smtp';
-  const from = props.from as string || 'noreply@example.com';
+  const provider = (props.provider as string) || 'smtp';
+  const from = (props.from as string) || 'noreply@example.com';
   const lines: string[] = [];
   if (provider === 'sendgrid') {
     lines.push(`import httpx`);
@@ -86,7 +100,9 @@ export function generatePythonEmail(node: IRNode): string[] {
     lines.push('');
     lines.push(`async def send_email(to: str, subject: str, html: str, sender: str = DEFAULT_FROM) -> None:`);
     lines.push(`    async with httpx.AsyncClient() as client:`);
-    lines.push(`        await client.post("https://api.sendgrid.com/v3/mail/send", headers={"Authorization": f"Bearer {SENDGRID_API_KEY}"}, json={"personalizations": [{"to": [{"email": to}]}], "from": {"email": sender}, "subject": subject, "content": [{"type": "text/html", "value": html}]})`);
+    lines.push(
+      `        await client.post("https://api.sendgrid.com/v3/mail/send", headers={"Authorization": f"Bearer {SENDGRID_API_KEY}"}, json={"personalizations": [{"to": [{"email": to}]}], "from": {"email": sender}, "subject": subject, "content": [{"type": "text/html", "value": html}]})`,
+    );
   } else {
     lines.push(`import aiosmtplib`);
     lines.push(`from email.message import EmailMessage`);
@@ -98,7 +114,9 @@ export function generatePythonEmail(node: IRNode): string[] {
     lines.push(`    msg["To"] = to`);
     lines.push(`    msg["Subject"] = subject`);
     lines.push(`    msg.set_content(html, subtype="html")`);
-    lines.push(`    await aiosmtplib.send(msg, hostname=os.environ.get("SMTP_HOST", "localhost"), port=int(os.environ.get("SMTP_PORT", "587")))`);
+    lines.push(
+      `    await aiosmtplib.send(msg, hostname=os.environ.get("SMTP_HOST", "localhost"), port=int(os.environ.get("SMTP_PORT", "587")))`,
+    );
   }
   return lines;
 }

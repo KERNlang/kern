@@ -6,13 +6,13 @@
  */
 
 import type { GeneratedArtifact, IRNode, ResolvedKernConfig } from '@kernlang/core';
-import type { StructurePlan, PlannedFile, ExtractedComposable } from './structure-vue.js';
+import type { PlannedFile, StructurePlan } from './structure-vue.js';
 import {
   extractComposables,
-  generateStateComposableCode,
-  generateLogicComposableCode,
-  generateTypesCode,
   generateBarrelCode,
+  generateLogicComposableCode,
+  generateStateComposableCode,
+  generateTypesCode,
 } from './structure-vue.js';
 
 export interface StructuredResult {
@@ -47,30 +47,32 @@ export function buildVueStructuredArtifacts(
   }
 
   // Determine composables directory from plan
-  const composableFiles = plan.files.filter(f => f.artifactType === 'hook');
-  const composablesDir = composableFiles.length > 0
-    ? composableFiles[0].path.substring(0, composableFiles[0].path.lastIndexOf('/'))
-    : 'composables';
+  const composableFiles = plan.files.filter((f) => f.artifactType === 'hook');
+  const composablesDir =
+    composableFiles.length > 0
+      ? composableFiles[0].path.substring(0, composableFiles[0].path.lastIndexOf('/'))
+      : 'composables';
 
   const composables = extractComposables(featureName, stateNodes, logicNodes, composablesDir);
 
   for (const file of plan.files) {
     if (file.artifactType === 'hook') {
-      const matchingComposable = composables.find(c => c.path === file.path);
+      const matchingComposable = composables.find((c) => c.path === file.path);
       if (matchingComposable) {
-        const code = matchingComposable.stateDecls.length > 0
-          ? generateStateComposableCode(matchingComposable)
-          : generateLogicComposableCode(
-              matchingComposable,
-              composables.find(c => c.stateDecls.length > 0)?.composableName,
-            );
+        const code =
+          matchingComposable.stateDecls.length > 0
+            ? generateStateComposableCode(matchingComposable)
+            : generateLogicComposableCode(
+                matchingComposable,
+                composables.find((c) => c.stateDecls.length > 0)?.composableName,
+              );
         artifacts.push({ path: file.path, content: code, type: 'hook' });
       }
       continue;
     }
 
     if (file.artifactType === 'types') {
-      const stateDecls = stateNodes.map(n => ({
+      const stateDecls = stateNodes.map((n) => ({
         name: (n.props?.name as string) || 'value',
         initial: String(n.props?.initial ?? ''),
       }));

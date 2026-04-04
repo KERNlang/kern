@@ -5,9 +5,9 @@
  * Confidence is adjusted based on call graph resolution quality.
  */
 
-import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
-import { createFingerprint } from '../types.js';
 import type { CallGraph } from '../call-graph.js';
+import type { ReviewFinding, SourceSpan } from '../types.js';
+import { createFingerprint } from '../types.js';
 
 function span(file: string, line: number, col = 1): SourceSpan {
   return { file, startLine: line, startCol: col, endLine: line, endCol: col };
@@ -32,7 +32,7 @@ export function deadExportRule(callGraph: CallGraph, filePath: string): ReviewFi
     // If lots of calls are unresolved, the dead export might actually be used via a dynamic path
     const totalCalls = [...callGraph.functions.values()].reduce((sum, f) => sum + f.calls.length, 0);
     const unresolvedRatio = totalCalls > 0 ? callGraph.unresolvedCallCount / totalCalls : 0;
-    const confidence = unresolvedRatio > 0.3 ? 0.60 : unresolvedRatio > 0.1 ? 0.70 : 0.85;
+    const confidence = unresolvedRatio > 0.3 ? 0.6 : unresolvedRatio > 0.1 ? 0.7 : 0.85;
 
     findings.push({
       source: 'kern',
@@ -64,7 +64,7 @@ export function crossFileAsyncRule(callGraph: CallGraph, filePath: string): Revi
 
       const targetKey = `${call.targetFile}#${call.targetName}`;
       const target = callGraph.functions.get(targetKey);
-      if (!target || !target.isAsync) continue;
+      if (!target?.isAsync) continue;
 
       // Skip if target is in the same file (already caught by base floating-promise rule)
       if (call.targetFile === filePath) continue;
@@ -77,7 +77,7 @@ export function crossFileAsyncRule(callGraph: CallGraph, filePath: string): Revi
         message: `Cross-file: '${call.targetName}()' from ${target.filePath.split('/').pop()} is async but called without await`,
         primarySpan: span(filePath, call.line),
         fingerprint: createFingerprint('floating-promise', call.line, 2),
-        confidence: 0.90,
+        confidence: 0.9,
         suggestion: `Add 'await' before the call, or use 'void' if intentionally fire-and-forget.`,
       });
     }

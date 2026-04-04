@@ -1,9 +1,14 @@
 import {
-  listStagedEvolveV4, getStagedEvolveV4, updateStagedEvolveV4Status,
-  cleanRejectedEvolveV4, cleanApprovedEvolveV4, formatEvolveV4SplitView,
-  compileCodegenToJS, graduateNode,
+  cleanApprovedEvolveV4,
+  cleanRejectedEvolveV4,
+  compileCodegenToJS,
+  formatEvolveV4SplitView,
+  getStagedEvolveV4,
+  graduateNode,
+  listStagedEvolveV4,
+  updateStagedEvolveV4Status,
 } from '@kernlang/evolve';
-import { parseFlagOrNext, hasFlag } from '../../shared.js';
+import { hasFlag, parseFlagOrNext } from '../../shared.js';
 
 export async function runEvolveReviewV4(args: string[]): Promise<void> {
   const approveV4Id = parseFlagOrNext(args, '--approve');
@@ -18,7 +23,12 @@ export async function runEvolveReviewV4(args: string[]): Promise<void> {
     }
 
     const { proposal, validation } = staged;
-    const allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
+    const allOk =
+      validation.schemaOk &&
+      validation.keywordOk &&
+      validation.parseOk &&
+      validation.codegenCompileOk &&
+      validation.codegenRunOk;
     if (!allOk) {
       console.error(`  Cannot approve — validation failed for '${proposal.keyword}':`);
       for (const err of validation.errors) {
@@ -69,7 +79,7 @@ export async function runEvolveReviewV4(args: string[]): Promise<void> {
     const { proposal, validation } = staged;
     console.log(`\n  DETAIL: ${proposal.keyword} (${proposal.displayName})\n`);
     console.log(`  Description: ${proposal.description}`);
-    console.log(`  Props: ${proposal.props.map(p => `${p.name}:${p.type}${p.required ? '*' : ''}`).join(', ')}`);
+    console.log(`  Props: ${proposal.props.map((p) => `${p.name}:${p.type}${p.required ? '*' : ''}`).join(', ')}`);
     console.log(`  Child types: ${proposal.childTypes.join(', ') || '(none)'}`);
     console.log(`  Codegen tier: ${proposal.codegenTier}`);
     console.log(`  Run ID: ${proposal.evolveRunId}`);
@@ -94,9 +104,9 @@ export async function runEvolveReviewV4(args: string[]): Promise<void> {
 
   // Default: interactive review or list mode
   const stagedV4 = listStagedEvolveV4();
-  const pendingV4 = stagedV4.filter(s => s.status === 'pending');
+  const pendingV4 = stagedV4.filter((s) => s.status === 'pending');
   if (pendingV4.length === 0) {
-    console.log('  No pending v4 proposals. Run \'kern evolve:discover <dir>\' to find patterns.');
+    console.log("  No pending v4 proposals. Run 'kern evolve:discover <dir>' to find patterns.");
     process.exit(0);
   }
 
@@ -114,7 +124,7 @@ export async function runEvolveReviewV4(args: string[]): Promise<void> {
   // Interactive review
   const { createInterface } = await import('readline');
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const ask = (q: string): Promise<string> => new Promise(res => rl.question(q, res));
+  const ask = (q: string): Promise<string> => new Promise((res) => rl.question(q, res));
 
   console.log(`\n  KERN evolve:review-v4 — ${pendingV4.length} proposal(s)\n`);
 
@@ -128,7 +138,12 @@ export async function runEvolveReviewV4(args: string[]): Promise<void> {
 
       if (answer === 'a' || answer === 'approve') {
         const { proposal, validation } = staged;
-        const allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
+        const allOk =
+          validation.schemaOk &&
+          validation.keywordOk &&
+          validation.parseOk &&
+          validation.codegenCompileOk &&
+          validation.codegenRunOk;
         if (!allOk) {
           console.log(`  Cannot approve — validation failed. Use [d]etail to see errors.\n`);
           continue;

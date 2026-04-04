@@ -1,17 +1,25 @@
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'fs';
-import { resolve, join } from 'path';
-import { createHash } from 'crypto';
-import { parse } from '@kernlang/core';
 import {
-  registerEvolvedType, clearEvolvedTypes, isKnownNodeType, KERN_RESERVED,
-  generateCoreNode, registerEvolvedGenerator, clearEvolvedGenerators,
-  registerParserHints, clearParserHints,
+  clearEvolvedGenerators,
+  clearEvolvedTypes,
+  clearParserHints,
+  generateCoreNode,
+  isKnownNodeType,
+  KERN_RESERVED,
+  parse,
+  registerEvolvedGenerator,
+  registerEvolvedType,
+  registerParserHints,
 } from '@kernlang/core';
-import { compileSandboxedGenerator, getCodegenHelpers } from '../src/sandboxed-generator.js';
+import { createHash } from 'crypto';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
+import { join, resolve } from 'path';
 import {
-  loadEvolvedNodes, clearEvolvedNodes, getEvolvedGenerator,
-  getParserHints, evolvedNodeCount, getEvolvedKeywords,
+  clearEvolvedNodes,
+  evolvedNodeCount,
+  getEvolvedKeywords,
+  loadEvolvedNodes,
 } from '../src/evolved-node-loader.js';
+import { compileSandboxedGenerator } from '../src/sandboxed-generator.js';
 
 const TEST_DIR = resolve('/tmp/kern-evolve-v4-test');
 const EVOLVED_DIR = join(TEST_DIR, '.kern', 'evolved');
@@ -20,7 +28,7 @@ function setupTestNode(keyword: string, codegenJs: string): string {
   const nodeDir = join(EVOLVED_DIR, keyword);
   mkdirSync(nodeDir, { recursive: true });
   writeFileSync(join(nodeDir, 'codegen.js'), codegenJs);
-  const hash = 'sha256:' + createHash('sha256').update(codegenJs).digest('hex');
+  const hash = `sha256:${createHash('sha256').update(codegenJs).digest('hex')}`;
 
   // Write manifest
   const manifest = {
@@ -88,19 +96,15 @@ describe('Sandboxed Generator', () => {
     `;
     const gen = compileSandboxedGenerator(code);
     const result = gen({
-      type: 'test', props: { name: 'user' },
+      type: 'test',
+      props: { name: 'user' },
       children: [
         { type: 'field', props: { name: 'email' }, children: [], loc: { line: 2, col: 1 } },
         { type: 'field', props: { name: 'id' }, children: [], loc: { line: 3, col: 1 } },
       ],
       loc: { line: 1, col: 1 },
     });
-    expect(result).toEqual([
-      'interface User {',
-      '  email: string;',
-      '  id: string;',
-      '}',
-    ]);
+    expect(result).toEqual(['interface User {', '  email: string;', '  id: string;', '}']);
   });
 
   it('blocks require access', () => {
@@ -111,8 +115,7 @@ describe('Sandboxed Generator', () => {
       };
     `;
     const gen = compileSandboxedGenerator(code);
-    expect(() => gen({ type: 'x', props: {}, children: [], loc: { line: 1, col: 1 } }))
-      .toThrow();
+    expect(() => gen({ type: 'x', props: {}, children: [], loc: { line: 1, col: 1 } })).toThrow();
   });
 
   it('blocks process access', () => {
@@ -123,8 +126,7 @@ describe('Sandboxed Generator', () => {
       };
     `;
     const gen = compileSandboxedGenerator(code);
-    expect(() => gen({ type: 'x', props: {}, children: [], loc: { line: 1, col: 1 } }))
-      .toThrow();
+    expect(() => gen({ type: 'x', props: {}, children: [], loc: { line: 1, col: 1 } })).toThrow();
   });
 
   it('rejects non-function exports', () => {
@@ -135,8 +137,7 @@ describe('Sandboxed Generator', () => {
   it('rejects non-array return', () => {
     const code = `module.exports = function() { return 'not an array'; };`;
     const gen = compileSandboxedGenerator(code);
-    expect(() => gen({ type: 'x', props: {}, children: [], loc: { line: 1, col: 1 } }))
-      .toThrow('must return string[]');
+    expect(() => gen({ type: 'x', props: {}, children: [], loc: { line: 1, col: 1 } })).toThrow('must return string[]');
   });
 });
 
@@ -168,9 +169,15 @@ describe('Evolved Node Loader', () => {
       version: 1,
       nodes: {
         button: {
-          keyword: 'button', displayName: 'Button', codegenTier: 1,
-          childTypes: [], hash: 'sha256:fake', graduatedBy: 'test',
-          graduatedAt: '', evolveRunId: '', kernVersion: '2.0.0',
+          keyword: 'button',
+          displayName: 'Button',
+          codegenTier: 1,
+          childTypes: [],
+          hash: 'sha256:fake',
+          graduatedBy: 'test',
+          graduatedAt: '',
+          evolveRunId: '',
+          kernVersion: '2.0.0',
         },
       },
     };
@@ -187,7 +194,10 @@ describe('Evolved Node Loader', () => {
     setupTestNode('hashed-node', codegen);
 
     // Tamper with the file
-    writeFileSync(join(EVOLVED_DIR, 'hashed-node', 'codegen.js'), 'module.exports = function() { return ["tampered"]; };');
+    writeFileSync(
+      join(EVOLVED_DIR, 'hashed-node', 'codegen.js'),
+      'module.exports = function() { return ["tampered"]; };',
+    );
 
     const result = loadEvolvedNodes(TEST_DIR, true);
     expect(result.loaded).toBe(0);

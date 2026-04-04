@@ -5,9 +5,9 @@
  * under parallel execution — the core guarantee of the Phase 4 refactor.
  */
 
-import { KernRuntime } from '../src/runtime.js';
-import { parse } from '../src/parser.js';
 import { generateCoreNode } from '../src/codegen-core.js';
+import { parse } from '../src/parser.js';
+import { KernRuntime } from '../src/runtime.js';
 
 describe('KernRuntime isolation', () => {
   it('separate runtimes have independent evolved types', () => {
@@ -50,7 +50,9 @@ describe('KernRuntime isolation', () => {
     const a = new KernRuntime();
     const b = new KernRuntime();
 
-    a.lastParseDiagnostics = [{ code: 'EMPTY_DOCUMENT' as any, severity: 'error', message: 'test', line: 1, col: 1, endCol: 1, suggestion: '' }];
+    a.lastParseDiagnostics = [
+      { code: 'EMPTY_DOCUMENT' as any, severity: 'error', message: 'test', line: 1, col: 1, endCol: 1, suggestion: '' },
+    ];
     expect(a.lastParseDiagnostics).toHaveLength(1);
     expect(b.lastParseDiagnostics).toHaveLength(0);
   });
@@ -61,7 +63,9 @@ describe('KernRuntime isolation', () => {
     rt.registerParserHints('widget', { positionalArgs: ['name'] });
     rt.registerEvolvedGenerator('widget', () => ['// widget']);
     rt.registerTemplate('card', { name: 'card', slots: [], imports: [], body: '' });
-    rt.lastParseDiagnostics = [{ code: 'EMPTY_DOCUMENT' as any, severity: 'error', message: 'x', line: 1, col: 1, endCol: 1, suggestion: '' }];
+    rt.lastParseDiagnostics = [
+      { code: 'EMPTY_DOCUMENT' as any, severity: 'error', message: 'x', line: 1, col: 1, endCol: 1, suggestion: '' },
+    ];
 
     rt.reset();
 
@@ -85,7 +89,7 @@ describe('KernRuntime isolation', () => {
       sources.map(async (src) => {
         const root = parse(src);
         return generateCoreNode(root).join('\n');
-      })
+      }),
     );
 
     expect(results).toHaveLength(5);

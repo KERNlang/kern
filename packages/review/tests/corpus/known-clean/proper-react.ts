@@ -1,5 +1,5 @@
 // CLEAN: correct hook usage at top level, stable keys, side effects in useEffect
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 
 interface Item {
   id: string;
@@ -17,11 +17,7 @@ export function ItemList(props: { items: Item[] }) {
     'ul',
     null,
     props.items.map((item) =>
-      React.createElement(
-        'li',
-        { key: item.id, onClick: () => setSelected(item.id) },
-        item.text
-      )
-    )
+      React.createElement('li', { key: item.id, onClick: () => setSelected(item.id) }, item.text),
+    ),
   );
 }

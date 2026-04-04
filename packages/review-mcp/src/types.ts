@@ -2,4 +2,4 @@
  * Types for @kernlang/review-mcp — MCP security scanner.
  */
 
-export type { ReviewFinding, SourceSpan, ReviewReport } from '@kernlang/review';
+export type { ReviewFinding, ReviewReport, SourceSpan } from '@kernlang/review';

@@ -259,5 +259,5 @@ export function detectTemplates(packageJson: {
     ...packageJson.devDependencies,
   };
 
-  return TEMPLATE_CATALOG.filter(entry => entry.packageName in allDeps);
+  return TEMPLATE_CATALOG.filter((entry) => entry.packageName in allDeps);
 }

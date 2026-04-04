@@ -18,7 +18,15 @@
 
 import type { IRNode } from './types.js';
 
-export type PropKind = 'identifier' | 'typeAnnotation' | 'importPath' | 'rawExpr' | 'rawBlock' | 'string' | 'boolean' | 'number';
+export type PropKind =
+  | 'identifier'
+  | 'typeAnnotation'
+  | 'importPath'
+  | 'rawExpr'
+  | 'rawBlock'
+  | 'string'
+  | 'boolean'
+  | 'number';
 
 export interface PropSchema {
   required?: boolean;

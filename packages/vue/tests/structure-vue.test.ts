@@ -1,15 +1,14 @@
+import { resolveConfig } from '../../core/src/config.js';
 import { parse } from '../../core/src/parser.js';
 import {
   classifyNode,
-  planVueStructure,
   extractComposables,
-  generateStateComposableCode,
-  generateLogicComposableCode,
-  generateTypesCode,
   generateBarrelCode,
+  generateLogicComposableCode,
+  generateStateComposableCode,
+  generateTypesCode,
+  planVueStructure,
 } from '../src/structure-vue.js';
-import type { ResolvedKernConfig } from '../../core/src/index.js';
-import { resolveConfig } from '../../core/src/config.js';
 
 // ── Node Classification ──
 
@@ -112,7 +111,7 @@ describe('planVueStructure', () => {
       const config = resolveConfig({ structure: 'bulletproof' });
       const plan = planVueStructure(ast, config);
       expect(plan).not.toBeNull();
-      const entry = plan!.files.find(f => f.isEntry);
+      const entry = plan!.files.find((f) => f.isEntry);
       expect(entry).toBeDefined();
       expect(entry!.path).toContain('.vue');
       expect(entry!.path).toContain('features/dashboard/index.vue');
@@ -122,7 +121,7 @@ describe('planVueStructure', () => {
       const ast = parse(source);
       const config = resolveConfig({ structure: 'bulletproof' });
       const plan = planVueStructure(ast, config);
-      const components = plan!.files.filter(f => f.artifactType === 'component');
+      const components = plan!.files.filter((f) => f.artifactType === 'component');
       expect(components.length).toBe(2);
       expect(components[0].path).toContain('components/');
       expect(components[0].path).toMatch(/\.vue$/);
@@ -133,7 +132,7 @@ describe('planVueStructure', () => {
       const ast = parse(source);
       const config = resolveConfig({ structure: 'bulletproof' });
       const plan = planVueStructure(ast, config);
-      const composableFiles = plan!.files.filter(f => f.artifactType === 'hook');
+      const composableFiles = plan!.files.filter((f) => f.artifactType === 'hook');
       expect(composableFiles.length).toBeGreaterThan(0);
       for (const f of composableFiles) {
         expect(f.path).toContain('composables/');
@@ -145,7 +144,7 @@ describe('planVueStructure', () => {
       const ast = parse(source);
       const config = resolveConfig({ structure: 'bulletproof' });
       const plan = planVueStructure(ast, config);
-      const types = plan!.files.find(f => f.artifactType === 'types');
+      const types = plan!.files.find((f) => f.artifactType === 'types');
       expect(types).toBeDefined();
       expect(types!.path).toContain('.types.ts');
       expect(plan!.barrels.length).toBeGreaterThan(0);
@@ -165,7 +164,7 @@ describe('planVueStructure', () => {
       const ast = parse(source);
       const config = resolveConfig({ structure: 'atomic' });
       const plan = planVueStructure(ast, config);
-      const page = plan!.files.find(f => f.isEntry);
+      const page = plan!.files.find((f) => f.isEntry);
       expect(page!.path).toContain('pages/');
       expect(page!.path).toMatch(/\.vue$/);
     });
@@ -174,7 +173,7 @@ describe('planVueStructure', () => {
       const ast = parse(source);
       const config = resolveConfig({ structure: 'atomic' });
       const plan = planVueStructure(ast, config);
-      const template = plan!.files.find(f => f.artifactType === 'template');
+      const template = plan!.files.find((f) => f.artifactType === 'template');
       expect(template).toBeDefined();
       expect(template!.path).toContain('templates/');
       expect(template!.path).toMatch(/\.vue$/);
@@ -184,7 +183,7 @@ describe('planVueStructure', () => {
       const ast = parse(source);
       const config = resolveConfig({ structure: 'atomic' });
       const plan = planVueStructure(ast, config);
-      const organisms = plan!.files.filter(f => f.path.includes('organisms/'));
+      const organisms = plan!.files.filter((f) => f.path.includes('organisms/'));
       expect(organisms.length).toBeGreaterThan(0);
       expect(organisms[0].path).toMatch(/\.vue$/);
     });
@@ -203,7 +202,7 @@ describe('planVueStructure', () => {
       const ast = parse(source);
       const config = resolveConfig({ structure: 'kern' });
       const plan = planVueStructure(ast, config);
-      const surface = plan!.files.find(f => f.isEntry);
+      const surface = plan!.files.find((f) => f.isEntry);
       expect(surface!.path).toContain('surfaces/');
       expect(surface!.path).toContain('.surface.vue');
     });
@@ -212,7 +211,7 @@ describe('planVueStructure', () => {
       const ast = parse(source);
       const config = resolveConfig({ structure: 'kern' });
       const plan = planVueStructure(ast, config);
-      const blocks = plan!.files.filter(f => f.path.includes('blocks/'));
+      const blocks = plan!.files.filter((f) => f.path.includes('blocks/'));
       expect(blocks.length).toBeGreaterThan(0);
       expect(blocks[0].path).toContain('.block.vue');
     });
@@ -221,7 +220,7 @@ describe('planVueStructure', () => {
       const ast = parse(source);
       const config = resolveConfig({ structure: 'kern' });
       const plan = planVueStructure(ast, config);
-      const signals = plan!.files.filter(f => f.path.includes('signals/'));
+      const signals = plan!.files.filter((f) => f.path.includes('signals/'));
       expect(signals.length).toBeGreaterThan(0);
     });
   });
@@ -231,10 +230,7 @@ describe('planVueStructure', () => {
 
 describe('extractComposables', () => {
   test('extracts state composable', () => {
-    const stateNodes = [
-      parse('state name=count initial=0'),
-      parse('state name=name initial=John'),
-    ];
+    const stateNodes = [parse('state name=count initial=0'), parse('state name=name initial=John')];
     const composables = extractComposables('Dashboard', stateNodes, [], 'composables');
     expect(composables.length).toBe(1);
     expect(composables[0].composableName).toBe('useDashboardState');
@@ -244,9 +240,7 @@ describe('extractComposables', () => {
   });
 
   test('extracts logic composable', () => {
-    const logicNodes = [
-      parse('logic code="const double = computed(() => count.value * 2)"'),
-    ];
+    const logicNodes = [parse('logic code="const double = computed(() => count.value * 2)"')];
     const composables = extractComposables('Dashboard', [], logicNodes, 'composables');
     expect(composables.length).toBe(1);
     expect(composables[0].composableName).toBe('useDashboardLogic');

@@ -5,9 +5,9 @@
  *   handler(req) → importedFn(req.body) → exec() in another file.
  */
 
+import { classifyParams, detectSanitizers, findClosingParen, findTaintedSinks, propagateTaint } from './taint-regex.js';
+import type { CrossFileTaintResult, ExportedFunction, TaintSink, TaintSource } from './taint-types.js';
 import type { InferResult } from './types.js';
-import type { TaintSource, TaintSink, CrossFileTaintResult, ExportedFunction } from './taint-types.js';
-import { classifyParams, propagateTaint, findTaintedSinks, findClosingParen, detectSanitizers } from './taint-regex.js';
 
 // ── Export Map ───────────────────────────────────────────────────────────
 
@@ -15,9 +15,7 @@ import { classifyParams, propagateTaint, findTaintedSinks, findClosingParen, det
  * Build a map of exported functions across all files.
  * Maps "filePath::fnName" → ExportedFunction with sink info.
  */
-export function buildExportMap(
-  inferredPerFile: Map<string, InferResult[]>,
-): Map<string, ExportedFunction> {
+export function buildExportMap(inferredPerFile: Map<string, InferResult[]>): Map<string, ExportedFunction> {
   const exportMap = new Map<string, ExportedFunction>();
 
   for (const [filePath, inferred] of inferredPerFile) {
@@ -31,7 +29,7 @@ export function buildExportMap(
       if (!isExported) continue;
 
       const params = (r.node.props?.params as string) || '';
-      const handler = r.node.children?.find(c => c.type === 'handler');
+      const handler = r.node.children?.find((c) => c.type === 'handler');
       const code = (handler?.props?.code as string) || '';
 
       // Check if the function body contains dangerous sinks
@@ -39,7 +37,10 @@ export function buildExportMap(
       if (code) {
         const dummyTaint: TaintSource[] = [];
         // Parse params to get variable names for sink detection
-        const paramNames = params.split(',').map(p => p.trim().split(':')[0]?.trim()).filter(Boolean);
+        const paramNames = params
+          .split(',')
+          .map((p) => p.trim().split(':')[0]?.trim())
+          .filter(Boolean);
         for (const name of paramNames) {
           dummyTaint.push({ name, origin: `param:${name}` });
         }
@@ -69,7 +70,7 @@ export function buildExportMap(
  */
 export function buildImportMap(
   inferredPerFile: Map<string, InferResult[]>,
-  graphImports: Map<string, string[]>,  // filePath → [resolved import paths]
+  graphImports: Map<string, string[]>, // filePath → [resolved import paths]
 ): Map<string, string> {
   const importMap = new Map<string, string>();
 
@@ -85,14 +86,14 @@ export function buildImportMap(
       if (!from) continue;
 
       // Find the resolved path for this import specifier
-      const resolvedPath = resolvedImports.find(p =>
-        p.includes(from.replace(/^\.\//, '').replace(/\.(js|ts|tsx)$/, ''))
+      const resolvedPath = resolvedImports.find((p) =>
+        p.includes(from.replace(/^\.\//, '').replace(/\.(js|ts|tsx)$/, '')),
       );
       if (!resolvedPath) continue;
 
       // Map each imported name to its resolved file
       if (names) {
-        for (const name of names.split(',').map(n => n.trim())) {
+        for (const name of names.split(',').map((n) => n.trim())) {
           if (name) importMap.set(`${filePath}::${name}`, resolvedPath);
         }
       }
@@ -130,7 +131,7 @@ export function analyzeTaintCrossFile(
 
       const fnName = (r.node.props?.name as string) || 'anonymous';
       const paramsStr = (r.node.props?.params as string) || '';
-      const handler = r.node.children?.find(c => c.type === 'handler');
+      const handler = r.node.children?.find((c) => c.type === 'handler');
       const code = (handler?.props?.code as string) || '';
       if (!code) continue;
 
@@ -139,7 +140,7 @@ export function analyzeTaintCrossFile(
       if (taintedParams.length === 0) continue;
 
       const taintedVars = propagateTaint(code, taintedParams);
-      const taintedNames = new Set(taintedVars.map(v => v.name));
+      const taintedNames = new Set(taintedVars.map((v) => v.name));
 
       // Find calls to imported functions: importedFn(taintedVar)
       const callRegex = /\b(\w+)\s*\(/g;
@@ -153,7 +154,7 @@ export function analyzeTaintCrossFile(
 
         // Does the target have dangerous sinks?
         const targetFn = exportMap.get(`${resolvedFile}::${calledFn}`);
-        if (!targetFn || !targetFn.hasSink) continue;
+        if (!targetFn?.hasSink) continue;
 
         // Extract arguments passed to this call
         const callStart = callMatch.index + callMatch[0].length;
@@ -173,17 +174,15 @@ export function analyzeTaintCrossFile(
         // Check for sanitizers between the taint and the call
         const beforeCall = code.slice(0, callMatch.index);
         const foundSanitizers = detectSanitizers(beforeCall);
-        const hasSanitizer = taintedArgs.some(arg =>
-          foundSanitizers.some(s =>
-            new RegExp(`\\b${arg}\\b`).test(s.context)
-          )
+        const hasSanitizer = taintedArgs.some((arg) =>
+          foundSanitizers.some((s) => new RegExp(`\\b${arg}\\b`).test(s.context)),
         );
 
         if (hasSanitizer) continue; // Sanitized before passing to callee
 
         // Found cross-file taint path
         for (const sink of targetFn.sinks) {
-          const source = taintedVars.find(v => taintedArgs.includes(v.name));
+          const source = taintedVars.find((v) => taintedArgs.includes(v.name));
           if (!source) continue;
 
           results.push({

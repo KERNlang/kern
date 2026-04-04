@@ -1,7 +1,7 @@
-import { loadNativeRules } from '../src/rule-loader.js';
-import { writeFileSync, mkdirSync, rmSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
+import { join } from 'path';
+import { loadNativeRules } from '../src/rule-loader.js';
 
 const TMP = join(tmpdir(), 'kern-rule-import-test');
 
@@ -16,20 +16,26 @@ afterAll(() => {
 describe('rule import', () => {
   it('loads rules from imported .kern files', () => {
     // Write a base rules file
-    writeFileSync(join(TMP, 'base.kern'), `
+    writeFileSync(
+      join(TMP, 'base.kern'),
+      `
 rule base-check severity=info category=pattern
   pattern type=guard
   message "Base rule fired"
-`);
+`,
+    );
 
     // Write a file that imports it
-    writeFileSync(join(TMP, 'main.kern'), `
+    writeFileSync(
+      join(TMP, 'main.kern'),
+      `
 import from="base.kern"
 
 rule main-check severity=warning category=bug
   pattern type=effect
   message "Main rule fired"
-`);
+`,
+    );
 
     const rules = loadNativeRules([TMP]);
     // base.kern has 1 rule, main.kern has 1 rule + imports base.kern
@@ -40,21 +46,27 @@ rule main-check severity=warning category=bug
   });
 
   it('handles circular imports without infinite loop', () => {
-    writeFileSync(join(TMP, 'a.kern'), `
+    writeFileSync(
+      join(TMP, 'a.kern'),
+      `
 import from="b.kern"
 
 rule rule-a severity=info category=pattern
   pattern type=guard
   message "Rule A"
-`);
+`,
+    );
 
-    writeFileSync(join(TMP, 'b.kern'), `
+    writeFileSync(
+      join(TMP, 'b.kern'),
+      `
 import from="a.kern"
 
 rule rule-b severity=info category=pattern
   pattern type=effect
   message "Rule B"
-`);
+`,
+    );
 
     // Should not hang — circular import guard prevents infinite recursion
     const rules = loadNativeRules([TMP]);
@@ -63,13 +75,16 @@ rule rule-b severity=info category=pattern
   });
 
   it('warns on missing import (does not crash)', () => {
-    writeFileSync(join(TMP, 'with-missing.kern'), `
+    writeFileSync(
+      join(TMP, 'with-missing.kern'),
+      `
 import from="nonexistent.kern"
 
 rule still-works severity=info category=pattern
   pattern type=guard
   message "This rule should still load"
-`);
+`,
+    );
 
     const rules = loadNativeRules([TMP]);
     const ruleCount = rules.length;

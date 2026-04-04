@@ -43,7 +43,7 @@ describe('Nuxt 3 Transpiler', () => {
     const result = transpileNuxt(ast);
     expect(result.code).toContain('useHead({');
     expect(result.code).toContain("title: 'About Us'");
-    expect(result.code).toContain("description");
+    expect(result.code).toContain('description');
   });
 
   // ── NuxtLink ──
@@ -52,7 +52,7 @@ describe('Nuxt 3 Transpiler', () => {
     const ast = parse('screen name=Nav\n  button text="Go Home" to=home');
     const result = transpileNuxt(ast);
     expect(result.code).toContain('<NuxtLink');
-    expect(result.code).toContain(":to=\"'/home'\"");
+    expect(result.code).toContain(':to="\'/home\'"');
   });
 
   // ── State (auto-imported ref) ──
@@ -80,7 +80,7 @@ describe('Nuxt 3 Transpiler', () => {
     const ast = parse('route name=Users method=get\n  handler <<<\n    return [{ id: 1, name: "Alice" }];\n  >>>');
     const result = transpileNuxt(ast);
     expect(result.artifacts).toBeDefined();
-    const serverArtifact = result.artifacts!.find(a => a.path.startsWith('server/'));
+    const serverArtifact = result.artifacts!.find((a) => a.path.startsWith('server/'));
     expect(serverArtifact).toBeDefined();
     expect(serverArtifact!.path).toBe('server/api/users.ts');
     expect(serverArtifact!.content).toContain('defineEventHandler');
@@ -89,17 +89,19 @@ describe('Nuxt 3 Transpiler', () => {
   test('POST route uses method suffix in path', () => {
     const ast = parse('route name=Users method=post\n  handler <<<\n    return { created: true };\n  >>>');
     const result = transpileNuxt(ast);
-    const serverArtifact = result.artifacts!.find(a => a.path.startsWith('server/'));
+    const serverArtifact = result.artifacts!.find((a) => a.path.startsWith('server/'));
     expect(serverArtifact!.path).toBe('server/api/users.post.ts');
   });
 
   // ── Middleware ──
 
   test('generates middleware artifacts', () => {
-    const ast = parse('middleware name=Auth\n  handler <<<\n    if (!isAuthenticated()) return navigateTo("/login");\n  >>>');
+    const ast = parse(
+      'middleware name=Auth\n  handler <<<\n    if (!isAuthenticated()) return navigateTo("/login");\n  >>>',
+    );
     const result = transpileNuxt(ast);
     expect(result.artifacts).toBeDefined();
-    const mwArtifact = result.artifacts!.find(a => a.path.startsWith('middleware/'));
+    const mwArtifact = result.artifacts!.find((a) => a.path.startsWith('middleware/'));
     expect(mwArtifact).toBeDefined();
     expect(mwArtifact!.path).toBe('middleware/auth.ts');
     expect(mwArtifact!.content).toContain('defineNuxtRouteMiddleware');
@@ -108,7 +110,9 @@ describe('Nuxt 3 Transpiler', () => {
   // ── Event handlers (on nodes) ──
 
   test('on event=click generates handleClick function without vue import', () => {
-    const ast = parse('screen name=Test\n  on event=click\n    handler <<<\n      count++;\n    >>>\n  text value=Hello');
+    const ast = parse(
+      'screen name=Test\n  on event=click\n    handler <<<\n      count++;\n    >>>\n  text value=Hello',
+    );
     const result = transpileNuxt(ast);
     expect(result.code).toContain('function handleClick(e: MouseEvent)');
     expect(result.code).toContain('count++;');
@@ -117,7 +121,9 @@ describe('Nuxt 3 Transpiler', () => {
   });
 
   test('on event=submit with async generates async function', () => {
-    const ast = parse('screen name=Test\n  on event=submit async=true\n    handler <<<\n      e.preventDefault();\n      await submitForm(data);\n    >>>\n  text value=Hello');
+    const ast = parse(
+      'screen name=Test\n  on event=submit async=true\n    handler <<<\n      e.preventDefault();\n      await submitForm(data);\n    >>>\n  text value=Hello',
+    );
     const result = transpileNuxt(ast);
     expect(result.code).toContain('async function handleSubmit(e: Event)');
     expect(result.code).toContain('e.preventDefault();');
@@ -125,21 +131,25 @@ describe('Nuxt 3 Transpiler', () => {
   });
 
   test('on event=key with key=Enter generates onMounted + onUnmounted (auto-imported)', () => {
-    const ast = parse('screen name=Test\n  on event=key key=Enter\n    handler <<<\n      processInput(buffer);\n    >>>\n  text value=Hello');
+    const ast = parse(
+      'screen name=Test\n  on event=key key=Enter\n    handler <<<\n      processInput(buffer);\n    >>>\n  text value=Hello',
+    );
     const result = transpileNuxt(ast);
     // Nuxt auto-imports onMounted/onUnmounted — no explicit vue import
     expect(result.code).not.toContain("from 'vue'");
     expect(result.code).toContain('function handleKey(e: KeyboardEvent)');
     expect(result.code).toContain("if ((e as KeyboardEvent).key !== 'Enter') return;");
     expect(result.code).toContain('processInput(buffer);');
-    expect(result.code).toContain("onMounted(() => {");
+    expect(result.code).toContain('onMounted(() => {');
     expect(result.code).toContain("window.addEventListener('keydown', handleKey as EventListener);");
-    expect(result.code).toContain("onUnmounted(() => {");
+    expect(result.code).toContain('onUnmounted(() => {');
     expect(result.code).toContain("window.removeEventListener('keydown', handleKey as EventListener);");
   });
 
   test('on event=resize generates onMounted + onUnmounted window listeners (auto-imported)', () => {
-    const ast = parse('screen name=Test\n  on event=resize\n    handler <<<\n      updateLayout();\n    >>>\n  text value=Hello');
+    const ast = parse(
+      'screen name=Test\n  on event=resize\n    handler <<<\n      updateLayout();\n    >>>\n  text value=Hello',
+    );
     const result = transpileNuxt(ast);
     expect(result.code).not.toContain("from 'vue'");
     expect(result.code).toContain('function handleResize()');
@@ -149,7 +159,9 @@ describe('Nuxt 3 Transpiler', () => {
   });
 
   test('on node does not render template elements', () => {
-    const ast = parse('screen name=Test\n  on event=click\n    handler <<<\n      doSomething();\n    >>>\n  text value=Hello');
+    const ast = parse(
+      'screen name=Test\n  on event=click\n    handler <<<\n      doSomething();\n    >>>\n  text value=Hello',
+    );
     const result = transpileNuxt(ast);
     // The on node should NOT produce any <div> in the template
     expect(result.code).not.toMatch(/<div[^>]*>.*doSomething/s);

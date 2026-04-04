@@ -5,8 +5,8 @@
  */
 
 import type { ReviewFinding } from '@kernlang/review';
+import { DIRECTION_OVERRIDE, INVISIBLE_CHARS, SUSPICIOUS_DESC_PATTERNS } from '../mcp-patterns.js';
 import { finding } from '../mcp-types.js';
-import { SUSPICIOUS_DESC_PATTERNS, INVISIBLE_CHARS, DIRECTION_OVERRIDE } from '../mcp-patterns.js';
 
 export function toolDescriptionPoisoningTS(source: string, filePath: string): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -23,7 +23,7 @@ export function toolDescriptionPoisoningTS(source: string, filePath: string): Re
     const descStart = i;
     let desc = '';
     for (let j = i; j < Math.min(i + 20, lines.length); j++) {
-      desc += lines[j] + '\n';
+      desc += `${lines[j]}\n`;
       // Stop when we find the schema object or callback
       if (j > i && /\}\s*,\s*(async\s+)?\(/.test(lines[j])) break;
       if (j > i && /\}\s*,\s*\{/.test(lines[j])) break;
@@ -55,7 +55,7 @@ export function toolDescriptionPoisoningPython(source: string, filePath: string)
         } else {
           // Multi-line docstring
           for (let k = j; k < Math.min(j + 30, lines.length); k++) {
-            desc += lines[k] + '\n';
+            desc += `${lines[k]}\n`;
             if (k > j && /(?:"""|''')/.test(lines[k])) break;
           }
         }
@@ -76,36 +76,53 @@ export function toolDescriptionPoisoningPython(source: string, filePath: string)
   return findings;
 }
 
-export function checkDescriptionForPoisoning(desc: string, filePath: string, line: number, findings: ReviewFinding[]): void {
+export function checkDescriptionForPoisoning(
+  desc: string,
+  filePath: string,
+  line: number,
+  findings: ReviewFinding[],
+): void {
   // Check for prompt injection patterns
   for (const pattern of SUSPICIOUS_DESC_PATTERNS) {
     if (pattern.test(desc)) {
-      findings.push(finding(
-        'mcp-tool-poisoning', 'error',
-        `Tool description contains prompt injection pattern: "${desc.match(pattern)?.[0]}" — tool poisoning risk`,
-        filePath, line,
-        'Tool descriptions should only describe the tool\'s functionality. Remove any instruction-like content.',
-      ));
+      findings.push(
+        finding(
+          'mcp-tool-poisoning',
+          'error',
+          `Tool description contains prompt injection pattern: "${desc.match(pattern)?.[0]}" — tool poisoning risk`,
+          filePath,
+          line,
+          "Tool descriptions should only describe the tool's functionality. Remove any instruction-like content.",
+        ),
+      );
       break; // One finding per description is enough
     }
   }
 
   // Check for invisible/direction-override characters
   if (INVISIBLE_CHARS.test(desc)) {
-    findings.push(finding(
-      'mcp-tool-poisoning', 'error',
-      `Tool description contains invisible Unicode characters — possible hidden instruction attack`,
-      filePath, line,
-      'Remove all invisible Unicode characters (zero-width spaces, direction overrides, etc.) from tool descriptions.',
-    ));
+    findings.push(
+      finding(
+        'mcp-tool-poisoning',
+        'error',
+        `Tool description contains invisible Unicode characters — possible hidden instruction attack`,
+        filePath,
+        line,
+        'Remove all invisible Unicode characters (zero-width spaces, direction overrides, etc.) from tool descriptions.',
+      ),
+    );
   }
 
   if (DIRECTION_OVERRIDE.test(desc)) {
-    findings.push(finding(
-      'mcp-tool-poisoning', 'error',
-      `Tool description contains Unicode direction override characters — text may appear differently to humans vs LLMs`,
-      filePath, line,
-      'Remove Unicode bidirectional override characters from tool descriptions.',
-    ));
+    findings.push(
+      finding(
+        'mcp-tool-poisoning',
+        'error',
+        `Tool description contains Unicode direction override characters — text may appear differently to humans vs LLMs`,
+        filePath,
+        line,
+        'Remove Unicode bidirectional override characters from tool descriptions.',
+      ),
+    );
   }
 }

@@ -2,8 +2,7 @@
  * Tests for the IRNode tree walker.
  */
 
-import { walkIR, getNodeAtPosition } from '../src/walk.js';
-import type { WalkContext, VisitorMap } from '../src/walk.js';
+import { getNodeAtPosition, walkIR } from '../src/walk.js';
 
 /** Helper to build IR nodes concisely. */
 function ir(type: string, props?: Record<string, unknown>, children?: any[]): any {
@@ -20,10 +19,7 @@ function ir(type: string, props?: Record<string, unknown>, children?: any[]): an
 //
 const tree = () =>
   ir('screen', { name: 'Home' }, [
-    ir('box', undefined, [
-      ir('text', { value: 'hello' }),
-      ir('button', { label: 'click' }),
-    ]),
+    ir('box', undefined, [ir('text', { value: 'hello' }), ir('button', { label: 'click' })]),
     ir('text', { value: 'footer' }),
   ]);
 
@@ -32,7 +28,9 @@ describe('walkIR', () => {
   it('visits nodes in pre-order (depth-first)', () => {
     const visited: string[] = [];
     walkIR(tree(), {
-      '*': (node) => { visited.push(node.type); },
+      '*': (node) => {
+        visited.push(node.type);
+      },
     });
     expect(visited).toEqual(['screen', 'box', 'text', 'button', 'text']);
   });
@@ -41,7 +39,9 @@ describe('walkIR', () => {
   it('type-specific visitors only fire for matching types', () => {
     const visited: string[] = [];
     walkIR(tree(), {
-      button: (node) => { visited.push(node.type); },
+      button: (node) => {
+        visited.push(node.type);
+      },
     });
     expect(visited).toEqual(['button']);
   });
@@ -50,7 +50,9 @@ describe('walkIR', () => {
   it('wildcard visitor fires for every node', () => {
     const visited: string[] = [];
     walkIR(tree(), {
-      '*': (node) => { visited.push(node.type); },
+      '*': (node) => {
+        visited.push(node.type);
+      },
     });
     expect(visited).toHaveLength(5);
   });
@@ -85,7 +87,9 @@ describe('walkIR', () => {
     const order: string[] = [];
     walkIR(tree(), {
       '*': {
-        leave: (node) => { order.push(node.type); },
+        leave: (node) => {
+          order.push(node.type);
+        },
       },
     });
     // Post-order: deepest leaves first, root last
@@ -117,7 +121,9 @@ describe('walkIR', () => {
   it('handles a leaf node with no children', () => {
     const visited: string[] = [];
     walkIR(ir('leaf'), {
-      '*': (node) => { visited.push(node.type); },
+      '*': (node) => {
+        visited.push(node.type);
+      },
     });
     expect(visited).toEqual(['leaf']);
   });
@@ -126,7 +132,9 @@ describe('walkIR', () => {
     const node = { type: 'empty', children: [] as any[] };
     const visited: string[] = [];
     walkIR(node, {
-      '*': (n) => { visited.push(n.type); },
+      '*': (n) => {
+        visited.push(n.type);
+      },
     });
     expect(visited).toEqual(['empty']);
   });
@@ -135,8 +143,12 @@ describe('walkIR', () => {
   it('fires both type-specific and wildcard visitors', () => {
     const log: string[] = [];
     walkIR(ir('root', undefined, [ir('child')]), {
-      child: (node) => { log.push('type:' + node.type); },
-      '*': (node) => { log.push('wild:' + node.type); },
+      child: (node) => {
+        log.push(`type:${node.type}`);
+      },
+      '*': (node) => {
+        log.push(`wild:${node.type}`);
+      },
     });
     // For root: only wildcard (no type visitor). For child: type first, then wildcard.
     expect(log).toEqual(['wild:root', 'type:child', 'wild:child']);
@@ -147,8 +159,12 @@ describe('walkIR', () => {
     const log: string[] = [];
     walkIR(ir('a', undefined, [ir('b')]), {
       '*': {
-        enter: (node) => { log.push('enter:' + node.type); },
-        leave: (node) => { log.push('leave:' + node.type); },
+        enter: (node) => {
+          log.push(`enter:${node.type}`);
+        },
+        leave: (node) => {
+          log.push(`leave:${node.type}`);
+        },
       },
     });
     expect(log).toEqual(['enter:a', 'enter:b', 'leave:b', 'leave:a']);
@@ -160,11 +176,11 @@ describe('walkIR', () => {
     walkIR(ir('a', undefined, [ir('b'), ir('c')]), {
       '*': {
         enter: (node, ctx) => {
-          log.push('enter:' + node.type);
+          log.push(`enter:${node.type}`);
           if (node.type === 'b') ctx.stop();
         },
         leave: (node) => {
-          log.push('leave:' + node.type);
+          log.push(`leave:${node.type}`);
         },
       },
     });
@@ -178,11 +194,11 @@ describe('walkIR', () => {
     walkIR(ir('a', undefined, [ir('b', undefined, [ir('c')])]), {
       '*': {
         enter: (node, ctx) => {
-          log.push('enter:' + node.type);
+          log.push(`enter:${node.type}`);
           if (node.type === 'b') ctx.skip();
         },
         leave: (node) => {
-          log.push('leave:' + node.type);
+          log.push(`leave:${node.type}`);
         },
       },
     });
@@ -198,12 +214,7 @@ describe('getNodeAtPosition', () => {
     return { type, loc: { line, col, endLine, endCol }, ...(children?.length ? { children } : {}) };
   }
 
-  const locTree = () =>
-    irLoc('page', 1, 1, 5, 1, [
-      irLoc('box', 2, 3, 4, 20, [
-        irLoc('text', 3, 5, 3, 25),
-      ]),
-    ]);
+  const locTree = () => irLoc('page', 1, 1, 5, 1, [irLoc('box', 2, 3, 4, 20, [irLoc('text', 3, 5, 3, 25)])]);
 
   it('returns deepest node at position', () => {
     const node = getNodeAtPosition(locTree(), 3, 10);

@@ -37,11 +37,11 @@ export function generateStreamWrap(handlerLines: string[], hasSpawn: boolean, in
   if (hasSpawn) {
     // Wrap spawn in a Promise so we await child completion before closing stream
     lines.push(`${indent}    await new Promise<void>((resolveStream, rejectStream) => {`);
-    lines.push(...handlerLines.map(l => `${indent}      ${l}`));
+    lines.push(...handlerLines.map((l) => `${indent}      ${l}`));
     // The spawn's on('close') handler should call resolveStream()
     lines.push(`${indent}    });`);
   } else {
-    lines.push(...handlerLines.map(l => `${indent}    ${l}`));
+    lines.push(...handlerLines.map((l) => `${indent}    ${l}`));
   }
 
   lines.push(`${indent}  } catch (err) {`);
@@ -82,11 +82,13 @@ export function generateSpawnCode(spawnNode: IRNode, indent: string): string[] {
   // Env vars
   const envNodes = getChildren(spawnNode, 'env');
   if (envNodes.length > 0) {
-    const envPairs = envNodes.map(e => {
-      const ep = getProps(e);
-      const entries = Object.entries(ep).filter(([k]) => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
-      return entries.map(([k, v]) => `${k}: '${String(v)}'`).join(', ');
-    }).join(', ');
+    const envPairs = envNodes
+      .map((e) => {
+        const ep = getProps(e);
+        const entries = Object.entries(ep).filter(([k]) => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
+        return entries.map(([k, v]) => `${k}: '${String(v)}'`).join(', ');
+      })
+      .join(', ');
     lines.push(`${indent}  env: { ...process.env, ${envPairs} },`);
   }
 
@@ -133,17 +135,17 @@ export function generateSpawnCode(spawnNode: IRNode, indent: string): string[] {
 
     if (event === 'stdout') {
       lines.push(`${indent}child.stdout.on('data', (chunk: Buffer) => {`);
-      lines.push(...code.split('\n').map(l => `${indent}  ${l.trim()}`));
+      lines.push(...code.split('\n').map((l) => `${indent}  ${l.trim()}`));
       lines.push(`${indent}});`);
     } else if (event === 'stderr') {
       lines.push(`${indent}child.stderr.on('data', (chunk: Buffer) => {`);
-      lines.push(...code.split('\n').map(l => `${indent}  ${l.trim()}`));
+      lines.push(...code.split('\n').map((l) => `${indent}  ${l.trim()}`));
       lines.push(`${indent}});`);
     } else if (event === 'close') {
       hasCloseHandler = true;
       lines.push(`${indent}child.on('close', (code: number | null) => {`);
       if (timeoutSec > 0) lines.push(`${indent}  clearTimeout(spawnTimer);`);
-      lines.push(...code.split('\n').map(l => `${indent}  ${l.trim()}`));
+      lines.push(...code.split('\n').map((l) => `${indent}  ${l.trim()}`));
       // Resolve the stream promise so finally block runs AFTER child exits
       lines.push(`${indent}  if (typeof resolveStream === 'function') resolveStream();`);
       lines.push(`${indent}});`);
@@ -173,28 +175,34 @@ export function generateSpawnCode(spawnNode: IRNode, indent: string): string[] {
 
 export function generateTimerCode(timerNode: IRNode, handlerCode: string, indent: string): string[] {
   const p = getProps(timerNode);
-  const timeoutSec = Number(Object.values(p).find(v => typeof v === 'string' && !isNaN(Number(v))) || p.timeout || 15);
+  const timeoutSec = Number(
+    Object.values(p).find((v) => typeof v === 'string' && !Number.isNaN(Number(v))) || p.timeout || 15,
+  );
   const handlerChild = getFirstChild(timerNode, 'handler');
   const timerHandlerCode = handlerChild ? String(getProps(handlerChild).code || '') : '';
-  const onTimeoutNode = (timerNode.children || []).find(c => c.type === 'on' && (getProps(c).name === 'timeout' || getProps(c).event === 'timeout'));
+  const onTimeoutNode = (timerNode.children || []).find(
+    (c) => c.type === 'on' && (getProps(c).name === 'timeout' || getProps(c).event === 'timeout'),
+  );
   const timeoutHandler = onTimeoutNode ? getFirstChild(onTimeoutNode, 'handler') : undefined;
-  const timeoutCode = timeoutHandler ? String(getProps(timeoutHandler).code || '') : `res.status(408).json({ error: 'Request timed out' });`;
+  const timeoutCode = timeoutHandler
+    ? String(getProps(timeoutHandler).code || '')
+    : `res.status(408).json({ error: 'Request timed out' });`;
 
   const lines: string[] = [];
   lines.push(`${indent}const timeoutMs = ${timeoutSec * 1000};`);
   lines.push(`${indent}const timer = setTimeout(() => {`);
   lines.push(`${indent}  ac.abort();`);
-  lines.push(...timeoutCode.split('\n').map(l => `${indent}  ${l.trim()}`));
+  lines.push(...timeoutCode.split('\n').map((l) => `${indent}  ${l.trim()}`));
   lines.push(`${indent}}, timeoutMs);`);
   lines.push(`${indent}`);
   lines.push(`${indent}try {`);
   // Timer handler code (the work to do)
   if (timerHandlerCode) {
-    lines.push(...timerHandlerCode.split('\n').map(l => `${indent}  ${l.trim()}`));
+    lines.push(...timerHandlerCode.split('\n').map((l) => `${indent}  ${l.trim()}`));
   }
   // Original route handler code
   if (handlerCode) {
-    lines.push(...handlerCode.split('\n').map(l => `${indent}  ${l.trim()}`));
+    lines.push(...handlerCode.split('\n').map((l) => `${indent}  ${l.trim()}`));
   }
   lines.push(`${indent}} catch (err) {`);
   lines.push(`${indent}  if (!ac.signal.aborted) {`);

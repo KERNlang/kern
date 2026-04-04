@@ -3,12 +3,16 @@
  */
 
 import type { ConceptMap, ConceptNode, ConceptSpan } from '@kernlang/core';
-import { mineNorms, type NormViolation } from '../src/norm-miner.js';
+import { mineNorms } from '../src/norm-miner.js';
 
 // ── Test Helpers ─────────────────────────────────────────────────────────
 
 const span = (file: string, line: number): ConceptSpan => ({
-  file, startLine: line, startCol: 0, endLine: line, endCol: 80,
+  file,
+  startLine: line,
+  startCol: 0,
+  endLine: line,
+  endCol: 80,
 });
 
 function fnDeclNode(file: string, name: string, line: number): ConceptNode {
@@ -50,7 +54,12 @@ function errorHandleNode(file: string, containerId: string, line: number): Conce
   };
 }
 
-function effectNode(file: string, containerId: string, line: number, subtype: 'network' | 'db' | 'fs' | 'process' | 'time' | 'random'): ConceptNode {
+function effectNode(
+  file: string,
+  containerId: string,
+  line: number,
+  subtype: 'network' | 'db' | 'fs' | 'process' | 'time' | 'random',
+): ConceptNode {
   return {
     id: `${file}#effect@${line}`,
     kind: 'effect',
@@ -84,27 +93,33 @@ describe('mineNorms: violation detection', () => {
     for (const file of files.slice(0, 3)) {
       const name = `handler_${file.replace(/\//g, '_')}`;
       const containerId = `${file}#fn:${name}@5`;
-      allConcepts.set(file, makeConceptMap(file, [
-        fnDeclNode(file, name, 5),
-        guardNode(file, containerId, 7),
-        effectNode(file, containerId, 10, 'db'),
-      ]));
+      allConcepts.set(
+        file,
+        makeConceptMap(file, [
+          fnDeclNode(file, name, 5),
+          guardNode(file, containerId, 7),
+          effectNode(file, containerId, 10, 'db'),
+        ]),
+      );
     }
 
     const noGuardFile = files[3];
     const noGuardName = 'unguarded_handler';
     const noGuardContainerId = `${noGuardFile}#fn:${noGuardName}@5`;
-    allConcepts.set(noGuardFile, makeConceptMap(noGuardFile, [
-      fnDeclNode(noGuardFile, noGuardName, 5),
-      effectNode(noGuardFile, noGuardContainerId, 10, 'db'),
-    ]));
+    allConcepts.set(
+      noGuardFile,
+      makeConceptMap(noGuardFile, [
+        fnDeclNode(noGuardFile, noGuardName, 5),
+        effectNode(noGuardFile, noGuardContainerId, 10, 'db'),
+      ]),
+    );
 
     const violations = mineNorms(allConcepts);
 
-    const guardViolations = violations.filter(v => v.missingKind === 'guard');
+    const guardViolations = violations.filter((v) => v.missingKind === 'guard');
     expect(guardViolations.length).toBeGreaterThanOrEqual(1);
 
-    const violation = guardViolations.find(v => v.functionNode.primarySpan.file === noGuardFile);
+    const violation = guardViolations.find((v) => v.functionNode.primarySpan.file === noGuardFile);
     expect(violation).toBeDefined();
     expect(violation!.prevalence).toBeGreaterThanOrEqual(0.5);
     expect(violation!.peerCount).toBeGreaterThanOrEqual(2);
@@ -117,27 +132,33 @@ describe('mineNorms: violation detection', () => {
     for (const file of files.slice(0, 3)) {
       const name = `handler_${file.replace(/\//g, '_')}`;
       const containerId = `${file}#fn:${name}@5`;
-      allConcepts.set(file, makeConceptMap(file, [
-        fnDeclNode(file, name, 5),
-        errorHandleNode(file, containerId, 8),
-        effectNode(file, containerId, 10, 'db'),
-      ]));
+      allConcepts.set(
+        file,
+        makeConceptMap(file, [
+          fnDeclNode(file, name, 5),
+          errorHandleNode(file, containerId, 8),
+          effectNode(file, containerId, 10, 'db'),
+        ]),
+      );
     }
 
     const noHandleFile = files[3];
     const noHandleName = 'unhandled_handler';
     const noHandleContainerId = `${noHandleFile}#fn:${noHandleName}@5`;
-    allConcepts.set(noHandleFile, makeConceptMap(noHandleFile, [
-      fnDeclNode(noHandleFile, noHandleName, 5),
-      effectNode(noHandleFile, noHandleContainerId, 10, 'db'),
-    ]));
+    allConcepts.set(
+      noHandleFile,
+      makeConceptMap(noHandleFile, [
+        fnDeclNode(noHandleFile, noHandleName, 5),
+        effectNode(noHandleFile, noHandleContainerId, 10, 'db'),
+      ]),
+    );
 
     const violations = mineNorms(allConcepts);
 
-    const errorViolations = violations.filter(v => v.missingKind === 'error_handle');
+    const errorViolations = violations.filter((v) => v.missingKind === 'error_handle');
     expect(errorViolations.length).toBeGreaterThanOrEqual(1);
 
-    const violation = errorViolations.find(v => v.functionNode.primarySpan.file === noHandleFile);
+    const violation = errorViolations.find((v) => v.functionNode.primarySpan.file === noHandleFile);
     expect(violation).toBeDefined();
   });
 
@@ -146,17 +167,20 @@ describe('mineNorms: violation detection', () => {
     const allConcepts = new Map<string, ConceptMap>();
 
     const fnIdA = `${files[0]}#function_declaration@5`;
-    allConcepts.set(files[0], makeConceptMap(files[0], [
-      fnDeclNode(files[0], 'handler_a', 5),
-      guardNode(files[0], fnIdA, 7),
-      effectNode(files[0], fnIdA, 10, 'db'),
-    ]));
+    allConcepts.set(
+      files[0],
+      makeConceptMap(files[0], [
+        fnDeclNode(files[0], 'handler_a', 5),
+        guardNode(files[0], fnIdA, 7),
+        effectNode(files[0], fnIdA, 10, 'db'),
+      ]),
+    );
 
     const fnIdB = `${files[1]}#function_declaration@5`;
-    allConcepts.set(files[1], makeConceptMap(files[1], [
-      fnDeclNode(files[1], 'handler_b', 5),
-      effectNode(files[1], fnIdB, 10, 'db'),
-    ]));
+    allConcepts.set(
+      files[1],
+      makeConceptMap(files[1], [fnDeclNode(files[1], 'handler_b', 5), effectNode(files[1], fnIdB, 10, 'db')]),
+    );
 
     const violations = mineNorms(allConcepts);
     expect(violations.length).toBe(0);

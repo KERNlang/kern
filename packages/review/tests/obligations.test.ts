@@ -6,11 +6,11 @@
  *   - Express arrow callback detection as function_declaration
  */
 
+import type { ConceptMap } from '@kernlang/core';
+import { Project } from 'ts-morph';
 import { extractTsConcepts } from '../src/mappers/ts-concepts.js';
 import { mineNorms } from '../src/norm-miner.js';
-import { obligationsFromStructure, obligationsFromNorms, synthesizeObligations } from '../src/obligations.js';
-import { Project } from 'ts-morph';
-import type { ConceptMap } from '@kernlang/core';
+import { obligationsFromNorms, obligationsFromStructure, synthesizeObligations } from '../src/obligations.js';
 
 function createSourceFile(source: string, filePath = 'test.ts') {
   const project = new Project({ useInMemoryFileSystem: true, compilerOptions: { strict: true } });
@@ -30,9 +30,9 @@ describe('Express arrow callback detection', () => {
       });
     `);
     const concepts = extractTsConcepts(sf, 'test.ts');
-    const fnDecls = concepts.nodes.filter(n => n.kind === 'function_declaration');
+    const fnDecls = concepts.nodes.filter((n) => n.kind === 'function_declaration');
     const expressHandler = fnDecls.find(
-      n => n.payload.kind === 'function_declaration' && n.payload.name === 'GET_/api/users',
+      (n) => n.payload.kind === 'function_declaration' && n.payload.name === 'GET_/api/users',
     );
     expect(expressHandler).toBeDefined();
     expect(expressHandler!.payload.kind).toBe('function_declaration');
@@ -50,9 +50,9 @@ describe('Express arrow callback detection', () => {
       });
     `);
     const concepts = extractTsConcepts(sf, 'test.ts');
-    const fnDecls = concepts.nodes.filter(n => n.kind === 'function_declaration');
+    const fnDecls = concepts.nodes.filter((n) => n.kind === 'function_declaration');
     const handler = fnDecls.find(
-      n => n.payload.kind === 'function_declaration' && n.payload.name === 'POST_/api/items',
+      (n) => n.payload.kind === 'function_declaration' && n.payload.name === 'POST_/api/items',
     );
     expect(handler).toBeDefined();
   });
@@ -66,10 +66,8 @@ describe('Express arrow callback detection', () => {
       });
     `);
     const concepts = extractTsConcepts(sf, 'test.ts');
-    const fnDecls = concepts.nodes.filter(n => n.kind === 'function_declaration');
-    const middleware = fnDecls.find(
-      n => n.payload.kind === 'function_declaration' && n.payload.name === 'USE_/auth',
-    );
+    const fnDecls = concepts.nodes.filter((n) => n.kind === 'function_declaration');
+    const middleware = fnDecls.find((n) => n.payload.kind === 'function_declaration' && n.payload.name === 'USE_/auth');
     expect(middleware).toBeDefined();
   });
 
@@ -81,10 +79,10 @@ describe('Express arrow callback detection', () => {
       router.patch('/items/:id', async (req, res) => { res.json({}); });
     `);
     const concepts = extractTsConcepts(sf, 'test.ts');
-    const fnDecls = concepts.nodes.filter(n => n.kind === 'function_declaration');
+    const fnDecls = concepts.nodes.filter((n) => n.kind === 'function_declaration');
     const names = fnDecls
-      .filter(n => n.payload.kind === 'function_declaration')
-      .map(n => n.payload.kind === 'function_declaration' ? n.payload.name : '');
+      .filter((n) => n.payload.kind === 'function_declaration')
+      .map((n) => (n.payload.kind === 'function_declaration' ? n.payload.name : ''));
     expect(names).toContain('PUT_/items/:id');
     expect(names).toContain('DELETE_/items/:id');
     expect(names).toContain('PATCH_/items/:id');
@@ -98,14 +96,14 @@ describe('Express arrow callback detection', () => {
       router.get('/api/test', handler);
     `);
     const concepts = extractTsConcepts(sf, 'test.ts');
-    const fnDecls = concepts.nodes.filter(n => n.kind === 'function_declaration');
+    const fnDecls = concepts.nodes.filter((n) => n.kind === 'function_declaration');
     // Should have 'handler' from variable assignment — the ref to handler is not an inline arrow
     const names = fnDecls
-      .filter(n => n.payload.kind === 'function_declaration')
-      .map(n => n.payload.kind === 'function_declaration' ? n.payload.name : '');
+      .filter((n) => n.payload.kind === 'function_declaration')
+      .map((n) => (n.payload.kind === 'function_declaration' ? n.payload.name : ''));
     expect(names).toContain('handler');
     // Should NOT have a duplicate express detection (handler is an identifier, not inline arrow)
-    const expressNames = names.filter(n => n.startsWith('GET_'));
+    const expressNames = names.filter((n) => n.startsWith('GET_'));
     expect(expressNames.length).toBe(0);
   });
 });
@@ -114,17 +112,20 @@ describe('Express arrow callback detection', () => {
 
 describe('Structural obligations', () => {
   it('generates obligation when function has effect but no error_handle', () => {
-    const sf = createSourceFile(`
+    const sf = createSourceFile(
+      `
       async function fetchUsers() {
         const res = await fetch('/api/users');
         return res.json();
       }
-    `, 'handler.ts');
+    `,
+      'handler.ts',
+    );
     const concepts = extractTsConcepts(sf, 'handler.ts');
     const allConcepts = new Map<string, ConceptMap>([['handler.ts', concepts]]);
 
     const obligations = obligationsFromStructure(allConcepts, undefined, 'handler.ts');
-    const effectObligation = obligations.find(o => o.missingKind === 'error_handle');
+    const effectObligation = obligations.find((o) => o.missingKind === 'error_handle');
     expect(effectObligation).toBeDefined();
     expect(effectObligation!.type).toBe('structural');
     expect(effectObligation!.claim).toContain('network');
@@ -132,7 +133,8 @@ describe('Structural obligations', () => {
   });
 
   it('does NOT generate obligation when function has effect AND error_handle', () => {
-    const sf = createSourceFile(`
+    const sf = createSourceFile(
+      `
       async function fetchUsers() {
         try {
           const res = await fetch('/api/users');
@@ -141,30 +143,33 @@ describe('Structural obligations', () => {
           throw new Error('Failed to fetch');
         }
       }
-    `, 'handler.ts');
+    `,
+      'handler.ts',
+    );
     const concepts = extractTsConcepts(sf, 'handler.ts');
     const allConcepts = new Map<string, ConceptMap>([['handler.ts', concepts]]);
 
     const obligations = obligationsFromStructure(allConcepts, undefined, 'handler.ts');
-    const effectObligation = obligations.find(o =>
-      o.missingKind === 'error_handle' && o.functionName === 'fetchUsers',
+    const effectObligation = obligations.find(
+      (o) => o.missingKind === 'error_handle' && o.functionName === 'fetchUsers',
     );
     expect(effectObligation).toBeUndefined();
   });
 
   it('generates DB validation obligation', () => {
-    const sf = createSourceFile(`
+    const sf = createSourceFile(
+      `
       async function createUser() {
         await db.create({ name: 'test' });
       }
-    `, 'handler.ts');
+    `,
+      'handler.ts',
+    );
     const concepts = extractTsConcepts(sf, 'handler.ts');
     const allConcepts = new Map<string, ConceptMap>([['handler.ts', concepts]]);
 
     const obligations = obligationsFromStructure(allConcepts, undefined, 'handler.ts');
-    const dbObligation = obligations.find(o =>
-      o.claim.includes('DB write without input validation'),
-    );
+    const dbObligation = obligations.find((o) => o.claim.includes('DB write without input validation'));
     expect(dbObligation).toBeDefined();
     expect(dbObligation!.missingKind).toBe('guard');
   });
@@ -184,30 +189,42 @@ describe('Softened peer norms (norm-miner)', () => {
     // To properly test, we need 4 functions: 3 with error_handle, 1 without.
     // Prevalence = 3/4 = 0.75 >= 0.75 → fires.
     const files = [
-      { name: 'a.ts', src: `
+      {
+        name: 'a.ts',
+        src: `
         async function fetchA() {
           try { const r = await fetch('/api/a'); return r.json(); }
           catch (e) { throw new Error('A'); }
         }
-      `},
-      { name: 'b.ts', src: `
+      `,
+      },
+      {
+        name: 'b.ts',
+        src: `
         async function fetchB() {
           try { const r = await fetch('/api/b'); return r.json(); }
           catch (e) { throw new Error('B'); }
         }
-      `},
-      { name: 'c.ts', src: `
+      `,
+      },
+      {
+        name: 'c.ts',
+        src: `
         async function fetchC() {
           try { const r = await fetch('/api/c'); return r.json(); }
           catch (e) { throw new Error('C'); }
         }
-      `},
-      { name: 'd.ts', src: `
+      `,
+      },
+      {
+        name: 'd.ts',
+        src: `
         async function fetchD() {
           const r = await fetch('/api/d');
           return r.json();
         }
-      `},
+      `,
+      },
     ];
 
     const allConcepts = new Map<string, ConceptMap>();
@@ -217,10 +234,11 @@ describe('Softened peer norms (norm-miner)', () => {
     }
 
     const violations = mineNorms(allConcepts);
-    const fetchDViolation = violations.find(v =>
-      v.functionNode.payload.kind === 'function_declaration' &&
-      v.functionNode.payload.name === 'fetchD' &&
-      v.missingKind === 'error_handle',
+    const fetchDViolation = violations.find(
+      (v) =>
+        v.functionNode.payload.kind === 'function_declaration' &&
+        v.functionNode.payload.name === 'fetchD' &&
+        v.missingKind === 'error_handle',
     );
     expect(fetchDViolation).toBeDefined();
     expect(fetchDViolation!.peerCount).toBe(3);
@@ -255,12 +273,15 @@ describe('Softened peer norms (norm-miner)', () => {
 
   it('does NOT fire with cluster of 1 (below minimum)', () => {
     // Only one function with a network effect
-    const sf = createSourceFile(`
+    const sf = createSourceFile(
+      `
       async function fetchOnly() {
         const res = await fetch('/api/only');
         return res.json();
       }
-    `, 'single.ts');
+    `,
+      'single.ts',
+    );
 
     const concepts = extractTsConcepts(sf, 'single.ts');
     const allConcepts = new Map<string, ConceptMap>([['single.ts', concepts]]);
@@ -276,30 +297,42 @@ describe('Obligation dedup', () => {
   it('keeps norm violation and removes structural when both target same function+kind', () => {
     // Create 4 files: 3 with error handling, 1 without → norm fires (75% prevalence)
     const files = [
-      { name: 'a.ts', src: `
+      {
+        name: 'a.ts',
+        src: `
         async function handlerA() {
           try { const r = await fetch('/api/a'); return r.json(); }
           catch (e) { throw new Error('A'); }
         }
-      `},
-      { name: 'b.ts', src: `
+      `,
+      },
+      {
+        name: 'b.ts',
+        src: `
         async function handlerB() {
           try { const r = await fetch('/api/b'); return r.json(); }
           catch (e) { throw new Error('B'); }
         }
-      `},
-      { name: 'c.ts', src: `
+      `,
+      },
+      {
+        name: 'c.ts',
+        src: `
         async function handlerC() {
           try { const r = await fetch('/api/c'); return r.json(); }
           catch (e) { throw new Error('C'); }
         }
-      `},
-      { name: 'd.ts', src: `
+      `,
+      },
+      {
+        name: 'd.ts',
+        src: `
         async function handlerD() {
           const r = await fetch('/api/d');
           return r.json();
         }
-      `},
+      `,
+      },
     ];
 
     const allConcepts = new Map<string, ConceptMap>();
@@ -315,7 +348,7 @@ describe('Obligation dedup', () => {
     const obligations = synthesizeObligations(allConcepts, undefined, 'd.ts', normViolations);
 
     // Count how many target handlerD + error_handle
-    const errorHandleObligations = obligations.filter(o => o.missingKind === 'error_handle');
+    const errorHandleObligations = obligations.filter((o) => o.missingKind === 'error_handle');
 
     // Should have exactly 1 (the norm violation), not 2 (norm + structural)
     expect(errorHandleObligations.length).toBe(1);
@@ -324,19 +357,22 @@ describe('Obligation dedup', () => {
 
   it('keeps structural obligation when no norm violation exists', () => {
     // Single file with effect but no error handling — no peers to compare
-    const sf = createSourceFile(`
+    const sf = createSourceFile(
+      `
       async function soloHandler() {
         const res = await fetch('/api/solo');
         return res.json();
       }
-    `, 'solo.ts');
+    `,
+      'solo.ts',
+    );
 
     const concepts = extractTsConcepts(sf, 'solo.ts');
     const allConcepts = new Map<string, ConceptMap>([['solo.ts', concepts]]);
 
     const obligations = synthesizeObligations(allConcepts, undefined, 'solo.ts', []);
 
-    const errorHandleObligation = obligations.find(o => o.missingKind === 'error_handle');
+    const errorHandleObligation = obligations.find((o) => o.missingKind === 'error_handle');
     expect(errorHandleObligation).toBeDefined();
     expect(errorHandleObligation!.type).toBe('structural');
   });
@@ -355,7 +391,14 @@ describe('obligationsFromNorms', () => {
         evidence: 'function test',
         confidence: 0.9,
         language: 'ts',
-        payload: { kind: 'function_declaration' as const, name: 'test', async: true, hasAwait: true, isComponent: false, isExport: false },
+        payload: {
+          kind: 'function_declaration' as const,
+          name: 'test',
+          async: true,
+          hasAwait: true,
+          isComponent: false,
+          isExport: false,
+        },
       },
       norm: 'functions with effect:network should have error_handle',
       missingKind: 'error_handle' as const,
@@ -379,7 +422,14 @@ describe('obligationsFromNorms', () => {
         evidence: 'function test',
         confidence: 0.9,
         language: 'ts',
-        payload: { kind: 'function_declaration' as const, name: 'test', async: true, hasAwait: true, isComponent: false, isExport: false },
+        payload: {
+          kind: 'function_declaration' as const,
+          name: 'test',
+          async: true,
+          hasAwait: true,
+          isComponent: false,
+          isExport: false,
+        },
       },
       norm: 'functions with effect:network should have error_handle',
       missingKind: 'error_handle' as const,

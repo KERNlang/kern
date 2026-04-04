@@ -51,7 +51,27 @@ export interface GeneratedArtifact {
   /** Generated code */
   content: string;
   /** Artifact type */
-  type: 'page' | 'layout' | 'route' | 'middleware' | 'component' | 'config' | 'entry' | 'command' | 'hook' | 'types' | 'barrel' | 'theme' | 'template' | 'websocket' | 'model' | 'service' | 'error' | 'lib' | 'prisma' | 'repository';
+  type:
+    | 'page'
+    | 'layout'
+    | 'route'
+    | 'middleware'
+    | 'component'
+    | 'config'
+    | 'entry'
+    | 'command'
+    | 'hook'
+    | 'types'
+    | 'barrel'
+    | 'theme'
+    | 'template'
+    | 'websocket'
+    | 'model'
+    | 'service'
+    | 'error'
+    | 'lib'
+    | 'prisma'
+    | 'repository';
 }
 
 /** Diagnostic outcome for an IR node during transpilation */

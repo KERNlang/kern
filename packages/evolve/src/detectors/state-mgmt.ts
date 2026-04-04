@@ -3,7 +3,7 @@
  */
 
 import type { SourceFile } from 'ts-morph';
-import type { DetectorPack, DetectionResult } from '../types.js';
+import type { DetectionResult, DetectorPack } from '../types.js';
 
 const recoilAtomDetector: DetectorPack = {
   id: 'recoil-atom',
@@ -19,9 +19,9 @@ const recoilAtomDetector: DetectorPack = {
     while ((match = atomRe.exec(fullText)) !== null) {
       // Make sure it's recoil atom, not jotai
       const imports = sourceFile.getImportDeclarations();
-      const isRecoil = imports.some(imp =>
-        imp.getModuleSpecifierValue() === 'recoil' &&
-        imp.getNamedImports().some(n => n.getName() === 'atom'),
+      const isRecoil = imports.some(
+        (imp) =>
+          imp.getModuleSpecifierValue() === 'recoil' && imp.getNamedImports().some((n) => n.getName() === 'atom'),
       );
       if (!isRecoil) continue;
 
@@ -69,7 +69,7 @@ const reduxSliceDetector: DetectorPack = {
   libraryName: 'Redux Toolkit',
   packageNames: ['@reduxjs/toolkit'],
   patternKind: 'state-management',
-  detect(sourceFile: SourceFile, fullText: string): DetectionResult[] {
+  detect(_sourceFile: SourceFile, fullText: string): DetectionResult[] {
     const results: DetectionResult[] = [];
 
     // Pattern: createSlice({ name, initialState, reducers })

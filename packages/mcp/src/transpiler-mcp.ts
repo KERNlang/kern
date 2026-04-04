@@ -1,5 +1,21 @@
-import type { AccountedEntry, IRNode, ResolvedKernConfig, KernConfig, SourceMapEntry, TranspileResult } from '@kernlang/core';
-import { accountNode, buildDiagnostics, camelKey, countTokens, getChildren, getFirstChild, getProps, serializeIR } from '@kernlang/core';
+import type {
+  AccountedEntry,
+  IRNode,
+  KernConfig,
+  ResolvedKernConfig,
+  SourceMapEntry,
+  TranspileResult,
+} from '@kernlang/core';
+import {
+  accountNode,
+  buildDiagnostics,
+  camelKey,
+  countTokens,
+  getChildren,
+  getFirstChild,
+  getProps,
+  serializeIR,
+} from '@kernlang/core';
 
 // ── Types (from Codex — proper typed interfaces) ────────────────────────
 
@@ -58,19 +74,23 @@ function str(value: unknown): string | undefined {
 function extractDescription(node: IRNode): string {
   const props = getProps(node);
   const descNode = getFirstChild(node, 'description');
-  const raw = str(props.description)
-    || (descNode ? str(getProps(descNode).text) || str(getProps(descNode).value) : undefined)
-    || '';
+  const raw =
+    str(props.description) ||
+    (descNode ? str(getProps(descNode).text) || str(getProps(descNode).value) : undefined) ||
+    '';
   return raw.replace(/[\u0000-\u001F\u007F-\u009F]/g, '').trim();
 }
 
 function indent(code: string, spaces: number): string[] {
   const prefix = ' '.repeat(spaces);
-  return code.split('\n').map(line => line.length > 0 ? `${prefix}${line}` : '');
+  return code.split('\n').map((line) => (line.length > 0 ? `${prefix}${line}` : ''));
 }
 
 function splitCsv(value?: string): string[] {
-  return (value || '').split(',').map(p => p.trim()).filter(Boolean);
+  return (value || '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
 }
 
 // ── Guard collection (from Codex — robust prop aliases) ─────────────────
@@ -82,7 +102,15 @@ function guardTarget(props: Record<string, unknown>): string | undefined {
 function collectGuard(node: IRNode, fallbackAllowlist: string[]): GuardDefinition | null {
   const props = getProps(node);
   const kind = str(props.name) || str(props.kind) || str(props.type);
-  const validKinds: GuardKind[] = ['sanitize', 'pathContainment', 'validate', 'auth', 'rateLimit', 'sizeLimit', 'sanitizeOutput'];
+  const validKinds: GuardKind[] = [
+    'sanitize',
+    'pathContainment',
+    'validate',
+    'auth',
+    'rateLimit',
+    'sizeLimit',
+    'sanitizeOutput',
+  ];
   if (!validKinds.includes(kind as GuardKind)) return null;
   const rawAllow = splitCsv(str(props.allowlist) || str(props.allow) || str(props.roots));
   return {
@@ -109,7 +137,8 @@ function isPathLikeParam(name: string): boolean {
 
 // ── Handler effect detection — auto-inject guards for effects found in handler code ──
 
-const FILE_IO_PATTERN = /\b(readFile|readFileSync|writeFile|writeFileSync|readdir|readdirSync|unlink|unlinkSync|copyFile|rename|mkdir|rmdir|openSync|createReadStream|createWriteStream)\b/;
+const FILE_IO_PATTERN =
+  /\b(readFile|readFileSync|writeFile|writeFileSync|readdir|readdirSync|unlink|unlinkSync|copyFile|rename|mkdir|rmdir|openSync|createReadStream|createWriteStream)\b/;
 const SHELL_EXEC_PATTERN = /\b(exec|execSync|execFile|execFileSync|spawn|spawnSync|child_process)\b/;
 const NETWORK_PATTERN = /\b(fetch|http\.request|https\.request|axios|got\.get|got\.post)\b/;
 
@@ -138,14 +167,14 @@ function autoInjectEffectGuards(
   effects: DetectedEffects,
   fallbackAllowlist: string[],
 ): void {
-  const allGuards = [...params.flatMap(p => p.guards), ...parentGuards];
-  const stringParams = params.filter(p => p.type === 'string');
+  const allGuards = [...params.flatMap((p) => p.guards), ...parentGuards];
+  const stringParams = params.filter((p) => p.type === 'string');
   if (stringParams.length === 0) return;
 
   // File I/O without pathContainment → inject on all string params
-  if (effects.fileIO && !allGuards.some(g => g.kind === 'pathContainment')) {
+  if (effects.fileIO && !allGuards.some((g) => g.kind === 'pathContainment')) {
     for (const p of stringParams) {
-      if (!p.guards.some(g => g.kind === 'pathContainment')) {
+      if (!p.guards.some((g) => g.kind === 'pathContainment')) {
         p.guards.push({ kind: 'pathContainment', target: p.name, allowlist: fallbackAllowlist });
       }
     }
@@ -154,7 +183,7 @@ function autoInjectEffectGuards(
   // Shell exec without sanitize on all string params → inject
   if (effects.shellExec) {
     for (const p of stringParams) {
-      if (!p.guards.some(g => g.kind === 'sanitize')) {
+      if (!p.guards.some((g) => g.kind === 'sanitize')) {
         p.guards.push({ kind: 'sanitize', target: p.name, allowlist: [] });
       }
     }
@@ -163,7 +192,7 @@ function autoInjectEffectGuards(
   // Network calls without sanitize → inject sanitize on string params
   if (effects.network) {
     for (const p of stringParams) {
-      if (!p.guards.some(g => g.kind === 'sanitize')) {
+      if (!p.guards.some((g) => g.kind === 'sanitize')) {
         p.guards.push({ kind: 'sanitize', target: p.name, allowlist: [] });
       }
     }
@@ -173,7 +202,7 @@ function autoInjectEffectGuards(
 function collectParams(node: IRNode, fallbackAllowlist: string[]): ParamDefinition[] {
   const paramNodes = getChildren(node, 'param');
   const parentGuards = getChildren(node, 'guard')
-    .map(g => collectGuard(g, fallbackAllowlist))
+    .map((g) => collectGuard(g, fallbackAllowlist))
     .filter((g): g is GuardDefinition => !!g);
 
   return paramNodes.map((paramNode) => {
@@ -182,13 +211,13 @@ function collectParams(node: IRNode, fallbackAllowlist: string[]): ParamDefiniti
     const type = str(props.type) || 'string';
     const guards = [
       ...getChildren(paramNode, 'guard')
-        .map(g => collectGuard(g, fallbackAllowlist))
+        .map((g) => collectGuard(g, fallbackAllowlist))
         .filter((g): g is GuardDefinition => !!g),
-      ...parentGuards.filter(g => !g.target ? paramNodes.length === 1 : g.target === name),
+      ...parentGuards.filter((g) => (!g.target ? paramNodes.length === 1 : g.target === name)),
     ];
 
     // Auto-inject pathContainment for path-like params (from Codex)
-    if (!guards.some(g => g.kind === 'pathContainment') && isPathLikeParam(name)) {
+    if (!guards.some((g) => g.kind === 'pathContainment') && isPathLikeParam(name)) {
       guards.push({ kind: 'pathContainment', target: name, allowlist: fallbackAllowlist });
     }
 
@@ -209,30 +238,61 @@ function collectParams(node: IRNode, fallbackAllowlist: string[]): ParamDefiniti
 function zodForParam(param: ParamDefinition): string {
   let expr: string;
   switch (param.type) {
-    case 'number': case 'float': expr = 'z.number()'; break;
-    case 'int': case 'integer': expr = 'z.number().int()'; break;
-    case 'boolean': case 'bool': expr = 'z.boolean()'; break;
-    case 'string[]': expr = 'z.array(z.string())'; break;
-    case 'number[]': expr = 'z.array(z.number())'; break;
-    case 'object': case 'json': expr = 'z.record(z.string(), z.unknown())'; break;
-    default: expr = 'z.string()'; break;
+    case 'number':
+    case 'float':
+      expr = 'z.number()';
+      break;
+    case 'int':
+    case 'integer':
+      expr = 'z.number().int()';
+      break;
+    case 'boolean':
+    case 'bool':
+      expr = 'z.boolean()';
+      break;
+    case 'string[]':
+      expr = 'z.array(z.string())';
+      break;
+    case 'number[]':
+      expr = 'z.array(z.number())';
+      break;
+    case 'object':
+    case 'json':
+      expr = 'z.record(z.string(), z.unknown())';
+      break;
+    default:
+      expr = 'z.string()';
+      break;
   }
 
   // Apply validate guards — skip NaN values from malformed .kern input
-  for (const guard of param.guards.filter(g => g.kind === 'validate')) {
+  for (const guard of param.guards.filter((g) => g.kind === 'validate')) {
     if (guard.min && !Number.isNaN(Number(guard.min))) expr += `.min(${Number(guard.min)})`;
     if (guard.max && !Number.isNaN(Number(guard.max))) expr += `.max(${Number(guard.max)})`;
     if (guard.regex) {
-      try { new RegExp(guard.regex); expr += `.regex(new RegExp(${json(guard.regex)}))`; } catch { /* skip invalid regex — ReDoS prevention */ }
+      try {
+        new RegExp(guard.regex);
+        expr += `.regex(new RegExp(${json(guard.regex)}))`;
+      } catch {
+        /* skip invalid regex — ReDoS prevention */
+      }
     }
   }
 
   // Apply inline min/max from param props — skip NaN
   const pp = getProps(param.node);
-  if (pp.min !== undefined && !Number.isNaN(Number(pp.min)) && !param.guards.some(g => g.kind === 'validate' && g.min)) {
+  if (
+    pp.min !== undefined &&
+    !Number.isNaN(Number(pp.min)) &&
+    !param.guards.some((g) => g.kind === 'validate' && g.min)
+  ) {
     expr += `.min(${Number(pp.min)})`;
   }
-  if (pp.max !== undefined && !Number.isNaN(Number(pp.max)) && !param.guards.some(g => g.kind === 'validate' && g.max)) {
+  if (
+    pp.max !== undefined &&
+    !Number.isNaN(Number(pp.max)) &&
+    !param.guards.some((g) => g.kind === 'validate' && g.max)
+  ) {
     expr += `.max(${Number(pp.max)})`;
   }
 
@@ -244,9 +304,13 @@ function zodForParam(param: ParamDefinition): string {
     const t = param.type;
     const isNumeric = t === 'number' || t === 'float' || t === 'int' || t === 'integer';
     const dv = isNumeric
-      ? (Number.isNaN(Number(param.defaultValue)) ? '0' : param.defaultValue)
-      : (t === 'boolean' || t === 'bool')
-        ? (param.defaultValue === 'true' ? 'true' : 'false')
+      ? Number.isNaN(Number(param.defaultValue))
+        ? '0'
+        : param.defaultValue
+      : t === 'boolean' || t === 'bool'
+        ? param.defaultValue === 'true'
+          ? 'true'
+          : 'false'
         : json(param.defaultValue);
     expr += `.default(${dv})`;
   } else if (param.optional) {
@@ -262,33 +326,42 @@ function emitGuardLines(params: ParamDefinition[]): string[] {
   const lines: string[] = [];
   for (const param of params) {
     const accessor = `params[${json(param.name)}]`;
-    for (const guard of param.guards.filter(g => g.kind === 'sanitize')) {
+    for (const guard of param.guards.filter((g) => g.kind === 'sanitize')) {
       const pattern = guard.pattern || '[^\\w./ -]';
       // Validate regex at transpile time to prevent ReDoS in generated code
-      try { new RegExp(pattern); } catch { continue; }
+      try {
+        new RegExp(pattern);
+      } catch {
+        continue;
+      }
       lines.push(`${accessor} = sanitizeValue(${accessor}, ${json(pattern)}, ${json(guard.replacement || '')});`);
     }
-    const pathGuard = param.guards.find(g => g.kind === 'pathContainment');
+    const pathGuard = param.guards.find((g) => g.kind === 'pathContainment');
     if (pathGuard) {
       // Guard against undefined/null becoming the string "undefined"
-      lines.push(`if (${accessor} == null || ${accessor} === "") throw new Error("${param.name} is required for path containment check");`);
+      lines.push(
+        `if (${accessor} == null || ${accessor} === "") throw new Error("${param.name} is required for path containment check");`,
+      );
       const base = pathGuard.baseDir
         ? `path.resolve(${json(pathGuard.baseDir)}, String(${accessor}))`
         : `path.resolve(String(${accessor}))`;
       // Use guard-specific allowlist if set, otherwise fall back to global ALLOWED_PATHS
-      const hasExplicitAllowlist = pathGuard.allowlist.length > 0
-        && !(pathGuard.allowlist.length === 1 && pathGuard.allowlist[0] === 'process.cwd()');
+      const hasExplicitAllowlist =
+        pathGuard.allowlist.length > 0 &&
+        !(pathGuard.allowlist.length === 1 && pathGuard.allowlist[0] === 'process.cwd()');
       if (hasExplicitAllowlist) {
-        const inlineList = `[${pathGuard.allowlist.map(v => json(v)).join(', ')}].map(r => path.resolve(r))`;
+        const inlineList = `[${pathGuard.allowlist.map((v) => json(v)).join(', ')}].map(r => path.resolve(r))`;
         lines.push(`${accessor} = ensurePathContainment(${base}, ${inlineList});`);
       } else {
         lines.push(`${accessor} = ensurePathContainment(${base}, ALLOWED_PATHS);`);
       }
     }
     // sizeLimit guard — check byte length of string params
-    for (const guard of param.guards.filter(g => g.kind === 'sizeLimit')) {
+    for (const guard of param.guards.filter((g) => g.kind === 'sizeLimit')) {
       const maxBytes = guard.maxBytes || guard.max || '1048576';
-      lines.push(`if (typeof ${accessor} === "string" && Buffer.byteLength(${accessor}) > ${maxBytes}) throw new Error("Input ${param.name} exceeds size limit of ${maxBytes} bytes");`);
+      lines.push(
+        `if (typeof ${accessor} === "string" && Buffer.byteLength(${accessor}) > ${maxBytes}) throw new Error("Input ${param.name} exceeds size limit of ${maxBytes} bytes");`,
+      );
     }
   }
   return lines;
@@ -340,12 +413,12 @@ function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Se
   // Auto-inject guards based on handler effects (secure by construction)
   const effects = detectHandlerEffects(handlerCode);
   const parentGuards = getChildren(node, 'guard')
-    .map(g => collectGuard(g, fallbackAllowlist))
+    .map((g) => collectGuard(g, fallbackAllowlist))
     .filter((g): g is GuardDefinition => !!g);
   autoInjectEffectGuards(params, parentGuards, effects, fallbackAllowlist);
 
   // Auto-inject sanitizeOutput if handler calls external APIs and no sanitizeOutput guard exists
-  if (effects.network && !getChildren(node, 'guard').some(g => str(getProps(g).type) === 'sanitizeOutput')) {
+  if (effects.network && !getChildren(node, 'guard').some((g) => str(getProps(g).type) === 'sanitizeOutput')) {
     // Add sanitizeOutput as a tool-level guard node so emitToolGuardLines picks it up
     const syntheticGuard: IRNode = { type: 'guard', props: { type: 'sanitizeOutput' } };
     if (!node.children) node.children = [];
@@ -372,7 +445,9 @@ function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Se
     lines.push('');
   }
 
-  lines.push(`server.tool(${json(name)}, ${json(description)}, ${params.length > 0 ? `${camelKey(name)}Schema` : '{}'}, async (input${needsContext ? ', extra' : ''}) => {`);
+  lines.push(
+    `server.tool(${json(name)}, ${json(description)}, ${params.length > 0 ? `${camelKey(name)}Schema` : '{}'}, async (input${needsContext ? ', extra' : ''}) => {`,
+  );
   lines.push(`  const requestId = nextRequestId();`);
   lines.push(`  logger.info("tool:call", { requestId, tool: ${json(name)} });`);
   lines.push(`  try {`);
@@ -383,7 +458,9 @@ function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Se
   }
 
   if (params.length > 0) {
-    const hasRuntimeGuards = params.some(p => p.guards.some(g => g.kind === 'sanitize' || g.kind === 'pathContainment' || g.kind === 'sizeLimit'));
+    const hasRuntimeGuards = params.some((p) =>
+      p.guards.some((g) => g.kind === 'sanitize' || g.kind === 'pathContainment' || g.kind === 'sizeLimit'),
+    );
     if (hasRuntimeGuards) {
       // Guards may mutate values — use Record<string, unknown> for mutation, then expose as args
       lines.push(`    const params = { ...input } as Record<string, unknown>;`);
@@ -410,7 +487,9 @@ function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Se
     lines.push(`        messages: [{ role: "user", content: { type: "text", text: prompt } }],`);
     lines.push(`        maxTokens: ${maxTokens},`);
     lines.push(`      });`);
-    lines.push(`      return response.content.type === "text" ? response.content.text : JSON.stringify(response.content);`);
+    lines.push(
+      `      return response.content.type === "text" ? response.content.text : JSON.stringify(response.content);`,
+    );
     lines.push(`    }`);
   }
 
@@ -419,8 +498,12 @@ function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Se
     const ep = getProps(elicitNode);
     const elicitMessage = str(ep.message) || str(ep.text) || 'Please provide input';
     lines.push(`    // Elicitation — request structured user input`);
-    lines.push(`    async function requestInput(message = ${json(elicitMessage)}): Promise<Record<string, unknown> | null> {`);
-    lines.push(`      const result = await server.server.elicitInput({ message, requestedSchema: { type: "object", properties: {} } });`);
+    lines.push(
+      `    async function requestInput(message = ${json(elicitMessage)}): Promise<Record<string, unknown> | null> {`,
+    );
+    lines.push(
+      `      const result = await server.server.elicitInput({ message, requestedSchema: { type: "object", properties: {} } });`,
+    );
     lines.push(`      return result.action === "accept" ? (result.content || {}) : null;`);
     lines.push(`    }`);
   }
@@ -463,9 +546,7 @@ function emitResource(node: IRNode, fallbackAllowlist: string[]): string[] {
 
   if (description) lines.push(`// ${description}`);
 
-  const uriArg = hasTemplate
-    ? `new ResourceTemplate(${json(uri)}, { list: undefined })`
-    : json(uri);
+  const uriArg = hasTemplate ? `new ResourceTemplate(${json(uri)}, { list: undefined })` : json(uri);
 
   lines.push(`server.resource(${json(name)}, ${uriArg}, async (uri${hasTemplate ? ', variables' : ''}) => {`);
   lines.push(`  logger.info("resource:read", { resource: ${json(name)}, uri: uri.href });`);
@@ -497,7 +578,7 @@ function emitResource(node: IRNode, fallbackAllowlist: string[]): string[] {
 function emitPrompt(node: IRNode, fallbackAllowlist: string[]): string[] {
   const name = str(getProps(node).name) || 'prompt';
   const description = extractDescription(node);
-  const paramNodes = getChildren(node, 'param');
+  const _paramNodes = getChildren(node, 'param');
   const params = collectParams(node, fallbackAllowlist);
   const handlerNode = getFirstChild(node, 'handler');
   const handlerCode = handlerNode ? str(getProps(handlerNode).code) || '' : '';
@@ -529,12 +610,16 @@ function emitPrompt(node: IRNode, fallbackAllowlist: string[]): string[] {
   if (handlerCode) {
     lines.push(...indent(handlerCode, 4));
   } else {
-    lines.push(`    return { messages: [{ role: "user" as const, content: { type: "text" as const, text: ${json(`${name} prompt`)} } }] };`);
+    lines.push(
+      `    return { messages: [{ role: "user" as const, content: { type: "text" as const, text: ${json(`${name} prompt`)} } }] };`,
+    );
   }
 
   lines.push(`  } catch (error) {`);
   lines.push(`    logger.error("prompt:error", { requestId, prompt: ${json(name)}, error: fmtError(error) });`);
-  lines.push(`    return { messages: [{ role: "user" as const, content: { type: "text" as const, text: fmtError(error) } }] };`);
+  lines.push(
+    `    return { messages: [{ role: "user" as const, content: { type: "text" as const, text: fmtError(error) } }] };`,
+  );
   lines.push(`  }`);
   lines.push(`});`);
   return lines;
@@ -542,7 +627,10 @@ function emitPrompt(node: IRNode, fallbackAllowlist: string[]): string[] {
 
 // ── Main transpiler ─────────────────────────────────────────────────────
 
-function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
+function buildCode(
+  root: IRNode,
+  _config?: KernConfig | ResolvedKernConfig,
+): {
   code: string;
   sourceMap: SourceMapEntry[];
   diagnostics: ReturnType<typeof buildDiagnostics>;
@@ -573,16 +661,17 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
 
   // Determine if we need path import and ResourceTemplate — scan ALL node types, not just tools
   const allNodes = [...toolNodes, ...resourceNodes, ...promptNodes];
-  const allGuards = allNodes.flatMap(n => getChildren(n, 'guard'));
-  const allParams = allNodes.flatMap(n => collectParams(n, allowlist));
-  const needsPath = allGuards.some(g => str(getProps(g).type) === 'pathContainment' || str(getProps(g).kind) === 'pathContainment')
-    || allParams.some(p => p.guards.some(g => g.kind === 'pathContainment'));
-  const needsResourceTemplate = resourceNodes.some(r => (str(getProps(r).uri) || '').includes('{'));
+  const allGuards = allNodes.flatMap((n) => getChildren(n, 'guard'));
+  const allParams = allNodes.flatMap((n) => collectParams(n, allowlist));
+  const needsPath =
+    allGuards.some((g) => str(getProps(g).type) === 'pathContainment' || str(getProps(g).kind) === 'pathContainment') ||
+    allParams.some((p) => p.guards.some((g) => g.kind === 'pathContainment'));
+  const needsResourceTemplate = resourceNodes.some((r) => (str(getProps(r).uri) || '').includes('{'));
 
   const transportType = str(props.transport) || 'stdio';
-  const needsSizeLimit = allParams.some(p => p.guards.some(g => g.kind === 'sizeLimit'));
+  const _needsSizeLimit = allParams.some((p) => p.guards.some((g) => g.kind === 'sizeLimit'));
 
-  const allowlistLiteral = `[${allowlist.map(v => v === 'process.cwd()' ? 'process.cwd()' : json(v)).join(', ')}]`;
+  const allowlistLiteral = `[${allowlist.map((v) => (v === 'process.cwd()' ? 'process.cwd()' : json(v))).join(', ')}]`;
   const sourceMap: SourceMapEntry[] = [];
   const lines: string[] = [];
 
@@ -611,7 +700,9 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
 
   // ── Runtime helpers (auto-injected — from Codex's structured approach)
   if (needsPath) {
-    lines.push(`const ALLOWED_PATHS = ${allowlistLiteral}.map(r => { try { return _realpathSync(r); } catch { return path.resolve(r); } });`);
+    lines.push(
+      `const ALLOWED_PATHS = ${allowlistLiteral}.map(r => { try { return _realpathSync(r); } catch { return path.resolve(r); } });`,
+    );
     lines.push('');
   }
 
@@ -633,7 +724,7 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
   lines.push(`}`);
   lines.push('');
 
-  if (allParams.some(p => p.guards.some(g => g.kind === 'sanitize'))) {
+  if (allParams.some((p) => p.guards.some((g) => g.kind === 'sanitize'))) {
     lines.push(`function sanitizeValue(value: unknown, pattern: string, replacement: string): unknown {`);
     lines.push(`  if (typeof value !== "string") return value;`);
     lines.push(`  try { return value.replace(new RegExp(pattern, "g"), replacement); }`);
@@ -656,15 +747,30 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
   // ── Registrations (collect required helpers from tool guards)
   const requiredHelpers = new Set<string>();
   for (const toolNode of toolNodes) {
-    sourceMap.push({ irLine: toolNode.loc?.line || 0, irCol: toolNode.loc?.col || 1, outLine: lines.length + 1, outCol: 1 });
+    sourceMap.push({
+      irLine: toolNode.loc?.line || 0,
+      irCol: toolNode.loc?.col || 1,
+      outLine: lines.length + 1,
+      outCol: 1,
+    });
     lines.push(...emitTool(toolNode, allowlist, requiredHelpers), '');
   }
   for (const resourceNode of resourceNodes) {
-    sourceMap.push({ irLine: resourceNode.loc?.line || 0, irCol: resourceNode.loc?.col || 1, outLine: lines.length + 1, outCol: 1 });
+    sourceMap.push({
+      irLine: resourceNode.loc?.line || 0,
+      irCol: resourceNode.loc?.col || 1,
+      outLine: lines.length + 1,
+      outCol: 1,
+    });
     lines.push(...emitResource(resourceNode, allowlist), '');
   }
   for (const promptNode of promptNodes) {
-    sourceMap.push({ irLine: promptNode.loc?.line || 0, irCol: promptNode.loc?.col || 1, outLine: lines.length + 1, outCol: 1 });
+    sourceMap.push({
+      irLine: promptNode.loc?.line || 0,
+      irCol: promptNode.loc?.col || 1,
+      outLine: lines.length + 1,
+      outCol: 1,
+    });
     lines.push(...emitPrompt(promptNode, allowlist), '');
   }
 
@@ -675,7 +781,9 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
     helperBlock.push(`// the caller is authenticated. For production, add real token verification logic.`);
     helperBlock.push(`function checkAuth(envVar: string, _header: string): void {`);
     helperBlock.push(`  const token = process.env[envVar];`);
-    helperBlock.push(`  if (!token) throw new Error("Authentication required: set " + envVar + " environment variable");`);
+    helperBlock.push(
+      `  if (!token) throw new Error("Authentication required: set " + envVar + " environment variable");`,
+    );
     helperBlock.push(`}`);
     helperBlock.push('');
   }
@@ -689,15 +797,21 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
     helperBlock.push(`    return;`);
     helperBlock.push(`  }`);
     helperBlock.push(`  entry.count++;`);
-    helperBlock.push(`  if (entry.count > maxRequests) throw new Error(\`Rate limit exceeded for \${toolName}: \${maxRequests} requests per \${windowMs}ms\`);`);
+    helperBlock.push(
+      `  if (entry.count > maxRequests) throw new Error(\`Rate limit exceeded for \${toolName}: \${maxRequests} requests per \${windowMs}ms\`);`,
+    );
     helperBlock.push(`}`);
     helperBlock.push('');
   }
   if (requiredHelpers.has('sanitizeOutput')) {
     helperBlock.push(`/** Strip prompt injection markers from tool output — defense against indirect injection. */`);
-    helperBlock.push(`function sanitizeToolOutput<T extends { content: Array<{ type: "text"; text: string }> }>(result: T): T {`);
+    helperBlock.push(
+      `function sanitizeToolOutput<T extends { content: Array<{ type: "text"; text: string }> }>(result: T): T {`,
+    );
     helperBlock.push(`  const INJECTION_PATTERNS = [`);
-    helperBlock.push(`    /\\b(?:ignore|disregard|forget)\\s+(?:all\\s+)?(?:previous|above|prior)\\s+instructions?/gi,`);
+    helperBlock.push(
+      `    /\\b(?:ignore|disregard|forget)\\s+(?:all\\s+)?(?:previous|above|prior)\\s+instructions?/gi,`,
+    );
     helperBlock.push(`    /\\b(?:you\\s+are|act\\s+as|pretend\\s+to\\s+be|roleplay\\s+as)\\b/gi,`);
     helperBlock.push(`    /\\b(?:system\\s*prompt|\\<\\/?(?:system|user|assistant)\\>)/gi,`);
     helperBlock.push(`    /\\[(?:INST|SYS|\\/?SYSTEM)\\]/gi,`);
@@ -716,7 +830,9 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
   }
   // Insert helpers before registrations
   if (helperBlock.length > 0) {
-    const insertIdx = lines.findIndex(l => l.includes('server.tool(') || l.includes('server.resource(') || l.includes('server.prompt('));
+    const insertIdx = lines.findIndex(
+      (l) => l.includes('server.tool(') || l.includes('server.resource(') || l.includes('server.prompt('),
+    );
     if (insertIdx >= 0) {
       lines.splice(insertIdx, 0, ...helperBlock);
     } else {
@@ -730,10 +846,14 @@ function buildCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
 
   // ── Main entrypoint
   lines.push(`async function main(): Promise<void> {`);
-  lines.push(`  logger.info("server:start", { server: ${json(serverName)}, version: ${json(serverVersion)}, transport: ${json(transport)} });`);
+  lines.push(
+    `  logger.info("server:start", { server: ${json(serverName)}, version: ${json(serverVersion)}, transport: ${json(transport)} });`,
+  );
 
   if (transport === 'http' || transport === 'streamable-http') {
-    lines.push(`  const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");`);
+    lines.push(
+      `  const { StreamableHTTPServerTransport } = await import("@modelcontextprotocol/sdk/server/streamableHttp.js");`,
+    );
     lines.push(`  const _express = (await import("express")).default;`);
     lines.push(`  const app = _express();`);
     lines.push(`  app.use(_express.json());`);
@@ -772,7 +892,10 @@ export function transpileMCP(root: IRNode, config?: ResolvedKernConfig): Transpi
 
   return {
     code,
-    sourceMap: sourceMap.length > 0 ? sourceMap : [{ irLine: root.loc?.line || 0, irCol: root.loc?.col || 1, outLine: 1, outCol: 1 }],
+    sourceMap:
+      sourceMap.length > 0
+        ? sourceMap
+        : [{ irLine: root.loc?.line || 0, irCol: root.loc?.col || 1, outLine: 1, outCol: 1 }],
     irTokenCount,
     tsTokenCount,
     tokenReduction: irTokenCount === 0 ? 0 : Math.round((1 - irTokenCount / tsTokenCount) * 100),

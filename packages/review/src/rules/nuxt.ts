@@ -40,7 +40,10 @@ function missingSsrGuard(ctx: RuleContext): ReviewFinding[] {
       }
       if (fullText[i] === '}') {
         depth--;
-        if (depth === 0) { blockEnd = i; break; }
+        if (depth === 0) {
+          blockEnd = i;
+          break;
+        }
       }
     }
     if (blockStart !== -1 && blockEnd !== -1) {
@@ -53,10 +56,16 @@ function missingSsrGuard(ctx: RuleContext): ReviewFinding[] {
   let mountedMatch;
   while ((mountedMatch = mountedRegex.exec(fullText)) !== null) {
     let depth = 0;
-    let start = mountedMatch.index;
+    const start = mountedMatch.index;
     for (let i = start; i < fullText.length; i++) {
       if (fullText[i] === '(') depth++;
-      if (fullText[i] === ')') { depth--; if (depth === 0) { safeRanges.push([start, i]); break; } }
+      if (fullText[i] === ')') {
+        depth--;
+        if (depth === 0) {
+          safeRanges.push([start, i]);
+          break;
+        }
+      }
     }
   }
 
@@ -80,10 +89,18 @@ function missingSsrGuard(ctx: RuleContext): ReviewFinding[] {
       reported.add(global);
 
       const line = fullText.substring(0, match.index).split('\n').length;
-      findings.push(finding('missing-ssr-guard', 'error', 'bug',
-        `'${global}' accessed without SSR guard — will crash during server rendering`,
-        ctx.filePath, line, 1,
-        { suggestion: `Wrap in if (process.client) { ... } or use onMounted()` }));
+      findings.push(
+        finding(
+          'missing-ssr-guard',
+          'error',
+          'bug',
+          `'${global}' accessed without SSR guard — will crash during server rendering`,
+          ctx.filePath,
+          line,
+          1,
+          { suggestion: `Wrap in if (process.client) { ... } or use onMounted()` },
+        ),
+      );
     }
   }
 
@@ -113,10 +130,18 @@ function nuxtDirectFetch(ctx: RuleContext): ReviewFinding[] {
     if (expr.getText() !== 'fetch') continue;
 
     const line = call.getStartLineNumber();
-    findings.push(finding('nuxt-direct-fetch', 'warning', 'pattern',
-      `Raw fetch() in Nuxt component — use $fetch or useFetch for SSR support and auto-dedup`,
-      ctx.filePath, line, 1,
-      { suggestion: 'Replace fetch() with $fetch() or useFetch() for proper SSR hydration' }));
+    findings.push(
+      finding(
+        'nuxt-direct-fetch',
+        'warning',
+        'pattern',
+        `Raw fetch() in Nuxt component — use $fetch or useFetch for SSR support and auto-dedup`,
+        ctx.filePath,
+        line,
+        1,
+        { suggestion: 'Replace fetch() with $fetch() or useFetch() for proper SSR hydration' },
+      ),
+    );
     break; // One finding per file
   }
 
@@ -126,9 +151,21 @@ function nuxtDirectFetch(ctx: RuleContext): ReviewFinding[] {
 // ── Rule: server-route-leak ─────────────────────────────────────────────
 // Server API routes returning sensitive fields without filtering
 
-const SENSITIVE_FIELDS = new Set(['password', 'passwordHash', 'secret', 'token', 'apiKey',
-  'api_key', 'accessToken', 'access_token', 'refreshToken', 'refresh_token',
-  'ssn', 'creditCard', 'credit_card']);
+const SENSITIVE_FIELDS = new Set([
+  'password',
+  'passwordHash',
+  'secret',
+  'token',
+  'apiKey',
+  'api_key',
+  'accessToken',
+  'access_token',
+  'refreshToken',
+  'refresh_token',
+  'ssn',
+  'creditCard',
+  'credit_card',
+]);
 
 function serverRouteLeak(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -136,7 +173,7 @@ function serverRouteLeak(ctx: RuleContext): ReviewFinding[] {
   // Only run on server/ API routes
   if (!ctx.filePath.includes('/server/') || !ctx.filePath.includes('/api/')) return findings;
 
-  const fullText = ctx.sourceFile.getFullText();
+  const _fullText = ctx.sourceFile.getFullText();
 
   // Look for return statements or send() calls that spread database objects
   // Pattern: return { ...user } or return user (where user likely has sensitive fields)
@@ -150,10 +187,20 @@ function serverRouteLeak(ctx: RuleContext): ReviewFinding[] {
     for (const field of SENSITIVE_FIELDS) {
       if (text.includes(field)) {
         const line = ret.getStartLineNumber();
-        findings.push(finding('server-route-leak', 'error', 'bug',
-          `Server API route may expose '${field}' — filter sensitive fields before returning`,
-          ctx.filePath, line, 1,
-          { suggestion: 'Destructure and return only needed fields: const { password, ...safe } = user; return safe;' }));
+        findings.push(
+          finding(
+            'server-route-leak',
+            'error',
+            'bug',
+            `Server API route may expose '${field}' — filter sensitive fields before returning`,
+            ctx.filePath,
+            line,
+            1,
+            {
+              suggestion: 'Destructure and return only needed fields: const { password, ...safe } = user; return safe;',
+            },
+          ),
+        );
         return findings; // One finding per file
       }
     }
@@ -164,8 +211,4 @@ function serverRouteLeak(ctx: RuleContext): ReviewFinding[] {
 
 // ── Exported Nuxt Rules ─────────────────────────────────────────────────
 
-export const nuxtRules = [
-  missingSsrGuard,
-  nuxtDirectFetch,
-  serverRouteLeak,
-];
+export const nuxtRules = [missingSsrGuard, nuxtDirectFetch, serverRouteLeak];

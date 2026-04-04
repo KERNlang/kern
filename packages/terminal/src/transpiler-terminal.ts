@@ -1,5 +1,15 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
-import { countTokens, serializeIR, isCoreNode, generateCoreNode, getProps, getChildren, getFirstChild, buildDiagnostics, accountNode } from '@kernlang/core';
+import type { AccountedEntry, IRNode, ResolvedKernConfig, SourceMapEntry, TranspileResult } from '@kernlang/core';
+import {
+  accountNode,
+  buildDiagnostics,
+  countTokens,
+  generateCoreNode,
+  getChildren,
+  getFirstChild,
+  getProps,
+  isCoreNode,
+  serializeIR,
+} from '@kernlang/core';
 
 /**
  * Terminal Transpiler — generates ANSI-based CLI rendering code
@@ -138,13 +148,31 @@ function generateStateBlock(stateNode: IRNode): string[] {
   const initial = props.initial as string;
 
   if (name && initial !== undefined) {
-    const initVal = initial === 'null' ? 'null' : initial === 'true' ? 'true' : initial === 'false' ? 'false' : isNaN(Number(initial)) ? `'${initial}'` : String(initial);
+    const initVal =
+      initial === 'null'
+        ? 'null'
+        : initial === 'true'
+          ? 'true'
+          : initial === 'false'
+            ? 'false'
+            : Number.isNaN(Number(initial))
+              ? `'${initial}'`
+              : String(initial);
     lines.push(`let ${name} = ${initVal};`);
   } else if (props.styles) {
     // State block with styles syntax: state {key:value}
     const styles = props.styles as Record<string, string>;
     for (const [key, val] of Object.entries(styles)) {
-      const initVal = val === 'null' ? 'null' : val === 'true' ? 'true' : val === 'false' ? 'false' : isNaN(Number(val)) ? `'${val}'` : String(val);
+      const initVal =
+        val === 'null'
+          ? 'null'
+          : val === 'true'
+            ? 'true'
+            : val === 'false'
+              ? 'false'
+              : Number.isNaN(Number(val))
+                ? `'${val}'`
+                : String(val);
       lines.push(`let ${key} = ${initVal};`);
     }
   }
@@ -155,7 +183,7 @@ function generateStateBlock(stateNode: IRNode): string[] {
 // ── Per-node renderers ───────────────────────────────────────────────────
 
 function renderText(p: Record<string, unknown>, indent: string): string[] {
-  const value = p.value as string || '';
+  const value = (p.value as string) || '';
   const styles = (p.styles as Record<string, string>) || {};
   const styleObj: string[] = [];
   if (styles.c || styles.color) styleObj.push(`color: ${JSON.stringify(styles.c || styles.color)}`);
@@ -177,11 +205,11 @@ function renderSeparator(p: Record<string, unknown>, indent: string): string[] {
 
 function renderTable(node: IRNode, p: Record<string, unknown>, indent: string): string[] {
   const lines: string[] = [];
-  const headers = p.headers as string || '[]';
+  const headers = (p.headers as string) || '[]';
   lines.push(`${indent}const _tableHeaders = ${headers};`);
   lines.push(`${indent}const _tableRows: string[][] = [];`);
   for (const row of getChildren(node, 'row')) {
-    const rowData = getProps(row).data as string || '[]';
+    const rowData = (getProps(row).data as string) || '[]';
     lines.push(`${indent}_tableRows.push(${rowData});`);
   }
   lines.push(`${indent}console.log(table(_tableHeaders, _tableRows));`);
@@ -190,24 +218,24 @@ function renderTable(node: IRNode, p: Record<string, unknown>, indent: string): 
 
 function renderScoreboard(node: IRNode, p: Record<string, unknown>, indent: string): string[] {
   const lines: string[] = [];
-  const title = p.title as string || 'Results';
-  const winner = p.winner as string || '';
+  const title = (p.title as string) || 'Results';
+  const winner = (p.winner as string) || '';
   lines.push(`${indent}console.log(style(${JSON.stringify(title)}, { bold: true }));`);
   if (winner) {
     lines.push(`${indent}console.log(style('Winner: ${winner}', { color: 'green', bold: true }));`);
   }
   for (const metric of getChildren(node, 'metric')) {
     const mp = getProps(metric);
-    const name = mp.name as string || '';
-    const values = mp.values as string || '[]';
+    const name = (mp.name as string) || '';
+    const values = (mp.values as string) || '[]';
     lines.push(`${indent}console.log('  ' + style('${name}:', { dim: true }) + ' ' + ${values}.join(' | '));`);
   }
   return lines;
 }
 
 function renderSpinner(p: Record<string, unknown>, indent: string): string[] {
-  const message = p.message as string || 'Loading...';
-  const color = p.color as string || 'white';
+  const message = (p.message as string) || 'Loading...';
+  const color = (p.color as string) || 'white';
   return [
     `${indent}const _spinner = spinner(${JSON.stringify(message)}, ${JSON.stringify(color)});`,
     `${indent}_spinner.start();`,
@@ -217,18 +245,18 @@ function renderSpinner(p: Record<string, unknown>, indent: string): string[] {
 function renderProgress(p: Record<string, unknown>, indent: string): string[] {
   const value = Number(p.value) || 0;
   const max = Number(p.max) || 100;
-  const color = p.color as string || 'green';
+  const color = (p.color as string) || 'green';
   return [`${indent}console.log(progressBar(${value}, ${max}, 20, ${JSON.stringify(color)}));`];
 }
 
 function renderBox(node: IRNode, p: Record<string, unknown>, indent: string): string[] {
-  const color = p.color as string || 'white';
+  const color = (p.color as string) || 'white';
   const width = Number(p.width) || 50;
   const boxContent: string[] = [];
   for (const child of node.children || []) {
     const cp = getProps(child);
     if (child.type === 'text') {
-      boxContent.push(cp.value as string || '');
+      boxContent.push((cp.value as string) || '');
     } else if (child.type === 'separator') {
       boxContent.push('─'.repeat(Math.min(Number(cp.width) || 40, width - 4)));
     } else if (child.type === 'progress') {
@@ -241,14 +269,14 @@ function renderBox(node: IRNode, p: Record<string, unknown>, indent: string): st
 }
 
 function renderGradient(p: Record<string, unknown>, indent: string): string[] {
-  const text = p.text as string || '';
-  const colors = p.colors as string || '[]';
+  const text = (p.text as string) || '';
+  const colors = (p.colors as string) || '[]';
   return [`${indent}console.log(gradient(${JSON.stringify(text)}, ${colors}));`];
 }
 
 function renderHandler(p: Record<string, unknown>, indent: string): string[] {
-  const code = p.code as string || '';
-  return code.split('\n').map(line => `${indent}${line.trim()}`);
+  const code = (p.code as string) || '';
+  return code.split('\n').map((line) => `${indent}${line.trim()}`);
 }
 
 // ── Node renderer (dispatch) ─────────────────────────────────────────────
@@ -258,15 +286,24 @@ function renderTerminalNode(node: IRNode, indent: string): string[] {
   const lines: string[] = [];
 
   switch (node.type) {
-    case 'text': return renderText(p as Record<string, unknown>, indent);
-    case 'separator': return renderSeparator(p as Record<string, unknown>, indent);
-    case 'table': return renderTable(node, p as Record<string, unknown>, indent);
-    case 'scoreboard': return renderScoreboard(node, p as Record<string, unknown>, indent);
-    case 'spinner': return renderSpinner(p as Record<string, unknown>, indent);
-    case 'progress': return renderProgress(p as Record<string, unknown>, indent);
-    case 'box': return renderBox(node, p as Record<string, unknown>, indent);
-    case 'gradient': return renderGradient(p as Record<string, unknown>, indent);
-    case 'handler': return renderHandler(p as Record<string, unknown>, indent);
+    case 'text':
+      return renderText(p as Record<string, unknown>, indent);
+    case 'separator':
+      return renderSeparator(p as Record<string, unknown>, indent);
+    case 'table':
+      return renderTable(node, p as Record<string, unknown>, indent);
+    case 'scoreboard':
+      return renderScoreboard(node, p as Record<string, unknown>, indent);
+    case 'spinner':
+      return renderSpinner(p as Record<string, unknown>, indent);
+    case 'progress':
+      return renderProgress(p as Record<string, unknown>, indent);
+    case 'box':
+      return renderBox(node, p as Record<string, unknown>, indent);
+    case 'gradient':
+      return renderGradient(p as Record<string, unknown>, indent);
+    case 'handler':
+      return renderHandler(p as Record<string, unknown>, indent);
     case 'state':
     case 'repl':
       break;
@@ -275,7 +312,7 @@ function renderTerminalNode(node: IRNode, indent: string): string[] {
       break;
     default:
       if (isCoreNode(node.type)) {
-        lines.push(...generateCoreNode(node).map(l => `${indent}${l}`));
+        lines.push(...generateCoreNode(node).map((l) => `${indent}${l}`));
         break;
       }
       if (node.children) {
@@ -296,9 +333,9 @@ function generateParallelCode(node: IRNode, indent: string): string[] {
   const lines: string[] = [];
 
   // Find each/dispatch children and then block
-  const eachNode = (node.children || []).find(c => c.type === 'each');
+  const eachNode = (node.children || []).find((c) => c.type === 'each');
   const dispatchNodes = getChildren(node, 'dispatch');
-  const thenNode = (node.children || []).find(c => c.type === 'then');
+  const thenNode = (node.children || []).find((c) => c.type === 'then');
 
   lines.push(`${indent}// ── Parallel dispatch ──────────────────────────`);
   lines.push(`${indent}await (async () => {`);
@@ -311,21 +348,21 @@ function generateParallelCode(node: IRNode, indent: string): string[] {
     const ep = getProps(eachNode);
     // "each engine in state.engines" → varName=engine, collection=state.engines
     // Parse from props: name=engine, in=state.engines (or similar)
-    const varName = ep.name as string || 'item';
+    const varName = (ep.name as string) || 'item';
     const collection = (ep.in as string) || '[]';
     const innerDispatch = getFirstChild(eachNode, 'dispatch');
 
     if (innerDispatch) {
       const dp = getProps(innerDispatch);
-      const prompt = dp.prompt as string || 'prompt';
-      const resultVar = dp.result as string || 'result';
+      const prompt = (dp.prompt as string) || 'prompt';
+      const resultVar = (dp.result as string) || 'result';
 
       // Check for on start/done events (Pattern B)
-      const onStartNode = (innerDispatch.children || []).find(c =>
-        c.type === 'on' && (getProps(c).name === 'start' || getProps(c).event === 'start')
+      const onStartNode = (innerDispatch.children || []).find(
+        (c) => c.type === 'on' && (getProps(c).name === 'start' || getProps(c).event === 'start'),
       );
-      const onDoneNode = (innerDispatch.children || []).find(c =>
-        c.type === 'on' && (getProps(c).name === 'done' || getProps(c).event === 'done')
+      const onDoneNode = (innerDispatch.children || []).find(
+        (c) => c.type === 'on' && (getProps(c).name === 'done' || getProps(c).event === 'done'),
       );
 
       lines.push(`${indent}  const _tasks = (${collection} || []).map(async (${varName}) => {`);
@@ -356,16 +393,16 @@ function generateParallelCode(node: IRNode, indent: string): string[] {
     lines.push(`${indent}  const _tasks = [`);
     for (const dn of dispatchNodes) {
       const dp = getProps(dn);
-      const engine = dp.engine as string || 'engine';
-      const prompt = dp.prompt as string || 'prompt';
-      const resultVar = dp.result as string || `${engine}Result`;
+      const engine = (dp.engine as string) || 'engine';
+      const prompt = (dp.prompt as string) || 'prompt';
+      const resultVar = (dp.result as string) || `${engine}Result`;
 
       // Check for on start/done events
-      const onStartNode = (dn.children || []).find(c =>
-        c.type === 'on' && (getProps(c).name === 'start' || getProps(c).event === 'start')
+      const onStartNode = (dn.children || []).find(
+        (c) => c.type === 'on' && (getProps(c).name === 'start' || getProps(c).event === 'start'),
       );
-      const onDoneNode = (dn.children || []).find(c =>
-        c.type === 'on' && (getProps(c).name === 'done' || getProps(c).event === 'done')
+      const onDoneNode = (dn.children || []).find(
+        (c) => c.type === 'on' && (getProps(c).name === 'done' || getProps(c).event === 'done'),
       );
 
       lines.push(`${indent}    (async () => {`);
@@ -378,7 +415,9 @@ function generateParallelCode(node: IRNode, indent: string): string[] {
         }
       }
 
-      lines.push(`${indent}      const ${resultVar} = await dispatch(${JSON.stringify(engine)}, ${prompt}, { signal: _ac.signal });`);
+      lines.push(
+        `${indent}      const ${resultVar} = await dispatch(${JSON.stringify(engine)}, ${prompt}, { signal: _ac.signal });`,
+      );
 
       if (onDoneNode) {
         const doneHandler = getFirstChild(onDoneNode, 'handler');
@@ -452,10 +491,10 @@ export function transpileTerminal(root: IRNode, _config?: ResolvedKernConfig): T
   }
 
   // REPL node detection — generate readline setup
-  const replNode = (root.children || []).find(c => c.type === 'repl');
+  const replNode = (root.children || []).find((c) => c.type === 'repl');
 
   // Core language nodes (type, interface, fn, machine, etc.) — emit before output
-  const coreChildren = (root.children || []).filter(c => isCoreNode(c.type));
+  const coreChildren = (root.children || []).filter((c) => isCoreNode(c.type));
   if (coreChildren.length > 0) {
     lines.push('// ── Core ───────────────────────────────────────────────');
     for (const child of coreChildren) {
@@ -465,8 +504,10 @@ export function transpileTerminal(root: IRNode, _config?: ResolvedKernConfig): T
   }
 
   // Render static nodes (text, separator, box, parallel, etc.) before REPL
-  const staticChildren = (root.children || []).filter(c => c.type !== 'state' && c.type !== 'repl' && !isCoreNode(c.type));
-  const hasAsync = staticChildren.some(c => c.type === 'parallel');
+  const staticChildren = (root.children || []).filter(
+    (c) => c.type !== 'state' && c.type !== 'repl' && !isCoreNode(c.type),
+  );
+  const hasAsync = staticChildren.some((c) => c.type === 'parallel');
 
   if (staticChildren.length > 0) {
     lines.push('// ── Output ─────────────────────────────────────────────');
@@ -507,7 +548,7 @@ export function transpileTerminal(root: IRNode, _config?: ResolvedKernConfig): T
       accountNode(accounted, root, 'expressed', undefined, true);
       const CONSUMED = new Set(['state', 'repl', 'on', 'handler']);
       for (const child of root.children || []) {
-        if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+        if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', `${child.type} pre-pass`, true);
       }
       return buildDiagnostics(root, accounted, 'terminal');
     })(),
@@ -518,7 +559,7 @@ export function transpileTerminal(root: IRNode, _config?: ResolvedKernConfig): T
 
 function generateReplCode(replNode: IRNode): string[] {
   const p = getProps(replNode);
-  const prompt = p.prompt as string || '> ';
+  const prompt = (p.prompt as string) || '> ';
   const lines: string[] = [];
 
   lines.push(`import { createInterface } from 'node:readline';`);
@@ -527,13 +568,15 @@ function generateReplCode(replNode: IRNode): string[] {
   lines.push(`const rl = createInterface({`);
   lines.push(`  input: process.stdin,`);
   lines.push(`  output: process.stdout,`);
-  lines.push(`  prompt: ${JSON.stringify(prompt + ' ')},`);
+  lines.push(`  prompt: ${JSON.stringify(`${prompt} `)},`);
   lines.push(`});`);
   lines.push('');
 
   // on line handler
-  const onLineNode = (replNode.children || []).find(c =>
-    c.type === 'on' && ((getProps(c).name || getProps(c).event) === 'line' || (getProps(c).name || getProps(c).event) === 'input')
+  const onLineNode = (replNode.children || []).find(
+    (c) =>
+      c.type === 'on' &&
+      ((getProps(c).name || getProps(c).event) === 'line' || (getProps(c).name || getProps(c).event) === 'input'),
   );
   if (onLineNode) {
     const handlerNode = getFirstChild(onLineNode, 'handler');
@@ -544,10 +587,12 @@ function generateReplCode(replNode: IRNode): string[] {
     lines.push(`  if (!trimmed) { rl.prompt(); return; }`);
 
     // Guard node — busy check
-    const guardNode = (replNode.children || []).find(c => c.type === 'guard');
+    const guardNode = (replNode.children || []).find((c) => c.type === 'guard');
     if (guardNode) {
       const guardProp = getProps(guardNode);
-      const condition = Object.entries(guardProp).find(([k]) => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
+      const condition = Object.entries(guardProp).find(
+        ([k]) => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs',
+      );
       if (condition) {
         lines.push(`  if (${condition[0]}) {`);
         // Guard children (text output)
@@ -569,8 +614,10 @@ function generateReplCode(replNode: IRNode): string[] {
   }
 
   // on interrupt handler
-  const onInterruptNode = (replNode.children || []).find(c =>
-    c.type === 'on' && ((getProps(c).name || getProps(c).event) === 'interrupt' || (getProps(c).name || getProps(c).event) === 'SIGINT')
+  const onInterruptNode = (replNode.children || []).find(
+    (c) =>
+      c.type === 'on' &&
+      ((getProps(c).name || getProps(c).event) === 'interrupt' || (getProps(c).name || getProps(c).event) === 'SIGINT'),
   );
   if (onInterruptNode) {
     lines.push('');

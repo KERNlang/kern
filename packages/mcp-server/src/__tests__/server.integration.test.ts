@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { resolve, dirname } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -11,11 +11,15 @@ function sendMCP(messages: object[]): Promise<{ stdout: string; stderr: string }
     let stdout = '';
     let stderr = '';
 
-    cp.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
-    cp.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    cp.stdout.on('data', (d: Buffer) => {
+      stdout += d.toString();
+    });
+    cp.stderr.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
 
     for (const msg of messages) {
-      cp.stdin.write(JSON.stringify(msg) + '\n');
+      cp.stdin.write(`${JSON.stringify(msg)}\n`);
     }
 
     setTimeout(() => {
@@ -51,11 +55,15 @@ describe('KERN MCP Server Integration', () => {
 
   it('should list tools', async () => {
     const { stdout } = await sendMCP([
-      rpc('initialize', {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'test', version: '1.0' },
-      }, 1),
+      rpc(
+        'initialize',
+        {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1.0' },
+        },
+        1,
+      ),
       { jsonrpc: '2.0', method: 'notifications/initialized' },
       rpc('tools/list', {}, 2),
     ]);
@@ -73,19 +81,27 @@ describe('KERN MCP Server Integration', () => {
 
   it('should compile .kern source via tools/call', async () => {
     const { stdout } = await sendMCP([
-      rpc('initialize', {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'test', version: '1.0' },
-      }, 1),
-      { jsonrpc: '2.0', method: 'notifications/initialized' },
-      rpc('tools/call', {
-        name: 'compile',
-        arguments: {
-          source: 'page name=Home\n  text value="Hello"',
-          target: 'nextjs',
+      rpc(
+        'initialize',
+        {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1.0' },
         },
-      }, 2),
+        1,
+      ),
+      { jsonrpc: '2.0', method: 'notifications/initialized' },
+      rpc(
+        'tools/call',
+        {
+          name: 'compile',
+          arguments: {
+            source: 'page name=Home\n  text value="Hello"',
+            target: 'nextjs',
+          },
+        },
+        2,
+      ),
     ]);
 
     const lines = stdout.split('\n').filter(Boolean);
@@ -96,16 +112,24 @@ describe('KERN MCP Server Integration', () => {
 
   it('should parse .kern source', async () => {
     const { stdout } = await sendMCP([
-      rpc('initialize', {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'test', version: '1.0' },
-      }, 1),
+      rpc(
+        'initialize',
+        {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1.0' },
+        },
+        1,
+      ),
       { jsonrpc: '2.0', method: 'notifications/initialized' },
-      rpc('tools/call', {
-        name: 'parse',
-        arguments: { source: 'screen name=Dashboard\n  text value="Hello"' },
-      }, 2),
+      rpc(
+        'tools/call',
+        {
+          name: 'parse',
+          arguments: { source: 'screen name=Dashboard\n  text value="Hello"' },
+        },
+        2,
+      ),
     ]);
 
     const lines = stdout.split('\n').filter(Boolean);
@@ -115,16 +139,24 @@ describe('KERN MCP Server Integration', () => {
 
   it('should validate .kern source', async () => {
     const { stdout } = await sendMCP([
-      rpc('initialize', {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'test', version: '1.0' },
-      }, 1),
+      rpc(
+        'initialize',
+        {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1.0' },
+        },
+        1,
+      ),
       { jsonrpc: '2.0', method: 'notifications/initialized' },
-      rpc('tools/call', {
-        name: 'validate',
-        arguments: { source: 'button label="Click"' },
-      }, 2),
+      rpc(
+        'tools/call',
+        {
+          name: 'validate',
+          arguments: { source: 'button label="Click"' },
+        },
+        2,
+      ),
     ]);
 
     const lines = stdout.split('\n').filter(Boolean);
@@ -134,11 +166,15 @@ describe('KERN MCP Server Integration', () => {
 
   it('should list targets', async () => {
     const { stdout } = await sendMCP([
-      rpc('initialize', {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'test', version: '1.0' },
-      }, 1),
+      rpc(
+        'initialize',
+        {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1.0' },
+        },
+        1,
+      ),
       { jsonrpc: '2.0', method: 'notifications/initialized' },
       rpc('tools/call', { name: 'list-targets', arguments: {} }, 2),
     ]);

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * @kernlang/mcp-server — KERN MCP Server
  *
@@ -9,33 +10,44 @@
  * Config: { "mcpServers": { "kern": { "command": "npx", "args": ["@kernlang/mcp-server"] } } }
  */
 
+import type { IRNode, KernTarget, ResolvedKernConfig } from '@kernlang/core';
+import {
+  countTokens,
+  decompile,
+  KERN_VERSION,
+  NODE_SCHEMAS,
+  NODE_TYPES,
+  parse,
+  resolveConfig,
+  STYLE_SHORTHANDS,
+  serializeIR,
+  VALID_TARGETS,
+} from '@kernlang/core';
+import { transpileExpress } from '@kernlang/express';
+import { transpileFastAPI } from '@kernlang/fastapi';
+import { transpileMCP } from '@kernlang/mcp';
+
+import { transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
+import { reviewKernSource, reviewSource } from '@kernlang/review';
+import { reviewMCPSource } from '@kernlang/review-mcp';
+import { transpileInk, transpileTerminal } from '@kernlang/terminal';
+import { transpileNuxt, transpileVue } from '@kernlang/vue';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
-import {
-  parse, decompile, resolveConfig, serializeIR, countTokens,
-  VALID_TARGETS, KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, NODE_SCHEMAS,
-} from '@kernlang/core';
-import type { KernTarget, IRNode, ResolvedKernConfig } from '@kernlang/core';
-
-import { transpileWeb, transpileTailwind, transpileNextjs } from '@kernlang/react';
-import { transpileExpress } from '@kernlang/express';
-import { transpileFastAPI } from '@kernlang/fastapi';
-import { transpileTerminal, transpileInk } from '@kernlang/terminal';
-import { transpileVue, transpileNuxt } from '@kernlang/vue';
-import { transpileMCP } from '@kernlang/mcp';
-import { reviewSource, reviewKernSource } from '@kernlang/review';
-import { reviewMCPSource } from '@kernlang/review-mcp';
-
 // ── Server ──────────────────────────────────────────────────────────────
 
-const server = new McpServer({
-  name: 'kern',
-  version: '3.0.0',
-}, {
-  instructions: 'KERN is a declarative DSL that compiles to 12 targets. Use the write-kern prompt to learn the syntax before writing .kern code. Use compile to generate output, review to analyze code, and review-kern to lint .kern source.',
-});
+const server = new McpServer(
+  {
+    name: 'kern',
+    version: '3.0.0',
+  },
+  {
+    instructions:
+      'KERN is a declarative DSL that compiles to 12 targets. Use the write-kern prompt to learn the syntax before writing .kern code. Use compile to generate output, review to analyze code, and review-kern to lint .kern source.',
+  },
+);
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -53,17 +65,28 @@ function fmtError(error: unknown): string {
 
 function transpile(ast: IRNode, target: KernTarget, config: ResolvedKernConfig) {
   switch (target) {
-    case 'web':       return transpileWeb(ast, config);
-    case 'tailwind':  return transpileTailwind(ast, config);
-    case 'nextjs':    return transpileNextjs(ast, config);
-    case 'express':   return transpileExpress(ast, config);
-    case 'fastapi':   return transpileFastAPI(ast, config);
-    case 'terminal':  return transpileTerminal(ast, config);
-    case 'ink':       return transpileInk(ast, config);
-    case 'vue':       return transpileVue(ast, config);
-    case 'nuxt':      return transpileNuxt(ast, config);
-    case 'mcp':       return transpileMCP(ast, config);
-    default:          return transpileNextjs(ast, config);
+    case 'web':
+      return transpileWeb(ast, config);
+    case 'tailwind':
+      return transpileTailwind(ast, config);
+    case 'nextjs':
+      return transpileNextjs(ast, config);
+    case 'express':
+      return transpileExpress(ast, config);
+    case 'fastapi':
+      return transpileFastAPI(ast, config);
+    case 'terminal':
+      return transpileTerminal(ast, config);
+    case 'ink':
+      return transpileInk(ast, config);
+    case 'vue':
+      return transpileVue(ast, config);
+    case 'nuxt':
+      return transpileNuxt(ast, config);
+    case 'mcp':
+      return transpileMCP(ast, config);
+    default:
+      return transpileNextjs(ast, config);
   }
 }
 
@@ -93,14 +116,14 @@ server.tool(
       const result = transpile(ast, target as KernTarget, config);
       let text = `// Compiled to ${target} (${result.irTokenCount} KERN → ${result.tsTokenCount} output tokens)\n${result.code}`;
       if (result.artifacts?.length) {
-        text += '\n\n' + result.artifacts.map(a => `--- ${a.path} ---\n${a.content}`).join('\n\n');
+        text += `\n\n${result.artifacts.map((a) => `--- ${a.path} ---\n${a.content}`).join('\n\n')}`;
       }
       return { content: [{ type: 'text', text }] };
     } catch (e) {
       err('tool:compile:error', { error: fmtError(e) });
       return { isError: true, content: [{ type: 'text', text: `Compile error: ${fmtError(e)}` }] };
     }
-  }
+  },
 );
 
 // 2. review — TypeScript/JavaScript static analysis
@@ -118,20 +141,27 @@ server.tool(
       const report = reviewSource(source, filePath, { target: target as KernTarget });
       const findings = report.findings;
       if (!findings.length) return { content: [{ type: 'text', text: 'No issues found.' }] };
-      const lines = findings.map(f => {
+      const lines = findings.map((f) => {
         const loc = f.primarySpan?.startLine ? `L${f.primarySpan.startLine}` : '';
         const conf = f.confidence !== undefined ? ` [${f.confidence.toFixed(2)}]` : '';
         const sev = f.severity === 'error' ? '!' : f.severity === 'warning' ? '~' : '-';
         return `${sev} ${loc}: [${f.ruleId}]${conf} ${f.message}${f.suggestion ? `\n  → ${f.suggestion}` : ''}`;
       });
-      const errors = findings.filter(f => f.severity === 'error').length;
-      const warnings = findings.filter(f => f.severity === 'warning').length;
-      return { content: [{ type: 'text', text: `${findings.length} finding(s) — ${errors} errors, ${warnings} warnings\n\n${lines.join('\n')}` }] };
+      const errors = findings.filter((f) => f.severity === 'error').length;
+      const warnings = findings.filter((f) => f.severity === 'warning').length;
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `${findings.length} finding(s) — ${errors} errors, ${warnings} warnings\n\n${lines.join('\n')}`,
+          },
+        ],
+      };
     } catch (e) {
       err('tool:review:error', { error: fmtError(e) });
       return { isError: true, content: [{ type: 'text', text: `Review error: ${fmtError(e)}` }] };
     }
-  }
+  },
 );
 
 // 3. review-kern — lint .kern source files
@@ -147,7 +177,7 @@ server.tool(
       const report = reviewKernSource(source);
       const findings = report.findings;
       if (!findings.length) return { content: [{ type: 'text', text: 'No issues found in .kern source.' }] };
-      const lines = findings.map(f => {
+      const lines = findings.map((f) => {
         const loc = f.primarySpan?.startLine ? `L${f.primarySpan.startLine}` : '';
         return `${f.severity === 'error' ? '!' : '~'} ${loc}: [${f.ruleId}] ${f.message}`;
       });
@@ -156,7 +186,7 @@ server.tool(
       err('tool:review-kern:error', { error: fmtError(e) });
       return { isError: true, content: [{ type: 'text', text: `Review error: ${fmtError(e)}` }] };
     }
-  }
+  },
 );
 
 // 4. review-mcp-server — scan MCP server code for security issues
@@ -172,7 +202,7 @@ server.tool(
     try {
       const findings = reviewMCPSource(source, filePath);
       if (!findings.length) return { content: [{ type: 'text', text: 'No MCP security issues found.' }] };
-      const lines = findings.map(f => {
+      const lines = findings.map((f) => {
         const loc = f.primarySpan?.startLine ? `L${f.primarySpan.startLine}` : '';
         return `${f.severity === 'error' ? '!' : '~'} ${loc}: [${f.ruleId}] ${f.message}${f.suggestion ? `\n  → ${f.suggestion}` : ''}`;
       });
@@ -181,7 +211,7 @@ server.tool(
       err('tool:review-mcp:error', { error: fmtError(e) });
       return { isError: true, content: [{ type: 'text', text: `MCP review error: ${fmtError(e)}` }] };
     }
-  }
+  },
 );
 
 // 5. parse — .kern to IR
@@ -198,7 +228,7 @@ server.tool(
     } catch (e) {
       return { isError: true, content: [{ type: 'text', text: `Parse error: ${fmtError(e)}` }] };
     }
-  }
+  },
 );
 
 // 6. decompile — IR tree back to readable .kern text
@@ -215,7 +245,7 @@ server.tool(
     } catch (e) {
       return { isError: true, content: [{ type: 'text', text: `Decompile error: ${fmtError(e)}` }] };
     }
-  }
+  },
 );
 
 // 7. validate
@@ -230,33 +260,44 @@ server.tool(
     } catch (e) {
       return { isError: true, content: [{ type: 'text', text: `Syntax error: ${fmtError(e)}` }] };
     }
-  }
+  },
 );
 
 // 8. list-targets
-server.tool(
-  'list-targets',
-  'List all available KERN compile targets.',
-  {},
-  async () => {
-    const targets: Record<string, string> = {
-      nextjs: 'Next.js (App Router, TypeScript/React)', tailwind: 'React + Tailwind CSS',
-      web: 'Plain React components', vue: 'Vue 3 SFC', nuxt: 'Nuxt 3 (Vue meta-framework)',
-      express: 'Express TypeScript REST API', fastapi: 'FastAPI Python async backend',
-      native: 'React Native (iOS/Android)', cli: 'Node.js CLI', terminal: 'Terminal UI (ANSI)',
-      ink: 'Ink (React for terminals)', mcp: 'MCP server (Model Context Protocol)',
-    };
-    const lines = Object.entries(targets).map(([k, v]) => `  ${k.padEnd(10)} — ${v}`);
-    return { content: [{ type: 'text', text: `KERN v${KERN_VERSION} — ${VALID_TARGETS.length} targets:\n\n${lines.join('\n')}` }] };
-  }
-);
+server.tool('list-targets', 'List all available KERN compile targets.', {}, async () => {
+  const targets: Record<string, string> = {
+    nextjs: 'Next.js (App Router, TypeScript/React)',
+    tailwind: 'React + Tailwind CSS',
+    web: 'Plain React components',
+    vue: 'Vue 3 SFC',
+    nuxt: 'Nuxt 3 (Vue meta-framework)',
+    express: 'Express TypeScript REST API',
+    fastapi: 'FastAPI Python async backend',
+    native: 'React Native (iOS/Android)',
+    cli: 'Node.js CLI',
+    terminal: 'Terminal UI (ANSI)',
+    ink: 'Ink (React for terminals)',
+    mcp: 'MCP server (Model Context Protocol)',
+  };
+  const lines = Object.entries(targets).map(([k, v]) => `  ${k.padEnd(10)} — ${v}`);
+  return {
+    content: [
+      { type: 'text', text: `KERN v${KERN_VERSION} — ${VALID_TARGETS.length} targets:\n\n${lines.join('\n')}` },
+    ],
+  };
+});
 
 // 9. list-nodes — describe available node types with their props
 server.tool(
   'list-nodes',
   'List KERN node types with their properties and allowed children. Use this to understand what props a node accepts.',
   {
-    filter: z.string().optional().describe('Filter by category: layout, content, interactive, backend, data, state, react, cli, terminal, mcp, or a specific node name'),
+    filter: z
+      .string()
+      .optional()
+      .describe(
+        'Filter by category: layout, content, interactive, backend, data, state, react, cli, terminal, mcp, or a specific node name',
+      ),
   },
   async ({ filter }) => {
     const categories: Record<string, string[]> = {
@@ -264,14 +305,67 @@ server.tool(
       content: ['text', 'image', 'progress', 'divider', 'codeblock', 'icon', 'svg'],
       interactive: ['button', 'input', 'textarea', 'slider', 'toggle', 'modal', 'select', 'option'],
       navigation: ['tabs', 'tab', 'header', 'link', 'list', 'item'],
-      backend: ['server', 'route', 'middleware', 'handler', 'schema', 'stream', 'spawn', 'timer', 'on', 'env', 'websocket'],
-      data: ['model', 'column', 'relation', 'repository', 'cache', 'entry', 'invalidate', 'dependency', 'inject', 'config', 'store'],
+      backend: [
+        'server',
+        'route',
+        'middleware',
+        'handler',
+        'schema',
+        'stream',
+        'spawn',
+        'timer',
+        'on',
+        'env',
+        'websocket',
+      ],
+      data: [
+        'model',
+        'column',
+        'relation',
+        'repository',
+        'cache',
+        'entry',
+        'invalidate',
+        'dependency',
+        'inject',
+        'config',
+        'store',
+      ],
       state: ['machine', 'transition', 'state', 'signal', 'cleanup'],
       types: ['type', 'interface', 'field', 'fn', 'const', 'union', 'variant', 'service', 'method', 'error'],
       react: ['hook', 'provider', 'effect', 'logic', 'memo', 'callback', 'ref', 'context', 'prop', 'returns'],
       cli: ['cli', 'command', 'arg', 'flag'],
-      terminal: ['separator', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'scoreboard', 'metric', 'spinner', 'box', 'gradient'],
-      ground: ['derive', 'transform', 'action', 'assume', 'invariant', 'branch', 'path', 'resolve', 'guard', 'collect', 'pattern', 'apply', 'expect', 'recover', 'strategy'],
+      terminal: [
+        'separator',
+        'table',
+        'thead',
+        'tbody',
+        'tr',
+        'th',
+        'td',
+        'scoreboard',
+        'metric',
+        'spinner',
+        'box',
+        'gradient',
+      ],
+      ground: [
+        'derive',
+        'transform',
+        'action',
+        'assume',
+        'invariant',
+        'branch',
+        'path',
+        'resolve',
+        'guard',
+        'collect',
+        'pattern',
+        'apply',
+        'expect',
+        'recover',
+        'strategy',
+      ],
       mcp: ['mcp', 'tool', 'resource', 'prompt', 'param', 'description', 'sampling', 'elicitation'],
     };
 
@@ -282,7 +376,9 @@ server.tool(
       for (const nodeType of categories[filter]) {
         const schema = NODE_SCHEMAS[nodeType];
         if (schema) {
-          const props = Object.entries(schema.props).map(([k, v]) => `${v.required ? k : k + '?'}:${v.kind}`).join(', ');
+          const props = Object.entries(schema.props)
+            .map(([k, v]) => `${v.required ? k : `${k}?`}:${v.kind}`)
+            .join(', ');
           const children = schema.allowedChildren ? ` → [${schema.allowedChildren.join(', ')}]` : '';
           lines.push(`  ${nodeType}(${props})${children}`);
         } else {
@@ -294,7 +390,11 @@ server.tool(
       const schema = NODE_SCHEMAS[filter];
       if (schema) {
         lines.push(`${filter}:`);
-        lines.push(`  Props: ${Object.entries(schema.props).map(([k, v]) => `${k}${v.required ? ' (required)' : ''}: ${v.kind}`).join(', ')}`);
+        lines.push(
+          `  Props: ${Object.entries(schema.props)
+            .map(([k, v]) => `${k}${v.required ? ' (required)' : ''}: ${v.kind}`)
+            .join(', ')}`,
+        );
         if (schema.allowedChildren) lines.push(`  Children: ${schema.allowedChildren.join(', ')}`);
       } else {
         lines.push(`Node type "${filter}" has no schema definition. It may still be valid — check examples.`);
@@ -307,7 +407,7 @@ server.tool(
     }
 
     return { content: [{ type: 'text', text: lines.join('\n') }] };
-  }
+  },
 );
 
 // ── Resources ───────────────────────────────────────────────────────────
@@ -316,15 +416,24 @@ server.tool(
 server.resource(
   'kern-spec',
   'kern://spec',
-  { description: 'KERN language specification — grammar, node types, style shorthands, all compile targets', mimeType: 'text/plain' },
+  {
+    description: 'KERN language specification — grammar, node types, style shorthands, all compile targets',
+    mimeType: 'text/plain',
+  },
   async (uri) => {
     const nodeList = (NODE_TYPES as readonly string[]).join(', ');
-    const shorthandList = Object.entries(STYLE_SHORTHANDS).map(([k, v]) => `  ${k} → ${v}`).join('\n');
-    const schemaList = Object.entries(NODE_SCHEMAS).map(([name, s]) => {
-      const props = Object.entries(s.props).map(([k, v]) => `${v.required ? k : k + '?'}:${v.kind}`).join(', ');
-      const children = s.allowedChildren ? ` children=[${s.allowedChildren.join(',')}]` : '';
-      return `  ${name}(${props})${children}`;
-    }).join('\n');
+    const shorthandList = Object.entries(STYLE_SHORTHANDS)
+      .map(([k, v]) => `  ${k} → ${v}`)
+      .join('\n');
+    const schemaList = Object.entries(NODE_SCHEMAS)
+      .map(([name, s]) => {
+        const props = Object.entries(s.props)
+          .map(([k, v]) => `${v.required ? k : `${k}?`}:${v.kind}`)
+          .join(', ');
+        const children = s.allowedChildren ? ` children=[${s.allowedChildren.join(',')}]` : '';
+        return `  ${name}(${props})${children}`;
+      })
+      .join('\n');
 
     const text = [
       `KERN v${KERN_VERSION} Language Specification`,
@@ -357,7 +466,7 @@ server.resource(
     ].join('\n');
 
     return { contents: [{ uri: uri.href, mimeType: 'text/plain', text }] };
-  }
+  },
 );
 
 // Examples by category
@@ -504,9 +613,10 @@ screen name=AgonTerminal
         td value="89"`,
     };
 
-    const text = examples[category as string] || `Unknown category: ${category}. Available: ${Object.keys(examples).join(', ')}`;
+    const text =
+      examples[category as string] || `Unknown category: ${category}. Available: ${Object.keys(examples).join(', ')}`;
     return { contents: [{ uri: uri.href, mimeType: 'text/plain', text }] };
-  }
+  },
 );
 
 // Targets resource
@@ -516,7 +626,7 @@ server.resource(
   { description: 'Available KERN compile targets', mimeType: 'application/json' },
   async (uri) => {
     return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(VALID_TARGETS) }] };
-  }
+  },
 );
 
 // ── Prompts ─────────────────────────────────────────────────────────────
@@ -526,14 +636,17 @@ server.prompt(
   'Comprehensive system prompt for writing .kern code — spec, rules, examples, patterns',
   async () => {
     const nodeList = (NODE_TYPES as readonly string[]).join(', ');
-    const shorthandList = Object.entries(STYLE_SHORTHANDS).map(([k, v]) => `${k}→${v}`).join(', ');
+    const shorthandList = Object.entries(STYLE_SHORTHANDS)
+      .map(([k, v]) => `${k}→${v}`)
+      .join(', ');
 
     return {
-      messages: [{
-        role: 'user' as const,
-        content: {
-          type: 'text' as const,
-          text: `You are writing KERN (.kern) code — a declarative, indent-based DSL designed for LLMs.
+      messages: [
+        {
+          role: 'user' as const,
+          content: {
+            type: 'text' as const,
+            text: `You are writing KERN (.kern) code — a declarative, indent-based DSL designed for LLMs.
 
 ## Grammar
 - Indent: 2 spaces (no tabs, strict)
@@ -625,10 +738,11 @@ hook name=useAuth
 - Style blocks are CSS shorthand: {fs:24} = font-size:24, {fw:bold} = font-weight:bold, {p:16} = padding:16, {m:8} = margin:8, {bg:#FFF} = background:#FFF, {c:gray} = color:gray, {br:8} = border-radius:8, {w:full} = width:100%, {jc:sb} = justify-content:space-between, {ai:center} = align-items:center
 - Handler blocks: <<< on new line, code, >>> on new line. For short handlers, inline is fine.
 - Always use the simplest node structure. Don't over-nest.`,
+          },
         },
-      }],
+      ],
     };
-  }
+  },
 );
 
 // ── Start ───────────────────────────────────────────────────────────────

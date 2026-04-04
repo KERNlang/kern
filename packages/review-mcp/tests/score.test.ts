@@ -6,8 +6,8 @@ function makeAction(name: string, effects: { kind: string }[], guards: { kind?: 
     type: 'action',
     props: { name, confidence: 0.9 },
     children: [
-      ...effects.map(e => ({ type: 'effect', props: { kind: e.kind } })),
-      ...guards.map(g => ({ type: 'guard', props: { kind: g.kind ?? 'validation' } })),
+      ...effects.map((e) => ({ type: 'effect', props: { kind: e.kind } })),
+      ...guards.map((g) => ({ type: 'guard', props: { kind: g.kind ?? 'validation' } })),
     ],
   };
 }
@@ -74,9 +74,7 @@ describe('input validation', () => {
   });
 
   it('0% when no validation guards on effect-bearing actions', () => {
-    const actions = [
-      makeAction('t1', [{ kind: 'file' }], [{ kind: 'auth' }]),
-    ];
+    const actions = [makeAction('t1', [{ kind: 'file' }], [{ kind: 'auth' }])];
     const score = computeSecurityScore(actions, []);
     assert.equal(score.inputValidation, 0);
   });
@@ -89,11 +87,7 @@ describe('rule compliance', () => {
   });
 
   it('subtracts 10 per critical, 5 per warning', () => {
-    const findings = [
-      makeFinding('r1', 'error'),
-      makeFinding('r2', 'error'),
-      makeFinding('r3', 'warning'),
-    ];
+    const findings = [makeFinding('r1', 'error'), makeFinding('r2', 'error'), makeFinding('r3', 'warning')];
     const score = computeSecurityScore([], findings);
     assert.equal(score.ruleCompliance, 75);
   });
@@ -140,22 +134,15 @@ describe('auth posture', () => {
 
 describe('total score', () => {
   it('perfect score when fully guarded, validated, compliant, and authed', () => {
-    const actions = [
-      makeAction('t1', [{ kind: 'network' }], [{ kind: 'validation' }, { kind: 'auth' }]),
-    ];
+    const actions = [makeAction('t1', [{ kind: 'network' }], [{ kind: 'validation' }, { kind: 'auth' }])];
     const score = computeSecurityScore(actions, []);
     assert.equal(score.total, 100);
     assert.equal(score.grade, 'A');
   });
 
   it('formula: 0.4*guard + 0.25*validation + 0.2*compliance + 0.15*auth', () => {
-    const actions = [
-      makeAction('t1', [{ kind: 'file' }, { kind: 'network' }], [{ kind: 'auth' }]),
-    ];
-    const findings = [
-      makeFinding('r1', 'error'),
-      makeFinding('r2', 'error'),
-    ];
+    const actions = [makeAction('t1', [{ kind: 'file' }, { kind: 'network' }], [{ kind: 'auth' }])];
+    const findings = [makeFinding('r1', 'error'), makeFinding('r2', 'error')];
     const score = computeSecurityScore(actions, findings);
 
     assert.equal(score.guardCoverage, 50);

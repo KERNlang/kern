@@ -2,14 +2,14 @@
  * Workspace-level MCP security scan.
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
 import type { IRNode } from '@kernlang/core';
 import type { ReviewFinding } from '@kernlang/review';
-import { reviewMCPSource, inferMCP, detectMCPServer } from './index.js';
-import { computeSecurityScore, type SecurityScore, type ToolScore } from './score.js';
+import * as fs from 'fs';
+import * as path from 'path';
+import { detectMCPServer, inferMCP, reviewMCPSource } from './index.js';
 import { runPostScan } from './post-scan.js';
 import type { McpReviewResult } from './scan-types.js';
+import { computeSecurityScore, type SecurityScore, type ToolScore } from './score.js';
 
 const EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.py']);
 const IGNORE_DIRS = new Set(['node_modules', 'dist', '.git', '__pycache__', '.venv', 'venv']);
@@ -105,24 +105,19 @@ function aggregateScores(results: McpReviewResult[]): SecurityScore {
     };
   }
 
-  const scores = results.map(r => r.score!);
+  const scores = results.map((r) => r.score!);
   const avg = (fn: (s: SecurityScore) => number): number =>
     Math.round(scores.reduce((sum, s) => sum + fn(s), 0) / scores.length);
 
-  const guardCoverage = avg(s => s.guardCoverage);
-  const inputValidation = avg(s => s.inputValidation);
-  const ruleCompliance = avg(s => s.ruleCompliance);
-  const authPosture = avg(s => s.authPosture);
+  const guardCoverage = avg((s) => s.guardCoverage);
+  const inputValidation = avg((s) => s.inputValidation);
+  const ruleCompliance = avg((s) => s.ruleCompliance);
+  const authPosture = avg((s) => s.authPosture);
 
-  const total = Math.round(
-    guardCoverage * 0.40 +
-    inputValidation * 0.25 +
-    ruleCompliance * 0.20 +
-    authPosture * 0.15,
-  );
+  const total = Math.round(guardCoverage * 0.4 + inputValidation * 0.25 + ruleCompliance * 0.2 + authPosture * 0.15);
 
   const grade = total >= 90 ? 'A' : total >= 75 ? 'B' : total >= 60 ? 'C' : total >= 40 ? 'D' : 'F';
-  const perTool: ToolScore[] = scores.flatMap(s => s.perTool);
+  const perTool: ToolScore[] = scores.flatMap((s) => s.perTool);
 
   return { total, grade, guardCoverage, inputValidation, ruleCompliance, authPosture, perTool };
 }

@@ -5,30 +5,25 @@
  * Also tests target-specific codegen loading.
  */
 
-import { mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'fs';
-import { resolve, join } from 'path';
-import { parse } from '@kernlang/core';
+import { clearEvolvedGenerators, clearEvolvedTypes, generateCoreNode, parse } from '@kernlang/core';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { join, resolve } from 'path';
+import type { EvolveNodeProposal } from '../src/evolved-types.js';
 import {
-  generateCoreNode, clearEvolvedGenerators,
-  registerEvolvedTargetGenerator,
-} from '@kernlang/core';
-import { clearEvolvedTypes } from '@kernlang/core';
-import {
-  validateEvolveProposal,
-  compileCodegenToJS,
-  graduateNode,
-  loadEvolvedNodes,
-  clearEvolvedNodes,
-  rollbackNode,
-  stageEvolveV4Proposal,
-  listStagedEvolveV4,
-  getStagedEvolveV4,
-  updateStagedEvolveV4Status,
   cleanApprovedEvolveV4,
+  clearEvolvedNodes,
+  compileCodegenToJS,
+  getStagedEvolveV4,
+  graduateNode,
+  listStagedEvolveV4,
+  loadEvolvedNodes,
   readEvolvedManifest,
   rebuildEvolvedManifest,
+  rollbackNode,
+  stageEvolveV4Proposal,
+  updateStagedEvolveV4Status,
+  validateEvolveProposal,
 } from '../src/index.js';
-import type { EvolveNodeProposal } from '../src/evolved-types.js';
 
 const TEST_DIR = resolve('/tmp/kern-evolve-e2e-test');
 const STAGING_DIR = join(TEST_DIR, '.kern', 'evolve', 'staged-v4');
@@ -40,9 +35,7 @@ function makeProposal(keyword = 'greeting'): EvolveNodeProposal {
     keyword,
     displayName: 'Greeting',
     description: 'A greeting node for testing',
-    props: [
-      { name: 'name', type: 'string', required: true, description: 'Who to greet' },
-    ],
+    props: [{ name: 'name', type: 'string', required: true, description: 'Who to greet' }],
     childTypes: [],
     kernExample: `${keyword} name=World`,
     expectedOutput: `export const greetingWorld = "Hello, World!";`,
@@ -146,7 +139,7 @@ describe('E2E Pipeline', () => {
     // Manifest exists
     const manifest = readEvolvedManifest();
     expect(manifest).not.toBeNull();
-    expect(manifest!.nodes['greeting']).toBeDefined();
+    expect(manifest!.nodes.greeting).toBeDefined();
 
     // Rollback
     const rollResult = rollbackNode('greeting', TEST_DIR, true);
@@ -155,7 +148,7 @@ describe('E2E Pipeline', () => {
 
     // Manifest updated
     const afterManifest = readEvolvedManifest();
-    expect(afterManifest!.nodes['greeting']).toBeUndefined();
+    expect(afterManifest!.nodes.greeting).toBeUndefined();
   });
 
   it('manifest rebuild recovers from corruption', () => {
@@ -174,8 +167,8 @@ describe('E2E Pipeline', () => {
 
     // Manifest is valid again
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
-    expect(manifest.nodes['greeting']).toBeDefined();
-    expect(manifest.nodes['greeting'].keyword).toBe('greeting');
+    expect(manifest.nodes.greeting).toBeDefined();
+    expect(manifest.nodes.greeting.keyword).toBe('greeting');
   });
 
   it('target-specific codegen is used when available', () => {

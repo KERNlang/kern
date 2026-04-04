@@ -17,8 +17,8 @@
  * detecting vulnerabilities through KERN's language semantics.
  */
 
-import { SyntaxKind, Project } from 'ts-morph';
 import type { IRNode } from '@kernlang/core';
+import { Project, SyntaxKind } from 'ts-morph';
 
 // Reuse a single Project instance across calls (from forge synthesis)
 const PROJECT = new Project({ useInMemoryFileSystem: true, compilerOptions: { strict: false } });
@@ -27,26 +27,31 @@ const PROJECT = new Project({ useInMemoryFileSystem: true, compilerOptions: { st
 
 const SHELL_EXEC_PATTERN = /\b(exec|execSync|execFile|execFileSync|spawn|spawnSync|child_process)\b/;
 const EVAL_PATTERN = /\beval\s*\(/;
-const FS_PATTERN = /\b(readFile|readFileSync|writeFile|writeFileSync|readdir|readdirSync|unlink|unlinkSync|mkdir|mkdirSync|createReadStream|createWriteStream|copyFile|copyFileSync|rename|renameSync|rm|rmSync)\b/;
+const FS_PATTERN =
+  /\b(readFile|readFileSync|writeFile|writeFileSync|readdir|readdirSync|unlink|unlinkSync|mkdir|mkdirSync|createReadStream|createWriteStream|copyFile|copyFileSync|rename|renameSync|rm|rmSync)\b/;
 const NETWORK_PATTERN = /\b(fetch|axios\.\w+|got\.\w+|http\.request|https\.request)\b/;
-const DB_PATTERN = /\b(db\.query|findOne|findMany|findById|collection\.find|\.findUnique|\.findFirst|cursor\.execute|\.fetchall|\.fetchone)\b/;
+const DB_PATTERN =
+  /\b(db\.query|findOne|findMany|findById|collection\.find|\.findUnique|\.findFirst|cursor\.execute|\.fetchall|\.fetchone)\b/;
 
 // ── Guard patterns ───────────────────────────────────────────────────
 
-const VALIDATION_PATTERN = /\.(parse|safeParse|validate|validateSync)\s*\(|typeof\s+\w+\s*[!=]==|instanceof\s+|Array\.isArray\s*\(|z\.\w+\s*\(/;
+const VALIDATION_PATTERN =
+  /\.(parse|safeParse|validate|validateSync)\s*\(|typeof\s+\w+\s*[!=]==|instanceof\s+|Array\.isArray\s*\(|z\.\w+\s*\(/;
 const PATH_CONTAINMENT_PATTERN = /\.startsWith\s*\(/;
 const PATH_RESOLVE_PATTERN = /\b(path\.resolve|resolve)\s*\(/;
-const AUTH_PATTERN = /\b(authenticate|authorization|auth|verifyToken|requireAuth|jwt\.verify|bearerAuth|isAuthenticated)\b/i;
+const AUTH_PATTERN =
+  /\b(authenticate|authorization|auth|verifyToken|requireAuth|jwt\.verify|bearerAuth|isAuthenticated)\b/i;
 
 // ── Python patterns ──────────────────────────────────────────────────
 
-const PY_SHELL_EXEC = /\b(os\.system|os\.popen|subprocess\.run|subprocess\.call|subprocess\.Popen|subprocess\.check_output|asyncio\.create_subprocess_exec|asyncio\.create_subprocess_shell)\s*\(/;
+const PY_SHELL_EXEC =
+  /\b(os\.system|os\.popen|subprocess\.run|subprocess\.call|subprocess\.Popen|subprocess\.check_output|asyncio\.create_subprocess_exec|asyncio\.create_subprocess_shell)\s*\(/;
 const PY_EVAL = /\b(eval|exec)\s*\(/;
 const PY_FS = /\b(open)\s*\(|os\.(remove|unlink|rmdir|rename|listdir|makedirs)\s*\(/;
 const PY_NETWORK = /\b(requests\.(get|post|put|delete)|httpx\.\w+|aiohttp|urllib\.request)\b/;
 const PY_DB = /\bcursor\.(execute|fetchall|fetchone)\b/;
 const PY_VALIDATION = /\bisinstance\s*\(|\.model_validate\b|pydantic/;
-const PY_PATH_CONTAINMENT = /\.startswith\s*\(.*\).*(?:os\.path\.realpath|\.resolve\(\))/;
+const _PY_PATH_CONTAINMENT = /\.startswith\s*\(.*\).*(?:os\.path\.realpath|\.resolve\(\))/;
 const PY_AUTH = /\b(authenticate|verify_token|require_auth|jwt\.decode|HTTPBearer|Depends.*auth)\b/i;
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -74,9 +79,11 @@ export function inferMCPNodes(source: string, filePath: string): IRNode[] {
   const nodes: IRNode[] = [];
 
   // Quick bail: not an MCP server
-  if (!/@modelcontextprotocol/.test(source) &&
-      !/\bMcpServer\b/.test(source) &&
-      !/\bCallToolRequestSchema\b/.test(source)) {
+  if (
+    !/@modelcontextprotocol/.test(source) &&
+    !/\bMcpServer\b/.test(source) &&
+    !/\bCallToolRequestSchema\b/.test(source)
+  ) {
     return nodes;
   }
 
@@ -134,12 +141,17 @@ export function inferMCPNodes(source: string, filePath: string): IRNode[] {
     const children = scanBodyForEffectsAndGuards(handlerText, handlerLine);
 
     // Build action node
-    const actionNode = node('action', handlerLine, {
-      name: toolName,
-      description: toolDesc,
-      trust: 'low',
-      confidence: computeConfidence(children),
-    }, children);
+    const actionNode = node(
+      'action',
+      handlerLine,
+      {
+        name: toolName,
+        description: toolDesc,
+        trust: 'low',
+        confidence: computeConfidence(children),
+      },
+      children,
+    );
 
     nodes.push(actionNode);
   }
@@ -217,23 +229,51 @@ function extractBraceBlock(text: string): string | null {
 
     // Track comment state
     if (!inSingleQuote && !inDoubleQuote && !inTemplate) {
-      if (inLineComment) { if (ch === '\n') inLineComment = false; continue; }
-      if (inBlockComment) { if (ch === '*' && next === '/') { inBlockComment = false; i++; } continue; }
-      if (ch === '/' && next === '/') { inLineComment = true; continue; }
-      if (ch === '/' && next === '*') { inBlockComment = true; i++; continue; }
+      if (inLineComment) {
+        if (ch === '\n') inLineComment = false;
+        continue;
+      }
+      if (inBlockComment) {
+        if (ch === '*' && next === '/') {
+          inBlockComment = false;
+          i++;
+        }
+        continue;
+      }
+      if (ch === '/' && next === '/') {
+        inLineComment = true;
+        continue;
+      }
+      if (ch === '/' && next === '*') {
+        inBlockComment = true;
+        i++;
+        continue;
+      }
     }
 
     // Track string state
     if (!inLineComment && !inBlockComment) {
-      if (ch === "'" && !inDoubleQuote && !inTemplate) { inSingleQuote = !inSingleQuote; continue; }
-      if (ch === '"' && !inSingleQuote && !inTemplate) { inDoubleQuote = !inDoubleQuote; continue; }
-      if (ch === '`' && !inSingleQuote && !inDoubleQuote) { inTemplate = !inTemplate; continue; }
+      if (ch === "'" && !inDoubleQuote && !inTemplate) {
+        inSingleQuote = !inSingleQuote;
+        continue;
+      }
+      if (ch === '"' && !inSingleQuote && !inTemplate) {
+        inDoubleQuote = !inDoubleQuote;
+        continue;
+      }
+      if (ch === '`' && !inSingleQuote && !inDoubleQuote) {
+        inTemplate = !inTemplate;
+        continue;
+      }
     }
     if (inSingleQuote || inDoubleQuote || inTemplate) continue;
 
     // Track brace depth
     if (ch === '{') {
-      if (!started) { started = true; startIdx = i + 1; }
+      if (!started) {
+        started = true;
+        startIdx = i + 1;
+      }
       depth++;
     } else if (ch === '}') {
       depth--;
@@ -269,11 +309,18 @@ function extractDispatchActions(handlerArg: import('ts-morph').Node, baseLine: n
     const caseBody = endMatch ? afterCase.substring(0, endMatch.index) : afterCase.substring(0, 200);
 
     const children = scanBodyForEffectsAndGuards(caseBody, caseLine);
-    actions.push(node('action', caseLine, {
-      name: toolName,
-      trust: 'low',
-      confidence: computeConfidence(children),
-    }, children));
+    actions.push(
+      node(
+        'action',
+        caseLine,
+        {
+          name: toolName,
+          trust: 'low',
+          confidence: computeConfidence(children),
+        },
+        children,
+      ),
+    );
   }
 
   // Look for if (name === "toolName") patterns — support dotted access (request.params.name)
@@ -288,11 +335,18 @@ function extractDispatchActions(handlerArg: import('ts-morph').Node, baseLine: n
     const branchBody = extractBraceBlock(afterIf) || afterIf.substring(0, 200);
 
     const children = scanBodyForEffectsAndGuards(branchBody, ifLine);
-    actions.push(node('action', ifLine, {
-      name: toolName,
-      trust: 'low',
-      confidence: computeConfidence(children),
-    }, children));
+    actions.push(
+      node(
+        'action',
+        ifLine,
+        {
+          name: toolName,
+          trust: 'low',
+          confidence: computeConfidence(children),
+        },
+        children,
+      ),
+    );
   }
 
   return actions;
@@ -304,13 +358,11 @@ function extractDispatchActions(handlerArg: import('ts-morph').Node, baseLine: n
  * Infer KERN IR nodes from a Python MCP server source file.
  * Maps @mcp.tool() / @server.tool() handlers to action nodes.
  */
-export function inferMCPNodesPython(source: string, filePath: string): IRNode[] {
+export function inferMCPNodesPython(source: string, _filePath: string): IRNode[] {
   const nodes: IRNode[] = [];
 
   // Quick bail
-  if (!/from\s+mcp\.server/.test(source) &&
-      !/\bFastMCP\b/.test(source) &&
-      !/['"]tools\/call['"]/.test(source)) {
+  if (!/from\s+mcp\.server/.test(source) && !/\bFastMCP\b/.test(source) && !/['"]tools\/call['"]/.test(source)) {
     return nodes;
   }
 
@@ -321,8 +373,11 @@ export function inferMCPNodesPython(source: string, filePath: string): IRNode[] 
     // Match @mcp.tool() or @server.tool() or @server.call_tool() decorators
     const isDecorator = /^\s*@(?:mcp|server)\.(?:tool|call_tool)/.test(lines[i]);
     // Match class methods for raw protocol servers (only if not already covered by a decorator)
-    const isHandlerDef = !coveredDefLines.has(i) &&
-      /^\s*(?:async\s+)?def\s+(?:handle_tools?_call|read_file|write_file|list_directory|execute_code)\s*\(/.test(lines[i]);
+    const isHandlerDef =
+      !coveredDefLines.has(i) &&
+      /^\s*(?:async\s+)?def\s+(?:handle_tools?_call|read_file|write_file|list_directory|execute_code)\s*\(/.test(
+        lines[i],
+      );
 
     if (!isDecorator && !isHandlerDef) continue;
 
@@ -400,7 +455,10 @@ export function inferMCPNodesPython(source: string, filePath: string): IRNode[] 
       if (PY_VALIDATION.test(line)) {
         children.push(node('guard', lineNum, { kind: 'validation' }));
       }
-      if (/\.startswith\s*\(/.test(line) && /(os\.path\.realpath|\.resolve\(\))/.test(source.slice(0, source.indexOf(line) + line.length))) {
+      if (
+        /\.startswith\s*\(/.test(line) &&
+        /(os\.path\.realpath|\.resolve\(\))/.test(source.slice(0, source.indexOf(line) + line.length))
+      ) {
         children.push(node('guard', lineNum, { kind: 'path-containment' }));
       }
       if (PY_AUTH.test(line)) {
@@ -408,12 +466,17 @@ export function inferMCPNodesPython(source: string, filePath: string): IRNode[] 
       }
     }
 
-    const actionNode = node('action', defLine + 1, {
-      name: toolName,
-      description: toolDesc,
-      trust: 'low',
-      confidence: computeConfidence(children),
-    }, children);
+    const actionNode = node(
+      'action',
+      defLine + 1,
+      {
+        name: toolName,
+        description: toolDesc,
+        trust: 'low',
+        confidence: computeConfidence(children),
+      },
+      children,
+    );
 
     nodes.push(actionNode);
   }
@@ -425,11 +488,11 @@ export function inferMCPNodesPython(source: string, filePath: string): IRNode[] 
 
 /** Compute action confidence based on guard/effect ratio */
 function computeConfidence(children: IRNode[]): number {
-  const effects = children.filter(c => c.type === 'effect');
-  const guards = children.filter(c => c.type === 'guard');
+  const effects = children.filter((c) => c.type === 'effect');
+  const guards = children.filter((c) => c.type === 'guard');
 
   if (effects.length === 0) return 0.9; // No dangerous effects = safe
-  if (guards.length === 0) return 0.2;  // Effects with no guards = very suspicious
+  if (guards.length === 0) return 0.2; // Effects with no guards = very suspicious
   if (guards.length >= effects.length) return 0.8; // Guarded = reasonable
   return 0.5; // Partially guarded
 }

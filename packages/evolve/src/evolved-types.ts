@@ -40,11 +40,11 @@ export interface EvolvedNodeDefinition {
   reason: EvolvedNodeReason;
 
   // Metadata
-  hash: string;               // SHA256 of codegen.js
+  hash: string; // SHA256 of codegen.js
   graduatedBy: string;
   graduatedAt: string;
   evolveRunId: string;
-  kernVersion: string;         // KERN version at graduation time
+  kernVersion: string; // KERN version at graduation time
 }
 
 export interface EvolvedNodeProp {
@@ -97,7 +97,7 @@ export interface EvolveNodeProposal {
 
   kernExample: string;
   expectedOutput: string;
-  codegenSource: string;       // Full .ts source of the generator function
+  codegenSource: string; // Full .ts source of the generator function
 
   parserHints?: ParserHints;
   targetOverrides?: Record<string, string>;

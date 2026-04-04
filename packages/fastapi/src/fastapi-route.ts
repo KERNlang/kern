@@ -8,26 +8,26 @@
 
 import type { IRNode, SourceMapEntry } from '@kernlang/core';
 import { getChildren, getFirstChild, getProps } from '@kernlang/core';
-import { toSnakeCase } from './type-map.js';
+import { generatePortableHandlerFastAPI } from './fastapi-portable.js';
 import type { RouteArtifactRef, RouteCapabilities } from './fastapi-types.js';
 import { HTTP_METHODS } from './fastapi-types.js';
 import {
-  slugify,
-  escapePyStr,
-  indentHandler,
+  analyzeRouteCapabilities,
+  buildPydanticModel,
+  buildSchema,
   convertPath,
   derivePathParams,
-  analyzeRouteCapabilities,
-  buildSchema,
+  escapePyStr,
+  indentHandler,
   routeFileBase,
-  buildPydanticModel,
+  slugify,
 } from './fastapi-utils.js';
-import { generatePortableHandlerFastAPI } from './fastapi-portable.js';
+import { toSnakeCase } from './type-map.js';
 
 // ── SSE Stream code generator ────────────────────────────────────────────
 
 export function generateStreamRoute(
-  routeNode: IRNode,
+  _routeNode: IRNode,
   caps: RouteCapabilities,
   method: string,
   fastapiPath: string,
@@ -38,9 +38,7 @@ export function generateStreamRoute(
   const handlerProps = handlerNode ? getProps(handlerNode) : {};
   const handlerCode = typeof handlerProps.code === 'string' ? String(handlerProps.code) : '';
 
-  const paramStr = pathParams.length > 0
-    ? pathParams.map(p => `${p}: str`).join(', ')
-    : '';
+  const paramStr = pathParams.length > 0 ? pathParams.map((p) => `${p}: str`).join(', ') : '';
 
   lines.push(`@router.${method}("${fastapiPath}")`);
   lines.push(`async def ${toSnakeCase(method)}_${slugify(fastapiPath)}(${paramStr}):`);
@@ -60,7 +58,10 @@ export function generateStreamRoute(
       lines.push(`        process = await asyncio.create_subprocess_exec(`);
       lines.push(`            "${escapePyStr(binary)}",`);
       if (args) {
-        const argsClean = args.replace(/^\[|\]$/g, '').split(',').map(a => a.trim().replace(/^['"]|['"]$/g, ''));
+        const argsClean = args
+          .replace(/^\[|\]$/g, '')
+          .split(',')
+          .map((a) => a.trim().replace(/^['"]|['"]$/g, ''));
         for (const arg of argsClean) {
           lines.push(`            "${escapePyStr(arg)}",`);
         }
@@ -71,7 +72,7 @@ export function generateStreamRoute(
 
       // stdout streaming with null guard
       const onNodes = getChildren(caps.spawnNode!, 'on');
-      const stdoutHandler = onNodes.find(n => {
+      const stdoutHandler = onNodes.find((n) => {
         const op = getProps(n);
         return String(op.name || op.event || '') === 'stdout';
       });
@@ -114,7 +115,7 @@ export function generateStreamRoute(
 // ── Timer code generator ─────────────────────────────────────────────────
 
 export function generateTimerRoute(
-  routeNode: IRNode,
+  _routeNode: IRNode,
   caps: RouteCapabilities,
   method: string,
   fastapiPath: string,
@@ -123,14 +124,16 @@ export function generateTimerRoute(
 ): string[] {
   const lines: string[] = [];
   const timerProps = getProps(caps.timerNode!);
-  const timeoutSec = Number(Object.values(timerProps).find(v => typeof v === 'string' && !isNaN(Number(v))) || timerProps.timeout || 15);
+  const timeoutSec = Number(
+    Object.values(timerProps).find((v) => typeof v === 'string' && !Number.isNaN(Number(v))) ||
+      timerProps.timeout ||
+      15,
+  );
 
   const timerHandlerNode = getFirstChild(caps.timerNode!, 'handler');
   const timerHandlerCode = timerHandlerNode ? String(getProps(timerHandlerNode).code || '') : '';
 
-  const paramStr = pathParams.length > 0
-    ? pathParams.map(p => `${p}: str`).join(', ')
-    : '';
+  const paramStr = pathParams.length > 0 ? pathParams.map((p) => `${p}: str`).join(', ') : '';
 
   lines.push(`@router.${method}("${fastapiPath}")`);
   lines.push(`async def ${toSnakeCase(method)}_${slugify(fastapiPath)}(${paramStr}):`);
@@ -146,8 +149,8 @@ export function generateTimerRoute(
   lines.push(`    except asyncio.TimeoutError:`);
 
   // Check for custom timeout handler
-  const onTimeoutNode = (caps.timerNode!.children || []).find(c =>
-    c.type === 'on' && (getProps(c).name === 'timeout' || getProps(c).event === 'timeout'),
+  const onTimeoutNode = (caps.timerNode!.children || []).find(
+    (c) => c.type === 'on' && (getProps(c).name === 'timeout' || getProps(c).event === 'timeout'),
   );
   if (onTimeoutNode) {
     const timeoutHandler = getFirstChild(onTimeoutNode, 'handler');
@@ -190,9 +193,14 @@ export function buildRouteArtifact(
   const eachNodes = getChildren(routeNode, 'each');
   const collectNodes = getChildren(routeNode, 'collect');
   const effectNodes = getChildren(routeNode, 'effect');
-  const hasPortableNodes = deriveNodes.length > 0 || guardNodes.length > 0 || !!respondNode
-    || branchNodes.length > 0 || eachNodes.length > 0 || collectNodes.length > 0
-    || effectNodes.length > 0;
+  const hasPortableNodes =
+    deriveNodes.length > 0 ||
+    guardNodes.length > 0 ||
+    !!respondNode ||
+    branchNodes.length > 0 ||
+    eachNodes.length > 0 ||
+    collectNodes.length > 0 ||
+    effectNodes.length > 0;
 
   // Get handler code
   const handlerNode = caps.hasStream
@@ -203,9 +211,7 @@ export function buildRouteArtifact(
   const routeHandlerNode = getFirstChild(routeNode, 'handler');
   const handlerProps = handlerNode ? getProps(handlerNode) : {};
   const routeHandlerCode = routeHandlerNode ? String(getProps(routeHandlerNode).code || '') : '';
-  const handlerCode = typeof handlerProps.code === 'string'
-    ? String(handlerProps.code)
-    : '';
+  const handlerCode = typeof handlerProps.code === 'string' ? String(handlerProps.code) : '';
 
   const lines: string[] = [];
   const imports = new Set<string>();
@@ -252,7 +258,7 @@ export function buildRouteArtifact(
 
   const authNode = getFirstChild(routeNode, 'auth');
   const validateNode = getFirstChild(routeNode, 'validate');
-  const errorNodes = getChildren(routeNode, 'error').filter(n => typeof getProps(n).status === 'number');
+  const errorNodes = getChildren(routeNode, 'error').filter((n) => typeof getProps(n).status === 'number');
 
   // Auth requires Depends import
   if (authNode) {
@@ -340,7 +346,9 @@ export function buildRouteArtifact(
 
     // v3 error contract as docstring
     if (errorNodes.length > 0) {
-      bodyLines.push(`    """Errors: ${errorNodes.map(n => `${getProps(n).status} ${getProps(n).message || ''}`).join(', ')}"""`);
+      bodyLines.push(
+        `    """Errors: ${errorNodes.map((n) => `${getProps(n).status} ${getProps(n).message || ''}`).join(', ')}"""`,
+      );
     }
 
     if (hasPortableNodes) {

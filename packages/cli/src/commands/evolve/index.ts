@@ -1,12 +1,18 @@
+import { runEvolveBackfill } from './backfill.js';
+import { runEvolveDiscover } from './discover.js';
+import {
+  runEvolveList,
+  runEvolveMigrate,
+  runEvolvePromote,
+  runEvolvePrune,
+  runEvolveRebuild,
+  runEvolveRestore,
+  runEvolveRollback,
+  runEvolveTest,
+} from './lifecycle.js';
 import { runEvolve } from './main.js';
 import { runEvolveReview } from './review.js';
-import { runEvolveDiscover } from './discover.js';
 import { runEvolveReviewV4 } from './review-v4.js';
-import { runEvolveBackfill } from './backfill.js';
-import {
-  runEvolveTest, runEvolveRollback, runEvolveRestore, runEvolveList,
-  runEvolvePromote, runEvolvePrune, runEvolveMigrate, runEvolveRebuild,
-} from './lifecycle.js';
 
 const EVOLVE_COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
   'evolve:review': runEvolveReview,

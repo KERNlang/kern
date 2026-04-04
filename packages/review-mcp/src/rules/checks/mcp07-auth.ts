@@ -5,9 +5,9 @@
  */
 
 import type { ReviewFinding } from '@kernlang/review';
+import { PY_AUTH_MIDDLEWARE, PY_REMOTE_SERVER, TS_AUTH_MIDDLEWARE, TS_REMOTE_SERVER } from '../mcp-patterns.js';
+import { isMCPServerPython, isMCPServerTS } from '../mcp-regions.js';
 import { finding } from '../mcp-types.js';
-import { TS_AUTH_MIDDLEWARE, PY_AUTH_MIDDLEWARE, TS_REMOTE_SERVER, PY_REMOTE_SERVER } from '../mcp-patterns.js';
-import { isMCPServerTS, isMCPServerPython } from '../mcp-regions.js';
 
 export function missingAuthRemoteTS(source: string, filePath: string): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -27,12 +27,16 @@ export function missingAuthRemoteTS(source: string, filePath: string): ReviewFin
   const lines = source.split('\n');
   for (let i = 0; i < lines.length; i++) {
     if (TS_REMOTE_SERVER.test(lines[i])) {
-      findings.push(finding(
-        'mcp-missing-auth', 'error',
-        `Remote MCP server (HTTP/SSE) without authentication — any client can connect and use tools`,
-        filePath, i + 1,
-        'Add authentication middleware (JWT, API key, OAuth). Remote MCP servers MUST verify client identity.',
-      ));
+      findings.push(
+        finding(
+          'mcp-missing-auth',
+          'error',
+          `Remote MCP server (HTTP/SSE) without authentication — any client can connect and use tools`,
+          filePath,
+          i + 1,
+          'Add authentication middleware (JWT, API key, OAuth). Remote MCP servers MUST verify client identity.',
+        ),
+      );
       break; // One per file
     }
   }
@@ -52,12 +56,16 @@ export function missingAuthRemotePython(source: string, filePath: string): Revie
   const lines = source.split('\n');
   for (let i = 0; i < lines.length; i++) {
     if (PY_REMOTE_SERVER.test(lines[i])) {
-      findings.push(finding(
-        'mcp-missing-auth', 'error',
-        `Remote MCP server without authentication — any client can connect and use tools`,
-        filePath, i + 1,
-        'Add authentication (JWT, API key, OAuth2). Remote MCP servers MUST verify client identity.',
-      ));
+      findings.push(
+        finding(
+          'mcp-missing-auth',
+          'error',
+          `Remote MCP server without authentication — any client can connect and use tools`,
+          filePath,
+          i + 1,
+          'Add authentication (JWT, API key, OAuth2). Remote MCP servers MUST verify client identity.',
+        ),
+      );
       break;
     }
   }

@@ -1,6 +1,6 @@
+import { resolveConfig } from '../../core/src/config.js';
 import { parse } from '../../core/src/parser.js';
 import { transpileTailwindVue } from '../src/transpiler-tailwind-vue.js';
-import { resolveConfig } from '../../core/src/config.js';
 
 describe('Vue 3 Tailwind Transpiler', () => {
   // ── Basic SFC structure ──
@@ -133,7 +133,7 @@ describe('Vue 3 Tailwind Transpiler', () => {
     const ast = parse('screen name=Test\n  image src=logo');
     const result = transpileTailwindVue(ast);
     expect(result.code).toContain('<img');
-    expect(result.code).toContain("logo");
+    expect(result.code).toContain('logo');
   });
 
   test('progress renders with custom color and percentage', () => {
@@ -188,14 +188,18 @@ describe('Vue 3 Tailwind Transpiler', () => {
   // ── Event handlers ──
 
   test('click handler generates function', () => {
-    const ast = parse('screen name=Test\n  on event=click\n    handler <<<\n      console.log("clicked");\n    >>>\n  text value=Hello');
+    const ast = parse(
+      'screen name=Test\n  on event=click\n    handler <<<\n      console.log("clicked");\n    >>>\n  text value=Hello',
+    );
     const result = transpileTailwindVue(ast);
     expect(result.code).toContain('function handleClick');
     expect(result.code).toContain('console.log("clicked");');
   });
 
   test('key handler generates onMounted/onUnmounted', () => {
-    const ast = parse('screen name=Test\n  on event=key key=Escape\n    handler <<<\n      close();\n    >>>\n  text value=Hello');
+    const ast = parse(
+      'screen name=Test\n  on event=key key=Escape\n    handler <<<\n      close();\n    >>>\n  text value=Hello',
+    );
     const result = transpileTailwindVue(ast);
     expect(result.code).toContain('onMounted');
     expect(result.code).toContain('onUnmounted');
@@ -233,7 +237,9 @@ describe('Vue 3 Tailwind Transpiler', () => {
   // ── Tabs ──
 
   test('tabs generate tab buttons and v-if panels', () => {
-    const ast = parse('screen name=Test\n  tabs\n    tab name=general label=General\n      text value=General\n    tab name=advanced label=Advanced\n      text value=Advanced');
+    const ast = parse(
+      'screen name=Test\n  tabs\n    tab name=general label=General\n      text value=General\n    tab name=advanced label=Advanced\n      text value=Advanced',
+    );
     const result = transpileTailwindVue(ast);
     expect(result.code).toContain("= 'general'");
     expect(result.code).toContain("= 'advanced'");

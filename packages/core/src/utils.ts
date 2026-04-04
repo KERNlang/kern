@@ -1,4 +1,4 @@
-import type { IRNode, DiagnosticOutcome, TranspileDiagnostic } from './types.js';
+import type { DiagnosticOutcome, IRNode, TranspileDiagnostic } from './types.js';
 
 /**
  * Approximate token count using a punctuation/whitespace split heuristic.
@@ -11,7 +11,7 @@ import type { IRNode, DiagnosticOutcome, TranspileDiagnostic } from './types.js'
  * @returns Approximate token count
  */
 export function countTokens(text: string): number {
-  return text.split(/[\s{}()\[\];,.<>:='"]+/).filter(Boolean).length;
+  return text.split(/[\s{}()[\];,.<>:='"]+/).filter(Boolean).length;
 }
 
 /**
@@ -35,7 +35,8 @@ export function serializeIR(node: IRNode, indent = ''): string {
   }
   if (props.styles) {
     const pairs = Object.entries(props.styles as Record<string, string>)
-      .map(([k, v]) => `${k}:${v}`).join(',');
+      .map(([k, v]) => `${k}:${v}`)
+      .join(',');
     line += ` {${pairs}}`;
   }
   if (props.themeRefs) {
@@ -43,17 +44,20 @@ export function serializeIR(node: IRNode, indent = ''): string {
       line += ` $${ref}`;
     }
   }
-  let result = line + '\n';
+  let result = `${line}\n`;
   if (node.children) {
     for (const child of node.children) {
-      result += serializeIR(child, indent + '  ');
+      result += serializeIR(child, `${indent}  `);
     }
   }
   return result;
 }
 
 export function camelKey(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+(.)/g, (_, c) => c.toUpperCase()).replace(/[^a-zA-Z0-9]/g, '');
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+(.)/g, (_, c) => c.toUpperCase())
+    .replace(/[^a-zA-Z0-9]/g, '');
 }
 
 /** Escape text content for JSX — prevents XSS in rendered HTML */

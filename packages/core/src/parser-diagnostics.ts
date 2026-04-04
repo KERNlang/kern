@@ -1,6 +1,7 @@
 /** @internal Parser diagnostics infrastructure — not part of the public API. */
-import type { ParseDiagnostic, ParseErrorCode } from './types.js';
+
 import { defaultRuntime, type KernRuntime } from './runtime.js';
+import type { ParseDiagnostic, ParseErrorCode } from './types.js';
 
 export interface ParseState {
   diagnostics: ParseDiagnostic[];
@@ -29,7 +30,7 @@ export function createParseState(): ParseState {
 }
 
 export function commitParseState(state: ParseState, runtime: KernRuntime = defaultRuntime): void {
-  runtime.lastParseDiagnostics = state.diagnostics.map(d => ({ ...d }));
+  runtime.lastParseDiagnostics = state.diagnostics.map((d) => ({ ...d }));
 }
 
 export function emitDiagnostic(
@@ -47,7 +48,7 @@ export function emitDiagnostic(
     message,
     line,
     col,
-    endCol: Math.max(options.endCol ?? (col + 1), col),
+    endCol: Math.max(options.endCol ?? col + 1, col),
     suggestion: options.suggestion ?? DIAGNOSTIC_SUGGESTIONS[code],
   });
 }

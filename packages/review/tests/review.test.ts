@@ -1,4 +1,4 @@
-import { reviewSource, formatReport } from '../src/index.js';
+import { formatReport, reviewSource } from '../src/index.js';
 
 describe('Review Pipeline (end-to-end)', () => {
   it('reviews a complete TypeScript file', () => {
@@ -46,7 +46,7 @@ export const MAX_STEPS = 10;
     expect(report.inferred.length).toBeGreaterThanOrEqual(5);
 
     // Should find type, interface, fn, error, const, import
-    const types = report.inferred.map(r => r.node.type);
+    const types = report.inferred.map((r) => r.node.type);
     expect(types).toContain('type');
     expect(types).toContain('interface');
     expect(types).toContain('fn');
@@ -90,7 +90,7 @@ export interface User { name: string; status: Status; }
     }
 
     // Aliases should be sequential
-    const aliases = report.inferred.map(r => r.promptAlias);
+    const aliases = report.inferred.map((r) => r.promptAlias);
     for (let i = 0; i < aliases.length; i++) {
       expect(aliases[i]).toBe(`N${i + 1}`);
     }

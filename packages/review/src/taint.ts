@@ -6,36 +6,63 @@
  */
 
 import type { SourceFile } from 'ts-morph';
-import type { InferResult } from './types.js';
-import type { TaintResult } from './taint-types.js';
 import { analyzeTaintAST } from './taint-ast.js';
 import { analyzeTaintRegex } from './taint-regex.js';
+import type { TaintResult } from './taint-types.js';
+import type { InferResult } from './types.js';
 
 // ── Types & Classification ──────────────────────────────────────────────
 
-export type { TaintSource, TaintSink, TaintPath, TaintResult, CrossFileTaintResult, ExportedFunction } from './taint-types.js';
-export type { InternalSinkFunction, SinkPattern, SinkCategory } from './taint-types.js';
-export { HTTP_PARAM_NAMES, HTTP_PARAM_TYPES, USER_INPUT_ACCESS } from './taint-types.js';
-export { SINK_PATTERNS, SINK_NAMES, SANITIZER_PATTERNS, SANITIZER_PATTERN_NAMES } from './taint-types.js';
-export { isSanitizerSufficient } from './taint-types.js';
+export type {
+  CrossFileTaintResult,
+  ExportedFunction,
+  InternalSinkFunction,
+  SinkCategory,
+  SinkPattern,
+  TaintPath,
+  TaintResult,
+  TaintSink,
+  TaintSource,
+} from './taint-types.js';
+export {
+  HTTP_PARAM_NAMES,
+  HTTP_PARAM_TYPES,
+  isSanitizerSufficient,
+  SANITIZER_PATTERN_NAMES,
+  SANITIZER_PATTERNS,
+  SINK_NAMES,
+  SINK_PATTERNS,
+  USER_INPUT_ACCESS,
+} from './taint-types.js';
 
 // ── AST Engine ──────────────────────────────────────────────────────────
 
-export { buildInternalSinkMap, analyzeTaintAST } from './taint-ast.js';
+export { analyzeTaintAST, buildInternalSinkMap } from './taint-ast.js';
 
 // ── Regex Engine ────────────────────────────────────────────────────────
 
-export { analyzeTaintRegex, classifyParams, propagateTaintMultiHop } from './taint-regex.js';
-export { extractAllAssignments, parseLineAssignments, extractDependencies, isCircularAssignment } from './taint-regex.js';
-export { propagateTaint, findTaintedSinks, buildPaths, detectSanitizers, findClosingParen } from './taint-regex.js';
+export {
+  analyzeTaintRegex,
+  buildPaths,
+  classifyParams,
+  detectSanitizers,
+  extractAllAssignments,
+  extractDependencies,
+  findClosingParen,
+  findTaintedSinks,
+  isCircularAssignment,
+  parseLineAssignments,
+  propagateTaint,
+  propagateTaintMultiHop,
+} from './taint-regex.js';
 
 // ── Finding Generation ──────────────────────────────────────────────────
 
-export { taintToFindings, crossFileTaintToFindings } from './taint-findings.js';
+export { crossFileTaintToFindings, taintToFindings } from './taint-findings.js';
 
 // ── Cross-File Analysis ─────────────────────────────────────────────────
 
-export { buildExportMap, buildImportMap, analyzeTaintCrossFile } from './taint-crossfile.js';
+export { analyzeTaintCrossFile, buildExportMap, buildImportMap } from './taint-crossfile.js';
 
 // ── Main Entry Point ────────────────────────────────────────────────────
 

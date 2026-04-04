@@ -4,7 +4,6 @@
 
 import type { IRNode } from '@kernlang/core';
 import { getFirstChild, getProps } from '@kernlang/core';
-import { toSnakeCase } from './type-map.js';
 import type { MiddlewareArtifactRef, MiddlewareUsage } from './fastapi-types.js';
 import { slugify } from './fastapi-utils.js';
 
@@ -12,7 +11,7 @@ export function buildMiddlewareArtifact(node: IRNode): MiddlewareArtifactRef {
   const props = getProps(node);
   const name = String(props.name || 'middleware');
   const fileBase = slugify(name);
-  const className = name.charAt(0).toUpperCase() + name.slice(1) + 'Middleware';
+  const className = `${name.charAt(0).toUpperCase() + name.slice(1)}Middleware`;
 
   const handlerNode = getFirstChild(node, 'handler');
   const handlerProps = handlerNode ? getProps(handlerNode) : {};
@@ -83,8 +82,10 @@ export function resolveMiddlewareUsage(
 
   if (name === 'rateLimit' || name === 'rate-limit' || name === 'rateLimiter') {
     return {
-      importLine: 'from slowapi import Limiter, _rate_limit_exceeded_handler\nfrom slowapi.util import get_remote_address\nfrom slowapi.errors import RateLimitExceeded',
-      addLine: 'limiter = Limiter(key_func=get_remote_address)\napp.state.limiter = limiter\napp.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)',
+      importLine:
+        'from slowapi import Limiter, _rate_limit_exceeded_handler\nfrom slowapi.util import get_remote_address\nfrom slowapi.errors import RateLimitExceeded',
+      addLine:
+        'limiter = Limiter(key_func=get_remote_address)\napp.state.limiter = limiter\napp.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)',
     };
   }
 

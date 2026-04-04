@@ -1,6 +1,5 @@
 import { parse } from '../../core/src/parser.js';
 import { transpileVue } from '../src/transpiler-vue.js';
-import { resolveConfig } from '../../core/src/config.js';
 
 describe('Vue 3 SFC Transpiler', () => {
   // ── Basic SFC structure ──
@@ -76,7 +75,7 @@ describe('Vue 3 SFC Transpiler', () => {
   test('button with to uses @click router', () => {
     const ast = parse('screen name=Test\n  button text=Go to=dashboard');
     const result = transpileVue(ast);
-    expect(result.code).toContain("@click=\"$router.push('/dashboard')\"");
+    expect(result.code).toContain('@click="$router.push(\'/dashboard\')"');
   });
 
   test('image renders as self-closing <img>', () => {
@@ -172,7 +171,9 @@ describe('Vue 3 SFC Transpiler', () => {
   // ── Tabs ──
 
   test('tabs generate tab buttons and v-if panels', () => {
-    const ast = parse('screen name=Test\n  tabs\n    tab name=general label=General\n      text value=General\n    tab name=advanced label=Advanced\n      text value=Advanced');
+    const ast = parse(
+      'screen name=Test\n  tabs\n    tab name=general label=General\n      text value=General\n    tab name=advanced label=Advanced\n      text value=Advanced',
+    );
     const result = transpileVue(ast);
     expect(result.code).toContain('@click=');
     expect(result.code).toContain('v-if=');
@@ -183,14 +184,18 @@ describe('Vue 3 SFC Transpiler', () => {
   // ── Event handlers (on nodes) ──
 
   test('on event=click generates handleClick function in script setup', () => {
-    const ast = parse('screen name=Test\n  on event=click\n    handler <<<\n      count++;\n    >>>\n  text value=Hello');
+    const ast = parse(
+      'screen name=Test\n  on event=click\n    handler <<<\n      count++;\n    >>>\n  text value=Hello',
+    );
     const result = transpileVue(ast);
     expect(result.code).toContain('function handleClick(e: MouseEvent)');
     expect(result.code).toContain('count++;');
   });
 
   test('on event=submit with async generates async function', () => {
-    const ast = parse('screen name=Test\n  on event=submit async=true\n    handler <<<\n      e.preventDefault();\n      await submitForm(data);\n    >>>\n  text value=Hello');
+    const ast = parse(
+      'screen name=Test\n  on event=submit async=true\n    handler <<<\n      e.preventDefault();\n      await submitForm(data);\n    >>>\n  text value=Hello',
+    );
     const result = transpileVue(ast);
     expect(result.code).toContain('async function handleSubmit(e: Event)');
     expect(result.code).toContain('e.preventDefault();');
@@ -198,20 +203,24 @@ describe('Vue 3 SFC Transpiler', () => {
   });
 
   test('on event=key with key=Enter generates onMounted + onUnmounted listeners', () => {
-    const ast = parse('screen name=Test\n  on event=key key=Enter\n    handler <<<\n      processInput(buffer);\n    >>>\n  text value=Hello');
+    const ast = parse(
+      'screen name=Test\n  on event=key key=Enter\n    handler <<<\n      processInput(buffer);\n    >>>\n  text value=Hello',
+    );
     const result = transpileVue(ast);
     expect(result.code).toContain("import { onMounted, onUnmounted } from 'vue'");
     expect(result.code).toContain('function handleKey(e: KeyboardEvent)');
     expect(result.code).toContain("if ((e as KeyboardEvent).key !== 'Enter') return;");
     expect(result.code).toContain('processInput(buffer);');
-    expect(result.code).toContain("onMounted(() => {");
+    expect(result.code).toContain('onMounted(() => {');
     expect(result.code).toContain("window.addEventListener('keydown', handleKey as EventListener);");
-    expect(result.code).toContain("onUnmounted(() => {");
+    expect(result.code).toContain('onUnmounted(() => {');
     expect(result.code).toContain("window.removeEventListener('keydown', handleKey as EventListener);");
   });
 
   test('on event=resize generates onMounted + onUnmounted window listeners', () => {
-    const ast = parse('screen name=Test\n  on event=resize\n    handler <<<\n      updateLayout();\n    >>>\n  text value=Hello');
+    const ast = parse(
+      'screen name=Test\n  on event=resize\n    handler <<<\n      updateLayout();\n    >>>\n  text value=Hello',
+    );
     const result = transpileVue(ast);
     expect(result.code).toContain("import { onMounted, onUnmounted } from 'vue'");
     expect(result.code).toContain('function handleResize()');
@@ -221,7 +230,9 @@ describe('Vue 3 SFC Transpiler', () => {
   });
 
   test('on node does not render template elements', () => {
-    const ast = parse('screen name=Test\n  on event=click\n    handler <<<\n      doSomething();\n    >>>\n  text value=Hello');
+    const ast = parse(
+      'screen name=Test\n  on event=click\n    handler <<<\n      doSomething();\n    >>>\n  text value=Hello',
+    );
     const result = transpileVue(ast);
     // The on node should NOT produce any <div> in the template
     expect(result.code).not.toMatch(/<div[^>]*>.*doSomething/s);
@@ -231,7 +242,9 @@ describe('Vue 3 SFC Transpiler', () => {
   });
 
   test('on event=click with state generates ref import alongside handlers', () => {
-    const ast = parse('screen name=Test\n  state name=count initial=0\n  on event=click\n    handler <<<\n      count.value++;\n    >>>\n  text value=Hello');
+    const ast = parse(
+      'screen name=Test\n  state name=count initial=0\n  on event=click\n    handler <<<\n      count.value++;\n    >>>\n  text value=Hello',
+    );
     const result = transpileVue(ast);
     expect(result.code).toContain("import { ref } from 'vue'");
     expect(result.code).toContain('const count = ref(0);');

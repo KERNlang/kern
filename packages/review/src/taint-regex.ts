@@ -5,9 +5,15 @@
  * Works on handler body strings from KERN IR nodes.
  */
 
+import type { TaintPath, TaintResult, TaintSink, TaintSource } from './taint-types.js';
+import {
+  HTTP_PARAM_NAMES,
+  HTTP_PARAM_TYPES,
+  isSanitizerSufficient,
+  SANITIZER_PATTERNS,
+  SINK_PATTERNS,
+} from './taint-types.js';
 import type { InferResult } from './types.js';
-import type { TaintSource, TaintSink, TaintPath, TaintResult } from './taint-types.js';
-import { HTTP_PARAM_NAMES, HTTP_PARAM_TYPES, SINK_PATTERNS, SANITIZER_PATTERNS, isSanitizerSufficient } from './taint-types.js';
 
 // ── Main Regex Analysis ─────────────────────────────────────────────────
 
@@ -24,7 +30,7 @@ export function analyzeTaintRegex(inferred: InferResult[], filePath: string): Ta
     const paramsStr = (r.node.props?.params as string) || '';
 
     // Get handler body
-    const handler = r.node.children?.find(c => c.type === 'handler');
+    const handler = r.node.children?.find((c) => c.type === 'handler');
     const code = (handler?.props?.code as string) || '';
     if (!code) continue;
 
@@ -64,7 +70,7 @@ export function classifyParams(paramsStr: string): TaintSource[] {
   const sources: TaintSource[] = [];
   if (!paramsStr) return sources;
 
-  const params = paramsStr.split(',').map(p => {
+  const params = paramsStr.split(',').map((p) => {
     const parts = p.trim().split(':');
     return { name: parts[0]?.trim(), type: parts[1]?.trim() || '' };
   });
@@ -96,11 +102,7 @@ export function classifyParams(paramsStr: string): TaintSource[] {
  * @param maxDepth - Maximum propagation depth (default: 3)
  * @returns Set of all tainted variable names after fixed point or depth limit
  */
-export function propagateTaintMultiHop(
-  code: string,
-  initialTainted: Set<string>,
-  maxDepth: number = 3,
-): Set<string> {
+export function propagateTaintMultiHop(code: string, initialTainted: Set<string>, maxDepth: number = 3): Set<string> {
   const tainted = new Set<string>(initialTainted);
   const worklist: Array<{ varName: string; depth: number }> = [];
   const visitedAssignments = new Set<string>();
@@ -210,10 +212,13 @@ export function parseLineAssignments(line: string, lineNum: number): Assignment[
   const destructRegex = /^\{\s*([^}]+)\}\s*=\s*(.+)$/;
   const destructMatch = rest.match(destructRegex);
   if (destructMatch) {
-    const vars = destructMatch[1].split(',').map(v => {
-      const name = v.trim().split(':')[0].split('=')[0].trim();
-      return name;
-    }).filter(v => v && !v.startsWith('...'));
+    const vars = destructMatch[1]
+      .split(',')
+      .map((v) => {
+        const name = v.trim().split(':')[0].split('=')[0].trim();
+        return name;
+      })
+      .filter((v) => v && !v.startsWith('...'));
     const rhs = destructMatch[2];
     for (let i = 0; i < vars.length; i++) {
       assignments.push({
@@ -240,7 +245,34 @@ export function parseLineAssignments(line: string, lineNum: number): Assignment[
 
 export function extractDependencies(rhs: string): Set<string> {
   const deps = new Set<string>();
-  const RESERVED = new Set(['undefined', 'null', 'true', 'false', 'const', 'let', 'var', 'new', 'typeof', 'instanceof', 'return', 'await', 'async', 'function', 'if', 'else', 'for', 'while', 'switch', 'case', 'break', 'continue', 'throw', 'try', 'catch', 'finally']);
+  const RESERVED = new Set([
+    'undefined',
+    'null',
+    'true',
+    'false',
+    'const',
+    'let',
+    'var',
+    'new',
+    'typeof',
+    'instanceof',
+    'return',
+    'await',
+    'async',
+    'function',
+    'if',
+    'else',
+    'for',
+    'while',
+    'switch',
+    'case',
+    'break',
+    'continue',
+    'throw',
+    'try',
+    'catch',
+    'finally',
+  ]);
 
   // Match all identifier chains: foo, foo.bar, foo.bar.baz, foo[0].bar
   const chainRegex = /\b([a-zA-Z_$]\w*)(?:\.\w+|\[[^\]]*\])*/g;
@@ -314,7 +346,7 @@ export function propagateTaint(code: string, params: TaintSource[]): TaintSource
  */
 export function findTaintedSinks(code: string, taintedVars: TaintSource[]): TaintSink[] {
   const sinks: TaintSink[] = [];
-  const taintedNames = new Set(taintedVars.map(v => v.name));
+  const taintedNames = new Set(taintedVars.map((v) => v.name));
 
   for (const { pattern, name, category } of SINK_PATTERNS) {
     // Scan ALL matches using a global copy (original patterns are non-global)
@@ -350,8 +382,6 @@ export function findTaintedSinks(code: string, taintedVars: TaintSource[]): Tain
       // Check if this template is used as argument to a command-like function
       const before = code.slice(Math.max(0, tm.index - 50), tm.index);
       if (/exec\s*\(|spawn\s*\(|execSync\s*\(/.test(before)) {
-        // Already caught by SINK_PATTERNS, skip duplicate
-        continue;
       }
     }
   }
@@ -370,13 +400,14 @@ export function buildPaths(code: string, taintedVars: TaintSource[], sinks: Tain
 
   for (const sink of sinks) {
     // Find the source that produced this tainted arg
-    const source = taintedVars.find(v => v.name === sink.taintedArg);
+    const source = taintedVars.find((v) => v.name === sink.taintedArg);
     if (!source) continue;
 
     // Check if any sanitizer was applied to this specific variable
-    const sanitizer = foundSanitizers.find(s =>
-      new RegExp(`\\b${sink.taintedArg}\\b`).test(s.context) ||
-      new RegExp(`${s.name}\\s*\\([^)]*\\b${sink.taintedArg}\\b`).test(code)
+    const sanitizer = foundSanitizers.find(
+      (s) =>
+        new RegExp(`\\b${sink.taintedArg}\\b`).test(s.context) ||
+        new RegExp(`${s.name}\\s*\\([^)]*\\b${sink.taintedArg}\\b`).test(code),
     );
 
     // Check sanitizer sufficiency — is this the RIGHT sanitizer for this sink?
@@ -419,7 +450,10 @@ export function findClosingParen(code: string, start: number): number {
   let depth = 1;
   for (let i = start; i < code.length; i++) {
     if (code[i] === '(') depth++;
-    if (code[i] === ')') { depth--; if (depth === 0) return i; }
+    if (code[i] === ')') {
+      depth--;
+      if (depth === 0) return i;
+    }
   }
   return Math.min(start + 500, code.length); // fallback
 }

@@ -15,7 +15,7 @@ export function getProps(node: IRNode): Record<string, unknown> {
 
 export function getChildren(node: IRNode, type?: string): IRNode[] {
   const c = node.children || [];
-  return type ? c.filter(n => n.type === type) : c;
+  return type ? c.filter((n) => n.type === type) : c;
 }
 
 export function getFirstChild(node: IRNode, type: string): IRNode | undefined {
@@ -38,10 +38,13 @@ export function getThemeRefs(node: IRNode): string[] {
 
 export function dedent(code: string): string {
   const lines = code.split('\n');
-  const nonEmpty = lines.filter(l => l.trim().length > 0);
+  const nonEmpty = lines.filter((l) => l.trim().length > 0);
   if (nonEmpty.length === 0) return code;
-  const minIndent = Math.min(...nonEmpty.map(l => l.match(/^(\s*)/)?.[1]?.length ?? 0));
-  return lines.map(l => l.slice(minIndent)).join('\n').trim();
+  const minIndent = Math.min(...nonEmpty.map((l) => l.match(/^(\s*)/)?.[1]?.length ?? 0));
+  return lines
+    .map((l) => l.slice(minIndent))
+    .join('\n')
+    .trim();
 }
 
 export function cssPropertyName(camel: string): string {
@@ -51,7 +54,7 @@ export function cssPropertyName(camel: string): string {
 export function handlerCode(node: IRNode): string {
   const handler = getFirstChild(node, 'handler');
   if (!handler) return '';
-  const raw = getProps(handler).code as string || '';
+  const raw = (getProps(handler).code as string) || '';
   return dedent(raw);
 }
 
@@ -68,18 +71,20 @@ export function capitalize(s: string): string {
 /** Parse "name:Type,name2:Type2,spread:number=8" → "name: Type, name2: Type2, spread: number = 8" */
 export function parseParamList(params: string): string {
   if (!params) return '';
-  return splitParamsRespectingDepth(params).map(s => {
-    const trimmed = s.trim();
-    const colonIdx = trimmed.indexOf(':');
-    if (colonIdx === -1) return trimmed;
-    const pname = trimmed.slice(0, colonIdx).trim();
-    const rest = trimmed.slice(colonIdx + 1).trim();
-    const eqIdx = findDefaultSeparator(rest);
-    if (eqIdx === -1) return `${pname}: ${rest}`;
-    const ptype = rest.slice(0, eqIdx).trim();
-    const pdefault = rest.slice(eqIdx + 1).trim();
-    return `${pname}: ${ptype} = ${pdefault}`;
-  }).join(', ');
+  return splitParamsRespectingDepth(params)
+    .map((s) => {
+      const trimmed = s.trim();
+      const colonIdx = trimmed.indexOf(':');
+      if (colonIdx === -1) return trimmed;
+      const pname = trimmed.slice(0, colonIdx).trim();
+      const rest = trimmed.slice(colonIdx + 1).trim();
+      const eqIdx = findDefaultSeparator(rest);
+      if (eqIdx === -1) return `${pname}: ${rest}`;
+      const ptype = rest.slice(0, eqIdx).trim();
+      const pdefault = rest.slice(eqIdx + 1).trim();
+      return `${pname}: ${ptype} = ${pdefault}`;
+    })
+    .join(', ');
 }
 
 /** Split param string on commas while respecting <>, (), {} depth. */
@@ -144,7 +149,7 @@ export function emitReasonAnnotations(node: IRNode): string[] {
   }
   for (const needsNode of needsNodes) {
     const np = getProps(needsNode);
-    const desc = np.what as string || np.description as string || '';
+    const desc = (np.what as string) || (np.description as string) || '';
     const wouldRaise = np['would-raise-to'] as string;
     const tag = wouldRaise ? `${desc} (would raise to ${wouldRaise})` : desc;
     lines.push(` * @needs ${tag}`);
@@ -156,7 +161,7 @@ export function emitReasonAnnotations(node: IRNode): string[] {
 export function emitLowConfidenceTodo(node: IRNode, confidence: string | undefined): string[] {
   if (!confidence) return [];
   const val = parseFloat(confidence);
-  if (isNaN(val) || val >= 0.5 || confidence.includes(':')) return [];
-  const name = getProps(node).name as string || node.type;
+  if (Number.isNaN(val) || val >= 0.5 || confidence.includes(':')) return [];
+  const name = (getProps(node).name as string) || node.type;
   return [`// TODO(low-confidence): ${name} confidence=${confidence}`];
 }

@@ -1,8 +1,8 @@
-import { mkdirSync, writeFileSync, rmSync } from 'fs';
-import { resolve } from 'path';
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { scanProject, generateConfigSource, formatScanSummary } from '../src/index.js';
+import { resolve } from 'path';
 import type { ScanResult } from '../src/index.js';
+import { formatScanSummary, generateConfigSource, scanProject } from '../src/index.js';
 
 // ── Test Helpers ─────────────────────────────────────────────────────────
 
@@ -26,7 +26,9 @@ function writeFile(dir: string, name: string, content: string): void {
 
 afterEach(() => {
   if (testDir) {
-    try { rmSync(testDir, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(testDir, { recursive: true, force: true });
+    } catch {}
   }
 });
 
@@ -109,7 +111,11 @@ describe('scanProject — target detection', () => {
   it('detects FastAPI from pyproject.toml', () => {
     testDir = createTestDir();
     writeJson(testDir, 'package.json', { dependencies: {} });
-    writeFile(testDir, 'pyproject.toml', `[project]\nname = "my-api"\ndependencies = ["fastapi>=0.110.0", "uvicorn"]\n`);
+    writeFile(
+      testDir,
+      'pyproject.toml',
+      `[project]\nname = "my-api"\ndependencies = ["fastapi>=0.110.0", "uvicorn"]\n`,
+    );
     const result = scanProject(testDir);
     expect(result.config.target).toBe('fastapi');
   });
@@ -222,13 +228,17 @@ describe('scanProject — tsconfig', () => {
   it('handles tsconfig with comments', () => {
     testDir = createTestDir();
     writeJson(testDir, 'package.json', { dependencies: {} });
-    writeFile(testDir, 'tsconfig.json', `{
+    writeFile(
+      testDir,
+      'tsconfig.json',
+      `{
       // This is a comment
       "compilerOptions": {
         "strict": true,
         "module": "es2022",
       }
-    }`);
+    }`,
+    );
     const result = scanProject(testDir);
     expect(result.info.typescript?.strict).toBe(true);
     expect(result.info.typescript?.module).toBe('es2022');
@@ -274,7 +284,10 @@ describe('scanProject — editorconfig', () => {
   it('extracts indent style and size', () => {
     testDir = createTestDir();
     writeJson(testDir, 'package.json', { dependencies: {} });
-    writeFile(testDir, '.editorconfig', `root = true
+    writeFile(
+      testDir,
+      '.editorconfig',
+      `root = true
 
 [*]
 indent_style = tab
@@ -283,7 +296,8 @@ indent_size = 4
 [*.md]
 indent_style = space
 indent_size = 2
-`);
+`,
+    );
     const result = scanProject(testDir);
     expect(result.info.editorConfig).toEqual({ indentStyle: 'tab', indentSize: 4 });
   });
@@ -336,7 +350,11 @@ describe('scanProject — package manager', () => {
 describe('generateConfigSource', () => {
   it('produces valid TypeScript with non-default fields only', () => {
     const result: ScanResult = {
-      config: { target: 'nextjs', frameworkVersions: { nextjs: '^15.2.0', tailwind: '^4.0.0' }, i18n: { enabled: false } },
+      config: {
+        target: 'nextjs',
+        frameworkVersions: { nextjs: '^15.2.0', tailwind: '^4.0.0' },
+        i18n: { enabled: false },
+      },
       info: { packageManager: 'pnpm', typescript: null, formatting: null, editorConfig: null, typeLibraries: [] },
       detections: [],
     };

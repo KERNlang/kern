@@ -2,7 +2,7 @@
  * Shared types and constants for the FastAPI transpiler.
  */
 
-import type { IRNode, GeneratedArtifact } from '@kernlang/core';
+import type { GeneratedArtifact, IRNode } from '@kernlang/core';
 
 export const HTTP_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch']);
 

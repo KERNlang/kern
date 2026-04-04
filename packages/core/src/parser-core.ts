@@ -1,14 +1,15 @@
 /** @internal Core parser pipeline — line parsing, tree building, and orchestration. */
-import type { IRNode, IRSourceLocation, ParseDiagnostic, ParseResult } from './types.js';
-import { isKnownNodeType } from './spec.js';
-import { defaultRuntime, type KernRuntime } from './runtime.js';
+
 import type { ParseState } from './parser-diagnostics.js';
-import { createParseState, commitParseState, emitDiagnostic } from './parser-diagnostics.js';
+import { commitParseState, createParseState, emitDiagnostic } from './parser-diagnostics.js';
+import { KEYWORD_HANDLERS } from './parser-keywords.js';
+import { parseStyleBlock } from './parser-style.js';
+import { TokenStream } from './parser-token-stream.js';
 import type { Token } from './parser-tokenizer.js';
 import { tokenizeLineInternal } from './parser-tokenizer.js';
-import { TokenStream } from './parser-token-stream.js';
-import { parseStyleBlock } from './parser-style.js';
-import { KEYWORD_HANDLERS } from './parser-keywords.js';
+import { defaultRuntime, type KernRuntime } from './runtime.js';
+import { isKnownNodeType } from './spec.js';
+import type { IRNode, IRSourceLocation, ParseResult } from './types.js';
 
 // ── ParsedLine ───────────────────────────────────────────────────────────
 
@@ -33,16 +34,30 @@ function tokenValue(tok: Token): unknown {
 }
 
 /** Try to parse a key=value prop from the stream. Returns true if consumed. */
-function parseProp(state: ParseState, s: TokenStream, props: Record<string, unknown>, lineNum?: number, col?: number): boolean {
+function parseProp(
+  state: ParseState,
+  s: TokenStream,
+  props: Record<string, unknown>,
+  lineNum?: number,
+  col?: number,
+): boolean {
   if (!s.isKeyValue()) return false;
   s.skipWS();
   const keyTok = s.next()!;
   const key = keyTok.value; // identifier
   s.next(); // =
   if (key in props) {
-    emitDiagnostic(state, 'DUPLICATE_PROP', 'warning', `Duplicate property '${key}' at line ${lineNum ?? 0}`, lineNum ?? 0, (col ?? 0) + keyTok.pos, {
-      endCol: (col ?? 0) + keyTok.pos + key.length,
-    });
+    emitDiagnostic(
+      state,
+      'DUPLICATE_PROP',
+      'warning',
+      `Duplicate property '${key}' at line ${lineNum ?? 0}`,
+      lineNum ?? 0,
+      (col ?? 0) + keyTok.pos,
+      {
+        endCol: (col ?? 0) + keyTok.pos + key.length,
+      },
+    );
   }
   const valTok = s.peek();
   if (!valTok || valTok.kind === 'whitespace') {
@@ -70,7 +85,12 @@ function parseProp(state: ParseState, s: TokenStream, props: Record<string, unkn
 
 // ── parseLine ────────────────────────────────────────────────────────────
 
-function parseLine(state: ParseState, raw: string, lineNum: number, runtime: KernRuntime = defaultRuntime): ParsedLine | null {
+function parseLine(
+  state: ParseState,
+  raw: string,
+  lineNum: number,
+  runtime: KernRuntime = defaultRuntime,
+): ParsedLine | null {
   if (raw.trim() === '') return null;
 
   const indent = raw.search(/\S/);
@@ -96,19 +116,35 @@ function parseLine(state: ParseState, raw: string, lineNum: number, runtime: Ker
   // First token must be an identifier (the node type)
   const typeToken = s.tryIdent();
   if (!typeToken) {
-    const firstToken = tokens.find(tok => tok.kind !== 'whitespace');
+    const firstToken = tokens.find((tok) => tok.kind !== 'whitespace');
     if (firstToken) {
-      emitDiagnostic(state, 'DROPPED_LINE', 'error', `Dropped line ${lineNum}: expected a node type at the start of the line`, lineNum, col + firstToken.pos, {
-        endCol: col + content.length,
-      });
+      emitDiagnostic(
+        state,
+        'DROPPED_LINE',
+        'error',
+        `Dropped line ${lineNum}: expected a node type at the start of the line`,
+        lineNum,
+        col + firstToken.pos,
+        {
+          endCol: col + content.length,
+        },
+      );
     }
     return null;
   }
   const type = typeToken;
   if (!isKnownNodeType(type, runtime) && !runtime.multilineBlockTypes.has(type) && !runtime.isTemplateNode(type)) {
-    emitDiagnostic(state, 'UNKNOWN_NODE_TYPE', 'warning', `Unknown node type '${type}' at line ${lineNum}`, lineNum, col, {
-      endCol: col + type.length,
-    });
+    emitDiagnostic(
+      state,
+      'UNKNOWN_NODE_TYPE',
+      'warning',
+      `Unknown node type '${type}' at line ${lineNum}`,
+      lineNum,
+      col,
+      {
+        endCol: col + type.length,
+      },
+    );
   }
 
   const props: Record<string, unknown> = {};
@@ -165,9 +201,17 @@ function parseLine(state: ParseState, raw: string, lineNum: number, runtime: Ker
     // Unknown token — skip with warning
     const skipped = s.next()!;
     const errCol = col + skipped.pos;
-    emitDiagnostic(state, 'UNEXPECTED_TOKEN', 'warning', `Unexpected token "${skipped.value}" at line ${lineNum}:${errCol}`, lineNum, errCol, {
-      endCol: errCol + skipped.value.length,
-    });
+    emitDiagnostic(
+      state,
+      'UNEXPECTED_TOKEN',
+      'warning',
+      `Unexpected token "${skipped.value}" at line ${lineNum}:${errCol}`,
+      lineNum,
+      errCol,
+      {
+        endCol: errCol + skipped.value.length,
+      },
+    );
   }
 
   return {
@@ -195,11 +239,29 @@ function expandMinified(source: string): string {
 
   for (let i = 0; i < source.length; i++) {
     const ch = source[i];
-    if (ch === '"') { inQuote = !inQuote; current += ch; continue; }
-    if (inQuote) { current += ch; continue; }
-    if (ch === '{') { inBraces++; current += ch; continue; }
-    if (ch === '}') { inBraces--; current += ch; continue; }
-    if (inBraces > 0) { current += ch; continue; }
+    if (ch === '"') {
+      inQuote = !inQuote;
+      current += ch;
+      continue;
+    }
+    if (inQuote) {
+      current += ch;
+      continue;
+    }
+    if (ch === '{') {
+      inBraces++;
+      current += ch;
+      continue;
+    }
+    if (ch === '}') {
+      inBraces--;
+      current += ch;
+      continue;
+    }
+    if (inBraces > 0) {
+      current += ch;
+      continue;
+    }
 
     if (ch === '(') {
       result.push('  '.repeat(depth) + current.trim());
@@ -231,7 +293,7 @@ function parseLines(state: ParseState, source: string, runtime: KernRuntime = de
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trimStart();
 
-    const multilineType = [...runtime.multilineBlockTypes].find(type => trimmed.startsWith(`${type} <<<`));
+    const multilineType = [...runtime.multilineBlockTypes].find((type) => trimmed.startsWith(`${type} <<<`));
     if (multilineType) {
       const indent = lines[i].search(/\S/);
       const codeLines: string[] = [];
@@ -259,10 +321,18 @@ function parseLines(state: ParseState, source: string, runtime: KernRuntime = de
         }
       }
       if (!closed) {
-        emitDiagnostic(state, 'UNEXPECTED_TOKEN', 'error', `Unclosed multiline block '${multilineType} <<<' at line ${startLine}`, startLine, indent + 1, {
-          endCol: indent + 1 + blockOpen.length,
-          suggestion: `Close the '${multilineType} <<<' block with a matching '>>>' marker before the file ends.`,
-        });
+        emitDiagnostic(
+          state,
+          'UNEXPECTED_TOKEN',
+          'error',
+          `Unclosed multiline block '${multilineType} <<<' at line ${startLine}`,
+          startLine,
+          indent + 1,
+          {
+            endCol: indent + 1 + blockOpen.length,
+            suggestion: `Close the '${multilineType} <<<' block with a matching '>>>' marker before the file ends.`,
+          },
+        );
       }
       parsed.push({
         indent,
@@ -315,9 +385,17 @@ function buildTree(state: ParseState, parsed: ParsedLine[], root: IRNode, rootIn
     const node = toNode(p);
 
     if (p.indent < (stack[stack.length - 1]?.indent ?? 0) && !seenIndents.has(p.indent)) {
-      emitDiagnostic(state, 'INDENT_JUMP', 'warning', `Dedent to unseen indent level ${p.indent} at line ${p.loc.line}`, p.loc.line, p.loc.col, {
-        endCol: p.loc.col + p.type.length,
-      });
+      emitDiagnostic(
+        state,
+        'INDENT_JUMP',
+        'warning',
+        `Dedent to unseen indent level ${p.indent} at line ${p.loc.line}`,
+        p.loc.line,
+        p.loc.col,
+        {
+          endCol: p.loc.col + p.type.length,
+        },
+      );
     }
 
     while (stack.length > 1 && stack[stack.length - 1].indent >= p.indent) {

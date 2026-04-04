@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
-import { resolve, join } from 'path';
-import { graduateNode, compileCodegenToJS } from '../src/graduation.js';
-import { rollbackNode, restoreNode, findUsages } from '../src/evolve-rollback.js';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { join, resolve } from 'path';
+import { findUsages, restoreNode, rollbackNode } from '../src/evolve-rollback.js';
 import type { EvolveNodeProposal } from '../src/evolved-types.js';
+import { compileCodegenToJS, graduateNode } from '../src/graduation.js';
 
 const TEST_DIR = resolve('/tmp/kern-graduation-test');
 const EVOLVED_DIR = join(TEST_DIR, '.kern', 'evolved');

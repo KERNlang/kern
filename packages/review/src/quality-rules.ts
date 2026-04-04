@@ -4,9 +4,9 @@
  * v2: Thin orchestrator. Actual rules live in ./rules/*.ts
  */
 
-import type { SourceFile, Project } from 'ts-morph';
-import type { InferResult, TemplateMatch, ReviewConfig, ReviewFinding, FileRole } from './types.js';
+import type { Project, SourceFile } from 'ts-morph';
 import { getActiveRules } from './rules/index.js';
+import type { FileRole, InferResult, ReviewConfig, ReviewFinding, TemplateMatch } from './types.js';
 
 /**
  * Run all active quality rules against a source file.

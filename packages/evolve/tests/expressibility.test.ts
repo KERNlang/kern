@@ -1,8 +1,4 @@
-import {
-  scoreExpressibility,
-  isNodeCandidate,
-  EXPRESSIBILITY_NODE_THRESHOLD,
-} from '../src/expressibility-scorer.js';
+import { EXPRESSIBILITY_NODE_THRESHOLD, isNodeCandidate, scoreExpressibility } from '../src/expressibility-scorer.js';
 import type { PatternGap } from '../src/types.js';
 
 function createGap(snippet: string): PatternGap {
@@ -23,10 +19,7 @@ function createGap(snippet: string): PatternGap {
 
 describe('Expressibility Scorer', () => {
   it('scores low when no escapes or leaks', () => {
-    const score = scoreExpressibility(
-      [createGap('button label="Click"')],
-      ['button label="Click"'],
-    );
+    const score = scoreExpressibility([createGap('button label="Click"')], ['button label="Click"']);
     expect(score.overall).toBeLessThan(3);
     expect(score.handlerEscapes).toBe(0);
   });
@@ -40,7 +33,7 @@ describe('Expressibility Scorer', () => {
       'handler <<<return service.process(input);>>>',
     ];
     const score = scoreExpressibility(
-      snippets.map(s => createGap(s)),
+      snippets.map((s) => createGap(s)),
       snippets,
     );
     expect(score.handlerEscapes).toBeGreaterThan(3);
@@ -48,9 +41,7 @@ describe('Expressibility Scorer', () => {
   });
 
   it('counts non-standard attributes', () => {
-    const snippets = [
-      'model name=User backend=postgres sharding=true replication=async partitionKey=id',
-    ];
+    const snippets = ['model name=User backend=postgres sharding=true replication=async partitionKey=id'];
     const score = scoreExpressibility([], snippets);
     expect(score.nonStandardAttrs).toBeGreaterThan(0);
   });
@@ -62,7 +53,7 @@ describe('Expressibility Scorer', () => {
       'derive z expr={{total * rate}}',
     ];
     const score = scoreExpressibility(
-      snippets.map(s => createGap(s)),
+      snippets.map((s) => createGap(s)),
       snippets,
     );
     expect(score.semanticLeaks).toBeGreaterThan(0);

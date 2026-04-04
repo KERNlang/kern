@@ -1,5 +1,5 @@
 import { parse } from '../../core/src/parser.js';
-import { generateVueProvider, generateVueEffect, generateVueHook, generateVueNode, isVueNode } from '../src/codegen-vue.js';
+import { generateVueHook, generateVueNode, isVueNode } from '../src/codegen-vue.js';
 
 function gen(source: string): string {
   const root = parse(source);
@@ -82,7 +82,9 @@ describe('Vue Codegen', () => {
 
     it('generates composable function', () => {
       const code = gen(effectSource);
-      expect(code).toContain('export function useTrackingContainer<T>({ entities, generator }: TrackingContainerProps<T>)');
+      expect(code).toContain(
+        'export function useTrackingContainer<T>({ entities, generator }: TrackingContainerProps<T>)',
+      );
     });
 
     it('includes handler code', () => {

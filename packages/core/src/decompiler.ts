@@ -1,5 +1,5 @@
-import type { IRNode, DecompileResult } from './types.js';
 import { STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
+import type { DecompileResult, IRNode } from './types.js';
 
 function expandKey(key: string): string {
   return STYLE_SHORTHANDS[key] || key;
@@ -31,11 +31,14 @@ export function decompile(root: IRNode): DecompileResult {
     const type = node.type.charAt(0).toUpperCase() + node.type.slice(1);
 
     // Style description
-    const styles = (props.styles && typeof props.styles === 'object' && !Array.isArray(props.styles))
-      ? props.styles as Record<string, string>
-      : undefined;
+    const styles =
+      props.styles && typeof props.styles === 'object' && !Array.isArray(props.styles)
+        ? (props.styles as Record<string, string>)
+        : undefined;
     const styleDesc = styles
-      ? Object.entries(styles).map(([k, v]) => `${expandKey(k)}: ${expandVal(String(v))}`).join(', ')
+      ? Object.entries(styles)
+          .map(([k, v]) => `${expandKey(k)}: ${expandVal(String(v))}`)
+          .join(', ')
       : '';
 
     // Props (excluding internal keys)
@@ -50,13 +53,13 @@ export function decompile(root: IRNode): DecompileResult {
     if (styleDesc) desc += ` [${styleDesc}]`;
 
     const themeRefs = props.themeRefs as string[] | undefined;
-    if (themeRefs?.length) desc += ` inherits ${themeRefs.map(r => `$${r}`).join(', ')}`;
+    if (themeRefs?.length) desc += ` inherits ${themeRefs.map((r) => `$${r}`).join(', ')}`;
 
     lines.push(desc);
 
     if (node.children) {
       for (const child of node.children) {
-        render(child, indent + '  ');
+        render(child, `${indent}  `);
       }
     }
   }

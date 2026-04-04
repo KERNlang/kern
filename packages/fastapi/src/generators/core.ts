@@ -4,9 +4,9 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { handlerCode, emitIdentifier } from '@kernlang/core';
-import { mapTsTypeToPython, toSnakeCase, toScreamingSnake } from '../type-map.js';
-import { p, kids } from '../codegen-helpers.js';
+import { emitIdentifier, handlerCode } from '@kernlang/core';
+import { kids, p } from '../codegen-helpers.js';
+import { mapTsTypeToPython, toScreamingSnake, toSnakeCase } from '../type-map.js';
 
 // ── Type Alias ───────────────────────────────────────────────────────────
 // type name=PlanState values="draft|approved|running"
@@ -16,7 +16,10 @@ export function generateType(node: IRNode): string[] {
   const { name, values, alias } = p(node) as Record<string, string>;
 
   if (values) {
-    const members = values.split('|').map(v => `"${v.trim()}"`).join(', ');
+    const members = values
+      .split('|')
+      .map((v) => `"${v.trim()}"`)
+      .join(', ');
     return [`${name} = Literal[${members}]`];
   }
   if (alias) {
@@ -69,16 +72,19 @@ export function generateInterface(node: IRNode): string[] {
 export function generateFunction(node: IRNode): string[] {
   const props = p(node);
   const name = toSnakeCase(props.name as string);
-  const params = props.params as string || '';
+  const params = (props.params as string) || '';
   const returns = props.returns as string;
   const isAsync = props.async === 'true' || props.async === true;
   const lines: string[] = [];
 
   const paramList = params
-    ? params.split(',').map(s => {
-        const [pname, ...ptype] = s.split(':').map(t => t.trim());
-        return ptype.length > 0 ? `${toSnakeCase(pname)}: ${mapTsTypeToPython(ptype.join(':'))}` : toSnakeCase(pname);
-      }).join(', ')
+    ? params
+        .split(',')
+        .map((s) => {
+          const [pname, ...ptype] = s.split(':').map((t) => t.trim());
+          return ptype.length > 0 ? `${toSnakeCase(pname)}: ${mapTsTypeToPython(ptype.join(':'))}` : toSnakeCase(pname);
+        })
+        .join(', ')
     : '';
 
   const retClause = returns ? ` -> ${mapTsTypeToPython(returns)}` : '';
@@ -105,7 +111,7 @@ export function generateFunction(node: IRNode): string[] {
 export function generateError(node: IRNode): string[] {
   const props = p(node);
   const name = props.name as string;
-  const ext = props.extends as string || 'Exception';
+  const ext = (props.extends as string) || 'Exception';
   const message = props.message as string;
   const fields = kids(node, 'field');
   const lines: string[] = [];
@@ -124,7 +130,7 @@ export function generateError(node: IRNode): string[] {
 
     if (message) {
       // Handle array fields that need formatting
-      const arrayFields = fields.filter(f => {
+      const arrayFields = fields.filter((f) => {
         const ft = p(f).type as string;
         return ft.includes('[]') || ft.includes('string |') || ft.includes('| string');
       });
@@ -133,7 +139,7 @@ export function generateError(node: IRNode): string[] {
         lines.push(`        ${fn}_str = " | ".join(${fn}) if isinstance(${fn}, list) else ${fn}`);
       }
       // Convert TS template literal ${var} to Python f-string {var}
-      const arrayFieldNames = new Set(arrayFields.map(f => toSnakeCase(p(f).name as string)));
+      const arrayFieldNames = new Set(arrayFields.map((f) => toSnakeCase(p(f).name as string)));
       const pyMessage = message.replace(/\$\{(\w+)\}/g, (_, v) => {
         const snaked = toSnakeCase(v);
         return arrayFieldNames.has(snaked) ? `{${snaked}_str}` : `{${snaked}}`;
@@ -176,7 +182,7 @@ export function generateMachine(node: IRNode): string[] {
   const lines: string[] = [];
 
   const states = kids(node, 'state');
-  const stateNames = states.map(s => {
+  const stateNames = states.map((s) => {
     const sp = p(s);
     return (sp.name || sp.value) as string;
   });
@@ -210,7 +216,7 @@ export function generateMachine(node: IRNode): string[] {
     const from = tp.from as string;
     const to = tp.to as string;
 
-    const fromStates = from.split('|').map(s => s.trim());
+    const fromStates = from.split('|').map((s) => s.trim());
     const isMultiFrom = fromStates.length > 1;
     const fnName = `${tname}_${snakeName}`;
     const code = handlerCode(t);
@@ -220,7 +226,7 @@ export function generateMachine(node: IRNode): string[] {
     lines.push(`    """${from} → ${to}"""`);
 
     if (isMultiFrom) {
-      lines.push(`    valid_states = [${fromStates.map(s => `"${s}"`).join(', ')}]`);
+      lines.push(`    valid_states = [${fromStates.map((s) => `"${s}"`).join(', ')}]`);
       lines.push(`    if entity["state"] not in valid_states:`);
       lines.push(`        raise ${errorName}(valid_states, entity["state"])`);
     } else {
@@ -287,16 +293,14 @@ export function generateConfig(node: IRNode): string[] {
 export function generateStore(node: IRNode): string[] {
   const props = p(node);
   const name = props.name as string;
-  const storePath = props.path as string || '~/.data';
-  const key = toSnakeCase(props.key as string || 'id');
-  const model = props.model as string || 'dict';
+  const storePath = (props.path as string) || '~/.data';
+  const key = toSnakeCase((props.key as string) || 'id');
+  const _model = (props.model as string) || 'dict';
   const lines: string[] = [];
   const snakeName = toSnakeCase(name);
-  const dirConst = toScreamingSnake(name) + '_DIR';
+  const dirConst = `${toScreamingSnake(name)}_DIR`;
 
-  const resolvedPath = storePath.startsWith('~/')
-    ? `Path.home() / "${storePath.slice(2)}"`
-    : `Path("${storePath}")`;
+  const resolvedPath = storePath.startsWith('~/') ? `Path.home() / "${storePath.slice(2)}"` : `Path("${storePath}")`;
 
   lines.push('import json');
   lines.push('from pathlib import Path');
@@ -393,7 +397,12 @@ export function generateTest(node: IRNode): string[] {
 
     for (const test of kids(desc, 'it')) {
       const tname = p(test).name as string;
-      const fname = toSnakeCase(tname.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_'));
+      const fname = toSnakeCase(
+        tname
+          .replace(/[^a-zA-Z0-9\s]/g, '')
+          .trim()
+          .replace(/\s+/g, '_'),
+      );
       const code = handlerCode(test);
       lines.push(`        def test_${fname}(self):`);
       if (code) {
@@ -408,7 +417,12 @@ export function generateTest(node: IRNode): string[] {
   // Top-level it blocks
   for (const test of kids(node, 'it')) {
     const tname = p(test).name as string;
-    const fname = toSnakeCase(tname.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_'));
+    const fname = toSnakeCase(
+      tname
+        .replace(/[^a-zA-Z0-9\s]/g, '')
+        .trim()
+        .replace(/\s+/g, '_'),
+    );
     const code = handlerCode(test);
     lines.push(`    def test_${fname}(self):`);
     if (code) {
@@ -435,7 +449,7 @@ export function generateEvent(node: IRNode): string[] {
   const lines: string[] = [];
 
   // Event type union
-  lines.push(`${name}Type = Literal[${types.map(t => `"${(p(t).name || p(t).value) as string}"`).join(', ')}]`);
+  lines.push(`${name}Type = Literal[${types.map((t) => `"${(p(t).name || p(t).value) as string}"`).join(', ')}]`);
   lines.push('');
 
   // Event TypedDict
@@ -451,9 +465,10 @@ export function generateEvent(node: IRNode): string[] {
     const tname = (tp.name || tp.value) as string;
     const data = tp.data as string;
     if (data) {
-      const className = tname.split(':').map(part =>
-        part.charAt(0).toUpperCase() + part.slice(1)
-      ).join('') + 'Data';
+      const className = `${tname
+        .split(':')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join('')}Data`;
       lines.push(`class ${className}(TypedDict):`);
       // Parse simple {key: type} format
       const inner = data.replace(/^\{|\}$/g, '').trim();
@@ -487,13 +502,23 @@ export function generateImport(node: IRNode): string[] {
   if (!from) return [];
 
   if (defaultImport && names) {
-    return [`from ${from} import ${defaultImport}, ${names.split(',').map(s => s.trim()).join(', ')}`];
+    return [
+      `from ${from} import ${defaultImport}, ${names
+        .split(',')
+        .map((s) => s.trim())
+        .join(', ')}`,
+    ];
   }
   if (defaultImport) {
     return [`import ${from} as ${defaultImport}`];
   }
   if (names) {
-    return [`from ${from} import ${names.split(',').map(s => s.trim()).join(', ')}`];
+    return [
+      `from ${from} import ${names
+        .split(',')
+        .map((s) => s.trim())
+        .join(', ')}`,
+    ];
   }
   return [`import ${from}`];
 }

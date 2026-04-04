@@ -1,11 +1,11 @@
+import { getGovernanceThresholds, governanceGate } from '../src/node-governance.js';
 import {
-  proposeNodes,
   deriveNodeName,
-  generateKernSyntaxExample,
   generateCodegenStub,
+  generateKernSyntaxExample,
+  proposeNodes,
   resetNodeProposalIds,
 } from '../src/node-proposer.js';
-import { governanceGate, getGovernanceThresholds } from '../src/node-governance.js';
 import { validateNodeProposal } from '../src/node-validator.js';
 import type { AnalyzedPattern, ExpressibilityScore, NodeProposal } from '../src/types.js';
 
@@ -45,10 +45,12 @@ describe('Node Proposer', () => {
     });
 
     it('derives repository from structural-repository pattern', () => {
-      const name = deriveNodeName(createPattern({
-        templateName: 'structural-repository',
-        gapIds: ['gap-structural-repository-1', 'gap-structural-repository-2'],
-      }));
+      const name = deriveNodeName(
+        createPattern({
+          templateName: 'structural-repository',
+          gapIds: ['gap-structural-repository-1', 'gap-structural-repository-2'],
+        }),
+      );
       expect(name).toBe('repository');
     });
   });
@@ -92,8 +94,14 @@ describe('Node Proposer', () => {
     });
 
     it('sorts by quality score descending', () => {
-      const p1 = createPattern({ structuralHash: 'aaa', qualityScore: { confidence: 80, supportCount: 5, variability: 0.2, relevanceScore: 90, overallScore: 90 } });
-      const p2 = createPattern({ structuralHash: 'bbb', qualityScore: { confidence: 80, supportCount: 5, variability: 0.2, relevanceScore: 90, overallScore: 60 } });
+      const p1 = createPattern({
+        structuralHash: 'aaa',
+        qualityScore: { confidence: 80, supportCount: 5, variability: 0.2, relevanceScore: 90, overallScore: 90 },
+      });
+      const p2 = createPattern({
+        structuralHash: 'bbb',
+        qualityScore: { confidence: 80, supportCount: 5, variability: 0.2, relevanceScore: 90, overallScore: 60 },
+      });
       const scores = new Map([
         ['aaa', createScore(8.0)],
         ['bbb', createScore(8.0)],
@@ -129,21 +137,23 @@ describe('Node Governance', () => {
   it('fails for low frequency', () => {
     const result = governanceGate(createProposal({ frequency: 1 }));
     expect(result.pass).toBe(false);
-    expect(result.reasons.some(r => r.includes('frequency'))).toBe(true);
+    expect(result.reasons.some((r) => r.includes('frequency'))).toBe(true);
   });
 
   it('fails for low expressibility', () => {
-    const result = governanceGate(createProposal({
-      expressibilityScore: createScore(3.0),
-    }));
+    const result = governanceGate(
+      createProposal({
+        expressibilityScore: createScore(3.0),
+      }),
+    );
     expect(result.pass).toBe(false);
-    expect(result.reasons.some(r => r.includes('expressibility'))).toBe(true);
+    expect(result.reasons.some((r) => r.includes('expressibility'))).toBe(true);
   });
 
   it('fails for low quality', () => {
     const result = governanceGate(createProposal({ qualityScore: 40 }));
     expect(result.pass).toBe(false);
-    expect(result.reasons.some(r => r.includes('quality'))).toBe(true);
+    expect(result.reasons.some((r) => r.includes('quality'))).toBe(true);
   });
 
   it('exposes thresholds', () => {
@@ -189,9 +199,11 @@ describe('Node Validator', () => {
   });
 
   it('fails when codegen stub lacks function definition', () => {
-    const result = validateNodeProposal(createProposal({
-      codegenStub: 'const x = 1;',
-    }));
+    const result = validateNodeProposal(
+      createProposal({
+        codegenStub: 'const x = 1;',
+      }),
+    );
     expect(result.codegenOk).toBe(false);
   });
 });

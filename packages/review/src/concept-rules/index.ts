@@ -23,12 +23,7 @@ export interface ConceptRuleContext {
 
 export type ConceptRule = (ctx: ConceptRuleContext) => ReviewFinding[];
 
-export const conceptRules: ConceptRule[] = [
-  boundaryMutation,
-  ignoredError,
-  unguardedEffect,
-  unrecoveredEffect,
-];
+export const conceptRules: ConceptRule[] = [boundaryMutation, ignoredError, unguardedEffect, unrecoveredEffect];
 
 export function runConceptRules(
   concepts: ConceptMap,

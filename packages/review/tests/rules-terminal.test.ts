@@ -14,7 +14,7 @@ process.stdin.on('data', (key: Buffer) => {
 });
 `;
       const report = reviewSource(source, 'tui.ts', terminalConfig);
-      const finding = report.findings.find(f => f.ruleId === 'terminal-raw-mode-no-restore');
+      const finding = report.findings.find((f) => f.ruleId === 'terminal-raw-mode-no-restore');
       expect(finding).toBeDefined();
       expect(finding!.severity).toBe('error');
     });
@@ -28,7 +28,7 @@ process.on('exit', () => {
 });
 `;
       const report = reviewSource(source, 'tui.ts', terminalConfig);
-      const finding = report.findings.find(f => f.ruleId === 'terminal-raw-mode-no-restore');
+      const finding = report.findings.find((f) => f.ruleId === 'terminal-raw-mode-no-restore');
       expect(finding).toBeUndefined();
     });
   });
@@ -41,7 +41,7 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 rl.question('Name? ', (answer: string) => { console.log('Hello', answer); });
 `;
       const report = reviewSource(source, 'prompt.ts', terminalConfig);
-      const finding = report.findings.find(f => f.ruleId === 'terminal-readline-no-close');
+      const finding = report.findings.find((f) => f.ruleId === 'terminal-readline-no-close');
       expect(finding).toBeDefined();
     });
 
@@ -52,7 +52,7 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 rl.question('Name? ', (answer: string) => { rl.close(); });
 `;
       const report = reviewSource(source, 'prompt.ts', terminalConfig);
-      const finding = report.findings.find(f => f.ruleId === 'terminal-readline-no-close');
+      const finding = report.findings.find((f) => f.ruleId === 'terminal-readline-no-close');
       expect(finding).toBeUndefined();
     });
   });
@@ -68,7 +68,7 @@ rl.question('Name? ', (answer: string) => {
 });
 `;
       const report = reviewSource(source, 'prompt.ts', terminalConfig);
-      const finding = report.findings.find(f => f.ruleId === 'terminal-missing-signal-handler');
+      const finding = report.findings.find((f) => f.ruleId === 'terminal-missing-signal-handler');
       expect(finding).toBeDefined();
     });
 
@@ -80,7 +80,7 @@ process.on('SIGINT', () => { rl.close(); process.exit(130); });
 rl.question('Name? ', (answer: string) => { rl.close(); });
 `;
       const report = reviewSource(source, 'prompt.ts', terminalConfig);
-      const finding = report.findings.find(f => f.ruleId === 'terminal-missing-signal-handler');
+      const finding = report.findings.find((f) => f.ruleId === 'terminal-missing-signal-handler');
       expect(finding).toBeUndefined();
     });
   });
@@ -92,7 +92,7 @@ function render() { process.stdout.write('frame'); }
 setInterval(render, 5);
 `;
       const report = reviewSource(source, 'tui.ts', terminalConfig);
-      const finding = report.findings.find(f => f.ruleId === 'terminal-unthrottled-render');
+      const finding = report.findings.find((f) => f.ruleId === 'terminal-unthrottled-render');
       expect(finding).toBeDefined();
     });
 
@@ -102,7 +102,7 @@ function render() { process.stdout.write('frame'); }
 setInterval(render, 16);
 `;
       const report = reviewSource(source, 'tui.ts', terminalConfig);
-      const finding = report.findings.find(f => f.ruleId === 'terminal-unthrottled-render');
+      const finding = report.findings.find((f) => f.ruleId === 'terminal-unthrottled-render');
       expect(finding).toBeUndefined();
     });
   });

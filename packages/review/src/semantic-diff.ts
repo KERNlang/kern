@@ -8,11 +8,11 @@
  * semantic understanding of WHAT changed.
  */
 
-import { execFileSync } from 'child_process';
 import type { ConceptMap, ConceptNode, ConceptNodeKind } from '@kernlang/core';
-import type { InferResult } from './types.js';
-import { inferFromSource, createInMemoryProject } from './inferrer.js';
+import { execFileSync } from 'child_process';
+import { createInMemoryProject, inferFromSource } from './inferrer.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
+import type { InferResult } from './types.js';
 
 // ── Public Types ────────────────────────────────────────────────────────
 
@@ -79,9 +79,7 @@ function buildFnMap(inferred: InferResult[]): Map<string, InferResult> {
  * Group concept nodes by their container function.
  * The containerId format is `${filePath}#fn:${name}@${offset}` — we extract the function name.
  */
-function groupConceptsByFunction(
-  concepts: ConceptMap | undefined,
-): Map<string, ConceptNode[]> {
+function groupConceptsByFunction(concepts: ConceptMap | undefined): Map<string, ConceptNode[]> {
   const groups = new Map<string, ConceptNode[]>();
   if (!concepts) return groups;
 
@@ -102,7 +100,7 @@ function groupConceptsByFunction(
 
 /** Filter concept nodes by kind. */
 function filterByKind(nodes: ConceptNode[], kind: ConceptNodeKind): ConceptNode[] {
-  return nodes.filter(n => n.kind === kind);
+  return nodes.filter((n) => n.kind === kind);
 }
 
 /** Summarize a concept node for display. */
@@ -195,7 +193,7 @@ export function computeSemanticDiff(
     const newGuards = filterByKind(newFnConcepts, 'guard');
 
     if (oldGuards.length > 0 && newGuards.length === 0) {
-      const guardDescriptions = oldGuards.map(g => summarizeConcept(g)).join('; ');
+      const guardDescriptions = oldGuards.map((g) => summarizeConcept(g)).join('; ');
       changes.push({
         type: 'guard-removed',
         severity: 'error',
@@ -206,7 +204,7 @@ export function computeSemanticDiff(
         oldValue: guardDescriptions,
       });
     } else if (oldGuards.length === 0 && newGuards.length > 0) {
-      const guardDescriptions = newGuards.map(g => summarizeConcept(g)).join('; ');
+      const guardDescriptions = newGuards.map((g) => summarizeConcept(g)).join('; ');
       changes.push({
         type: 'guard-added',
         severity: 'info',
@@ -226,8 +224,8 @@ export function computeSemanticDiff(
         filePath,
         line: newFn.startLine,
         description: `${removedCount} guard(s) removed from ${fnName} (had ${oldGuards.length}, now ${newGuards.length})`,
-        oldValue: oldGuards.map(g => summarizeConcept(g)).join('; '),
-        newValue: newGuards.map(g => summarizeConcept(g)).join('; '),
+        oldValue: oldGuards.map((g) => summarizeConcept(g)).join('; '),
+        newValue: newGuards.map((g) => summarizeConcept(g)).join('; '),
       });
     }
 
@@ -236,7 +234,7 @@ export function computeSemanticDiff(
     const newErrorHandlers = filterByKind(newFnConcepts, 'error_handle');
 
     if (oldErrorHandlers.length > 0 && newErrorHandlers.length === 0) {
-      const descriptions = oldErrorHandlers.map(e => summarizeConcept(e)).join('; ');
+      const descriptions = oldErrorHandlers.map((e) => summarizeConcept(e)).join('; ');
       changes.push({
         type: 'error-handling-removed',
         severity: 'warning',
@@ -254,7 +252,7 @@ export function computeSemanticDiff(
         filePath,
         line: newFn.startLine,
         description: `Error handling added to ${fnName}`,
-        newValue: newErrorHandlers.map(e => summarizeConcept(e)).join('; '),
+        newValue: newErrorHandlers.map((e) => summarizeConcept(e)).join('; '),
       });
     }
 
@@ -263,10 +261,12 @@ export function computeSemanticDiff(
     const newEffects = filterByKind(newFnConcepts, 'effect');
 
     // Find new effects not present in old version (by subtype + target)
-    const oldEffectSigs = new Set(oldEffects.map(e => {
-      const payload = e.payload as { subtype: string; target?: string };
-      return `${payload.subtype}:${payload.target || ''}`;
-    }));
+    const oldEffectSigs = new Set(
+      oldEffects.map((e) => {
+        const payload = e.payload as { subtype: string; target?: string };
+        return `${payload.subtype}:${payload.target || ''}`;
+      }),
+    );
 
     for (const effect of newEffects) {
       const payload = effect.payload as { subtype: string; target?: string };
@@ -285,10 +285,12 @@ export function computeSemanticDiff(
     }
 
     // Find removed effects
-    const newEffectSigs = new Set(newEffects.map(e => {
-      const payload = e.payload as { subtype: string; target?: string };
-      return `${payload.subtype}:${payload.target || ''}`;
-    }));
+    const newEffectSigs = new Set(
+      newEffects.map((e) => {
+        const payload = e.payload as { subtype: string; target?: string };
+        return `${payload.subtype}:${payload.target || ''}`;
+      }),
+    );
 
     for (const effect of oldEffects) {
       const payload = effect.payload as { subtype: string; target?: string };
@@ -374,11 +376,12 @@ export function formatSemanticDiff(changes: SemanticChange[], filePath: string):
 
   const lines: string[] = [`<kern-diff path="${filePath}">`];
   for (const c of changes) {
-    const detail = c.oldValue && c.newValue
-      ? ` (was: ${c.oldValue.substring(0, 60)})`
-      : c.oldValue
+    const detail =
+      c.oldValue && c.newValue
         ? ` (was: ${c.oldValue.substring(0, 60)})`
-        : '';
+        : c.oldValue
+          ? ` (was: ${c.oldValue.substring(0, 60)})`
+          : '';
     lines.push(`  [${c.severity}] ${c.type}: ${c.functionName} — ${c.description}${detail}`);
   }
   lines.push('</kern-diff>');
@@ -386,10 +389,8 @@ export function formatSemanticDiff(changes: SemanticChange[], filePath: string):
 }
 
 /** Convert semantic changes to ReviewFindings for inclusion in reports. */
-export function semanticChangesToFindings(
-  changes: SemanticChange[],
-): import('./types.js').ReviewFinding[] {
-  return changes.map(c => ({
+export function semanticChangesToFindings(changes: SemanticChange[]): import('./types.js').ReviewFinding[] {
+  return changes.map((c) => ({
     source: 'kern' as const,
     ruleId: `semantic-diff/${c.type}`,
     severity: c.severity,
@@ -402,11 +403,12 @@ export function semanticChangesToFindings(
       endLine: c.line,
       endCol: 1,
     },
-    suggestion: c.type === 'guard-removed'
-      ? 'Verify this guard removal was intentional — it may leave the function unprotected'
-      : c.type === 'error-handling-removed'
-        ? 'Verify this error handling removal was intentional — errors may now go unhandled'
-        : undefined,
+    suggestion:
+      c.type === 'guard-removed'
+        ? 'Verify this guard removal was intentional — it may leave the function unprotected'
+        : c.type === 'error-handling-removed'
+          ? 'Verify this error handling removal was intentional — errors may now go unhandled'
+          : undefined,
     fingerprint: `semantic-diff/${c.type}:${c.functionName}:${c.line}`,
   }));
 }

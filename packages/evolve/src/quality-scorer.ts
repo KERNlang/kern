@@ -17,10 +17,7 @@ export const DEFAULT_THRESHOLDS: QualityThresholds = {
 /**
  * Calculate quality score for a group of pattern gaps (same structural pattern).
  */
-export function scorePattern(
-  gaps: PatternGap[],
-  thresholds: QualityThresholds = DEFAULT_THRESHOLDS,
-): QualityScore {
+export function scorePattern(gaps: PatternGap[], _thresholds: QualityThresholds = DEFAULT_THRESHOLDS): QualityScore {
   if (gaps.length === 0) {
     return { confidence: 0, supportCount: 0, variability: 0, relevanceScore: 0, overallScore: 0 };
   }
@@ -46,10 +43,7 @@ export function scorePattern(
 /**
  * Check if a quality score passes the configured thresholds.
  */
-export function passesThresholds(
-  score: QualityScore,
-  thresholds: QualityThresholds = DEFAULT_THRESHOLDS,
-): boolean {
+export function passesThresholds(score: QualityScore, thresholds: QualityThresholds = DEFAULT_THRESHOLDS): boolean {
   return (
     score.confidence >= thresholds.minConfidence &&
     score.supportCount >= thresholds.minSupport &&
@@ -62,8 +56,11 @@ function calculateVariability(gaps: PatternGap[]): number {
   if (gaps.length <= 1) return 0;
 
   // Compare the number and names of extracted params across instances
-  const paramSets = gaps.map(g =>
-    g.extractedParams.map(p => p.name).sort().join(','),
+  const paramSets = gaps.map((g) =>
+    g.extractedParams
+      .map((p) => p.name)
+      .sort()
+      .join(','),
   );
 
   // Count how many unique param signatures there are
@@ -86,15 +83,10 @@ function calculateRelevance(gaps: PatternGap[]): number {
   const lineBasedScore = Math.min(avgSnippetLength / 300, 1);
   const paramBasedScore = Math.min(avgParams / 3, 1);
 
-  return (lineBasedScore * 0.6 + paramBasedScore * 0.4);
+  return lineBasedScore * 0.6 + paramBasedScore * 0.4;
 }
 
-function computeOverall(
-  confidence: number,
-  supportCount: number,
-  variability: number,
-  relevanceScore: number,
-): number {
+function computeOverall(confidence: number, supportCount: number, variability: number, relevanceScore: number): number {
   // Normalize confidence to 0-1
   const confNorm = confidence / 100;
 
@@ -105,11 +97,7 @@ function computeOverall(
   const varPenalty = 1 - variability;
 
   // Weighted composite
-  const overall =
-    confNorm * 0.3 +
-    supportNorm * 0.2 +
-    varPenalty * 0.2 +
-    relevanceScore * 0.3;
+  const overall = confNorm * 0.3 + supportNorm * 0.2 + varPenalty * 0.2 + relevanceScore * 0.3;
 
   return Math.round(overall * 100);
 }

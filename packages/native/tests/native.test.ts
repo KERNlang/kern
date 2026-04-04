@@ -1,9 +1,9 @@
 import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { parse } from '../../core/src/parser.js';
-import { transpile } from '../src/transpiler.js';
 import type { IRNode } from '../../core/src/types.js';
+import { transpile } from '../src/transpiler.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -63,26 +63,20 @@ describe('Native Transpiler: node-level', () => {
   });
 
   test('text node renders content from value prop', () => {
-    const ast = makeNode('screen', { name: 'App' }, [
-      makeNode('text', { value: 'Hello World' }),
-    ]);
+    const ast = makeNode('screen', { name: 'App' }, [makeNode('text', { value: 'Hello World' })]);
     const result = transpile(ast);
     expect(result.code).toContain('Text');
     expect(result.code).toContain('Hello World');
   });
 
   test('row node gets flexDirection row by default', () => {
-    const ast = makeNode('screen', { name: 'App' }, [
-      makeNode('row', {}),
-    ]);
+    const ast = makeNode('screen', { name: 'App' }, [makeNode('row', {})]);
     const result = transpile(ast);
     expect(result.code).toContain("flexDirection: 'row'");
   });
 
   test('button maps to TouchableOpacity with Text child', () => {
-    const ast = makeNode('screen', { name: 'App' }, [
-      makeNode('button', { text: 'Click Me' }),
-    ]);
+    const ast = makeNode('screen', { name: 'App' }, [makeNode('button', { text: 'Click Me' })]);
     const result = transpile(ast);
     expect(result.code).toContain('TouchableOpacity');
     expect(result.code).toContain('Click Me');
@@ -90,36 +84,28 @@ describe('Native Transpiler: node-level', () => {
 
   test('scroll node maps to ScrollView', () => {
     const ast = makeNode('screen', { name: 'App' }, [
-      makeNode('scroll', {}, [
-        makeNode('text', { value: 'Scrollable' }),
-      ]),
+      makeNode('scroll', {}, [makeNode('text', { value: 'Scrollable' })]),
     ]);
     const result = transpile(ast);
     expect(result.code).toContain('ScrollView');
   });
 
   test('input node maps to TextInput', () => {
-    const ast = makeNode('screen', { name: 'App' }, [
-      makeNode('input', { placeholder: 'Enter text' }),
-    ]);
+    const ast = makeNode('screen', { name: 'App' }, [makeNode('input', { placeholder: 'Enter text' })]);
     const result = transpile(ast);
     expect(result.code).toContain('TextInput');
   });
 
   test('modal node maps to Modal', () => {
     const ast = makeNode('screen', { name: 'App' }, [
-      makeNode('modal', {}, [
-        makeNode('text', { value: 'Modal content' }),
-      ]),
+      makeNode('modal', {}, [makeNode('text', { value: 'Modal content' })]),
     ]);
     const result = transpile(ast);
     expect(result.code).toContain('Modal');
   });
 
   test('inline styles generate StyleSheet entries', () => {
-    const ast = makeNode('screen', { name: 'App' }, [
-      makeNode('col', { styles: { p: '16', bg: '#FF0000' } }),
-    ]);
+    const ast = makeNode('screen', { name: 'App' }, [makeNode('col', { styles: { p: '16', bg: '#FF0000' } })]);
     const result = transpile(ast);
     expect(result.code).toContain('StyleSheet.create');
     expect(result.code).toContain('padding');
@@ -128,11 +114,7 @@ describe('Native Transpiler: node-level', () => {
 
   test('nested children render correctly', () => {
     const ast = makeNode('screen', { name: 'App' }, [
-      makeNode('col', {}, [
-        makeNode('row', {}, [
-          makeNode('text', { value: 'Nested' }),
-        ]),
-      ]),
+      makeNode('col', {}, [makeNode('row', {}, [makeNode('text', { value: 'Nested' })])]),
     ]);
     const result = transpile(ast);
     expect(result.code).toContain('View');
@@ -143,9 +125,7 @@ describe('Native Transpiler: node-level', () => {
   });
 
   test('image node uses source require pattern', () => {
-    const ast = makeNode('screen', { name: 'App' }, [
-      makeNode('image', { src: 'avatar.png' }),
-    ]);
+    const ast = makeNode('screen', { name: 'App' }, [makeNode('image', { src: 'avatar.png' })]);
     const result = transpile(ast);
     expect(result.code).toContain('Image');
     expect(result.code).toContain("require('./avatar.png')");

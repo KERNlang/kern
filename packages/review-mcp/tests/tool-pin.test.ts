@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
+import type { IRNode } from '@kernlang/core';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import type { IRNode } from '@kernlang/core';
 import { generateLockFile, verifyLockFile } from '../src/tool-pin.js';
 
 function makeIRNodes(tools: Array<{ name: string; description: string; children?: object[] }>): IRNode[] {
-  return tools.map(t => ({
+  return tools.map((t) => ({
     type: 'action' as const,
     props: { name: t.name, description: t.description },
     children: t.children ?? [],
@@ -57,8 +57,12 @@ describe('lockfile generation', () => {
   });
 
   it('produces different hashes for different schemas', () => {
-    const ir1 = makeIRNodes([{ name: 'tool1', description: 'same', children: [{ type: 'param', props: { name: 'a' } }] }]);
-    const ir2 = makeIRNodes([{ name: 'tool1', description: 'same', children: [{ type: 'param', props: { name: 'b' } }] }]);
+    const ir1 = makeIRNodes([
+      { name: 'tool1', description: 'same', children: [{ type: 'param', props: { name: 'a' } }] },
+    ]);
+    const ir2 = makeIRNodes([
+      { name: 'tool1', description: 'same', children: [{ type: 'param', props: { name: 'b' } }] },
+    ]);
     const lock1 = generateLockFile('/a.ts', ir1);
     const lock2 = generateLockFile('/a.ts', ir2);
 
@@ -73,9 +77,7 @@ describe('lockfile generation', () => {
 
 describe('lockfile verification', () => {
   it('returns no drift when nothing changed', () => {
-    const irNodes = makeIRNodes([
-      { name: 'read_file', description: 'Read a file' },
-    ]);
+    const irNodes = makeIRNodes([{ name: 'read_file', description: 'Read a file' }]);
     const lock = generateLockFile('/a.ts', irNodes);
 
     withTempLockFile(lock, (lockPath) => {
@@ -94,7 +96,7 @@ describe('lockfile verification', () => {
     const currentIR = makeIRNodes([{ name: 'read_file', description: 'Read a file' }]);
     withTempLockFile(lock, (lockPath) => {
       const drifts = verifyLockFile(lockPath, '/a.ts', currentIR);
-      assert.ok(drifts.some(d => d.field === 'removed' && d.toolName === 'write_file'));
+      assert.ok(drifts.some((d) => d.field === 'removed' && d.toolName === 'write_file'));
     });
   });
 
@@ -108,8 +110,8 @@ describe('lockfile verification', () => {
     ]);
     withTempLockFile(lock, (lockPath) => {
       const drifts = verifyLockFile(lockPath, '/a.ts', currentIR);
-      assert.ok(drifts.some(d => d.field === 'new' && d.toolName === 'new_tool'));
-      assert.equal(drifts.find(d => d.toolName === 'new_tool')!.severity, 'warning');
+      assert.ok(drifts.some((d) => d.field === 'new' && d.toolName === 'new_tool'));
+      assert.equal(drifts.find((d) => d.toolName === 'new_tool')!.severity, 'warning');
     });
   });
 
@@ -120,19 +122,30 @@ describe('lockfile verification', () => {
     const currentIR = makeIRNodes([{ name: 'tool1', description: 'MODIFIED desc with hidden instructions' }]);
     withTempLockFile(lock, (lockPath) => {
       const drifts = verifyLockFile(lockPath, '/a.ts', currentIR);
-      assert.ok(drifts.some(d => d.field === 'description' && d.toolName === 'tool1'));
+      assert.ok(drifts.some((d) => d.field === 'description' && d.toolName === 'tool1'));
       assert.equal(drifts[0].severity, 'error');
     });
   });
 
   it('detects schema changes', () => {
-    const ir1 = makeIRNodes([{ name: 'tool1', description: 'desc', children: [{ type: 'param', props: { name: 'path' } }] }]);
+    const ir1 = makeIRNodes([
+      { name: 'tool1', description: 'desc', children: [{ type: 'param', props: { name: 'path' } }] },
+    ]);
     const lock = generateLockFile('/a.ts', ir1);
 
-    const ir2 = makeIRNodes([{ name: 'tool1', description: 'desc', children: [{ type: 'param', props: { name: 'path' } }, { type: 'param', props: { name: 'secret_exfil' } }] }]);
+    const ir2 = makeIRNodes([
+      {
+        name: 'tool1',
+        description: 'desc',
+        children: [
+          { type: 'param', props: { name: 'path' } },
+          { type: 'param', props: { name: 'secret_exfil' } },
+        ],
+      },
+    ]);
     withTempLockFile(lock, (lockPath) => {
       const drifts = verifyLockFile(lockPath, '/a.ts', ir2);
-      assert.ok(drifts.some(d => d.field === 'schema'));
+      assert.ok(drifts.some((d) => d.field === 'schema'));
       assert.equal(drifts[0].severity, 'error');
     });
   });

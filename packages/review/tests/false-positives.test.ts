@@ -34,7 +34,7 @@ export function checkPattern(text: string): boolean {
 }
 `;
     const report = reviewSource(source, 'regex.ts');
-    const fp = report.findings.find(f => f.ruleId === 'floating-promise');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
     expect(fp).toBeUndefined();
   });
 
@@ -45,7 +45,7 @@ export function describe(): string {
 }
 `;
     const report = reviewSource(source, 'strings.ts');
-    const fp = report.findings.find(f => f.ruleId === 'floating-promise');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
     expect(fp).toBeUndefined();
   });
 
@@ -57,7 +57,7 @@ export function doWork(): void {
 }
 `;
     const report = reviewSource(source, 'comments.ts');
-    const fp = report.findings.find(f => f.ruleId === 'floating-promise');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
     expect(fp).toBeUndefined();
   });
 
@@ -77,7 +77,7 @@ export async function main(): Promise<void> {
 }
 `;
     const report = reviewSource(source, 'awaited.ts');
-    const fp = report.findings.find(f => f.ruleId === 'floating-promise');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
     expect(fp).toBeUndefined();
   });
 
@@ -91,7 +91,7 @@ export function outer(): Promise<void> {
 }
 `;
     const report = reviewSource(source, 'returned.ts');
-    const fp = report.findings.find(f => f.ruleId === 'floating-promise');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
     expect(fp).toBeUndefined();
   });
 
@@ -102,7 +102,7 @@ export function doWork(): void {
 }
 `;
     const report = reviewSource(source, 'actual.ts');
-    const fp = report.findings.find(f => f.ruleId === 'floating-promise');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
     expect(fp).toBeDefined();
   });
 });
@@ -120,7 +120,7 @@ const useStore = create((set: any) => ({
 }));
 `;
     const report = reviewSource(source, 'store.ts');
-    const fp = report.findings.find(f => f.ruleId === 'state-mutation');
+    const fp = report.findings.find((f) => f.ruleId === 'state-mutation');
     expect(fp).toBeUndefined();
   });
 
@@ -135,7 +135,7 @@ export function addItem(state: { items: string[] }, item: string): { items: stri
 `;
     const report = reviewSource(source, 'immer.ts');
     // draft.items is not state.items, so shouldn't fire anyway
-    const fp = report.findings.find(f => f.ruleId === 'state-mutation');
+    const fp = report.findings.find((f) => f.ruleId === 'state-mutation');
     expect(fp).toBeUndefined();
   });
 
@@ -149,7 +149,7 @@ export function buildList(): string[] {
 }
 `;
     const report = reviewSource(source, 'list.ts');
-    const fp = report.findings.find(f => f.ruleId === 'state-mutation');
+    const fp = report.findings.find((f) => f.ruleId === 'state-mutation');
     expect(fp).toBeUndefined();
   });
 });
@@ -166,7 +166,7 @@ export function safeParse(json: string): unknown {
 }
 `;
     const report = reviewSource(source, 'safe.ts');
-    const fp = report.findings.find(f => f.ruleId === 'empty-catch');
+    const fp = report.findings.find((f) => f.ruleId === 'empty-catch');
     expect(fp).toBeUndefined();
   });
 });
@@ -183,7 +183,7 @@ export function Component() {
 }
 `;
     const report = reviewSource(source, 'comp.tsx', reactConfig);
-    const fp = report.findings.find(f => f.ruleId === 'async-effect');
+    const fp = report.findings.find((f) => f.ruleId === 'async-effect');
     expect(fp).toBeUndefined();
   });
 });
@@ -199,7 +199,7 @@ export function Component() {
 }
 `;
     const report = reviewSource(source, 'comp.tsx', reactConfig);
-    const fp = report.findings.find(f => f.ruleId === 'hook-order');
+    const fp = report.findings.find((f) => f.ruleId === 'hook-order');
     expect(fp).toBeUndefined();
   });
 });
@@ -209,88 +209,115 @@ describe('False Positive Regression: reviewGraph client boundaries (Next.js)', (
     const dir = join(TMP, 'nextjs-client-boundary-server-hook');
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'page.tsx'), `
+    writeFileSync(
+      join(dir, 'page.tsx'),
+      `
 'use client';
 import { Widget } from './widget.js';
 export default function Page() {
   return <Widget />;
 }
-`);
-    writeFileSync(join(dir, 'widget.tsx'), `
+`,
+    );
+    writeFileSync(
+      join(dir, 'widget.tsx'),
+      `
 import { useThing } from './use-thing.js';
 export function Widget() {
   return <div>{useThing()}</div>;
 }
-`);
-    writeFileSync(join(dir, 'use-thing.ts'), `
+`,
+    );
+    writeFileSync(
+      join(dir, 'use-thing.ts'),
+      `
 import { useState } from 'react';
 export function useThing() {
   const [count] = useState(0);
   return count;
 }
-`);
+`,
+    );
 
     const reports = reviewGraph([join(dir, 'page.tsx')], nextjsConfig);
-    const hookReport = reports.find(r => r.filePath === join(dir, 'use-thing.ts'));
-    expect(hookReport?.findings.find(f => f.ruleId === 'server-hook')).toBeUndefined();
+    const hookReport = reports.find((r) => r.filePath === join(dir, 'use-thing.ts'));
+    expect(hookReport?.findings.find((f) => f.ruleId === 'server-hook')).toBeUndefined();
   });
 
   it('suppresses missing-use-client when all importers are within a client boundary', () => {
     const dir = join(TMP, 'nextjs-client-boundary-missing-use-client');
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'page.tsx'), `
+    writeFileSync(
+      join(dir, 'page.tsx'),
+      `
 'use client';
 import { Panel } from './panel.js';
 export default function Page() {
   return <Panel />;
 }
-`);
-    writeFileSync(join(dir, 'panel.tsx'), `
+`,
+    );
+    writeFileSync(
+      join(dir, 'panel.tsx'),
+      `
 import { Button } from './button.js';
 export function Panel() {
   return <Button />;
 }
-`);
-    writeFileSync(join(dir, 'button.tsx'), `
+`,
+    );
+    writeFileSync(
+      join(dir, 'button.tsx'),
+      `
 export function Button() {
   return <button onClick={() => {}}>Push</button>;
 }
-`);
+`,
+    );
 
     const reports = reviewGraph([join(dir, 'page.tsx')], nextjsConfig);
-    const buttonReport = reports.find(r => r.filePath === join(dir, 'button.tsx'));
-    expect(buttonReport?.findings.find(f => f.ruleId === 'missing-use-client')).toBeUndefined();
+    const buttonReport = reports.find((r) => r.filePath === join(dir, 'button.tsx'));
+    expect(buttonReport?.findings.find((f) => f.ruleId === 'missing-use-client')).toBeUndefined();
   });
 
   it('keeps server-hook when a file is also imported outside the client boundary', () => {
     const dir = join(TMP, 'nextjs-client-boundary-mixed-importers');
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'client-page.tsx'), `
+    writeFileSync(
+      join(dir, 'client-page.tsx'),
+      `
 'use client';
 import { useThing } from './use-thing.js';
 export default function ClientPage() {
   return <div>{useThing()}</div>;
 }
-`);
-    writeFileSync(join(dir, 'server-page.tsx'), `
+`,
+    );
+    writeFileSync(
+      join(dir, 'server-page.tsx'),
+      `
 import { useThing } from './use-thing.js';
 export default function ServerPage() {
   return <div>{useThing()}</div>;
 }
-`);
-    writeFileSync(join(dir, 'use-thing.ts'), `
+`,
+    );
+    writeFileSync(
+      join(dir, 'use-thing.ts'),
+      `
 import { useState } from 'react';
 export function useThing() {
   const [count] = useState(0);
   return count;
 }
-`);
+`,
+    );
 
     const reports = reviewGraph([join(dir, 'client-page.tsx'), join(dir, 'server-page.tsx')], nextjsConfig);
-    const hookReport = reports.find(r => r.filePath === join(dir, 'use-thing.ts'));
-    expect(hookReport?.findings.find(f => f.ruleId === 'server-hook')).toBeDefined();
+    const hookReport = reports.find((r) => r.filePath === join(dir, 'use-thing.ts'));
+    expect(hookReport?.findings.find((f) => f.ruleId === 'server-hook')).toBeDefined();
   });
 });
 
@@ -308,7 +335,7 @@ export default function Page() {
 }
 `;
     const report = reviewSource(source, 'page.tsx', nextjsConfig);
-    const fp = report.findings.find(f => f.ruleId === 'server-hook');
+    const fp = report.findings.find((f) => f.ruleId === 'server-hook');
     expect(fp).toBeUndefined();
   });
 });
@@ -325,7 +352,7 @@ export function Counter() {
 };
 `;
     const report = reviewSource(source, 'packages/playground/src/lib/infer-examples.ts', nextjsConfig);
-    const fp = report.findings.find(f => f.ruleId === 'server-hook');
+    const fp = report.findings.find((f) => f.ruleId === 'server-hook');
     expect(fp).toBeUndefined();
   });
 
@@ -334,7 +361,7 @@ export function Counter() {
 export const EXAMPLES = [{ name: 'Counter', source: \`const [count, setCount] = useState(0);\` }];
 `;
     const report = reviewSource(source, 'src/lib/examples.ts', nextjsConfig);
-    const fp = report.findings.find(f => f.ruleId === 'server-hook');
+    const fp = report.findings.find((f) => f.ruleId === 'server-hook');
     expect(fp).toBeUndefined();
   });
 
@@ -347,7 +374,7 @@ export default function Page() {
 }
 `;
     const report = reviewSource(source, 'src/components/page.tsx', nextjsConfig);
-    const hit = report.findings.find(f => f.ruleId === 'server-hook');
+    const hit = report.findings.find((f) => f.ruleId === 'server-hook');
     expect(hit).toBeDefined();
   });
 });
@@ -366,7 +393,7 @@ export default function Page() {
 }
 `;
     const report = reviewSource(source, 'page.tsx', nextjsConfig);
-    const fp = report.findings.find(f => f.ruleId === 'hydration-mismatch');
+    const fp = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
     expect(fp).toBeUndefined();
   });
 });
@@ -384,7 +411,7 @@ app.post('/users', (req: any, res: any) => {
 });
 `;
     const report = reviewSource(source, 'routes.ts', expressConfig);
-    const fp = report.findings.find(f => f.ruleId === 'unvalidated-input');
+    const fp = report.findings.find((f) => f.ruleId === 'unvalidated-input');
     expect(fp).toBeUndefined();
   });
 });
@@ -401,7 +428,7 @@ export function handle(action: Action): string {
 }
 `;
     const report = reviewSource(source, 'switch.ts');
-    const fp = report.findings.find(f => f.ruleId === 'non-exhaustive-switch');
+    const fp = report.findings.find((f) => f.ruleId === 'non-exhaustive-switch');
     expect(fp).toBeUndefined();
   });
 });
@@ -420,7 +447,7 @@ export function setup() {
 }
 `;
     const report = reviewSource(source, 'setup.ts', vueConfig);
-    const fp = report.findings.find(f => f.ruleId === 'missing-ref-value');
+    const fp = report.findings.find((f) => f.ruleId === 'missing-ref-value');
     expect(fp).toBeUndefined();
   });
 
@@ -436,7 +463,7 @@ export function setup() {
 }
 `;
     const report = reviewSource(source, 'setup.ts', vueConfig);
-    const fp = report.findings.find(f => f.ruleId === 'missing-ref-value');
+    const fp = report.findings.find((f) => f.ruleId === 'missing-ref-value');
     expect(fp).toBeUndefined();
   });
 });
@@ -464,7 +491,7 @@ export function serializeNode(node: any): string {
 }
 `;
     const report = reviewSource(source, 'rules.ts');
-    const fp = report.findings.find(f => f.ruleId === 'floating-promise');
+    const fp = report.findings.find((f) => f.ruleId === 'floating-promise');
     expect(fp).toBeUndefined();
   });
 });
@@ -479,7 +506,7 @@ export function transform(items: string[]): string[] {
 }
 `;
     const report = reviewSource(source, 'transform.ts', reactConfig);
-    const fp = report.findings.find(f => f.ruleId === 'unstable-key');
+    const fp = report.findings.find((f) => f.ruleId === 'unstable-key');
     expect(fp).toBeUndefined();
   });
 
@@ -490,7 +517,7 @@ export function List({ items }: { items: string[] }) {
 }
 `;
     const report = reviewSource(source, 'list.tsx', reactConfig);
-    const fp = report.findings.find(f => f.ruleId === 'unstable-key');
+    const fp = report.findings.find((f) => f.ruleId === 'unstable-key');
     expect(fp).toBeDefined();
   });
 });
@@ -506,7 +533,7 @@ export function Component() {
 }
 `;
     const report = reviewSource(source, 'comp.tsx', reactConfig);
-    const fp = report.findings.find(f => f.ruleId === 'hook-order');
+    const fp = report.findings.find((f) => f.ruleId === 'hook-order');
     expect(fp).toBeUndefined();
   });
 
@@ -521,7 +548,7 @@ export function Component({ flag }: { flag: boolean }) {
 }
 `;
     const report = reviewSource(source, 'comp.tsx', reactConfig);
-    const fp = report.findings.find(f => f.ruleId === 'hook-order');
+    const fp = report.findings.find((f) => f.ruleId === 'hook-order');
     expect(fp).toBeDefined();
   });
 });
@@ -539,7 +566,7 @@ export function Component() {
 }
 `;
     const report = reviewSource(source, 'comp.tsx');
-    const fp = report.findings.find(f => f.ruleId === 'memory-leak');
+    const fp = report.findings.find((f) => f.ruleId === 'memory-leak');
     expect(fp).toBeUndefined();
   });
 
@@ -555,7 +582,7 @@ export function Component() {
 }
 `;
     const report = reviewSource(source, 'comp.tsx');
-    const fp = report.findings.find(f => f.ruleId === 'memory-leak');
+    const fp = report.findings.find((f) => f.ruleId === 'memory-leak');
     expect(fp).toBeDefined();
   });
 });
@@ -568,7 +595,7 @@ export function setup(): string {
 }
 `;
     const report = reviewSource(source, 'setup.ts', vueConfig);
-    const fp = report.findings.find(f => f.ruleId === 'missing-onUnmounted');
+    const fp = report.findings.find((f) => f.ruleId === 'missing-onUnmounted');
     expect(fp).toBeUndefined();
   });
 });
@@ -588,9 +615,8 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
 };
 `;
     const report = reviewSource(source, 'config.ts');
-    const fp = report.findings.find(f =>
-      f.ruleId === 'config-default-mismatch' &&
-      (f.message.includes("'url'") || f.message.includes("'pool'"))
+    const fp = report.findings.find(
+      (f) => f.ruleId === 'config-default-mismatch' && (f.message.includes("'url'") || f.message.includes("'pool'")),
     );
     // url and pool are nested keys — should NOT appear as top-level mismatches
     expect(fp).toBeUndefined();
@@ -609,7 +635,7 @@ export function handler(req: any, res: any) {
 `;
     // File has no JSX, no React imports — isReactFile guard should skip
     const report = reviewSource(source, 'api-handler.ts', nextjsConfig);
-    const fp = report.findings.find(f => f.ruleId === 'hydration-mismatch');
+    const fp = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
     expect(fp).toBeUndefined();
   });
 
@@ -620,7 +646,7 @@ export function generateId(): string {
 }
 `;
     const report = reviewSource(source, 'utils.ts', nextjsConfig);
-    const fp = report.findings.find(f => f.ruleId === 'hydration-mismatch');
+    const fp = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
     expect(fp).toBeUndefined();
   });
 
@@ -632,7 +658,7 @@ export async function getServerSideProps() {
 }
 `;
     const report = reviewSource(source, 'page-data.ts', nextjsConfig);
-    const fp = report.findings.find(f => f.ruleId === 'hydration-mismatch');
+    const fp = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
     expect(fp).toBeUndefined();
   });
 });
@@ -644,23 +670,29 @@ describe('False Positive Regression: server-hook in client boundary', () => {
     mkdirSync(dir, { recursive: true });
 
     // Parent has 'use client' — child inherits client boundary
-    writeFileSync(join(dir, 'page.ts'), `
+    writeFileSync(
+      join(dir, 'page.ts'),
+      `
 'use client';
 import { useCounter } from './counter.js';
 export const page = useCounter;
-`);
-    writeFileSync(join(dir, 'counter.ts'), `
+`,
+    );
+    writeFileSync(
+      join(dir, 'counter.ts'),
+      `
 import { useState } from 'react';
 export function useCounter() {
   const [count, setCount] = useState(0);
   return { count, setCount };
 }
-`);
+`,
+    );
 
     const reports = reviewGraph([join(dir, 'page.ts')], nextjsConfig);
-    const counterReport = reports.find(r => r.filePath.includes('counter'));
+    const counterReport = reports.find((r) => r.filePath.includes('counter'));
     if (counterReport) {
-      const fp = counterReport.findings.find(f => f.ruleId === 'server-hook');
+      const fp = counterReport.findings.find((f) => f.ruleId === 'server-hook');
       expect(fp).toBeUndefined();
     }
   });
@@ -672,21 +704,27 @@ describe('False Positive Regression: missing-use-client in client boundary', () 
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(dir, { recursive: true });
 
-    writeFileSync(join(dir, 'app.ts'), `
+    writeFileSync(
+      join(dir, 'app.ts'),
+      `
 'use client';
 import { Button } from './button.js';
 export const app = Button;
-`);
-    writeFileSync(join(dir, 'button.tsx'), `
+`,
+    );
+    writeFileSync(
+      join(dir, 'button.tsx'),
+      `
 export function Button() {
   return <button onClick={() => alert('hi')}>Click</button>;
 }
-`);
+`,
+    );
 
     const reports = reviewGraph([join(dir, 'app.ts')], nextjsConfig);
-    const buttonReport = reports.find(r => r.filePath.includes('button'));
+    const buttonReport = reports.find((r) => r.filePath.includes('button'));
     if (buttonReport) {
-      const fp = buttonReport.findings.find(f => f.ruleId === 'missing-use-client');
+      const fp = buttonReport.findings.find((f) => f.ruleId === 'missing-use-client');
       expect(fp).toBeUndefined();
     }
   });

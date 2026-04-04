@@ -8,12 +8,22 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
-import type { IRNode } from '../types.js';
-import { propsOf } from '../node-props.js';
-import { isTemplateNode, expandTemplateNode } from '../template-engine.js';
 import { KernCodegenError } from '../errors.js';
+import { propsOf } from '../node-props.js';
+import { expandTemplateNode, isTemplateNode } from '../template-engine.js';
+import type { IRNode } from '../types.js';
 import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
-import { getProps, getChildren, getFirstChild, handlerCode, exportPrefix, capitalize, parseParamList, emitReasonAnnotations, emitLowConfidenceTodo } from './helpers.js';
+import {
+  capitalize,
+  emitLowConfidenceTodo,
+  emitReasonAnnotations,
+  exportPrefix,
+  getChildren,
+  getFirstChild,
+  getProps,
+  handlerCode,
+  parseParamList,
+} from './helpers.js';
 
 const p = getProps;
 const kids = getChildren;
@@ -65,7 +75,11 @@ export function generateTransform(node: IRNode): string[] {
   }
 
   if (target && via) {
-    return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = ${via.replace(/\(/, `(${target}, `).replace(/, \)/, ')')};`];
+    return [
+      ...todo,
+      ...annotations,
+      `${exp}const ${name}${typeAnnotation} = ${via.replace(/\(/, `(${target}, `).replace(/, \)/, ')')};`,
+    ];
   }
   if (via) {
     return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = ${via};`];
@@ -81,8 +95,10 @@ export function generateAction(node: IRNode): string[] {
   const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
   const name = emitIdentifier(props.name, 'action', node);
-  const idempotent = (props as Record<string, unknown>).idempotent === 'true' || (props as Record<string, unknown>).idempotent === true;
-  const reversible = (props as Record<string, unknown>).reversible === 'true' || (props as Record<string, unknown>).reversible === true;
+  const idempotent =
+    (props as Record<string, unknown>).idempotent === 'true' || (props as Record<string, unknown>).idempotent === true;
+  const reversible =
+    (props as Record<string, unknown>).reversible === 'true' || (props as Record<string, unknown>).reversible === true;
   const params = props.params || '';
   const returns = props.returns;
   const exp = exportPrefix(node);
@@ -141,7 +157,7 @@ export function generateAssume(node: IRNode): string[] {
   const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
   const expr = props.expr;
-  const scope = (props as Record<string, unknown>).scope as string || 'request';
+  const scope = ((props as Record<string, unknown>).scope as string) || 'request';
   const evidence = (props as Record<string, unknown>).evidence as string | undefined;
   const fallback = (props as Record<string, unknown>).fallback as string | undefined;
 
@@ -257,9 +273,13 @@ export function generateExpect(node: IRNode): string[] {
 
   if (within) {
     const [lo, hi] = within.split('..');
-    lines.push(`  console.assert(_${name} >= ${lo} && _${name} <= ${hi}, 'Expected ${name} in [${lo}, ${hi}], got ' + _${name});`);
+    lines.push(
+      `  console.assert(_${name} >= ${lo} && _${name} <= ${hi}, 'Expected ${name} in [${lo}, ${hi}], got ' + _${name});`,
+    );
   } else if (min && max) {
-    lines.push(`  console.assert(_${name} >= ${min} && _${name} <= ${max}, 'Expected ${name} in [${min}, ${max}], got ' + _${name});`);
+    lines.push(
+      `  console.assert(_${name} >= ${min} && _${name} <= ${max}, 'Expected ${name} in [${min}, ${max}], got ' + _${name});`,
+    );
   } else if (max) {
     lines.push(`  console.assert(_${name} <= ${max}, 'Expected ${name} <= ${max}, got ' + _${name});`);
   } else if (min) {
@@ -282,7 +302,7 @@ export function generateRecover(node: IRNode): string[] {
   const name = emitIdentifier(props.name, 'recovery', node);
   const strategies = kids(node, 'strategy');
 
-  const hasFallback = strategies.some(s => (p(s).name as string) === 'fallback');
+  const hasFallback = strategies.some((s) => (p(s).name as string) === 'fallback');
   if (!hasFallback) throw new KernCodegenError('recover requires a fallback strategy', node);
 
   const lines: string[] = [...todo, ...annotations];

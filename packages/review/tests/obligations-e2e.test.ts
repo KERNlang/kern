@@ -6,12 +6,12 @@
  * extractor, so we test the pipeline integration through reviewGraph which uses the full inferrer.
  */
 
-import { resolve, dirname } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { mineNorms } from '../src/norm-miner.js';
-import type { FileContext } from '../src/types.js';
-import { synthesizeObligations } from '../src/obligations.js';
 import { reviewGraph } from '../src/index.js';
+import { mineNorms } from '../src/norm-miner.js';
+import { synthesizeObligations } from '../src/obligations.js';
+import type { FileContext } from '../src/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_DIR = resolve(__dirname, 'fixtures/express-app');
@@ -23,8 +23,8 @@ describe('obligations e2e — norm mining pipeline', () => {
   it('mineNorms produces profiles from concept maps', () => {
     // Empty concept maps should produce empty results without crashing
     const allConcepts = new Map();
-    const inferredPerFile = new Map();
-    const fileContextMap = new Map<string, FileContext>();
+    const _inferredPerFile = new Map();
+    const _fileContextMap = new Map<string, FileContext>();
     const violations = mineNorms(allConcepts);
     expect(violations).toEqual([]);
   });
@@ -39,12 +39,9 @@ describe('obligations e2e — norm mining pipeline', () => {
 
 describe('obligations e2e — reviewGraph pipeline', () => {
   it('runs the full pipeline on the Express fixture without crashing', () => {
-    const reports = reviewGraph(
-      [USERS_FILE],
-      { noCache: true },
-    );
+    const reports = reviewGraph([USERS_FILE], { noCache: true });
 
-    const routeReport = reports.find(r => r.filePath.includes('users.ts'));
+    const routeReport = reports.find((r) => r.filePath.includes('users.ts'));
     expect(routeReport).toBeDefined();
     // Should produce findings (at minimum, TSC diagnostics)
     expect(routeReport!.findings.length).toBeGreaterThanOrEqual(0);
@@ -53,12 +50,9 @@ describe('obligations e2e — reviewGraph pipeline', () => {
   });
 
   it('attaches obligations when norm violations are found', () => {
-    const reports = reviewGraph(
-      [USERS_FILE],
-      { noCache: true },
-    );
+    const reports = reviewGraph([USERS_FILE], { noCache: true });
 
-    const routeReport = reports.find(r => r.filePath.includes('users.ts'));
+    const routeReport = reports.find((r) => r.filePath.includes('users.ts'));
     expect(routeReport).toBeDefined();
 
     // Obligations are optional — only present when norm mining finds deviations

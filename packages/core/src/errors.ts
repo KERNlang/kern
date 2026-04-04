@@ -29,14 +29,21 @@ export class KernParseError extends KernError {
 }
 
 export class KernConfigError extends Error {
-  constructor(message: string, public readonly field: string, public readonly value: string) {
+  constructor(
+    message: string,
+    public readonly field: string,
+    public readonly value: string,
+  ) {
     super(`Config error: invalid ${field} '${value}'. ${message}`);
     this.name = 'KernConfigError';
   }
 }
 
 export class KernCodegenError extends Error {
-  constructor(message: string, public readonly node?: { type: string; loc?: { line: number; col: number } }) {
+  constructor(
+    message: string,
+    public readonly node?: { type: string; loc?: { line: number; col: number } },
+  ) {
     const loc = node?.loc ? ` at ${node.type}:${node.loc.line}:${node.loc.col}` : node ? ` at ${node.type}` : '';
     super(`Codegen error: ${message}${loc}`);
     this.name = 'KernCodegenError';
@@ -55,7 +62,7 @@ function codeFrame(source: string, line: number, col: number): string {
     const marker = i + 1 === line ? '>' : ' ';
     result.push(`${marker} ${lineNum} | ${lines[i]}`);
     if (i + 1 === line) {
-      const pointer = ' '.repeat(gutterWidth + 4 + Math.max(0, col - 1)) + '^';
+      const pointer = `${' '.repeat(gutterWidth + 4 + Math.max(0, col - 1))}^`;
       result.push(pointer);
     }
   }

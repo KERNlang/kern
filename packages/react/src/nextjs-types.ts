@@ -1,4 +1,4 @@
-import type { SourceMapEntry, TailwindVersionProfile, NextjsVersionProfile } from '@kernlang/core';
+import type { NextjsVersionProfile, SourceMapEntry, TailwindVersionProfile } from '@kernlang/core';
 
 // ── Next.js specific types ──────────────────────────────────────────────
 

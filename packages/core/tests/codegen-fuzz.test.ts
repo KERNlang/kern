@@ -7,16 +7,49 @@
  * 3. No generated output contains unescaped template literals or semicolons in type positions
  */
 
-import type { IRNode } from '../src/types.js';
+import { emitIdentifier, emitImportSpecifier, emitTypeAnnotation } from '../src/codegen/emitters.js';
 import { generateCoreNode } from '../src/codegen-core.js';
-import { emitIdentifier, emitTypeAnnotation, emitImportSpecifier } from '../src/codegen/emitters.js';
 import { KernCodegenError } from '../src/errors.js';
+import type { IRNode } from '../src/types.js';
 
 // ── Random generators ───────────────────────────────────────────────────
 
 const SAFE_NAMES = ['foo', 'Bar', 'myVar', '_private', '$state', 'camelCase', 'PascalCase', 'x', 'item'];
-const SAFE_TYPES = ['string', 'number', 'boolean', 'void', 'any', 'unknown', 'string[]', 'Map<string, number>', 'Promise<void>', 'Foo | null', '(x: number) => void', 'Record<string, unknown>', '[string, number]'];
-const CODEGEN_TYPES = ['type', 'interface', 'union', 'service', 'fn', 'machine', 'error', 'config', 'store', 'event', 'import', 'const', 'on', 'derive', 'guard', 'invariant', 'collect', 'action'];
+const SAFE_TYPES = [
+  'string',
+  'number',
+  'boolean',
+  'void',
+  'any',
+  'unknown',
+  'string[]',
+  'Map<string, number>',
+  'Promise<void>',
+  'Foo | null',
+  '(x: number) => void',
+  'Record<string, unknown>',
+  '[string, number]',
+];
+const CODEGEN_TYPES = [
+  'type',
+  'interface',
+  'union',
+  'service',
+  'fn',
+  'machine',
+  'error',
+  'config',
+  'store',
+  'event',
+  'import',
+  'const',
+  'on',
+  'derive',
+  'guard',
+  'invariant',
+  'collect',
+  'action',
+];
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -85,9 +118,7 @@ function randomCoreNode(): IRNode {
     case 'const':
       return makeNode('const', { name: randomName(), type: randomType(), value: '42' });
     case 'on':
-      return makeNode('on', { event: 'click' }, [
-        makeNode('handler', { code: 'console.log("clicked");' }),
-      ]);
+      return makeNode('on', { event: 'click' }, [makeNode('handler', { code: 'console.log("clicked");' })]);
     case 'derive':
       return makeNode('derive', { name: randomName(), expr: 'items.length', type: 'number' });
     case 'guard':
@@ -97,9 +128,7 @@ function randomCoreNode(): IRNode {
     case 'collect':
       return makeNode('collect', { name: randomName(), from: 'items' });
     case 'action':
-      return makeNode('action', { name: randomName() }, [
-        makeNode('handler', { code: 'await doIt();' }),
-      ]);
+      return makeNode('action', { name: randomName() }, [makeNode('handler', { code: 'await doIt();' })]);
     default:
       return makeNode('type', { name: 'Fallback', values: 'x|y' });
   }
@@ -113,7 +142,7 @@ describe('Codegen fuzzing', () => {
       const node = randomCoreNode();
       const result = generateCoreNode(node);
       expect(Array.isArray(result)).toBe(true);
-      expect(result.every(line => typeof line === 'string')).toBe(true);
+      expect(result.every((line) => typeof line === 'string')).toBe(true);
     }
   });
 
@@ -163,11 +192,7 @@ describe('Emitter fuzzing', () => {
   });
 
   it('emitImportSpecifier rejects injection payloads', () => {
-    const importInjections = [
-      "'; alert(1); //",
-      'foo;bar',
-      'path\nwith\nnewlines',
-    ];
+    const importInjections = ["'; alert(1); //", 'foo;bar', 'path\nwith\nnewlines'];
     for (const payload of importInjections) {
       expect(() => emitImportSpecifier(payload)).toThrow(KernCodegenError);
     }

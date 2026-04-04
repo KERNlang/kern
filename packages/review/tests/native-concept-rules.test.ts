@@ -1,12 +1,13 @@
-import { buildRuleIndex, evaluateRule, matchPattern, conceptEdgeToIR, conceptNodeToIR } from '../src/rule-eval.js';
-import { lintKernIR, loadBuiltinNativeRules } from '../src/kern-lint.js';
+import type { ConceptEdge, ConceptMap, ConceptNode, IRNode } from '@kernlang/core';
 import { parseDocument } from '@kernlang/core';
-import type { IRNode } from '@kernlang/core';
-import type { ConceptEdge, ConceptMap, ConceptNode } from '@kernlang/core';
+import { lintKernIR, loadBuiltinNativeRules } from '../src/kern-lint.js';
+import { buildRuleIndex, conceptEdgeToIR, conceptNodeToIR, evaluateRule, matchPattern } from '../src/rule-eval.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-function makeConceptNode(overrides: Partial<ConceptNode> & { kind: ConceptNode['kind']; payload: ConceptNode['payload'] }): ConceptNode {
+function makeConceptNode(
+  overrides: Partial<ConceptNode> & { kind: ConceptNode['kind']; payload: ConceptNode['payload'] },
+): ConceptNode {
   return {
     id: `test#${overrides.kind}@0`,
     primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 10 },
@@ -17,7 +18,9 @@ function makeConceptNode(overrides: Partial<ConceptNode> & { kind: ConceptNode['
   };
 }
 
-function makeConceptEdge(overrides: Partial<ConceptEdge> & { kind: ConceptEdge['kind']; payload: ConceptEdge['payload'] }): ConceptEdge {
+function makeConceptEdge(
+  overrides: Partial<ConceptEdge> & { kind: ConceptEdge['kind']; payload: ConceptEdge['payload'] },
+): ConceptEdge {
   return {
     id: `test#${overrides.kind}@0`,
     sourceId: 'test.ts',
@@ -36,7 +39,7 @@ function makeConcepts(nodes: ConceptNode[], edges: ConceptEdge[] = []): ConceptM
 
 function parseRule(source: string): IRNode {
   const doc = parseDocument(source);
-  const rules = (doc.children || []).filter(n => n.type === 'rule');
+  const rules = (doc.children || []).filter((n) => n.type === 'rule');
   if (rules.length === 0) throw new Error('No rule found in source');
   return rules[0];
 }
@@ -651,19 +654,22 @@ rule unguarded-effect severity=warning category=bug
 describe('illegal-dependency native rule', () => {
   it('fires on deep internal dependency edges from the built-in .kern rule', () => {
     const rules = loadBuiltinNativeRules();
-    const concepts = makeConcepts([], [
-      makeConceptEdge({
-        kind: 'dependency',
-        payload: { kind: 'dependency', subtype: 'internal', specifier: '../../../shared/module' },
-      }),
-      makeConceptEdge({
-        id: 'test#dependency@1',
-        kind: 'dependency',
-        payload: { kind: 'dependency', subtype: 'internal', specifier: '../../shared/module' },
-      }),
-    ]);
+    const concepts = makeConcepts(
+      [],
+      [
+        makeConceptEdge({
+          kind: 'dependency',
+          payload: { kind: 'dependency', subtype: 'internal', specifier: '../../../shared/module' },
+        }),
+        makeConceptEdge({
+          id: 'test#dependency@1',
+          kind: 'dependency',
+          payload: { kind: 'dependency', subtype: 'internal', specifier: '../../shared/module' },
+        }),
+      ],
+    );
 
-    const findings = lintKernIR([], rules, concepts).filter(f => f.ruleId === 'illegal-dependency');
+    const findings = lintKernIR([], rules, concepts).filter((f) => f.ruleId === 'illegal-dependency');
 
     expect(findings.length).toBe(1);
     expect(findings[0].message).toBe('Deep cross-boundary import — may violate module architecture');

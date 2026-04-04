@@ -7,12 +7,12 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
-import type { IRNode } from '../types.js';
 import { propsOf } from '../node-props.js';
+import type { IRNode } from '../types.js';
 import { emitIdentifier, emitImportSpecifier } from './emitters.js';
 import { getProps } from './helpers.js';
 
-const p = getProps;
+const _p = getProps;
 
 // ── Import ──────────────────────────────────────────────────────────────
 
@@ -29,7 +29,10 @@ export function generateImport(node: IRNode): string[] {
   const typeKw = isTypeOnly ? 'type ' : '';
   const safeDefault = defaultImport ? emitIdentifier(defaultImport, 'default', node) : '';
   const namedList = names
-    ? names.split(',').map(s => emitIdentifier(s.trim(), 'import', node)).join(', ')
+    ? names
+        .split(',')
+        .map((s) => emitIdentifier(s.trim(), 'import', node))
+        .join(', ')
     : '';
 
   if (safeDefault && namedList) {

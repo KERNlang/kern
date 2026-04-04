@@ -6,10 +6,10 @@
  */
 
 import type { IRNode } from '@kernlang/core';
+import type { ConfidenceGraph, MultiFileConfidenceGraph } from '../confidence.js';
+import { buildConfidenceGraph, buildMultiFileConfidenceGraph, parseConfidence } from '../confidence.js';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
-import { buildConfidenceGraph, buildMultiFileConfidenceGraph, parseConfidence } from '../confidence.js';
-import type { ConfidenceGraph, MultiFileConfidenceGraph } from '../confidence.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -51,11 +51,16 @@ function confidenceMissingSource(graph: ConfidenceGraph): ReviewFinding[] {
     if (cnode.spec.kind !== 'inherited') continue;
     for (const src of cnode.spec.sources || []) {
       if (!graph.nodes.has(src)) {
-        findings.push(finding(
-          'confidence-missing-source', 'error', 'pattern',
-          `Confidence source '${src}' not found (referenced by '${cnode.name}')`,
-          cnode.nodeRef.line, 1,
-        ));
+        findings.push(
+          finding(
+            'confidence-missing-source',
+            'error',
+            'pattern',
+            `Confidence source '${src}' not found (referenced by '${cnode.name}')`,
+            cnode.nodeRef.line,
+            1,
+          ),
+        );
       }
     }
   }
@@ -67,11 +72,16 @@ function confidenceCycle(graph: ConfidenceGraph): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   for (const cycle of graph.cycles) {
     const first = graph.nodes.get(cycle[0]);
-    findings.push(finding(
-      'confidence-cycle', 'error', 'pattern',
-      `Circular confidence dependency: ${cycle.join(' → ')}`,
-      first?.nodeRef.line ?? 0, 1,
-    ));
+    findings.push(
+      finding(
+        'confidence-cycle',
+        'error',
+        'pattern',
+        `Circular confidence dependency: ${cycle.join(' → ')}`,
+        first?.nodeRef.line ?? 0,
+        1,
+      ),
+    );
   }
   return findings;
 }
@@ -80,14 +90,19 @@ function confidenceCycle(graph: ConfidenceGraph): ReviewFinding[] {
 function confidenceNeedsUnresolved(graph: ConfidenceGraph): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   for (const cnode of graph.nodes.values()) {
-    const unresolvedNeeds = cnode.needs.filter(n => !n.resolved);
+    const unresolvedNeeds = cnode.needs.filter((n) => !n.resolved);
     if (unresolvedNeeds.length > 0) {
-      const descs = unresolvedNeeds.map(n => n.what).join(', ');
-      findings.push(finding(
-        'confidence-needs-unresolved', 'info', 'pattern',
-        `'${cnode.name}' has ${unresolvedNeeds.length} unresolved need(s): ${descs}`,
-        cnode.nodeRef.line, 1,
-      ));
+      const descs = unresolvedNeeds.map((n) => n.what).join(', ');
+      findings.push(
+        finding(
+          'confidence-needs-unresolved',
+          'info',
+          'pattern',
+          `'${cnode.name}' has ${unresolvedNeeds.length} unresolved need(s): ${descs}`,
+          cnode.nodeRef.line,
+          1,
+        ),
+      );
     }
   }
   return findings;
@@ -99,11 +114,16 @@ function confidenceLow(graph: ConfidenceGraph, threshold = 0.5): ReviewFinding[]
   for (const cnode of graph.nodes.values()) {
     // Guard: only fire when resolved > 0 && resolved < threshold
     if (cnode.resolved !== null && cnode.resolved > 0 && cnode.resolved < threshold) {
-      findings.push(finding(
-        'confidence-low', 'warning', 'pattern',
-        `'${cnode.name}' has low confidence: ${cnode.resolved}`,
-        cnode.nodeRef.line, 1,
-      ));
+      findings.push(
+        finding(
+          'confidence-low',
+          'warning',
+          'pattern',
+          `'${cnode.name}' has low confidence: ${cnode.resolved}`,
+          cnode.nodeRef.line,
+          1,
+        ),
+      );
     }
   }
   return findings;
@@ -116,11 +136,16 @@ function confidenceImpossible(graph: ConfidenceGraph): ReviewFinding[] {
     if (cnode.spec.kind !== 'literal' || cnode.spec.value === undefined) continue;
     for (const need of cnode.needs) {
       if (need.wouldRaiseTo !== undefined && need.wouldRaiseTo < cnode.spec.value) {
-        findings.push(finding(
-          'confidence-impossible', 'error', 'pattern',
-          `'${cnode.name}' need "${need.what}" has would-raise-to=${need.wouldRaiseTo} which is less than current confidence ${cnode.spec.value}`,
-          cnode.nodeRef.line, 1,
-        ));
+        findings.push(
+          finding(
+            'confidence-impossible',
+            'error',
+            'pattern',
+            `'${cnode.name}' need "${need.what}" has would-raise-to=${need.wouldRaiseTo} which is less than current confidence ${cnode.spec.value}`,
+            cnode.nodeRef.line,
+            1,
+          ),
+        );
       }
     }
   }
@@ -138,11 +163,16 @@ function confidenceAnonymousRef(irNodes: IRNode[]): ReviewFinding[] {
     const spec = parseConfidence(conf);
     if (spec && spec.kind === 'inherited') {
       const { line, col } = loc(node);
-      findings.push(finding(
-        'confidence-anonymous-ref', 'warning', 'pattern',
-        `Anonymous ${node.type} node has inherited confidence but can't be referenced by others`,
-        line, col,
-      ));
+      findings.push(
+        finding(
+          'confidence-anonymous-ref',
+          'warning',
+          'pattern',
+          `Anonymous ${node.type} node has inherited confidence but can't be referenced by others`,
+          line,
+          col,
+        ),
+      );
     }
   }
   return findings;
@@ -152,11 +182,16 @@ function confidenceAnonymousRef(irNodes: IRNode[]): ReviewFinding[] {
 function confidenceDuplicateName(graph: MultiFileConfidenceGraph): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   for (const dup of graph.duplicates) {
-    findings.push(finding(
-      'confidence-duplicate-name', 'error', 'pattern',
-      `Confidence node '${dup.name}' defined in multiple files: ${dup.files.join(', ')}`,
-      0, 1,
-    ));
+    findings.push(
+      finding(
+        'confidence-duplicate-name',
+        'error',
+        'pattern',
+        `Confidence node '${dup.name}' defined in multiple files: ${dup.files.join(', ')}`,
+        0,
+        1,
+      ),
+    );
   }
   return findings;
 }
@@ -165,7 +200,7 @@ function confidenceDuplicateName(graph: MultiFileConfidenceGraph): ReviewFinding
 
 /** Run all confidence lint rules against a flat list of IR nodes (single file). */
 export function lintConfidenceGraph(irNodes: IRNode[]): ReviewFinding[] {
-  const hasConfidence = irNodes.some(n => props(n).confidence !== undefined);
+  const hasConfidence = irNodes.some((n) => props(n).confidence !== undefined);
   if (!hasConfidence) return [];
 
   const graph = buildConfidenceGraph(irNodes);
@@ -179,7 +214,7 @@ export function lintMultiFileConfidenceGraph(fileMap: Map<string, IRNode[]>): Re
   for (const nodes of fileMap.values()) {
     allNodes.push(...nodes);
   }
-  const hasConfidence = allNodes.some(n => props(n).confidence !== undefined);
+  const hasConfidence = allNodes.some((n) => props(n).confidence !== undefined);
   if (!hasConfidence) return [];
 
   const graph = buildMultiFileConfidenceGraph(fileMap);

@@ -12,8 +12,8 @@
  */
 
 import type { ConceptMap, ConceptNode, ConceptNodeKind } from '@kernlang/core';
-import type { FileContext } from './types.js';
 import type { NormViolation } from './norm-miner.js';
+import type { FileContext } from './types.js';
 
 // ── Types ───────────────────────────────────────────────────────────────
 
@@ -52,7 +52,7 @@ export interface ProofObligation {
 
 const TYPE_PRIORITY: Record<ObligationType, number> = {
   'norm-violation': 2,
-  'structural': 3,
+  structural: 3,
 };
 
 // ── Structural obligations ──────────────────────────────────────────────
@@ -86,9 +86,7 @@ export function obligationsFromStructure(
     const containerPrefix = `${filePath}#fn:${fnName}@`;
 
     // Find children of this function
-    const children = concepts.nodes.filter((n: ConceptNode) =>
-      n.containerId !== undefined && n.containerId.startsWith(containerPrefix),
-    );
+    const children = concepts.nodes.filter((n: ConceptNode) => n.containerId?.startsWith(containerPrefix));
 
     const effects = children.filter((n: ConceptNode) => n.kind === 'effect');
     const errorHandles = children.filter((n: ConceptNode) => n.kind === 'error_handle');
@@ -96,11 +94,13 @@ export function obligationsFromStructure(
 
     // (A) Function has effect children but no error_handle child
     if (effects.length > 0 && errorHandles.length === 0) {
-      const effectSubtypes = [...new Set(
-        effects
-          .map((e: ConceptNode) => e.payload.kind === 'effect' ? e.payload.subtype : undefined)
-          .filter((s: string | undefined): s is string => s !== undefined),
-      )];
+      const effectSubtypes = [
+        ...new Set(
+          effects
+            .map((e: ConceptNode) => (e.payload.kind === 'effect' ? e.payload.subtype : undefined))
+            .filter((s: string | undefined): s is string => s !== undefined),
+        ),
+      ];
       obligations.push({
         id: `struct-errh-${fnId}`,
         type: 'structural',
@@ -108,7 +108,7 @@ export function obligationsFromStructure(
         functionName: fnName,
         missingKind: 'error_handle',
         claim: `This function performs ${effectSubtypes.join(', ')} effects but has no error handling`,
-        priority: TYPE_PRIORITY['structural'],
+        priority: TYPE_PRIORITY.structural,
         filePath,
         line: fnNode.primarySpan.startLine,
         evidence_for: [`Has ${effects.length} effect(s): ${effectSubtypes.join(', ')}`],
@@ -121,7 +121,7 @@ export function obligationsFromStructure(
     const fileCtx = fileContextMap?.get(filePath);
     if (fileCtx?.boundary === 'api' && effects.length > 0 && guards.length === 0) {
       const effectDescs = effects
-        .map((e: ConceptNode) => e.payload.kind === 'effect' ? e.payload.subtype : undefined)
+        .map((e: ConceptNode) => (e.payload.kind === 'effect' ? e.payload.subtype : undefined))
         .filter((s: string | undefined): s is string => s !== undefined);
       obligations.push({
         id: `struct-guard-${fnId}`,
@@ -130,7 +130,7 @@ export function obligationsFromStructure(
         functionName: fnName,
         missingKind: 'guard',
         claim: `This API handler reaches ${[...new Set(effectDescs)].join(', ')} effects without input validation`,
-        priority: TYPE_PRIORITY['structural'],
+        priority: TYPE_PRIORITY.structural,
         filePath,
         line: fnNode.primarySpan.startLine,
         evidence_for: [`API boundary function with ${effects.length} unguarded effect(s)`],
@@ -140,9 +140,7 @@ export function obligationsFromStructure(
     }
 
     // (C) Function has effect with subtype 'db' and no guard with subtype 'validation'
-    const hasDbEffect = effects.some(
-      (e: ConceptNode) => e.payload.kind === 'effect' && e.payload.subtype === 'db',
-    );
+    const hasDbEffect = effects.some((e: ConceptNode) => e.payload.kind === 'effect' && e.payload.subtype === 'db');
     const hasValidationGuard = guards.some(
       (g: ConceptNode) => g.payload.kind === 'guard' && g.payload.subtype === 'validation',
     );
@@ -154,7 +152,7 @@ export function obligationsFromStructure(
         functionName: fnName,
         missingKind: 'guard',
         claim: 'DB write without input validation',
-        priority: TYPE_PRIORITY['structural'],
+        priority: TYPE_PRIORITY.structural,
         filePath,
         line: fnNode.primarySpan.startLine,
         evidence_for: ['Has DB effect without validation guard'],
@@ -173,14 +171,12 @@ export function obligationsFromStructure(
  * Convert norm violations into proof obligations.
  */
 export function obligationsFromNorms(violations: NormViolation[]): ProofObligation[] {
-  return violations.map(v => {
+  return violations.map((v) => {
     let claim = `Norm: ${v.norm} (${v.peerCount} peers, ${Math.round(v.prevalence * 100)}% prevalence)`;
     if (v.weakNorm) {
       claim += ' (Note: limited peer evidence — 1 matching peer)';
     }
-    const fnName = v.functionNode.payload.kind === 'function_declaration'
-      ? v.functionNode.payload.name
-      : 'anonymous';
+    const fnName = v.functionNode.payload.kind === 'function_declaration' ? v.functionNode.payload.name : 'anonymous';
     return {
       id: `norm-${v.functionNode.id}-${v.missingKind}`,
       type: 'norm-violation' as const,
@@ -216,18 +212,12 @@ export function synthesizeObligations(
   const structural = obligationsFromStructure(allConcepts, fileContextMap, filePath);
 
   // Norm-based obligations (already scoped to specific functions)
-  const fileNormViolations = normViolations.filter(
-    v => v.functionNode.primarySpan.file === filePath,
-  );
+  const fileNormViolations = normViolations.filter((v) => v.functionNode.primarySpan.file === filePath);
   const normObligations = obligationsFromNorms(fileNormViolations);
 
   // Dedup: norm obligations take precedence over structural for same function+missingKind
-  const normKeys = new Set(
-    normObligations.map(o => `${o.functionId}::${o.missingKind}`),
-  );
-  const dedupedStructural = structural.filter(
-    o => !normKeys.has(`${o.functionId}::${o.missingKind}`),
-  );
+  const normKeys = new Set(normObligations.map((o) => `${o.functionId}::${o.missingKind}`));
+  const dedupedStructural = structural.filter((o) => !normKeys.has(`${o.functionId}::${o.missingKind}`));
 
   // Merge and sort by priority (lower = higher priority)
   const all = [...normObligations, ...dedupedStructural];

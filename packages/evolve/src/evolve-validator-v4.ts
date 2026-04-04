@@ -5,15 +5,14 @@
  *        typescript check → golden diff → dedup → (LLM retry on failure)
  */
 
-import { parse } from '@kernlang/core';
-import { KERN_RESERVED, registerParserHints, unregisterParserHints } from '@kernlang/core';
+import type { IRNode } from '@kernlang/core';
+import { KERN_RESERVED, parse, registerParserHints, unregisterParserHints } from '@kernlang/core';
 import { ts } from 'ts-morph';
-import { compileSandboxedGenerator } from './sandboxed-generator.js';
 import { checkDedup } from './evolve-dedup.js';
+import type { EvolveNodeProposal, EvolveV4ValidationResult } from './evolved-types.js';
 import { compareGoldenOutput } from './golden-test-runner.js';
 import { compileCodegenToJS } from './graduation.js';
-import type { IRNode } from '@kernlang/core';
-import type { EvolveNodeProposal, EvolveV4ValidationResult } from './evolved-types.js';
+import { compileSandboxedGenerator } from './sandboxed-generator.js';
 
 /**
  * Run the full 9-step validation pipeline on a node proposal.
@@ -53,7 +52,7 @@ export function validateEvolveProposal(
     let ast: IRNode | null = null;
     try {
       const parsed = parse(proposal.kernExample);
-      if (!parsed || !parsed.type) {
+      if (!parsed?.type) {
         result.errors.push('kernExample parsed to empty AST');
         result.parseOk = false;
       } else if (parsed.type !== proposal.keyword) {
@@ -163,11 +162,7 @@ function runGenerator(ast: IRNode, generator: (node: any) => string[]): string[]
   return generator(structuredClone(ast));
 }
 
-function validateCodegenRun(
-  ast: IRNode,
-  generator: (node: any) => string[],
-  errors: string[],
-): boolean {
+function validateCodegenRun(ast: IRNode, generator: (node: any) => string[], errors: string[]): boolean {
   try {
     const output = runGenerator(ast, generator);
     if (!Array.isArray(output) || output.length === 0) {
@@ -181,11 +176,7 @@ function validateCodegenRun(
   }
 }
 
-function validateTypeScript(
-  ast: IRNode,
-  generator: (node: any) => string[],
-  errors: string[],
-): boolean {
+function validateTypeScript(ast: IRNode, generator: (node: any) => string[], errors: string[]): boolean {
   try {
     const output = runGenerator(ast, generator).join('\n');
 
@@ -206,7 +197,7 @@ function validateTypeScript(
 
     const diagnostics = result.diagnostics || [];
     // Only fail on syntax errors (category 1 = Error), not semantic warnings
-    const syntaxErrors = diagnostics.filter(d => d.category === ts.DiagnosticCategory.Error);
+    const syntaxErrors = diagnostics.filter((d) => d.category === ts.DiagnosticCategory.Error);
     if (syntaxErrors.length > 0) {
       for (const d of syntaxErrors.slice(0, 3)) {
         const msg = ts.flattenDiagnosticMessageText(d.messageText, '\n');

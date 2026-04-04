@@ -33,7 +33,7 @@ export function getDetectorsForImport(importPath: string): DetectorPack[] {
   const results: DetectorPack[] = [];
   for (const pack of _registry.values()) {
     for (const pkgName of pack.packageNames) {
-      if (importPath === pkgName || importPath.startsWith(pkgName + '/')) {
+      if (importPath === pkgName || importPath.startsWith(`${pkgName}/`)) {
         results.push(pack);
         break;
       }

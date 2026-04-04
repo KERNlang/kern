@@ -8,9 +8,9 @@
  */
 
 import type { Project } from 'ts-morph';
+import { createProject } from './inferrer.js';
 import type { InferResult, ReviewFinding, SourceSpan } from './types.js';
 import { createFingerprint } from './types.js';
-import { createProject } from './inferrer.js';
 
 // ── ESLint via Node API ──────────────────────────────────────────────────
 
@@ -23,7 +23,7 @@ export async function runESLint(filePaths: string[], cwd: string): Promise<Revie
   try {
     // Dynamic import — ESLint is an optional peer dep
     const eslintModuleName = 'eslint';
-    const eslintModule = await import(eslintModuleName) as any;
+    const eslintModule = (await import(eslintModuleName)) as any;
     const ESLint = eslintModule.ESLint || eslintModule.default?.ESLint;
     if (!ESLint) return [];
 
@@ -118,8 +118,7 @@ export function runTSCDiagnostics(project: Project): ReviewFinding[] {
 
       const category = diag.getCategory();
       const severity: ReviewFinding['severity'] =
-        category === 1 /* Error */ ? 'error' :
-        category === 0 /* Warning */ ? 'warning' : 'info';
+        category === 1 /* Error */ ? 'error' : category === 0 /* Warning */ ? 'warning' : 'info';
 
       const code = diag.getCode();
       const message = diag.getMessageText();
@@ -185,9 +184,7 @@ export function linkToNodes(findings: ReviewFinding[], inferred: InferResult[]):
     if (f.nodeIds && f.nodeIds.length > 0) continue; // already linked
 
     const line = f.primarySpan.startLine;
-    const matchingNode = inferred.find(r =>
-      r.startLine <= line && r.endLine >= line
-    );
+    const matchingNode = inferred.find((r) => r.startLine <= line && r.endLine >= line);
 
     if (matchingNode) {
       f.nodeIds = [matchingNode.nodeId];

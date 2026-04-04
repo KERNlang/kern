@@ -11,7 +11,7 @@ import { createLexicalMask } from './mcp-lexical.js';
 
 export interface CodeRegion {
   start: number; // 0-based line index
-  end: number;   // 0-based line index (exclusive)
+  end: number; // 0-based line index (exclusive)
 }
 
 export function findToolHandlerRegions(lines: string[], language: 'typescript' | 'python'): CodeRegion[] {
@@ -32,7 +32,10 @@ export function findToolHandlerRegions(lines: string[], language: 'typescript' |
         const maskedLines = maskedSource.split('\n');
         for (let j = i; j < maskedLines.length; j++) {
           for (const ch of maskedLines[j]) {
-            if (ch === '{') { braceDepth++; started = true; }
+            if (ch === '{') {
+              braceDepth++;
+              started = true;
+            }
             if (ch === '}') braceDepth--;
           }
           if (started && braceDepth <= 0) {
@@ -49,8 +52,12 @@ export function findToolHandlerRegions(lines: string[], language: 'typescript' |
     // Pattern 1: @mcp.tool() / @server.tool() / @server.call_tool() decorators
     // Pattern 2: Class methods named handle_*tool* or read_file/write_file/execute_code in MCP server classes
     for (let i = 0; i < lines.length; i++) {
-      if (/^\s*@(?:mcp|server)\.(?:tool|call_tool)/.test(lines[i]) ||
-          /^\s*async\s+def\s+(?:handle_tools?_call|handle_call_tool|read_file|write_file|list_directory|execute_code)\s*\(/.test(lines[i])) {
+      if (
+        /^\s*@(?:mcp|server)\.(?:tool|call_tool)/.test(lines[i]) ||
+        /^\s*async\s+def\s+(?:handle_tools?_call|handle_call_tool|read_file|write_file|list_directory|execute_code)\s*\(/.test(
+          lines[i],
+        )
+      ) {
         // Find the def line — may be the current line itself (class method) or the next line (decorator)
         let defLine = -1;
         if (/^\s*(?:async\s+)?def\s+/.test(lines[i])) {
@@ -88,16 +95,24 @@ export function findToolHandlerRegions(lines: string[], language: 'typescript' |
 // ── MCP server detection helpers ─────────────────────────────────────
 
 export function isMCPServerTS(source: string): boolean {
-  return /@modelcontextprotocol/.test(source) || (/\bMcpServer\b/.test(source) && /\.tool\s*\(/.test(source)) ||
-    /\bCallToolRequestSchema\b/.test(source) || /\bListToolsRequestSchema\b/.test(source);
+  return (
+    /@modelcontextprotocol/.test(source) ||
+    (/\bMcpServer\b/.test(source) && /\.tool\s*\(/.test(source)) ||
+    /\bCallToolRequestSchema\b/.test(source) ||
+    /\bListToolsRequestSchema\b/.test(source)
+  );
 }
 
 export function isMCPServerPython(source: string): boolean {
-  return /from\s+mcp\.server/.test(source) || /\bFastMCP\b/.test(source) ||
-    (/\bListToolsRequestSchema\b/.test(source) || /\bCallToolRequestSchema\b/.test(source)) ||
+  return (
+    /from\s+mcp\.server/.test(source) ||
+    /\bFastMCP\b/.test(source) ||
+    /\bListToolsRequestSchema\b/.test(source) ||
+    /\bCallToolRequestSchema\b/.test(source) ||
     (/\bhandle_tools?_call\b/.test(source) && /\bstdio\b/i.test(source)) ||
     // Raw MCP protocol: "tools/list" and "tools/call" method strings
-    (/['"]tools\/list['"]/.test(source) && /['"]tools\/call['"]/.test(source));
+    (/['"]tools\/list['"]/.test(source) && /['"]tools\/call['"]/.test(source))
+  );
 }
 
 export function isMCPServer(source: string, filePath: string): boolean {

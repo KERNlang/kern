@@ -12,10 +12,22 @@ import type { ReviewConfig } from '../../src/types.js';
 
 /** Detect the right review config based on file content or name */
 function configForFile(name: string, source: string): ReviewConfig | undefined {
-  if (name.includes('react') || name.includes('hook') || name.includes('render-side') || name.includes('unstable-key')) {
+  if (
+    name.includes('react') ||
+    name.includes('hook') ||
+    name.includes('render-side') ||
+    name.includes('unstable-key')
+  ) {
     return { target: 'web' };
   }
-  if (name.includes('express') || name.includes('double-response') || name.includes('unvalidated-input') || name.includes('cors') || name.includes('cookie') || name.includes('helmet')) {
+  if (
+    name.includes('express') ||
+    name.includes('double-response') ||
+    name.includes('unvalidated-input') ||
+    name.includes('cors') ||
+    name.includes('cookie') ||
+    name.includes('helmet')
+  ) {
     return { target: 'express' };
   }
   if (source.includes("from 'next") || name.includes('nextjs') || name.includes('hydration')) {
@@ -74,8 +86,8 @@ const BUG_EXPECTATIONS: Record<string, string[]> = {
 function getCorpusFiles(dir: string): string[] {
   try {
     return readdirSync(dir)
-      .filter(f => f.endsWith('.ts') && !f.endsWith('.test.ts'))
-      .map(f => join(dir, f));
+      .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+      .map((f) => join(dir, f));
   } catch {
     return [];
   }
@@ -94,16 +106,17 @@ describe('Regression Corpus: Known Bugs (recall)', () => {
       const report = reviewSource(source, file, config);
 
       if (expectedRules) {
-        const matched = report.findings.some(f => expectedRules.includes(f.ruleId));
+        const matched = report.findings.some((f) => expectedRules.includes(f.ruleId));
         if (!matched) {
           // Track as known gap — don't fail, but log it
-          console.warn(`  [GAP] ${name}: expected ${expectedRules.join('|')}, got: ${report.findings.map(f => f.ruleId).join(', ') || 'nothing'}`);
+          console.warn(
+            `  [GAP] ${name}: expected ${expectedRules.join('|')}, got: ${report.findings.map((f) => f.ruleId).join(', ') || 'nothing'}`,
+          );
         }
         // Still pass — this is a regression corpus, not a hard requirement
       } else {
         // Generic: at least one error or warning
-        const significant = report.findings.filter(f =>
-          f.severity === 'error' || f.severity === 'warning');
+        const significant = report.findings.filter((f) => f.severity === 'error' || f.severity === 'warning');
         if (significant.length === 0) {
           console.warn(`  [GAP] ${name}: no significant findings`);
         }
@@ -131,25 +144,35 @@ describe('Regression Corpus: Known Clean (precision)', () => {
       // - Concept rules: fire without seeing middleware/guards in other files
       // - Taint false positives: can't understand complex sanitizers (URL whitelist, schema validation)
       const EXCLUDED_RULES = new Set([
-        'extra-code', 'style-difference', 'inconsistent-pattern', 'handler-extraction',
-        'unguarded-effect', 'unrecovered-effect', 'bare-rethrow', 'unhandled-async',
-        'missing-type', 'cognitive-complexity', 'async-without-await',
-        'ignored-error', 'boundary-mutation',
-        'taint-redirect', 'taint-command', 'taint-sql', 'taint-fs', 'taint-eval',
+        'extra-code',
+        'style-difference',
+        'inconsistent-pattern',
+        'handler-extraction',
+        'unguarded-effect',
+        'unrecovered-effect',
+        'bare-rethrow',
+        'unhandled-async',
+        'missing-type',
+        'cognitive-complexity',
+        'async-without-await',
+        'ignored-error',
+        'boundary-mutation',
+        'taint-redirect',
+        'taint-command',
+        'taint-sql',
+        'taint-fs',
+        'taint-eval',
         'taint-insufficient-sanitizer',
         // Express rules have known false positives on validated code:
-        'unvalidated-input', 'double-response',
+        'unvalidated-input',
+        'double-response',
       ]);
-      const realFindings = report.findings.filter(f =>
-        f.source !== 'tsc' &&
-        !EXCLUDED_RULES.has(f.ruleId) &&
-        f.severity !== 'info'
+      const realFindings = report.findings.filter(
+        (f) => f.source !== 'tsc' && !EXCLUDED_RULES.has(f.ruleId) && f.severity !== 'info',
       );
 
       if (realFindings.length > 0) {
-        const details = realFindings.map(f =>
-          `  L${f.primarySpan.startLine} [${f.ruleId}] ${f.message}`
-        ).join('\n');
+        const _details = realFindings.map((f) => `  L${f.primarySpan.startLine} [${f.ruleId}] ${f.message}`).join('\n');
         expect(realFindings).toHaveLength(0);
       }
     });
@@ -170,7 +193,7 @@ describe('Corpus Stats', () => {
       const config = configForFile(fname, source);
       const report = reviewSource(source, file, config);
       const expectedRules = BUG_EXPECTATIONS[fname];
-      if (expectedRules && report.findings.some(f => expectedRules.includes(f.ruleId))) {
+      if (expectedRules && report.findings.some((f) => expectedRules.includes(f.ruleId))) {
         bugsDetected++;
       }
     }
@@ -182,23 +205,37 @@ describe('Corpus Stats', () => {
       const report = reviewSource(source, file, config);
       // Use same exclusion set as precision tests for consistent measurement
       const EXCLUDED = new Set([
-        'extra-code', 'style-difference', 'inconsistent-pattern', 'handler-extraction',
-        'unguarded-effect', 'unrecovered-effect', 'bare-rethrow', 'unhandled-async',
-        'missing-type', 'cognitive-complexity', 'async-without-await',
-        'ignored-error', 'boundary-mutation',
-        'taint-redirect', 'taint-command', 'taint-sql', 'taint-fs', 'taint-eval',
+        'extra-code',
+        'style-difference',
+        'inconsistent-pattern',
+        'handler-extraction',
+        'unguarded-effect',
+        'unrecovered-effect',
+        'bare-rethrow',
+        'unhandled-async',
+        'missing-type',
+        'cognitive-complexity',
+        'async-without-await',
+        'ignored-error',
+        'boundary-mutation',
+        'taint-redirect',
+        'taint-command',
+        'taint-sql',
+        'taint-fs',
+        'taint-eval',
         'taint-insufficient-sanitizer',
-        'unvalidated-input', 'double-response',
+        'unvalidated-input',
+        'double-response',
       ]);
-      const fps = report.findings.filter(f =>
-        f.source !== 'tsc' && f.severity !== 'info' && !EXCLUDED.has(f.ruleId)
-      );
+      const fps = report.findings.filter((f) => f.source !== 'tsc' && f.severity !== 'info' && !EXCLUDED.has(f.ruleId));
       if (fps.length > 0) falsePositives++;
     }
 
-    const recall = bugFiles.length > 0 ? (bugsDetected / bugFiles.length * 100).toFixed(0) : '0';
+    const recall = bugFiles.length > 0 ? ((bugsDetected / bugFiles.length) * 100).toFixed(0) : '0';
     const precision = cleanFiles.length > 0 ? ((1 - falsePositives / cleanFiles.length) * 100).toFixed(0) : '100';
 
-    console.log(`\n  Corpus Results: ${bugsDetected}/${bugFiles.length} bugs caught (${recall}% recall), ${falsePositives} false positives on ${cleanFiles.length} clean files (${precision}% precision)\n`);
+    console.log(
+      `\n  Corpus Results: ${bugsDetected}/${bugFiles.length} bugs caught (${recall}% recall), ${falsePositives} false positives on ${cleanFiles.length} clean files (${precision}% precision)\n`,
+    );
   });
 });

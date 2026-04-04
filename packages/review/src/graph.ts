@@ -9,7 +9,7 @@
  */
 
 import { Project, type SourceFile } from 'ts-morph';
-import type { GraphResult, GraphFile, GraphOptions } from './types.js';
+import type { GraphFile, GraphOptions, GraphResult } from './types.js';
 
 /** Extension fallback map: .js→.ts, .jsx→.tsx (Codex idea) */
 const EXT_FALLBACK: Record<string, string[]> = {
@@ -19,21 +19,22 @@ const EXT_FALLBACK: Record<string, string[]> = {
   '.cjs': ['.cts'],
 };
 
-export function resolveImportGraph(
-  entryFiles: string[],
-  options: GraphOptions = {},
-): GraphResult {
+export function resolveImportGraph(entryFiles: string[], options: GraphOptions = {}): GraphResult {
   const maxDepth = options.maxDepth ?? 3;
-  const project = options.project ?? new Project({
-    tsConfigFilePath: options.tsConfigFilePath,
-    skipAddingFilesFromTsConfig: true,
-    compilerOptions: options.tsConfigFilePath ? undefined : {
-      strict: true,
-      target: 99,
-      module: 99,
-      moduleResolution: 100, // Bundler
-    },
-  });
+  const project =
+    options.project ??
+    new Project({
+      tsConfigFilePath: options.tsConfigFilePath,
+      skipAddingFilesFromTsConfig: true,
+      compilerOptions: options.tsConfigFilePath
+        ? undefined
+        : {
+            strict: true,
+            target: 99,
+            module: 99,
+            moduleResolution: 100, // Bundler
+          },
+    });
 
   const fileMap = new Map<string, GraphFile>();
   const visited = new Set<string>();
@@ -44,7 +45,12 @@ export function resolveImportGraph(
   for (const entry of entryFiles) {
     let sf = project.getSourceFile(entry);
     if (!sf) {
-      try { sf = project.addSourceFileAtPath(entry); } catch { skipped++; continue; }
+      try {
+        sf = project.addSourceFileAtPath(entry);
+      } catch {
+        skipped++;
+        continue;
+      }
     }
     const p = sf.getFilePath();
     if (!fileMap.has(p)) {
@@ -76,7 +82,9 @@ export function resolveImportGraph(
           specifier: decl.getModuleSpecifierValue(),
           resolved: decl.getModuleSpecifierSourceFile(),
         });
-      } catch { /* skip dynamic imports with non-literal specifiers */ }
+      } catch {
+        /* skip dynamic imports with non-literal specifiers */
+      }
     }
     for (const decl of sf.getExportDeclarations()) {
       const spec = decl.getModuleSpecifierValue();
@@ -94,13 +102,22 @@ export function resolveImportGraph(
         resolvedFile = tryExtensionFallback(project, sf, specifier);
       }
 
-      if (!resolvedFile) { skipped++; continue; }
+      if (!resolvedFile) {
+        skipped++;
+        continue;
+      }
 
       const resolvedPath = resolvedFile.getFilePath();
 
       // Skip .d.ts and node_modules (even if resolved via path alias)
-      if (resolvedPath.endsWith('.d.ts')) { skipped++; continue; }
-      if (resolvedPath.includes('/node_modules/')) { skipped++; continue; }
+      if (resolvedPath.endsWith('.d.ts')) {
+        skipped++;
+        continue;
+      }
+      if (resolvedPath.includes('/node_modules/')) {
+        skipped++;
+        continue;
+      }
 
       if (!current.imports.includes(resolvedPath)) {
         current.imports.push(resolvedPath);
@@ -130,7 +147,7 @@ export function resolveImportGraph(
   const files = Array.from(fileMap.values());
   return {
     files,
-    entryFiles: files.filter(f => f.distance === 0).map(f => f.path),
+    entryFiles: files.filter((f) => f.distance === 0).map((f) => f.path),
     totalFiles: files.length,
     skipped,
   };
@@ -140,11 +157,7 @@ export function resolveImportGraph(
  * Extension fallback: when ts-morph can't resolve ./foo.js, try ./foo.ts and ./foo.tsx.
  * Common in ESM projects where imports use .js but source files are .ts.
  */
-function tryExtensionFallback(
-  project: Project,
-  fromFile: SourceFile,
-  specifier: string,
-): SourceFile | undefined {
+function tryExtensionFallback(project: Project, fromFile: SourceFile, specifier: string): SourceFile | undefined {
   for (const [jsExt, tsExts] of Object.entries(EXT_FALLBACK)) {
     if (!specifier.endsWith(jsExt)) continue;
     const base = specifier.slice(0, -jsExt.length);
@@ -152,7 +165,7 @@ function tryExtensionFallback(
       const candidate = base + tsExt;
       // Try resolving relative to the importing file's directory
       const fromDir = fromFile.getDirectoryPath();
-      const fullPath = fromDir + '/' + candidate.replace(/^\.\//, '');
+      const fullPath = `${fromDir}/${candidate.replace(/^\.\//, '')}`;
       const sf = project.getSourceFile(fullPath);
       if (sf) return sf;
     }

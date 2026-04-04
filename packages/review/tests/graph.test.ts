@@ -23,8 +23,8 @@ describe('resolveImportGraph', () => {
     const result = resolveImportGraph(['/src/a.ts'], { project });
 
     expect(result.files).toHaveLength(2);
-    const fileA = result.files.find(f => f.path.includes('a.ts'))!;
-    const fileB = result.files.find(f => f.path.includes('b.ts'))!;
+    const fileA = result.files.find((f) => f.path.includes('a.ts'))!;
+    const fileB = result.files.find((f) => f.path.includes('b.ts'))!;
     expect(fileA.distance).toBe(0);
     expect(fileB.distance).toBe(1);
     expect(fileA.imports).toContain(fileB.path);
@@ -39,8 +39,8 @@ describe('resolveImportGraph', () => {
     const result = resolveImportGraph(['/src/a.ts'], { project });
 
     expect(result.files).toHaveLength(2);
-    const fileA = result.files.find(f => f.path.includes('a.ts'))!;
-    const fileB = result.files.find(f => f.path.includes('b.ts'))!;
+    const fileA = result.files.find((f) => f.path.includes('a.ts'))!;
+    const fileB = result.files.find((f) => f.path.includes('b.ts'))!;
     expect(fileA.imports).toContain(fileB.path);
     expect(fileB.imports).toContain(fileA.path);
   });
@@ -56,7 +56,7 @@ describe('resolveImportGraph', () => {
 
     // a(0) → b(1) → c(2, discovered but not walked) → d not reached
     expect(result.files).toHaveLength(3);
-    expect(result.files.find(f => f.path.includes('d.ts'))).toBeUndefined();
+    expect(result.files.find((f) => f.path.includes('d.ts'))).toBeUndefined();
   });
 
   it('resolves barrel file (index.ts re-exports)', () => {
@@ -68,24 +68,24 @@ describe('resolveImportGraph', () => {
     const result = resolveImportGraph(['/src/a.ts'], { project });
 
     expect(result.files).toHaveLength(3);
-    const barrel = result.files.find(f => f.path.includes('index.ts'))!;
+    const barrel = result.files.find((f) => f.path.includes('index.ts'))!;
     expect(barrel.distance).toBe(1);
-    const foo = result.files.find(f => f.path.includes('foo.ts'))!;
+    const foo = result.files.find((f) => f.path.includes('foo.ts'))!;
     expect(foo.distance).toBe(2);
   });
 
   it('excludes node_modules imports', () => {
     const project = createTestProject();
-    project.createSourceFile('/src/a.ts', [
-      `import { foo } from './b.js';`,
-      `import { bar } from 'some-package';`,
-    ].join('\n'));
+    project.createSourceFile(
+      '/src/a.ts',
+      [`import { foo } from './b.js';`, `import { bar } from 'some-package';`].join('\n'),
+    );
     project.createSourceFile('/src/b.ts', `export const foo = 1;`);
 
     const result = resolveImportGraph(['/src/a.ts'], { project });
 
     expect(result.files).toHaveLength(2);
-    expect(result.files.every(f => !f.path.includes('node_modules'))).toBe(true);
+    expect(result.files.every((f) => !f.path.includes('node_modules'))).toBe(true);
   });
 
   it('returns empty result for empty input', () => {
@@ -100,10 +100,13 @@ describe('resolveImportGraph', () => {
 
   it('tracks totalFiles and skipped counters', () => {
     const project = createTestProject();
-    project.createSourceFile('/src/a.ts', [
-      `import { foo } from './b.js';`,
-      `import { bar } from 'external-pkg';`,  // bare specifier → skipped
-    ].join('\n'));
+    project.createSourceFile(
+      '/src/a.ts',
+      [
+        `import { foo } from './b.js';`,
+        `import { bar } from 'external-pkg';`, // bare specifier → skipped
+      ].join('\n'),
+    );
     project.createSourceFile('/src/b.ts', `export const foo = 1;`);
 
     const result = resolveImportGraph(['/src/a.ts'], { project });
@@ -117,20 +120,19 @@ describe('resolveImportGraph', () => {
     // a → b → d (distance 2)
     // a → c → d (distance 2)
     // but also a → d directly (distance 1)
-    project.createSourceFile('/src/a.ts', [
-      `import { b } from './b.js';`,
-      `import { c } from './c.js';`,
-      `import { d } from './d.js';`,
-    ].join('\n'));
+    project.createSourceFile(
+      '/src/a.ts',
+      [`import { b } from './b.js';`, `import { c } from './c.js';`, `import { d } from './d.js';`].join('\n'),
+    );
     project.createSourceFile('/src/b.ts', `import { d } from './d.js';\nexport const b = 1;`);
     project.createSourceFile('/src/c.ts', `import { d } from './d.js';\nexport const c = 1;`);
     project.createSourceFile('/src/d.ts', `export const d = 1;`);
 
     const result = resolveImportGraph(['/src/a.ts'], { project });
 
-    const fileD = result.files.find(f => f.path.includes('d.ts'))!;
+    const fileD = result.files.find((f) => f.path.includes('d.ts'))!;
     expect(fileD.distance).toBe(1); // shortest path: a → d directly
-    expect(fileD.importedBy).toContain(result.files.find(f => f.path.includes('a.ts'))!.path);
+    expect(fileD.importedBy).toContain(result.files.find((f) => f.path.includes('a.ts'))!.path);
   });
 
   it('handles multiple entry files', () => {
@@ -143,7 +145,7 @@ describe('resolveImportGraph', () => {
 
     expect(result.entryFiles).toHaveLength(2);
     expect(result.totalFiles).toBe(3);
-    const sharedFile = result.files.find(f => f.path.includes('shared.ts'))!;
+    const sharedFile = result.files.find((f) => f.path.includes('shared.ts'))!;
     expect(sharedFile.importedBy).toHaveLength(2);
   });
 });

@@ -105,10 +105,17 @@ function regexDos(ctx: RuleContext): ReviewFinding[] {
 
     const vulnerability = isReDoSVulnerable(pattern);
     if (vulnerability) {
-      findings.push(finding('regex-dos', 'warning', 'bug',
-        `Regex vulnerable to ReDoS: ${vulnerability}`,
-        ctx.filePath, node.getStartLineNumber(),
-        { suggestion: 'Rewrite regex to avoid nested quantifiers, or use a linear-time regex engine (RE2)' }));
+      findings.push(
+        finding(
+          'regex-dos',
+          'warning',
+          'bug',
+          `Regex vulnerable to ReDoS: ${vulnerability}`,
+          ctx.filePath,
+          node.getStartLineNumber(),
+          { suggestion: 'Rewrite regex to avoid nested quantifiers, or use a linear-time regex engine (RE2)' },
+        ),
+      );
     }
   }
 
@@ -123,10 +130,17 @@ function regexDos(ctx: RuleContext): ReviewFinding[] {
 
     const vulnerability = isReDoSVulnerable(pattern);
     if (vulnerability) {
-      findings.push(finding('regex-dos', 'warning', 'bug',
-        `RegExp constructor vulnerable to ReDoS: ${vulnerability}`,
-        ctx.filePath, newExpr.getStartLineNumber(),
-        { suggestion: 'Rewrite regex to avoid nested quantifiers, or use a linear-time regex engine (RE2)' }));
+      findings.push(
+        finding(
+          'regex-dos',
+          'warning',
+          'bug',
+          `RegExp constructor vulnerable to ReDoS: ${vulnerability}`,
+          ctx.filePath,
+          newExpr.getStartLineNumber(),
+          { suggestion: 'Rewrite regex to avoid nested quantifiers, or use a linear-time regex engine (RE2)' },
+        ),
+      );
     }
   }
 
@@ -140,7 +154,8 @@ function regexDos(ctx: RuleContext): ReviewFinding[] {
 // CWE-20
 
 const USER_INPUT_PATTERNS = /req\.(body|query|params|headers)\b/;
-const VALIDATION_PATTERNS = /\.parse\(|\.validate\(|\.safeParse\(|parseInt\(|Number\(|Boolean\(|sanitize|validator\.|zod\.|yup\.|joi\.|ajv\.|superstruct|valibot/;
+const VALIDATION_PATTERNS =
+  /\.parse\(|\.validate\(|\.safeParse\(|parseInt\(|Number\(|Boolean\(|sanitize|validator\.|zod\.|yup\.|joi\.|ajv\.|superstruct|valibot/;
 
 function missingInputValidation(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -177,10 +192,17 @@ function missingInputValidation(ctx: RuleContext): ReviewFinding[] {
     if (queryMatch) sources.push('req.query');
     if (paramsMatch) sources.push('req.params');
 
-    findings.push(finding('missing-input-validation', 'warning', 'bug',
-      `HTTP handler uses ${sources.join(', ')} without input validation`,
-      ctx.filePath, fn.getStartLineNumber(),
-      { suggestion: 'Validate input with zod, joi, or manual checks before using in business logic' }));
+    findings.push(
+      finding(
+        'missing-input-validation',
+        'warning',
+        'bug',
+        `HTTP handler uses ${sources.join(', ')} without input validation`,
+        ctx.filePath,
+        fn.getStartLineNumber(),
+        { suggestion: 'Validate input with zod, joi, or manual checks before using in business logic' },
+      ),
+    );
   }
 
   return findings;
@@ -209,10 +231,17 @@ function prototypePollution(ctx: RuleContext): ReviewFinding[] {
         for (let i = 1; i < args.length; i++) {
           const text = args[i].getText();
           if (USER_INPUT_PATTERNS.test(text) || /\bJSON\.parse\b/.test(text)) {
-            findings.push(finding('prototype-pollution', 'error', 'bug',
-              `Object.assign() with user input (${text.substring(0, 40)}) — prototype pollution risk`,
-              ctx.filePath, call.getStartLineNumber(),
-              { suggestion: 'Use a safe merge utility, or validate/strip __proto__ and constructor keys first' }));
+            findings.push(
+              finding(
+                'prototype-pollution',
+                'error',
+                'bug',
+                `Object.assign() with user input (${text.substring(0, 40)}) — prototype pollution risk`,
+                ctx.filePath,
+                call.getStartLineNumber(),
+                { suggestion: 'Use a safe merge utility, or validate/strip __proto__ and constructor keys first' },
+              ),
+            );
             break;
           }
         }
@@ -227,10 +256,17 @@ function prototypePollution(ctx: RuleContext): ReviewFinding[] {
         for (const arg of args) {
           const text = arg.getText();
           if (USER_INPUT_PATTERNS.test(text) || /\bJSON\.parse\b/.test(text)) {
-            findings.push(finding('prototype-pollution', 'warning', 'bug',
-              `${funcName}() with user input — potential prototype pollution`,
-              ctx.filePath, call.getStartLineNumber(),
-              { suggestion: 'Validate input keys or use Object.create(null) as target' }));
+            findings.push(
+              finding(
+                'prototype-pollution',
+                'warning',
+                'bug',
+                `${funcName}() with user input — potential prototype pollution`,
+                ctx.filePath,
+                call.getStartLineNumber(),
+                { suggestion: 'Validate input keys or use Object.create(null) as target' },
+              ),
+            );
             break;
           }
         }
@@ -246,10 +282,17 @@ function prototypePollution(ctx: RuleContext): ReviewFinding[] {
         for (const arg of args) {
           const text = arg.getText();
           if (USER_INPUT_PATTERNS.test(text) || /\bJSON\.parse\b/.test(text)) {
-            findings.push(finding('prototype-pollution', 'warning', 'bug',
-              `${objText}.${pa.getName()}() with user input — potential prototype pollution`,
-              ctx.filePath, call.getStartLineNumber(),
-              { suggestion: 'Use a prototype-safe merge, or strip __proto__/constructor from input' }));
+            findings.push(
+              finding(
+                'prototype-pollution',
+                'warning',
+                'bug',
+                `${objText}.${pa.getName()}() with user input — potential prototype pollution`,
+                ctx.filePath,
+                call.getStartLineNumber(),
+                { suggestion: 'Use a prototype-safe merge, or strip __proto__/constructor from input' },
+              ),
+            );
             break;
           }
         }
@@ -262,10 +305,17 @@ function prototypePollution(ctx: RuleContext): ReviewFinding[] {
     const expr = spread.getExpression();
     const text = expr.getText();
     if (USER_INPUT_PATTERNS.test(text) || /\bJSON\.parse\b/.test(text)) {
-      findings.push(finding('prototype-pollution', 'warning', 'bug',
-        `Spread from user input (${text.substring(0, 40)}) — prototype pollution risk if input contains __proto__`,
-        ctx.filePath, spread.getStartLineNumber(),
-        { suggestion: 'Destructure only known fields, or strip __proto__ and constructor keys' }));
+      findings.push(
+        finding(
+          'prototype-pollution',
+          'warning',
+          'bug',
+          `Spread from user input (${text.substring(0, 40)}) — prototype pollution risk if input contains __proto__`,
+          ctx.filePath,
+          spread.getStartLineNumber(),
+          { suggestion: 'Destructure only known fields, or strip __proto__ and constructor keys' },
+        ),
+      );
     }
   }
 
@@ -305,10 +355,17 @@ function informationExposure(ctx: RuleContext): ReviewFinding[] {
     // Pattern 1: Sending raw error object — res.json(err), res.json({ error: err })
     // err.stack, err.message with stack included, error.stack
     if (/\.stack\b/.test(argText)) {
-      findings.push(finding('information-exposure', 'error', 'bug',
-        'Stack trace sent in response — exposes internal paths and code structure',
-        ctx.filePath, call.getStartLineNumber(),
-        { suggestion: 'Send a generic error message to clients; log the stack server-side' }));
+      findings.push(
+        finding(
+          'information-exposure',
+          'error',
+          'bug',
+          'Stack trace sent in response — exposes internal paths and code structure',
+          ctx.filePath,
+          call.getStartLineNumber(),
+          { suggestion: 'Send a generic error message to clients; log the stack server-side' },
+        ),
+      );
       continue;
     }
 
@@ -335,20 +392,34 @@ function informationExposure(ctx: RuleContext): ReviewFinding[] {
         // Check it's not just err.message (which is often safe)
         const onlyMessage = new RegExp(`^\\{?\\s*\\w+:\\s*${catchVarName}\\.message\\s*\\}?$`);
         if (!onlyMessage.test(argText.trim())) {
-          findings.push(finding('information-exposure', 'warning', 'bug',
-            `Raw error object '${catchVarName}' sent in response — may expose stack traces and internal details`,
-            ctx.filePath, call.getStartLineNumber(),
-            { suggestion: `Send only ${catchVarName}.message or a generic error string` }));
+          findings.push(
+            finding(
+              'information-exposure',
+              'warning',
+              'bug',
+              `Raw error object '${catchVarName}' sent in response — may expose stack traces and internal details`,
+              ctx.filePath,
+              call.getStartLineNumber(),
+              { suggestion: `Send only ${catchVarName}.message or a generic error string` },
+            ),
+          );
         }
       }
     }
 
     // Pattern 3: process.env or __dirname in response
     if (/process\.env\b/.test(argText) || /\b__dirname\b/.test(argText) || /\b__filename\b/.test(argText)) {
-      findings.push(finding('information-exposure', 'warning', 'bug',
-        'Internal path or environment variable sent in response',
-        ctx.filePath, call.getStartLineNumber(),
-        { suggestion: 'Never expose process.env, __dirname, or __filename to clients' }));
+      findings.push(
+        finding(
+          'information-exposure',
+          'warning',
+          'bug',
+          'Internal path or environment variable sent in response',
+          ctx.filePath,
+          call.getStartLineNumber(),
+          { suggestion: 'Never expose process.env, __dirname, or __filename to clients' },
+        ),
+      );
     }
   }
 
@@ -362,7 +433,8 @@ function informationExposure(ctx: RuleContext): ReviewFinding[] {
 // CWE-77 (Injection), OWASP LLM01
 
 /** Known LLM API call patterns */
-const LLM_API_PATTERNS = /\bgenerateContent\b|\bchat\.completions\b|\bcreate\b.*\bmodel\b|\bgenerate\b|\bsendMessage\b|\bcomplete\b/;
+const LLM_API_PATTERNS =
+  /\bgenerateContent\b|\bchat\.completions\b|\bcreate\b.*\bmodel\b|\bgenerate\b|\bsendMessage\b|\bcomplete\b/;
 /** Common prompt builder function names */
 const PROMPT_BUILDER_PATTERNS = /\bbuildPrompt\b|\bgeneratePrompt\b|\bsystemPrompt\b|\buserPrompt\b|\bcreatePrompt\b/;
 /** Sanitization function patterns */
@@ -377,7 +449,8 @@ function promptInjection(ctx: RuleContext): ReviewFinding[] {
 
     // Does this template contain user input references?
     // Bare names (question, message) are gated by inPromptContext check below
-    const hasUserInput = USER_INPUT_PATTERNS.test(text) ||
+    const hasUserInput =
+      USER_INPUT_PATTERNS.test(text) ||
       /\b(question|userInput|userMessage|message|input|query|prompt|instruction|caption)\b/.test(text);
     if (!hasUserInput) continue;
 
@@ -389,9 +462,11 @@ function promptInjection(ctx: RuleContext): ReviewFinding[] {
     let parent: import('ts-morph').Node | undefined = template.getParent();
     let inPromptContext = false;
     while (parent) {
-      if (parent.getKind() === SyntaxKind.FunctionDeclaration ||
-          parent.getKind() === SyntaxKind.ArrowFunction ||
-          parent.getKind() === SyntaxKind.MethodDeclaration) {
+      if (
+        parent.getKind() === SyntaxKind.FunctionDeclaration ||
+        parent.getKind() === SyntaxKind.ArrowFunction ||
+        parent.getKind() === SyntaxKind.MethodDeclaration
+      ) {
         const parentText = parent.getText().substring(0, 200);
         if (PROMPT_BUILDER_PATTERNS.test(parentText) || LLM_API_PATTERNS.test(parentText)) {
           inPromptContext = true;
@@ -436,14 +511,22 @@ function promptInjection(ctx: RuleContext): ReviewFinding[] {
       if (/^(intent|mixContext|analysisResults)\b/.test(exprText)) continue;
 
       // Check if this is a user-controlled value
-      const isUserControlled = USER_INPUT_PATTERNS.test(exprText) ||
+      const isUserControlled =
+        USER_INPUT_PATTERNS.test(exprText) ||
         /^(question|userInput|userMessage|message|input|caption|instruction)\b/.test(exprText);
 
       if (isUserControlled) {
-        findings.push(finding('prompt-injection', 'warning', 'bug',
-          `User input '${exprText.substring(0, 50)}' embedded in LLM prompt without sanitization — prompt injection risk`,
-          ctx.filePath, template.getStartLineNumber(),
-          { suggestion: 'Wrap user input with sanitizeForPrompt() or equivalent before embedding in prompts' }));
+        findings.push(
+          finding(
+            'prompt-injection',
+            'warning',
+            'bug',
+            `User input '${exprText.substring(0, 50)}' embedded in LLM prompt without sanitization — prompt injection risk`,
+            ctx.filePath,
+            template.getStartLineNumber(),
+            { suggestion: 'Wrap user input with sanitizeForPrompt() or equivalent before embedding in prompts' },
+          ),
+        );
         break; // One finding per template
       }
     }
@@ -458,7 +541,8 @@ function promptInjection(ctx: RuleContext): ReviewFinding[] {
     const fullText = bin.getText();
 
     // Is this string concat involving user input?
-    const hasUserInput = USER_INPUT_PATTERNS.test(rightText) ||
+    const hasUserInput =
+      USER_INPUT_PATTERNS.test(rightText) ||
       /^(question|userInput|message|input|caption|instruction)\b/.test(rightText);
     if (!hasUserInput) continue;
 
@@ -469,10 +553,17 @@ function promptInjection(ctx: RuleContext): ReviewFinding[] {
     // Is it sanitized?
     if (PROMPT_SANITIZER_PATTERNS.test(fullText)) continue;
 
-    findings.push(finding('prompt-injection', 'warning', 'bug',
-      `User input concatenated into LLM prompt without sanitization — prompt injection risk`,
-      ctx.filePath, bin.getStartLineNumber(),
-      { suggestion: 'Use sanitizeForPrompt() on user input before concatenating into prompts' }));
+    findings.push(
+      finding(
+        'prompt-injection',
+        'warning',
+        'bug',
+        `User input concatenated into LLM prompt without sanitization — prompt injection risk`,
+        ctx.filePath,
+        bin.getStartLineNumber(),
+        { suggestion: 'Use sanitizeForPrompt() on user input before concatenating into prompts' },
+      ),
+    );
   }
 
   return findings;

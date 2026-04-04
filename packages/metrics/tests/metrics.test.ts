@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -113,7 +113,7 @@ describe('Metrics Engine', () => {
 
       expect(merged.nodeCount).toBe(m1.nodeCount + m2.nodeCount);
       expect(merged.styleMetrics.totalStyleDecls).toBe(
-        m1.styleMetrics.totalStyleDecls + m2.styleMetrics.totalStyleDecls
+        m1.styleMetrics.totalStyleDecls + m2.styleMetrics.totalStyleDecls,
       );
       expect(merged.styleMetrics.escapedKeys).toContain('transition');
     });

@@ -27,8 +27,8 @@
  */
 
 import type { IRNode } from '../types.js';
-import { getProps, getChildren, getFirstChild, exportPrefix } from './helpers.js';
 import { emitIdentifier } from './emitters.js';
+import { exportPrefix, getChildren, getFirstChild, getProps } from './helpers.js';
 
 type ScreenProps = {
   name?: string;
@@ -41,12 +41,6 @@ type PropChild = {
   type: string;
   optional?: boolean;
   default?: string;
-};
-
-type StateChild = {
-  name: string;
-  type: string;
-  initial?: string;
 };
 
 function propsOf(node: IRNode): Record<string, unknown> {
@@ -67,7 +61,7 @@ function handlerContent(node: IRNode): string {
 export function generateScreen(node: IRNode): string[] {
   const props = getProps(node) as unknown as ScreenProps;
   const name = emitIdentifier(props.name, 'UnnamedScreen', node);
-  const target = props.target || 'ink';
+  const _target = props.target || 'ink';
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
@@ -79,13 +73,17 @@ export function generateScreen(node: IRNode): string[] {
   const callbackNodes = getChildren(node, 'callback');
   const memoNodes = getChildren(node, 'memo');
   const refNodes = getChildren(node, 'ref');
+  const onInputNodes = getChildren(node, 'on').filter((n) => {
+    const p = propsOf(n);
+    return p.event === 'input';
+  });
 
   // Determine which React hooks are needed
   const needsState = stateNodes.length > 0;
   const needsEffect = effectNodes.length > 0;
   const needsCallback = callbackNodes.length > 0;
   const needsMemo = memoNodes.length > 0;
-  const needsRef = refNodes.length > 0;
+  const needsRef = refNodes.length > 0 || onInputNodes.length > 0;
 
   // Imports
   const reactImports = ['React'];
@@ -104,7 +102,7 @@ export function generateScreen(node: IRNode): string[] {
   lines.push('');
 
   // Parse props
-  const componentProps: PropChild[] = propNodes.map(n => {
+  const componentProps: PropChild[] = propNodes.map((n) => {
     const p = propsOf(n);
     return {
       name: emitIdentifier(p.name as string, 'unknown', n),
@@ -115,14 +113,10 @@ export function generateScreen(node: IRNode): string[] {
   });
 
   // Props type
-  const propsTypeEntries = componentProps.map(p =>
-    `${p.name}${p.optional ? '?' : ''}: ${p.type}`
-  ).join('; ');
+  const propsTypeEntries = componentProps.map((p) => `${p.name}${p.optional ? '?' : ''}: ${p.type}`).join('; ');
 
   // Destructure with defaults
-  const destructure = componentProps.map(p =>
-    p.default ? `${p.name} = ${p.default}` : p.name
-  ).join(', ');
+  const destructure = componentProps.map((p) => (p.default ? `${p.name} = ${p.default}` : p.name)).join(', ');
 
   // Function signature
   lines.push(`${exp}function ${name}({ ${destructure} }: { ${propsTypeEntries} }) {`);
@@ -152,7 +146,7 @@ export function generateScreen(node: IRNode): string[] {
   for (const mn of memoNodes) {
     const mp = propsOf(mn);
     const mName = emitIdentifier(mp.name as string, 'memo', mn);
-    const mDeps = mp.deps as string || '';
+    const mDeps = (mp.deps as string) || '';
     const mDepsArr = mDeps && mDeps !== '[]' ? `[${mDeps}]` : '[]';
     const body = handlerContent(mn);
     lines.push(`  const ${mName} = useMemo(() => {`);
@@ -167,8 +161,8 @@ export function generateScreen(node: IRNode): string[] {
   for (const cn of callbackNodes) {
     const cp = propsOf(cn);
     const cName = emitIdentifier(cp.name as string, 'handler', cn);
-    const cParams = cp.params as string || '';
-    const cDeps = cp.deps as string || '';
+    const cParams = (cp.params as string) || '';
+    const cDeps = (cp.deps as string) || '';
     const cDepsArr = cDeps && cDeps !== '[]' ? `[${cDeps}]` : '[]';
     const isAsync = cp.async === true || cp.async === 'true';
     const body = handlerContent(cn);
@@ -183,7 +177,7 @@ export function generateScreen(node: IRNode): string[] {
   // Effects
   for (const en of effectNodes) {
     const ep = propsOf(en);
-    const eDeps = ep.deps as string || '';
+    const eDeps = (ep.deps as string) || '';
     const eDepsArr = eDeps && eDeps !== '[]' ? `[${eDeps}]` : '[]';
     const body = handlerContent(en);
     lines.push(`  useEffect(() => {`);
@@ -191,6 +185,19 @@ export function generateScreen(node: IRNode): string[] {
       lines.push(`    ${line}`);
     }
     lines.push(`  }, ${eDepsArr});`);
+    lines.push('');
+  }
+
+  // useInput handlers (on event=input) — uses ref pattern for fresh closures
+  for (const onNode of onInputNodes) {
+    const body = handlerContent(onNode);
+    lines.push(`  const _inputHandlerRef = useRef<(input: string, key: any) => void>(() => {});`);
+    lines.push(`  _inputHandlerRef.current = (input: string, key: any) => {`);
+    for (const line of body.split('\n')) {
+      lines.push(`    ${line}`);
+    }
+    lines.push(`  };`);
+    lines.push(`  useInput((input: string, key: any) => _inputHandlerRef.current(input, key));`);
     lines.push('');
   }
 

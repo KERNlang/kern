@@ -1,8 +1,8 @@
-import { inferFromSource as inferTS, reviewSource as reviewTS } from '@kernlang/review';
-import { serializeIR as coreSerializeIR, countTokens as coreCountTokens } from '@kernlang/core';
+import { countTokens as coreCountTokens, serializeIR as coreSerializeIR } from '@kernlang/core';
 import type { ReviewFinding } from '@kernlang/review';
+import { inferFromSource as inferTS, reviewSource as reviewTS } from '@kernlang/review';
 
-export { coreSerializeIR as serializeIR, coreCountTokens as countTokens };
+export { coreCountTokens as countTokens, coreSerializeIR as serializeIR };
 
 export interface InferResult {
   kern: string | null;
@@ -28,7 +28,12 @@ export function inferFromSource(source: string, language: string): InferResult {
         kern: null,
         findings: [],
         stats: null,
-        error: { message: 'Python inference requires @kernlang/review-python. Use TypeScript/React for now.', line: 0, col: 0, codeFrame: '' },
+        error: {
+          message: 'Python inference requires @kernlang/review-python. Use TypeScript/React for now.',
+          line: 0,
+          col: 0,
+          codeFrame: '',
+        },
       };
     }
 

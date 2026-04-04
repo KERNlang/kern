@@ -1,9 +1,16 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
-import { resolve, basename } from 'path';
-import { resolveConfig, VALID_TARGETS, generateCoreNode, isCoreNode, isTemplateNode, expandTemplateNode } from '@kernlang/core';
-import type { KernTarget, IRNode } from '@kernlang/core';
+import type { IRNode, KernTarget } from '@kernlang/core';
+import {
+  expandTemplateNode,
+  generateCoreNode,
+  isCoreNode,
+  isTemplateNode,
+  resolveConfig,
+  VALID_TARGETS,
+} from '@kernlang/core';
 import { generateReactNode, isReactNode } from '@kernlang/react';
-import { parseFlag, parseAndSurface, loadConfig, loadTemplates, transpileAndWrite } from '../shared.js';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { basename, resolve } from 'path';
+import { loadConfig, loadTemplates, parseAndSurface, parseFlag, transpileAndWrite } from '../shared.js';
 
 export function runCompile(args: string[]): void {
   const compileInput = args[1];
@@ -21,11 +28,11 @@ export function runCompile(args: string[]): void {
   const stat = existsSync(inputPath) ? statSync(inputPath) : null;
   const kernFiles: string[] = [];
 
-  if (stat && stat.isDirectory()) {
+  if (stat?.isDirectory()) {
     for (const f of readdirSync(inputPath)) {
       if (f.endsWith('.kern')) kernFiles.push(resolve(inputPath, f));
     }
-  } else if (stat && stat.isFile()) {
+  } else if (stat?.isFile()) {
     kernFiles.push(inputPath);
   } else {
     console.error(`Not found: ${compileInput}`);
@@ -92,7 +99,7 @@ export function runCompile(args: string[]): void {
       const ext = hasReactNodes ? '.tsx' : '.ts';
       const outName = basename(file, '.kern') + ext;
       const outFile = resolve(outDir, outName);
-      writeFileSync(outFile, lines.join('\n') + '\n');
+      writeFileSync(outFile, `${lines.join('\n')}\n`);
       console.log(`  ${basename(file)} → ${outName}`);
       compiled++;
     } else {

@@ -4,10 +4,10 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
-import type { IRNode } from '../types.js';
 import { propsOf } from '../node-props.js';
+import type { IRNode } from '../types.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
-import { getProps, getChildren, handlerCode, exportPrefix, capitalize } from './helpers.js';
+import { capitalize, exportPrefix, getChildren, getProps, handlerCode } from './helpers.js';
 
 const p = getProps;
 const kids = getChildren;
@@ -22,7 +22,9 @@ export function generateEvent(node: IRNode): string[] {
   const lines: string[] = [];
 
   // Event type union — 'type' children don't have a typed interface in NodePropsMap
-  lines.push(`${exp}type ${name}Type = ${types.map(t => `'${emitTemplateSafe((p(t).name || p(t).value) as string)}'`).join(' | ')};`);
+  lines.push(
+    `${exp}type ${name}Type = ${types.map((t) => `'${emitTemplateSafe((p(t).name || p(t).value) as string)}'`).join(' | ')};`,
+  );
   lines.push('');
 
   // Event interface
@@ -68,21 +70,34 @@ export function generateOn(node: IRNode): string[] {
   }
 
   // Determine event parameter type (plain DOM types — target-agnostic)
-  const paramType = event === 'key' || event === 'keydown' || event === 'keyup' ? 'e: KeyboardEvent'
-    : event === 'message' ? 'event: MessageEvent'
-    : event === 'submit' ? 'e: SubmitEvent'
-    : event === 'click' ? 'e: MouseEvent'
-    : event === 'change' ? 'e: Event'
-    : event === 'focus' || event === 'blur' ? 'e: FocusEvent'
-    : event === 'drag' || event === 'drop' ? 'e: DragEvent'
-    : event === 'scroll' ? 'e: Event'
-    : event === 'resize' ? 'e: UIEvent'
-    : event === 'connect' || event === 'disconnect' ? 'ws: WebSocket'
-    : event === 'error' ? 'error: Error'
-    : `e: Event`;
+  const paramType =
+    event === 'key' || event === 'keydown' || event === 'keyup'
+      ? 'e: KeyboardEvent'
+      : event === 'message'
+        ? 'event: MessageEvent'
+        : event === 'submit'
+          ? 'e: SubmitEvent'
+          : event === 'click'
+            ? 'e: MouseEvent'
+            : event === 'change'
+              ? 'e: Event'
+              : event === 'focus' || event === 'blur'
+                ? 'e: FocusEvent'
+                : event === 'drag' || event === 'drop'
+                  ? 'e: DragEvent'
+                  : event === 'scroll'
+                    ? 'e: Event'
+                    : event === 'resize'
+                      ? 'e: UIEvent'
+                      : event === 'connect' || event === 'disconnect'
+                        ? 'ws: WebSocket'
+                        : event === 'error'
+                          ? 'error: Error'
+                          : `e: Event`;
 
   const fnName = handlerName || `handle${capitalize(event)}`;
-  const isAsync = (props as Record<string, unknown>).async === 'true' || (props as Record<string, unknown>).async === true;
+  const isAsync =
+    (props as Record<string, unknown>).async === 'true' || (props as Record<string, unknown>).async === true;
   const asyncKw = isAsync ? 'async ' : '';
 
   // Key filter guard
@@ -103,25 +118,25 @@ export function generateOn(node: IRNode): string[] {
 
 export function generateWebSocket(node: IRNode): string[] {
   const props = propsOf<'websocket'>(node);
-  const path = (props as Record<string, unknown>).path as string || '/ws';
+  const path = ((props as Record<string, unknown>).path as string) || '/ws';
   const name = props.name || 'ws';
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
   const onNodes = kids(node, 'on');
-  const connectHandler = onNodes.find(n => {
+  const connectHandler = onNodes.find((n) => {
     const e = (p(n).event || p(n).name) as string;
     return e === 'connect' || e === 'connection';
   });
-  const messageHandler = onNodes.find(n => {
+  const messageHandler = onNodes.find((n) => {
     const e = (p(n).event || p(n).name) as string;
     return e === 'message';
   });
-  const disconnectHandler = onNodes.find(n => {
+  const disconnectHandler = onNodes.find((n) => {
     const e = (p(n).event || p(n).name) as string;
     return e === 'disconnect' || e === 'close';
   });
-  const errorHandler = onNodes.find(n => {
+  const errorHandler = onNodes.find((n) => {
     const e = (p(n).event || p(n).name) as string;
     return e === 'error';
   });

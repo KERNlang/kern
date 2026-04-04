@@ -9,16 +9,17 @@
  * - parser-keywords.ts    — keyword-specific handlers
  * - parser-core.ts        — line parsing, tree building, orchestration
  */
-import type { IRNode, ParseDiagnostic, ParseResult } from './types.js';
+
 import { KernParseError } from './errors.js';
-import { defaultRuntime, type KernRuntime } from './runtime.js';
-import type { ParserHintsConfig } from './runtime.js';
-import { validateSchema } from './schema.js';
 import { parseInternal } from './parser-core.js';
+import type { ParserHintsConfig } from './runtime.js';
+import { defaultRuntime, type KernRuntime } from './runtime.js';
+import { validateSchema } from './schema.js';
+import type { IRNode, ParseDiagnostic, ParseResult } from './types.js';
 
 // ── Re-exports (preserve public API contract) ───────────────────────────
 
-export type { TokenKind, Token } from './parser-tokenizer.js';
+export type { Token, TokenKind } from './parser-tokenizer.js';
 export { tokenizeLine } from './parser-tokenizer.js';
 
 // ── Evolved Node Parser Hints ───────────────────────────────────────────
@@ -47,7 +48,7 @@ export function clearParserHints(): void {
  * For structured diagnostics with severity filtering, use {@link getParseDiagnostics}.
  */
 export function getParseWarnings(): string[] {
-  return defaultRuntime.lastParseDiagnostics.map(d => d.message);
+  return defaultRuntime.lastParseDiagnostics.map((d) => d.message);
 }
 
 /** Get structured diagnostics from the last parse() call. */
@@ -120,7 +121,7 @@ export function parseDocumentWithDiagnostics(source: string, runtime?: KernRunti
  */
 export function parseStrict(source: string, runtime?: KernRuntime): IRNode {
   const { root, diagnostics } = parseWithDiagnostics(source, runtime);
-  const errors = diagnostics.filter(d => d.severity === 'error');
+  const errors = diagnostics.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     const first = errors[0];
     const err = new KernParseError(first.message, first.line, first.col, source);
@@ -141,7 +142,7 @@ export function parseStrict(source: string, runtime?: KernRuntime): IRNode {
 /** Strict document parse — throws KernParseError if any diagnostic has severity=error or schema violation. */
 export function parseDocumentStrict(source: string, runtime?: KernRuntime): IRNode {
   const { root, diagnostics } = parseDocumentWithDiagnostics(source, runtime);
-  const errors = diagnostics.filter(d => d.severity === 'error');
+  const errors = diagnostics.filter((d) => d.severity === 'error');
   if (errors.length > 0) {
     const first = errors[0];
     const err = new KernParseError(first.message, first.line, first.col, source);

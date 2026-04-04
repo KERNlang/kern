@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -11,7 +11,7 @@ describe('Ink Transpiler', () => {
     const ast = parse('screen name=Test\n  text value=Hello {fw:bold,c:#f97316}');
     const result = transpileInk(ast);
 
-    expect(result.code).toContain("import React");
+    expect(result.code).toContain('import React');
     expect(result.code).toContain("from 'react'");
     expect(result.code).toContain("from 'ink'");
     expect(result.code).toContain('<Text');
@@ -321,8 +321,9 @@ describe('Ink Transpiler', () => {
     const ast = parse(source);
     const result = transpileInk(ast);
 
-    // Should generate useInput hook (not just a comment)
-    expect(result.code).toContain('useInput((input, key) => {');
+    // Should generate useInput hook with ref pattern for fresh closures
+    expect(result.code).toContain('_inputHandlerRef');
+    expect(result.code).toContain('useInput((input: string, key: any) => _inputHandlerRef.current(input, key))');
     expect(result.code).toContain('key.return');
     expect(result.code).toContain('setActive(true)');
     // Should NOT have an on-node rendered as JSX
@@ -460,11 +461,7 @@ describe('Ink Transpiler', () => {
   test('Feature #10: ref nodes generate useRef', async () => {
     const { parse } = await import('../../core/src/parser.js');
     const { transpileInk } = await import('../src/transpiler-ink.js');
-    const source = [
-      'screen name=Test',
-      '  ref name=timer initial=null',
-      '  text value="Timer app"',
-    ].join('\n');
+    const source = ['screen name=Test', '  ref name=timer initial=null', '  text value="Timer app"'].join('\n');
     const ast = parse(source);
     const result = transpileInk(ast);
 

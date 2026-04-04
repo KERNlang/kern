@@ -33,9 +33,20 @@ function isReactFile(ctx: RuleContext): boolean {
 // React hooks (useState, useEffect, etc.) in a Server Component.
 // Only fires on runtime files — codegen/examples/rules/barrels are skipped.
 
-const CLIENT_HOOKS = new Set(['useState', 'useEffect', 'useRef', 'useCallback', 'useMemo',
-  'useReducer', 'useContext', 'useLayoutEffect', 'useTransition',
-  'useDeferredValue', 'useImperativeHandle', 'useSyncExternalStore']);
+const CLIENT_HOOKS = new Set([
+  'useState',
+  'useEffect',
+  'useRef',
+  'useCallback',
+  'useMemo',
+  'useReducer',
+  'useContext',
+  'useLayoutEffect',
+  'useTransition',
+  'useDeferredValue',
+  'useImperativeHandle',
+  'useSyncExternalStore',
+]);
 
 function serverHook(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -74,17 +85,27 @@ function serverHook(ctx: RuleContext): ReviewFinding[] {
 
     // Skip if inside a string literal, template literal, or comment (codegen output)
     const parent = call.getParent();
-    if (parent && (
-      parent.getKind() === SyntaxKind.TemplateExpression ||
-      parent.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral ||
-      parent.getKind() === SyntaxKind.TemplateSpan
-    )) continue;
+    if (
+      parent &&
+      (parent.getKind() === SyntaxKind.TemplateExpression ||
+        parent.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral ||
+        parent.getKind() === SyntaxKind.TemplateSpan)
+    )
+      continue;
 
     const line = call.getStartLineNumber();
-    findings.push(finding('server-hook', 'error', 'bug',
-      `'${hookName}' used in Server Component — add 'use client' directive or move to a Client Component`,
-      ctx.filePath, line, 1,
-      { suggestion: "Add 'use client' at the top of the file" }));
+    findings.push(
+      finding(
+        'server-hook',
+        'error',
+        'bug',
+        `'${hookName}' used in Server Component — add 'use client' directive or move to a Client Component`,
+        ctx.filePath,
+        line,
+        1,
+        { suggestion: "Add 'use client' at the top of the file" },
+      ),
+    );
   }
 
   return findings;
@@ -117,7 +138,13 @@ function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
     for (let i = startIdx; i < fullText.length; i++) {
       if (fullText[i] === '(') depth++;
       if (fullText[i] === '{') depth++;
-      if (fullText[i] === ')') { if (depth === 0) { rangeEnd = i; break; } depth--; }
+      if (fullText[i] === ')') {
+        if (depth === 0) {
+          rangeEnd = i;
+          break;
+        }
+        depth--;
+      }
       if (fullText[i] === '}') depth--;
     }
     safeRanges.push([safeMatch.index, rangeEnd]);
@@ -142,10 +169,18 @@ function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
       const lineText = fullText.split('\n')[line - 1] || '';
       if (lineText.includes("'use server'")) continue;
 
-      findings.push(finding('hydration-mismatch', 'warning', 'bug',
-        `${name} in render produces different values on server vs client — hydration mismatch`,
-        ctx.filePath, line, 1,
-        { suggestion: `Move to useEffect or use a stable seed. For IDs, use React.useId()` }));
+      findings.push(
+        finding(
+          'hydration-mismatch',
+          'warning',
+          'bug',
+          `${name} in render produces different values on server vs client — hydration mismatch`,
+          ctx.filePath,
+          line,
+          1,
+          { suggestion: `Move to useEffect or use a stable seed. For IDs, use React.useId()` },
+        ),
+      );
     }
   }
 
@@ -170,9 +205,22 @@ function missingUseClient(ctx: RuleContext): ReviewFinding[] {
 
   if (isClientComponent(fullText)) return findings;
 
-  const eventHandlers = ['onClick', 'onChange', 'onSubmit', 'onKeyDown', 'onKeyUp',
-    'onMouseEnter', 'onMouseLeave', 'onFocus', 'onBlur', 'onInput',
-    'onTouchStart', 'onTouchEnd', 'onScroll', 'onDrag'];
+  const eventHandlers = [
+    'onClick',
+    'onChange',
+    'onSubmit',
+    'onKeyDown',
+    'onKeyUp',
+    'onMouseEnter',
+    'onMouseLeave',
+    'onFocus',
+    'onBlur',
+    'onInput',
+    'onTouchStart',
+    'onTouchEnd',
+    'onScroll',
+    'onDrag',
+  ];
 
   const found = new Set<string>();
 
@@ -183,18 +231,26 @@ function missingUseClient(ctx: RuleContext): ReviewFinding[] {
       if (found.has(handler)) continue;
       found.add(handler);
       const line = fullText.substring(0, match.index).split('\n').length;
-      findings.push(finding('missing-use-client', 'warning', 'pattern',
-        `'${handler}' in Server Component — needs 'use client' directive`,
-        ctx.filePath, line, 1,
-        {
-          suggestion: "Add 'use client' at the top of the file, or extract to a Client Component",
-          autofix: {
-            type: 'insert-before',
-            span: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
-            replacement: "'use client';\n\n",
-            description: "Prepend 'use client' directive",
+      findings.push(
+        finding(
+          'missing-use-client',
+          'warning',
+          'pattern',
+          `'${handler}' in Server Component — needs 'use client' directive`,
+          ctx.filePath,
+          line,
+          1,
+          {
+            suggestion: "Add 'use client' at the top of the file, or extract to a Client Component",
+            autofix: {
+              type: 'insert-before',
+              span: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+              replacement: "'use client';\n\n",
+              description: "Prepend 'use client' directive",
+            },
           },
-        }));
+        ),
+      );
     }
   }
 
@@ -203,8 +259,4 @@ function missingUseClient(ctx: RuleContext): ReviewFinding[] {
 
 // ── Exported Next.js Rules ───────────────────────────────────────────────
 
-export const nextjsRules = [
-  serverHook,
-  hydrationMismatch,
-  missingUseClient,
-];
+export const nextjsRules = [serverHook, hydrationMismatch, missingUseClient];

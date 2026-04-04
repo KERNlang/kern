@@ -1,8 +1,8 @@
 import type { IRNode, ResolvedKernConfig } from '@kernlang/core';
-import { escapeJsString, buildTailwindProfile, buildNextjsProfile, getProps } from '@kernlang/core';
-import type { Ctx } from './nextjs-types.js';
+import { buildNextjsProfile, buildTailwindProfile, escapeJsString, getProps } from '@kernlang/core';
 import { addDefaultImport, addNamedImport, emitImports } from './nextjs-imports.js';
 import { renderNode } from './nextjs-renderers.js';
+import type { Ctx } from './nextjs-types.js';
 
 // ── Ctx factory ─────────────────────────────────────────────────────────
 
@@ -89,8 +89,10 @@ export function assembleComponentCode(ctx: Ctx, opts: AssembleOptions): string {
       if (spec.defaultImport) alreadyImported.add(spec.defaultImport);
       for (const n of spec.namedImports) alreadyImported.add(n);
     }
-    const uiImports = [...ctx.componentImports].filter(c => ['Icon', 'Button'].includes(c) && !alreadyImported.has(c));
-    const others = [...ctx.componentImports].filter(c => !['Icon', 'Button'].includes(c) && !alreadyImported.has(c));
+    const uiImports = [...ctx.componentImports].filter(
+      (c) => ['Icon', 'Button'].includes(c) && !alreadyImported.has(c),
+    );
+    const others = [...ctx.componentImports].filter((c) => !['Icon', 'Button'].includes(c) && !alreadyImported.has(c));
     for (const name of uiImports) addNamedImport(ctx, uiLib, name);
     for (const name of others) addDefaultImport(ctx, `${compRoot}/${name}`, name);
   }
@@ -138,7 +140,10 @@ export function assembleComponentCode(ctx: Ctx, opts: AssembleOptions): string {
     code.push('');
     code.push(`export async function generateMetadata(${paramsType}): Promise<Metadata> {`);
     if (ctx.generateMetadataInfo.handlerCode) {
-      const lines = ctx.generateMetadataInfo.handlerCode.split('\n').map(s => s.trim()).filter(Boolean);
+      const lines = ctx.generateMetadataInfo.handlerCode
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
       for (const line of lines) {
         code.push(`  ${line}`);
       }
@@ -193,7 +198,7 @@ export function assembleComponentCode(ctx: Ctx, opts: AssembleOptions): string {
       initVal = s.initial;
     } else if (s.initial === '' || s.initial === "''") {
       initVal = "''";
-    } else if (!isNaN(Number(s.initial)) && s.initial !== '') {
+    } else if (!Number.isNaN(Number(s.initial)) && s.initial !== '') {
       initVal = s.initial;
     } else {
       initVal = `'${s.initial}'`;

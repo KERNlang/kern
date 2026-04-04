@@ -17,35 +17,34 @@
  *   // Or via CLI: kern review --mcp server.ts
  */
 
-import type { ReviewFinding } from '@kernlang/review';
 import type { IRNode } from '@kernlang/core';
+import type { ReviewFinding } from '@kernlang/review';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import { detectMCPServer } from './detect.js';
-import { runMCPSecurityRules, MCP_RULE_IDS } from './rules/mcp-security.js';
 import { inferMCPNodes, inferMCPNodesPython } from './infer-mcp.js';
 import { loadRuleDirectory } from './rule-compiler.js';
 import { runCompiledRules } from './rule-runner.js';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { runMCPSecurityRules } from './rules/mcp-security.js';
 
-export { detectMCPServer } from './detect.js';
-export { runMCPSecurityRules, MCP_RULE_IDS } from './rules/mcp-security.js';
-export { inferMCPNodes, inferMCPNodesPython } from './infer-mcp.js';
-export { loadRuleDirectory, compileRuleSource } from './rule-compiler.js';
-export { runCompiledRules } from './rule-runner.js';
 export type { ReviewFinding } from '@kernlang/review';
+export { generateBadgeMarkdown, generateReportJSON, generateToolTable, updateReadme } from './badge.js';
+export type { ConfigIssue, ConfigScanResult, McpServerEntry } from './config-scan.js';
+export { scanMcpConfigs } from './config-scan.js';
+export { detectMCPServer } from './detect.js';
+export { inferMCPNodes, inferMCPNodesPython } from './infer-mcp.js';
+export { runPostScan } from './post-scan.js';
 export type { CompiledMCPRule } from './rule-compiler.js';
-
+export { compileRuleSource, loadRuleDirectory } from './rule-compiler.js';
+export { runCompiledRules } from './rule-runner.js';
+export { MCP_RULE_IDS, runMCPSecurityRules } from './rules/mcp-security.js';
+export type { McpReviewResult } from './scan-types.js';
+export type { Grade, SecurityScore, ToolScore } from './score.js';
 // ── CLI / CI engine exports (migrated from kern-sight-mcp) ───────────
 export { computeSecurityScore, gradeColor } from './score.js';
-export type { SecurityScore, ToolScore, Grade } from './score.js';
-export { runPostScan } from './post-scan.js';
-export { scanMcpConfigs } from './config-scan.js';
-export type { ConfigScanResult, McpServerEntry, ConfigIssue } from './config-scan.js';
+export type { LockFile, PinDrift, ToolPin } from './tool-pin.js';
 export { generateLockFile, verifyLockFile } from './tool-pin.js';
-export type { LockFile, ToolPin, PinDrift } from './tool-pin.js';
-export { generateReportJSON, generateBadgeMarkdown, generateToolTable, updateReadme } from './badge.js';
 export { scanWorkspace } from './workspace-scan.js';
-export type { McpReviewResult } from './scan-types.js';
 
 // ── Load compiled .kern rules at module init ─────────────────────────
 // Guard: import.meta.url is undefined when bundled as CJS (e.g. esbuild for VS Code worker)
@@ -103,7 +102,7 @@ export function reviewMCPSource(source: string, filePath: string): ReviewFinding
       // When both exist, prefer higher severity
       const SEVERITY_RANK: Record<string, number> = { error: 3, warning: 2, info: 1 };
       const existingByKey = new Map<string, number>(
-        findings.map((f, i) => [`${f.ruleId}:${f.primarySpan.startLine}`, i])
+        findings.map((f, i) => [`${f.ruleId}:${f.primarySpan.startLine}`, i]),
       );
       for (const kf of kernFindings) {
         const key = `${kf.ruleId}:${kf.primarySpan.startLine}`;
@@ -128,9 +127,7 @@ export function reviewMCPSource(source: string, filePath: string): ReviewFinding
   // Phase 2: KERN IR inference — translate to IR and check structure
   try {
     const isPython = filePath.endsWith('.py');
-    const irNodes = isPython
-      ? inferMCPNodesPython(source, filePath)
-      : inferMCPNodes(source, filePath);
+    const irNodes = isPython ? inferMCPNodesPython(source, filePath) : inferMCPNodes(source, filePath);
 
     if (irNodes.length > 0) {
       findings.push(...irToFindings(irNodes, filePath));
@@ -140,10 +137,10 @@ export function reviewMCPSource(source: string, filePath: string): ReviewFinding
   }
 
   // Phase 3: Post-processing — confidence floor + test file demotion
-  const MIN_CONFIDENCE = 0.70;
+  const MIN_CONFIDENCE = 0.7;
   const isTestFile = /\.(test|spec)\.[jt]sx?$|__tests__|\/tests\/|\/fixtures\//.test(filePath);
 
-  return findings.filter(f => {
+  return findings.filter((f) => {
     // Suppress low-confidence fallback findings (noisy regex-without-handler-region)
     if (f.confidence !== undefined && f.confidence < MIN_CONFIDENCE) return false;
 
@@ -184,8 +181,8 @@ function irToFindings(nodes: IRNode[], filePath: string): ReviewFinding[] {
   for (const action of nodes) {
     if (action.type !== 'action') continue;
     const children = action.children ?? [];
-    const effects = children.filter(c => c.type === 'effect');
-    const guards = children.filter(c => c.type === 'guard');
+    const effects = children.filter((c) => c.type === 'effect');
+    const guards = children.filter((c) => c.type === 'guard');
     const name = (action.props?.name as string) || 'unknown';
     const confidence = (action.props?.confidence as number) ?? 0.5;
 
@@ -203,7 +200,7 @@ function irToFindings(nodes: IRNode[], filePath: string): ReviewFinding[] {
           primarySpan: { file: filePath, startLine: line, startCol: 1, endLine: line, endCol: 1 },
           fingerprint: `mcp-ir-${name}-${kind}-${line}`,
           suggestion: `Add validation/auth guards before ${kind} effects. In KERN: guard precedes effect.`,
-          confidence: 0.90,
+          confidence: 0.9,
         });
       }
     }
