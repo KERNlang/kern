@@ -342,11 +342,14 @@ function generateOnHook(onNode: IRNode, imports: ImportTracker): string[] {
 
   if (event === 'key' || event === 'input') {
     imports.addInk('useInput');
+    imports.addReact('useRef');
     const key = onProps.key as string;
     const handlerChild = (onNode.children || []).find((c) => c.type === 'handler');
     const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
 
-    lines.push(`  useInput((input, key) => {`);
+    // Use ref pattern for fresh closures — handler always sees current state
+    lines.push(`  const _inputHandlerRef = useRef<(input: string, key: any) => void>(() => {});`);
+    lines.push(`  _inputHandlerRef.current = (input: string, key: any) => {`);
     if (key) {
       lines.push(`    if (!(${keyToCheck(key)})) return;`);
     }
@@ -356,7 +359,8 @@ function generateOnHook(onNode: IRNode, imports: ImportTracker): string[] {
         lines.push(`    ${line}`);
       }
     }
-    lines.push(`  });`);
+    lines.push(`  };`);
+    lines.push(`  useInput((input: string, key: any) => _inputHandlerRef.current(input, key));`);
     lines.push('');
   }
 
@@ -780,6 +784,8 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     ...fileLevelNodes.filter((c) => isCoreNode(c.type) && c.type !== 'screen' && c.type !== 'fn' && c.type !== 'const'),
     ...(screenNode.children || []).filter((c) => isCoreNode(c.type) && c.type !== 'on' && !isInkUiNode(c.type)),
   ];
+  const memoNodes = getChildren(screenNode, 'memo');
+  const renderNode = getChildren(screenNode, 'render')[0];
   const uiChildren = (screenNode.children || []).filter(
     (c) =>
       c.type !== 'state' &&
@@ -789,6 +795,8 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
       c.type !== 'logic' &&
       c.type !== 'effect' &&
       c.type !== 'callback' &&
+      c.type !== 'memo' &&
+      c.type !== 'render' &&
       c.type !== 'prop' &&
       (!isCoreNode(c.type) || isInkUiNode(c.type)),
   );
@@ -855,6 +863,26 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
   }
   if (refNodes.length > 0) bodyLines.push('');
 
+  // Memo hooks
+  for (const memoNode of memoNodes) {
+    const mp = getProps(memoNode);
+    const mName = mp.name as string;
+    const mDeps = (mp.deps as string) || '';
+    const mDepsArr = mDeps ? `[${mDeps}]` : '[]';
+    const handlerChild = (memoNode.children || []).find((c: IRNode) => c.type === 'handler');
+    const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
+    if (mName && code) {
+      imports.addReact('useMemo');
+      const dedented = dedent(code);
+      bodyLines.push(`  const ${mName} = useMemo(() => {`);
+      for (const line of dedented.split('\n')) {
+        bodyLines.push(`          ${line}`);
+      }
+      bodyLines.push(`  }, ${mDepsArr});`);
+      bodyLines.push('');
+    }
+  }
+
   // Callback hooks (Feature #11)
   for (const callbackNode of callbackNodes) {
     bodyLines.push(...generateCallbackHook(callbackNode, imports));
@@ -878,17 +906,28 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     bodyLines.push('');
   }
 
-  // JSX return
-  imports.addInk('Box');
-  bodyLines.push('  return (');
-  bodyLines.push('    <Box flexDirection="column">');
-
-  for (const child of uiChildren) {
-    bodyLines.push(...renderInkNode(child, '      ', imports));
+  // JSX return — use explicit render handler if present, otherwise auto-generate
+  if (renderNode) {
+    const handlerChild = (renderNode.children || []).find((c: IRNode) => c.type === 'handler');
+    const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
+    if (code.trim()) {
+      const dedented = dedent(code);
+      for (const line of dedented.split('\n')) {
+        bodyLines.push(`  ${line}`);
+      }
+    } else {
+      bodyLines.push('  return null;');
+    }
+  } else {
+    imports.addInk('Box');
+    bodyLines.push('  return (');
+    bodyLines.push('    <Box flexDirection="column">');
+    for (const child of uiChildren) {
+      bodyLines.push(...renderInkNode(child, '      ', imports));
+    }
+    bodyLines.push('    </Box>');
+    bodyLines.push('  );');
   }
-
-  bodyLines.push('    </Box>');
-  bodyLines.push('  );');
 
   // ── Assemble ──
   // Imports (computed last since renderInkNode populates the tracker)

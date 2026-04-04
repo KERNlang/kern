@@ -73,13 +73,17 @@ export function generateScreen(node: IRNode): string[] {
   const callbackNodes = getChildren(node, 'callback');
   const memoNodes = getChildren(node, 'memo');
   const refNodes = getChildren(node, 'ref');
+  const onInputNodes = getChildren(node, 'on').filter((n) => {
+    const p = propsOf(n);
+    return p.event === 'input';
+  });
 
   // Determine which React hooks are needed
   const needsState = stateNodes.length > 0;
   const needsEffect = effectNodes.length > 0;
   const needsCallback = callbackNodes.length > 0;
   const needsMemo = memoNodes.length > 0;
-  const needsRef = refNodes.length > 0;
+  const needsRef = refNodes.length > 0 || onInputNodes.length > 0;
 
   // Imports
   const reactImports = ['React'];
@@ -181,6 +185,19 @@ export function generateScreen(node: IRNode): string[] {
       lines.push(`    ${line}`);
     }
     lines.push(`  }, ${eDepsArr});`);
+    lines.push('');
+  }
+
+  // useInput handlers (on event=input) — uses ref pattern for fresh closures
+  for (const onNode of onInputNodes) {
+    const body = handlerContent(onNode);
+    lines.push(`  const _inputHandlerRef = useRef<(input: string, key: any) => void>(() => {});`);
+    lines.push(`  _inputHandlerRef.current = (input: string, key: any) => {`);
+    for (const line of body.split('\n')) {
+      lines.push(`    ${line}`);
+    }
+    lines.push(`  };`);
+    lines.push(`  useInput((input: string, key: any) => _inputHandlerRef.current(input, key));`);
     lines.push('');
   }
 

@@ -321,8 +321,9 @@ describe('Ink Transpiler', () => {
     const ast = parse(source);
     const result = transpileInk(ast);
 
-    // Should generate useInput hook (not just a comment)
-    expect(result.code).toContain('useInput((input, key) => {');
+    // Should generate useInput hook with ref pattern for fresh closures
+    expect(result.code).toContain('_inputHandlerRef');
+    expect(result.code).toContain('useInput((input: string, key: any) => _inputHandlerRef.current(input, key))');
     expect(result.code).toContain('key.return');
     expect(result.code).toContain('setActive(true)');
     // Should NOT have an on-node rendered as JSX
