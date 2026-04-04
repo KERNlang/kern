@@ -11,6 +11,9 @@
  *   MCP07: missing-auth-remote-server      — HTTP/SSE server without auth
  *   MCP08: namespace-typosquatting         — suspicious package name similarity
  *   MCP09: data-level-injection            — hidden instructions in string literals
+ *   MCP10: unsafe-deserialization          — eval/pickle/yaml.load can execute arbitrary code
+ *   MCP11: excessive-permissions           — tool with 3+ effect types, should be split
+ *   MCP12: resource-exhaustion             — network/db calls without timeout
  *
  * Supports TypeScript and Python MCP servers.
  * CWE-77, CWE-22, CWE-94, CWE-798, CWE-20, CWE-306
@@ -33,6 +36,9 @@ import { missingInputValidationTS, missingInputValidationPython } from './checks
 import { missingAuthRemoteTS, missingAuthRemotePython } from './checks/mcp07-auth.js';
 import { namespaceTyposquatting } from './checks/mcp08-typosquatting.js';
 import { dataLevelInjection } from './checks/mcp09-data-injection.js';
+import { unsafeDeserialization } from './checks/mcp10-unsafe-deserialization.js';
+import { excessivePermissions } from './checks/mcp11-excessive-permissions.js';
+import { resourceExhaustion } from './checks/mcp12-resource-exhaustion.js';
 
 // ── Public API ───────────────────────────────────────────────────────
 
@@ -65,6 +71,9 @@ export function runMCPSecurityRules(source: string, filePath: string): ReviewFin
   // Language-agnostic rules
   findings.push(...dataLevelInjection(source, filePath));
   findings.push(...namespaceTyposquatting(source, filePath));
+  findings.push(...unsafeDeserialization(source, filePath));
+  findings.push(...excessivePermissions(source, filePath));
+  findings.push(...resourceExhaustion(source, filePath));
 
   // Dedup: data-injection should not duplicate tool-poisoning on same line
   const poisoningLines = new Set(
@@ -86,4 +95,7 @@ export const MCP_RULE_IDS = [
   'mcp-missing-auth',
   'mcp-typosquatting',
   'mcp-data-injection',
+  'mcp-unsafe-deserialization',
+  'mcp-excessive-permissions',
+  'mcp-resource-exhaustion',
 ] as const;
