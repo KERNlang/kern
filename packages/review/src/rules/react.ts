@@ -4,7 +4,7 @@
  * Catches React-specific bugs that KERN IR + AST can detect mechanically.
  */
 
-import { SyntaxKind, Node } from 'ts-morph';
+import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
 import { finding } from './utils.js';
 
@@ -15,7 +15,7 @@ import { finding } from './utils.js';
 function isReactFile(ctx: RuleContext): boolean {
   if (ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxOpeningElement).length > 0) return true;
   if (ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).length > 0) return true;
-  if (ctx.sourceFile.getImportDeclarations().some(i => i.getModuleSpecifierValue() === 'react')) return true;
+  if (ctx.sourceFile.getImportDeclarations().some((i) => i.getModuleSpecifierValue() === 'react')) return true;
   const fullText = ctx.sourceFile.getFullText();
   if (/\buse(?:State|Effect|Ref|Callback|Memo|Reducer|Context)\s*[<(]/.test(fullText)) return true;
   return false;
@@ -37,10 +37,18 @@ function asyncEffect(ctx: RuleContext): ReviewFinding[] {
     const callback = args[0];
     if (Node.isArrowFunction(callback) || Node.isFunctionExpression(callback)) {
       if (callback.isAsync()) {
-        findings.push(finding('async-effect', 'error', 'bug',
-          'useEffect callback must not be async — use an inner async function instead',
-          ctx.filePath, callback.getStartLineNumber(), 1,
-          { suggestion: 'useEffect(() => { async function run() { ... } run(); }, [])' }));
+        findings.push(
+          finding(
+            'async-effect',
+            'error',
+            'bug',
+            'useEffect callback must not be async — use an inner async function instead',
+            ctx.filePath,
+            callback.getStartLineNumber(),
+            1,
+            { suggestion: 'useEffect(() => { async function run() { ... } run(); }, [])' },
+          ),
+        );
       }
     }
   }
@@ -71,18 +79,39 @@ function renderSideEffect(ctx: RuleContext): ReviewFinding[] {
 
       if (/\b(useEffect|useLayoutEffect|useCallback|useMemo|useInsertionEffect)\s*\(/.test(exprText)) continue;
 
-      if (/\bset[A-Z]\w*\(/.test(exprText) && !exprText.includes('useState') &&
-          !/\b(setTimeout|setInterval|setImmediate|setAttribute|setProperty|setHeader|setRequestHeader|setItem|setCustomValidity)\s*\(/.test(exprText)) {
-        findings.push(finding('render-side-effect', 'error', 'bug',
-          `setState called in render body of '${name}' — move to useEffect or event handler`,
-          ctx.filePath, stmt.getStartLineNumber(), 1));
+      if (
+        /\bset[A-Z]\w*\(/.test(exprText) &&
+        !exprText.includes('useState') &&
+        !/\b(setTimeout|setInterval|setImmediate|setAttribute|setProperty|setHeader|setRequestHeader|setItem|setCustomValidity)\s*\(/.test(
+          exprText,
+        )
+      ) {
+        findings.push(
+          finding(
+            'render-side-effect',
+            'error',
+            'bug',
+            `setState called in render body of '${name}' — move to useEffect or event handler`,
+            ctx.filePath,
+            stmt.getStartLineNumber(),
+            1,
+          ),
+        );
       }
 
       const expr = exprStmt.getExpression();
       if (Node.isCallExpression(expr) && expr.getExpression().getText() === 'fetch') {
-        findings.push(finding('render-side-effect', 'error', 'bug',
-          `fetch() called in render body of '${name}' — move to useEffect or event handler`,
-          ctx.filePath, stmt.getStartLineNumber(), 1));
+        findings.push(
+          finding(
+            'render-side-effect',
+            'error',
+            'bug',
+            `fetch() called in render body of '${name}' — move to useEffect or event handler`,
+            ctx.filePath,
+            stmt.getStartLineNumber(),
+            1,
+          ),
+        );
       }
     }
   }
@@ -132,13 +161,14 @@ function unstableKey(ctx: RuleContext): ReviewFinding[] {
     const args = call.getArguments();
     if (args.length === 0) continue;
     const callback = args[0];
-    if (callback.getKind() !== SyntaxKind.ArrowFunction &&
-        callback.getKind() !== SyntaxKind.FunctionExpression) continue;
+    if (callback.getKind() !== SyntaxKind.ArrowFunction && callback.getKind() !== SyntaxKind.FunctionExpression)
+      continue;
 
     // Get the index parameter (second param of the callback)
-    const params = callback.getKind() === SyntaxKind.ArrowFunction
-      ? (callback as import('ts-morph').ArrowFunction).getParameters()
-      : (callback as import('ts-morph').FunctionExpression).getParameters();
+    const params =
+      callback.getKind() === SyntaxKind.ArrowFunction
+        ? (callback as import('ts-morph').ArrowFunction).getParameters()
+        : (callback as import('ts-morph').FunctionExpression).getParameters();
     const indexParam = params.length >= 2 ? params[1].getName() : null;
 
     // Walk callback descendants for JSX elements
@@ -154,9 +184,10 @@ function unstableKey(ctx: RuleContext): ReviewFinding[] {
     const line = call.getStartLineNumber();
 
     // Get attributes from the first JSX element
-    const attributes = firstJsx.getKind() === SyntaxKind.JsxSelfClosingElement
-      ? (firstJsx as import('ts-morph').JsxSelfClosingElement).getAttributes()
-      : (firstJsx as import('ts-morph').JsxOpeningElement).getAttributes();
+    const attributes =
+      firstJsx.getKind() === SyntaxKind.JsxSelfClosingElement
+        ? (firstJsx as import('ts-morph').JsxSelfClosingElement).getAttributes()
+        : (firstJsx as import('ts-morph').JsxOpeningElement).getAttributes();
 
     let hasKey = false;
     let usesIndexKey = false;
@@ -181,15 +212,24 @@ function unstableKey(ctx: RuleContext): ReviewFinding[] {
     }
 
     if (usesIndexKey) {
-      findings.push(finding('unstable-key', 'warning', 'bug',
-        `key={${indexParam}} uses array index — use a stable identifier instead`,
-        ctx.filePath, line, 1,
-        { suggestion: 'Use a unique ID from the data (e.g., key={item.id})' }));
+      findings.push(
+        finding(
+          'unstable-key',
+          'warning',
+          'bug',
+          `key={${indexParam}} uses array index — use a stable identifier instead`,
+          ctx.filePath,
+          line,
+          1,
+          { suggestion: 'Use a unique ID from the data (e.g., key={item.id})' },
+        ),
+      );
     } else if (!hasKey) {
-      findings.push(finding('unstable-key', 'warning', 'bug',
-        'JSX in .map() is missing a key prop',
-        ctx.filePath, line, 1,
-        { suggestion: 'Add key={item.id} to the root JSX element in .map()' }));
+      findings.push(
+        finding('unstable-key', 'warning', 'bug', 'JSX in .map() is missing a key prop', ctx.filePath, line, 1, {
+          suggestion: 'Add key={item.id} to the root JSX element in .map()',
+        }),
+      );
     }
   }
 
@@ -215,16 +255,24 @@ function staleClosure(ctx: RuleContext): ReviewFinding[] {
     if (depsArg.getElements().length !== 0) continue;
 
     // Pure AST: find setInterval/setTimeout calls inside the callback
-    const timers = callback.getDescendantsOfKind(SyntaxKind.CallExpression).filter(c => {
+    const timers = callback.getDescendantsOfKind(SyntaxKind.CallExpression).filter((c) => {
       const name = c.getExpression().getText();
       return name === 'setInterval' || name === 'setTimeout';
     });
 
     if (timers.length > 0) {
-      findings.push(finding('stale-closure', 'warning', 'bug',
-        'Timer in useEffect with empty deps [] may capture stale state',
-        ctx.filePath, call.getStartLineNumber(), 1,
-        { suggestion: 'Use a ref for the latest value or add dependencies' }));
+      findings.push(
+        finding(
+          'stale-closure',
+          'warning',
+          'bug',
+          'Timer in useEffect with empty deps [] may capture stale state',
+          ctx.filePath,
+          call.getStartLineNumber(),
+          1,
+          { suggestion: 'Use a ref for the latest value or add dependencies' },
+        ),
+      );
     }
   }
 
@@ -237,17 +285,31 @@ function staleClosure(ctx: RuleContext): ReviewFinding[] {
 function stateExplosion(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
-  function checkFn(fn: import('ts-morph').FunctionDeclaration | import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression, name: string): void {
-    const useStates = fn.getDescendantsOfKind(SyntaxKind.CallExpression).filter(c => {
+  function checkFn(
+    fn:
+      | import('ts-morph').FunctionDeclaration
+      | import('ts-morph').ArrowFunction
+      | import('ts-morph').FunctionExpression,
+    name: string,
+  ): void {
+    const useStates = fn.getDescendantsOfKind(SyntaxKind.CallExpression).filter((c) => {
       const text = c.getExpression().getText();
       return text === 'useState' || text === 'React.useState';
     });
 
     if (useStates.length > 5) {
-      findings.push(finding('state-explosion', 'warning', 'pattern',
-        `Component '${name}' has ${useStates.length} useState calls — consider useReducer or a state machine`,
-        ctx.filePath, fn.getStartLineNumber(), 1,
-        { suggestion: 'Use useReducer for complex state, or a KERN machine node for state transitions' }));
+      findings.push(
+        finding(
+          'state-explosion',
+          'warning',
+          'pattern',
+          `Component '${name}' has ${useStates.length} useState calls — consider useReducer or a state machine`,
+          ctx.filePath,
+          fn.getStartLineNumber(),
+          1,
+          { suggestion: 'Use useReducer for complex state, or a KERN machine node for state transitions' },
+        ),
+      );
     }
   }
 
@@ -274,10 +336,23 @@ function stateExplosion(ctx: RuleContext): ReviewFinding[] {
 // ── Rule 16: hook-order ──────────────────────────────────────────────────
 // Conditional hook calls (hooks inside if/loop/early return)
 
-const HOOK_NAMES = new Set(['useState', 'useEffect', 'useCallback', 'useMemo', 'useRef',
-  'useContext', 'useReducer', 'useLayoutEffect', 'useImperativeHandle',
-  'useDebugValue', 'useDeferredValue', 'useTransition', 'useId',
-  'useSyncExternalStore', 'useInsertionEffect']);
+const HOOK_NAMES = new Set([
+  'useState',
+  'useEffect',
+  'useCallback',
+  'useMemo',
+  'useRef',
+  'useContext',
+  'useReducer',
+  'useLayoutEffect',
+  'useImperativeHandle',
+  'useDebugValue',
+  'useDeferredValue',
+  'useTransition',
+  'useId',
+  'useSyncExternalStore',
+  'useInsertionEffect',
+]);
 
 function hookOrder(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -294,9 +369,10 @@ function hookOrder(ctx: RuleContext): ReviewFinding[] {
 
   for (const cfNode of controlFlowNodes) {
     // Only flag hooks inside components (capitalized) or custom hooks (use*)
-    let enclosingFn = cfNode.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration)
-      || cfNode.getFirstAncestorByKind(SyntaxKind.ArrowFunction)
-      || cfNode.getFirstAncestorByKind(SyntaxKind.FunctionExpression);
+    const enclosingFn =
+      cfNode.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ||
+      cfNode.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ||
+      cfNode.getFirstAncestorByKind(SyntaxKind.FunctionExpression);
     if (!enclosingFn) continue;
     const fnName = (enclosingFn as any).getName?.() || '';
     // Skip if not a component (capitalized) or custom hook (use*)
@@ -314,10 +390,18 @@ function hookOrder(ctx: RuleContext): ReviewFinding[] {
       if (reported.has(hookName)) continue;
       reported.add(hookName);
 
-      findings.push(finding('hook-order', 'error', 'bug',
-        `Hook '${hookName}' called inside ${label} — violates Rules of Hooks`,
-        ctx.filePath, cfNode.getStartLineNumber(), 1,
-        { suggestion: 'Move hook call to top level of component' }));
+      findings.push(
+        finding(
+          'hook-order',
+          'error',
+          'bug',
+          `Hook '${hookName}' called inside ${label} — violates Rules of Hooks`,
+          ctx.filePath,
+          cfNode.getStartLineNumber(),
+          1,
+          { suggestion: 'Move hook call to top level of component' },
+        ),
+      );
     }
   }
 
@@ -356,7 +440,7 @@ function effectSelfUpdateLoop(ctx: RuleContext): ReviewFinding[] {
     if (!Node.isArrowFunction(callbackArg) && !Node.isFunctionExpression(callbackArg)) continue;
     if (!Node.isArrayLiteralExpression(depsArg)) continue;
 
-    const deps = new Set(depsArg.getElements().map(el => el.getText()));
+    const deps = new Set(depsArg.getElements().map((el) => el.getText()));
 
     // Find setter calls in the effect body
     for (const innerCall of callbackArg.getDescendantsOfKind(SyntaxKind.CallExpression)) {
@@ -378,10 +462,18 @@ function effectSelfUpdateLoop(ctx: RuleContext): ReviewFinding[] {
       }
       if (isNested) continue;
 
-      findings.push(finding('effect-self-update-loop', 'error', 'bug',
-        `useEffect updates '${stateName}' via ${setterName}() while '${stateName}' is in deps — infinite re-render loop`,
-        ctx.filePath, innerCall.getStartLineNumber(), 1,
-        { suggestion: `Move the write behind a guard or use a ref to break the cycle` }));
+      findings.push(
+        finding(
+          'effect-self-update-loop',
+          'error',
+          'bug',
+          `useEffect updates '${stateName}' via ${setterName}() while '${stateName}' is in deps — infinite re-render loop`,
+          ctx.filePath,
+          innerCall.getStartLineNumber(),
+          1,
+          { suggestion: `Move the write behind a guard or use a ref to break the cycle` },
+        ),
+      );
     }
   }
 
@@ -407,25 +499,37 @@ function missingEffectCleanup(ctx: RuleContext): ReviewFinding[] {
     let hasCleanup = false;
 
     if (Node.isBlock(body)) {
-      hasCleanup = body.getStatements().some(s => {
+      hasCleanup = body.getStatements().some((s) => {
         if (!Node.isReturnStatement(s)) return false;
         const expr = s.getExpression();
-        return expr != null && (Node.isArrowFunction(expr) || Node.isFunctionExpression(expr) || Node.isIdentifier(expr));
+        return (
+          expr != null && (Node.isArrowFunction(expr) || Node.isFunctionExpression(expr) || Node.isIdentifier(expr))
+        );
       });
     }
 
     if (hasCleanup) continue;
 
-    const leakyCalls = callback.getDescendantsOfKind(SyntaxKind.CallExpression).filter(c => {
+    const leakyCalls = callback.getDescendantsOfKind(SyntaxKind.CallExpression).filter((c) => {
       const name = c.getExpression().getText();
-      return name === 'setInterval' || name === 'setTimeout' || name.endsWith('.addEventListener') || name.endsWith('.on');
+      return (
+        name === 'setInterval' || name === 'setTimeout' || name.endsWith('.addEventListener') || name.endsWith('.on')
+      );
     });
 
     if (leakyCalls.length > 0) {
-      findings.push(finding('missing-effect-cleanup', 'warning', 'bug',
-        `useEffect uses '${leakyCalls[0].getExpression().getText()}' but is missing a cleanup return function`,
-        ctx.filePath, call.getStartLineNumber(), 1,
-        { suggestion: 'Return a cleanup function: return () => clearInterval(id);' }));
+      findings.push(
+        finding(
+          'missing-effect-cleanup',
+          'warning',
+          'bug',
+          `useEffect uses '${leakyCalls[0].getExpression().getText()}' but is missing a cleanup return function`,
+          ctx.filePath,
+          call.getStartLineNumber(),
+          1,
+          { suggestion: 'Return a cleanup function: return () => clearInterval(id);' },
+        ),
+      );
     }
   }
 
@@ -450,10 +554,18 @@ function inlineContextValue(ctx: RuleContext): ReviewFinding[] {
       if (!expr) continue;
 
       if (Node.isObjectLiteralExpression(expr) || Node.isArrayLiteralExpression(expr)) {
-        findings.push(finding('inline-context-value', 'warning', 'pattern',
-          'Inline object/array passed to Context.Provider value — causes all consumers to re-render',
-          ctx.filePath, jsx.getStartLineNumber(), 1,
-          { suggestion: 'Memoize the value with useMemo' }));
+        findings.push(
+          finding(
+            'inline-context-value',
+            'warning',
+            'pattern',
+            'Inline object/array passed to Context.Provider value — causes all consumers to re-render',
+            ctx.filePath,
+            jsx.getStartLineNumber(),
+            1,
+            { suggestion: 'Memoize the value with useMemo' },
+          ),
+        );
       }
     }
   }
@@ -527,25 +639,39 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
     if (ifAncestor) {
       const condText = ifAncestor.getExpression().getText();
       const refName = obj.getText();
-      if (condText.includes(`${refName}.current`) &&
-          (condText.includes('null') || condText.includes('undefined') || condText.startsWith('!'))) {
+      if (
+        condText.includes(`${refName}.current`) &&
+        (condText.includes('null') || condText.includes('undefined') || condText.startsWith('!'))
+      ) {
         continue;
       }
     }
 
     // Check if this is a read or write
     const parent = prop.getParent();
-    const isWrite = parent && Node.isBinaryExpression(parent) &&
+    const isWrite =
+      parent &&
+      Node.isBinaryExpression(parent) &&
       parent.getLeft() === prop &&
       parent.getOperatorToken().getKind() === SyntaxKind.EqualsToken;
 
     const action = isWrite ? 'written to' : 'read';
-    findings.push(finding('ref-in-render', 'error', 'bug',
-      `ref.current ${action} during render — refs are not tracked by React and may be stale`,
-      ctx.filePath, prop.getStartLineNumber(), 1,
-      { suggestion: isWrite
-        ? 'Move ref writes to useEffect or event handlers'
-        : 'Use useState instead if the value affects rendering' }));
+    findings.push(
+      finding(
+        'ref-in-render',
+        'error',
+        'bug',
+        `ref.current ${action} during render — refs are not tracked by React and may be stale`,
+        ctx.filePath,
+        prop.getStartLineNumber(),
+        1,
+        {
+          suggestion: isWrite
+            ? 'Move ref writes to useEffect or event handlers'
+            : 'Use useState instead if the value affects rendering',
+        },
+      ),
+    );
   }
 
   return findings;
@@ -570,10 +696,18 @@ function missingMemoDeps(ctx: RuleContext): ReviewFinding[] {
     // First arg should be the function, second should be deps array
     if (args.length < 2) {
       const hookName = callee.includes('.') ? callee.split('.')[1] : callee;
-      findings.push(finding('missing-memo-deps', 'warning', 'bug',
-        `${hookName} called without dependency array — will recompute on every render, defeating memoization`,
-        ctx.filePath, call.getStartLineNumber(), 1,
-        { suggestion: `Add a dependency array as the second argument: ${hookName}(fn, [dep1, dep2])` }));
+      findings.push(
+        finding(
+          'missing-memo-deps',
+          'warning',
+          'bug',
+          `${hookName} called without dependency array — will recompute on every render, defeating memoization`,
+          ctx.filePath,
+          call.getStartLineNumber(),
+          1,
+          { suggestion: `Add a dependency array as the second argument: ${hookName}(fn, [dep1, dep2])` },
+        ),
+      );
     }
   }
 
@@ -622,17 +756,25 @@ function reducerMutation(ctx: RuleContext): ReviewFinding[] {
 
     for (const bin of reducerBody.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
       const op = bin.getOperatorToken().getKind();
-      if (op !== SyntaxKind.EqualsToken && op !== SyntaxKind.PlusEqualsToken &&
-          op !== SyntaxKind.MinusEqualsToken) continue;
+      if (op !== SyntaxKind.EqualsToken && op !== SyntaxKind.PlusEqualsToken && op !== SyntaxKind.MinusEqualsToken)
+        continue;
 
       const left = bin.getLeft();
       if (!Node.isPropertyAccessExpression(left)) continue;
       const root = left.getExpression();
       if (Node.isIdentifier(root) && root.getText() === stateParam) {
-        findings.push(finding('reducer-mutation', 'error', 'bug',
-          `Reducer mutates '${stateParam}.${left.getName()}' directly — return a new object instead`,
-          ctx.filePath, bin.getStartLineNumber(), 1,
-          { suggestion: `return { ...${stateParam}, ${left.getName()}: newValue }` }));
+        findings.push(
+          finding(
+            'reducer-mutation',
+            'error',
+            'bug',
+            `Reducer mutates '${stateParam}.${left.getName()}' directly — return a new object instead`,
+            ctx.filePath,
+            bin.getStartLineNumber(),
+            1,
+            { suggestion: `return { ...${stateParam}, ${left.getName()}: newValue }` },
+          ),
+        );
         break; // One finding per reducer
       }
     }
@@ -645,19 +787,37 @@ function reducerMutation(ctx: RuleContext): ReviewFinding[] {
       const obj = expr.getExpression();
       // state.push() or state.items.push()
       if (Node.isIdentifier(obj) && obj.getText() === stateParam) {
-        findings.push(finding('reducer-mutation', 'error', 'bug',
-          `Reducer mutates '${stateParam}' via .${expr.getName()}() — return a new object instead`,
-          ctx.filePath, methodCall.getStartLineNumber(), 1,
-          { suggestion: `Return new state: return { ...${stateParam}, ... }` }));
+        findings.push(
+          finding(
+            'reducer-mutation',
+            'error',
+            'bug',
+            `Reducer mutates '${stateParam}' via .${expr.getName()}() — return a new object instead`,
+            ctx.filePath,
+            methodCall.getStartLineNumber(),
+            1,
+            { suggestion: `Return new state: return { ...${stateParam}, ... }` },
+          ),
+        );
         break;
       }
       if (Node.isPropertyAccessExpression(obj)) {
         const root = obj.getExpression();
         if (Node.isIdentifier(root) && root.getText() === stateParam) {
-          findings.push(finding('reducer-mutation', 'error', 'bug',
-            `Reducer mutates '${stateParam}.${obj.getName()}' via .${expr.getName()}() — use immutable update`,
-            ctx.filePath, methodCall.getStartLineNumber(), 1,
-            { suggestion: `return { ...${stateParam}, ${obj.getName()}: [...${stateParam}.${obj.getName()}, newItem] }` }));
+          findings.push(
+            finding(
+              'reducer-mutation',
+              'error',
+              'bug',
+              `Reducer mutates '${stateParam}.${obj.getName()}' via .${expr.getName()}() — use immutable update`,
+              ctx.filePath,
+              methodCall.getStartLineNumber(),
+              1,
+              {
+                suggestion: `return { ...${stateParam}, ${obj.getName()}: [...${stateParam}.${obj.getName()}, newItem] }`,
+              },
+            ),
+          );
           break;
         }
       }
@@ -669,10 +829,18 @@ function reducerMutation(ctx: RuleContext): ReviewFinding[] {
       if (!Node.isPropertyAccessExpression(operand)) continue;
       const root = operand.getExpression();
       if (Node.isIdentifier(root) && root.getText() === stateParam) {
-        findings.push(finding('reducer-mutation', 'error', 'bug',
-          `Reducer mutates '${stateParam}.${operand.getName()}' via ++ — return a new object instead`,
-          ctx.filePath, postfix.getStartLineNumber(), 1,
-          { suggestion: `return { ...${stateParam}, ${operand.getName()}: ${stateParam}.${operand.getName()} + 1 }` }));
+        findings.push(
+          finding(
+            'reducer-mutation',
+            'error',
+            'bug',
+            `Reducer mutates '${stateParam}.${operand.getName()}' via ++ — return a new object instead`,
+            ctx.filePath,
+            postfix.getStartLineNumber(),
+            1,
+            { suggestion: `return { ...${stateParam}, ${operand.getName()}: ${stateParam}.${operand.getName()} + 1 }` },
+          ),
+        );
         break;
       }
     }

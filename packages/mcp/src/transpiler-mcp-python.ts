@@ -1,5 +1,20 @@
-import type { AccountedEntry, IRNode, ResolvedKernConfig, KernConfig, SourceMapEntry, TranspileResult } from '@kernlang/core';
-import { accountNode, buildDiagnostics, countTokens, getChildren, getFirstChild, getProps, serializeIR } from '@kernlang/core';
+import type {
+  AccountedEntry,
+  IRNode,
+  KernConfig,
+  ResolvedKernConfig,
+  SourceMapEntry,
+  TranspileResult,
+} from '@kernlang/core';
+import {
+  accountNode,
+  buildDiagnostics,
+  countTokens,
+  getChildren,
+  getFirstChild,
+  getProps,
+  serializeIR,
+} from '@kernlang/core';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -24,19 +39,23 @@ function findMcpNode(root: IRNode): IRNode | undefined {
 function extractDescription(node: IRNode): string {
   const props = getProps(node);
   const descNode = getFirstChild(node, 'description');
-  const raw = str(props.description)
-    || (descNode ? str(getProps(descNode).text) || str(getProps(descNode).value) : undefined)
-    || '';
+  const raw =
+    str(props.description) ||
+    (descNode ? str(getProps(descNode).text) || str(getProps(descNode).value) : undefined) ||
+    '';
   return raw.replace(/[\u0000-\u001F\u007F-\u009F]/g, '').trim();
 }
 
 function ind(lines: string[], spaces: number): string[] {
   const prefix = ' '.repeat(spaces);
-  return lines.map(line => line.length > 0 ? `${prefix}${line}` : '');
+  return lines.map((line) => (line.length > 0 ? `${prefix}${line}` : ''));
 }
 
 function splitCsv(value?: string): string[] {
-  return (value || '').split(',').map(p => p.trim()).filter(Boolean);
+  return (value || '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
 }
 
 /** Find a handler node appropriate for Python output.
@@ -61,14 +80,26 @@ function findPythonHandler(node: IRNode): string {
 
 function pyType(kernType: string): string {
   switch (kernType) {
-    case 'number': case 'float': return 'float';
-    case 'int': case 'integer': return 'int';
-    case 'boolean': case 'bool': return 'bool';
-    case 'string': return 'str';
-    case 'string[]': return 'list[str]';
-    case 'number[]': return 'list[float]';
-    case 'object': case 'json': return 'dict';
-    default: return 'str';
+    case 'number':
+    case 'float':
+      return 'float';
+    case 'int':
+    case 'integer':
+      return 'int';
+    case 'boolean':
+    case 'bool':
+      return 'bool';
+    case 'string':
+      return 'str';
+    case 'string[]':
+      return 'list[str]';
+    case 'number[]':
+      return 'list[float]';
+    case 'object':
+    case 'json':
+      return 'dict';
+    default:
+      return 'str';
   }
 }
 
@@ -87,7 +118,11 @@ function emitPyGuards(node: IRNode): string[] {
     if (kind === 'sanitize' && param) {
       const pattern = str(props.pattern) || '[^\\w./ -]';
       // Validate regex at transpile time to prevent ReDoS
-      try { new RegExp(pattern); } catch { continue; }
+      try {
+        new RegExp(pattern);
+      } catch {
+        continue;
+      }
       lines.push(`    try:`);
       lines.push(`        ${param} = re.sub(r${pyStr(pattern)}, "", str(${param}))`);
       lines.push(`    except re.error:`);
@@ -96,18 +131,20 @@ function emitPyGuards(node: IRNode): string[] {
 
     if (kind === 'pathContainment' && param) {
       const allowRaw = splitCsv(str(props.allowlist) || str(props.allow));
-      const allowPy = allowRaw.length > 0
-        ? `[${allowRaw.map(a => pyStr(a)).join(', ')}]`
-        : '[os.getcwd()]';
+      const allowPy = allowRaw.length > 0 ? `[${allowRaw.map((a) => pyStr(a)).join(', ')}]` : '[os.getcwd()]';
       lines.push(`    _resolved = os.path.realpath(str(${param}))`);
-      lines.push(`    if not any(_resolved == os.path.realpath(d) or _resolved.startswith(os.path.realpath(d) + os.sep) for d in ${allowPy}):`);
+      lines.push(
+        `    if not any(_resolved == os.path.realpath(d) or _resolved.startswith(os.path.realpath(d) + os.sep) for d in ${allowPy}):`,
+      );
       lines.push(`        raise ValueError(f"Path escapes allowed directories: {${param}}")`);
       lines.push(`    ${param} = _resolved`);
     }
 
     if (kind === 'validate' && param) {
-      if (props.min !== undefined && !Number.isNaN(Number(props.min))) lines.push(`    if ${param} < ${props.min}: raise ValueError("${param} below minimum ${props.min}")`);
-      if (props.max !== undefined && !Number.isNaN(Number(props.max))) lines.push(`    if ${param} > ${props.max}: raise ValueError("${param} above maximum ${props.max}")`);
+      if (props.min !== undefined && !Number.isNaN(Number(props.min)))
+        lines.push(`    if ${param} < ${props.min}: raise ValueError("${param} below minimum ${props.min}")`);
+      if (props.max !== undefined && !Number.isNaN(Number(props.max)))
+        lines.push(`    if ${param} > ${props.max}: raise ValueError("${param} above maximum ${props.max}")`);
     }
 
     if (kind === 'auth') {
@@ -134,7 +171,10 @@ function emitPyGuards(node: IRNode): string[] {
 
 // ── Main Python transpiler ──────────────────────────────────────────────
 
-function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig): {
+function buildPythonCode(
+  root: IRNode,
+  _config?: KernConfig | ResolvedKernConfig,
+): {
   code: string;
   sourceMap: SourceMapEntry[];
   diagnostics: ReturnType<typeof buildDiagnostics>;
@@ -158,31 +198,38 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
   }
 
   // Check what imports we need — match prop priority: name > kind > type (same as emitPyGuards)
-  const allGuards = [...toolNodes, ...resourceNodes, ...promptNodes].flatMap(n => getChildren(n, 'guard'));
+  const allGuards = [...toolNodes, ...resourceNodes, ...promptNodes].flatMap((n) => getChildren(n, 'guard'));
   const guardKind = (g: IRNode) => str(getProps(g).name) || str(getProps(g).kind) || str(getProps(g).type);
 
   // Pre-scan handlers for effect-based auto-injection (determines imports + sanitizeOutput)
-  const PRE_FILE_IO = /\b(open|read|write|readlines|os\.path|os\.listdir|os\.remove|os\.unlink|os\.rename|os\.mkdir|shutil\.|pathlib\.|readFile|readFileSync|writeFile|readdir)\b/;
+  const PRE_FILE_IO =
+    /\b(open|read|write|readlines|os\.path|os\.listdir|os\.remove|os\.unlink|os\.rename|os\.mkdir|shutil\.|pathlib\.|readFile|readFileSync|writeFile|readdir)\b/;
   const PRE_SHELL = /\b(subprocess|os\.system|os\.popen|execSync|execFile|spawn|spawnSync)\b/;
   const PRE_NETWORK = /\b(requests\.|httpx\.|aiohttp\.|urllib\.|fetch|http\.request)\b/;
-  const willAutoInjectOs = toolNodes.some(n => {
+  const willAutoInjectOs = toolNodes.some((n) => {
     const hCode = findPythonHandler(n);
-    const existingKinds = new Set(getChildren(n, 'guard').map(g => guardKind(g)));
+    const existingKinds = new Set(getChildren(n, 'guard').map((g) => guardKind(g)));
     return hCode && PRE_FILE_IO.test(hCode) && !existingKinds.has('pathContainment');
   });
-  const willAutoInjectRe = toolNodes.some(n => {
+  const willAutoInjectRe = toolNodes.some((n) => {
     const hCode = findPythonHandler(n);
     return hCode && PRE_SHELL.test(hCode);
   });
 
-  const needsRe = willAutoInjectRe || allGuards.some(g => guardKind(g) === 'sanitize');
-  const needsOs = willAutoInjectOs || allGuards.some(g => {
-    const k = guardKind(g);
-    return k === 'pathContainment' || k === 'auth';
-  });
-  const needsRateLimit = allGuards.some(g => guardKind(g) === 'rateLimit');
-  let needsSanitizeOutput = allGuards.some(g => guardKind(g) === 'sanitizeOutput')
-    || toolNodes.some(n => { const hCode = findPythonHandler(n); return hCode && PRE_NETWORK.test(hCode); });
+  const needsRe = willAutoInjectRe || allGuards.some((g) => guardKind(g) === 'sanitize');
+  const needsOs =
+    willAutoInjectOs ||
+    allGuards.some((g) => {
+      const k = guardKind(g);
+      return k === 'pathContainment' || k === 'auth';
+    });
+  const needsRateLimit = allGuards.some((g) => guardKind(g) === 'rateLimit');
+  let needsSanitizeOutput =
+    allGuards.some((g) => guardKind(g) === 'sanitizeOutput') ||
+    toolNodes.some((n) => {
+      const hCode = findPythonHandler(n);
+      return hCode && PRE_NETWORK.test(hCode);
+    });
 
   const transport = str(props.transport) || 'stdio';
   const sourceMap: SourceMapEntry[] = [];
@@ -209,7 +256,9 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
   lines.push('class _JsonFormatter(logging.Formatter):');
   lines.push('    def format(self, record: logging.LogRecord) -> str:');
   lines.push('        import json as _json');
-  lines.push('        entry = {"level": record.levelname.lower(), "event": record.getMessage(), "ts": self.formatTime(record)}');
+  lines.push(
+    '        entry = {"level": record.levelname.lower(), "event": record.getMessage(), "ts": self.formatTime(record)}',
+  );
   lines.push('        if hasattr(record, "tool"): entry["tool"] = record.tool');
   lines.push('        if hasattr(record, "error"): entry["error"] = record.error');
   lines.push('        if hasattr(record, "resource"): entry["resource"] = record.resource');
@@ -234,14 +283,18 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
     lines.push('        return');
     lines.push('    entry["count"] += 1');
     lines.push('    if entry["count"] > max_requests:');
-    lines.push('        raise McpError(INTERNAL_ERROR, f"Rate limit exceeded for {tool_name}: {max_requests} requests per {window_ms}ms")');
+    lines.push(
+      '        raise McpError(INTERNAL_ERROR, f"Rate limit exceeded for {tool_name}: {max_requests} requests per {window_ms}ms")',
+    );
     lines.push('');
     lines.push('');
   }
 
   if (needsSanitizeOutput) {
     lines.push('_INJECTION_PATTERNS = [');
-    lines.push('    re.compile(r"\\b(?:ignore|disregard|forget)\\s+(?:all\\s+)?(?:previous|above|prior)\\s+instructions?", re.IGNORECASE),');
+    lines.push(
+      '    re.compile(r"\\b(?:ignore|disregard|forget)\\s+(?:all\\s+)?(?:previous|above|prior)\\s+instructions?", re.IGNORECASE),',
+    );
     lines.push('    re.compile(r"\\b(?:you\\s+are|act\\s+as|pretend\\s+to\\s+be|roleplay\\s+as)\\b", re.IGNORECASE),');
     lines.push('    re.compile(r"\\b(?:system\\s*prompt|</?(?:system|user|assistant)>)", re.IGNORECASE),');
     lines.push('    re.compile(r"\\[(?:INST|SYS|/?SYSTEM)\\]", re.IGNORECASE),');
@@ -259,7 +312,12 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
 
   // ── Tools
   for (const toolNode of toolNodes) {
-    sourceMap.push({ irLine: toolNode.loc?.line || 0, irCol: toolNode.loc?.col || 1, outLine: lines.length + 1, outCol: 1 });
+    sourceMap.push({
+      irLine: toolNode.loc?.line || 0,
+      irCol: toolNode.loc?.col || 1,
+      outLine: lines.length + 1,
+      outCol: 1,
+    });
     const tp = getProps(toolNode);
     const name = str(tp.name) || 'tool';
     const desc = extractDescription(toolNode);
@@ -281,22 +339,22 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
       // Auto-infer int when type=number but default/min/max are all integers
       if (pType === 'float' && defaultVal !== undefined) {
         const isIntDefault = /^-?\d+$/.test(defaultVal);
-        const guards = getChildren(toolNode, 'guard').filter(g => {
+        const guards = getChildren(toolNode, 'guard').filter((g) => {
           const gp = getProps(g);
-          return (str(gp.param) === pName || str(gp.target) === pName)
-            && (str(gp.kind) === 'validate' || str(gp.type) === 'validate');
+          return (
+            (str(gp.param) === pName || str(gp.target) === pName) &&
+            (str(gp.kind) === 'validate' || str(gp.type) === 'validate')
+          );
         });
-        const minMax = guards.flatMap(g => [str(getProps(g).min), str(getProps(g).max)].filter(Boolean));
-        const allIntConstraints = minMax.every(v => /^-?\d+$/.test(v!));
+        const minMax = guards.flatMap((g) => [str(getProps(g).min), str(getProps(g).max)].filter(Boolean));
+        const allIntConstraints = minMax.every((v) => /^-?\d+$/.test(v!));
         if (isIntDefault && (minMax.length === 0 || allIntConstraints)) {
           pType = 'int';
         }
       }
 
       if (defaultVal !== undefined) {
-        const pyDefault = pType === 'bool'
-          ? (defaultVal === 'true' ? 'True' : 'False')
-          : defaultVal;
+        const pyDefault = pType === 'bool' ? (defaultVal === 'true' ? 'True' : 'False') : defaultVal;
         pyParams.push(`${pName}: ${pType} = ${pyDefault}`);
       } else if (isOptional) {
         pyParams.push(`${pName}: ${pType} | None = None`);
@@ -310,13 +368,14 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
     lines.push(`    logger.info("tool:call", extra={"tool": ${pyStr(name)}})`);
 
     // Auto-inject guards based on handler effects (secure by construction)
-    const FILE_IO_PY = /\b(open|read|write|readlines|os\.path|os\.listdir|os\.remove|os\.unlink|os\.rename|os\.mkdir|shutil\.|pathlib\.|readFile|readFileSync|writeFile|readdir)\b/;
+    const FILE_IO_PY =
+      /\b(open|read|write|readlines|os\.path|os\.listdir|os\.remove|os\.unlink|os\.rename|os\.mkdir|shutil\.|pathlib\.|readFile|readFileSync|writeFile|readdir)\b/;
     const SHELL_EXEC_PY = /\b(subprocess|os\.system|os\.popen|execSync|execFile|spawn|spawnSync)\b/;
     const NETWORK_PY = /\b(requests\.|httpx\.|aiohttp\.|urllib\.|fetch|http\.request)\b/;
     if (handlerCode) {
       const allToolGuards = getChildren(toolNode, 'guard');
-      const allToolKinds = new Set(allToolGuards.map(g => guardKind(g)));
-      const stringParams = paramNodes.filter(p => (str(getProps(p).type) || 'string') === 'string');
+      const allToolKinds = new Set(allToolGuards.map((g) => guardKind(g)));
+      const stringParams = paramNodes.filter((p) => (str(getProps(p).type) || 'string') === 'string');
 
       if (FILE_IO_PY.test(handlerCode) && !allToolKinds.has('pathContainment') && stringParams.length > 0) {
         for (const p of stringParams) {
@@ -328,23 +387,24 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
       if (SHELL_EXEC_PY.test(handlerCode) && stringParams.length > 0) {
         for (const p of stringParams) {
           const pName = str(getProps(p).name) || 'input';
-          const existingGuards = getChildren(toolNode, 'guard').filter(g => str(getProps(g).param) === pName);
-          if (!existingGuards.some(g => guardKind(g) === 'sanitize')) {
+          const existingGuards = getChildren(toolNode, 'guard').filter((g) => str(getProps(g).param) === pName);
+          if (!existingGuards.some((g) => guardKind(g) === 'sanitize')) {
             if (!toolNode.children) toolNode.children = [];
             toolNode.children.push({ type: 'guard', props: { type: 'sanitize', param: pName } });
           }
         }
       }
     }
-    const hasSanitizeOutput = getChildren(toolNode, 'guard').some(g => guardKind(g) === 'sanitizeOutput')
-      || (handlerCode && NETWORK_PY.test(handlerCode));
+    const hasSanitizeOutput =
+      getChildren(toolNode, 'guard').some((g) => guardKind(g) === 'sanitizeOutput') ||
+      (handlerCode && NETWORK_PY.test(handlerCode));
 
     lines.push('    try:');
 
     // Guards — inside try so exceptions become MCP errors
     const guardLines = emitPyGuards(toolNode);
     if (guardLines.length > 0) {
-      lines.push(...guardLines.map(l => l.length > 0 ? '    ' + l : ''));
+      lines.push(...guardLines.map((l) => (l.length > 0 ? `    ${l}` : '')));
     }
 
     if (hasSanitizeOutput) {
@@ -372,7 +432,12 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
 
   // ── Resources
   for (const resourceNode of resourceNodes) {
-    sourceMap.push({ irLine: resourceNode.loc?.line || 0, irCol: resourceNode.loc?.col || 1, outLine: lines.length + 1, outCol: 1 });
+    sourceMap.push({
+      irLine: resourceNode.loc?.line || 0,
+      irCol: resourceNode.loc?.col || 1,
+      outLine: lines.length + 1,
+      outCol: 1,
+    });
     const rp = getProps(resourceNode);
     const name = str(rp.name) || 'resource';
     const uri = str(rp.uri) || `${name}://default`;
@@ -381,8 +446,8 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
 
     lines.push(`@mcp.resource(${pyStr(uri)})`);
     // Extract URI template params
-    const templateParams = (uri.match(/\{(\w+)\}/g) || []).map(m => m.slice(1, -1));
-    const sig = templateParams.length > 0 ? templateParams.map(p => `${p}: str`).join(', ') : '';
+    const templateParams = (uri.match(/\{(\w+)\}/g) || []).map((m) => m.slice(1, -1));
+    const sig = templateParams.length > 0 ? templateParams.map((p) => `${p}: str`).join(', ') : '';
     lines.push(`async def ${name}(${sig}) -> str:`);
     if (desc) lines.push(`    """${desc}"""`);
     lines.push(`    logger.info("resource:read", extra={"resource": ${pyStr(name)}})`);
@@ -397,7 +462,12 @@ function buildPythonCode(root: IRNode, _config?: KernConfig | ResolvedKernConfig
 
   // ── Prompts
   for (const promptNode of promptNodes) {
-    sourceMap.push({ irLine: promptNode.loc?.line || 0, irCol: promptNode.loc?.col || 1, outLine: lines.length + 1, outCol: 1 });
+    sourceMap.push({
+      irLine: promptNode.loc?.line || 0,
+      irCol: promptNode.loc?.col || 1,
+      outLine: lines.length + 1,
+      outCol: 1,
+    });
     const pp = getProps(promptNode);
     const name = str(pp.name) || 'prompt';
     const desc = extractDescription(promptNode);
@@ -445,7 +515,10 @@ export function transpileMCPPython(root: IRNode, config?: ResolvedKernConfig): T
 
   return {
     code,
-    sourceMap: sourceMap.length > 0 ? sourceMap : [{ irLine: root.loc?.line || 0, irCol: root.loc?.col || 1, outLine: 1, outCol: 1 }],
+    sourceMap:
+      sourceMap.length > 0
+        ? sourceMap
+        : [{ irLine: root.loc?.line || 0, irCol: root.loc?.col || 1, outLine: 1, outCol: 1 }],
     irTokenCount,
     tsTokenCount,
     tokenReduction: irTokenCount === 0 ? 0 : Math.round((1 - irTokenCount / tsTokenCount) * 100),

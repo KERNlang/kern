@@ -1,6 +1,6 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { buildBackfillPrompt, createLLMProvider, readNodeDefinition } from '@kernlang/evolve';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
-import { readNodeDefinition, createLLMProvider, buildBackfillPrompt } from '@kernlang/evolve';
 import { parseFlag } from '../../shared.js';
 
 export async function runEvolveBackfill(args: string[]): Promise<void> {
@@ -45,13 +45,17 @@ export async function runEvolveBackfill(args: string[]): Promise<void> {
   }
   console.log(`  Provider: ${provider.name}`);
 
-  const prompt = buildBackfillPrompt(backfillKeyword, {
-    props: def.props,
-    childTypes: def.childTypes,
-    kernExample,
-    codegenSource,
-    expectedOutput,
-  }, backfillTarget);
+  const prompt = buildBackfillPrompt(
+    backfillKeyword,
+    {
+      props: def.props,
+      childTypes: def.childTypes,
+      kernExample,
+      codegenSource,
+      expectedOutput,
+    },
+    backfillTarget,
+  );
 
   try {
     const response = await provider.complete(prompt);

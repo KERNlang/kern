@@ -5,23 +5,24 @@
  * For new projects, import from @kernlang/core + @kernlang/<target> directly.
  */
 
+export { transpileCliApp } from '@kernlang/cli';
 // Core (parser, types, config, spec, styles, codegen, utils)
 export * from '@kernlang/core';
-
+export { transpileExpress } from '@kernlang/express';
+export { transpileFastAPI } from '@kernlang/fastapi';
+export type { LanguageMetrics, NodeTypeMetrics, ProjectSummary, StyleMetrics } from '@kernlang/metrics';
+// Metrics + context export
+export {
+  collectLanguageMetrics,
+  isEscapedStyleKey,
+  mergeMetrics,
+  projectToKern,
+  scanKernProject,
+} from '@kernlang/metrics';
+export { transpile } from '@kernlang/native';
 // Protocol (draft protocol for AI engines)
 export * from '@kernlang/protocol';
-
 // Transpilers
-export { transpileTailwind, transpileNextjs, transpileWeb } from '@kernlang/react';
-export { transpile } from '@kernlang/native';
-export { transpileExpress } from '@kernlang/express';
-export { transpileCliApp } from '@kernlang/cli';
-export { transpileTerminal, transpileInk } from '@kernlang/terminal';
-export { transpileVue, transpileNuxt } from '@kernlang/vue';
-export { transpileFastAPI } from '@kernlang/fastapi';
-
-// Metrics + context export
-export { collectLanguageMetrics, mergeMetrics, isEscapedStyleKey } from '@kernlang/metrics';
-export type { LanguageMetrics, StyleMetrics, NodeTypeMetrics } from '@kernlang/metrics';
-export { scanKernProject, projectToKern } from '@kernlang/metrics';
-export type { ProjectSummary } from '@kernlang/metrics';
+export { transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
+export { transpileInk, transpileTerminal } from '@kernlang/terminal';
+export { transpileNuxt, transpileVue } from '@kernlang/vue';

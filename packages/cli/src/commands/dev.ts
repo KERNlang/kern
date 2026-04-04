@@ -1,11 +1,16 @@
-import { readFileSync, existsSync, statSync, unlinkSync } from 'fs';
-import { resolve, basename, dirname, relative } from 'path';
-import { detectVersionsFromPackageJson, VALID_TARGETS } from '@kernlang/core';
 import type { KernTarget } from '@kernlang/core';
+import { detectVersionsFromPackageJson, VALID_TARGETS } from '@kernlang/core';
 import { loadEvolvedNodes } from '@kernlang/evolve';
+import { existsSync, readFileSync, statSync, unlinkSync } from 'fs';
+import { basename, dirname, relative, resolve } from 'path';
 import {
-  parseFlag, hasFlag, loadConfig, loadTemplates, findNearestPackageJson,
-  findKernFiles, transpileAndWrite,
+  findKernFiles,
+  findNearestPackageJson,
+  hasFlag,
+  loadConfig,
+  loadTemplates,
+  parseFlag,
+  transpileAndWrite,
 } from '../shared.js';
 
 export async function runDev(args: string[]): Promise<void> {
@@ -80,9 +85,7 @@ export async function runDev(args: string[]): Promise<void> {
     process.exit(1);
   });
 
-  const globPattern = watchPattern
-    ? resolve(watchDir, watchPattern)
-    : resolve(watchDir, '**/*.kern');
+  const globPattern = watchPattern ? resolve(watchDir, watchPattern) : resolve(watchDir, '**/*.kern');
 
   const watcher = watch(globPattern, {
     ignoreInitial: true,
@@ -111,9 +114,17 @@ export async function runDev(args: string[]): Promise<void> {
     const unlinkRelDir = relative(resolve(watchDir), dirname(filePath));
     const unlinkBaseDir = devOutDir ? resolve(resolve(devOutDir), unlinkRelDir) : dirname(filePath);
     const outDir = resolve(unlinkBaseDir, devConfig.output.outDir);
-    const outExt = devConfig.target === 'fastapi' ? '.py'
-      : (devConfig.target === 'vue' || devConfig.target === 'nuxt') ? '.vue'
-      : (devConfig.target === 'express' || devConfig.target === 'cli' || devConfig.target === 'terminal' || devConfig.target === 'mcp') ? '.ts' : '.tsx';
+    const outExt =
+      devConfig.target === 'fastapi'
+        ? '.py'
+        : devConfig.target === 'vue' || devConfig.target === 'nuxt'
+          ? '.vue'
+          : devConfig.target === 'express' ||
+              devConfig.target === 'cli' ||
+              devConfig.target === 'terminal' ||
+              devConfig.target === 'mcp'
+            ? '.ts'
+            : '.tsx';
     const outFile = resolve(outDir, `${fileBaseName}${outExt}`);
     try {
       if (existsSync(outFile)) {

@@ -1,6 +1,7 @@
 // BUG: CORS configured with wildcard origin — allows any domain
-import express from 'express';
+
 import cors from 'cors';
+import express from 'express';
 
 const app = express();
 app.use(cors({ origin: '*' }));

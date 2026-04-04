@@ -4,10 +4,10 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
-import type { IRNode } from '../types.js';
 import { propsOf } from '../node-props.js';
+import type { IRNode } from '../types.js';
 import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
-import { getProps, getChildren, getFirstChild, dedent, handlerCode, exportPrefix, parseParamList } from './helpers.js';
+import { dedent, exportPrefix, getChildren, getFirstChild, getProps, handlerCode, parseParamList } from './helpers.js';
 
 const p = getProps;
 const kids = getChildren;
@@ -58,7 +58,7 @@ export function generateFunction(node: IRNode): string[] {
 
   // Signal → AbortController setup
   if (hasSignal) {
-    const signalName = emitIdentifier((p(signalNode!).name as string), 'abort', signalNode);
+    const signalName = emitIdentifier(p(signalNode!).name as string, 'abort', signalNode);
     lines.push(`  const ${signalName} = new AbortController();`);
   }
 
@@ -71,7 +71,7 @@ export function generateFunction(node: IRNode): string[] {
       }
     }
     lines.push('  } finally {');
-    const cleanupCode = p(cleanupNode!).code as string || '';
+    const cleanupCode = (p(cleanupNode!).code as string) || '';
     if (cleanupCode) {
       const dedented = dedent(cleanupCode);
       for (const line of dedented.split('\n')) {
@@ -129,7 +129,7 @@ export function generateError(node: IRNode): string[] {
       }
     } else if (message) {
       // Check if message references array fields that need formatting
-      const arrayFields = fields.filter(f => {
+      const arrayFields = fields.filter((f) => {
         const ft = propsOf<'field'>(f).type || '';
         return ft.includes('[]') || ft.includes('string |') || ft.includes('| string');
       });

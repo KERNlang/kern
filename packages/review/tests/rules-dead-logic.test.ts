@@ -15,7 +15,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'identical-conditions');
+      const f = report.findings.filter((f) => f.ruleId === 'identical-conditions');
       expect(f.length).toBe(1);
       expect(f[0].severity).toBe('error');
     });
@@ -31,7 +31,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'identical-conditions');
+      const f = report.findings.filter((f) => f.ruleId === 'identical-conditions');
       expect(f.length).toBe(0);
     });
   });
@@ -46,7 +46,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'identical-expressions');
+      const f = report.findings.filter((f) => f.ruleId === 'identical-expressions');
       expect(f.length).toBe(1);
     });
 
@@ -57,7 +57,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'identical-expressions');
+      const f = report.findings.filter((f) => f.ruleId === 'identical-expressions');
       expect(f.length).toBe(1);
     });
 
@@ -68,7 +68,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'identical-expressions');
+      const f = report.findings.filter((f) => f.ruleId === 'identical-expressions');
       expect(f.length).toBe(0);
     });
   });
@@ -87,7 +87,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'all-identical-branches');
+      const f = report.findings.filter((f) => f.ruleId === 'all-identical-branches');
       expect(f.length).toBe(1);
     });
 
@@ -96,7 +96,7 @@ describe('Dead Logic Rules', () => {
         const val = condition ? 'same' : 'same';
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'all-identical-branches');
+      const f = report.findings.filter((f) => f.ruleId === 'all-identical-branches');
       expect(f.length).toBe(1);
     });
 
@@ -111,7 +111,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'all-identical-branches');
+      const f = report.findings.filter((f) => f.ruleId === 'all-identical-branches');
       expect(f.length).toBe(0);
     });
   });
@@ -124,7 +124,7 @@ describe('Dead Logic Rules', () => {
         if (true) { doSomething(); }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'constant-condition');
+      const f = report.findings.filter((f) => f.ruleId === 'constant-condition');
       expect(f.length).toBe(1);
       expect(f[0].message).toContain('always true');
     });
@@ -134,7 +134,7 @@ describe('Dead Logic Rules', () => {
         if (false) { doSomething(); }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'constant-condition');
+      const f = report.findings.filter((f) => f.ruleId === 'constant-condition');
       expect(f.length).toBe(1);
       expect(f[0].message).toContain('always false');
     });
@@ -144,7 +144,7 @@ describe('Dead Logic Rules', () => {
         while (false) { doSomething(); }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'constant-condition');
+      const f = report.findings.filter((f) => f.ruleId === 'constant-condition');
       expect(f.length).toBe(1);
     });
 
@@ -155,7 +155,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'constant-condition');
+      const f = report.findings.filter((f) => f.ruleId === 'constant-condition');
       expect(f.length).toBe(0);
     });
   });
@@ -172,7 +172,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'one-iteration-loop');
+      const f = report.findings.filter((f) => f.ruleId === 'one-iteration-loop');
       expect(f.length).toBe(1);
     });
 
@@ -188,7 +188,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'one-iteration-loop');
+      const f = report.findings.filter((f) => f.ruleId === 'one-iteration-loop');
       expect(f.length).toBe(1);
     });
 
@@ -202,7 +202,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'one-iteration-loop');
+      const f = report.findings.filter((f) => f.ruleId === 'one-iteration-loop');
       expect(f.length).toBe(0);
     });
   });
@@ -217,7 +217,7 @@ describe('Dead Logic Rules', () => {
         items.push('b');
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'unused-collection');
+      const f = report.findings.filter((f) => f.ruleId === 'unused-collection');
       expect(f.length).toBe(1);
     });
 
@@ -230,7 +230,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'unused-collection');
+      const f = report.findings.filter((f) => f.ruleId === 'unused-collection');
       expect(f.length).toBe(0);
     });
   });
@@ -244,7 +244,7 @@ describe('Dead Logic Rules', () => {
         const first = items.find(x => x === 'a');
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'empty-collection-access');
+      const f = report.findings.filter((f) => f.ruleId === 'empty-collection-access');
       expect(f.length).toBe(1);
     });
 
@@ -255,7 +255,7 @@ describe('Dead Logic Rules', () => {
         const first = items.find(x => x === 'hello');
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'empty-collection-access');
+      const f = report.findings.filter((f) => f.ruleId === 'empty-collection-access');
       expect(f.length).toBe(0);
     });
   });
@@ -271,7 +271,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'redundant-jump');
+      const f = report.findings.filter((f) => f.ruleId === 'redundant-jump');
       expect(f.length).toBe(1);
     });
 
@@ -283,7 +283,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'redundant-jump');
+      const f = report.findings.filter((f) => f.ruleId === 'redundant-jump');
       expect(f.length).toBe(1);
     });
 
@@ -295,7 +295,7 @@ describe('Dead Logic Rules', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const f = report.findings.filter(f => f.ruleId === 'redundant-jump');
+      const f = report.findings.filter((f) => f.ruleId === 'redundant-jump');
       expect(f.length).toBe(0);
     });
   });

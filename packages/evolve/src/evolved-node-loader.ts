@@ -5,13 +5,18 @@
  * to the parser (via dynamic types + hints) and codegen (via generator map).
  */
 
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, statSync } from 'fs';
-import { resolve, join } from 'path';
-import { createHash } from 'crypto';
-import { registerEvolvedType, registerEvolvedGenerator as registerCoreEvolvedGenerator, registerEvolvedTargetGenerator, KERN_RESERVED } from '@kernlang/core';
-import { loadSandboxedGenerator } from './sandboxed-generator.js';
 import type { IRNode } from '@kernlang/core';
+import {
+  KERN_RESERVED,
+  registerEvolvedGenerator as registerCoreEvolvedGenerator,
+  registerEvolvedTargetGenerator,
+  registerEvolvedType,
+} from '@kernlang/core';
+import { createHash } from 'crypto';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { join, resolve } from 'path';
 import type { EvolvedManifest, EvolvedManifestEntry, EvolvedNodeDefinition, ParserHints } from './evolved-types.js';
+import { loadSandboxedGenerator } from './sandboxed-generator.js';
 
 // ── Runtime registries (populated at startup) ────────────────────────────
 
@@ -67,10 +72,7 @@ export interface LoadResult {
  * @param baseDir — project root (defaults to cwd)
  * @param verify — check SHA256 hashes (recommended for CI)
  */
-export function loadEvolvedNodes(
-  baseDir: string = process.cwd(),
-  verify = false,
-): LoadResult {
+export function loadEvolvedNodes(baseDir: string = process.cwd(), verify = false): LoadResult {
   if (_loaded) return { loaded: _evolvedGenerators.size, errors: [] };
 
   const evolvedDir = resolve(baseDir, '.kern', 'evolved');
@@ -105,12 +107,7 @@ export function loadEvolvedNodes(
   return { loaded, errors };
 }
 
-function loadSingleNode(
-  evolvedDir: string,
-  keyword: string,
-  entry: EvolvedManifestEntry,
-  verify: boolean,
-): void {
+function loadSingleNode(evolvedDir: string, keyword: string, entry: EvolvedManifestEntry, verify: boolean): void {
   // Safety: cannot shadow core types
   if (KERN_RESERVED.has(keyword as any)) {
     throw new Error(`Evolved keyword '${keyword}' conflicts with core KERN type`);
@@ -126,7 +123,7 @@ function loadSingleNode(
   // Hash verification
   if (verify) {
     const content = readFileSync(codegenPath, 'utf-8');
-    const hash = 'sha256:' + createHash('sha256').update(content).digest('hex');
+    const hash = `sha256:${createHash('sha256').update(content).digest('hex')}`;
     if (hash !== entry.hash) {
       throw new Error(`Hash mismatch for '${keyword}': expected ${entry.hash}, got ${hash}`);
     }
@@ -182,10 +179,7 @@ export function readManifest(baseDir: string = process.cwd()): EvolvedManifest |
 /**
  * Read a single node's full definition.
  */
-export function readNodeDefinition(
-  keyword: string,
-  baseDir: string = process.cwd(),
-): EvolvedNodeDefinition | null {
+export function readNodeDefinition(keyword: string, baseDir: string = process.cwd()): EvolvedNodeDefinition | null {
   const defPath = resolve(baseDir, '.kern', 'evolved', keyword, 'definition.json');
   if (!existsSync(defPath)) return null;
   try {
@@ -213,9 +207,7 @@ export interface RebuildResult {
  *
  * @param baseDir — project root (defaults to cwd)
  */
-export function rebuildManifest(
-  baseDir: string = process.cwd(),
-): RebuildResult {
+export function rebuildManifest(baseDir: string = process.cwd()): RebuildResult {
   const evolvedDir = resolve(baseDir, '.kern', 'evolved');
   const errors: string[] = [];
 
@@ -260,7 +252,7 @@ export function rebuildManifest(
     const manifestEntry: EvolvedManifestEntry = {
       keyword: def.keyword,
       displayName: def.displayName,
-      codegenTier: 1,  // default; definition.json doesn't store tier
+      codegenTier: 1, // default; definition.json doesn't store tier
       childTypes: def.childTypes,
       parserHints: def.parserHints,
       hash: def.hash,

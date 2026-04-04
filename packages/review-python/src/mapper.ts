@@ -5,13 +5,10 @@
  * Phase 1: error_raise, error_handle, effect
  */
 
+import type { ConceptEdge, ConceptMap, ConceptNode, ConceptSpan, ErrorHandlePayload } from '@kernlang/core';
+import { conceptId, conceptSpan } from '@kernlang/core';
 import Parser from 'tree-sitter';
 import Python from 'tree-sitter-python';
-import type {
-  ConceptMap, ConceptNode, ConceptEdge, ConceptSpan,
-  ErrorHandlePayload, EntrypointPayload, GuardPayload, StateMutationPayload, DependencyPayload,
-} from '@kernlang/core';
-import { conceptId, conceptSpan } from '@kernlang/core';
 
 const EXTRACTOR_VERSION = '1.0.0';
 
@@ -21,16 +18,62 @@ const NETWORK_MODULES = new Set(['requests', 'httpx', 'aiohttp', 'urllib']);
 const NETWORK_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'request', 'fetch']);
 
 const DB_MODULES = new Set(['psycopg2', 'asyncpg', 'pymongo', 'sqlalchemy', 'django']);
-const DB_METHODS = new Set(['execute', 'executemany', 'fetchone', 'fetchall', 'fetchmany', 'query', 'find', 'find_one', 'insert_one', 'insert_many', 'update_one', 'delete_one']);
+const DB_METHODS = new Set([
+  'execute',
+  'executemany',
+  'fetchone',
+  'fetchall',
+  'fetchmany',
+  'query',
+  'find',
+  'find_one',
+  'insert_one',
+  'insert_many',
+  'update_one',
+  'delete_one',
+]);
 
-const FS_FUNCTIONS = new Set(['open', 'read', 'write', 'readlines', 'writelines']);
+const _FS_FUNCTIONS = new Set(['open', 'read', 'write', 'readlines', 'writelines']);
 
 const STDLIB_MODULES = new Set([
-  'os', 'sys', 'json', 're', 'math', 'datetime', 'time', 'logging', 'argparse',
-  'collections', 'itertools', 'functools', 'pathlib', 'shutil', 'subprocess',
-  'threading', 'multiprocessing', 'abc', 'typing', 'io', 'pickle', 'random',
-  'hashlib', 'hmac', 'base64', 'csv', 'sqlite3', 'zlib', 'gzip', 'tarfile', 'zipfile',
-  'enum', 'struct', 'tempfile', 'unittest', 'urllib', 'uuid', 'xml',
+  'os',
+  'sys',
+  'json',
+  're',
+  'math',
+  'datetime',
+  'time',
+  'logging',
+  'argparse',
+  'collections',
+  'itertools',
+  'functools',
+  'pathlib',
+  'shutil',
+  'subprocess',
+  'threading',
+  'multiprocessing',
+  'abc',
+  'typing',
+  'io',
+  'pickle',
+  'random',
+  'hashlib',
+  'hmac',
+  'base64',
+  'csv',
+  'sqlite3',
+  'zlib',
+  'gzip',
+  'tarfile',
+  'zipfile',
+  'enum',
+  'struct',
+  'tempfile',
+  'unittest',
+  'urllib',
+  'uuid',
+  'xml',
 ]);
 
 // ── Parser setup ─────────────────────────────────────────────────────────
@@ -72,12 +115,7 @@ export function extractPythonConcepts(source: string, filePath: string): Concept
 
 // ── error_raise ──────────────────────────────────────────────────────────
 
-function extractErrorRaise(
-  root: Parser.SyntaxNode,
-  source: string,
-  filePath: string,
-  nodes: ConceptNode[],
-): void {
+function extractErrorRaise(root: Parser.SyntaxNode, source: string, filePath: string, nodes: ConceptNode[]): void {
   // raise statements
   walkNodes(root, 'raise_statement', (node) => {
     const errorType = extractRaiseType(node);
@@ -100,15 +138,10 @@ function extractErrorRaise(
 
 // ── error_handle ─────────────────────────────────────────────────────────
 
-function extractErrorHandle(
-  root: Parser.SyntaxNode,
-  source: string,
-  filePath: string,
-  nodes: ConceptNode[],
-): void {
+function extractErrorHandle(root: Parser.SyntaxNode, source: string, filePath: string, nodes: ConceptNode[]): void {
   // except clauses
   walkNodes(root, 'except_clause', (node) => {
-    const block = node.children.find(c => c.type === 'block');
+    const block = node.children.find((c) => c.type === 'block');
     const disposition = classifyPythonDisposition(block, source);
     const errorVar = extractExceptVar(node);
 
@@ -180,12 +213,7 @@ function classifyPythonDisposition(
 
 // ── effect ───────────────────────────────────────────────────────────────
 
-function extractEffects(
-  root: Parser.SyntaxNode,
-  source: string,
-  filePath: string,
-  nodes: ConceptNode[],
-): void {
+function extractEffects(root: Parser.SyntaxNode, source: string, filePath: string, nodes: ConceptNode[]): void {
   walkNodes(root, 'call', (node) => {
     const funcNode = node.childForFieldName('function');
     if (!funcNode) return;
@@ -215,7 +243,10 @@ function extractEffects(
         }
 
         // DB: cursor.execute(), db.query(), etc.
-        if (DB_METHODS.has(methodName) && (DB_MODULES.has(objName) || /cursor|conn|db|session|collection/i.test(objName))) {
+        if (
+          DB_METHODS.has(methodName) &&
+          (DB_MODULES.has(objName) || /cursor|conn|db|session|collection/i.test(objName))
+        ) {
           nodes.push({
             id: conceptId(filePath, 'effect', node.startIndex),
             kind: 'effect',
@@ -263,16 +294,11 @@ function extractEffects(
 
 // ── entrypoint ──────────────────────────────────────────────────────────
 
-function extractEntrypoints(
-  root: Parser.SyntaxNode,
-  source: string,
-  filePath: string,
-  nodes: ConceptNode[],
-): void {
+function extractEntrypoints(root: Parser.SyntaxNode, source: string, filePath: string, nodes: ConceptNode[]): void {
   // 1. Route decorators: @app.route, @app.get, @router.post, etc.
   // tree-sitter Python wraps decorated functions in 'decorated_definition'
   walkNodes(root, 'decorated_definition', (node) => {
-    const fnDef = node.children.find(c => c.type === 'function_definition');
+    const fnDef = node.children.find((c) => c.type === 'function_definition');
     if (!fnDef) return;
 
     for (const child of node.children) {
@@ -297,7 +323,7 @@ function extractEntrypoints(
           payload: {
             kind: 'entrypoint',
             subtype: 'route',
-            name: nameNode ? nameNode.text : (pathMatch?.[1] || 'anonymous'),
+            name: nameNode ? nameNode.text : pathMatch?.[1] || 'anonymous',
             httpMethod: method === 'ROUTE' ? undefined : method,
           },
         });
@@ -308,7 +334,7 @@ function extractEntrypoints(
   // 2. if __name__ == '__main__':
   walkNodes(root, 'if_statement', (node) => {
     const condition = node.childForFieldName('condition');
-    if (condition && condition.text.includes('__name__') && condition.text.includes('__main__')) {
+    if (condition?.text.includes('__name__') && condition.text.includes('__main__')) {
       nodes.push({
         id: conceptId(filePath, 'entrypoint', node.startIndex),
         kind: 'entrypoint',
@@ -328,12 +354,7 @@ function extractEntrypoints(
 
 // ── guard ───────────────────────────────────────────────────────────────
 
-function extractGuards(
-  root: Parser.SyntaxNode,
-  source: string,
-  filePath: string,
-  nodes: ConceptNode[],
-): void {
+function extractGuards(root: Parser.SyntaxNode, source: string, filePath: string, nodes: ConceptNode[]): void {
   // 1. Auth decorators (tree-sitter: decorated_definition → decorator + function_definition)
   walkNodes(root, 'decorated_definition', (node) => {
     for (const child of node.children) {
@@ -361,7 +382,7 @@ function extractGuards(
   // 2. Pydantic validation: BaseModel.model_validate()
   walkNodes(root, 'call', (node) => {
     const func = node.childForFieldName('function');
-    if (func && func.text.includes('model_validate')) {
+    if (func?.text.includes('model_validate')) {
       nodes.push({
         id: conceptId(filePath, 'guard', node.startIndex),
         kind: 'guard',
@@ -379,7 +400,7 @@ function extractGuards(
   walkNodes(root, 'if_statement', (node) => {
     const cond = node.childForFieldName('condition');
     if (cond && /\b(user|auth|request\.user)\b/.test(cond.text)) {
-      const block = node.namedChildren.find(c => c.type === 'block');
+      const block = node.namedChildren.find((c) => c.type === 'block');
       if (block) {
         const firstStmt = block.namedChildren[0];
         if (firstStmt && (firstStmt.type === 'return_statement' || firstStmt.type === 'raise_statement')) {
@@ -401,12 +422,7 @@ function extractGuards(
 
 // ── state_mutation ───────────────────────────────────────────────────────
 
-function extractStateMutation(
-  root: Parser.SyntaxNode,
-  source: string,
-  filePath: string,
-  nodes: ConceptNode[],
-): void {
+function extractStateMutation(root: Parser.SyntaxNode, source: string, filePath: string, nodes: ConceptNode[]): void {
   // Track global keyword usage
   const globalVarsInFile = new Set<string>();
   walkNodes(root, 'global_statement', (node) => {
@@ -471,12 +487,7 @@ function extractStateMutation(
 
 // ── dependency ──────────────────────────────────────────────────────────
 
-function extractDependencyEdges(
-  root: Parser.SyntaxNode,
-  source: string,
-  filePath: string,
-  edges: ConceptEdge[],
-): void {
+function extractDependencyEdges(root: Parser.SyntaxNode, source: string, filePath: string, edges: ConceptEdge[]): void {
   const addDependency = (node: Parser.SyntaxNode, specifier: string): void => {
     let subtype: 'stdlib' | 'external' | 'internal' = 'external';
     if (specifier.startsWith('.')) {
@@ -529,11 +540,7 @@ function extractDependencyEdges(
 
 // ── Tree-sitter Helpers ──────────────────────────────────────────────────
 
-function walkNodes(
-  root: Parser.SyntaxNode,
-  type: string,
-  callback: (node: Parser.SyntaxNode) => void,
-): void {
+function walkNodes(root: Parser.SyntaxNode, type: string, callback: (node: Parser.SyntaxNode) => void): void {
   const cursor = root.walk();
   let reachedRoot = false;
   while (true) {
@@ -543,7 +550,10 @@ function walkNodes(
     if (cursor.gotoFirstChild()) continue;
     if (cursor.gotoNextSibling()) continue;
     while (true) {
-      if (!cursor.gotoParent()) { reachedRoot = true; break; }
+      if (!cursor.gotoParent()) {
+        reachedRoot = true;
+        break;
+      }
       if (cursor.gotoNextSibling()) break;
     }
     if (reachedRoot) break;
@@ -579,13 +589,13 @@ function getContainerId(node: Parser.SyntaxNode, filePath: string): string | und
 
 function extractRaiseType(node: Parser.SyntaxNode): string | undefined {
   // raise ValueError("...") → "ValueError"
-  const callNode = node.namedChildren.find(c => c.type === 'call');
+  const callNode = node.namedChildren.find((c) => c.type === 'call');
   if (callNode) {
     const func = callNode.childForFieldName('function');
     if (func) return func.text;
   }
   // raise ValueError → just identifier
-  const ident = node.namedChildren.find(c => c.type === 'identifier');
+  const ident = node.namedChildren.find((c) => c.type === 'identifier');
   if (ident) return ident.text;
   return undefined;
 }
@@ -610,7 +620,7 @@ function isInAsyncDef(node: Parser.SyntaxNode): boolean {
   while (parent) {
     if (parent.type === 'function_definition') {
       // Check for 'async' keyword before 'def'
-      return parent.children.some(c => c.type === 'async');
+      return parent.children.some((c) => c.type === 'async');
     }
     parent = parent.parent;
   }

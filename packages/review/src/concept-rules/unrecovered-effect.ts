@@ -9,9 +9,9 @@
  * Go: http.Get() with err ignored
  */
 
-import type { ConceptRuleContext } from './index.js';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
+import type { ConceptRuleContext } from './index.js';
 
 const RECOVERABLE_DISPOSITIONS = new Set(['wrapped', 'returned', 'rethrown', 'retried']);
 
@@ -41,9 +41,9 @@ export function unrecoveredEffect(ctx: ConceptRuleContext): ReviewFinding[] {
 
     // Also check if there's any error_handle in the same container (even logged)
     // Guard: undefined === undefined would match unrelated top-level nodes
-    const hasAnyHandler = node.containerId !== undefined && ctx.concepts.nodes.some(n =>
-      n.kind === 'error_handle' && n.containerId === node.containerId
-    );
+    const hasAnyHandler =
+      node.containerId !== undefined &&
+      ctx.concepts.nodes.some((n) => n.kind === 'error_handle' && n.containerId === node.containerId);
     if (hasAnyHandler) continue;
 
     findings.push({

@@ -1,17 +1,16 @@
-import { existsSync, mkdirSync, rmSync, readdirSync } from 'fs';
-import { resolve, join } from 'path';
-import { mkdtempSync } from 'fs';
+import { existsSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
-import {
-  stageEvolveV4Proposal,
-  listStagedEvolveV4,
-  getStagedEvolveV4,
-  updateStagedEvolveV4Status,
-  cleanRejectedEvolveV4,
-  cleanApprovedEvolveV4,
-  formatEvolveV4SplitView,
-} from '../src/staging.js';
+import { join, resolve } from 'path';
 import type { EvolveNodeProposal, EvolveV4ValidationResult } from '../src/evolved-types.js';
+import {
+  cleanApprovedEvolveV4,
+  cleanRejectedEvolveV4,
+  formatEvolveV4SplitView,
+  getStagedEvolveV4,
+  listStagedEvolveV4,
+  stageEvolveV4Proposal,
+  updateStagedEvolveV4Status,
+} from '../src/staging.js';
 
 let tmpDir: string;
 let originalCwd: () => string;
@@ -123,15 +122,27 @@ describe('listStagedEvolveV4', () => {
 
   it('returns staged proposals sorted by frequency (descending)', () => {
     stageEvolveV4Proposal(
-      makeProposal({ id: 'low-freq', keyword: 'low', reason: { observation: 'x', inefficiency: 'x', kernBenefit: 'x', frequency: 3, avgLines: 5, instances: [] } }),
+      makeProposal({
+        id: 'low-freq',
+        keyword: 'low',
+        reason: { observation: 'x', inefficiency: 'x', kernBenefit: 'x', frequency: 3, avgLines: 5, instances: [] },
+      }),
       makeValidation(),
     );
     stageEvolveV4Proposal(
-      makeProposal({ id: 'high-freq', keyword: 'high', reason: { observation: 'x', inefficiency: 'x', kernBenefit: 'x', frequency: 20, avgLines: 5, instances: [] } }),
+      makeProposal({
+        id: 'high-freq',
+        keyword: 'high',
+        reason: { observation: 'x', inefficiency: 'x', kernBenefit: 'x', frequency: 20, avgLines: 5, instances: [] },
+      }),
       makeValidation(),
     );
     stageEvolveV4Proposal(
-      makeProposal({ id: 'mid-freq', keyword: 'mid', reason: { observation: 'x', inefficiency: 'x', kernBenefit: 'x', frequency: 10, avgLines: 5, instances: [] } }),
+      makeProposal({
+        id: 'mid-freq',
+        keyword: 'mid',
+        reason: { observation: 'x', inefficiency: 'x', kernBenefit: 'x', frequency: 10, avgLines: 5, instances: [] },
+      }),
       makeValidation(),
     );
 

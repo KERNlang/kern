@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -30,7 +30,9 @@ describe('Terminal Transpiler', () => {
   test('generates gradient and spinner', async () => {
     const { parse } = await import('../../core/src/parser.js');
     const { transpileTerminal } = await import('../src/transpiler-terminal.js');
-    const ast = parse('screen name=Test\n  gradient text="AGON" colors=[208,214,220]\n  spinner message="Loading..." color=214');
+    const ast = parse(
+      'screen name=Test\n  gradient text="AGON" colors=[208,214,220]\n  spinner message="Loading..." color=214',
+    );
     const result = transpileTerminal(ast);
 
     expect(result.code).toContain('gradient(');

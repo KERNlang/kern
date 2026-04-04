@@ -5,8 +5,16 @@
  *     Dedup across sources. Fingerprint-based cross-run stability.
  */
 
-import type { ReviewReport, ReviewStats, ReviewFinding, InferResult, TemplateMatch, EnforceResult, ReviewConfig } from './types.js';
 import { buildLLMPrompt, exportKernIR } from './llm-review.js';
+import type {
+  EnforceResult,
+  InferResult,
+  ReviewConfig,
+  ReviewFinding,
+  ReviewReport,
+  ReviewStats,
+  TemplateMatch,
+} from './types.js';
 
 // ── Default Confidence Assignment ────────────────────────────────────────
 
@@ -18,10 +26,10 @@ import { buildLLMPrompt, exportKernIR } from './llm-review.js';
  */
 const SOURCE_CONFIDENCE: Record<string, number> = {
   tsc: 1.0,
-  eslint: 0.90,
+  eslint: 0.9,
   kern: 0.85,
-  'kern-native': 0.80,
-  llm: 0.70,
+  'kern-native': 0.8,
+  llm: 0.7,
 };
 
 /** Taint rules get higher confidence — they trace actual data flow */
@@ -41,7 +49,7 @@ export function assignDefaultConfidence(findings: ReviewFinding[]): void {
     if (f.ruleId.startsWith(TAINT_RULE_PREFIX)) {
       f.confidence = 0.95;
     } else if (LOW_CONFIDENCE_RULES.has(f.ruleId)) {
-      f.confidence = 0.60;
+      f.confidence = 0.6;
     } else {
       f.confidence = SOURCE_CONFIDENCE[f.source] ?? 0.85;
     }
@@ -53,7 +61,7 @@ export function assignDefaultConfidence(findings: ReviewFinding[]): void {
 export function calculateStats(
   inferred: InferResult[],
   templateMatches: TemplateMatch[],
-  findings: ReviewFinding[],
+  _findings: ReviewFinding[],
   totalLines: number,
 ): ReviewStats {
   const coveredLineSet = new Set<number>();
@@ -86,9 +94,7 @@ export function calculateStats(
     }
   }
 
-  const reductionPct = totalTsTokens > 0
-    ? Math.round((1 - totalKernTokens / totalTsTokens) * 100)
-    : 0;
+  const reductionPct = totalTsTokens > 0 ? Math.round((1 - totalKernTokens / totalTsTokens) * 100) : 0;
 
   return {
     totalLines,
@@ -97,7 +103,7 @@ export function calculateStats(
     totalTsTokens,
     totalKernTokens,
     reductionPct,
-    constructCount: inferred.length + templateMatches.filter(t => t.suggestedKern).length,
+    constructCount: inferred.length + templateMatches.filter((t) => t.suggestedKern).length,
   };
 }
 
@@ -162,10 +168,7 @@ export function sortAndDedup(findings: ReviewFinding[]): ReviewFinding[] {
 
 // ── Enforcement ──────────────────────────────────────────────────────────
 
-export function checkEnforcement(
-  report: ReviewReport,
-  config: ReviewConfig,
-): EnforceResult {
+export function checkEnforcement(report: ReviewReport, config: ReviewConfig): EnforceResult {
   const minCoverage = config.minCoverage ?? 0;
   const actualCoverage = report.stats.coveragePct;
   const templateViolations: string[] = [];
@@ -174,18 +177,16 @@ export function checkEnforcement(
     const registeredSet = new Set(config.registeredTemplates || []);
     for (const t of report.templateMatches) {
       if (registeredSet.has(t.templateName) && !t.suggestedKern) {
-        templateViolations.push(
-          `${t.libraryName} pattern detected but not using KERN template '${t.templateName}'`
-        );
+        templateViolations.push(`${t.libraryName} pattern detected but not using KERN template '${t.templateName}'`);
       }
     }
   }
 
   // Filter findings by minConfidence — findings without confidence default to 1.0 (fully trusted)
   const minConf = config.minConfidence ?? 0;
-  const countable = report.findings.filter(f => (f.confidence ?? 1.0) >= minConf);
-  const errors = countable.filter(f => f.severity === 'error').length;
-  const warnings = countable.filter(f => f.severity === 'warning').length;
+  const countable = report.findings.filter((f) => (f.confidence ?? 1.0) >= minConf);
+  const errors = countable.filter((f) => f.severity === 'error').length;
+  const warnings = countable.filter((f) => f.severity === 'warning').length;
   const maxErrors = config.maxErrors ?? 0;
   const maxWarnings = config.maxWarnings ?? Number.MAX_SAFE_INTEGER;
 
@@ -194,17 +195,18 @@ export function checkEnforcement(
     if (f.ruleId === 'cognitive-complexity') {
       const match = f.message.match(/complexity of (\d+)/);
       if (match) {
-        maxComplexity = Math.max(maxComplexity, parseInt(match[1]));
+        maxComplexity = Math.max(maxComplexity, parseInt(match[1], 10));
       }
     }
   }
   const allowedComplexity = config.maxComplexity ?? 15;
 
-  const passed = actualCoverage >= minCoverage &&
-                 templateViolations.length === 0 &&
-                 errors <= maxErrors &&
-                 warnings <= maxWarnings &&
-                 maxComplexity <= allowedComplexity;
+  const passed =
+    actualCoverage >= minCoverage &&
+    templateViolations.length === 0 &&
+    errors <= maxErrors &&
+    warnings <= maxWarnings &&
+    maxComplexity <= allowedComplexity;
 
   return {
     passed,
@@ -213,7 +215,7 @@ export function checkEnforcement(
     templateViolations,
     errors: { actual: errors, max: maxErrors },
     warnings: { actual: warnings, max: maxWarnings },
-    complexity: { actual: maxComplexity, max: allowedComplexity }
+    complexity: { actual: maxComplexity, max: allowedComplexity },
   };
 }
 
@@ -235,9 +237,7 @@ export function formatReport(report: ReviewReport, config?: ReviewConfig): strin
   if (report.inferred.length > 0) {
     lines.push(`  KERN-expressible (${report.inferred.length} constructs):`);
     for (const r of report.inferred) {
-      const loc = r.startLine === r.endLine
-        ? `L${r.startLine}`
-        : `L${r.startLine}-${r.endLine}`;
+      const loc = r.startLine === r.endLine ? `L${r.startLine}` : `L${r.startLine}-${r.endLine}`;
       const padLoc = loc.padEnd(12);
       const padSummary = r.summary.substring(0, 50).padEnd(50);
       const conf = `(${r.confidencePct}%)`;
@@ -247,15 +247,13 @@ export function formatReport(report: ReviewReport, config?: ReviewConfig): strin
   }
 
   if (report.templateMatches.length > 0) {
-    const withSuggestions = report.templateMatches.filter(t => t.suggestedKern);
-    const withoutSuggestions = report.templateMatches.filter(t => !t.suggestedKern);
+    const withSuggestions = report.templateMatches.filter((t) => t.suggestedKern);
+    const withoutSuggestions = report.templateMatches.filter((t) => !t.suggestedKern);
 
     if (withSuggestions.length > 0) {
       lines.push(`  Suggested .kern rewrites (${withSuggestions.length}):`);
       for (const t of withSuggestions) {
-        const savings = t.tsTokens && t.kernTokens
-          ? ` (${t.tsTokens} → ${t.kernTokens} tokens)`
-          : '';
+        const savings = t.tsTokens && t.kernTokens ? ` (${t.tsTokens} → ${t.kernTokens} tokens)` : '';
         lines.push(`    ${t.templateName.padEnd(25)} → ${t.suggestedKern}${savings}`);
       }
       lines.push('');
@@ -273,12 +271,13 @@ export function formatReport(report: ReviewReport, config?: ReviewConfig): strin
   // Unified findings — sorted by severity, with source tags
   const showConf = config?.showConfidence === true;
   const minConf = config?.minConfidence ?? 0;
-  const allFindings = dedup(report.findings).filter(f => (f.confidence ?? 1.0) >= minConf);
+  const allFindings = dedup(report.findings).filter((f) => (f.confidence ?? 1.0) >= minConf);
   if (allFindings.length > 0) {
-    const errors = allFindings.filter(f => f.severity === 'error');
-    const warnings = allFindings.filter(f => f.severity === 'warning');
-    const infos = allFindings.filter(f => f.severity === 'info');
-    const confPrefix = (f: ReviewFinding) => showConf && f.confidence !== undefined ? ` [${f.confidence.toFixed(2)}]` : '';
+    const errors = allFindings.filter((f) => f.severity === 'error');
+    const warnings = allFindings.filter((f) => f.severity === 'warning');
+    const infos = allFindings.filter((f) => f.severity === 'info');
+    const confPrefix = (f: ReviewFinding) =>
+      showConf && f.confidence !== undefined ? ` [${f.confidence.toFixed(2)}]` : '';
 
     if (errors.length > 0) {
       lines.push(`  BUGS (${errors.length}):`);
@@ -314,7 +313,9 @@ export function formatReport(report: ReviewReport, config?: ReviewConfig): strin
   }
 
   const s = report.stats;
-  lines.push(`  Summary: ${s.coveragePct}% KERN coverage, ~${s.totalTsTokens} → ${s.totalKernTokens} KERN tokens (${s.reductionPct}% reduction)`);
+  lines.push(
+    `  Summary: ${s.coveragePct}% KERN coverage, ~${s.totalTsTokens} → ${s.totalKernTokens} KERN tokens (${s.reductionPct}% reduction)`,
+  );
 
   // Confidence summary (when present)
   if (showConf && report.confidenceSummary) {
@@ -342,7 +343,9 @@ export function formatEnforcement(result: EnforceResult): string {
   lines.push(`    Coverage:   ${result.actualCoverage}% (min: ${result.minCoverage}%)`);
   lines.push(`    Complexity: ${result.complexity.actual} (max: ${result.complexity.max})`);
   lines.push(`    Errors:     ${result.errors.actual} (max: ${result.errors.max})`);
-  lines.push(`    Warnings:   ${result.warnings.actual} (max: ${result.warnings.max === Number.MAX_SAFE_INTEGER ? 'unlimited' : result.warnings.max})`);
+  lines.push(
+    `    Warnings:   ${result.warnings.actual} (max: ${result.warnings.max === Number.MAX_SAFE_INTEGER ? 'unlimited' : result.warnings.max})`,
+  );
 
   for (const v of result.templateViolations) {
     lines.push(`    Template:   ${v}`);
@@ -353,10 +356,7 @@ export function formatEnforcement(result: EnforceResult): string {
 
 // ── JSON Format ──────────────────────────────────────────────────────────
 
-export function formatReportJSON(
-  report: ReviewReport,
-  options?: { includeLLMPrompt?: boolean },
-): string {
+export function formatReportJSON(report: ReviewReport, options?: { includeLLMPrompt?: boolean }): string {
   if (!options?.includeLLMPrompt) {
     return JSON.stringify(report, null, 2);
   }
@@ -365,11 +365,15 @@ export function formatReportJSON(
   const llmPrompt = buildLLMPrompt(report.inferred, report.templateMatches);
   const kernIR = exportKernIR(report.inferred, report.templateMatches);
 
-  return JSON.stringify({
-    ...report,
-    kernIR,
-    llmPrompt,
-  }, null, 2);
+  return JSON.stringify(
+    {
+      ...report,
+      kernIR,
+      llmPrompt,
+    },
+    null,
+    2,
+  );
 }
 
 // ── SARIF Format ─────────────────────────────────────────────────────────
@@ -384,12 +388,12 @@ export function formatSARIF(reports: ReviewReport[]): string {
           driver: {
             name: '@kernlang/review',
             version: '2.0.0',
-            rules: [] as any[]
-          }
+            rules: [] as any[],
+          },
         },
-        results: [] as any[]
-      }
-    ]
+        results: [] as any[],
+      },
+    ],
   };
 
   const rules = new Set<string>();
@@ -401,11 +405,11 @@ export function formatSARIF(reports: ReviewReport[]): string {
         sarif.runs[0].tool.driver.rules.push({
           id: f.ruleId,
           shortDescription: { text: f.ruleId },
-          helpUri: `https://github.com/kern-lang/kern-lang/blob/main/docs/rules.md#${f.ruleId}`
+          helpUri: `https://github.com/kern-lang/kern-lang/blob/main/docs/rules.md#${f.ruleId}`,
         });
       }
 
-      const sarifLevel = f.severity === 'error' ? 'error' : (f.severity === 'warning' ? 'warning' : 'note');
+      const sarifLevel = f.severity === 'error' ? 'error' : f.severity === 'warning' ? 'warning' : 'note';
 
       const result: Record<string, unknown> = {
         ruleId: f.ruleId,
@@ -419,10 +423,10 @@ export function formatSARIF(reports: ReviewReport[]): string {
                 startLine: f.primarySpan.startLine,
                 startColumn: f.primarySpan.startCol,
                 endLine: f.primarySpan.endLine,
-                endColumn: f.primarySpan.endCol
-              }
-            }
-          }
+                endColumn: f.primarySpan.endCol,
+              },
+            },
+          },
         ],
       };
       // SARIF result.rank is 0.0–100.0 per spec; kern/confidence stays 0–1
@@ -441,10 +445,7 @@ export function formatSARIF(reports: ReviewReport[]): string {
  * Format SARIF with suppression metadata.
  * Suppressed findings appear with a `suppressions` array per SARIF v2.1.0 section 3.35.
  */
-export function formatSARIFWithSuppressions(
-  reports: ReviewReport[],
-  suppressedFindings?: ReviewFinding[],
-): string {
+export function formatSARIFWithSuppressions(reports: ReviewReport[], suppressedFindings?: ReviewFinding[]): string {
   const sarif = {
     $schema: 'https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0-rtm.5.json',
     version: '2.1.0',
@@ -454,21 +455,18 @@ export function formatSARIFWithSuppressions(
           driver: {
             name: '@kernlang/review',
             version: '2.0.0',
-            rules: [] as any[]
-          }
+            rules: [] as any[],
+          },
         },
-        results: [] as any[]
-      }
-    ]
+        results: [] as any[],
+      },
+    ],
   };
 
   const rules = new Set<string>();
   // Include file path in suppression key to avoid cross-file fingerprint collisions
-  const suppressedSet = new Set(suppressedFindings?.map(f => `${f.primarySpan.file}:${f.fingerprint}`) ?? []);
-  const allFindings = [
-    ...reports.flatMap(r => r.findings),
-    ...(suppressedFindings ?? []),
-  ];
+  const suppressedSet = new Set(suppressedFindings?.map((f) => `${f.primarySpan.file}:${f.fingerprint}`) ?? []);
+  const allFindings = [...reports.flatMap((r) => r.findings), ...(suppressedFindings ?? [])];
 
   for (const f of allFindings) {
     if (!rules.has(f.ruleId)) {
@@ -476,11 +474,11 @@ export function formatSARIFWithSuppressions(
       sarif.runs[0].tool.driver.rules.push({
         id: f.ruleId,
         shortDescription: { text: f.ruleId },
-        helpUri: `https://github.com/kern-lang/kern-lang/blob/main/docs/rules.md#${f.ruleId}`
+        helpUri: `https://github.com/kern-lang/kern-lang/blob/main/docs/rules.md#${f.ruleId}`,
       });
     }
 
-    const sarifLevel = f.severity === 'error' ? 'error' : (f.severity === 'warning' ? 'warning' : 'note');
+    const sarifLevel = f.severity === 'error' ? 'error' : f.severity === 'warning' ? 'warning' : 'note';
 
     const result: Record<string, unknown> = {
       ruleId: f.ruleId,
@@ -494,10 +492,10 @@ export function formatSARIFWithSuppressions(
               startLine: f.primarySpan.startLine,
               startColumn: f.primarySpan.startCol,
               endLine: f.primarySpan.endLine,
-              endColumn: f.primarySpan.endCol
-            }
-          }
-        }
+              endColumn: f.primarySpan.endCol,
+            },
+          },
+        },
       ],
     };
 
@@ -507,10 +505,12 @@ export function formatSARIFWithSuppressions(
     }
 
     if (suppressedSet.has(`${f.primarySpan.file}:${f.fingerprint}`)) {
-      result.suppressions = [{
-        kind: 'inSource',
-        justification: `kern-ignore directive`,
-      }];
+      result.suppressions = [
+        {
+          kind: 'inSource',
+          justification: `kern-ignore directive`,
+        },
+      ];
     }
 
     sarif.runs[0].results.push(result);

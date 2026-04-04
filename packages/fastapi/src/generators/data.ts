@@ -4,9 +4,9 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { handlerCode, emitIdentifier, propsOf, mapSemanticType } from '@kernlang/core';
+import { emitIdentifier, handlerCode, mapSemanticType, propsOf } from '@kernlang/core';
+import { firstChild, kids, p } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
-import { p, kids, firstChild } from '../codegen-helpers.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -28,7 +28,9 @@ export function formatPythonDefault(value: string, kernType: string): string {
 
 // SQLModel column override: pydantic validator types -> plain DB types for column declarations
 const SQLMODEL_COLUMN_OVERRIDE: Record<string, string> = {
-  Email: 'str', URL: 'str', PhoneNumber: 'str',
+  Email: 'str',
+  URL: 'str',
+  PhoneNumber: 'str',
 };
 
 /** Map KERN type to Python/SQLModel column type. Uses shared semantic type map + SQLModel overrides. */
@@ -136,20 +138,26 @@ export function generatePythonRepository(node: IRNode): string[] {
 
   for (const method of methods) {
     const mp = p(method);
-    const mname = toSnakeCase(mp.name as string || 'method');
+    const mname = toSnakeCase((mp.name as string) || 'method');
     const isAsync = mp.async === 'true' || mp.async === true;
     const asyncKw = isAsync ? 'async ' : '';
     const rawParams = mp.params as string;
     const params = rawParams
-      ? rawParams.split(',').map(param => {
-          const [pname, ptype] = param.trim().split(':').map(s => s.trim());
-          return `${toSnakeCase(pname)}: ${ptype ? mapTsTypeToPython(ptype) : 'Any'}`;
-        }).join(', ')
+      ? rawParams
+          .split(',')
+          .map((param) => {
+            const [pname, ptype] = param
+              .trim()
+              .split(':')
+              .map((s) => s.trim());
+            return `${toSnakeCase(pname)}: ${ptype ? mapTsTypeToPython(ptype) : 'Any'}`;
+          })
+          .join(', ')
       : '';
     const returns = mp.returns ? ` -> ${mapTsTypeToPython(mp.returns as string)}` : '';
     const code = handlerCode(method);
 
-    lines.push(`    ${asyncKw}def ${mname}(self${params ? ', ' + params : ''})${returns}:`);
+    lines.push(`    ${asyncKw}def ${mname}(self${params ? `, ${params}` : ''})${returns}:`);
     if (code) {
       for (const line of code.split('\n')) {
         lines.push(`        ${line}`);
@@ -186,10 +194,12 @@ export function generatePythonCache(node: IRNode): string[] {
   // Entry methods
   for (const entry of kids(node, 'entry')) {
     const ep = p(entry);
-    const entryName = toSnakeCase(ep.name as string || 'entry');
+    const entryName = toSnakeCase((ep.name as string) || 'entry');
     const key = (ep.key as string) || entryName;
     // If key already contains the prefix pattern, use it as-is; otherwise prepend prefix
-    const keyExpr = key.includes(prefix) ? key.replace(/\{id\}/g, '{id}') : `${prefix}${key.replace(/\{id\}/g, '{id}')}`;
+    const keyExpr = key.includes(prefix)
+      ? key.replace(/\{id\}/g, '{id}')
+      : `${prefix}${key.replace(/\{id\}/g, '{id}')}`;
 
     lines.push(`    async def get_${entryName}(self, id: str):`);
     lines.push(`        key = f"${keyExpr}"`);
@@ -249,7 +259,7 @@ export function generatePythonDependency(node: IRNode): string[] {
 
   for (const inj of injects) {
     const ip = p(inj);
-    const injName = toSnakeCase(ip.name as string || 'dep');
+    const injName = toSnakeCase((ip.name as string) || 'dep');
     const injType = ip.type as string;
     const injFrom = ip.from as string;
     const injWith = ip.with as string;
@@ -294,16 +304,18 @@ export function generatePythonService(node: IRNode): string[] {
 
   // Constructor from fields
   if (fields.length > 0) {
-    const ctorParams = fields.map(f => {
-      const fp = p(f);
-      const fname = toSnakeCase(fp.name as string || 'field');
-      const ftype = fp.type ? mapTsTypeToPython(fp.type as string) : 'Any';
-      return `${fname}: ${ftype}`;
-    }).join(', ');
+    const ctorParams = fields
+      .map((f) => {
+        const fp = p(f);
+        const fname = toSnakeCase((fp.name as string) || 'field');
+        const ftype = fp.type ? mapTsTypeToPython(fp.type as string) : 'Any';
+        return `${fname}: ${ftype}`;
+      })
+      .join(', ');
     lines.push(`    def __init__(self, ${ctorParams}):`);
     for (const f of fields) {
       const fp = p(f);
-      const fname = toSnakeCase(fp.name as string || 'field');
+      const fname = toSnakeCase((fp.name as string) || 'field');
       const vis = fp.private === 'true' || fp.private === true ? '_' : '';
       lines.push(`        self.${vis}${fname} = ${fname}`);
     }
@@ -317,20 +329,26 @@ export function generatePythonService(node: IRNode): string[] {
 
   for (const method of methods) {
     const mp = p(method);
-    const mname = toSnakeCase(mp.name as string || 'method');
+    const mname = toSnakeCase((mp.name as string) || 'method');
     const isAsync = mp.async === 'true' || mp.async === true;
     const asyncKw = isAsync ? 'async ' : '';
     const rawParams = mp.params as string;
     const params = rawParams
-      ? rawParams.split(',').map(param => {
-          const [pname, ptype] = param.trim().split(':').map(s => s.trim());
-          return `${toSnakeCase(pname)}: ${ptype ? mapTsTypeToPython(ptype) : 'Any'}`;
-        }).join(', ')
+      ? rawParams
+          .split(',')
+          .map((param) => {
+            const [pname, ptype] = param
+              .trim()
+              .split(':')
+              .map((s) => s.trim());
+            return `${toSnakeCase(pname)}: ${ptype ? mapTsTypeToPython(ptype) : 'Any'}`;
+          })
+          .join(', ')
       : '';
     const returns = mp.returns ? ` -> ${mapTsTypeToPython(mp.returns as string)}` : '';
     const code = handlerCode(method);
 
-    lines.push(`    ${asyncKw}def ${mname}(self${params ? ', ' + params : ''})${returns}:`);
+    lines.push(`    ${asyncKw}def ${mname}(self${params ? `, ${params}` : ''})${returns}:`);
     if (code) {
       for (const line of code.split('\n')) {
         lines.push(`        ${line}`);
@@ -378,8 +396,8 @@ export function generatePythonUnion(node: IRNode): string[] {
     lines.push(`    ${toSnakeCase(discriminant)}: Literal["${vname}"] = "${vname}"`);
     for (const field of fields) {
       const fp = p(field);
-      const fname = toSnakeCase(fp.name as string || 'field');
-      const ftype = mapTsTypeToPython(fp.type as string || 'Any');
+      const fname = toSnakeCase((fp.name as string) || 'field');
+      const ftype = mapTsTypeToPython((fp.type as string) || 'Any');
       const isOptional = fp.optional === 'true' || fp.optional === true;
       if (isOptional) {
         lines.push(`    ${fname}: ${ftype} | None = None`);

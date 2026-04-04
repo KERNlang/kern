@@ -6,8 +6,15 @@
  */
 
 import { createHash } from 'crypto';
-import type { PatternGap, AnalyzedPattern, ExtractedParam, ImportDecl, GoldenExample, QualityThresholds } from './types.js';
-import { scorePattern, passesThresholds, DEFAULT_THRESHOLDS } from './quality-scorer.js';
+import { DEFAULT_THRESHOLDS, passesThresholds, scorePattern } from './quality-scorer.js';
+import type {
+  AnalyzedPattern,
+  ExtractedParam,
+  GoldenExample,
+  ImportDecl,
+  PatternGap,
+  QualityThresholds,
+} from './types.js';
 
 /**
  * Compute a structural hash for a pattern gap.
@@ -18,7 +25,7 @@ import { scorePattern, passesThresholds, DEFAULT_THRESHOLDS } from './quality-sc
 export function computeStructuralHash(gap: PatternGap): string {
   // Normalize: replace variable values with slot types
   const paramSignature = gap.extractedParams
-    .map(p => `${p.name}:${p.slotType}`)
+    .map((p) => `${p.name}:${p.slotType}`)
     .sort()
     .join('|');
 
@@ -37,9 +44,7 @@ export function deriveTemplateName(gap: PatternGap): string {
   const base = gap.detectorId;
 
   // Look for a key identifier param (the main "name" param)
-  const nameParam = gap.extractedParams.find(p =>
-    p.slotType === 'identifier' && !p.optional,
-  );
+  const nameParam = gap.extractedParams.find((p) => p.slotType === 'identifier' && !p.optional);
 
   // If there's a clear naming pattern, use it
   if (nameParam) {
@@ -56,16 +61,16 @@ function abbreviateLibrary(name: string): string {
   // Common abbreviations
   const abbrevs: Record<string, string> = {
     'React Hook Form': 'rhf',
-    'Formik': 'formik',
-    'Recoil': 'recoil',
+    Formik: 'formik',
+    Recoil: 'recoil',
     'Redux Toolkit': 'rtk',
     'Framer Motion': 'motion',
-    'Axios': 'axios',
-    'Ky': 'ky',
-    'Yup': 'yup',
-    'Valibot': 'valibot',
+    Axios: 'axios',
+    Ky: 'ky',
+    Yup: 'yup',
+    Valibot: 'valibot',
     'Express Middleware': 'express-mw',
-    'VueUse': 'vueuse',
+    VueUse: 'vueuse',
     'Testing Library': 'rtl',
   };
   return abbrevs[name] || name.toLowerCase().replace(/\s+/g, '-');
@@ -76,25 +81,27 @@ function abbreviateLibrary(name: string): string {
  */
 function extractImports(gap: PatternGap): ImportDecl[] {
   // The anchor import tells us what to import
-  return [{
-    from: gap.anchorImport.includes('/') ? gap.anchorImport : guessImportSource(gap),
-    names: [gap.anchorImport],
-  }];
+  return [
+    {
+      from: gap.anchorImport.includes('/') ? gap.anchorImport : guessImportSource(gap),
+      names: [gap.anchorImport],
+    },
+  ];
 }
 
 function guessImportSource(gap: PatternGap): string {
   // Map library names to package names
   const packageMap: Record<string, string> = {
     'React Hook Form': 'react-hook-form',
-    'Formik': 'formik',
-    'Recoil': 'recoil',
+    Formik: 'formik',
+    Recoil: 'recoil',
     'Redux Toolkit': '@reduxjs/toolkit',
     'Framer Motion': 'framer-motion',
-    'Axios': 'axios',
-    'Ky': 'ky',
-    'Yup': 'yup',
-    'Valibot': 'valibot',
-    'VueUse': '@vueuse/core',
+    Axios: 'axios',
+    Ky: 'ky',
+    Yup: 'yup',
+    Valibot: 'valibot',
+    VueUse: '@vueuse/core',
     'Testing Library': '@testing-library/react',
   };
   return packageMap[gap.libraryName] || gap.libraryName.toLowerCase();
@@ -157,7 +164,7 @@ export function analyzeStructuralPatterns(
   gaps: PatternGap[],
   thresholds: QualityThresholds = DEFAULT_THRESHOLDS,
 ): AnalyzedPattern[] {
-  const structuralGaps = gaps.filter(g => g.libraryName === 'structural');
+  const structuralGaps = gaps.filter((g) => g.libraryName === 'structural');
   return groupAndScore(structuralGaps, thresholds);
 }
 
@@ -169,14 +176,11 @@ export function analyzePatterns(
   thresholds: QualityThresholds = DEFAULT_THRESHOLDS,
 ): AnalyzedPattern[] {
   // Structural gaps are findings, not template proposal candidates — filter them out
-  const templateGaps = gaps.filter(g => g.libraryName !== 'structural');
+  const templateGaps = gaps.filter((g) => g.libraryName !== 'structural');
   return groupAndScore(templateGaps, thresholds);
 }
 
-function groupAndScore(
-  gaps: PatternGap[],
-  thresholds: QualityThresholds,
-): AnalyzedPattern[] {
+function groupAndScore(gaps: PatternGap[], thresholds: QualityThresholds): AnalyzedPattern[] {
   const groups = new Map<string, PatternGap[]>();
 
   for (const gap of gaps) {
@@ -189,7 +193,7 @@ function groupAndScore(
 
   const patterns: AnalyzedPattern[] = [];
 
-  for (const [key, groupGaps] of groups) {
+  for (const [_key, groupGaps] of groups) {
     const representative = groupGaps[0];
     const hash = computeStructuralHash(representative);
     const qualityScore = scorePattern(groupGaps, thresholds);
@@ -206,7 +210,7 @@ function groupAndScore(
       representativeSnippet: representative.snippet,
       goldenExample: buildGoldenExample(representative),
       imports: extractImports(representative),
-      gapIds: groupGaps.map(g => g.id),
+      gapIds: groupGaps.map((g) => g.id),
     });
   }
 

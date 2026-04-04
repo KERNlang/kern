@@ -5,13 +5,25 @@ export class TokenStream {
   private tokens: Token[];
   private idx = 0;
 
-  constructor(tokens: Token[]) { this.tokens = tokens; }
+  constructor(tokens: Token[]) {
+    this.tokens = tokens;
+  }
 
-  peek(): Token | undefined { return this.tokens[this.idx]; }
-  next(): Token | undefined { return this.tokens[this.idx++]; }
-  done(): boolean { return this.idx >= this.tokens.length; }
-  position(): number { return this.idx; }
-  setPosition(pos: number): void { this.idx = pos; }
+  peek(): Token | undefined {
+    return this.tokens[this.idx];
+  }
+  next(): Token | undefined {
+    return this.tokens[this.idx++];
+  }
+  done(): boolean {
+    return this.idx >= this.tokens.length;
+  }
+  position(): number {
+    return this.idx;
+  }
+  setPosition(pos: number): void {
+    this.idx = pos;
+  }
 
   skipWS(): void {
     while (this.idx < this.tokens.length && this.tokens[this.idx].kind === 'whitespace') this.idx++;

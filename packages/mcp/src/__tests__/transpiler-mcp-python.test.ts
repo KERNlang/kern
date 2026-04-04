@@ -1,9 +1,9 @@
-import { transpileMCPPython } from '../transpiler-mcp-python.js';
 import type { IRNode } from '@kernlang/core';
 import { execSync, spawn } from 'child_process';
-import { writeFileSync, mkdtempSync, rmSync } from 'fs';
-import { join } from 'path';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
+import { join } from 'path';
+import { transpileMCPPython } from '../transpiler-mcp-python.js';
 
 function node(type: string, props: Record<string, unknown> = {}, children: IRNode[] = []): IRNode {
   return { type, props, children, loc: { line: 1, col: 1, endLine: 1, endCol: 1 } } as IRNode;
@@ -20,7 +20,7 @@ describe('transpileMCPPython', () => {
 
     const result = transpileMCPPython(ast);
     expect(result.code).toContain('from mcp.server.fastmcp import FastMCP');
-    expect(result.code).toContain("mcp = FastMCP(");
+    expect(result.code).toContain('mcp = FastMCP(');
     expect(result.code).toContain('@mcp.tool()');
     expect(result.code).toContain('async def greet(name: str)');
     expect(result.code).toContain('"""Say hello"""');
@@ -141,9 +141,7 @@ describe('transpileMCPPython', () => {
 
   it('should generate auth guard', () => {
     const ast = node('mcp', { name: 'AuthPy' }, [
-      node('tool', { name: 'secret' }, [
-        node('guard', { type: 'auth', env: 'API_KEY' }),
-      ]),
+      node('tool', { name: 'secret' }, [node('guard', { type: 'auth', env: 'API_KEY' })]),
     ]);
 
     const result = transpileMCPPython(ast);
@@ -152,9 +150,7 @@ describe('transpileMCPPython', () => {
   });
 
   it('should return valid TranspileResult', () => {
-    const ast = node('mcp', { name: 'ShapePy' }, [
-      node('tool', { name: 'test' }),
-    ]);
+    const ast = node('mcp', { name: 'ShapePy' }, [node('tool', { name: 'test' })]);
 
     const result = transpileMCPPython(ast);
     expect(result).toHaveProperty('code');
@@ -170,9 +166,7 @@ describe('transpileMCPPython', () => {
 
 describe('transpileMCPPython review fixes', () => {
   it('should import McpError and INTERNAL_ERROR for proper error semantics', () => {
-    const ast = node('mcp', { name: 'ErrorSemPy' }, [
-      node('tool', { name: 'test' }),
-    ]);
+    const ast = node('mcp', { name: 'ErrorSemPy' }, [node('tool', { name: 'test' })]);
 
     const result = transpileMCPPython(ast);
     expect(result.code).toContain('from mcp.shared.exceptions import McpError');
@@ -181,9 +175,7 @@ describe('transpileMCPPython review fixes', () => {
   });
 
   it('should use structured JSON logging, not flat f-strings', () => {
-    const ast = node('mcp', { name: 'LogPy' }, [
-      node('tool', { name: 'search' }),
-    ]);
+    const ast = node('mcp', { name: 'LogPy' }, [node('tool', { name: 'search' })]);
 
     const result = transpileMCPPython(ast);
     expect(result.code).toContain('_JsonFormatter');
@@ -192,9 +184,7 @@ describe('transpileMCPPython review fixes', () => {
   });
 
   it('should use structured logging for resources', () => {
-    const ast = node('mcp', { name: 'ResLogPy' }, [
-      node('resource', { name: 'docs', uri: 'docs://readme' }),
-    ]);
+    const ast = node('mcp', { name: 'ResLogPy' }, [node('resource', { name: 'docs', uri: 'docs://readme' })]);
 
     const result = transpileMCPPython(ast);
     expect(result.code).toContain('extra={"resource":');
@@ -263,7 +253,9 @@ describe('transpileMCPPython handler lang support', () => {
     const ast = node('mcp', { name: 'PromptLangPy' }, [
       node('prompt', { name: 'review' }, [
         node('param', { name: 'code', type: 'string', required: 'true' }),
-        node('handler', { code: 'return { messages: [{ role: "user", content: { type: "text", text: args.code } }] };' }),
+        node('handler', {
+          code: 'return { messages: [{ role: "user", content: { type: "text", text: args.code } }] };',
+        }),
       ]),
     ]);
 
@@ -299,9 +291,7 @@ describe('transpileMCPPython syntax verification', () => {
         node('param', { name: 'active', type: 'boolean', default: 'false' }),
       ]),
       node('resource', { name: 'config', uri: 'config://app' }),
-      node('prompt', { name: 'review' }, [
-        node('param', { name: 'code', type: 'string', required: 'true' }),
-      ]),
+      node('prompt', { name: 'review' }, [node('param', { name: 'code', type: 'string', required: 'true' })]),
     ]);
 
     const result = transpileMCPPython(ast);
@@ -376,7 +366,11 @@ interface MCPResponse {
 }
 
 /** Write Python code to temp dir, spawn it, send MCP messages, return responses. */
-function runPythonMCP(code: string, messages: object[], timeoutMs = 5000): Promise<{ responses: MCPResponse[]; stderr: string }> {
+function runPythonMCP(
+  code: string,
+  messages: object[],
+  timeoutMs = 5000,
+): Promise<{ responses: MCPResponse[]; stderr: string }> {
   return new Promise((resolve, reject) => {
     const dir = mkdtempSync(join(tmpdir(), 'kern-py-e2e-'));
     const pyFile = join(dir, 'server.py');
@@ -397,11 +391,14 @@ function runPythonMCP(code: string, messages: object[], timeoutMs = 5000): Promi
       return typeof id === 'number' ? [id] : [];
     });
     const initRequest = messages.find((msg) => (msg as { method?: unknown }).method === 'initialize');
-    const initializedNotification = messages.find((msg) => (msg as { method?: unknown }).method === 'notifications/initialized');
-    const followupMessages = messages.filter(msg => msg !== initRequest && msg !== initializedNotification);
-    const initId = typeof (initRequest as { id?: unknown } | undefined)?.id === 'number'
-      ? (initRequest as { id: number }).id
-      : undefined;
+    const initializedNotification = messages.find(
+      (msg) => (msg as { method?: unknown }).method === 'notifications/initialized',
+    );
+    const followupMessages = messages.filter((msg) => msg !== initRequest && msg !== initializedNotification);
+    const initId =
+      typeof (initRequest as { id?: unknown } | undefined)?.id === 'number'
+        ? (initRequest as { id: number }).id
+        : undefined;
     let postInitSent = initRequest === undefined;
 
     const cleanup = () => {
@@ -423,13 +420,13 @@ function runPythonMCP(code: string, messages: object[], timeoutMs = 5000): Promi
     };
 
     const maybeFinish = () => {
-      if (requestIds.every(id => responses.some(response => response.id === id))) {
+      if (requestIds.every((id) => responses.some((response) => response.id === id))) {
         finish();
       }
     };
 
     const sendMessage = (msg: object) => {
-      cp.stdin.write(JSON.stringify(msg) + '\n');
+      cp.stdin.write(`${JSON.stringify(msg)}\n`);
     };
 
     const sendPostInit = () => {
@@ -464,7 +461,9 @@ function runPythonMCP(code: string, messages: object[], timeoutMs = 5000): Promi
         newlineIndex = stdoutBuffer.indexOf('\n');
       }
     });
-    cp.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    cp.stderr.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
 
     cp.on('close', () => {
       if (!settled) finish();
@@ -492,7 +491,12 @@ function runPythonMCP(code: string, messages: object[], timeoutMs = 5000): Promi
 
 function initMessages(): object[] {
   return [
-    { jsonrpc: '2.0', method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } }, id: 1 },
+    {
+      jsonrpc: '2.0',
+      method: 'initialize',
+      params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } },
+      id: 1,
+    },
     { jsonrpc: '2.0', method: 'notifications/initialized' },
   ];
 }
@@ -502,8 +506,11 @@ function rpc(method: string, params: object, id: number): object {
 }
 
 function findResponse(responses: MCPResponse[], id: number, stderr = ''): MCPResponse {
-  const r = responses.find(r => r.id === id);
-  if (!r) throw new Error(`No response for id=${id}. Got: ${JSON.stringify(responses)}${stderr ? `\nstderr: ${stderr.slice(0, 500)}` : ''}`);
+  const r = responses.find((r) => r.id === id);
+  if (!r)
+    throw new Error(
+      `No response for id=${id}. Got: ${JSON.stringify(responses)}${stderr ? `\nstderr: ${stderr.slice(0, 500)}` : ''}`,
+    );
   return r;
 }
 
@@ -512,7 +519,9 @@ let hasPythonMCP = false;
 try {
   execSync('python3 -c "from mcp.server.fastmcp import FastMCP"', { stdio: 'pipe', timeout: 10000 });
   hasPythonMCP = true;
-} catch { /* python3 or mcp not installed */ }
+} catch {
+  /* python3 or mcp not installed */
+}
 
 const describeE2E = hasPythonMCP ? describe : describe.skip;
 
@@ -541,9 +550,7 @@ describeE2E('transpileMCPPython runtime E2E', () => {
   // 2. Default handler — tool without Python handler gets stub
   it('should return default stub for tool without Python handler', async () => {
     const ast = node('mcp', { name: 'DefaultPyE2E' }, [
-      node('tool', { name: 'action' }, [
-        node('description', { text: 'Do something' }),
-      ]),
+      node('tool', { name: 'action' }, [node('description', { text: 'Do something' })]),
     ]);
 
     const result = transpileMCPPython(ast);
@@ -564,16 +571,11 @@ describeE2E('transpileMCPPython runtime E2E', () => {
         node('description', { text: 'Tool A' }),
         node('param', { name: 'x', type: 'string' }),
       ]),
-      node('tool', { name: 'beta' }, [
-        node('description', { text: 'Tool B' }),
-      ]),
+      node('tool', { name: 'beta' }, [node('description', { text: 'Tool B' })]),
     ]);
 
     const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [
-      ...initMessages(),
-      rpc('tools/list', {}, 2),
-    ]);
+    const { responses } = await runPythonMCP(result.code, [...initMessages(), rpc('tools/list', {}, 2)]);
 
     const listResponse = findResponse(responses, 2);
     const tools = (listResponse.result as any).tools;
@@ -726,9 +728,7 @@ describeE2E('transpileMCPPython runtime E2E', () => {
   // 11. Error handling — Python handler that raises produces error response
   it('should catch Python handler errors gracefully', async () => {
     const ast = node('mcp', { name: 'ErrorPyE2E' }, [
-      node('tool', { name: 'crasher' }, [
-        node('handler', { lang: 'python', code: 'raise ValueError("intentional")' }),
-      ]),
+      node('tool', { name: 'crasher' }, [node('handler', { lang: 'python', code: 'raise ValueError("intentional")' })]),
     ]);
 
     const result = transpileMCPPython(ast);
@@ -787,19 +787,12 @@ describeE2E('transpileMCPPython runtime E2E', () => {
   // 14. Resource listing
   it('should list resources in Python', async () => {
     const ast = node('mcp', { name: 'ResourceListPyE2E' }, [
-      node('resource', { name: 'config', uri: 'app://config' }, [
-        node('description', { text: 'App config' }),
-      ]),
-      node('resource', { name: 'status', uri: 'app://status' }, [
-        node('description', { text: 'App status' }),
-      ]),
+      node('resource', { name: 'config', uri: 'app://config' }, [node('description', { text: 'App config' })]),
+      node('resource', { name: 'status', uri: 'app://status' }, [node('description', { text: 'App status' })]),
     ]);
 
     const result = transpileMCPPython(ast);
-    const { responses } = await runPythonMCP(result.code, [
-      ...initMessages(),
-      rpc('resources/list', {}, 2),
-    ]);
+    const { responses } = await runPythonMCP(result.code, [...initMessages(), rpc('resources/list', {}, 2)]);
 
     const listResponse = findResponse(responses, 2);
     const resources = (listResponse.result as any).resources;

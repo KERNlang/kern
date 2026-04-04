@@ -42,8 +42,8 @@ function sha256(input: string): string {
 }
 
 function extractTools(irNodes: IRNode[]): Array<{ name: string; description: string; schemaJson: string }> {
-  const actions = irNodes.filter(n => n.type === 'action');
-  return actions.map(action => {
+  const actions = irNodes.filter((n) => n.type === 'action');
+  return actions.map((action) => {
     const name = (action.props?.name as string) || 'unknown';
     const description = (action.props?.description as string) || '';
     const children = action.children ?? [];
@@ -60,7 +60,7 @@ export function generateLockFile(serverFile: string, irNodes: IRNode[]): LockFil
     version: 1,
     generated: now,
     serverFile,
-    tools: tools.map(t => ({
+    tools: tools.map((t) => ({
       name: t.name,
       descriptionHash: sha256(t.description),
       schemaHash: sha256(t.schemaJson),
@@ -74,7 +74,14 @@ export function verifyLockFile(lockPath: string, _serverFile: string, irNodes: I
   try {
     raw = fs.readFileSync(lockPath, 'utf-8');
   } catch (err) {
-    return [{ toolName: '*', field: 'removed', message: `Cannot read lockfile: ${(err as Error).message}`, severity: 'error' }];
+    return [
+      {
+        toolName: '*',
+        field: 'removed',
+        message: `Cannot read lockfile: ${(err as Error).message}`,
+        severity: 'error',
+      },
+    ];
   }
 
   let lockFile: LockFile;
@@ -85,14 +92,16 @@ export function verifyLockFile(lockPath: string, _serverFile: string, irNodes: I
   }
 
   if (!Array.isArray(lockFile.tools)) {
-    return [{ toolName: '*', field: 'removed', message: `Lockfile has no tools array: ${lockPath}`, severity: 'error' }];
+    return [
+      { toolName: '*', field: 'removed', message: `Lockfile has no tools array: ${lockPath}`, severity: 'error' },
+    ];
   }
 
   const drifts: PinDrift[] = [];
 
   const currentTools = extractTools(irNodes);
-  const pinnedByName = new Map(lockFile.tools.map(t => [t.name, t]));
-  const currentByName = new Map(currentTools.map(t => [t.name, t]));
+  const pinnedByName = new Map(lockFile.tools.map((t) => [t.name, t]));
+  const currentByName = new Map(currentTools.map((t) => [t.name, t]));
 
   for (const [name, pinned] of pinnedByName) {
     const current = currentByName.get(name);

@@ -11,7 +11,7 @@ screen name=Lookup
     >>>
 `;
     const report = reviewKernSource(source, 'lookup.kern');
-    const finding = report.findings.find(f => f.ruleId === 'undefined-reference');
+    const finding = report.findings.find((f) => f.ruleId === 'undefined-reference');
 
     expect(finding).toBeDefined();
     expect(finding?.severity).toBe('error');
@@ -30,7 +30,7 @@ fn name=formatArticle params="a:Article" returns=string
   >>>
 `;
     const badReport = reviewKernSource(badSource, 'article.kern');
-    const mismatch = badReport.findings.find(f => f.ruleId === 'type-model-mismatch');
+    const mismatch = badReport.findings.find((f) => f.ruleId === 'type-model-mismatch');
 
     expect(mismatch).toBeDefined();
     expect(mismatch?.category).toBe('type');
@@ -45,7 +45,7 @@ fn name=normalizeArticle params="a:Article" returns=string
   >>>
 `;
     const okReport = reviewKernSource(okSource, 'article-ok.kern');
-    expect(okReport.findings.some(f => f.ruleId === 'type-model-mismatch')).toBe(false);
+    expect(okReport.findings.some((f) => f.ruleId === 'type-model-mismatch')).toBe(false);
   });
 
   it('reports unused state but treats reads and setters as usage', () => {
@@ -60,7 +60,7 @@ hook name=useSearch returns=void
     >>>
 `;
     const report = reviewKernSource(source, 'hook.kern');
-    const unused = report.findings.filter(f => f.ruleId === 'unused-state');
+    const unused = report.findings.filter((f) => f.ruleId === 'unused-state');
 
     expect(unused).toHaveLength(1);
     expect(unused[0].message).toContain('loading');
@@ -78,7 +78,7 @@ fn name=heavy params="input:string" returns=string
   >>>
 `;
     const report = reviewKernSource(source, 'heavy.kern');
-    const finding = report.findings.find(f => f.ruleId === 'handler-heavy');
+    const finding = report.findings.find((f) => f.ruleId === 'handler-heavy');
 
     expect(finding).toBeDefined();
     expect(finding?.severity).toBe('warning');
@@ -94,7 +94,7 @@ fn name=loadUser params="id:string" returns=unknown
   >>>
 `;
     const report = reviewKernSource(source, 'confidence-missing.kern');
-    const finding = report.findings.find(f => f.ruleId === 'missing-confidence');
+    const finding = report.findings.find((f) => f.ruleId === 'missing-confidence');
 
     expect(finding).toBeDefined();
     expect(finding?.severity).toBe('info');
@@ -109,6 +109,6 @@ fn name=loadUser confidence=0.7 params="id:string" returns=unknown
   >>>
 `;
     const annotatedReport = reviewKernSource(annotatedSource, 'confidence-present.kern');
-    expect(annotatedReport.findings.some(f => f.ruleId === 'missing-confidence')).toBe(false);
+    expect(annotatedReport.findings.some((f) => f.ruleId === 'missing-confidence')).toBe(false);
   });
 });

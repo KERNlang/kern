@@ -1,5 +1,5 @@
-import { parse } from '../src/parser.js';
 import { collectCoverageGaps } from '../src/coverage-gap.js';
+import { parse } from '../src/parser.js';
 
 describe('Coverage Gap Emitter', () => {
   it('collects handler escapes as coverage gaps', () => {
@@ -36,11 +36,7 @@ describe('Coverage Gap Emitter', () => {
   });
 
   it('returns empty for handler-free AST', () => {
-    const source = [
-      'screen name="Home"',
-      '  text value="Hello"',
-      '  button label="Click"',
-    ].join('\n');
+    const source = ['screen name="Home"', '  text value="Hello"', '  button label="Click"'].join('\n');
 
     const ast = parse(source);
     const gaps = collectCoverageGaps(ast, 'test.kern');

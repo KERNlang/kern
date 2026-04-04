@@ -1,10 +1,10 @@
-import { transpileMCP } from '../transpiler-mcp.js';
 import type { IRNode } from '@kernlang/core';
 import { execSync } from 'child_process';
-import { writeFileSync, mkdtempSync, rmSync, symlinkSync, existsSync } from 'fs';
-import { join, dirname, resolve } from 'path';
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
+import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { transpileMCP } from '../transpiler-mcp.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MONOREPO_ROOT = resolve(__dirname, '../../../../');
@@ -27,25 +27,40 @@ function assertCompiles(code: string, label: string): void {
       symlinkSync(MCP_SERVER_MODULES, nmTarget, 'dir');
     }
 
-    writeFileSync(join(dir, 'tsconfig.json'), JSON.stringify({
-      compilerOptions: {
-        target: 'ES2022', module: 'ES2022', moduleResolution: 'bundler',
-        strict: false, noEmit: true, skipLibCheck: true,
-        esModuleInterop: true,
-        typeRoots: [resolve(MONOREPO_ROOT, 'node_modules/@types')],
-        types: ['node'],
-      },
-      files: ['server.ts'],
-    }));
-    const result = execSync(`node "${TSC_BIN}" --noEmit -p tsconfig.json 2>&1 || true`, { cwd: dir, timeout: 15000, encoding: 'utf-8' });
+    writeFileSync(
+      join(dir, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          target: 'ES2022',
+          module: 'ES2022',
+          moduleResolution: 'bundler',
+          strict: false,
+          noEmit: true,
+          skipLibCheck: true,
+          esModuleInterop: true,
+          typeRoots: [resolve(MONOREPO_ROOT, 'node_modules/@types')],
+          types: ['node'],
+        },
+        files: ['server.ts'],
+      }),
+    );
+    const result = execSync(`node "${TSC_BIN}" --noEmit -p tsconfig.json 2>&1 || true`, {
+      cwd: dir,
+      timeout: 15000,
+      encoding: 'utf-8',
+    });
     if (result.includes('error TS')) {
       throw new Error(`tsc errors:\n${result}`);
     }
   } catch (e) {
     if (e instanceof Error && e.message.startsWith('tsc errors:')) {
-      throw new Error(`Generated code for "${label}" does not compile:\n${e.message}\n\nCode:\n${code.split('\n').slice(0, 20).join('\n')}...`);
+      throw new Error(
+        `Generated code for "${label}" does not compile:\n${e.message}\n\nCode:\n${code.split('\n').slice(0, 20).join('\n')}...`,
+      );
     }
-    throw new Error(`Generated code for "${label}" — compile check failed:\n${e instanceof Error ? e.message : String(e)}`);
+    throw new Error(
+      `Generated code for "${label}" — compile check failed:\n${e instanceof Error ? e.message : String(e)}`,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -120,9 +135,7 @@ describe('transpileMCP', () => {
 
   it('should auto-inject pathContainment for path-like params', () => {
     const ast = node('mcp', { name: 'AutoGuard' }, [
-      node('tool', { name: 'readFile' }, [
-        node('param', { name: 'filePath', type: 'string', required: 'true' }),
-      ]),
+      node('tool', { name: 'readFile' }, [node('param', { name: 'filePath', type: 'string', required: 'true' })]),
     ]);
 
     const result = transpileMCP(ast);
@@ -181,9 +194,7 @@ describe('transpileMCP', () => {
   });
 
   it('should auto-inject logging and error handling', () => {
-    const ast = node('mcp', { name: 'LoggedServer' }, [
-      node('tool', { name: 'action' }),
-    ]);
+    const ast = node('mcp', { name: 'LoggedServer' }, [node('tool', { name: 'action' })]);
 
     const result = transpileMCP(ast);
     expect(result.code).toContain('logger.info');
@@ -204,9 +215,7 @@ describe('transpileMCP', () => {
   });
 
   it('should return valid TranspileResult shape', () => {
-    const ast = node('mcp', { name: 'ShapeTest' }, [
-      node('tool', { name: 'test' }),
-    ]);
+    const ast = node('mcp', { name: 'ShapeTest' }, [node('tool', { name: 'test' })]);
 
     const result = transpileMCP(ast);
     expect(result).toHaveProperty('code');
@@ -262,9 +271,7 @@ describe('transpileMCP', () => {
 
   it('should emit boolean default as literal not string (Bug 3 regression)', () => {
     const ast = node('mcp', { name: 'BoolDefaultServer' }, [
-      node('tool', { name: 'toggle' }, [
-        node('param', { name: 'enabled', type: 'boolean', default: 'false' }),
-      ]),
+      node('tool', { name: 'toggle' }, [node('param', { name: 'enabled', type: 'boolean', default: 'false' })]),
     ]);
 
     const result = transpileMCP(ast);
@@ -286,9 +293,7 @@ describe('transpileMCP', () => {
 
   it('should handle mcp node nested inside document', () => {
     const ast = node('document', {}, [
-      node('mcp', { name: 'NestedServer', version: '2.0' }, [
-        node('tool', { name: 'ping' }),
-      ]),
+      node('mcp', { name: 'NestedServer', version: '2.0' }, [node('tool', { name: 'ping' })]),
     ]);
 
     const result = transpileMCP(ast);
@@ -339,9 +344,7 @@ describe('transpileMCP', () => {
 
   it('should generate auth guard with checkAuth helper', () => {
     const ast = node('mcp', { name: 'AuthServer' }, [
-      node('tool', { name: 'secret' }, [
-        node('guard', { type: 'auth', env: 'API_KEY' }),
-      ]),
+      node('tool', { name: 'secret' }, [node('guard', { type: 'auth', env: 'API_KEY' })]),
     ]);
 
     const result = transpileMCP(ast);
@@ -352,9 +355,7 @@ describe('transpileMCP', () => {
 
   it('should generate rateLimit guard with store', () => {
     const ast = node('mcp', { name: 'RateLimitServer' }, [
-      node('tool', { name: 'expensive' }, [
-        node('guard', { type: 'rateLimit', window: '60000', requests: '10' }),
-      ]),
+      node('tool', { name: 'expensive' }, [node('guard', { type: 'rateLimit', window: '60000', requests: '10' })]),
     ]);
 
     const result = transpileMCP(ast);
@@ -402,7 +403,9 @@ describe('transpileMCP', () => {
       node('tool', { name: 'summarize' }, [
         node('param', { name: 'text', type: 'string', required: 'true' }),
         node('sampling', { maxTokens: '200' }),
-        node('handler', { code: 'const summary = await requestSampling(`Summarize: ${params.text}`);\nreturn summary;' }),
+        node('handler', {
+          code: 'const summary = await requestSampling(`Summarize: ${params.text}`);\nreturn summary;',
+        }),
       ]),
     ]);
 
@@ -464,9 +467,7 @@ describe('transpileMCP edge cases', () => {
 
   it('should handle tool names with hyphens', () => {
     const ast = node('mcp', { name: 'HyphenServer' }, [
-      node('tool', { name: 'my-tool-name' }, [
-        node('param', { name: 'input', type: 'string' }),
-      ]),
+      node('tool', { name: 'my-tool-name' }, [node('param', { name: 'input', type: 'string' })]),
     ]);
 
     const result = transpileMCP(ast);
@@ -486,9 +487,7 @@ describe('transpileMCP edge cases', () => {
 
   it('should handle tool with empty handler code', () => {
     const ast = node('mcp', { name: 'EmptyHandlerServer' }, [
-      node('tool', { name: 'test' }, [
-        node('handler', { code: '' }),
-      ]),
+      node('tool', { name: 'test' }, [node('handler', { code: '' })]),
     ]);
 
     const result = transpileMCP(ast);
@@ -497,11 +496,7 @@ describe('transpileMCP edge cases', () => {
   });
 
   it('should default param type to string when not specified', () => {
-    const ast = node('mcp', { name: 'NoTypeServer' }, [
-      node('tool', { name: 'test' }, [
-        node('param', { name: 'x' }),
-      ]),
-    ]);
+    const ast = node('mcp', { name: 'NoTypeServer' }, [node('tool', { name: 'test' }, [node('param', { name: 'x' })])]);
 
     const result = transpileMCP(ast);
     expect(result.code).toContain('z.string()');
@@ -522,9 +517,7 @@ describe('transpileMCP edge cases', () => {
   });
 
   it('should not emit dead normalizeToolResult helper', () => {
-    const ast = node('mcp', { name: 'CleanServer' }, [
-      node('tool', { name: 'test' }),
-    ]);
+    const ast = node('mcp', { name: 'CleanServer' }, [node('tool', { name: 'test' })]);
 
     const result = transpileMCP(ast);
     expect(result.code).not.toContain('normalizeToolResult');
@@ -594,20 +587,18 @@ describe('transpileMCP review fix regressions', () => {
 
     // Transport creation must be OUTSIDE the request handler
     const lines = result.code.split('\n');
-    const transportLine = lines.findIndex(l => l.includes('new StreamableHTTPServerTransport'));
-    const postLine = lines.findIndex(l => l.includes('app.post'));
+    const transportLine = lines.findIndex((l) => l.includes('new StreamableHTTPServerTransport'));
+    const postLine = lines.findIndex((l) => l.includes('app.post'));
     expect(transportLine).toBeLessThan(postLine);
 
     // server.connect must be OUTSIDE the request handler
-    const connectLine = lines.findIndex(l => l.includes('server.connect'));
+    const connectLine = lines.findIndex((l) => l.includes('server.connect'));
     expect(connectLine).toBeLessThan(postLine);
   });
 
   it('should fallback to 0 for NaN numeric default value', () => {
     const ast = node('mcp', { name: 'DefaultNaN' }, [
-      node('tool', { name: 'test' }, [
-        node('param', { name: 'count', type: 'number', default: 'notanumber' }),
-      ]),
+      node('tool', { name: 'test' }, [node('param', { name: 'count', type: 'number', default: 'notanumber' })]),
     ]);
 
     const result = transpileMCP(ast);
@@ -641,9 +632,7 @@ describe('transpileMCP compile verification', () => {
         node('guard', { type: 'validate', param: 'limit', min: '1', max: '100' }),
       ]),
       node('resource', { name: 'config', uri: 'config://app' }),
-      node('prompt', { name: 'review' }, [
-        node('param', { name: 'code', type: 'string', required: 'true' }),
-      ]),
+      node('prompt', { name: 'review' }, [node('param', { name: 'code', type: 'string', required: 'true' })]),
     ]);
 
     const result = transpileMCP(ast);
@@ -664,9 +653,7 @@ describe('transpileMCP compile verification', () => {
 
   it('should generate valid TypeScript with ResourceTemplate', () => {
     const ast = node('mcp', { name: 'TemplateServer' }, [
-      node('resource', { name: 'doc', uri: 'docs://{docId}' }, [
-        node('description', { text: 'Get doc by ID' }),
-      ]),
+      node('resource', { name: 'doc', uri: 'docs://{docId}' }, [node('description', { text: 'Get doc by ID' })]),
     ]);
 
     const result = transpileMCP(ast);

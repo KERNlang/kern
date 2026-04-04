@@ -1,34 +1,35 @@
 /**
  * @kernlang/vue — Vue 3 SFC + Nuxt 3 transpilers + Vue Tailwind + codegen + structure planning
  */
-export { transpileVue } from './transpiler-vue.js';
-export { transpileNuxt } from './transpiler-nuxt.js';
-export { transpileTailwindVue } from './transpiler-tailwind-vue.js';
+
+export type { StructuredResult } from './artifact-utils-vue.js';
+export { buildVueStructuredArtifacts } from './artifact-utils-vue.js';
 export {
-  generateVueProvider,
   generateVueEffect,
+  generateVueGroundNode,
   generateVueHook,
   generateVueNode,
-  isVueNode,
+  generateVueProvider,
   isVueGroundNode,
-  generateVueGroundNode,
+  isVueNode,
 } from './codegen-vue.js';
-export {
-  classifyNode,
-  planVueStructure,
-  adaptPlanForNuxt,
-  extractComposables,
-  generateStateComposableCode,
-  generateLogicComposableCode,
-  generateTypesCode,
-  generateBarrelCode,
-} from './structure-vue.js';
 export type {
+  BarrelExport,
+  ExtractedComposable,
   NodeRole,
   PlannedFile,
   StructurePlan,
-  BarrelExport,
-  ExtractedComposable,
 } from './structure-vue.js';
-export { buildVueStructuredArtifacts } from './artifact-utils-vue.js';
-export type { StructuredResult } from './artifact-utils-vue.js';
+export {
+  adaptPlanForNuxt,
+  classifyNode,
+  extractComposables,
+  generateBarrelCode,
+  generateLogicComposableCode,
+  generateStateComposableCode,
+  generateTypesCode,
+  planVueStructure,
+} from './structure-vue.js';
+export { transpileNuxt } from './transpiler-nuxt.js';
+export { transpileTailwindVue } from './transpiler-tailwind-vue.js';
+export { transpileVue } from './transpiler-vue.js';

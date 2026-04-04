@@ -9,9 +9,9 @@
  * Go: db.Query() in a handler without auth/validation
  */
 
-import type { ConceptRuleContext } from './index.js';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
+import type { ConceptRuleContext } from './index.js';
 
 const GUARD_SUBTYPES = new Set(['auth', 'validation']);
 

@@ -45,10 +45,12 @@ export function pascalCase(value: string): string {
 }
 
 export function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'generated';
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'generated'
+  );
 }
 
 export function escapeSingleQuotes(value: string): string {
@@ -56,7 +58,7 @@ export function escapeSingleQuotes(value: string): string {
 }
 
 export function indentBlock(code: string, indent: string): string[] {
-  return code.split('\n').map(line => `${indent}${line}`);
+  return code.split('\n').map((line) => `${indent}${line}`);
 }
 
 export function splitTopLevel(value: string): string[] {
@@ -96,7 +98,10 @@ export function splitTopLevel(value: string): string[] {
 
 /** Map TS/KERN schema types to JS typeof categories for runtime validation. */
 export function toTypeofCategory(tsType: string): string | undefined {
-  const t = tsType.trim().replace(/\s*\|\s*undefined$/, '').replace(/\s*\|\s*null$/, '');
+  const t = tsType
+    .trim()
+    .replace(/\s*\|\s*undefined$/, '')
+    .replace(/\s*\|\s*null$/, '');
   if (t === 'string') return 'string';
   if (t === 'number' || t === 'int' || t === 'float') return 'number';
   if (t === 'boolean' || t === 'bool') return 'boolean';
@@ -104,7 +109,7 @@ export function toTypeofCategory(tsType: string): string | undefined {
 }
 
 export function extractRequiredKeys(schemaType: string): string[] {
-  return extractRequiredKeyTypes(schemaType).map(k => k.key);
+  return extractRequiredKeyTypes(schemaType).map((k) => k.key);
 }
 
 export function extractRequiredKeyTypes(schemaType: string): KeyTypeInfo[] {
@@ -130,13 +135,13 @@ export function extractRequiredKeyTypes(schemaType: string): KeyTypeInfo[] {
 
 export function derivePathParams(path: string): string[] {
   const matches = path.matchAll(/:([A-Za-z_][A-Za-z0-9_]*)/g);
-  return [...matches].map(match => match[1]);
+  return [...matches].map((match) => match[1]);
 }
 
 export function buildPathParamsType(path: string): string | undefined {
   const params = derivePathParams(path);
   if (params.length === 0) return undefined;
-  return `{ ${params.map(param => `${param}: string`).join('; ')} }`;
+  return `{ ${params.map((param) => `${param}: string`).join('; ')} }`;
 }
 
 export function findServerNode(root: IRNode): IRNode | undefined {

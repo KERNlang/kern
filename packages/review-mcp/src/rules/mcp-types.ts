@@ -8,15 +8,15 @@ import { createFingerprint } from '@kernlang/review';
 // ── Confidence defaults per rule ──────────────────────────────────────
 
 export const RULE_CONFIDENCE: Record<string, number> = {
-  'mcp-command-injection':    0.95,  // Direct code execution
-  'mcp-path-traversal':      0.90,  // Direct vulnerability
-  'mcp-secrets-exposure':    0.90,  // Direct pattern match
-  'mcp-tool-poisoning':      0.85,  // Pattern-based
-  'mcp-typosquatting':       0.85,  // Levenshtein heuristic
-  'mcp-unsanitized-response': 0.80, // Structural
-  'mcp-missing-validation':  0.80,  // Structural
-  'mcp-missing-auth':        0.80,  // Structural
-  'mcp-data-injection':      0.70,  // Data-level heuristic
+  'mcp-command-injection': 0.95, // Direct code execution
+  'mcp-path-traversal': 0.9, // Direct vulnerability
+  'mcp-secrets-exposure': 0.9, // Direct pattern match
+  'mcp-tool-poisoning': 0.85, // Pattern-based
+  'mcp-typosquatting': 0.85, // Levenshtein heuristic
+  'mcp-unsanitized-response': 0.8, // Structural
+  'mcp-missing-validation': 0.8, // Structural
+  'mcp-missing-auth': 0.8, // Structural
+  'mcp-data-injection': 0.7, // Data-level heuristic
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -43,6 +43,6 @@ export function finding(
     primarySpan: span(file, line),
     fingerprint: createFingerprint(ruleId, line, 1),
     ...(suggestion ? { suggestion } : {}),
-    confidence: confidence ?? RULE_CONFIDENCE[ruleId] ?? 0.80,
+    confidence: confidence ?? RULE_CONFIDENCE[ruleId] ?? 0.8,
   };
 }

@@ -3,9 +3,7 @@ import type { SourceMapEntry } from '../src/types.js';
 
 describe('Source Map v3 Serializer', () => {
   it('produces valid v3 structure', () => {
-    const entries: SourceMapEntry[] = [
-      { irLine: 1, irCol: 1, outLine: 1, outCol: 1 },
-    ];
+    const entries: SourceMapEntry[] = [{ irLine: 1, irCol: 1, outLine: 1, outCol: 1 }];
     const map = serializeSourceMap(entries, 'Home.tsx', 'Home.kern');
 
     expect(map.version).toBe(3);
@@ -17,9 +15,7 @@ describe('Source Map v3 Serializer', () => {
   });
 
   it('encodes single entry correctly', () => {
-    const entries: SourceMapEntry[] = [
-      { irLine: 1, irCol: 1, outLine: 1, outCol: 1 },
-    ];
+    const entries: SourceMapEntry[] = [{ irLine: 1, irCol: 1, outLine: 1, outCol: 1 }];
     const map = serializeSourceMap(entries, 'out.tsx', 'in.kern');
     // All zeros (0-indexed: outCol=0, sourceIdx=0, irLine=0, irCol=0) → AAAA
     expect(map.mappings).toBe('AAAA');

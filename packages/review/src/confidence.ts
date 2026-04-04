@@ -19,26 +19,26 @@ import type { IRNode } from '@kernlang/core';
 
 export interface ConfidenceSpec {
   kind: 'literal' | 'inherited';
-  value?: number;           // for literal: 0.0–1.0
-  strategy: 'min';          // only min for v1 (product/max deferred)
-  sources?: string[];       // node names for inherited
+  value?: number; // for literal: 0.0–1.0
+  strategy: 'min'; // only min for v1 (product/max deferred)
+  sources?: string[]; // node names for inherited
 }
 
 export interface ConfidenceNode {
-  name: string;             // node name, or fallback `type:line` for anonymous
-  nodeRef: { type: string; line: number };  // lightweight ref (not full IRNode)
-  sourceFile?: string;      // file path for multi-file graphs
+  name: string; // node name, or fallback `type:line` for anonymous
+  nodeRef: { type: string; line: number }; // lightweight ref (not full IRNode)
+  sourceFile?: string; // file path for multi-file graphs
   spec: ConfidenceSpec;
-  resolved: number | null;  // null = unresolved. No sentinel values.
+  resolved: number | null; // null = unresolved. No sentinel values.
   dependsOn: string[];
   dependedBy: string[];
   needs: NeedsEntry[];
-  inCycle: boolean;         // true if part of a cycle
+  inCycle: boolean; // true if part of a cycle
 }
 
 export interface NeedsEntry {
   what: string;
-  wouldRaiseTo: number | undefined;  // undefined if not specified
+  wouldRaiseTo: number | undefined; // undefined if not specified
   resolved: boolean;
 }
 
@@ -75,9 +75,9 @@ export interface SerializedConfidenceGraph {
 }
 
 export interface ConfidenceSummary {
-  high: number;    // > 0.9
-  medium: number;  // 0.7–0.9
-  low: number;     // < 0.7
+  high: number; // > 0.9
+  medium: number; // 0.7–0.9
+  low: number; // < 0.7
   unresolved: number;
   unresolvedNeeds: number;
 }
@@ -90,7 +90,7 @@ function props(node: IRNode): Record<string, unknown> {
 
 function children(node: IRNode, type?: string): IRNode[] {
   const c = node.children || [];
-  return type ? c.filter(n => n.type === type) : c;
+  return type ? c.filter((n) => n.type === type) : c;
 }
 
 function nodeKey(node: IRNode): string {
@@ -110,7 +110,7 @@ export function parseConfidence(raw: unknown): ConfidenceSpec | undefined {
 
   // literal number: "0.7"
   const num = parseFloat(str);
-  if (!isNaN(num) && /^[0-9]*\.?[0-9]+$/.test(str)) {
+  if (!Number.isNaN(num) && /^[0-9]*\.?[0-9]+$/.test(str)) {
     if (num < 0 || num > 1) return undefined;
     return { kind: 'literal', value: num, strategy: 'min' };
   }
@@ -124,7 +124,11 @@ export function parseConfidence(raw: unknown): ConfidenceSpec | undefined {
 
   // min:a,b,c — inherits from multiple
   if (str.startsWith('min:')) {
-    const sources = str.slice(4).split(',').map(s => s.trim()).filter(Boolean);
+    const sources = str
+      .slice(4)
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
     if (sources.length === 0) return undefined;
     return { kind: 'inherited', strategy: 'min', sources };
   }
@@ -162,14 +166,14 @@ function registerNodes(
     }
 
     const needsChildren = children(node, 'needs');
-    const needsEntries: NeedsEntry[] = needsChildren.map(n => {
+    const needsEntries: NeedsEntry[] = needsChildren.map((n) => {
       const np = props(n);
       const wouldRaise = np['would-raise-to'] as string | undefined;
       const parsed = wouldRaise !== undefined ? parseFloat(wouldRaise) : undefined;
       const resolved = np.resolved === 'true' || np.resolved === true;
       return {
-        what: np.what as string || np.description as string || '',
-        wouldRaiseTo: (parsed !== undefined && !isNaN(parsed) && parsed >= 0 && parsed <= 1) ? parsed : undefined,
+        what: (np.what as string) || (np.description as string) || '',
+        wouldRaiseTo: parsed !== undefined && !Number.isNaN(parsed) && parsed >= 0 && parsed <= 1 ? parsed : undefined,
         resolved,
       };
     });
@@ -210,7 +214,7 @@ function wireEdges(nodes: Map<string, ConfidenceNode>): void {
 function kahnSort(nodes: Map<string, ConfidenceNode>): { topoOrder: string[]; cycles: string[][] } {
   const inDegree = new Map<string, number>();
   for (const [key, cnode] of nodes) {
-    const validDeps = cnode.dependsOn.filter(d => nodes.has(d));
+    const validDeps = cnode.dependsOn.filter((d) => nodes.has(d));
     inDegree.set(key, validDeps.length);
   }
 
@@ -234,7 +238,7 @@ function kahnSort(nodes: Map<string, ConfidenceNode>): { topoOrder: string[]; cy
   // Detect cycles: any node not in topoOrder is in a cycle
   const cycles: string[][] = [];
   const inTopo = new Set(topoOrder);
-  const cycleNodes = [...nodes.keys()].filter(k => !inTopo.has(k));
+  const cycleNodes = [...nodes.keys()].filter((k) => !inTopo.has(k));
   if (cycleNodes.length > 0) {
     for (const cn of cycleNodes) {
       nodes.get(cn)!.inCycle = true;
@@ -322,7 +326,7 @@ export function propagateConfidence(graph: ConfidenceGraph): void {
 /** Serialize a confidence graph (strips Map, uses arrays). */
 export function serializeGraph(graph: ConfidenceGraph): SerializedConfidenceGraph {
   const isMulti = 'duplicates' in graph;
-  const nodes = [...graph.nodes.values()].map(n => ({
+  const nodes = [...graph.nodes.values()].map((n) => ({
     name: n.name,
     nodeRef: n.nodeRef,
     ...(n.sourceFile ? { sourceFile: n.sourceFile } : {}),
@@ -342,7 +346,11 @@ export function serializeGraph(graph: ConfidenceGraph): SerializedConfidenceGrap
 
 /** Compute confidence summary bands. */
 export function computeConfidenceSummary(graph: ConfidenceGraph): ConfidenceSummary {
-  let high = 0, medium = 0, low = 0, unresolved = 0, unresolvedNeeds = 0;
+  let high = 0,
+    medium = 0,
+    low = 0,
+    unresolved = 0,
+    unresolvedNeeds = 0;
 
   for (const cnode of graph.nodes.values()) {
     if (cnode.resolved === null) {

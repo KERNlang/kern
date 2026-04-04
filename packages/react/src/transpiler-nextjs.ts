@@ -1,11 +1,11 @@
-import type { IRNode, TranspileResult, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
-import { countTokens, serializeIR, buildDiagnostics, accountNode, getProps } from '@kernlang/core';
-import { planStructure } from './structure.js';
-import type { PlannedFile } from './structure.js';
+import type { AccountedEntry, IRNode, ResolvedKernConfig, TranspileResult } from '@kernlang/core';
+import { accountNode, buildDiagnostics, countTokens, getProps, serializeIR } from '@kernlang/core';
 import { buildStructuredArtifacts } from './artifact-utils.js';
-import type { NextFile } from './nextjs-types.js';
-import { routeToPath } from './nextjs-style.js';
 import { renderAndAssemble } from './nextjs-assembler.js';
+import { routeToPath } from './nextjs-style.js';
+import type { NextFile } from './nextjs-types.js';
+import type { PlannedFile } from './structure.js';
+import { planStructure } from './structure.js';
 
 /**
  * Next.js App Router Transpiler
@@ -42,11 +42,8 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
   const rootProps = getProps(root);
   const name = (rootProps.name as string) || 'Page';
 
-  const { ctx, code: output } = renderAndAssemble(
-    root,
-    config,
-    name,
-    (stateName) => root.children?.find(c => c.type === 'state' && c.props?.name === stateName),
+  const { ctx, code: output } = renderAndAssemble(root, config, name, (stateName) =>
+    root.children?.find((c) => c.type === 'state' && c.props?.name === stateName),
   );
 
   const irText = serializeIR(root);
@@ -57,7 +54,7 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
   // Determine output filename convention (route-aware)
   const route = rootProps.route as string | undefined;
   const segment = rootProps.segment as string | undefined;
-  const routePrefix = route ? routeToPath(route, segment) : (segment ? routeToPath('', segment) : '');
+  const routePrefix = route ? routeToPath(route, segment) : segment ? routeToPath('', segment) : '';
   const isLayout = root.type === 'layout';
   const isLoading = root.type === 'loading';
   const isError = root.type === 'error';
@@ -71,7 +68,7 @@ function _transpileNextjsInner(root: IRNode, config?: ResolvedKernConfig): NextT
   accountNode(accounted, root, 'expressed', undefined, true);
   const CONSUMED = new Set(['state', 'logic', 'on', 'theme', 'handler']);
   for (const child of root.children || []) {
-    if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+    if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', `${child.type} pre-pass`, true);
   }
 
   return {
@@ -91,15 +88,10 @@ function _renderNextjsFile(file: PlannedFile, config: ResolvedKernConfig): strin
   const rootNode = file.rootNode;
   const name = file.componentName || (rootNode.props?.name as string) || 'Component';
 
-  const { code } = renderAndAssemble(
-    rootNode,
-    config,
-    name,
-    (stateName) => {
-      const firstNode = file.nodes[0];
-      return firstNode?.children?.find((c: IRNode) => c.type === 'state' && c.props?.name === stateName);
-    },
-  );
+  const { code } = renderAndAssemble(rootNode, config, name, (stateName) => {
+    const firstNode = file.nodes[0];
+    return firstNode?.children?.find((c: IRNode) => c.type === 'state' && c.props?.name === stateName);
+  });
 
   return code;
 }
@@ -123,8 +115,8 @@ function _transpileNextjsStructured(
 
   // Convert artifacts to NextFile[] for files property
   const files: NextFile[] = artifacts
-    .filter(a => a.path.endsWith('.tsx'))
-    .map(a => ({ path: a.path, content: a.content }));
+    .filter((a) => a.path.endsWith('.tsx'))
+    .map((a) => ({ path: a.path, content: a.content }));
 
   return {
     code: entryCode,

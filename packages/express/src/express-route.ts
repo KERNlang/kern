@@ -1,14 +1,19 @@
 import type { IRNode, SourceMapEntry } from '@kernlang/core';
 import { getChildren, getFirstChild, getProps } from '@kernlang/core';
-import type { KeyTypeInfo, MiddlewareArtifactRef, RouteArtifactRef } from './express-types.js';
-import { HTTP_METHODS, analyzeRouteCapabilities } from './express-types.js';
-import { generateStreamSetup, generateStreamWrap, generateSpawnCode, generateTimerCode } from './express-stream.js';
-import {
-  buildPathParamsType, derivePathParams, escapeSingleQuotes, extractRequiredKeyTypes,
-  indentBlock, routeFileBase, routeRegisterName,
-} from './express-utils.js';
 import { buildSchema, resolveMiddlewareUsage } from './express-middleware.js';
 import { generatePortableHandlerExpress } from './express-portable.js';
+import { generateSpawnCode, generateStreamSetup, generateStreamWrap, generateTimerCode } from './express-stream.js';
+import type { KeyTypeInfo, MiddlewareArtifactRef, RouteArtifactRef } from './express-types.js';
+import { analyzeRouteCapabilities, HTTP_METHODS } from './express-types.js';
+import {
+  buildPathParamsType,
+  derivePathParams,
+  escapeSingleQuotes,
+  extractRequiredKeyTypes,
+  indentBlock,
+  routeFileBase,
+  routeRegisterName,
+} from './express-utils.js';
 
 export function buildRouteArtifact(
   routeNode: IRNode,
@@ -34,9 +39,14 @@ export function buildRouteArtifact(
   const eachNodes = getChildren(routeNode, 'each');
   const collectNodes = getChildren(routeNode, 'collect');
   const effectNodes = getChildren(routeNode, 'effect');
-  const hasPortableNodes = deriveNodes.length > 0 || guardNodes.length > 0 || !!respondNode
-    || branchNodes.length > 0 || eachNodes.length > 0 || collectNodes.length > 0
-    || effectNodes.length > 0;
+  const hasPortableNodes =
+    deriveNodes.length > 0 ||
+    guardNodes.length > 0 ||
+    !!respondNode ||
+    branchNodes.length > 0 ||
+    eachNodes.length > 0 ||
+    collectNodes.length > 0 ||
+    effectNodes.length > 0;
 
   // Get handler code — priority: stream handler > timer handler > route handler > portable > 501
   const handlerNode = caps.hasStream
@@ -47,9 +57,12 @@ export function buildRouteArtifact(
   const routeHandlerNode = getFirstChild(routeNode, 'handler');
   const handlerProps = handlerNode ? getProps(handlerNode) : {};
   const routeHandlerCode = routeHandlerNode ? String(getProps(routeHandlerNode).code || '') : '';
-  const handlerCode = typeof handlerProps.code === 'string'
-    ? String(handlerProps.code)
-    : caps.hasStream || caps.hasTimer || hasPortableNodes ? '' : `res.status(501).json({ error: 'Route handler not implemented' });`;
+  const handlerCode =
+    typeof handlerProps.code === 'string'
+      ? String(handlerProps.code)
+      : caps.hasStream || caps.hasTimer || hasPortableNodes
+        ? ''
+        : `res.status(501).json({ error: 'Route handler not implemented' });`;
 
   const routeMiddleware = getChildren(routeNode, 'middleware');
   const routeImports = new Set<string>();
@@ -101,8 +114,8 @@ export function buildRouteArtifact(
   }
 
   // v3 route children: error (HTTP error contract)
-  const errorNodes = getChildren(routeNode, 'error').filter(n => typeof getProps(n).status === 'number');
-  const errorResponses: Array<{ status: number; message: string }> = errorNodes.map(n => ({
+  const errorNodes = getChildren(routeNode, 'error').filter((n) => typeof getProps(n).status === 'number');
+  const errorResponses: Array<{ status: number; message: string }> = errorNodes.map((n) => ({
     status: getProps(n).status as number,
     message: String(getProps(n).message || 'Error'),
   }));
@@ -116,12 +129,19 @@ export function buildRouteArtifact(
   const validationLines: string[] = [];
   // Params and query arrive as strings in Express — only check existence, not typeof.
   // Body comes from JSON parsing and has real types — check both existence and typeof.
-  const requiredParamKeys = (schema.params ? extractRequiredKeyTypes(schema.params) : derivePathParams(path).map(k => ({ key: k, type: 'any' }))).map(k => ({ ...k, type: 'any' }));
+  const requiredParamKeys = (
+    schema.params
+      ? extractRequiredKeyTypes(schema.params)
+      : derivePathParams(path).map((k) => ({ key: k, type: 'any' }))
+  ).map((k) => ({ ...k, type: 'any' }));
   const requiredBodyKeys = schema.body ? extractRequiredKeyTypes(schema.body) : [];
-  const requiredQueryKeys = (schema.query ? extractRequiredKeyTypes(schema.query) : []).map(k => ({ ...k, type: 'any' }));
+  const requiredQueryKeys = (schema.query ? extractRequiredKeyTypes(schema.query) : []).map((k) => ({
+    ...k,
+    type: 'any',
+  }));
 
   function formatFieldSpec(fields: KeyTypeInfo[]): string {
-    return `[${fields.map(f => `{ key: '${escapeSingleQuotes(f.key)}', type: '${f.type}' }`).join(', ')}]`;
+    return `[${fields.map((f) => `{ key: '${escapeSingleQuotes(f.key)}', type: '${f.type}' }`).join(', ')}]`;
   }
 
   if (requiredParamKeys.length > 0) {
@@ -153,7 +173,9 @@ export function buildRouteArtifact(
   lines.push(`type ResponseBody = ${responseType};`);
   if (validationLines.length > 0) {
     lines.push('');
-    lines.push(`function assertRequiredFields(label: string, value: unknown, fields: Array<{ key: string; type: string }>): void {`);
+    lines.push(
+      `function assertRequiredFields(label: string, value: unknown, fields: Array<{ key: string; type: string }>): void {`,
+    );
     lines.push(`  if (typeof value !== 'object' || value === null) {`);
     lines.push(`    throw new Error(\`Invalid \${label}: expected object payload\`);`);
     lines.push('  }');
@@ -170,7 +192,9 @@ export function buildRouteArtifact(
   }
   lines.push('');
   lines.push(`export function ${registerName}(app: Express): void {`);
-  lines.push(`  app.${normalizedMethod}('${escapeSingleQuotes(path)}', ${middlewareInvocations.length > 0 ? `${middlewareInvocations.join(', ')}, ` : ''}async (req: ${requestType}, res: Response, next: NextFunction) => {`);
+  lines.push(
+    `  app.${normalizedMethod}('${escapeSingleQuotes(path)}', ${middlewareInvocations.length > 0 ? `${middlewareInvocations.join(', ')}, ` : ''}async (req: ${requestType}, res: Response, next: NextFunction) => {`,
+  );
 
   // Schema validation — always runs first, before stream/timer
   if (validationLines.length > 0) {
@@ -179,7 +203,9 @@ export function buildRouteArtifact(
       lines.push(`      ${validationLine}`);
     }
     lines.push('    } catch (err) {');
-    lines.push('      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) } as any);');
+    lines.push(
+      '      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) } as any);',
+    );
     lines.push('    }');
     lines.push('');
   }
@@ -189,19 +215,31 @@ export function buildRouteArtifact(
     for (const qp of queryParams) {
       if (qp.default !== undefined) {
         if (qp.type === 'number') {
-          lines.push(`    const ${qp.name} = req.query.${qp.name} !== undefined ? Number(req.query.${qp.name}) : ${qp.default};`);
+          lines.push(
+            `    const ${qp.name} = req.query.${qp.name} !== undefined ? Number(req.query.${qp.name}) : ${qp.default};`,
+          );
         } else if (qp.type === 'boolean') {
-          lines.push(`    const ${qp.name} = req.query.${qp.name} !== undefined ? req.query.${qp.name} === 'true' : ${qp.default};`);
+          lines.push(
+            `    const ${qp.name} = req.query.${qp.name} !== undefined ? req.query.${qp.name} === 'true' : ${qp.default};`,
+          );
         } else {
-          lines.push(`    const ${qp.name} = typeof req.query.${qp.name} === 'string' ? req.query.${qp.name} : ${qp.default};`);
+          lines.push(
+            `    const ${qp.name} = typeof req.query.${qp.name} === 'string' ? req.query.${qp.name} : ${qp.default};`,
+          );
         }
       } else {
         if (qp.type === 'number') {
-          lines.push(`    const ${qp.name} = req.query.${qp.name} !== undefined ? Number(req.query.${qp.name}) : undefined;`);
+          lines.push(
+            `    const ${qp.name} = req.query.${qp.name} !== undefined ? Number(req.query.${qp.name}) : undefined;`,
+          );
         } else if (qp.type === 'boolean') {
-          lines.push(`    const ${qp.name} = req.query.${qp.name} !== undefined ? req.query.${qp.name} === 'true' : undefined;`);
+          lines.push(
+            `    const ${qp.name} = req.query.${qp.name} !== undefined ? req.query.${qp.name} === 'true' : undefined;`,
+          );
         } else {
-          lines.push(`    const ${qp.name} = typeof req.query.${qp.name} === 'string' ? req.query.${qp.name} as string : undefined;`);
+          lines.push(
+            `    const ${qp.name} = typeof req.query.${qp.name} === 'string' ? req.query.${qp.name} as string : undefined;`,
+          );
         }
       }
     }
@@ -229,7 +267,10 @@ export function buildRouteArtifact(
     lines.push(...generateStreamSetup('    '));
     lines.push('');
 
-    const streamHandlerLines = handlerCode.split('\n').map(l => l.trim()).filter(Boolean);
+    const streamHandlerLines = handlerCode
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
 
     // If spawn inside stream, generate spawn code
     if (caps.hasSpawn && caps.spawnNode) {

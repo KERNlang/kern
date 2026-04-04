@@ -2,12 +2,37 @@
  * Kern Configuration Types
  */
 
-import { DEFAULT_COLORS } from './styles-tailwind.js';
 import { KernConfigError } from './errors.js';
+import { DEFAULT_COLORS } from './styles-tailwind.js';
 
-export type KernTarget = 'nextjs' | 'tailwind' | 'web' | 'native' | 'express' | 'cli' | 'terminal' | 'ink' | 'vue' | 'nuxt' | 'fastapi' | 'mcp';
+export type KernTarget =
+  | 'nextjs'
+  | 'tailwind'
+  | 'web'
+  | 'native'
+  | 'express'
+  | 'cli'
+  | 'terminal'
+  | 'ink'
+  | 'vue'
+  | 'nuxt'
+  | 'fastapi'
+  | 'mcp';
 
-export const VALID_TARGETS: KernTarget[] = ['nextjs', 'tailwind', 'web', 'native', 'express', 'cli', 'terminal', 'ink', 'vue', 'nuxt', 'fastapi', 'mcp'];
+export const VALID_TARGETS: KernTarget[] = [
+  'nextjs',
+  'tailwind',
+  'web',
+  'native',
+  'express',
+  'cli',
+  'terminal',
+  'ink',
+  'vue',
+  'nuxt',
+  'fastapi',
+  'mcp',
+];
 
 export type KernStructure = 'flat' | 'bulletproof' | 'atomic' | 'kern';
 

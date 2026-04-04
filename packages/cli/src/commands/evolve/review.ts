@@ -1,10 +1,8 @@
-import {
-  listStaged, updateStagedStatus, promoteLocal, cleanRejected, formatSplitView,
-} from '@kernlang/evolve';
+import { cleanRejected, formatSplitView, listStaged, promoteLocal, updateStagedStatus } from '@kernlang/evolve';
 import { hasFlag, parseFlagOrNext } from '../../shared.js';
 
 export function runEvolveReview(args: string[]): void {
-  const listMode = hasFlag(args, '--list') || args.length === 1;
+  const _listMode = hasFlag(args, '--list') || args.length === 1;
   const approveId = parseFlagOrNext(args, '--approve');
   const rejectId = parseFlagOrNext(args, '--reject');
   const promoteMode = hasFlag(args, '--promote');
@@ -55,7 +53,7 @@ export function runEvolveReview(args: string[]): void {
   // Default: list mode
   const staged = listStaged();
   if (staged.length === 0) {
-    console.log('  No staged proposals. Run \'kern evolve <dir>\' to detect gaps.');
+    console.log("  No staged proposals. Run 'kern evolve <dir>' to detect gaps.");
     process.exit(0);
   }
 

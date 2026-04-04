@@ -1,8 +1,8 @@
 import { clearParserHints } from '@kernlang/core';
-import { validateEvolveProposal } from '../src/evolve-validator-v4.js';
 import { checkDedup } from '../src/evolve-dedup.js';
-import { compareGoldenOutput } from '../src/golden-test-runner.js';
+import { validateEvolveProposal } from '../src/evolve-validator-v4.js';
 import type { EvolveNodeProposal } from '../src/evolved-types.js';
+import { compareGoldenOutput } from '../src/golden-test-runner.js';
 
 function createProposal(overrides: Partial<EvolveNodeProposal> = {}): EvolveNodeProposal {
   return {
@@ -71,13 +71,13 @@ describe('Evolve v4 Validator', () => {
     it('rejects reserved core keywords', () => {
       const result = validateEvolveProposal(createProposal({ keyword: 'button', kernExample: 'button label="X"' }));
       expect(result.keywordOk).toBe(false);
-      expect(result.errors.some(e => e.includes('reserved'))).toBe(true);
+      expect(result.errors.some((e) => e.includes('reserved'))).toBe(true);
     });
 
     it('rejects already-graduated keywords', () => {
       const result = validateEvolveProposal(createProposal(), ['greeting']);
       expect(result.keywordOk).toBe(false);
-      expect(result.errors.some(e => e.includes('already graduated'))).toBe(true);
+      expect(result.errors.some((e) => e.includes('already graduated'))).toBe(true);
     });
   });
 
@@ -88,10 +88,12 @@ describe('Evolve v4 Validator', () => {
     });
 
     it('fails when kernExample root type mismatches keyword', () => {
-      const result = validateEvolveProposal(createProposal({
-        keyword: 'my-node',
-        kernExample: 'different-node name=X',
-      }));
+      const result = validateEvolveProposal(
+        createProposal({
+          keyword: 'my-node',
+          kernExample: 'different-node name=X',
+        }),
+      );
       expect(result.parseOk).toBe(false);
     });
   });
@@ -103,9 +105,11 @@ describe('Evolve v4 Validator', () => {
     });
 
     it('fails for invalid JS', () => {
-      const result = validateEvolveProposal(createProposal({
-        codegenSource: 'module.exports = function({{{{ broken',
-      }));
+      const result = validateEvolveProposal(
+        createProposal({
+          codegenSource: 'module.exports = function({{{{ broken',
+        }),
+      );
       expect(result.codegenCompileOk).toBe(false);
     });
   });
@@ -117,9 +121,11 @@ describe('Evolve v4 Validator', () => {
     });
 
     it('fails when generator returns empty', () => {
-      const result = validateEvolveProposal(createProposal({
-        codegenSource: 'module.exports = function() { return []; };',
-      }));
+      const result = validateEvolveProposal(
+        createProposal({
+          codegenSource: 'module.exports = function() { return []; };',
+        }),
+      );
       expect(result.codegenRunOk).toBe(false);
     });
   });
@@ -131,9 +137,11 @@ describe('Evolve v4 Validator', () => {
     });
 
     it('fails when output differs from expectedOutput', () => {
-      const result = validateEvolveProposal(createProposal({
-        expectedOutput: 'completely different output',
-      }));
+      const result = validateEvolveProposal(
+        createProposal({
+          expectedOutput: 'completely different output',
+        }),
+      );
       expect(result.goldenDiffOk).toBe(false);
     });
   });
@@ -179,17 +187,11 @@ describe('Golden Output Comparison', () => {
   });
 
   it('matches with whitespace differences', () => {
-    expect(compareGoldenOutput(
-      'const x = 1;\n  const y = 2;',
-      'const x = 1;\nconst y = 2;',
-    )).toBe(true);
+    expect(compareGoldenOutput('const x = 1;\n  const y = 2;', 'const x = 1;\nconst y = 2;')).toBe(true);
   });
 
   it('matches with blank line differences', () => {
-    expect(compareGoldenOutput(
-      'line1\n\n\nline2',
-      'line1\nline2',
-    )).toBe(true);
+    expect(compareGoldenOutput('line1\n\n\nline2', 'line1\nline2')).toBe(true);
   });
 
   it('fails for semantic differences', () => {

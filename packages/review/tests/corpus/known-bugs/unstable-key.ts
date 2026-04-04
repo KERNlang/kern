@@ -10,8 +10,8 @@ export function ItemList(props: { items: Item[] }) {
   return React.createElement(
     'ul',
     null,
-    props.items.map((item, index) =>
-      React.createElement('li', { key: index }, item.text) // unstable key
-    )
+    props.items.map(
+      (item, index) => React.createElement('li', { key: index }, item.text), // unstable key
+    ),
   );
 }

@@ -22,18 +22,18 @@
 import type { ReviewFinding } from '@kernlang/review';
 
 // Re-export public utilities from submodules
-export { isCommentLine, createLexicalMask } from './mcp-lexical.js';
-export { findToolHandlerRegions, isMCPServer } from './mcp-regions.js';
+export { createLexicalMask, isCommentLine } from './mcp-lexical.js';
 export type { CodeRegion } from './mcp-regions.js';
+export { findToolHandlerRegions, isMCPServer } from './mcp-regions.js';
 
 // Import individual rule checks
-import { commandInjectionTS, commandInjectionPython } from './checks/mcp01-cmd-injection.js';
-import { pathTraversalTS, pathTraversalPython } from './checks/mcp02-path-traversal.js';
-import { toolDescriptionPoisoningTS, toolDescriptionPoisoningPython } from './checks/mcp03-tool-poisoning.js';
+import { commandInjectionPython, commandInjectionTS } from './checks/mcp01-cmd-injection.js';
+import { pathTraversalPython, pathTraversalTS } from './checks/mcp02-path-traversal.js';
+import { toolDescriptionPoisoningPython, toolDescriptionPoisoningTS } from './checks/mcp03-tool-poisoning.js';
 import { secretsInMetadata } from './checks/mcp04-secrets.js';
-import { unsanitizedToolResponseTS, unsanitizedToolResponsePython } from './checks/mcp05-response.js';
-import { missingInputValidationTS, missingInputValidationPython } from './checks/mcp06-validation.js';
-import { missingAuthRemoteTS, missingAuthRemotePython } from './checks/mcp07-auth.js';
+import { unsanitizedToolResponsePython, unsanitizedToolResponseTS } from './checks/mcp05-response.js';
+import { missingInputValidationPython, missingInputValidationTS } from './checks/mcp06-validation.js';
+import { missingAuthRemotePython, missingAuthRemoteTS } from './checks/mcp07-auth.js';
 import { namespaceTyposquatting } from './checks/mcp08-typosquatting.js';
 import { dataLevelInjection } from './checks/mcp09-data-injection.js';
 import { unsafeDeserialization } from './checks/mcp10-unsafe-deserialization.js';
@@ -77,11 +77,9 @@ export function runMCPSecurityRules(source: string, filePath: string): ReviewFin
 
   // Dedup: data-injection should not duplicate tool-poisoning on same line
   const poisoningLines = new Set(
-    findings.filter(f => f.ruleId === 'mcp-tool-poisoning').map(f => f.primarySpan.startLine),
+    findings.filter((f) => f.ruleId === 'mcp-tool-poisoning').map((f) => f.primarySpan.startLine),
   );
-  return findings.filter(f =>
-    f.ruleId !== 'mcp-data-injection' || !poisoningLines.has(f.primarySpan.startLine),
-  );
+  return findings.filter((f) => f.ruleId !== 'mcp-data-injection' || !poisoningLines.has(f.primarySpan.startLine));
 }
 
 /** All rule IDs exported by this module */

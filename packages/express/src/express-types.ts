@@ -64,7 +64,7 @@ export function analyzeRouteCapabilities(routeNode: IRNode): RouteCapabilities {
 
 export interface KeyTypeInfo {
   key: string;
-  type: string;  // 'string' | 'number' | 'boolean' | 'object' — JS typeof categories
+  type: string; // 'string' | 'number' | 'boolean' | 'object' — JS typeof categories
 }
 
 export interface CoreArtifactRef {

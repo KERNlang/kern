@@ -10,20 +10,24 @@
 import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { reviewSource, reviewGraph, inferFromSource, analyzeTaint, taintToFindings } from '../src/index.js';
-import { assignDefaultConfidence } from '../src/reporter.js';
-import { getActiveRules } from '../src/rules/index.js';
 import { buildFileContextMap } from '../src/file-context.js';
 import { resolveImportGraph } from '../src/graph.js';
+import { reviewSource } from '../src/index.js';
+import { assignDefaultConfidence } from '../src/reporter.js';
+import { getActiveRules } from '../src/rules/index.js';
 import type { ReviewConfig, ReviewFinding } from '../src/types.js';
 
 const expressConfig: ReviewConfig = { target: 'express' };
 const nextjsConfig: ReviewConfig = { target: 'nextjs' };
-const mcpConfig: ReviewConfig = { target: 'mcp' as any };
+const _mcpConfig: ReviewConfig = { target: 'mcp' as any };
 const TMP = join(tmpdir(), 'kern-review-new-features');
 
-beforeAll(() => { mkdirSync(TMP, { recursive: true }); });
-afterAll(() => { rmSync(TMP, { recursive: true, force: true }); });
+beforeAll(() => {
+  mkdirSync(TMP, { recursive: true });
+});
+afterAll(() => {
+  rmSync(TMP, { recursive: true, force: true });
+});
 
 // ── Target-aware rule gating ────────────────────────────────────────────
 
@@ -38,7 +42,7 @@ export function handler(req: any, res: any) {
 }
 `;
       const report = reviewSource(source, 'handler.ts', nextjsConfig);
-      const hydration = report.findings.find(f => f.ruleId === 'hydration-mismatch');
+      const hydration = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
       expect(hydration).toBeUndefined();
     });
 
@@ -51,7 +55,7 @@ export function Timer() {
 }
 `;
       const report = reviewSource(source, 'timer.tsx', nextjsConfig);
-      const hydration = report.findings.find(f => f.ruleId === 'hydration-mismatch');
+      const hydration = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
       expect(hydration).toBeDefined();
     });
   });
@@ -72,7 +76,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', expressConfig);
-      const serverHook = report.findings.find(f => f.ruleId === 'server-hook');
+      const serverHook = report.findings.find((f) => f.ruleId === 'server-hook');
       expect(serverHook).toBeUndefined();
     });
 
@@ -90,51 +94,82 @@ export function Component() {
 describe('Confidence-based filtering', () => {
   describe('assignDefaultConfidence', () => {
     it('assigns TSC findings confidence 1.0', () => {
-      const findings: ReviewFinding[] = [{
-        source: 'tsc', ruleId: 'ts2792', severity: 'error', category: 'bug',
-        message: 'Cannot find module', primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
-        fingerprint: 'tsc-1',
-      }];
+      const findings: ReviewFinding[] = [
+        {
+          source: 'tsc',
+          ruleId: 'ts2792',
+          severity: 'error',
+          category: 'bug',
+          message: 'Cannot find module',
+          primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+          fingerprint: 'tsc-1',
+        },
+      ];
       assignDefaultConfidence(findings);
       expect(findings[0].confidence).toBe(1.0);
     });
 
     it('assigns kern findings confidence 0.85', () => {
-      const findings: ReviewFinding[] = [{
-        source: 'kern', ruleId: 'floating-promise', severity: 'error', category: 'bug',
-        message: 'Floating promise', primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
-        fingerprint: 'kern-1',
-      }];
+      const findings: ReviewFinding[] = [
+        {
+          source: 'kern',
+          ruleId: 'floating-promise',
+          severity: 'error',
+          category: 'bug',
+          message: 'Floating promise',
+          primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+          fingerprint: 'kern-1',
+        },
+      ];
       assignDefaultConfidence(findings);
       expect(findings[0].confidence).toBe(0.85);
     });
 
     it('assigns taint findings confidence 0.95', () => {
-      const findings: ReviewFinding[] = [{
-        source: 'kern', ruleId: 'taint-command', severity: 'error', category: 'bug',
-        message: 'Taint flow', primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
-        fingerprint: 'taint-1',
-      }];
+      const findings: ReviewFinding[] = [
+        {
+          source: 'kern',
+          ruleId: 'taint-command',
+          severity: 'error',
+          category: 'bug',
+          message: 'Taint flow',
+          primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+          fingerprint: 'taint-1',
+        },
+      ];
       assignDefaultConfidence(findings);
       expect(findings[0].confidence).toBe(0.95);
     });
 
     it('assigns structural diff findings confidence 0.60', () => {
-      const findings: ReviewFinding[] = [{
-        source: 'kern', ruleId: 'extra-code', severity: 'info', category: 'structure',
-        message: 'Uncovered lines', primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
-        fingerprint: 'diff-1',
-      }];
+      const findings: ReviewFinding[] = [
+        {
+          source: 'kern',
+          ruleId: 'extra-code',
+          severity: 'info',
+          category: 'structure',
+          message: 'Uncovered lines',
+          primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+          fingerprint: 'diff-1',
+        },
+      ];
       assignDefaultConfidence(findings);
-      expect(findings[0].confidence).toBe(0.60);
+      expect(findings[0].confidence).toBe(0.6);
     });
 
     it('preserves existing confidence (LLM = 0.7)', () => {
-      const findings: ReviewFinding[] = [{
-        source: 'llm', ruleId: 'llm-bug', severity: 'warning', category: 'bug',
-        message: 'LLM finding', primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
-        fingerprint: 'llm-1', confidence: 0.7,
-      }];
+      const findings: ReviewFinding[] = [
+        {
+          source: 'llm',
+          ruleId: 'llm-bug',
+          severity: 'warning',
+          category: 'bug',
+          message: 'LLM finding',
+          primarySpan: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+          fingerprint: 'llm-1',
+          confidence: 0.7,
+        },
+      ];
       assignDefaultConfidence(findings);
       expect(findings[0].confidence).toBe(0.7);
     });
@@ -154,7 +189,7 @@ export async function doWork() {
 }
 `;
     const report = reviewSource(source, 'work.ts');
-    const finding = report.findings.find(f => f.ruleId === 'empty-catch');
+    const finding = report.findings.find((f) => f.ruleId === 'empty-catch');
     // empty-catch may be suppressed by ignored-error concept rule — check either
     if (finding) {
       expect(finding.autofix).toBeDefined();
@@ -173,7 +208,7 @@ export async function main() {
 }
 `;
     const report = reviewSource(source, 'main.ts');
-    const finding = report.findings.find(f => f.ruleId === 'floating-promise');
+    const finding = report.findings.find((f) => f.ruleId === 'floating-promise');
     expect(finding).toBeDefined();
     expect(finding!.autofix).toBeDefined();
     expect(finding!.autofix!.type).toBe('insert-before');
@@ -188,7 +223,7 @@ export function Button() {
 }
 `;
     const report = reviewSource(source, 'button.tsx', nextjsConfig);
-    const finding = report.findings.find(f => f.ruleId === 'missing-use-client');
+    const finding = report.findings.find((f) => f.ruleId === 'missing-use-client');
     expect(finding).toBeDefined();
     expect(finding!.autofix).toBeDefined();
     expect(finding!.autofix!.type).toBe('insert-before');
@@ -202,7 +237,7 @@ const API_KEY = 'sk-live-1234567890abcdef1234567890';
 export function getKey() { return API_KEY; }
 `;
     const report = reviewSource(source, 'config.ts');
-    const finding = report.findings.find(f => f.ruleId === 'hardcoded-secret');
+    const finding = report.findings.find((f) => f.ruleId === 'hardcoded-secret');
     expect(finding).toBeDefined();
     expect(finding!.autofix).toBeDefined();
     expect(finding!.autofix!.type).toBe('replace');
@@ -226,11 +261,10 @@ export function handler(req: Request, res: Response) {
 `;
     const report = reviewSource(source, 'handler.ts');
     // Should detect taint flow: req.body → processInput → exec (interprocedural)
-    const taintFindings = report.findings.filter(f => f.ruleId.startsWith('taint-'));
+    const taintFindings = report.findings.filter((f) => f.ruleId.startsWith('taint-'));
     expect(taintFindings.length).toBeGreaterThanOrEqual(1);
     // The finding should mention the interprocedural sink
-    const interproc = taintFindings.some(f =>
-      f.message.includes('processInput') || f.message.includes('exec'));
+    const interproc = taintFindings.some((f) => f.message.includes('processInput') || f.message.includes('exec'));
     expect(interproc).toBe(true);
   });
 
@@ -247,9 +281,9 @@ export function handler(req: Request, res: Response) {
 }
 `;
     const report = reviewSource(source, 'handler.ts');
-    const taintFindings = report.findings.filter(f => f.ruleId.startsWith('taint-'));
+    const taintFindings = report.findings.filter((f) => f.ruleId.startsWith('taint-'));
     // Should have findings for both command and sql categories
-    const categories = new Set(taintFindings.map(f => f.ruleId));
+    const _categories = new Set(taintFindings.map((f) => f.ruleId));
     // At minimum should catch the direct sinks in dangerous()
     expect(taintFindings.length).toBeGreaterThanOrEqual(1);
   });
@@ -263,13 +297,19 @@ describe('File context and import chain', () => {
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(join(dir, 'app'), { recursive: true });
 
-    writeFileSync(join(dir, 'app', 'page.tsx'), `
+    writeFileSync(
+      join(dir, 'app', 'page.tsx'),
+      `
 import { Widget } from './widget';
 export default function Page() { return <Widget />; }
-`);
-    writeFileSync(join(dir, 'app', 'widget.tsx'), `
+`,
+    );
+    writeFileSync(
+      join(dir, 'app', 'widget.tsx'),
+      `
 export function Widget() { return <div>Hello</div>; }
-`);
+`,
+    );
 
     const graph = resolveImportGraph([join(dir, 'app', 'page.tsx')]);
     const contextMap = buildFileContextMap(graph);
@@ -285,14 +325,20 @@ export function Widget() { return <div>Hello</div>; }
     mkdirSync(dir, { recursive: true });
 
     // Use .ts extension in import to match actual file (avoids extension resolution issues)
-    writeFileSync(join(dir, 'page.ts'), `
+    writeFileSync(
+      join(dir, 'page.ts'),
+      `
 'use client';
 import { helper } from './helper.js';
 export const page = helper;
-`);
-    writeFileSync(join(dir, 'helper.ts'), `
+`,
+    );
+    writeFileSync(
+      join(dir, 'helper.ts'),
+      `
 export const helper = 42;
-`);
+`,
+    );
 
     const graph = resolveImportGraph([join(dir, 'page.ts')]);
     const contextMap = buildFileContextMap(graph);
@@ -308,11 +354,14 @@ export const helper = 42;
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(join(dir, 'app', 'api', 'users'), { recursive: true });
 
-    writeFileSync(join(dir, 'app', 'api', 'users', 'route.ts'), `
+    writeFileSync(
+      join(dir, 'app', 'api', 'users', 'route.ts'),
+      `
 export async function GET(req: Request) {
   return Response.json({ users: [] });
 }
-`);
+`,
+    );
 
     const graph = resolveImportGraph([join(dir, 'app', 'api', 'users', 'route.ts')]);
     const contextMap = buildFileContextMap(graph);

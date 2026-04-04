@@ -27,8 +27,8 @@
  */
 
 import type { IRNode } from '../types.js';
-import { getProps, getChildren, getFirstChild, exportPrefix } from './helpers.js';
 import { emitIdentifier } from './emitters.js';
+import { exportPrefix, getChildren, getFirstChild, getProps } from './helpers.js';
 
 type ScreenProps = {
   name?: string;
@@ -67,7 +67,7 @@ function handlerContent(node: IRNode): string {
 export function generateScreen(node: IRNode): string[] {
   const props = getProps(node) as unknown as ScreenProps;
   const name = emitIdentifier(props.name, 'UnnamedScreen', node);
-  const target = props.target || 'ink';
+  const _target = props.target || 'ink';
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
@@ -104,7 +104,7 @@ export function generateScreen(node: IRNode): string[] {
   lines.push('');
 
   // Parse props
-  const componentProps: PropChild[] = propNodes.map(n => {
+  const componentProps: PropChild[] = propNodes.map((n) => {
     const p = propsOf(n);
     return {
       name: emitIdentifier(p.name as string, 'unknown', n),
@@ -115,14 +115,10 @@ export function generateScreen(node: IRNode): string[] {
   });
 
   // Props type
-  const propsTypeEntries = componentProps.map(p =>
-    `${p.name}${p.optional ? '?' : ''}: ${p.type}`
-  ).join('; ');
+  const propsTypeEntries = componentProps.map((p) => `${p.name}${p.optional ? '?' : ''}: ${p.type}`).join('; ');
 
   // Destructure with defaults
-  const destructure = componentProps.map(p =>
-    p.default ? `${p.name} = ${p.default}` : p.name
-  ).join(', ');
+  const destructure = componentProps.map((p) => (p.default ? `${p.name} = ${p.default}` : p.name)).join(', ');
 
   // Function signature
   lines.push(`${exp}function ${name}({ ${destructure} }: { ${propsTypeEntries} }) {`);
@@ -152,7 +148,7 @@ export function generateScreen(node: IRNode): string[] {
   for (const mn of memoNodes) {
     const mp = propsOf(mn);
     const mName = emitIdentifier(mp.name as string, 'memo', mn);
-    const mDeps = mp.deps as string || '';
+    const mDeps = (mp.deps as string) || '';
     const mDepsArr = mDeps && mDeps !== '[]' ? `[${mDeps}]` : '[]';
     const body = handlerContent(mn);
     lines.push(`  const ${mName} = useMemo(() => {`);
@@ -167,8 +163,8 @@ export function generateScreen(node: IRNode): string[] {
   for (const cn of callbackNodes) {
     const cp = propsOf(cn);
     const cName = emitIdentifier(cp.name as string, 'handler', cn);
-    const cParams = cp.params as string || '';
-    const cDeps = cp.deps as string || '';
+    const cParams = (cp.params as string) || '';
+    const cDeps = (cp.deps as string) || '';
     const cDepsArr = cDeps && cDeps !== '[]' ? `[${cDeps}]` : '[]';
     const isAsync = cp.async === true || cp.async === 'true';
     const body = handlerContent(cn);
@@ -183,7 +179,7 @@ export function generateScreen(node: IRNode): string[] {
   // Effects
   for (const en of effectNodes) {
     const ep = propsOf(en);
-    const eDeps = ep.deps as string || '';
+    const eDeps = (ep.deps as string) || '';
     const eDepsArr = eDeps && eDeps !== '[]' ? `[${eDeps}]` : '[]';
     const body = handlerContent(en);
     lines.push(`  useEffect(() => {`);

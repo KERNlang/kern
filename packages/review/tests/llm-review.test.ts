@@ -1,8 +1,13 @@
-import { exportKernIR, buildLLMPrompt, parseLLMResponse, serializeNodeWithBody, compressHandlerBody } from '../src/llm-review.js';
-import type { SerializationMode } from '../src/llm-review.js';
-import { inferFromSource } from '../src/inferrer.js';
-import type { InferResult, TemplateMatch } from '../src/types.js';
 import type { IRNode } from '@kernlang/core';
+import { inferFromSource } from '../src/inferrer.js';
+import {
+  buildLLMPrompt,
+  compressHandlerBody,
+  exportKernIR,
+  parseLLMResponse,
+  serializeNodeWithBody,
+} from '../src/llm-review.js';
+import type { InferResult } from '../src/types.js';
 
 describe('LLM Review', () => {
   const source = `
@@ -45,7 +50,7 @@ export function getUser(id: string): User { return {} as User; }
 
     it('lists all non-import aliases', () => {
       const prompt = buildLLMPrompt(inferred, []);
-      const nonImports = inferred.filter(r => r.node.type !== 'import');
+      const nonImports = inferred.filter((r) => r.node.type !== 'import');
       for (const r of nonImports) {
         expect(prompt).toContain(r.promptAlias);
       }
@@ -63,9 +68,15 @@ export function getUser(id: string): User { return {} as User; }
 
   describe('parseLLMResponse', () => {
     it('parses valid JSON response', () => {
-      const alias = inferred.find(r => r.node.type !== 'import')!.promptAlias;
+      const alias = inferred.find((r) => r.node.type !== 'import')!.promptAlias;
       const response = JSON.stringify([
-        { nodeAlias: alias, severity: 'warning', category: 'pattern', message: 'Consider using an enum', evidence: 'status field' },
+        {
+          nodeAlias: alias,
+          severity: 'warning',
+          category: 'pattern',
+          message: 'Consider using an enum',
+          evidence: 'status field',
+        },
       ]);
 
       const findings = parseLLMResponse(response, inferred);
@@ -87,10 +98,11 @@ export function getUser(id: string): User { return {} as User; }
     });
 
     it('handles markdown code fences', () => {
-      const alias = inferred.find(r => r.node.type !== 'import')!.promptAlias;
-      const response = '```json\n' + JSON.stringify([
-        { nodeAlias: alias, severity: 'info', category: 'style', message: 'Style suggestion' },
-      ]) + '\n```';
+      const alias = inferred.find((r) => r.node.type !== 'import')!.promptAlias;
+      const response =
+        '```json\n' +
+        JSON.stringify([{ nodeAlias: alias, severity: 'info', category: 'style', message: 'Style suggestion' }]) +
+        '\n```';
 
       const findings = parseLLMResponse(response, inferred);
       expect(findings.length).toBe(1);
@@ -109,17 +121,15 @@ export function getUser(id: string): User { return {} as User; }
     });
 
     it('skips findings with invalid severity', () => {
-      const alias = inferred.find(r => r.node.type !== 'import')!.promptAlias;
-      const response = JSON.stringify([
-        { nodeAlias: alias, severity: 'critical', category: 'bug', message: 'Bad' },
-      ]);
+      const alias = inferred.find((r) => r.node.type !== 'import')!.promptAlias;
+      const response = JSON.stringify([{ nodeAlias: alias, severity: 'critical', category: 'bug', message: 'Bad' }]);
 
       const findings = parseLLMResponse(response, inferred);
       expect(findings.length).toBe(0);
     });
 
     it('maps findings back to TS source spans', () => {
-      const node = inferred.find(r => r.node.type !== 'import')!;
+      const node = inferred.find((r) => r.node.type !== 'import')!;
       const response = JSON.stringify([
         { nodeAlias: node.promptAlias, severity: 'warning', category: 'structure', message: 'Test' },
       ]);
@@ -131,14 +141,14 @@ export function getUser(id: string): User { return {} as User; }
     });
 
     it('handles multiple findings', () => {
-      const nonImports = inferred.filter(r => r.node.type !== 'import');
+      const nonImports = inferred.filter((r) => r.node.type !== 'import');
       const response = JSON.stringify(
-        nonImports.map(r => ({
+        nonImports.map((r) => ({
           nodeAlias: r.promptAlias,
           severity: 'info',
           category: 'style',
           message: `Review ${r.node.props?.name}`,
-        }))
+        })),
       );
 
       const findings = parseLLMResponse(response, inferred);
@@ -146,7 +156,7 @@ export function getUser(id: string): User { return {} as User; }
     });
 
     it('sets confidence to 0.7 for LLM findings', () => {
-      const alias = inferred.find(r => r.node.type !== 'import')!.promptAlias;
+      const alias = inferred.find((r) => r.node.type !== 'import')!.promptAlias;
       const response = JSON.stringify([
         { nodeAlias: alias, severity: 'warning', category: 'bug', message: 'Possible bug' },
       ]);
@@ -162,10 +172,12 @@ export function getUser(id: string): User { return {} as User; }
     const fnNode: IRNode = {
       type: 'fn',
       props: { name: 'handleRequest', params: 'req:Request' },
-      children: [{
-        type: 'handler',
-        props: { code: 'const x = 1;\nreturn x;' },
-      }],
+      children: [
+        {
+          type: 'handler',
+          props: { code: 'const x = 1;\nreturn x;' },
+        },
+      ],
     };
 
     it('emits line references in deep mode instead of code', () => {
@@ -220,14 +232,17 @@ export function getUser(id: string): User { return {} as User; }
     });
 
     it('preserves control flow lines with annotations', () => {
-      const code = Array(35).fill('  x;').map((_, i) => {
-        if (i === 0) return '  if (a) {';
-        if (i === 1) return '  } else {';
-        if (i === 5) return '  for (const x of arr) {';
-        if (i === 10) return '  try {';
-        if (i === 15) return '  return result;';
-        return '  x;';
-      }).join('\n');
+      const code = Array(35)
+        .fill('  x;')
+        .map((_, i) => {
+          if (i === 0) return '  if (a) {';
+          if (i === 1) return '  } else {';
+          if (i === 5) return '  for (const x of arr) {';
+          if (i === 10) return '  try {';
+          if (i === 15) return '  return result;';
+          return '  x;';
+        })
+        .join('\n');
       const result = compressHandlerBody(code);
       expect(result).toContain('if (a)');
       expect(result).toContain('for (const x of arr)');
@@ -236,11 +251,14 @@ export function getUser(id: string): User { return {} as User; }
     });
 
     it('annotates effect lines with EFFECT markers', () => {
-      const code = Array(35).fill('  x;').map((_, i) => {
-        if (i === 0) return '  const data = await db.query("SELECT *");';
-        if (i === 5) return '  await fetch("/api/data");';
-        return '  x;';
-      }).join('\n');
+      const code = Array(35)
+        .fill('  x;')
+        .map((_, i) => {
+          if (i === 0) return '  const data = await db.query("SELECT *");';
+          if (i === 5) return '  await fetch("/api/data");';
+          return '  x;';
+        })
+        .join('\n');
       const result = compressHandlerBody(code);
       expect(result).toContain('[EFFECT:db]');
       expect(result).toContain('[EFFECT:net]');
@@ -248,24 +266,30 @@ export function getUser(id: string): User { return {} as User; }
 
     it('preserves security-relevant lines with annotations', () => {
       // NOTE: strings below are test data for security pattern detection, not real calls
-      const code = Array(35).fill('  x;').map((_, i) => {
-        if (i === 5) return '  runExec(userInput);'; // eslint-disable-line -- test data
-        if (i === 10) return '  const hash = crypto.createHash("sha256");';
-        return '  x;';
-      }).join('\n');
+      const code = Array(35)
+        .fill('  x;')
+        .map((_, i) => {
+          if (i === 5) return '  runExec(userInput);'; // eslint-disable-line -- test data
+          if (i === 10) return '  const hash = crypto.createHash("sha256");';
+          return '  x;';
+        })
+        .join('\n');
       const result = compressHandlerBody(code);
       expect(result).toContain('crypto.createHash');
       expect(result).toContain('[EFFECT:crypto]');
     });
 
     it('annotates error handling with ERROR markers', () => {
-      const code = Array(35).fill('  x;').map((_, i) => {
-        if (i === 0) return '  try {';
-        if (i === 5) return '  catch (err) {';
-        if (i === 6) return '  throw err;';
-        if (i === 10) return '  throw new Error("fail");';
-        return '  x;';
-      }).join('\n');
+      const code = Array(35)
+        .fill('  x;')
+        .map((_, i) => {
+          if (i === 0) return '  try {';
+          if (i === 5) return '  catch (err) {';
+          if (i === 6) return '  throw err;';
+          if (i === 10) return '  throw new Error("fail");';
+          return '  x;';
+        })
+        .join('\n');
       const result = compressHandlerBody(code);
       expect(result).toContain('[ERROR:handle]');
       expect(result).toContain('[ERROR:propagate]');

@@ -5,7 +5,7 @@ import { derivePathParams, escapeSingleQuotes, generateRespondExpress, indentBlo
 // ── Portable request reference rewriting ──────────────────────────────────
 
 export function rewriteExpressExpr(expr: string, path: string): string {
-  const pathParams = derivePathParams(path);
+  const _pathParams = derivePathParams(path);
   let result = expr;
   // params.X → req.params.X
   result = result.replace(/\bparams\.([A-Za-z_]\w*)/g, 'req.params.$1');
@@ -44,10 +44,12 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
       const name = String(p.name || '');
       const exprCode = extractExprCode(p.expr);
       const elseStatus = p.else ? parseInt(String(p.else), 10) : 404;
-      const elseMessage = typeof p.message === 'string' ? p.message : (name ? `${name} guard failed` : 'Guard failed');
+      const elseMessage = typeof p.message === 'string' ? p.message : name ? `${name} guard failed` : 'Guard failed';
       if (exprCode) {
         lines.push(`${indent}if (!(${rewriteExpressExpr(exprCode, path)})) {`);
-        lines.push(`${indent}  return res.status(${elseStatus}).json({ error: '${escapeSingleQuotes(elseMessage)}' });`);
+        lines.push(
+          `${indent}  return res.status(${elseStatus}).json({ error: '${escapeSingleQuotes(elseMessage)}' });`,
+        );
         lines.push(`${indent}}`);
       }
       break;
@@ -60,8 +62,10 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
     case 'respond': {
       // Clone props to avoid mutating shared AST, then rewrite portable refs
       const clonedRespond: IRNode = { ...child, props: { ...child.props } };
-      if (clonedRespond.props!.json) clonedRespond.props!.json = rewriteExpressExpr(String(clonedRespond.props!.json), path);
-      if (clonedRespond.props!.text) clonedRespond.props!.text = rewriteExpressExpr(String(clonedRespond.props!.text), path);
+      if (clonedRespond.props!.json)
+        clonedRespond.props!.json = rewriteExpressExpr(String(clonedRespond.props!.json), path);
+      if (clonedRespond.props!.text)
+        clonedRespond.props!.text = rewriteExpressExpr(String(clonedRespond.props!.text), path);
       lines.push(...generateRespondExpress(clonedRespond, indent));
       break;
     }
@@ -76,7 +80,7 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
         lines.push(`${indent}${keyword} (${on} === '${escapeSingleQuotes(value)}') {`);
         // Recurse into path children
         for (const pathChild of pathNode.children || []) {
-          lines.push(...generatePortableChildExpress(pathChild, indent + '  ', path));
+          lines.push(...generatePortableChildExpress(pathChild, `${indent}  `, path));
         }
         lines.push(`${indent}}`);
       }
@@ -92,7 +96,7 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
         lines.push(`${indent}for (const ${name} of ${collection}) {`);
       }
       for (const eachChild of child.children || []) {
-        lines.push(...generatePortableChildExpress(eachChild, indent + '  ', path));
+        lines.push(...generatePortableChildExpress(eachChild, `${indent}  `, path));
       }
       lines.push(`${indent}}`);
       break;
@@ -115,7 +119,8 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
       const triggerNode = getFirstChild(child, 'trigger');
       const recoverNode = getFirstChild(child, 'recover');
       const triggerProps = triggerNode ? getProps(triggerNode) : {};
-      const triggerExpr = extractExprCode(triggerProps.expr) || String(triggerProps.query || triggerProps.url || triggerProps.call || '');
+      const triggerExpr =
+        extractExprCode(triggerProps.expr) || String(triggerProps.query || triggerProps.url || triggerProps.call || '');
       const retryCount = recoverNode ? parseInt(String(getProps(recoverNode).retry || '0'), 10) : 0;
       const fallback = recoverNode ? String(getProps(recoverNode).fallback || 'null') : 'null';
 
@@ -146,11 +151,7 @@ export function generatePortableChildExpress(child: IRNode, indent: string, path
   return lines;
 }
 
-export function generatePortableHandlerExpress(
-  routeNode: IRNode,
-  indent: string,
-  path: string,
-): string[] {
+export function generatePortableHandlerExpress(routeNode: IRNode, indent: string, path: string): string[] {
   const lines: string[] = [];
   const children = routeNode.children || [];
 

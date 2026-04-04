@@ -1,8 +1,8 @@
+import { resolveConfig } from '../../core/src/config.js';
 import { parse } from '../../core/src/parser.js';
-import { transpileVue } from '../src/transpiler-vue.js';
 import { transpileNuxt } from '../src/transpiler-nuxt.js';
 import { transpileTailwindVue } from '../src/transpiler-tailwind-vue.js';
-import { resolveConfig } from '../../core/src/config.js';
+import { transpileVue } from '../src/transpiler-vue.js';
 
 describe('i18n Integration', () => {
   const i18nConfig = resolveConfig({ i18n: { enabled: true } });

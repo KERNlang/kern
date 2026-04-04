@@ -9,8 +9,8 @@
 
 import type { IRNode } from '@kernlang/core';
 import { getProps } from '@kernlang/core';
-import { toSnakeCase } from './type-map.js';
 import { escapePyStr } from './fastapi-utils.js';
+import { toSnakeCase } from './type-map.js';
 
 export function generateRespondFastAPI(respondNode: IRNode, indent: string): string[] {
   const p = getProps(respondNode);
@@ -74,7 +74,9 @@ export function addRespondImports(respondNode: IRNode, imports: Set<string>): vo
   const rp = getProps(respondNode);
   if (rp.redirect) imports.add('from fastapi.responses import RedirectResponse');
   if (rp.text) imports.add('from fastapi.responses import PlainTextResponse');
-  if (typeof rp.status === 'number' && rp.status !== 200 && rp.json) imports.add('from fastapi.responses import JSONResponse');
-  if (typeof rp.status === 'number' && !rp.json && !rp.text && !rp.redirect && !rp.error) imports.add('from fastapi.responses import Response');
+  if (typeof rp.status === 'number' && rp.status !== 200 && rp.json)
+    imports.add('from fastapi.responses import JSONResponse');
+  if (typeof rp.status === 'number' && !rp.json && !rp.text && !rp.redirect && !rp.error)
+    imports.add('from fastapi.responses import Response');
   if (rp.error) imports.add('from fastapi import HTTPException');
 }

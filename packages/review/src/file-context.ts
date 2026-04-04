@@ -10,7 +10,7 @@
  */
 
 import { readFileSync } from 'fs';
-import type { GraphFile, GraphResult, FileContext, RuntimeBoundary } from './types.js';
+import type { FileContext, GraphFile, GraphResult, RuntimeBoundary } from './types.js';
 
 // ── Entry Point Classification ──────────────────────────────────────────
 
@@ -27,7 +27,9 @@ function classifyEntryPoint(filePath: string): RuntimeBoundary {
   try {
     const source = readFileSync(filePath, 'utf-8');
     if (/^['"]use client['"];?\s*$/m.test(source.substring(0, 200))) return 'client';
-  } catch { /* can't read — fall through */ }
+  } catch {
+    /* can't read — fall through */
+  }
 
   // Next.js: page.tsx, layout.tsx, loading.tsx, error.tsx, template.tsx = server by default
   if (/\/(page|layout|loading|error|template|not-found|default)\.(ts|tsx|js|jsx)$/.test(lower)) return 'server';
@@ -99,8 +101,8 @@ function isWithinClientBoundary(
   }
 
   visiting.add(filePath);
-  const result = gf.importedBy.every(importer =>
-    isWithinClientBoundary(importer, fileMap, entrySet, cache, visiting)
+  const result = gf.importedBy.every((importer) =>
+    isWithinClientBoundary(importer, fileMap, entrySet, cache, visiting),
   );
   visiting.delete(filePath);
   cache.set(filePath, result);
@@ -110,11 +112,7 @@ function isWithinClientBoundary(
 // ── Import Chain Tracing ────────────────────────────────────────────────
 
 /** Trace the shortest import chain from an entry point to the target file */
-function traceImportChain(
-  targetPath: string,
-  fileMap: Map<string, GraphFile>,
-  entrySet: Set<string>,
-): string[] {
+function traceImportChain(targetPath: string, fileMap: Map<string, GraphFile>, entrySet: Set<string>): string[] {
   if (entrySet.has(targetPath)) return [targetPath];
 
   // BFS backwards (following importedBy edges) from target toward entry points.
@@ -166,9 +164,7 @@ function traceImportChain(
  * This is the main function — call it once after resolving the import graph,
  * then pass the resulting Map into each rule via RuleContext.fileContext.
  */
-export function buildFileContextMap(
-  graph: GraphResult,
-): Map<string, FileContext> {
+export function buildFileContextMap(graph: GraphResult): Map<string, FileContext> {
   const contextMap = new Map<string, FileContext>();
   const fileMap = new Map<string, GraphFile>();
   const entrySet = new Set(graph.entryFiles);
@@ -239,12 +235,7 @@ export function buildFileContextMap(
 }
 
 /** Check if source file can reach target file via imports (DFS) */
-function canReach(
-  source: string,
-  target: string,
-  fileMap: Map<string, GraphFile>,
-  visited: Set<string>,
-): boolean {
+function canReach(source: string, target: string, fileMap: Map<string, GraphFile>, visited: Set<string>): boolean {
   if (visited.has(source)) return false;
   visited.add(source);
 

@@ -333,9 +333,11 @@ jobs:
 
 ## License
 
-**AGPL-3.0** — Swiss-engineered with precision.
+**AGPL-3.0** — free for individuals, open-source projects, and non-commercial use.
 
-Copyright (c) 2026 cukas
+Companies using KERN in paid products or services need a **commercial license**. Contact **hello@kernlang.dev** or see [kernlang.dev](https://kernlang.dev) for details.
+
+Copyright (c) 2026 KERNlang
 
 ---
 

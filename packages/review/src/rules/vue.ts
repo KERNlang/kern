@@ -4,7 +4,7 @@
  * Catches Vue 3 Composition API pitfalls.
  */
 
-import { SyntaxKind, Node } from 'ts-morph';
+import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
 import { finding } from './utils.js';
 
@@ -48,15 +48,25 @@ function missingRefValue(ctx: RuleContext): ReviewFinding[] {
     if (Node.isShorthandPropertyAssignment(parent)) continue;
     if (Node.isImportSpecifier(parent) || Node.isVariableDeclaration(parent)) continue;
 
-    if (Node.isBinaryExpression(parent) ||
-        Node.isConditionalExpression(parent) ||
-        Node.isTemplateSpan(parent) ||
-        Node.isReturnStatement(parent) ||
-        Node.isElementAccessExpression(parent)) {
-      findings.push(finding('missing-ref-value', 'warning', 'bug',
-        `'${name}' is a ref — did you mean '${name}.value'?`,
-        ctx.filePath, ident.getStartLineNumber(), 1,
-        { suggestion: `${name}.value` }));
+    if (
+      Node.isBinaryExpression(parent) ||
+      Node.isConditionalExpression(parent) ||
+      Node.isTemplateSpan(parent) ||
+      Node.isReturnStatement(parent) ||
+      Node.isElementAccessExpression(parent)
+    ) {
+      findings.push(
+        finding(
+          'missing-ref-value',
+          'warning',
+          'bug',
+          `'${name}' is a ref — did you mean '${name}.value'?`,
+          ctx.filePath,
+          ident.getStartLineNumber(),
+          1,
+          { suggestion: `${name}.value` },
+        ),
+      );
       refVarNames.delete(name);
     }
   }
@@ -89,10 +99,18 @@ function missingOnUnmounted(ctx: RuleContext): ReviewFinding[] {
     const hasStopHandle = Node.isVariableDeclaration(parent);
 
     if (!hasStopHandle && !hasLifecycleCleanup) {
-      findings.push(finding('missing-onUnmounted', 'error', 'bug',
-        `${callee}() without stop handle or onUnmounted cleanup — potential memory leak`,
-        ctx.filePath, call.getStartLineNumber(), 1,
-        { suggestion: `Assign ${callee} to a variable and call stop() in onUnmounted` }));
+      findings.push(
+        finding(
+          'missing-onUnmounted',
+          'error',
+          'bug',
+          `${callee}() without stop handle or onUnmounted cleanup — potential memory leak`,
+          ctx.filePath,
+          call.getStartLineNumber(),
+          1,
+          { suggestion: `Assign ${callee} to a variable and call stop() in onUnmounted` },
+        ),
+      );
     }
   }
 
@@ -110,10 +128,18 @@ function missingOnUnmounted(ctx: RuleContext): ReviewFinding[] {
     if (!Node.isPropertyAccessExpression(callee) || callee.getName() !== 'addEventListener') continue;
 
     if (!hasRemoveListener && !hasLifecycleCleanup) {
-      findings.push(finding('missing-onUnmounted', 'error', 'bug',
-        'addEventListener without removeEventListener in onUnmounted — memory leak',
-        ctx.filePath, call.getStartLineNumber(), 1,
-        { suggestion: 'Clean up event listeners in onUnmounted()' }));
+      findings.push(
+        finding(
+          'missing-onUnmounted',
+          'error',
+          'bug',
+          'addEventListener without removeEventListener in onUnmounted — memory leak',
+          ctx.filePath,
+          call.getStartLineNumber(),
+          1,
+          { suggestion: 'Clean up event listeners in onUnmounted()' },
+        ),
+      );
     }
   }
 
@@ -130,8 +156,9 @@ function setupSideEffect(ctx: RuleContext): ReviewFinding[] {
   const isVueFile = ctx.filePath.endsWith('.vue') || fullText.includes('defineComponent');
   if (!isVueFile) return findings;
 
-  const hasOnMounted = ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)
-    .some(c => Node.isIdentifier(c.getExpression()) && c.getExpression().getText() === 'onMounted');
+  const hasOnMounted = ctx.sourceFile
+    .getDescendantsOfKind(SyntaxKind.CallExpression)
+    .some((c) => Node.isIdentifier(c.getExpression()) && c.getExpression().getText() === 'onMounted');
 
   if (hasOnMounted) return findings;
 
@@ -149,10 +176,18 @@ function setupSideEffect(ctx: RuleContext): ReviewFinding[] {
     }
     if (isInsideFunction) continue;
 
-    findings.push(finding('setup-side-effect', 'warning', 'pattern',
-      'Top-level await in setup — consider wrapping in onMounted() for SSR compatibility',
-      ctx.filePath, awaitExpr.getStartLineNumber(), 1,
-      { suggestion: 'onMounted(async () => { ... })' }));
+    findings.push(
+      finding(
+        'setup-side-effect',
+        'warning',
+        'pattern',
+        'Top-level await in setup — consider wrapping in onMounted() for SSR compatibility',
+        ctx.filePath,
+        awaitExpr.getStartLineNumber(),
+        1,
+        { suggestion: 'onMounted(async () => { ... })' },
+      ),
+    );
   }
 
   return findings;
@@ -172,10 +207,18 @@ function reactiveDestructure(ctx: RuleContext): ReviewFinding[] {
     if (init && Node.isCallExpression(init)) {
       const callee = init.getExpression().getText();
       if (callee === 'reactive') {
-        findings.push(finding('reactive-destructure', 'warning', 'bug',
-          'Destructuring reactive() loses reactivity — use toRefs() or access properties directly',
-          ctx.filePath, decl.getStartLineNumber(), 1,
-          { suggestion: 'const state = reactive({...}); use state.prop, or const { prop } = toRefs(state)' }));
+        findings.push(
+          finding(
+            'reactive-destructure',
+            'warning',
+            'bug',
+            'Destructuring reactive() loses reactivity — use toRefs() or access properties directly',
+            ctx.filePath,
+            decl.getStartLineNumber(),
+            1,
+            { suggestion: 'const state = reactive({...}); use state.prop, or const { prop } = toRefs(state)' },
+          ),
+        );
       }
     }
   }
@@ -198,31 +241,43 @@ function computedSideEffect(ctx: RuleContext): ReviewFinding[] {
     if (!Node.isArrowFunction(getter) && !Node.isFunctionExpression(getter)) continue;
 
     // Detect side-effect calls: fetch, axios.*, set* (state setters)
-    const sideEffectCalls = getter.getDescendantsOfKind(SyntaxKind.CallExpression).filter(c => {
+    const sideEffectCalls = getter.getDescendantsOfKind(SyntaxKind.CallExpression).filter((c) => {
       const name = c.getExpression().getText();
       return name === 'fetch' || name.startsWith('axios.');
     });
 
     // Detect mutations: assignments (=, +=, -=, etc.) and ++/--
-    const mutations = getter.getDescendantsOfKind(SyntaxKind.BinaryExpression).filter(b => {
+    const mutations = getter.getDescendantsOfKind(SyntaxKind.BinaryExpression).filter((b) => {
       const op = b.getOperatorToken().getKind();
-      return op === SyntaxKind.EqualsToken || op === SyntaxKind.PlusEqualsToken ||
-             op === SyntaxKind.MinusEqualsToken;
+      return op === SyntaxKind.EqualsToken || op === SyntaxKind.PlusEqualsToken || op === SyntaxKind.MinusEqualsToken;
     });
-    const prefixMutations = getter.getDescendantsOfKind(SyntaxKind.PrefixUnaryExpression).filter(p => {
+    const prefixMutations = getter.getDescendantsOfKind(SyntaxKind.PrefixUnaryExpression).filter((p) => {
       const op = p.getOperatorToken();
       return op === SyntaxKind.PlusPlusToken || op === SyntaxKind.MinusMinusToken;
     });
-    const postfixMutations = getter.getDescendantsOfKind(SyntaxKind.PostfixUnaryExpression).filter(p => {
+    const postfixMutations = getter.getDescendantsOfKind(SyntaxKind.PostfixUnaryExpression).filter((p) => {
       const op = p.getOperatorToken();
       return op === SyntaxKind.PlusPlusToken || op === SyntaxKind.MinusMinusToken;
     });
 
-    if (sideEffectCalls.length > 0 || mutations.length > 0 || prefixMutations.length > 0 || postfixMutations.length > 0) {
-      findings.push(finding('computed-side-effect', 'warning', 'bug',
-        'Side effect detected inside computed property — computed should be pure',
-        ctx.filePath, call.getStartLineNumber(), 1,
-        { suggestion: 'Move side effects to watch() or a method' }));
+    if (
+      sideEffectCalls.length > 0 ||
+      mutations.length > 0 ||
+      prefixMutations.length > 0 ||
+      postfixMutations.length > 0
+    ) {
+      findings.push(
+        finding(
+          'computed-side-effect',
+          'warning',
+          'bug',
+          'Side effect detected inside computed property — computed should be pure',
+          ctx.filePath,
+          call.getStartLineNumber(),
+          1,
+          { suggestion: 'Move side effects to watch() or a method' },
+        ),
+      );
     }
   }
 
@@ -260,8 +315,8 @@ function shallowRefMutation(ctx: RuleContext): ReviewFinding[] {
   // Find deep property access: state.value.prop = ... (not state.value = ...)
   for (const bin of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
     const op = bin.getOperatorToken().getKind();
-    if (op !== SyntaxKind.EqualsToken && op !== SyntaxKind.PlusEqualsToken &&
-        op !== SyntaxKind.MinusEqualsToken) continue;
+    if (op !== SyntaxKind.EqualsToken && op !== SyntaxKind.PlusEqualsToken && op !== SyntaxKind.MinusEqualsToken)
+      continue;
 
     const left = bin.getLeft();
     if (!Node.isPropertyAccessExpression(left)) continue;
@@ -277,10 +332,20 @@ function shallowRefMutation(ctx: RuleContext): ReviewFinding[] {
 
     // Only suppress if triggerRef is called on THIS specific ref
     if (!triggeredRefs.has(refName)) {
-      findings.push(finding('shallow-ref-mutation', 'warning', 'bug',
-        `Deep mutation on shallowRef '${refName}' won't trigger reactivity — use triggerRef() or reassign .value`,
-        ctx.filePath, bin.getStartLineNumber(), 1,
-        { suggestion: `Use ${refName}.value = { ...${refName}.value, ${left.getName()}: newVal } or call triggerRef(${refName})` }));
+      findings.push(
+        finding(
+          'shallow-ref-mutation',
+          'warning',
+          'bug',
+          `Deep mutation on shallowRef '${refName}' won't trigger reactivity — use triggerRef() or reassign .value`,
+          ctx.filePath,
+          bin.getStartLineNumber(),
+          1,
+          {
+            suggestion: `Use ${refName}.value = { ...${refName}.value, ${left.getName()}: newVal } or call triggerRef(${refName})`,
+          },
+        ),
+      );
     }
   }
 

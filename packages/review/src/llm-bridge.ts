@@ -12,11 +12,10 @@
  * Supports: OpenAI, Anthropic (via proxy), Ollama, any OpenAI-compatible API.
  */
 
-import type { InferResult, ReviewFinding } from './types.js';
-import type { TaintResult } from './taint.js';
-import { buildLLMPrompt, parseLLMResponse } from './llm-review.js';
 import type { LLMGraphContext, SerializationMode } from './llm-review.js';
-import type { TemplateMatch } from './types.js';
+import { buildLLMPrompt, parseLLMResponse } from './llm-review.js';
+import type { TaintResult } from './taint.js';
+import type { InferResult, ReviewFinding, TemplateMatch } from './types.js';
 
 // ── Prompt Sanitization ──────────────────────────────────────────────────
 
@@ -26,15 +25,17 @@ import type { TemplateMatch } from './types.js';
  * the content's meaning for code review.
  */
 function sanitizeForPrompt(input: string): string {
-  return input
-    // Neutralize role/instruction override attempts
-    .replace(/^(system|user|assistant)\s*:/gim, '[$1]:')
-    // Neutralize markdown heading-based role injection
-    .replace(/^(#{1,3})\s*(system|user|assistant|instructions?)\b/gim, '$1 [$2]')
-    // Neutralize "ignore previous" style attacks
-    .replace(/ignore\s+(all\s+)?previous\s+instructions/gi, '[filtered]')
-    // Neutralize attempts to close XML-style delimiters we use
-    .replace(/<\/?kern-(file|taint|taint-cross-file|code|obligations)>/gi, '&lt;$1&gt;');
+  return (
+    input
+      // Neutralize role/instruction override attempts
+      .replace(/^(system|user|assistant)\s*:/gim, '[$1]:')
+      // Neutralize markdown heading-based role injection
+      .replace(/^(#{1,3})\s*(system|user|assistant|instructions?)\b/gim, '$1 [$2]')
+      // Neutralize "ignore previous" style attacks
+      .replace(/ignore\s+(all\s+)?previous\s+instructions/gi, '[filtered]')
+      // Neutralize attempts to close XML-style delimiters we use
+      .replace(/<\/?kern-(file|taint|taint-cross-file|code|obligations)>/gi, '&lt;$1&gt;')
+  );
 }
 
 /** Escape a string for use inside an XML attribute value */
@@ -48,7 +49,7 @@ function xmlEscapeAttr(s: string): string {
  */
 function sanitizeFilePath(filePath: string): string {
   // Truncate excessively long paths (no real path is > 500 chars)
-  const truncated = filePath.length > 500 ? filePath.substring(0, 500) + '…' : filePath;
+  const truncated = filePath.length > 500 ? `${filePath.substring(0, 500)}…` : filePath;
   return xmlEscapeAttr(sanitizeForPrompt(truncated));
 }
 
@@ -58,8 +59,8 @@ export interface LLMBridgeConfig {
   apiKey?: string;
   model?: string;
   baseUrl?: string;
-  timeout?: number;      // ms, default 60000
-  maxTokens?: number;    // default 16384
+  timeout?: number; // ms, default 60000
+  maxTokens?: number; // default 16384
 }
 
 export interface ReviewInstructionOptions {
@@ -112,7 +113,7 @@ async function callLLM(messages: ChatMessage[], config: Required<LLMBridgeConfig
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`,
+        Authorization: `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify({
         model: config.model,
@@ -128,7 +129,7 @@ async function callLLM(messages: ChatMessage[], config: Required<LLMBridgeConfig
       throw new Error(`LLM API error ${response.status}: ${text.substring(0, 200)}`);
     }
 
-    const data = await response.json() as ChatResponse;
+    const data = (await response.json()) as ChatResponse;
     return data.choices?.[0]?.message?.content || '';
   } finally {
     clearTimeout(timer);
@@ -174,7 +175,7 @@ function isChangedFile(input: LLMReviewInput): boolean {
 /** Estimate total tokens for an input including all context that reviewBatch will add. */
 function estimateInputTokens(input: LLMReviewInput, cachedIR: string): number {
   const SYSTEM_PROMPT_TOKENS = 2500; // ~2000-2500 tokens for the system prompt
-  const OVERHEAD_TOKENS = 500;       // XML wrappers, joins, tags
+  const OVERHEAD_TOKENS = 500; // XML wrappers, joins, tags
   let tokens = SYSTEM_PROMPT_TOKENS + OVERHEAD_TOKENS;
   tokens += estimateTokens(cachedIR);
   // Only count source tokens for CHANGED files (CONTEXT files get IR only)
@@ -273,7 +274,7 @@ export async function runLLMReview(
 async function reviewBatch(
   inputs: LLMReviewInput[],
   config: Required<LLMBridgeConfig>,
-  irCache?: Map<LLMReviewInput, string>,
+  _irCache?: Map<LLMReviewInput, string>,
 ): Promise<ReviewFinding[]> {
   const allFindings: ReviewFinding[] = [];
 
@@ -288,15 +289,20 @@ async function reviewBatch(
     const fileMode: SerializationMode = includeSource ? 'deep' : 'ir-only';
 
     // Build IR prompt with correct mode (don't use irCache — it was built with ir-only for estimation)
-    const prompt = buildLLMPrompt(input.inferred, input.templateMatches, input.graphContext, fileMode, input.obligations);
+    const prompt = buildLLMPrompt(
+      input.inferred,
+      input.templateMatches,
+      input.graphContext,
+      fileMode,
+      input.obligations,
+    );
     parts.push(`<kern-file path="${sanitizeFilePath(input.filePath)}">\n${prompt}\n</kern-file>`);
     allInferred.push(...input.inferred);
 
     // Include actual source code only for CHANGED files (deep review mode)
     if (includeSource) {
       anySourceIncluded = true;
-      const escapedSource = sanitizeForPrompt(input.source!)
-        .replace(/<\/kern-source>/gi, '&lt;/kern-source&gt;');
+      const escapedSource = sanitizeForPrompt(input.source!).replace(/<\/kern-source>/gi, '&lt;/kern-source&gt;');
       parts.push(`<kern-source path="${sanitizeFilePath(input.filePath)}">\n${escapedSource}\n</kern-source>`);
     }
 
@@ -315,10 +321,13 @@ async function reviewBatch(
   const userPrompt = parts.join('\n\n');
 
   try {
-    const response = await callLLM([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ], config);
+    const response = await callLLM(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      config,
+    );
 
     const findings = parseLLMResponse(response, allInferred);
 
@@ -523,8 +532,8 @@ function formatStaticFindings(findings: ReviewFinding[], filePath: string): stri
 
   // Filter to high-value findings only, then group by severity
   const highValue = findings.filter(isHighValueFinding);
-  const errors = highValue.filter(f => f.severity === 'error');
-  const warnings = highValue.filter(f => f.severity === 'warning');
+  const errors = highValue.filter((f) => f.severity === 'error');
+  const warnings = highValue.filter((f) => f.severity === 'warning');
 
   for (const f of [...errors, ...warnings]) {
     const conf = f.confidence !== undefined ? ` (confidence: ${f.confidence.toFixed(2)})` : '';

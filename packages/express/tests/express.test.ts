@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -13,7 +13,9 @@ describe('Express Transpiler', () => {
 
     expect(result.code).toContain(`import { verifyToken } from './middleware/auth.js';`);
     expect(result.code).toContain(`import { registerGetApiTracksRoute } from './routes/get-api-tracks.js';`);
-    expect(result.code).toContain(`app.use(cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true }));`);
+    expect(result.code).toContain(
+      `app.use(cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true }));`,
+    );
     expect(result.code).toContain(`app.use(express.json({ limit: '1mb' }));`);
     expect(result.artifacts).toBeDefined();
     expect(result.artifacts?.some((artifact: any) => artifact.path === 'routes/post-api-tracks-analyze.ts')).toBe(true);
@@ -36,7 +38,9 @@ describe('Express Transpiler', () => {
     const result = transpileExpress(parse(source));
     const routeArtifact = result.artifacts?.find((artifact: any) => artifact.path === 'routes/post-tracks-id.ts');
 
-    expect(routeArtifact?.content).toContain(`assertRequiredFields('params', req.params, [{ key: 'id', type: 'any' }]);`);
+    expect(routeArtifact?.content).toContain(
+      `assertRequiredFields('params', req.params, [{ key: 'id', type: 'any' }]);`,
+    );
     expect(routeArtifact?.content).toContain(`assertRequiredFields('body', req.body,`);
     expect(routeArtifact?.content).not.toContain('IgnoreMe');
     expect(result.code).not.toContain('IgnoreMe');
@@ -46,7 +50,9 @@ describe('Express Transpiler', () => {
     test('stream route generates SSE headers and emit helper', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
-      const ast = parse('server name=Test\n  route method=post path=/api/stream\n    stream\n      handler <<<\n        emit({ type: "ping" });\n      >>>');
+      const ast = parse(
+        'server name=Test\n  route method=post path=/api/stream\n    stream\n      handler <<<\n        emit({ type: "ping" });\n      >>>',
+      );
       const result = transpileExpress(ast);
 
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
@@ -65,7 +71,9 @@ describe('Express Transpiler', () => {
     test('timer route generates timeout with AbortController', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
-      const ast = parse('server name=Test\n  route method=post path=/api/test\n    timer 15\n      handler <<<\n        const r = await doWork();\n        res.json(r);\n      >>>');
+      const ast = parse(
+        'server name=Test\n  route method=post path=/api/test\n    timer 15\n      handler <<<\n        const r = await doWork();\n        res.json(r);\n      >>>',
+      );
       const result = transpileExpress(ast);
 
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
@@ -77,7 +85,9 @@ describe('Express Transpiler', () => {
     test('spawn generates child_process with shell:false', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
-      const ast = parse("server name=Test\n  route method=post path=/api/run\n    stream\n      spawn binary=codex args=['-p','hello']\n        on name=stdout\n          handler <<<\n            emit({ text: chunk.toString() });\n          >>>");
+      const ast = parse(
+        "server name=Test\n  route method=post path=/api/run\n    stream\n      spawn binary=codex args=['-p','hello']\n        on name=stdout\n          handler <<<\n            emit({ text: chunk.toString() });\n          >>>",
+      );
       const result = transpileExpress(ast);
 
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
@@ -108,7 +118,9 @@ describe('Express Transpiler', () => {
     test('strict mode emits x-powered-by disable and sanitized error handler', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
-      const ast = parse('server name=Test\n  route method=get path=/health\n    handler <<<\n      res.json({ ok: true });\n    >>>');
+      const ast = parse(
+        'server name=Test\n  route method=get path=/health\n    handler <<<\n      res.json({ ok: true });\n    >>>',
+      );
       const result = transpileExpress(ast);
 
       expect(result.code).toContain(`app.disable('x-powered-by')`);
@@ -125,7 +137,9 @@ describe('Express Transpiler', () => {
       const { resolveConfig } = await import('../../core/src/config.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
       const config = resolveConfig({ target: 'express', express: { security: 'relaxed' } });
-      const ast = parse('server name=Test\n  route method=get path=/health\n    handler <<<\n      res.json({ ok: true });\n    >>>');
+      const ast = parse(
+        'server name=Test\n  route method=get path=/health\n    handler <<<\n      res.json({ ok: true });\n    >>>',
+      );
       const result = transpileExpress(ast, config);
 
       expect(result.code).not.toContain(`app.disable('x-powered-by')`);
@@ -137,7 +151,9 @@ describe('Express Transpiler', () => {
     test('strict mode does not duplicate json middleware when IR declares it', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
-      const ast = parse('server name=Test\n  middleware name=json\n  route method=get path=/health\n    handler <<<\n      res.json({ ok: true });\n    >>>');
+      const ast = parse(
+        'server name=Test\n  middleware name=json\n  route method=get path=/health\n    handler <<<\n      res.json({ ok: true });\n    >>>',
+      );
       const result = transpileExpress(ast);
 
       // Should have json middleware from IR (with limit), but NOT the auto-added one
@@ -150,7 +166,9 @@ describe('Express Transpiler', () => {
       const { resolveConfig } = await import('../../core/src/config.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
       const config = resolveConfig({ target: 'express', express: { helmet: true } });
-      const ast = parse('server name=Test\n  route method=get path=/health\n    handler <<<\n      res.json({ ok: true });\n    >>>');
+      const ast = parse(
+        'server name=Test\n  route method=get path=/health\n    handler <<<\n      res.json({ ok: true });\n    >>>',
+      );
       const result = transpileExpress(ast, config);
 
       expect(result.code).toContain(`import helmet from 'helmet'`);
@@ -178,16 +196,22 @@ describe('Express Transpiler', () => {
       const result = transpileExpress(parse(source));
       const authArtifact = result.artifacts?.find((artifact: any) => artifact.path === 'middleware/auth.ts');
 
-      expect(result.code).toContain(`app.use(cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true }));`);
+      expect(result.code).toContain(
+        `app.use(cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true }));`,
+      );
       expect(result.code).toContain(`app.get('/health'`);
       expect(result.code).toContain(`let data: any;`);
       expect(result.code).toContain(`ws.send(JSON.stringify({ error: 'Invalid JSON payload' }));`);
       expect(result.code).toContain(`process.on('SIGTERM', () => shutdown('SIGTERM'));`);
       expect(result.code).toContain(`process.on('SIGINT', () => shutdown('SIGINT'));`);
       expect(authArtifact?.content).toContain(`const JWT_SECRET = process.env.JWT_SECRET;`);
-      expect(authArtifact?.content).toContain(`throw new Error('JWT_SECRET environment variable is required in strict mode');`);
+      expect(authArtifact?.content).toContain(
+        `throw new Error('JWT_SECRET environment variable is required in strict mode');`,
+      );
       expect(authArtifact?.content).toContain(`const JWT_ALGORITHM = process.env.JWT_ALGORITHM || 'HS256';`);
-      expect(authArtifact?.content).toContain(`jwt.verify(header.slice(7), JWT_SECRET, { algorithms: [JWT_ALGORITHM] })`);
+      expect(authArtifact?.content).toContain(
+        `jwt.verify(header.slice(7), JWT_SECRET, { algorithms: [JWT_ALGORITHM] })`,
+      );
     });
   });
 
@@ -307,7 +331,9 @@ describe('Express Transpiler', () => {
       const result = transpileExpress(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       // strict mode should resolve cors with env-driven origins
-      expect(route!.content).toContain(`cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true })`);
+      expect(route!.content).toContain(
+        `cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true })`,
+      );
       expect(route!.content).toContain("import cors from 'cors'");
       // rateLimit is now a built-in — resolved to express-rate-limit import + invocation
       expect(route!.content).toContain('rateLimit(');
@@ -349,7 +375,9 @@ describe('Express Transpiler', () => {
       expect(getUsersRoute!.content).toContain('Number(req.query.page)');
       expect(getUsersRoute!.content).toContain(': 1;');
       // Bare middleware cors should resolve to strict env-driven cors with import
-      expect(getUsersRoute!.content).toContain(`cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true })`);
+      expect(getUsersRoute!.content).toContain(
+        `cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true })`,
+      );
       expect(getUsersRoute!.content).toContain("import cors from 'cors'");
 
       const postUsersRoute = result.artifacts!.find((a: any) => a.path.includes('post-api-users'));
@@ -378,11 +406,7 @@ describe('Express Transpiler', () => {
     test('respond 200 json=data generates res.json()', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
-      const source = [
-        'server name=Test',
-        '  route GET /api/users',
-        '    respond 200 json=users',
-      ].join('\n');
+      const source = ['server name=Test', '  route GET /api/users', '    respond 200 json=users'].join('\n');
       const result = transpileExpress(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       expect(route!.content).toContain('res.json(users)');
@@ -392,11 +416,7 @@ describe('Express Transpiler', () => {
     test('respond 201 json=user generates res.status(201).json()', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
-      const source = [
-        'server name=Test',
-        '  route POST /api/users',
-        '    respond 201 json=user',
-      ].join('\n');
+      const source = ['server name=Test', '  route POST /api/users', '    respond 201 json=user'].join('\n');
       const result = transpileExpress(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       expect(route!.content).toContain('res.status(201).json(user)');
@@ -405,11 +425,7 @@ describe('Express Transpiler', () => {
     test('respond 204 generates res.status(204).send()', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
-      const source = [
-        'server name=Test',
-        '  route DELETE /api/users/:id',
-        '    respond 204',
-      ].join('\n');
+      const source = ['server name=Test', '  route DELETE /api/users/:id', '    respond 204'].join('\n');
       const result = transpileExpress(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       expect(route!.content).toContain('res.status(204).send()');
@@ -418,11 +434,7 @@ describe('Express Transpiler', () => {
     test('respond 404 error="Not found" generates error response', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
-      const source = [
-        'server name=Test',
-        '  route GET /api/users/:id',
-        '    respond 404 error="Not found"',
-      ].join('\n');
+      const source = ['server name=Test', '  route GET /api/users/:id', '    respond 404 error="Not found"'].join('\n');
       const result = transpileExpress(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       expect(route!.content).toContain("res.status(404).json({ error: 'Not found' })");
@@ -431,11 +443,7 @@ describe('Express Transpiler', () => {
     test('respond redirect="/login" generates res.redirect()', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
-      const source = [
-        'server name=Test',
-        '  route GET /login',
-        '    respond redirect="/login"',
-      ].join('\n');
+      const source = ['server name=Test', '  route GET /login', '    respond redirect="/login"'].join('\n');
       const result = transpileExpress(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       expect(route!.content).toContain("res.redirect('/login')");
@@ -444,11 +452,7 @@ describe('Express Transpiler', () => {
     test('respond 200 text=result generates res.send()', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileExpress } = await import('../src/transpiler-express.js');
-      const source = [
-        'server name=Test',
-        '  route GET /api/text',
-        '    respond 200 text=result',
-      ].join('\n');
+      const source = ['server name=Test', '  route GET /api/text', '    respond 200 text=result'].join('\n');
       const result = transpileExpress(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       expect(route!.content).toContain('res.send(result)');
@@ -829,12 +833,14 @@ describe('Express Transpiler', () => {
       const { parse } = await import('../../core/src/parser.js');
       const { buildPrismaArtifact } = await import('../src/transpiler-express.js');
 
-      const model = parse([
-        'model name=User table=users',
-        '  column name=id type=uuid primary=true',
-        '  column name=email type=string unique=true',
-        '  column name=active type=boolean',
-      ].join('\n'));
+      const model = parse(
+        [
+          'model name=User table=users',
+          '  column name=id type=uuid primary=true',
+          '  column name=email type=string unique=true',
+          '  column name=active type=boolean',
+        ].join('\n'),
+      );
 
       const artifact = buildPrismaArtifact([model]);
       expect(artifact).not.toBeNull();
@@ -859,11 +865,13 @@ describe('Express Transpiler', () => {
       const { parse } = await import('../../core/src/parser.js');
       const { buildPrismaArtifact } = await import('../src/transpiler-express.js');
 
-      const model = parse([
-        'model name=User',
-        '  column name=id type=uuid primary=true',
-        '  relation name=posts target=Post kind=one-to-many',
-      ].join('\n'));
+      const model = parse(
+        [
+          'model name=User',
+          '  column name=id type=uuid primary=true',
+          '  relation name=posts target=Post kind=one-to-many',
+        ].join('\n'),
+      );
 
       const artifact = buildPrismaArtifact([model]);
       expect(artifact!.content).toContain('posts Post[]');

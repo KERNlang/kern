@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-import { runDev } from './commands/dev.js';
 import { runCompile } from './commands/compile.js';
-import { runScan, runInitTemplates } from './commands/scan.js';
-import { runReview } from './commands/review.js';
 import { runConfidence } from './commands/confidence.js';
-import { runTranspile, printHelp } from './commands/transpile.js';
+import { runDev } from './commands/dev.js';
 import { routeEvolve } from './commands/evolve/index.js';
+import { runReview } from './commands/review.js';
+import { runInitTemplates, runScan } from './commands/scan.js';
+import { printHelp, runTranspile } from './commands/transpile.js';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -13,17 +13,17 @@ const cmd = args[0];
 // ── Command registry ─────────────────────────────────────────────────────
 
 const COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
-  'dev': runDev,
-  'compile': runCompile,
-  'scan': runScan,
+  dev: runDev,
+  compile: runCompile,
+  scan: runScan,
   'init-templates': runInitTemplates,
-  'review': runReview,
-  'confidence': runConfidence,
+  review: runReview,
+  confidence: runConfidence,
 };
 
 async function main(): Promise<void> {
   // Route evolve commands (evolve + evolve:*)
-  if (cmd === 'evolve' || (cmd && cmd.startsWith('evolve:'))) {
+  if (cmd === 'evolve' || cmd?.startsWith('evolve:')) {
     await routeEvolve(args);
     return;
   }

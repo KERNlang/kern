@@ -1,8 +1,8 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR, buildDiagnostics, accountNode } from '@kernlang/core';
-import { planStructure } from './structure.js';
-import type { PlannedFile } from './structure.js';
+import type { AccountedEntry, IRNode, ResolvedKernConfig, SourceMapEntry, TranspileResult } from '@kernlang/core';
+import { accountNode, buildDiagnostics, countTokens, expandStyles, serializeIR } from '@kernlang/core';
 import { buildStructuredArtifacts } from './artifact-utils.js';
+import type { PlannedFile } from './structure.js';
+import { planStructure } from './structure.js';
 
 const NODE_TO_ELEMENT: Record<string, string> = {
   screen: 'div',
@@ -30,11 +30,10 @@ const NODE_TO_ELEMENT: Record<string, string> = {
   svg: 'svg',
 };
 
-
-function cssValue(key: string, value: string | number): string {
+function _cssValue(key: string, value: string | number): string {
   if (typeof value === 'number') {
     const unitless = ['flex', 'fontWeight', 'opacity', 'zIndex', 'lineHeight'];
-    if (unitless.some(u => key.toLowerCase().includes(u.toLowerCase()))) return String(value);
+    if (unitless.some((u) => key.toLowerCase().includes(u.toLowerCase()))) return String(value);
     return `${value}px`;
   }
   return String(value);
@@ -125,7 +124,7 @@ function _transpileWebFlat(root: IRNode, _config?: ResolvedKernConfig): Transpil
     }
 
     // Pseudo-styles as CSS hover/active
-    const pseudoStyles = props.pseudoStyles as Record<string, Record<string, string>> | undefined;
+    const _pseudoStyles = props.pseudoStyles as Record<string, Record<string, string>> | undefined;
 
     // Props as attributes
     for (const [k, v] of Object.entries(props)) {
@@ -143,11 +142,12 @@ function _transpileWebFlat(root: IRNode, _config?: ResolvedKernConfig): Transpil
       attrs.push(`alt="${props.src}"`);
     }
 
-    const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
-    const hasChildren = (node.children && node.children.length > 0) ||
+    const attrStr = attrs.length > 0 ? ` ${attrs.join(' ')}` : '';
+    const hasChildren =
+      (node.children && node.children.length > 0) ||
       (node.type === 'text' && props.value) ||
       (node.type === 'button' && props.text) ||
-      (node.type === 'progress');
+      node.type === 'progress';
 
     if (hasChildren) {
       jsxLines.push(`${indent}<${el}${attrStr}>`);
@@ -169,10 +169,18 @@ function _transpileWebFlat(root: IRNode, _config?: ResolvedKernConfig): Transpil
         const pct = Math.round((current / target) * 100);
         const barClass = getClassName('progressBar');
         const fillClass = getClassName('progressFill');
-        cssClasses[barClass] = { height: 8, borderRadius: 4, backgroundColor: '#E0E0E0', overflow: 'hidden', width: '100%' };
+        cssClasses[barClass] = {
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: '#E0E0E0',
+          overflow: 'hidden',
+          width: '100%',
+        };
         cssClasses[fillClass] = { height: 8, borderRadius: 4, backgroundColor: color, width: `${pct}%` };
 
-        jsxLines.push(`${indent}  <span className={styles.progressLabel}>${label}: ${current}/${target} ${unit}</span>`);
+        jsxLines.push(
+          `${indent}  <span className={styles.progressLabel}>${label}: ${current}/${target} ${unit}</span>`,
+        );
         jsxLines.push(`${indent}  <div className={styles.${barClass}}>`);
         jsxLines.push(`${indent}    <div className={styles.${fillClass}} />`);
         jsxLines.push(`${indent}  </div>`);
@@ -180,7 +188,7 @@ function _transpileWebFlat(root: IRNode, _config?: ResolvedKernConfig): Transpil
 
       if (node.children) {
         for (const child of node.children) {
-          renderNode(child, indent + '  ');
+          renderNode(child, `${indent}  `);
         }
       }
 
@@ -214,10 +222,10 @@ function _transpileWebFlat(root: IRNode, _config?: ResolvedKernConfig): Transpil
       .map(([k, v]) => `    ${k}: ${typeof v === 'number' ? v : `'${v}'`}`)
       .join(',\n');
     code.push(`  ${cname}: {`);
-    code.push(entries + ',');
+    code.push(`${entries},`);
     code.push(`  },`);
   }
-  if (!cssClasses['progressLabel']) {
+  if (!cssClasses.progressLabel) {
     code.push(`  progressLabel: {`);
     code.push(`    fontSize: 14,`);
     code.push(`    marginBottom: 4,`);
@@ -242,7 +250,7 @@ function _transpileWebFlat(root: IRNode, _config?: ResolvedKernConfig): Transpil
   accountNode(accounted, root, 'expressed', undefined, true);
   const CONSUMED = new Set(['state', 'logic', 'on', 'theme', 'handler']);
   for (const child of root.children || []) {
-    if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+    if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', `${child.type} pre-pass`, true);
   }
 
   return {
@@ -261,7 +269,7 @@ function _renderWebFile(file: PlannedFile, _config: ResolvedKernConfig): string 
   const rootNode = file.rootNode;
   const name = file.componentName || (rootNode.props?.name as string) || 'Component';
 
-  const sourceMap: SourceMapEntry[] = [];
+  const _sourceMap: SourceMapEntry[] = [];
   const cssClasses: Record<string, Record<string, string | number>> = {};
   let classIdx = 0;
   const jsxLines: string[] = [];
@@ -294,10 +302,22 @@ function _renderWebFile(file: PlannedFile, _config: ResolvedKernConfig): string 
     }
     if (props.styles) mergedStyles = { ...mergedStyles, ...expandStyles(props.styles as Record<string, string>) };
 
-    if (node.type === 'screen') { if (!mergedStyles.display) mergedStyles.display = 'flex'; if (!mergedStyles.flexDirection) mergedStyles.flexDirection = 'column'; if (!mergedStyles.minHeight) mergedStyles.minHeight = '100vh'; }
-    if (node.type === 'row') { if (!mergedStyles.display) mergedStyles.display = 'flex'; if (!mergedStyles.flexDirection) mergedStyles.flexDirection = 'row'; }
-    if (node.type === 'col') { if (!mergedStyles.display) mergedStyles.display = 'flex'; if (!mergedStyles.flexDirection) mergedStyles.flexDirection = 'column'; }
-    if (node.type === 'card') { if (!mergedStyles.boxShadow) mergedStyles.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'; }
+    if (node.type === 'screen') {
+      if (!mergedStyles.display) mergedStyles.display = 'flex';
+      if (!mergedStyles.flexDirection) mergedStyles.flexDirection = 'column';
+      if (!mergedStyles.minHeight) mergedStyles.minHeight = '100vh';
+    }
+    if (node.type === 'row') {
+      if (!mergedStyles.display) mergedStyles.display = 'flex';
+      if (!mergedStyles.flexDirection) mergedStyles.flexDirection = 'row';
+    }
+    if (node.type === 'col') {
+      if (!mergedStyles.display) mergedStyles.display = 'flex';
+      if (!mergedStyles.flexDirection) mergedStyles.flexDirection = 'column';
+    }
+    if (node.type === 'card') {
+      if (!mergedStyles.boxShadow) mergedStyles.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+    }
 
     if (Object.keys(mergedStyles).length > 0) {
       const cn = getClassName(node.type);
@@ -307,20 +327,29 @@ function _renderWebFile(file: PlannedFile, _config: ResolvedKernConfig): string 
 
     for (const [k, v] of Object.entries(props)) {
       if (['styles', 'pseudoStyles', 'themeRefs', 'value', 'text', 'src'].includes(k)) continue;
-      if (k === 'to' && node.type === 'button') { attrs.push(`onClick={() => router.push('/${v}')}`); continue; }
+      if (k === 'to' && node.type === 'button') {
+        attrs.push(`onClick={() => router.push('/${v}')}`);
+        continue;
+      }
       attrs.push(`${k === 'active' ? 'data-active' : k}="${v}"`);
     }
 
-    if (node.type === 'image' && props.src) { attrs.push(`src="/${props.src}.png"`); attrs.push(`alt="${props.src}"`); }
+    if (node.type === 'image' && props.src) {
+      attrs.push(`src="/${props.src}.png"`);
+      attrs.push(`alt="${props.src}"`);
+    }
 
-    const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
-    const hasChildren = (node.children && node.children.length > 0) || (node.type === 'text' && props.value) || (node.type === 'button' && props.text);
+    const attrStr = attrs.length > 0 ? ` ${attrs.join(' ')}` : '';
+    const hasChildren =
+      (node.children && node.children.length > 0) ||
+      (node.type === 'text' && props.value) ||
+      (node.type === 'button' && props.text);
 
     if (hasChildren) {
       jsxLines.push(`${indent}<${el}${attrStr}>`);
       if (node.type === 'text' && props.value) jsxLines.push(`${indent}  {${JSON.stringify(props.value)}}`);
       if (node.type === 'button' && props.text) jsxLines.push(`${indent}  ${props.text}`);
-      if (node.children) for (const child of node.children) renderNodeInner(child, indent + '  ');
+      if (node.children) for (const child of node.children) renderNodeInner(child, `${indent}  `);
       jsxLines.push(`${indent}</${el}>`);
     } else {
       jsxLines.push(`${indent}<${el}${attrStr} />`);
@@ -337,9 +366,11 @@ function _renderWebFile(file: PlannedFile, _config: ResolvedKernConfig): string 
 
   code.push(`const styles: Record<string, React.CSSProperties> = {`);
   for (const [cname, cval] of Object.entries(cssClasses)) {
-    const entries = Object.entries(cval).map(([k, v]) => `    ${k}: ${typeof v === 'number' ? v : `'${v}'`}`).join(',\n');
+    const entries = Object.entries(cval)
+      .map(([k, v]) => `    ${k}: ${typeof v === 'number' ? v : `'${v}'`}`)
+      .join(',\n');
     code.push(`  ${cname}: {`);
-    code.push(entries + ',');
+    code.push(`${entries},`);
     code.push(`  },`);
   }
   code.push(`};`);
@@ -377,7 +408,14 @@ function _transpileWebStructured(
     tsTokenCount,
     tokenReduction,
     artifacts,
-    diagnostics: buildDiagnostics(root, (() => { const m = new Map<IRNode, AccountedEntry>(); accountNode(m, root, 'expressed', undefined, true); return m; })(), 'web'),
+    diagnostics: buildDiagnostics(
+      root,
+      (() => {
+        const m = new Map<IRNode, AccountedEntry>();
+        accountNode(m, root, 'expressed', undefined, true);
+        return m;
+      })(),
+      'web',
+    ),
   };
 }
-

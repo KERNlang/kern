@@ -6,8 +6,8 @@
  */
 
 import type { ReviewFinding } from '@kernlang/review';
+import { findToolHandlerRegions, isMCPServer } from '../mcp-regions.js';
 import { finding } from '../mcp-types.js';
-import { isMCPServer, findToolHandlerRegions } from '../mcp-regions.js';
 
 export function excessivePermissions(source: string, filePath: string): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -32,16 +32,19 @@ export function excessivePermissions(source: string, filePath: string): ReviewFi
 
   for (const region of regions) {
     const code = lines.slice(region.start, region.end).join('\n');
-    const effectCount = [fsPatterns, shellPatterns, netPatterns, dbPatterns]
-      .filter(p => p.test(code)).length;
+    const effectCount = [fsPatterns, shellPatterns, netPatterns, dbPatterns].filter((p) => p.test(code)).length;
 
     if (effectCount >= 3) {
-      findings.push(finding(
-        'mcp-excessive-permissions', 'warning',
-        `Tool handler has ${effectCount} different effect types (file, shell, network, database) — consider splitting into smaller, focused tools`,
-        filePath, region.start + 1,
-        'Each tool should have a single responsibility. Split broad tools into focused ones with appropriate guards for each.',
-      ));
+      findings.push(
+        finding(
+          'mcp-excessive-permissions',
+          'warning',
+          `Tool handler has ${effectCount} different effect types (file, shell, network, database) — consider splitting into smaller, focused tools`,
+          filePath,
+          region.start + 1,
+          'Each tool should have a single responsibility. Split broad tools into focused ones with appropriate guards for each.',
+        ),
+      );
     }
   }
   return findings;

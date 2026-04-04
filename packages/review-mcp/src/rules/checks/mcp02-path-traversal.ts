@@ -5,10 +5,10 @@
  */
 
 import type { ReviewFinding } from '@kernlang/review';
-import { finding } from '../mcp-types.js';
 import { findLines, getSurroundingBlock } from '../mcp-lexical.js';
-import { TS_FS_OPS, PY_FS_OPS, TS_PATH_SANITIZE, PY_PATH_SANITIZE } from '../mcp-patterns.js';
+import { PY_FS_OPS, PY_PATH_SANITIZE, TS_FS_OPS, TS_PATH_SANITIZE } from '../mcp-patterns.js';
 import { findToolHandlerRegions, isMCPServerTS } from '../mcp-regions.js';
+import { finding } from '../mcp-types.js';
 
 export function pathTraversalTS(source: string, filePath: string): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -30,12 +30,16 @@ export function pathTraversalTS(source: string, filePath: string): ReviewFinding
     if (!hasContainment) {
       for (let i = region.start; i < region.end; i++) {
         if (TS_FS_OPS.test(lines[i])) {
-          findings.push(finding(
-            'mcp-path-traversal', hasSanitize ? 'warning' : 'error',
-            `File system operation in MCP tool handler without path containment check — path traversal risk`,
-            filePath, i + 1,
-            'Resolve the path with path.resolve() then verify it startsWith() the allowed base directory. Reject paths containing "..".',
-          ));
+          findings.push(
+            finding(
+              'mcp-path-traversal',
+              hasSanitize ? 'warning' : 'error',
+              `File system operation in MCP tool handler without path containment check — path traversal risk`,
+              filePath,
+              i + 1,
+              'Resolve the path with path.resolve() then verify it startsWith() the allowed base directory. Reject paths containing "..".',
+            ),
+          );
         }
       }
     }
@@ -47,12 +51,16 @@ export function pathTraversalTS(source: string, filePath: string): ReviewFinding
       const block = getSurroundingBlock(lines, lineNum - 1);
       const hasContainment = /\.startsWith\s*\(/.test(block) && /path\.resolve/.test(block);
       if (!hasContainment) {
-        findings.push(finding(
-          'mcp-path-traversal', 'warning',
-          `File system operation in MCP server without path containment validation`,
-          filePath, lineNum,
-          'Use path.resolve() + startsWith() to ensure paths stay within the allowed directory.',
-        ));
+        findings.push(
+          finding(
+            'mcp-path-traversal',
+            'warning',
+            `File system operation in MCP server without path containment validation`,
+            filePath,
+            lineNum,
+            'Use path.resolve() + startsWith() to ensure paths stay within the allowed directory.',
+          ),
+        );
       }
     }
   }
@@ -78,12 +86,16 @@ export function pathTraversalPython(source: string, filePath: string): ReviewFin
     if (!hasContainment) {
       for (let i = region.start; i < region.end; i++) {
         if (PY_FS_OPS.test(lines[i])) {
-          findings.push(finding(
-            'mcp-path-traversal', hasSanitize ? 'warning' : 'error',
-            `File system operation in MCP tool handler without path containment check — path traversal risk`,
-            filePath, i + 1,
-            'Use os.path.realpath() then verify the path startswith() the allowed base directory.',
-          ));
+          findings.push(
+            finding(
+              'mcp-path-traversal',
+              hasSanitize ? 'warning' : 'error',
+              `File system operation in MCP tool handler without path containment check — path traversal risk`,
+              filePath,
+              i + 1,
+              'Use os.path.realpath() then verify the path startswith() the allowed base directory.',
+            ),
+          );
         }
       }
     }

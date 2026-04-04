@@ -1,13 +1,13 @@
 import {
-  parseMajorVersion,
-  detectVersionsFromPackageJson,
-  resolveTailwindMajor,
-  resolveNextjsMajor,
-  buildTailwindProfile,
-  buildNextjsProfile,
-  buildVersionProfile,
   applyTailwindTokenRules,
+  buildNextjsProfile,
+  buildTailwindProfile,
+  buildVersionProfile,
+  detectVersionsFromPackageJson,
+  parseMajorVersion,
   resolveConfig,
+  resolveNextjsMajor,
+  resolveTailwindMajor,
 } from '../src/index.js';
 
 // ── Version Detection ────────────────────────────────────────────────────
@@ -63,16 +63,30 @@ describe('detectVersionsFromPackageJson', () => {
 });
 
 describe('resolveTailwindMajor', () => {
-  it('defaults to 3 when no version', () => { expect(resolveTailwindMajor({})).toBe(3); });
-  it('resolves v3 for 3.x', () => { expect(resolveTailwindMajor({ tailwind: '^3.4.1' })).toBe(3); });
-  it('resolves v4 for 4.x', () => { expect(resolveTailwindMajor({ tailwind: '4.0.0' })).toBe(4); });
+  it('defaults to 3 when no version', () => {
+    expect(resolveTailwindMajor({})).toBe(3);
+  });
+  it('resolves v3 for 3.x', () => {
+    expect(resolveTailwindMajor({ tailwind: '^3.4.1' })).toBe(3);
+  });
+  it('resolves v4 for 4.x', () => {
+    expect(resolveTailwindMajor({ tailwind: '4.0.0' })).toBe(4);
+  });
 });
 
 describe('resolveNextjsMajor', () => {
-  it('defaults to 14 when no version', () => { expect(resolveNextjsMajor({})).toBe(14); });
-  it('resolves 13 for 13.x', () => { expect(resolveNextjsMajor({ nextjs: '^13.5.0' })).toBe(13); });
-  it('resolves 14 for 14.x', () => { expect(resolveNextjsMajor({ nextjs: '14.2.0' })).toBe(14); });
-  it('resolves 15 for 15.x', () => { expect(resolveNextjsMajor({ nextjs: '~15.0.0' })).toBe(15); });
+  it('defaults to 14 when no version', () => {
+    expect(resolveNextjsMajor({})).toBe(14);
+  });
+  it('resolves 13 for 13.x', () => {
+    expect(resolveNextjsMajor({ nextjs: '^13.5.0' })).toBe(13);
+  });
+  it('resolves 14 for 14.x', () => {
+    expect(resolveNextjsMajor({ nextjs: '14.2.0' })).toBe(14);
+  });
+  it('resolves 15 for 15.x', () => {
+    expect(resolveNextjsMajor({ nextjs: '~15.0.0' })).toBe(15);
+  });
 });
 
 // ── Version Adapters ─────────────────────────────────────────────────────
@@ -95,7 +109,9 @@ describe('buildTailwindProfile', () => {
 describe('applyTailwindTokenRules', () => {
   it('passes through classes in v3', () => {
     const profile = buildTailwindProfile({ tailwind: '3.4.0' });
-    expect(applyTailwindTokenRules('bg-red-500 text-white flex-shrink-0', profile)).toBe('bg-red-500 text-white flex-shrink-0');
+    expect(applyTailwindTokenRules('bg-red-500 text-white flex-shrink-0', profile)).toBe(
+      'bg-red-500 text-white flex-shrink-0',
+    );
   });
   it('transforms flex-shrink to shrink in v4', () => {
     const profile = buildTailwindProfile({ tailwind: '4.0.0' });

@@ -5,10 +5,24 @@
  * and interprocedural taint through intra-file call graph.
  */
 
-import { SyntaxKind, Node, type SourceFile, type FunctionDeclaration, type ArrowFunction, type FunctionExpression, type MethodDeclaration } from 'ts-morph';
+import {
+  type ArrowFunction,
+  type FunctionDeclaration,
+  type FunctionExpression,
+  type MethodDeclaration,
+  type Node,
+  type SourceFile,
+  SyntaxKind,
+} from 'ts-morph';
+import type { InternalSinkFunction, TaintPath, TaintResult, TaintSink, TaintSource } from './taint-types.js';
+import {
+  HTTP_PARAM_NAMES,
+  HTTP_PARAM_TYPES,
+  isSanitizerSufficient,
+  SANITIZER_PATTERN_NAMES,
+  SINK_NAMES,
+} from './taint-types.js';
 import type { InferResult } from './types.js';
-import type { TaintSource, TaintSink, TaintPath, TaintResult, InternalSinkFunction } from './taint-types.js';
-import { HTTP_PARAM_NAMES, HTTP_PARAM_TYPES, SINK_NAMES, SANITIZER_PATTERN_NAMES, isSanitizerSufficient } from './taint-types.js';
 
 // ── Intra-File Sink Map ─────────────────────────────────────────────────
 
@@ -20,7 +34,10 @@ import { HTTP_PARAM_NAMES, HTTP_PARAM_TYPES, SINK_NAMES, SANITIZER_PATTERN_NAMES
 export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, InternalSinkFunction> {
   const sinkMap = new Map<string, InternalSinkFunction>();
 
-  const allFns: Array<{ name: string; node: FunctionDeclaration | ArrowFunction | FunctionExpression | MethodDeclaration }> = [];
+  const allFns: Array<{
+    name: string;
+    node: FunctionDeclaration | ArrowFunction | FunctionExpression | MethodDeclaration;
+  }> = [];
   for (const fn of sourceFile.getFunctions()) {
     const name = fn.getName();
     if (name) allFns.push({ name, node: fn });
@@ -41,7 +58,9 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
 
     // Collect all calls in the body that hit a known sink
     const calls: import('ts-morph').CallExpression[] = [];
-    body.forEachDescendant(n => { if (n.getKindName() === 'CallExpression') calls.push(n as import('ts-morph').CallExpression); });
+    body.forEachDescendant((n) => {
+      if (n.getKindName() === 'CallExpression') calls.push(n as import('ts-morph').CallExpression);
+    });
 
     const taintedParamIndices = new Set<number>();
     const sinkCategories = new Map<number, Set<TaintSink['category']>>();
@@ -56,7 +75,7 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
         const argText = arg.getText();
         for (let i = 0; i < params.length; i++) {
           const paramName = params[i].getName();
-          if (argText === paramName || argText.startsWith(paramName + '.') || argText.startsWith(paramName + '[')) {
+          if (argText === paramName || argText.startsWith(`${paramName}.`) || argText.startsWith(`${paramName}[`)) {
             taintedParamIndices.add(i);
             if (!sinkCategories.has(i)) sinkCategories.set(i, new Set());
             sinkCategories.get(i)!.add(sinkDef);
@@ -72,7 +91,7 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
             const exprText = expr.getText();
             for (let i = 0; i < params.length; i++) {
               const paramName = params[i].getName();
-              if (exprText === paramName || exprText.startsWith(paramName + '.')) {
+              if (exprText === paramName || exprText.startsWith(`${paramName}.`)) {
                 taintedParamIndices.add(i);
                 if (!sinkCategories.has(i)) sinkCategories.set(i, new Set());
                 sinkCategories.get(i)!.add(sinkDef);
@@ -97,14 +116,17 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
  * AST-based taint analysis — walks real ts-morph AST nodes instead of regex on strings.
  * Handles destructuring, method chains, computed property access.
  */
-export function analyzeTaintAST(inferred: InferResult[], filePath: string, sourceFile: SourceFile): TaintResult[] {
+export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sourceFile: SourceFile): TaintResult[] {
   const results: TaintResult[] = [];
 
   // Build intra-file call graph: which internal functions contain sinks?
   const internalSinkMap = buildInternalSinkMap(sourceFile);
 
   // Collect all function-like AST nodes from the SourceFile
-  const allFns: Array<{ node: FunctionDeclaration | ArrowFunction | FunctionExpression | MethodDeclaration; startLine: number }> = [];
+  const allFns: Array<{
+    node: FunctionDeclaration | ArrowFunction | FunctionExpression | MethodDeclaration;
+    startLine: number;
+  }> = [];
   for (const fn of sourceFile.getFunctions()) allFns.push({ node: fn, startLine: fn.getStartLineNumber() });
   for (const stmt of sourceFile.getVariableStatements()) {
     for (const decl of stmt.getDeclarations()) {
@@ -142,7 +164,7 @@ export function analyzeTaintAST(inferred: InferResult[], filePath: string, sourc
     const body = fn.getBody();
     if (!body) continue;
 
-    const taintedNames = new Set(taintedParams.map(p => p.name));
+    const taintedNames = new Set(taintedParams.map((p) => p.name));
     const taintedVars = new Map<string, TaintSource>();
     for (const p of taintedParams) taintedVars.set(p.name, p);
 
@@ -214,7 +236,9 @@ export function analyzeTaintAST(inferred: InferResult[], filePath: string, sourc
     // Step 3: Find sinks via AST CallExpression walk
     const sinks: TaintSink[] = [];
     const calls: import('ts-morph').CallExpression[] = [];
-    body.forEachDescendant(n => { if (n.getKindName() === 'CallExpression') calls.push(n as import('ts-morph').CallExpression); });
+    body.forEachDescendant((n) => {
+      if (n.getKindName() === 'CallExpression') calls.push(n as import('ts-morph').CallExpression);
+    });
     for (const call of calls) {
       const calleeName = getCalleeBaseName(call);
       const sinkDef = SINK_NAMES.get(calleeName);
@@ -235,7 +259,7 @@ export function analyzeTaintAST(inferred: InferResult[], filePath: string, sourc
       }
 
       // Also check template literal arguments
-      const templateArgs = call.getArguments().filter(a => {
+      const templateArgs = call.getArguments().filter((a) => {
         const k = a.getKindName();
         return k === 'TemplateExpression' || k === 'NoSubstitutionTemplateLiteral';
       });
@@ -296,11 +320,11 @@ export function analyzeTaintAST(inferred: InferResult[], filePath: string, sourc
       const source = taintedVars.get(sink.taintedArg) || taintedParams[0];
       // Subtree matching: sanitize(req.query) covers req.query.id but not req.body.cmd
       // parseInt(req.query.id) does NOT cover exec(req) — only the specific property is safe
-      const sanitizer = foundSanitizers.find(s => {
+      const sanitizer = foundSanitizers.find((s) => {
         for (const sv of s.sanitizedVars) {
           if (sv === sink.taintedArg) return true;
           // Sanitized path is a prefix → covers all sub-properties
-          if (sink.taintedArg.startsWith(sv + '.')) return true;
+          if (sink.taintedArg.startsWith(`${sv}.`)) return true;
         }
         return false;
       });
@@ -382,7 +406,10 @@ function findTaintedIdentifier(expr: Node, taintedNames: Set<string>): string | 
   }
   // Check binary expressions (string concatenation: 'cmd ' + userInput)
   if (k === 'BinaryExpression') {
-    return findTaintedIdentifier((expr as any).getLeft(), taintedNames) || findTaintedIdentifier((expr as any).getRight(), taintedNames);
+    return (
+      findTaintedIdentifier((expr as any).getLeft(), taintedNames) ||
+      findTaintedIdentifier((expr as any).getRight(), taintedNames)
+    );
   }
   for (const child of expr.getChildren()) {
     const found = findTaintedIdentifier(child, taintedNames);
@@ -396,10 +423,12 @@ function findSanitizersAST(body: Node, taintedNames: Set<string>): Array<{ name:
   const sanitizers: Array<{ name: string; sanitizedVars: Set<string> }> = [];
 
   const allCalls: import('ts-morph').CallExpression[] = [];
-  body.forEachDescendant(n => { if (n.getKindName() === 'CallExpression') allCalls.push(n as import('ts-morph').CallExpression); });
+  body.forEachDescendant((n) => {
+    if (n.getKindName() === 'CallExpression') allCalls.push(n as import('ts-morph').CallExpression);
+  });
   for (const call of allCalls) {
     const calleeName = getCalleeBaseName(call);
-    const matchedSanitizer = SANITIZER_PATTERN_NAMES.find(s => calleeName.includes(s));
+    const matchedSanitizer = SANITIZER_PATTERN_NAMES.find((s) => calleeName.includes(s));
     if (!matchedSanitizer) continue;
 
     // Track which tainted vars are sanitized by this call

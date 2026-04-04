@@ -2,7 +2,13 @@
  * Spec checker tests — .kern contract vs .ts implementation.
  */
 
-import { extractSpecContracts, extractImplRoutes, matchRoutes, checkSpec, specViolationsToFindings } from '../src/spec-checker.js';
+import {
+  checkSpec,
+  extractImplRoutes,
+  extractSpecContracts,
+  matchRoutes,
+  specViolationsToFindings,
+} from '../src/spec-checker.js';
 
 // ── extractSpecContracts ──────────────────────────────────────────────
 
@@ -180,7 +186,7 @@ router.get('/api/users', async (req, res) => {
 });
 `;
     const result = checkSpec(kern, 'api.kern', ts, 'routes.ts');
-    const authViolation = result.violations.find(v => v.kind === 'spec-auth-missing');
+    const authViolation = result.violations.find((v) => v.kind === 'spec-auth-missing');
     expect(authViolation).toBeDefined();
     expect(authViolation!.detail).toContain('auth required');
   });
@@ -198,7 +204,7 @@ router.get('/api/users', requireAuth, async (req, res) => {
 });
 `;
     const result = checkSpec(kern, 'api.kern', ts, 'routes.ts');
-    const authViolation = result.violations.find(v => v.kind === 'spec-auth-missing');
+    const authViolation = result.violations.find((v) => v.kind === 'spec-auth-missing');
     expect(authViolation).toBeUndefined();
   });
 
@@ -218,7 +224,7 @@ router.post('/api/users', async (req, res) => {
 });
 `;
     const result = checkSpec(kern, 'api.kern', ts, 'routes.ts');
-    const validateViolation = result.violations.find(v => v.kind === 'spec-validate-missing');
+    const validateViolation = result.violations.find((v) => v.kind === 'spec-validate-missing');
     expect(validateViolation).toBeDefined();
   });
 
@@ -235,7 +241,7 @@ router.post('/api/users', async (req, res) => {
 });
 `;
     const result = checkSpec(kern, 'api.kern', ts, 'routes.ts');
-    const validateViolation = result.violations.find(v => v.kind === 'spec-validate-missing');
+    const validateViolation = result.violations.find((v) => v.kind === 'spec-validate-missing');
     expect(validateViolation).toBeUndefined();
   });
 
@@ -251,7 +257,7 @@ router.get('/api/users', async (req, res) => {
 });
 `;
     const result = checkSpec(kern, 'api.kern', ts, 'routes.ts');
-    const unimpl = result.violations.find(v => v.kind === 'spec-unimplemented');
+    const unimpl = result.violations.find((v) => v.kind === 'spec-unimplemented');
     expect(unimpl).toBeDefined();
     expect(unimpl!.detail).toContain('DELETE /api/users/:id');
   });
@@ -266,7 +272,7 @@ router.get('/api/users', async (req, res) => { res.json([]); });
 router.get('/api/health', async (req, res) => { res.json({ ok: true }); });
 `;
     const result = checkSpec(kern, 'api.kern', ts, 'routes.ts');
-    const undeclared = result.violations.find(v => v.kind === 'spec-undeclared');
+    const undeclared = result.violations.find((v) => v.kind === 'spec-undeclared');
     expect(undeclared).toBeDefined();
     expect(undeclared!.detail).toContain('/api/health');
   });
@@ -304,7 +310,7 @@ describe('specViolationsToFindings', () => {
     const findings = specViolationsToFindings(result);
     expect(findings.length).toBeGreaterThanOrEqual(1);
 
-    const authFinding = findings.find(f => f.ruleId === 'spec-auth-missing');
+    const authFinding = findings.find((f) => f.ruleId === 'spec-auth-missing');
     expect(authFinding).toBeDefined();
     expect(authFinding!.severity).toBe('error');
     expect(authFinding!.primarySpan.file).toBe('api.kern');

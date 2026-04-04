@@ -17,7 +17,7 @@ app.post('/users', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'unvalidated-input');
+      const f = report.findings.find((f) => f.ruleId === 'unvalidated-input');
       expect(f).toBeDefined();
       expect(f!.severity).toBe('error');
     });
@@ -32,7 +32,7 @@ app.get('/users/:id', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'unvalidated-input');
+      const f = report.findings.find((f) => f.ruleId === 'unvalidated-input');
       expect(f).toBeDefined();
     });
 
@@ -46,7 +46,7 @@ app.get('/search', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'unvalidated-input');
+      const f = report.findings.find((f) => f.ruleId === 'unvalidated-input');
       expect(f).toBeDefined();
     });
 
@@ -62,7 +62,7 @@ app.post('/users', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'unvalidated-input');
+      const f = report.findings.find((f) => f.ruleId === 'unvalidated-input');
       expect(f).toBeUndefined();
     });
 
@@ -82,7 +82,7 @@ app.post('/orders', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'unvalidated-input');
+      const f = report.findings.find((f) => f.ruleId === 'unvalidated-input');
       expect(f).toBeDefined();
       expect(f!.message).toContain('req.body');
     });
@@ -97,7 +97,7 @@ app.post('/users', (request: any, response: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'unvalidated-input');
+      const f = report.findings.find((f) => f.ruleId === 'unvalidated-input');
       expect(f).toBeDefined();
       expect(f!.message).toContain('request.body');
     });
@@ -112,7 +112,7 @@ app.post('/users', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'unvalidated-input' && f.message.includes('Destructured'));
+      const f = report.findings.find((f) => f.ruleId === 'unvalidated-input' && f.message.includes('Destructured'));
       expect(f).toBeDefined();
     });
 
@@ -127,7 +127,7 @@ app.post('/data', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'unvalidated-input');
+      const f = report.findings.find((f) => f.ruleId === 'unvalidated-input');
       expect(f).toBeDefined();
     });
 
@@ -141,7 +141,7 @@ app.post('/users', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'unvalidated-input');
+      const f = report.findings.find((f) => f.ruleId === 'unvalidated-input');
       expect(f).toBeUndefined();
     });
   });
@@ -159,7 +159,7 @@ app.get('/', (req: any, res: any) => {
 app.listen(3000);
 `;
       const report = reviewSource(source, 'app.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-error-middleware');
+      const f = report.findings.find((f) => f.ruleId === 'missing-error-middleware');
       expect(f).toBeDefined();
       expect(f!.severity).toBe('warning');
     });
@@ -177,7 +177,7 @@ app.use((err: any, req: any, res: any, next: any) => {
 app.listen(3000);
 `;
       const report = reviewSource(source, 'app.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-error-middleware');
+      const f = report.findings.find((f) => f.ruleId === 'missing-error-middleware');
       expect(f).toBeUndefined();
     });
 
@@ -191,7 +191,7 @@ app.use(errorHandler);
 app.listen(3000);
 `;
       const report = reviewSource(source, 'app.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-error-middleware');
+      const f = report.findings.find((f) => f.ruleId === 'missing-error-middleware');
       expect(f).toBeUndefined();
     });
 
@@ -203,7 +203,7 @@ router.get('/', (req: any, res: any) => { res.json({}); });
 export default router;
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'missing-error-middleware');
+      const f = report.findings.find((f) => f.ruleId === 'missing-error-middleware');
       expect(f).toBeUndefined();
     });
   });
@@ -222,7 +222,7 @@ app.get('/config', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'sync-in-handler');
+      const f = report.findings.find((f) => f.ruleId === 'sync-in-handler');
       expect(f).toBeDefined();
       expect(f!.message).toContain('readFileSync');
     });
@@ -238,7 +238,7 @@ app.post('/save', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'sync-in-handler');
+      const f = report.findings.find((f) => f.ruleId === 'sync-in-handler');
       expect(f).toBeDefined();
       expect(f!.message).toContain('writeFileSync');
     });
@@ -254,7 +254,7 @@ app.post('/hash', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'sync-in-handler');
+      const f = report.findings.find((f) => f.ruleId === 'sync-in-handler');
       expect(f).toBeDefined();
       expect(f!.message).toContain('pbkdf2Sync');
     });
@@ -266,7 +266,7 @@ const config = readFileSync('/etc/config.json', 'utf-8');
 export default JSON.parse(config);
 `;
       const report = reviewSource(source, 'config.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'sync-in-handler');
+      const f = report.findings.find((f) => f.ruleId === 'sync-in-handler');
       expect(f).toBeUndefined();
     });
 
@@ -281,7 +281,7 @@ app.get('/config', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'sync-in-handler');
+      const f = report.findings.find((f) => f.ruleId === 'sync-in-handler');
       expect(f).toBeDefined();
       expect(f!.message).toContain('readFileSync');
     });
@@ -297,7 +297,7 @@ app.get('/config', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'sync-in-handler');
+      const f = report.findings.find((f) => f.ruleId === 'sync-in-handler');
       expect(f).toBeUndefined();
     });
   });
@@ -317,7 +317,7 @@ app.get('/users/:id', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'double-response');
+      const f = report.findings.find((f) => f.ruleId === 'double-response');
       expect(f).toBeDefined();
       expect(f!.severity).toBe('error');
     });
@@ -335,7 +335,7 @@ app.get('/users/:id', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'double-response');
+      const f = report.findings.find((f) => f.ruleId === 'double-response');
       expect(f).toBeUndefined();
     });
 
@@ -349,7 +349,7 @@ app.get('/data', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'double-response');
+      const f = report.findings.find((f) => f.ruleId === 'double-response');
       expect(f).toBeDefined();
     });
 
@@ -362,7 +362,7 @@ app.get('/health', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'double-response');
+      const f = report.findings.find((f) => f.ruleId === 'double-response');
       expect(f).toBeUndefined();
     });
 
@@ -378,7 +378,7 @@ app.get('/data', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'routes.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'double-response');
+      const f = report.findings.find((f) => f.ruleId === 'double-response');
       expect(f).toBeUndefined();
     });
   });
@@ -395,7 +395,7 @@ app.use((req: any, res: any, next: any) => {
 });
 `;
       const report = reviewSource(source, 'app.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'express-missing-next');
+      const f = report.findings.find((f) => f.ruleId === 'express-missing-next');
       expect(f).toBeDefined();
       expect(f!.severity).toBe('error');
       expect(f!.message).toContain('hang');
@@ -411,7 +411,7 @@ app.use((req: any, res: any, next: any) => {
 });
 `;
       const report = reviewSource(source, 'app.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'express-missing-next');
+      const f = report.findings.find((f) => f.ruleId === 'express-missing-next');
       expect(f).toBeUndefined();
     });
 
@@ -424,7 +424,7 @@ app.use((req: any, res: any, next: any) => {
 });
 `;
       const report = reviewSource(source, 'app.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'express-missing-next');
+      const f = report.findings.find((f) => f.ruleId === 'express-missing-next');
       expect(f).toBeUndefined();
     });
 
@@ -437,7 +437,7 @@ app.use((request: any, response: any, next: any) => {
 });
 `;
       const report = reviewSource(source, 'app.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'express-missing-next');
+      const f = report.findings.find((f) => f.ruleId === 'express-missing-next');
       expect(f).toBeUndefined();
     });
 
@@ -450,7 +450,7 @@ app.use((req: any, res: any, next: any) => {
 });
 `;
       const report = reviewSource(source, 'app.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'express-missing-next');
+      const f = report.findings.find((f) => f.ruleId === 'express-missing-next');
       expect(f).toBeDefined();
       expect(f!.severity).toBe('warning');
     });
@@ -464,7 +464,7 @@ app.use((req: any, res: any, next: any) => {
 });
 `;
       const report = reviewSource(source, 'app.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'express-missing-next');
+      const f = report.findings.find((f) => f.ruleId === 'express-missing-next');
       expect(f).toBeUndefined();
     });
 
@@ -479,7 +479,7 @@ app.use((req: any, res: any, next: any) => {
 });
 `;
       const report = reviewSource(source, 'app.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'express-missing-next');
+      const f = report.findings.find((f) => f.ruleId === 'express-missing-next');
       expect(f).toBeDefined();
       expect(f!.severity).toBe('warning');
       expect(f!.message).toContain('conditional');
@@ -498,7 +498,7 @@ app.use((req: any, res: any, next: any) => {
 });
 `;
       const report = reviewSource(source, 'app.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'express-missing-next');
+      const f = report.findings.find((f) => f.ruleId === 'express-missing-next');
       expect(f).toBeUndefined();
     });
 
@@ -511,7 +511,7 @@ app.get('/health', (req: any, res: any) => {
 });
 `;
       const report = reviewSource(source, 'app.ts', expressConfig);
-      const f = report.findings.find(f => f.ruleId === 'express-missing-next');
+      const f = report.findings.find((f) => f.ruleId === 'express-missing-next');
       expect(f).toBeUndefined();
     });
   });

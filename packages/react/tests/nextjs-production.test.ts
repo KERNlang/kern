@@ -1,7 +1,7 @@
-import { resolve, dirname } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const _ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('Next.js 15 Production Patterns', () => {
   let parse: (source: string) => any;
@@ -18,14 +18,18 @@ describe('Next.js 15 Production Patterns', () => {
 
   describe('generateMetadata', () => {
     test('parses generateMetadata node', () => {
-      const ast = parse('page async name=ProjectPage\n  generateMetadata\n    handler code="const { locale } = await params; return { title: locale };"');
+      const ast = parse(
+        'page async name=ProjectPage\n  generateMetadata\n    handler code="const { locale } = await params; return { title: locale };"',
+      );
       expect(ast.type).toBe('page');
       const genMeta = ast.children?.find((c: any) => c.type === 'generateMetadata');
       expect(genMeta).toBeDefined();
     });
 
     test('generates async generateMetadata function', () => {
-      const ast = parse('page name=ProjectPage\n  generateMetadata\n    handler code="const { locale } = await params; return { title: locale };"');
+      const ast = parse(
+        'page name=ProjectPage\n  generateMetadata\n    handler code="const { locale } = await params; return { title: locale };"',
+      );
       const result = transpileNextjs(ast);
       expect(result.code).toContain('export async function generateMetadata');
       expect(result.code).toContain('Promise<Metadata>');
@@ -33,7 +37,9 @@ describe('Next.js 15 Production Patterns', () => {
     });
 
     test('includes handler code in generateMetadata body', () => {
-      const ast = parse('page name=ProjectPage\n  generateMetadata\n    handler code="const { locale } = await params; return { title: locale };"');
+      const ast = parse(
+        'page name=ProjectPage\n  generateMetadata\n    handler code="const { locale } = await params; return { title: locale };"',
+      );
       const result = transpileNextjs(ast);
       expect(result.code).toContain('const { locale } = await params');
       expect(result.code).toContain('return { title: locale }');
@@ -434,9 +440,21 @@ describe('Next.js 15 Production Patterns', () => {
     test('all 15 new node types are in NODE_TYPES', async () => {
       const { NODE_TYPES } = await import('../../core/src/spec.js');
       const required = [
-        'page', 'layout', 'loading', 'metadata', 'link',
-        'textarea', 'slider', 'toggle', 'grid', 'component',
-        'icon', 'logic', 'form', 'const', 'svg',
+        'page',
+        'layout',
+        'loading',
+        'metadata',
+        'link',
+        'textarea',
+        'slider',
+        'toggle',
+        'grid',
+        'component',
+        'icon',
+        'logic',
+        'form',
+        'const',
+        'svg',
       ];
       for (const type of required) {
         expect((NODE_TYPES as readonly string[]).includes(type)).toBe(true);
@@ -456,7 +474,9 @@ describe('Next.js 15 Production Patterns', () => {
     });
 
     test('custom SVG renders with viewBox and content', () => {
-      const ast = parse('page name=Test\n  svg viewBox="0 0 100 100" width=32 height=32 content="<rect width=100 height=100 />"');
+      const ast = parse(
+        'page name=Test\n  svg viewBox="0 0 100 100" width=32 height=32 content="<rect width=100 height=100 />"',
+      );
       const result = transpileNextjs(ast);
       expect(result.code).toContain('viewBox="0 0 100 100"');
       expect(result.code).toContain('width={32}');

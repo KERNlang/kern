@@ -1,6 +1,6 @@
 export const db = {
-  query: async (sql: string, params?: any[]) => {
+  query: async (_sql: string, _params?: any[]) => {
     // mock
     return { rows: [] };
-  }
+  },
 };

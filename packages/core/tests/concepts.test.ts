@@ -1,19 +1,19 @@
-import { conceptId, conceptSpan } from '../src/concepts.js';
 import type {
-  ConceptNode,
+  CallPayload,
   ConceptEdge,
   ConceptMap,
+  ConceptNode,
   ConceptSpan as ConceptSpanType,
-  EntrypointPayload,
-  EffectPayload,
-  StateMutationPayload,
-  ErrorRaisePayload,
-  ErrorHandlePayload,
-  GuardPayload,
-  FunctionDeclarationPayload,
-  CallPayload,
   DependencyPayload,
+  EffectPayload,
+  EntrypointPayload,
+  ErrorHandlePayload,
+  ErrorRaisePayload,
+  FunctionDeclarationPayload,
+  GuardPayload,
+  StateMutationPayload,
 } from '../src/concepts.js';
+import { conceptId, conceptSpan } from '../src/concepts.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -21,11 +21,7 @@ function makeSpan(file = 'test.ts', line = 1, col = 0): ConceptSpanType {
   return conceptSpan(file, line, col, line + 5, col + 10);
 }
 
-function makeNode(
-  kind: ConceptNode['kind'],
-  payload: ConceptNode['payload'],
-  offset = 0,
-): ConceptNode {
+function makeNode(kind: ConceptNode['kind'], payload: ConceptNode['payload'], offset = 0): ConceptNode {
   return {
     id: conceptId('test.ts', kind, offset),
     kind,
@@ -87,7 +83,12 @@ describe('ConceptNode construction', () => {
   });
 
   it('builds effect node', () => {
-    const payload: EffectPayload = { kind: 'effect', subtype: 'network', target: 'https://api.example.com', async: true };
+    const payload: EffectPayload = {
+      kind: 'effect',
+      subtype: 'network',
+      target: 'https://api.example.com',
+      async: true,
+    };
     const node = makeNode('effect', payload);
     expect(node.kind).toBe('effect');
     expect(node.payload.kind).toBe('effect');
@@ -95,7 +96,12 @@ describe('ConceptNode construction', () => {
   });
 
   it('builds state_mutation node', () => {
-    const payload: StateMutationPayload = { kind: 'state_mutation', target: 'count', scope: 'module', via: 'increment' };
+    const payload: StateMutationPayload = {
+      kind: 'state_mutation',
+      target: 'count',
+      scope: 'module',
+      via: 'increment',
+    };
     const node = makeNode('state_mutation', payload);
     expect(node.kind).toBe('state_mutation');
     expect(node.payload.kind).toBe('state_mutation');
@@ -128,7 +134,12 @@ describe('ConceptNode construction', () => {
 
   it('builds function_declaration node', () => {
     const payload: FunctionDeclarationPayload = {
-      kind: 'function_declaration', name: 'fetchUsers', async: true, hasAwait: true, isComponent: false, isExport: true,
+      kind: 'function_declaration',
+      name: 'fetchUsers',
+      async: true,
+      hasAwait: true,
+      isComponent: false,
+      isExport: true,
     };
     const node = makeNode('function_declaration', payload);
     expect(node.kind).toBe('function_declaration');

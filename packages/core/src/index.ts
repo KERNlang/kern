@@ -2,137 +2,242 @@
  * @kernlang/core — parser, types, spec, config, style engines, codegen
  */
 
-// Runtime (instance-based state)
-export { KernRuntime, defaultRuntime } from './runtime.js';
-export type { ParserHintsConfig } from './runtime.js';
-
-// Core
-export { parse, parseDocument, parseWithDiagnostics, parseDocumentWithDiagnostics, parseStrict, parseDocumentStrict, getParseDiagnostics, getParseWarnings, registerParserHints, unregisterParserHints, clearParserHints, tokenizeLine } from './parser.js';
-export type { Token, TokenKind } from './parser.js';
+export type { SemanticTypeMapping } from './codegen-core.js';
+// Codegen — public entry points
+export {
+  CORE_NODE_TYPES,
+  capitalize,
+  clearEvolvedGenerators,
+  cssPropertyName,
+  dedent,
+  // Safe emitters (prompt-injection immunity)
+  emitIdentifier,
+  emitImportSpecifier,
+  emitLowConfidenceTodo,
+  emitPath,
+  emitReasonAnnotations,
+  emitStringLiteral,
+  emitTemplateSafe,
+  emitTypeAnnotation,
+  exportPrefix,
+  generateCoreNode,
+  generateMachineReducer,
+  getChildren,
+  getFirstChild,
+  // Shared IR node helpers (used by transpiler packages)
+  getProps,
+  getPseudoStyles,
+  getStyles,
+  getThemeRefs,
+  handlerCode,
+  hasEvolvedGenerator,
+  isCoreNode,
+  mapSemanticType,
+  parseParamList,
+  // Evolved generators — prefer KernRuntime for new code
+  registerEvolvedGenerator,
+  registerEvolvedTargetGenerator,
+  SEMANTIC_TYPE_MAP,
+  unregisterEvolvedGenerator,
+} from './codegen-core.js';
+export type {
+  CallPayload,
+  ConceptEdge,
+  ConceptEdgeKind,
+  ConceptEdgePayload,
+  ConceptMap,
+  ConceptNode,
+  ConceptNodeKind,
+  ConceptNodePayload,
+  ConceptSpan,
+  DependencyPayload,
+  EffectPayload,
+  EntrypointPayload,
+  ErrorHandlePayload,
+  ErrorRaisePayload,
+  FunctionDeclarationPayload,
+  GuardPayload,
+  StateMutationPayload,
+} from './concepts.js';
+// Concepts (universal cross-language review model)
+export { conceptId, conceptSpan } from './concepts.js';
+export type {
+  ExpressSecurityLevel,
+  FrameworkVersions,
+  KernConfig,
+  KernStructure,
+  KernTarget,
+  ResolvedKernConfig,
+} from './config.js';
+// Config
+export { DEFAULT_CONFIG, mergeConfig, resolveConfig, VALID_STRUCTURES, VALID_TARGETS } from './config.js';
+export type { CoverageGap } from './coverage-gap.js';
+// Coverage gap emitter (v3)
+export { collectCoverageGaps, readCoverageGaps, writeCoverageGaps } from './coverage-gap.js';
 export { decompile } from './decompiler.js';
-export { KernParseError, KernConfigError } from './errors.js';
-
+// Codegen errors
+export { KernCodegenError, KernConfigError, KernParseError } from './errors.js';
+export type {
+  ActionProps,
+  AssumeProps,
+  BranchProps,
+  CacheProps,
+  CollectProps,
+  ColumnProps,
+  ConditionalProps,
+  ConfigProps,
+  ConstProps,
+  DependencyProps,
+  DeriveProps,
+  EachProps,
+  ErrorProps,
+  EventProps,
+  ExpectProps,
+  FieldProps,
+  FnProps,
+  GuardProps,
+  ImportProps,
+  InterfaceProps,
+  InvariantProps,
+  MachineProps,
+  MethodProps,
+  ModelProps,
+  ModuleProps,
+  NodePropsMap,
+  OnProps,
+  OptionProps,
+  PatternProps,
+  RecoverProps,
+  RelationProps,
+  RepositoryProps,
+  ResolveProps,
+  SelectProps,
+  ServiceProps,
+  StateProps,
+  StoreProps,
+  TestProps,
+  TransformProps,
+  TransitionProps,
+  TypeProps,
+  UnionProps,
+  VariantProps,
+  WebSocketProps,
+} from './node-props.js';
+// Typed node props
+export { propsOf, propsUntyped } from './node-props.js';
+export type { Token, TokenKind } from './parser.js';
+// Core
+export {
+  clearParserHints,
+  getParseDiagnostics,
+  getParseWarnings,
+  parse,
+  parseDocument,
+  parseDocumentStrict,
+  parseDocumentWithDiagnostics,
+  parseStrict,
+  parseWithDiagnostics,
+  registerParserHints,
+  tokenizeLine,
+  unregisterParserHints,
+} from './parser.js';
+export type { ParserHintsConfig } from './runtime.js';
+// Runtime (instance-based state)
+export { defaultRuntime, KernRuntime } from './runtime.js';
+export type { Detection, ScanInfo, ScanResult } from './scanner.js';
+// Scanner
+export { formatScanSummary, generateConfigSource, scanProject } from './scanner.js';
+export type { NodeSchema, PropKind, PropSchema, SchemaViolation } from './schema.js';
+// Schema validation
+export { NODE_SCHEMAS, validateSchema } from './schema.js';
+export type { SourceMapV3 } from './source-map.js';
+// Source map serialization
+export { serializeSourceMap } from './source-map.js';
+// Spec
+export {
+  clearEvolvedTypes,
+  getEvolvedTypes,
+  isKnownNodeType,
+  KERN_RESERVED,
+  KERN_VERSION,
+  NODE_TYPES,
+  // Evolved types (v4)
+  registerEvolvedType,
+  STYLE_SHORTHANDS,
+  unregisterEvolvedType,
+  VALUE_SHORTHANDS,
+} from './spec.js';
+export { expandStyleKey, expandStyles, expandStyleValue } from './styles-react.js';
+// Style engines
+export { colorToTw, DEFAULT_COLORS, pxToTw, stylesToTailwind } from './styles-tailwind.js';
+export type { CatalogEntry } from './template-catalog.js';
+// Template catalog
+export { COMMON_TEMPLATES, detectTemplates, TEMPLATE_CATALOG } from './template-catalog.js';
+// Template engine
+export {
+  clearTemplates,
+  expandTemplateNode,
+  getTemplate,
+  isTemplateNode,
+  KernTemplateError,
+  registerTemplate,
+  templateCount,
+} from './template-engine.js';
 // Types
 export type {
+  DecompileResult,
+  DiagnosticOutcome,
   ExprObject,
+  GeneratedArtifact,
   IRNode,
   IRSourceLocation,
-  SourceMapEntry,
-  TranspileResult,
-  TranspileDiagnostic,
-  DiagnosticOutcome,
-  DecompileResult,
-  GeneratedArtifact,
   KernEngine,
   ParseDiagnostic,
   ParseDiagnosticSeverity,
   ParseErrorCode,
   ParseResult,
+  SourceMapEntry,
+  TemplateDefinition,
+  TemplateImport,
+  TemplateSlot,
+  TemplateSlotType,
+  TranspileDiagnostic,
+  TranspileResult,
 } from './types.js';
-
-// Config
-export { resolveConfig, mergeConfig, DEFAULT_CONFIG, VALID_TARGETS, VALID_STRUCTURES } from './config.js';
-export type { KernConfig, KernTarget, KernStructure, ResolvedKernConfig, FrameworkVersions, ExpressSecurityLevel } from './config.js';
-
-// Version detection & adapters
-export { parseMajorVersion, detectVersionsFromPackageJson, resolveTailwindMajor, resolveNextjsMajor } from './version-detect.js';
-export {
-  buildTailwindProfile, buildNextjsProfile, buildVersionProfile,
-  applyTailwindTokenRules,
-} from './version-adapters.js';
-export type {
-  TailwindTokenRule, TailwindOutputRules, TailwindVersionProfile,
-  NextjsOutputRules, NextjsVersionProfile, VersionProfile,
-} from './version-adapters.js';
-
-// Spec
-export {
-  KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS,
-  // Evolved types (v4)
-  registerEvolvedType, unregisterEvolvedType, isKnownNodeType, getEvolvedTypes, clearEvolvedTypes, KERN_RESERVED,
-} from './spec.js';
-
-// Schema validation
-export { validateSchema, NODE_SCHEMAS } from './schema.js';
-export type { NodeSchema, PropSchema, PropKind, SchemaViolation } from './schema.js';
-
-// Style engines
-export { stylesToTailwind, colorToTw, pxToTw, DEFAULT_COLORS } from './styles-tailwind.js';
-export { expandStyles, expandStyleKey, expandStyleValue } from './styles-react.js';
-
-// Codegen — public entry points
-export {
-  generateCoreNode, isCoreNode, CORE_NODE_TYPES,
-  generateMachineReducer,
-  // Safe emitters (prompt-injection immunity)
-  emitIdentifier, emitStringLiteral, emitPath, emitTemplateSafe, emitTypeAnnotation, emitImportSpecifier,
-  // Shared IR node helpers (used by transpiler packages)
-  getProps, getChildren, getFirstChild, getStyles, getPseudoStyles, getThemeRefs,
-  dedent, cssPropertyName, handlerCode, exportPrefix,
-  parseParamList, capitalize,
-  emitReasonAnnotations, emitLowConfidenceTodo,
-  // Evolved generators — prefer KernRuntime for new code
-  registerEvolvedGenerator, registerEvolvedTargetGenerator, unregisterEvolvedGenerator, clearEvolvedGenerators, hasEvolvedGenerator,
-  mapSemanticType, SEMANTIC_TYPE_MAP,
-} from './codegen-core.js';
-export type { SemanticTypeMapping } from './codegen-core.js';
-
-// Codegen errors
-export { KernCodegenError } from './errors.js';
-
-// Template engine
-export {
-  registerTemplate, isTemplateNode, expandTemplateNode,
-  clearTemplates, getTemplate, templateCount, KernTemplateError,
-} from './template-engine.js';
-export type { TemplateDefinition, TemplateSlot, TemplateImport, TemplateSlotType } from './types.js';
-
-// Coverage gap emitter (v3)
-export { collectCoverageGaps, writeCoverageGaps, readCoverageGaps } from './coverage-gap.js';
-export type { CoverageGap } from './coverage-gap.js';
-
-// Template catalog
-export { TEMPLATE_CATALOG, COMMON_TEMPLATES, detectTemplates } from './template-catalog.js';
-export type { CatalogEntry } from './template-catalog.js';
-
-// Scanner
-export { scanProject, generateConfigSource, formatScanSummary } from './scanner.js';
-export type { ScanResult, ScanInfo, Detection } from './scanner.js';
-
-// Concepts (universal cross-language review model)
-export { conceptId, conceptSpan } from './concepts.js';
-export type {
-  ConceptNode, ConceptEdge, ConceptMap, ConceptSpan,
-  ConceptNodeKind, ConceptEdgeKind,
-  ConceptNodePayload, ConceptEdgePayload,
-  EntrypointPayload, EffectPayload, StateMutationPayload, FunctionDeclarationPayload,
-  ErrorRaisePayload, ErrorHandlePayload, GuardPayload,
-  CallPayload, DependencyPayload,
-} from './concepts.js';
-
-// Utilities
-export { countTokens, serializeIR, camelKey, escapeJsx, escapeJsxText, escapeJsxAttr, escapeJsString, buildDiagnostics, accountNode } from './utils.js';
 export type { AccountedEntry } from './utils.js';
-
-// Walker
-export { walkIR, getNodeAtPosition } from './walk.js';
-export type { WalkContext, VisitorFn, Visitor, VisitorMap } from './walk.js';
-
-// Typed node props
-export { propsOf, propsUntyped } from './node-props.js';
+// Utilities
+export {
+  accountNode,
+  buildDiagnostics,
+  camelKey,
+  countTokens,
+  escapeJsString,
+  escapeJsx,
+  escapeJsxAttr,
+  escapeJsxText,
+  serializeIR,
+} from './utils.js';
 export type {
-  NodePropsMap,
-  TypeProps, InterfaceProps, UnionProps, ServiceProps, ConstProps,
-  FnProps, ErrorProps, MachineProps,
-  ConfigProps, StoreProps, RepositoryProps, CacheProps, DependencyProps, ModelProps,
-  EventProps, OnProps, WebSocketProps,
-  DeriveProps, TransformProps, ActionProps, GuardProps, AssumeProps, InvariantProps,
-  EachProps, CollectProps, BranchProps, ResolveProps, ExpectProps, RecoverProps, PatternProps,
-  ConditionalProps, SelectProps,
-  ModuleProps, ImportProps, FieldProps, VariantProps, MethodProps,
-  TransitionProps, StateProps, ColumnProps, RelationProps, OptionProps, TestProps,
-} from './node-props.js';
-
-// Source map serialization
-export { serializeSourceMap } from './source-map.js';
-export type { SourceMapV3 } from './source-map.js';
+  NextjsOutputRules,
+  NextjsVersionProfile,
+  TailwindOutputRules,
+  TailwindTokenRule,
+  TailwindVersionProfile,
+  VersionProfile,
+} from './version-adapters.js';
+export {
+  applyTailwindTokenRules,
+  buildNextjsProfile,
+  buildTailwindProfile,
+  buildVersionProfile,
+} from './version-adapters.js';
+// Version detection & adapters
+export {
+  detectVersionsFromPackageJson,
+  parseMajorVersion,
+  resolveNextjsMajor,
+  resolveTailwindMajor,
+} from './version-detect.js';
+export type { Visitor, VisitorFn, VisitorMap, WalkContext } from './walk.js';
+// Walker
+export { getNodeAtPosition, walkIR } from './walk.js';

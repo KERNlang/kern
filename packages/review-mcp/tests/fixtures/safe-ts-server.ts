@@ -8,7 +8,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { execFile } from 'child_process';
 import { readFileSync } from 'fs';
-import { resolve, join } from 'path';
+import { resolve } from 'path';
 import { z } from 'zod';
 
 const server = new McpServer({ name: 'safe-server', version: '1.0.0' });
@@ -59,17 +59,25 @@ server.tool('get-users', 'Get user list', { limit: z.number() }, async (params) 
 });
 
 // Safe: Zod schema validates input
-server.tool('calculate', 'Perform calculation', {
-  operation: z.enum(['add', 'subtract', 'multiply', 'divide']),
-  a: z.number(),
-  b: z.number(),
-}, async (params) => {
-  const ops: Record<string, (a: number, b: number) => number> = {
-    add: (a, b) => a + b, subtract: (a, b) => a - b,
-    multiply: (a, b) => a * b, divide: (a, b) => a / b,
-  };
-  return { content: [{ type: 'text', text: String(ops[params.operation](params.a, params.b)) }] };
-});
+server.tool(
+  'calculate',
+  'Perform calculation',
+  {
+    operation: z.enum(['add', 'subtract', 'multiply', 'divide']),
+    a: z.number(),
+    b: z.number(),
+  },
+  async (params) => {
+    const ops: Record<string, (a: number, b: number) => number> = {
+      add: (a, b) => a + b,
+      subtract: (a, b) => a - b,
+      multiply: (a, b) => a * b,
+      divide: (a, b) => a / b,
+    };
+    return { content: [{ type: 'text', text: String(ops[params.operation](params.a, params.b)) }] };
+  },
+);
 
 declare function sanitizeForResponse(s: string): string;
+
 export { server };

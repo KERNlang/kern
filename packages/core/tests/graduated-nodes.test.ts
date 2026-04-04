@@ -1,16 +1,12 @@
+import { generateCoreNode, isCoreNode } from '../src/codegen-core.js';
 import { parse } from '../src/parser.js';
-import {
-  generateCoreNode, isCoreNode,
-  generateConditional, generateSelect,
-  generateModel, generateRepository, generateDependency, generateCache,
-} from '../src/codegen-core.js';
 
 function gen(source: string): string {
   const root = parse(source);
   return generateCoreNode(root).join('\n');
 }
 
-function makeNode(type: string, props: Record<string, unknown> = {}, children: any[] = []) {
+function _makeNode(type: string, props: Record<string, unknown> = {}, children: any[] = []) {
   return { type, props, children, loc: { line: 1, col: 1 } };
 }
 
@@ -19,20 +15,17 @@ describe('Graduated Nodes', () => {
 
   describe('conditional', () => {
     it('generates conditional rendering with single child', () => {
-      const code = gen([
-        'conditional if=isPro',
-        '  text value="Pro features unlocked"',
-      ].join('\n'));
+      const code = gen(['conditional if=isPro', '  text value="Pro features unlocked"'].join('\n'));
       expect(code).toContain('isPro');
       expect(code).toContain('&&');
     });
 
     it('generates conditional rendering with core node children', () => {
-      const code = gen([
-        'conditional if=isAdmin',
-        '  type name=AdminState values="active|disabled"',
-        '  config name=adminConfig',
-      ].join('\n'));
+      const code = gen(
+        ['conditional if=isAdmin', '  type name=AdminState values="active|disabled"', '  config name=adminConfig'].join(
+          '\n',
+        ),
+      );
       expect(code).toContain('isAdmin');
       expect(code).toContain('<>');
     });
@@ -46,11 +39,13 @@ describe('Graduated Nodes', () => {
 
   describe('select', () => {
     it('generates select with options', () => {
-      const code = gen([
-        'select name=status value=current placeholder="Choose"',
-        '  option value=active label="Active"',
-        '  option value=pending label="Pending"',
-      ].join('\n'));
+      const code = gen(
+        [
+          'select name=status value=current placeholder="Choose"',
+          '  option value=active label="Active"',
+          '  option value=pending label="Pending"',
+        ].join('\n'),
+      );
       expect(code).toContain('<select');
       expect(code).toContain('name="status"');
       expect(code).toContain('<option value="" disabled>Choose</option>');
@@ -60,11 +55,9 @@ describe('Graduated Nodes', () => {
     });
 
     it('generates select without placeholder', () => {
-      const code = gen([
-        'select name=role',
-        '  option value=admin label="Admin"',
-        '  option value=user label="User"',
-      ].join('\n'));
+      const code = gen(
+        ['select name=role', '  option value=admin label="Admin"', '  option value=user label="User"'].join('\n'),
+      );
       expect(code).toContain('<select');
       expect(code).not.toContain('disabled');
     });
@@ -74,11 +67,13 @@ describe('Graduated Nodes', () => {
 
   describe('model', () => {
     it('generates interface from model with columns', () => {
-      const code = gen([
-        'model name=User table=users',
-        '  column name=id type=uuid primary=true',
-        '  column name=email type=string unique=true',
-      ].join('\n'));
+      const code = gen(
+        [
+          'model name=User table=users',
+          '  column name=id type=uuid primary=true',
+          '  column name=email type=string unique=true',
+        ].join('\n'),
+      );
       expect(code).toContain('export interface User {');
       expect(code).toContain('id: string;');
       expect(code).toContain('email: string;');
@@ -86,22 +81,24 @@ describe('Graduated Nodes', () => {
     });
 
     it('generates relations', () => {
-      const code = gen([
-        'model name=User',
-        '  column name=id type=uuid',
-        '  relation name=posts target=Post kind=one-to-many',
-      ].join('\n'));
+      const code = gen(
+        ['model name=User', '  column name=id type=uuid', '  relation name=posts target=Post kind=one-to-many'].join(
+          '\n',
+        ),
+      );
       expect(code).toContain('posts?: Post[];');
     });
 
     it('maps column types correctly', () => {
-      const code = gen([
-        'model name=Record',
-        '  column name=count type=int',
-        '  column name=active type=boolean',
-        '  column name=created type=datetime',
-        '  column name=data type=json',
-      ].join('\n'));
+      const code = gen(
+        [
+          'model name=Record',
+          '  column name=count type=int',
+          '  column name=active type=boolean',
+          '  column name=created type=datetime',
+          '  column name=data type=json',
+        ].join('\n'),
+      );
       expect(code).toContain('count: number;');
       expect(code).toContain('active: boolean;');
       expect(code).toContain('created: Date;');
@@ -113,11 +110,13 @@ describe('Graduated Nodes', () => {
 
   describe('repository', () => {
     it('generates repository class with model', () => {
-      const code = gen([
-        'repository name=UserRepo model=User',
-        '  method name=findByEmail params="email:string" returns="User|null"',
-        '    handler <<<return this.findOne({ email });>>>',
-      ].join('\n'));
+      const code = gen(
+        [
+          'repository name=UserRepo model=User',
+          '  method name=findByEmail params="email:string" returns="User|null"',
+          '    handler <<<return this.findOne({ email });>>>',
+        ].join('\n'),
+      );
       expect(code).toContain('export class UserRepo {');
       expect(code).toContain("readonly modelType = 'User';");
       expect(code).toContain('findByEmail(email: string): User|null {');
@@ -125,11 +124,9 @@ describe('Graduated Nodes', () => {
     });
 
     it('generates repository without model', () => {
-      const code = gen([
-        'repository name=BaseRepo',
-        '  method name=getAll returns="any[]"',
-        '    handler <<<return [];>>>',
-      ].join('\n'));
+      const code = gen(
+        ['repository name=BaseRepo', '  method name=getAll returns="any[]"', '    handler <<<return [];>>>'].join('\n'),
+      );
       expect(code).toContain('export class BaseRepo {');
       expect(code).not.toContain('constructor');
     });
@@ -139,12 +136,14 @@ describe('Graduated Nodes', () => {
 
   describe('dependency', () => {
     it('generates singleton factory', () => {
-      const code = gen([
-        'dependency name=authService scope=singleton',
-        '  inject name=db from=database',
-        '  inject name=repo type=UserRepository with=db',
-        '  returns name=AuthService with=repo',
-      ].join('\n'));
+      const code = gen(
+        [
+          'dependency name=authService scope=singleton',
+          '  inject name=db from=database',
+          '  inject name=repo type=UserRepository with=db',
+          '  returns name=AuthService with=repo',
+        ].join('\n'),
+      );
       expect(code).toContain('let _authServiceInstance: AuthService | null = null;');
       expect(code).toContain('function createAuthService(): AuthService {');
       expect(code).toContain('if (_authServiceInstance) return _authServiceInstance;');
@@ -155,11 +154,11 @@ describe('Graduated Nodes', () => {
     });
 
     it('generates transient factory', () => {
-      const code = gen([
-        'dependency name=logger',
-        '  inject name=config type=LogConfig',
-        '  returns name=Logger with=config',
-      ].join('\n'));
+      const code = gen(
+        ['dependency name=logger', '  inject name=config type=LogConfig', '  returns name=Logger with=config'].join(
+          '\n',
+        ),
+      );
       expect(code).not.toContain('Instance');
       expect(code).toContain('function createLogger(): Logger {');
       expect(code).toContain('const config = new LogConfig();');
@@ -170,12 +169,14 @@ describe('Graduated Nodes', () => {
 
   describe('cache', () => {
     it('generates cache object with entries and invalidation', () => {
-      const code = gen([
-        'cache name=userCache backend=redis prefix="user:" ttl=3600',
-        '  entry name=profile key="user:{id}"',
-        '    strategy read-through',
-        '  invalidate on=userUpdate tags="user:{id}"',
-      ].join('\n'));
+      const code = gen(
+        [
+          'cache name=userCache backend=redis prefix="user:" ttl=3600',
+          '  entry name=profile key="user:{id}"',
+          '    strategy read-through',
+          '  invalidate on=userUpdate tags="user:{id}"',
+        ].join('\n'),
+      );
       expect(code).toContain('export const userCache = {');
       expect(code).toContain("prefix: 'user:'");
       expect(code).toContain('ttl: 3600');
@@ -189,10 +190,7 @@ describe('Graduated Nodes', () => {
     });
 
     it('generates memory cache', () => {
-      const code = gen([
-        'cache name=appCache',
-        '  entry name=settings key="settings"',
-      ].join('\n'));
+      const code = gen(['cache name=appCache', '  entry name=settings key="settings"'].join('\n'));
       expect(code).toContain("backend: 'memory'");
       expect(code).toContain('cache.get(key)');
       expect(code).toContain('const cache = new Map<string, unknown>()');
@@ -236,7 +234,20 @@ describe('Graduated Nodes', () => {
   // ── isCoreNode ──
 
   describe('isCoreNode includes graduated nodes', () => {
-    for (const type of ['model', 'column', 'relation', 'repository', 'dependency', 'inject', 'cache', 'entry', 'invalidate', 'conditional', 'select', 'option']) {
+    for (const type of [
+      'model',
+      'column',
+      'relation',
+      'repository',
+      'dependency',
+      'inject',
+      'cache',
+      'entry',
+      'invalidate',
+      'conditional',
+      'select',
+      'option',
+    ]) {
       it(`recognizes '${type}' as core`, () => {
         expect(isCoreNode(type)).toBe(true);
       });

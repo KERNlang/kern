@@ -1,11 +1,11 @@
-import { parse, serializeIR, resolveConfig } from '@kernlang/core';
-import type { KernTarget, IRNode, TranspileResult, ResolvedKernConfig } from '@kernlang/core';
-import { transpileWeb, transpileTailwind, transpileNextjs } from '@kernlang/react';
-import { transpile as transpileNative } from '@kernlang/native';
+import type { IRNode, KernTarget, ResolvedKernConfig, TranspileResult } from '@kernlang/core';
+import { parse, resolveConfig, serializeIR } from '@kernlang/core';
 import { transpileExpress } from '@kernlang/express';
 import { transpileFastAPI } from '@kernlang/fastapi';
-import { transpileTerminal, transpileInk } from '@kernlang/terminal';
-import { transpileVue, transpileNuxt } from '@kernlang/vue';
+import { transpile as transpileNative } from '@kernlang/native';
+import { transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
+import { transpileInk, transpileTerminal } from '@kernlang/terminal';
+import { transpileNuxt, transpileVue } from '@kernlang/vue';
 
 export interface CompileResult {
   ir: string | null;
@@ -17,16 +17,26 @@ export interface CompileResult {
 
 function dispatch(target: KernTarget, ast: IRNode, config: ResolvedKernConfig): TranspileResult {
   switch (target) {
-    case 'native': return transpileNative(ast, config);
-    case 'web': return transpileWeb(ast, config);
-    case 'tailwind': return transpileTailwind(ast, config);
-    case 'nextjs': return transpileNextjs(ast, config);
-    case 'express': return transpileExpress(ast, config);
-    case 'fastapi': return transpileFastAPI(ast, config);
-    case 'terminal': return transpileTerminal(ast, config);
-    case 'ink': return transpileInk(ast, config);
-    case 'vue': return transpileVue(ast, config);
-    case 'nuxt': return transpileNuxt(ast, config);
+    case 'native':
+      return transpileNative(ast, config);
+    case 'web':
+      return transpileWeb(ast, config);
+    case 'tailwind':
+      return transpileTailwind(ast, config);
+    case 'nextjs':
+      return transpileNextjs(ast, config);
+    case 'express':
+      return transpileExpress(ast, config);
+    case 'fastapi':
+      return transpileFastAPI(ast, config);
+    case 'terminal':
+      return transpileTerminal(ast, config);
+    case 'ink':
+      return transpileInk(ast, config);
+    case 'vue':
+      return transpileVue(ast, config);
+    case 'nuxt':
+      return transpileNuxt(ast, config);
     case 'cli':
       throw new Error('CLI target is only available in the KERN CLI tool. Try "express" or "terminal" instead.');
     default:
@@ -44,7 +54,7 @@ export function compile(source: string, target: KernTarget): CompileResult {
     return {
       ir,
       output: result.code,
-      artifacts: (result.artifacts ?? []).map(a => ({
+      artifacts: (result.artifacts ?? []).map((a) => ({
         path: a.path,
         content: a.content,
         type: a.type,

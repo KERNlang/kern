@@ -7,8 +7,8 @@
  * Extracted from codegen-core.ts for independent reuse by React/Vue/Python codegens.
  */
 
-import type { IRNode } from '../types.js';
 import { KernCodegenError } from '../errors.js';
+import type { IRNode } from '../types.js';
 
 // Matches valid JS/TS identifiers — KERN hyphens are converted to camelCase by the parser.
 const SAFE_IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -19,7 +19,10 @@ const SAFE_IMPORT_RE = /^(@[A-Za-z0-9_-]+\/)?[A-Za-z0-9_./:~-]+$/;
 export function emitIdentifier(value: string | undefined, fallback: string, node?: IRNode): string {
   const v = value || fallback;
   if (!SAFE_IDENT_RE.test(v)) {
-    throw new KernCodegenError(`Invalid identifier: '${v.slice(0, 50)}' — must match KERN identifier grammar [A-Za-z_$][A-Za-z0-9_$]*`, node);
+    throw new KernCodegenError(
+      `Invalid identifier: '${v.slice(0, 50)}' — must match KERN identifier grammar [A-Za-z_$][A-Za-z0-9_$]*`,
+      node,
+    );
   }
   return v;
 }
@@ -49,10 +52,7 @@ export function emitPath(value: string, node?: IRNode): string {
 
 /** Escape a value for interpolation into a template literal in generated code. */
 export function emitTemplateSafe(value: string): string {
-  return value
-    .replace(/\\/g, '\\\\')
-    .replace(/`/g, '\\`')
-    .replace(/\$\{/g, '\\${');
+  return value.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
 }
 
 /**
@@ -67,11 +67,17 @@ export function emitTypeAnnotation(value: string | undefined, fallback: string, 
   if (v.includes('`'))
     throw new KernCodegenError(`Invalid type annotation: '${v.slice(0, 80)}' — backticks not allowed in types`, node);
   if (v.includes('${'))
-    throw new KernCodegenError(`Invalid type annotation: '${v.slice(0, 80)}' — template interpolation not allowed`, node);
+    throw new KernCodegenError(
+      `Invalid type annotation: '${v.slice(0, 80)}' — template interpolation not allowed`,
+      node,
+    );
   // Semicolons are valid inside object types { x: string; y: number } but not at top level
   // Top-level semicolons checked during bracket scanning below
   if (/import\s*\(/.test(v))
-    throw new KernCodegenError(`Invalid type annotation: '${v.slice(0, 80)}' — dynamic imports not allowed in types`, node);
+    throw new KernCodegenError(
+      `Invalid type annotation: '${v.slice(0, 80)}' — dynamic imports not allowed in types`,
+      node,
+    );
   if (v.includes('//') || v.includes('/*'))
     throw new KernCodegenError(`Invalid type annotation: '${v.slice(0, 80)}' — comments not allowed in types`, node);
 
@@ -83,13 +89,20 @@ export function emitTypeAnnotation(value: string | undefined, fallback: string, 
   for (let i = 0; i < v.length; i++) {
     const ch = v[i];
     if ((ch === "'" || ch === '"') && (i === 0 || v[i - 1] !== '\\')) {
-      if (inString === ch) { inString = null; } else if (!inString) { inString = ch; }
+      if (inString === ch) {
+        inString = null;
+      } else if (!inString) {
+        inString = ch;
+      }
       continue;
     }
     if (inString) continue;
     // Reject semicolons at top level (statement injection) but allow inside {} (object types)
     if (ch === ';' && stack.length === 0) {
-      throw new KernCodegenError(`Invalid type annotation: '${v.slice(0, 80)}' — semicolons not allowed at top level in types`, node);
+      throw new KernCodegenError(
+        `Invalid type annotation: '${v.slice(0, 80)}' — semicolons not allowed at top level in types`,
+        node,
+      );
     }
     if (ch === '>' && i > 0 && v[i - 1] === '=') continue;
     if (ch in pairs) {
@@ -103,8 +116,13 @@ export function emitTypeAnnotation(value: string | undefined, fallback: string, 
     }
   }
 
-  if (inString) throw new KernCodegenError(`Invalid type annotation: '${v.slice(0, 80)}' — unclosed string literal`, node);
-  if (stack.length > 0) throw new KernCodegenError(`Invalid type annotation: '${v.slice(0, 80)}' — unclosed '${stack[stack.length - 1]}'`, node);
+  if (inString)
+    throw new KernCodegenError(`Invalid type annotation: '${v.slice(0, 80)}' — unclosed string literal`, node);
+  if (stack.length > 0)
+    throw new KernCodegenError(
+      `Invalid type annotation: '${v.slice(0, 80)}' — unclosed '${stack[stack.length - 1]}'`,
+      node,
+    );
 
   return v;
 }
@@ -113,7 +131,10 @@ export function emitTypeAnnotation(value: string | undefined, fallback: string, 
 export function emitImportSpecifier(value: string, node?: IRNode): string {
   if (!value) throw new KernCodegenError('Import specifier cannot be empty', node);
   if (value.includes("'") || value.includes('"') || value.includes('`') || value.includes('\\')) {
-    throw new KernCodegenError(`Invalid import specifier: '${value.slice(0, 80)}' — contains quote or escape characters`, node);
+    throw new KernCodegenError(
+      `Invalid import specifier: '${value.slice(0, 80)}' — contains quote or escape characters`,
+      node,
+    );
   }
   if (value.includes(';') || value.includes('$') || value.includes('\n')) {
     throw new KernCodegenError(`Invalid import specifier: '${value.slice(0, 80)}' — contains unsafe characters`, node);

@@ -4,8 +4,8 @@
  * Pipeline: scan → gap-detect → analyze → propose → validate → stage → promote
  */
 
-import type { SourceFile } from 'ts-morph';
 import type { TemplateSlotType } from '@kernlang/core';
+import type { SourceFile } from 'ts-morph';
 
 // ── Pattern Kinds ────────────────────────────────────────────────────────
 

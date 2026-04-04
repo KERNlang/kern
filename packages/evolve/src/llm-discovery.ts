@@ -9,8 +9,8 @@
  */
 
 import { readdirSync, statSync } from 'fs';
-import { resolve, join, dirname } from 'path';
-import type { EvolveNodeProposal, EvolvedNodeProp } from './evolved-types.js';
+import { dirname, join, resolve } from 'path';
+import type { EvolvedNodeProp, EvolveNodeProposal } from './evolved-types.js';
 
 // ── File Selection ───────────────────────────────────────────────────────
 
@@ -22,11 +22,7 @@ import type { EvolveNodeProposal, EvolvedNodeProp } from './evolved-types.js';
  * @param maxPerCluster — max files to sample per directory (default: 3)
  * @param maxBatchSize — max files per LLM batch (default: 5)
  */
-export function selectRepresentativeFiles(
-  filePaths: string[],
-  maxPerCluster = 3,
-  maxBatchSize = 5,
-): string[][] {
+export function selectRepresentativeFiles(filePaths: string[], maxPerCluster = 3, maxBatchSize = 5): string[][] {
   // Cluster by parent directory
   const clusters = new Map<string, string[]>();
   for (const fp of filePaths) {
@@ -38,7 +34,7 @@ export function selectRepresentativeFiles(
 
   // Sample from each cluster: pick diverse files (by size variance)
   const sampled: string[] = [];
-  for (const [dir, files] of clusters) {
+  for (const [_dir, files] of clusters) {
     // Sort by file size (descending) to get diverse samples
     const sorted = [...files].sort((a, b) => {
       try {
@@ -114,9 +110,9 @@ export function buildDiscoveryPrompt(
   nodeTypes: readonly string[],
   evolvedKeywords: string[] = [],
 ): string {
-  const fileBlocks = files.map(f =>
-    `### ${f.path}\n\`\`\`typescript\n${truncate(f.content, 3000)}\n\`\`\``
-  ).join('\n\n');
+  const fileBlocks = files
+    .map((f) => `### ${f.path}\n\`\`\`typescript\n${truncate(f.content, 3000)}\n\`\`\``)
+    .join('\n\n');
 
   const existingNodes = [...nodeTypes, ...evolvedKeywords].join(', ');
 
@@ -223,18 +219,19 @@ export function parseDiscoveryResponse(
   return proposals;
 }
 
-function normalizeProposal(
-  raw: Record<string, unknown>,
-  evolveRunId: string,
-): EvolveNodeProposal | null {
+function normalizeProposal(raw: Record<string, unknown>, evolveRunId: string): EvolveNodeProposal | null {
   const keyword = raw.keyword as string;
   if (!keyword || typeof keyword !== 'string') return null;
 
   // Normalize keyword to lowercase with hyphens
-  const normalizedKeyword = keyword.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  const normalizedKeyword = keyword
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
   if (!normalizedKeyword) return null;
 
-  const reason = raw.reason as Record<string, unknown> || {};
+  const reason = (raw.reason as Record<string, unknown>) || {};
 
   return {
     id: `proposal-${normalizedKeyword}-${Date.now()}`,
@@ -266,9 +263,11 @@ function normalizeProps(raw: unknown[]): EvolvedNodeProp[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((p): p is Record<string, unknown> => p !== null && typeof p === 'object')
-    .map(p => ({
+    .map((p) => ({
       name: (p.name as string) || 'unknown',
-      type: (['string', 'boolean', 'number', 'expression'].includes(p.type as string) ? p.type : 'string') as EvolvedNodeProp['type'],
+      type: (['string', 'boolean', 'number', 'expression'].includes(p.type as string)
+        ? p.type
+        : 'string') as EvolvedNodeProp['type'],
       required: p.required === true,
       description: (p.description as string) || '',
     }));
@@ -278,7 +277,7 @@ function normalizeProps(raw: unknown[]): EvolvedNodeProp[] {
 
 function truncate(content: string, maxChars: number): string {
   if (content.length <= maxChars) return content;
-  return content.slice(0, maxChars) + '\n// ... truncated ...';
+  return `${content.slice(0, maxChars)}\n// ... truncated ...`;
 }
 
 /**
@@ -294,10 +293,7 @@ export function estimateTokens(text: string): number {
  * Build a prompt asking the LLM to fix a failed proposal.
  * Feeds back the validation errors so the LLM can correct its output.
  */
-export function buildRetryPrompt(
-  proposal: EvolveNodeProposal,
-  errors: string[],
-): string {
+export function buildRetryPrompt(proposal: EvolveNodeProposal, errors: string[]): string {
   return `Your previous KERN node proposal "${proposal.keyword}" failed validation. Fix the issues and return the corrected proposal.
 
 ## Previous Proposal
@@ -363,7 +359,7 @@ export function buildBackfillPrompt(
 Target: ${target}
 
 ## Props
-${definition.props.map(p => `- ${p.name} (${p.type}${p.required ? ', required' : ''}): ${p.description}`).join('\n')}
+${definition.props.map((p) => `- ${p.name} (${p.type}${p.required ? ', required' : ''}): ${p.description}`).join('\n')}
 
 ## Child Types
 ${definition.childTypes.join(', ') || '(none)'}

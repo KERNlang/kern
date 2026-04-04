@@ -1,5 +1,5 @@
-import { getParseDiagnostics, parse, parseDocumentStrict, parseStrict, parseWithDiagnostics } from '../src/parser.js';
 import { KernParseError } from '../src/errors.js';
+import { getParseDiagnostics, parse, parseDocumentStrict, parseStrict, parseWithDiagnostics } from '../src/parser.js';
 import type { ParseErrorCode } from '../src/types.js';
 
 describe('Parse Diagnostics', () => {
@@ -10,8 +10,8 @@ describe('Parse Diagnostics', () => {
       parseStrict('text value={{broken');
     } catch (err) {
       const error = err as KernParseError;
-      expect(error.diagnostics.some(d => d.code === 'UNCLOSED_EXPR')).toBe(true);
-      expect(error.diagnostics.some(d => d.severity === 'error')).toBe(true);
+      expect(error.diagnostics.some((d) => d.code === 'UNCLOSED_EXPR')).toBe(true);
+      expect(error.diagnostics.some((d) => d.severity === 'error')).toBe(true);
     }
   });
 
@@ -26,14 +26,14 @@ describe('Parse Diagnostics', () => {
 
   test('emits INDENT_JUMP warning on dedent to unseen indent level', () => {
     const { diagnostics } = parseWithDiagnostics('screen\n    text\n   button');
-    const jump = diagnostics.find(d => d.code === 'INDENT_JUMP');
+    const jump = diagnostics.find((d) => d.code === 'INDENT_JUMP');
     expect(jump).toBeDefined();
     expect(jump?.severity).toBe('warning');
   });
 
   test('emits DUPLICATE_PROP warning when a property is set twice', () => {
     const { diagnostics } = parseWithDiagnostics('text value="a" value="b"');
-    const duplicate = diagnostics.find(d => d.code === 'DUPLICATE_PROP');
+    const duplicate = diagnostics.find((d) => d.code === 'DUPLICATE_PROP');
     expect(duplicate).toBeDefined();
     expect(duplicate?.severity).toBe('warning');
     expect(duplicate?.message).toContain('value');
@@ -41,24 +41,24 @@ describe('Parse Diagnostics', () => {
 
   test('emits DROPPED_LINE when a non-empty line cannot start a node', () => {
     const { diagnostics } = parseWithDiagnostics('screen\n  )oops');
-    const dropped = diagnostics.find(d => d.code === 'DROPPED_LINE');
+    const dropped = diagnostics.find((d) => d.code === 'DROPPED_LINE');
     expect(dropped).toBeDefined();
     expect(dropped?.severity).toBe('error');
   });
 
   test('emits an error diagnostic for an unclosed multiline block', () => {
     const { diagnostics } = parseWithDiagnostics('handler <<<\nconst value = 1;');
-    const block = diagnostics.find(d => d.message.includes('Unclosed multiline block'));
+    const block = diagnostics.find((d) => d.message.includes('Unclosed multiline block'));
     expect(block).toBeDefined();
     expect(block?.severity).toBe('error');
   });
 
   test('captures multiple diagnostics from one file', () => {
     const { diagnostics } = parseWithDiagnostics('text value={{broken\n  {bg:red');
-    expect(diagnostics.filter(d => d.severity === 'error')).toHaveLength(3);
-    expect(diagnostics.some(d => d.code === 'UNCLOSED_EXPR')).toBe(true);
-    expect(diagnostics.some(d => d.code === 'UNCLOSED_STYLE')).toBe(true);
-    expect(diagnostics.some(d => d.code === 'DROPPED_LINE')).toBe(true);
+    expect(diagnostics.filter((d) => d.severity === 'error')).toHaveLength(3);
+    expect(diagnostics.some((d) => d.code === 'UNCLOSED_EXPR')).toBe(true);
+    expect(diagnostics.some((d) => d.code === 'UNCLOSED_STYLE')).toBe(true);
+    expect(diagnostics.some((d) => d.code === 'DROPPED_LINE')).toBe(true);
   });
 
   test('leaf node spans use the full raw line length', () => {
@@ -80,7 +80,7 @@ describe('Parse Diagnostics', () => {
     { code: 'DROPPED_LINE', source: ')' },
   ])('$code produces structured diagnostics', ({ code, source }) => {
     const { diagnostics } = parseWithDiagnostics(source);
-    const match = diagnostics.find(d => d.code === code);
+    const match = diagnostics.find((d) => d.code === code);
 
     expect(match).toBeDefined();
     expect(match?.code).toBe(code);
@@ -96,7 +96,7 @@ describe('Parse Diagnostics', () => {
 
   test('getParseDiagnostics returns the last parse diagnostics', () => {
     parse('mystery');
-    expect(getParseDiagnostics().some(d => d.code === 'UNKNOWN_NODE_TYPE')).toBe(true);
+    expect(getParseDiagnostics().some((d) => d.code === 'UNKNOWN_NODE_TYPE')).toBe(true);
 
     parse('screen');
     expect(getParseDiagnostics()).toEqual([]);

@@ -5,7 +5,7 @@
 import type { IRNode, SourceMapEntry } from '@kernlang/core';
 import { getChildren, getFirstChild, getProps } from '@kernlang/core';
 import type { WebSocketArtifactRef } from './fastapi-types.js';
-import { slugify, indentHandler } from './fastapi-utils.js';
+import { indentHandler, slugify } from './fastapi-utils.js';
 
 export function buildWebSocketArtifact(
   wsNode: IRNode,

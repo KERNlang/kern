@@ -11,8 +11,8 @@ import type { CompiledMCPRule, CompiledPattern } from './rule-compiler.js';
 export interface SinkEntry {
   name: string;
   kind: string;
-  patterns: Map<string, RegExp[]>;  // language -> compiled regexes
-  declaredBy: string[];             // ruleIds that declare this sink
+  patterns: Map<string, RegExp[]>; // language -> compiled regexes
+  declaredBy: string[]; // ruleIds that declare this sink
 }
 
 /** A registry entry for a guard */

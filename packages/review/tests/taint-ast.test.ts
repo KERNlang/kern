@@ -9,8 +9,8 @@ describe('AST-based Taint Analysis', () => {
       }
     `;
     const report = reviewSource(source, 'test.ts');
-    const taintFindings = report.findings.filter(f => f.ruleId.startsWith('taint-'));
-    
+    const taintFindings = report.findings.filter((f) => f.ruleId.startsWith('taint-'));
+
     expect(taintFindings.length).toBeGreaterThan(0);
     expect(taintFindings[0].message).toContain('req (HTTP input)');
     expect(taintFindings[0].message).toContain('exec()');
@@ -25,8 +25,8 @@ describe('AST-based Taint Analysis', () => {
       }
     `;
     const report = reviewSource(source, 'test.ts');
-    const taintFindings = report.findings.filter(f => f.ruleId.startsWith('taint-'));
-    
+    const taintFindings = report.findings.filter((f) => f.ruleId.startsWith('taint-'));
+
     expect(taintFindings.length).toBeGreaterThan(0);
     expect(taintFindings[0].message).toContain('request (HTTP input)');
     expect(taintFindings[0].message).toContain('eval()');
@@ -40,8 +40,8 @@ describe('AST-based Taint Analysis', () => {
       }
     `;
     const report = reviewSource(source, 'test.ts');
-    const taintFindings = report.findings.filter(f => f.ruleId.startsWith('taint-'));
-    
+    const taintFindings = report.findings.filter((f) => f.ruleId.startsWith('taint-'));
+
     // parseInt is sufficient for SQL injection on numeric IDs
     expect(taintFindings.length).toBe(0);
   });
@@ -54,8 +54,8 @@ describe('AST-based Taint Analysis', () => {
       }
     `;
     const report = reviewSource(source, 'test.ts');
-    const taintFindings = report.findings.filter(f => f.ruleId === 'taint-insufficient-sanitizer');
-    
+    const taintFindings = report.findings.filter((f) => f.ruleId === 'taint-insufficient-sanitizer');
+
     expect(taintFindings.length).toBe(1);
     expect(taintFindings[0].message).toContain("parseInt' does not protect against command injection");
   });

@@ -1,57 +1,167 @@
 import type { IRNode } from '@kernlang/core';
-import { escapeJsxText, escapeJsxAttr, colorToTw, getProps, getStyles } from '@kernlang/core';
+import { colorToTw, escapeJsxAttr, escapeJsxText, getProps, getStyles } from '@kernlang/core';
+import { addDefaultImport, addNamedImport, exprCode, isExpr } from './nextjs-imports.js';
+import { htmlAttrsToJsx, SVG_ICONS, TEXT_TAG_MAP, twClasses } from './nextjs-style.js';
 import type { Ctx } from './nextjs-types.js';
-import { isExpr, addDefaultImport, addNamedImport, exprCode } from './nextjs-imports.js';
-import { twClasses, htmlAttrsToJsx, SVG_ICONS, TEXT_TAG_MAP } from './nextjs-style.js';
 
 // ── Node renderers ──────────────────────────────────────────────────────
 
 export function renderNode(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
-  ctx.sourceMap.push({ irLine: node.loc?.line || 0, irCol: node.loc?.col || 1, outLine: ctx.lines.length + 1, outCol: 1 });
+  ctx.sourceMap.push({
+    irLine: node.loc?.line || 0,
+    irCol: node.loc?.col || 1,
+    outLine: ctx.lines.length + 1,
+    outCol: 1,
+  });
 
   switch (node.type) {
-    case 'page': case 'screen': renderPage(node, ctx, indent); break;
-    case 'layout': renderLayout(node, ctx, indent); break;
-    case 'loading': renderLoading(node, ctx, indent); break;
-    case 'error': renderError(node, ctx, indent); break;
-    case 'metadata': renderMetadata(node, ctx); break;
-    case 'section': renderSection(node, ctx, indent); break;
-    case 'card': renderCard(node, ctx, indent); break;
-    case 'row': ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'flex')}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</div>`); break;
-    case 'col': ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'flex flex-col')}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</div>`); break;
-    case 'text': renderText(node, ctx, indent); break;
-    case 'divider': ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'h-px')} />`); break;
-    case 'button': renderButton(node, ctx, indent); break;
-    case 'link': renderLink(node, ctx, indent); break;
-    case 'image': renderImage(node, ctx, indent); break;
-    case 'codeblock': renderCodeBlock(node, ctx, indent); break;
-    case 'input': case 'textarea': renderInput(node, ctx, indent); break;
-    case 'slider': renderSlider(node, ctx, indent); break;
-    case 'toggle': renderToggle(node, ctx, indent); break;
-    case 'grid': renderGrid(node, ctx, indent); break;
-    case 'conditional': renderConditional(node, ctx, indent); break;
-    case 'component': renderComponent(node, ctx, indent); break;
-    case 'icon': ctx.componentImports.add('Icon'); ctx.lines.push(`${indent}<Icon name="${p.name}" size="sm"${twClasses(node, ctx)} />`); break;
-    case 'svg': renderSvg(node, ctx, indent); break;
-    case 'form': ctx.lines.push(`${indent}<form${twClasses(node, ctx)}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</form>`); break;
-    case 'list': ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'space-y-2')}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</div>`); break;
-    case 'item': ctx.lines.push(`${indent}<div${twClasses(node, ctx)}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</div>`); break;
-    case 'progress': renderProgress(node, ctx, indent); break;
-    case 'tabs': ctx.lines.push(`${indent}<nav${twClasses(node, ctx, 'flex')}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</nav>`); break;
-    case 'tab': ctx.lines.push(`${indent}<button${twClasses(node, ctx)}>${escapeJsxText(String(p.label || ''))}</button>`); break;
-    case 'table': ctx.lines.push(`${indent}<table${twClasses(node, ctx)}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</table>`); break;
-    case 'thead': ctx.lines.push(`${indent}<thead>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</thead>`); break;
-    case 'tbody': ctx.lines.push(`${indent}<tbody>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</tbody>`); break;
-    case 'tr': ctx.lines.push(`${indent}<tr${twClasses(node, ctx)}>`); renderChildren(node, ctx, indent); ctx.lines.push(`${indent}</tr>`); break;
-    case 'th': renderTableCell(node, ctx, indent, 'th'); break;
-    case 'td': renderTableCell(node, ctx, indent, 'td'); break;
-    case 'generateMetadata': renderGenerateMetadata(node, ctx); break;
-    case 'notFound': renderNotFound(node, ctx, indent); break;
-    case 'redirect': renderRedirect(node, ctx, indent); break;
-    case 'import': renderImport(node, ctx); break;
-    case 'fetch': renderFetchNode(node, ctx); break;
-    case 'on': renderOnHandler(node, ctx); return;
+    case 'page':
+    case 'screen':
+      renderPage(node, ctx, indent);
+      break;
+    case 'layout':
+      renderLayout(node, ctx, indent);
+      break;
+    case 'loading':
+      renderLoading(node, ctx, indent);
+      break;
+    case 'error':
+      renderError(node, ctx, indent);
+      break;
+    case 'metadata':
+      renderMetadata(node, ctx);
+      break;
+    case 'section':
+      renderSection(node, ctx, indent);
+      break;
+    case 'card':
+      renderCard(node, ctx, indent);
+      break;
+    case 'row':
+      ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'flex')}>`);
+      renderChildren(node, ctx, indent);
+      ctx.lines.push(`${indent}</div>`);
+      break;
+    case 'col':
+      ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'flex flex-col')}>`);
+      renderChildren(node, ctx, indent);
+      ctx.lines.push(`${indent}</div>`);
+      break;
+    case 'text':
+      renderText(node, ctx, indent);
+      break;
+    case 'divider':
+      ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'h-px')} />`);
+      break;
+    case 'button':
+      renderButton(node, ctx, indent);
+      break;
+    case 'link':
+      renderLink(node, ctx, indent);
+      break;
+    case 'image':
+      renderImage(node, ctx, indent);
+      break;
+    case 'codeblock':
+      renderCodeBlock(node, ctx, indent);
+      break;
+    case 'input':
+    case 'textarea':
+      renderInput(node, ctx, indent);
+      break;
+    case 'slider':
+      renderSlider(node, ctx, indent);
+      break;
+    case 'toggle':
+      renderToggle(node, ctx, indent);
+      break;
+    case 'grid':
+      renderGrid(node, ctx, indent);
+      break;
+    case 'conditional':
+      renderConditional(node, ctx, indent);
+      break;
+    case 'component':
+      renderComponent(node, ctx, indent);
+      break;
+    case 'icon':
+      ctx.componentImports.add('Icon');
+      ctx.lines.push(`${indent}<Icon name="${p.name}" size="sm"${twClasses(node, ctx)} />`);
+      break;
+    case 'svg':
+      renderSvg(node, ctx, indent);
+      break;
+    case 'form':
+      ctx.lines.push(`${indent}<form${twClasses(node, ctx)}>`);
+      renderChildren(node, ctx, indent);
+      ctx.lines.push(`${indent}</form>`);
+      break;
+    case 'list':
+      ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'space-y-2')}>`);
+      renderChildren(node, ctx, indent);
+      ctx.lines.push(`${indent}</div>`);
+      break;
+    case 'item':
+      ctx.lines.push(`${indent}<div${twClasses(node, ctx)}>`);
+      renderChildren(node, ctx, indent);
+      ctx.lines.push(`${indent}</div>`);
+      break;
+    case 'progress':
+      renderProgress(node, ctx, indent);
+      break;
+    case 'tabs':
+      ctx.lines.push(`${indent}<nav${twClasses(node, ctx, 'flex')}>`);
+      renderChildren(node, ctx, indent);
+      ctx.lines.push(`${indent}</nav>`);
+      break;
+    case 'tab':
+      ctx.lines.push(`${indent}<button${twClasses(node, ctx)}>${escapeJsxText(String(p.label || ''))}</button>`);
+      break;
+    case 'table':
+      ctx.lines.push(`${indent}<table${twClasses(node, ctx)}>`);
+      renderChildren(node, ctx, indent);
+      ctx.lines.push(`${indent}</table>`);
+      break;
+    case 'thead':
+      ctx.lines.push(`${indent}<thead>`);
+      renderChildren(node, ctx, indent);
+      ctx.lines.push(`${indent}</thead>`);
+      break;
+    case 'tbody':
+      ctx.lines.push(`${indent}<tbody>`);
+      renderChildren(node, ctx, indent);
+      ctx.lines.push(`${indent}</tbody>`);
+      break;
+    case 'tr':
+      ctx.lines.push(`${indent}<tr${twClasses(node, ctx)}>`);
+      renderChildren(node, ctx, indent);
+      ctx.lines.push(`${indent}</tr>`);
+      break;
+    case 'th':
+      renderTableCell(node, ctx, indent, 'th');
+      break;
+    case 'td':
+      renderTableCell(node, ctx, indent, 'td');
+      break;
+    case 'generateMetadata':
+      renderGenerateMetadata(node, ctx);
+      break;
+    case 'notFound':
+      renderNotFound(node, ctx, indent);
+      break;
+    case 'redirect':
+      renderRedirect(node, ctx, indent);
+      break;
+    case 'import':
+      renderImport(node, ctx);
+      break;
+    case 'fetch':
+      renderFetchNode(node, ctx);
+      break;
+    case 'on':
+      renderOnHandler(node, ctx);
+      return;
     case 'state':
       ctx.stateDecls.push({ name: String(p.name || ''), initial: String(p.initial ?? '') });
       ctx.isClient = true; // state requires 'use client'
@@ -59,12 +169,13 @@ export function renderNode(node: IRNode, ctx: Ctx, indent: string): void {
     case 'logic':
       if (p.code) ctx.logicBlocks.push(String(p.code));
       else if (node.children) {
-        const handlerChild = node.children.find(c => c.type === 'handler');
+        const handlerChild = node.children.find((c) => c.type === 'handler');
         if (handlerChild?.props?.code) ctx.logicBlocks.push(String(handlerChild.props.code));
       }
       ctx.isClient = true;
       return;
-    case 'theme': break;
+    case 'theme':
+      break;
     default:
       ctx.lines.push(`${indent}<div${twClasses(node, ctx)}>`);
       renderChildren(node, ctx, indent);
@@ -73,7 +184,7 @@ export function renderNode(node: IRNode, ctx: Ctx, indent: string): void {
 }
 
 export function renderChildren(node: IRNode, ctx: Ctx, indent: string): void {
-  if (node.children) for (const child of node.children) renderNode(child, ctx, indent + '  ');
+  if (node.children) for (const child of node.children) renderNode(child, ctx, `${indent}  `);
 }
 
 function renderPage(node: IRNode, ctx: Ctx, indent: string): void {
@@ -90,7 +201,7 @@ function renderLayout(node: IRNode, ctx: Ctx, indent: string): void {
   ctx.lines.push(`${indent}<html lang="${p.lang || 'en'}">`);
   ctx.lines.push(`${indent}  <body${twClasses(node, ctx)}>`);
   ctx.lines.push(`${indent}    {children}`);
-  renderChildren(node, ctx, indent + '  ');
+  renderChildren(node, ctx, `${indent}  `);
   ctx.lines.push(`${indent}  </body>`);
   ctx.lines.push(`${indent}</html>`);
 }
@@ -121,7 +232,7 @@ function renderMetadata(node: IRNode, ctx: Ctx): void {
 
 function renderSection(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
-  const title = p.title as string || '';
+  const title = (p.title as string) || '';
   const id = p.id as string;
   const idAttr = id ? ` id="${id}"` : '';
   const tw = twClasses(node, ctx);
@@ -135,12 +246,13 @@ function renderSection(node: IRNode, ctx: Ctx, indent: string): void {
 
 function renderCodeBlock(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
-  const lang = p.lang as string || '';
+  const lang = (p.lang as string) || '';
   const langClass = lang ? ` language-${lang}` : '';
   const hasCustomStyle = getStyles(node).className || getStyles(node).background;
   const preAttrs = hasCustomStyle ? twClasses(node, ctx) : ` className="bg-zinc-900 rounded-lg p-4 overflow-x-auto"`;
   const codeClass = hasCustomStyle
-    ? `className="${langClass.trim()}"` + (getStyles(node).fontFamily ? ` style={{ fontFamily: '${getStyles(node).fontFamily}' }}` : '')
+    ? `className="${langClass.trim()}"` +
+      (getStyles(node).fontFamily ? ` style={{ fontFamily: '${getStyles(node).fontFamily}' }}` : '')
     : `className="text-sm font-mono text-zinc-100${langClass}"`;
   // Content: inline value prop or body child node
   const rawValue = p.value;
@@ -150,9 +262,9 @@ function renderCodeBlock(node: IRNode, ctx: Ctx, indent: string): void {
     ctx.lines.push(`${indent}</pre>`);
     return;
   }
-  let content = rawValue as string || '';
+  let content = (rawValue as string) || '';
   if (!content && node.children) {
-    const bodyNode = node.children.find(c => c.type === 'body');
+    const bodyNode = node.children.find((c) => c.type === 'body');
     if (bodyNode) {
       const bp = getProps(bodyNode);
       // body value="..." OR body <<<...>>> (multiline block -> code prop)
@@ -160,10 +272,7 @@ function renderCodeBlock(node: IRNode, ctx: Ctx, indent: string): void {
     }
   }
   // Escape for JSX template literal: backslashes, backticks, ${
-  const escaped = content
-    .replace(/\\/g, '\\\\')
-    .replace(/`/g, '\\`')
-    .replace(/\$\{/g, '\\${');
+  const escaped = content.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
   ctx.lines.push(`${indent}<pre${preAttrs}>`);
   ctx.lines.push(`${indent}  <code ${codeClass}>{\`${escaped}\`}</code>`);
   ctx.lines.push(`${indent}</pre>`);
@@ -203,16 +312,18 @@ function renderText(node: IRNode, ctx: Ctx, indent: string): void {
 
 function renderButton(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
-  const text = p.text as string || '';
+  const text = (p.text as string) || '';
   const to = p.to as string;
   const rawOnClick = p.onClick;
-  const onClick = isExpr(rawOnClick) ? rawOnClick.code : rawOnClick as string;
+  const onClick = isExpr(rawOnClick) ? rawOnClick.code : (rawOnClick as string);
   if (to) {
     addDefaultImport(ctx, 'next/link', 'Link');
     ctx.lines.push(`${indent}<Link href="/${to.toLowerCase()}"${twClasses(node, ctx)}>${escapeJsxText(text)}</Link>`);
   } else {
     ctx.isClient = true; // onClick requires 'use client'
-    ctx.lines.push(`${indent}<button${twClasses(node, ctx)} onClick={${onClick || '() => {}'}}>${escapeJsxText(text)}</button>`);
+    ctx.lines.push(
+      `${indent}<button${twClasses(node, ctx)} onClick={${onClick || '() => {}'}}>${escapeJsxText(text)}</button>`,
+    );
   }
 }
 
@@ -234,7 +345,7 @@ function renderInput(node: IRNode, ctx: Ctx, indent: string): void {
   if (p.placeholder) attrs.push(`placeholder="${p.placeholder}"`);
   if (!isTextarea && p.type && p.type !== 'textarea') attrs.push(`type="${p.type}"`);
   if (p.spellcheck === 'false' || p.spellcheck === false) attrs.push('spellCheck={false}');
-  const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
+  const attrStr = attrs.length > 0 ? ` ${attrs.join(' ')}` : '';
   if (isTextarea) {
     ctx.lines.push(`${indent}<${tag}${tw}${attrStr} rows={4} />`);
   } else {
@@ -254,17 +365,19 @@ function renderImage(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   addDefaultImport(ctx, 'next/image', 'Image');
   const tw = twClasses(node, ctx);
-  const rawSrc = p.src as string || '';
-  const src = (rawSrc.startsWith('/') || rawSrc.includes('://') || rawSrc.includes('.')) ? rawSrc : `/${rawSrc}.png`;
+  const rawSrc = (p.src as string) || '';
+  const src = rawSrc.startsWith('/') || rawSrc.includes('://') || rawSrc.includes('.') ? rawSrc : `/${rawSrc}.png`;
   const alt = escapeJsxAttr(String(p.alt || p.src || ''));
   const fill = p.fill === 'true' || p.fill === true;
   const priority = p.priority === 'true' || p.priority === true;
   if (fill) {
     ctx.lines.push(`${indent}<Image src="${src}" alt="${alt}"${priority ? ' priority' : ''} fill${tw} />`);
   } else {
-    const width = p.width || (getStyles(node).w) || '100';
-    const height = p.height || (getStyles(node).h) || '100';
-    ctx.lines.push(`${indent}<Image src="${src}" alt="${alt}" width={${width}} height={${height}}${priority ? ' priority' : ''}${tw} />`);
+    const width = p.width || getStyles(node).w || '100';
+    const height = p.height || getStyles(node).h || '100';
+    ctx.lines.push(
+      `${indent}<Image src="${src}" alt="${alt}" width={${width}} height={${height}}${priority ? ' priority' : ''}${tw} />`,
+    );
   }
 }
 
@@ -273,7 +386,9 @@ function renderSlider(node: IRNode, ctx: Ctx, indent: string): void {
   const bind = p.bind as string;
   const setter = bind ? `set${bind.charAt(0).toUpperCase() + bind.slice(1)}` : 'setValue';
   ctx.isClient = true; // onChange requires 'use client'
-  ctx.lines.push(`${indent}<input type="range" min={${p.min || 0}} max={${p.max || 100}} step={${p.step || 1}} value={${bind || 'value'}} onChange={(e) => ${setter}(parseFloat(e.target.value))} className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-orange-500" />`);
+  ctx.lines.push(
+    `${indent}<input type="range" min={${p.min || 0}} max={${p.max || 100}} step={${p.step || 1}} value={${bind || 'value'}} onChange={(e) => ${setter}(parseFloat(e.target.value))} className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-orange-500" />`,
+  );
 }
 
 function renderToggle(node: IRNode, ctx: Ctx, indent: string): void {
@@ -282,8 +397,12 @@ function renderToggle(node: IRNode, ctx: Ctx, indent: string): void {
   const setter = bind ? `set${bind.charAt(0).toUpperCase() + bind.slice(1)}` : 'setValue';
   ctx.isClient = true; // onChange requires 'use client'
   ctx.lines.push(`${indent}<label className="relative inline-flex items-center cursor-pointer">`);
-  ctx.lines.push(`${indent}  <input type="checkbox" className="sr-only peer" checked={${bind || 'value'}} onChange={(e) => ${setter}(e.target.checked)} />`);
-  ctx.lines.push(`${indent}  <div className="w-11 h-6 bg-zinc-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600" />`);
+  ctx.lines.push(
+    `${indent}  <input type="checkbox" className="sr-only peer" checked={${bind || 'value'}} onChange={(e) => ${setter}(e.target.checked)} />`,
+  );
+  ctx.lines.push(
+    `${indent}  <div className="w-11 h-6 bg-zinc-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600" />`,
+  );
   ctx.lines.push(`${indent}</label>`);
 }
 
@@ -294,8 +413,8 @@ function renderOnHandler(node: IRNode, ctx: Ctx): void {
   const key = p.key as string;
   const isAsync = p.async === 'true' || p.async === true;
 
-  const handlerChild = (node.children || []).find(c => c.type === 'handler');
-  const code = handlerChild ? (getProps(handlerChild).code as string || '') : '';
+  const handlerChild = (node.children || []).find((c) => c.type === 'handler');
+  const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
 
   if (handlerRef && !code) return;
 
@@ -303,13 +422,20 @@ function renderOnHandler(node: IRNode, ctx: Ctx): void {
   const fnName = handlerRef || `handle${event.charAt(0).toUpperCase() + event.slice(1)}`;
   const asyncKw = isAsync ? 'async ' : '';
 
-  const paramType = event === 'submit' ? 'e: React.FormEvent'
-    : event === 'click' ? 'e: React.MouseEvent'
-    : event === 'change' ? 'e: React.ChangeEvent'
-    : event === 'key' || event === 'keydown' || event === 'keyup' ? 'e: React.KeyboardEvent'
-    : event === 'focus' || event === 'blur' ? 'e: React.FocusEvent'
-    : event === 'scroll' ? 'e: React.UIEvent'
-    : `e: React.SyntheticEvent`;
+  const paramType =
+    event === 'submit'
+      ? 'e: React.FormEvent'
+      : event === 'click'
+        ? 'e: React.MouseEvent'
+        : event === 'change'
+          ? 'e: React.ChangeEvent'
+          : event === 'key' || event === 'keydown' || event === 'keyup'
+            ? 'e: React.KeyboardEvent'
+            : event === 'focus' || event === 'blur'
+              ? 'e: React.FocusEvent'
+              : event === 'scroll'
+                ? 'e: React.UIEvent'
+                : `e: React.SyntheticEvent`;
 
   const keyGuard = key ? `    if (e.key !== '${key}') return;\n` : '';
 
@@ -378,7 +504,9 @@ function renderSvg(node: IRNode, ctx: Ctx, indent: string): void {
 
   if (icon) {
     const inner = SVG_ICONS[icon] || `<circle cx="12" cy="12" r="4"/>`;
-    ctx.lines.push(`${indent}<svg xmlns="http://www.w3.org/2000/svg" width={${size}} height={${size}} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"${twClasses(node, ctx)}>${inner}</svg>`);
+    ctx.lines.push(
+      `${indent}<svg xmlns="http://www.w3.org/2000/svg" width={${size}} height={${size}} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"${twClasses(node, ctx)}>${inner}</svg>`,
+    );
   } else {
     // Custom SVG -- only emit attributes the user explicitly set (no Feather defaults)
     const viewBox = (p.viewBox as string) || '0 0 24 24';
@@ -388,16 +516,20 @@ function renderSvg(node: IRNode, ctx: Ctx, indent: string): void {
     const optAttrs: string[] = [];
     if (p.fill) optAttrs.push(`fill="${p.fill}"`);
     if (p.stroke) optAttrs.push(`stroke="${p.stroke}"`);
-    const extra = optAttrs.length ? ' ' + optAttrs.join(' ') : '';
-    ctx.lines.push(`${indent}<svg xmlns="http://www.w3.org/2000/svg" width={${width}} height={${height}} viewBox="${viewBox}"${extra}${twClasses(node, ctx)}>${content}</svg>`);
+    const extra = optAttrs.length ? ` ${optAttrs.join(' ')}` : '';
+    ctx.lines.push(
+      `${indent}<svg xmlns="http://www.w3.org/2000/svg" width={${width}} height={${height}} viewBox="${viewBox}"${extra}${twClasses(node, ctx)}>${content}</svg>`,
+    );
   }
 }
 
 function renderConditional(node: IRNode, ctx: Ctx, indent: string): void {
-  const cond = (getProps(node).if as string || 'true').replace(/&/g, ' && ').replace(/([a-zA-Z_]+)=([a-zA-Z_]+)/g, "$1 === '$2'");
+  const cond = ((getProps(node).if as string) || 'true')
+    .replace(/&/g, ' && ')
+    .replace(/([a-zA-Z_]+)=([a-zA-Z_]+)/g, "$1 === '$2'");
   ctx.lines.push(`${indent}{${cond} && (`);
   ctx.lines.push(`${indent}  <>`);
-  renderChildren(node, ctx, indent + '  ');
+  renderChildren(node, ctx, `${indent}  `);
   ctx.lines.push(`${indent}  </>`);
   ctx.lines.push(`${indent})}`);
 }
@@ -411,14 +543,20 @@ function renderComponent(node: IRNode, ctx: Ctx, indent: string): void {
   const attrs: string[] = [];
   for (const [k, v] of Object.entries(p)) {
     if (['ref', 'name', 'styles', 'pseudoStyles', 'themeRefs'].includes(k)) continue;
-    if (k === 'bind') { attrs.push(`value={${v}}`); if (!hasOnChange) attrs.push(`onChange={set${(v as string).charAt(0).toUpperCase() + (v as string).slice(1)}}`); }
-    else if (k === 'onChange') attrs.push(`onChange={${v}}`);
-    else if (k === 'props') { for (const pn of (v as string).split(',')) attrs.push(`${pn.trim()}={${pn.trim()}}`); }
-    else if (k === 'disabled') attrs.push(`disabled={${(v as string).replace(/&/g, ' && ').replace(/([a-zA-Z_]+)=([a-zA-Z_]+)/g, "$1 === '$2'")}}`);
+    if (k === 'bind') {
+      attrs.push(`value={${v}}`);
+      if (!hasOnChange) attrs.push(`onChange={set${(v as string).charAt(0).toUpperCase() + (v as string).slice(1)}}`);
+    } else if (k === 'onChange') attrs.push(`onChange={${v}}`);
+    else if (k === 'props') {
+      for (const pn of (v as string).split(',')) attrs.push(`${pn.trim()}={${pn.trim()}}`);
+    } else if (k === 'disabled')
+      attrs.push(
+        `disabled={${(v as string).replace(/&/g, ' && ').replace(/([a-zA-Z_]+)=([a-zA-Z_]+)/g, "$1 === '$2'")}}`,
+      );
     else if (k === 'default') attrs.push(`defaultValue={${JSON.stringify(v)}}`);
     else attrs.push(`${k}={${JSON.stringify(v)}}`);
   }
-  const attrStr = attrs.length ? ' ' + attrs.join(' ') : '';
+  const attrStr = attrs.length ? ` ${attrs.join(' ')}` : '';
   if (node.children && node.children.length > 0) {
     ctx.lines.push(`${indent}<${ref}${attrStr}>`);
     renderChildren(node, ctx, indent);
@@ -430,11 +568,16 @@ function renderComponent(node: IRNode, ctx: Ctx, indent: string): void {
 
 function renderProgress(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
-  const current = Number(p.current || 0), target = Number(p.target || 100);
+  const current = Number(p.current || 0),
+    target = Number(p.target || 100);
   const pct = Math.round((current / target) * 100);
   ctx.lines.push(`${indent}<div className="mb-3">`);
-  ctx.lines.push(`${indent}  <div className="flex justify-between text-sm mb-1"><span>${escapeJsxText(String(p.label || ''))}</span><span>${current}/${target} ${escapeJsxText(String(p.unit || ''))}</span></div>`);
-  ctx.lines.push(`${indent}  <div className="h-2 bg-zinc-700 rounded-full overflow-hidden"><div className="h-full rounded-full bg-[${p.color || '#007AFF'}]" style={{ width: '${pct}%' }} /></div>`);
+  ctx.lines.push(
+    `${indent}  <div className="flex justify-between text-sm mb-1"><span>${escapeJsxText(String(p.label || ''))}</span><span>${current}/${target} ${escapeJsxText(String(p.unit || ''))}</span></div>`,
+  );
+  ctx.lines.push(
+    `${indent}  <div className="h-2 bg-zinc-700 rounded-full overflow-hidden"><div className="h-full rounded-full bg-[${p.color || '#007AFF'}]" style={{ width: '${pct}%' }} /></div>`,
+  );
   ctx.lines.push(`${indent}</div>`);
 }
 
@@ -473,7 +616,7 @@ function renderNotFound(node: IRNode, ctx: Ctx, _indent: string): void {
 function renderRedirect(node: IRNode, ctx: Ctx, _indent: string): void {
   addNamedImport(ctx, 'next/navigation', 'redirect');
   const p = getProps(node);
-  const to = p.to as string || '/';
+  const to = (p.to as string) || '/';
   ctx.bodyLines.push(`  redirect('${to}');`);
 }
 
@@ -488,7 +631,10 @@ function renderImport(node: IRNode, ctx: Ctx): void {
       addDefaultImport(ctx, from, name);
     } else {
       // Support comma-separated named imports: name=Foo,Bar,Baz
-      const names = name.split(',').map(n => n.trim()).filter(Boolean);
+      const names = name
+        .split(',')
+        .map((n) => n.trim())
+        .filter(Boolean);
       for (const n of names) {
         addNamedImport(ctx, from, n);
       }
@@ -498,8 +644,8 @@ function renderImport(node: IRNode, ctx: Ctx): void {
 
 function renderFetchNode(node: IRNode, ctx: Ctx): void {
   const p = getProps(node);
-  const name = p.name as string || 'data';
-  const url = p.url as string || '/api/data';
+  const name = (p.name as string) || 'data';
+  const url = (p.url as string) || '/api/data';
   const options = p.options as string;
   ctx.fetchCalls.push({ name, url, options });
 }

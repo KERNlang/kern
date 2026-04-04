@@ -7,7 +7,7 @@
  */
 
 import type { SourceFile } from 'ts-morph';
-import type { DetectorPack, DetectionResult, ExtractedParam } from '../types.js';
+import type { DetectionResult, DetectorPack, ExtractedParam } from '../types.js';
 
 function lineOf(fullText: string, index: number): number {
   return fullText.substring(0, index).split('\n').length;
@@ -25,7 +25,7 @@ const structuralModel: DetectorPack = {
   libraryName: 'structural',
   packageNames: [],
   patternKind: 'structural',
-  detect(sourceFile: SourceFile, fullText: string): DetectionResult[] {
+  detect(_sourceFile: SourceFile, fullText: string): DetectionResult[] {
     const results: DetectionResult[] = [];
 
     // Prisma-style: model in schema, or TS interface/class with @Entity, @model decorators
@@ -45,12 +45,14 @@ const structuralModel: DetectorPack = {
       let match: RegExpExecArray | null;
       while ((match = pattern.exec(fullText)) !== null) {
         const startLine = lineOf(fullText, match.index);
-        const params: ExtractedParam[] = [{
-          name: 'modelName',
-          slotType: 'identifier',
-          value: match[1],
-          optional: false,
-        }];
+        const params: ExtractedParam[] = [
+          {
+            name: 'modelName',
+            slotType: 'identifier',
+            value: match[1],
+            optional: false,
+          },
+        ];
         results.push({
           anchorImport: '',
           startLine,
@@ -74,7 +76,7 @@ const structuralRepository: DetectorPack = {
   libraryName: 'structural',
   packageNames: [],
   patternKind: 'structural',
-  detect(sourceFile: SourceFile, fullText: string): DetectionResult[] {
+  detect(_sourceFile: SourceFile, fullText: string): DetectionResult[] {
     const results: DetectionResult[] = [];
 
     // Classes ending in Repository, Repo, Store, DAO
@@ -87,12 +89,14 @@ const structuralRepository: DetectorPack = {
         startLine,
         endLine: startLine + 10,
         snippet: extractSnippet(fullText, match.index),
-        extractedParams: [{
-          name: 'repoName',
-          slotType: 'identifier',
-          value: match[1],
-          optional: false,
-        }],
+        extractedParams: [
+          {
+            name: 'repoName',
+            slotType: 'identifier',
+            value: match[1],
+            optional: false,
+          },
+        ],
         confidencePct: 80,
       });
     }
@@ -109,14 +113,15 @@ const structuralDependency: DetectorPack = {
   libraryName: 'structural',
   packageNames: [],
   patternKind: 'structural',
-  detect(sourceFile: SourceFile, fullText: string): DetectionResult[] {
+  detect(_sourceFile: SourceFile, fullText: string): DetectionResult[] {
     const results: DetectionResult[] = [];
 
     // Constructor injection: constructor(private readonly userRepo: UserRepository)
-    const ctorInjection = /constructor\s{0,20}\(\s{0,20}((?:private|protected|public)\s+(?:readonly\s+)?\w+\s{0,10}:\s{0,10}\w+(?:\s{0,10},\s{0,10}(?:private|protected|public)\s+(?:readonly\s+)?\w+\s{0,10}:\s{0,10}\w+){0,20})\s{0,20}\)/g;
+    const ctorInjection =
+      /constructor\s{0,20}\(\s{0,20}((?:private|protected|public)\s+(?:readonly\s+)?\w+\s{0,10}:\s{0,10}\w+(?:\s{0,10},\s{0,10}(?:private|protected|public)\s+(?:readonly\s+)?\w+\s{0,10}:\s{0,10}\w+){0,20})\s{0,20}\)/g;
     let match: RegExpExecArray | null;
     while ((match = ctorInjection.exec(fullText)) !== null) {
-      const params = match[1].split(',').map(p => p.trim());
+      const params = match[1].split(',').map((p) => p.trim());
       if (params.length >= 2) {
         const startLine = lineOf(fullText, match.index);
         results.push({
@@ -124,12 +129,14 @@ const structuralDependency: DetectorPack = {
           startLine,
           endLine: startLine + 3,
           snippet: extractSnippet(fullText, match.index),
-          extractedParams: [{
-            name: 'injectionCount',
-            slotType: 'expr',
-            value: String(params.length),
-            optional: false,
-          }],
+          extractedParams: [
+            {
+              name: 'injectionCount',
+              slotType: 'expr',
+              value: String(params.length),
+              optional: false,
+            },
+          ],
           confidencePct: 70,
         });
       }
@@ -161,7 +168,7 @@ const structuralCache: DetectorPack = {
   libraryName: 'structural',
   packageNames: [],
   patternKind: 'structural',
-  detect(sourceFile: SourceFile, fullText: string): DetectionResult[] {
+  detect(_sourceFile: SourceFile, fullText: string): DetectionResult[] {
     const results: DetectionResult[] = [];
 
     const cachePatterns = [
@@ -200,7 +207,7 @@ const structuralConditional: DetectorPack = {
   libraryName: 'structural',
   packageNames: [],
   patternKind: 'structural',
-  detect(sourceFile: SourceFile, fullText: string): DetectionResult[] {
+  detect(_sourceFile: SourceFile, fullText: string): DetectionResult[] {
     const results: DetectionResult[] = [];
 
     // Feature flag patterns: if (featureFlag) / isEnabled('feature') / useFeatureFlag
@@ -218,12 +225,14 @@ const structuralConditional: DetectorPack = {
           startLine,
           endLine: startLine + 5,
           snippet: extractSnippet(fullText, match.index),
-          extractedParams: [{
-            name: 'flagName',
-            slotType: 'identifier',
-            value: match[1],
-            optional: false,
-          }],
+          extractedParams: [
+            {
+              name: 'flagName',
+              slotType: 'identifier',
+              value: match[1],
+              optional: false,
+            },
+          ],
           confidencePct: 65,
         });
       }
@@ -239,12 +248,14 @@ const structuralConditional: DetectorPack = {
         startLine,
         endLine: startLine + 3,
         snippet: extractSnippet(fullText, match.index),
-        extractedParams: [{
-          name: 'condition',
-          slotType: 'expr',
-          value: match[1],
-          optional: false,
-        }],
+        extractedParams: [
+          {
+            name: 'condition',
+            slotType: 'expr',
+            value: match[1],
+            optional: false,
+          },
+        ],
         confidencePct: 60,
       });
     }
@@ -261,7 +272,7 @@ const structuralSelect: DetectorPack = {
   libraryName: 'structural',
   packageNames: [],
   patternKind: 'structural',
-  detect(sourceFile: SourceFile, fullText: string): DetectionResult[] {
+  detect(_sourceFile: SourceFile, fullText: string): DetectionResult[] {
     const results: DetectionResult[] = [];
 
     const selectPatterns = [
@@ -280,12 +291,16 @@ const structuralSelect: DetectorPack = {
           startLine,
           endLine: startLine + 8,
           snippet: extractSnippet(fullText, match.index),
-          extractedParams: match[1] ? [{
-            name: 'selectName',
-            slotType: 'identifier',
-            value: match[1],
-            optional: false,
-          }] : [],
+          extractedParams: match[1]
+            ? [
+                {
+                  name: 'selectName',
+                  slotType: 'identifier',
+                  value: match[1],
+                  optional: false,
+                },
+              ]
+            : [],
           confidencePct: 65,
         });
       }

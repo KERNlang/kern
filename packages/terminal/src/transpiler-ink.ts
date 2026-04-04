@@ -1,5 +1,16 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, AccountedEntry } from '@kernlang/core';
-import { countTokens, serializeIR, isCoreNode, generateCoreNode, generateMachineReducer, getProps, getChildren, dedent, buildDiagnostics, accountNode } from '@kernlang/core';
+import type { AccountedEntry, IRNode, ResolvedKernConfig, SourceMapEntry, TranspileResult } from '@kernlang/core';
+import {
+  accountNode,
+  buildDiagnostics,
+  countTokens,
+  dedent,
+  generateCoreNode,
+  generateMachineReducer,
+  getChildren,
+  getProps,
+  isCoreNode,
+  serializeIR,
+} from '@kernlang/core';
 
 /**
  * Ink Transpiler — generates React (Ink) TSX components for terminal UIs
@@ -84,16 +95,35 @@ function inkColor(color: unknown): string {
 /** Ink key name → key object property check */
 function keyToCheck(key: string): string {
   switch (key) {
-    case 'return': case 'Enter': return 'key.return';
-    case 'escape': case 'Escape': return 'key.escape';
-    case 'tab': case 'Tab': return 'key.tab';
-    case 'up': case 'ArrowUp': return 'key.upArrow';
-    case 'down': case 'ArrowDown': return 'key.downArrow';
-    case 'left': case 'ArrowLeft': return 'key.leftArrow';
-    case 'right': case 'ArrowRight': return 'key.rightArrow';
-    case 'backspace': case 'Backspace': return 'key.backspace';
-    case 'delete': case 'Delete': return 'key.delete';
-    default: return `input === '${key}'`;
+    case 'return':
+    case 'Enter':
+      return 'key.return';
+    case 'escape':
+    case 'Escape':
+      return 'key.escape';
+    case 'tab':
+    case 'Tab':
+      return 'key.tab';
+    case 'up':
+    case 'ArrowUp':
+      return 'key.upArrow';
+    case 'down':
+    case 'ArrowDown':
+      return 'key.downArrow';
+    case 'left':
+    case 'ArrowLeft':
+      return 'key.leftArrow';
+    case 'right':
+    case 'ArrowRight':
+      return 'key.rightArrow';
+    case 'backspace':
+    case 'Backspace':
+      return 'key.backspace';
+    case 'delete':
+    case 'Delete':
+      return 'key.delete';
+    default:
+      return `input === '${key}'`;
   }
 }
 
@@ -106,11 +136,21 @@ class ImportTracker {
   private inkTextInput = false;
   private inkSelectInput = false;
 
-  addReact(name: string): void { this.reactImports.add(name); }
-  addInk(name: string): void { this.inkImports.add(name); }
-  needSpinner(): void { this.inkSpinner = true; }
-  needTextInput(): void { this.inkTextInput = true; }
-  needSelectInput(): void { this.inkSelectInput = true; }
+  addReact(name: string): void {
+    this.reactImports.add(name);
+  }
+  addInk(name: string): void {
+    this.inkImports.add(name);
+  }
+  needSpinner(): void {
+    this.inkSpinner = true;
+  }
+  needTextInput(): void {
+    this.inkTextInput = true;
+  }
+  needSelectInput(): void {
+    this.inkSelectInput = true;
+  }
 
   emit(): string[] {
     const lines: string[] = [];
@@ -145,18 +185,24 @@ function generateStateHook(stateNode: IRNode, imports: ImportTracker): string[] 
 
   if (name && initialProp !== undefined) {
     imports.addReact('useState');
-    const initial = isExpr(initialProp)
-      ? (initialProp as { code: string }).code
-      : String(initialProp);
-    const initVal = isExpr(initialProp) ? initial
-      : initial === 'null' ? 'null'
-      : initial === 'true' ? 'true'
-      : initial === 'false' ? 'false'
-      : initial.startsWith('[') || initial.startsWith('{') ? initial
-      : initial.startsWith("'") || initial.startsWith('"') ? initial
-      : initial.includes('(') || initial.includes('.') ? initial
-      : isNaN(Number(initial)) ? `'${initial}'`
-      : String(initial);
+    const initial = isExpr(initialProp) ? (initialProp as { code: string }).code : String(initialProp);
+    const initVal = isExpr(initialProp)
+      ? initial
+      : initial === 'null'
+        ? 'null'
+        : initial === 'true'
+          ? 'true'
+          : initial === 'false'
+            ? 'false'
+            : initial.startsWith('[') || initial.startsWith('{')
+              ? initial
+              : initial.startsWith("'") || initial.startsWith('"')
+                ? initial
+                : initial.includes('(') || initial.includes('.')
+                  ? initial
+                  : Number.isNaN(Number(initial))
+                    ? `'${initial}'`
+                    : String(initial);
     const setter = `set${capitalize(name)}`;
     const typeAnnotation = props.type ? `<${props.type as string}>` : '';
     lines.push(`  const [${name}, ${setter}] = useState${typeAnnotation}(${initVal});`);
@@ -175,9 +221,8 @@ function generateRefHook(refNode: IRNode, imports: ImportTracker): string[] {
 
   if (name) {
     imports.addReact('useRef');
-    const initVal = initialProp === undefined ? 'null'
-      : isExpr(initialProp) ? unwrapProp(initialProp)
-      : String(initialProp);
+    const initVal =
+      initialProp === undefined ? 'null' : isExpr(initialProp) ? unwrapProp(initialProp) : String(initialProp);
     const refName = name.endsWith('Ref') ? name : `${name}Ref`;
     const typeAnnotation = props.type ? `<${props.type as string}>` : '';
     lines.push(`  const ${refName} = useRef${typeAnnotation}(${initVal});`);
@@ -225,8 +270,8 @@ function generateLogicEffect(logicNode: IRNode, imports: ImportTracker): string[
   const props = getProps(logicNode);
   const deps = props.deps as string;
   // Support both inline code prop and handler child
-  const handlerChild = (logicNode.children || []).find(c => c.type === 'handler');
-  const code = handlerChild ? (getProps(handlerChild).code as string || '') : (props.code as string || '');
+  const handlerChild = (logicNode.children || []).find((c) => c.type === 'handler');
+  const code = handlerChild ? (getProps(handlerChild).code as string) || '' : (props.code as string) || '';
 
   if (code) {
     imports.addReact('useEffect');
@@ -249,10 +294,10 @@ function generateCallbackHook(callbackNode: IRNode, imports: ImportTracker): str
   const lines: string[] = [];
   const props = getProps(callbackNode);
   const name = props.name as string;
-  const params = props.params as string || '';
+  const params = (props.params as string) || '';
   const deps = props.deps as string;
-  const handlerChild = (callbackNode.children || []).find(c => c.type === 'handler');
-  const code = handlerChild ? (getProps(handlerChild).code as string || '') : '';
+  const handlerChild = (callbackNode.children || []).find((c) => c.type === 'handler');
+  const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
 
   if (name && code) {
     imports.addReact('useCallback');
@@ -298,8 +343,8 @@ function generateOnHook(onNode: IRNode, imports: ImportTracker): string[] {
   if (event === 'key' || event === 'input') {
     imports.addInk('useInput');
     const key = onProps.key as string;
-    const handlerChild = (onNode.children || []).find(c => c.type === 'handler');
-    const code = handlerChild ? (getProps(handlerChild).code as string || '') : '';
+    const handlerChild = (onNode.children || []).find((c) => c.type === 'handler');
+    const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
 
     lines.push(`  useInput((input, key) => {`);
     if (key) {
@@ -332,7 +377,7 @@ function renderInkText(p: Record<string, unknown>, indent: string, imports: Impo
   if (styles.c || styles.color) textProps.push(`color=${inkColor(styles.c || styles.color)}`);
   if (styles.bg) textProps.push(`backgroundColor=${inkColor(styles.bg)}`);
 
-  const propsStr = textProps.length > 0 ? ' ' + textProps.join(' ') : '';
+  const propsStr = textProps.length > 0 ? ` ${textProps.join(' ')}` : '';
   if (isExpr(rawValue)) {
     return [`${indent}<Text${propsStr}>{${(rawValue as { code: string }).code}}</Text>`];
   }
@@ -350,7 +395,7 @@ function renderInkBox(node: IRNode, p: Record<string, unknown>, indent: string, 
   imports.addInk('Box');
   imports.addInk('Text');
   const color = p.color as string;
-  const borderStyle = p.borderStyle as string || 'round';
+  const borderStyle = (p.borderStyle as string) || 'round';
   const flexDirection = p.flexDirection as string;
   const width = p.width as string;
   const flexGrow = p.flexGrow as string;
@@ -367,13 +412,13 @@ function renderInkBox(node: IRNode, p: Record<string, unknown>, indent: string, 
   if (paddingX) boxProps.push(`paddingX={${paddingX}}`);
   if (paddingY) boxProps.push(`paddingY={${paddingY}}`);
 
-  const propsStr = boxProps.length > 0 ? ' ' + boxProps.join(' ') : '';
+  const propsStr = boxProps.length > 0 ? ` ${boxProps.join(' ')}` : '';
   const lines: string[] = [];
   lines.push(`${indent}<Box${propsStr}>`);
 
   for (const child of node.children || []) {
     if (child.type === 'on') continue;
-    lines.push(...renderInkNode(child, indent + '  ', imports));
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
   }
 
   lines.push(`${indent}</Box>`);
@@ -383,7 +428,7 @@ function renderInkBox(node: IRNode, p: Record<string, unknown>, indent: string, 
 function renderInkTable(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
   imports.addInk('Box');
   imports.addInk('Text');
-  const headers = p.headers as string || '[]';
+  const headers = (p.headers as string) || '[]';
   const rows = getChildren(node, 'row');
   const lines: string[] = [];
 
@@ -395,7 +440,7 @@ function renderInkTable(node: IRNode, p: Record<string, unknown>, indent: string
   lines.push(`${indent}  </Box>`);
   lines.push(`${indent}  <Text dimColor>{'${'─'.repeat(60)}'}</Text>`);
   for (const row of rows) {
-    const rowData = getProps(row).data as string || '[]';
+    const rowData = (getProps(row).data as string) || '[]';
     lines.push(`${indent}  <Box>`);
     lines.push(`${indent}    {(${rowData} as string[]).map((cell: string, i: number) => (`);
     lines.push(`${indent}      <Box key={i} width={20}><Text>{cell}</Text></Box>`);
@@ -406,11 +451,16 @@ function renderInkTable(node: IRNode, p: Record<string, unknown>, indent: string
   return lines;
 }
 
-function renderInkScoreboard(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+function renderInkScoreboard(
+  node: IRNode,
+  p: Record<string, unknown>,
+  indent: string,
+  imports: ImportTracker,
+): string[] {
   imports.addInk('Box');
   imports.addInk('Text');
-  const title = p.title as string || 'Results';
-  const winner = p.winner as string || '';
+  const title = (p.title as string) || 'Results';
+  const winner = (p.winner as string) || '';
   const metrics = getChildren(node, 'metric');
   const lines: string[] = [];
 
@@ -421,10 +471,10 @@ function renderInkScoreboard(node: IRNode, p: Record<string, unknown>, indent: s
   }
   for (const metric of metrics) {
     const mp = getProps(metric);
-    const mname = mp.name as string || '';
-    const values = mp.values as string || '[]';
+    const mname = (mp.name as string) || '';
+    const values = (mp.values as string) || '[]';
     lines.push(`${indent}  <Box>`);
-    lines.push(`${indent}    <Text dimColor>{${JSON.stringify(mname + ':')}}</Text>`);
+    lines.push(`${indent}    <Text dimColor>{${JSON.stringify(`${mname}:`)}}</Text>`);
     lines.push(`${indent}    <Text>{' '}{(${values} as string[]).join(' | ')}</Text>`);
     lines.push(`${indent}  </Box>`);
   }
@@ -438,13 +488,10 @@ function renderInkSpinner(p: Record<string, unknown>, indent: string, imports: I
   const rawMsg = p.message;
   const color = p.color as string;
   const spinnerColor = color ? ` color=${inkColor(color)}` : '';
-  const msgContent = isExpr(rawMsg) ? `{${(rawMsg as { code: string }).code}}` : `{' ${String(rawMsg ?? 'Loading...')}'}`;
-  return [
-    `${indent}<Text>`,
-    `${indent}  <Spinner${spinnerColor} />`,
-    `${indent}  ${msgContent}`,
-    `${indent}</Text>`,
-  ];
+  const msgContent = isExpr(rawMsg)
+    ? `{${(rawMsg as { code: string }).code}}`
+    : `{' ${String(rawMsg ?? 'Loading...')}'}`;
+  return [`${indent}<Text>`, `${indent}  <Spinner${spinnerColor} />`, `${indent}  ${msgContent}`, `${indent}</Text>`];
 }
 
 function renderInkProgress(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
@@ -452,7 +499,7 @@ function renderInkProgress(p: Record<string, unknown>, indent: string, imports: 
   imports.addInk('Text');
   const rawValue = p.value;
   const rawMax = p.max;
-  const color = p.color as string || 'green';
+  const color = (p.color as string) || 'green';
   const barWidth = 20;
   const lines: string[] = [];
 
@@ -489,8 +536,8 @@ function renderInkProgress(p: Record<string, unknown>, indent: string, imports: 
 
 function renderInkGradient(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
   imports.addInk('Text');
-  const text = p.text as string || '';
-  const colors = p.colors as string || '[]';
+  const text = (p.text as string) || '';
+  const colors = (p.colors as string) || '[]';
   return [
     `${indent}<Text>`,
     `${indent}  {${JSON.stringify(text)}.split('').map((ch: string, i: number) => {`,
@@ -509,7 +556,7 @@ function renderInkInputArea(node: IRNode, indent: string, imports: ImportTracker
   lines.push(`${indent}<Box flexDirection="column" borderStyle="single" borderColor="gray">`);
   for (const child of node.children || []) {
     if (child.type === 'on') continue;
-    lines.push(...renderInkNode(child, indent + '  ', imports));
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
   }
   lines.push(`${indent}</Box>`);
   return lines;
@@ -521,7 +568,7 @@ function renderInkOutputArea(node: IRNode, indent: string, imports: ImportTracke
   lines.push(`${indent}<Box flexDirection="column" flexGrow={1}>`);
   for (const child of node.children || []) {
     if (child.type === 'on') continue;
-    lines.push(...renderInkNode(child, indent + '  ', imports));
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
   }
   lines.push(`${indent}</Box>`);
   return lines;
@@ -529,7 +576,7 @@ function renderInkOutputArea(node: IRNode, indent: string, imports: ImportTracke
 
 function renderInkTextInput(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
   imports.needTextInput();
-  const placeholder = p.placeholder as string || '';
+  const placeholder = (p.placeholder as string) || '';
   const bind = p.bind as string;
   const history = p.history as string;
   const onSubmit = p.onSubmit as string;
@@ -549,7 +596,7 @@ function renderInkTextInput(p: Record<string, unknown>, indent: string, imports:
 function renderInkSelectInput(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
   imports.needSelectInput();
   const rawItems = p.items;
-  const items = isExpr(rawItems) ? (rawItems as { code: string }).code : (rawItems as string || '[]');
+  const items = isExpr(rawItems) ? (rawItems as { code: string }).code : (rawItems as string) || '[]';
   const onSelect = p.onSelect as string;
   const selectProps: string[] = [`items={${items}}`];
   if (onSelect) {
@@ -559,24 +606,26 @@ function renderInkSelectInput(p: Record<string, unknown>, indent: string, import
 }
 
 function renderInkHandler(p: Record<string, unknown>, indent: string): string[] {
-  const code = p.code as string || '';
+  const code = (p.code as string) || '';
   const dedented = dedent(code);
-  return dedented.split('\n').map(line => `${indent}${line}`);
+  return dedented.split('\n').map((line) => `${indent}${line}`);
 }
 
 function renderInkEach(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
   const rawCollection = p.collection;
-  const collection = isExpr(rawCollection) ? (rawCollection as { code: string }).code : (rawCollection as string || '[]');
-  const item = p.item as string || 'item';
-  const index = p.index as string || 'i';
+  const collection = isExpr(rawCollection)
+    ? (rawCollection as { code: string }).code
+    : (rawCollection as string) || '[]';
+  const item = (p.item as string) || 'item';
+  const index = (p.index as string) || 'i';
   const rawKey = p.key;
-  const key = isExpr(rawKey) ? (rawKey as { code: string }).code : (rawKey as string || index);
+  const key = isExpr(rawKey) ? (rawKey as { code: string }).code : (rawKey as string) || index;
 
   const lines: string[] = [];
   lines.push(`${indent}{${collection}.map((${item}, ${index}) => (`);
   const children = node.children || [];
   if (children.length === 1) {
-    const childLines = renderInkNode(children[0], indent + '  ', imports);
+    const childLines = renderInkNode(children[0], `${indent}  `, imports);
     if (childLines.length > 0) {
       childLines[0] = childLines[0].replace(/^(\s*<\w+)/, `$1 key={${key}}`);
     }
@@ -584,15 +633,20 @@ function renderInkEach(node: IRNode, p: Record<string, unknown>, indent: string,
   } else {
     lines.push(`${indent}  <React.Fragment key={${key}}>`);
     for (const child of children) {
-      lines.push(...renderInkNode(child, indent + '    ', imports));
+      lines.push(...renderInkNode(child, `${indent}    `, imports));
     }
     lines.push(`${indent}  </React.Fragment>`);
   }
-  lines.push(`${indent}))}`)
+  lines.push(`${indent}))}`);
   return lines;
 }
 
-function renderInkConditional(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+function renderInkConditional(
+  node: IRNode,
+  p: Record<string, unknown>,
+  indent: string,
+  imports: ImportTracker,
+): string[] {
   const condition = p.if;
   const jsCondition = irConditionToJs(condition ?? 'true');
   const lines: string[] = [];
@@ -600,7 +654,7 @@ function renderInkConditional(node: IRNode, p: Record<string, unknown>, indent: 
   lines.push(`${indent}{${jsCondition} && (`);
   lines.push(`${indent}  <>`);
   for (const child of node.children || []) {
-    lines.push(...renderInkNode(child, indent + '    ', imports));
+    lines.push(...renderInkNode(child, `${indent}    `, imports));
   }
   lines.push(`${indent}  </>`);
   lines.push(`${indent})}`);
@@ -613,21 +667,36 @@ function renderInkNode(node: IRNode, indent: string, imports: ImportTracker): st
   const p = getProps(node);
 
   switch (node.type) {
-    case 'text':         return renderInkText(p as Record<string, unknown>, indent, imports);
-    case 'separator':    return renderInkSeparator(p as Record<string, unknown>, indent, imports);
-    case 'box':          return renderInkBox(node, p as Record<string, unknown>, indent, imports);
-    case 'table':        return renderInkTable(node, p as Record<string, unknown>, indent, imports);
-    case 'scoreboard':   return renderInkScoreboard(node, p as Record<string, unknown>, indent, imports);
-    case 'spinner':      return renderInkSpinner(p as Record<string, unknown>, indent, imports);
-    case 'progress':     return renderInkProgress(p as Record<string, unknown>, indent, imports);
-    case 'gradient':     return renderInkGradient(p as Record<string, unknown>, indent, imports);
-    case 'input-area':   return renderInkInputArea(node, indent, imports);
-    case 'output-area':  return renderInkOutputArea(node, indent, imports);
-    case 'text-input':   return renderInkTextInput(p as Record<string, unknown>, indent, imports);
-    case 'select-input': return renderInkSelectInput(p as Record<string, unknown>, indent, imports);
-    case 'handler':      return renderInkHandler(p as Record<string, unknown>, indent);
-    case 'each':         return renderInkEach(node, p as Record<string, unknown>, indent, imports);
-    case 'conditional':  return renderInkConditional(node, p as Record<string, unknown>, indent, imports);
+    case 'text':
+      return renderInkText(p as Record<string, unknown>, indent, imports);
+    case 'separator':
+      return renderInkSeparator(p as Record<string, unknown>, indent, imports);
+    case 'box':
+      return renderInkBox(node, p as Record<string, unknown>, indent, imports);
+    case 'table':
+      return renderInkTable(node, p as Record<string, unknown>, indent, imports);
+    case 'scoreboard':
+      return renderInkScoreboard(node, p as Record<string, unknown>, indent, imports);
+    case 'spinner':
+      return renderInkSpinner(p as Record<string, unknown>, indent, imports);
+    case 'progress':
+      return renderInkProgress(p as Record<string, unknown>, indent, imports);
+    case 'gradient':
+      return renderInkGradient(p as Record<string, unknown>, indent, imports);
+    case 'input-area':
+      return renderInkInputArea(node, indent, imports);
+    case 'output-area':
+      return renderInkOutputArea(node, indent, imports);
+    case 'text-input':
+      return renderInkTextInput(p as Record<string, unknown>, indent, imports);
+    case 'select-input':
+      return renderInkSelectInput(p as Record<string, unknown>, indent, imports);
+    case 'handler':
+      return renderInkHandler(p as Record<string, unknown>, indent);
+    case 'each':
+      return renderInkEach(node, p as Record<string, unknown>, indent, imports);
+    case 'conditional':
+      return renderInkConditional(node, p as Record<string, unknown>, indent, imports);
     case 'state':
     case 'ref':
     case 'stream':
@@ -639,7 +708,7 @@ function renderInkNode(node: IRNode, indent: string, imports: ImportTracker): st
       const lines: string[] = [];
       if (isCoreNode(node.type)) {
         if (node.type === 'machine') {
-          lines.push(...generateMachineReducer(node).map(l => l));
+          lines.push(...generateMachineReducer(node).map((l) => l));
         } else {
           lines.push(...generateCoreNode(node));
         }
@@ -663,32 +732,33 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
   const lines: string[] = [];
 
   // Handle file-level AST: find the screen node, keep siblings as file-level nodes
-  const screenNode = root.type === 'screen' ? root
-    : (root.children || []).find(c => c.type === 'screen') || root;
-  const fileLevelNodes = root.type === 'screen' ? []
-    : (root.children || []).filter(c => c !== screenNode);
+  const screenNode = root.type === 'screen' ? root : (root.children || []).find((c) => c.type === 'screen') || root;
+  const fileLevelNodes = root.type === 'screen' ? [] : (root.children || []).filter((c) => c !== screenNode);
 
   const screenProps = getProps(screenNode);
-  const screenName = screenProps.name as string || 'App';
+  const screenName = (screenProps.name as string) || 'App';
 
   // Component props from screen attributes OR prop child nodes
   const propsAttr = screenProps.props as string;
   const propChildren = getChildren(screenNode, 'prop');
-  let propParts = propsAttr ? splitPropsRespectingDepth(propsAttr) : [];
+  const propParts = propsAttr ? splitPropsRespectingDepth(propsAttr) : [];
   for (const pc of propChildren) {
     const pp = getProps(pc);
     const pName = pp.name as string;
-    const pType = pp.type as string || 'any';
+    const pType = (pp.type as string) || 'any';
     const optional = pp.optional === 'true' || pp.optional === true;
     if (pName) propParts.push(`${pName}${optional ? '?' : ''}:${pType}`);
   }
-  const propsParam = propParts.length > 0
-    ? `{ ${propParts.map(p => p.trim().split(':')[0].replace('?', '').trim()).join(', ')} }: { ${propParts.map(p => {
-        const trimmed = p.trim();
-        if (trimmed.includes(':')) return trimmed;
-        return `${trimmed}: any`;
-      }).join('; ')} }`
-    : '';
+  const propsParam =
+    propParts.length > 0
+      ? `{ ${propParts.map((p) => p.trim().split(':')[0].replace('?', '').trim()).join(', ')} }: { ${propParts
+          .map((p) => {
+            const trimmed = p.trim();
+            if (trimmed.includes(':')) return trimmed;
+            return `${trimmed}: any`;
+          })
+          .join('; ')} }`
+      : '';
 
   // Separate node categories — search inside the screen node
   const stateNodes = getChildren(screenNode, 'state');
@@ -697,19 +767,32 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
   const streamNodes = getChildren(screenNode, 'stream');
   const logicNodes = [...getChildren(screenNode, 'logic'), ...getChildren(screenNode, 'effect')];
   const callbackNodes = getChildren(screenNode, 'callback');
-  const isInkUiNode = (type: string) => type === 'each' || type === 'conditional' || type === 'select'
-    || type === 'model' || type === 'repository' || type === 'dependency' || type === 'cache';
+  const isInkUiNode = (type: string) =>
+    type === 'each' ||
+    type === 'conditional' ||
+    type === 'select' ||
+    type === 'model' ||
+    type === 'repository' ||
+    type === 'dependency' ||
+    type === 'cache';
   // File-level imports go before component; file-level fn/const go after
   const coreChildren = [
-    ...fileLevelNodes.filter(c => isCoreNode(c.type) && c.type !== 'screen' && c.type !== 'fn' && c.type !== 'const'),
-    ...(screenNode.children || []).filter(c => isCoreNode(c.type) && c.type !== 'on' && !isInkUiNode(c.type)),
+    ...fileLevelNodes.filter((c) => isCoreNode(c.type) && c.type !== 'screen' && c.type !== 'fn' && c.type !== 'const'),
+    ...(screenNode.children || []).filter((c) => isCoreNode(c.type) && c.type !== 'on' && !isInkUiNode(c.type)),
   ];
-  const uiChildren = (screenNode.children || []).filter(c =>
-    c.type !== 'state' && c.type !== 'ref' && c.type !== 'on' && c.type !== 'stream'
-    && c.type !== 'logic' && c.type !== 'effect' && c.type !== 'callback' && c.type !== 'prop'
-    && (!isCoreNode(c.type) || isInkUiNode(c.type))
+  const uiChildren = (screenNode.children || []).filter(
+    (c) =>
+      c.type !== 'state' &&
+      c.type !== 'ref' &&
+      c.type !== 'on' &&
+      c.type !== 'stream' &&
+      c.type !== 'logic' &&
+      c.type !== 'effect' &&
+      c.type !== 'callback' &&
+      c.type !== 'prop' &&
+      (!isCoreNode(c.type) || isInkUiNode(c.type)),
   );
-  const fileLevelFns = fileLevelNodes.filter(c => c.type === 'fn' || c.type === 'const');
+  const fileLevelFns = fileLevelNodes.filter((c) => c.type === 'fn' || c.type === 'const');
 
   // Bug #1: Collect nested on-nodes from UI tree and hoist to component level
   const nestedOnNodes = collectNestedOnNodes(screenNode);
@@ -734,12 +817,18 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
         const ip = getProps(child);
         const from = ip.from as string;
         if (from === 'react') {
-          const names = (ip.names as string || '').split(',').map((n: string) => n.trim()).filter(Boolean);
+          const names = ((ip.names as string) || '')
+            .split(',')
+            .map((n: string) => n.trim())
+            .filter(Boolean);
           for (const n of names) imports.addReact(n);
           continue;
         }
         if (from === 'ink') {
-          const names = (ip.names as string || '').split(',').map((n: string) => n.trim()).filter(Boolean);
+          const names = ((ip.names as string) || '')
+            .split(',')
+            .map((n: string) => n.trim())
+            .filter(Boolean);
           for (const n of names) imports.addInk(n);
           continue;
         }
@@ -850,7 +939,7 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
       accountNode(accounted, root, 'expressed', undefined, true);
       const CONSUMED = new Set(['state', 'on', 'handler']);
       for (const child of root.children || []) {
-        if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', child.type + ' pre-pass', true);
+        if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', `${child.type} pre-pass`, true);
       }
       return buildDiagnostics(root, accounted, 'ink');
     })(),

@@ -42,31 +42,81 @@ export function stylesToTailwind(styles: Record<string, string>, colors?: Record
     const v = VALUE_SHORTHANDS[val] || val;
 
     switch (expanded) {
-      case 'padding': classes.push(pxToTw('p', v)); break;
-      case 'paddingX': classes.push(pxToTw('px', v)); break;
-      case 'paddingY': classes.push(pxToTw('py', v)); break;
-      case 'paddingTop': classes.push(pxToTw('pt', v)); break;
-      case 'paddingBottom': classes.push(pxToTw('pb', v)); break;
-      case 'paddingLeft': classes.push(pxToTw('pl', v)); break;
-      case 'paddingRight': classes.push(pxToTw('pr', v)); break;
-      case 'margin': classes.push(pxToTw('m', v)); break;
-      case 'marginX': classes.push(pxToTw('mx', v)); break;
-      case 'marginY': classes.push(pxToTw('my', v)); break;
-      case 'marginTop': classes.push(pxToTw('mt', v)); break;
-      case 'marginBottom': classes.push(pxToTw('mb', v)); break;
-      case 'marginLeft': classes.push(pxToTw('ml', v)); break;
-      case 'marginRight': classes.push(pxToTw('mr', v)); break;
-      case 'backgroundColor': classes.push(colorToTw('bg', v, colors)); break;
-      case 'color': classes.push(colorToTw('text', v, colors)); break;
-      case 'fontSize': classes.push(fsTw(v)); break;
-      case 'fontWeight': classes.push(fwTw(v)); break;
-      case 'borderRadius': classes.push(pxToTw('rounded', v)); break;
-      case 'width': v === '100%' ? classes.push('w-full') : classes.push(`w-[${addPx(v)}]`); break;
-      case 'height': v === '100%' ? classes.push('h-full') : classes.push(`h-[${addPx(v)}]`); break;
-      case 'maxWidth': classes.push(`max-w-[${addPx(v)}]`); break;
-      case 'minWidth': classes.push(`min-w-[${addPx(v)}]`); break;
-      case 'maxHeight': classes.push(`max-h-[${addPx(v)}]`); break;
-      case 'minHeight': classes.push(`min-h-[${addPx(v)}]`); break;
+      case 'padding':
+        classes.push(pxToTw('p', v));
+        break;
+      case 'paddingX':
+        classes.push(pxToTw('px', v));
+        break;
+      case 'paddingY':
+        classes.push(pxToTw('py', v));
+        break;
+      case 'paddingTop':
+        classes.push(pxToTw('pt', v));
+        break;
+      case 'paddingBottom':
+        classes.push(pxToTw('pb', v));
+        break;
+      case 'paddingLeft':
+        classes.push(pxToTw('pl', v));
+        break;
+      case 'paddingRight':
+        classes.push(pxToTw('pr', v));
+        break;
+      case 'margin':
+        classes.push(pxToTw('m', v));
+        break;
+      case 'marginX':
+        classes.push(pxToTw('mx', v));
+        break;
+      case 'marginY':
+        classes.push(pxToTw('my', v));
+        break;
+      case 'marginTop':
+        classes.push(pxToTw('mt', v));
+        break;
+      case 'marginBottom':
+        classes.push(pxToTw('mb', v));
+        break;
+      case 'marginLeft':
+        classes.push(pxToTw('ml', v));
+        break;
+      case 'marginRight':
+        classes.push(pxToTw('mr', v));
+        break;
+      case 'backgroundColor':
+        classes.push(colorToTw('bg', v, colors));
+        break;
+      case 'color':
+        classes.push(colorToTw('text', v, colors));
+        break;
+      case 'fontSize':
+        classes.push(fsTw(v));
+        break;
+      case 'fontWeight':
+        classes.push(fwTw(v));
+        break;
+      case 'borderRadius':
+        classes.push(pxToTw('rounded', v));
+        break;
+      case 'width':
+        v === '100%' ? classes.push('w-full') : classes.push(`w-[${addPx(v)}]`);
+        break;
+      case 'height':
+        v === '100%' ? classes.push('h-full') : classes.push(`h-[${addPx(v)}]`);
+        break;
+      case 'maxWidth':
+        classes.push(`max-w-[${addPx(v)}]`);
+        break;
+      case 'minWidth':
+        classes.push(`min-w-[${addPx(v)}]`);
+        break;
+      case 'maxHeight':
+        classes.push(`max-h-[${addPx(v)}]`);
+        break;
+      case 'minHeight':
+        classes.push(`min-h-[${addPx(v)}]`);
+        break;
       case 'justifyContent':
         if (v === 'space-between') classes.push('justify-between');
         else if (v === 'space-around') classes.push('justify-around');
@@ -83,21 +133,44 @@ export function stylesToTailwind(styles: Record<string, string>, colors?: Record
       case 'flexDirection':
         if (v === 'row') classes.push('flex-row');
         break;
-      case 'flex': classes.push(`flex-${v}`); break;
-      case 'gap': classes.push(pxToTw('gap', v)); break;
-      case 'borderColor': classes.push(colorToTw('border', v, colors)); break;
-      case 'borderWidth': classes.push('border'); break;
-      case 'overflow': classes.push(`overflow-${v}`); break;
-      case 'textAlign': classes.push(`text-${v}`); break;
-      case 'elevation': classes.push(`shadow-${v === '0' ? 'none' : v}`); break;
-      case 'opacity': classes.push(`opacity-${Math.round(Number(v) * 100) || v}`); break;
-      case 'position': classes.push(v); break;
-      case 'display': classes.push(v === 'none' ? 'hidden' : v); break;
-      case 'zIndex': classes.push(`z-${v}`); break;
-      default:
+      case 'flex':
+        classes.push(`flex-${v}`);
+        break;
+      case 'gap':
+        classes.push(pxToTw('gap', v));
+        break;
+      case 'borderColor':
+        classes.push(colorToTw('border', v, colors));
+        break;
+      case 'borderWidth':
+        classes.push('border');
+        break;
+      case 'overflow':
+        classes.push(`overflow-${v}`);
+        break;
+      case 'textAlign':
+        classes.push(`text-${v}`);
+        break;
+      case 'elevation':
+        classes.push(`shadow-${v === '0' ? 'none' : v}`);
+        break;
+      case 'opacity':
+        classes.push(`opacity-${Math.round(Number(v) * 100) || v}`);
+        break;
+      case 'position':
+        classes.push(v);
+        break;
+      case 'display':
+        classes.push(v === 'none' ? 'hidden' : v);
+        break;
+      case 'zIndex':
+        classes.push(`z-${v}`);
+        break;
+      default: {
         // Pass through as arbitrary Tailwind property
         const twVal = v.replace(/ /g, '_');
         classes.push(`[${cssKebab(expanded)}:${twVal}]`);
+      }
     }
   }
 
@@ -109,13 +182,19 @@ export function pxToTw(prefix: string, v: string): string {
   if (v === 'auto') return `${prefix}-auto`;
   if (v === '0') return `${prefix}-0`;
   const n = Number(v);
-  if (isNaN(n)) return `${prefix}-[${v}]`;
+  if (Number.isNaN(n)) return `${prefix}-[${v}]`;
 
   // Special handling for border-radius → Tailwind rounded classes
   if (prefix === 'rounded') {
     const roundedMap: Record<number, string> = {
-      0: 'rounded-none', 2: 'rounded-sm', 4: 'rounded', 6: 'rounded-md',
-      8: 'rounded-lg', 12: 'rounded-xl', 16: 'rounded-2xl', 20: 'rounded-[20px]',
+      0: 'rounded-none',
+      2: 'rounded-sm',
+      4: 'rounded',
+      6: 'rounded-md',
+      8: 'rounded-lg',
+      12: 'rounded-xl',
+      16: 'rounded-2xl',
+      20: 'rounded-[20px]',
       9999: 'rounded-full',
     };
     return roundedMap[n] || `rounded-[${n}px]`;
@@ -123,9 +202,24 @@ export function pxToTw(prefix: string, v: string): string {
 
   // Tailwind spacing scale: 1=4px, 2=8px, 3=12px, 4=16px, 5=20px, 6=24px, 8=32px
   const twMap: Record<number, string> = {
-    0: '0', 1: 'px', 2: '0.5', 4: '1', 6: '1.5', 8: '2', 10: '2.5',
-    12: '3', 14: '3.5', 16: '4', 20: '5', 24: '6', 28: '7', 32: '8',
-    36: '9', 40: '10', 44: '11', 48: '12',
+    0: '0',
+    1: 'px',
+    2: '0.5',
+    4: '1',
+    6: '1.5',
+    8: '2',
+    10: '2.5',
+    12: '3',
+    14: '3.5',
+    16: '4',
+    20: '5',
+    24: '6',
+    28: '7',
+    32: '8',
+    36: '9',
+    40: '10',
+    44: '11',
+    48: '12',
   };
   return twMap[n] !== undefined ? `${prefix}-${twMap[n]}` : `${prefix}-[${n}px]`;
 }
@@ -138,26 +232,41 @@ export function colorToTw(prefix: string, v: string, colors?: Record<string, str
 
 export function fsTw(v: string): string {
   const map: Record<string, string> = {
-    '10': 'text-[10px]', '11': 'text-[11px]', '12': 'text-xs', '13': 'text-[13px]',
-    '14': 'text-sm', '16': 'text-base', '18': 'text-lg', '20': 'text-xl',
-    '24': 'text-2xl', '28': 'text-[28px]', '30': 'text-3xl',
+    '10': 'text-[10px]',
+    '11': 'text-[11px]',
+    '12': 'text-xs',
+    '13': 'text-[13px]',
+    '14': 'text-sm',
+    '16': 'text-base',
+    '18': 'text-lg',
+    '20': 'text-xl',
+    '24': 'text-2xl',
+    '28': 'text-[28px]',
+    '30': 'text-3xl',
   };
   return map[v] || `text-[${v}px]`;
 }
 
 export function fwTw(v: string): string {
   const map: Record<string, string> = {
-    '300': 'font-light', '400': 'font-normal', '500': 'font-medium',
-    '600': 'font-semibold', '700': 'font-bold', '800': 'font-extrabold',
-    '900': 'font-black', 'bold': 'font-bold', 'normal': 'font-normal',
-    'medium': 'font-medium', 'semibold': 'font-semibold',
+    '300': 'font-light',
+    '400': 'font-normal',
+    '500': 'font-medium',
+    '600': 'font-semibold',
+    '700': 'font-bold',
+    '800': 'font-extrabold',
+    '900': 'font-black',
+    bold: 'font-bold',
+    normal: 'font-normal',
+    medium: 'font-medium',
+    semibold: 'font-semibold',
   };
   return map[v] || `font-[${v}]`;
 }
 
 export function addPx(v: string): string {
   const n = Number(v);
-  return isNaN(n) ? v : `${n}px`;
+  return Number.isNaN(n) ? v : `${n}px`;
 }
 
 export function cssKebab(s: string): string {

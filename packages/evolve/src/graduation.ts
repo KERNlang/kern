@@ -5,11 +5,16 @@
  * updates the manifest, and makes the node available at next compile.
  */
 
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'fs';
-import { resolve, join } from 'path';
-import { createHash } from 'crypto';
 import { KERN_VERSION } from '@kernlang/core';
-import type { EvolveNodeProposal, EvolvedManifest, EvolvedManifestEntry, EvolvedNodeDefinition } from './evolved-types.js';
+import { createHash } from 'crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { join, resolve } from 'path';
+import type {
+  EvolvedManifest,
+  EvolvedManifestEntry,
+  EvolvedNodeDefinition,
+  EvolveNodeProposal,
+} from './evolved-types.js';
 
 /**
  * Graduate an approved proposal: write all files to .kern/evolved/<keyword>/.
@@ -44,7 +49,7 @@ export function graduateNode(
     writeFileSync(join(nodeDir, 'expected-output.ts'), proposal.expectedOutput);
 
     // 5. Write definition.json
-    const hash = 'sha256:' + createHash('sha256').update(compiledJs).digest('hex');
+    const hash = `sha256:${createHash('sha256').update(compiledJs).digest('hex')}`;
     const definition: EvolvedNodeDefinition = {
       keyword: proposal.keyword,
       displayName: proposal.displayName,
@@ -151,11 +156,7 @@ function writeManifest(evolvedDir: string, manifest: EvolvedManifest): void {
   writeFileSync(join(evolvedDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
 }
 
-function updateManifest(
-  evolvedDir: string,
-  keyword: string,
-  entry: EvolvedManifestEntry,
-): void {
+function updateManifest(evolvedDir: string, keyword: string, entry: EvolvedManifestEntry): void {
   const manifest = readManifest(evolvedDir);
   manifest.nodes[keyword] = entry;
   writeManifest(evolvedDir, manifest);

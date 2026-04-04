@@ -4,8 +4,8 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { gradeColor, type SecurityScore, type ToolScore, type Grade } from './score.js';
 import type { McpReviewResult } from './scan-types.js';
+import { type Grade, gradeColor, type SecurityScore, type ToolScore } from './score.js';
 
 export function generateBadgeMarkdown(score: SecurityScore): string {
   const color = gradeColor(score.grade).replace('#', '');
@@ -18,8 +18,9 @@ export function generateBadgeMarkdown(score: SecurityScore): string {
 export function generateToolTable(score: SecurityScore): string {
   if (score.perTool.length === 0) return '';
   const header = '| Tool | Score | Grade | Guards | Validation | Auth |\n| --- | ---:| --- | ---:| --- | --- |';
-  const rows = score.perTool.map((t: ToolScore) =>
-    `| ${t.toolName} | ${t.total} | ${t.grade} | ${t.guards}/${t.effects} | ${t.hasValidation ? 'Yes' : 'No'} | ${t.hasAuth ? 'Yes' : 'No'} |`,
+  const rows = score.perTool.map(
+    (t: ToolScore) =>
+      `| ${t.toolName} | ${t.total} | ${t.grade} | ${t.guards}/${t.effects} | ${t.hasValidation ? 'Yes' : 'No'} | ${t.hasAuth ? 'Yes' : 'No'} |`,
   );
   return [header, ...rows].join('\n');
 }
@@ -69,7 +70,7 @@ export function generateReportJSON(result: McpReviewResult, score: SecurityScore
 const MARKER_START = '<!-- kern-mcp-security-start -->';
 const MARKER_END = '<!-- kern-mcp-security-end -->';
 
-export function updateReadme(workspaceRoot: string, score: SecurityScore, result: McpReviewResult): void {
+export function updateReadme(workspaceRoot: string, score: SecurityScore, _result: McpReviewResult): void {
   const readmePath = path.join(workspaceRoot, 'README.md');
 
   const badge = generateBadgeMarkdown(score);
@@ -95,10 +96,10 @@ export function updateReadme(workspaceRoot: string, score: SecurityScore, result
     if (startIdx !== -1 && endIdx !== -1) {
       content = content.slice(0, startIdx) + section + content.slice(endIdx + MARKER_END.length);
     } else {
-      content = content + '\n\n' + section + '\n';
+      content = `${content}\n\n${section}\n`;
     }
   } else {
-    content = section + '\n';
+    content = `${section}\n`;
   }
 
   fs.writeFileSync(readmePath, content, 'utf-8');

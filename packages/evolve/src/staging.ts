@@ -5,10 +5,25 @@
  * Each proposal gets its own JSON file to avoid merge conflicts in teams.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
-import type { TemplateProposal, ValidationResult, StagedProposal, ProposalStatus, EvolveConfig, NodeProposal, NodeValidationResult, StagedNodeProposal, NodeProposalStatus } from './types.js';
-import type { EvolveNodeProposal, EvolveV4ValidationResult, StagedEvolveProposal, EvolveV4ProposalStatus } from './evolved-types.js';
+import type {
+  EvolveNodeProposal,
+  EvolveV4ProposalStatus,
+  EvolveV4ValidationResult,
+  StagedEvolveProposal,
+} from './evolved-types.js';
+import type {
+  EvolveConfig,
+  NodeProposal,
+  NodeProposalStatus,
+  NodeValidationResult,
+  ProposalStatus,
+  StagedNodeProposal,
+  StagedProposal,
+  TemplateProposal,
+  ValidationResult,
+} from './types.js';
 
 const DEFAULT_STAGING_DIR = '.kern/evolve/staged';
 const DEFAULT_PROMOTED_DIR = '.kern/evolve/promoted';
@@ -47,7 +62,7 @@ export function listStaged(config?: Partial<EvolveConfig>): StagedProposal[] {
   const stagingDir = resolve(process.cwd(), config?.stagingDir || DEFAULT_STAGING_DIR);
   if (!existsSync(stagingDir)) return [];
 
-  const files = readdirSync(stagingDir).filter(f => f.endsWith('.json'));
+  const files = readdirSync(stagingDir).filter((f) => f.endsWith('.json'));
   const proposals: StagedProposal[] = [];
 
   for (const file of files) {
@@ -59,9 +74,7 @@ export function listStaged(config?: Partial<EvolveConfig>): StagedProposal[] {
     }
   }
 
-  return proposals.sort((a, b) =>
-    (b.proposal.qualityScore.overallScore) - (a.proposal.qualityScore.overallScore),
-  );
+  return proposals.sort((a, b) => b.proposal.qualityScore.overallScore - a.proposal.qualityScore.overallScore);
 }
 
 /**
@@ -114,14 +127,14 @@ export function promoteLocal(config?: Partial<EvolveConfig>): string[] {
   mkdirSync(templatesDir, { recursive: true });
 
   const staged = listStaged(config);
-  const approved = staged.filter(s => s.status === 'approved');
+  const approved = staged.filter((s) => s.status === 'approved');
   const promoted: string[] = [];
 
   for (const s of approved) {
     // Write the .kern template file
     const kernFileName = `${s.proposal.templateName}.kern`;
     const kernFilePath = resolve(templatesDir, kernFileName);
-    writeFileSync(kernFilePath, s.proposal.kernSource + '\n');
+    writeFileSync(kernFilePath, `${s.proposal.kernSource}\n`);
 
     // Move to promoted directory
     const stagedPath = resolve(stagingDir, `${s.id}.json`);
@@ -147,7 +160,7 @@ export function cleanRejected(config?: Partial<EvolveConfig>): number {
   if (!existsSync(stagingDir)) return 0;
 
   const staged = listStaged(config);
-  const rejected = staged.filter(s => s.status === 'rejected');
+  const rejected = staged.filter((s) => s.status === 'rejected');
   let cleaned = 0;
 
   for (const s of rejected) {
@@ -172,9 +185,15 @@ export function formatSplitView(staged: StagedProposal): string {
   const border = '\u2500'.repeat(nameLen + 18);
 
   lines.push(`\u250C${border}\u2510`);
-  lines.push(`\u2502 ${proposal.templateName} (${proposal.namespace})${' '.repeat(Math.max(0, nameLen - proposal.templateName.length - proposal.namespace.length - 3))}                 \u2502`);
-  lines.push(`\u2502 Score: ${proposal.qualityScore.overallScore}  |  Instances: ${proposal.instanceCount}  |  Status: ${staged.status}${' '.repeat(Math.max(0, nameLen + 5 - `Score: ${proposal.qualityScore.overallScore}  |  Instances: ${proposal.instanceCount}  |  Status: ${staged.status}`.length))} \u2502`);
-  lines.push(`\u251C${'─'.repeat(Math.floor(border.length / 2))}\u252C${'─'.repeat(Math.ceil(border.length / 2))}\u2524`);
+  lines.push(
+    `\u2502 ${proposal.templateName} (${proposal.namespace})${' '.repeat(Math.max(0, nameLen - proposal.templateName.length - proposal.namespace.length - 3))}                 \u2502`,
+  );
+  lines.push(
+    `\u2502 Score: ${proposal.qualityScore.overallScore}  |  Instances: ${proposal.instanceCount}  |  Status: ${staged.status}${' '.repeat(Math.max(0, nameLen + 5 - `Score: ${proposal.qualityScore.overallScore}  |  Instances: ${proposal.instanceCount}  |  Status: ${staged.status}`.length))} \u2502`,
+  );
+  lines.push(
+    `\u251C${'─'.repeat(Math.floor(border.length / 2))}\u252C${'─'.repeat(Math.ceil(border.length / 2))}\u2524`,
+  );
 
   // Left: Original TS, Right: Proposed KERN
   const origLines = proposal.representativeSnippet.split('\n').slice(0, 12);
@@ -182,7 +201,9 @@ export function formatSplitView(staged: StagedProposal): string {
   const maxLines = Math.max(origLines.length, kernLines.length);
   const halfWidth = Math.floor(border.length / 2);
 
-  lines.push(`\u2502 ${'Original TypeScript'.padEnd(halfWidth - 1)}\u2502 ${'Proposed KERN Template'.padEnd(halfWidth - 2)}\u2502`);
+  lines.push(
+    `\u2502 ${'Original TypeScript'.padEnd(halfWidth - 1)}\u2502 ${'Proposed KERN Template'.padEnd(halfWidth - 2)}\u2502`,
+  );
   lines.push(`\u251C${'─'.repeat(halfWidth)}\u253C${'─'.repeat(halfWidth)}\u2524`);
 
   for (let i = 0; i < maxLines; i++) {
@@ -219,7 +240,10 @@ export function stageNodeProposal(
   validation: NodeValidationResult,
   config?: Partial<EvolveConfig>,
 ): StagedNodeProposal {
-  const stagingDir = resolve(process.cwd(), config?.stagingDir ? `${config.stagingDir}-nodes` : DEFAULT_NODE_STAGING_DIR);
+  const stagingDir = resolve(
+    process.cwd(),
+    config?.stagingDir ? `${config.stagingDir}-nodes` : DEFAULT_NODE_STAGING_DIR,
+  );
   mkdirSync(stagingDir, { recursive: true });
 
   const staged: StagedNodeProposal = {
@@ -240,10 +264,13 @@ export function stageNodeProposal(
  * List all staged node proposals.
  */
 export function listStagedNodes(config?: Partial<EvolveConfig>): StagedNodeProposal[] {
-  const stagingDir = resolve(process.cwd(), config?.stagingDir ? `${config.stagingDir}-nodes` : DEFAULT_NODE_STAGING_DIR);
+  const stagingDir = resolve(
+    process.cwd(),
+    config?.stagingDir ? `${config.stagingDir}-nodes` : DEFAULT_NODE_STAGING_DIR,
+  );
   if (!existsSync(stagingDir)) return [];
 
-  const files = readdirSync(stagingDir).filter(f => f.endsWith('.json'));
+  const files = readdirSync(stagingDir).filter((f) => f.endsWith('.json'));
   const proposals: StagedNodeProposal[] = [];
 
   for (const file of files) {
@@ -266,7 +293,10 @@ export function updateStagedNodeStatus(
   status: NodeProposalStatus,
   config?: Partial<EvolveConfig>,
 ): StagedNodeProposal | undefined {
-  const stagingDir = resolve(process.cwd(), config?.stagingDir ? `${config.stagingDir}-nodes` : DEFAULT_NODE_STAGING_DIR);
+  const stagingDir = resolve(
+    process.cwd(),
+    config?.stagingDir ? `${config.stagingDir}-nodes` : DEFAULT_NODE_STAGING_DIR,
+  );
   const filePath = resolve(stagingDir, `${id}.json`);
   if (!existsSync(filePath)) return undefined;
 
@@ -292,9 +322,15 @@ export function formatNodeSplitView(staged: StagedNodeProposal): string {
   const border = '\u2500'.repeat(nameLen + 18);
 
   lines.push(`\u250C${border}\u2510`);
-  lines.push(`\u2502 NODE: ${proposal.nodeName}${' '.repeat(Math.max(0, nameLen - proposal.nodeName.length - 6))}                 \u2502`);
-  lines.push(`\u2502 Score: ${proposal.qualityScore}  |  Freq: ${proposal.frequency}  |  Express: ${proposal.expressibilityScore.overall}  |  ${staged.status}${' '.repeat(Math.max(0, 10))} \u2502`);
-  lines.push(`\u251C${'─'.repeat(Math.floor(border.length / 2))}\u252C${'─'.repeat(Math.ceil(border.length / 2))}\u2524`);
+  lines.push(
+    `\u2502 NODE: ${proposal.nodeName}${' '.repeat(Math.max(0, nameLen - proposal.nodeName.length - 6))}                 \u2502`,
+  );
+  lines.push(
+    `\u2502 Score: ${proposal.qualityScore}  |  Freq: ${proposal.frequency}  |  Express: ${proposal.expressibilityScore.overall}  |  ${staged.status}${' '.repeat(Math.max(0, 10))} \u2502`,
+  );
+  lines.push(
+    `\u251C${'─'.repeat(Math.floor(border.length / 2))}\u252C${'─'.repeat(Math.ceil(border.length / 2))}\u2524`,
+  );
 
   // Left: KERN Syntax, Right: Codegen Stub
   const kernLines = proposal.kernSyntax.split('\n').slice(0, 12);
@@ -359,7 +395,7 @@ export function listStagedEvolveV4(): StagedEvolveProposal[] {
   const stagingDir = resolve(process.cwd(), DEFAULT_V4_STAGING_DIR);
   if (!existsSync(stagingDir)) return [];
 
-  const files = readdirSync(stagingDir).filter(f => f.endsWith('.json'));
+  const files = readdirSync(stagingDir).filter((f) => f.endsWith('.json'));
   const proposals: StagedEvolveProposal[] = [];
 
   for (const file of files) {
@@ -371,9 +407,7 @@ export function listStagedEvolveV4(): StagedEvolveProposal[] {
     }
   }
 
-  return proposals.sort((a, b) =>
-    (b.proposal.reason.frequency) - (a.proposal.reason.frequency),
-  );
+  return proposals.sort((a, b) => b.proposal.reason.frequency - a.proposal.reason.frequency);
 }
 
 /**
@@ -421,7 +455,7 @@ export function cleanRejectedEvolveV4(): number {
   if (!existsSync(stagingDir)) return 0;
 
   const staged = listStagedEvolveV4();
-  const rejected = staged.filter(s => s.status === 'rejected');
+  const rejected = staged.filter((s) => s.status === 'rejected');
   let cleaned = 0;
 
   for (const s of rejected) {
@@ -460,7 +494,9 @@ export function formatEvolveV4SplitView(staged: StagedEvolveProposal): string {
 
   lines.push(`  \u250C${border}\u2510`);
   lines.push(`  \u2502 PROPOSED NODE: ${proposal.keyword.padEnd(width - 17)}\u2502`);
-  lines.push(`  \u2502 Freq: ${String(proposal.reason.frequency).padEnd(4)} files  |  Saves: ~${proposal.reason.avgLines} lines/instance${' '.repeat(Math.max(0, width - 45 - String(proposal.reason.frequency).length - String(proposal.reason.avgLines).length))}\u2502`);
+  lines.push(
+    `  \u2502 Freq: ${String(proposal.reason.frequency).padEnd(4)} files  |  Saves: ~${proposal.reason.avgLines} lines/instance${' '.repeat(Math.max(0, width - 45 - String(proposal.reason.frequency).length - String(proposal.reason.avgLines).length))}\u2502`,
+  );
   lines.push(`  \u251C${'─'.repeat(Math.floor(width / 2))}\u252C${'─'.repeat(Math.ceil(width / 2))}\u2524`);
 
   // Left: KERN Syntax, Right: Generated TypeScript
@@ -469,7 +505,9 @@ export function formatEvolveV4SplitView(staged: StagedEvolveProposal): string {
   const maxLines = Math.max(kernLines.length, tsLines.length);
   const halfWidth = Math.floor(width / 2);
 
-  lines.push(`  \u2502 ${'KERN Syntax'.padEnd(halfWidth - 1)}\u2502 ${'Generated TypeScript'.padEnd(halfWidth - 1)}\u2502`);
+  lines.push(
+    `  \u2502 ${'KERN Syntax'.padEnd(halfWidth - 1)}\u2502 ${'Generated TypeScript'.padEnd(halfWidth - 1)}\u2502`,
+  );
   lines.push(`  \u251C${'─'.repeat(halfWidth)}\u253C${'─'.repeat(halfWidth)}\u2524`);
 
   for (let i = 0; i < maxLines; i++) {
@@ -500,7 +538,12 @@ export function formatEvolveV4SplitView(staged: StagedEvolveProposal): string {
     validation.goldenDiffOk ? '\u2713 Golden' : '\u2717 Golden',
     validation.dedupOk ? '\u2713 Dedup' : '\u2717 Dedup',
   ];
-  lines.push(`  \u2502 ${checks.join('  ').substring(0, width - 2).padEnd(width - 1)}\u2502`);
+  lines.push(
+    `  \u2502 ${checks
+      .join('  ')
+      .substring(0, width - 2)
+      .padEnd(width - 1)}\u2502`,
+  );
   lines.push(`  \u2514${border}\u2518`);
 
   lines.push(`    [a]pprove --approve=${staged.id}  [r]eject --reject=${staged.id}`);

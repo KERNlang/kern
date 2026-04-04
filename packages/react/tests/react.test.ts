@@ -1,8 +1,7 @@
-import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const _ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('React Transpilers', () => {
   describe('Tailwind Transpiler', () => {
@@ -117,7 +116,7 @@ describe('React Transpilers', () => {
       const { transpileNextjs } = await import('../src/transpiler-nextjs.js');
       const ast = parse('page name=Test client=true\n  button text="Go" to=dashboard');
       const result = transpileNextjs(ast);
-      expect(result.code).toContain("next/link");
+      expect(result.code).toContain('next/link');
       expect(result.code).toContain('Link');
     });
   });

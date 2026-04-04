@@ -6,9 +6,9 @@
  * For accurate measurements, run in isolation: jest tests/performance.test.ts
  */
 
-import { reviewSource, reviewFile } from '../src/index.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { reviewFile, reviewSource } from '../src/index.js';
 
 const SRC_DIR = join(import.meta.dirname, '..', 'src');
 

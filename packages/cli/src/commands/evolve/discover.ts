@@ -1,19 +1,28 @@
-import { readFileSync, existsSync } from 'fs';
-import { resolve, relative } from 'path';
 import { NODE_TYPES } from '@kernlang/core';
-import {
-  readEvolvedManifest, buildDiscoveryPrompt, parseDiscoveryResponse,
-  selectRepresentativeFiles, collectTsFiles, estimateTokens,
-  createLLMProvider, TokenBudget, validateEvolveProposal,
-  stageEvolveV4Proposal, buildRetryPrompt,
-} from '@kernlang/evolve';
 import type { LLMProviderOptions } from '@kernlang/evolve';
-import { parseFlag, hasFlag } from '../../shared.js';
+import {
+  buildDiscoveryPrompt,
+  buildRetryPrompt,
+  collectTsFiles,
+  createLLMProvider,
+  estimateTokens,
+  parseDiscoveryResponse,
+  readEvolvedManifest,
+  selectRepresentativeFiles,
+  stageEvolveV4Proposal,
+  TokenBudget,
+  validateEvolveProposal,
+} from '@kernlang/evolve';
+import { existsSync, readFileSync } from 'fs';
+import { relative, resolve } from 'path';
+import { hasFlag, parseFlag } from '../../shared.js';
 
 export async function runEvolveDiscover(args: string[]): Promise<void> {
   const discoverInput = args[1];
   if (!discoverInput || discoverInput.startsWith('--')) {
-    console.error('Usage: kern evolve:discover <dir> [--recursive] [--provider=openai|anthropic|ollama] [--max-tokens=N]');
+    console.error(
+      'Usage: kern evolve:discover <dir> [--recursive] [--provider=openai|anthropic|ollama] [--max-tokens=N]',
+    );
     process.exit(1);
   }
 
@@ -65,7 +74,7 @@ export async function runEvolveDiscover(args: string[]): Promise<void> {
     }
 
     const batch = batches[i];
-    const files = batch.map(fp => ({
+    const files = batch.map((fp) => ({
       path: relative(process.cwd(), fp),
       content: readFileSync(fp, 'utf-8'),
     }));
@@ -73,7 +82,7 @@ export async function runEvolveDiscover(args: string[]): Promise<void> {
     const prompt = buildDiscoveryPrompt(files, NODE_TYPES, evolvedKeywords);
     budget.add(estimateTokens(prompt));
 
-    console.log(`  Batch ${i + 1}/${batches.length}: ${files.map(f => f.path).join(', ')}`);
+    console.log(`  Batch ${i + 1}/${batches.length}: ${files.map((f) => f.path).join(', ')}`);
 
     try {
       const response = await provider.complete(prompt);
@@ -83,7 +92,7 @@ export async function runEvolveDiscover(args: string[]): Promise<void> {
       allProposals.push(...proposals);
 
       if (proposals.length > 0) {
-        console.log(`    → ${proposals.length} pattern(s) found: ${proposals.map(p => p.keyword).join(', ')}`);
+        console.log(`    → ${proposals.length} pattern(s) found: ${proposals.map((p) => p.keyword).join(', ')}`);
       }
     } catch (err) {
       console.error(`    → Error: ${(err as Error).message}`);
@@ -92,7 +101,7 @@ export async function runEvolveDiscover(args: string[]): Promise<void> {
 
   // Dedup across batches
   const seen = new Set<string>();
-  const uniqueProposals = allProposals.filter(p => {
+  const uniqueProposals = allProposals.filter((p) => {
     if (seen.has(p.keyword)) return false;
     seen.add(p.keyword);
     return true;
@@ -108,13 +117,18 @@ export async function runEvolveDiscover(args: string[]): Promise<void> {
   const maxRetries = 2;
 
   for (let pi = 0; pi < uniqueProposals.length; pi++) {
-    let proposal = uniqueProposals[pi];
+    const proposal = uniqueProposals[pi];
     if (!proposal.id) {
       proposal.id = `${proposal.keyword}-${Date.now()}`;
     }
 
     let validation = validateEvolveProposal(proposal, existingKw);
-    let allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
+    let allOk =
+      validation.schemaOk &&
+      validation.keywordOk &&
+      validation.parseOk &&
+      validation.codegenCompileOk &&
+      validation.codegenRunOk;
 
     const isFixable = validation.schemaOk && validation.keywordOk && !allOk;
     if (!allOk && isFixable && provider) {
@@ -124,7 +138,8 @@ export async function runEvolveDiscover(args: string[]): Promise<void> {
           const retryPrompt = buildRetryPrompt(proposal, validation.errors);
           budget.add(estimateTokens(retryPrompt));
           const retryResponse = await provider.complete(retryPrompt);
-          if (!retryResponse || typeof retryResponse !== 'string') throw new Error('LLM returned empty or invalid response');
+          if (!retryResponse || typeof retryResponse !== 'string')
+            throw new Error('LLM returned empty or invalid response');
           budget.add(estimateTokens(retryResponse));
 
           let json = retryResponse.trim();
@@ -141,7 +156,12 @@ export async function runEvolveDiscover(args: string[]): Promise<void> {
           if (typeof fixed.codegenSource === 'string') proposal.codegenSource = fixed.codegenSource;
 
           validation = validateEvolveProposal(proposal, existingKw);
-          allOk = validation.schemaOk && validation.keywordOk && validation.parseOk && validation.codegenCompileOk && validation.codegenRunOk;
+          allOk =
+            validation.schemaOk &&
+            validation.keywordOk &&
+            validation.parseOk &&
+            validation.codegenCompileOk &&
+            validation.codegenRunOk;
           if (allOk) break;
         } catch (e) {
           console.error(`    Retry ${retry} failed: ${(e as Error).message}`);

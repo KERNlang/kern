@@ -1,14 +1,11 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { resolve, basename, dirname } from 'path';
-import { resolveConfig, VALID_TARGETS, VALID_STRUCTURES } from '@kernlang/core';
-import type { ResolvedKernConfig, KernTarget, KernStructure, KernConfig, IRNode } from '@kernlang/core';
+import type { IRNode, KernConfig, KernStructure, KernTarget, ResolvedKernConfig } from '@kernlang/core';
+import { decompile, resolveConfig, VALID_STRUCTURES, VALID_TARGETS } from '@kernlang/core';
 import { loadEvolvedNodes } from '@kernlang/evolve';
 import { collectLanguageMetrics } from '@kernlang/metrics';
-import { decompile } from '@kernlang/core';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { createJiti } from 'jiti';
-import {
-  parseFlag, hasFlag, parseAndSurface, loadTemplates, transpileForTarget,
-} from '../shared.js';
+import { basename, dirname, resolve } from 'path';
+import { hasFlag, loadTemplates, parseAndSurface, parseFlag, transpileForTarget } from '../shared.js';
 
 // ── Minify/Pretty implementations ───────────────────────────────────────
 
@@ -22,7 +19,10 @@ function serializeProps(node: IRNode, pseudoFormat: 'minify' | 'pretty' = 'minif
 
   for (const [k, v] of Object.entries(props)) {
     if (['styles', 'pseudoStyles', 'themeRefs'].includes(k)) continue;
-    if (type === 'theme' && k === 'name') { head += ` ${v}`; continue; }
+    if (type === 'theme' && k === 'name') {
+      head += ` ${v}`;
+      continue;
+    }
     if (typeof v === 'object' && v !== null && '__expr' in v) {
       head += ` ${k}={{ ${(v as unknown as { code: string }).code} }}`;
       continue;
@@ -32,8 +32,9 @@ function serializeProps(node: IRNode, pseudoFormat: 'minify' | 'pretty' = 'minif
   }
 
   if (props.styles) {
-    const pairs = Object.entries(props.styles as Record<string, string>)
-      .map(([k, v]) => v.includes(' ') || v.includes(',') ? `"${k}":"${v}"` : `${k}:${v}`);
+    const pairs = Object.entries(props.styles as Record<string, string>).map(([k, v]) =>
+      v.includes(' ') || v.includes(',') ? `"${k}":"${v}"` : `${k}:${v}`,
+    );
     head += ` {${pairs.join(',')}}`;
   }
 
@@ -41,9 +42,7 @@ function serializeProps(node: IRNode, pseudoFormat: 'minify' | 'pretty' = 'minif
     const pseudo = props.pseudoStyles as Record<string, Record<string, string>>;
     for (const [state, styles] of Object.entries(pseudo)) {
       for (const [k, v] of Object.entries(styles)) {
-        head += pseudoFormat === 'minify'
-          ? ` {:${state}:${k}:${v}}`
-          : `,${`:${state}:${k}:${v}`}`;
+        head += pseudoFormat === 'minify' ? ` {:${state}:${k}:${v}}` : `,${`:${state}:${k}:${v}`}`;
       }
     }
   }
@@ -60,19 +59,19 @@ function serializeProps(node: IRNode, pseudoFormat: 'minify' | 'pretty' = 'minif
 function minifyKern(node: IRNode): string {
   const head = serializeProps(node, 'minify');
   if (node.children && node.children.length > 0) {
-    const kids = node.children.map(c => minifyKern(c)).join(',');
+    const kids = node.children.map((c) => minifyKern(c)).join(',');
     return `${head}(${kids})`;
   }
   return head;
 }
 
 function prettyKern(node: IRNode, indent = ''): string {
-  let line = `${indent}${serializeProps(node, 'pretty')}`;
+  const line = `${indent}${serializeProps(node, 'pretty')}`;
 
-  let result = line + '\n';
+  let result = `${line}\n`;
   if (node.children) {
     for (const child of node.children) {
-      result += prettyKern(child, indent + '  ');
+      result += prettyKern(child, `${indent}  `);
     }
   }
   return result;
@@ -81,7 +80,7 @@ function prettyKern(node: IRNode, indent = ''): string {
 // ── Main transpile command ──────────────────────────────────────────────
 
 export function runTranspile(args: string[]): void {
-  const inputFile = args.find(a => !a.startsWith('--'));
+  const inputFile = args.find((a) => !a.startsWith('--'));
 
   if (!inputFile) {
     printHelp();
@@ -166,8 +165,12 @@ export function runTranspile(args: string[]): void {
     console.log(`Metrics: ${inputFile}`);
     console.log(`  Nodes:        ${metrics.nodeCount} (${metrics.nodeTypes.length} types)`);
     console.log(`  Styles:       ${metrics.styleMetrics.totalStyleDecls} declarations`);
-    console.log(`  Mapped:       ${metrics.styleMetrics.mappedStyleDecls} (${Math.round((1 - metrics.styleMetrics.escapeRatio) * 100)}%)`);
-    console.log(`  Escaped:      ${metrics.styleMetrics.escapedStyleDecls} (${Math.round(metrics.styleMetrics.escapeRatio * 100)}%)`);
+    console.log(
+      `  Mapped:       ${metrics.styleMetrics.mappedStyleDecls} (${Math.round((1 - metrics.styleMetrics.escapeRatio) * 100)}%)`,
+    );
+    console.log(
+      `  Escaped:      ${metrics.styleMetrics.escapedStyleDecls} (${Math.round(metrics.styleMetrics.escapeRatio * 100)}%)`,
+    );
     if (metrics.styleMetrics.escapedKeys.length > 0) {
       console.log(`  Escape keys:  ${metrics.styleMetrics.escapedKeys.join(', ')}`);
     }
@@ -197,14 +200,18 @@ export function runTranspile(args: string[]): void {
       mkdirSync(dirname(artifactPath), { recursive: true });
       writeFileSync(artifactPath, artifact.content);
     }
-    const entryArtifact = result.artifacts!.find(a => a.type === 'entry' || a.type === 'page');
+    const entryArtifact = result.artifacts!.find((a) => a.type === 'entry' || a.type === 'page');
     const displayPath = entryArtifact ? resolve(outDir, entryArtifact.path) : resolve(outDir, `${name}.tsx`);
     console.log(`Transpiled: ${inputFile} → ${displayPath}`);
   } else {
-    const outExt = target === 'fastapi' ? '.py'
-      : (target === 'vue' || target === 'nuxt') ? '.vue'
-      : (target === 'express' || target === 'cli' || target === 'terminal' || target === 'mcp') ? '.ts'
-      : '.tsx';
+    const outExt =
+      target === 'fastapi'
+        ? '.py'
+        : target === 'vue' || target === 'nuxt'
+          ? '.vue'
+          : target === 'express' || target === 'cli' || target === 'terminal' || target === 'mcp'
+            ? '.ts'
+            : '.tsx';
     const outFile = resolve(outDir, `${name}${outExt}`);
     mkdirSync(dirname(outFile), { recursive: true });
     writeFileSync(outFile, result.code);
@@ -218,10 +225,26 @@ export function runTranspile(args: string[]): void {
     console.log(`Transpiled: ${inputFile} → ${outFile}`);
   }
 
-  const targetNames: Record<string, string> = { native: 'React Native', web: 'React (inline)', tailwind: 'React + Tailwind', nextjs: 'Next.js App Router', express: 'Express TypeScript', fastapi: 'FastAPI Python', cli: 'Commander.js CLI', terminal: 'ANSI Terminal', ink: 'Ink (React for Terminals)', vue: 'Vue 3 SFC', nuxt: 'Nuxt 3' };
+  const targetNames: Record<string, string> = {
+    native: 'React Native',
+    web: 'React (inline)',
+    tailwind: 'React + Tailwind',
+    nextjs: 'Next.js App Router',
+    express: 'Express TypeScript',
+    fastapi: 'FastAPI Python',
+    cli: 'Commander.js CLI',
+    terminal: 'ANSI Terminal',
+    ink: 'Ink (React for Terminals)',
+    vue: 'Vue 3 SFC',
+    nuxt: 'Nuxt 3',
+  };
   console.log(`Target:     ${targetNames[target] || target}`);
   if (config.structure !== 'flat') {
-    const structureNames: Record<string, string> = { bulletproof: 'Bulletproof React', atomic: 'Atomic Design', kern: 'KERN Native' };
+    const structureNames: Record<string, string> = {
+      bulletproof: 'Bulletproof React',
+      atomic: 'Atomic Design',
+      kern: 'KERN Native',
+    };
     console.log(`Structure:  ${structureNames[config.structure] || config.structure}`);
   }
   console.log(`IR tokens:  ${result.irTokenCount}`);
@@ -236,7 +259,7 @@ export function runTranspile(args: string[]): void {
     for (const d of result.diagnostics) counts[d.outcome] = (counts[d.outcome] || 0) + 1;
     const parts = Object.entries(counts).map(([k, v]) => `${v} ${k}`);
     console.log(`Diagnostics: ${parts.join(', ')}`);
-    const unsupported = result.diagnostics.filter(d => d.outcome === 'unsupported');
+    const unsupported = result.diagnostics.filter((d) => d.outcome === 'unsupported');
     if (unsupported.length > 0) {
       for (const d of unsupported) {
         const loc = d.loc ? `:${d.loc.line}` : '';

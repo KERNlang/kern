@@ -1,6 +1,6 @@
 {
   "name": "kern-monorepo",
-  "version": "2.0.0",
+  "version": "3.1.6",
   "private": true,
   "type": "module",
   "description": "Kern — the LLM-native language. Monorepo for @kern/* packages.",
@@ -15,9 +15,13 @@
     "build": "tsc -b && pnpm --filter @kernlang/playground build",
     "test": "pnpm -r --filter '!@kernlang/review-python' test",
     "test:root": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.config.js",
-    "fitness": "pnpm test"
+    "fitness": "pnpm test",
+    "lint": "biome check",
+    "lint:fix": "biome check --fix",
+    "format": "biome format --write"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.10",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.0.0",
     "jest": "^30.3.0",

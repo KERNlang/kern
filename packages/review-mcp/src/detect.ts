@@ -27,28 +27,23 @@ const TS_MCP_PATTERNS = [
 
 // ── Python MCP patterns ─────────────────────────────────────────────
 
-const PY_MCP_IMPORTS = [
-  /from\s+mcp\.server/,
-  /from\s+mcp\s+import/,
-  /import\s+mcp/,
-  /\bFastMCP\b/,
-];
+const PY_MCP_IMPORTS = [/from\s+mcp\.server/, /from\s+mcp\s+import/, /import\s+mcp/, /\bFastMCP\b/];
 
 const PY_MCP_PATTERNS = [
   /@mcp\.tool\b/,
   /@server\.call_tool\b/,
   /@server\.tool\b/,
-  /\.tool\s*\(\s*\)/,  // decorator
+  /\.tool\s*\(\s*\)/, // decorator
 ];
 
 // Raw MCP implementations (no SDK — direct JSON-RPC protocol)
 const PY_MCP_RAW = [
-  /['"]tools\/call['"]/,          // JSON-RPC method string
-  /['"]tools\/list['"]/,          // JSON-RPC method string
-  /['"]resources\/read['"]/,      // JSON-RPC method string
+  /['"]tools\/call['"]/, // JSON-RPC method string
+  /['"]tools\/list['"]/, // JSON-RPC method string
+  /['"]resources\/read['"]/, // JSON-RPC method string
   /\bclass\s+\w*MCP\w*Server\b/i, // Class name containing "MCP" + "Server"
-  /\bclass\s+\w*MCPServer\b/i,    // MCPServer class
-  /handle_tools?_call/,           // Common handler method name
+  /\bclass\s+\w*MCPServer\b/i, // MCPServer class
+  /handle_tools?_call/, // Common handler method name
 ];
 
 // ── Code generator detection ────────────────────────────────────────
@@ -80,17 +75,17 @@ export function detectMCPServer(source: string, filePath: string): 'typescript' 
   const isTS = filePath.endsWith('.ts') || filePath.endsWith('.tsx') || filePath.endsWith('.js');
 
   if (isTS) {
-    const hasImport = TS_MCP_IMPORTS.some(p => p.test(source));
-    const hasPattern = TS_MCP_PATTERNS.some(p => p.test(source));
+    const hasImport = TS_MCP_IMPORTS.some((p) => p.test(source));
+    const hasPattern = TS_MCP_PATTERNS.some((p) => p.test(source));
     // Raw MCP: JSON-RPC method strings like "tools/call"
     const hasRaw = /['"]tools\/call['"]/.test(source) || /['"]tools\/list['"]/.test(source);
     if (hasImport || (hasPattern && source.includes('server')) || hasRaw) return 'typescript';
   }
 
   if (isPython) {
-    const hasImport = PY_MCP_IMPORTS.some(p => p.test(source));
-    const hasPattern = PY_MCP_PATTERNS.some(p => p.test(source));
-    const hasRaw = PY_MCP_RAW.some(p => p.test(source));
+    const hasImport = PY_MCP_IMPORTS.some((p) => p.test(source));
+    const hasPattern = PY_MCP_PATTERNS.some((p) => p.test(source));
+    const hasRaw = PY_MCP_RAW.some((p) => p.test(source));
     if (hasImport || hasPattern || hasRaw) return 'python';
   }
 

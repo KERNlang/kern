@@ -5,8 +5,8 @@
 
 import type { IRNode } from '@kernlang/core';
 import { handlerCode } from '@kernlang/core';
+import { emitPyLowConfidenceTodo, emitPyReasonAnnotations, firstChild, kids, p } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
-import { p, kids, firstChild, emitPyReasonAnnotations, emitPyLowConfidenceTodo } from '../codegen-helpers.js';
 
 /**
  * Common preamble extracted from all ground layer generators.
@@ -51,7 +51,11 @@ export function generateTransform(node: IRNode): string[] {
   }
 
   if (target && via) {
-    return [...todo, ...annotations, `${name}${typeAnnotation} = ${via.replace(/\(/, `(${target}, `).replace(/, \)/, ')')}`];
+    return [
+      ...todo,
+      ...annotations,
+      `${name}${typeAnnotation} = ${via.replace(/\(/, `(${target}, `).replace(/, \)/, ')')}`,
+    ];
   }
   if (via) {
     return [...todo, ...annotations, `${name}${typeAnnotation} = ${via}`];
@@ -65,15 +69,18 @@ export function generateAction(node: IRNode): string[] {
   const { annotations, todo, props, name } = groundPreamble(node);
   const idempotent = props.idempotent === 'true' || props.idempotent === true;
   const reversible = props.reversible === 'true' || props.reversible === true;
-  const params = props.params as string || '';
+  const params = (props.params as string) || '';
   const returns = props.returns as string | undefined;
   const code = handlerCode(node);
 
   const paramList = params
-    ? params.split(',').map(s => {
-        const [pname, ...ptype] = s.split(':').map(t => t.trim());
-        return ptype.length > 0 ? `${toSnakeCase(pname)}: ${mapTsTypeToPython(ptype.join(':'))}` : toSnakeCase(pname);
-      }).join(', ')
+    ? params
+        .split(',')
+        .map((s) => {
+          const [pname, ...ptype] = s.split(':').map((t) => t.trim());
+          return ptype.length > 0 ? `${toSnakeCase(pname)}: ${mapTsTypeToPython(ptype.join(':'))}` : toSnakeCase(pname);
+        })
+        .join(', ')
     : '';
 
   const retClause = returns ? ` -> ${mapTsTypeToPython(returns)}` : ' -> None';
@@ -106,12 +113,16 @@ export function generateGuard(node: IRNode): string[] {
   const conf = p(node).confidence as string | undefined;
   const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
-  const name = props.name as string || 'guard';
+  const name = (props.name as string) || 'guard';
   const expr = props.expr as string;
   const elseCode = props.else as string | undefined;
 
   if (elseCode && /^\d+$/.test(elseCode)) {
-    return [...todo, ...annotations, `if not (${expr}):\n    raise HTTPException(status_code=${elseCode}, detail="Guard: ${name}")`];
+    return [
+      ...todo,
+      ...annotations,
+      `if not (${expr}):\n    raise HTTPException(status_code=${elseCode}, detail="Guard: ${name}")`,
+    ];
   } else if (elseCode) {
     return [...todo, ...annotations, `if not (${expr}):\n    ${elseCode}`];
   }
@@ -126,7 +137,7 @@ export function generateAssume(node: IRNode): string[] {
   const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
   const expr = props.expr as string;
-  const name = props.name as string || 'assumption';
+  const name = (props.name as string) || 'assumption';
   return [...todo, ...annotations, `assert ${expr}, "Assume failed: ${name}"`];
 }
 
@@ -137,7 +148,7 @@ export function generateInvariant(node: IRNode): string[] {
   const conf = p(node).confidence as string | undefined;
   const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
-  const name = props.name as string || 'invariant';
+  const name = (props.name as string) || 'invariant';
   const expr = props.expr as string;
   return [...todo, ...annotations, `assert ${expr}, "Invariant: ${name}"`];
 }
@@ -160,7 +171,7 @@ export function generateEach(node: IRNode): string[] {
   const conf = p(node).confidence as string | undefined;
   const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
-  const name = props.name as string || 'item';
+  const name = (props.name as string) || 'item';
   const collection = props.in as string;
   const index = props.index as string | undefined;
 
@@ -212,7 +223,7 @@ export function generateBranch(node: IRNode): string[] {
   const conf = p(node).confidence as string | undefined;
   const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
-  const name = props.name as string || 'branch';
+  const name = (props.name as string) || 'branch';
   const on = props.on as string;
   const paths = kids(node, 'path');
 
@@ -249,8 +260,8 @@ export function generateResolve(node: IRNode): string[] {
   if (!discriminator) return [`# resolve: ${name} — missing discriminator`];
 
   const dp = p(discriminator);
-  const method = dp.method as string || 'select';
-  const metric = dp.metric as string || '';
+  const method = (dp.method as string) || 'select';
+  const metric = (dp.metric as string) || '';
 
   const lines: string[] = [...todo, ...annotations];
   lines.push(`# resolve: ${name}`);
@@ -284,7 +295,7 @@ export function generateExpect(node: IRNode): string[] {
   const conf = p(node).confidence as string | undefined;
   const todo = emitPyLowConfidenceTodo(node, conf);
   const props = p(node);
-  const name = toSnakeCase(props.name as string || 'expected');
+  const name = toSnakeCase((props.name as string) || 'expected');
   const expr = props.expr as string;
   const within = props.within as string | undefined;
   const max = props.max as string | undefined;
@@ -292,10 +303,18 @@ export function generateExpect(node: IRNode): string[] {
 
   if (within) {
     const [lo, hi] = within.split('..');
-    return [...todo, ...annotations, `assert ${lo} <= (${expr}) <= ${hi}, f"Expected ${name} in [${lo}, ${hi}], got {${expr}}"`];
+    return [
+      ...todo,
+      ...annotations,
+      `assert ${lo} <= (${expr}) <= ${hi}, f"Expected ${name} in [${lo}, ${hi}], got {${expr}}"`,
+    ];
   }
   if (min && max) {
-    return [...todo, ...annotations, `assert ${min} <= (${expr}) <= ${max}, f"Expected ${name} in [${min}, ${max}], got {${expr}}"`];
+    return [
+      ...todo,
+      ...annotations,
+      `assert ${min} <= (${expr}) <= ${max}, f"Expected ${name} in [${min}, ${max}], got {${expr}}"`,
+    ];
   }
   if (max) {
     return [...todo, ...annotations, `assert (${expr}) <= ${max}, f"Expected ${name} <= ${max}, got {${expr}}"`];

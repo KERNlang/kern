@@ -7,19 +7,15 @@
  * v2: Adds stable nodeId, promptAlias, sourceSpans to InferResult.
  */
 
-import {
-  Project,
-  SourceFile,
-  SyntaxKind,
-} from 'ts-morph';
 import type { IRNode } from '@kernlang/core';
 import { countTokens } from '@kernlang/core';
-import type { InferResult, Confidence, SourceSpan } from './types.js';
+import { Project, type SourceFile, SyntaxKind } from 'ts-morph';
+import type { Confidence, InferResult, SourceSpan } from './types.js';
 
 // ── Create Project ───────────────────────────────────────────────────────
 
 import { existsSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { dirname, resolve } from 'path';
 
 /**
  * Walk up from a directory to find the nearest tsconfig.json.
@@ -170,7 +166,7 @@ function serializeKernNode(node: IRNode): string {
   }
   if (node.children) {
     for (const child of node.children) {
-      parts.push('  ' + serializeKernNode(child));
+      parts.push(`  ${serializeKernNode(child)}`);
     }
   }
   return parts.join(' ');
@@ -195,28 +191,64 @@ function inferTypes(sourceFile: SourceFile): InferResult[] {
 
     // Union of string literals → type name=X values="a|b|c"
     if (typeNode.getKind() === SyntaxKind.UnionType) {
-      const unionMembers = text.split('|').map(s => s.trim());
-      const allLiterals = unionMembers.every(m => m.startsWith("'") || m.startsWith('"'));
+      const unionMembers = text.split('|').map((s) => s.trim());
+      const allLiterals = unionMembers.every((m) => m.startsWith("'") || m.startsWith('"'));
 
       if (allLiterals) {
-        const values = unionMembers.map(m => m.replace(/['"]/g, '')).join('|');
+        const values = unionMembers.map((m) => m.replace(/['"]/g, '')).join('|');
         const node: IRNode = { type: 'type', props: { name, values } };
-        results.push(makeResult(node, sourceFile, startOffset, endOffset, startLine, endLine,
-          `type ${name} = ${values.split('|').map(v => `'${v}'`).join(' | ')}`,
-          'high', 98, originalText));
+        results.push(
+          makeResult(
+            node,
+            sourceFile,
+            startOffset,
+            endOffset,
+            startLine,
+            endLine,
+            `type ${name} = ${values
+              .split('|')
+              .map((v) => `'${v}'`)
+              .join(' | ')}`,
+            'high',
+            98,
+            originalText,
+          ),
+        );
       } else {
         // Type alias union (non-literal)
         const node: IRNode = { type: 'type', props: { name, alias: text } };
-        results.push(makeResult(node, sourceFile, startOffset, endOffset, startLine, endLine,
-          `type ${name} = ${text}`,
-          'high', 95, originalText));
+        results.push(
+          makeResult(
+            node,
+            sourceFile,
+            startOffset,
+            endOffset,
+            startLine,
+            endLine,
+            `type ${name} = ${text}`,
+            'high',
+            95,
+            originalText,
+          ),
+        );
       }
     } else {
       // Simple type alias
       const node: IRNode = { type: 'type', props: { name, alias: text } };
-      results.push(makeResult(node, sourceFile, startOffset, endOffset, startLine, endLine,
-        `type ${name} = ${text}`,
-        'high', 95, originalText));
+      results.push(
+        makeResult(
+          node,
+          sourceFile,
+          startOffset,
+          endOffset,
+          startLine,
+          endLine,
+          `type ${name} = ${text}`,
+          'high',
+          95,
+          originalText,
+        ),
+      );
     }
   }
 
@@ -236,7 +268,11 @@ function inferInterfaces(sourceFile: SourceFile): InferResult[] {
     const startOffset = decl.getStart();
     const endOffset = decl.getEnd();
 
-    const extendsClause = decl.getExtends().map(e => e.getText()).join(', ') || undefined;
+    const extendsClause =
+      decl
+        .getExtends()
+        .map((e) => e.getText())
+        .join(', ') || undefined;
 
     const children: IRNode[] = [];
     for (const prop of decl.getProperties()) {
@@ -263,9 +299,20 @@ function inferInterfaces(sourceFile: SourceFile): InferResult[] {
       children,
     };
 
-    results.push(makeResult(node, sourceFile, startOffset, endOffset, startLine, endLine,
-      `interface ${name} (${children.length} fields)`,
-      'high', 97, originalText));
+    results.push(
+      makeResult(
+        node,
+        sourceFile,
+        startOffset,
+        endOffset,
+        startLine,
+        endLine,
+        `interface ${name} (${children.length} fields)`,
+        'high',
+        97,
+        originalText,
+      ),
+    );
   }
 
   return results;
@@ -300,7 +347,7 @@ function inferFunctions(sourceFile: SourceFile): InferResult[] {
     const className = cls.getName() ?? 'AnonymousClass';
     // Skip Error subclasses — handled by inferErrors
     const extendsExpr = cls.getExtends();
-    if (extendsExpr && extendsExpr.getText().includes('Error')) continue;
+    if (extendsExpr?.getText().includes('Error')) continue;
 
     for (const method of cls.getMethods()) {
       if (method.isAbstract()) continue;
@@ -316,12 +363,17 @@ function pushFnResult(
   results: InferResult[],
   sourceFile: SourceFile,
   anchor: import('ts-morph').Node,
-  fn: import('ts-morph').FunctionDeclaration | import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | import('ts-morph').MethodDeclaration,
+  fn:
+    | import('ts-morph').FunctionDeclaration
+    | import('ts-morph').ArrowFunction
+    | import('ts-morph').FunctionExpression
+    | import('ts-morph').MethodDeclaration,
   name: string,
   isExported: boolean,
 ): void {
-  const params = fn.getParameters()
-    .map(p => `${p.getName()}:${p.getType().getText(p)}`)
+  const params = fn
+    .getParameters()
+    .map((p) => `${p.getName()}:${p.getType().getText(p)}`)
     .join(',');
 
   const returnType = fn.getReturnType().getText(fn);
@@ -349,9 +401,20 @@ function pushFnResult(
   const startLine = anchor.getStartLineNumber();
   const endLine = anchor.getEndLineNumber();
 
-  results.push(makeResult(node, sourceFile, anchor.getStart(), anchor.getEnd(), startLine, endLine,
-    `fn ${name}(${params}) → ${returnType}`,
-    'high', 95, anchor.getText()));
+  results.push(
+    makeResult(
+      node,
+      sourceFile,
+      anchor.getStart(),
+      anchor.getEnd(),
+      startLine,
+      endLine,
+      `fn ${name}(${params}) → ${returnType}`,
+      'high',
+      95,
+      anchor.getText(),
+    ),
+  );
 }
 
 // ── Phase 1: Error Classes ───────────────────────────────────────────────
@@ -396,9 +459,20 @@ function inferErrors(sourceFile: SourceFile): InferResult[] {
       children,
     };
 
-    results.push(makeResult(node, sourceFile, startOffset, endOffset, startLine, endLine,
-      `error ${name} extends ${baseClass}`,
-      'high', 96, originalText));
+    results.push(
+      makeResult(
+        node,
+        sourceFile,
+        startOffset,
+        endOffset,
+        startLine,
+        endLine,
+        `error ${name} extends ${baseClass}`,
+        'high',
+        96,
+        originalText,
+      ),
+    );
   }
 
   return results;
@@ -418,7 +492,7 @@ function inferImports(sourceFile: SourceFile): InferResult[] {
     const endOffset = decl.getEnd();
 
     const defaultImport = decl.getDefaultImport()?.getText();
-    const namedImports = decl.getNamedImports().map(n => n.getName());
+    const namedImports = decl.getNamedImports().map((n) => n.getName());
     const isTypeOnly = decl.isTypeOnly();
 
     const props: Record<string, unknown> = { from };
@@ -428,9 +502,20 @@ function inferImports(sourceFile: SourceFile): InferResult[] {
 
     const node: IRNode = { type: 'import', props };
 
-    results.push(makeResult(node, sourceFile, startOffset, endOffset, startLine, endLine,
-      `import ${namedImports.length > 0 ? `{ ${namedImports.join(', ')} }` : defaultImport || '*'} from '${from}'`,
-      'high', 99, originalText));
+    results.push(
+      makeResult(
+        node,
+        sourceFile,
+        startOffset,
+        endOffset,
+        startLine,
+        endLine,
+        `import ${namedImports.length > 0 ? `{ ${namedImports.join(', ')} }` : defaultImport || '*'} from '${from}'`,
+        'high',
+        99,
+        originalText,
+      ),
+    );
   }
 
   return results;
@@ -457,12 +542,13 @@ function inferConsts(sourceFile: SourceFile): InferResult[] {
       const initializer = decl.getInitializer()?.getText();
 
       // Skip if it's a function expression or arrow function
-      if (initializer && (
-        initializer.startsWith('(') ||
-        initializer.startsWith('function') ||
-        initializer.startsWith('async') ||
-        initializer.includes('=>')
-      )) {
+      if (
+        initializer &&
+        (initializer.startsWith('(') ||
+          initializer.startsWith('function') ||
+          initializer.startsWith('async') ||
+          initializer.includes('=>'))
+      ) {
         continue;
       }
 
@@ -473,9 +559,20 @@ function inferConsts(sourceFile: SourceFile): InferResult[] {
 
       const node: IRNode = { type: 'const', props };
 
-      results.push(makeResult(node, sourceFile, startOffset, endOffset, startLine, endLine,
-        `const ${name}${typeName ? ': ' + typeName : ''} = ${initializer || '...'}`,
-        'high', 90, originalText));
+      results.push(
+        makeResult(
+          node,
+          sourceFile,
+          startOffset,
+          endOffset,
+          startLine,
+          endLine,
+          `const ${name}${typeName ? `: ${typeName}` : ''} = ${initializer || '...'}`,
+          'high',
+          90,
+          originalText,
+        ),
+      );
     }
   }
 
@@ -497,14 +594,18 @@ function inferExports(sourceFile: SourceFile): InferResult[] {
     const text = decl.getText();
 
     const specifier = decl.getModuleSpecifierValue();
-    const namedExports = decl.getNamedExports().map(e => e.getName());
+    const namedExports = decl.getNamedExports().map((e) => e.getName());
     const isTypeOnly = decl.isTypeOnly();
 
     const node: IRNode = {
       type: 'export',
       props: {
         ...(specifier ? { from: specifier } : {}),
-        ...(namedExports.length > 0 ? (isTypeOnly ? { types: namedExports.join(',') } : { names: namedExports.join(',') }) : {}),
+        ...(namedExports.length > 0
+          ? isTypeOnly
+            ? { types: namedExports.join(',') }
+            : { names: namedExports.join(',') }
+          : {}),
         ...(!specifier && namedExports.length === 0 ? { star: 'true' } : {}),
       },
     };
@@ -564,11 +665,12 @@ function inferMachines(sourceFile: SourceFile, existing: InferResult[]): InferRe
   const filePath = sourceFile.getFilePath() || 'input.ts';
 
   // Look for *State type aliases that are string literal unions
-  const stateTypes = existing.filter(r =>
-    r.node.type === 'type' &&
-    r.node.props?.name &&
-    (r.node.props.name as string).endsWith('State') &&
-    r.node.props.values
+  const stateTypes = existing.filter(
+    (r) =>
+      r.node.type === 'type' &&
+      r.node.props?.name &&
+      (r.node.props.name as string).endsWith('State') &&
+      r.node.props.values,
   );
 
   for (const stateResult of stateTypes) {
@@ -577,26 +679,18 @@ function inferMachines(sourceFile: SourceFile, existing: InferResult[]): InferRe
     const values = (stateResult.node.props!.values as string).split('|');
 
     // Check for matching XStateError class
-    const errorResult = existing.find(r =>
-      r.node.type === 'error' &&
-      r.node.props?.name === `${baseName}StateError`
-    );
+    const errorResult = existing.find((r) => r.node.type === 'error' && r.node.props?.name === `${baseName}StateError`);
 
     // Check for transition functions matching the pattern: verbBaseName
-    const transitionFns = existing.filter(r =>
-      r.node.type === 'fn' &&
-      r.node.props?.name &&
-      (r.node.props.name as string).endsWith(baseName)
+    const transitionFns = existing.filter(
+      (r) => r.node.type === 'fn' && r.node.props?.name && (r.node.props.name as string).endsWith(baseName),
     );
 
     // Need at least the state type + 1 transition OR state type + error
     if (!errorResult && transitionFns.length === 0) continue;
 
     const startLine = stateResult.startLine;
-    const endLine = Math.max(
-      errorResult?.endLine || startLine,
-      ...transitionFns.map(f => f.endLine),
-    );
+    const endLine = Math.max(errorResult?.endLine || startLine, ...transitionFns.map((f) => f.endLine));
 
     // Build machine node
     const children: IRNode[] = [];
@@ -623,7 +717,7 @@ function inferMachines(sourceFile: SourceFile, existing: InferResult[]): InferRe
 
     const allOriginalText = [stateResult, errorResult, ...transitionFns]
       .filter(Boolean)
-      .map(r => r!.tsTokens)
+      .map((r) => r!.tsTokens)
       .reduce((a, b) => a + b, 0);
 
     const node: IRNode = {
@@ -636,7 +730,7 @@ function inferMachines(sourceFile: SourceFile, existing: InferResult[]): InferRe
     const componentSpans: SourceSpan[] = [
       ...stateResult.sourceSpans,
       ...(errorResult?.sourceSpans || []),
-      ...transitionFns.flatMap(fn => fn.sourceSpans),
+      ...transitionFns.flatMap((fn) => fn.sourceSpans),
     ];
 
     const confidence = errorResult && transitionFns.length > 0 ? 90 : 75;
@@ -665,10 +759,8 @@ function inferConfigs(sourceFile: SourceFile, existing: InferResult[]): InferRes
   const results: InferResult[] = [];
   const filePath = sourceFile.getFilePath() || 'input.ts';
 
-  const configInterfaces = existing.filter(r =>
-    r.node.type === 'interface' &&
-    r.node.props?.name &&
-    (r.node.props.name as string).endsWith('Config')
+  const configInterfaces = existing.filter(
+    (r) => r.node.type === 'interface' && r.node.props?.name && (r.node.props.name as string).endsWith('Config'),
   );
 
   for (const ifaceResult of configInterfaces) {
@@ -676,13 +768,12 @@ function inferConfigs(sourceFile: SourceFile, existing: InferResult[]): InferRes
     // Look for DEFAULT_X_CONFIG or DEFAULT_XCONFIG or defaultXConfig
     const upperName = name.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase();
 
-    const defaultConst = existing.find(r =>
-      r.node.type === 'const' &&
-      r.node.props?.name &&
-      (
-        (r.node.props.name as string) === `DEFAULT_${upperName}` ||
-        (r.node.props.name as string).toUpperCase().includes(upperName)
-      )
+    const defaultConst = existing.find(
+      (r) =>
+        r.node.type === 'const' &&
+        r.node.props?.name &&
+        ((r.node.props.name as string) === `DEFAULT_${upperName}` ||
+          (r.node.props.name as string).toUpperCase().includes(upperName)),
     );
 
     if (!defaultConst) continue;
@@ -691,7 +782,7 @@ function inferConfigs(sourceFile: SourceFile, existing: InferResult[]): InferRes
     const endLine = Math.max(ifaceResult.endLine, defaultConst.endLine);
 
     // Build config node from interface fields
-    const children: IRNode[] = (ifaceResult.node.children || []).map(field => {
+    const children: IRNode[] = (ifaceResult.node.children || []).map((field) => {
       return { ...field };
     });
 
@@ -701,10 +792,7 @@ function inferConfigs(sourceFile: SourceFile, existing: InferResult[]): InferRes
       children,
     };
 
-    const componentSpans = [
-      ...ifaceResult.sourceSpans,
-      ...defaultConst.sourceSpans,
-    ];
+    const componentSpans = [...ifaceResult.sourceSpans, ...defaultConst.sourceSpans];
 
     results.push({
       node,
@@ -732,11 +820,12 @@ function inferEvents(sourceFile: SourceFile, existing: InferResult[]): InferResu
   const filePath = sourceFile.getFilePath() || 'input.ts';
 
   // Find *EventType type aliases
-  const eventTypes = existing.filter(r =>
-    r.node.type === 'type' &&
-    r.node.props?.name &&
-    (r.node.props.name as string).endsWith('EventType') &&
-    r.node.props.values
+  const eventTypes = existing.filter(
+    (r) =>
+      r.node.type === 'type' &&
+      r.node.props?.name &&
+      (r.node.props.name as string).endsWith('EventType') &&
+      r.node.props.values,
   );
 
   for (const eventTypeResult of eventTypes) {
@@ -744,28 +833,18 @@ function inferEvents(sourceFile: SourceFile, existing: InferResult[]): InferResu
     const baseName = typeName.replace(/Type$/, '');
 
     // Look for matching XEvent interface
-    const eventInterface = existing.find(r =>
-      r.node.type === 'interface' &&
-      r.node.props?.name === baseName
-    );
+    const eventInterface = existing.find((r) => r.node.type === 'interface' && r.node.props?.name === baseName);
 
     // Look for matching XEventMap interface
-    const eventMap = existing.find(r =>
-      r.node.type === 'interface' &&
-      r.node.props?.name === `${baseName}Map`
-    );
+    const eventMap = existing.find((r) => r.node.type === 'interface' && r.node.props?.name === `${baseName}Map`);
 
     if (!eventInterface) continue;
 
     const startLine = Math.min(eventTypeResult.startLine, eventInterface.startLine);
-    const endLine = Math.max(
-      eventTypeResult.endLine,
-      eventInterface.endLine,
-      eventMap?.endLine || 0,
-    );
+    const endLine = Math.max(eventTypeResult.endLine, eventInterface.endLine, eventMap?.endLine || 0);
 
     const values = (eventTypeResult.node.props!.values as string).split('|');
-    const children: IRNode[] = values.map(v => ({
+    const children: IRNode[] = values.map((v) => ({
       type: 'type',
       props: { name: v, value: v },
     }));
@@ -782,9 +861,7 @@ function inferEvents(sourceFile: SourceFile, existing: InferResult[]): InferResu
       ...(eventMap?.sourceSpans || []),
     ];
 
-    const totalTokens = eventTypeResult.tsTokens +
-      eventInterface.tsTokens +
-      (eventMap?.tsTokens || 0);
+    const totalTokens = eventTypeResult.tsTokens + eventInterface.tsTokens + (eventMap?.tsTokens || 0);
 
     results.push({
       node,

@@ -31,16 +31,18 @@ function consoleOutput(ctx: RuleContext): ReviewFinding[] {
   const fullText = ctx.sourceFile.getFullText();
   if (!isInkFile(fullText)) return [];
 
-  return findAll(fullText, /\bconsole\.(?:log|warn|error|info)\s*\(/g).map(line => finding(
-    'ink-console-output',
-    'warning',
-    'bug',
-    'Ink app writes through console.* — direct console output corrupts the rendered terminal frame',
-    ctx.filePath,
-    line,
-    1,
-    { suggestion: 'Render status via <Text>, <Static>, or useStdout()/useStderr() instead of console.*' },
-  ));
+  return findAll(fullText, /\bconsole\.(?:log|warn|error|info)\s*\(/g).map((line) =>
+    finding(
+      'ink-console-output',
+      'warning',
+      'bug',
+      'Ink app writes through console.* — direct console output corrupts the rendered terminal frame',
+      ctx.filePath,
+      line,
+      1,
+      { suggestion: 'Render status via <Text>, <Static>, or useStdout()/useStderr() instead of console.*' },
+    ),
+  );
 }
 
 // ── Rule: ink-direct-stdout (Codex) ─────────────────────────────────────
@@ -49,16 +51,18 @@ function directStdout(ctx: RuleContext): ReviewFinding[] {
   const fullText = ctx.sourceFile.getFullText();
   if (!isInkFile(fullText)) return [];
 
-  return findAll(fullText, /\bprocess\.(?:stdout|stderr)\.write\s*\(/g).map(line => finding(
-    'ink-direct-stdout',
-    'error',
-    'bug',
-    'Ink app writes directly to stdout/stderr — bypassing Ink output breaks layout reconciliation',
-    ctx.filePath,
-    line,
-    1,
-    { suggestion: 'Use Ink components or useStdout()/useStderr() so output stays inside Ink\'s renderer' },
-  ));
+  return findAll(fullText, /\bprocess\.(?:stdout|stderr)\.write\s*\(/g).map((line) =>
+    finding(
+      'ink-direct-stdout',
+      'error',
+      'bug',
+      'Ink app writes directly to stdout/stderr — bypassing Ink output breaks layout reconciliation',
+      ctx.filePath,
+      line,
+      1,
+      { suggestion: "Use Ink components or useStdout()/useStderr() so output stays inside Ink's renderer" },
+    ),
+  );
 }
 
 // ── Rule: ink-process-exit (Codex) ──────────────────────────────────────
@@ -67,16 +71,18 @@ function processExit(ctx: RuleContext): ReviewFinding[] {
   const fullText = ctx.sourceFile.getFullText();
   if (!isInkFile(fullText)) return [];
 
-  return findAll(fullText, /\bprocess\.exit\s*\(/g).map(line => finding(
-    'ink-process-exit',
-    'warning',
-    'pattern',
-    'Ink app calls process.exit() directly — this skips Ink cleanup and can leave the terminal in a dirty state',
-    ctx.filePath,
-    line,
-    1,
-    { suggestion: 'Use const { exit } = useApp(); exit(); so Ink can clean up properly' },
-  ));
+  return findAll(fullText, /\bprocess\.exit\s*\(/g).map((line) =>
+    finding(
+      'ink-process-exit',
+      'warning',
+      'pattern',
+      'Ink app calls process.exit() directly — this skips Ink cleanup and can leave the terminal in a dirty state',
+      ctx.filePath,
+      line,
+      1,
+      { suggestion: 'Use const { exit } = useApp(); exit(); so Ink can clean up properly' },
+    ),
+  );
 }
 
 // ── Rule: ink-stdin-bypass (Codex) ──────────────────────────────────────
@@ -86,16 +92,18 @@ function stdinBypass(ctx: RuleContext): ReviewFinding[] {
   if (!isInkFile(fullText)) return [];
 
   const pattern = /\bprocess\.stdin\.(?:on|addListener|once|resume|setRawMode)\s*\(|\breadline\.createInterface\s*\(/g;
-  return findAll(fullText, pattern).map(line => finding(
-    'ink-stdin-bypass',
-    'warning',
-    'pattern',
-    'Ink app bypasses useInput() with raw stdin/readline listeners — input handling will fight with Ink\'s renderer',
-    ctx.filePath,
-    line,
-    1,
-    { suggestion: 'Handle keyboard input with useInput() or useStdin() instead of process.stdin/readline listeners' },
-  ));
+  return findAll(fullText, pattern).map((line) =>
+    finding(
+      'ink-stdin-bypass',
+      'warning',
+      'pattern',
+      "Ink app bypasses useInput() with raw stdin/readline listeners — input handling will fight with Ink's renderer",
+      ctx.filePath,
+      line,
+      1,
+      { suggestion: 'Handle keyboard input with useInput() or useStdin() instead of process.stdin/readline listeners' },
+    ),
+  );
 }
 
 // ── Rule: ink-uncleared-interval (Claude) ───────────────────────────────
@@ -107,16 +115,18 @@ function unclearedInterval(ctx: RuleContext): ReviewFinding[] {
   // Already has cleanup
   if (fullText.includes('clearInterval')) return [];
 
-  return findAll(fullText, /\bsetInterval\s*\(/g).map(line => finding(
-    'ink-uncleared-interval',
-    'warning',
-    'bug',
-    'setInterval without clearInterval in Ink component — timer leaks on unmount',
-    ctx.filePath,
-    line,
-    1,
-    { suggestion: 'Store the interval ID and clear it in useEffect cleanup: return () => clearInterval(id)' },
-  ));
+  return findAll(fullText, /\bsetInterval\s*\(/g).map((line) =>
+    finding(
+      'ink-uncleared-interval',
+      'warning',
+      'bug',
+      'setInterval without clearInterval in Ink component — timer leaks on unmount',
+      ctx.filePath,
+      line,
+      1,
+      { suggestion: 'Store the interval ID and clear it in useEffect cleanup: return () => clearInterval(id)' },
+    ),
+  );
 }
 
 // ── Rule: ink-missing-error-boundary (Claude) ───────────────────────────
@@ -130,21 +140,22 @@ function missingErrorBoundary(ctx: RuleContext): ReviewFinding[] {
   if (!renderMatch) return [];
 
   const hasErrorBoundary = fullText.includes('ErrorBoundary') || fullText.includes('errorBoundary');
-  const hasExitHandler = /\.waitUntilExit\s*\(\s*\)\s*\.catch/.test(fullText) ||
-                         /try\s*\{[^}]*render/.test(fullText);
+  const hasExitHandler = /\.waitUntilExit\s*\(\s*\)\s*\.catch/.test(fullText) || /try\s*\{[^}]*render/.test(fullText);
 
   if (!hasErrorBoundary && !hasExitHandler) {
     const line = lineForIndex(fullText, renderMatch.index!);
-    return [finding(
-      'ink-missing-error-boundary',
-      'warning',
-      'pattern',
-      'Ink render() without error handling — uncaught errors will corrupt terminal state',
-      ctx.filePath,
-      line,
-      1,
-      { suggestion: 'Add .waitUntilExit().catch() or wrap with an ErrorBoundary component' },
-    )];
+    return [
+      finding(
+        'ink-missing-error-boundary',
+        'warning',
+        'pattern',
+        'Ink render() without error handling — uncaught errors will corrupt terminal state',
+        ctx.filePath,
+        line,
+        1,
+        { suggestion: 'Add .waitUntilExit().catch() or wrap with an ErrorBoundary component' },
+      ),
+    ];
   }
 
   return [];

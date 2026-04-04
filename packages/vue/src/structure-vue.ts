@@ -10,7 +10,7 @@
  * Supports: bulletproof, atomic, kern, flat patterns.
  */
 
-import type { IRNode, GeneratedArtifact, ResolvedKernConfig } from '@kernlang/core';
+import type { GeneratedArtifact, IRNode, ResolvedKernConfig } from '@kernlang/core';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -50,11 +50,39 @@ export interface ExtractedComposable {
 const SURFACE_TYPES = new Set(['screen', 'page', 'modal']);
 const BLOCK_TYPES = new Set(['card', 'section', 'form', 'list', 'grid', 'tabs']);
 const CONTAINER_TYPES = new Set(['row', 'col']);
-const ELEMENT_TYPES = new Set(['text', 'button', 'input', 'textarea', 'progress', 'separator', 'divider', 'image', 'icon', 'svg', 'link', 'slider', 'toggle', 'tab', 'item', 'component']);
+const ELEMENT_TYPES = new Set([
+  'text',
+  'button',
+  'input',
+  'textarea',
+  'progress',
+  'separator',
+  'divider',
+  'image',
+  'icon',
+  'svg',
+  'link',
+  'slider',
+  'toggle',
+  'tab',
+  'item',
+  'component',
+]);
 const GROUND_LAYER_TYPES = new Set([
-  'derive', 'transform', 'action', 'guard', 'assume', 'invariant',
-  'each', 'collect', 'branch', 'resolve', 'expect', 'recover',
-  'pattern', 'apply',
+  'derive',
+  'transform',
+  'action',
+  'guard',
+  'assume',
+  'invariant',
+  'each',
+  'collect',
+  'branch',
+  'resolve',
+  'expect',
+  'recover',
+  'pattern',
+  'apply',
 ]);
 
 export function classifyNode(node: IRNode): NodeRole {
@@ -131,11 +159,21 @@ function collectExtractableNodes(root: IRNode): ExtractableNodes {
   for (const child of root.children || []) {
     const role = classifyNode(child);
     switch (role) {
-      case 'state': result.stateNodes.push(child); break;
-      case 'logic': result.logicNodes.push(child); break;
-      case 'block': result.blockNodes.push(child); break;
-      case 'theme': result.themeNodes.push(child); break;
-      default: result.remainingChildren.push(child); break;
+      case 'state':
+        result.stateNodes.push(child);
+        break;
+      case 'logic':
+        result.logicNodes.push(child);
+        break;
+      case 'block':
+        result.blockNodes.push(child);
+        break;
+      case 'theme':
+        result.themeNodes.push(child);
+        break;
+      default:
+        result.remainingChildren.push(child);
+        break;
     }
   }
 
@@ -153,7 +191,7 @@ export function extractComposables(
   const composables: ExtractedComposable[] = [];
 
   if (stateNodes.length > 0) {
-    const stateDecls = stateNodes.map(n => ({
+    const stateDecls = stateNodes.map((n) => ({
       name: (n.props?.name as string) || 'value',
       initial: String(n.props?.initial ?? ''),
     }));
@@ -174,7 +212,7 @@ export function extractComposables(
   }
 
   if (logicNodes.length > 0) {
-    const logicBlocks = logicNodes.map(n => (n.props?.code as string) || '');
+    const logicBlocks = logicNodes.map((n) => (n.props?.code as string) || '');
 
     const returnedValues: string[] = [];
     const allCode = logicBlocks.join('\n');
@@ -208,11 +246,16 @@ export function generateStateComposableCode(composable: ExtractedComposable): st
   lines.push(`export function ${composable.composableName}() {`);
 
   for (const s of composable.stateDecls) {
-    const init = s.initial === 'true' ? 'true'
-      : s.initial === 'false' ? 'false'
-      : s.initial === '' ? "''"
-      : isNaN(Number(s.initial)) ? `'${s.initial}'`
-      : s.initial;
+    const init =
+      s.initial === 'true'
+        ? 'true'
+        : s.initial === 'false'
+          ? 'false'
+          : s.initial === ''
+            ? "''"
+            : Number.isNaN(Number(s.initial))
+              ? `'${s.initial}'`
+              : s.initial;
     lines.push(`  const ${s.name} = ref(${init});`);
   }
 
@@ -277,9 +320,12 @@ export function generateTypesCode(featureName: string, stateDecls: { name: strin
   lines.push(`export interface ${featureName}State {`);
 
   for (const s of stateDecls) {
-    const tsType = s.initial === 'true' || s.initial === 'false' ? 'boolean'
-      : !isNaN(Number(s.initial)) && s.initial !== '' ? 'number'
-      : 'string';
+    const tsType =
+      s.initial === 'true' || s.initial === 'false'
+        ? 'boolean'
+        : !Number.isNaN(Number(s.initial)) && s.initial !== ''
+          ? 'number'
+          : 'string';
     lines.push(`  ${s.name}: Ref<${tsType}>;`);
   }
 
@@ -290,9 +336,7 @@ export function generateTypesCode(featureName: string, stateDecls: { name: strin
 // ── Generate Barrel Export Content ────────────────────────────────────────
 
 export function generateBarrelCode(barrel: BarrelExport): string {
-  return barrel.exports
-    .map(e => `export { ${e.name} } from '${e.from}';`)
-    .join('\n');
+  return barrel.exports.map((e) => `export { ${e.name} } from '${e.from}';`).join('\n');
 }
 
 // ── Pattern Planners ─────────────────────────────────────────────────────
@@ -317,7 +361,7 @@ function planBulletproof(root: IRNode): StructurePlan {
   // Block components → components/
   for (const block of blockNodes) {
     const rawName = getNodeName(block);
-    const hasExplicitName = !!(block.props?.name);
+    const hasExplicitName = !!block.props?.name;
     const compName = deduplicateName(toComponentName(rawName, featureName, hasExplicitName), usedNames);
 
     files.push({
@@ -369,15 +413,17 @@ function planBulletproof(root: IRNode): StructurePlan {
   }
 
   // Barrel
-  const barrels: BarrelExport[] = [{
-    path: `${featureDir}/barrel.ts`,
-    exports: [{ name: featureName, from: './index' }],
-  }];
+  const barrels: BarrelExport[] = [
+    {
+      path: `${featureDir}/barrel.ts`,
+      exports: [{ name: featureName, from: './index' }],
+    },
+  ];
 
   // Wire up dependencies
   const entryFile = files[0];
-  const componentPaths = files.filter(f => f.artifactType === 'component').map(f => f.path);
-  const composablePaths = files.filter(f => f.artifactType === 'hook').map(f => f.path);
+  const componentPaths = files.filter((f) => f.artifactType === 'component').map((f) => f.path);
+  const composablePaths = files.filter((f) => f.artifactType === 'hook').map((f) => f.path);
   entryFile.dependsOn = [...componentPaths, ...composablePaths];
 
   return { files, barrels };
@@ -412,7 +458,7 @@ function planAtomic(root: IRNode): StructurePlan {
   // Blocks → organisms/
   for (const block of blockNodes) {
     const rawName = getNodeName(block);
-    const hasExplicitName = !!(block.props?.name);
+    const hasExplicitName = !!block.props?.name;
     const compName = deduplicateName(toComponentName(rawName, featureName, hasExplicitName), usedNames);
 
     files.push({
@@ -538,7 +584,7 @@ function planKern(root: IRNode): StructurePlan {
   // Blocks
   for (const block of blockNodes) {
     const rawName = getNodeName(block);
-    const hasExplicitName = !!(block.props?.name);
+    const hasExplicitName = !!block.props?.name;
     const compName = deduplicateName(toComponentName(rawName, featureName, hasExplicitName), usedNames);
 
     files.push({

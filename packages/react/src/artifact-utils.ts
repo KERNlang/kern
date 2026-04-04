@@ -6,17 +6,13 @@
  */
 
 import type { GeneratedArtifact, IRNode, ResolvedKernConfig } from '@kernlang/core';
-import type {
-  StructurePlan,
-  PlannedFile,
-  ExtractedHook,
-} from './structure.js';
+import type { PlannedFile, StructurePlan } from './structure.js';
 import {
   extractHooks,
-  generateStateHookCode,
-  generateLogicHookCode,
-  generateTypesCode,
   generateBarrelCode,
+  generateLogicHookCode,
+  generateStateHookCode,
+  generateTypesCode,
 } from './structure.js';
 
 export interface StructuredResult {
@@ -52,31 +48,27 @@ export function buildStructuredArtifacts(
   }
 
   // Determine hooks directory from plan
-  const hookFiles = plan.files.filter(f => f.artifactType === 'hook');
-  const hooksDir = hookFiles.length > 0
-    ? hookFiles[0].path.substring(0, hookFiles[0].path.lastIndexOf('/'))
-    : 'hooks';
+  const hookFiles = plan.files.filter((f) => f.artifactType === 'hook');
+  const hooksDir = hookFiles.length > 0 ? hookFiles[0].path.substring(0, hookFiles[0].path.lastIndexOf('/')) : 'hooks';
 
   const hooks = extractHooks(featureName, stateNodes, logicNodes, hooksDir);
 
   for (const file of plan.files) {
     if (file.artifactType === 'hook') {
       // Generate hook code
-      const matchingHook = hooks.find(h => h.path === file.path);
+      const matchingHook = hooks.find((h) => h.path === file.path);
       if (matchingHook) {
-        const code = matchingHook.stateDecls.length > 0
-          ? generateStateHookCode(matchingHook)
-          : generateLogicHookCode(
-              matchingHook,
-              hooks.find(h => h.stateDecls.length > 0)?.hookName,
-            );
+        const code =
+          matchingHook.stateDecls.length > 0
+            ? generateStateHookCode(matchingHook)
+            : generateLogicHookCode(matchingHook, hooks.find((h) => h.stateDecls.length > 0)?.hookName);
         artifacts.push({ path: file.path, content: code, type: 'hook' });
       }
       continue;
     }
 
     if (file.artifactType === 'types') {
-      const stateDecls = stateNodes.map(n => ({
+      const stateDecls = stateNodes.map((n) => ({
         name: (n.props?.name as string) || 'value',
         initial: String(n.props?.initial ?? ''),
       }));

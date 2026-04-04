@@ -1,25 +1,17 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
-import { resolve, join } from 'path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { mkdtempSync } from 'fs';
-import {
-  pruneNodes,
-  detectCollisions,
-  renameEvolvedNode,
-} from '../src/evolve-rollback.js';
+import { join } from 'path';
+import { detectCollisions, pruneNodes, renameEvolvedNode } from '../src/evolve-rollback.js';
 import type { EvolvedManifest, EvolvedManifestEntry } from '../src/evolved-types.js';
 
 let TEST_DIR: string;
 let EVOLVED_DIR: string;
 
 function daysAgo(n: number): string {
-  return new Date(Date.now() - (n * 24 * 60 * 60 * 1000)).toISOString();
+  return new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
 }
 
-function makeManifestEntry(
-  keyword: string,
-  overrides: Partial<EvolvedManifestEntry> = {},
-): EvolvedManifestEntry {
+function makeManifestEntry(keyword: string, overrides: Partial<EvolvedManifestEntry> = {}): EvolvedManifestEntry {
   return {
     keyword,
     displayName: keyword.replace(/-/g, ' '),
@@ -53,7 +45,14 @@ function writeNodeDir(keyword: string, definition?: Record<string, unknown>): vo
         description: 'Test node',
         props: [],
         childTypes: [],
-        reason: { observation: 'test', inefficiency: 'test', kernBenefit: 'test', frequency: 1, avgLines: 1, instances: [] },
+        reason: {
+          observation: 'test',
+          inefficiency: 'test',
+          kernBenefit: 'test',
+          frequency: 1,
+          avgLines: 1,
+          instances: [],
+        },
         hash: 'sha256:abc123',
         graduatedBy: 'test-user',
         graduatedAt: daysAgo(10),
@@ -182,7 +181,7 @@ describe('detectCollisions', () => {
 
   it('detects collision when evolved keyword matches a core NODE_TYPE', () => {
     writeManifest({
-      'screen': makeManifestEntry('screen', {
+      screen: makeManifestEntry('screen', {
         displayName: 'Screen',
         graduatedAt: daysAgo(30),
       }),
@@ -198,7 +197,7 @@ describe('detectCollisions', () => {
   it('returns correct CollisionInfo fields', () => {
     const graduatedAt = daysAgo(60);
     writeManifest({
-      'button': makeManifestEntry('button', {
+      button: makeManifestEntry('button', {
         displayName: 'Custom Button',
         graduatedAt,
       }),
@@ -222,15 +221,15 @@ describe('detectCollisions', () => {
 
   it('detects multiple collisions', () => {
     writeManifest({
-      'screen': makeManifestEntry('screen'),
-      'button': makeManifestEntry('button'),
+      screen: makeManifestEntry('screen'),
+      button: makeManifestEntry('button'),
       'custom-widget': makeManifestEntry('custom-widget'),
     });
 
     const coreTypes = ['screen', 'button', 'text'] as const;
     const collisions = detectCollisions(coreTypes, TEST_DIR);
     expect(collisions).toHaveLength(2);
-    const keywords = collisions.map(c => c.keyword).sort();
+    const keywords = collisions.map((c) => c.keyword).sort();
     expect(keywords).toEqual(['button', 'screen']);
   });
 });
@@ -249,7 +248,14 @@ describe('renameEvolvedNode', () => {
       description: 'Test node',
       props: [],
       childTypes: [],
-      reason: { observation: 'test', inefficiency: 'test', kernBenefit: 'test', frequency: 1, avgLines: 1, instances: [] },
+      reason: {
+        observation: 'test',
+        inefficiency: 'test',
+        kernBenefit: 'test',
+        frequency: 1,
+        avgLines: 1,
+        instances: [],
+      },
       hash: 'sha256:abc123',
       graduatedBy: 'test-user',
       graduatedAt,
@@ -285,8 +291,8 @@ describe('renameEvolvedNode', () => {
 
   it('fails when target already exists', () => {
     writeManifest({
-      'source': makeManifestEntry('source'),
-      'target': makeManifestEntry('target'),
+      source: makeManifestEntry('source'),
+      target: makeManifestEntry('target'),
     });
     writeNodeDir('source');
     writeNodeDir('target');

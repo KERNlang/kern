@@ -3,10 +3,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { scanWorkspace, type WorkspaceScanResult } from './workspace-scan.js';
 import { generateReportJSON } from './badge.js';
-import { scanMcpConfigs, type ConfigScanResult } from './config-scan.js';
+import { type ConfigScanResult, scanMcpConfigs } from './config-scan.js';
 import { generateLockFile, verifyLockFile } from './tool-pin.js';
+import { scanWorkspace, type WorkspaceScanResult } from './workspace-scan.js';
 
 const PKG_VERSION: string = (() => {
   try {
@@ -101,17 +101,19 @@ Examples:
 }
 
 function toSARIF(result: WorkspaceScanResult): object {
-  const runs = [{
-    tool: {
-      driver: {
-        name: 'KERN MCP Security',
-        version: PKG_VERSION,
-        informationUri: 'https://github.com/KERNlang/kern-sight-mcp',
-        rules: [] as object[],
+  const runs = [
+    {
+      tool: {
+        driver: {
+          name: 'KERN MCP Security',
+          version: PKG_VERSION,
+          informationUri: 'https://github.com/KERNlang/kern-sight-mcp',
+          rules: [] as object[],
+        },
       },
+      results: [] as object[],
     },
-    results: [] as object[],
-  }];
+  ];
 
   const ruleIds = new Set<string>();
 
@@ -132,15 +134,17 @@ function toSARIF(result: WorkspaceScanResult): object {
         ruleId: f.ruleId,
         level: f.severity === 'error' ? 'error' : f.severity === 'warning' ? 'warning' : 'note',
         message: { text: f.message },
-        locations: [{
-          physicalLocation: {
-            artifactLocation: { uri: path.relative(process.cwd(), file.filePath) },
-            region: {
-              startLine: f.primarySpan.startLine,
-              startColumn: f.primarySpan.startCol,
+        locations: [
+          {
+            physicalLocation: {
+              artifactLocation: { uri: path.relative(process.cwd(), file.filePath) },
+              region: {
+                startLine: f.primarySpan.startLine,
+                startColumn: f.primarySpan.startCol,
+              },
             },
           },
-        }],
+        ],
         ...(f.suggestion ? { fixes: [{ description: { text: f.suggestion }, artifactChanges: [] }] } : {}),
       });
     }
@@ -201,7 +205,7 @@ function configScanToText(result: ConfigScanResult): string {
 
   for (const configPath of result.configsScanned) {
     lines.push(`Config: ${configPath}`);
-    const serversInConfig = result.servers.filter(s => s.configPath === configPath);
+    const serversInConfig = result.servers.filter((s) => s.configPath === configPath);
     for (const server of serversInConfig) {
       const trustIcon = server.trust === 'verified' ? 'OK' : server.trust === 'unknown' ? '??' : '!!';
       lines.push(`  [${trustIcon}] ${server.name} (${server.command})`);
@@ -231,16 +235,16 @@ function main(): void {
     }
 
     if (args.output) {
-      fs.writeFileSync(args.output, output + '\n', 'utf-8');
+      fs.writeFileSync(args.output, `${output}\n`, 'utf-8');
       if (!args.quiet) console.log(`Report written to ${args.output}`);
     } else if (!args.quiet) {
       console.log(output);
     } else {
-      const errors = result.servers.reduce((n, s) => n + s.issues.filter(i => i.severity === 'error').length, 0);
+      const errors = result.servers.reduce((n, s) => n + s.issues.filter((i) => i.severity === 'error').length, 0);
       console.log(`issues:${result.totalIssues} errors:${errors}`);
     }
 
-    if (result.servers.some(s => s.issues.some(i => i.severity === 'error'))) {
+    if (result.servers.some((s) => s.issues.some((i) => i.severity === 'error'))) {
       process.exit(1);
     }
     return;
@@ -250,12 +254,12 @@ function main(): void {
   const result = scanWorkspace(scanPath);
 
   if (args.lock) {
-    let totalPinned = 0;
+    let _totalPinned = 0;
     for (const file of result.files) {
       const lockFile = generateLockFile(file.filePath, file.irNodes);
       const lockPath = path.join(path.dirname(file.filePath), '.kern-mcp-lock.json');
-      fs.writeFileSync(lockPath, JSON.stringify(lockFile, null, 2) + '\n', 'utf-8');
-      totalPinned += lockFile.tools.length;
+      fs.writeFileSync(lockPath, `${JSON.stringify(lockFile, null, 2)}\n`, 'utf-8');
+      _totalPinned += lockFile.tools.length;
       if (!args.quiet) {
         console.log(`Lockfile generated: ${lockPath} (${lockFile.tools.length} tools pinned)`);
       }
@@ -304,8 +308,8 @@ function main(): void {
     const aggregate = {
       fileName: 'workspace',
       filePath: scanPath,
-      findings: result.files.flatMap(f => f.findings),
-      irNodes: result.files.flatMap(f => f.irNodes),
+      findings: result.files.flatMap((f) => f.findings),
+      irNodes: result.files.flatMap((f) => f.irNodes),
       lang: null,
       score: result.score,
     };
@@ -315,7 +319,7 @@ function main(): void {
   }
 
   if (args.output) {
-    fs.writeFileSync(args.output, output + '\n', 'utf-8');
+    fs.writeFileSync(args.output, `${output}\n`, 'utf-8');
     if (!args.quiet) {
       console.log(`Report written to ${args.output}`);
       console.log(`Score: ${result.score.grade} (${result.score.total}/100)`);

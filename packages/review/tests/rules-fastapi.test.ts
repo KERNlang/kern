@@ -1,6 +1,6 @@
+import type { ConceptMap, ConceptNode, ConceptSpan } from '@kernlang/core';
 import { runFastapiConceptRules } from '../src/rules/fastapi.js';
 import { getActiveRules, getRuleRegistry } from '../src/rules/index.js';
-import type { ConceptMap, ConceptNode, ConceptSpan } from '@kernlang/core';
 import type { ReviewFinding } from '../src/types.js';
 
 // ── Test helpers ────────────────────────────────────────────────────────
@@ -81,13 +81,13 @@ describe('FastAPI Rules', () => {
   describe('registry', () => {
     it('has 5 fastapi rules in REGISTRY', () => {
       const registry = getRuleRegistry('fastapi');
-      const fastapiRules = registry.filter(r => r.layer === 'fastapi');
+      const fastapiRules = registry.filter((r) => r.layer === 'fastapi');
       expect(fastapiRules.length).toBe(5);
     });
 
     it('getActiveRules returns empty array for fastapi (concept-only target)', () => {
       const rules = getActiveRules('fastapi');
-      const fastapiSpecific = rules.filter(r => (r as any).ruleId?.startsWith('fastapi'));
+      const fastapiSpecific = rules.filter((r) => (r as any).ruleId?.startsWith('fastapi'));
       expect(fastapiSpecific.length).toBe(0);
     });
   });
@@ -101,10 +101,8 @@ describe('FastAPI Rules', () => {
 async def get_items():
     return [{"name": "item1"}]
 `;
-      const findings = run(source, [
-        makeRouteNode('app.py', 'get_items', 2, 4, '@app.get("/items")', 'GET'),
-      ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-missing-response-model');
+      const findings = run(source, [makeRouteNode('app.py', 'get_items', 2, 4, '@app.get("/items")', 'GET')]);
+      const f = findings.find((f) => f.ruleId === 'fastapi-missing-response-model');
       expect(f).toBeDefined();
       expect(f!.severity).toBe('warning');
       expect(f!.message).toContain('get_items');
@@ -119,7 +117,7 @@ async def get_items():
       const findings = run(source, [
         makeRouteNode('app.py', 'get_items', 2, 4, '@app.get("/items", response_model=list[Item])', 'GET'),
       ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-missing-response-model');
+      const f = findings.find((f) => f.ruleId === 'fastapi-missing-response-model');
       expect(f).toBeUndefined();
     });
 
@@ -133,7 +131,7 @@ async def delete_item(id: int):
       const findings = run(source, [
         makeRouteNode('app.py', 'delete_item', 2, 5, '@app.delete("/items/{id}")', 'DELETE'),
       ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-missing-response-model');
+      const f = findings.find((f) => f.ruleId === 'fastapi-missing-response-model');
       expect(f).toBeUndefined();
     });
 
@@ -143,10 +141,8 @@ async def delete_item(id: int):
 async def custom():
     return JSONResponse(content={"msg": "ok"})
 `;
-      const findings = run(source, [
-        makeRouteNode('app.py', 'custom', 2, 4, '@app.get("/custom")', 'GET'),
-      ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-missing-response-model');
+      const findings = run(source, [makeRouteNode('app.py', 'custom', 2, 4, '@app.get("/custom")', 'GET')]);
+      const f = findings.find((f) => f.ruleId === 'fastapi-missing-response-model');
       expect(f).toBeUndefined();
     });
   });
@@ -161,10 +157,8 @@ async def proxy():
     resp = requests.get("https://api.example.com/data")
     return resp.json()
 `;
-      const findings = run(source, [
-        makeRouteNode('app.py', 'proxy', 2, 5, '@app.get("/proxy")', 'GET'),
-      ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-blocking-sync-route');
+      const findings = run(source, [makeRouteNode('app.py', 'proxy', 2, 5, '@app.get("/proxy")', 'GET')]);
+      const f = findings.find((f) => f.ruleId === 'fastapi-blocking-sync-route');
       expect(f).toBeDefined();
       expect(f!.message).toContain('blocking');
       expect(f!.message).toContain('requests');
@@ -177,10 +171,8 @@ async def slow():
     time.sleep(5)
     return {"status": "done"}
 `;
-      const findings = run(source, [
-        makeRouteNode('app.py', 'slow', 2, 5, '@app.get("/slow")', 'GET'),
-      ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-blocking-sync-route');
+      const findings = run(source, [makeRouteNode('app.py', 'slow', 2, 5, '@app.get("/slow")', 'GET')]);
+      const f = findings.find((f) => f.ruleId === 'fastapi-blocking-sync-route');
       expect(f).toBeDefined();
       expect(f!.message).toContain('time.sleep');
     });
@@ -192,10 +184,8 @@ async def read_file():
     f = open("/etc/config")
     return f.read()
 `;
-      const findings = run(source, [
-        makeRouteNode('app.py', 'read_file', 2, 5, '@app.get("/file")', 'GET'),
-      ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-blocking-sync-route');
+      const findings = run(source, [makeRouteNode('app.py', 'read_file', 2, 5, '@app.get("/file")', 'GET')]);
+      const f = findings.find((f) => f.ruleId === 'fastapi-blocking-sync-route');
       expect(f).toBeDefined();
     });
 
@@ -206,10 +196,8 @@ def sync_route():
     resp = requests.get("https://api.example.com/data")
     return resp.json()
 `;
-      const findings = run(source, [
-        makeRouteNode('app.py', 'sync_route', 2, 5, '@app.get("/sync")', 'GET'),
-      ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-blocking-sync-route');
+      const findings = run(source, [makeRouteNode('app.py', 'sync_route', 2, 5, '@app.get("/sync")', 'GET')]);
+      const f = findings.find((f) => f.ruleId === 'fastapi-blocking-sync-route');
       expect(f).toBeUndefined();
     });
 
@@ -220,10 +208,8 @@ async def fast():
     data = await fetch_data()
     return data
 `;
-      const findings = run(source, [
-        makeRouteNode('app.py', 'fast', 2, 5, '@app.get("/fast")', 'GET'),
-      ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-blocking-sync-route');
+      const findings = run(source, [makeRouteNode('app.py', 'fast', 2, 5, '@app.get("/fast")', 'GET')]);
+      const f = findings.find((f) => f.ruleId === 'fastapi-blocking-sync-route');
       expect(f).toBeUndefined();
     });
   });
@@ -244,7 +230,7 @@ async def update(data: dict):
         makeRouteNode('app.py', 'update', 4, 7, '@app.post("/update")', 'POST'),
         makeStateMutationNode('app.py', 'cache', 'global', 6),
       ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-shared-state');
+      const f = findings.find((f) => f.ruleId === 'fastapi-shared-state');
       expect(f).toBeDefined();
       expect(f!.severity).toBe('error');
       expect(f!.message).toContain('cache');
@@ -265,7 +251,7 @@ async def count():
         makeRouteNode('app.py', 'count', 4, 8, '@app.get("/count")', 'GET'),
         makeStateMutationNode('app.py', '_counter', 'module', 7),
       ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-shared-state');
+      const f = findings.find((f) => f.ruleId === 'fastapi-shared-state');
       expect(f).toBeDefined();
       expect(f!.message).toContain('module');
     });
@@ -282,7 +268,7 @@ async def get_items():
         makeRouteNode('app.py', 'get_items', 2, 6, '@app.get("/items")', 'GET'),
         makeStateMutationNode('app.py', 'items', 'local', 4),
       ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-shared-state');
+      const f = findings.find((f) => f.ruleId === 'fastapi-shared-state');
       expect(f).toBeUndefined();
     });
 
@@ -299,7 +285,7 @@ async def read():
         makeRouteNode('app.py', 'read', 5, 7, '@app.get("/read")', 'GET'),
         makeStateMutationNode('app.py', 'cache', 'global', 3), // outside route
       ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-shared-state');
+      const f = findings.find((f) => f.ruleId === 'fastapi-shared-state');
       expect(f).toBeUndefined();
     });
   });
@@ -320,7 +306,7 @@ async def risky():
         makeRouteNode('app.py', 'risky', 2, 7, '@app.get("/risky")', 'GET'),
         makeErrorHandleNode('app.py', 6),
       ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-broad-except');
+      const f = findings.find((f) => f.ruleId === 'fastapi-broad-except');
       expect(f).toBeDefined();
       expect(f!.severity).toBe('warning');
       expect(f!.message).toContain('broad exceptions');
@@ -339,7 +325,7 @@ async def risky():
         makeRouteNode('app.py', 'risky', 2, 7, '@app.get("/risky")', 'GET'),
         makeErrorHandleNode('app.py', 6),
       ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-broad-except');
+      const f = findings.find((f) => f.ruleId === 'fastapi-broad-except');
       expect(f).toBeUndefined();
     });
 
@@ -357,7 +343,7 @@ async def risky():
         makeRouteNode('app.py', 'risky', 2, 8, '@app.get("/risky")', 'GET'),
         makeErrorHandleNode('app.py', 6),
       ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-broad-except');
+      const f = findings.find((f) => f.ruleId === 'fastapi-broad-except');
       expect(f).toBeUndefined();
     });
 
@@ -375,7 +361,7 @@ async def risky():
         makeRouteNode('app.py', 'risky', 2, 7, '@app.get("/risky")', 'GET'),
         makeErrorHandleNode('app.py', 6),
       ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-broad-except');
+      const f = findings.find((f) => f.ruleId === 'fastapi-broad-except');
       expect(f).toBeUndefined();
     });
 
@@ -389,7 +375,7 @@ async def safe():
         makeRouteNode('app.py', 'safe', 2, 4, '@app.get("/safe")', 'GET'),
         // No error_handle nodes
       ]);
-      const f = findings.find(f => f.ruleId === 'fastapi-broad-except');
+      const f = findings.find((f) => f.ruleId === 'fastapi-broad-except');
       expect(f).toBeUndefined();
     });
   });
@@ -408,7 +394,7 @@ app.add_middleware(
 )
 `;
       const findings = run(source, []);
-      const f = findings.find(f => f.ruleId === 'fastapi-broad-cors');
+      const f = findings.find((f) => f.ruleId === 'fastapi-broad-cors');
       expect(f).toBeDefined();
       expect(f!.severity).toBe('warning');
       expect(f!.message).toContain('allow_origins');
@@ -425,7 +411,7 @@ app.add_middleware(
 )
 `;
       const findings = run(source, []);
-      const f = findings.find(f => f.ruleId === 'fastapi-broad-cors');
+      const f = findings.find((f) => f.ruleId === 'fastapi-broad-cors');
       expect(f).toBeUndefined();
     });
 
@@ -434,7 +420,7 @@ app.add_middleware(
 app.add_middleware(CORSMiddleware, allow_origins=['*'])
 `;
       const findings = run(source, []);
-      const f = findings.find(f => f.ruleId === 'fastapi-broad-cors');
+      const f = findings.find((f) => f.ruleId === 'fastapi-broad-cors');
       expect(f).toBeDefined();
     });
   });

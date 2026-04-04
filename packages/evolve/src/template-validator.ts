@@ -9,9 +9,9 @@
  * 5. Typecheck: Does the expanded TypeScript pass type checking? (tsconfig-aware)
  */
 
-import { Project } from 'ts-morph';
-import { parse, registerTemplate, expandTemplateNode, clearTemplates } from '@kernlang/core';
 import type { IRNode } from '@kernlang/core';
+import { clearTemplates, expandTemplateNode, parse, registerTemplate } from '@kernlang/core';
+import { Project } from 'ts-morph';
 import type { TemplateProposal, ValidationResult } from './types.js';
 
 /**
@@ -20,10 +20,7 @@ import type { TemplateProposal, ValidationResult } from './types.js';
  * Uses REAL values extracted from source, not synthetic placeholders.
  * Each call operates on an isolated template registry (cleared before and after).
  */
-export function validateProposal(
-  proposal: TemplateProposal,
-  tsconfigPath?: string,
-): ValidationResult {
+export function validateProposal(proposal: TemplateProposal, tsconfigPath?: string): ValidationResult {
   const result: ValidationResult = {
     parseOk: false,
     registerOk: false,
@@ -48,9 +45,7 @@ export function validateProposal(
 
   // Step 2: Register the template
   try {
-    const templateNodes = ast.type === 'template'
-      ? [ast]
-      : (ast.children || []).filter(n => n.type === 'template');
+    const templateNodes = ast.type === 'template' ? [ast] : (ast.children || []).filter((n) => n.type === 'template');
 
     if (templateNodes.length === 0) {
       result.errors.push('No template node found in parsed source');
@@ -85,10 +80,7 @@ export function validateProposal(
 
   // Step 4: Golden diff — compare expanded output with original TS
   try {
-    const diff = computeGoldenDiff(
-      proposal.goldenExample.originalTs,
-      result.expandedTs!,
-    );
+    const diff = computeGoldenDiff(proposal.goldenExample.originalTs, result.expandedTs!);
     result.goldenDiff = diff;
     result.goldenDiffOk = assessGoldenDiff(diff);
   } catch (err) {
@@ -152,16 +144,16 @@ function computeGoldenDiff(original: string, expanded: string): string {
 function normalizeForDiff(code: string): string {
   return code
     .split('\n')
-    .map(l => l.trim())
-    .filter(l => l.length > 0)
-    .filter(l => !l.startsWith('import '))
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .filter((l) => !l.startsWith('import '))
     .join('\n');
 }
 
 function assessGoldenDiff(diff: string): boolean {
   const lines = diff.split('\n');
   const totalLines = lines.length;
-  const matchedLines = lines.filter(l => l.startsWith('  ')).length;
+  const matchedLines = lines.filter((l) => l.startsWith('  ')).length;
 
   if (totalLines === 0) return true;
   return matchedLines / totalLines >= 0.4;
@@ -170,21 +162,23 @@ function assessGoldenDiff(diff: string): boolean {
 function typecheckExpansion(expandedTs: string, tsconfigPath?: string): boolean {
   const project = new Project({
     skipAddingFilesFromTsConfig: true,
-    compilerOptions: tsconfigPath ? undefined : {
-      target: 99, // ESNext
-      module: 99, // ESNext
-      moduleResolution: 100, // Bundler
-      strict: true,
-      skipLibCheck: true,
-      noEmit: true,
-    },
+    compilerOptions: tsconfigPath
+      ? undefined
+      : {
+          target: 99, // ESNext
+          module: 99, // ESNext
+          moduleResolution: 100, // Bundler
+          strict: true,
+          skipLibCheck: true,
+          noEmit: true,
+        },
     tsConfigFilePath: tsconfigPath,
   });
 
   const sourceFile = project.createSourceFile('__evolve_check__.ts', expandedTs);
   const diagnostics = sourceFile.getPreEmitDiagnostics();
 
-  const realErrors = diagnostics.filter(d => {
+  const realErrors = diagnostics.filter((d) => {
     const msg = d.getMessageText();
     const msgStr = typeof msg === 'string' ? msg : msg.getMessageText();
     if (msgStr.includes('Cannot find module')) return false;

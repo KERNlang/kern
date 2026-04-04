@@ -19,7 +19,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'async-effect');
+      const finding = report.findings.find((f) => f.ruleId === 'async-effect');
       expect(finding).toBeDefined();
       expect(finding!.severity).toBe('error');
     });
@@ -35,7 +35,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'async-effect');
+      const finding = report.findings.find((f) => f.ruleId === 'async-effect');
       expect(finding).toBeDefined();
     });
 
@@ -56,7 +56,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'async-effect');
+      const finding = report.findings.find((f) => f.ruleId === 'async-effect');
       expect(finding).toBeUndefined();
     });
 
@@ -71,7 +71,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'async-effect');
+      const finding = report.findings.find((f) => f.ruleId === 'async-effect');
       expect(finding).toBeUndefined();
     });
 
@@ -86,7 +86,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'async-effect');
+      const finding = report.findings.find((f) => f.ruleId === 'async-effect');
       expect(finding).toBeDefined();
     });
 
@@ -101,7 +101,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'async-effect');
+      const finding = report.findings.find((f) => f.ruleId === 'async-effect');
       expect(finding).toBeDefined();
     });
   });
@@ -119,7 +119,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'render-side-effect');
+      const finding = report.findings.find((f) => f.ruleId === 'render-side-effect');
       expect(finding).toBeDefined();
     });
 
@@ -132,7 +132,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'render-side-effect');
+      const finding = report.findings.find((f) => f.ruleId === 'render-side-effect');
       expect(finding).toBeDefined();
     });
 
@@ -146,7 +146,7 @@ const Component = () => {
 };
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'render-side-effect');
+      const finding = report.findings.find((f) => f.ruleId === 'render-side-effect');
       expect(finding).toBeDefined();
     });
 
@@ -160,7 +160,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'render-side-effect');
+      const finding = report.findings.find((f) => f.ruleId === 'render-side-effect');
       expect(finding).toBeUndefined();
     });
 
@@ -172,7 +172,7 @@ export function helper() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'render-side-effect');
+      const finding = report.findings.find((f) => f.ruleId === 'render-side-effect');
       expect(finding).toBeUndefined();
     });
 
@@ -185,7 +185,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'render-side-effect');
+      const finding = report.findings.find((f) => f.ruleId === 'render-side-effect');
       expect(finding).toBeUndefined();
     });
   });
@@ -200,7 +200,7 @@ export function List({ items }: { items: string[] }) {
 }
 `;
       const report = reviewSource(source, 'list.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'unstable-key');
+      const finding = report.findings.find((f) => f.ruleId === 'unstable-key');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('missing a key');
     });
@@ -212,7 +212,7 @@ export function List({ items }: { items: string[] }) {
 }
 `;
       const report = reviewSource(source, 'list.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'unstable-key');
+      const finding = report.findings.find((f) => f.ruleId === 'unstable-key');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('array index');
     });
@@ -224,7 +224,7 @@ export function List({ items }: { items: { id: string; name: string }[] }) {
 }
 `;
       const report = reviewSource(source, 'list.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'unstable-key');
+      const finding = report.findings.find((f) => f.ruleId === 'unstable-key');
       expect(finding).toBeUndefined();
     });
 
@@ -235,7 +235,7 @@ export function transform(items: number[]) {
 }
 `;
       const report = reviewSource(source, 'util.ts', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'unstable-key');
+      const finding = report.findings.find((f) => f.ruleId === 'unstable-key');
       expect(finding).toBeUndefined();
     });
 
@@ -246,7 +246,7 @@ export function Grid({ items }: { items: { id: string }[] }) {
 }
 `;
       const report = reviewSource(source, 'grid.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'unstable-key');
+      const finding = report.findings.find((f) => f.ruleId === 'unstable-key');
       expect(finding).toBeDefined();
     });
 
@@ -257,7 +257,7 @@ export function List({ items }: { items: string[] }) {
 }
 `;
       const report = reviewSource(source, 'list.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'unstable-key');
+      const finding = report.findings.find((f) => f.ruleId === 'unstable-key');
       expect(finding).toBeDefined();
     });
   });
@@ -278,7 +278,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'stale-closure');
+      const finding = report.findings.find((f) => f.ruleId === 'stale-closure');
       expect(finding).toBeDefined();
     });
 
@@ -294,7 +294,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'stale-closure');
+      const finding = report.findings.find((f) => f.ruleId === 'stale-closure');
       expect(finding).toBeDefined();
     });
 
@@ -311,7 +311,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'stale-closure');
+      const finding = report.findings.find((f) => f.ruleId === 'stale-closure');
       expect(finding).toBeUndefined();
     });
 
@@ -326,7 +326,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'stale-closure');
+      const finding = report.findings.find((f) => f.ruleId === 'stale-closure');
       expect(finding).toBeUndefined();
     });
 
@@ -343,7 +343,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'stale-closure');
+      const finding = report.findings.find((f) => f.ruleId === 'stale-closure');
       expect(finding).toBeDefined();
     });
 
@@ -360,7 +360,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'stale-closure');
+      const finding = report.findings.find((f) => f.ruleId === 'stale-closure');
       expect(finding).toBeUndefined();
     });
   });
@@ -382,7 +382,7 @@ export function BigForm() {
 }
 `;
       const report = reviewSource(source, 'form.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'state-explosion');
+      const finding = report.findings.find((f) => f.ruleId === 'state-explosion');
       expect(finding).toBeDefined();
       expect(finding!.severity).toBe('warning');
       expect(finding!.message).toContain('6');
@@ -402,7 +402,7 @@ const BigForm = () => {
 };
 `;
       const report = reviewSource(source, 'form.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'state-explosion');
+      const finding = report.findings.find((f) => f.ruleId === 'state-explosion');
       expect(finding).toBeDefined();
     });
 
@@ -419,7 +419,7 @@ export function Form() {
 }
 `;
       const report = reviewSource(source, 'form.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'state-explosion');
+      const finding = report.findings.find((f) => f.ruleId === 'state-explosion');
       expect(finding).toBeUndefined();
     });
 
@@ -434,7 +434,7 @@ export function SmallForm() {
 }
 `;
       const report = reviewSource(source, 'form.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'state-explosion');
+      const finding = report.findings.find((f) => f.ruleId === 'state-explosion');
       expect(finding).toBeUndefined();
     });
 
@@ -452,7 +452,7 @@ export function setupForm() {
 }
 `;
       const report = reviewSource(source, 'form.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'state-explosion');
+      const finding = report.findings.find((f) => f.ruleId === 'state-explosion');
       expect(finding).toBeUndefined();
     });
 
@@ -470,7 +470,7 @@ export function BigForm() {
 }
 `;
       const report = reviewSource(source, 'form.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'state-explosion');
+      const finding = report.findings.find((f) => f.ruleId === 'state-explosion');
       expect(finding).toBeDefined();
     });
   });
@@ -489,7 +489,7 @@ export function Component({ show }: { show: boolean }) {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'hook-order');
+      const finding = report.findings.find((f) => f.ruleId === 'hook-order');
       expect(finding).toBeDefined();
       expect(finding!.severity).toBe('error');
     });
@@ -505,7 +505,7 @@ export function Component({ items }: { items: number[] }) {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'hook-order');
+      const finding = report.findings.find((f) => f.ruleId === 'hook-order');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('loop');
     });
@@ -523,7 +523,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'hook-order');
+      const finding = report.findings.find((f) => f.ruleId === 'hook-order');
       expect(finding).toBeDefined();
     });
 
@@ -536,7 +536,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'hook-order');
+      const finding = report.findings.find((f) => f.ruleId === 'hook-order');
       expect(finding).toBeUndefined();
     });
 
@@ -551,7 +551,7 @@ export function useCustom(flag: boolean) {
 }
 `;
       const report = reviewSource(source, 'hooks.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'hook-order');
+      const finding = report.findings.find((f) => f.ruleId === 'hook-order');
       expect(finding).toBeDefined();
     });
 
@@ -565,7 +565,7 @@ function helper() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'hook-order');
+      const finding = report.findings.find((f) => f.ruleId === 'hook-order');
       expect(finding).toBeUndefined();
     });
   });
@@ -585,7 +585,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', { ...reactConfig, role: 'runtime' } as any);
-      const finding = report.findings.find(f => f.ruleId === 'effect-self-update-loop');
+      const finding = report.findings.find((f) => f.ruleId === 'effect-self-update-loop');
       expect(finding).toBeDefined();
     });
 
@@ -602,7 +602,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', { ...reactConfig, role: 'runtime' } as any);
-      const finding = report.findings.find(f => f.ruleId === 'effect-self-update-loop');
+      const finding = report.findings.find((f) => f.ruleId === 'effect-self-update-loop');
       expect(finding).toBeUndefined();
     });
 
@@ -620,7 +620,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', { ...reactConfig, role: 'runtime' } as any);
-      const finding = report.findings.find(f => f.ruleId === 'effect-self-update-loop');
+      const finding = report.findings.find((f) => f.ruleId === 'effect-self-update-loop');
       expect(finding).toBeUndefined();
     });
 
@@ -636,7 +636,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', { ...reactConfig, role: 'runtime' } as any);
-      const finding = report.findings.find(f => f.ruleId === 'effect-self-update-loop');
+      const finding = report.findings.find((f) => f.ruleId === 'effect-self-update-loop');
       expect(finding).toBeUndefined();
     });
 
@@ -653,7 +653,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', { ...reactConfig, role: 'runtime' } as any);
-      const finding = report.findings.find(f => f.ruleId === 'effect-self-update-loop');
+      const finding = report.findings.find((f) => f.ruleId === 'effect-self-update-loop');
       expect(finding).toBeUndefined();
     });
 
@@ -669,7 +669,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', { ...reactConfig, role: 'runtime' } as any);
-      const finding = report.findings.find(f => f.ruleId === 'effect-self-update-loop');
+      const finding = report.findings.find((f) => f.ruleId === 'effect-self-update-loop');
       expect(finding).toBeDefined();
     });
   });
@@ -688,7 +688,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'missing-effect-cleanup');
+      const finding = report.findings.find((f) => f.ruleId === 'missing-effect-cleanup');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('setInterval');
     });
@@ -704,7 +704,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'missing-effect-cleanup');
+      const finding = report.findings.find((f) => f.ruleId === 'missing-effect-cleanup');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('setTimeout');
     });
@@ -720,7 +720,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'missing-effect-cleanup');
+      const finding = report.findings.find((f) => f.ruleId === 'missing-effect-cleanup');
       expect(finding).toBeDefined();
     });
 
@@ -736,7 +736,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'missing-effect-cleanup');
+      const finding = report.findings.find((f) => f.ruleId === 'missing-effect-cleanup');
       expect(finding).toBeUndefined();
     });
 
@@ -753,7 +753,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'missing-effect-cleanup');
+      const finding = report.findings.find((f) => f.ruleId === 'missing-effect-cleanup');
       expect(finding).toBeUndefined();
     });
 
@@ -768,7 +768,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'missing-effect-cleanup');
+      const finding = report.findings.find((f) => f.ruleId === 'missing-effect-cleanup');
       expect(finding).toBeUndefined();
     });
   });
@@ -783,7 +783,7 @@ export function MyApp() {
 }
 `;
       const report = reviewSource(source, 'app.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'inline-context-value');
+      const finding = report.findings.find((f) => f.ruleId === 'inline-context-value');
       expect(finding).toBeDefined();
     });
 
@@ -794,7 +794,7 @@ export function Parent({ children }: { children: any }) {
 }
 `;
       const report = reviewSource(source, 'parent.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'inline-context-value');
+      const finding = report.findings.find((f) => f.ruleId === 'inline-context-value');
       expect(finding).toBeDefined();
     });
 
@@ -807,7 +807,7 @@ export function MyApp() {
 }
 `;
       const report = reviewSource(source, 'app.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'inline-context-value');
+      const finding = report.findings.find((f) => f.ruleId === 'inline-context-value');
       expect(finding).toBeUndefined();
     });
 
@@ -818,7 +818,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'inline-context-value');
+      const finding = report.findings.find((f) => f.ruleId === 'inline-context-value');
       expect(finding).toBeUndefined();
     });
 
@@ -829,7 +829,7 @@ export function Parent({ children }: { children: any }) {
 }
 `;
       const report = reviewSource(source, 'parent.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'inline-context-value');
+      const finding = report.findings.find((f) => f.ruleId === 'inline-context-value');
       expect(finding).toBeUndefined();
     });
 
@@ -840,7 +840,7 @@ export function Parent({ children }: { children: any }) {
 }
 `;
       const report = reviewSource(source, 'parent.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'inline-context-value');
+      const finding = report.findings.find((f) => f.ruleId === 'inline-context-value');
       expect(finding).toBeDefined();
     });
   });
@@ -858,7 +858,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'ref-in-render');
+      const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('read');
     });
@@ -873,7 +873,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'ref-in-render');
+      const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('written');
     });
@@ -887,7 +887,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'ref-in-render');
+      const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
       expect(finding).toBeDefined();
     });
 
@@ -903,7 +903,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'ref-in-render');
+      const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
       expect(finding).toBeUndefined();
     });
 
@@ -916,7 +916,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'ref-in-render');
+      const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
       expect(finding).toBeUndefined();
     });
 
@@ -929,7 +929,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'ref-in-render');
+      const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
       expect(finding).toBeUndefined();
     });
 
@@ -946,7 +946,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'ref-in-render');
+      const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
       expect(finding).toBeUndefined();
     });
   });
@@ -963,7 +963,7 @@ export function Component({ data, filter }: any) {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'missing-memo-deps');
+      const finding = report.findings.find((f) => f.ruleId === 'missing-memo-deps');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('useMemo');
     });
@@ -979,7 +979,7 @@ export function Component({ productId, referrer }: any) {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'missing-memo-deps');
+      const finding = report.findings.find((f) => f.ruleId === 'missing-memo-deps');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('useCallback');
     });
@@ -993,7 +993,7 @@ export function Component({ todos, tab }: any) {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'missing-memo-deps');
+      const finding = report.findings.find((f) => f.ruleId === 'missing-memo-deps');
       expect(finding).toBeUndefined();
     });
 
@@ -1006,7 +1006,7 @@ export function Component({ productId }: any) {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'missing-memo-deps');
+      const finding = report.findings.find((f) => f.ruleId === 'missing-memo-deps');
       expect(finding).toBeUndefined();
     });
 
@@ -1019,7 +1019,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'missing-memo-deps');
+      const finding = report.findings.find((f) => f.ruleId === 'missing-memo-deps');
       expect(finding).toBeUndefined();
     });
 
@@ -1032,7 +1032,7 @@ export function Component({ data }: any) {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'missing-memo-deps');
+      const finding = report.findings.find((f) => f.ruleId === 'missing-memo-deps');
       expect(finding).toBeDefined();
     });
   });
@@ -1056,7 +1056,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'reducer-mutation');
+      const finding = report.findings.find((f) => f.ruleId === 'reducer-mutation');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('state.age');
     });
@@ -1074,7 +1074,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'reducer-mutation');
+      const finding = report.findings.find((f) => f.ruleId === 'reducer-mutation');
       expect(finding).toBeDefined();
     });
 
@@ -1091,7 +1091,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'reducer-mutation');
+      const finding = report.findings.find((f) => f.ruleId === 'reducer-mutation');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('push');
     });
@@ -1111,7 +1111,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'reducer-mutation');
+      const finding = report.findings.find((f) => f.ruleId === 'reducer-mutation');
       expect(finding).toBeUndefined();
     });
 
@@ -1127,7 +1127,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'reducer-mutation');
+      const finding = report.findings.find((f) => f.ruleId === 'reducer-mutation');
       expect(finding).toBeDefined();
     });
 
@@ -1143,7 +1143,7 @@ export function Component() {
 }
 `;
       const report = reviewSource(source, 'comp.tsx', reactConfig);
-      const finding = report.findings.find(f => f.ruleId === 'reducer-mutation');
+      const finding = report.findings.find((f) => f.ruleId === 'reducer-mutation');
       expect(finding).toBeUndefined();
     });
   });
@@ -1162,7 +1162,7 @@ export default function ServerPage() {
 }
 `;
       const report = reviewSource(source, 'page.tsx', nextjsConfig);
-      const finding = report.findings.find(f => f.ruleId === 'server-hook');
+      const finding = report.findings.find((f) => f.ruleId === 'server-hook');
       expect(finding).toBeDefined();
       expect(finding!.severity).toBe('error');
     });
@@ -1176,7 +1176,7 @@ export default function ServerPage() {
 }
 `;
       const report = reviewSource(source, 'page.tsx', nextjsConfig);
-      const finding = report.findings.find(f => f.ruleId === 'server-hook');
+      const finding = report.findings.find((f) => f.ruleId === 'server-hook');
       expect(finding).toBeDefined();
     });
 
@@ -1190,7 +1190,7 @@ export default function ClientPage() {
 }
 `;
       const report = reviewSource(source, 'page.tsx', nextjsConfig);
-      const finding = report.findings.find(f => f.ruleId === 'server-hook');
+      const finding = report.findings.find((f) => f.ruleId === 'server-hook');
       expect(finding).toBeUndefined();
     });
   });
@@ -1205,7 +1205,7 @@ export default function ServerPage() {
 }
 `;
       const report = reviewSource(source, 'page.tsx', nextjsConfig);
-      const finding = report.findings.find(f => f.ruleId === 'missing-use-client');
+      const finding = report.findings.find((f) => f.ruleId === 'missing-use-client');
       expect(finding).toBeDefined();
     });
 
@@ -1217,7 +1217,7 @@ export default function ClientPage() {
 }
 `;
       const report = reviewSource(source, 'page.tsx', nextjsConfig);
-      const finding = report.findings.find(f => f.ruleId === 'missing-use-client');
+      const finding = report.findings.find((f) => f.ruleId === 'missing-use-client');
       expect(finding).toBeUndefined();
     });
   });
@@ -1234,7 +1234,7 @@ export default function Page() {
 }
 `;
       const report = reviewSource(source, 'page.tsx', nextjsConfig);
-      const finding = report.findings.find(f => f.ruleId === 'hydration-mismatch');
+      const finding = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('Date.now()');
     });
@@ -1248,7 +1248,7 @@ export default function Page() {
 }
 `;
       const report = reviewSource(source, 'page.tsx', nextjsConfig);
-      const finding = report.findings.find(f => f.ruleId === 'hydration-mismatch');
+      const finding = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('Math.random()');
     });
@@ -1262,7 +1262,7 @@ export default function Page() {
 }
 `;
       const report = reviewSource(source, 'page.tsx', nextjsConfig);
-      const finding = report.findings.find(f => f.ruleId === 'hydration-mismatch');
+      const finding = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('new Date()');
     });
@@ -1279,7 +1279,7 @@ export default function Page() {
 }
 `;
       const report = reviewSource(source, 'page.tsx', nextjsConfig);
-      const finding = report.findings.find(f => f.ruleId === 'hydration-mismatch');
+      const finding = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
       expect(finding).toBeUndefined();
     });
 
@@ -1289,7 +1289,7 @@ const ts = Date.now();
 export function getTimestamp() { return ts; }
 `;
       const report = reviewSource(source, 'utils.ts', nextjsConfig);
-      const finding = report.findings.find(f => f.ruleId === 'hydration-mismatch');
+      const finding = report.findings.find((f) => f.ruleId === 'hydration-mismatch');
       expect(finding).toBeUndefined();
     });
   });

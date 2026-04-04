@@ -29,7 +29,9 @@ export function governanceGate(proposal: NodeProposal): GovernanceResult {
   }
 
   if (proposal.expressibilityScore.overall < MIN_EXPRESSIBILITY) {
-    reasons.push(`expressibility ${proposal.expressibilityScore.overall} < ${MIN_EXPRESSIBILITY} (current IR may suffice)`);
+    reasons.push(
+      `expressibility ${proposal.expressibilityScore.overall} < ${MIN_EXPRESSIBILITY} (current IR may suffice)`,
+    );
   }
 
   if (proposal.qualityScore < MIN_QUALITY_SCORE) {

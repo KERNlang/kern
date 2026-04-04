@@ -55,75 +55,75 @@ function toGrade(score: number): Grade {
 
 export function gradeColor(grade: Grade): string {
   switch (grade) {
-    case 'A': return '#22c55e';
-    case 'B': return '#84cc16';
-    case 'C': return '#f97316';
-    case 'D': return '#f59e0b';
-    case 'F': return '#ef4444';
+    case 'A':
+      return '#22c55e';
+    case 'B':
+      return '#84cc16';
+    case 'C':
+      return '#f97316';
+    case 'D':
+      return '#f59e0b';
+    case 'F':
+      return '#ef4444';
   }
 }
 
 export function computeSecurityScore(irNodes: IRNode[], findings: Finding[]): SecurityScore {
-  const actions = irNodes.filter(n => n.type === 'action');
+  const actions = irNodes.filter((n) => n.type === 'action');
 
   let totalEffects = 0;
   let guardedEffects = 0;
   for (const action of actions) {
     const children = action.children ?? [];
-    const effects = children.filter(c => c.type === 'effect');
-    const guards = children.filter(c => c.type === 'guard');
+    const effects = children.filter((c) => c.type === 'effect');
+    const guards = children.filter((c) => c.type === 'guard');
     totalEffects += effects.length;
     guardedEffects += Math.min(guards.length, effects.length);
   }
   const guardCoverage = totalEffects === 0 ? 100 : Math.round((guardedEffects / totalEffects) * 100);
 
-  const actionsWithEffects = actions.filter(a => (a.children ?? []).some(c => c.type === 'effect'));
+  const actionsWithEffects = actions.filter((a) => (a.children ?? []).some((c) => c.type === 'effect'));
   let inputValidation: number;
   if (actionsWithEffects.length === 0) {
     inputValidation = 100;
   } else {
-    const validated = actionsWithEffects.filter(a =>
-      (a.children ?? []).some(c => c.type === 'guard' && c.props?.kind === 'validation'));
+    const validated = actionsWithEffects.filter((a) =>
+      (a.children ?? []).some((c) => c.type === 'guard' && c.props?.kind === 'validation'),
+    );
     inputValidation = Math.round((validated.length / actionsWithEffects.length) * 100);
   }
 
-  const criticals = findings.filter(f => f.severity === 'error').length;
-  const warnings = findings.filter(f => f.severity === 'warning').length;
-  const ruleCompliance = Math.max(0, 100 - (criticals * 10) - (warnings * 5));
+  const criticals = findings.filter((f) => f.severity === 'error').length;
+  const warnings = findings.filter((f) => f.severity === 'warning').length;
+  const ruleCompliance = Math.max(0, 100 - criticals * 10 - warnings * 5);
 
-  const hasNetworkEffects = actions.some(a =>
-    (a.children ?? []).some(c => c.type === 'effect' && c.props?.kind === 'network'));
-  const hasMissingAuth = findings.some(f => f.ruleId === 'mcp-missing-auth');
+  const hasNetworkEffects = actions.some((a) =>
+    (a.children ?? []).some((c) => c.type === 'effect' && c.props?.kind === 'network'),
+  );
+  const hasMissingAuth = findings.some((f) => f.ruleId === 'mcp-missing-auth');
   let authPosture: number;
   if (!hasNetworkEffects) {
     authPosture = 100;
   } else {
-    const hasAuthGuard = actions.some(a =>
-      (a.children ?? []).some(c => c.type === 'guard' && c.props?.kind === 'auth'));
-    authPosture = (hasAuthGuard && !hasMissingAuth) ? 100 : 0;
+    const hasAuthGuard = actions.some((a) =>
+      (a.children ?? []).some((c) => c.type === 'guard' && c.props?.kind === 'auth'),
+    );
+    authPosture = hasAuthGuard && !hasMissingAuth ? 100 : 0;
   }
 
-  const total = Math.round(
-    guardCoverage * 0.40 +
-    inputValidation * 0.25 +
-    ruleCompliance * 0.20 +
-    authPosture * 0.15,
-  );
+  const total = Math.round(guardCoverage * 0.4 + inputValidation * 0.25 + ruleCompliance * 0.2 + authPosture * 0.15);
   const grade = toGrade(total);
 
-  const perTool: ToolScore[] = actions.map(action => {
+  const perTool: ToolScore[] = actions.map((action) => {
     const name = (action.props?.name as string) || 'unknown';
     const children = action.children ?? [];
-    const effects = children.filter(c => c.type === 'effect');
-    const guards = children.filter(c => c.type === 'guard');
-    const toolGuardCov = effects.length === 0 ? 100 : Math.round((Math.min(guards.length, effects.length) / effects.length) * 100);
-    const hasValidation = guards.some(g => g.props?.kind === 'validation');
-    const hasAuth = guards.some(g => g.props?.kind === 'auth');
-    const toolTotal = Math.round(
-      toolGuardCov * 0.60 +
-      (hasValidation ? 100 : 0) * 0.25 +
-      (hasAuth ? 100 : 0) * 0.15,
-    );
+    const effects = children.filter((c) => c.type === 'effect');
+    const guards = children.filter((c) => c.type === 'guard');
+    const toolGuardCov =
+      effects.length === 0 ? 100 : Math.round((Math.min(guards.length, effects.length) / effects.length) * 100);
+    const hasValidation = guards.some((g) => g.props?.kind === 'validation');
+    const hasAuth = guards.some((g) => g.props?.kind === 'auth');
+    const toolTotal = Math.round(toolGuardCov * 0.6 + (hasValidation ? 100 : 0) * 0.25 + (hasAuth ? 100 : 0) * 0.15);
 
     return {
       toolName: name,

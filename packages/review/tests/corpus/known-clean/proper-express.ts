@@ -1,5 +1,5 @@
 // CLEAN: validated input, single response with return, error middleware
-import type { Request, Response, NextFunction } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 
 interface CreateUserBody {
   name: string;
@@ -15,7 +15,7 @@ function isValidBody(body: unknown): body is CreateUserBody {
   );
 }
 
-export function createUser(req: Request, res: Response, next: NextFunction): void {
+export function createUser(req: Request, res: Response, _next: NextFunction): void {
   if (!isValidBody(req.body)) {
     res.status(400).json({ error: 'Invalid input' });
     return;

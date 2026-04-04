@@ -16,7 +16,7 @@ export function App() {
 }
 `;
       const report = reviewSource(source, 'app.tsx', inkConfig);
-      const finding = report.findings.find(f => f.ruleId === 'ink-console-output');
+      const finding = report.findings.find((f) => f.ruleId === 'ink-console-output');
       expect(finding).toBeDefined();
     });
 
@@ -29,7 +29,7 @@ export function App() {
 }
 `;
       const report = reviewSource(source, 'app.tsx', inkConfig);
-      const finding = report.findings.find(f => f.ruleId === 'ink-console-output');
+      const finding = report.findings.find((f) => f.ruleId === 'ink-console-output');
       expect(finding).toBeUndefined();
     });
   });
@@ -46,7 +46,7 @@ export function App() {
 }
 `;
       const report = reviewSource(source, 'app.tsx', inkConfig);
-      const finding = report.findings.find(f => f.ruleId === 'ink-direct-stdout');
+      const finding = report.findings.find((f) => f.ruleId === 'ink-direct-stdout');
       expect(finding).toBeDefined();
       expect(finding!.severity).toBe('error');
     });
@@ -64,7 +64,7 @@ export function App() {
 }
 `;
       const report = reviewSource(source, 'app.tsx', inkConfig);
-      const finding = report.findings.find(f => f.ruleId === 'ink-process-exit');
+      const finding = report.findings.find((f) => f.ruleId === 'ink-process-exit');
       expect(finding).toBeDefined();
     });
   });
@@ -83,7 +83,7 @@ export function Timer() {
 }
 `;
       const report = reviewSource(source, 'timer.tsx', inkConfig);
-      const finding = report.findings.find(f => f.ruleId === 'ink-uncleared-interval');
+      const finding = report.findings.find((f) => f.ruleId === 'ink-uncleared-interval');
       expect(finding).toBeDefined();
     });
 
@@ -101,7 +101,7 @@ export function Timer() {
 }
 `;
       const report = reviewSource(source, 'timer.tsx', inkConfig);
-      const finding = report.findings.find(f => f.ruleId === 'ink-uncleared-interval');
+      const finding = report.findings.find((f) => f.ruleId === 'ink-uncleared-interval');
       expect(finding).toBeUndefined();
     });
   });
@@ -118,7 +118,7 @@ export function App() {
 }
 `;
       const report = reviewSource(source, 'app.tsx', inkConfig);
-      const reactRule = report.findings.find(f => f.ruleId === 'async-effect');
+      const reactRule = report.findings.find((f) => f.ruleId === 'async-effect');
       expect(reactRule).toBeDefined();
     });
   });

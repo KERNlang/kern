@@ -6,9 +6,9 @@
  */
 
 import type { ReviewFinding } from '@kernlang/review';
-import { finding } from '../mcp-types.js';
 import { DATA_INJECTION_PATTERNS } from '../mcp-patterns.js';
 import { isMCPServer } from '../mcp-regions.js';
+import { finding } from '../mcp-types.js';
 
 export function dataLevelInjection(source: string, filePath: string): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -23,8 +23,14 @@ export function dataLevelInjection(source: string, filePath: string): ReviewFind
     const trimmed = line.trim();
 
     // Track block comments (TS: /* */, Python: """ """)
-    if (/^\s*\/\*/.test(line) && !/\*\//.test(line)) { inBlockComment = true; continue; }
-    if (/\*\//.test(line)) { inBlockComment = false; continue; }
+    if (/^\s*\/\*/.test(line) && !/\*\//.test(line)) {
+      inBlockComment = true;
+      continue;
+    }
+    if (/\*\//.test(line)) {
+      inBlockComment = false;
+      continue;
+    }
     if (inBlockComment) continue;
 
     // Skip single-line comments
@@ -35,12 +41,16 @@ export function dataLevelInjection(source: string, filePath: string): ReviewFind
 
     for (const { pattern, label } of DATA_INJECTION_PATTERNS) {
       if (pattern.test(line)) {
-        findings.push(finding(
-          'mcp-data-injection', 'warning',
-          `String literal contains injection marker "${label}" — possible data-level prompt injection`,
-          filePath, i + 1,
-          'Remove injection markers from data. If this is test code, use kern-ignore to suppress.',
-        ));
+        findings.push(
+          finding(
+            'mcp-data-injection',
+            'warning',
+            `String literal contains injection marker "${label}" — possible data-level prompt injection`,
+            filePath,
+            i + 1,
+            'Remove injection markers from data. If this is test code, use kern-ignore to suppress.',
+          ),
+        );
         break; // One finding per line
       }
     }

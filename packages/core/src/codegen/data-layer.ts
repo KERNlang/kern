@@ -4,10 +4,10 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
-import type { IRNode } from '../types.js';
 import { propsOf } from '../node-props.js';
-import { emitIdentifier, emitStringLiteral, emitPath, emitTypeAnnotation } from './emitters.js';
-import { getProps, getChildren, getFirstChild, handlerCode, exportPrefix, parseParamList } from './helpers.js';
+import type { IRNode } from '../types.js';
+import { emitIdentifier, emitPath, emitStringLiteral, emitTypeAnnotation } from './emitters.js';
+import { exportPrefix, getChildren, getFirstChild, getProps, handlerCode, parseParamList } from './helpers.js';
 import { mapSemanticType } from './semantic-types.js';
 
 const p = getProps;
@@ -47,7 +47,10 @@ export function generateConfig(node: IRNode): string[] {
       else if (ftype === 'boolean') def = 'false';
       else if (ftype.endsWith('[]')) def = '[]';
       else def = "''";
-    } else if (ftype === 'string' || (!['number', 'boolean'].includes(ftype) && !ftype.endsWith('[]') && !def.startsWith("'") && !def.startsWith('"'))) {
+    } else if (
+      ftype === 'string' ||
+      (!['number', 'boolean'].includes(ftype) && !ftype.endsWith('[]') && !def.startsWith("'") && !def.startsWith('"'))
+    ) {
       def = emitStringLiteral(def);
     }
 
@@ -111,7 +114,9 @@ export function generateStore(node: IRNode): string[] {
   lines.push(`    try { items.push(JSON.parse(readFileSync(join(${dirConst}, f), 'utf-8')) as ${model}); }`);
   lines.push(`    catch { /* skip corrupt files */ }`);
   lines.push(`  }`);
-  lines.push(`  return items.sort((a: any, b: any) => (b.updatedAt || '').localeCompare(a.updatedAt || '')).slice(0, limit);`);
+  lines.push(
+    `  return items.sort((a: any, b: any) => (b.updatedAt || '').localeCompare(a.updatedAt || '')).slice(0, limit);`,
+  );
   lines.push('}');
   lines.push('');
   lines.push(`${exp}function delete${name}(id: string): boolean {`);
@@ -191,10 +196,12 @@ export function generateCache(node: IRNode): string[] {
     const entryName = emitIdentifier(ep.name as string, 'entry', entry);
     const key = (ep.key as string) || entryName;
     const strategyNode = firstChild(entry, 'strategy');
-    const strategy = strategyNode ? ((p(strategyNode).name as string) || 'cache-aside') : 'cache-aside';
+    const strategy = strategyNode ? (p(strategyNode).name as string) || 'cache-aside' : 'cache-aside';
 
     lines.push(`  async get${entryName[0].toUpperCase()}${entryName.slice(1)}(id: string) {`);
-    const keyExpr = key.includes(prefix) ? key.replace(/\{id\}/g, '${id}') : `${prefix}${key.replace(/\{id\}/g, '${id}')}`;
+    const keyExpr = key.includes(prefix)
+      ? key.replace(/\{id\}/g, '${id}')
+      : `${prefix}${key.replace(/\{id\}/g, '${id}')}`;
     lines.push(`    const key = \`${keyExpr}\`;`);
     if (strategy === 'read-through') {
       lines.push(`    // read-through: check cache, fetch if miss, populate cache`);
@@ -284,7 +291,7 @@ export function generateDependency(node: IRNode): string[] {
 export function generateModel(node: IRNode): string[] {
   const props = propsOf<'model'>(node);
   const name = emitIdentifier(props.name, 'UnknownModel', node);
-  const table = props.table;
+  const _table = props.table;
   const extendsModel = props.extends;
   const exp = exportPrefix(node);
   const lines: string[] = [];
@@ -304,7 +311,7 @@ export function generateModel(node: IRNode): string[] {
     const relName = emitIdentifier(rp.name, 'relation', rel);
     const target = rp.target as string;
     const kind = rp.kind || 'one-to-many';
-    const relType = (kind === 'one-to-many' || kind === 'many-to-many') ? `${target}[]` : target;
+    const relType = kind === 'one-to-many' || kind === 'many-to-many' ? `${target}[]` : target;
     lines.push(`  ${relName}?: ${relType};`);
   }
   lines.push('}');

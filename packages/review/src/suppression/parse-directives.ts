@@ -8,9 +8,9 @@
  *   # kern-ignore-file <rule-id>[, <rule-id>...]    — Python variant
  */
 
-import type { SuppressionDirective } from './types.js';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
+import type { SuppressionDirective } from './types.js';
 
 /** Known concept rule IDs — these only support file-level suppression */
 const CONCEPT_RULE_IDS = new Set([
@@ -74,7 +74,10 @@ export function parseDirectives(
     if (!match) continue;
 
     const isFileLevel = match[1] === 'file';
-    const ruleIds = match[2].split(',').map(r => r.trim()).filter(Boolean);
+    const ruleIds = match[2]
+      .split(',')
+      .map((r) => r.trim())
+      .filter(Boolean);
 
     if (ruleIds.length === 0) continue;
 
@@ -106,7 +109,7 @@ export function parseDirectives(
           fingerprint: createFingerprint('kern-ignore-concept', lineNum, 1),
         });
         // Still process non-concept rules on this line
-        const nonConcept = ruleIds.filter(r => !isConceptRule(r));
+        const nonConcept = ruleIds.filter((r) => !isConceptRule(r));
         if (nonConcept.length === 0) continue;
         // Fall through with non-concept rules only
         ruleIds.length = 0;
@@ -166,10 +169,12 @@ export function parseDirectives(
  */
 export function configDirectives(disabledRules: string[]): SuppressionDirective[] {
   if (disabledRules.length === 0) return [];
-  return [{
-    type: 'file',
-    ruleIds: disabledRules,
-    file: '*',
-    source: 'config',
-  }];
+  return [
+    {
+      type: 'file',
+      ruleIds: disabledRules,
+      file: '*',
+      source: 'config',
+    },
+  ];
 }

@@ -50,7 +50,7 @@ const PROFILE_KINDS: ConceptNodeKind[] = ['effect', 'error_handle', 'guard', 'er
 function buildProfileByPrefix(prefix: string, allNodes: ConceptNode[]): Set<ConceptNodeKind> {
   const kinds = new Set<ConceptNodeKind>();
   for (const node of allNodes) {
-    if (node.containerId && node.containerId.startsWith(prefix) && PROFILE_KINDS.includes(node.kind)) {
+    if (node.containerId?.startsWith(prefix) && PROFILE_KINDS.includes(node.kind)) {
       kinds.add(node.kind);
     }
   }
@@ -72,7 +72,7 @@ function clusterKey(profile: Set<ConceptNodeKind>, effectSubtype: string | undef
  */
 function getEffectSubtypeByPrefix(prefix: string, allNodes: ConceptNode[]): string | undefined {
   for (const node of allNodes) {
-    if (node.containerId && node.containerId.startsWith(prefix) && node.kind === 'effect' && node.payload.kind === 'effect') {
+    if (node.containerId?.startsWith(prefix) && node.kind === 'effect' && node.payload.kind === 'effect') {
       return node.payload.subtype;
     }
   }
@@ -130,7 +130,7 @@ export function mineNorms(allConcepts: Map<string, ConceptMap>): NormViolation[]
     for (const kind of PROFILE_KINDS) {
       if (kind === 'effect') continue; // effect is the clustering dimension, skip
 
-      const withKind = cluster.filter(p => p.profile.has(kind));
+      const withKind = cluster.filter((p) => p.profile.has(kind));
       let prevalence = withKind.length / cluster.length;
 
       // Softened norms: multiply prevalence by 0.8 when cluster is small
@@ -141,7 +141,7 @@ export function mineNorms(allConcepts: Map<string, ConceptMap>): NormViolation[]
       if (prevalence < MIN_PREVALENCE) continue;
 
       // Functions that DON'T have this kind are violating the norm
-      const violators = cluster.filter(p => !p.profile.has(kind));
+      const violators = cluster.filter((p) => !p.profile.has(kind));
       for (const v of violators) {
         const normDesc = `functions with ${key} should have ${kind}`;
         violations.push({

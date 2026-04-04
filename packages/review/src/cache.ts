@@ -1,8 +1,8 @@
-import { ReviewReport, ReviewConfig } from './types.js';
 import { createHash } from 'crypto';
-import { readFileSync, readdirSync, writeFileSync, existsSync, mkdirSync, rmSync } from 'fs';
-import { join, dirname } from 'path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
+import { join } from 'path';
+import type { ReviewConfig, ReviewReport } from './types.js';
 
 export class ReviewCache {
   private l1 = new Map<string, ReviewReport>();
@@ -86,7 +86,9 @@ export function computeCacheKey(fileContent: string, config: ReviewConfig, fileP
             }
           }
         }
-      } catch { /* skip unreadable dirs */ }
+      } catch {
+        /* skip unreadable dirs */
+      }
     }
   }
   return hash.digest('hex');

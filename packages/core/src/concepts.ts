@@ -31,9 +31,7 @@ export type ConceptNodeKind =
 
 // ── Concept Edge Kinds ───────────────────────────────────────────────────
 
-export type ConceptEdgeKind =
-  | 'call'
-  | 'dependency';
+export type ConceptEdgeKind = 'call' | 'dependency';
 
 // ── Typed Payloads ───────────────────────────────────────────────────────
 
@@ -107,9 +105,7 @@ export type ConceptNodePayload =
   | GuardPayload
   | FunctionDeclarationPayload;
 
-export type ConceptEdgePayload =
-  | CallPayload
-  | DependencyPayload;
+export type ConceptEdgePayload = CallPayload | DependencyPayload;
 
 // ── ConceptNode ──────────────────────────────────────────────────────────
 

@@ -14,7 +14,7 @@ export function validate(input: string): boolean {
 }
 `;
     const report = reviewSource(source, 'validator.ts');
-    const f = report.findings.find(f => f.ruleId === 'regex-dos');
+    const f = report.findings.find((f) => f.ruleId === 'regex-dos');
     expect(f).toBeDefined();
     expect(f!.severity).toBe('warning');
     expect(f!.message).toContain('nested quantifier');
@@ -25,7 +25,7 @@ export function validate(input: string): boolean {
 export const emailRegex = /(.*@.*)+/;
 `;
     const report = reviewSource(source, 'regex.ts');
-    const f = report.findings.find(f => f.ruleId === 'regex-dos');
+    const f = report.findings.find((f) => f.ruleId === 'regex-dos');
     expect(f).toBeDefined();
     expect(f!.message).toContain('backtracking');
   });
@@ -35,7 +35,7 @@ export const emailRegex = /(.*@.*)+/;
 export const pattern = /(a|ab)+/;
 `;
     const report = reviewSource(source, 'regex.ts');
-    const f = report.findings.find(f => f.ruleId === 'regex-dos');
+    const f = report.findings.find((f) => f.ruleId === 'regex-dos');
     expect(f).toBeDefined();
     expect(f!.message).toContain('overlapping alternation');
   });
@@ -45,7 +45,7 @@ export const pattern = /(a|ab)+/;
 export const regex = new RegExp('(a+)+');
 `;
     const report = reviewSource(source, 'regex.ts');
-    const f = report.findings.find(f => f.ruleId === 'regex-dos');
+    const f = report.findings.find((f) => f.ruleId === 'regex-dos');
     expect(f).toBeDefined();
   });
 
@@ -55,7 +55,7 @@ export const safe = /^[a-z0-9]+$/;
 export const alsoSafe = /^\\d{3}-\\d{4}$/;
 `;
     const report = reviewSource(source, 'regex.ts');
-    const f = report.findings.find(f => f.ruleId === 'regex-dos');
+    const f = report.findings.find((f) => f.ruleId === 'regex-dos');
     expect(f).toBeUndefined();
   });
 
@@ -64,7 +64,7 @@ export const alsoSafe = /^\\d{3}-\\d{4}$/;
 export const safe = /(cat|dog)+/;
 `;
     const report = reviewSource(source, 'regex.ts');
-    const f = report.findings.find(f => f.ruleId === 'regex-dos');
+    const f = report.findings.find((f) => f.ruleId === 'regex-dos');
     expect(f).toBeUndefined();
   });
 });
@@ -83,7 +83,7 @@ app.post('/users', (req: any, res: any) => {
 });
 `;
     const report = reviewSource(source, 'routes.ts');
-    const f = report.findings.find(f => f.ruleId === 'missing-input-validation');
+    const f = report.findings.find((f) => f.ruleId === 'missing-input-validation');
     expect(f).toBeDefined();
     expect(f!.severity).toBe('warning');
     expect(f!.message).toContain('req.body');
@@ -98,7 +98,7 @@ app.get('/search', (req: any, res: any) => {
 });
 `;
     const report = reviewSource(source, 'routes.ts');
-    const f = report.findings.find(f => f.ruleId === 'missing-input-validation');
+    const f = report.findings.find((f) => f.ruleId === 'missing-input-validation');
     expect(f).toBeDefined();
     expect(f!.message).toContain('req.query');
   });
@@ -114,7 +114,7 @@ app.post('/users', (req: any, res: any) => {
 });
 `;
     const report = reviewSource(source, 'routes.ts');
-    const f = report.findings.find(f => f.ruleId === 'missing-input-validation');
+    const f = report.findings.find((f) => f.ruleId === 'missing-input-validation');
     expect(f).toBeUndefined();
   });
 
@@ -127,7 +127,7 @@ app.get('/items', (req: any, res: any) => {
 });
 `;
     const report = reviewSource(source, 'routes.ts');
-    const f = report.findings.find(f => f.ruleId === 'missing-input-validation');
+    const f = report.findings.find((f) => f.ruleId === 'missing-input-validation');
     expect(f).toBeUndefined();
   });
 
@@ -138,7 +138,7 @@ export function processData(data: string, config: object): void {
 }
 `;
     const report = reviewSource(source, 'utils.ts');
-    const f = report.findings.find(f => f.ruleId === 'missing-input-validation');
+    const f = report.findings.find((f) => f.ruleId === 'missing-input-validation');
     expect(f).toBeUndefined();
   });
 });
@@ -155,7 +155,7 @@ export function updateSettings(req: any): object {
 }
 `;
     const report = reviewSource(source, 'settings.ts');
-    const f = report.findings.find(f => f.ruleId === 'prototype-pollution');
+    const f = report.findings.find((f) => f.ruleId === 'prototype-pollution');
     expect(f).toBeDefined();
     expect(f!.severity).toBe('error');
     expect(f!.message).toContain('Object.assign');
@@ -169,7 +169,7 @@ export function createUser(req: any): object {
 }
 `;
     const report = reviewSource(source, 'users.ts');
-    const f = report.findings.find(f => f.ruleId === 'prototype-pollution');
+    const f = report.findings.find((f) => f.ruleId === 'prototype-pollution');
     expect(f).toBeDefined();
     expect(f!.message).toContain('Spread from user input');
   });
@@ -182,7 +182,7 @@ export function loadConfig(raw: string): object {
 }
 `;
     const report = reviewSource(source, 'config.ts');
-    const f = report.findings.find(f => f.ruleId === 'prototype-pollution');
+    const f = report.findings.find((f) => f.ruleId === 'prototype-pollution');
     expect(f).toBeDefined();
     expect(f!.message).toContain('merge');
   });
@@ -195,7 +195,7 @@ export function applyDefaults(req: any): object {
 }
 `;
     const report = reviewSource(source, 'config.ts');
-    const f = report.findings.find(f => f.ruleId === 'prototype-pollution');
+    const f = report.findings.find((f) => f.ruleId === 'prototype-pollution');
     expect(f).toBeDefined();
   });
 
@@ -208,7 +208,7 @@ export function mergeConfig(): object {
 }
 `;
     const report = reviewSource(source, 'config.ts');
-    const f = report.findings.find(f => f.ruleId === 'prototype-pollution');
+    const f = report.findings.find((f) => f.ruleId === 'prototype-pollution');
     expect(f).toBeUndefined();
   });
 
@@ -219,7 +219,7 @@ export function clone(config: { a: number }): object {
 }
 `;
     const report = reviewSource(source, 'config.ts');
-    const f = report.findings.find(f => f.ruleId === 'prototype-pollution');
+    const f = report.findings.find((f) => f.ruleId === 'prototype-pollution');
     expect(f).toBeUndefined();
   });
 });
@@ -238,7 +238,7 @@ app.get('/data', (req: any, res: any) => {
 });
 `;
     const report = reviewSource(source, 'routes.ts');
-    const f = report.findings.find(f => f.ruleId === 'information-exposure');
+    const f = report.findings.find((f) => f.ruleId === 'information-exposure');
     expect(f).toBeDefined();
     expect(f!.severity).toBe('error');
     expect(f!.message).toContain('Stack trace');
@@ -255,7 +255,7 @@ app.get('/data', (req: any, res: any) => {
 });
 `;
     const report = reviewSource(source, 'routes.ts');
-    const f = report.findings.find(f => f.ruleId === 'information-exposure');
+    const f = report.findings.find((f) => f.ruleId === 'information-exposure');
     expect(f).toBeDefined();
     expect(f!.severity).toBe('warning');
     expect(f!.message).toContain('Raw error object');
@@ -268,7 +268,7 @@ app.get('/debug', (req: any, res: any) => {
 });
 `;
     const report = reviewSource(source, 'debug.ts');
-    const f = report.findings.find(f => f.ruleId === 'information-exposure');
+    const f = report.findings.find((f) => f.ruleId === 'information-exposure');
     expect(f).toBeDefined();
     expect(f!.message).toContain('environment variable');
   });
@@ -280,7 +280,7 @@ app.get('/info', (req: any, res: any) => {
 });
 `;
     const report = reviewSource(source, 'info.ts');
-    const f = report.findings.find(f => f.ruleId === 'information-exposure');
+    const f = report.findings.find((f) => f.ruleId === 'information-exposure');
     expect(f).toBeDefined();
   });
 
@@ -295,7 +295,7 @@ app.get('/data', (req: any, res: any) => {
 });
 `;
     const report = reviewSource(source, 'routes.ts');
-    const f = report.findings.find(f => f.ruleId === 'information-exposure');
+    const f = report.findings.find((f) => f.ruleId === 'information-exposure');
     expect(f).toBeUndefined();
   });
 
@@ -310,7 +310,7 @@ app.get('/data', (req: any, res: any) => {
 });
 `;
     const report = reviewSource(source, 'routes.ts');
-    const f = report.findings.find(f => f.ruleId === 'information-exposure');
+    const f = report.findings.find((f) => f.ruleId === 'information-exposure');
     expect(f).toBeUndefined();
   });
 });
@@ -326,7 +326,7 @@ export function buildPrompt(question: string): string {
 }
 `;
     const report = reviewSource(source, 'prompts.ts');
-    const f = report.findings.find(f => f.ruleId === 'prompt-injection');
+    const f = report.findings.find((f) => f.ruleId === 'prompt-injection');
     expect(f).toBeDefined();
     expect(f!.message).toContain('question');
     expect(f!.message).toContain('prompt injection');
@@ -340,7 +340,7 @@ export function buildPrompt(question: string): string {
 }
 `;
     const report = reviewSource(source, 'prompts.ts');
-    const f = report.findings.find(f => f.ruleId === 'prompt-injection');
+    const f = report.findings.find((f) => f.ruleId === 'prompt-injection');
     expect(f).toBeUndefined();
   });
 
@@ -351,7 +351,7 @@ export function makePrompt(userInput: string): string {
 }
 `;
     const report = reviewSource(source, 'prompts.ts');
-    const f = report.findings.find(f => f.ruleId === 'prompt-injection');
+    const f = report.findings.find((f) => f.ruleId === 'prompt-injection');
     expect(f).toBeDefined();
   });
 
@@ -362,7 +362,7 @@ export function greet(name: string): string {
 }
 `;
     const report = reviewSource(source, 'utils.ts');
-    const f = report.findings.find(f => f.ruleId === 'prompt-injection');
+    const f = report.findings.find((f) => f.ruleId === 'prompt-injection');
     expect(f).toBeUndefined();
   });
 });

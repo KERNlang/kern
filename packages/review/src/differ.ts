@@ -41,11 +41,8 @@ export function structuralDiff(
     const line = originalLines[i - 1];
     const trimmed = line.trim();
 
-    const isTrivial = !trimmed ||
-      trimmed.startsWith('//') ||
-      trimmed.startsWith('/*') ||
-      trimmed.startsWith('*') ||
-      trimmed === '*/';
+    const isTrivial =
+      !trimmed || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*') || trimmed === '*/';
 
     if (!coveredLines.has(i) && !isTrivial) {
       if (consecutiveUncovered === 0) uncoveredStart = i;
@@ -82,8 +79,8 @@ export function structuralDiff(
   // Check for inconsistent patterns in inferred constructs
   for (const r of inferred) {
     if (r.node.type === 'interface' && r.node.children) {
-      const fields = r.node.children.filter(c => c.type === 'field');
-      const optionalFields = fields.filter(f => f.props?.optional === 'true');
+      const fields = r.node.children.filter((c) => c.type === 'field');
+      const optionalFields = fields.filter((f) => f.props?.optional === 'true');
       if (fields.length > 5 && optionalFields.length === 0) {
         findings.push({
           source: 'kern',

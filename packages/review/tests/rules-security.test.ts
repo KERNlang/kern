@@ -17,7 +17,7 @@ export function Unsafe({ html }: { html: string }) {
 }
 `;
     const report = reviewSource(source, 'comp.tsx', { target: 'web' });
-    const f = report.findings.find(f => f.ruleId === 'xss-unsafe-html');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
     expect(f).toBeDefined();
     expect(f!.severity).toBe('error');
   });
@@ -29,7 +29,7 @@ export function render(el: HTMLElement, content: string): void {
 }
 `;
     const report = reviewSource(source, 'dom.ts');
-    const f = report.findings.find(f => f.ruleId === 'xss-unsafe-html');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
     expect(f).toBeDefined();
   });
 
@@ -40,7 +40,7 @@ export function render(el: HTMLElement, text: string): void {
 }
 `;
     const report = reviewSource(source, 'dom.ts');
-    const f = report.findings.find(f => f.ruleId === 'xss-unsafe-html');
+    const f = report.findings.find((f) => f.ruleId === 'xss-unsafe-html');
     expect(f).toBeUndefined();
   });
 });
@@ -53,7 +53,7 @@ describe('hardcoded-secret', () => {
 export const apiKey = 'my-super-secret-key-12345';
 `;
     const report = reviewSource(source, 'config.ts');
-    const f = report.findings.find(f => f.ruleId === 'hardcoded-secret');
+    const f = report.findings.find((f) => f.ruleId === 'hardcoded-secret');
     expect(f).toBeDefined();
     expect(f!.severity).toBe('error');
   });
@@ -63,7 +63,7 @@ export const apiKey = 'my-super-secret-key-12345';
 export const token = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl';
 `;
     const report = reviewSource(source, 'config.ts');
-    const f = report.findings.find(f => f.ruleId === 'hardcoded-secret');
+    const f = report.findings.find((f) => f.ruleId === 'hardcoded-secret');
     expect(f).toBeDefined();
   });
 
@@ -72,7 +72,7 @@ export const token = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkl';
 export const awsKey = 'AKIAIOSFODNN7EXAMPLE';
 `;
     const report = reviewSource(source, 'config.ts');
-    const f = report.findings.find(f => f.ruleId === 'hardcoded-secret');
+    const f = report.findings.find((f) => f.ruleId === 'hardcoded-secret');
     expect(f).toBeDefined();
   });
 
@@ -81,7 +81,7 @@ export const awsKey = 'AKIAIOSFODNN7EXAMPLE';
 export const apiKey = process.env.API_KEY || '';
 `;
     const report = reviewSource(source, 'config.ts');
-    const f = report.findings.find(f => f.ruleId === 'hardcoded-secret');
+    const f = report.findings.find((f) => f.ruleId === 'hardcoded-secret');
     expect(f).toBeUndefined();
   });
 
@@ -91,7 +91,7 @@ export const appName = 'my-cool-app';
 export const version = '2.0.0';
 `;
     const report = reviewSource(source, 'config.ts');
-    const f = report.findings.find(f => f.ruleId === 'hardcoded-secret');
+    const f = report.findings.find((f) => f.ruleId === 'hardcoded-secret');
     expect(f).toBeUndefined();
   });
 });
@@ -107,7 +107,7 @@ export function run(userInput: string): void {
 }
 `;
     const report = reviewSource(source, 'run.ts');
-    const f = report.findings.find(f => f.ruleId === 'command-injection');
+    const f = report.findings.find((f) => f.ruleId === 'command-injection');
     expect(f).toBeDefined();
     expect(f!.severity).toBe('error');
   });
@@ -120,7 +120,7 @@ export function run(cmd: string): void {
 }
 `;
     const report = reviewSource(source, 'run.ts');
-    const f = report.findings.find(f => f.ruleId === 'command-injection');
+    const f = report.findings.find((f) => f.ruleId === 'command-injection');
     expect(f).toBeDefined();
   });
 
@@ -132,7 +132,7 @@ export function run(): void {
 }
 `;
     const report = reviewSource(source, 'run.ts');
-    const f = report.findings.find(f => f.ruleId === 'command-injection');
+    const f = report.findings.find((f) => f.ruleId === 'command-injection');
     expect(f).toBeUndefined();
   });
 });
@@ -147,7 +147,7 @@ export function dangerous(code: string): unknown {
 }
 `;
     const report = reviewSource(source, 'eval.ts');
-    const f = report.findings.find(f => f.ruleId === 'no-eval');
+    const f = report.findings.find((f) => f.ruleId === 'no-eval');
     expect(f).toBeDefined();
   });
 
@@ -158,7 +158,7 @@ export function createFn(body: string): Function {
 }
 `;
     const report = reviewSource(source, 'fn.ts');
-    const f = report.findings.find(f => f.ruleId === 'no-eval');
+    const f = report.findings.find((f) => f.ruleId === 'no-eval');
     expect(f).toBeDefined();
   });
 });
@@ -173,7 +173,7 @@ export function generateToken(): string {
 }
 `;
     const report = reviewSource(source, 'auth.ts');
-    const f = report.findings.find(f => f.ruleId === 'insecure-random');
+    const f = report.findings.find((f) => f.ruleId === 'insecure-random');
     expect(f).toBeDefined();
   });
 
@@ -184,7 +184,7 @@ export function getRandomColor(): string {
 }
 `;
     const report = reviewSource(source, 'ui.ts');
-    const f = report.findings.find(f => f.ruleId === 'insecure-random');
+    const f = report.findings.find((f) => f.ruleId === 'insecure-random');
     expect(f).toBeUndefined();
   });
 });
@@ -200,7 +200,7 @@ const app = express();
 app.use(cors());
 `;
     const report = reviewSource(source, 'server.ts', expressConfig);
-    const f = report.findings.find(f => f.ruleId === 'cors-wildcard');
+    const f = report.findings.find((f) => f.ruleId === 'cors-wildcard');
     expect(f).toBeDefined();
   });
 
@@ -212,7 +212,7 @@ const app = express();
 app.use(cors({ origin: '*' }));
 `;
     const report = reviewSource(source, 'server.ts', expressConfig);
-    const f = report.findings.find(f => f.ruleId === 'cors-wildcard');
+    const f = report.findings.find((f) => f.ruleId === 'cors-wildcard');
     expect(f).toBeDefined();
   });
 
@@ -224,7 +224,7 @@ const app = express();
 app.use(cors({ origin: 'https://mysite.com' }));
 `;
     const report = reviewSource(source, 'server.ts', expressConfig);
-    const f = report.findings.find(f => f.ruleId === 'cors-wildcard');
+    const f = report.findings.find((f) => f.ruleId === 'cors-wildcard');
     expect(f).toBeUndefined();
   });
 });
@@ -239,7 +239,7 @@ const app = express();
 app.get('/', (req: any, res: any) => res.json({ ok: true }));
 `;
     const report = reviewSource(source, 'server.ts', expressConfig);
-    const f = report.findings.find(f => f.ruleId === 'helmet-missing');
+    const f = report.findings.find((f) => f.ruleId === 'helmet-missing');
     expect(f).toBeDefined();
   });
 
@@ -252,7 +252,7 @@ app.use(helmet());
 app.get('/', (req: any, res: any) => res.json({ ok: true }));
 `;
     const report = reviewSource(source, 'server.ts', expressConfig);
-    const f = report.findings.find(f => f.ruleId === 'helmet-missing');
+    const f = report.findings.find((f) => f.ruleId === 'helmet-missing');
     expect(f).toBeUndefined();
   });
 });
@@ -269,7 +269,7 @@ app.get('/go', (req: any, res: any) => {
 });
 `;
     const report = reviewSource(source, 'routes.ts', expressConfig);
-    const f = report.findings.find(f => f.ruleId === 'open-redirect');
+    const f = report.findings.find((f) => f.ruleId === 'open-redirect');
     expect(f).toBeDefined();
     expect(f!.severity).toBe('error');
   });
@@ -283,7 +283,7 @@ app.get('/home', (req: any, res: any) => {
 });
 `;
     const report = reviewSource(source, 'routes.ts', expressConfig);
-    const f = report.findings.find(f => f.ruleId === 'open-redirect');
+    const f = report.findings.find((f) => f.ruleId === 'open-redirect');
     expect(f).toBeUndefined();
   });
 });

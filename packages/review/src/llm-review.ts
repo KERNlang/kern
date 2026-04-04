@@ -7,8 +7,8 @@
  * Phase 4 of the review pipeline.
  */
 
-import type { InferResult, TemplateMatch, ReviewFinding, SourceSpan } from './types.js';
 import type { ProofObligation } from './obligations.js';
+import type { InferResult, ReviewFinding, SourceSpan, TemplateMatch } from './types.js';
 import { createFingerprint } from './types.js';
 
 /**
@@ -24,10 +24,7 @@ export type SerializationMode = 'deep' | 'ir-only';
  * Export KERN IR with prompt aliases for AI review.
  * v2: Includes nodeId aliases and handler bodies.
  */
-export function exportKernIR(
-  inferred: InferResult[],
-  templateMatches: TemplateMatch[],
-): string {
+export function exportKernIR(inferred: InferResult[], templateMatches: TemplateMatch[]): string {
   const lines: string[] = [];
   lines.push('// KERN IR — inferred from TypeScript source');
   lines.push('// Send this to AI for structural review (5x smaller than original TS)');
@@ -76,9 +73,7 @@ export function buildLLMPrompt(
   const lines: string[] = [];
 
   // Valid aliases list (for the LLM to reference)
-  const aliases = inferred
-    .filter(r => r.node.type !== 'import')
-    .map(r => r.promptAlias);
+  const aliases = inferred.filter((r) => r.node.type !== 'import').map((r) => r.promptAlias);
 
   // NOTE: instructions are in the system prompt (llm-bridge.ts buildSystemPrompt).
   // Only data goes here — this content is wrapped in <kern-file> (untrusted boundary).
@@ -156,10 +151,7 @@ interface LLMFinding {
  * Parse strict JSON response from LLM, validate nodeIds, reject unknowns.
  * Returns unified ReviewFinding[] mapped back to TS source spans.
  */
-export function parseLLMResponse(
-  response: string,
-  inferred: InferResult[],
-): ReviewFinding[] {
+export function parseLLMResponse(response: string, inferred: InferResult[]): ReviewFinding[] {
   // Build alias → InferResult lookup
   const aliasMap = new Map<string, InferResult>();
   for (const r of inferred) {
@@ -179,27 +171,31 @@ export function parseLLMResponse(
   try {
     parsed = JSON.parse(jsonStr);
   } catch {
-    return [{
-      source: 'llm',
-      ruleId: 'parse-error',
-      severity: 'error',
-      category: 'bug',
-      message: `Failed to parse LLM response as JSON: ${jsonStr.substring(0, 100)}...`,
-      primarySpan: { file: '', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
-      fingerprint: createFingerprint('parse-error', 0, 0),
-    }];
+    return [
+      {
+        source: 'llm',
+        ruleId: 'parse-error',
+        severity: 'error',
+        category: 'bug',
+        message: `Failed to parse LLM response as JSON: ${jsonStr.substring(0, 100)}...`,
+        primarySpan: { file: '', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
+        fingerprint: createFingerprint('parse-error', 0, 0),
+      },
+    ];
   }
 
   if (!Array.isArray(parsed)) {
-    return [{
-      source: 'llm',
-      ruleId: 'parse-error',
-      severity: 'error',
-      category: 'bug',
-      message: 'LLM response is not a JSON array',
-      primarySpan: { file: '', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
-      fingerprint: createFingerprint('parse-error', 0, 1),
-    }];
+    return [
+      {
+        source: 'llm',
+        ruleId: 'parse-error',
+        severity: 'error',
+        category: 'bug',
+        message: 'LLM response is not a JSON array',
+        primarySpan: { file: '', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
+        fingerprint: createFingerprint('parse-error', 0, 1),
+      },
+    ];
   }
 
   const findings: ReviewFinding[] = [];
@@ -220,7 +216,7 @@ export function parseLLMResponse(
     // Sanitize message: strip ANSI escape codes and control characters
     const message = item.message
       .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '') // ANSI escape sequences
-      .replace(/\x1b\][^\x07]*\x07/g, '')     // OSC sequences (title bar injection)
+      .replace(/\x1b\][^\x07]*\x07/g, '') // OSC sequences (title bar injection)
       .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, ''); // control chars (keep \t \n \r)
 
     const node = aliasMap.get(item.nodeAlias)!;
@@ -263,7 +259,7 @@ function serializeNode(node: import('@kernlang/core').IRNode, indent: string): s
   let result = indent + parts.join(' ');
   if (node.children) {
     for (const child of node.children) {
-      result += '\n' + serializeNode(child, indent + '  ');
+      result += `\n${serializeNode(child, `${indent}  `)}`;
     }
   }
   return result;
@@ -274,7 +270,8 @@ const HANDLER_COMPRESS_THRESHOLD = 30;
 
 // Security-sensitive patterns to preserve verbatim in compressed output.
 // These are detection patterns for code review, not actual usage.
-const SECURITY_PATTERN = /\b(exec|eval|spawn|sql|query|auth|token|password|cookie|header|redirect|innerHTML|dangerouslySetInnerHTML|crypto|hash|sign|verify|decrypt|encrypt)\b/i; // eslint-disable-line -- detection pattern, not usage
+const SECURITY_PATTERN =
+  /\b(exec|eval|spawn|sql|query|auth|token|password|cookie|header|redirect|innerHTML|dangerouslySetInnerHTML|crypto|hash|sign|verify|decrypt|encrypt)\b/i; // eslint-disable-line -- detection pattern, not usage
 
 // ── Effect annotation patterns ──────────────────────────────────────────
 const EFFECT_DB_PATTERN = /\b(db|sql|query|mongo|prisma|knex|sequelize|typeorm|drizzle)\b/i;
@@ -284,8 +281,15 @@ const EFFECT_EXEC_PATTERN = /\b(exec|execSync|spawn|spawnSync|fork|execFile)\b/i
 const EFFECT_CRYPTO_PATTERN = /\b(crypto|hash|sign|verify|decrypt|encrypt|createHash|createHmac|randomBytes)\b/i;
 
 const STRIP_PATTERNS = [
-  /^\s*\/\//, /^\s*\/?\*/, /^\s*console\.(log|debug|info|trace|dir|table|time|timeEnd|count|group|groupEnd)\b/,
-  /^\s*logger\.(debug|trace|verbose)\b/, /^\s*debugger\b/, /^\s*\/\*\*/, /^\s*\*\s/, /^\s*\*\//, /^\s*$/,
+  /^\s*\/\//,
+  /^\s*\/?\*/,
+  /^\s*console\.(log|debug|info|trace|dir|table|time|timeEnd|count|group|groupEnd)\b/,
+  /^\s*logger\.(debug|trace|verbose)\b/,
+  /^\s*debugger\b/,
+  /^\s*\/\*\*/,
+  /^\s*\*\s/,
+  /^\s*\*\//,
+  /^\s*$/,
 ];
 const TYPE_ONLY_PATTERN = /^\s*(type\s|interface\s|as\s+\w|<\w+>$)/;
 const CONTROL_FLOW_LINE = /^\s*(if|else\s*if|else|for|while|do|switch|case|default|try|catch|finally)\b/;
@@ -302,23 +306,34 @@ function annotateLine(trimmed: string): string {
   if (EFFECT_NET_PATTERN.test(trimmed)) annotations.push('[EFFECT:net]');
   if (EFFECT_EXEC_PATTERN.test(trimmed)) annotations.push('[EFFECT:exec]');
   if (EFFECT_CRYPTO_PATTERN.test(trimmed)) annotations.push('[EFFECT:crypto]');
-  if (SECURITY_PATTERN.test(trimmed) && !annotations.some(a => a.startsWith('[EFFECT:'))) annotations.push('[TAINT:sink]');
-  if (/^\s*(if|else\s+if)\s*\(/.test(trimmed) && /\b(auth|admin|permission|role|valid|check|verify|allowed|forbidden|unauthorized)\b/i.test(trimmed)) annotations.push('[GUARD]');
+  if (SECURITY_PATTERN.test(trimmed) && !annotations.some((a) => a.startsWith('[EFFECT:')))
+    annotations.push('[TAINT:sink]');
+  if (
+    /^\s*(if|else\s+if)\s*\(/.test(trimmed) &&
+    /\b(auth|admin|permission|role|valid|check|verify|allowed|forbidden|unauthorized)\b/i.test(trimmed)
+  )
+    annotations.push('[GUARD]');
   if (/^\s*catch\b/.test(trimmed)) annotations.push('[ERROR:handle]');
-  else if (/^\s*throw\b/.test(trimmed) && /\b(err|error|e)\s*;?\s*$/.test(trimmed)) annotations.push('[ERROR:propagate]');
+  else if (/^\s*throw\b/.test(trimmed) && /\b(err|error|e)\s*;?\s*$/.test(trimmed))
+    annotations.push('[ERROR:propagate]');
   else if (/^\s*throw\b/.test(trimmed)) annotations.push('[ERROR:raise]');
   if (CLEANUP_PATTERN.test(trimmed)) annotations.push('[CLEANUP]');
-  return annotations.length > 0 ? ' ' + annotations.join(' ') : '';
+  return annotations.length > 0 ? ` ${annotations.join(' ')}` : '';
 }
 
 function isStrippableLine(trimmed: string): boolean {
-  return STRIP_PATTERNS.some(p => p.test(trimmed)) || TYPE_ONLY_PATTERN.test(trimmed);
+  return STRIP_PATTERNS.some((p) => p.test(trimmed)) || TYPE_ONLY_PATTERN.test(trimmed);
 }
 
 function isEffectLine(trimmed: string): boolean {
-  return EFFECT_DB_PATTERN.test(trimmed) || EFFECT_FS_PATTERN.test(trimmed) ||
-    EFFECT_NET_PATTERN.test(trimmed) || EFFECT_EXEC_PATTERN.test(trimmed) ||
-    EFFECT_CRYPTO_PATTERN.test(trimmed) || AWAIT_PATTERN.test(trimmed);
+  return (
+    EFFECT_DB_PATTERN.test(trimmed) ||
+    EFFECT_FS_PATTERN.test(trimmed) ||
+    EFFECT_NET_PATTERN.test(trimmed) ||
+    EFFECT_EXEC_PATTERN.test(trimmed) ||
+    EFFECT_CRYPTO_PATTERN.test(trimmed) ||
+    AWAIT_PATTERN.test(trimmed)
+  );
 }
 
 /**
@@ -335,20 +350,38 @@ export function compressHandlerBody(code: string): string {
   // Pass 1: classify every line
   for (const { trimmed, idx } of lineData) {
     if (trimmed === '') continue;
-    if (CONTROL_FLOW_LINE.test(trimmed)) { keptIndices.add(idx); continue; }
-    if (EXIT_PATTERN.test(trimmed)) { keptIndices.add(idx); continue; }
-    if (CLOSE_BRACE.test(trimmed)) { keptIndices.add(idx); continue; }
-    if (SECURITY_PATTERN.test(trimmed)) { keptIndices.add(idx); continue; }
-    if (isEffectLine(trimmed)) { keptIndices.add(idx); continue; }
-    if (CLEANUP_PATTERN.test(trimmed)) { keptIndices.add(idx); continue; }
+    if (CONTROL_FLOW_LINE.test(trimmed)) {
+      keptIndices.add(idx);
+      continue;
+    }
+    if (EXIT_PATTERN.test(trimmed)) {
+      keptIndices.add(idx);
+      continue;
+    }
+    if (CLOSE_BRACE.test(trimmed)) {
+      keptIndices.add(idx);
+      continue;
+    }
+    if (SECURITY_PATTERN.test(trimmed)) {
+      keptIndices.add(idx);
+      continue;
+    }
+    if (isEffectLine(trimmed)) {
+      keptIndices.add(idx);
+      continue;
+    }
+    if (CLEANUP_PATTERN.test(trimmed)) {
+      keptIndices.add(idx);
+      continue;
+    }
     if (isStrippableLine(trimmed)) continue;
     if (ASSIGNMENT_PATTERN.test(trimmed) && (AWAIT_PATTERN.test(trimmed) || /=\s*new\s+/.test(trimmed))) {
-      keptIndices.add(idx); continue;
+      keptIndices.add(idx);
     }
   }
 
   // Pass 2: backfill assignments whose variables are referenced in kept lines
-  const keptContent = [...keptIndices].map(i => lineData[i].trimmed).join('\n');
+  const keptContent = [...keptIndices].map((i) => lineData[i].trimmed).join('\n');
   for (const { trimmed, idx } of lineData) {
     if (keptIndices.has(idx)) continue;
     const assignMatch = trimmed.match(ASSIGNMENT_PATTERN);
@@ -365,7 +398,7 @@ export function compressHandlerBody(code: string): string {
   for (const idx of sortedIndices) {
     const { raw, trimmed, lineNum } = lineData[idx];
     if (prevIdx >= 0 && idx - prevIdx > 1) {
-      const hasContent = lineData.slice(prevIdx + 1, idx).some(l => l.trimmed !== '' && l.trimmed !== '}');
+      const hasContent = lineData.slice(prevIdx + 1, idx).some((l) => l.trimmed !== '' && l.trimmed !== '}');
       if (hasContent) skeleton.push(`  // ... (${idx - prevIdx - 1} lines)`);
     }
     const escaped = raw.replace(/<kern-code>/gi, '&lt;kern-code&gt;').replace(/<\/kern-code>/gi, '&lt;/kern-code&gt;');
@@ -412,7 +445,7 @@ export function serializeNodeWithBody(
   let result = indent + parts.join(' ');
   if (node.children) {
     for (const child of node.children) {
-      result += '\n' + serializeNodeWithBody(child, indent + '  ', mode, nodeStartLine, nodeEndLine);
+      result += `\n${serializeNodeWithBody(child, `${indent}  `, mode, nodeStartLine, nodeEndLine)}`;
     }
   }
   return result;

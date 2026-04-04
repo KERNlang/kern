@@ -1,9 +1,12 @@
-import { computeSemanticDiff, computeSemanticDiffFromSource, formatSemanticDiff, semanticChangesToFindings } from '../src/semantic-diff.js';
-import { inferFromSource } from '../src/inferrer.js';
+import { createInMemoryProject, inferFromSource } from '../src/inferrer.js';
 import { extractTsConcepts } from '../src/mappers/ts-concepts.js';
-import { createInMemoryProject } from '../src/inferrer.js';
 import type { SemanticChange } from '../src/semantic-diff.js';
-import type { ConceptMap } from '@kernlang/core';
+import {
+  computeSemanticDiff,
+  computeSemanticDiffFromSource,
+  formatSemanticDiff,
+  semanticChangesToFindings,
+} from '../src/semantic-diff.js';
 
 /** Helper: infer IR + extract concepts from source string. */
 function analyzeSource(source: string, filePath = 'test.ts') {
@@ -36,13 +39,9 @@ export function deleteUser(req: any, res: any) {
       const old = analyzeSource(oldSource);
       const neu = analyzeSource(newSource);
 
-      const changes = computeSemanticDiff(
-        old.inferred, neu.inferred,
-        old.concepts, neu.concepts,
-        'test.ts',
-      );
+      const changes = computeSemanticDiff(old.inferred, neu.inferred, old.concepts, neu.concepts, 'test.ts');
 
-      const guardRemoved = changes.find(c => c.type === 'guard-removed');
+      const guardRemoved = changes.find((c) => c.type === 'guard-removed');
       expect(guardRemoved).toBeDefined();
       expect(guardRemoved!.severity).toBe('error');
       expect(guardRemoved!.functionName).toBe('deleteUser');
@@ -66,13 +65,9 @@ export function deleteUser(req: any, res: any) {
       const old = analyzeSource(oldSource);
       const neu = analyzeSource(newSource);
 
-      const changes = computeSemanticDiff(
-        old.inferred, neu.inferred,
-        old.concepts, neu.concepts,
-        'test.ts',
-      );
+      const changes = computeSemanticDiff(old.inferred, neu.inferred, old.concepts, neu.concepts, 'test.ts');
 
-      const guardAdded = changes.find(c => c.type === 'guard-added');
+      const guardAdded = changes.find((c) => c.type === 'guard-added');
       expect(guardAdded).toBeDefined();
       expect(guardAdded!.severity).toBe('info');
     });
@@ -99,13 +94,9 @@ export function fetchData(url: string) {
       const old = analyzeSource(oldSource);
       const neu = analyzeSource(newSource);
 
-      const changes = computeSemanticDiff(
-        old.inferred, neu.inferred,
-        old.concepts, neu.concepts,
-        'test.ts',
-      );
+      const changes = computeSemanticDiff(old.inferred, neu.inferred, old.concepts, neu.concepts, 'test.ts');
 
-      const errorRemoved = changes.find(c => c.type === 'error-handling-removed');
+      const errorRemoved = changes.find((c) => c.type === 'error-handling-removed');
       expect(errorRemoved).toBeDefined();
       expect(errorRemoved!.severity).toBe('warning');
       expect(errorRemoved!.functionName).toBe('fetchData');
@@ -131,13 +122,9 @@ export function fetchData(url: string) {
       const old = analyzeSource(oldSource);
       const neu = analyzeSource(newSource);
 
-      const changes = computeSemanticDiff(
-        old.inferred, neu.inferred,
-        old.concepts, neu.concepts,
-        'test.ts',
-      );
+      const changes = computeSemanticDiff(old.inferred, neu.inferred, old.concepts, neu.concepts, 'test.ts');
 
-      const errorAdded = changes.find(c => c.type === 'error-handling-added');
+      const errorAdded = changes.find((c) => c.type === 'error-handling-added');
       expect(errorAdded).toBeDefined();
       expect(errorAdded!.severity).toBe('info');
     });
@@ -159,13 +146,9 @@ export function createUser(data: any) {
       const old = analyzeSource(oldSource);
       const neu = analyzeSource(newSource);
 
-      const changes = computeSemanticDiff(
-        old.inferred, neu.inferred,
-        old.concepts, neu.concepts,
-        'test.ts',
-      );
+      const changes = computeSemanticDiff(old.inferred, neu.inferred, old.concepts, neu.concepts, 'test.ts');
 
-      const effectAdded = changes.find(c => c.type === 'effect-added');
+      const effectAdded = changes.find((c) => c.type === 'effect-added');
       expect(effectAdded).toBeDefined();
       expect(effectAdded!.severity).toBe('info');
       expect(effectAdded!.functionName).toBe('createUser');
@@ -187,13 +170,9 @@ export function createUser(data: any) {
       const old = analyzeSource(oldSource);
       const neu = analyzeSource(newSource);
 
-      const changes = computeSemanticDiff(
-        old.inferred, neu.inferred,
-        old.concepts, neu.concepts,
-        'test.ts',
-      );
+      const changes = computeSemanticDiff(old.inferred, neu.inferred, old.concepts, neu.concepts, 'test.ts');
 
-      const effectRemoved = changes.find(c => c.type === 'effect-removed');
+      const effectRemoved = changes.find((c) => c.type === 'effect-removed');
       expect(effectRemoved).toBeDefined();
       expect(effectRemoved!.severity).toBe('info');
     });
@@ -215,13 +194,9 @@ export function getUser(id: string, includeDeleted: boolean) {
       const old = analyzeSource(oldSource);
       const neu = analyzeSource(newSource);
 
-      const changes = computeSemanticDiff(
-        old.inferred, neu.inferred,
-        old.concepts, neu.concepts,
-        'test.ts',
-      );
+      const changes = computeSemanticDiff(old.inferred, neu.inferred, old.concepts, neu.concepts, 'test.ts');
 
-      const paramChanged = changes.find(c => c.type === 'param-changed');
+      const paramChanged = changes.find((c) => c.type === 'param-changed');
       expect(paramChanged).toBeDefined();
       expect(paramChanged!.severity).toBe('info');
       expect(paramChanged!.functionName).toBe('getUser');
@@ -244,13 +219,9 @@ export function getUser(id: string): { id: string; name: string } | null {
       const old = analyzeSource(oldSource);
       const neu = analyzeSource(newSource);
 
-      const changes = computeSemanticDiff(
-        old.inferred, neu.inferred,
-        old.concepts, neu.concepts,
-        'test.ts',
-      );
+      const changes = computeSemanticDiff(old.inferred, neu.inferred, old.concepts, neu.concepts, 'test.ts');
 
-      const returnChanged = changes.find(c => c.type === 'return-type-changed');
+      const returnChanged = changes.find((c) => c.type === 'return-type-changed');
       expect(returnChanged).toBeDefined();
       expect(returnChanged!.severity).toBe('warning');
       expect(returnChanged!.functionName).toBe('getUser');
@@ -276,13 +247,9 @@ export function deleteUser(id: string) {
       const old = analyzeSource(oldSource);
       const neu = analyzeSource(newSource);
 
-      const changes = computeSemanticDiff(
-        old.inferred, neu.inferred,
-        old.concepts, neu.concepts,
-        'test.ts',
-      );
+      const changes = computeSemanticDiff(old.inferred, neu.inferred, old.concepts, neu.concepts, 'test.ts');
 
-      const newCodePath = changes.find(c => c.type === 'new-code-path');
+      const newCodePath = changes.find((c) => c.type === 'new-code-path');
       expect(newCodePath).toBeDefined();
       expect(newCodePath!.severity).toBe('info');
       expect(newCodePath!.functionName).toBe('deleteUser');
@@ -301,11 +268,7 @@ export function getUser(id: string) {
       const old = analyzeSource(source);
       const neu = analyzeSource(source);
 
-      const changes = computeSemanticDiff(
-        old.inferred, neu.inferred,
-        old.concepts, neu.concepts,
-        'test.ts',
-      );
+      const changes = computeSemanticDiff(old.inferred, neu.inferred, old.concepts, neu.concepts, 'test.ts');
 
       expect(changes.length).toBe(0);
     });
@@ -332,26 +295,19 @@ export function updateUser(req: any, res: any) {
 }`;
 
       const newInferred = inferFromSource(newSource, 'test.ts');
-      const changes = computeSemanticDiffFromSource(
-        oldSource, newInferred, 'test.ts', newSource,
-      );
+      const changes = computeSemanticDiffFromSource(oldSource, newInferred, 'test.ts', newSource);
 
       // Should detect guard removal and error handling removal
-      const types = changes.map(c => c.type);
+      const types = changes.map((c) => c.type);
       expect(types).toContain('guard-removed');
       expect(types).toContain('error-handling-removed');
     });
 
     it('handles unparseable old source gracefully', () => {
       const oldSource = `this is not valid typescript {{{`;
-      const newInferred = inferFromSource(
-        `export function f() { return 1; }`,
-        'test.ts',
-      );
+      const newInferred = inferFromSource(`export function f() { return 1; }`, 'test.ts');
 
-      const changes = computeSemanticDiffFromSource(
-        oldSource, newInferred, 'test.ts',
-      );
+      const changes = computeSemanticDiffFromSource(oldSource, newInferred, 'test.ts');
 
       // Should not crash — may report new functions as new-code-path since
       // old source has no functions to match against
@@ -448,18 +404,12 @@ export function handler(req: any, res: any, extra: boolean) {
       const old = analyzeSource(oldSource);
       const neu = analyzeSource(newSource);
 
-      const changes = computeSemanticDiff(
-        old.inferred, neu.inferred,
-        old.concepts, neu.concepts,
-        'test.ts',
-      );
+      const changes = computeSemanticDiff(old.inferred, neu.inferred, old.concepts, neu.concepts, 'test.ts');
 
       // Verify sorting: errors before warnings before info
       for (let i = 1; i < changes.length; i++) {
         const severityOrder = { error: 0, warning: 1, info: 2 };
-        expect(severityOrder[changes[i].severity]).toBeGreaterThanOrEqual(
-          severityOrder[changes[i - 1].severity],
-        );
+        expect(severityOrder[changes[i].severity]).toBeGreaterThanOrEqual(severityOrder[changes[i - 1].severity]);
       }
     });
   });

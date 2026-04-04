@@ -20,8 +20,8 @@
  * Dead export findings from unresolved edges get lower confidence (0.70 vs 0.90).
  */
 
-import { SyntaxKind, type SourceFile, type Project } from 'ts-morph';
-import type { GraphResult, GraphFile } from './types.js';
+import { type Project, type SourceFile, SyntaxKind } from 'ts-morph';
+import type { GraphFile, GraphResult } from './types.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -66,10 +66,7 @@ export interface CallGraph {
 // ── Import Resolution ───────────────────────────────────────────────────
 
 /** Build a map of importName → resolvedFilePath#exportName for a source file */
-function buildImportBindings(
-  sourceFile: SourceFile,
-  graphFiles: Map<string, GraphFile>,
-): Map<string, string> {
+function buildImportBindings(sourceFile: SourceFile, graphFiles: Map<string, GraphFile>): Map<string, string> {
   const bindings = new Map<string, string>();
 
   for (const decl of sourceFile.getImportDeclarations()) {
@@ -81,7 +78,7 @@ function buildImportBindings(
     // Named imports: import { foo, bar as baz } from './mod'
     for (const named of decl.getNamedImports()) {
       const localName = named.getName();
-      const originalName = named.getAliasNode()?.getText() || localName;
+      const _originalName = named.getAliasNode()?.getText() || localName;
       // The imported name is the original export name
       const importedName = named.getName();
       bindings.set(localName, `${resolvedPath}#${importedName}`);
@@ -192,7 +189,7 @@ function extractCallSites(
   if (!body) return callSites;
 
   // Walk all call expressions in the body
-  body.forEachDescendant(node => {
+  body.forEachDescendant((node) => {
     if (node.getKind() !== SyntaxKind.CallExpression) return;
     const call = node as import('ts-morph').CallExpression;
     const callee = call.getExpression();
@@ -281,7 +278,7 @@ function extractCallSites(
 
       // Namespace import: mod.foo()
       const nsBinding = importBindings.get(objName);
-      if (nsBinding && nsBinding.endsWith('#*')) {
+      if (nsBinding?.endsWith('#*')) {
         const targetFile = nsBinding.slice(0, -2);
         callSites.push({
           callerName: fnNode.name,
@@ -354,10 +351,30 @@ function splitBinding(binding: string): [string, string] {
 }
 
 const BUILTINS = new Set([
-  'console', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
-  'parseInt', 'parseFloat', 'String', 'Number', 'Boolean', 'Array', 'Object',
-  'JSON', 'Math', 'Date', 'Error', 'Promise', 'Map', 'Set', 'Symbol',
-  'require', 'import', 'typeof', 'void',
+  'console',
+  'setTimeout',
+  'setInterval',
+  'clearTimeout',
+  'clearInterval',
+  'parseInt',
+  'parseFloat',
+  'String',
+  'Number',
+  'Boolean',
+  'Array',
+  'Object',
+  'JSON',
+  'Math',
+  'Date',
+  'Error',
+  'Promise',
+  'Map',
+  'Set',
+  'Symbol',
+  'require',
+  'import',
+  'typeof',
+  'void',
 ]);
 
 function isBuiltin(name: string): boolean {
@@ -370,10 +387,7 @@ function isBuiltin(name: string): boolean {
  * Build a function-level call graph from the import graph.
  * Requires a ts-morph Project with all files loaded.
  */
-export function buildCallGraph(
-  graph: GraphResult,
-  project: Project,
-): CallGraph {
+export function buildCallGraph(graph: GraphResult, project: Project): CallGraph {
   const graphFiles = new Map<string, GraphFile>();
   for (const gf of graph.files) {
     graphFiles.set(gf.path, gf);
@@ -401,12 +415,12 @@ export function buildCallGraph(
     if (!sf) continue;
 
     const fns = fileFunctions.get(gf.path) || [];
-    const localFnNames = new Set(fns.map(f => f.name));
+    const localFnNames = new Set(fns.map((f) => f.name));
     const importBindings = buildImportBindings(sf, graphFiles);
 
     for (const fn of fns) {
       fn.calls = extractCallSites(fn, sf, localFnNames, importBindings);
-      unresolvedCount += fn.calls.filter(c => !c.resolved).length;
+      unresolvedCount += fn.calls.filter((c) => !c.resolved).length;
     }
   }
 
@@ -432,10 +446,10 @@ export function buildCallGraph(
     }
     if (!fn.isExported && fn.calledBy.length === 0) {
       // Check if called locally (within same file)
-      const calledLocally = [...allFunctions.values()].some(other =>
-        other.filePath === fn.filePath && other.calls.some(c =>
-          c.resolved && c.targetFile === fn.filePath && c.targetName === fn.name
-        )
+      const calledLocally = [...allFunctions.values()].some(
+        (other) =>
+          other.filePath === fn.filePath &&
+          other.calls.some((c) => c.resolved && c.targetFile === fn.filePath && c.targetName === fn.name),
       );
       if (!calledLocally) {
         orphanFunctions.push(key);

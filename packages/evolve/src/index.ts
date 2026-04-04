@@ -11,157 +11,159 @@
  *   loadBuiltinDetectors()           — load all built-in detectors
  */
 
-// Types
-export type {
-  PatternKind,
-  DetectorPack,
-  DetectionResult,
-  ExtractedParam,
-  PatternGap,
-  ImportDecl,
-  GoldenExample,
-  QualityScore,
-  QualityThresholds,
-  AnalyzedPattern,
-  TemplateProposal,
-  ValidationResult,
-  ProposalStatus,
-  StagedProposal,
-  EvolveConfig,
-  EvolveResult,
-  ConceptGapSummary,
-  // v3 types
-  ExpressibilityScore,
-  NodeProposal,
-  NodeValidationResult,
-  NodeProposalStatus,
-  StagedNodeProposal,
-} from './types.js';
-
-// Detector Registry
-export {
-  registerDetector,
-  unregisterDetector,
-  getDetector,
-  getAllDetectors,
-  getDetectorsForImport,
-  getUniversalDetectors,
-  clearDetectors,
-  detectorCount,
-  loadBuiltinDetectors,
-  registerDetectors,
-} from './detector-registry.js';
-
-// Gap Detector
-export { detectGaps, detectGapsInFiles, detectGapsFromSource, resetGapIds } from './gap-detector.js';
-
 // Concept Gap Adapter
 export { detectConceptualGaps, resetConceptGapIds } from './concept-gap-adapter.js';
 
-// Quality Scorer
-export { scorePattern, passesThresholds, DEFAULT_THRESHOLDS } from './quality-scorer.js';
-
-// Pattern Analyzer
-export { analyzePatterns, analyzeStructuralPatterns, computeStructuralHash, deriveTemplateName } from './pattern-analyzer.js';
-
-// Template Proposer
-export { proposeTemplates, generateKernSource } from './template-proposer.js';
-
-// Template Validator
-export { validateProposal } from './template-validator.js';
-
-// Staging
+// Detector Registry
 export {
-  stageProposal,
-  listStaged,
-  getStaged,
-  updateStagedStatus,
-  promoteLocal,
-  cleanRejected,
-  formatSplitView,
-  // v3 node staging
-  stageNodeProposal,
-  listStagedNodes,
-  updateStagedNodeStatus,
-  formatNodeSplitView,
-  // v4 evolve staging
-  stageEvolveV4Proposal,
-  listStagedEvolveV4,
-  getStagedEvolveV4,
-  updateStagedEvolveV4Status,
-  cleanRejectedEvolveV4,
-  cleanApprovedEvolveV4,
-  formatEvolveV4SplitView,
-} from './staging.js';
-
-// Expressibility Scorer (v3)
-export {
-  scoreExpressibility,
-  isNodeCandidate,
-  EXPRESSIBILITY_NODE_THRESHOLD,
-} from './expressibility-scorer.js';
-
-// Node Proposer (v3)
-export { proposeNodes, deriveNodeName as deriveNodeProposalName, resetNodeProposalIds } from './node-proposer.js';
-
-// Node Governance (v3)
-export { governanceGate, getGovernanceThresholds } from './node-governance.js';
-
-// Node Validator (v3)
-export { validateNodeProposal } from './node-validator.js';
-
+  clearDetectors,
+  detectorCount,
+  getAllDetectors,
+  getDetector,
+  getDetectorsForImport,
+  getUniversalDetectors,
+  loadBuiltinDetectors,
+  registerDetector,
+  registerDetectors,
+  unregisterDetector,
+} from './detector-registry.js';
+export type { EvolveOptions } from './evolve-runner.js';
 // Evolve Runner (main entry points)
 export { evolve, evolveSource } from './evolve-runner.js';
-export type { EvolveOptions } from './evolve-runner.js';
+// Expressibility Scorer (v3)
+export {
+  EXPRESSIBILITY_NODE_THRESHOLD,
+  isNodeCandidate,
+  scoreExpressibility,
+} from './expressibility-scorer.js';
+// Gap Detector
+export { detectGaps, detectGapsFromSource, detectGapsInFiles, resetGapIds } from './gap-detector.js';
+// Node Governance (v3)
+export { getGovernanceThresholds, governanceGate } from './node-governance.js';
+// Node Proposer (v3)
+export { deriveNodeName as deriveNodeProposalName, proposeNodes, resetNodeProposalIds } from './node-proposer.js';
+// Node Validator (v3)
+export { validateNodeProposal } from './node-validator.js';
+// Pattern Analyzer
+export {
+  analyzePatterns,
+  analyzeStructuralPatterns,
+  computeStructuralHash,
+  deriveTemplateName,
+} from './pattern-analyzer.js';
+// Quality Scorer
+export { DEFAULT_THRESHOLDS, passesThresholds, scorePattern } from './quality-scorer.js';
+// Staging
+export {
+  cleanApprovedEvolveV4,
+  cleanRejected,
+  cleanRejectedEvolveV4,
+  formatEvolveV4SplitView,
+  formatNodeSplitView,
+  formatSplitView,
+  getStaged,
+  getStagedEvolveV4,
+  listStaged,
+  listStagedEvolveV4,
+  listStagedNodes,
+  promoteLocal,
+  // v4 evolve staging
+  stageEvolveV4Proposal,
+  // v3 node staging
+  stageNodeProposal,
+  stageProposal,
+  updateStagedEvolveV4Status,
+  updateStagedNodeStatus,
+  updateStagedStatus,
+} from './staging.js';
+// Template Proposer
+export { generateKernSource, proposeTemplates } from './template-proposer.js';
+// Template Validator
+export { validateProposal } from './template-validator.js';
+// Types
+export type {
+  AnalyzedPattern,
+  ConceptGapSummary,
+  DetectionResult,
+  DetectorPack,
+  EvolveConfig,
+  EvolveResult,
+  // v3 types
+  ExpressibilityScore,
+  ExtractedParam,
+  GoldenExample,
+  ImportDecl,
+  NodeProposal,
+  NodeProposalStatus,
+  NodeValidationResult,
+  PatternGap,
+  PatternKind,
+  ProposalStatus,
+  QualityScore,
+  QualityThresholds,
+  StagedNodeProposal,
+  StagedProposal,
+  TemplateProposal,
+  ValidationResult,
+} from './types.js';
 
 // ── Evolve v4 — Self-Extending IR ───────────────────────────────────────
 
-// v4 Types
-export type {
-  ParserHints,
-  EvolvedNodeDefinition,
-  EvolvedNodeProp,
-  EvolvedNodeReason,
-  EvolvedManifest,
-  EvolvedManifestEntry,
-  EvolveNodeProposal,
-  EvolveV4ValidationResult,
-  EvolveV4ProposalStatus,
-  StagedEvolveProposal,
-  CodegenHelpers,
-} from './evolved-types.js';
-
+export { checkDedup } from './evolve-dedup.js';
+export type { CollisionInfo, PruneResult } from './evolve-rollback.js';
+// Rollback + Prune + Migrate
+export {
+  detectCollisions,
+  findUsages,
+  pruneNodes,
+  renameEvolvedNode,
+  restoreNode,
+  rollbackNode,
+} from './evolve-rollback.js';
+// v4 Validation
+export { validateEvolveProposal } from './evolve-validator-v4.js';
+export type { RebuildResult } from './evolved-node-loader.js';
 // Evolved Node Loader
 export {
-  loadEvolvedNodes,
   clearEvolvedNodes,
+  evolvedNodeCount,
   getEvolvedGenerator,
+  getEvolvedKeywords,
   getParserHints as getEvolvedParserHints,
   hasEvolvedNodes,
-  evolvedNodeCount,
-  getEvolvedKeywords,
+  loadEvolvedNodes,
   readManifest as readEvolvedManifest,
   readNodeDefinition,
   rebuildManifest as rebuildEvolvedManifest,
 } from './evolved-node-loader.js';
-export type { RebuildResult } from './evolved-node-loader.js';
-
-// Sandboxed Generator
-export { loadSandboxedGenerator, compileSandboxedGenerator, getCodegenHelpers } from './sandboxed-generator.js';
-
-// v4 Validation
-export { validateEvolveProposal } from './evolve-validator-v4.js';
-export { checkDedup } from './evolve-dedup.js';
-export { compareGoldenOutput, runGoldenTests, formatGoldenTestResults } from './golden-test-runner.js';
-
+// v4 Types
+export type {
+  CodegenHelpers,
+  EvolvedManifest,
+  EvolvedManifestEntry,
+  EvolvedNodeDefinition,
+  EvolvedNodeProp,
+  EvolvedNodeReason,
+  EvolveNodeProposal,
+  EvolveV4ProposalStatus,
+  EvolveV4ValidationResult,
+  ParserHints,
+  StagedEvolveProposal,
+} from './evolved-types.js';
+export { compareGoldenOutput, formatGoldenTestResults, runGoldenTests } from './golden-test-runner.js';
 // Graduation
-export { graduateNode, compileCodegenToJS, promoteNode } from './graduation.js';
-
-// Rollback + Prune + Migrate
-export { rollbackNode, restoreNode, findUsages, pruneNodes, detectCollisions, renameEvolvedNode } from './evolve-rollback.js';
-export type { PruneResult, CollisionInfo } from './evolve-rollback.js';
-
+export { compileCodegenToJS, graduateNode, promoteNode } from './graduation.js';
 // LLM Discovery
-export { buildDiscoveryPrompt, parseDiscoveryResponse, selectRepresentativeFiles, collectTsFiles, estimateTokens, buildBackfillPrompt, buildRetryPrompt } from './llm-discovery.js';
-export { createLLMProvider, TokenBudget } from './llm-provider.js';
+export {
+  buildBackfillPrompt,
+  buildDiscoveryPrompt,
+  buildRetryPrompt,
+  collectTsFiles,
+  estimateTokens,
+  parseDiscoveryResponse,
+  selectRepresentativeFiles,
+} from './llm-discovery.js';
 export type { LLMProvider, LLMProviderOptions } from './llm-provider.js';
+export { createLLMProvider, TokenBudget } from './llm-provider.js';
+// Sandboxed Generator
+export { compileSandboxedGenerator, getCodegenHelpers, loadSandboxedGenerator } from './sandboxed-generator.js';

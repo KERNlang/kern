@@ -13,7 +13,7 @@ export function p(node: IRNode): Record<string, unknown> {
 
 export function kids(node: IRNode, type?: string): IRNode[] {
   const c = node.children || [];
-  return type ? c.filter(n => n.type === type) : c;
+  return type ? c.filter((n) => n.type === type) : c;
 }
 
 export function firstChild(node: IRNode, type: string): IRNode | undefined {
@@ -47,7 +47,7 @@ export function emitPyReasonAnnotations(node: IRNode): string[] {
   }
   for (const needsNode of needsNodes) {
     const np = p(needsNode);
-    const desc = np.what as string || np.description as string || '';
+    const desc = (np.what as string) || (np.description as string) || '';
     const wouldRaise = np['would-raise-to'] as string;
     const tag = wouldRaise ? `${desc} (would raise to ${wouldRaise})` : desc;
     lines.push(`# @needs ${tag}`);
@@ -59,7 +59,7 @@ export function emitPyReasonAnnotations(node: IRNode): string[] {
 export function emitPyLowConfidenceTodo(node: IRNode, confidence: string | undefined): string[] {
   if (!confidence) return [];
   const val = parseFloat(confidence);
-  if (isNaN(val) || val >= 0.5 || confidence.includes(':')) return [];
-  const name = p(node).name as string || node.type;
+  if (Number.isNaN(val) || val >= 0.5 || confidence.includes(':')) return [];
+  const name = (p(node).name as string) || node.type;
   return [`# TODO(low-confidence): ${name} confidence=${confidence}`];
 }

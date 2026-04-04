@@ -4,10 +4,10 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
-import type { IRNode } from '../types.js';
 import { propsOf } from '../node-props.js';
-import { emitIdentifier, emitStringLiteral, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
-import { getProps, getChildren, getFirstChild, handlerCode, exportPrefix, capitalize, parseParamList } from './helpers.js';
+import type { IRNode } from '../types.js';
+import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
+import { exportPrefix, getChildren, getFirstChild, getProps, handlerCode, parseParamList } from './helpers.js';
 
 const p = getProps;
 const kids = getChildren;
@@ -24,7 +24,10 @@ export function generateType(node: IRNode): string[] {
   const exp = exportPrefix(node);
 
   if (values) {
-    const members = values.split('|').map(v => `'${emitTemplateSafe(v.trim())}'`).join(' | ');
+    const members = values
+      .split('|')
+      .map((v) => `'${emitTemplateSafe(v.trim())}'`)
+      .join(' | ');
     return [`${exp}type ${name} = ${members};`];
   }
   if (alias) {
@@ -75,7 +78,9 @@ export function generateUnion(node: IRNode): string[] {
     for (const field of fields) {
       const fp = propsOf<'field'>(field);
       const opt = fp.optional === 'true' || fp.optional === true ? '?' : '';
-      fieldParts.push(`${emitIdentifier(fp.name, 'field', field)}${opt}: ${emitTypeAnnotation(fp.type, 'unknown', field)}`);
+      fieldParts.push(
+        `${emitIdentifier(fp.name, 'field', field)}${opt}: ${emitTypeAnnotation(fp.type, 'unknown', field)}`,
+      );
     }
     const semi = i === variants.length - 1 ? ';' : '';
     lines.push(`  | { ${fieldParts.join('; ')} }${semi}`);
@@ -100,7 +105,10 @@ export function generateService(node: IRNode): string[] {
     const fp = propsOf<'field'>(field);
     const fieldName = emitIdentifier(fp.name, 'field', field);
     const vis = fp.private === 'true' || fp.private === true ? 'private ' : '';
-    const readonly = (fp as Record<string, unknown>).readonly === 'true' || (fp as Record<string, unknown>).readonly === true ? 'readonly ' : '';
+    const readonly =
+      (fp as Record<string, unknown>).readonly === 'true' || (fp as Record<string, unknown>).readonly === true
+        ? 'readonly '
+        : '';
     const typeAnnotation = fp.type ? `: ${emitTypeAnnotation(fp.type, 'unknown', field)}` : '';
     const defaultVal = fp.default;
     // default values are by-design raw code (escape hatch) — documented, not sanitized
@@ -130,18 +138,25 @@ export function generateService(node: IRNode): string[] {
     const mname = emitIdentifier(mp.name, 'method', method);
     const mparams = mp.params ? parseParamList(mp.params) : '';
     const isAsync = (mp as Record<string, unknown>).async === 'true' || (mp as Record<string, unknown>).async === true;
-    const isStream = (mp as Record<string, unknown>).stream === 'true' || (mp as Record<string, unknown>).stream === true;
-    const isStatic = (mp as Record<string, unknown>).static === 'true' || (mp as Record<string, unknown>).static === true;
-    const vis = (mp as Record<string, unknown>).private === 'true' || (mp as Record<string, unknown>).private === true ? 'private ' : '';
+    const isStream =
+      (mp as Record<string, unknown>).stream === 'true' || (mp as Record<string, unknown>).stream === true;
+    const isStatic =
+      (mp as Record<string, unknown>).static === 'true' || (mp as Record<string, unknown>).static === true;
+    const vis =
+      (mp as Record<string, unknown>).private === 'true' || (mp as Record<string, unknown>).private === true
+        ? 'private '
+        : '';
     const staticKw = isStatic ? 'static ' : '';
     const star = isStream ? '*' : '';
-    const asyncKw = (isAsync || isStream) ? 'async ' : '';
+    const asyncKw = isAsync || isStream ? 'async ' : '';
     const mcode = handlerCode(method);
 
     // stream=true → AsyncGenerator return type
     const mreturns = isStream
       ? `: AsyncGenerator<${emitTypeAnnotation(mp.returns, 'unknown', method)}>`
-      : mp.returns ? `: ${emitTypeAnnotation(mp.returns, 'unknown', method)}` : '';
+      : mp.returns
+        ? `: ${emitTypeAnnotation(mp.returns, 'unknown', method)}`
+        : '';
 
     lines.push('');
     lines.push(`  ${vis}${staticKw}${asyncKw}${star}${mname}(${mparams})${mreturns} {`);

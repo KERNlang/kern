@@ -46,12 +46,12 @@ function detectLanguage(filePath: string): 'ts' | 'py' {
 
 /** Get all regex patterns for a specific language from a sink or guard */
 function langPatterns(patterns: { lang: string; regex: RegExp }[], lang: string): RegExp[] {
-  return patterns.filter(p => p.lang === lang).map(p => p.regex);
+  return patterns.filter((p) => p.lang === lang).map((p) => p.regex);
 }
 
 /** Test if ANY pattern in a list matches source text */
 function anyMatch(patterns: RegExp[], text: string): boolean {
-  return patterns.some(p => p.test(text));
+  return patterns.some((p) => p.test(text));
 }
 
 /** Test if ANY pattern matches non-comment lines in a block */
@@ -59,7 +59,7 @@ function anyMatchSkipComments(patterns: RegExp[], block: string): boolean {
   const lines = block.split('\n');
   for (const line of lines) {
     if (isCommentLine(line)) continue;
-    if (patterns.some(p => p.test(line))) return true;
+    if (patterns.some((p) => p.test(line))) return true;
   }
   return false;
 }
@@ -69,7 +69,7 @@ function findMatchLines(lines: string[], patterns: RegExp[], startIdx: number): 
   const result: number[] = [];
   for (let i = startIdx; i < lines.length; i++) {
     if (isCommentLine(lines[i])) continue;
-    if (patterns.some(p => p.test(lines[i]))) result.push(i + 1);
+    if (patterns.some((p) => p.test(lines[i]))) result.push(i + 1);
   }
   return result;
 }
@@ -83,7 +83,8 @@ function findMatchLines(lines: string[], patterns: RegExp[], startIdx: number): 
 //   fetch(target);           →  tainted var reaches sink
 
 /** Patterns that indicate param/input sources */
-const PARAM_SOURCE_TS = /\b(request\.params|params\.|args\.|input\.|request\.\w+)\b|\b(params|arguments|args|input)\s*[\[.]/;
+const PARAM_SOURCE_TS =
+  /\b(request\.params|params\.|args\.|input\.|request\.\w+)\b|\b(params|arguments|args|input)\s*[[.]/;
 const PARAM_SOURCE_PY = /\b(request\.params|params\[|args\[|kwargs\[|arguments\s*\[)/;
 
 /**
@@ -123,7 +124,10 @@ function collectTaintedVars(
       for (const name of destructMatch[1].split(',')) {
         const parts = name.trim().split(/\s*:\s*/);
         // { prop: alias } → taint "alias"; { prop } → taint "prop"
-        const localName = (parts.length > 1 ? parts[parts.length - 1] : parts[0]).trim().split(/\s*=\s*/)[0].trim();
+        const localName = (parts.length > 1 ? parts[parts.length - 1] : parts[0])
+          .trim()
+          .split(/\s*=\s*/)[0]
+          .trim();
         if (localName && /^\w+$/.test(localName)) tainted.add(localName);
       }
     }
@@ -150,7 +154,9 @@ function collectTaintedVars(
         const rhs = assignMatch[2].trim();
         const isCallResult = /^(?:await\s+)?\w[\w.]*\s*\(/.test(rhs);
         // Taint-preserving: encodeURIComponent(x), encodeURI(x), String(x), x.trim(), x.toString(), etc.
-        const isTaintPreserving = isCallResult && /^(?:encodeURIComponent|encodeURI|String|decodeURIComponent|decodeURI|JSON\.stringify)\s*\(/.test(rhs);
+        const isTaintPreserving =
+          isCallResult &&
+          /^(?:encodeURIComponent|encodeURI|String|decodeURIComponent|decodeURI|JSON\.stringify)\s*\(/.test(rhs);
         if (!isCallResult || isTaintPreserving) {
           for (const tv of tainted) {
             if (new RegExp(`\\b${tv}\\b`).test(rhs)) {
@@ -166,7 +172,8 @@ function collectTaintedVars(
       if (pyAssign && !tainted.has(pyAssign[1])) {
         const rhs = pyAssign[2].trim();
         const isCallResult = /^(?:await\s+)?\w[\w.]*\s*\(/.test(rhs);
-        const isTaintPreservingPy = isCallResult && /^(?:str|urllib\.parse\.quote|urllib\.parse\.urlencode|json\.dumps)\s*\(/.test(rhs);
+        const isTaintPreservingPy =
+          isCallResult && /^(?:str|urllib\.parse\.quote|urllib\.parse\.urlencode|json\.dumps)\s*\(/.test(rhs);
         if (!isCallResult || isTaintPreservingPy) {
           for (const tv of tainted) {
             if (new RegExp(`\\b${tv}\\b`).test(rhs)) {
@@ -226,10 +233,10 @@ function hasSecretFlowToResponse(
   regionStart: number,
   regionEnd: number,
   secretPatterns: RegExp[],
-  lang: 'ts' | 'py',
+  _lang: 'ts' | 'py',
 ): boolean {
   // Build a combined source pattern from all secret sink patterns
-  const combinedSource = new RegExp(secretPatterns.map(p => p.source).join('|'), 'i');
+  const combinedSource = new RegExp(secretPatterns.map((p) => p.source).join('|'), 'i');
 
   // Check if secrets appear directly in response lines
   const response = extractResponseContentLines(lines, regionStart, regionEnd);
@@ -237,7 +244,7 @@ function hasSecretFlowToResponse(
 
   // Direct match: secret pattern in response block
   for (const lineNum of response.lineNumbers) {
-    if (secretPatterns.some(p => p.test(lines[lineNum - 1]))) return true;
+    if (secretPatterns.some((p) => p.test(lines[lineNum - 1]))) return true;
   }
 
   // Taint tracking: follow secret assignments to response
@@ -277,7 +284,7 @@ function extractResponseContentLines(
     if (isCommentLine(line)) continue;
 
     // Detect return statements and content blocks
-    if (/\breturn\s*[{\[(]/.test(line) || /\breturn\s*$/.test(line)) {
+    if (/\breturn\s*[{[(]/.test(line) || /\breturn\s*$/.test(line)) {
       inReturn = true;
       braceDepth = 0;
     }
@@ -315,11 +322,7 @@ function extractResponseContentLines(
 // ── Main runner ──────────────────────────────────────────────────────
 
 /** Run all compiled rules against an MCP server source file */
-export function runCompiledRules(
-  rules: CompiledMCPRule[],
-  source: string,
-  filePath: string,
-): ReviewFinding[] {
+export function runCompiledRules(rules: CompiledMCPRule[], source: string, filePath: string): ReviewFinding[] {
   if (!isMCPServer(source, filePath)) return [];
 
   const lang = detectLanguage(filePath);
@@ -327,7 +330,7 @@ export function runCompiledRules(
   const findings: ReviewFinding[] = [];
 
   for (const rule of rules) {
-    if (rule.delegate) continue;  // Delegated to TypeScript — skip compiled runner
+    if (rule.delegate) continue; // Delegated to TypeScript — skip compiled runner
 
     const ruleFindings = runSingleRule(rule, source, lines, filePath, lang);
     findings.push(...ruleFindings);
@@ -346,7 +349,7 @@ function runSingleRule(
 ): ReviewFinding[] {
   // ── Layer 0: Regex pre-filter ─────────────────────────────────────
   // Quick bail: check if ANY sink pattern matches anywhere in source
-  const allSinkPatterns = rule.sinks.flatMap(s => langPatterns(s.patterns, lang));
+  const allSinkPatterns = rule.sinks.flatMap((s) => langPatterns(s.patterns, lang));
   if (allSinkPatterns.length > 0 && !anyMatch(allSinkPatterns, source)) {
     return [];
   }
@@ -366,15 +369,20 @@ function runSingleRule(
       if (patterns.length === 0) continue;
       if (!anyMatchSkipComments(patterns, block)) continue;
 
-      const matchLines = findMatchLines(lines, patterns, region.start)
-        .filter(l => l >= region.start && l <= region.end);
+      const matchLines = findMatchLines(lines, patterns, region.start).filter(
+        (l) => l >= region.start && l <= region.end,
+      );
       if (matchLines.length > 0) {
         matchedSinks.push({ sink, matchLines });
       }
     }
 
     // Allow through if invariants use source-code scope (sinks may be in helper functions)
-    if (matchedSinks.length === 0 && !rule.invariants.some(i => i.from === 'source-code' || i.from === 'tool-handler')) continue;
+    if (
+      matchedSinks.length === 0 &&
+      !rule.invariants.some((i) => i.from === 'source-code' || i.from === 'tool-handler')
+    )
+      continue;
 
     // Check which guards are present in this handler (skip comment lines)
     const matchedGuards = new Set<string>();
@@ -384,8 +392,8 @@ function runSingleRule(
       if (anyMatchSkipComments(patterns, block)) {
         // If guard has companion requirements, check those too
         if (guard.needs) {
-          const companionsPresent = guard.needs.every(needed => {
-            const companion = rule.guards.find(g => g.name === needed);
+          const companionsPresent = guard.needs.every((needed) => {
+            const companion = rule.guards.find((g) => g.name === needed);
             if (!companion) return false;
             return anyMatchSkipComments(langPatterns(companion.patterns, lang), block);
           });
@@ -401,13 +409,12 @@ function runSingleRule(
       const isHandlerScope = inv.from === 'tool-handler';
 
       // Find sinks referenced by this invariant
-      const targetSinks = matchedSinks.filter(ms => ms.sink.name === inv.to || ms.sink.kind === inv.to);
+      const targetSinks = matchedSinks.filter((ms) => ms.sink.name === inv.to || ms.sink.kind === inv.to);
       const isSourceScope = inv.from === 'source-code';
       if (!isHandlerScope && !isSourceScope && targetSinks.length === 0) continue;
 
       // Check if required guards are present
-      const guardsSatisfied = inv.guardedBy.length === 0 ||
-        inv.guardedBy.some(g => matchedGuards.has(g));
+      const guardsSatisfied = inv.guardedBy.length === 0 || inv.guardedBy.some((g) => matchedGuards.has(g));
 
       if (guardsSatisfied) continue;
 
@@ -418,33 +425,33 @@ function runSingleRule(
         // If no guard → falls through to finding emission below
       } else if (inv.from === 'tool-params') {
         // Proximity-based flow: params must appear near the sink match lines
-        const allSinkLines = targetSinks.flatMap(ms => ms.matchLines);
+        const allSinkLines = targetSinks.flatMap((ms) => ms.matchLines);
         if (!hasParamFlowToSink(lines, allSinkLines, region.start, region.end, lang)) continue;
       } else if (inv.from === 'tool-description') {
         // Extract tool description from the .tool() call line region
         const descText = extractToolDescription(lines, region.start);
         if (!descText) continue;
         // Check if any target sink patterns appear in the description
-        const sinkPatterns = targetSinks.flatMap(ms => langPatterns(ms.sink.patterns, lang));
-        if (sinkPatterns.length > 0 && !sinkPatterns.some(p => p.test(descText))) continue;
+        const sinkPatterns = targetSinks.flatMap((ms) => langPatterns(ms.sink.patterns, lang));
+        if (sinkPatterns.length > 0 && !sinkPatterns.some((p) => p.test(descText))) continue;
       } else if (inv.from === 'response-content') {
         // Taint-tracked: check if secret patterns flow to response content
-        const sinkPatterns = targetSinks.flatMap(ms => langPatterns(ms.sink.patterns, lang));
+        const sinkPatterns = targetSinks.flatMap((ms) => langPatterns(ms.sink.patterns, lang));
         if (sinkPatterns.length === 0) continue;
         if (!hasSecretFlowToResponse(lines, region.start, region.end, sinkPatterns, lang)) continue;
       } else if (inv.from === 'source-code') {
         // Source-code scope: check the ENTIRE file, not just handler region.
         // Real code calls helper functions from handlers — sinks may be outside the region.
         const allSinkPatterns = rule.sinks
-          .filter(s => s.name === inv.to || s.kind === inv.to)
-          .flatMap(s => langPatterns(s.patterns, lang));
+          .filter((s) => s.name === inv.to || s.kind === inv.to)
+          .flatMap((s) => langPatterns(s.patterns, lang));
         if (allSinkPatterns.length === 0) continue;
         const fileMatchLines = findMatchLines(lines, allSinkPatterns, 0);
         if (fileMatchLines.length === 0) continue;
         // Check if any guard is present anywhere in the file
         const fileBlock = source;
-        const hasFileGuard = inv.guardedBy.some(g => {
-          const guard = rule.guards.find(gd => gd.name === g);
+        const hasFileGuard = inv.guardedBy.some((g) => {
+          const guard = rule.guards.find((gd) => gd.name === g);
           if (!guard) return false;
           return anyMatch(langPatterns(guard.patterns, lang), fileBlock);
         });
@@ -459,7 +466,9 @@ function runSingleRule(
         // Cap at MAX_SOURCE_SCOPE_FINDINGS to avoid noise (e.g. rug-pull on
         // every variable-based tool name in the same file).
         const MAX_SOURCE_SCOPE_FINDINGS = 5;
-        const allSP = rule.sinks.filter(s => s.name === inv.to || s.kind === inv.to).flatMap(s => langPatterns(s.patterns, lang));
+        const allSP = rule.sinks
+          .filter((s) => s.name === inv.to || s.kind === inv.to)
+          .flatMap((s) => langPatterns(s.patterns, lang));
         const fml = findMatchLines(lines, allSP, 0);
         const matchesToEmit = fml.length > 0 ? fml.slice(0, MAX_SOURCE_SCOPE_FINDINGS) : [region.start + 1];
         for (const matchLine of matchesToEmit) {
@@ -495,7 +504,7 @@ function runSingleRule(
           confidence: rule.confidence,
         });
       }
-      break;  // One invariant check per region (source-code emits per-match above)
+      break; // One invariant check per region (source-code emits per-match above)
     }
 
     // If no invariants, fall back to structural check: sinks without guards
