@@ -253,7 +253,7 @@ export function generateBranch(node: IRNode): string[] {
 // ── resolve ─────────────────────────────────────────────────────────────
 
 export function generateResolve(node: IRNode): string[] {
-  const { annotations, todo, props, name } = groundPreamble(node);
+  const { annotations, todo, name } = groundPreamble(node);
   const candidates = kids(node, 'candidate');
   const discriminator = firstChild(node, 'discriminator');
 
@@ -328,7 +328,7 @@ export function generateExpect(node: IRNode): string[] {
 // ── recover ─────────────────────────────────────────────────────────────
 
 export function generateRecover(node: IRNode): string[] {
-  const { annotations, todo, props, name } = groundPreamble(node);
+  const { annotations, todo, name } = groundPreamble(node);
   const strategies = kids(node, 'strategy');
 
   const lines: string[] = [...todo, ...annotations];

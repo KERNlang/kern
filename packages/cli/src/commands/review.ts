@@ -84,7 +84,6 @@ async function runReviewPipeline(
     maxComplexityArg,
     maxErrorsArg,
     maxWarningsArg,
-    showConfidence,
   } = modes;
 
   let reports: ReviewReport[] = [];

@@ -43,12 +43,6 @@ type PropChild = {
   default?: string;
 };
 
-type StateChild = {
-  name: string;
-  type: string;
-  initial?: string;
-};
-
 function propsOf(node: IRNode): Record<string, unknown> {
   return node.props || {};
 }

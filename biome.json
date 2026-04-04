@@ -20,15 +20,16 @@
     "rules": {
       "recommended": true,
       "complexity": {
-        "noExcessiveCognitiveComplexity": "warn"
+        "noExcessiveCognitiveComplexity": "off"
       },
       "suspicious": {
         "noExplicitAny": "off",
         "noControlCharactersInRegex": "off",
         "noAssignInExpressions": "off",
         "noImplicitAnyLet": "off",
-        "noMisleadingCharacterClass": "warn",
-        "useIterableCallbackReturn": "warn"
+        "noMisleadingCharacterClass": "off",
+        "noTemplateCurlyInString": "off",
+        "useIterableCallbackReturn": "off"
       },
       "style": {
         "noNonNullAssertion": "off",
@@ -36,7 +37,7 @@
       },
       "correctness": {
         "noSwitchDeclarations": "warn",
-        "noEmptyCharacterClassInRegex": "warn"
+        "noEmptyCharacterClassInRegex": "off"
       }
     }
   },

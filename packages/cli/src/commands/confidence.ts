@@ -17,9 +17,7 @@ export async function runConfidence(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const { buildConfidenceGraph, buildMultiFileConfidenceGraph, flattenIR, lintMultiFileConfidenceGraph } = await import(
-    '@kernlang/review'
-  );
+  const { buildConfidenceGraph, buildMultiFileConfidenceGraph, flattenIR } = await import('@kernlang/review');
   const confStat = statSync(confPath);
   const isDir = confStat.isDirectory();
 
