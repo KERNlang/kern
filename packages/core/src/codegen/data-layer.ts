@@ -50,7 +50,12 @@ export function generateConfig(node: IRNode): string[] {
       else def = "''";
     } else if (
       ftype === 'string' ||
-      (!['number', 'boolean'].includes(ftype) && !ftype.endsWith('[]') && !def.startsWith("'") && !def.startsWith('"') && !def.startsWith('{') && !def.startsWith('['))
+      (!['number', 'boolean'].includes(ftype) &&
+        !ftype.endsWith('[]') &&
+        !def.startsWith("'") &&
+        !def.startsWith('"') &&
+        !def.startsWith('{') &&
+        !def.startsWith('['))
     ) {
       def = emitStringLiteral(def);
     }
