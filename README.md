@@ -10,7 +10,7 @@
 
   <br>
 
-  **Built for humans and AI.** 192-line spec. 12 compile targets. 76 review rules.<br>
+  **Built for humans and AI.** 192-line spec. 12 compile targets. 98 review rules.<br>
   <sub>LLMs write .kern in up to 85% fewer tokens. 7 LLMs verified.</sub>
 
   <br>
@@ -29,7 +29,7 @@ npm install -g @kernlang/cli
 ```
 
 ```bash
-kern review src/ --recursive                      # Static analysis (76 rules, taint tracking, OWASP LLM01)
+kern review src/ --recursive                      # Static analysis (98 rules, taint tracking, OWASP LLM01)
 kern compile src/ --target=nextjs                  # .kern → Next.js
 kern compile src/ --target=fastapi                 # .kern → FastAPI Python
 kern evolve src/ --recursive                       # Detect gaps → propose templates
@@ -42,7 +42,7 @@ kern dev src/ --target=nextjs                      # Watch & hot-transpile
 
 **KERN is a structural language with five capabilities: Compile, Review, Evolve, Infer, and MCP Security.**
 
-Write `.kern` once, compile to 12 targets. Or skip `.kern` entirely and use `kern review` to scan your existing TypeScript and Python for security bugs, unguarded effects, and prompt injection — 76 AST-based rules that catch what ESLint misses.
+Write `.kern` once, compile to 12 targets. Or skip `.kern` entirely and use `kern review` to scan your existing TypeScript and Python for security bugs, unguarded effects, and prompt injection — 98 AST-based rules that catch what ESLint misses.
 
 ```
 Same .kern → Next.js, React, Vue, Nuxt, Express, FastAPI, Native, CLI, Terminal, Ink, Tailwind, MCP
@@ -79,7 +79,7 @@ kern review src/ --lint                 # KERN + ESLint + tsc unified
 kern review src/ --llm                  # AI review (see below)
 ```
 
-**76 rules** across 10 layers: Base, React, Next.js, Vue, Express, Security (v1-v4), Dead Logic, Null Safety, Concept Rules, Taint Tracking.
+**98 rules** across 10 layers: Base, React, Next.js, Vue, Express, Security (v1-v4), Dead Logic, Null Safety, Concept Rules, Taint Tracking.
 
 ### AI-Assisted Review (`--llm`)
 
@@ -308,8 +308,8 @@ jobs:
 |:--------|:-------------|
 | **[@kernlang/cli](https://www.npmjs.com/package/@kernlang/cli)** | CLI — compile, review, evolve, dev |
 | **[@kernlang/core](https://www.npmjs.com/package/@kernlang/core)** | Parser, codegen, types — the compiler engine |
-| **[@kernlang/review](https://www.npmjs.com/package/@kernlang/review)** | 76 rules, taint tracking, OWASP LLM01, concept model |
-| **[@kernlang/review-mcp](https://www.npmjs.com/package/@kernlang/review-mcp)** | MCP security scanner (13 rules, OWASP MCP Top 10) |
+| **[@kernlang/review](https://www.npmjs.com/package/@kernlang/review)** | 98 rules, taint tracking, OWASP LLM01, concept model |
+| **[@kernlang/review-mcp](https://www.npmjs.com/package/@kernlang/review-mcp)** | MCP security scanner (12 rules, OWASP MCP Top 10) |
 | @kernlang/react | Next.js, Tailwind, Web transpilers |
 | @kernlang/vue | Vue 3 SFC, Nuxt 3 transpilers |
 | @kernlang/native | React Native transpiler |
