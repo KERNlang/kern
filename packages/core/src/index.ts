@@ -32,6 +32,7 @@ export {
   handlerCode,
   hasEvolvedGenerator,
   isCoreNode,
+  sourceComment,
   mapSemanticType,
   parseParamList,
   // Evolved generators — prefer KernRuntime for new code
