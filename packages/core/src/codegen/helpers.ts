@@ -122,6 +122,14 @@ function findDefaultSeparator(rest: string): number {
   return -1;
 }
 
+// ── Source Location Comments ────────────────────────────────────────────
+
+/** Emit a @kern-source comment for tracing generated code back to .kern source. */
+export function sourceComment(node: IRNode, sourceFile?: string): string {
+  if (!node.loc) return '';
+  return `// @kern-source: ${sourceFile || 'unknown'}:${node.loc.line}`;
+}
+
 // ── Reason & Confidence Annotations ─────────────────────────────────────
 
 export function emitReasonAnnotations(node: IRNode): string[] {

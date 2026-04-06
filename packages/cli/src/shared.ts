@@ -45,13 +45,21 @@ export function hasFlag(args: string[], ...flags: string[]): boolean {
 
 // ── Parse helpers ────────────────────────────────────────────────────────
 
-export function surfaceParseDiagnostics(diagnostics: ParseDiagnostic[], file?: string): void {
-  if (diagnostics.length === 0) return;
+export function surfaceParseDiagnostics(
+  diagnostics: ParseDiagnostic[],
+  file?: string,
+): { errors: number; warnings: number } {
+  if (diagnostics.length === 0) return { errors: 0, warnings: 0 };
   const prefix = file ? `${file}: ` : '';
+  let errors = 0;
+  let warnings = 0;
   for (const diagnostic of diagnostics) {
     const tag = diagnostic.severity === 'error' ? 'ERROR' : diagnostic.severity === 'warning' ? 'WARN' : 'INFO';
     console.error(`  ${prefix}[${tag}] ${diagnostic.code}: ${diagnostic.message}`);
+    if (diagnostic.severity === 'error') errors++;
+    else if (diagnostic.severity === 'warning') warnings++;
   }
+  return { errors, warnings };
 }
 
 export function parseAndSurface(source: string, file?: string): IRNode {

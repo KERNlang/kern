@@ -140,12 +140,37 @@ export function buildLLMPrompt(
 // ── LLM Response Parser ─────────────────────────────────────────────────
 
 interface LLMFinding {
-  nodeAlias: string;
+  nodeAlias?: string;
+  line?: number;
   severity: 'error' | 'warning' | 'info';
-  category: 'bug' | 'type' | 'pattern' | 'style' | 'structure';
+  category: string;
   message: string;
   evidence?: string;
 }
+
+/** Map AI-returned categories to valid internal categories. */
+const CATEGORY_MAP: Record<string, string> = {
+  bug: 'bug',
+  correctness: 'bug',
+  logic: 'bug',
+  error: 'bug',
+  security: 'bug',
+  vulnerability: 'bug',
+  injection: 'bug',
+  type: 'type',
+  typing: 'type',
+  types: 'type',
+  pattern: 'pattern',
+  antipattern: 'pattern',
+  'anti-pattern': 'pattern',
+  style: 'style',
+  formatting: 'style',
+  readability: 'style',
+  performance: 'pattern',
+  structure: 'structure',
+  architecture: 'structure',
+  design: 'structure',
+};
 
 /**
  * Parse strict JSON response from LLM, validate nodeIds, reject unknowns.
@@ -200,18 +225,36 @@ export function parseLLMResponse(response: string, inferred: InferResult[]): Rev
 
   const findings: ReviewFinding[] = [];
   const validSeverities = new Set(['error', 'warning', 'info']);
-  const validCategories = new Set(['bug', 'type', 'pattern', 'style', 'structure']);
 
   for (const item of parsed) {
-    // Validate nodeAlias
-    if (!item.nodeAlias || !validAliases.has(item.nodeAlias)) {
-      continue; // reject unknown aliases silently
+    // Resolve source location: prefer nodeAlias, fall back to line number
+    let primarySpan: SourceSpan | null = null;
+    let nodeIds: string[] | undefined;
+
+    if (item.nodeAlias && validAliases.has(item.nodeAlias)) {
+      const node = aliasMap.get(item.nodeAlias)!;
+      primarySpan = node.sourceSpans[0] || {
+        file: '',
+        startLine: node.startLine,
+        startCol: 1,
+        endLine: node.endLine,
+        endCol: 1,
+      };
+      nodeIds = [node.nodeId];
+    } else if (item.line && typeof item.line === 'number' && item.line > 0) {
+      // AI used "line" field — create a span from the line number
+      primarySpan = { file: '', startLine: item.line, startCol: 1, endLine: item.line, endCol: 1 };
+    } else {
+      continue; // no location at all — skip
     }
 
-    // Validate severity and category
+    // Validate severity
     if (!validSeverities.has(item.severity)) continue;
-    if (!validCategories.has(item.category)) continue;
     if (!item.message || typeof item.message !== 'string') continue;
+
+    // Normalize category — accept what AIs naturally return
+    type FindingCategory = 'bug' | 'type' | 'pattern' | 'style' | 'structure';
+    const category = (CATEGORY_MAP[(item.category || '').toLowerCase()] || 'bug') as FindingCategory;
 
     // Sanitize message: strip ANSI escape codes and control characters
     const message = item.message
@@ -219,25 +262,16 @@ export function parseLLMResponse(response: string, inferred: InferResult[]): Rev
       .replace(/\x1b\][^\x07]*\x07/g, '') // OSC sequences (title bar injection)
       .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, ''); // control chars (keep \t \n \r)
 
-    const node = aliasMap.get(item.nodeAlias)!;
-    const primarySpan: SourceSpan = node.sourceSpans[0] || {
-      file: '',
-      startLine: node.startLine,
-      startCol: 1,
-      endLine: node.endLine,
-      endCol: 1,
-    };
-
     findings.push({
       source: 'llm',
-      ruleId: `llm-${item.category}`,
+      ruleId: `llm-${category}`,
       severity: item.severity,
-      category: item.category,
+      category,
       message,
       primarySpan,
-      nodeIds: [node.nodeId],
+      ...(nodeIds ? { nodeIds } : {}),
       confidence: 0.7, // LLM findings get lower confidence
-      fingerprint: createFingerprint(`llm-${item.category}`, primarySpan.startLine, primarySpan.startCol),
+      fingerprint: createFingerprint(`llm-${category}`, primarySpan.startLine, primarySpan.startCol),
     });
   }
 

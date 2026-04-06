@@ -38,6 +38,7 @@ export {
   registerEvolvedGenerator,
   registerEvolvedTargetGenerator,
   SEMANTIC_TYPE_MAP,
+  sourceComment,
   unregisterEvolvedGenerator,
 } from './codegen-core.js';
 export type {

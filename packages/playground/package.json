@@ -20,12 +20,12 @@
     "@kernlang/vue": "workspace:*",
     "@monaco-editor/react": "^4.6.0",
     "monaco-editor": "^0.55.1",
-    "next": "^15.5.14",
+    "next": "^16.2.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^25.5.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "typescript": "^5.7.0"

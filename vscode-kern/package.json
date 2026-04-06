@@ -19,7 +19,10 @@
       {
         "language": "kern",
         "scopeName": "source.kern",
-        "path": "./syntaxes/kern.tmLanguage.json"
+        "path": "./syntaxes/kern.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.typescript": "typescript"
+        }
       }
     ]
   }

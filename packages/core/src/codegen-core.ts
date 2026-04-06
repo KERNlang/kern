@@ -65,6 +65,7 @@ export {
   getThemeRefs,
   handlerCode,
   parseParamList,
+  sourceComment,
 } from './codegen/helpers.js';
 export { generateMachine, generateMachineReducer } from './codegen/machines.js';
 export { generateImport } from './codegen/modules.js';
