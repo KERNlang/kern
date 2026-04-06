@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/protocol",
-  "version": "3.0.0",
+  "version": "3.1.7",
   "description": "Kern draft protocol — structured AI communication format",
   "type": "module",
   "main": "./dist/index.js",
