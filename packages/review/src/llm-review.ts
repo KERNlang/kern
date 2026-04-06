@@ -150,13 +150,26 @@ interface LLMFinding {
 
 /** Map AI-returned categories to valid internal categories. */
 const CATEGORY_MAP: Record<string, string> = {
-  bug: 'bug', correctness: 'bug', logic: 'bug', error: 'bug',
-  security: 'bug', vulnerability: 'bug', injection: 'bug',
-  type: 'type', typing: 'type', types: 'type',
-  pattern: 'pattern', antipattern: 'pattern', 'anti-pattern': 'pattern',
-  style: 'style', formatting: 'style', readability: 'style',
+  bug: 'bug',
+  correctness: 'bug',
+  logic: 'bug',
+  error: 'bug',
+  security: 'bug',
+  vulnerability: 'bug',
+  injection: 'bug',
+  type: 'type',
+  typing: 'type',
+  types: 'type',
+  pattern: 'pattern',
+  antipattern: 'pattern',
+  'anti-pattern': 'pattern',
+  style: 'style',
+  formatting: 'style',
+  readability: 'style',
   performance: 'pattern',
-  structure: 'structure', architecture: 'structure', design: 'structure',
+  structure: 'structure',
+  architecture: 'structure',
+  design: 'structure',
 };
 
 /**
@@ -221,7 +234,11 @@ export function parseLLMResponse(response: string, inferred: InferResult[]): Rev
     if (item.nodeAlias && validAliases.has(item.nodeAlias)) {
       const node = aliasMap.get(item.nodeAlias)!;
       primarySpan = node.sourceSpans[0] || {
-        file: '', startLine: node.startLine, startCol: 1, endLine: node.endLine, endCol: 1,
+        file: '',
+        startLine: node.startLine,
+        startCol: 1,
+        endLine: node.endLine,
+        endCol: 1,
       };
       nodeIds = [node.nodeId];
     } else if (item.line && typeof item.line === 'number' && item.line > 0) {

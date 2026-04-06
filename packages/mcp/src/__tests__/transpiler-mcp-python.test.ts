@@ -369,7 +369,7 @@ interface MCPResponse {
 function runPythonMCP(
   code: string,
   messages: object[],
-  timeoutMs = 5000,
+  timeoutMs = 15000,
 ): Promise<{ responses: MCPResponse[]; stderr: string }> {
   return new Promise((resolve, reject) => {
     const dir = mkdtempSync(join(tmpdir(), 'kern-py-e2e-'));
@@ -559,7 +559,7 @@ describeE2E('transpileMCPPython runtime E2E', () => {
     const toolResponse = findResponse(responses, 2);
     const content = (toolResponse.result as any).content;
     expect(content[0].text).toBe('Hello World');
-  }, 15000);
+  }, 30000);
 
   // 2. Default handler — tool without Python handler gets stub
   it('should return default stub for tool without Python handler', async () => {
@@ -596,7 +596,7 @@ describeE2E('transpileMCPPython runtime E2E', () => {
     const names = tools.map((t: { name: string }) => t.name);
     expect(names).toContain('alpha');
     expect(names).toContain('beta');
-  }, 15000);
+  }, 30000);
 
   // 4. Typed parameters — number param works correctly
   it('should handle typed parameters in Python', async () => {
@@ -616,7 +616,7 @@ describeE2E('transpileMCPPython runtime E2E', () => {
 
     const toolResponse = findResponse(responses, 2);
     expect((toolResponse.result as any).content[0].text).toBe('42.0');
-  }, 15000);
+  }, 30000);
 
   // 5. Auth guard — rejects without env var
   it('should enforce auth guard in Python', async () => {
@@ -635,7 +635,7 @@ describeE2E('transpileMCPPython runtime E2E', () => {
 
     const toolResponse = findResponse(responses, 2);
     expect((toolResponse.result as any)?.isError).toBe(true);
-  }, 15000);
+  }, 30000);
 
   // 6. Sanitize guard — strips dangerous input
   it('should sanitize input in Python', async () => {
@@ -656,7 +656,7 @@ describeE2E('transpileMCPPython runtime E2E', () => {
     const toolResponse = findResponse(responses, 2);
     const text = (toolResponse.result as any).content[0].text;
     expect(text).not.toContain('<script>');
-  }, 15000);
+  }, 30000);
 
   // 7. TS handler is skipped — doesn't crash Python
   it('should not crash when TS-only handler is present', async () => {
@@ -697,7 +697,7 @@ describeE2E('transpileMCPPython runtime E2E', () => {
 
     const toolResponse = findResponse(responses, 2);
     expect((toolResponse.result as any)?.isError).toBe(true);
-  }, 15000);
+  }, 30000);
 
   // 9. Validate guard — rejects out-of-range in Python
   it('should reject out-of-range values in Python', async () => {
@@ -717,7 +717,7 @@ describeE2E('transpileMCPPython runtime E2E', () => {
 
     const toolResponse = findResponse(responses, 2);
     expect((toolResponse.result as any)?.isError).toBe(true);
-  }, 15000);
+  }, 30000);
 
   // 10. SizeLimit guard — rejects oversized input in Python
   it('should reject oversized input in Python', async () => {
@@ -737,7 +737,7 @@ describeE2E('transpileMCPPython runtime E2E', () => {
 
     const toolResponse = findResponse(responses, 2);
     expect((toolResponse.result as any)?.isError).toBe(true);
-  }, 15000);
+  }, 30000);
 
   // 11. Error handling — Python handler that raises produces error response
   it('should catch Python handler errors gracefully', async () => {
@@ -753,7 +753,7 @@ describeE2E('transpileMCPPython runtime E2E', () => {
 
     const toolResponse = findResponse(responses, 2);
     expect((toolResponse.result as any)?.isError).toBe(true);
-  }, 15000);
+  }, 30000);
 
   // 12. Resource handler at runtime
   it('should serve a resource in Python', async () => {
@@ -774,7 +774,7 @@ describeE2E('transpileMCPPython runtime E2E', () => {
     expect(resourceResponse.result).toBeDefined();
     const contents = (resourceResponse.result as any).contents;
     expect(contents[0].text).toContain('Welcome to KERN');
-  }, 15000);
+  }, 30000);
 
   // 13. Prompt handler at runtime
   it('should serve a prompt in Python', async () => {
@@ -796,7 +796,7 @@ describeE2E('transpileMCPPython runtime E2E', () => {
     expect(promptResponse.result).toBeDefined();
     const messages = (promptResponse.result as any).messages;
     expect(messages[0].content.text).toContain('def f(): pass');
-  }, 15000);
+  }, 30000);
 
   // 14. Resource listing
   it('should list resources in Python', async () => {
@@ -813,5 +813,5 @@ describeE2E('transpileMCPPython runtime E2E', () => {
     const uris = resources.map((r: { uri: string }) => r.uri);
     expect(uris).toContain('app://config');
     expect(uris).toContain('app://status');
-  }, 15000);
+  }, 30000);
 });

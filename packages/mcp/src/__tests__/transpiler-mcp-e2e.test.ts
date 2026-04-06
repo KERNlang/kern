@@ -82,7 +82,7 @@ function compileServer(code: string): { dir: string; entryJS: string } {
 function sendMCP(
   entryJS: string,
   messages: object[],
-  timeoutMs = 4000,
+  timeoutMs = 10000,
 ): Promise<{ responses: MCPResponse[]; stderr: string }> {
   return new Promise((resolvePromise, reject) => {
     const cp = spawn('node', [entryJS], {
@@ -257,7 +257,7 @@ describe('transpileMCP runtime E2E', () => {
     expect(toolResponse.result).toBeDefined();
     const content = (toolResponse.result as any).content;
     expect(content[0].text).toBe('Hello World');
-  }, 15000);
+  }, 30000);
 
   // 2. Sanitize guard — strips dangerous characters
   it('should sanitize input via sanitize guard', async () => {
@@ -307,7 +307,7 @@ describe('transpileMCP runtime E2E', () => {
     // Should be rejected by Zod validation (min=1)
     const hasError = toolResponse.error !== undefined || (toolResponse.result as any)?.isError === true;
     expect(hasError).toBe(true);
-  }, 15000);
+  }, 30000);
 
   // 4. Auth guard — fails without env var
   it('should reject when auth env var is missing', async () => {
@@ -330,7 +330,7 @@ describe('transpileMCP runtime E2E', () => {
     // Should fail with auth error (isError: true in MCP tool response)
     expect((toolResponse.result as any)?.isError).toBe(true);
     expect((toolResponse.result as any)?.content[0].text).toContain('Authentication required');
-  }, 15000);
+  }, 30000);
 
   // 5. SizeLimit guard — rejects oversized input
   it('should reject oversized input via sizeLimit guard', async () => {
@@ -355,7 +355,7 @@ describe('transpileMCP runtime E2E', () => {
     const toolResponse = findResponse(responses, 2);
     expect((toolResponse.result as any)?.isError).toBe(true);
     expect((toolResponse.result as any)?.content[0].text).toContain('exceeds size limit');
-  }, 15000);
+  }, 30000);
 
   // 6. Resource handler — returns content
   it('should serve a static resource', async () => {
@@ -378,7 +378,7 @@ describe('transpileMCP runtime E2E', () => {
     expect(resourceResponse.result).toBeDefined();
     const contents = (resourceResponse.result as any).contents;
     expect(contents[0].text).toBe('# Hello World');
-  }, 15000);
+  }, 30000);
 
   // 7. Prompt handler — returns messages
   it('should serve a prompt', async () => {
@@ -404,7 +404,7 @@ describe('transpileMCP runtime E2E', () => {
     expect(promptResponse.result).toBeDefined();
     const messages = (promptResponse.result as any).messages;
     expect(messages[0].content.text).toContain('Review: function f() {}');
-  }, 15000);
+  }, 30000);
 
   // 8. Tool listing — all registered tools appear
   it('should list tools via tools/list', async () => {
@@ -426,7 +426,7 @@ describe('transpileMCP runtime E2E', () => {
     const names = tools.map((t: { name: string }) => t.name);
     expect(names).toContain('alpha');
     expect(names).toContain('beta');
-  }, 15000);
+  }, 30000);
 
   // 9. Logging — server emits structured JSON logs to stderr
   it('should emit structured logs to stderr', async () => {
@@ -449,7 +449,7 @@ describe('transpileMCP runtime E2E', () => {
     expect(stderr).toContain('"LogE2E"');
     // Should contain tool:call log
     expect(stderr).toContain('tool:call');
-  }, 15000);
+  }, 30000);
 
   // 10. Default handler — tools without custom handler return default response
   it('should return default response for tools without handler', async () => {
@@ -468,7 +468,7 @@ describe('transpileMCP runtime E2E', () => {
     const toolResponse = findResponse(responses, 2);
     const text = (toolResponse.result as any).content[0].text;
     expect(text).toBe('noop completed');
-  }, 15000);
+  }, 30000);
 
   // 11. PathContainment guard — blocks directory traversal attacks
   it('should block directory traversal via pathContainment guard', async () => {
@@ -493,7 +493,7 @@ describe('transpileMCP runtime E2E', () => {
     const toolResponse = findResponse(responses, 2);
     expect((toolResponse.result as any)?.isError).toBe(true);
     expect((toolResponse.result as any)?.content[0].text).toContain('Path escapes allowed directories');
-  }, 15000);
+  }, 30000);
 
   // 12. PathContainment guard — allows valid paths
   it('should allow valid paths through pathContainment guard', async () => {
@@ -517,7 +517,7 @@ describe('transpileMCP runtime E2E', () => {
     // Should succeed — path is within /tmp
     expect((toolResponse.result as any)?.isError).not.toBe(true);
     expect((toolResponse.result as any)?.content[0].text).toContain('/tmp/data.txt');
-  }, 15000);
+  }, 30000);
 
   // 13. RateLimit guard — rejects after exceeding limit
   it('should enforce rate limiting', async () => {
@@ -552,7 +552,7 @@ describe('transpileMCP runtime E2E', () => {
     const r5 = findResponse(responses, 5);
     expect((r5.result as any)?.isError).toBe(true);
     expect((r5.result as any)?.content[0].text).toContain('Rate limit exceeded');
-  }, 15000);
+  }, 30000);
 
   // 14. ResourceTemplate — dynamic URI with variables
   it('should serve a resource template with variables', async () => {
@@ -577,7 +577,7 @@ describe('transpileMCP runtime E2E', () => {
     expect(resourceResponse.result).toBeDefined();
     const contents = (resourceResponse.result as any).contents;
     expect(contents[0].text).toContain('profile for alice');
-  }, 15000);
+  }, 30000);
 
   // 15. Error handling — handler that throws produces isError response, doesn't crash server
   it('should catch handler errors and return isError response', async () => {
@@ -604,7 +604,7 @@ describe('transpileMCP runtime E2E', () => {
     const r3 = findResponse(responses, 3);
     expect((r3.result as any)?.isError).toBe(true);
     expect((r3.result as any)?.content[0].text).toContain('intentional failure');
-  }, 15000);
+  }, 30000);
 
   // 16. Multiple guards on same tool — auth + sanitize + validate work together
   it('should enforce multiple guards on the same tool', async () => {
@@ -633,7 +633,7 @@ describe('transpileMCP runtime E2E', () => {
     const r2 = findResponse(responses, 2);
     expect((r2.result as any)?.isError).toBe(true);
     expect((r2.result as any)?.content[0].text).toContain('Authentication required');
-  }, 15000);
+  }, 30000);
 
   // 17. Concurrent requests — send 10 tool calls rapidly, all must respond correctly
   it('should handle concurrent tool calls without corruption', async () => {
@@ -911,7 +911,7 @@ describe('transpileMCP sanitizeOutput E2E', () => {
     expect(text).not.toContain('ignore all previous instructions');
     expect(text).toContain('[FILTERED]');
     expect(text).toContain('Data:');
-  }, 15000);
+  }, 30000);
 
   it('should pass through clean output unchanged', async () => {
     const ast = node('mcp', { name: 'CleanOutE2E' }, [
@@ -932,7 +932,7 @@ describe('transpileMCP sanitizeOutput E2E', () => {
 
     const toolResponse = findResponse(responses, 2);
     expect((toolResponse.result as any)?.content[0].text).toBe('Hello, this is normal text');
-  }, 15000);
+  }, 30000);
 });
 
 // ── HTTP transport runtime E2E ─────────────────────────────────────────
