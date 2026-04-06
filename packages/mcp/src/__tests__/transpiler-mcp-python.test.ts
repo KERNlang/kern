@@ -446,10 +446,11 @@ function runPythonMCP(
       }
       sendMessage(initializedNotification, (err) => {
         if (err || settled) return;
-        // Give the Python process time to finish initialization on slow CI runners
+        // Give the Python process time to finish initialization on slow CI runners.
+        // 200ms wasn't enough — bumped to 500ms after continued flakiness on GH Actions.
         setTimeout(() => {
           if (!settled) sendFollowups();
-        }, 200);
+        }, 500);
       });
     };
 

@@ -129,7 +129,8 @@ function sendMCP(
 
     const maybeFinish = () => {
       if (requestIds.every((id) => responses.some((response) => response.id === id))) {
-        finish();
+        // Small delay so stderr can flush before we kill the process
+        setTimeout(finish, 50);
       }
     };
 
