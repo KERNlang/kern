@@ -446,9 +446,10 @@ function runPythonMCP(
       }
       sendMessage(initializedNotification, (err) => {
         if (err || settled) return;
-        setImmediate(() => {
+        // Give the Python process time to finish initialization on slow CI runners
+        setTimeout(() => {
           if (!settled) sendFollowups();
-        });
+        }, 200);
       });
     };
 
