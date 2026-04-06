@@ -31,7 +31,10 @@ function extractExports(lines: string[]): { name: string; typeOnly: boolean }[] 
   const typeRe = /^export\s+(?:interface|type)\s+(\w+)/;
   for (const line of lines) {
     const m = line.match(re);
-    if (m) { exports.push({ name: m[1], typeOnly: false }); continue; }
+    if (m) {
+      exports.push({ name: m[1], typeOnly: false });
+      continue;
+    }
     const tm = line.match(typeRe);
     if (tm) exports.push({ name: tm[1], typeOnly: true });
   }
@@ -181,7 +184,6 @@ export function runCompile(args: string[]): void {
           barrelEntries.push({ moduleName, exports });
         }
       }
-
     } else {
       console.log(`  ${basename(file)} → (no core nodes, skipped)`);
     }

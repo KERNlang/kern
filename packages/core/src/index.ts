@@ -32,13 +32,13 @@ export {
   handlerCode,
   hasEvolvedGenerator,
   isCoreNode,
-  sourceComment,
   mapSemanticType,
   parseParamList,
   // Evolved generators — prefer KernRuntime for new code
   registerEvolvedGenerator,
   registerEvolvedTargetGenerator,
   SEMANTIC_TYPE_MAP,
+  sourceComment,
   unregisterEvolvedGenerator,
 } from './codegen-core.js';
 export type {
