@@ -22,6 +22,7 @@ export function generateFunction(node: IRNode): string[] {
   const returns = props.returns;
   const isAsync = props.async === 'true' || props.async === true;
   const isStream = props.stream === 'true' || props.stream === true;
+  const isGenerator = props.generator === 'true' || props.generator === true;
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
@@ -54,7 +55,8 @@ export function generateFunction(node: IRNode): string[] {
   const hasSignal = !!signalNode;
   const hasCleanup = !!cleanupNode;
 
-  lines.push(`${exp}${asyncKw}function ${name}(${paramList})${retClause} {`);
+  const genStar = isGenerator ? '* ' : '';
+  lines.push(`${exp}${asyncKw}function${genStar ? '* ' : ' '}${name}(${paramList})${retClause} {`);
 
   // Signal → AbortController setup
   if (hasSignal) {
