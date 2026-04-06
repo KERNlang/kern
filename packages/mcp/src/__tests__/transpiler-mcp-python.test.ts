@@ -425,19 +425,31 @@ function runPythonMCP(
       }
     };
 
-    const sendMessage = (msg: object) => {
-      cp.stdin.write(`${JSON.stringify(msg)}\n`);
+    const sendMessage = (msg: object, callback?: (err?: Error | null) => void) => {
+      cp.stdin.write(`${JSON.stringify(msg)}\n`, callback);
     };
 
-    const sendPostInit = () => {
-      if (postInitSent) return;
-      postInitSent = true;
-      if (initializedNotification) sendMessage(initializedNotification);
+    const sendFollowups = () => {
       for (const msg of followupMessages) {
         sendMessage(msg);
       }
       armTimeout();
       maybeFinish();
+    };
+
+    const sendPostInit = () => {
+      if (postInitSent) return;
+      postInitSent = true;
+      if (!initializedNotification) {
+        sendFollowups();
+        return;
+      }
+      sendMessage(initializedNotification, (err) => {
+        if (err || settled) return;
+        setImmediate(() => {
+          if (!settled) sendFollowups();
+        });
+      });
     };
 
     cp.stdout.on('data', (d: Buffer) => {
