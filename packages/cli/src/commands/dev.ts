@@ -6,6 +6,7 @@ import { basename, dirname, relative, resolve } from 'path';
 import {
   findKernFiles,
   findNearestPackageJson,
+  getOutputExtension,
   hasFlag,
   loadConfig,
   loadTemplates,
@@ -114,17 +115,7 @@ export async function runDev(args: string[]): Promise<void> {
     const unlinkRelDir = relative(resolve(watchDir), dirname(filePath));
     const unlinkBaseDir = devOutDir ? resolve(resolve(devOutDir), unlinkRelDir) : dirname(filePath);
     const outDir = resolve(unlinkBaseDir, devConfig.output.outDir);
-    const outExt =
-      devConfig.target === 'fastapi'
-        ? '.py'
-        : devConfig.target === 'vue' || devConfig.target === 'nuxt'
-          ? '.vue'
-          : devConfig.target === 'express' ||
-              devConfig.target === 'cli' ||
-              devConfig.target === 'terminal' ||
-              devConfig.target === 'mcp'
-            ? '.ts'
-            : '.tsx';
+    const outExt = getOutputExtension(devConfig.target);
     const outFile = resolve(outDir, `${fileBaseName}${outExt}`);
     try {
       if (existsSync(outFile)) {

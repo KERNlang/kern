@@ -7,7 +7,15 @@
 import { propsOf } from '../node-props.js';
 import type { IRNode } from '../types.js';
 import { emitIdentifier, emitPath, emitStringLiteral, emitTypeAnnotation } from './emitters.js';
-import { exportPrefix, getChildren, getFirstChild, getProps, handlerCode, parseParamList } from './helpers.js';
+import {
+  emitDocComment,
+  exportPrefix,
+  getChildren,
+  getFirstChild,
+  getProps,
+  handlerCode,
+  parseParamList,
+} from './helpers.js';
 import { mapSemanticType } from './semantic-types.js';
 
 const p = getProps;
@@ -21,7 +29,7 @@ export function generateConfig(node: IRNode): string[] {
   const name = emitIdentifier(props.name, 'Config', node);
   const exp = exportPrefix(node);
   const fields = kids(node, 'field');
-  const lines: string[] = [];
+  const lines: string[] = [...emitDocComment(node)];
 
   // Interface
   lines.push(`${exp}interface ${name} {`);
@@ -76,7 +84,7 @@ export function generateStore(node: IRNode): string[] {
   const key = emitIdentifier(props.key, 'id', node);
   const model = emitIdentifier(props.model, 'unknown', node);
   const exp = exportPrefix(node);
-  const lines: string[] = [];
+  const lines: string[] = [...emitDocComment(node)];
   const dirConst = `${name.toUpperCase()}_DIR`;
 
   // Validate path before interpolation — blocks injection + traversal via storePath
@@ -140,7 +148,7 @@ export function generateRepository(node: IRNode): string[] {
   const name = emitIdentifier(props.name, 'UnknownRepo', node);
   const model = props.model;
   const exp = exportPrefix(node);
-  const lines: string[] = [];
+  const lines: string[] = [...emitDocComment(node)];
 
   lines.push(`${exp}class ${name} {`);
   if (model) {
@@ -180,7 +188,7 @@ export function generateCache(node: IRNode): string[] {
   const prefix = props.prefix || '';
   const ttl = props.ttl;
   const exp = exportPrefix(node);
-  const lines: string[] = [];
+  const lines: string[] = [...emitDocComment(node)];
 
   // Emit backend preamble so generated code compiles
   if (backend === 'redis') {
@@ -243,7 +251,7 @@ export function generateDependency(node: IRNode): string[] {
   const name = emitIdentifier(props.name, 'unknownDep', node);
   const scope = props.scope || 'transient';
   const exp = exportPrefix(node);
-  const lines: string[] = [];
+  const lines: string[] = [...emitDocComment(node)];
 
   const injects = kids(node, 'inject');
   const returnsNode = firstChild(node, 'returns');

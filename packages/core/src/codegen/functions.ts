@@ -7,7 +7,16 @@
 import { propsOf } from '../node-props.js';
 import type { IRNode } from '../types.js';
 import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
-import { dedent, exportPrefix, getChildren, getFirstChild, getProps, handlerCode, parseParamList } from './helpers.js';
+import {
+  dedent,
+  emitDocComment,
+  exportPrefix,
+  getChildren,
+  getFirstChild,
+  getProps,
+  handlerCode,
+  parseParamList,
+} from './helpers.js';
 
 const p = getProps;
 const kids = getChildren;
@@ -24,7 +33,7 @@ export function generateFunction(node: IRNode): string[] {
   const isStream = props.stream === 'true' || props.stream === true;
   const isGenerator = props.generator === 'true' || props.generator === true;
   const exp = exportPrefix(node);
-  const lines: string[] = [];
+  const lines: string[] = [...emitDocComment(node)];
 
   // Parse params: "action:PlanAction,ws:WorkspaceSnapshot,spread:number=8"
   // → "action: PlanAction, ws: WorkspaceSnapshot, spread: number = 8"
@@ -100,7 +109,7 @@ export function generateError(node: IRNode): string[] {
   const message = props.message;
   const exp = exportPrefix(node);
   const fields = kids(node, 'field');
-  const lines: string[] = [];
+  const lines: string[] = [...emitDocComment(node)];
 
   lines.push(`${exp}class ${name} extends ${ext} {`);
 

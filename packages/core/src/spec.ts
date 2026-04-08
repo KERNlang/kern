@@ -70,6 +70,7 @@ export const NODE_TYPES = [
   'link',
   // Meta
   'theme',
+  'doc',
   // Backend
   'server',
   'route',

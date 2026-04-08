@@ -34,6 +34,33 @@ export function getThemeRefs(node: IRNode): string[] {
   return (getProps(node).themeRefs as string[]) || [];
 }
 
+export function emitDocBlock(text: string): string[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  const lines = ['/**'];
+  for (const line of trimmed.split('\n')) {
+    lines.push(line.trim().length > 0 ? ` * ${line}` : ' *');
+  }
+  lines.push(' */');
+  return lines;
+}
+
+export function emitDocComment(node: IRNode): string[] {
+  const docs = node.type === 'doc' ? [node] : getChildren(node, 'doc');
+  if (docs.length === 0) return [];
+
+  const text = docs
+    .map((doc) => {
+      const props = getProps(doc);
+      return ((props.text as string) || (props.code as string) || '').trim();
+    })
+    .filter(Boolean)
+    .join('\n\n');
+
+  return emitDocBlock(text);
+}
+
 // ── String Utilities ────────────────────────────────────────────────────
 
 export function dedent(code: string): string {

@@ -20,6 +20,10 @@ interface BaseProps {
   confidence?: string;
 }
 
+export interface DocProps extends BaseProps {
+  text?: string;
+}
+
 // ── Type System ─────────────────────────────────────────────────────────
 
 export interface TypeProps extends BaseProps {
@@ -255,6 +259,7 @@ export interface TestProps extends BaseProps {
 
 /** Maps known node types to their typed prop interface. */
 export interface NodePropsMap {
+  doc: DocProps;
   type: TypeProps;
   interface: InterfaceProps;
   union: UnionProps;

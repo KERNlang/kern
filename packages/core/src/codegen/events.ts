@@ -7,7 +7,7 @@
 import { propsOf } from '../node-props.js';
 import type { IRNode } from '../types.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
-import { capitalize, exportPrefix, getChildren, getProps, handlerCode } from './helpers.js';
+import { capitalize, emitDocComment, exportPrefix, getChildren, getProps, handlerCode } from './helpers.js';
 
 const p = getProps;
 const kids = getChildren;
@@ -19,7 +19,7 @@ export function generateEvent(node: IRNode): string[] {
   const name = emitIdentifier(props.name, 'UnknownEvent', node);
   const exp = exportPrefix(node);
   const types = kids(node, 'type');
-  const lines: string[] = [];
+  const lines: string[] = [...emitDocComment(node)];
 
   // Event type union — 'type' children don't have a typed interface in NodePropsMap
   lines.push(
@@ -61,7 +61,7 @@ export function generateOn(node: IRNode): string[] {
   const key = props.key;
   const code = handlerCode(node);
   const exp = exportPrefix(node);
-  const lines: string[] = [];
+  const lines: string[] = [...emitDocComment(node)];
 
   if (handlerName && !code) {
     // Reference to existing handler: on event=click handler=handleClick
@@ -121,7 +121,7 @@ export function generateWebSocket(node: IRNode): string[] {
   const path = ((props as Record<string, unknown>).path as string) || '/ws';
   const name = props.name || 'ws';
   const exp = exportPrefix(node);
-  const lines: string[] = [];
+  const lines: string[] = [...emitDocComment(node)];
 
   const onNodes = kids(node, 'on');
   const connectHandler = onNodes.find((n) => {

@@ -39,10 +39,19 @@ export class KernConfigError extends Error {
   }
 }
 
+export type CodegenErrorCode =
+  | 'UNKNOWN_NODE'
+  | 'MISSING_HANDLER'
+  | 'INVALID_PROP'
+  | 'CODEGEN_FAILED'
+  | 'TEMPLATE_ERROR'
+  | 'UNSUPPORTED_TARGET';
+
 export class KernCodegenError extends Error {
   constructor(
     message: string,
     public readonly node?: { type: string; loc?: { line: number; col: number } },
+    public readonly code: CodegenErrorCode = 'CODEGEN_FAILED',
   ) {
     const loc = node?.loc ? ` at ${node.type}:${node.loc.line}:${node.loc.col}` : node ? ` at ${node.type}` : '';
     super(`Codegen error: ${message}${loc}`);
