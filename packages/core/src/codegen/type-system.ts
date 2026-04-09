@@ -158,6 +158,8 @@ export function generateService(node: IRNode): string[] {
     const isAsync = (mp as Record<string, unknown>).async === 'true' || (mp as Record<string, unknown>).async === true;
     const isStream =
       (mp as Record<string, unknown>).stream === 'true' || (mp as Record<string, unknown>).stream === true;
+    const isGenerator =
+      (mp as Record<string, unknown>).generator === 'true' || (mp as Record<string, unknown>).generator === true;
     const isStatic =
       (mp as Record<string, unknown>).static === 'true' || (mp as Record<string, unknown>).static === true;
     const vis =
@@ -165,16 +167,18 @@ export function generateService(node: IRNode): string[] {
         ? 'private '
         : '';
     const staticKw = isStatic ? 'static ' : '';
-    const star = isStream ? '*' : '';
+    const star = isStream || isGenerator ? '*' : '';
     const asyncKw = isAsync || isStream ? 'async ' : '';
     const mcode = handlerCode(method);
 
-    // stream=true → AsyncGenerator return type
+    // stream=true → AsyncGenerator, generator=true → Generator/AsyncGenerator
     const mreturns = isStream
       ? `: AsyncGenerator<${emitTypeAnnotation(mp.returns, 'unknown', method)}>`
-      : mp.returns
-        ? `: ${emitTypeAnnotation(mp.returns, 'unknown', method)}`
-        : '';
+      : isGenerator && mp.returns
+        ? `: ${isAsync ? 'Async' : ''}Generator<${emitTypeAnnotation(mp.returns, 'unknown', method)}>`
+        : mp.returns
+          ? `: ${emitTypeAnnotation(mp.returns, 'unknown', method)}`
+          : '';
 
     lines.push('');
     lines.push(`  ${vis}${staticKw}${asyncKw}${star}${mname}(${mparams})${mreturns} {`);

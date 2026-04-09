@@ -110,6 +110,12 @@ exports[`golden: fn async function 1`] = `
 }"
 `;
 
+exports[`golden: fn async generator function 1`] = `
+"export async function* paginate(): AsyncGenerator<Page> {
+  for await (const page of fetchPages()) yield page;
+}"
+`;
+
 exports[`golden: fn default params and generics 1`] = `
 "export function merge(a: Record<string,number>, b: Record<string,number>, deep: boolean = true): Record<string,number> {
 }"
@@ -135,6 +141,13 @@ exports[`golden: fn stream function 1`] = `
 exports[`golden: fn sync function with params and return 1`] = `
 "export function add(a: number, b: number): number {
   return a + b;
+}"
+`;
+
+exports[`golden: fn sync generator function 1`] = `
+"export function* iterate(): Generator<number> {
+  yield 1;
+  yield 2;
 }"
 `;
 

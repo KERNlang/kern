@@ -185,6 +185,31 @@ describe('golden: fn', () => {
       gen(['fn name=generate returns=string stream=true', '  handler <<<', '    yield "hello";', '  >>>'].join('\n')),
     ).toMatchSnapshot();
   });
+  it('sync generator function', () => {
+    expect(
+      gen(
+        [
+          'fn name=iterate returns=number generator=true',
+          '  handler <<<',
+          '    yield 1;',
+          '    yield 2;',
+          '  >>>',
+        ].join('\n'),
+      ),
+    ).toMatchSnapshot();
+  });
+  it('async generator function', () => {
+    expect(
+      gen(
+        [
+          'fn name=paginate returns=Page generator=true async=true',
+          '  handler <<<',
+          '    for await (const page of fetchPages()) yield page;',
+          '  >>>',
+        ].join('\n'),
+      ),
+    ).toMatchSnapshot();
+  });
   it('signal and cleanup', () => {
     expect(
       gen(
