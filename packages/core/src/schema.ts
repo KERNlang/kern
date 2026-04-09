@@ -881,6 +881,551 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       styles: { kind: 'rawExpr' },
     },
   },
+
+  // ── Backend: Stream / Spawn / Timer ───────────────────────────────────
+
+  stream: {
+    description: 'SSE stream route — sets up Server-Sent Events with heartbeat and structured emit helper',
+    example:
+      'route path="/api/stream" method=get\n  stream\n    spawn binary=ffmpeg args="[\'-i\',input]"\n      on name=stdout\n        handler <<<\n          emit({ chunk: chunk.toString() })\n        >>>',
+    props: {
+      name: { kind: 'identifier' },
+      source: { kind: 'rawExpr' },
+      append: { kind: 'boolean' },
+    },
+    allowedChildren: ['spawn', 'handler', 'on', 'timer'],
+  },
+  spawn: {
+    description:
+      'Child process — spawns a binary with shell:false safety, SIGTERM/SIGKILL escalation, and abort-on-disconnect',
+    example: "spawn binary=ffmpeg args=\"['-i',input,'-f','mp3','pipe:1']\" timeout=30",
+    props: {
+      binary: { required: true, kind: 'string' },
+      args: { kind: 'rawExpr' },
+      timeout: { kind: 'number' },
+      stdin: { kind: 'rawExpr' },
+    },
+    allowedChildren: ['on', 'env', 'handler'],
+  },
+  timer: {
+    description: 'Request timeout — wraps handler in a deadline with AbortController and configurable timeout handler',
+    example:
+      'timer timeout=15\n  handler <<<\n    const result = await longRunningTask();\n    res.json(result);\n  >>>',
+    props: {
+      timeout: { kind: 'number' },
+      name: { kind: 'identifier' },
+    },
+    allowedChildren: ['handler', 'on'],
+  },
+  env: {
+    description: 'Environment variable — declares a required or optional env var, used in spawn or server config',
+    example: 'env name=DATABASE_URL required=true',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      value: { kind: 'rawExpr' },
+      required: { kind: 'boolean' },
+    },
+  },
+  trigger: {
+    description: 'Event trigger — fires an action on a named event from a source',
+    example: 'trigger kind=webhook on=push from=github',
+    props: {
+      kind: { kind: 'identifier' },
+      on: { kind: 'string' },
+      from: { kind: 'string' },
+    },
+    allowedChildren: ['handler'],
+  },
+
+  // ── Next.js production patterns ───────────────────────────────────────
+
+  fetch: {
+    description: 'Server-side data fetch — generates an async fetch call in a Next.js server component',
+    example: 'fetch name=posts url="/api/posts" options="{ next: { revalidate: 60 } }"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      url: { required: true, kind: 'rawExpr' },
+      options: { kind: 'rawExpr' },
+    },
+  },
+  generateMetadata: {
+    description: 'Next.js generateMetadata export — async function for dynamic page metadata',
+    example: 'generateMetadata params="slug:string"',
+    props: {
+      params: { kind: 'string' },
+    },
+    allowedChildren: ['handler'],
+  },
+  notFound: {
+    description: 'Next.js notFound() call — triggers 404 page',
+    example: 'notFound',
+    props: {},
+  },
+  redirect: {
+    description: 'Next.js redirect() call — server-side redirect to another route',
+    example: 'redirect to="/login"',
+    props: {
+      to: { required: true, kind: 'string' },
+    },
+  },
+
+  // ── CLI nodes ─────────────────────────────────────────────────────────
+
+  cli: {
+    description: 'CLI application root — defines a command-line tool with commands, flags, and imports',
+    example:
+      'cli name=myapp version=1.0.0 description="My CLI tool"\n  command name=init description="Initialize project"\n    handler <<<\n      console.log("Initializing...")\n    >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      version: { kind: 'string' },
+      description: { kind: 'string' },
+    },
+    allowedChildren: ['command', 'flag', 'import'],
+  },
+  command: {
+    description: 'CLI subcommand with arguments, flags, and handler',
+    example:
+      'command name=deploy description="Deploy to production" alias=d\n  arg name=target type=string required=true\n  flag name=dry-run alias=n type=boolean\n  handler <<<\n    deploy(target, { dryRun })\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      description: { kind: 'string' },
+      alias: { kind: 'string' },
+    },
+    allowedChildren: ['arg', 'flag', 'handler', 'import'],
+  },
+  arg: {
+    description: 'CLI positional argument — required args must come before optional ones',
+    example: 'arg name=target type=string required=true description="Deploy target"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'identifier' },
+      required: { kind: 'boolean' },
+      description: { kind: 'string' },
+      default: { kind: 'rawExpr' },
+    },
+  },
+  flag: {
+    description: 'CLI flag/option — named with optional short alias',
+    example: 'flag name=verbose alias=v type=boolean description="Enable verbose output"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      alias: { kind: 'string' },
+      type: { kind: 'identifier' },
+      required: { kind: 'boolean' },
+      description: { kind: 'string' },
+      default: { kind: 'rawExpr' },
+    },
+  },
+
+  // ── React lifecycle hooks (Batch 2) ───────────────────────────────────
+
+  memo: {
+    description: 'React useMemo — memoized computation with dependency tracking',
+    example: 'memo name=filtered deps="items,filter"\n  handler <<<\n    return items.filter(i => i.active)\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      deps: { kind: 'string' },
+    },
+    allowedChildren: ['handler'],
+  },
+  callback: {
+    description: 'React useCallback — memoized function reference with dependency tracking',
+    example:
+      'callback name=handleSubmit deps="formData" async=true\n  handler <<<\n    await api.submit(formData)\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      params: { kind: 'string' },
+      deps: { kind: 'string' },
+      async: { kind: 'boolean' },
+    },
+    allowedChildren: ['handler'],
+  },
+  ref: {
+    description: 'React useRef — mutable ref object that persists across renders',
+    example: 'ref name=inputRef type=HTMLInputElement initial=null',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      initial: { kind: 'rawExpr' },
+    },
+  },
+  context: {
+    description: 'React useContext — consume a React context by name',
+    example: 'context name=theme source=ThemeContext',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      source: { required: true, kind: 'identifier' },
+    },
+  },
+  prop: {
+    description: 'Component prop declaration — name, type, optionality, and default value',
+    example: 'prop name=title type=string\nprop name=count type=number optional=true default=0',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      optional: { kind: 'boolean' },
+      default: { kind: 'rawExpr' },
+    },
+  },
+  returns: {
+    description: 'Return type declaration or return statement for a hook/function',
+    example: 'returns type=AuthState with="{ user, login, logout }"',
+    props: {
+      name: { kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      with: { kind: 'rawExpr' },
+    },
+  },
+  render: {
+    description: 'Render function — JSX output block for a component or hook',
+    example: 'render\n  handler <<<\n    return <div>{children}</div>\n  >>>',
+    props: {},
+    allowedChildren: ['handler'],
+  },
+  template: {
+    description: 'Reusable template with named slots — defines a composable layout pattern',
+    example: 'template name=PageLayout\n  slot name=header\n  slot name=content\n  slot name=footer optional=true',
+    props: {
+      name: { required: true, kind: 'identifier' },
+    },
+    allowedChildren: ['slot', 'body', 'handler'],
+  },
+
+  // ── Data layer (Batch 3) ──────────────────────────────────────────────
+
+  column: {
+    description: 'Database column definition within a model — type, constraints, and default value',
+    example: 'column name=email type=string unique=true\ncolumn name=age type=number optional=true',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      optional: { kind: 'boolean' },
+      primary: { kind: 'boolean' },
+      unique: { kind: 'boolean' },
+      default: { kind: 'rawExpr' },
+    },
+  },
+  relation: {
+    description: 'Database relation — defines a foreign key relationship between models',
+    example: 'relation name=author target=User kind=many-to-one',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      target: { required: true, kind: 'identifier' },
+      kind: { kind: 'string' },
+    },
+  },
+  inject: {
+    description: 'Dependency injection — inject a service or value into the current scope',
+    example: 'inject name=db type=Database from="./database.js"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      from: { kind: 'rawExpr' },
+      with: { kind: 'rawExpr' },
+    },
+  },
+  entry: {
+    description: 'Cache entry — defines a cached value with key and optional strategy',
+    example: 'entry name=userProfile key="user:{id}"\n  strategy name=stale-while-revalidate max=60',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      key: { kind: 'string' },
+    },
+    allowedChildren: ['strategy', 'handler'],
+  },
+  invalidate: {
+    description: 'Cache invalidation rule — trigger cache clearing on an event',
+    example: 'invalidate on=userUpdate tags="user,profile"',
+    props: {
+      on: { required: true, kind: 'string' },
+      tags: { kind: 'string' },
+    },
+  },
+  signal: {
+    description: 'Reactive signal — named state that triggers updates on change (used in hooks/components)',
+    example: 'signal name=isLoading',
+    props: {
+      name: { required: true, kind: 'identifier' },
+    },
+  },
+
+  // ── Structural + UI controls (Batch 4) ────────────────────────────────
+
+  section: {
+    description: 'Semantic section container — groups related content with optional title',
+    example: 'section title="User Settings"',
+    props: {
+      title: { kind: 'string' },
+    },
+  },
+  list: {
+    description: 'List container — renders child items as an ordered or unordered list',
+    example: 'list\n  item value="First"\n  item value="Second"',
+    props: {},
+    allowedChildren: ['item'],
+  },
+  item: {
+    description: 'List item — single entry within a list container',
+    example: 'item value="Buy groceries"',
+    props: {
+      value: { kind: 'string' },
+    },
+  },
+  option: {
+    description: 'Select option — a selectable choice within a select dropdown',
+    example: 'option value=admin label="Administrator"',
+    props: {
+      value: { required: true, kind: 'string' },
+      label: { kind: 'string' },
+    },
+  },
+  select: {
+    description: 'Select dropdown — bound to state with child options',
+    example: 'select bind=role\n  option value=admin label="Admin"\n  option value=user label="User"',
+    props: {
+      bind: { kind: 'identifier' },
+    },
+    allowedChildren: ['option'],
+  },
+  slot: {
+    description: 'Template slot — named insertion point within a template',
+    example: 'slot name=header optional=true default="Default Header"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      slotType: { kind: 'string' },
+      optional: { kind: 'boolean' },
+      default: { kind: 'rawExpr' },
+    },
+  },
+  body: {
+    description: 'Body block — raw code content for templates or structural containers',
+    example: 'body <<<\n  <main>{children}</main>\n>>>',
+    props: {
+      code: { kind: 'rawBlock' },
+    },
+  },
+
+  // ── Phase 3: Remaining node schemas (100% coverage) ───────────────────
+
+  // Terminal / Ink UI
+  scroll: { description: 'Scrollable container', example: 'scroll', props: {} },
+  progress: {
+    description: 'Progress bar — shows completion status',
+    example: 'progress value=75 max=100 label="Loading"',
+    props: { value: { kind: 'number' }, max: { kind: 'number' }, label: { kind: 'string' } },
+  },
+  divider: { description: 'Visual divider / horizontal rule', example: 'divider', props: {} },
+  codeblock: {
+    description: 'Code block with syntax highlighting',
+    example: 'codeblock lang=typescript <<<\n  const x = 1;\n>>>',
+    props: { lang: { kind: 'string' }, code: { kind: 'rawBlock' } },
+  },
+  tab: {
+    description: 'Single tab within a tabs container',
+    example: 'tab label="Settings"\n  text value="Settings content"',
+    props: { label: { kind: 'string' } },
+  },
+  separator: { description: 'Ink horizontal rule / separator', example: 'separator', props: {} },
+  thead: { description: 'Table head section', example: 'thead', props: {} },
+  tbody: { description: 'Table body section', example: 'tbody', props: {} },
+  tr: { description: 'Table row', example: 'tr', props: {} },
+  th: { description: 'Table header cell', example: 'th value="Name"', props: { value: { kind: 'string' } } },
+  td: { description: 'Table data cell', example: 'td value="John"', props: { value: { kind: 'string' } } },
+  scoreboard: {
+    description: 'Dashboard scoreboard — container for metric widgets',
+    example: 'scoreboard\n  metric label="Users" value=1234',
+    props: {},
+    allowedChildren: ['metric'],
+  },
+  metric: {
+    description: 'Single metric display — label + value pair',
+    example: 'metric label="Active Users" value={{users.length}}',
+    props: { label: { required: true, kind: 'string' }, value: { required: true, kind: 'rawExpr' } },
+  },
+  spinner: {
+    description: 'Loading spinner with optional text',
+    example: 'spinner text="Loading..."',
+    props: { text: { kind: 'string' } },
+  },
+  box: {
+    description: 'Ink box container with border styling',
+    example: 'box borderStyle=round borderColor=green',
+    props: { borderStyle: { kind: 'string' }, borderColor: { kind: 'string' } },
+  },
+  gradient: {
+    description: 'Gradient text effect (Ink)',
+    example: 'gradient text="Hello" colors="red,blue"',
+    props: { text: { kind: 'string' }, colors: { kind: 'string' } },
+  },
+
+  // Ink-specific input nodes
+  'input-area': { description: 'Ink text input area', example: 'input-area', props: {} },
+  'output-area': { description: 'Ink text output area', example: 'output-area', props: {} },
+  'text-input': {
+    description: 'Ink text input with binding',
+    example: 'text-input value={{query}} onChange={{setQuery}} placeholder="Search..."',
+    props: { value: { kind: 'rawExpr' }, onChange: { kind: 'rawExpr' }, placeholder: { kind: 'string' } },
+  },
+  'select-input': {
+    description: 'Ink select input — choose from a list',
+    example: 'select-input items={{options}} onSelect={{handleSelect}}',
+    props: { items: { kind: 'rawExpr' }, onSelect: { kind: 'rawExpr' } },
+  },
+
+  // Control flow / structural
+  repl: {
+    description: 'Read-eval-print loop — interactive terminal command loop',
+    example: 'repl name=shell prompt=">"',
+    props: { name: { kind: 'identifier' }, prompt: { kind: 'string' } },
+    allowedChildren: ['on', 'handler'],
+  },
+  parallel: {
+    description: 'Parallel execution — run children concurrently',
+    example: 'parallel\n  dispatch to=worker1\n  dispatch to=worker2',
+    props: { name: { kind: 'identifier' } },
+  },
+  dispatch: {
+    description: 'Dispatch an action or message to a target',
+    example: 'dispatch to=worker payload={{data}}',
+    props: { to: { required: true, kind: 'string' }, payload: { kind: 'rawExpr' } },
+  },
+  // biome-ignore lint/suspicious/noThenProperty: `then` is a valid KERN node type, not a Promise thenable
+  then: {
+    description: 'Sequential continuation — runs after parent completes',
+    example: 'then\n  handler <<<\n    console.log("done")\n  >>>',
+    props: {},
+    allowedChildren: ['handler'],
+  },
+
+  // Lifecycle / structural children
+  singleton: {
+    description: 'Singleton marker — service is instantiated once',
+    example: 'singleton name=cache',
+    props: { name: { kind: 'identifier' } },
+  },
+  constructor: {
+    description: 'Constructor for a service — runs on instantiation',
+    example: 'constructor params="size:number"\n  handler <<<\n    this.data = new Map();\n  >>>',
+    props: { params: { kind: 'string' as PropKind } },
+    allowedChildren: ['handler'],
+  },
+  cleanup: {
+    description: 'Cleanup handler — runs on teardown (useEffect return, signal dispose)',
+    example: 'cleanup <<<\n  controller.abort();\n>>>',
+    props: { code: { kind: 'rawBlock' } },
+  },
+  export: {
+    description: 'Re-export statement — export names from another module',
+    example: 'export from="./utils.js" names="add,subtract"',
+    props: {
+      from: { kind: 'importPath' },
+      names: { kind: 'string' },
+      types: { kind: 'string' },
+      star: { kind: 'boolean' },
+      default: { kind: 'identifier' },
+    },
+  },
+  describe: {
+    description: 'Test suite — groups related test cases',
+    example:
+      'describe name="UserService"\n  it name="creates a user"\n    handler <<<\n      expect(createUser()).toBeDefined();\n    >>>',
+    props: { name: { required: true, kind: 'string' } },
+    allowedChildren: ['it', 'describe', 'handler'],
+  },
+  it: {
+    description: 'Test case — single test assertion',
+    example: 'it name="returns 200 on success"\n  handler <<<\n    expect(res.status).toBe(200);\n  >>>',
+    props: { name: { required: true, kind: 'string' } },
+    allowedChildren: ['handler'],
+  },
+
+  // Ground layer — semantic reasoning
+  path: {
+    description: 'Decision path — a named branch in a resolve/branch tree',
+    example: 'path value="/api/users"',
+    props: { value: { required: true, kind: 'string' } },
+  },
+  resolve: {
+    description: 'Resolution node — selects among candidates using a discriminator',
+    example: 'resolve name=bestRoute\n  candidate name=fast\n  candidate name=reliable',
+    props: { name: { kind: 'identifier' } },
+    allowedChildren: ['candidate', 'discriminator', 'handler'],
+  },
+  candidate: {
+    description: 'Candidate option within a resolve block',
+    example: 'candidate name=primary\n  handler <<<\n    return fastPath();\n  >>>',
+    props: { name: { required: true, kind: 'identifier' } },
+    allowedChildren: ['handler'],
+  },
+  discriminator: {
+    description: 'Selection strategy for choosing among candidates',
+    example: 'discriminator method=latency metric=p99',
+    props: { method: { kind: 'identifier' }, metric: { kind: 'string' } },
+    allowedChildren: ['handler'],
+  },
+  pattern: {
+    description: 'Pattern match — structural matching on values',
+    example: 'pattern name=classify on={{input.type}}',
+    props: { name: { kind: 'identifier' }, on: { kind: 'rawExpr' } },
+    allowedChildren: ['path', 'handler'],
+  },
+  apply: {
+    description: 'Apply a transform or function to data',
+    example: 'apply fn=normalize to={{rawData}}',
+    props: { fn: { kind: 'identifier' }, to: { kind: 'rawExpr' } },
+  },
+  expect: {
+    description: 'Assertion — declare an expected condition at runtime',
+    example: 'expect expr={{items.length > 0}} message="Items must not be empty"',
+    props: { expr: { required: true, kind: 'rawExpr' }, message: { kind: 'string' } },
+  },
+  recover: {
+    description: 'Recovery handler — runs when a parent node fails',
+    example: 'recover\n  handler <<<\n    return fallbackValue;\n  >>>',
+    props: {},
+    allowedChildren: ['handler'],
+  },
+  strategy: {
+    description: 'Retry/fallback strategy configuration',
+    example: 'strategy name=exponential-backoff max=3 delay=1000',
+    props: { name: { required: true, kind: 'identifier' }, max: { kind: 'number' }, delay: { kind: 'number' } },
+    allowedChildren: ['handler'],
+  },
+
+  // Reason layer — metadata children
+  reason: {
+    description: 'Reason annotation — explains why a decision was made',
+    example: 'reason text="Using cache to avoid repeated API calls"',
+    props: { text: { kind: 'string' } },
+  },
+  evidence: {
+    description: 'Evidence annotation — links to supporting data for a decision',
+    example: 'evidence text="Benchmarks show 3x speedup" source="perf-report.md"',
+    props: { text: { kind: 'string' }, source: { kind: 'string' } },
+  },
+  needs: {
+    description: 'Confidence gap — declares what evidence is missing',
+    example: 'needs text="Integration test for concurrent writes"',
+    props: { text: { kind: 'string' } },
+  },
+
+  // Rule layer — native .kern lint rules
+  rule: {
+    description: 'Custom lint rule definition — matches patterns and emits findings',
+    example: 'rule id=no-console severity=warning category=style\n  message template="Avoid console.log in production"',
+    props: {
+      id: { required: true, kind: 'identifier' },
+      severity: { kind: 'string' },
+      category: { kind: 'string' },
+      confidence: { kind: 'number' },
+    },
+    allowedChildren: ['message', 'handler'],
+  },
+  message: {
+    description: 'Rule message template — the text shown when a lint rule matches',
+    example: 'message template="Found {count} unused imports"',
+    props: { template: { kind: 'string' } },
+  },
 };
 
 // ── Validation ──────────────────────────────────────────────────────────
@@ -907,69 +1452,65 @@ export function validateSchema(root: IRNode): SchemaViolation[] {
   return violations;
 }
 
-function validateNode(node: IRNode, violations: SchemaViolation[]): void {
-  const schema = Object.hasOwn(NODE_SCHEMAS, node.type) ? NODE_SCHEMAS[node.type] : undefined;
+const UNIVERSAL_CHILDREN = new Set(['handler', 'cleanup', 'reason', 'evidence', 'needs', 'signal', 'doc']);
 
-  if (schema) {
-    const props = node.props || {};
-
-    // Check required props
-    for (const [propName, propSchema] of Object.entries(schema.props)) {
-      if (propSchema.required && !(propName in props)) {
-        violations.push({
-          nodeType: node.type,
-          message: `'${node.type}' requires prop '${propName}'`,
-          line: node.loc?.line,
-          col: node.loc?.col,
-        });
-      }
-    }
-
-    // Cross-prop validation: component needs ref or name
-    if (node.type === 'component' && !('ref' in props) && !('name' in props)) {
+function checkRequiredProps(node: IRNode, schema: NodeSchema, violations: SchemaViolation[]): void {
+  const props = node.props || {};
+  for (const [propName, propSchema] of Object.entries(schema.props)) {
+    if (propSchema.required && !(propName in props)) {
       violations.push({
-        nodeType: 'component',
-        message: "'component' requires either 'ref' or 'name' prop",
+        nodeType: node.type,
+        message: `'${node.type}' requires prop '${propName}'`,
         line: node.loc?.line,
         col: node.loc?.col,
       });
-    }
-
-    // Cross-prop validation: guard needs expr (assertion) OR kind/type (security guard)
-    if (node.type === 'guard' && !('expr' in props) && !('kind' in props) && !('type' in props)) {
-      violations.push({
-        nodeType: 'guard',
-        message: "'guard' requires either 'expr' (assertion) or 'kind'/'type' (security guard)",
-        line: node.loc?.line,
-        col: node.loc?.col,
-      });
-    }
-
-    // Check allowed children
-    if (schema.allowedChildren && node.children) {
-      for (const child of node.children) {
-        if (!schema.allowedChildren.includes(child.type)) {
-          // Don't flag structural children that are consumed by parents
-          // (handler, reason, evidence, needs, etc.)
-          const universalChildren = ['handler', 'cleanup', 'reason', 'evidence', 'needs', 'signal', 'doc'];
-          if (!universalChildren.includes(child.type)) {
-            violations.push({
-              nodeType: node.type,
-              message: `'${node.type}' does not allow child type '${child.type}' (allowed: ${schema.allowedChildren.join(', ')})`,
-              line: child.loc?.line,
-              col: child.loc?.col,
-            });
-          }
-        }
-      }
     }
   }
+}
 
-  // Recurse into children
-  if (node.children) {
-    for (const child of node.children) {
-      validateNode(child, violations);
+function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
+  const props = node.props || {};
+  if (node.type === 'component' && !('ref' in props) && !('name' in props)) {
+    violations.push({
+      nodeType: 'component',
+      message: "'component' requires either 'ref' or 'name' prop",
+      line: node.loc?.line,
+      col: node.loc?.col,
+    });
+  }
+  if (node.type === 'guard' && !('expr' in props) && !('kind' in props) && !('type' in props)) {
+    violations.push({
+      nodeType: 'guard',
+      message: "'guard' requires either 'expr' (assertion) or 'kind'/'type' (security guard)",
+      line: node.loc?.line,
+      col: node.loc?.col,
+    });
+  }
+}
+
+function checkAllowedChildren(node: IRNode, schema: NodeSchema, violations: SchemaViolation[]): void {
+  if (!schema.allowedChildren || !node.children) return;
+  for (const child of node.children) {
+    if (!schema.allowedChildren.includes(child.type) && !UNIVERSAL_CHILDREN.has(child.type)) {
+      violations.push({
+        nodeType: node.type,
+        message: `'${node.type}' does not allow child type '${child.type}' (allowed: ${schema.allowedChildren.join(', ')})`,
+        line: child.loc?.line,
+        col: child.loc?.col,
+      });
     }
+  }
+}
+
+function validateNode(node: IRNode, violations: SchemaViolation[]): void {
+  const schema = Object.hasOwn(NODE_SCHEMAS, node.type) ? NODE_SCHEMAS[node.type] : undefined;
+  if (schema) {
+    checkRequiredProps(node, schema, violations);
+    checkCrossProps(node, violations);
+    checkAllowedChildren(node, schema, violations);
+  }
+  if (node.children) {
+    for (const child of node.children) validateNode(child, violations);
   }
 }
 

@@ -48,6 +48,36 @@ describe('Kern Core', () => {
       expect(stateNode?.props?.initial).toBe('0');
     });
 
+    test('compiles IIFE initial as lazy useState initializer', async () => {
+      const { parse } = await import('../src/parser.js');
+      const { generateScreen } = await import('../src/codegen/screens.js');
+      const ast = parse('screen name=Test\n  state name=data initial="(() => computeExpensiveDefault())()" type=Data');
+      const lines = generateScreen(ast);
+      const useStateLine = lines.find((l) => l.includes('useState'));
+      expect(useStateLine).toBeDefined();
+      // Should use lazy initializer: useState<Data>(() => ...) not useState<Data>((...))
+      expect(useStateLine).toContain('useState<Data>(() =>');
+    });
+
+    test('compiles simple initial as direct useState value', async () => {
+      const { parse } = await import('../src/parser.js');
+      const { generateScreen } = await import('../src/codegen/screens.js');
+      const ast = parse('screen name=Test\n  state name=count initial=0 type=number');
+      const lines = generateScreen(ast);
+      const useStateLine = lines.find((l) => l.includes('useState'));
+      expect(useStateLine).toContain('useState<number>(0)');
+      expect(useStateLine).not.toContain('() =>');
+    });
+
+    test('compiles new Map() initial as lazy useState initializer', async () => {
+      const { parse } = await import('../src/parser.js');
+      const { generateScreen } = await import('../src/codegen/screens.js');
+      const ast = parse('screen name=Test\n  state name=cache initial="new Map()" type="Map<string,any>"');
+      const lines = generateScreen(ast);
+      const useStateLine = lines.find((l) => l.includes('useState'));
+      expect(useStateLine).toContain('() => new Map()');
+    });
+
     test('parses logic blocks', async () => {
       const { parse } = await import('../src/parser.js');
       const ast = parse('screen name=Test\n  logic <<<\n    console.log("hi");\n  >>>');

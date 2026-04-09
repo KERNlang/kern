@@ -426,13 +426,14 @@ describe('transpileMCP', () => {
 
     const result = transpileMCP(ast);
     expect(result.code).toContain('async function requestInput');
-    expect(result.code).toContain('elicitInput');
+    expect(result.code).toContain('server.server.elicitInput');
+    expect(result.code).toContain('mode: "form"');
     expect(result.code).toContain('Please confirm action');
     expect(result.code).toContain(', extra');
   });
 
-  // ── Edge case: sampling/elicitation use server.server, not extra.server ──
-  it('should reference server.server for sampling, not extra.server (SDK audit fix)', () => {
+  // ── Edge case: sampling uses server.server.createMessage (SDK v1.x) ──
+  it('should reference server.server.createMessage for sampling (SDK v1.x pattern)', () => {
     const ast = node('mcp', { name: 'SamplingFixServer' }, [
       node('tool', { name: 'smart' }, [
         node('sampling', { maxTokens: '300' }),
@@ -442,7 +443,7 @@ describe('transpileMCP', () => {
 
     const result = transpileMCP(ast);
     expect(result.code).toContain('server.server.createMessage');
-    expect(result.code).not.toContain('extra.server.createMessage');
+    expect(result.code).toContain('maxTokens: 300');
   });
 });
 

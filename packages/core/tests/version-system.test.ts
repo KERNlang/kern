@@ -87,6 +87,12 @@ describe('resolveNextjsMajor', () => {
   it('resolves 15 for 15.x', () => {
     expect(resolveNextjsMajor({ nextjs: '~15.0.0' })).toBe(15);
   });
+  it('resolves 16 for 16.x', () => {
+    expect(resolveNextjsMajor({ nextjs: '16.1.6' })).toBe(16);
+  });
+  it('resolves 16 for future versions', () => {
+    expect(resolveNextjsMajor({ nextjs: '^16.2.2' })).toBe(16);
+  });
 });
 
 // ── Version Adapters ─────────────────────────────────────────────────────
@@ -157,6 +163,13 @@ describe('buildNextjsProfile', () => {
     expect(profile.major).toBe(15);
     expect(profile.outputRules.metadataStyle).toBe('satisfies');
     expect(profile.outputRules.asyncServerComponents).toBe(true);
+  });
+  it('builds v16 profile with satisfies metadata and async server components', () => {
+    const profile = buildNextjsProfile({ nextjs: '16.1.6' });
+    expect(profile.major).toBe(16);
+    expect(profile.outputRules.metadataStyle).toBe('satisfies');
+    expect(profile.outputRules.asyncServerComponents).toBe(true);
+    expect(profile.outputRules.useAppRouter).toBe(true);
   });
 });
 

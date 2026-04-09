@@ -59,9 +59,10 @@ export function resolveTailwindMajor(versions: FrameworkVersions): 3 | 4 {
  * Resolve the effective Next.js major version.
  * Defaults to 14 when unspecified (most common production version).
  */
-export function resolveNextjsMajor(versions: FrameworkVersions): 13 | 14 | 15 {
+export function resolveNextjsMajor(versions: FrameworkVersions): 13 | 14 | 15 | 16 {
   if (!versions.nextjs) return 14;
   const major = parseMajorVersion(versions.nextjs);
+  if (major >= 16) return 16;
   if (major >= 15) return 15;
   if (major <= 13) return 13;
   return 14;

@@ -188,4 +188,99 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
   });
+
+  describe('Pareto schema coverage — new schemas', () => {
+    it('passes valid cli with command, arg, flag', () => {
+      const v = validate(
+        [
+          'cli name=myapp version=1.0.0',
+          '  command name=deploy description="Deploy"',
+          '    arg name=target type=string required=true',
+          '    flag name=dry-run alias=n type=boolean',
+          '    handler <<<deploy(target)>>>',
+        ].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
+
+    it('flags cli missing name', () => {
+      const v = validate('cli version=1.0');
+      expect(v.some((v) => v.message.includes("'cli' requires prop 'name'"))).toBe(true);
+    });
+
+    it('flags command missing name', () => {
+      const v = validate('command description="test"');
+      expect(v.some((v) => v.message.includes("'command' requires prop 'name'"))).toBe(true);
+    });
+
+    it('flags spawn missing binary', () => {
+      const v = validate('spawn args="[]"');
+      expect(v.some((v) => v.message.includes("'spawn' requires prop 'binary'"))).toBe(true);
+    });
+
+    it('passes valid spawn', () => {
+      const v = validate('spawn binary=ffmpeg args="[-i,input]" timeout=30');
+      expect(v).toHaveLength(0);
+    });
+
+    it('flags fetch missing name', () => {
+      const v = validate('fetch url="/api"');
+      expect(v.some((v) => v.message.includes("'fetch' requires prop 'name'"))).toBe(true);
+    });
+
+    it('flags fetch missing url', () => {
+      const v = validate('fetch name=data');
+      expect(v.some((v) => v.message.includes("'fetch' requires prop 'url'"))).toBe(true);
+    });
+
+    it('passes valid memo', () => {
+      const v = validate('memo name=filtered deps="items"\n  handler <<<return items>>>');
+      expect(v).toHaveLength(0);
+    });
+
+    it('flags memo missing name', () => {
+      const v = validate('memo deps="items"');
+      expect(v.some((v) => v.message.includes("'memo' requires prop 'name'"))).toBe(true);
+    });
+
+    it('passes valid column', () => {
+      const v = validate('column name=email type=string unique=true');
+      expect(v).toHaveLength(0);
+    });
+
+    it('flags column missing name', () => {
+      const v = validate('column type=string');
+      expect(v.some((v) => v.message.includes("'column' requires prop 'name'"))).toBe(true);
+    });
+
+    it('flags redirect missing to', () => {
+      const v = validate('redirect');
+      expect(v.some((v) => v.message.includes("'redirect' requires prop 'to'"))).toBe(true);
+    });
+
+    it('flags env missing name', () => {
+      const v = validate('env required=true');
+      expect(v.some((v) => v.message.includes("'env' requires prop 'name'"))).toBe(true);
+    });
+
+    it('flags option missing value', () => {
+      const v = validate('option label="Admin"');
+      expect(v.some((v) => v.message.includes("'option' requires prop 'value'"))).toBe(true);
+    });
+
+    it('flags context missing source', () => {
+      const v = validate('context name=theme');
+      expect(v.some((v) => v.message.includes("'context' requires prop 'source'"))).toBe(true);
+    });
+
+    it('passes valid invalidate', () => {
+      const v = validate('invalidate on=userUpdate tags="user"');
+      expect(v).toHaveLength(0);
+    });
+
+    it('flags invalidate missing on', () => {
+      const v = validate('invalidate tags="user"');
+      expect(v.some((v) => v.message.includes("'invalidate' requires prop 'on'"))).toBe(true);
+    });
+  });
 });

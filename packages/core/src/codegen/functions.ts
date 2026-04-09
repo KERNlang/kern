@@ -54,18 +54,23 @@ export function generateFunction(node: IRNode): string[] {
     return lines;
   }
 
-  const retClause = returns ? `: ${emitTypeAnnotation(returns, 'unknown', node)}` : '';
+  // generator=true → Generator<T> return type (sync generators)
+  const retClause =
+    isGenerator && returns
+      ? `: ${isAsync ? 'Async' : ''}Generator<${emitTypeAnnotation(returns, 'unknown', node)}>`
+      : returns
+        ? `: ${emitTypeAnnotation(returns, 'unknown', node)}`
+        : '';
   const asyncKw = isAsync ? 'async ' : '';
   const code = handlerCode(node);
 
-  // Gap 3: signal + cleanup support for async functions
   const signalNode = firstChild(node, 'signal');
   const cleanupNode = firstChild(node, 'cleanup');
   const hasSignal = !!signalNode;
   const hasCleanup = !!cleanupNode;
 
-  const genStar = isGenerator ? '* ' : '';
-  lines.push(`${exp}${asyncKw}function${genStar ? '* ' : ' '}${name}(${paramList})${retClause} {`);
+  const star = isGenerator ? '* ' : '';
+  lines.push(`${exp}${asyncKw}function${star ? '* ' : ' '}${name}(${paramList})${retClause} {`);
 
   // Signal → AbortController setup
   if (hasSignal) {

@@ -4,6 +4,20 @@ import { addDefaultImport, addNamedImport, emitImports } from './nextjs-imports.
 import { renderNode } from './nextjs-renderers.js';
 import type { Ctx } from './nextjs-types.js';
 
+/**
+ * Detect whether a useState initial value needs lazy initialization.
+ * IIFEs and function expressions re-evaluate on every render when passed
+ * directly to useState(). Wrapping as useState(() => expr) fixes this.
+ */
+function needsLazyInit(initial: string): boolean {
+  const trimmed = initial.trim();
+  if (/^\(.*\)\s*\(/.test(trimmed)) return true;
+  if (/^\(?[^)]*\)?\s*=>/.test(trimmed)) return true;
+  if (trimmed.startsWith('function(') || trimmed.startsWith('function (')) return true;
+  if (trimmed.startsWith('new ')) return true;
+  return false;
+}
+
 // ── Ctx factory ─────────────────────────────────────────────────────────
 
 export function createCtx(config?: ResolvedKernConfig): Ctx {
@@ -203,7 +217,10 @@ export function assembleComponentCode(ctx: Ctx, opts: AssembleOptions): string {
     } else {
       initVal = `'${s.initial}'`;
     }
-    code.push(`  const [${s.name}, ${setter}] = useState(${initVal});`);
+    // Use lazy initializer for function expressions/IIFEs to avoid re-evaluation per render
+    const useLazy = needsLazyInit(initVal);
+    const finalInit = useLazy ? `() => ${initVal}` : initVal;
+    code.push(`  const [${s.name}, ${setter}] = useState(${finalInit});`);
   }
 
   // Emit logic blocks & detect hook imports

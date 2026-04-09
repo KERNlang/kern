@@ -445,6 +445,8 @@ export const CORE_NODE_TYPES = new Set([
   'screen',
   // Meta
   'doc',
+  // Error recovery
+  '__error',
 ]);
 
 /** Check if a node type is a core language construct. */
@@ -592,6 +594,11 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return [];
     case 'option':
       return [];
+    case '__error': {
+      const msg = (node.props?.message as string) || 'parse error at this line';
+      const raw = node.props?.raw as string;
+      return [`// TODO(kern): ${msg}`, ...(raw ? [`// Original: ${raw}`] : [])];
+    }
     case 'doc': {
       const text = (node.props?.text as string) || (node.props?.code as string) || '';
       if (text.includes('\n')) {

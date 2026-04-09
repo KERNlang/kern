@@ -185,7 +185,21 @@ function parseLine(
         },
       );
     }
-    return null;
+    // Return an error node instead of null — preserves position in tree for partial compilation
+    return {
+      indent,
+      rawLength: content.length,
+      type: '__error',
+      props: {
+        message: `Dropped line ${lineNum}: expected a node type`,
+        raw: content,
+        code: 'DROPPED_LINE',
+      },
+      styles: {},
+      pseudoStyles: {},
+      themeRefs: [],
+      loc: { line: lineNum, col, endLine: lineNum, endCol: col + content.length },
+    };
   }
   const type = typeToken;
   if (!isKnownNodeType(type, runtime) && !runtime.multilineBlockTypes.has(type) && !runtime.isTemplateNode(type)) {
@@ -411,7 +425,7 @@ function parseLines(state: ParseState, source: string, runtime: KernRuntime = de
     }
 
     const p = parseLine(state, lines[i], i + 1, runtime);
-    if (p) parsed.push(p);
+    if (p) parsed.push(p); // null only for blank/comment lines; __error nodes are always pushed
   }
 
   return parsed;
@@ -511,5 +525,21 @@ export function parseInternal(source: string, asDocument: boolean, runtime?: Ker
 
   computeEndSpans(root);
   commitParseState(state, rt);
-  return { root, diagnostics: [...state.diagnostics] };
+
+  // Count __error nodes for partial compilation support
+  const errorCount = countErrorNodes(root);
+  return {
+    root,
+    diagnostics: [...state.diagnostics],
+    ...(errorCount > 0 ? { partial: true, errorCount } : {}),
+  };
+}
+
+/** Recursively count __error nodes in a tree. */
+function countErrorNodes(node: IRNode): number {
+  let count = node.type === '__error' ? 1 : 0;
+  if (node.children) {
+    for (const child of node.children) count += countErrorNodes(child);
+  }
+  return count;
 }
