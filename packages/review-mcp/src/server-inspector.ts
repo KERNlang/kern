@@ -1,10 +1,13 @@
 /**
- * MCP Server Inspector — live tool inspection + poisoning detection.
+ * MCP Server Inspector — live tool inspection + structural poisoning detection.
  *
  * Discovers configured MCP servers from config files, spawns each one,
- * performs a JSON-RPC 2.0 handshake, retrieves tool list, and checks
- * tool descriptions for poisoning patterns (hidden instructions,
- * cross-origin escalation, tool shadowing).
+ * performs a JSON-RPC 2.0 handshake, retrieves tool list, and analyzes
+ * tool descriptions using KERN's existing security pattern library.
+ *
+ * Uses the same detection patterns as the source-code scanner (mcp-patterns.ts)
+ * plus structural checks only possible with live data: cross-server shadowing,
+ * schema/description mismatch, cross-server tool reference analysis.
  *
  * No external dependencies — hand-rolls minimal JSON-RPC over stdio.
  */
@@ -12,6 +15,8 @@
 import { type ChildProcess, spawn } from 'child_process';
 import * as crypto from 'crypto';
 import { type McpServerEntry, scanMcpConfigs } from './config-scan.js';
+import { checkDescriptionForPoisoning } from './rules/checks/mcp03-tool-poisoning.js';
+import { DATA_INJECTION_PATTERNS } from './rules/mcp-patterns.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -58,94 +63,15 @@ export interface InspectOptions {
   allowlist?: string[];
 }
 
-// ── Poisoning detection patterns ───────────────────────────────────────
-
-interface PoisonPattern {
-  id: string;
-  severity: 'error' | 'warning';
-  regex: RegExp;
-  message: string;
-}
-
-const POISON_PATTERNS: PoisonPattern[] = [
-  // Hidden instructions — attempts to override LLM behavior
-  {
-    id: 'hidden-instruction',
-    severity: 'error',
-    regex: /ignore\s+(all\s+)?previous\s+instructions/i,
-    message: 'Tool description contains "ignore previous instructions" — likely prompt injection',
-  },
-  {
-    id: 'hidden-instruction',
-    severity: 'error',
-    regex: /do\s+not\s+tell\s+the\s+user/i,
-    message: 'Tool description contains "do not tell the user" — hidden instruction',
-  },
-  {
-    id: 'hidden-instruction',
-    severity: 'error',
-    regex: /system\s*:\s*you\s+are/i,
-    message: 'Tool description contains system prompt override pattern',
-  },
-  {
-    id: 'hidden-instruction',
-    severity: 'error',
-    regex: /\bALWAYS\s+call\s+this\s+tool\s+(first|before)\b/i,
-    message: 'Tool description forces priority execution — coercion pattern',
-  },
-  {
-    id: 'hidden-instruction',
-    severity: 'error',
-    regex: /\b(secretly|covertly|without\s+telling)\b/i,
-    message: 'Tool description uses stealth language — hidden behavior',
-  },
-  // Cross-origin escalation — tool references other tools
-  {
-    id: 'cross-origin-escalation',
-    severity: 'error',
-    regex: /\b(before|after)\s+using\s+this\s+tool,?\s+(always\s+)?(call|use|invoke|run)\s/i,
-    message: 'Tool description instructs calling other tools — cross-origin escalation',
-  },
-  {
-    id: 'cross-origin-escalation',
-    severity: 'warning',
-    regex: /\bthis\s+tool\s+(should|must|needs\s+to)\s+be\s+(called|used|invoked)\s+(with|alongside|after|before)\b/i,
-    message: 'Tool description prescribes execution order — potential cross-origin influence',
-  },
-  // Data exfiltration
-  {
-    id: 'data-exfiltration',
-    severity: 'error',
-    regex: /\b(send|post|upload|transmit|exfiltrate)\b.*\b(to|at)\s+(https?:\/\/|wss?:\/\/)/i,
-    message: 'Tool description references sending data to external URL',
-  },
-  {
-    id: 'data-exfiltration',
-    severity: 'warning',
-    regex: /https?:\/\/(?!localhost|127\.0\.0\.1|0\.0\.0\.0)[^\s"']+/i,
-    message: 'Tool description contains external URL — verify it is legitimate',
-  },
-  // Encoding / obfuscation in descriptions
-  {
-    id: 'obfuscation',
-    severity: 'warning',
-    regex: /(?:[A-Za-z0-9+/]{40,}={0,2})/,
-    message: 'Tool description contains base64-like encoded string — possible hidden payload',
-  },
-  {
-    id: 'obfuscation',
-    severity: 'warning',
-    regex: /\\u[0-9a-fA-F]{4}/,
-    message: 'Tool description contains unicode escape sequences — possible obfuscation',
-  },
-  // Excessive length (can hide instructions in noise)
-  {
-    id: 'excessive-description',
-    severity: 'warning',
-    regex: /.{2000,}/s,
-    message: 'Tool description exceeds 2000 chars — may hide instructions in long text',
-  },
-];
+// ── Poisoning detection (KERN structural analysis) ─────────────────────
+//
+// Layer 1: Reuses KERN's existing pattern library (checkDescriptionForPoisoning,
+//          SUSPICIOUS_DESC_PATTERNS, INVISIBLE_CHARS, DIRECTION_OVERRIDE,
+//          DATA_INJECTION_PATTERNS) — same checks as source-code scanner.
+// Layer 2: Cross-origin escalation patterns (tool-description-specific).
+// Layer 3: Structural checks only possible with live multi-server data:
+//          cross-server shadowing, schema/description mismatch, cross-server
+//          tool references.
 
 // Common tool names that could be shadowed
 const SHADOW_TARGETS = new Set([
@@ -167,26 +93,130 @@ const SHADOW_TARGETS = new Set([
   'database_query',
 ]);
 
-function checkPoisoning(serverName: string, serverSource: string, tool: McpToolInfo): PoisoningFinding[] {
+// Cross-origin patterns (live-inspection-specific — not in source scanner)
+const CROSS_ORIGIN_PATTERNS: { regex: RegExp; severity: 'error' | 'warning'; message: string }[] = [
+  {
+    regex: /\b(before|after)\s+using\s+this\s+tool,?\s+(always\s+)?(call|use|invoke|run)\s/i,
+    severity: 'error',
+    message: 'Tool description instructs calling other tools — cross-origin escalation',
+  },
+  {
+    regex: /\bthis\s+tool\s+(should|must|needs\s+to)\s+be\s+(called|used|invoked)\s+(with|alongside|after|before)\b/i,
+    severity: 'warning',
+    message: 'Tool description prescribes execution order — potential cross-origin influence',
+  },
+  {
+    regex: /\bALWAYS\s+call\s+this\s+tool\s+(first|before)\b/i,
+    severity: 'error',
+    message: 'Tool description forces priority execution — coercion pattern',
+  },
+  {
+    regex: /\b(secretly|covertly|without\s+telling)\b/i,
+    severity: 'error',
+    message: 'Tool description uses stealth language — hidden behavior',
+  },
+  {
+    regex: /\b(send|post|upload|transmit|exfiltrate)\b.*\b(to|at)\s+(https?:\/\/|wss?:\/\/)/i,
+    severity: 'error',
+    message: 'Tool description references sending data to external URL — data exfiltration risk',
+  },
+];
+
+/**
+ * Layer 1: Run KERN's existing description poisoning checks.
+ * Same function the source-code scanner uses for MCP03.
+ */
+function runKernPoisoningChecks(serverName: string, serverSource: string, tool: McpToolInfo): PoisoningFinding[] {
+  const findings: PoisoningFinding[] = [];
+  const desc = tool.description || '';
+  if (!desc) return findings;
+
+  // Use KERN's existing checkDescriptionForPoisoning (MCP03)
+  const kernFindings: { ruleId: string; severity: string; message: string }[] = [];
+  checkDescriptionForPoisoning(desc, `live:${serverName}`, 1, kernFindings as any);
+
+  for (const kf of kernFindings) {
+    findings.push({
+      serverName,
+      serverSource,
+      toolName: tool.name,
+      pattern: 'kern-mcp03',
+      severity: kf.severity === 'error' ? 'error' : 'warning',
+      message: kf.message,
+    });
+  }
+
+  // Data injection patterns from KERN's pattern library
+  for (const dip of DATA_INJECTION_PATTERNS) {
+    if (dip.pattern.test(desc)) {
+      findings.push({
+        serverName,
+        serverSource,
+        toolName: tool.name,
+        pattern: 'data-injection',
+        severity: 'error',
+        message: `Tool description contains data injection marker: ${dip.label}`,
+        matchedText: desc.match(dip.pattern)?.[0]?.slice(0, 100),
+      });
+    }
+  }
+
+  return findings;
+}
+
+/**
+ * Layer 2: Cross-origin and behavioral patterns.
+ */
+function runCrossOriginChecks(serverName: string, serverSource: string, tool: McpToolInfo): PoisoningFinding[] {
   const findings: PoisoningFinding[] = [];
   const desc = tool.description || '';
 
-  for (const pattern of POISON_PATTERNS) {
-    const match = desc.match(pattern.regex);
+  for (const pat of CROSS_ORIGIN_PATTERNS) {
+    const match = desc.match(pat.regex);
     if (match) {
       findings.push({
         serverName,
         serverSource,
         toolName: tool.name,
-        pattern: pattern.id,
-        severity: pattern.severity,
-        message: pattern.message,
+        pattern: 'cross-origin',
+        severity: pat.severity,
+        message: pat.message,
         matchedText: match[0].slice(0, 100),
       });
     }
   }
 
-  // Tool shadowing — common tool names used by a third-party server
+  // Excessive description length
+  if (desc.length > 2000) {
+    findings.push({
+      serverName,
+      serverSource,
+      toolName: tool.name,
+      pattern: 'excessive-description',
+      severity: 'warning',
+      message: `Tool description is ${desc.length} chars — may hide instructions in long text`,
+    });
+  }
+
+  return findings;
+}
+
+/**
+ * Layer 3: Structural checks that require multi-server context.
+ * - Tool shadowing: common tool names used by third-party servers
+ * - Cross-server tool references: description mentions tools from other servers
+ * - Schema/description mismatch: description says "read-only" but schema has write params
+ */
+function runStructuralChecks(
+  serverName: string,
+  serverSource: string,
+  tool: McpToolInfo,
+  allServersTools: Map<string, McpToolInfo[]>,
+): PoisoningFinding[] {
+  const findings: PoisoningFinding[] = [];
+  const desc = (tool.description || '').toLowerCase();
+
+  // Tool shadowing — common tool names
   if (SHADOW_TARGETS.has(tool.name.toLowerCase())) {
     findings.push({
       serverName,
@@ -198,7 +228,56 @@ function checkPoisoning(serverName: string, serverSource: string, tool: McpToolI
     });
   }
 
+  // Cross-server tool reference — description mentions tool names from OTHER servers
+  for (const [otherServer, otherTools] of allServersTools) {
+    if (otherServer === serverName) continue;
+    for (const otherTool of otherTools) {
+      if (new RegExp(`\\b${otherTool.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(desc)) {
+        findings.push({
+          serverName,
+          serverSource,
+          toolName: tool.name,
+          pattern: 'cross-server-reference',
+          severity: 'warning',
+          message: `Tool description references '${otherTool.name}' from server '${otherServer}' — potential cross-origin influence`,
+        });
+      }
+    }
+  }
+
+  // Schema/description mismatch — description implies read-only but schema has write-like params
+  if (desc && tool.inputSchema) {
+    const schema = tool.inputSchema as { properties?: Record<string, unknown> };
+    const props = Object.keys(schema.properties ?? {});
+    const claimsReadOnly = /\bread[- ]?only\b|\bno\s+(?:side\s+)?effects?\b|\bsafe\b/.test(desc);
+    const hasWriteParams = props.some((p) => /write|delete|update|create|modify|execute|run|command/i.test(p));
+    if (claimsReadOnly && hasWriteParams) {
+      findings.push({
+        serverName,
+        serverSource,
+        toolName: tool.name,
+        pattern: 'schema-description-mismatch',
+        severity: 'error',
+        message: `Description claims read-only but schema has write-like params (${props.filter((p) => /write|delete|update|create|modify|execute|run|command/i.test(p)).join(', ')})`,
+      });
+    }
+  }
+
   return findings;
+}
+
+/** Run all three detection layers on a tool. */
+function checkPoisoning(
+  serverName: string,
+  serverSource: string,
+  tool: McpToolInfo,
+  allServersTools: Map<string, McpToolInfo[]>,
+): PoisoningFinding[] {
+  return [
+    ...runKernPoisoningChecks(serverName, serverSource, tool),
+    ...runCrossOriginChecks(serverName, serverSource, tool),
+    ...runStructuralChecks(serverName, serverSource, tool, allServersTools),
+  ];
 }
 
 // ── JSON-RPC over stdio ────────────────────────────────────────────────
@@ -355,14 +434,27 @@ export async function inspectMcpServers(
   const maxOutput = options.maxOutput ?? 1_048_576; // 1MB
 
   const configResult = scanMcpConfigs(workspaceRoot);
+
+  // Pass 1: Connect to all servers and collect tool lists
   const servers: InspectedServer[] = [];
-
   for (const entry of configResult.servers) {
-    // Skip if allowlist is set and server not in it
     if (options.allowlist && !options.allowlist.includes(entry.name)) continue;
-
-    const inspected = await inspectSingleServer(entry, timeout, maxOutput);
+    const inspected = await connectToServer(entry, timeout, maxOutput);
     servers.push(inspected);
+  }
+
+  // Build cross-server tool map for structural analysis (Layer 3)
+  const allServersTools = new Map<string, McpToolInfo[]>();
+  for (const srv of servers) {
+    if (srv.status === 'ok') allServersTools.set(srv.name, srv.tools);
+  }
+
+  // Pass 2: Run all three detection layers with cross-server context
+  for (const srv of servers) {
+    if (srv.status !== 'ok') continue;
+    for (const tool of srv.tools) {
+      srv.findings.push(...checkPoisoning(srv.name, srv.source, tool, allServersTools));
+    }
   }
 
   return {
@@ -373,11 +465,7 @@ export async function inspectMcpServers(
   };
 }
 
-async function inspectSingleServer(
-  entry: McpServerEntry,
-  timeout: number,
-  maxOutput: number,
-): Promise<InspectedServer> {
+async function connectToServer(entry: McpServerEntry, timeout: number, maxOutput: number): Promise<InspectedServer> {
   const base: Omit<InspectedServer, 'status' | 'tools' | 'findings'> = {
     name: entry.name,
     source: entry.source,
@@ -387,12 +475,7 @@ async function inspectSingleServer(
 
   try {
     const tools = await connectAndListTools(entry.command, entry.args, entry.env, timeout, maxOutput);
-    const findings: PoisoningFinding[] = [];
-    for (const tool of tools) {
-      findings.push(...checkPoisoning(entry.name, entry.source, tool));
-    }
-
-    return { ...base, status: 'ok', tools, findings };
+    return { ...base, status: 'ok', tools, findings: [] };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const status = message.includes('timed out') ? 'timeout' : 'error';
