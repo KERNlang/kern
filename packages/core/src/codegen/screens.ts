@@ -47,6 +47,24 @@ function propsOf(node: IRNode): Record<string, unknown> {
   return node.props || {};
 }
 
+/**
+ * Detect whether a useState initial value needs lazy initialization.
+ * IIFEs and function expressions re-evaluate on every render when passed
+ * directly to useState(). Wrapping as useState(() => expr) fixes this.
+ */
+function needsLazyInit(initial: string): boolean {
+  const trimmed = initial.trim();
+  // IIFE: ((...) => ...)() or (function() { ... })()
+  if (/^\(.*\)\s*\(/.test(trimmed)) return true;
+  // Arrow function: () => ... or (...) => ...
+  if (/^\(?[^)]*\)?\s*=>/.test(trimmed)) return true;
+  // function expression: function(
+  if (trimmed.startsWith('function(') || trimmed.startsWith('function (')) return true;
+  // new constructor: new Map(), new Set(), etc.
+  if (trimmed.startsWith('new ')) return true;
+  return false;
+}
+
 function handlerContent(node: IRNode): string {
   const handler = getChildren(node, 'handler')[0];
   if (handler) {
@@ -128,7 +146,10 @@ export function generateScreen(node: IRNode): string[] {
     const sType = (sp.type as string) || 'any';
     const sInitial = (sp.initial as string) || 'undefined';
     const setter = `set${sName.charAt(0).toUpperCase()}${sName.slice(1)}`;
-    lines.push(`  const [${sName}, ${setter}] = useState<${sType}>(${sInitial});`);
+    // Use lazy initializer for function expressions/IIFEs to avoid re-evaluation per render
+    const useLazy = needsLazyInit(sInitial);
+    const initExpr = useLazy ? `() => ${sInitial}` : sInitial;
+    lines.push(`  const [${sName}, ${setter}] = useState<${sType}>(${initExpr});`);
   }
 
   // Ref declarations
