@@ -445,6 +445,8 @@ export const CORE_NODE_TYPES = new Set([
   'screen',
   // Meta
   'doc',
+  // Error recovery
+  '__error',
 ]);
 
 /** Check if a node type is a core language construct. */

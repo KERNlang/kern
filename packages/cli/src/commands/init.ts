@@ -142,7 +142,7 @@ type name=TodoFilter export=true values="all|active|completed"
     {
       file: 'api.kern',
       content: `// Express API — kern compile api.kern --target=express
-import from="./models.js" names="Todo,CreateTodoInput" types=true
+// Note: inline types in handlers since Express transpiler handles imports separately
 
 server name=TodoAPI port=3001
   middleware name=json
@@ -150,14 +150,14 @@ server name=TodoAPI port=3001
 
   route path="/api/todos" method=get
     handler <<<
+      interface Todo { id: string; title: string; completed: boolean; createdAt: string; }
       const todos: Todo[] = [];
       res.json(todos);
     >>>
 
   route path="/api/todos" method=post
-    schema body=CreateTodoInput
     handler <<<
-      const todo: Todo = {
+      const todo = {
         id: crypto.randomUUID(),
         title: req.body.title,
         completed: false,
@@ -175,21 +175,21 @@ server name=TodoAPI port=3001
     {
       file: 'frontend.kern',
       content: `// Next.js frontend — kern compile frontend.kern --target=nextjs
-import from="./models.js" names="Todo" types=true
 
 page name=TodoApp client=true route="/"
-  metadata title="Todo App" description="A simple todo application built with KERN"
 
-  state name=todos initial=[] type=Todo[]
+  state name=todos initial=[] type=any[]
   state name=newTitle initial="" type=string
 
-  effect deps="[]" once=true
-    handler <<<
+  logic <<<
+    React.useEffect(() => {
       fetch('/api/todos').then(r => r.json()).then(setTodos);
-    >>>
+    }, []);
+  >>>
 
-  form action="/api/todos" method=POST
-    row
+  row
+    col
+      text value="Todo App"
       input bind=newTitle placeholder="What needs to be done?"
       button text="Add Todo"
 
@@ -200,7 +200,6 @@ page name=TodoApp client=true route="/"
     {
       file: 'mcp-server.kern',
       content: `// MCP server — kern compile mcp-server.kern --target=mcp
-import from="./models.js" names="Todo" types=true
 
 mcp name=TodoMCP version=1.0 transport=stdio
 
@@ -209,9 +208,10 @@ mcp name=TodoMCP version=1.0 transport=stdio
     param name=filter type=string default=all description="Filter: all, active, or completed"
     handler <<<
       const response = await fetch('http://localhost:3001/api/todos');
-      const todos: Todo[] = await response.json();
-      const filtered = params.filter === 'all' ? todos
-        : todos.filter(t => params.filter === 'completed' ? t.completed : !t.completed);
+      const todos = await response.json();
+      const f = args.filter ?? 'all';
+      const filtered = f === 'all' ? todos
+        : todos.filter((t: any) => f === 'completed' ? t.completed : !t.completed);
       return { content: [{ type: "text", text: JSON.stringify(filtered, null, 2) }] };
     >>>
 
@@ -223,7 +223,7 @@ mcp name=TodoMCP version=1.0 transport=stdio
       const response = await fetch('http://localhost:3001/api/todos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: params.title }),
+        body: JSON.stringify({ title: args.title }),
       });
       const todo = await response.json();
       return { content: [{ type: "text", text: \`Created: \${todo.title} (id: \${todo.id})\` }] };
