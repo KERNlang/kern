@@ -86,10 +86,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['variant'],
   },
   variant: {
-    description: 'A case within a discriminated union',
+    description:
+      'A case within a discriminated union. Use name= for inline variants with fields, or type= to reference an existing interface.',
     example: 'variant name=circle\n  field name=radius type=number',
     props: {
-      name: { required: true, kind: 'identifier' },
+      name: { required: false, kind: 'identifier' },
+      type: { required: false, kind: 'typeAnnotation' },
     },
     allowedChildren: ['field'],
   },

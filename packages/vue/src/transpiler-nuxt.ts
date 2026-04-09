@@ -57,8 +57,9 @@ const NODE_TO_ELEMENT: Record<string, string> = {
   grid: 'div',
 };
 
-function textElement(variant?: string): string {
-  if (!variant) return 'p';
+function textElement(tag?: string, variant?: string): string {
+  const el = tag || variant;
+  if (!el) return 'p';
   const map: Record<string, string> = {
     h1: 'h1',
     h2: 'h2',
@@ -66,11 +67,15 @@ function textElement(variant?: string): string {
     h4: 'h4',
     h5: 'h5',
     h6: 'h6',
+    p: 'p',
+    span: 'span',
+    label: 'label',
+    pre: 'pre',
     caption: 'small',
     small: 'small',
     code: 'code',
   };
-  return map[variant] || 'p';
+  return map[el] || 'p';
 }
 
 function cssValue(key: string, value: string | number): string {
@@ -354,7 +359,9 @@ function renderNode(node: IRNode, ctx: NuxtBuilder, indent: string): void {
   }
 
   let el =
-    node.type === 'text' ? textElement(props.variant as string | undefined) : NODE_TO_ELEMENT[node.type] || 'div';
+    node.type === 'text'
+      ? textElement(props.tag as string | undefined, props.variant as string | undefined)
+      : NODE_TO_ELEMENT[node.type] || 'div';
 
   let styles = mergeNodeStyles(node, ctx);
   styles = addLayoutDefaults(node.type, styles);

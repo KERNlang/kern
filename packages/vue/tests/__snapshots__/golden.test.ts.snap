@@ -12,9 +12,9 @@ useHead({
   <div class="page-0">
     <div class="row-1">
       <div>
-        <p class="text-2">
+        <h1 class="text-2">
           SoundKit
-        </p>
+        </h1>
       </div>
       <div class="row-3">
         <div>
@@ -33,9 +33,9 @@ useHead({
       </div>
     </div>
     <div class="col-7">
-      <p class="text-8">
+      <h1 class="text-8">
         Analyze your mix in seconds
-      </p>
+      </h1>
       <p class="text-9">
         AI-powered stem separation, frequency analysis, and mastering suggestions.
       </p>
@@ -50,25 +50,25 @@ useHead({
     </div>
     <div class="grid-13">
       <div class="card-14">
-        <p class="text-15">
+        <h3 class="text-15">
           Stem Separation
-        </p>
+        </h3>
         <p class="text-16">
           Split any track into drums, bass, vocals, and more using Demucs ML.
         </p>
       </div>
       <div class="card-17">
-        <p class="text-18">
+        <h3 class="text-18">
           Frequency Analysis
-        </p>
+        </h3>
         <p class="text-19">
           Identify problematic frequencies and get EQ fix suggestions per stem.
         </p>
       </div>
       <div class="card-20">
-        <p class="text-21">
+        <h3 class="text-21">
           Mastering Chain
-        </p>
+        </h3>
         <p class="text-22">
           Auto-generated mastering presets based on your genre and reference tracks.
         </p>
@@ -263,7 +263,7 @@ exports[`Golden Snapshot Tests Vue output for audio-settings.kern 1`] = `
     <h2>Audio & Analysis</h2>
     <section key="settings.masteringDefaults">
       <h2>Mastering Defaults</h2>
-      <p class="text-0" key="settings.masteringDefaults.description" tag="p">
+      <p class="text-0" key="settings.masteringDefaults.description">
         Set your preferred starting point for the mastering chain.
       </p>
       <div ref="MasteringDefaultsSection">
@@ -277,7 +277,7 @@ exports[`Golden Snapshot Tests Vue output for audio-settings.kern 1`] = `
     </section>
     <section key="settings.exportDefaults">
       <h2>Export Defaults</h2>
-      <p class="text-2" key="settings.exportDefaultsDescription" tag="p">
+      <p class="text-2" key="settings.exportDefaultsDescription">
         Set your preferred export format.
       </p>
       <div ref="ExportDefaultsSection" props="isPro,exportFormat,mp3Bitrate">
