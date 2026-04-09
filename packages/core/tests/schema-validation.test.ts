@@ -72,9 +72,14 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
 
-    it('flags guard missing expr', () => {
+    it('passes guard with kind (MCP security guard)', () => {
+      const v = validate('guard type=sanitize param=query');
+      expect(v).toHaveLength(0);
+    });
+
+    it('flags guard missing both expr and kind/type', () => {
       const v = validate('guard name=check');
-      expect(v.some((v) => v.message.includes("requires prop 'expr'"))).toBe(true);
+      expect(v.some((v) => v.message.includes("'guard' requires either"))).toBe(true);
     });
 
     it('flags derive missing expr', () => {

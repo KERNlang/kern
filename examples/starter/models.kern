@@ -1,0 +1,15 @@
+type name=ItemId values="string"
+
+interface name=Item export=true
+  field name=id type=ItemId
+  field name=name type=string
+  field name=createdAt type=string
+
+interface name=CreateItemInput export=true
+  field name=name type=string
+
+interface name=ItemListResponse export=true
+  field name=items type=Item[]
+  field name=page type=number
+  field name=limit type=number
+  field name=total type=number

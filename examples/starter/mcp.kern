@@ -1,0 +1,37 @@
+mcp name=StarterTools version=1.0
+
+  tool name=listItems
+    description text="List items from the API"
+    param name=page type=number default=1 description="Page number"
+    param name=limit type=number default=20 description="Items per page"
+    guard type=validate param=page min=1 max=100
+    guard type=validate param=limit min=1 max=100
+    handler <<<
+      const response = await fetch(`http://localhost:3001/api/items?page=${params.page}&limit=${params.limit}`);
+      const data = await response.json();
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    >>>
+
+  tool name=getItem
+    description text="Get a single item by ID"
+    param name=id type=string required=true description="Item ID"
+    guard type=sanitize param=id
+    handler <<<
+      const response = await fetch(`http://localhost:3001/api/items/${params.id}`);
+      const data = await response.json();
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    >>>
+
+  tool name=createItem
+    description text="Create a new item"
+    param name=name type=string required=true description="Item name"
+    guard type=sanitize param=name
+    handler <<<
+      const response = await fetch('http://localhost:3001/api/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: params.name }),
+      });
+      const data = await response.json();
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    >>>

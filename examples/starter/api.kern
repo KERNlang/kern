@@ -1,0 +1,33 @@
+server name=StarterAPI port=3001
+
+  middleware name=json
+  middleware name=cors
+
+  route path="/api/health" method=get
+    handler <<<
+      res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    >>>
+
+  route path="/api/items" method=get
+    params items="[{name:page,type:number,default:1},{name:limit,type:number,default:20}]"
+    handler <<<
+      const items = Array.from({ length: limit }, (_, i) => ({
+        id: `item-${(page - 1) * limit + i + 1}`,
+        name: `Item ${(page - 1) * limit + i + 1}`,
+        createdAt: new Date().toISOString(),
+      }));
+      res.json({ items, page, limit, total: 100 });
+    >>>
+
+  route path="/api/items/:id" method=get
+    handler <<<
+      const { id } = req.params;
+      res.json({ id, name: `Item ${id}`, createdAt: new Date().toISOString() });
+    >>>
+
+  route path="/api/items" method=post
+    validate schema=CreateItemInput
+    handler <<<
+      const item = { id: crypto.randomUUID(), ...req.body, createdAt: new Date().toISOString() };
+      res.status(201).json(item);
+    >>>

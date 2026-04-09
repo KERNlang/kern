@@ -151,11 +151,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['state', 'transition'],
   },
   state: {
-    description: 'A state within a machine — one must be marked initial=true',
-    example: 'state name=pending initial=true',
+    description: 'State — machine state (initial=true/false) or React component state (initial=expression, type=Type)',
+    example: 'state name=pending initial=true\nstate name=count initial=0 type=number',
     props: {
       name: { required: true, kind: 'identifier' },
-      initial: { kind: 'boolean' },
+      initial: { kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
     },
   },
   transition: {
@@ -294,13 +295,37 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['handler'],
   },
   guard: {
-    description: 'Runtime assertion — throws or executes else-branch if expr is falsy',
-    example: 'guard expr="user !== null" else="throw new Error(\'No user\')"',
+    description: 'Guard — runtime assertion (expr-based) or MCP security guard (kind-based: sanitize, pathContainment, validate, auth, rateLimit, sizeLimit, sanitizeOutput)',
+    example: 'guard expr="user !== null" else="throw new Error(\'No user\')"\nguard type=sanitize param=query\nguard type=pathContainment param=filePath allowlist=/data,/home',
     props: {
       name: { kind: 'string' },
-      expr: { required: true, kind: 'rawExpr' },
+      expr: { kind: 'rawExpr' },
       else: { kind: 'rawExpr' },
       confidence: { kind: 'number' },
+      kind: { kind: 'identifier' },
+      type: { kind: 'identifier' },
+      param: { kind: 'identifier' },
+      field: { kind: 'identifier' },
+      target: { kind: 'identifier' },
+      pattern: { kind: 'string' },
+      replacement: { kind: 'string' },
+      regex: { kind: 'string' },
+      min: { kind: 'number' },
+      max: { kind: 'number' },
+      allowlist: { kind: 'string' },
+      allow: { kind: 'string' },
+      roots: { kind: 'string' },
+      baseDir: { kind: 'string' },
+      base: { kind: 'string' },
+      root: { kind: 'string' },
+      envVar: { kind: 'string' },
+      env: { kind: 'string' },
+      header: { kind: 'string' },
+      windowMs: { kind: 'number' },
+      window: { kind: 'number' },
+      maxRequests: { kind: 'number' },
+      requests: { kind: 'number' },
+      maxBytes: { kind: 'number' },
     },
   },
   assume: {
@@ -557,6 +582,262 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       stroke: { kind: 'string' },
     },
   },
+
+  // ── Cross-target nodes ────────────────────────────────────────────────
+
+  handler: {
+    description: 'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for multiline code.',
+    example: 'handler <<<\n  const result = await doWork();\n  return result;\n>>>',
+    props: {
+      code: { kind: 'rawBlock' },
+      lang: { kind: 'string' },
+    },
+  },
+  conditional: {
+    description: 'Conditional rendering — shows children when if-expression is truthy',
+    example: 'conditional if="user !== null"',
+    props: {
+      if: { required: true, kind: 'rawExpr' },
+    },
+  },
+
+  // ── Express / Backend nodes ───────────────────────────────────────────
+
+  server: {
+    description: 'Express server entry point with name and port',
+    example: 'server name=MyAPI port=3000\n  route path="/api/users" method=get\n    handler <<<\n      res.json(users)\n    >>>',
+    props: {
+      name: { kind: 'identifier' },
+      port: { kind: 'number' },
+    },
+    allowedChildren: ['route', 'middleware', 'websocket', 'model', 'dependency', 'job', 'storage', 'email'],
+  },
+  route: {
+    description: 'HTTP route — defines an endpoint with method, path, and handler',
+    example: 'route path="/api/users" method=get\n  handler <<<\n    res.json(users)\n  >>>',
+    props: {
+      path: { required: true, kind: 'string' },
+      method: { kind: 'identifier' },
+    },
+    allowedChildren: ['handler', 'middleware', 'schema', 'auth', 'validate', 'params', 'respond', 'error', 'guard', 'derive', 'branch', 'each', 'collect', 'effect'],
+  },
+  middleware: {
+    description: 'Express middleware — named built-in (json, cors, rateLimit) or custom with handler',
+    example: 'middleware name=cors\nmiddleware name=auth\n  handler <<<\n    if (!req.user) return res.status(401).json({ error: "Unauthorized" });\n    next();\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      names: { kind: 'string' },
+    },
+    allowedChildren: ['handler'],
+  },
+  params: {
+    description: 'Query/path parameter definitions for a route — items is an array of {name, type, default?}',
+    example: 'params items="[{name:page,type:number,default:1},{name:limit,type:number,default:20}]"',
+    props: {
+      items: { kind: 'rawExpr' },
+    },
+  },
+  auth: {
+    description: 'Authentication requirement on a route — required or optional',
+    example: 'auth mode=required',
+    props: {
+      mode: { kind: 'identifier' },
+    },
+  },
+  validate: {
+    description: 'Request validation schema reference for a route',
+    example: 'validate schema=CreateUserSchema',
+    props: {
+      schema: { kind: 'identifier' },
+    },
+  },
+  respond: {
+    description: 'Declarative HTTP response — status, body, redirect, or error',
+    example: 'respond status=200 json="{ success: true }"',
+    props: {
+      status: { kind: 'number' },
+      json: { kind: 'rawExpr' },
+      text: { kind: 'string' },
+      error: { kind: 'string' },
+      redirect: { kind: 'string' },
+      type: { kind: 'string' },
+      headers: { kind: 'rawExpr' },
+    },
+  },
+  schema: {
+    description: 'Request schema — TypeScript types for body, params, query, and response validation',
+    example: 'schema body=CreateUserInput params="{id: string}" response=UserResponse',
+    props: {
+      body: { kind: 'typeAnnotation' },
+      params: { kind: 'typeAnnotation' },
+      query: { kind: 'typeAnnotation' },
+      response: { kind: 'typeAnnotation' },
+    },
+  },
+
+  // ── MCP (Model Context Protocol) nodes ────────────────────────────────
+
+  mcp: {
+    description: 'MCP server definition — compiles to a full Model Context Protocol server with tools, resources, and prompts',
+    example: 'mcp name=FileTools version=1.0 transport=stdio\n  tool name=readFile\n    param name=path type=string required=true\n    handler <<<\n      return { content: [{ type: "text", text: await fs.readFile(path) }] };\n    >>>',
+    props: {
+      name: { kind: 'identifier' },
+      version: { kind: 'string' },
+      transport: { kind: 'identifier' },
+      port: { kind: 'number' },
+      allowlist: { kind: 'string' },
+      allowedPaths: { kind: 'string' },
+      baseDir: { kind: 'string' },
+    },
+    allowedChildren: ['tool', 'resource', 'prompt'],
+  },
+  tool: {
+    description: 'MCP tool definition — a callable function exposed to AI agents with typed params and security guards',
+    example: 'tool name=searchFiles\n  description text="Search for files"\n  param name=query type=string required=true\n  guard type=sanitize param=query\n  handler <<<\n    return { content: [{ type: "text", text: results }] };\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+    },
+    allowedChildren: ['param', 'handler', 'description', 'guard', 'sampling', 'elicitation'],
+  },
+  resource: {
+    description: 'MCP resource — a data source exposed to AI agents via URI. Use {variables} for templated URIs.',
+    example: 'resource name=config uri="config://app"\n  description text="Application configuration"\n  handler <<<\n    return { contents: [{ uri: uri.href, text: JSON.stringify(config) }] };\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      uri: { required: true, kind: 'string' },
+    },
+    allowedChildren: ['param', 'handler', 'description', 'guard'],
+  },
+  param: {
+    description: 'Parameter definition for a tool, resource, or prompt — name, type, required, default, and description',
+    example: 'param name=query type=string required=true description="Search query"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'identifier' },
+      required: { kind: 'boolean' },
+      default: { kind: 'rawExpr' },
+      description: { kind: 'string' },
+      min: { kind: 'number' },
+      max: { kind: 'number' },
+    },
+    allowedChildren: ['guard', 'description'],
+  },
+  prompt: {
+    description: 'MCP prompt template — a reusable system prompt exposed to AI agents',
+    example: 'prompt name=analyzeFile\n  param name=filePath type=string required=true\n  handler <<<\n    return { messages: [{ role: "user", content: { type: "text", text: `Analyze ${filePath}` } }] };\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+    },
+    allowedChildren: ['param', 'handler', 'description'],
+  },
+  description: {
+    description: 'Documentation text for a tool, resource, or prompt',
+    example: 'description text="Read a file within allowed directories"',
+    props: {
+      text: { kind: 'string' },
+      value: { kind: 'string' },
+    },
+  },
+  sampling: {
+    description: 'MCP sampling configuration — requests LLM completion within a tool handler',
+    example: 'sampling maxTokens=500',
+    props: {
+      maxTokens: { kind: 'number' },
+    },
+  },
+  elicitation: {
+    description: 'MCP elicitation — requests user input during tool execution',
+    example: 'elicitation message="Confirm deletion?"',
+    props: {
+      message: { kind: 'string' },
+      text: { kind: 'string' },
+    },
+  },
+
+  // ── React / UI element nodes ──────────────────────────────────────────
+
+  screen: {
+    description: 'Full-screen container component (minHeight: 100vh flex column)',
+    example: 'screen name=Dashboard\n  row\n    text value="Welcome"',
+    props: {
+      name: { kind: 'identifier' },
+    },
+  },
+  row: {
+    description: 'Flexbox row container — horizontal layout',
+    example: 'row\n  col\n    text value="Left"\n  col\n    text value="Right"',
+    props: {},
+  },
+  col: {
+    description: 'Flexbox column container — vertical layout',
+    example: 'col\n  text value="Stacked content"',
+    props: {},
+  },
+  card: {
+    description: 'Card component — rounded container with shadow',
+    example: 'card\n  text value="Card title"\n  text value="Card body"',
+    props: {},
+  },
+  text: {
+    description: 'Text element — renders a paragraph or span with content',
+    example: 'text value="Hello, world!"',
+    props: {
+      value: { kind: 'string' },
+    },
+  },
+  button: {
+    description: 'Button element with label text and optional navigation',
+    example: 'button text="Submit"\nbutton text="Go Home" to="/home"',
+    props: {
+      text: { kind: 'string' },
+      to: { kind: 'string' },
+    },
+  },
+  input: {
+    description: 'Form input — text, number, email, etc. with optional state binding',
+    example: 'input bind=email type=email placeholder="Enter email"',
+    props: {
+      bind: { kind: 'identifier' },
+      type: { kind: 'identifier' },
+      placeholder: { kind: 'string' },
+    },
+  },
+  image: {
+    description: 'Image element with source and alt text',
+    example: 'image src="/logo.png" alt="Company logo"',
+    props: {
+      src: { required: true, kind: 'string' },
+      alt: { kind: 'string' },
+    },
+  },
+  modal: {
+    description: 'Modal dialog overlay — renders a centered popup',
+    example: 'modal\n  text value="Are you sure?"\n  button text="Confirm"\n  button text="Cancel"',
+    props: {},
+  },
+  table: {
+    description: 'Table container for tabular data display',
+    example: 'table\n  header\n    text value="Name"\n    text value="Email"',
+    props: {},
+  },
+  header: {
+    description: 'Header/heading element or table header row',
+    example: 'header\n  text value="Page Title"',
+    props: {},
+  },
+  tabs: {
+    description: 'Tabbed navigation container',
+    example: 'tabs\n  tab label="Profile"\n    text value="Profile content"\n  tab label="Settings"\n    text value="Settings content"',
+    props: {},
+  },
+  theme: {
+    description: 'Theme/styling definitions — CSS custom properties and style objects applied to descendant nodes',
+    example: 'theme styles="{ background: #1a1a2e, color: #e0e0e0, fontFamily: system-ui }"',
+    props: {
+      name: { kind: 'identifier' },
+      styles: { kind: 'rawExpr' },
+    },
+  },
 };
 
 // ── Validation ──────────────────────────────────────────────────────────
@@ -606,6 +887,16 @@ function validateNode(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'component',
         message: "'component' requires either 'ref' or 'name' prop",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+
+    // Cross-prop validation: guard needs expr (assertion) OR kind/type (security guard)
+    if (node.type === 'guard' && !('expr' in props) && !('kind' in props) && !('type' in props)) {
+      violations.push({
+        nodeType: 'guard',
+        message: "'guard' requires either 'expr' (assertion) or 'kind'/'type' (security guard)",
         line: node.loc?.line,
         col: node.loc?.col,
       });

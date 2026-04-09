@@ -1,0 +1,93 @@
+mcp name=APIGateway version=1.0 transport=stdio
+
+  tool name=httpRequest
+    description text="Make an HTTP request to an external API with auth and rate limiting"
+    param name=url type=string required=true description="Target URL"
+    param name=method type=string default=GET description="HTTP method (GET, POST, PUT, DELETE)"
+    param name=headers type=json required=false description="Custom headers as JSON object"
+    param name=body type=string required=false description="Request body"
+    guard type=sanitize param=url
+    guard type=auth envVar=GATEWAY_API_KEY header=x-api-key
+    guard type=rateLimit maxRequests=100 windowMs=60000
+    handler <<<
+      const options: RequestInit = {
+        method: (params.method as string) || 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(params.headers ? JSON.parse(params.headers as string) : {}),
+        },
+      };
+      if (params.body) options.body = params.body as string;
+
+      const response = await fetch(params.url as string, options);
+      const text = await response.text();
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            status: response.status,
+            statusText: response.statusText,
+            headers: Object.fromEntries(response.headers.entries()),
+            body: text,
+          }, null, 2),
+        }],
+      };
+    >>>
+
+  tool name=graphqlQuery
+    description text="Execute a GraphQL query against the configured endpoint"
+    param name=query type=string required=true description="GraphQL query string"
+    param name=variables type=json required=false description="Query variables as JSON"
+    guard type=sanitize param=query
+    guard type=auth envVar=GRAPHQL_TOKEN
+    guard type=rateLimit maxRequests=50 windowMs=60000
+    handler <<<
+      const endpoint = process.env.GRAPHQL_ENDPOINT || 'http://localhost:4000/graphql';
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.GRAPHQL_TOKEN}`,
+        },
+        body: JSON.stringify({
+          query: params.query,
+          variables: params.variables ? JSON.parse(params.variables as string) : {},
+        }),
+      });
+      const data = await response.json();
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    >>>
+
+  resource name=endpoints uri="endpoints://list"
+    description text="List all configured API endpoints"
+    handler <<<
+      const endpoints = {
+        graphql: process.env.GRAPHQL_ENDPOINT || 'http://localhost:4000/graphql',
+        rest: process.env.REST_ENDPOINT || 'http://localhost:3000/api',
+      };
+      return {
+        contents: [{
+          uri: uri.href,
+          mimeType: 'application/json',
+          text: JSON.stringify(endpoints, null, 2),
+        }],
+      };
+    >>>
+
+  prompt name=debugRequest
+    description text="Debug a failed API request"
+    param name=url type=string required=true description="The URL that failed"
+    param name=statusCode type=number required=true description="HTTP status code received"
+    param name=errorBody type=string required=false description="Error response body"
+    handler <<<
+      return {
+        messages: [{
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: `Debug this failed API request:\n\nURL: ${args.url}\nStatus: ${args.statusCode}\nError: ${args.errorBody || 'No error body'}\n\nSuggest potential causes and fixes.`,
+          },
+        }],
+      };
+    >>>

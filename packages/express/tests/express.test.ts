@@ -14,7 +14,7 @@ describe('Express Transpiler', () => {
     expect(result.code).toContain(`import { verifyToken } from './middleware/auth.js';`);
     expect(result.code).toContain(`import { registerGetApiTracksRoute } from './routes/get-api-tracks.js';`);
     expect(result.code).toContain(
-      `app.use(cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true }));`,
+      `app.use(cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map((origin: string) => origin.trim()).filter(Boolean) : false, credentials: true }));`,
     );
     expect(result.code).toContain(`app.use(express.json({ limit: '1mb' }));`);
     expect(result.artifacts).toBeDefined();
@@ -197,7 +197,7 @@ describe('Express Transpiler', () => {
       const authArtifact = result.artifacts?.find((artifact: any) => artifact.path === 'middleware/auth.ts');
 
       expect(result.code).toContain(
-        `app.use(cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true }));`,
+        `app.use(cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map((origin: string) => origin.trim()).filter(Boolean) : false, credentials: true }));`,
       );
       expect(result.code).toContain(`app.get('/health'`);
       expect(result.code).toContain(`let data: any;`);
@@ -332,7 +332,7 @@ describe('Express Transpiler', () => {
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       // strict mode should resolve cors with env-driven origins
       expect(route!.content).toContain(
-        `cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true })`,
+        `cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map((origin: string) => origin.trim()).filter(Boolean) : false, credentials: true })`,
       );
       expect(route!.content).toContain("import cors from 'cors'");
       // rateLimit is now a built-in — resolved to express-rate-limit import + invocation
@@ -376,7 +376,7 @@ describe('Express Transpiler', () => {
       expect(getUsersRoute!.content).toContain(': 1;');
       // Bare middleware cors should resolve to strict env-driven cors with import
       expect(getUsersRoute!.content).toContain(
-        `cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true })`,
+        `cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map((origin: string) => origin.trim()).filter(Boolean) : false, credentials: true })`,
       );
       expect(getUsersRoute!.content).toContain("import cors from 'cors'");
 

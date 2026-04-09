@@ -1,0 +1,127 @@
+mcp name=DatabaseTools version=1.0
+
+  tool name=query
+    description text="Execute a read-only SQL query against the database"
+    param name=sql type=string required=true description="SQL query (SELECT only)"
+    param name=limit type=number default=100 description="Maximum rows to return"
+    guard type=sanitize param=sql
+    guard type=validate param=limit min=1 max=1000
+    handler <<<
+      const normalized = (params.sql as string).trim().toUpperCase();
+      if (!normalized.startsWith('SELECT')) {
+        throw new Error('Only SELECT queries are allowed for safety');
+      }
+
+      // Replace with your actual database connection
+      const { Pool } = await import('pg');
+      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      const result = await pool.query(
+        `${params.sql} LIMIT $1`,
+        [params.limit]
+      );
+      await pool.end();
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            rowCount: result.rowCount,
+            columns: result.fields.map(f => f.name),
+            rows: result.rows,
+          }, null, 2),
+        }],
+      };
+    >>>
+
+  tool name=listTables
+    description text="List all tables in the database with row counts"
+    handler <<<
+      const { Pool } = await import('pg');
+      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+      const result = await pool.query(`
+        SELECT schemaname, tablename,
+               pg_size_pretty(pg_total_relation_size(schemaname || '.' || tablename)) as size
+        FROM pg_tables
+        WHERE schemaname = 'public'
+        ORDER BY tablename
+      `);
+      await pool.end();
+
+      return {
+        content: [{
+          type: "text",
+          text: result.rows.map(r => `${r.tablename} (${r.size})`).join('\n'),
+        }],
+      };
+    >>>
+
+  tool name=describeTable
+    description text="Show column names, types, and constraints for a table"
+    param name=tableName type=string required=true description="Table name to describe"
+    guard type=sanitize param=tableName
+    handler <<<
+      const { Pool } = await import('pg');
+      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+      const result = await pool.query(`
+        SELECT column_name, data_type, is_nullable, column_default
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = $1
+        ORDER BY ordinal_position
+      `, [params.tableName]);
+      await pool.end();
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify(result.rows, null, 2),
+        }],
+      };
+    >>>
+
+  tool name=explainQuery
+    description text="Get the execution plan for a SQL query"
+    param name=sql type=string required=true description="SQL query to explain"
+    guard type=sanitize param=sql
+    handler <<<
+      const normalized = (params.sql as string).trim().toUpperCase();
+      if (!normalized.startsWith('SELECT')) {
+        throw new Error('Only SELECT queries can be explained');
+      }
+
+      const { Pool } = await import('pg');
+      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      const result = await pool.query(`EXPLAIN ANALYZE ${params.sql}`);
+      await pool.end();
+
+      return {
+        content: [{
+          type: "text",
+          text: result.rows.map(r => r['QUERY PLAN']).join('\n'),
+        }],
+      };
+    >>>
+
+  resource name=schema uri="schema://public"
+    description text="Current database schema as SQL DDL"
+    handler <<<
+      const { Pool } = await import('pg');
+      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+      const result = await pool.query(`
+        SELECT pg_catalog.pg_get_tabledef(c.oid)
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relkind = 'r'
+      `);
+      await pool.end();
+
+      return {
+        contents: [{
+          uri: uri.href,
+          mimeType: 'text/plain',
+          text: result.rows.map(r => r.pg_get_tabledef).join('\n\n'),
+        }],
+      };
+    >>>
