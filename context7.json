@@ -1,48 +1,4 @@
 {
-  "$schema": "https://context7.com/schema/context7.json",
   "url": "https://context7.com/kernlang/kern",
-  "public_key": "pk_W6aI1UJJKJMlowTpB3mkA",
-  "projectTitle": "KERN",
-  "description": "The LLM programming language. Write .kern once, compile to 12 targets (Next.js 13-16, React, Vue, Express, FastAPI, MCP, etc.). 117 node schemas for LLM generation. 98 static analysis rules with taint tracking. Error recovery with partial compilation. MCP server for AI agents. Up to 85% fewer tokens than TypeScript.",
-  "folders": [
-    "docs",
-    "examples",
-    "packages/core/src",
-    "packages/cli/src",
-    "packages/mcp-server",
-    "packages/review/src/rules",
-    "packages/review-mcp/src/rules"
-  ],
-  "excludeFolders": [
-    "node_modules",
-    "**/dist",
-    "**/node_modules",
-    ".next",
-    "site",
-    "generated",
-    "benchmarks",
-    "vscode-kern"
-  ],
-  "excludeFiles": [
-    "*.test.ts",
-    "*.test.js",
-    "*.map",
-    "pnpm-lock.yaml",
-    "biome.json"
-  ],
-  "rules": [
-    "KERN uses indent-based syntax (2 spaces, no tabs). Every node is one line. Children are indented deeper.",
-    "Props use key=value syntax. Strings use double quotes. Styles use inline {shorthand:value} blocks.",
-    "Handler blocks use <<< code >>> for inline code. Comments use // or #.",
-    "The 12 compile targets are: nextjs, tailwind, web, vue, nuxt, express, fastapi, native, cli, terminal, ink, mcp.",
-    "Next.js versions 13-16 supported with version-specific output (satisfies metadata for 15+, async params).",
-    "117 of 161 node types have full schemas (props, allowedChildren, descriptions, examples). Use kern schema --json for LLM consumption.",
-    "Error recovery: parser inserts __error nodes instead of dropping lines. Use --tolerant for partial compilation with TODO comments.",
-    "kern review runs 98 AST-based rules including taint tracking, OWASP LLM01 coverage, and concept-level analysis.",
-    "MCP servers written in .kern get auto-injected security guards (sanitize, pathContainment, validate, auth, rateLimit).",
-    "kern init --template=fullstack scaffolds a complete project (Next.js + Express + MCP + shared types).",
-    "Use npx @kernlang/mcp-server or https://kernlang.dev/api/mcp for the MCP server endpoint.",
-    "Full language spec: https://kernlang.dev/llm/spec — machine-readable at https://kernlang.dev/llm",
-    "Always verify .kern syntax with the schema tool before writing. Use compile-json for structured error diagnostics."
-  ]
+  "public_key": "pk_W6aI1UJJKJMlowTpB3mkA"
 }
