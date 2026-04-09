@@ -548,7 +548,9 @@ function emitResource(node: IRNode, fallbackAllowlist: string[]): string[] {
 
   const uriArg = hasTemplate ? `new ResourceTemplate(${json(uri)}, { list: undefined })` : json(uri);
 
-  lines.push(`server.resource(${json(name)}, ${uriArg}, async (uri${hasTemplate ? ', variables' : ''}) => {`);
+  lines.push(
+    `server.resource(${json(name)}, ${uriArg}, async (uri: URL${hasTemplate ? ', variables: Record<string, string>' : ''}) => {`,
+  );
   lines.push(`  logger.info("resource:read", { resource: ${json(name)}, uri: uri.href });`);
   lines.push(`  try {`);
 
@@ -591,9 +593,9 @@ function emitPrompt(node: IRNode, fallbackAllowlist: string[]): string[] {
     for (const param of params) {
       lines.push(`  ${json(param.name)}: z.string()${param.optional ? '.optional()' : ''},`);
     }
-    lines.push(`}, async (args) => {`);
+    lines.push(`}, async (args: Record<string, string>) => {`);
   } else {
-    lines.push(`server.prompt(${json(name)}, ${json(description || name)}, async (args) => {`);
+    lines.push(`server.prompt(${json(name)}, ${json(description || name)}, async (args: Record<string, string>) => {`);
   }
   lines.push(`  const requestId = nextRequestId();`);
   lines.push(`  logger.info("prompt:call", { requestId, prompt: ${json(name)} });`);

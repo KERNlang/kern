@@ -1,0 +1,607 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`Golden Snapshot Tests MCP TypeScript output for mcp-api-gateway.kern 1`] = `
+"import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+
+const server = new McpServer({
+  name: "APIGateway",
+  version: "1.0",
+});
+
+const logger = {
+  info(event: string, details: Record<string, unknown> = {}) {
+    console.error(JSON.stringify({ level: "info", event, ...details, ts: new Date().toISOString() }));
+  },
+  error(event: string, details: Record<string, unknown> = {}) {
+    console.error(JSON.stringify({ level: "error", event, ...details, ts: new Date().toISOString() }));
+  },
+};
+
+function nextRequestId(): string {
+  return \`\${Date.now().toString(36)}-\${Math.random().toString(36).slice(2, 8)}\`;
+}
+
+function fmtError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function sanitizeValue(value: unknown, pattern: string, replacement: string): unknown {
+  if (typeof value !== "string") return value;
+  try { return value.replace(new RegExp(pattern, "g"), replacement); }
+  catch { return value; }
+}
+
+const httprequestSchema = {
+  "url": z.string().describe("Target URL"),
+  "method": z.string().describe("HTTP method (GET, POST, PUT, DELETE)").default("GET"),
+  "headers": z.record(z.string(), z.unknown()).describe("Custom headers as JSON object").optional(),
+  "body": z.string().describe("Request body").optional(),
+};
+
+// NOTE: checkAuth is a bootstrap check — it verifies the env var exists, not that
+// the caller is authenticated. For production, add real token verification logic.
+function checkAuth(envVar: string, _header: string): void {
+  const token = process.env[envVar];
+  if (!token) throw new Error("Authentication required: set " + envVar + " environment variable");
+}
+
+const _rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+function checkRateLimit(toolName: string, windowMs: number, maxRequests: number): void {
+  const now = Date.now();
+  const entry = _rateLimitStore.get(toolName);
+  if (!entry || now > entry.resetAt) {
+    _rateLimitStore.set(toolName, { count: 1, resetAt: now + windowMs });
+    return;
+  }
+  entry.count++;
+  if (entry.count > maxRequests) throw new Error(\`Rate limit exceeded for \${toolName}: \${maxRequests} requests per \${windowMs}ms\`);
+}
+
+/** Strip prompt injection markers from tool output — defense against indirect injection. */
+function sanitizeToolOutput<T extends { content: Array<{ type: "text"; text: string }> }>(result: T): T {
+  const INJECTION_PATTERNS = [
+    /\\b(?:ignore|disregard|forget)\\s+(?:all\\s+)?(?:previous|above|prior)\\s+instructions?/gi,
+    /\\b(?:you\\s+are|act\\s+as|pretend\\s+to\\s+be|roleplay\\s+as)\\b/gi,
+    /\\b(?:system\\s*prompt|\\<\\/?(?:system|user|assistant)\\>)/gi,
+    /\\[(?:INST|SYS|\\/?SYSTEM)\\]/gi,
+  ];
+  return {
+    ...result,
+    content: result.content.map(c => {
+      if (c.type !== "text") return c;
+      let text = c.text;
+      for (const pattern of INJECTION_PATTERNS) text = text.replace(pattern, "[FILTERED]");
+      return { ...c, text };
+    }) as T["content"],
+  };
+}
+
+server.tool("httpRequest", "Make an HTTP request to an external API with auth and rate limiting", httprequestSchema, async (input) => {
+  const requestId = nextRequestId();
+  logger.info("tool:call", { requestId, tool: "httpRequest" });
+  try {
+    checkAuth("GATEWAY_API_KEY", "x-api-key");
+    checkRateLimit("httpRequest", 60000, 100);
+    const params = { ...input } as Record<string, unknown>;
+    params["url"] = sanitizeValue(params["url"], "[^\\\\w./ -]", "");
+    params["method"] = sanitizeValue(params["method"], "[^\\\\w./ -]", "");
+    params["body"] = sanitizeValue(params["body"], "[^\\\\w./ -]", "");
+    const args = params as typeof input;
+    const _rawResult = await (async () => {
+            const options: RequestInit = {
+              method: (params.method as string) || 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(params.headers ? JSON.parse(params.headers as string) : {}),
+              },
+            };
+            if (params.body) options.body = params.body as string;
+
+            const response = await fetch(params.url as string, options);
+            const text = await response.text();
+
+            return {
+              content: [{
+                type: "text",
+                text: JSON.stringify({
+                  status: response.status,
+                  statusText: response.statusText,
+                  headers: Object.fromEntries(response.headers.entries()),
+                  body: text,
+                }, null, 2),
+              }],
+            };
+    })();
+    return sanitizeToolOutput(_rawResult);
+  } catch (error) {
+    logger.error("tool:error", { requestId, tool: "httpRequest", error: fmtError(error) });
+    return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
+  }
+});
+
+const graphqlquerySchema = {
+  "query": z.string().describe("GraphQL query string"),
+  "variables": z.record(z.string(), z.unknown()).describe("Query variables as JSON").optional(),
+};
+
+server.tool("graphqlQuery", "Execute a GraphQL query against the configured endpoint", graphqlquerySchema, async (input) => {
+  const requestId = nextRequestId();
+  logger.info("tool:call", { requestId, tool: "graphqlQuery" });
+  try {
+    checkAuth("GRAPHQL_TOKEN", "authorization");
+    checkRateLimit("graphqlQuery", 60000, 50);
+    const params = { ...input } as Record<string, unknown>;
+    params["query"] = sanitizeValue(params["query"], "[^\\\\w./ -]", "");
+    const args = params as typeof input;
+    const _rawResult = await (async () => {
+            const endpoint = process.env.GRAPHQL_ENDPOINT || 'http://localhost:4000/graphql';
+            const response = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': \`Bearer \${process.env.GRAPHQL_TOKEN}\`,
+              },
+              body: JSON.stringify({
+                query: params.query,
+                variables: params.variables ? JSON.parse(params.variables as string) : {},
+              }),
+            });
+            const data = await response.json();
+            return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    })();
+    return sanitizeToolOutput(_rawResult);
+  } catch (error) {
+    logger.error("tool:error", { requestId, tool: "graphqlQuery", error: fmtError(error) });
+    return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
+  }
+});
+
+// List all configured API endpoints
+server.resource("endpoints", "endpoints://list", async (uri: URL) => {
+  logger.info("resource:read", { resource: "endpoints", uri: uri.href });
+  try {
+    const args = {};
+          const endpoints = {
+            graphql: process.env.GRAPHQL_ENDPOINT || 'http://localhost:4000/graphql',
+            rest: process.env.REST_ENDPOINT || 'http://localhost:3000/api',
+          };
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: 'application/json',
+              text: JSON.stringify(endpoints, null, 2),
+            }],
+          };
+  } catch (error) {
+    logger.error("resource:error", { resource: "endpoints", error: fmtError(error) });
+    throw error;
+  }
+});
+
+// Debug a failed API request
+server.prompt("debugRequest", "Debug a failed API request", {
+  "url": z.string(),
+  "statusCode": z.string(),
+  "errorBody": z.string().optional(),
+}, async (args: Record<string, string>) => {
+  const requestId = nextRequestId();
+  logger.info("prompt:call", { requestId, prompt: "debugRequest" });
+  try {
+    const params = args;
+          return {
+            messages: [{
+              role: "user" as const,
+              content: {
+                type: "text" as const,
+                text: \`Debug this failed API request:\\n\\nURL: \${args.url}\\nStatus: \${args.statusCode}\\nError: \${args.errorBody || 'No error body'}\\n\\nSuggest potential causes and fixes.\`,
+              },
+            }],
+          };
+  } catch (error) {
+    logger.error("prompt:error", { requestId, prompt: "debugRequest", error: fmtError(error) });
+    return { messages: [{ role: "user" as const, content: { type: "text" as const, text: fmtError(error) } }] };
+  }
+});
+
+async function main(): Promise<void> {
+  logger.info("server:start", { server: "APIGateway", version: "1.0", transport: "stdio" });
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+void main().catch((error) => {
+  logger.error("server:fatal", { error: fmtError(error) });
+  process.exitCode = 1;
+});
+"
+`;
+
+exports[`Golden Snapshot Tests MCP TypeScript output for mcp-database.kern 1`] = `
+"import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+
+const server = new McpServer({
+  name: "DatabaseTools",
+  version: "1.0",
+});
+
+const logger = {
+  info(event: string, details: Record<string, unknown> = {}) {
+    console.error(JSON.stringify({ level: "info", event, ...details, ts: new Date().toISOString() }));
+  },
+  error(event: string, details: Record<string, unknown> = {}) {
+    console.error(JSON.stringify({ level: "error", event, ...details, ts: new Date().toISOString() }));
+  },
+};
+
+function nextRequestId(): string {
+  return \`\${Date.now().toString(36)}-\${Math.random().toString(36).slice(2, 8)}\`;
+}
+
+function fmtError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function sanitizeValue(value: unknown, pattern: string, replacement: string): unknown {
+  if (typeof value !== "string") return value;
+  try { return value.replace(new RegExp(pattern, "g"), replacement); }
+  catch { return value; }
+}
+
+const querySchema = {
+  "sql": z.string().describe("SQL query (SELECT only)"),
+  "limit": z.number().min(1).max(1000).describe("Maximum rows to return").default(100),
+};
+
+server.tool("query", "Execute a read-only SQL query against the database", querySchema, async (input) => {
+  const requestId = nextRequestId();
+  logger.info("tool:call", { requestId, tool: "query" });
+  try {
+    const params = { ...input } as Record<string, unknown>;
+    params["sql"] = sanitizeValue(params["sql"], "[^\\\\w./ -]", "");
+    const args = params as typeof input;
+          const normalized = (params.sql as string).trim().toUpperCase();
+          if (!normalized.startsWith('SELECT')) {
+            throw new Error('Only SELECT queries are allowed for safety');
+          }
+
+          // Replace with your actual database connection
+          const { Pool } = await import('pg');
+          const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+          const result = await pool.query(
+            \`\${params.sql} LIMIT $1\`,
+            [params.limit]
+          );
+          await pool.end();
+
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                rowCount: result.rowCount,
+                columns: result.fields.map(f => f.name),
+                rows: result.rows,
+              }, null, 2),
+            }],
+          };
+  } catch (error) {
+    logger.error("tool:error", { requestId, tool: "query", error: fmtError(error) });
+    return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
+  }
+});
+
+server.tool("listTables", "List all tables in the database with row counts", {}, async (input) => {
+  const requestId = nextRequestId();
+  logger.info("tool:call", { requestId, tool: "listTables" });
+  try {
+    const args = input ?? {};
+          const { Pool } = await import('pg');
+          const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+          const result = await pool.query(\`
+            SELECT schemaname, tablename,
+                   pg_size_pretty(pg_total_relation_size(schemaname || '.' || tablename)) as size
+            FROM pg_tables
+            WHERE schemaname = 'public'
+            ORDER BY tablename
+          \`);
+          await pool.end();
+
+          return {
+            content: [{
+              type: "text",
+              text: result.rows.map(r => \`\${r.tablename} (\${r.size})\`).join('\\n'),
+            }],
+          };
+  } catch (error) {
+    logger.error("tool:error", { requestId, tool: "listTables", error: fmtError(error) });
+    return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
+  }
+});
+
+const describetableSchema = {
+  "tableName": z.string().describe("Table name to describe"),
+};
+
+server.tool("describeTable", "Show column names, types, and constraints for a table", describetableSchema, async (input) => {
+  const requestId = nextRequestId();
+  logger.info("tool:call", { requestId, tool: "describeTable" });
+  try {
+    const params = { ...input } as Record<string, unknown>;
+    params["tableName"] = sanitizeValue(params["tableName"], "[^\\\\w./ -]", "");
+    const args = params as typeof input;
+          const { Pool } = await import('pg');
+          const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+          const result = await pool.query(\`
+            SELECT column_name, data_type, is_nullable, column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = $1
+            ORDER BY ordinal_position
+          \`, [params.tableName]);
+          await pool.end();
+
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify(result.rows, null, 2),
+            }],
+          };
+  } catch (error) {
+    logger.error("tool:error", { requestId, tool: "describeTable", error: fmtError(error) });
+    return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
+  }
+});
+
+const explainquerySchema = {
+  "sql": z.string().describe("SQL query to explain"),
+};
+
+server.tool("explainQuery", "Get the execution plan for a SQL query", explainquerySchema, async (input) => {
+  const requestId = nextRequestId();
+  logger.info("tool:call", { requestId, tool: "explainQuery" });
+  try {
+    const params = { ...input } as Record<string, unknown>;
+    params["sql"] = sanitizeValue(params["sql"], "[^\\\\w./ -]", "");
+    const args = params as typeof input;
+          const normalized = (params.sql as string).trim().toUpperCase();
+          if (!normalized.startsWith('SELECT')) {
+            throw new Error('Only SELECT queries can be explained');
+          }
+
+          const { Pool } = await import('pg');
+          const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+          const result = await pool.query(\`EXPLAIN ANALYZE \${params.sql}\`);
+          await pool.end();
+
+          return {
+            content: [{
+              type: "text",
+              text: result.rows.map(r => r['QUERY PLAN']).join('\\n'),
+            }],
+          };
+  } catch (error) {
+    logger.error("tool:error", { requestId, tool: "explainQuery", error: fmtError(error) });
+    return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
+  }
+});
+
+// Current database schema as SQL DDL
+server.resource("schema", "schema://public", async (uri: URL) => {
+  logger.info("resource:read", { resource: "schema", uri: uri.href });
+  try {
+    const args = {};
+          const { Pool } = await import('pg');
+          const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+          const result = await pool.query(\`
+            SELECT pg_catalog.pg_get_tabledef(c.oid)
+            FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND c.relkind = 'r'
+          \`);
+          await pool.end();
+
+          return {
+            contents: [{
+              uri: uri.href,
+              mimeType: 'text/plain',
+              text: result.rows.map(r => r.pg_get_tabledef).join('\\n\\n'),
+            }],
+          };
+  } catch (error) {
+    logger.error("resource:error", { resource: "schema", error: fmtError(error) });
+    throw error;
+  }
+});
+
+async function main(): Promise<void> {
+  logger.info("server:start", { server: "DatabaseTools", version: "1.0", transport: "stdio" });
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+void main().catch((error) => {
+  logger.error("server:fatal", { error: fmtError(error) });
+  process.exitCode = 1;
+});
+"
+`;
+
+exports[`Golden Snapshot Tests MCP TypeScript output for mcp-server.kern 1`] = `
+"import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+import path from "node:path";
+import { realpathSync as _realpathSync } from "node:fs";
+
+const server = new McpServer({
+  name: "FileTools",
+  version: "1.0",
+});
+
+const ALLOWED_PATHS = [process.cwd()].map(r => { try { return _realpathSync(r); } catch { return path.resolve(r); } });
+
+const logger = {
+  info(event: string, details: Record<string, unknown> = {}) {
+    console.error(JSON.stringify({ level: "info", event, ...details, ts: new Date().toISOString() }));
+  },
+  error(event: string, details: Record<string, unknown> = {}) {
+    console.error(JSON.stringify({ level: "error", event, ...details, ts: new Date().toISOString() }));
+  },
+};
+
+function nextRequestId(): string {
+  return \`\${Date.now().toString(36)}-\${Math.random().toString(36).slice(2, 8)}\`;
+}
+
+function fmtError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function sanitizeValue(value: unknown, pattern: string, replacement: string): unknown {
+  if (typeof value !== "string") return value;
+  try { return value.replace(new RegExp(pattern, "g"), replacement); }
+  catch { return value; }
+}
+
+function ensurePathContainment(candidate: string, allowlist: string[]): string {
+  let resolved: string;
+  try { resolved = _realpathSync(candidate); } catch { resolved = path.resolve(candidate); }
+  const ok = allowlist.some(root => resolved === root || resolved.startsWith(\`\${root}\${path.sep}\`));
+  if (!ok) throw new Error("Path escapes allowed directories: " + candidate);
+  return resolved;
+}
+
+const readfileSchema = {
+  "filePath": z.string(),
+};
+
+server.tool("readFile", "Read a file's contents within allowed directories", readfileSchema, async (input) => {
+  const requestId = nextRequestId();
+  logger.info("tool:call", { requestId, tool: "readFile" });
+  try {
+    const params = { ...input } as Record<string, unknown>;
+    if (params["filePath"] == null || params["filePath"] === "") throw new Error("filePath is required for path containment check");
+    params["filePath"] = ensurePathContainment(path.resolve(String(params["filePath"])), ["/data", "/home"].map(r => path.resolve(r)));
+    const args = params as typeof input;
+          const fs = await import('node:fs/promises');
+          const content = await fs.readFile(params.filePath as string, 'utf-8');
+          return { content: [{ type: "text", text: content }] };
+  } catch (error) {
+    logger.error("tool:error", { requestId, tool: "readFile", error: fmtError(error) });
+    return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
+  }
+});
+
+const searchfilesSchema = {
+  "query": z.string(),
+  "maxResults": z.number().min(1).max(500).default(50),
+};
+
+server.tool("searchFiles", "Search for files matching a pattern", searchfilesSchema, async (input) => {
+  const requestId = nextRequestId();
+  logger.info("tool:call", { requestId, tool: "searchFiles" });
+  try {
+    const params = { ...input } as Record<string, unknown>;
+    params["query"] = sanitizeValue(params["query"], "[^\\\\w./ -]", "");
+    const args = params as typeof input;
+          const { globSync } = await import('node:fs');
+          const results = globSync(params.query as string).slice(0, params.maxResults as number);
+          return { content: [{ type: "text", text: results.join('\\n') }] };
+  } catch (error) {
+    logger.error("tool:error", { requestId, tool: "searchFiles", error: fmtError(error) });
+    return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
+  }
+});
+
+const writefileSchema = {
+  "filePath": z.string(),
+  "content": z.string(),
+};
+
+server.tool("writeFile", "Write content to a file within allowed directories", writefileSchema, async (input) => {
+  const requestId = nextRequestId();
+  logger.info("tool:call", { requestId, tool: "writeFile" });
+  try {
+    const params = { ...input } as Record<string, unknown>;
+    if (params["filePath"] == null || params["filePath"] === "") throw new Error("filePath is required for path containment check");
+    params["filePath"] = ensurePathContainment(path.resolve(String(params["filePath"])), ["/data"].map(r => path.resolve(r)));
+    const args = params as typeof input;
+          const fs = await import('node:fs/promises');
+          await fs.writeFile(params.filePath as string, params.content as string, 'utf-8');
+          return { content: [{ type: "text", text: "File written successfully" }] };
+  } catch (error) {
+    logger.error("tool:error", { requestId, tool: "writeFile", error: fmtError(error) });
+    return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
+  }
+});
+
+// Project documentation files
+server.resource("projectDocs", new ResourceTemplate("docs://{docPath}", { list: undefined }), async (uri: URL, variables: Record<string, string>) => {
+  logger.info("resource:read", { resource: "projectDocs", uri: uri.href });
+  try {
+    const args = variables ?? {};
+          const fs = await import('node:fs/promises');
+          const content = await fs.readFile(\`./docs/\${variables.docPath}\`, 'utf-8');
+          return { contents: [{ uri: uri.href, mimeType: 'text/markdown', text: content }] };
+  } catch (error) {
+    logger.error("resource:error", { resource: "projectDocs", error: fmtError(error) });
+    throw error;
+  }
+});
+
+// Application configuration
+server.resource("config", "config://app", async (uri: URL) => {
+  logger.info("resource:read", { resource: "config", uri: uri.href });
+  try {
+    const args = {};
+          const config = { version: "1.0", env: process.env.NODE_ENV || "development" };
+          return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(config, null, 2) }] };
+  } catch (error) {
+    logger.error("resource:error", { resource: "config", error: fmtError(error) });
+    throw error;
+  }
+});
+
+// Analyze a file for issues and suggest improvements
+server.prompt("analyzeFile", "Analyze a file for issues and suggest improvements", {
+  "filePath": z.string(),
+  "language": z.string().optional(),
+}, async (args: Record<string, string>) => {
+  const requestId = nextRequestId();
+  logger.info("prompt:call", { requestId, prompt: "analyzeFile" });
+  try {
+    const params = args;
+    if (params["filePath"] == null || params["filePath"] === "") throw new Error("filePath is required for path containment check");
+    params["filePath"] = ensurePathContainment(path.resolve(String(params["filePath"])), ALLOWED_PATHS);
+          return {
+            messages: [{
+              role: "user" as const,
+              content: {
+                type: "text" as const,
+                text: \`Analyze the file at \${args.filePath} (language: \${args.language || 'auto-detect'}) for bugs, security issues, and improvement opportunities.\`
+              }
+            }]
+          };
+  } catch (error) {
+    logger.error("prompt:error", { requestId, prompt: "analyzeFile", error: fmtError(error) });
+    return { messages: [{ role: "user" as const, content: { type: "text" as const, text: fmtError(error) } }] };
+  }
+});
+
+async function main(): Promise<void> {
+  logger.info("server:start", { server: "FileTools", version: "1.0", transport: "stdio" });
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+void main().catch((error) => {
+  logger.error("server:fatal", { error: fmtError(error) });
+  process.exitCode = 1;
+});
+"
+`;

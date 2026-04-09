@@ -1,4 +1,10 @@
-import { buildBackfillPrompt, createLLMProvider, readNodeDefinition } from '@kernlang/evolve';
+import {
+  buildBackfillPrompt,
+  createLLMProvider,
+  parseLLMJsonObject,
+  readNodeDefinition,
+  validateBackfillResponse,
+} from '@kernlang/evolve';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { parseFlag } from '../../shared.js';
@@ -60,33 +66,26 @@ export async function runEvolveBackfill(args: string[]): Promise<void> {
   try {
     const response = await provider.complete(prompt);
 
-    let json = response.trim();
-    const fenceMatch = json.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-    if (fenceMatch) json = fenceMatch[1].trim();
-    const objStart = json.indexOf('{');
-    const objEnd = json.lastIndexOf('}');
-    if (objStart !== -1 && objEnd > objStart) json = json.slice(objStart, objEnd + 1);
-
-    const parsed = JSON.parse(json);
-    if (typeof parsed !== 'object' || parsed === null) {
-      console.error('  LLM response is not a JSON object');
+    const parsed = parseLLMJsonObject(response);
+    if (!parsed) {
+      console.error('  LLM response is not a valid JSON object');
       process.exit(1);
     }
-    const targetCodegen = typeof parsed.codegenSource === 'string' ? parsed.codegenSource : undefined;
 
-    if (!targetCodegen) {
+    const validated = validateBackfillResponse(parsed);
+    if (!validated) {
       console.error('  LLM did not return codegenSource');
       process.exit(1);
     }
 
     const targetsDir = resolve('.kern', 'evolved', backfillKeyword, 'targets');
     mkdirSync(targetsDir, { recursive: true });
-    writeFileSync(resolve(targetsDir, `${backfillTarget}.js`), targetCodegen);
+    writeFileSync(resolve(targetsDir, `${backfillTarget}.js`), validated.codegenSource);
 
     console.log(`  Written: .kern/evolved/${backfillKeyword}/targets/${backfillTarget}.js`);
-    if (parsed.expectedOutput) {
+    if (validated.expectedOutput) {
       console.log(`  Expected output preview:`);
-      for (const line of (parsed.expectedOutput as string).split('\n').slice(0, 10)) {
+      for (const line of validated.expectedOutput.split('\n').slice(0, 10)) {
         console.log(`    ${line}`);
       }
     }

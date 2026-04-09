@@ -3,8 +3,12 @@ import { runCompile } from './commands/compile.js';
 import { runConfidence } from './commands/confidence.js';
 import { runDev } from './commands/dev.js';
 import { routeEvolve } from './commands/evolve/index.js';
+import { runImport } from './commands/import.js';
+import { runInit } from './commands/init.js';
 import { runReview } from './commands/review.js';
 import { runInitTemplates, runScan } from './commands/scan.js';
+import { runSchema } from './commands/schema.js';
+import { runTest } from './commands/test.js';
 import { printHelp, runTranspile } from './commands/transpile.js';
 
 const args = process.argv.slice(2);
@@ -15,10 +19,14 @@ const cmd = args[0];
 const COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
   dev: runDev,
   compile: runCompile,
+  init: runInit,
+  test: runTest,
   scan: runScan,
   'init-templates': runInitTemplates,
+  import: runImport,
   review: runReview,
   confidence: runConfidence,
+  schema: runSchema,
 };
 
 async function main(): Promise<void> {

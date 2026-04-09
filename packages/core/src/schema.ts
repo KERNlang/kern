@@ -16,6 +16,9 @@
  *   - 'number'         → numeric value
  */
 
+import { type KernTarget, VALID_TARGETS } from './config.js';
+import { defaultRuntime, type KernRuntime } from './runtime.js';
+import { KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
 import type { IRNode } from './types.js';
 
 export type PropKind =
@@ -36,12 +39,25 @@ export interface PropSchema {
 export interface NodeSchema {
   props: Record<string, PropSchema>;
   allowedChildren?: string[];
+  description?: string;
+  example?: string;
 }
 
 // ── Schema Definitions ──────────────────────────────────────────────────
 
 export const NODE_SCHEMAS: Record<string, NodeSchema> = {
+  doc: {
+    description:
+      'JSDoc documentation comment attached to the next declaration. Supports inline (text=) or multiline (<<<>>>)',
+    example: 'doc text="Represents a user account"',
+    props: {
+      text: { kind: 'string' },
+      code: { kind: 'rawBlock' },
+    },
+  },
   type: {
+    description: 'TypeScript type alias — union of string literals or alias to another type',
+    example: 'type name=Status values="active|inactive|banned"',
     props: {
       name: { required: true, kind: 'identifier' },
       values: { kind: 'string' },
@@ -50,6 +66,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   interface: {
+    description: 'TypeScript interface with typed fields',
+    example: 'interface name=User export=true\n  field name=id type=string\n  field name=email type=string',
     props: {
       name: { required: true, kind: 'identifier' },
       extends: { kind: 'typeAnnotation' },
@@ -58,6 +76,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['field'],
   },
   union: {
+    description: 'Discriminated union type with variants, each having their own fields',
+    example: 'union name=Shape discriminant=kind\n  variant name=circle\n    field name=radius type=number',
     props: {
       name: { required: true, kind: 'identifier' },
       discriminant: { required: true, kind: 'identifier' },
@@ -66,12 +86,16 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['variant'],
   },
   variant: {
+    description: 'A case within a discriminated union',
+    example: 'variant name=circle\n  field name=radius type=number',
     props: {
       name: { required: true, kind: 'identifier' },
     },
     allowedChildren: ['field'],
   },
   field: {
+    description: 'A typed property within an interface, variant, service, config, or error',
+    example: 'field name=email type=string optional=true',
     props: {
       name: { required: true, kind: 'identifier' },
       type: { kind: 'typeAnnotation' },
@@ -82,6 +106,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   service: {
+    description: 'Class-based service with methods and dependency injection',
+    example:
+      'service name=AuthService export=true\n  method name=login params="email:string,password:string" async=true',
     props: {
       name: { required: true, kind: 'identifier' },
       implements: { kind: 'typeAnnotation' },
@@ -90,6 +117,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['field', 'method', 'constructor', 'singleton'],
   },
   method: {
+    description: 'A method within a service or repository, with handler body',
+    example:
+      'method name=findById params="id:string" returns=User async=true\n  handler <<<\n    return db.users.find(id)\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       params: { kind: 'string' },
@@ -102,6 +132,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['handler'],
   },
   fn: {
+    description: 'Standalone function — the most common code unit in KERN',
+    example:
+      'fn name=calculateTotal params="items:CartItem[]" returns=number export=true\n  handler <<<\n    return items.reduce((sum, i) => sum + i.price, 0)\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       params: { kind: 'string' },
@@ -113,6 +146,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['handler', 'signal', 'cleanup'],
   },
   machine: {
+    description:
+      'State machine with states and guarded transitions — 12 lines of KERN generates 140+ lines of TypeScript',
+    example:
+      'machine name=OrderStatus export=true\n  state name=pending initial=true\n  state name=confirmed\n  transition name=confirm from=pending to=confirmed',
     props: {
       name: { required: true, kind: 'identifier' },
       export: { kind: 'boolean' },
@@ -120,12 +157,17 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['state', 'transition'],
   },
   state: {
+    description: 'State — machine state (initial=true/false) or React component state (initial=expression, type=Type)',
+    example: 'state name=pending initial=true\nstate name=count initial=0 type=number',
     props: {
       name: { required: true, kind: 'identifier' },
-      initial: { kind: 'boolean' },
+      initial: { kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
     },
   },
   transition: {
+    description: 'A guarded transition between machine states, with optional handler',
+    example: 'transition name=confirm from=pending to=confirmed\n  handler <<<\n    await notifyUser()\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       from: { required: true, kind: 'string' },
@@ -134,6 +176,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['handler'],
   },
   error: {
+    description: 'Custom error class extending a base error, with typed fields',
+    example:
+      'error name=ValidationError extends=Error message="Invalid input" export=true\n  field name=field type=string',
     props: {
       name: { required: true, kind: 'identifier' },
       extends: { required: true, kind: 'identifier' },
@@ -143,6 +188,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['field', 'handler'],
   },
   config: {
+    description: 'Configuration interface with typed fields — generates an interface',
+    example:
+      'config name=AppConfig export=true\n  field name=port type=number default=3000\n  field name=debug type=boolean',
     props: {
       name: { required: true, kind: 'identifier' },
       export: { kind: 'boolean' },
@@ -150,6 +198,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['field'],
   },
   store: {
+    description: 'File-based JSON store with typed key and model',
+    example: 'store name=UserStore path="data/users" key=id model=User export=true',
     props: {
       name: { required: true, kind: 'identifier' },
       path: { required: true, kind: 'string' },
@@ -159,12 +209,16 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   test: {
+    description: 'Test suite container with describe/it blocks',
+    example: 'test name="AuthService"\n  describe name="login"\n    it name="rejects invalid email"',
     props: {
       name: { required: true, kind: 'string' },
     },
     allowedChildren: ['describe', 'it', 'handler'],
   },
   event: {
+    description: 'Typed event with payload type children',
+    example: 'event name=UserCreated export=true\n  type name=id type=string\n  type name=email type=string',
     props: {
       name: { required: true, kind: 'identifier' },
       export: { kind: 'boolean' },
@@ -172,6 +226,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['type'],
   },
   import: {
+    description: 'ES module import — named, default, or type-only',
+    example: 'import from="./user.js" names="User,UserRole" types=true',
     props: {
       from: { required: true, kind: 'importPath' },
       names: { kind: 'string' },
@@ -180,6 +236,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   const: {
+    description: 'Constant declaration with optional type and value or handler body',
+    example: 'const name=MAX_RETRIES type=number value=3 export=true',
     props: {
       name: { required: true, kind: 'identifier' },
       type: { kind: 'typeAnnotation' },
@@ -189,6 +247,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['handler'],
   },
   on: {
+    description: 'Event listener — binds a handler to a named event',
+    example: 'on event=click handler=handleClick',
     props: {
       event: { required: true, kind: 'string' },
       handler: { kind: 'identifier' },
@@ -198,6 +258,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['handler'],
   },
   websocket: {
+    description: 'WebSocket server endpoint with event handlers',
+    example:
+      'websocket path="/ws" name=chatSocket export=true\n  on event=message\n    handler <<<\n      broadcast(data)\n    >>>',
     props: {
       path: { kind: 'string' },
       name: { kind: 'identifier' },
@@ -206,6 +269,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['on'],
   },
   derive: {
+    description: 'Computed/derived value from an expression',
+    example: 'derive name=fullName expr="first + " " + last" type=string',
     props: {
       name: { required: true, kind: 'identifier' },
       expr: { required: true, kind: 'rawExpr' },
@@ -214,6 +279,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   transform: {
+    description: 'Data transformation pipeline — maps target through a via function or handler',
+    example: 'transform name=normalized target=rawData via=normalize type=NormalizedData',
     props: {
       name: { required: true, kind: 'identifier' },
       target: { kind: 'rawExpr' },
@@ -224,6 +291,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['handler'],
   },
   action: {
+    description: 'Named side-effecting operation — can be idempotent or reversible',
+    example:
+      'action name=sendEmail params="to:string,body:string" async=true export=true\n  handler <<<\n    await mailer.send(to, body)\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       params: { kind: 'string' },
@@ -235,14 +305,44 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['handler'],
   },
   guard: {
+    description:
+      'Guard — runtime assertion (expr-based) or MCP security guard (kind-based: sanitize, pathContainment, validate, auth, rateLimit, sizeLimit, sanitizeOutput)',
+    example:
+      'guard expr="user !== null" else="throw new Error(\'No user\')"\nguard type=sanitize param=query\nguard type=pathContainment param=filePath allowlist=/data,/home',
     props: {
       name: { kind: 'string' },
-      expr: { required: true, kind: 'rawExpr' },
+      expr: { kind: 'rawExpr' },
       else: { kind: 'rawExpr' },
       confidence: { kind: 'number' },
+      kind: { kind: 'identifier' },
+      type: { kind: 'identifier' },
+      param: { kind: 'identifier' },
+      field: { kind: 'identifier' },
+      target: { kind: 'identifier' },
+      pattern: { kind: 'string' },
+      replacement: { kind: 'string' },
+      regex: { kind: 'string' },
+      min: { kind: 'number' },
+      max: { kind: 'number' },
+      allowlist: { kind: 'string' },
+      allow: { kind: 'string' },
+      roots: { kind: 'string' },
+      baseDir: { kind: 'string' },
+      base: { kind: 'string' },
+      root: { kind: 'string' },
+      envVar: { kind: 'string' },
+      env: { kind: 'string' },
+      header: { kind: 'string' },
+      windowMs: { kind: 'number' },
+      window: { kind: 'number' },
+      maxRequests: { kind: 'number' },
+      requests: { kind: 'number' },
+      maxBytes: { kind: 'number' },
     },
   },
   assume: {
+    description: 'Documented assumption with evidence and fallback for when it breaks',
+    example: 'assume expr="items.length > 0" evidence="validated upstream" fallback="return []"',
     props: {
       expr: { required: true, kind: 'rawExpr' },
       scope: { kind: 'string' },
@@ -252,6 +352,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   invariant: {
+    description: 'Compile-time documented invariant — runtime assertion with confidence score',
+    example: 'invariant name="positive balance" expr="balance >= 0"',
     props: {
       name: { kind: 'string' },
       expr: { required: true, kind: 'rawExpr' },
@@ -259,6 +361,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   each: {
+    description: 'Iteration — renders children for each item in a collection (target-agnostic loop)',
+    example: 'each name=item in=items index=i',
     props: {
       name: { required: true, kind: 'identifier' },
       in: { required: true, kind: 'rawExpr' },
@@ -266,6 +370,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   collect: {
+    description: 'Query/collect from a data source with optional filter, sort, and limit',
+    example: 'collect name=activeUsers from=users where="u => u.active" order="u => u.name" limit=10',
     props: {
       name: { required: true, kind: 'identifier' },
       from: { required: true, kind: 'rawExpr' },
@@ -276,6 +382,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   branch: {
+    description: 'Pattern-match/switch on an expression — contains path children',
+    example: 'branch name=route on=path\n  path value="/home"\n  path value="/about"',
     props: {
       name: { required: true, kind: 'identifier' },
       on: { required: true, kind: 'rawExpr' },
@@ -283,6 +391,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['path'],
   },
   model: {
+    description: 'Database model/entity with columns and relations (generates Prisma or TypeORM)',
+    example:
+      'model name=User table="users" export=true\n  column name=id type=string\n  column name=email type=string\n  relation name=posts type=Post[]',
     props: {
       name: { required: true, kind: 'identifier' },
       table: { kind: 'string' },
@@ -291,6 +402,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['column', 'relation'],
   },
   repository: {
+    description: 'Data access layer class with typed methods for a model',
+    example:
+      'repository name=UserRepo model=User export=true\n  method name=findByEmail params="email:string" returns=User async=true',
     props: {
       name: { required: true, kind: 'identifier' },
       model: { required: true, kind: 'identifier' },
@@ -299,6 +413,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['method'],
   },
   dependency: {
+    description: 'Dependency injection container entry with scope and injected services',
+    example: 'dependency name=authService scope=singleton export=true',
     props: {
       name: { required: true, kind: 'identifier' },
       scope: { kind: 'string' },
@@ -307,6 +423,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['inject', 'returns'],
   },
   cache: {
+    description: 'Cache layer with backend selection, TTL, and entry/invalidation rules',
+    example: 'cache name=userCache backend=redis prefix="user:" ttl=3600 export=true',
     props: {
       name: { required: true, kind: 'identifier' },
       backend: { kind: 'string' },
@@ -317,12 +435,16 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['entry', 'invalidate'],
   },
   module: {
+    description: 'Logical module grouping for code organization',
+    example: 'module name=auth export=true',
     props: {
       name: { required: true, kind: 'identifier' },
       export: { kind: 'boolean' },
     },
   },
   provider: {
+    description: 'React context provider component with typed value',
+    example: 'provider name=AuthProvider type=AuthContext',
     props: {
       name: { required: true, kind: 'identifier' },
       type: { required: true, kind: 'typeAnnotation' },
@@ -330,6 +452,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['prop', 'handler'],
   },
   hook: {
+    description: 'React custom hook with lifecycle methods',
+    example:
+      'hook name=useAuth returns=AuthState\n  handler <<<\n    const [user, setUser] = useState(null)\n    return { user }\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       params: { kind: 'string' },
@@ -338,6 +463,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['handler', 'memo', 'callback', 'ref', 'effect'],
   },
   effect: {
+    description: 'React useEffect — side effect with dependency tracking',
+    example:
+      'effect deps="userId" once=false\n  handler <<<\n    fetchUser(userId)\n  >>>\n  cleanup <<<\n    controller.abort()\n  >>>',
     props: {
       name: { kind: 'identifier' },
       deps: { kind: 'string' },
@@ -347,6 +475,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   // ── Web / UI node types ──────────────────────────────────────────────
   page: {
+    description: 'Page/route component — generates Next.js page or React route component',
+    example: 'page name=Dashboard client=true route="/dashboard"',
     props: {
       name: { required: true, kind: 'identifier' },
       client: { kind: 'boolean' },
@@ -356,15 +486,21 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   layout: {
+    description: 'Layout wrapper component (Next.js layout or generic wrapper)',
+    example: 'layout lang="en" route="/"',
     props: {
       lang: { kind: 'string' },
       route: { kind: 'string' },
     },
   },
   loading: {
+    description: 'Next.js loading.tsx — shown while page content loads',
+    example: 'loading\n  spinner',
     props: {},
   },
   metadata: {
+    description: 'Page metadata — title, description, og:image for SEO',
+    example: 'metadata title="Dashboard" description="Your account overview"',
     props: {
       title: { kind: 'string' },
       description: { kind: 'string' },
@@ -373,11 +509,15 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   link: {
+    description: 'Navigation link to an internal route',
+    example: 'link to="/about"\n  text "About Us"',
     props: {
       to: { required: true, kind: 'string' },
     },
   },
   textarea: {
+    description: 'Multi-line text input with optional two-way binding',
+    example: 'textarea bind=notes placeholder="Enter notes..."',
     props: {
       bind: { kind: 'identifier' },
       placeholder: { kind: 'string' },
@@ -385,6 +525,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   slider: {
+    description: 'Range slider input with min/max/step',
+    example: 'slider bind=volume min=0 max=100 step=5',
     props: {
       bind: { kind: 'identifier' },
       min: { kind: 'number' },
@@ -393,17 +535,23 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   toggle: {
+    description: 'Boolean toggle/switch input',
+    example: 'toggle bind=darkMode',
     props: {
       bind: { kind: 'identifier' },
     },
   },
   grid: {
+    description: 'CSS grid container with column count and gap',
+    example: 'grid cols=3 gap=4',
     props: {
       cols: { kind: 'number' },
       gap: { kind: 'number' },
     },
   },
   component: {
+    description: 'Reference to an external or dynamic React component',
+    example: 'component ref=UserCard props="user,onEdit"',
     props: {
       ref: { kind: 'identifier' },
       name: { kind: 'identifier' },
@@ -414,23 +562,31 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   icon: {
+    description: 'Icon component by name',
+    example: 'icon name=ArrowRight',
     props: {
       name: { required: true, kind: 'identifier' },
     },
   },
   logic: {
+    description: 'Inline TypeScript logic block — embedded code in a component',
+    example: 'logic <<<\n  const filtered = items.filter(i => i.active)\n>>>',
     props: {
       code: { kind: 'rawBlock' },
     },
     allowedChildren: ['handler'],
   },
   form: {
+    description: 'HTML form element with action and method',
+    example: 'form action="/api/submit" method="POST"',
     props: {
       action: { kind: 'string' },
       method: { kind: 'string' },
     },
   },
   svg: {
+    description: 'SVG element with viewBox, dimensions, and fill/stroke',
+    example: 'svg icon=logo width=24 height=24 viewBox="0 0 24 24"',
     props: {
       icon: { kind: 'string' },
       size: { kind: 'number' },
@@ -440,6 +596,287 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       content: { kind: 'string' },
       fill: { kind: 'string' },
       stroke: { kind: 'string' },
+    },
+  },
+
+  // ── Cross-target nodes ────────────────────────────────────────────────
+
+  handler: {
+    description:
+      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for multiline code.',
+    example: 'handler <<<\n  const result = await doWork();\n  return result;\n>>>',
+    props: {
+      code: { kind: 'rawBlock' },
+      lang: { kind: 'string' },
+    },
+  },
+  conditional: {
+    description: 'Conditional rendering — shows children when if-expression is truthy',
+    example: 'conditional if="user !== null"',
+    props: {
+      if: { required: true, kind: 'rawExpr' },
+    },
+  },
+
+  // ── Express / Backend nodes ───────────────────────────────────────────
+
+  server: {
+    description: 'Express server entry point with name and port',
+    example:
+      'server name=MyAPI port=3000\n  route path="/api/users" method=get\n    handler <<<\n      res.json(users)\n    >>>',
+    props: {
+      name: { kind: 'identifier' },
+      port: { kind: 'number' },
+    },
+    allowedChildren: ['route', 'middleware', 'websocket', 'model', 'dependency', 'job', 'storage', 'email'],
+  },
+  route: {
+    description: 'HTTP route — defines an endpoint with method, path, and handler',
+    example: 'route path="/api/users" method=get\n  handler <<<\n    res.json(users)\n  >>>',
+    props: {
+      path: { required: true, kind: 'string' },
+      method: { kind: 'identifier' },
+    },
+    allowedChildren: [
+      'handler',
+      'middleware',
+      'schema',
+      'auth',
+      'validate',
+      'params',
+      'respond',
+      'error',
+      'guard',
+      'derive',
+      'branch',
+      'each',
+      'collect',
+      'effect',
+    ],
+  },
+  middleware: {
+    description: 'Express middleware — named built-in (json, cors, rateLimit) or custom with handler',
+    example:
+      'middleware name=cors\nmiddleware name=auth\n  handler <<<\n    if (!req.user) return res.status(401).json({ error: "Unauthorized" });\n    next();\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      names: { kind: 'string' },
+    },
+    allowedChildren: ['handler'],
+  },
+  params: {
+    description: 'Query/path parameter definitions for a route — items is an array of {name, type, default?}',
+    example: 'params items="[{name:page,type:number,default:1},{name:limit,type:number,default:20}]"',
+    props: {
+      items: { kind: 'rawExpr' },
+    },
+  },
+  auth: {
+    description: 'Authentication requirement on a route — required or optional',
+    example: 'auth mode=required',
+    props: {
+      mode: { kind: 'identifier' },
+    },
+  },
+  validate: {
+    description: 'Request validation schema reference for a route',
+    example: 'validate schema=CreateUserSchema',
+    props: {
+      schema: { kind: 'identifier' },
+    },
+  },
+  respond: {
+    description: 'Declarative HTTP response — status, body, redirect, or error',
+    example: 'respond status=200 json="{ success: true }"',
+    props: {
+      status: { kind: 'number' },
+      json: { kind: 'rawExpr' },
+      text: { kind: 'string' },
+      error: { kind: 'string' },
+      redirect: { kind: 'string' },
+      type: { kind: 'string' },
+      headers: { kind: 'rawExpr' },
+    },
+  },
+  schema: {
+    description: 'Request schema — TypeScript types for body, params, query, and response validation',
+    example: 'schema body=CreateUserInput params="{id: string}" response=UserResponse',
+    props: {
+      body: { kind: 'typeAnnotation' },
+      params: { kind: 'typeAnnotation' },
+      query: { kind: 'typeAnnotation' },
+      response: { kind: 'typeAnnotation' },
+    },
+  },
+
+  // ── MCP (Model Context Protocol) nodes ────────────────────────────────
+
+  mcp: {
+    description:
+      'MCP server definition — compiles to a full Model Context Protocol server with tools, resources, and prompts',
+    example:
+      'mcp name=FileTools version=1.0 transport=stdio\n  tool name=readFile\n    param name=path type=string required=true\n    handler <<<\n      return { content: [{ type: "text", text: await fs.readFile(path) }] };\n    >>>',
+    props: {
+      name: { kind: 'identifier' },
+      version: { kind: 'string' },
+      transport: { kind: 'identifier' },
+      port: { kind: 'number' },
+      allowlist: { kind: 'string' },
+      allowedPaths: { kind: 'string' },
+      baseDir: { kind: 'string' },
+    },
+    allowedChildren: ['tool', 'resource', 'prompt'],
+  },
+  tool: {
+    description: 'MCP tool definition — a callable function exposed to AI agents with typed params and security guards',
+    example:
+      'tool name=searchFiles\n  description text="Search for files"\n  param name=query type=string required=true\n  guard type=sanitize param=query\n  handler <<<\n    return { content: [{ type: "text", text: results }] };\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+    },
+    allowedChildren: ['param', 'handler', 'description', 'guard', 'sampling', 'elicitation'],
+  },
+  resource: {
+    description: 'MCP resource — a data source exposed to AI agents via URI. Use {variables} for templated URIs.',
+    example:
+      'resource name=config uri="config://app"\n  description text="Application configuration"\n  handler <<<\n    return { contents: [{ uri: uri.href, text: JSON.stringify(config) }] };\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      uri: { required: true, kind: 'string' },
+    },
+    allowedChildren: ['param', 'handler', 'description', 'guard'],
+  },
+  param: {
+    description:
+      'Parameter definition for a tool, resource, or prompt — name, type, required, default, and description',
+    example: 'param name=query type=string required=true description="Search query"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'identifier' },
+      required: { kind: 'boolean' },
+      default: { kind: 'rawExpr' },
+      description: { kind: 'string' },
+      min: { kind: 'number' },
+      max: { kind: 'number' },
+    },
+    allowedChildren: ['guard', 'description'],
+  },
+  prompt: {
+    description: 'MCP prompt template — a reusable system prompt exposed to AI agents',
+    example:
+      'prompt name=analyzeFile\n  param name=filePath type=string required=true\n  handler <<<\n    return { messages: [{ role: "user", content: { type: "text", text: `Analyze ${filePath}` } }] };\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+    },
+    allowedChildren: ['param', 'handler', 'description'],
+  },
+  description: {
+    description: 'Documentation text for a tool, resource, or prompt',
+    example: 'description text="Read a file within allowed directories"',
+    props: {
+      text: { kind: 'string' },
+      value: { kind: 'string' },
+    },
+  },
+  sampling: {
+    description: 'MCP sampling configuration — requests LLM completion within a tool handler',
+    example: 'sampling maxTokens=500',
+    props: {
+      maxTokens: { kind: 'number' },
+    },
+  },
+  elicitation: {
+    description: 'MCP elicitation — requests user input during tool execution',
+    example: 'elicitation message="Confirm deletion?"',
+    props: {
+      message: { kind: 'string' },
+      text: { kind: 'string' },
+    },
+  },
+
+  // ── React / UI element nodes ──────────────────────────────────────────
+
+  screen: {
+    description: 'Full-screen container component (minHeight: 100vh flex column)',
+    example: 'screen name=Dashboard\n  row\n    text value="Welcome"',
+    props: {
+      name: { kind: 'identifier' },
+    },
+  },
+  row: {
+    description: 'Flexbox row container — horizontal layout',
+    example: 'row\n  col\n    text value="Left"\n  col\n    text value="Right"',
+    props: {},
+  },
+  col: {
+    description: 'Flexbox column container — vertical layout',
+    example: 'col\n  text value="Stacked content"',
+    props: {},
+  },
+  card: {
+    description: 'Card component — rounded container with shadow',
+    example: 'card\n  text value="Card title"\n  text value="Card body"',
+    props: {},
+  },
+  text: {
+    description: 'Text element — renders a paragraph or span with content',
+    example: 'text value="Hello, world!"',
+    props: {
+      value: { kind: 'string' },
+    },
+  },
+  button: {
+    description: 'Button element with label text and optional navigation',
+    example: 'button text="Submit"\nbutton text="Go Home" to="/home"',
+    props: {
+      text: { kind: 'string' },
+      to: { kind: 'string' },
+    },
+  },
+  input: {
+    description: 'Form input — text, number, email, etc. with optional state binding',
+    example: 'input bind=email type=email placeholder="Enter email"',
+    props: {
+      bind: { kind: 'identifier' },
+      type: { kind: 'identifier' },
+      placeholder: { kind: 'string' },
+    },
+  },
+  image: {
+    description: 'Image element with source and alt text',
+    example: 'image src="/logo.png" alt="Company logo"',
+    props: {
+      src: { required: true, kind: 'string' },
+      alt: { kind: 'string' },
+    },
+  },
+  modal: {
+    description: 'Modal dialog overlay — renders a centered popup',
+    example: 'modal\n  text value="Are you sure?"\n  button text="Confirm"\n  button text="Cancel"',
+    props: {},
+  },
+  table: {
+    description: 'Table container for tabular data display',
+    example: 'table\n  header\n    text value="Name"\n    text value="Email"',
+    props: {},
+  },
+  header: {
+    description: 'Header/heading element or table header row',
+    example: 'header\n  text value="Page Title"',
+    props: {},
+  },
+  tabs: {
+    description: 'Tabbed navigation container',
+    example:
+      'tabs\n  tab label="Profile"\n    text value="Profile content"\n  tab label="Settings"\n    text value="Settings content"',
+    props: {},
+  },
+  theme: {
+    description: 'Theme/styling definitions — CSS custom properties and style objects applied to descendant nodes',
+    example: 'theme styles="{ background: #1a1a2e, color: #e0e0e0, fontFamily: system-ui }"',
+    props: {
+      name: { kind: 'identifier' },
+      styles: { kind: 'rawExpr' },
     },
   },
 };
@@ -496,13 +933,23 @@ function validateNode(node: IRNode, violations: SchemaViolation[]): void {
       });
     }
 
+    // Cross-prop validation: guard needs expr (assertion) OR kind/type (security guard)
+    if (node.type === 'guard' && !('expr' in props) && !('kind' in props) && !('type' in props)) {
+      violations.push({
+        nodeType: 'guard',
+        message: "'guard' requires either 'expr' (assertion) or 'kind'/'type' (security guard)",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+
     // Check allowed children
     if (schema.allowedChildren && node.children) {
       for (const child of node.children) {
         if (!schema.allowedChildren.includes(child.type)) {
           // Don't flag structural children that are consumed by parents
           // (handler, reason, evidence, needs, etc.)
-          const universalChildren = ['handler', 'cleanup', 'reason', 'evidence', 'needs', 'signal'];
+          const universalChildren = ['handler', 'cleanup', 'reason', 'evidence', 'needs', 'signal', 'doc'];
           if (!universalChildren.includes(child.type)) {
             violations.push({
               nodeType: node.type,
@@ -522,4 +969,48 @@ function validateNode(node: IRNode, violations: SchemaViolation[]): void {
       validateNode(child, violations);
     }
   }
+}
+
+// ── Schema Export (LLM consumption) ─────────────────────────────────────
+
+export interface KernSchemaJSON {
+  version: string;
+  nodeTypes: readonly string[];
+  schemas: Record<string, NodeSchema>;
+  unschemaed: string[];
+  targets: readonly KernTarget[];
+  styleShorthands: Record<string, string>;
+  valueShorthands: Record<string, string>;
+  multilineBlockTypes: string[];
+  propKinds: readonly PropKind[];
+  evolvedTypes?: string[];
+}
+
+/**
+ * Export the full KERN schema as a JSON-serializable object.
+ *
+ * Designed for LLM consumption — an LLM can call `kern schema --json`
+ * and use the output to generate valid `.kern` files.
+ *
+ * @param runtime - Optional KernRuntime instance (includes evolved types)
+ */
+export function exportSchemaJSON(runtime?: KernRuntime): KernSchemaJSON {
+  const rt = runtime ?? defaultRuntime;
+  const schemaedTypes = new Set(Object.keys(NODE_SCHEMAS));
+  const unschemaed = (NODE_TYPES as readonly string[]).filter((t) => !schemaedTypes.has(t));
+  const evolvedTypes = [...rt.dynamicNodeTypes];
+
+  // Return defensive copies so callers can't mutate process-wide state
+  return {
+    version: KERN_VERSION,
+    nodeTypes: [...NODE_TYPES],
+    schemas: JSON.parse(JSON.stringify(NODE_SCHEMAS)) as Record<string, NodeSchema>,
+    unschemaed,
+    targets: [...VALID_TARGETS],
+    styleShorthands: { ...STYLE_SHORTHANDS },
+    valueShorthands: { ...VALUE_SHORTHANDS },
+    multilineBlockTypes: [...rt.multilineBlockTypes],
+    propKinds: ['identifier', 'typeAnnotation', 'importPath', 'rawExpr', 'rawBlock', 'string', 'boolean', 'number'],
+    ...(evolvedTypes.length > 0 ? { evolvedTypes } : {}),
+  };
 }

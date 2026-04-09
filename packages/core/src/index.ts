@@ -77,7 +77,11 @@ export type { CoverageGap } from './coverage-gap.js';
 export { collectCoverageGaps, readCoverageGaps, writeCoverageGaps } from './coverage-gap.js';
 export { decompile } from './decompiler.js';
 // Codegen errors
+export type { CodegenErrorCode } from './errors.js';
 export { KernCodegenError, KernConfigError, KernParseError } from './errors.js';
+// TS → .kern importer
+export type { ImportResult } from './importer.js';
+export { importTypeScript } from './importer.js';
 export type {
   ActionProps,
   AssumeProps,
@@ -148,9 +152,12 @@ export { defaultRuntime, KernRuntime } from './runtime.js';
 export type { Detection, ScanInfo, ScanResult } from './scanner.js';
 // Scanner
 export { formatScanSummary, generateConfigSource, scanProject } from './scanner.js';
-export type { NodeSchema, PropKind, PropSchema, SchemaViolation } from './schema.js';
-// Schema validation
-export { NODE_SCHEMAS, validateSchema } from './schema.js';
+export type { KernSchemaJSON, NodeSchema, PropKind, PropSchema, SchemaViolation } from './schema.js';
+// Schema validation + export
+export { exportSchemaJSON, NODE_SCHEMAS, validateSchema } from './schema.js';
+// Semantic validation
+export type { SemanticViolation } from './semantic-validator.js';
+export { validateSemantics } from './semantic-validator.js';
 export type { SourceMapV3 } from './source-map.js';
 // Source map serialization
 export { serializeSourceMap } from './source-map.js';

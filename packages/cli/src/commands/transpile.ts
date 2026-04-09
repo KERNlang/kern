@@ -5,7 +5,14 @@ import { collectLanguageMetrics } from '@kernlang/metrics';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { createJiti } from 'jiti';
 import { basename, dirname, resolve } from 'path';
-import { hasFlag, loadTemplates, parseAndSurface, parseFlag, transpileForTarget } from '../shared.js';
+import {
+  getOutputExtension,
+  hasFlag,
+  loadTemplates,
+  parseAndSurface,
+  parseFlag,
+  transpileForTarget,
+} from '../shared.js';
 
 // ── Minify/Pretty implementations ───────────────────────────────────────
 
@@ -204,14 +211,7 @@ export function runTranspile(args: string[]): void {
     const displayPath = entryArtifact ? resolve(outDir, entryArtifact.path) : resolve(outDir, `${name}.tsx`);
     console.log(`Transpiled: ${inputFile} → ${displayPath}`);
   } else {
-    const outExt =
-      target === 'fastapi'
-        ? '.py'
-        : target === 'vue' || target === 'nuxt'
-          ? '.vue'
-          : target === 'express' || target === 'cli' || target === 'terminal' || target === 'mcp'
-            ? '.ts'
-            : '.tsx';
+    const outExt = getOutputExtension(target);
     const outFile = resolve(outDir, `${name}${outExt}`);
     mkdirSync(dirname(outFile), { recursive: true });
     writeFileSync(outFile, result.code);

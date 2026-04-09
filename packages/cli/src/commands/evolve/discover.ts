@@ -7,11 +7,13 @@ import {
   createLLMProvider,
   estimateTokens,
   parseDiscoveryResponse,
+  parseLLMJsonObject,
   readEvolvedManifest,
   selectRepresentativeFiles,
   stageEvolveV4Proposal,
   TokenBudget,
   validateEvolveProposal,
+  validateRetryResponse,
 } from '@kernlang/evolve';
 import { existsSync, readFileSync } from 'fs';
 import { relative, resolve } from 'path';
@@ -142,18 +144,12 @@ export async function runEvolveDiscover(args: string[]): Promise<void> {
             throw new Error('LLM returned empty or invalid response');
           budget.add(estimateTokens(retryResponse));
 
-          let json = retryResponse.trim();
-          const fenceMatch = json.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-          if (fenceMatch) json = fenceMatch[1].trim();
-          const objStart = json.indexOf('{');
-          const objEnd = json.lastIndexOf('}');
-          if (objStart !== -1 && objEnd > objStart) json = json.slice(objStart, objEnd + 1);
-
-          const fixed = JSON.parse(json);
-          if (typeof fixed !== 'object' || fixed === null) throw new Error('LLM retry response is not a JSON object');
-          if (typeof fixed.kernExample === 'string') proposal.kernExample = fixed.kernExample;
-          if (typeof fixed.expectedOutput === 'string') proposal.expectedOutput = fixed.expectedOutput;
-          if (typeof fixed.codegenSource === 'string') proposal.codegenSource = fixed.codegenSource;
+          const fixed = parseLLMJsonObject(retryResponse);
+          if (!fixed) throw new Error('LLM retry response is not a valid JSON object');
+          const retryFields = validateRetryResponse(fixed);
+          if (retryFields.kernExample) proposal.kernExample = retryFields.kernExample;
+          if (retryFields.expectedOutput) proposal.expectedOutput = retryFields.expectedOutput;
+          if (retryFields.codegenSource) proposal.codegenSource = retryFields.codegenSource;
 
           validation = validateEvolveProposal(proposal, existingKw);
           allOk =

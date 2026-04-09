@@ -161,7 +161,10 @@ export {
   collectTsFiles,
   estimateTokens,
   parseDiscoveryResponse,
+  parseLLMJsonObject,
   selectRepresentativeFiles,
+  validateBackfillResponse,
+  validateRetryResponse,
 } from './llm-discovery.js';
 export type { LLMProvider, LLMProviderOptions } from './llm-provider.js';
 export { createLLMProvider, TokenBudget } from './llm-provider.js';

@@ -1,6 +1,6 @@
 {
   "name": "kern-monorepo",
-  "version": "3.1.6",
+  "version": "3.1.7",
   "private": true,
   "type": "module",
   "description": "Kern — the LLM-native language. Monorepo for @kern/* packages.",

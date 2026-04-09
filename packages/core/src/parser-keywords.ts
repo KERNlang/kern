@@ -13,6 +13,31 @@ function consumeBareIdent(s: TokenStream, props: Record<string, unknown>, propNa
 
 export const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
   [
+    'doc',
+    (s, props, content) => {
+      s.skipWS();
+      if (s.isKeyValue()) return;
+
+      const start = s.position();
+      const tok = s.consumeAnyValue();
+      if (tok) {
+        s.skipWS();
+        if (s.done()) {
+          props.text = tok.value;
+          return;
+        }
+        s.setPosition(start);
+      }
+
+      const remaining = s.remainingRaw(content).trim();
+      if (remaining.length > 0) {
+        props.text = remaining;
+        while (!s.done()) s.next();
+      }
+    },
+  ],
+
+  [
     'theme',
     (s, props) => {
       consumeBareIdent(s, props, 'name');

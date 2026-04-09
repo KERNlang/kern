@@ -68,7 +68,7 @@ export function resolveMiddlewareUsage(
   if (name === 'cors') {
     const invocation =
       securityLevel === 'strict'
-        ? `cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim()).filter(Boolean) : false, credentials: true })`
+        ? `cors({ origin: process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map((origin: string) => origin.trim()).filter(Boolean) : false, credentials: true })`
         : 'cors()';
     return { importLine: `import cors from 'cors';`, invocation };
   }

@@ -443,6 +443,8 @@ export const CORE_NODE_TYPES = new Set([
   'option',
   // Screen (React/Ink component)
   'screen',
+  // Meta
+  'doc',
 ]);
 
 /** Check if a node type is a core language construct. */
@@ -590,6 +592,13 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return [];
     case 'option':
       return [];
+    case 'doc': {
+      const text = (node.props?.text as string) || (node.props?.code as string) || '';
+      if (text.includes('\n')) {
+        return ['/**', ...text.split('\n').map((l) => ` * ${l}`), ' */'];
+      }
+      return [`/** ${text} */`];
+    }
     default: {
       // Check evolved generators (v4) — target-specific first, then default
       const targetMap = target ? rt.evolvedTargetGenerators.get(node.type) : undefined;

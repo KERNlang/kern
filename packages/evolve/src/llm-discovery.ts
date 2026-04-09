@@ -273,6 +273,64 @@ function normalizeProps(raw: unknown[]): EvolvedNodeProp[] {
     }));
 }
 
+// ── LLM JSON Extraction ─────────────────────────────────────────────────
+
+/**
+ * Extract and parse a JSON object from an LLM response.
+ * Handles markdown fences, preamble text, and validates the result is a plain object.
+ * Returns null if extraction or parsing fails.
+ */
+export function parseLLMJsonObject(response: string): Record<string, unknown> | null {
+  let json = response.trim();
+  const fenceMatch = json.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  if (fenceMatch) json = fenceMatch[1].trim();
+
+  const objStart = json.indexOf('{');
+  const objEnd = json.lastIndexOf('}');
+  if (objStart === -1 || objEnd <= objStart) return null;
+  json = json.slice(objStart, objEnd + 1);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  return parsed as Record<string, unknown>;
+}
+
+/**
+ * Validate and extract a backfill LLM response.
+ * Returns only known fields with correct types, or null if codegenSource is missing.
+ */
+export function validateBackfillResponse(
+  parsed: Record<string, unknown>,
+): { codegenSource: string; expectedOutput: string | undefined } | null {
+  const codegenSource = typeof parsed.codegenSource === 'string' ? parsed.codegenSource : undefined;
+  if (!codegenSource) return null;
+
+  const expectedOutput = typeof parsed.expectedOutput === 'string' ? parsed.expectedOutput : undefined;
+  return { codegenSource, expectedOutput };
+}
+
+/**
+ * Validate and extract retry response fields for an evolve proposal.
+ * Returns only known string fields that are present.
+ */
+export function validateRetryResponse(parsed: Record<string, unknown>): {
+  kernExample?: string;
+  expectedOutput?: string;
+  codegenSource?: string;
+} {
+  const result: { kernExample?: string; expectedOutput?: string; codegenSource?: string } = {};
+  if (typeof parsed.kernExample === 'string') result.kernExample = parsed.kernExample;
+  if (typeof parsed.expectedOutput === 'string') result.expectedOutput = parsed.expectedOutput;
+  if (typeof parsed.codegenSource === 'string') result.codegenSource = parsed.codegenSource;
+  return result;
+}
+
 // ── Utility ──────────────────────────────────────────────────────────────
 
 function truncate(content: string, maxChars: number): string {

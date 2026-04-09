@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/mcp-server",
-  "version": "3.0.0",
+  "version": "3.1.7",
   "description": "KERN MCP server — compile, review, and analyze .kern files via MCP",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,17 +15,35 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "keywords": [
     "kern",
     "mcp",
     "model-context-protocol",
     "ai",
+    "llm",
+    "dsl",
+    "compiler",
     "transpiler",
+    "code-generation",
     "review",
-    "security"
+    "security",
+    "claude",
+    "cursor",
+    "react",
+    "nextjs",
+    "express",
+    "vue"
   ],
+  "homepage": "https://kernlang.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nickcukas/kern",
+    "directory": "packages/mcp-server"
+  },
+  "author": "Nicolas Cukas",
   "license": "AGPL-3.0",
   "scripts": {
     "build": "tsc -b",

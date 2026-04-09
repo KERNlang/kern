@@ -24,6 +24,60 @@ interface ParsedLine {
   loc: IRSourceLocation;
 }
 
+function stripInlineComment(content: string): string {
+  let inQuote = false;
+  let styleDepth = 0;
+  let exprDepth = 0;
+
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
+    const next = content[i + 1];
+    const prev = i > 0 ? content[i - 1] : '';
+
+    if (ch === '\\' && inQuote) {
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      inQuote = !inQuote;
+      continue;
+    }
+    if (inQuote) continue;
+
+    if (ch === '{' && next === '{') {
+      exprDepth++;
+      i++;
+      continue;
+    }
+    if (ch === '}' && next === '}' && exprDepth > 0) {
+      exprDepth--;
+      i++;
+      continue;
+    }
+    if (exprDepth > 0) continue;
+
+    if (ch === '{') {
+      styleDepth++;
+      continue;
+    }
+    if (ch === '}' && styleDepth > 0) {
+      styleDepth--;
+      continue;
+    }
+    if (styleDepth > 0) continue;
+
+    const precededByWs = i === 0 || prev === ' ' || prev === '\t';
+    if (ch === '#' && precededByWs) {
+      return content.slice(0, i).trimEnd();
+    }
+    if (ch === '/' && next === '/' && precededByWs) {
+      return content.slice(0, i).trimEnd();
+    }
+  }
+
+  return content;
+}
+
 // ── Prop parsing ─────────────────────────────────────────────────────────
 
 /** Map a value token to its JS representation. */
@@ -95,7 +149,8 @@ function parseLine(
 
   const indent = raw.search(/\S/);
   const indentText = raw.slice(0, indent);
-  const content = raw.slice(indent);
+  const content = stripInlineComment(raw.slice(indent));
+  if (content.trim() === '') return null;
   const col = indent + 1;
 
   if (indentText.includes('\t')) {
@@ -292,6 +347,9 @@ function parseLines(state: ParseState, source: string, runtime: KernRuntime = de
 
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trimStart();
+
+    // Skip comment lines (// or #)
+    if (trimmed.startsWith('//') || trimmed.startsWith('#')) continue;
 
     const multilineType = [...runtime.multilineBlockTypes].find((type) => trimmed.startsWith(`${type} <<<`));
     if (multilineType) {

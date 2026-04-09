@@ -29,11 +29,11 @@ npm install -g @kernlang/cli
 ```
 
 ```bash
-kern review src/ --recursive                      # Static analysis (98 rules, taint tracking, OWASP LLM01)
-kern compile src/ --target=nextjs                  # .kern → Next.js
-kern compile src/ --target=fastapi                 # .kern → FastAPI Python
-kern evolve src/ --recursive                       # Detect gaps → propose templates
-kern dev src/ --target=nextjs                      # Watch & hot-transpile
+kern compile src/ --target=nextjs --watch --facades --index   # One command — compile, watch, facades, barrel
+kern review src/ --recursive                                  # Static analysis (98 rules, taint tracking)
+kern init --mcp                                               # Scaffold an MCP server with security guards
+kern import src/ --outdir=kern/                               # TypeScript → .kern
+kern schema --json                                            # Full schema for LLM consumption
 ```
 
 ---
@@ -44,9 +44,13 @@ kern dev src/ --target=nextjs                      # Watch & hot-transpile
 
 Write `.kern` once, compile to 12 targets. Or skip `.kern` entirely and use `kern review` to scan your existing TypeScript and Python for security bugs, unguarded effects, and prompt injection — 98 AST-based rules that catch what ESLint misses.
 
-```
-Same .kern → Next.js, React, Vue, Nuxt, Express, FastAPI, Native, CLI, Terminal, Ink, Tailwind, MCP
-```
+### Compilation Targets
+
+| Tier | Targets | Status |
+|:-----|:--------|:-------|
+| **Tier 1** (supported) | Next.js, Express, MCP | Full schemas, deterministic output, golden examples |
+| **Tier 2** (stable) | React, Tailwind, Vue, Nuxt, FastAPI, CLI | Working, tested, community-maintained |
+| **Tier 3** (experimental) | React Native, Terminal, Ink | Functional, limited test coverage |
 
 For detailed examples, interactive demos, and the full rule reference, visit **[kernlang.dev](https://kernlang.dev)**.
 
@@ -126,15 +130,20 @@ npx @kernlang/mcp-server                   # Start KERN MCP server (stdio)
 }
 ```
 
-**5 tools:** `compile`, `review`, `parse`, `validate`, `list-targets`
-**2 resources:** `kern://spec` (language spec), `kern://targets` (available targets)
+**11 tools:** `compile`, `compile-json`, `review`, `review-kern`, `review-mcp-server`, `parse`, `decompile`, `validate`, `list-targets`, `list-nodes`, `schema`
+**3 resources:** `kern://spec`, `kern://targets`, `kern://examples/{category}`
 **1 prompt:** `write-kern` (system prompt with full language spec)
 
-You can also compile your own MCP servers from `.kern`:
+### Build MCP Servers from .kern
+
+30 lines of .kern generates a production MCP server with auto-injected security guards:
 
 ```bash
-kern compile server.kern --target=mcp       # .kern → MCP server
+kern init --mcp                                   # Scaffold with templates
+kern compile server.kern --target=mcp --watch      # Compile + hot reload
 ```
+
+Templates: `file-tools`, `api-gateway`, `database-tools`
 
 ---
 
@@ -298,6 +307,44 @@ jobs:
             echo "::error::MCP Security score $SCORE is below threshold $THRESHOLD"
             exit 1
           fi
+```
+
+### KERN Compile + Validate — GitHub Action
+
+Drop this into `.github/workflows/kern-compile.yml` to validate `.kern` files compile correctly on every PR:
+
+```yaml
+name: KERN Compile
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Validate .kern files
+        run: npx @kernlang/cli compile src/ --target=nextjs --json
+
+      - name: Type-check generated output
+        run: npx tsc --noEmit
 ```
 
 ---

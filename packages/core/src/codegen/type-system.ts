@@ -7,7 +7,15 @@
 import { propsOf } from '../node-props.js';
 import type { IRNode } from '../types.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
-import { exportPrefix, getChildren, getFirstChild, getProps, handlerCode, parseParamList } from './helpers.js';
+import {
+  emitDocComment,
+  exportPrefix,
+  getChildren,
+  getFirstChild,
+  getProps,
+  handlerCode,
+  parseParamList,
+} from './helpers.js';
 
 const p = getProps;
 const kids = getChildren;
@@ -22,18 +30,19 @@ export function generateType(node: IRNode): string[] {
   const name = emitIdentifier(props.name, 'UnknownType', node);
   const { values, alias } = props;
   const exp = exportPrefix(node);
+  const docs = emitDocComment(node);
 
   if (values) {
     const members = values
       .split('|')
       .map((v) => `'${emitTemplateSafe(v.trim())}'`)
       .join(' | ');
-    return [`${exp}type ${name} = ${members};`];
+    return [...docs, `${exp}type ${name} = ${members};`];
   }
   if (alias) {
-    return [`${exp}type ${name} = ${emitTypeAnnotation(alias, 'unknown', node)};`];
+    return [...docs, `${exp}type ${name} = ${emitTypeAnnotation(alias, 'unknown', node)};`];
   }
-  return [`${exp}type ${name} = unknown;`];
+  return [...docs, `${exp}type ${name} = unknown;`];
 }
 
 // ── Interface ────────────────────────────────────────────────────────────
@@ -43,7 +52,7 @@ export function generateInterface(node: IRNode): string[] {
   const name = emitIdentifier(props.name, 'UnknownInterface', node);
   const ext = props.extends ? ` extends ${emitTypeAnnotation(props.extends, 'unknown', node)}` : '';
   const exp = exportPrefix(node);
-  const lines: string[] = [];
+  const lines: string[] = [...emitDocComment(node)];
 
   lines.push(`${exp}interface ${name}${ext} {`);
   for (const field of kids(node, 'field')) {
@@ -64,12 +73,13 @@ export function generateUnion(node: IRNode): string[] {
   const discriminant = emitIdentifier(props.discriminant, 'type', node);
   const exp = exportPrefix(node);
   const variants = kids(node, 'variant');
+  const docs = emitDocComment(node);
 
   if (variants.length === 0) {
-    return [`${exp}type ${name} = never;`];
+    return [...docs, `${exp}type ${name} = never;`];
   }
 
-  const lines: string[] = [`${exp}type ${name} =`];
+  const lines: string[] = [...docs, `${exp}type ${name} =`];
   for (let i = 0; i < variants.length; i++) {
     const vp = propsOf<'variant'>(variants[i]);
     const vname = emitTemplateSafe(vp.name ?? 'variant');
@@ -95,7 +105,7 @@ export function generateService(node: IRNode): string[] {
   const name = emitIdentifier(props.name, 'UnknownService', node);
   const impl = props.implements;
   const exp = exportPrefix(node);
-  const lines: string[] = [];
+  const lines: string[] = [...emitDocComment(node)];
 
   const implClause = impl ? ` implements ${emitTypeAnnotation(impl, 'unknown', node)}` : '';
   lines.push(`${exp}class ${name}${implClause} {`);
@@ -191,14 +201,15 @@ export function generateConst(node: IRNode): string[] {
   const value = props.value;
   const exp = exportPrefix(node);
   const code = handlerCode(node);
+  const docs = emitDocComment(node);
 
   const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
 
   if (code) {
-    return [`${exp}const ${name}${typeAnnotation} = ${code.trim()};`];
+    return [...docs, `${exp}const ${name}${typeAnnotation} = ${code.trim()};`];
   }
   if (value) {
-    return [`${exp}const ${name}${typeAnnotation} = ${value};`];
+    return [...docs, `${exp}const ${name}${typeAnnotation} = ${value};`];
   }
-  return [`${exp}const ${name}${typeAnnotation};`];
+  return [...docs, `${exp}const ${name}${typeAnnotation};`];
 }

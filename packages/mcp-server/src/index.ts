@@ -14,14 +14,17 @@ import type { IRNode, KernTarget, ResolvedKernConfig } from '@kernlang/core';
 import {
   countTokens,
   decompile,
+  defaultRuntime,
   KERN_VERSION,
   NODE_SCHEMAS,
   NODE_TYPES,
   parse,
+  parseWithDiagnostics,
   resolveConfig,
   STYLE_SHORTHANDS,
   serializeIR,
   VALID_TARGETS,
+  VALUE_SHORTHANDS,
 } from '@kernlang/core';
 import { transpileExpress } from '@kernlang/express';
 import { transpileFastAPI } from '@kernlang/fastapi';
@@ -367,6 +370,7 @@ server.tool(
         'strategy',
       ],
       mcp: ['mcp', 'tool', 'resource', 'prompt', 'param', 'description', 'sampling', 'elicitation'],
+      meta: ['doc', 'theme', 'import', 'module', 'export'],
     };
 
     const lines: string[] = [];
@@ -407,6 +411,55 @@ server.tool(
     }
 
     return { content: [{ type: 'text', text: lines.join('\n') }] };
+  },
+);
+
+// 10. schema — machine-readable JSON schema for LLM self-correction loops
+server.tool(
+  'schema',
+  'Get the full KERN language schema as machine-readable JSON. Use this to know what node types, props, and children are valid before writing .kern code.',
+  {},
+  async () => {
+    const schema = {
+      version: KERN_VERSION,
+      nodeTypes: [...NODE_TYPES],
+      multilineBlockTypes: [...defaultRuntime.multilineBlockTypes],
+      schemas: NODE_SCHEMAS,
+      styleShorthands: STYLE_SHORTHANDS,
+      valueShorthands: VALUE_SHORTHANDS,
+    };
+    return { content: [{ type: 'text', text: JSON.stringify(schema) }] };
+  },
+);
+
+// 11. compile-json — compile with structured diagnostics for self-correction
+server.tool(
+  'compile-json',
+  'Compile .kern source and return structured JSON diagnostics (code, line, col, suggestion). Use this for programmatic self-correction.',
+  {
+    source: z.string().describe('.kern source code'),
+    target: targetEnum.default('nextjs').describe('Target framework'),
+  },
+  async ({ source, target }) => {
+    log('tool:compile-json', { target, len: source.length });
+    try {
+      const result = parseWithDiagnostics(source);
+      const config = resolveConfig({ target: target as KernTarget });
+      const compiled = transpile(result.root, target as KernTarget, config);
+      const output = {
+        success: result.diagnostics.filter((d) => d.severity === 'error').length === 0,
+        code: compiled.code,
+        diagnostics: result.diagnostics,
+        stats: { irTokens: compiled.irTokenCount, outputTokens: compiled.tsTokenCount },
+      };
+      return { content: [{ type: 'text', text: JSON.stringify(output) }] };
+    } catch (e) {
+      err('tool:compile-json:error', { error: fmtError(e) });
+      return {
+        isError: true,
+        content: [{ type: 'text', text: JSON.stringify({ success: false, error: fmtError(e) }) }],
+      };
+    }
   },
 );
 
@@ -655,6 +708,8 @@ server.prompt(
 - Styles: inline {shorthand: value, shorthand: value}
 - Handlers: <<< multi-line code >>>
 - Theme refs: $refName
+- Comments: // or # (full-line and inline)
+- Documentation: doc text="..." or doc <<< multiline >>>  (emits JSDoc)
 
 ## Available Node Types
 ${nodeList}
@@ -713,7 +768,10 @@ mcp name=Tools version=1.0
 
 ### Type System
 \`\`\`kern
+// Define user status enum
 type name=Status values=active|inactive|pending
+
+doc text="Core user entity"
 interface name=User
   field name=id type=string
   field name=email type=string
