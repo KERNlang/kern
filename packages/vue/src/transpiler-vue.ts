@@ -48,16 +48,21 @@ const NODE_TO_ELEMENT: Record<string, string> = {
 
 // ── Semantic elements for text variants ──────────────────────────────────
 
-function textElement(variant?: string): string {
-  if (!variant) return 'p';
-  if (variant === 'h1') return 'h1';
-  if (variant === 'h2') return 'h2';
-  if (variant === 'h3') return 'h3';
-  if (variant === 'h4') return 'h4';
-  if (variant === 'h5') return 'h5';
-  if (variant === 'h6') return 'h6';
-  if (variant === 'caption' || variant === 'small') return 'small';
-  if (variant === 'code') return 'code';
+function textElement(tag?: string, variant?: string): string {
+  const el = tag || variant;
+  if (!el) return 'p';
+  if (el === 'h1') return 'h1';
+  if (el === 'h2') return 'h2';
+  if (el === 'h3') return 'h3';
+  if (el === 'h4') return 'h4';
+  if (el === 'h5') return 'h5';
+  if (el === 'h6') return 'h6';
+  if (el === 'p') return 'p';
+  if (el === 'span') return 'span';
+  if (el === 'label') return 'label';
+  if (el === 'pre') return 'pre';
+  if (el === 'caption' || el === 'small') return 'small';
+  if (el === 'code') return 'code';
   return 'p';
 }
 
@@ -356,6 +361,7 @@ const SKIP_PROPS = new Set([
   'src',
   'name',
   'variant',
+  'tag',
   'to',
   'action',
   'bind',
@@ -403,7 +409,9 @@ function renderNode(node: IRNode, ctx: VueBuilder, indent: string): void {
   }
 
   const el =
-    node.type === 'text' ? textElement(props.variant as string | undefined) : NODE_TO_ELEMENT[node.type] || 'div';
+    node.type === 'text'
+      ? textElement(props.tag as string | undefined, props.variant as string | undefined)
+      : NODE_TO_ELEMENT[node.type] || 'div';
 
   let styles = mergeNodeStyles(node, ctx);
   styles = addLayoutDefaults(node.type, styles);
