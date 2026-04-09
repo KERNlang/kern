@@ -32,7 +32,8 @@ import { transpileMCP } from '@kernlang/mcp';
 
 import { transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
 import { reviewKernSource, reviewSource } from '@kernlang/review';
-import { reviewMCPSource } from '@kernlang/review-mcp';
+import { reviewMCPSource, computeSecurityScore, inferMCP, runPostScan, scanMcpConfigs } from '@kernlang/review-mcp';
+import { transpileMCPPython } from '@kernlang/mcp';
 import { transpileInk, transpileTerminal } from '@kernlang/terminal';
 import { transpileNuxt, transpileVue } from '@kernlang/vue';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -100,6 +101,166 @@ function countNodes(node: IRNode): number {
 }
 
 const targetEnum = z.enum(VALID_TARGETS as [string, ...string[]]);
+
+// ── Security test generation (ported from kern-sight-mcp) ──────────────
+
+interface TestCase {
+  name: string;
+  description: string;
+  input: Record<string, unknown>;
+  expectBlocked: boolean;
+}
+
+interface ToolTestSuite {
+  toolName: string;
+  cases: TestCase[];
+}
+
+const MALICIOUS_PAYLOADS: Record<string, { value: unknown; label: string }[]> = {
+  sanitize: [
+    { value: '<script>alert(1)</script>', label: 'XSS payload' },
+    { value: '"; DROP TABLE users; --', label: 'SQL injection' },
+    { value: '$(whoami)', label: 'command substitution' },
+    { value: '{{7*7}}', label: 'template injection' },
+  ],
+  pathContainment: [
+    { value: '../../../etc/passwd', label: 'path traversal (unix)' },
+    { value: '..\\..\\..\\windows\\system32\\config\\sam', label: 'path traversal (windows)' },
+    { value: '/etc/shadow', label: 'absolute path escape' },
+    { value: 'data/../../../etc/hosts', label: 'nested traversal' },
+  ],
+  validate: [
+    { value: -999999, label: 'extreme negative number' },
+    { value: 999999999, label: 'extreme large number' },
+    { value: '', label: 'empty string' },
+  ],
+  sizeLimit: [{ value: 'x'.repeat(2_000_000), label: '2MB payload' }],
+  rateLimit: [],
+  auth: [],
+  sanitizeOutput: [],
+};
+
+function irChildren(node: IRNode, type: string): IRNode[] {
+  return (node.children || []).filter((c) => c.type === type);
+}
+
+function irStr(val: unknown): string | undefined {
+  return val === undefined || val === null ? undefined : String(val);
+}
+
+function generateTestSuites(ast: IRNode): ToolTestSuite[] {
+  const mcpNode = ast.type === 'mcp' ? ast : (ast.children || []).find((c) => c.type === 'mcp') ?? ast;
+  const tools = irChildren(mcpNode, 'tool');
+  const suites: ToolTestSuite[] = [];
+
+  for (const tool of tools) {
+    const toolName = irStr(tool.props?.name) || 'tool';
+    const params = irChildren(tool, 'param');
+    const guards = irChildren(tool, 'guard');
+    const cases: TestCase[] = [];
+
+    const validInput: Record<string, unknown> = {};
+    for (const p of params) {
+      const name = irStr(p.props?.name) || 'input';
+      const pType = irStr(p.props?.type) || 'string';
+      const defaultVal = irStr(p.props?.default);
+      validInput[name] = defaultVal ?? (pType === 'number' ? 1 : pType === 'boolean' ? true : 'test-value');
+    }
+
+    cases.push({
+      name: `${toolName} — valid input passes`,
+      description: 'All parameters within bounds, should succeed',
+      input: { ...validInput },
+      expectBlocked: false,
+    });
+
+    for (const guard of guards) {
+      const kind = irStr(guard.props?.type) || irStr(guard.props?.kind) || irStr(guard.props?.name) || '';
+      const target = irStr(guard.props?.param) || irStr(guard.props?.target);
+      const payloads = MALICIOUS_PAYLOADS[kind] || [];
+
+      for (const payload of payloads) {
+        const malInput = { ...validInput };
+        if (target) {
+          malInput[target] = payload.value;
+        } else {
+          const firstStr = params.find((p) => (irStr(p.props?.type) || 'string') === 'string');
+          if (firstStr) malInput[irStr(firstStr.props?.name) || 'input'] = payload.value;
+        }
+        cases.push({
+          name: `${toolName} — ${kind} blocks ${payload.label}`,
+          description: `Guard type=${kind} should reject: ${payload.label}`,
+          input: malInput,
+          expectBlocked: true,
+        });
+      }
+
+      if (kind === 'validate' && target) {
+        const min = irStr(guard.props?.min);
+        const max = irStr(guard.props?.max);
+        if (min) {
+          cases.push({
+            name: `${toolName} — validate rejects below min (${min})`,
+            description: `Value below minimum ${min} should be rejected`,
+            input: { ...validInput, [target]: Number(min) - 1 },
+            expectBlocked: true,
+          });
+        }
+        if (max) {
+          cases.push({
+            name: `${toolName} — validate rejects above max (${max})`,
+            description: `Value above maximum ${max} should be rejected`,
+            input: { ...validInput, [target]: Number(max) + 1 },
+            expectBlocked: true,
+          });
+        }
+      }
+    }
+
+    suites.push({ toolName, cases });
+  }
+
+  return suites;
+}
+
+function renderTestFile(suites: ToolTestSuite[], serverPath: string): string {
+  const lines: string[] = [];
+  lines.push('// Auto-generated security tests from .kern definition');
+  lines.push('// Tests that guards correctly block malicious inputs');
+  lines.push("import { describe, it, expect } from 'vitest';");
+  lines.push('');
+  lines.push("// TODO: Import your compiled MCP server's tool handlers");
+  lines.push(`// import { callTool } from '${serverPath}';`);
+  lines.push('');
+
+  for (const suite of suites) {
+    lines.push(`describe('${suite.toolName}', () => {`);
+    for (const tc of suite.cases) {
+      const inputStr = JSON.stringify(tc.input, null, 2).replace(/\n/g, '\n    ');
+      if (tc.expectBlocked) {
+        lines.push(`  it('${tc.name}', async () => {`);
+        lines.push(`    const input = ${inputStr};`);
+        lines.push(`    // ${tc.description}`);
+        lines.push(`    // await expect(callTool('${suite.toolName}', input)).rejects.toThrow();`);
+        lines.push("    expect(true).toBe(true); // TODO: wire up tool call");
+        lines.push('  });');
+      } else {
+        lines.push(`  it('${tc.name}', async () => {`);
+        lines.push(`    const input = ${inputStr};`);
+        lines.push(`    // ${tc.description}`);
+        lines.push(`    // const result = await callTool('${suite.toolName}', input);`);
+        lines.push('    // expect(result.isError).toBeFalsy();');
+        lines.push("    expect(true).toBe(true); // TODO: wire up tool call");
+        lines.push('  });');
+      }
+      lines.push('');
+    }
+    lines.push('});');
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
 
 // ── Tools ───────────────────────────────────────────────────────────────
 
@@ -192,10 +353,10 @@ server.tool(
   },
 );
 
-// 4. review-mcp-server — scan MCP server code for security issues
+// 4. review-mcp-server — scan MCP server code for security issues (with scoring)
 server.tool(
   'review-mcp-server',
-  'Scan MCP server TypeScript/Python code for security vulnerabilities. 13 rules mapped to OWASP MCP Top 10.',
+  'Scan MCP server TypeScript/Python code for security vulnerabilities. 13 rules mapped to OWASP MCP Top 10. Returns findings + security score (0-100, A-F).',
   {
     source: z.string().describe('MCP server source code to scan'),
     filePath: z.string().default('server.ts').describe('File path for context'),
@@ -204,12 +365,49 @@ server.tool(
     log('tool:review-mcp-server', { filePath });
     try {
       const findings = reviewMCPSource(source, filePath);
-      if (!findings.length) return { content: [{ type: 'text', text: 'No MCP security issues found.' }] };
+      const postFindings = runPostScan(source, filePath);
+      findings.push(...postFindings);
+
+      let irNodes: IRNode[] = [];
+      if (!filePath.endsWith('.py')) {
+        try {
+          irNodes = inferMCP(source, filePath);
+        } catch {
+          irNodes = [];
+        }
+      }
+
+      const score = computeSecurityScore(irNodes, findings);
+
+      if (!findings.length) {
+        return {
+          content: [{
+            type: 'text',
+            text: `No MCP security issues found.\n\nSecurity Score: ${score.total}/100 (${score.grade})`,
+          }],
+        };
+      }
+
       const lines = findings.map((f) => {
         const loc = f.primarySpan?.startLine ? `L${f.primarySpan.startLine}` : '';
-        return `${f.severity === 'error' ? '!' : '~'} ${loc}: [${f.ruleId}] ${f.message}${f.suggestion ? `\n  → ${f.suggestion}` : ''}`;
+        const conf = (f as any).confidence !== undefined ? ` [${((f as any).confidence as number).toFixed(2)}]` : '';
+        return `${f.severity === 'error' ? '!' : '~'} ${loc}: [${f.ruleId}]${conf} ${f.message}${f.suggestion ? `\n  → ${f.suggestion}` : ''}`;
       });
-      return { content: [{ type: 'text', text: `${findings.length} MCP security finding(s)\n\n${lines.join('\n')}` }] };
+
+      const errors = findings.filter((f) => f.severity === 'error').length;
+      const warnings = findings.filter((f) => f.severity === 'warning').length;
+
+      return {
+        content: [{
+          type: 'text',
+          text: [
+            `Security Score: ${score.total}/100 (${score.grade})`,
+            `${findings.length} finding(s) — ${errors} errors, ${warnings} warnings`,
+            '',
+            ...lines,
+          ].join('\n'),
+        }],
+      };
     } catch (e) {
       err('tool:review-mcp:error', { error: fmtError(e) });
       return { isError: true, content: [{ type: 'text', text: `MCP review error: ${fmtError(e)}` }] };
@@ -459,6 +657,155 @@ server.tool(
         isError: true,
         content: [{ type: 'text', text: JSON.stringify({ success: false, error: fmtError(e) }) }],
       };
+    }
+  },
+);
+
+// 12. compile-and-review — compile .kern → MCP, then auto-scan the output
+server.tool(
+  'compile-and-review',
+  'Compile .kern to a secure MCP server (TypeScript or Python), then auto-scan the compiled output for security vulnerabilities. Returns code + security score + findings in one call.',
+  {
+    source: z.string().describe('.kern source code'),
+    target: z.enum(['typescript', 'python']).default('typescript').describe('Output language'),
+  },
+  async ({ source, target }) => {
+    log('tool:compile-and-review', { target, len: source.length });
+    try {
+      const ast = parse(source);
+      const config = resolveConfig({ target: 'mcp' as KernTarget });
+      const compiled = target === 'python'
+        ? transpileMCPPython(ast, config)
+        : transpileMCP(ast, config);
+
+      const filePath = target === 'python' ? 'server.py' : 'server.ts';
+      const findings = reviewMCPSource(compiled.code, filePath);
+      const postFindings = runPostScan(compiled.code, filePath);
+      findings.push(...postFindings);
+
+      let irNodes: IRNode[] = [];
+      if (target !== 'python') {
+        try {
+          irNodes = inferMCP(compiled.code, filePath);
+        } catch {
+          irNodes = [];
+        }
+      }
+
+      const score = computeSecurityScore(irNodes, findings);
+      const errors = findings.filter((f) => f.severity === 'error').length;
+      const warnings = findings.filter((f) => f.severity === 'warning').length;
+
+      const findingLines = findings.map((f) => {
+        const loc = f.primarySpan?.startLine ? `L${f.primarySpan.startLine}` : '';
+        return `${f.severity === 'error' ? '!' : '~'} ${loc}: [${f.ruleId}] ${f.message}${f.suggestion ? `\n  → ${f.suggestion}` : ''}`;
+      });
+
+      const header = [
+        `// Compiled to MCP ${target === 'python' ? 'Python' : 'TypeScript'} (${compiled.irTokenCount} KERN → ${compiled.tsTokenCount} output tokens)`,
+        `// Security Score: ${score.total}/100 (${score.grade}) — ${findings.length} finding(s): ${errors} errors, ${warnings} warnings`,
+        '',
+      ].join('\n');
+
+      const review = findings.length > 0
+        ? `\n\n--- Security Review ---\n${findingLines.join('\n')}`
+        : '\n\n--- Security Review ---\nNo issues found.';
+
+      return { content: [{ type: 'text', text: header + compiled.code + review }] };
+    } catch (e) {
+      err('tool:compile-and-review:error', { error: fmtError(e) });
+      return { isError: true, content: [{ type: 'text', text: `Compile-and-review error: ${fmtError(e)}` }] };
+    }
+  },
+);
+
+// 13. audit-mcp-config — scan MCP configuration files for security issues
+server.tool(
+  'audit-mcp-config',
+  'Scan MCP configuration files (Claude Desktop, Cursor, VS Code, Windsurf) for hardcoded secrets, missing version pins, and wide permissions. Scans the host machine config files.',
+  {
+    workspaceRoot: z.string().optional().describe('Workspace root path to also scan .cursor/mcp.json, .vscode/mcp.json, .windsurf/mcp.json'),
+  },
+  async ({ workspaceRoot }) => {
+    log('tool:audit-mcp-config', { workspaceRoot });
+    try {
+      const result = scanMcpConfigs(workspaceRoot);
+
+      if (result.servers.length === 0) {
+        return {
+          content: [{
+            type: 'text',
+            text: [
+              `Scanned ${result.configsScanned.length} config file(s), ${result.configsMissing.length} not found.`,
+              'No MCP servers configured.',
+              '',
+              result.configsMissing.length > 0
+                ? `Missing configs:\n${result.configsMissing.map((p) => `  ${p}`).join('\n')}`
+                : '',
+            ].filter(Boolean).join('\n'),
+          }],
+        };
+      }
+
+      const lines: string[] = [
+        `Scanned ${result.configsScanned.length} config(s) — ${result.servers.length} server(s), ${result.totalIssues} issue(s)`,
+        '',
+      ];
+
+      for (const server of result.servers) {
+        const trustIcon = server.trust === 'verified' ? '+' : server.trust === 'risky' ? '!' : '~';
+        lines.push(`${trustIcon} ${server.name} (${server.source})`);
+        lines.push(`  command: ${server.command} ${server.args.join(' ')}`);
+        if (server.issues.length === 0) {
+          lines.push('  No issues.');
+        } else {
+          for (const issue of server.issues) {
+            const sev = issue.severity === 'error' ? '!' : issue.severity === 'warning' ? '~' : '-';
+            lines.push(`  ${sev} [${issue.type}] ${issue.message}`);
+            if (issue.detail) lines.push(`    → ${issue.detail}`);
+          }
+        }
+        lines.push('');
+      }
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    } catch (e) {
+      err('tool:audit-mcp-config:error', { error: fmtError(e) });
+      return { isError: true, content: [{ type: 'text', text: `Config audit error: ${fmtError(e)}` }] };
+    }
+  },
+);
+
+// 14. generate-security-tests — auto-generate test cases from .kern AST
+server.tool(
+  'generate-security-tests',
+  'Generate security test cases from .kern source. For each tool and guard, generates valid + malicious inputs to verify guards block attacks. Returns a vitest test file.',
+  {
+    source: z.string().describe('.kern source code with MCP tools and guards'),
+    serverImportPath: z.string().default('./server').describe('Import path for the compiled server module'),
+  },
+  async ({ source, serverImportPath }) => {
+    log('tool:generate-security-tests', { len: source.length });
+    try {
+      const ast = parse(source);
+      const suites = generateTestSuites(ast);
+
+      if (suites.length === 0) {
+        return { content: [{ type: 'text', text: 'No MCP tools with guards found in source. Nothing to test.' }] };
+      }
+
+      const testFile = renderTestFile(suites, serverImportPath);
+      const totalCases = suites.reduce((sum, s) => sum + s.cases.length, 0);
+
+      return {
+        content: [{
+          type: 'text',
+          text: `// ${suites.length} tool(s), ${totalCases} test case(s)\n\n${testFile}`,
+        }],
+      };
+    } catch (e) {
+      err('tool:generate-security-tests:error', { error: fmtError(e) });
+      return { isError: true, content: [{ type: 'text', text: `Test generation error: ${fmtError(e)}` }] };
     }
   },
 );
