@@ -548,7 +548,9 @@ function emitResource(node: IRNode, fallbackAllowlist: string[]): string[] {
 
   const uriArg = hasTemplate ? `new ResourceTemplate(${json(uri)}, { list: undefined })` : json(uri);
 
-  lines.push(`server.resource(${json(name)}, ${uriArg}, async (uri: URL${hasTemplate ? ', variables: Record<string, string>' : ''}) => {`);
+  lines.push(
+    `server.resource(${json(name)}, ${uriArg}, async (uri: URL${hasTemplate ? ', variables: Record<string, string>' : ''}) => {`,
+  );
   lines.push(`  logger.info("resource:read", { resource: ${json(name)}, uri: uri.href });`);
   lines.push(`  try {`);
 

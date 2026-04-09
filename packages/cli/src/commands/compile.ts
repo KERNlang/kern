@@ -15,12 +15,12 @@ import {
 import { loadEvolvedNodes } from '@kernlang/evolve';
 import { generateReactNode, isReactNode } from '@kernlang/react';
 import type { ChildProcess } from 'child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { basename, dirname, relative, resolve } from 'path';
 import {
   type BarrelEntry,
-  type FileDiagnosticsJSON,
   extractExportsFromLines,
+  type FileDiagnosticsJSON,
   findKernFiles,
   findNearestPackageJson,
   generateBarrelFile,
@@ -29,7 +29,6 @@ import {
   hasFlag,
   loadConfig,
   loadTemplates,
-  parseAndSurface,
   parseFlag,
   parseWithJSONDiagnostics,
   scanOutputForBarrelEntries,
@@ -134,8 +133,7 @@ function compileDefaultSingle(
   if (!jsonOutput) console.log(`  ${basename(file)} → ${relSubdir ? `${relSubdir}/` : ''}${outName}`);
 
   const exports = extractExportsFromLines(lines);
-  const barrelEntry =
-    exports.length > 0 ? { moduleName: basename(file, '.kern'), exports } : undefined;
+  const barrelEntry = exports.length > 0 ? { moduleName: basename(file, '.kern'), exports } : undefined;
 
   return { compiled: true, errors, warnings, barrelEntry };
 }
@@ -147,7 +145,9 @@ export async function runCompile(args: string[]): Promise<void> {
   const outDirArg = parseFlag(args, '--outdir');
 
   if (!compileInput) {
-    console.error('Usage: kern compile <file.kern|dir> [--target=<target>] [--outdir=<dir>] [--watch] [--facades] [--index]');
+    console.error(
+      'Usage: kern compile <file.kern|dir> [--target=<target>] [--outdir=<dir>] [--watch] [--facades] [--index]',
+    );
     process.exit(1);
   }
 
@@ -218,9 +218,7 @@ export async function runCompile(args: string[]): Promise<void> {
   }
 
   // ── Resolve config with target ─────────────────────────────────────
-  const cfg = targetArg
-    ? resolveConfig({ ...compileConfig, target: targetArg })
-    : compileConfig;
+  const cfg = targetArg ? resolveConfig({ ...compileConfig, target: targetArg }) : compileConfig;
 
   // ── Initial compilation ────────────────────────────────────────────
   const jsonDiagnostics: FileDiagnosticsJSON[] = [];
@@ -260,7 +258,14 @@ export async function runCompile(args: string[]): Promise<void> {
       }
     } else {
       for (const file of files) {
-        const result = compileDefaultSingle(file, outDir, strictParse, jsonOutput, jsonDiagnostics, isDir ? inputPath : undefined);
+        const result = compileDefaultSingle(
+          file,
+          outDir,
+          strictParse,
+          jsonOutput,
+          jsonDiagnostics,
+          isDir ? inputPath : undefined,
+        );
         if (result.compiled) compiled++;
         totalErrors += result.errors;
         if (result.barrelEntry) barrelEntries.push(result.barrelEntry);
@@ -360,9 +365,7 @@ export async function runCompile(args: string[]): Promise<void> {
 
   console.log('\n  Watching for changes... (Ctrl+C to stop)\n');
 
-  const globPattern = isDir
-    ? resolve(inputPath, '**/*.kern')
-    : inputPath;
+  const globPattern = isDir ? resolve(inputPath, '**/*.kern') : inputPath;
 
   const watcher = watch(globPattern, {
     ignoreInitial: true,

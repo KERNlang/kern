@@ -16,7 +16,7 @@
  *   - 'number'         → numeric value
  */
 
-import { VALID_TARGETS, type KernTarget } from './config.js';
+import { type KernTarget, VALID_TARGETS } from './config.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
 import { KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
 import type { IRNode } from './types.js';
@@ -47,7 +47,8 @@ export interface NodeSchema {
 
 export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   doc: {
-    description: 'JSDoc documentation comment attached to the next declaration. Supports inline (text=) or multiline (<<<>>>)',
+    description:
+      'JSDoc documentation comment attached to the next declaration. Supports inline (text=) or multiline (<<<>>>)',
     example: 'doc text="Represents a user account"',
     props: {
       text: { kind: 'string' },
@@ -106,7 +107,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   service: {
     description: 'Class-based service with methods and dependency injection',
-    example: 'service name=AuthService export=true\n  method name=login params="email:string,password:string" async=true',
+    example:
+      'service name=AuthService export=true\n  method name=login params="email:string,password:string" async=true',
     props: {
       name: { required: true, kind: 'identifier' },
       implements: { kind: 'typeAnnotation' },
@@ -116,7 +118,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   method: {
     description: 'A method within a service or repository, with handler body',
-    example: 'method name=findById params="id:string" returns=User async=true\n  handler <<<\n    return db.users.find(id)\n  >>>',
+    example:
+      'method name=findById params="id:string" returns=User async=true\n  handler <<<\n    return db.users.find(id)\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       params: { kind: 'string' },
@@ -130,7 +133,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   fn: {
     description: 'Standalone function — the most common code unit in KERN',
-    example: 'fn name=calculateTotal params="items:CartItem[]" returns=number export=true\n  handler <<<\n    return items.reduce((sum, i) => sum + i.price, 0)\n  >>>',
+    example:
+      'fn name=calculateTotal params="items:CartItem[]" returns=number export=true\n  handler <<<\n    return items.reduce((sum, i) => sum + i.price, 0)\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       params: { kind: 'string' },
@@ -142,8 +146,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['handler', 'signal', 'cleanup'],
   },
   machine: {
-    description: 'State machine with states and guarded transitions — 12 lines of KERN generates 140+ lines of TypeScript',
-    example: 'machine name=OrderStatus export=true\n  state name=pending initial=true\n  state name=confirmed\n  transition name=confirm from=pending to=confirmed',
+    description:
+      'State machine with states and guarded transitions — 12 lines of KERN generates 140+ lines of TypeScript',
+    example:
+      'machine name=OrderStatus export=true\n  state name=pending initial=true\n  state name=confirmed\n  transition name=confirm from=pending to=confirmed',
     props: {
       name: { required: true, kind: 'identifier' },
       export: { kind: 'boolean' },
@@ -171,7 +177,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   error: {
     description: 'Custom error class extending a base error, with typed fields',
-    example: 'error name=ValidationError extends=Error message="Invalid input" export=true\n  field name=field type=string',
+    example:
+      'error name=ValidationError extends=Error message="Invalid input" export=true\n  field name=field type=string',
     props: {
       name: { required: true, kind: 'identifier' },
       extends: { required: true, kind: 'identifier' },
@@ -182,7 +189,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   config: {
     description: 'Configuration interface with typed fields — generates an interface',
-    example: 'config name=AppConfig export=true\n  field name=port type=number default=3000\n  field name=debug type=boolean',
+    example:
+      'config name=AppConfig export=true\n  field name=port type=number default=3000\n  field name=debug type=boolean',
     props: {
       name: { required: true, kind: 'identifier' },
       export: { kind: 'boolean' },
@@ -251,7 +259,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   websocket: {
     description: 'WebSocket server endpoint with event handlers',
-    example: 'websocket path="/ws" name=chatSocket export=true\n  on event=message\n    handler <<<\n      broadcast(data)\n    >>>',
+    example:
+      'websocket path="/ws" name=chatSocket export=true\n  on event=message\n    handler <<<\n      broadcast(data)\n    >>>',
     props: {
       path: { kind: 'string' },
       name: { kind: 'identifier' },
@@ -261,7 +270,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   derive: {
     description: 'Computed/derived value from an expression',
-    example: 'derive name=fullName expr="first + \" \" + last" type=string',
+    example: 'derive name=fullName expr="first + " " + last" type=string',
     props: {
       name: { required: true, kind: 'identifier' },
       expr: { required: true, kind: 'rawExpr' },
@@ -283,7 +292,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   action: {
     description: 'Named side-effecting operation — can be idempotent or reversible',
-    example: 'action name=sendEmail params="to:string,body:string" async=true export=true\n  handler <<<\n    await mailer.send(to, body)\n  >>>',
+    example:
+      'action name=sendEmail params="to:string,body:string" async=true export=true\n  handler <<<\n    await mailer.send(to, body)\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       params: { kind: 'string' },
@@ -295,8 +305,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['handler'],
   },
   guard: {
-    description: 'Guard — runtime assertion (expr-based) or MCP security guard (kind-based: sanitize, pathContainment, validate, auth, rateLimit, sizeLimit, sanitizeOutput)',
-    example: 'guard expr="user !== null" else="throw new Error(\'No user\')"\nguard type=sanitize param=query\nguard type=pathContainment param=filePath allowlist=/data,/home',
+    description:
+      'Guard — runtime assertion (expr-based) or MCP security guard (kind-based: sanitize, pathContainment, validate, auth, rateLimit, sizeLimit, sanitizeOutput)',
+    example:
+      'guard expr="user !== null" else="throw new Error(\'No user\')"\nguard type=sanitize param=query\nguard type=pathContainment param=filePath allowlist=/data,/home',
     props: {
       name: { kind: 'string' },
       expr: { kind: 'rawExpr' },
@@ -380,7 +392,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   model: {
     description: 'Database model/entity with columns and relations (generates Prisma or TypeORM)',
-    example: 'model name=User table="users" export=true\n  column name=id type=string\n  column name=email type=string\n  relation name=posts type=Post[]',
+    example:
+      'model name=User table="users" export=true\n  column name=id type=string\n  column name=email type=string\n  relation name=posts type=Post[]',
     props: {
       name: { required: true, kind: 'identifier' },
       table: { kind: 'string' },
@@ -390,7 +403,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   repository: {
     description: 'Data access layer class with typed methods for a model',
-    example: 'repository name=UserRepo model=User export=true\n  method name=findByEmail params="email:string" returns=User async=true',
+    example:
+      'repository name=UserRepo model=User export=true\n  method name=findByEmail params="email:string" returns=User async=true',
     props: {
       name: { required: true, kind: 'identifier' },
       model: { required: true, kind: 'identifier' },
@@ -439,7 +453,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   hook: {
     description: 'React custom hook with lifecycle methods',
-    example: 'hook name=useAuth returns=AuthState\n  handler <<<\n    const [user, setUser] = useState(null)\n    return { user }\n  >>>',
+    example:
+      'hook name=useAuth returns=AuthState\n  handler <<<\n    const [user, setUser] = useState(null)\n    return { user }\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       params: { kind: 'string' },
@@ -449,7 +464,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   effect: {
     description: 'React useEffect — side effect with dependency tracking',
-    example: 'effect deps="userId" once=false\n  handler <<<\n    fetchUser(userId)\n  >>>\n  cleanup <<<\n    controller.abort()\n  >>>',
+    example:
+      'effect deps="userId" once=false\n  handler <<<\n    fetchUser(userId)\n  >>>\n  cleanup <<<\n    controller.abort()\n  >>>',
     props: {
       name: { kind: 'identifier' },
       deps: { kind: 'string' },
@@ -586,7 +602,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   // ── Cross-target nodes ────────────────────────────────────────────────
 
   handler: {
-    description: 'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for multiline code.',
+    description:
+      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for multiline code.',
     example: 'handler <<<\n  const result = await doWork();\n  return result;\n>>>',
     props: {
       code: { kind: 'rawBlock' },
@@ -605,7 +622,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   server: {
     description: 'Express server entry point with name and port',
-    example: 'server name=MyAPI port=3000\n  route path="/api/users" method=get\n    handler <<<\n      res.json(users)\n    >>>',
+    example:
+      'server name=MyAPI port=3000\n  route path="/api/users" method=get\n    handler <<<\n      res.json(users)\n    >>>',
     props: {
       name: { kind: 'identifier' },
       port: { kind: 'number' },
@@ -619,11 +637,27 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       path: { required: true, kind: 'string' },
       method: { kind: 'identifier' },
     },
-    allowedChildren: ['handler', 'middleware', 'schema', 'auth', 'validate', 'params', 'respond', 'error', 'guard', 'derive', 'branch', 'each', 'collect', 'effect'],
+    allowedChildren: [
+      'handler',
+      'middleware',
+      'schema',
+      'auth',
+      'validate',
+      'params',
+      'respond',
+      'error',
+      'guard',
+      'derive',
+      'branch',
+      'each',
+      'collect',
+      'effect',
+    ],
   },
   middleware: {
     description: 'Express middleware — named built-in (json, cors, rateLimit) or custom with handler',
-    example: 'middleware name=cors\nmiddleware name=auth\n  handler <<<\n    if (!req.user) return res.status(401).json({ error: "Unauthorized" });\n    next();\n  >>>',
+    example:
+      'middleware name=cors\nmiddleware name=auth\n  handler <<<\n    if (!req.user) return res.status(401).json({ error: "Unauthorized" });\n    next();\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       names: { kind: 'string' },
@@ -678,8 +712,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   // ── MCP (Model Context Protocol) nodes ────────────────────────────────
 
   mcp: {
-    description: 'MCP server definition — compiles to a full Model Context Protocol server with tools, resources, and prompts',
-    example: 'mcp name=FileTools version=1.0 transport=stdio\n  tool name=readFile\n    param name=path type=string required=true\n    handler <<<\n      return { content: [{ type: "text", text: await fs.readFile(path) }] };\n    >>>',
+    description:
+      'MCP server definition — compiles to a full Model Context Protocol server with tools, resources, and prompts',
+    example:
+      'mcp name=FileTools version=1.0 transport=stdio\n  tool name=readFile\n    param name=path type=string required=true\n    handler <<<\n      return { content: [{ type: "text", text: await fs.readFile(path) }] };\n    >>>',
     props: {
       name: { kind: 'identifier' },
       version: { kind: 'string' },
@@ -693,7 +729,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   tool: {
     description: 'MCP tool definition — a callable function exposed to AI agents with typed params and security guards',
-    example: 'tool name=searchFiles\n  description text="Search for files"\n  param name=query type=string required=true\n  guard type=sanitize param=query\n  handler <<<\n    return { content: [{ type: "text", text: results }] };\n  >>>',
+    example:
+      'tool name=searchFiles\n  description text="Search for files"\n  param name=query type=string required=true\n  guard type=sanitize param=query\n  handler <<<\n    return { content: [{ type: "text", text: results }] };\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
     },
@@ -701,7 +738,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   resource: {
     description: 'MCP resource — a data source exposed to AI agents via URI. Use {variables} for templated URIs.',
-    example: 'resource name=config uri="config://app"\n  description text="Application configuration"\n  handler <<<\n    return { contents: [{ uri: uri.href, text: JSON.stringify(config) }] };\n  >>>',
+    example:
+      'resource name=config uri="config://app"\n  description text="Application configuration"\n  handler <<<\n    return { contents: [{ uri: uri.href, text: JSON.stringify(config) }] };\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       uri: { required: true, kind: 'string' },
@@ -709,7 +747,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     allowedChildren: ['param', 'handler', 'description', 'guard'],
   },
   param: {
-    description: 'Parameter definition for a tool, resource, or prompt — name, type, required, default, and description',
+    description:
+      'Parameter definition for a tool, resource, or prompt — name, type, required, default, and description',
     example: 'param name=query type=string required=true description="Search query"',
     props: {
       name: { required: true, kind: 'identifier' },
@@ -724,7 +763,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   prompt: {
     description: 'MCP prompt template — a reusable system prompt exposed to AI agents',
-    example: 'prompt name=analyzeFile\n  param name=filePath type=string required=true\n  handler <<<\n    return { messages: [{ role: "user", content: { type: "text", text: `Analyze ${filePath}` } }] };\n  >>>',
+    example:
+      'prompt name=analyzeFile\n  param name=filePath type=string required=true\n  handler <<<\n    return { messages: [{ role: "user", content: { type: "text", text: `Analyze ${filePath}` } }] };\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
     },
@@ -827,7 +867,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   tabs: {
     description: 'Tabbed navigation container',
-    example: 'tabs\n  tab label="Profile"\n    text value="Profile content"\n  tab label="Settings"\n    text value="Settings content"',
+    example:
+      'tabs\n  tab label="Profile"\n    text value="Profile content"\n  tab label="Settings"\n    text value="Settings content"',
     props: {},
   },
   theme: {

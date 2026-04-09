@@ -5,7 +5,14 @@ import { collectLanguageMetrics } from '@kernlang/metrics';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { createJiti } from 'jiti';
 import { basename, dirname, resolve } from 'path';
-import { getOutputExtension, hasFlag, loadTemplates, parseAndSurface, parseFlag, transpileForTarget } from '../shared.js';
+import {
+  getOutputExtension,
+  hasFlag,
+  loadTemplates,
+  parseAndSurface,
+  parseFlag,
+  transpileForTarget,
+} from '../shared.js';
 
 // ── Minify/Pretty implementations ───────────────────────────────────────
 

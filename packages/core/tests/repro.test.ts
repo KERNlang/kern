@@ -1,6 +1,4 @@
-
 import { parse } from '../src/parser.js';
-import { defaultRuntime } from '../src/runtime.js';
 
 describe('Reproduction: Comments and Doc Nodes', () => {
   test('current behavior of comments and doc nodes', () => {
@@ -13,11 +11,11 @@ describe('Reproduction: Comments and Doc Nodes', () => {
       '    This is a multiline',
       '    doc node',
       '  >>>',
-      '  text "Hello"'
+      '  text "Hello"',
     ].join('\n');
 
     const ast = parse(source);
-    
+
     // Check if comments are preserved (they are currently NOT)
     const comments = ast.children?.filter((c: any) => c.type === 'comment');
     console.log('Comments found:', comments?.length);

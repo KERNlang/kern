@@ -22,9 +22,9 @@ import {
   parseWithDiagnostics,
   resolveConfig,
   STYLE_SHORTHANDS,
-  VALUE_SHORTHANDS,
   serializeIR,
   VALID_TARGETS,
+  VALUE_SHORTHANDS,
 } from '@kernlang/core';
 import { transpileExpress } from '@kernlang/express';
 import { transpileFastAPI } from '@kernlang/fastapi';
@@ -455,7 +455,10 @@ server.tool(
       return { content: [{ type: 'text', text: JSON.stringify(output) }] };
     } catch (e) {
       err('tool:compile-json:error', { error: fmtError(e) });
-      return { isError: true, content: [{ type: 'text', text: JSON.stringify({ success: false, error: fmtError(e) }) }] };
+      return {
+        isError: true,
+        content: [{ type: 'text', text: JSON.stringify({ success: false, error: fmtError(e) }) }],
+      };
     }
   },
 );

@@ -7,7 +7,15 @@
 import { propsOf } from '../node-props.js';
 import type { IRNode } from '../types.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
-import { emitDocComment, exportPrefix, getChildren, getFirstChild, getProps, handlerCode, parseParamList } from './helpers.js';
+import {
+  emitDocComment,
+  exportPrefix,
+  getChildren,
+  getFirstChild,
+  getProps,
+  handlerCode,
+  parseParamList,
+} from './helpers.js';
 
 const p = getProps;
 const kids = getChildren;

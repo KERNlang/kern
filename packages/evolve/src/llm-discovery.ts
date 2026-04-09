@@ -319,9 +319,11 @@ export function validateBackfillResponse(
  * Validate and extract retry response fields for an evolve proposal.
  * Returns only known string fields that are present.
  */
-export function validateRetryResponse(
-  parsed: Record<string, unknown>,
-): { kernExample?: string; expectedOutput?: string; codegenSource?: string } {
+export function validateRetryResponse(parsed: Record<string, unknown>): {
+  kernExample?: string;
+  expectedOutput?: string;
+  codegenSource?: string;
+} {
   const result: { kernExample?: string; expectedOutput?: string; codegenSource?: string } = {};
   if (typeof parsed.kernExample === 'string') result.kernExample = parsed.kernExample;
   if (typeof parsed.expectedOutput === 'string') result.expectedOutput = parsed.expectedOutput;

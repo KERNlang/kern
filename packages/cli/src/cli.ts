@@ -6,9 +6,9 @@ import { routeEvolve } from './commands/evolve/index.js';
 import { runImport } from './commands/import.js';
 import { runInit } from './commands/init.js';
 import { runReview } from './commands/review.js';
-import { runTest } from './commands/test.js';
 import { runInitTemplates, runScan } from './commands/scan.js';
 import { runSchema } from './commands/schema.js';
+import { runTest } from './commands/test.js';
 import { printHelp, runTranspile } from './commands/transpile.js';
 
 const args = process.argv.slice(2);

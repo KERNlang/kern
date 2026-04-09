@@ -1,5 +1,5 @@
 import { importTypeScript } from '@kernlang/core';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { basename, dirname, relative, resolve } from 'path';
 import { hasFlag, parseFlag } from '../shared.js';
 
@@ -45,7 +45,7 @@ export function runImport(args: string[]): void {
 
   console.log(`\n  KERN import — converting ${files.length} TypeScript file(s)\n`);
 
-  let totalStats = { types: 0, interfaces: 0, functions: 0, classes: 0, imports: 0, constants: 0, enums: 0 };
+  const totalStats = { types: 0, interfaces: 0, functions: 0, classes: 0, imports: 0, constants: 0, enums: 0 };
   let totalUnmapped = 0;
 
   for (const file of files) {
@@ -65,7 +65,9 @@ export function runImport(args: string[]): void {
 
     if (dryRun) {
       console.log(`  ${relFile} → ${relative(process.cwd(), kernPath)}`);
-      console.log(`    types: ${result.stats.types}, interfaces: ${result.stats.interfaces}, functions: ${result.stats.functions}, classes: ${result.stats.classes}`);
+      console.log(
+        `    types: ${result.stats.types}, interfaces: ${result.stats.interfaces}, functions: ${result.stats.functions}, classes: ${result.stats.classes}`,
+      );
       if (result.unmapped.length > 0) {
         console.log(`    unmapped: ${result.unmapped.length}`);
         for (const u of result.unmapped.slice(0, 3)) {
@@ -95,7 +97,9 @@ export function runImport(args: string[]): void {
     }
   }
 
-  console.log(`\n  Total: ${totalStats.types + totalStats.interfaces + totalStats.functions + totalStats.classes + totalStats.constants} declarations imported`);
+  console.log(
+    `\n  Total: ${totalStats.types + totalStats.interfaces + totalStats.functions + totalStats.classes + totalStats.constants} declarations imported`,
+  );
   if (totalUnmapped > 0) {
     console.log(`  ${totalUnmapped} unmapped construct(s) — check comments in output`);
   }

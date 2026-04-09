@@ -17,7 +17,7 @@ function getChildren(node: IRNode, type: string): IRNode[] {
   return (node.children || []).filter((c) => c.type === type);
 }
 
-function getFirstChild(node: IRNode, type: string): IRNode | undefined {
+function _getFirstChild(node: IRNode, type: string): IRNode | undefined {
   return (node.children || []).find((c) => c.type === type);
 }
 
@@ -36,9 +36,7 @@ function guardViolationPayloads(guardKind: string, paramName: string): { descrip
         { description: `sanitizes shell metacharacters on ${paramName}`, value: `"; rm -rf /"` },
       ];
     case 'validate':
-      return [
-        { description: `rejects out-of-range value on ${paramName}`, value: `-999` },
-      ];
+      return [{ description: `rejects out-of-range value on ${paramName}`, value: `-999` }];
     case 'rateLimit':
       return []; // Rate limiting is hard to unit test
     case 'auth':

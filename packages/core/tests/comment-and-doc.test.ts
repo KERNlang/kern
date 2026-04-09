@@ -1,6 +1,5 @@
 import { generateCoreNode, isCoreNode } from '../src/codegen-core.js';
-import { parseDocumentWithDiagnostics } from '../src/parser.js';
-import { parse } from '../src/parser.js';
+import { parse, parseDocumentWithDiagnostics } from '../src/parser.js';
 
 // Helper: parse a .kern snippet and generate code for the root node
 function gen(source: string): string {

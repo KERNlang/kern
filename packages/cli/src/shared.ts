@@ -90,12 +90,15 @@ export interface FileDiagnosticsJSON {
 /** Parse a .kern file and return structured diagnostics as JSON-serializable object. */
 export function parseWithJSONDiagnostics(source: string, file: string): { root: IRNode; json: FileDiagnosticsJSON } {
   const result = parseWithDiagnostics(source);
-  const schemaViolations = [...validateSchema(result.root), ...validateSemantics(result.root).map((sv) => ({
-    nodeType: sv.nodeType,
-    message: `[${sv.rule}] ${sv.message}`,
-    line: sv.line,
-    col: sv.col,
-  }))];
+  const schemaViolations = [
+    ...validateSchema(result.root),
+    ...validateSemantics(result.root).map((sv) => ({
+      nodeType: sv.nodeType,
+      message: `[${sv.rule}] ${sv.message}`,
+      line: sv.line,
+      col: sv.col,
+    })),
+  ];
   const hasErrors = result.diagnostics.some((d) => d.severity === 'error') || schemaViolations.length > 0;
 
   return {
@@ -290,7 +293,10 @@ function isIgnored(filePath: string, baseDir: string, patterns: string[]): boole
     if (pattern.endsWith('/')) return rel.startsWith(pattern) || rel.includes(`/${pattern}`);
     if (pattern.includes('*')) {
       // Escape regex chars, then convert * to .* and ** to match across directories
-      const escaped = escapeRegexExceptStar(pattern).replace(/\*\*/g, '@@GLOBSTAR@@').replace(/\*/g, '[^/]*').replace(/@@GLOBSTAR@@/g, '.*');
+      const escaped = escapeRegexExceptStar(pattern)
+        .replace(/\*\*/g, '@@GLOBSTAR@@')
+        .replace(/\*/g, '[^/]*')
+        .replace(/@@GLOBSTAR@@/g, '.*');
       const regex = new RegExp(`^${escaped}$`);
       return regex.test(rel) || regex.test(basename(filePath));
     }

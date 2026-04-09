@@ -79,6 +79,9 @@ export { decompile } from './decompiler.js';
 // Codegen errors
 export type { CodegenErrorCode } from './errors.js';
 export { KernCodegenError, KernConfigError, KernParseError } from './errors.js';
+// TS → .kern importer
+export type { ImportResult } from './importer.js';
+export { importTypeScript } from './importer.js';
 export type {
   ActionProps,
   AssumeProps,
@@ -155,9 +158,6 @@ export { exportSchemaJSON, NODE_SCHEMAS, validateSchema } from './schema.js';
 // Semantic validation
 export type { SemanticViolation } from './semantic-validator.js';
 export { validateSemantics } from './semantic-validator.js';
-// TS → .kern importer
-export type { ImportResult } from './importer.js';
-export { importTypeScript } from './importer.js';
 export type { SourceMapV3 } from './source-map.js';
 // Source map serialization
 export { serializeSourceMap } from './source-map.js';

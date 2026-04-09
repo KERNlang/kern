@@ -56,7 +56,7 @@ function isReadonly(node: ts.PropertyDeclaration): boolean {
   return modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false;
 }
 
-function isDefault(node: ts.Node): boolean {
+function _isDefault(node: ts.Node): boolean {
   const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
   return modifiers?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) ?? false;
 }
@@ -73,12 +73,15 @@ function getJSDoc(node: ts.Node, source: ts.SourceFile): string | undefined {
   const text = doc.comment;
   if (typeof text === 'string') return text.trim();
   if (Array.isArray(text)) {
-    return text.map((part: any) => (typeof part === 'string' ? part : part.getText(source))).join('').trim();
+    return text
+      .map((part: any) => (typeof part === 'string' ? part : part.getText(source)))
+      .join('')
+      .trim();
   }
   return undefined;
 }
 
-function indent(lines: string[], depth: number): string[] {
+function _indent(lines: string[], depth: number): string[] {
   const prefix = '  '.repeat(depth);
   return lines.map((l) => `${prefix}${l}`);
 }
@@ -154,11 +157,13 @@ function convertImport(node: ts.ImportDeclaration, source: ts.SourceFile): strin
   let hasTypeOnlySpecifiers = false;
   if (clause.namedBindings) {
     if (ts.isNamedImports(clause.namedBindings)) {
-      const names = clause.namedBindings.elements.map((e) => {
-        // Strip 'type' modifier and 'as Alias' — use the local name only
-        if (e.isTypeOnly) hasTypeOnlySpecifiers = true;
-        return e.name.getText(source);
-      }).join(',');
+      const names = clause.namedBindings.elements
+        .map((e) => {
+          // Strip 'type' modifier and 'as Alias' — use the local name only
+          if (e.isTypeOnly) hasTypeOnlySpecifiers = true;
+          return e.name.getText(source);
+        })
+        .join(',');
       parts.push(`names="${names}"`);
     }
   }
@@ -186,9 +191,7 @@ function convertTypeAlias(node: ts.TypeAliasDeclaration, source: ts.SourceFile):
       (m) => ts.isLiteralTypeNode(m) && m.literal.kind === ts.SyntaxKind.StringLiteral,
     );
     if (allStringLiterals) {
-      const values = members
-        .map((m) => ((m as ts.LiteralTypeNode).literal as ts.StringLiteral).text)
-        .join('|');
+      const values = members.map((m) => ((m as ts.LiteralTypeNode).literal as ts.StringLiteral).text).join('|');
       lines.push(`type name=${name} values="${values}"${exp}`);
       return lines;
     }
@@ -246,14 +249,10 @@ function convertEnum(node: ts.EnumDeclaration, source: ts.SourceFile): string[] 
   if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
 
   // Check if all members are string literals → type with values
-  const allString = node.members.every(
-    (m) => m.initializer && ts.isStringLiteral(m.initializer),
-  );
+  const allString = node.members.every((m) => m.initializer && ts.isStringLiteral(m.initializer));
 
   if (allString) {
-    const values = node.members
-      .map((m) => (m.initializer as ts.StringLiteral).text)
-      .join('|');
+    const values = node.members.map((m) => (m.initializer as ts.StringLiteral).text).join('|');
     lines.push(`type name=${name} values="${values}"${exp}`);
   } else {
     // Numeric or mixed enum → type alias
@@ -264,10 +263,7 @@ function convertEnum(node: ts.EnumDeclaration, source: ts.SourceFile): string[] 
   return lines;
 }
 
-function convertFunction(
-  node: ts.FunctionDeclaration,
-  source: ts.SourceFile,
-): string[] {
+function convertFunction(node: ts.FunctionDeclaration, source: ts.SourceFile): string[] {
   const lines: string[] = [];
   const name = node.name?.getText(source) ?? 'anonymous';
   const exp = isExported(node) ? ' export=true' : '';
@@ -307,9 +303,7 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
   const doc = getJSDoc(node, source);
 
   // Check if it extends Error → error node
-  const extendsClause = node.heritageClauses?.find(
-    (h) => h.token === ts.SyntaxKind.ExtendsKeyword,
-  );
+  const extendsClause = node.heritageClauses?.find((h) => h.token === ts.SyntaxKind.ExtendsKeyword);
   const baseClass = extendsClause?.types[0]?.getText(source);
   const isError = baseClass && (baseClass === 'Error' || baseClass.endsWith('Error'));
 
@@ -320,9 +314,7 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
   }
 
   // Regular class → service
-  const implementsClause = node.heritageClauses?.find(
-    (h) => h.token === ts.SyntaxKind.ImplementsKeyword,
-  );
+  const implementsClause = node.heritageClauses?.find((h) => h.token === ts.SyntaxKind.ImplementsKeyword);
   const implementsStr = implementsClause
     ? ` implements=${implementsClause.types.map((t) => t.getText(source)).join(',')}`
     : '';
@@ -411,9 +403,7 @@ function convertErrorClass(
     for (const param of ctor.parameters) {
       const modifiers = ts.canHaveModifiers(param) ? ts.getModifiers(param) : undefined;
       const isPublicOrReadonly = modifiers?.some(
-        (m) =>
-          m.kind === ts.SyntaxKind.PublicKeyword ||
-          m.kind === ts.SyntaxKind.ReadonlyKeyword,
+        (m) => m.kind === ts.SyntaxKind.PublicKeyword || m.kind === ts.SyntaxKind.ReadonlyKeyword,
       );
       if (isPublicOrReadonly) {
         const fieldName = param.name.getText(source);
@@ -426,10 +416,7 @@ function convertErrorClass(
   return lines;
 }
 
-function convertVariableStatement(
-  node: ts.VariableStatement,
-  source: ts.SourceFile,
-): string[] {
+function convertVariableStatement(node: ts.VariableStatement, source: ts.SourceFile): string[] {
   const lines: string[] = [];
   const exp = isExported(node) ? ' export=true' : '';
   const doc = getJSDoc(node, source);
@@ -461,8 +448,7 @@ function convertVariableStatement(
         const returns = typeToString(func.type, source);
         const paramsStr = params ? ` params="${params}"` : '';
         const returnsStr = returns ? ` returns=${returns}` : '';
-        const isGen =
-          ts.isFunctionExpression(func) && func.asteriskToken != null;
+        const isGen = ts.isFunctionExpression(func) && func.asteriskToken != null;
         const genStr = isGen ? (isAsync(func as any) ? ' stream=true' : ' generator=true') : '';
         const asyncFinal = isGen && isAsync(func as any) ? '' : asyncStr;
 
@@ -554,14 +540,32 @@ function parseTailwindClasses(className: string): { styles: Record<string, strin
 
     const textMatch = cls.match(TW_TEXTSIZE_RE);
     if (textMatch) {
-      const sizes: Record<string, string> = { xs: '12', sm: '14', base: '16', lg: '18', xl: '20', '2xl': '24', '3xl': '30', '4xl': '36', '5xl': '48' };
+      const sizes: Record<string, string> = {
+        xs: '12',
+        sm: '14',
+        base: '16',
+        lg: '18',
+        xl: '20',
+        '2xl': '24',
+        '3xl': '30',
+        '4xl': '36',
+        '5xl': '48',
+      };
       styles.fs = sizes[textMatch[1]] || textMatch[1];
       continue;
     }
 
     const roundedMatch = cls.match(TW_ROUNDED_RE);
     if (roundedMatch) {
-      const vals: Record<string, string> = { sm: '2', md: '6', lg: '8', xl: '12', '2xl': '16', full: '9999', none: '0' };
+      const vals: Record<string, string> = {
+        sm: '2',
+        md: '6',
+        lg: '8',
+        xl: '12',
+        '2xl': '16',
+        full: '9999',
+        none: '0',
+      };
       styles.br = vals[roundedMatch[1] ?? 'md'] ?? '4';
       continue;
     }
@@ -581,7 +585,9 @@ function parseTailwindClasses(className: string): { styles: Record<string, strin
 
 function formatKernStyles(styles: Record<string, string>): string {
   if (Object.keys(styles).length === 0) return '';
-  return ` {${Object.entries(styles).map(([k, v]) => `${k}:${v}`).join(', ')}}`;
+  return ` {${Object.entries(styles)
+    .map(([k, v]) => `${k}:${v}`)
+    .join(', ')}}`;
 }
 
 // ── JSX → KERN conversion ───────────────────────────────────────────────
@@ -640,7 +646,10 @@ function convertJsxElement(node: ts.Node, source: ts.SourceFile, depth: number):
       // {variable} → text expression
       // {cond && <el>} → conditional
       // {items.map(i => <el>)} → each
-      if (ts.isBinaryExpression(node.expression) && node.expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      if (
+        ts.isBinaryExpression(node.expression) &&
+        node.expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+      ) {
         // {show && <Component>} → conditional
         const condition = node.expression.left.getText(source);
         lines.push(`${prefix}conditional expr="${escapeKernString(condition)}"`);
@@ -652,8 +661,10 @@ function convertJsxElement(node: ts.Node, source: ts.SourceFile, depth: number):
       } else if (ts.isCallExpression(node.expression)) {
         // Check for .map() pattern → each
         const callText = node.expression.getText(source);
-        if (ts.isPropertyAccessExpression(node.expression.expression) &&
-            node.expression.expression.name.getText(source) === 'map') {
+        if (
+          ts.isPropertyAccessExpression(node.expression.expression) &&
+          node.expression.expression.name.getText(source) === 'map'
+        ) {
           const collection = node.expression.expression.expression.getText(source);
           const callback = node.expression.arguments[0];
           if (callback && (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback))) {
@@ -691,11 +702,13 @@ function convertJsxElement(node: ts.Node, source: ts.SourceFile, depth: number):
         lines.push(`${prefix}branch name=cond on="${escapeKernString(condition)}"`);
         lines.push(`${prefix}  path value=true`);
         const whenTrue = ts.isParenthesizedExpression(node.expression.whenTrue)
-          ? node.expression.whenTrue.expression : node.expression.whenTrue;
+          ? node.expression.whenTrue.expression
+          : node.expression.whenTrue;
         lines.push(...convertJsxElement(whenTrue, source, depth + 2));
         lines.push(`${prefix}  path value=false`);
         const whenFalse = ts.isParenthesizedExpression(node.expression.whenFalse)
-          ? node.expression.whenFalse.expression : node.expression.whenFalse;
+          ? node.expression.whenFalse.expression
+          : node.expression.whenFalse;
         lines.push(...convertJsxElement(whenFalse, source, depth + 2));
       } else {
         // Simple expression: {variable} or {expr}
@@ -731,7 +744,7 @@ function convertJsxTag(
 
   // Extract props
   let className = '';
-  let styleStr = '';
+  const _styleStr = '';
   const props: string[] = [];
   const events: { event: string; handler: string }[] = [];
 
@@ -851,7 +864,10 @@ interface HookInfo {
   cleanup?: string;
 }
 
-function extractHooks(body: ts.Block, source: ts.SourceFile): { hooks: HookInfo[]; remainingStatements: ts.Statement[] } {
+function extractHooks(
+  body: ts.Block,
+  source: ts.SourceFile,
+): { hooks: HookInfo[]; remainingStatements: ts.Statement[] } {
   const hooks: HookInfo[] = [];
   const remaining: ts.Statement[] = [];
 
@@ -938,10 +954,8 @@ function tryExtractHook(stmt: ts.Statement, source: ts.SourceFile): HookInfo | n
             // Return of arrow/function = cleanup
             cleanupText = lastStmt.expression.getText(source);
             if (ts.isArrowFunction(lastStmt.expression) || ts.isFunctionExpression(lastStmt.expression)) {
-              cleanupText = getBodyText(
-                (lastStmt.expression as ts.ArrowFunction).body as ts.Block | ts.Expression,
-                source,
-              ) ?? '';
+              cleanupText =
+                getBodyText((lastStmt.expression as ts.ArrowFunction).body as ts.Block | ts.Expression, source) ?? '';
             }
             // Body is everything except the return
             const bodyStmts = callback.body.statements.slice(0, -1);
@@ -954,8 +968,13 @@ function tryExtractHook(stmt: ts.Statement, source: ts.SourceFile): HookInfo | n
         }
       }
 
-      const once = deps === '' && depsArg ? true : false;
-      return { type: 'effect', deps: once ? undefined : deps || undefined, body: bodyText, cleanup: cleanupText || undefined };
+      const once = !!(deps === '' && depsArg);
+      return {
+        type: 'effect',
+        deps: once ? undefined : deps || undefined,
+        body: bodyText,
+        cleanup: cleanupText || undefined,
+      };
     }
   }
 
@@ -1027,12 +1046,16 @@ function emitHooks(hooks: HookInfo[], depth: number): string[] {
 
 // ── React component detection & conversion ──────────────────────────────
 
-function returnsJsx(node: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression, source: ts.SourceFile): boolean {
+function returnsJsx(
+  node: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression,
+  source: ts.SourceFile,
+): boolean {
   if (!node.body) return false;
 
   // Check return type annotation
   const returnType = node.type ? typeToString(node.type, source) : '';
-  if (returnType.includes('JSX') || returnType.includes('ReactNode') || returnType.includes('ReactElement')) return true;
+  if (returnType.includes('JSX') || returnType.includes('ReactNode') || returnType.includes('ReactElement'))
+    return true;
 
   // Walk body for JSX returns
   let found = false;
@@ -1050,7 +1073,7 @@ function returnsJsx(node: ts.FunctionDeclaration | ts.ArrowFunction | ts.Functio
 
 function convertReactComponent(
   name: string,
-  params: string,
+  _params: string,
   body: ts.Block,
   source: ts.SourceFile,
   exp: string,
@@ -1061,8 +1084,13 @@ function convertReactComponent(
   if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
 
   const asyncStr = isAsync_ ? ' async=true' : '';
-  const isPage = name.endsWith('Page') || name.endsWith('Layout') || name === 'default' ||
-    name === 'Home' || name === 'Dashboard' || name === 'App';
+  const isPage =
+    name.endsWith('Page') ||
+    name.endsWith('Layout') ||
+    name === 'default' ||
+    name === 'Home' ||
+    name === 'Dashboard' ||
+    name === 'App';
   const nodeType = isPage ? 'page' : 'screen';
 
   lines.push(`${nodeType} name=${name}${asyncStr}${exp}`);
@@ -1110,7 +1138,16 @@ export function importTypeScript(tsSource: string, fileName = 'input.ts'): Impor
 
   const kernLines: string[] = [];
   const unmapped: string[] = [];
-  const stats = { types: 0, interfaces: 0, functions: 0, classes: 0, imports: 0, constants: 0, enums: 0, components: 0 };
+  const stats = {
+    types: 0,
+    interfaces: 0,
+    functions: 0,
+    classes: 0,
+    imports: 0,
+    constants: 0,
+    enums: 0,
+    components: 0,
+  };
 
   for (const statement of sourceFile.statements) {
     const converted = convertStatement(statement, sourceFile, unmapped, stats);
@@ -1121,7 +1158,7 @@ export function importTypeScript(tsSource: string, fileName = 'input.ts'): Impor
   }
 
   return {
-    kern: kernLines.join('\n').trimEnd() + '\n',
+    kern: `${kernLines.join('\n').trimEnd()}\n`,
     unmapped,
     stats,
   };
@@ -1181,8 +1218,11 @@ function convertStatement(
     // Check for arrow function React components: const MyComponent = (props) => { return <div>... }
     for (const decl of node.declarationList.declarations) {
       const name = decl.name.getText(source);
-      if (/^[A-Z]/.test(name) && decl.initializer &&
-          (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))) {
+      if (
+        /^[A-Z]/.test(name) &&
+        decl.initializer &&
+        (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))
+      ) {
         const func = decl.initializer;
         if (returnsJsx(func as any, source)) {
           stats.components++;
@@ -1190,16 +1230,28 @@ function convertStatement(
           const doc = getJSDoc(node, source);
           const arrowBody = (func as ts.ArrowFunction).body;
           if (ts.isBlock(arrowBody)) {
-            return convertReactComponent(name, formatParams(func.parameters, source),
-              arrowBody, source, exp, doc, isAsync(func as any));
+            return convertReactComponent(
+              name,
+              formatParams(func.parameters, source),
+              arrowBody,
+              source,
+              exp,
+              doc,
+              isAsync(func as any),
+            );
           }
           // Expression-bodied: const Foo = () => <div>...</div>
           // Wrap in a synthetic block for the component converter
           const jsxLines: string[] = [];
           if (doc) jsxLines.push(`doc text="${escapeKernString(doc)}"`);
           const asyncStr = isAsync(func as any) ? ' async=true' : '';
-          const isPage_ = name.endsWith('Page') || name.endsWith('Layout') || name === 'default' ||
-            name === 'Home' || name === 'Dashboard' || name === 'App';
+          const isPage_ =
+            name.endsWith('Page') ||
+            name.endsWith('Layout') ||
+            name === 'default' ||
+            name === 'Home' ||
+            name === 'Dashboard' ||
+            name === 'App';
           jsxLines.push(`${isPage_ ? 'page' : 'screen'} name=${name}${asyncStr}${exp}`);
           jsxLines.push(...convertJsxElement(arrowBody, source, 1));
           return jsxLines;
