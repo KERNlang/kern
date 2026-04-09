@@ -597,10 +597,7 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
     case '__error': {
       const msg = (node.props?.message as string) || 'parse error at this line';
       const raw = node.props?.raw as string;
-      return [
-        `// TODO(kern): ${msg}`,
-        ...(raw ? [`// Original: ${raw}`] : []),
-      ];
+      return [`// TODO(kern): ${msg}`, ...(raw ? [`// Original: ${raw}`] : [])];
     }
     case 'doc': {
       const text = (node.props?.text as string) || (node.props?.code as string) || '';

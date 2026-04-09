@@ -299,7 +299,9 @@ export async function runCompile(args: string[]): Promise<void> {
       if (tolerant) {
         console.log(`  ${totalErrors} parse error(s) recovered — output contains TODO comments at error positions.`);
       } else {
-        console.error(`\n${totalErrors} parse error(s) found. Use --strict-parse to fail on errors, or --tolerant for partial compilation.`);
+        console.error(
+          `\n${totalErrors} parse error(s) found. Use --strict-parse to fail on errors, or --tolerant for partial compilation.`,
+        );
       }
     }
   }

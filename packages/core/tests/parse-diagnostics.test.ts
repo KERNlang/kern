@@ -1,13 +1,13 @@
+import { generateCoreNode } from '../src/codegen-core.js';
 import { KernParseError } from '../src/errors.js';
 import {
   getParseDiagnostics,
   parse,
   parseDocumentStrict,
+  parseDocumentWithDiagnostics,
   parseStrict,
   parseWithDiagnostics,
-  parseDocumentWithDiagnostics,
 } from '../src/parser.js';
-import { generateCoreNode } from '../src/codegen-core.js';
 import type { ParseErrorCode } from '../src/types.js';
 
 describe('Parse Diagnostics', () => {

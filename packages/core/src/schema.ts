@@ -898,7 +898,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   spawn: {
     description:
       'Child process — spawns a binary with shell:false safety, SIGTERM/SIGKILL escalation, and abort-on-disconnect',
-    example: 'spawn binary=ffmpeg args="[\'-i\',input,\'-f\',\'mp3\',\'pipe:1\']" timeout=30',
+    example: "spawn binary=ffmpeg args=\"['-i',input,'-f','mp3','pipe:1']\" timeout=30",
     props: {
       binary: { required: true, kind: 'string' },
       args: { kind: 'rawExpr' },
@@ -909,7 +909,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   timer: {
     description: 'Request timeout — wraps handler in a deadline with AbortController and configurable timeout handler',
-    example: 'timer timeout=15\n  handler <<<\n    const result = await longRunningTask();\n    res.json(result);\n  >>>',
+    example:
+      'timer timeout=15\n  handler <<<\n    const result = await longRunningTask();\n    res.json(result);\n  >>>',
     props: {
       timeout: { kind: 'number' },
       name: { kind: 'identifier' },
@@ -1029,7 +1030,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   callback: {
     description: 'React useCallback — memoized function reference with dependency tracking',
-    example: 'callback name=handleSubmit deps="formData" async=true\n  handler <<<\n    await api.submit(formData)\n  >>>',
+    example:
+      'callback name=handleSubmit deps="formData" async=true\n  handler <<<\n    await api.submit(formData)\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       params: { kind: 'string' },
@@ -1287,6 +1289,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example: 'dispatch to=worker payload={{data}}',
     props: { to: { required: true, kind: 'string' }, payload: { kind: 'rawExpr' } },
   },
+  // biome-ignore lint/suspicious/noThenProperty: `then` is a valid KERN node type, not a Promise thenable
   then: {
     description: 'Sequential continuation — runs after parent completes',
     example: 'then\n  handler <<<\n    console.log("done")\n  >>>',
@@ -1295,8 +1298,13 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
 
   // Lifecycle / structural children
-  singleton: { description: 'Singleton marker — service is instantiated once', example: 'singleton name=cache', props: { name: { kind: 'identifier' } } },
-  'constructor': {
+  singleton: {
+    description: 'Singleton marker — service is instantiated once',
+    example: 'singleton name=cache',
+    props: { name: { kind: 'identifier' } },
+  },
+  // biome-ignore lint/complexity/noUselessConstructor: `constructor` is a KERN node type, not a JS constructor
+  constructor: {
     description: 'Constructor for a service — runs on instantiation',
     example: 'constructor params="size:number"\n  handler <<<\n    this.data = new Map();\n  >>>',
     props: { params: { kind: 'string' as PropKind } },
@@ -1310,11 +1318,18 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   export: {
     description: 'Re-export statement — export names from another module',
     example: 'export from="./utils.js" names="add,subtract"',
-    props: { from: { kind: 'importPath' }, names: { kind: 'string' }, types: { kind: 'string' }, star: { kind: 'boolean' }, default: { kind: 'identifier' } },
+    props: {
+      from: { kind: 'importPath' },
+      names: { kind: 'string' },
+      types: { kind: 'string' },
+      star: { kind: 'boolean' },
+      default: { kind: 'identifier' },
+    },
   },
   describe: {
     description: 'Test suite — groups related test cases',
-    example: 'describe name="UserService"\n  it name="creates a user"\n    handler <<<\n      expect(createUser()).toBeDefined();\n    >>>',
+    example:
+      'describe name="UserService"\n  it name="creates a user"\n    handler <<<\n      expect(createUser()).toBeDefined();\n    >>>',
     props: { name: { required: true, kind: 'string' } },
     allowedChildren: ['it', 'describe', 'handler'],
   },
