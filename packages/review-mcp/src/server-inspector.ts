@@ -229,36 +229,44 @@ function runStructuralChecks(
   }
 
   // Cross-server tool reference — description mentions tool names from OTHER servers
+  // Only match tool names that are specific enough (>4 chars, contain underscore/hyphen)
+  // to avoid false positives on generic words like "search", "read", "run"
   for (const [otherServer, otherTools] of allServersTools) {
     if (otherServer === serverName) continue;
     for (const otherTool of otherTools) {
-      if (new RegExp(`\\b${otherTool.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(desc)) {
+      const name = otherTool.name;
+      if (!name || name.length < 5 || !/[-_]/.test(name)) continue;
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escaped}\\b`, 'i').test(desc)) {
         findings.push({
           serverName,
           serverSource,
           toolName: tool.name,
           pattern: 'cross-server-reference',
           severity: 'warning',
-          message: `Tool description references '${otherTool.name}' from server '${otherServer}' — potential cross-origin influence`,
+          message: `Tool description references '${name}' from server '${otherServer}' — potential cross-origin influence`,
         });
       }
     }
   }
 
   // Schema/description mismatch — description implies read-only but schema has write-like params
+  // Use strict matching: param name must START with the write verb (not just contain it)
+  // to avoid false positives on names like "runId" or "commandName"
   if (desc && tool.inputSchema) {
     const schema = tool.inputSchema as { properties?: Record<string, unknown> };
     const props = Object.keys(schema.properties ?? {});
-    const claimsReadOnly = /\bread[- ]?only\b|\bno\s+(?:side\s+)?effects?\b|\bsafe\b/.test(desc);
-    const hasWriteParams = props.some((p) => /write|delete|update|create|modify|execute|run|command/i.test(p));
-    if (claimsReadOnly && hasWriteParams) {
+    const claimsReadOnly = /\bread[- ]?only\b|\bno\s+(?:side\s+)?effects?\b/.test(desc);
+    const writeParamPattern = /^(write|delete|remove|update|create|modify|execute|drop|truncate|destroy)/i;
+    const writeParams = props.filter((p) => writeParamPattern.test(p));
+    if (claimsReadOnly && writeParams.length > 0) {
       findings.push({
         serverName,
         serverSource,
         toolName: tool.name,
         pattern: 'schema-description-mismatch',
         severity: 'error',
-        message: `Description claims read-only but schema has write-like params (${props.filter((p) => /write|delete|update|create|modify|execute|run|command/i.test(p)).join(', ')})`,
+        message: `Description claims read-only but schema has write-like params (${writeParams.join(', ')})`,
       });
     }
   }
