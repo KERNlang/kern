@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'fs';
 import { basename, resolve } from 'path';
 import { hasFlag, parseFlag } from '../shared.js';
 
@@ -120,45 +120,233 @@ const TEMPLATES: Record<string, { description: string; content: string }> = {
   },
 };
 
+// ── Fullstack Templates ─────────────────────────────────────────────────
+
+const FULLSTACK_FILES: Record<string, { file: string; content: string }[]> = {
+  fullstack: [
+    {
+      file: 'models.kern',
+      content: `// Shared types — compiled once, imported by api + frontend + mcp
+interface name=Todo export=true
+  field name=id type=string
+  field name=title type=string
+  field name=completed type=boolean
+  field name=createdAt type=string
+
+interface name=CreateTodoInput export=true
+  field name=title type=string required=true
+
+type name=TodoFilter export=true values="all|active|completed"
+`,
+    },
+    {
+      file: 'api.kern',
+      content: `// Express API — kern compile api.kern --target=express
+import from="./models.js" names="Todo,CreateTodoInput" types=true
+
+server name=TodoAPI port=3001
+  middleware name=json
+  middleware name=cors
+
+  route path="/api/todos" method=get
+    handler <<<
+      const todos: Todo[] = [];
+      res.json(todos);
+    >>>
+
+  route path="/api/todos" method=post
+    schema body=CreateTodoInput
+    handler <<<
+      const todo: Todo = {
+        id: crypto.randomUUID(),
+        title: req.body.title,
+        completed: false,
+        createdAt: new Date().toISOString(),
+      };
+      res.status(201).json(todo);
+    >>>
+
+  route path="/api/todos/:id" method=get
+    handler <<<
+      res.json({ id: req.params.id, title: "Example", completed: false, createdAt: new Date().toISOString() });
+    >>>
+`,
+    },
+    {
+      file: 'frontend.kern',
+      content: `// Next.js frontend — kern compile frontend.kern --target=nextjs
+import from="./models.js" names="Todo" types=true
+
+page name=TodoApp client=true route="/"
+  metadata title="Todo App" description="A simple todo application built with KERN"
+
+  state name=todos initial=[] type=Todo[]
+  state name=newTitle initial="" type=string
+
+  effect deps="[]" once=true
+    handler <<<
+      fetch('/api/todos').then(r => r.json()).then(setTodos);
+    >>>
+
+  form action="/api/todos" method=POST
+    row
+      input bind=newTitle placeholder="What needs to be done?"
+      button text="Add Todo"
+
+  list
+    text value="Your todos will appear here"
+`,
+    },
+    {
+      file: 'mcp-server.kern',
+      content: `// MCP server — kern compile mcp-server.kern --target=mcp
+import from="./models.js" names="Todo" types=true
+
+mcp name=TodoMCP version=1.0 transport=stdio
+
+  tool name=listTodos
+    description text="List all todos, optionally filtered by status"
+    param name=filter type=string default=all description="Filter: all, active, or completed"
+    handler <<<
+      const response = await fetch('http://localhost:3001/api/todos');
+      const todos: Todo[] = await response.json();
+      const filtered = params.filter === 'all' ? todos
+        : todos.filter(t => params.filter === 'completed' ? t.completed : !t.completed);
+      return { content: [{ type: "text", text: JSON.stringify(filtered, null, 2) }] };
+    >>>
+
+  tool name=addTodo
+    description text="Create a new todo item"
+    param name=title type=string required=true description="Todo title"
+    guard type=sanitize param=title
+    handler <<<
+      const response = await fetch('http://localhost:3001/api/todos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: params.title }),
+      });
+      const todo = await response.json();
+      return { content: [{ type: "text", text: \`Created: \${todo.title} (id: \${todo.id})\` }] };
+    >>>
+`,
+    },
+  ],
+  nextjs: [
+    {
+      file: 'app.kern',
+      content: `// Next.js app — kern compile app.kern --target=nextjs
+page name=Home route="/"
+  metadata title="My App" description="Built with KERN"
+
+  row
+    col
+      text value="Welcome to your KERN app"
+      button text="Get Started" to="/about"
+`,
+    },
+  ],
+  express: [
+    {
+      file: 'api.kern',
+      content: `// Express API — kern compile api.kern --target=express
+server name=MyAPI port=3000
+  middleware name=json
+  middleware name=cors
+
+  route path="/api/health" method=get
+    handler <<<
+      res.json({ status: "ok", timestamp: new Date().toISOString() });
+    >>>
+
+  route path="/api/hello/:name" method=get
+    handler <<<
+      res.json({ message: \`Hello, \${req.params.name}!\` });
+    >>>
+`,
+    },
+  ],
+};
+
 // ── Init command ─────────────────────────────────────────────────────────
 
 export function runInit(args: string[]): void {
   const isMcp = hasFlag(args, '--mcp');
-  const template = parseFlag(args, '--template') || 'file-tools';
+  const template = parseFlag(args, '--template');
   const outArg = args.find((a) => !a.startsWith('--') && a !== 'init');
 
-  if (!isMcp) {
-    console.error('Usage: kern init --mcp [--template=<name>] [output.kern]');
-    console.error('');
-    console.error('Templates:');
-    for (const [name, tmpl] of Object.entries(TEMPLATES)) {
-      console.error(`  ${name.padEnd(16)} ${tmpl.description}`);
+  // Multi-file templates (fullstack, nextjs, express)
+  if (template && template in FULLSTACK_FILES) {
+    const dir = resolve(outArg || template);
+    if (existsSync(dir) && readdirSync(dir).length > 0) {
+      console.error(`Directory not empty: ${dir}`);
+      process.exit(1);
     }
-    process.exit(1);
+    mkdirSync(dir, { recursive: true });
+    for (const entry of FULLSTACK_FILES[template]) {
+      writeFileSync(resolve(dir, entry.file), entry.content);
+      console.log(`  Created ${entry.file}`);
+    }
+    console.log('');
+    console.log('  Next steps:');
+    if (template === 'fullstack') {
+      console.log(`    cd ${basename(dir)}`);
+      console.log('    kern compile models.kern                          # shared types');
+      console.log('    kern compile api.kern --target=express             # backend');
+      console.log('    kern compile frontend.kern --target=nextjs         # frontend');
+      console.log('    kern compile mcp-server.kern --target=mcp          # AI tools');
+    } else if (template === 'nextjs') {
+      console.log(`    cd ${basename(dir)}`);
+      console.log('    kern compile app.kern --target=nextjs --outdir=generated');
+    } else if (template === 'express') {
+      console.log(`    cd ${basename(dir)}`);
+      console.log('    kern compile api.kern --target=express --outdir=generated');
+    }
+    return;
   }
 
-  const tmpl = TEMPLATES[template];
-  if (!tmpl) {
-    console.error(`Unknown template: '${template}'`);
-    console.error(`Available: ${Object.keys(TEMPLATES).join(', ')}`);
-    process.exit(1);
+  // MCP single-file templates
+  if (isMcp || (template && template in TEMPLATES)) {
+    const tmplName = template || 'file-tools';
+    const tmpl = TEMPLATES[tmplName];
+    if (!tmpl) {
+      console.error(`Unknown template: '${tmplName}'`);
+      console.error(`Available: ${[...Object.keys(TEMPLATES), ...Object.keys(FULLSTACK_FILES)].join(', ')}`);
+      process.exit(1);
+    }
+
+    const outFile = resolve(outArg || `${tmplName}.kern`);
+    const outDir = resolve(outFile, '..');
+
+    if (existsSync(outFile)) {
+      console.error(`File already exists: ${basename(outFile)}`);
+      console.error('Remove it first or choose a different name.');
+      process.exit(1);
+    }
+
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(outFile, tmpl.content);
+    console.log(`  Created ${basename(outFile)} (template: ${tmplName})`);
+    console.log('');
+    console.log('  Next steps:');
+    console.log(`    kern compile ${basename(outFile)} --target=mcp --outdir=generated`);
+    console.log('    # or watch for changes:');
+    console.log(`    kern compile ${basename(outFile)} --target=mcp --outdir=generated --watch`);
+    return;
   }
 
-  const outFile = resolve(outArg || `${template}.kern`);
-  const outDir = resolve(outFile, '..');
-
-  if (existsSync(outFile)) {
-    console.error(`File already exists: ${basename(outFile)}`);
-    console.error('Remove it first or choose a different name.');
-    process.exit(1);
+  // Show usage
+  console.error('Usage: kern init --template=<name> [directory]');
+  console.error('       kern init --mcp [--template=<name>] [output.kern]');
+  console.error('');
+  console.error('Project templates:');
+  for (const name of Object.keys(FULLSTACK_FILES)) {
+    const files = FULLSTACK_FILES[name].map((f) => f.file).join(', ');
+    console.error(`  ${name.padEnd(16)} ${files}`);
   }
-
-  mkdirSync(outDir, { recursive: true });
-  writeFileSync(outFile, tmpl.content);
-  console.log(`  Created ${basename(outFile)} (template: ${template})`);
-  console.log('');
-  console.log('  Next steps:');
-  console.log(`    kern compile ${basename(outFile)} --target=mcp --outdir=generated`);
-  console.log('    # or watch for changes:');
-  console.log(`    kern compile ${basename(outFile)} --target=mcp --outdir=generated --watch`);
+  console.error('');
+  console.error('MCP templates:');
+  for (const [name, tmpl] of Object.entries(TEMPLATES)) {
+    console.error(`  ${name.padEnd(16)} ${tmpl.description}`);
+  }
+  process.exit(1);
 }

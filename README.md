@@ -31,6 +31,7 @@ npm install -g @kernlang/cli
 ```bash
 kern compile src/ --target=nextjs --watch --facades --index   # One command — compile, watch, facades, barrel
 kern review src/ --recursive                                  # Static analysis (98 rules, taint tracking)
+kern init --template=fullstack my-app                          # Scaffold fullstack app (Next.js + Express + MCP)
 kern init --mcp                                               # Scaffold an MCP server with security guards
 kern import src/ --outdir=kern/                               # TypeScript → .kern
 kern schema --json                                            # Full schema for LLM consumption
@@ -68,6 +69,34 @@ machine name=Order initial=pending
 ```
 
 **Compiles to 140+ lines** of typed TypeScript — enums, transition functions, exhaustive checks, error classes.
+
+---
+
+## 5-Minute Quickstart
+
+Build a fullstack Todo app (Next.js + Express + MCP) from scratch:
+
+```bash
+# 1. Install
+npm install -g @kernlang/cli
+
+# 2. Scaffold
+kern init --template=fullstack my-todo-app
+cd my-todo-app
+
+# 3. Compile everything
+kern compile models.kern                           # shared types
+kern compile api.kern --target=express              # backend API
+kern compile frontend.kern --target=nextjs          # Next.js frontend
+kern compile mcp-server.kern --target=mcp           # AI agent tools
+
+# 4. Run
+cd generated/api && npx tsx server.ts               # API on :3001
+```
+
+Available templates: `fullstack`, `nextjs`, `express`, `file-tools`, `api-gateway`, `database-tools`
+
+See [`examples/starter/fullstack/`](examples/starter/fullstack/) for the generated files.
 
 ---
 

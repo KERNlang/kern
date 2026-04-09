@@ -198,7 +198,7 @@ export interface NextjsOutputRules {
  * Combined Next.js compatibility profile.
  */
 export interface NextjsVersionProfile {
-  major: 13 | 14 | 15;
+  major: 13 | 14 | 15 | 16;
   outputRules: NextjsOutputRules;
 }
 
@@ -206,6 +206,17 @@ export function buildNextjsProfile(versions: FrameworkVersions): NextjsVersionPr
   const major = resolveNextjsMajor(versions);
 
   switch (major) {
+    case 16:
+      return {
+        major: 16,
+        outputRules: {
+          metadataStyle: 'satisfies',
+          useAppRouter: true,
+          imageImport: 'next/image',
+          asyncServerComponents: true,
+          linkNoAnchor: true,
+        },
+      };
     case 15:
       return {
         major: 15,

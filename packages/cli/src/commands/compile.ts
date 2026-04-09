@@ -173,6 +173,7 @@ export async function runCompile(args: string[]): Promise<void> {
   // ── Flags ──────────────────────────────────────────────────────────
   const compileConfig = loadConfig();
   const strictParse = hasFlag(args, '--strict-parse');
+  const tolerant = hasFlag(args, '--tolerant');
   const barrel = hasFlag(args, '--barrel', '--index');
   const facades = hasFlag(args, '--facades');
   const facadesDir = parseFlag(args, '--facades-dir');
@@ -295,7 +296,11 @@ export async function runCompile(args: string[]): Promise<void> {
     const targetLabel = targetArg ? ` (target: ${targetArg})` : '';
     console.log(`\nCompiled ${compiled}/${kernFiles.length} files${targetLabel} → ${outDir}`);
     if (totalErrors > 0 && !strictParse) {
-      console.error(`\n${totalErrors} parse error(s) found. Use --strict-parse to fail on errors.`);
+      if (tolerant) {
+        console.log(`  ${totalErrors} parse error(s) recovered — output contains TODO comments at error positions.`);
+      } else {
+        console.error(`\n${totalErrors} parse error(s) found. Use --strict-parse to fail on errors, or --tolerant for partial compilation.`);
+      }
     }
   }
 

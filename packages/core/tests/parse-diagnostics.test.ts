@@ -1,5 +1,13 @@
 import { KernParseError } from '../src/errors.js';
-import { getParseDiagnostics, parse, parseDocumentStrict, parseStrict, parseWithDiagnostics } from '../src/parser.js';
+import {
+  getParseDiagnostics,
+  parse,
+  parseDocumentStrict,
+  parseStrict,
+  parseWithDiagnostics,
+  parseDocumentWithDiagnostics,
+} from '../src/parser.js';
+import { generateCoreNode } from '../src/codegen-core.js';
 import type { ParseErrorCode } from '../src/types.js';
 
 describe('Parse Diagnostics', () => {
@@ -100,5 +108,63 @@ describe('Parse Diagnostics', () => {
 
     parse('screen');
     expect(getParseDiagnostics()).toEqual([]);
+  });
+});
+
+describe('Error Recovery — __error nodes', () => {
+  test('DROPPED_LINE produces an __error node instead of losing the line', () => {
+    const result = parseDocumentWithDiagnostics(')invalid\ntext value="hello"');
+    const children = result.root.children || [];
+    expect(children.length).toBe(2);
+    expect(children[0].type).toBe('__error');
+    expect(children[0].props?.code).toBe('DROPPED_LINE');
+    expect(children[0].props?.raw).toBe(')invalid');
+    expect(children[1].type).toBe('text');
+  });
+
+  test('__error node preserves line location', () => {
+    const result = parseDocumentWithDiagnostics(')broken\ntext value="ok"');
+    const errorNode = result.root.children?.[0];
+    expect(errorNode?.type).toBe('__error');
+    expect(errorNode?.loc?.line).toBe(1);
+  });
+
+  test('partial flag is set when __error nodes exist', () => {
+    const result = parseDocumentWithDiagnostics(')invalid\ntext value="hello"');
+    expect(result.partial).toBe(true);
+    expect(result.errorCount).toBe(1);
+  });
+
+  test('partial flag is absent when no errors', () => {
+    const result = parseDocumentWithDiagnostics('text value="hello"');
+    expect(result.partial).toBeUndefined();
+    expect(result.errorCount).toBeUndefined();
+  });
+
+  test('multiple __error nodes are counted', () => {
+    const result = parseDocumentWithDiagnostics(')bad1\ntext value="ok"\n)bad2');
+    expect(result.partial).toBe(true);
+    expect(result.errorCount).toBe(2);
+  });
+
+  test('codegen emits TODO comment for __error nodes', () => {
+    const errorNode = {
+      type: '__error',
+      props: { message: 'Dropped line 1: expected a node type', raw: ')invalid' },
+      children: [],
+    };
+    const lines = generateCoreNode(errorNode);
+    expect(lines.some((l) => l.includes('TODO(kern)'))).toBe(true);
+    expect(lines.some((l) => l.includes('Original: )invalid'))).toBe(true);
+  });
+
+  test('valid sibling nodes compile normally alongside __error nodes', () => {
+    const result = parseDocumentWithDiagnostics(')broken\nfn name=hello\n  handler <<<\n    return "hello"\n  >>>');
+    const children = result.root.children || [];
+    expect(children[0].type).toBe('__error');
+    expect(children[1].type).toBe('fn');
+    // fn should codegen normally
+    const fnOutput = generateCoreNode(children[1]);
+    expect(fnOutput.some((l) => l.includes('function hello'))).toBe(true);
   });
 });

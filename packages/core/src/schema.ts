@@ -881,6 +881,327 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       styles: { kind: 'rawExpr' },
     },
   },
+
+  // ── Backend: Stream / Spawn / Timer ───────────────────────────────────
+
+  stream: {
+    description: 'SSE stream route — sets up Server-Sent Events with heartbeat and structured emit helper',
+    example:
+      'route path="/api/stream" method=get\n  stream\n    spawn binary=ffmpeg args="[\'-i\',input]"\n      on name=stdout\n        handler <<<\n          emit({ chunk: chunk.toString() })\n        >>>',
+    props: {
+      name: { kind: 'identifier' },
+      source: { kind: 'rawExpr' },
+      append: { kind: 'boolean' },
+    },
+    allowedChildren: ['spawn', 'handler', 'on', 'timer'],
+  },
+  spawn: {
+    description:
+      'Child process — spawns a binary with shell:false safety, SIGTERM/SIGKILL escalation, and abort-on-disconnect',
+    example: 'spawn binary=ffmpeg args="[\'-i\',input,\'-f\',\'mp3\',\'pipe:1\']" timeout=30',
+    props: {
+      binary: { required: true, kind: 'string' },
+      args: { kind: 'rawExpr' },
+      timeout: { kind: 'number' },
+      stdin: { kind: 'rawExpr' },
+    },
+    allowedChildren: ['on', 'env', 'handler'],
+  },
+  timer: {
+    description: 'Request timeout — wraps handler in a deadline with AbortController and configurable timeout handler',
+    example: 'timer timeout=15\n  handler <<<\n    const result = await longRunningTask();\n    res.json(result);\n  >>>',
+    props: {
+      timeout: { kind: 'number' },
+      name: { kind: 'identifier' },
+    },
+    allowedChildren: ['handler', 'on'],
+  },
+  env: {
+    description: 'Environment variable — declares a required or optional env var, used in spawn or server config',
+    example: 'env name=DATABASE_URL required=true',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      value: { kind: 'rawExpr' },
+      required: { kind: 'boolean' },
+    },
+  },
+  trigger: {
+    description: 'Event trigger — fires an action on a named event from a source',
+    example: 'trigger kind=webhook on=push from=github',
+    props: {
+      kind: { kind: 'identifier' },
+      on: { kind: 'string' },
+      from: { kind: 'string' },
+    },
+    allowedChildren: ['handler'],
+  },
+
+  // ── Next.js production patterns ───────────────────────────────────────
+
+  fetch: {
+    description: 'Server-side data fetch — generates an async fetch call in a Next.js server component',
+    example: 'fetch name=posts url="/api/posts" options="{ next: { revalidate: 60 } }"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      url: { required: true, kind: 'rawExpr' },
+      options: { kind: 'rawExpr' },
+    },
+  },
+  generateMetadata: {
+    description: 'Next.js generateMetadata export — async function for dynamic page metadata',
+    example: 'generateMetadata params="slug:string"',
+    props: {
+      params: { kind: 'string' },
+    },
+    allowedChildren: ['handler'],
+  },
+  notFound: {
+    description: 'Next.js notFound() call — triggers 404 page',
+    example: 'notFound',
+    props: {},
+  },
+  redirect: {
+    description: 'Next.js redirect() call — server-side redirect to another route',
+    example: 'redirect to="/login"',
+    props: {
+      to: { required: true, kind: 'string' },
+    },
+  },
+
+  // ── CLI nodes ─────────────────────────────────────────────────────────
+
+  cli: {
+    description: 'CLI application root — defines a command-line tool with commands, flags, and imports',
+    example:
+      'cli name=myapp version=1.0.0 description="My CLI tool"\n  command name=init description="Initialize project"\n    handler <<<\n      console.log("Initializing...")\n    >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      version: { kind: 'string' },
+      description: { kind: 'string' },
+    },
+    allowedChildren: ['command', 'flag', 'import'],
+  },
+  command: {
+    description: 'CLI subcommand with arguments, flags, and handler',
+    example:
+      'command name=deploy description="Deploy to production" alias=d\n  arg name=target type=string required=true\n  flag name=dry-run alias=n type=boolean\n  handler <<<\n    deploy(target, { dryRun })\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      description: { kind: 'string' },
+      alias: { kind: 'string' },
+    },
+    allowedChildren: ['arg', 'flag', 'handler', 'import'],
+  },
+  arg: {
+    description: 'CLI positional argument — required args must come before optional ones',
+    example: 'arg name=target type=string required=true description="Deploy target"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'identifier' },
+      required: { kind: 'boolean' },
+      description: { kind: 'string' },
+      default: { kind: 'rawExpr' },
+    },
+  },
+  flag: {
+    description: 'CLI flag/option — named with optional short alias',
+    example: 'flag name=verbose alias=v type=boolean description="Enable verbose output"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      alias: { kind: 'string' },
+      type: { kind: 'identifier' },
+      required: { kind: 'boolean' },
+      description: { kind: 'string' },
+      default: { kind: 'rawExpr' },
+    },
+  },
+
+  // ── React lifecycle hooks (Batch 2) ───────────────────────────────────
+
+  memo: {
+    description: 'React useMemo — memoized computation with dependency tracking',
+    example: 'memo name=filtered deps="items,filter"\n  handler <<<\n    return items.filter(i => i.active)\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      deps: { kind: 'string' },
+    },
+    allowedChildren: ['handler'],
+  },
+  callback: {
+    description: 'React useCallback — memoized function reference with dependency tracking',
+    example: 'callback name=handleSubmit deps="formData" async=true\n  handler <<<\n    await api.submit(formData)\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      params: { kind: 'string' },
+      deps: { kind: 'string' },
+      async: { kind: 'boolean' },
+    },
+    allowedChildren: ['handler'],
+  },
+  ref: {
+    description: 'React useRef — mutable ref object that persists across renders',
+    example: 'ref name=inputRef type=HTMLInputElement initial=null',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      initial: { kind: 'rawExpr' },
+    },
+  },
+  context: {
+    description: 'React useContext — consume a React context by name',
+    example: 'context name=theme source=ThemeContext',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      source: { required: true, kind: 'identifier' },
+    },
+  },
+  prop: {
+    description: 'Component prop declaration — name, type, optionality, and default value',
+    example: 'prop name=title type=string\nprop name=count type=number optional=true default=0',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      optional: { kind: 'boolean' },
+      default: { kind: 'rawExpr' },
+    },
+  },
+  returns: {
+    description: 'Return type declaration or return statement for a hook/function',
+    example: 'returns type=AuthState with="{ user, login, logout }"',
+    props: {
+      name: { kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      with: { kind: 'rawExpr' },
+    },
+  },
+  render: {
+    description: 'Render function — JSX output block for a component or hook',
+    example: 'render\n  handler <<<\n    return <div>{children}</div>\n  >>>',
+    props: {},
+    allowedChildren: ['handler'],
+  },
+  template: {
+    description: 'Reusable template with named slots — defines a composable layout pattern',
+    example: 'template name=PageLayout\n  slot name=header\n  slot name=content\n  slot name=footer optional=true',
+    props: {
+      name: { required: true, kind: 'identifier' },
+    },
+    allowedChildren: ['slot', 'body', 'handler'],
+  },
+
+  // ── Data layer (Batch 3) ──────────────────────────────────────────────
+
+  column: {
+    description: 'Database column definition within a model — type, constraints, and default value',
+    example: 'column name=email type=string unique=true\ncolumn name=age type=number optional=true',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      optional: { kind: 'boolean' },
+      primary: { kind: 'boolean' },
+      unique: { kind: 'boolean' },
+      default: { kind: 'rawExpr' },
+    },
+  },
+  relation: {
+    description: 'Database relation — defines a foreign key relationship between models',
+    example: 'relation name=author target=User kind=many-to-one',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      target: { required: true, kind: 'identifier' },
+      kind: { kind: 'string' },
+    },
+  },
+  inject: {
+    description: 'Dependency injection — inject a service or value into the current scope',
+    example: 'inject name=db type=Database from="./database.js"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      from: { kind: 'rawExpr' },
+      with: { kind: 'rawExpr' },
+    },
+  },
+  entry: {
+    description: 'Cache entry — defines a cached value with key and optional strategy',
+    example: 'entry name=userProfile key="user:{id}"\n  strategy name=stale-while-revalidate max=60',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      key: { kind: 'string' },
+    },
+    allowedChildren: ['strategy', 'handler'],
+  },
+  invalidate: {
+    description: 'Cache invalidation rule — trigger cache clearing on an event',
+    example: 'invalidate on=userUpdate tags="user,profile"',
+    props: {
+      on: { required: true, kind: 'string' },
+      tags: { kind: 'string' },
+    },
+  },
+  signal: {
+    description: 'Reactive signal — named state that triggers updates on change (used in hooks/components)',
+    example: 'signal name=isLoading',
+    props: {
+      name: { required: true, kind: 'identifier' },
+    },
+  },
+
+  // ── Structural + UI controls (Batch 4) ────────────────────────────────
+
+  section: {
+    description: 'Semantic section container — groups related content with optional title',
+    example: 'section title="User Settings"',
+    props: {
+      title: { kind: 'string' },
+    },
+  },
+  list: {
+    description: 'List container — renders child items as an ordered or unordered list',
+    example: 'list\n  item value="First"\n  item value="Second"',
+    props: {},
+    allowedChildren: ['item'],
+  },
+  item: {
+    description: 'List item — single entry within a list container',
+    example: 'item value="Buy groceries"',
+    props: {
+      value: { kind: 'string' },
+    },
+  },
+  option: {
+    description: 'Select option — a selectable choice within a select dropdown',
+    example: 'option value=admin label="Administrator"',
+    props: {
+      value: { required: true, kind: 'string' },
+      label: { kind: 'string' },
+    },
+  },
+  select: {
+    description: 'Select dropdown — bound to state with child options',
+    example: 'select bind=role\n  option value=admin label="Admin"\n  option value=user label="User"',
+    props: {
+      bind: { kind: 'identifier' },
+    },
+    allowedChildren: ['option'],
+  },
+  slot: {
+    description: 'Template slot — named insertion point within a template',
+    example: 'slot name=header optional=true default="Default Header"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      slotType: { kind: 'string' },
+      optional: { kind: 'boolean' },
+      default: { kind: 'rawExpr' },
+    },
+  },
+  body: {
+    description: 'Body block — raw code content for templates or structural containers',
+    example: 'body <<<\n  <main>{children}</main>\n>>>',
+    props: {
+      code: { kind: 'rawBlock' },
+    },
+  },
 };
 
 // ── Validation ──────────────────────────────────────────────────────────

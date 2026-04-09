@@ -140,6 +140,10 @@ export interface ParseDiagnostic {
 export interface ParseResult {
   root: IRNode;
   diagnostics: ParseDiagnostic[];
+  /** True when the tree contains __error nodes — output is compilable but incomplete */
+  partial?: boolean;
+  /** Number of __error nodes in the tree */
+  errorCount?: number;
 }
 
 /** Result of decompilation (IR → human-readable) */

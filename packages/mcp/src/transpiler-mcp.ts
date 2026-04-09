@@ -482,6 +482,7 @@ function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Se
     const sp = getProps(samplingNode);
     const maxTokens = str(sp.maxTokens) || '500';
     lines.push(`    // Sampling — request LLM completion from the client`);
+    lines.push(`    // SDK v1: server.server.createMessage() | SDK v2: ctx.mcpReq.requestSampling()`);
     lines.push(`    async function requestSampling(prompt: string): Promise<string> {`);
     lines.push(`      const response = await server.server.createMessage({`);
     lines.push(`        messages: [{ role: "user", content: { type: "text", text: prompt } }],`);
@@ -498,11 +499,12 @@ function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Se
     const ep = getProps(elicitNode);
     const elicitMessage = str(ep.message) || str(ep.text) || 'Please provide input';
     lines.push(`    // Elicitation — request structured user input`);
+    lines.push(`    // SDK v1: server.server.elicitInput() | SDK v2: ctx.mcpReq.elicitInput()`);
     lines.push(
       `    async function requestInput(message = ${json(elicitMessage)}): Promise<Record<string, unknown> | null> {`,
     );
     lines.push(
-      `      const result = await server.server.elicitInput({ message, requestedSchema: { type: "object", properties: {} } });`,
+      `      const result = await server.server.elicitInput({ mode: "form", message, requestedSchema: { type: "object", properties: {} } });`,
     );
     lines.push(`      return result.action === "accept" ? (result.content || {}) : null;`);
     lines.push(`    }`);
