@@ -1303,7 +1303,6 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example: 'singleton name=cache',
     props: { name: { kind: 'identifier' } },
   },
-  // biome-ignore lint/complexity/noUselessConstructor: `constructor` is a KERN node type, not a JS constructor
   constructor: {
     description: 'Constructor for a service — runs on instantiation',
     example: 'constructor params="size:number"\n  handler <<<\n    this.data = new Map();\n  >>>',
