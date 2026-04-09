@@ -210,7 +210,9 @@ export interface FieldProps extends BaseProps {
   private?: string | boolean;
 }
 
-export interface VariantProps extends BaseProps {}
+export interface VariantProps extends BaseProps {
+  type?: string;
+}
 
 export interface MethodProps extends BaseProps {
   params?: string;

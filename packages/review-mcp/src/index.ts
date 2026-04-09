@@ -42,9 +42,6 @@ export type { McpReviewResult } from './scan-types.js';
 export type { Grade, SecurityScore, ToolScore } from './score.js';
 // ── CLI / CI engine exports (migrated from kern-sight-mcp) ───────────
 export { computeSecurityScore, gradeColor } from './score.js';
-export type { LockFile, PinDrift, ToolPin } from './tool-pin.js';
-export { generateLockFile, verifyLockFile } from './tool-pin.js';
-export { scanWorkspace } from './workspace-scan.js';
 // Server inspector — live tool inspection + poisoning detection + pinning
 export type {
   InspectedServer,
@@ -64,6 +61,9 @@ export {
   inspectMcpServers,
   verifyLiveLockFile,
 } from './server-inspector.js';
+export type { LockFile, PinDrift, ToolPin } from './tool-pin.js';
+export { generateLockFile, verifyLockFile } from './tool-pin.js';
+export { scanWorkspace } from './workspace-scan.js';
 
 // ── Load compiled .kern rules at module init ─────────────────────────
 // Guard: import.meta.url is undefined when bundled as CJS (e.g. esbuild for VS Code worker)

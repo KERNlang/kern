@@ -82,8 +82,17 @@ export function generateUnion(node: IRNode): string[] {
   const lines: string[] = [...docs, `${exp}type ${name} =`];
   for (let i = 0; i < variants.length; i++) {
     const vp = propsOf<'variant'>(variants[i]);
-    const vname = emitTemplateSafe(vp.name ?? 'variant');
     const fields = kids(variants[i], 'field');
+    const semi = i === variants.length - 1 ? ';' : '';
+
+    // Type-reference variant: `variant type=TextPart` — emit as union member directly
+    if (vp.type && fields.length === 0) {
+      lines.push(`  | ${emitTypeAnnotation(vp.type, 'unknown', variants[i])}${semi}`);
+      continue;
+    }
+
+    // Inline variant: `variant name=circle` with child fields — emit as discriminated object
+    const vname = emitTemplateSafe(vp.name ?? vp.type ?? 'variant');
     const fieldParts = [`${discriminant}: '${emitTemplateSafe(vname)}'`];
     for (const field of fields) {
       const fp = propsOf<'field'>(field);
@@ -92,7 +101,6 @@ export function generateUnion(node: IRNode): string[] {
         `${emitIdentifier(fp.name, 'field', field)}${opt}: ${emitTypeAnnotation(fp.type, 'unknown', field)}`,
       );
     }
-    const semi = i === variants.length - 1 ? ';' : '';
     lines.push(`  | { ${fieldParts.join('; ')} }${semi}`);
   }
   return lines;

@@ -291,11 +291,11 @@ function checkPoisoning(
 // ── JSON-RPC over stdio ────────────────────────────────────────────────
 
 function jsonRpcRequest(id: number, method: string, params: unknown = {}): string {
-  return JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n';
+  return `${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`;
 }
 
 function jsonRpcNotification(method: string, params: unknown = {}): string {
-  return JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n';
+  return `${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`;
 }
 
 async function connectAndListTools(
