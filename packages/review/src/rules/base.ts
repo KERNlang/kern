@@ -838,6 +838,51 @@ function handlerExtraction(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule 11: handler-size ────────────────────────────────────────────────
+// Handler blocks exceeding a line threshold suggest extraction
+
+const HANDLER_LINE_LIMIT = 30;
+
+function handlerSize(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const r of ctx.inferred) {
+    // Check all node types that can contain handlers, not just fn
+    const handlers = (r.node.children || []).filter((c) => c.type === 'handler');
+    for (const handler of handlers) {
+      const code = (handler.props?.code as string) || '';
+      if (!code) continue;
+
+      // Count non-empty, non-comment lines
+      const lines = code.split('\n').filter((l) => {
+        const trimmed = l.trim();
+        return trimmed.length > 0 && !trimmed.startsWith('//') && !trimmed.startsWith('#');
+      });
+
+      if (lines.length > HANDLER_LINE_LIMIT) {
+        const parentName = (r.node.props?.name as string) || r.node.type;
+        findings.push(
+          finding(
+            'handler-size',
+            'warning',
+            'structure',
+            `Handler in '${parentName}' is ${lines.length} lines (limit: ${HANDLER_LINE_LIMIT}). Extract logic into separate fn nodes for better structure and reviewability.`,
+            ctx.filePath,
+            handler.loc?.line ?? r.startLine,
+            1,
+            {
+              nodeIds: [r.nodeId],
+              suggestion: `Split the handler into smaller fn nodes called from the handler. KERN's value is structure — keep handlers under ${HANDLER_LINE_LIMIT} lines.`,
+            },
+          ),
+        );
+      }
+    }
+  }
+
+  return findings;
+}
+
 // ── Rule: memory-leak (from v1) ──────────────────────────────────────────
 // useEffect/watch/onMounted that creates subscriptions without cleanup
 
@@ -1213,6 +1258,7 @@ export const baseRules = [
   cognitiveComplexity,
   templateAvailable,
   handlerExtraction,
+  handlerSize,
   memoryLeak,
   unhandledAsync,
   syncInAsync,
