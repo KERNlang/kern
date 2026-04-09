@@ -581,7 +581,7 @@ function parseTailwindClasses(className: string): { styles: Record<string, strin
 
 function formatKernStyles(styles: Record<string, string>): string {
   if (Object.keys(styles).length === 0) return '';
-  return ' {' + Object.entries(styles).map(([k, v]) => `${k}:${v}`).join(', ') + '}';
+  return ` {${Object.entries(styles).map(([k, v]) => `${k}:${v}`).join(', ')}}`;
 }
 
 // ── JSX → KERN conversion ───────────────────────────────────────────────

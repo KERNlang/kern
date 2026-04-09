@@ -285,7 +285,7 @@ export async function runCompile(args: string[]): Promise<void> {
     const output = targetArg
       ? { compiled, total: kernFiles.length, outDir, target: targetArg, errors: 0, files: [] }
       : { compiled, total: kernFiles.length, outDir, errors: totalErrors, files: jsonDiagnostics };
-    process.stdout.write(JSON.stringify(output, null, 2) + '\n');
+    process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
   } else {
     const targetLabel = targetArg ? ` (target: ${targetArg})` : '';
     console.log(`\nCompiled ${compiled}/${kernFiles.length} files${targetLabel} → ${outDir}`);

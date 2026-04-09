@@ -205,7 +205,7 @@ export function runTest(args: string[]): void {
     return;
   }
 
-  const outName = basename(inputPath, '.kern') + '.test.ts';
+  const outName = `${basename(inputPath, '.kern')}.test.ts`;
   const outPath = resolve(outDir || '.', outName);
   writeFileSync(outPath, testCode);
   console.log(`  Generated ${outName}`);
