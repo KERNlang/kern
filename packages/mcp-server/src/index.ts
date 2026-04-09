@@ -28,12 +28,10 @@ import {
 } from '@kernlang/core';
 import { transpileExpress } from '@kernlang/express';
 import { transpileFastAPI } from '@kernlang/fastapi';
-import { transpileMCP } from '@kernlang/mcp';
-
+import { transpileMCP, transpileMCPPython } from '@kernlang/mcp';
 import { transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
 import { reviewKernSource, reviewSource } from '@kernlang/review';
-import { reviewMCPSource, computeSecurityScore, inferMCP, runPostScan, scanMcpConfigs } from '@kernlang/review-mcp';
-import { transpileMCPPython } from '@kernlang/mcp';
+import { computeSecurityScore, inferMCP, reviewMCPSource, runPostScan, scanMcpConfigs } from '@kernlang/review-mcp';
 import { transpileInk, transpileTerminal } from '@kernlang/terminal';
 import { transpileNuxt, transpileVue } from '@kernlang/vue';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -149,7 +147,7 @@ function irStr(val: unknown): string | undefined {
 }
 
 function generateTestSuites(ast: IRNode): ToolTestSuite[] {
-  const mcpNode = ast.type === 'mcp' ? ast : (ast.children || []).find((c) => c.type === 'mcp') ?? ast;
+  const mcpNode = ast.type === 'mcp' ? ast : ((ast.children || []).find((c) => c.type === 'mcp') ?? ast);
   const tools = irChildren(mcpNode, 'tool');
   const suites: ToolTestSuite[] = [];
 
@@ -242,7 +240,7 @@ function renderTestFile(suites: ToolTestSuite[], serverPath: string): string {
         lines.push(`    const input = ${inputStr};`);
         lines.push(`    // ${tc.description}`);
         lines.push(`    // await expect(callTool('${suite.toolName}', input)).rejects.toThrow();`);
-        lines.push("    expect(true).toBe(true); // TODO: wire up tool call");
+        lines.push('    expect(true).toBe(true); // TODO: wire up tool call');
         lines.push('  });');
       } else {
         lines.push(`  it('${tc.name}', async () => {`);
@@ -250,7 +248,7 @@ function renderTestFile(suites: ToolTestSuite[], serverPath: string): string {
         lines.push(`    // ${tc.description}`);
         lines.push(`    // const result = await callTool('${suite.toolName}', input);`);
         lines.push('    // expect(result.isError).toBeFalsy();');
-        lines.push("    expect(true).toBe(true); // TODO: wire up tool call");
+        lines.push('    expect(true).toBe(true); // TODO: wire up tool call');
         lines.push('  });');
       }
       lines.push('');
@@ -381,10 +379,12 @@ server.tool(
 
       if (!findings.length) {
         return {
-          content: [{
-            type: 'text',
-            text: `No MCP security issues found.\n\nSecurity Score: ${score.total}/100 (${score.grade})`,
-          }],
+          content: [
+            {
+              type: 'text',
+              text: `No MCP security issues found.\n\nSecurity Score: ${score.total}/100 (${score.grade})`,
+            },
+          ],
         };
       }
 
@@ -398,15 +398,17 @@ server.tool(
       const warnings = findings.filter((f) => f.severity === 'warning').length;
 
       return {
-        content: [{
-          type: 'text',
-          text: [
-            `Security Score: ${score.total}/100 (${score.grade})`,
-            `${findings.length} finding(s) — ${errors} errors, ${warnings} warnings`,
-            '',
-            ...lines,
-          ].join('\n'),
-        }],
+        content: [
+          {
+            type: 'text',
+            text: [
+              `Security Score: ${score.total}/100 (${score.grade})`,
+              `${findings.length} finding(s) — ${errors} errors, ${warnings} warnings`,
+              '',
+              ...lines,
+            ].join('\n'),
+          },
+        ],
       };
     } catch (e) {
       err('tool:review-mcp:error', { error: fmtError(e) });
@@ -674,9 +676,7 @@ server.tool(
     try {
       const ast = parse(source);
       const config = resolveConfig({ target: 'mcp' as KernTarget });
-      const compiled = target === 'python'
-        ? transpileMCPPython(ast, config)
-        : transpileMCP(ast, config);
+      const compiled = target === 'python' ? transpileMCPPython(ast, config) : transpileMCP(ast, config);
 
       const filePath = target === 'python' ? 'server.py' : 'server.ts';
       const findings = reviewMCPSource(compiled.code, filePath);
@@ -707,9 +707,10 @@ server.tool(
         '',
       ].join('\n');
 
-      const review = findings.length > 0
-        ? `\n\n--- Security Review ---\n${findingLines.join('\n')}`
-        : '\n\n--- Security Review ---\nNo issues found.';
+      const review =
+        findings.length > 0
+          ? `\n\n--- Security Review ---\n${findingLines.join('\n')}`
+          : '\n\n--- Security Review ---\nNo issues found.';
 
       return { content: [{ type: 'text', text: header + compiled.code + review }] };
     } catch (e) {
@@ -724,7 +725,10 @@ server.tool(
   'audit-mcp-config',
   'Scan MCP configuration files (Claude Desktop, Cursor, VS Code, Windsurf) for hardcoded secrets, missing version pins, and wide permissions. Scans the host machine config files.',
   {
-    workspaceRoot: z.string().optional().describe('Workspace root path to also scan .cursor/mcp.json, .vscode/mcp.json, .windsurf/mcp.json'),
+    workspaceRoot: z
+      .string()
+      .optional()
+      .describe('Workspace root path to also scan .cursor/mcp.json, .vscode/mcp.json, .windsurf/mcp.json'),
   },
   async ({ workspaceRoot }) => {
     log('tool:audit-mcp-config', { workspaceRoot });
@@ -733,17 +737,21 @@ server.tool(
 
       if (result.servers.length === 0) {
         return {
-          content: [{
-            type: 'text',
-            text: [
-              `Scanned ${result.configsScanned.length} config file(s), ${result.configsMissing.length} not found.`,
-              'No MCP servers configured.',
-              '',
-              result.configsMissing.length > 0
-                ? `Missing configs:\n${result.configsMissing.map((p) => `  ${p}`).join('\n')}`
-                : '',
-            ].filter(Boolean).join('\n'),
-          }],
+          content: [
+            {
+              type: 'text',
+              text: [
+                `Scanned ${result.configsScanned.length} config file(s), ${result.configsMissing.length} not found.`,
+                'No MCP servers configured.',
+                '',
+                result.configsMissing.length > 0
+                  ? `Missing configs:\n${result.configsMissing.map((p) => `  ${p}`).join('\n')}`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join('\n'),
+            },
+          ],
         };
       }
 
@@ -798,10 +806,12 @@ server.tool(
       const totalCases = suites.reduce((sum, s) => sum + s.cases.length, 0);
 
       return {
-        content: [{
-          type: 'text',
-          text: `// ${suites.length} tool(s), ${totalCases} test case(s)\n\n${testFile}`,
-        }],
+        content: [
+          {
+            type: 'text',
+            text: `// ${suites.length} tool(s), ${totalCases} test case(s)\n\n${testFile}`,
+          },
+        ],
       };
     } catch (e) {
       err('tool:generate-security-tests:error', { error: fmtError(e) });
