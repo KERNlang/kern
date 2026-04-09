@@ -15,7 +15,7 @@
 
   <br>
 
-  [**kernlang.dev**](https://kernlang.dev) &nbsp;&bull;&nbsp; [Playground](https://kernlang.dev/playground) &nbsp;&bull;&nbsp; [Review Rules](https://kernlang.dev/review) &nbsp;&bull;&nbsp; [Docs](https://kernlang.dev/docs) &nbsp;&bull;&nbsp; [For LLMs](https://kernlang.dev/llm)
+  [**kernlang.dev**](https://kernlang.dev) &nbsp;&bull;&nbsp; [MCP](https://kernlang.dev/mcp) &nbsp;&bull;&nbsp; [Review](https://kernlang.dev/review) &nbsp;&bull;&nbsp; [Playground](https://kernlang.dev/playground) &nbsp;&bull;&nbsp; [Docs](https://kernlang.dev/docs) &nbsp;&bull;&nbsp; [For LLMs](https://kernlang.dev/llm)
 
   <br>
 </div>
@@ -105,7 +105,7 @@ Full rule reference: **[kernlang.dev/review](https://kernlang.dev/review)**
 
 ### MCP Server Security
 
-Scan MCP servers for vulnerabilities. 13 rules mapped to the [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/).
+Scan MCP servers for vulnerabilities. 12 rules mapped to the [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/). Plus live server inspection and tool pinning.
 
 ```bash
 npx kern-mcp-security ./src/server.ts
@@ -115,10 +115,15 @@ Available as: **[VS Code Extension](https://github.com/KERNlang/kern-sight-mcp)*
 
 ### MCP Server
 
-KERN ships its own MCP server. AI agents can compile, review, and analyze `.kern` files via the Model Context Protocol.
+KERN ships its own MCP server. AI agents can compile, review, inspect, and self-correct `.kern` files via the Model Context Protocol.
 
 ```bash
-npx @kernlang/mcp-server                   # Start KERN MCP server (stdio)
+npx @kernlang/mcp-server                   # Start locally (stdio)
+```
+
+Or use the **hosted endpoint** — no install required:
+```
+https://kernlang.dev/api/mcp               # Streamable HTTP — point any MCP client here
 ```
 
 **Claude Desktop** — add to `claude_desktop_config.json`:
@@ -130,9 +135,18 @@ npx @kernlang/mcp-server                   # Start KERN MCP server (stdio)
 }
 ```
 
-**11 tools:** `compile`, `compile-json`, `review`, `review-kern`, `review-mcp-server`, `parse`, `decompile`, `validate`, `list-targets`, `list-nodes`, `schema`
+**Claude Code:**
+```bash
+claude mcp add kern -- npx @kernlang/mcp-server
+```
+
+**16 tools** including `compile`, `compile-json`, `compile-and-review`, `review`, `review-kern`, `review-mcp-server`, `inspect-mcp-servers`, `verify-tool-pins`, `audit-mcp-config`, `generate-security-tests`, `parse`, `decompile`, `validate`, `list-targets`, `list-nodes`, `schema`
 **3 resources:** `kern://spec`, `kern://targets`, `kern://examples/{category}`
 **1 prompt:** `write-kern` (system prompt with full language spec)
+
+Self-correction loop: `schema` → write `.kern` → `compile-json` → fix from diagnostics → done. Zero human intervention.
+
+Full setup guide: **[kernlang.dev/mcp](https://kernlang.dev/mcp)**
 
 ### Build MCP Servers from .kern
 
@@ -373,16 +387,32 @@ jobs:
 
 ### VS Code Extensions
 
-- **[Kern Sight MCP](https://github.com/KERNlang/kern-sight-mcp)** — MCP security scanner with inline findings, Security Score, autofixes
-- **Kern Sight** *(coming soon)* — Review findings as inline diagnostics + webview code review panel
+- **[Kern MCP Security](https://marketplace.visualstudio.com/items?itemName=KERNlang.kern-mcp-security)** — MCP security scanner with inline findings, Security Score, autofixes ([Open VSX](https://open-vsx.org/extension/KERNlang/kern-mcp-security))
+- **[Kern Sight](https://marketplace.visualstudio.com/items?itemName=KERNlang.kern-sight)** — Review findings as inline diagnostics, sidebar panel, .kern syntax highlighting
 
 ---
 
 ## License
 
-**AGPL-3.0** — free for individuals, open-source projects, and non-commercial use.
+**Dual-licensed: AGPL-3.0 + Commercial.**
 
-Companies using KERN in paid products or services need a **commercial license**. Contact **hello@kernlang.dev** or see [kernlang.dev](https://kernlang.dev) for details.
+| Use case | License | Cost |
+|:---------|:--------|:-----|
+| Personal projects | AGPL-3.0 | Free |
+| Open-source projects | AGPL-3.0 | Free |
+| Education & research | AGPL-3.0 | Free |
+| Internal company tools (not distributed) | AGPL-3.0 | Free |
+| Commercial products & SaaS | **Commercial license** | [Contact us](mailto:hello@kernlang.dev) |
+
+**Why AGPL?** AGPL means if you use KERN in a product you distribute or serve to users, you must open-source your modifications. If you don't want that obligation, the commercial license gives you full freedom to use KERN in proprietary products without disclosure.
+
+**What the commercial license includes:**
+- Use KERN in closed-source products and SaaS
+- No obligation to open-source your code
+- Priority support and issue resolution
+- License for your entire engineering team
+
+**Contact:** [hello@kernlang.dev](mailto:hello@kernlang.dev) — we respond within 24 hours.
 
 Copyright (c) 2026 KERNlang
 
