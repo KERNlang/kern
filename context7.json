@@ -1,5 +1,7 @@
 {
   "$schema": "https://context7.com/schema/context7.json",
+  "url": "https://context7.com/kernlang/kern",
+  "public_key": "pk_W6aI1UJJKJMlowTpB3mkA",
   "projectTitle": "KERN",
   "description": "The LLM programming language. Write .kern once, compile to 12 targets (Next.js 13-16, React, Vue, Express, FastAPI, MCP, etc.). 117 node schemas for LLM generation. 98 static analysis rules with taint tracking. Error recovery with partial compilation. MCP server for AI agents. Up to 85% fewer tokens than TypeScript.",
   "folders": [
