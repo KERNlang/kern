@@ -96,21 +96,6 @@ export function generateScreen(node: IRNode): string[] {
     return p.event === 'input';
   });
 
-  // Determine which React hooks are needed
-  const needsState = stateNodes.length > 0;
-  const needsEffect = effectNodes.length > 0;
-  const needsCallback = callbackNodes.length > 0;
-  const needsMemo = memoNodes.length > 0;
-  const needsRef = refNodes.length > 0 || onInputNodes.length > 0;
-
-  // Imports
-  const reactImports = ['React'];
-  if (needsState) reactImports.push('useState');
-  if (needsEffect) reactImports.push('useEffect');
-  if (needsCallback) reactImports.push('useCallback');
-  if (needsMemo) reactImports.push('useMemo');
-  if (needsRef) reactImports.push('useRef');
-
   // Don't emit imports here — KERN import nodes at file level handle React/Ink imports.
   // Screen codegen only emits the component function. This avoids duplicate imports
   // when multiple screens are in one file.
@@ -139,47 +124,62 @@ export function generateScreen(node: IRNode): string[] {
   // Function signature
   lines.push(`${exp}function ${name}({ ${destructure} }: { ${propsTypeEntries} }) {`);
 
-  // State declarations
-  for (const sn of stateNodes) {
+  emitStateDecls(stateNodes, lines);
+  emitRefDecls(refNodes, lines);
+  if (stateNodes.length > 0 || refNodes.length > 0) lines.push('');
+  emitMemos(memoNodes, lines);
+  emitCallbacks(callbackNodes, lines);
+  emitEffects(effectNodes, lines);
+  emitInputHandlers(onInputNodes, lines);
+  emitRender(renderNode, lines);
+
+  lines.push('}');
+  lines.push('');
+
+  return lines;
+}
+
+// ── Hook generation helpers (extracted from generateScreen) ─────────────
+
+function emitStateDecls(nodes: IRNode[], lines: string[]): void {
+  for (const sn of nodes) {
     const sp = propsOf(sn);
     const sName = emitIdentifier(sp.name as string, 'state', sn);
     const sType = (sp.type as string) || 'any';
     const sInitial = (sp.initial as string) || 'undefined';
     const setter = `set${sName.charAt(0).toUpperCase()}${sName.slice(1)}`;
-    // Use lazy initializer for function expressions/IIFEs to avoid re-evaluation per render
     const useLazy = needsLazyInit(sInitial);
     const initExpr = useLazy ? `() => ${sInitial}` : sInitial;
     lines.push(`  const [${sName}, ${setter}] = useState<${sType}>(${initExpr});`);
   }
+}
 
-  // Ref declarations
-  for (const rn of refNodes) {
+function emitRefDecls(nodes: IRNode[], lines: string[]): void {
+  for (const rn of nodes) {
     const rp = propsOf(rn);
     const rName = emitIdentifier(rp.name as string, 'ref', rn);
     const rType = (rp.type as string) || 'any';
     const rInitial = (rp.initial as string) || 'null';
     lines.push(`  const ${rName} = useRef<${rType}>(${rInitial});`);
   }
+}
 
-  if (stateNodes.length > 0 || refNodes.length > 0) lines.push('');
-
-  // Memos
-  for (const mn of memoNodes) {
+function emitMemos(nodes: IRNode[], lines: string[]): void {
+  for (const mn of nodes) {
     const mp = propsOf(mn);
     const mName = emitIdentifier(mp.name as string, 'memo', mn);
     const mDeps = (mp.deps as string) || '';
     const mDepsArr = mDeps && mDeps !== '[]' ? `[${mDeps}]` : '[]';
     const body = handlerContent(mn);
     lines.push(`  const ${mName} = useMemo(() => {`);
-    for (const line of body.split('\n')) {
-      lines.push(`    ${line}`);
-    }
+    for (const line of body.split('\n')) lines.push(`    ${line}`);
     lines.push(`  }, ${mDepsArr});`);
     lines.push('');
   }
+}
 
-  // Callbacks
-  for (const cn of callbackNodes) {
+function emitCallbacks(nodes: IRNode[], lines: string[]): void {
+  for (const cn of nodes) {
     const cp = propsOf(cn);
     const cName = emitIdentifier(cp.name as string, 'handler', cn);
     const cParams = (cp.params as string) || '';
@@ -188,63 +188,49 @@ export function generateScreen(node: IRNode): string[] {
     const isAsync = cp.async === true || cp.async === 'true';
     const body = handlerContent(cn);
     lines.push(`  const ${cName} = useCallback(${isAsync ? 'async ' : ''}${cParams ? `(${cParams})` : '()'} => {`);
-    for (const line of body.split('\n')) {
-      lines.push(`    ${line}`);
-    }
+    for (const line of body.split('\n')) lines.push(`    ${line}`);
     lines.push(`  }, ${cDepsArr});`);
     lines.push('');
   }
+}
 
-  // Effects
-  for (const en of effectNodes) {
+function emitEffects(nodes: IRNode[], lines: string[]): void {
+  for (const en of nodes) {
     const ep = propsOf(en);
     const eDeps = (ep.deps as string) || '';
     const eDepsArr = eDeps && eDeps !== '[]' ? `[${eDeps}]` : '[]';
     const body = handlerContent(en);
     lines.push(`  useEffect(() => {`);
-    for (const line of body.split('\n')) {
-      lines.push(`    ${line}`);
-    }
+    for (const line of body.split('\n')) lines.push(`    ${line}`);
     lines.push(`  }, ${eDepsArr});`);
     lines.push('');
   }
+}
 
-  // useInput handlers (on event=input) — uses ref pattern for fresh closures
-  for (const onNode of onInputNodes) {
+function emitInputHandlers(nodes: IRNode[], lines: string[]): void {
+  for (const onNode of nodes) {
     const body = handlerContent(onNode);
     lines.push(`  const _inputHandlerRef = useRef<(input: string, key: any) => void>(() => {});`);
     lines.push(`  _inputHandlerRef.current = (input: string, key: any) => {`);
-    for (const line of body.split('\n')) {
-      lines.push(`    ${line}`);
-    }
+    for (const line of body.split('\n')) lines.push(`    ${line}`);
     lines.push(`  };`);
     lines.push(`  useInput((input: string, key: any) => _inputHandlerRef.current(input, key));`);
     lines.push('');
   }
+}
 
-  // Render
-  if (renderNode) {
-    const body = handlerContent(renderNode);
-    const trimmed = body.trim();
-    // If handler body contains `return`, emit as-is (it manages its own return)
-    // Otherwise, wrap in return(...)
-    if (trimmed.includes('return ') || trimmed.includes('return(')) {
-      for (const line of body.split('\n')) {
-        lines.push(`  ${line}`);
-      }
-    } else {
-      lines.push(`  return (`);
-      for (const line of body.split('\n')) {
-        lines.push(`    ${line}`);
-      }
-      lines.push(`  );`);
-    }
-  } else {
+function emitRender(renderNode: IRNode | undefined, lines: string[]): void {
+  if (!renderNode) {
     lines.push(`  return null;`);
+    return;
   }
-
-  lines.push('}');
-  lines.push('');
-
-  return lines;
+  const body = handlerContent(renderNode);
+  const trimmed = body.trim();
+  if (trimmed.includes('return ') || trimmed.includes('return(')) {
+    for (const line of body.split('\n')) lines.push(`  ${line}`);
+  } else {
+    lines.push(`  return (`);
+    for (const line of body.split('\n')) lines.push(`    ${line}`);
+    lines.push(`  );`);
+  }
 }

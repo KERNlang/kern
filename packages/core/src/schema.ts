@@ -1438,69 +1438,65 @@ export function validateSchema(root: IRNode): SchemaViolation[] {
   return violations;
 }
 
-function validateNode(node: IRNode, violations: SchemaViolation[]): void {
-  const schema = Object.hasOwn(NODE_SCHEMAS, node.type) ? NODE_SCHEMAS[node.type] : undefined;
+const UNIVERSAL_CHILDREN = new Set(['handler', 'cleanup', 'reason', 'evidence', 'needs', 'signal', 'doc']);
 
-  if (schema) {
-    const props = node.props || {};
-
-    // Check required props
-    for (const [propName, propSchema] of Object.entries(schema.props)) {
-      if (propSchema.required && !(propName in props)) {
-        violations.push({
-          nodeType: node.type,
-          message: `'${node.type}' requires prop '${propName}'`,
-          line: node.loc?.line,
-          col: node.loc?.col,
-        });
-      }
-    }
-
-    // Cross-prop validation: component needs ref or name
-    if (node.type === 'component' && !('ref' in props) && !('name' in props)) {
+function checkRequiredProps(node: IRNode, schema: NodeSchema, violations: SchemaViolation[]): void {
+  const props = node.props || {};
+  for (const [propName, propSchema] of Object.entries(schema.props)) {
+    if (propSchema.required && !(propName in props)) {
       violations.push({
-        nodeType: 'component',
-        message: "'component' requires either 'ref' or 'name' prop",
+        nodeType: node.type,
+        message: `'${node.type}' requires prop '${propName}'`,
         line: node.loc?.line,
         col: node.loc?.col,
       });
-    }
-
-    // Cross-prop validation: guard needs expr (assertion) OR kind/type (security guard)
-    if (node.type === 'guard' && !('expr' in props) && !('kind' in props) && !('type' in props)) {
-      violations.push({
-        nodeType: 'guard',
-        message: "'guard' requires either 'expr' (assertion) or 'kind'/'type' (security guard)",
-        line: node.loc?.line,
-        col: node.loc?.col,
-      });
-    }
-
-    // Check allowed children
-    if (schema.allowedChildren && node.children) {
-      for (const child of node.children) {
-        if (!schema.allowedChildren.includes(child.type)) {
-          // Don't flag structural children that are consumed by parents
-          // (handler, reason, evidence, needs, etc.)
-          const universalChildren = ['handler', 'cleanup', 'reason', 'evidence', 'needs', 'signal', 'doc'];
-          if (!universalChildren.includes(child.type)) {
-            violations.push({
-              nodeType: node.type,
-              message: `'${node.type}' does not allow child type '${child.type}' (allowed: ${schema.allowedChildren.join(', ')})`,
-              line: child.loc?.line,
-              col: child.loc?.col,
-            });
-          }
-        }
-      }
     }
   }
+}
 
-  // Recurse into children
-  if (node.children) {
-    for (const child of node.children) {
-      validateNode(child, violations);
+function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
+  const props = node.props || {};
+  if (node.type === 'component' && !('ref' in props) && !('name' in props)) {
+    violations.push({
+      nodeType: 'component',
+      message: "'component' requires either 'ref' or 'name' prop",
+      line: node.loc?.line,
+      col: node.loc?.col,
+    });
+  }
+  if (node.type === 'guard' && !('expr' in props) && !('kind' in props) && !('type' in props)) {
+    violations.push({
+      nodeType: 'guard',
+      message: "'guard' requires either 'expr' (assertion) or 'kind'/'type' (security guard)",
+      line: node.loc?.line,
+      col: node.loc?.col,
+    });
+  }
+}
+
+function checkAllowedChildren(node: IRNode, schema: NodeSchema, violations: SchemaViolation[]): void {
+  if (!schema.allowedChildren || !node.children) return;
+  for (const child of node.children) {
+    if (!schema.allowedChildren.includes(child.type) && !UNIVERSAL_CHILDREN.has(child.type)) {
+      violations.push({
+        nodeType: node.type,
+        message: `'${node.type}' does not allow child type '${child.type}' (allowed: ${schema.allowedChildren.join(', ')})`,
+        line: child.loc?.line,
+        col: child.loc?.col,
+      });
     }
+  }
+}
+
+function validateNode(node: IRNode, violations: SchemaViolation[]): void {
+  const schema = Object.hasOwn(NODE_SCHEMAS, node.type) ? NODE_SCHEMAS[node.type] : undefined;
+  if (schema) {
+    checkRequiredProps(node, schema, violations);
+    checkCrossProps(node, violations);
+    checkAllowedChildren(node, schema, violations);
+  }
+  if (node.children) {
+    for (const child of node.children) validateNode(child, violations);
   }
 }
 
