@@ -151,7 +151,7 @@ async function runReviewPipeline(
       try {
         source = readFileSync(report.filePath, 'utf-8');
       } catch {
-        /* fallback */
+        // File may have been deleted between scan and review — proceed without source
       }
       return {
         filePath: report.filePath,
@@ -179,8 +179,9 @@ async function runReviewPipeline(
           report.findings = dedup(report.findings);
         }
       }
-    } catch {
-      // Auto LLM review failed silently
+    } catch (err) {
+      // Auto LLM review is best-effort — log but don't block
+      console.error(`  LLM review failed: ${(err as Error).message}`);
     }
   }
 
@@ -364,7 +365,7 @@ async function runReviewPipeline(
         try {
           source = readFileSync(report.filePath, 'utf-8');
         } catch {
-          /* fallback */
+          // File may have been deleted between scan and review — proceed without source
         }
         return {
           filePath: report.filePath,
@@ -818,8 +819,8 @@ export async function runReview(args: string[]): Promise<void> {
             }
           }
         }
-      } catch {
-        // If unified diff parsing fails, proceed without line filtering
+      } catch (_err) {
+        // If unified diff parsing fails, proceed without line filtering — review all lines
       }
 
       reviewInput = '__diff__';
