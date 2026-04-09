@@ -31,7 +31,17 @@ import { transpileFastAPI } from '@kernlang/fastapi';
 import { transpileMCP, transpileMCPPython } from '@kernlang/mcp';
 import { transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
 import { reviewKernSource, reviewSource } from '@kernlang/review';
-import { computeSecurityScore, inferMCP, reviewMCPSource, runPostScan, scanMcpConfigs } from '@kernlang/review-mcp';
+import type { LiveLockFile } from '@kernlang/review-mcp';
+import {
+  computeSecurityScore,
+  generateLiveLockFile,
+  inferMCP,
+  inspectMcpServers,
+  reviewMCPSource,
+  runPostScan,
+  scanMcpConfigs,
+  verifyLiveLockFile,
+} from '@kernlang/review-mcp';
 import { transpileInk, transpileTerminal } from '@kernlang/terminal';
 import { transpileNuxt, transpileVue } from '@kernlang/vue';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -816,6 +826,133 @@ server.tool(
     } catch (e) {
       err('tool:generate-security-tests:error', { error: fmtError(e) });
       return { isError: true, content: [{ type: 'text', text: `Test generation error: ${fmtError(e)}` }] };
+    }
+  },
+);
+
+// 15. inspect-mcp-servers — connect to configured servers and check for poisoning
+server.tool(
+  'inspect-mcp-servers',
+  'Connect to locally configured MCP servers (Claude Desktop, Cursor, VS Code, Windsurf), retrieve their tool lists, and check for poisoning patterns (hidden instructions, cross-origin escalation, tool shadowing, data exfiltration). Returns findings per server.',
+  {
+    workspaceRoot: z.string().optional().describe('Workspace root for .cursor/mcp.json, .vscode/mcp.json scanning'),
+    allowlist: z.array(z.string()).optional().describe('Only inspect servers with these names (default: all)'),
+    timeout: z.number().default(10000).describe('Timeout per server connection in ms'),
+  },
+  async ({ workspaceRoot, allowlist, timeout }) => {
+    log('tool:inspect-mcp-servers', { workspaceRoot, allowlist, timeout });
+    try {
+      const result = await inspectMcpServers(workspaceRoot, { allowlist, timeout });
+
+      if (result.servers.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Scanned ${result.configsScanned} config(s) — no MCP servers found to inspect.`,
+            },
+          ],
+        };
+      }
+
+      const lines: string[] = [
+        `Inspected ${result.servers.length} server(s) — ${result.totalTools} tool(s), ${result.totalFindings} finding(s)`,
+        '',
+      ];
+
+      for (const srv of result.servers) {
+        const statusIcon = srv.status === 'ok' ? '+' : srv.status === 'timeout' ? '~' : '!';
+        lines.push(`${statusIcon} ${srv.name} (${srv.source}) — ${srv.status}`);
+        if (srv.error) lines.push(`  Error: ${srv.error}`);
+        if (srv.tools.length > 0) {
+          lines.push(`  Tools: ${srv.tools.map((t) => t.name).join(', ')}`);
+        }
+        for (const f of srv.findings) {
+          const sev = f.severity === 'error' ? '!' : '~';
+          lines.push(`  ${sev} [${f.pattern}] ${f.toolName}: ${f.message}`);
+        }
+        lines.push('');
+      }
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    } catch (e) {
+      err('tool:inspect-mcp-servers:error', { error: fmtError(e) });
+      return { isError: true, content: [{ type: 'text', text: `Inspection error: ${fmtError(e)}` }] };
+    }
+  },
+);
+
+// 16. verify-tool-pins — generate or verify a lockfile of tool hashes
+server.tool(
+  'verify-tool-pins',
+  'Generate or verify a lockfile of MCP tool description and schema hashes. Detects rug pulls — when a server changes its tool behavior after initial trust. Pass mode="generate" to create a new lockfile, mode="verify" to check against an existing one.',
+  {
+    mode: z.enum(['generate', 'verify']).describe('"generate" to create lockfile, "verify" to check against existing'),
+    lockfileJson: z.string().optional().describe('Existing lockfile JSON content (required for verify mode)'),
+    workspaceRoot: z.string().optional().describe('Workspace root for config discovery'),
+    timeout: z.number().default(10000).describe('Timeout per server connection in ms'),
+  },
+  async ({ mode, lockfileJson, workspaceRoot, timeout }) => {
+    log('tool:verify-tool-pins', { mode, workspaceRoot });
+    try {
+      const result = await inspectMcpServers(workspaceRoot, { timeout });
+
+      if (mode === 'generate') {
+        const lockFile = generateLiveLockFile(result);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(lockFile, null, 2),
+            },
+          ],
+        };
+      }
+
+      // Verify mode
+      if (!lockfileJson) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: 'verify mode requires lockfileJson parameter' }],
+        };
+      }
+
+      let lockFile: LiveLockFile;
+      try {
+        lockFile = JSON.parse(lockfileJson);
+      } catch {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: 'lockfileJson is not valid JSON' }],
+        };
+      }
+
+      const drifts = verifyLiveLockFile(lockFile, result);
+
+      if (drifts.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `All tool pins verified — no changes detected across ${result.servers.length} server(s).`,
+            },
+          ],
+        };
+      }
+
+      const lines = [
+        `${drifts.length} drift(s) detected:`,
+        '',
+        ...drifts.map((d) => {
+          const sev = d.severity === 'error' ? '!' : '~';
+          return `${sev} [${d.field}] ${d.serverName}/${d.toolName}: ${d.message}`;
+        }),
+      ];
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
+    } catch (e) {
+      err('tool:verify-tool-pins:error', { error: fmtError(e) });
+      return { isError: true, content: [{ type: 'text', text: `Pin verification error: ${fmtError(e)}` }] };
     }
   },
 );

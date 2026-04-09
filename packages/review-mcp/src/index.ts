@@ -45,6 +45,25 @@ export { computeSecurityScore, gradeColor } from './score.js';
 export type { LockFile, PinDrift, ToolPin } from './tool-pin.js';
 export { generateLockFile, verifyLockFile } from './tool-pin.js';
 export { scanWorkspace } from './workspace-scan.js';
+// Server inspector — live tool inspection + poisoning detection + pinning
+export type {
+  InspectedServer,
+  InspectionResult,
+  InspectOptions,
+  LiveLockFile,
+  LivePinDrift,
+  LiveServerPin,
+  LiveToolPin,
+  McpToolInfo,
+  PoisoningFinding,
+} from './server-inspector.js';
+export {
+  generateLiveLockFile,
+  hashTool,
+  hashToolList,
+  inspectMcpServers,
+  verifyLiveLockFile,
+} from './server-inspector.js';
 
 // ── Load compiled .kern rules at module init ─────────────────────────
 // Guard: import.meta.url is undefined when bundled as CJS (e.g. esbuild for VS Code worker)
