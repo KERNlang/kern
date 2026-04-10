@@ -4,6 +4,7 @@ import type {
   KernConfig,
   ResolvedKernConfig,
   SourceMapEntry,
+  TranspileDiagnostic,
   TranspileResult,
 } from '@kernlang/core';
 import {
@@ -16,10 +17,19 @@ import {
   getProps,
   serializeIR,
 } from '@kernlang/core';
+import { FILE_IO_PATTERN, NETWORK_PATTERN, SHELL_EXEC_PATTERN } from './effect-patterns.js';
 
 // ── Types (from Codex — proper typed interfaces) ────────────────────────
 
-type GuardKind = 'sanitize' | 'pathContainment' | 'validate' | 'auth' | 'rateLimit' | 'sizeLimit' | 'sanitizeOutput';
+type GuardKind =
+  | 'sanitize'
+  | 'pathContainment'
+  | 'validate'
+  | 'auth'
+  | 'rateLimit'
+  | 'sizeLimit'
+  | 'sanitizeOutput'
+  | 'urlValidation';
 
 interface GuardDefinition {
   kind: GuardKind;
@@ -39,6 +49,9 @@ interface GuardDefinition {
   maxRequests?: string;
   // sizeLimit guard
   maxBytes?: string;
+  // urlValidation guard
+  allowSchemes?: string[];
+  allowHosts?: string[];
 }
 
 interface ParamDefinition {
@@ -110,6 +123,7 @@ function collectGuard(node: IRNode, fallbackAllowlist: string[]): GuardDefinitio
     'rateLimit',
     'sizeLimit',
     'sanitizeOutput',
+    'urlValidation',
   ];
   if (!validKinds.includes(kind as GuardKind)) return null;
   const rawAllow = splitCsv(str(props.allowlist) || str(props.allow) || str(props.roots));
@@ -128,19 +142,33 @@ function collectGuard(node: IRNode, fallbackAllowlist: string[]): GuardDefinitio
     windowMs: str(props.windowMs) || str(props.window),
     maxRequests: str(props.maxRequests) || str(props.requests),
     maxBytes: str(props.maxBytes) || ((kind as GuardKind) === 'sizeLimit' ? str(props.max) : undefined),
+    allowSchemes: splitCsv(str(props.allowSchemes) || str(props.schemes)),
+    allowHosts: splitCsv(str(props.allowHosts) || str(props.hosts)),
   };
 }
 
+// ── Parameter categorization helpers (for auto-injection/guard scoping) ──
+
+const CONTENT_PARAMS = /^(content|code|body|data|payload|text|source|script|html|markdown|template)$/i;
+const PATH_PARAMS = /(?:^|[_A-Z])(?:path|file|dir(?:ectory)?|root|workspace)(?:$|[_A-Z])/i;
+
+function isContentParam(name: string): boolean {
+  return CONTENT_PARAMS.test(name);
+}
+
 function isPathLikeParam(name: string): boolean {
-  return /(?:^|[_A-Z])(?:path|file|dir(?:ectory)?|root|workspace)(?:$|[_A-Z])/i.test(name);
+  return PATH_PARAMS.test(name);
+}
+
+const URL_PARAMS = /(?:^|[_A-Z])(?:url|uri|endpoint|href|link|origin|host)(?:$|[_A-Z])/i;
+
+function isUrlLikeParam(name: string): boolean {
+  return URL_PARAMS.test(name);
 }
 
 // ── Handler effect detection — auto-inject guards for effects found in handler code ──
 
-const FILE_IO_PATTERN =
-  /\b(readFile|readFileSync|writeFile|writeFileSync|readdir|readdirSync|unlink|unlinkSync|copyFile|rename|mkdir|rmdir|openSync|createReadStream|createWriteStream)\b/;
-const SHELL_EXEC_PATTERN = /\b(exec|execSync|execFile|execFileSync|spawn|spawnSync|child_process)\b/;
-const NETWORK_PATTERN = /\b(fetch|http\.request|https\.request|axios|got\.get|got\.post)\b/;
+// Effect patterns imported from ./effect-patterns.js
 
 interface DetectedEffects {
   fileIO: boolean;
@@ -171,30 +199,40 @@ function autoInjectEffectGuards(
   const stringParams = params.filter((p) => p.type === 'string');
   if (stringParams.length === 0) return;
 
-  // File I/O without pathContainment → inject on all string params
+  // File I/O without pathContainment → inject on all non-content string params
   if (effects.fileIO && !allGuards.some((g) => g.kind === 'pathContainment')) {
     for (const p of stringParams) {
-      if (!p.guards.some((g) => g.kind === 'pathContainment')) {
+      if (!p.guards.some((g) => g.kind === 'pathContainment') && !isContentParam(p.name)) {
         p.guards.push({ kind: 'pathContainment', target: p.name, allowlist: fallbackAllowlist });
       }
     }
   }
 
-  // Shell exec without sanitize on all string params → inject
+  // Shell exec without sanitize → inject on non-content string params
   if (effects.shellExec) {
     for (const p of stringParams) {
-      if (!p.guards.some((g) => g.kind === 'sanitize')) {
+      if (!p.guards.some((g) => g.kind === 'sanitize') && !isContentParam(p.name)) {
         p.guards.push({ kind: 'sanitize', target: p.name, allowlist: [] });
       }
     }
   }
 
-  // Network calls without sanitize → inject sanitize on string params
+  // Network calls → inject urlValidation on URL-like params, sanitize on others
   if (effects.network) {
     for (const p of stringParams) {
-      if (!p.guards.some((g) => g.kind === 'sanitize')) {
+      if (isUrlLikeParam(p.name) && !p.guards.some((g) => g.kind === 'urlValidation')) {
+        p.guards.push({ kind: 'urlValidation', target: p.name, allowlist: [], allowSchemes: ['https', 'http'] });
+      } else if (!p.guards.some((g) => g.kind === 'sanitize') && !isContentParam(p.name) && !isUrlLikeParam(p.name)) {
         p.guards.push({ kind: 'sanitize', target: p.name, allowlist: [] });
       }
+    }
+  }
+
+  // JSON/object params → inject sizeLimit to prevent oversized payloads (defense-in-depth)
+  const jsonParams = params.filter((p) => p.type === 'object' || p.type === 'json');
+  for (const p of jsonParams) {
+    if (!p.guards.some((g) => g.kind === 'sizeLimit')) {
+      p.guards.push({ kind: 'sizeLimit', target: p.name, allowlist: [], maxBytes: '1048576' });
     }
   }
 }
@@ -213,7 +251,14 @@ function collectParams(node: IRNode, fallbackAllowlist: string[]): ParamDefiniti
       ...getChildren(paramNode, 'guard')
         .map((g) => collectGuard(g, fallbackAllowlist))
         .filter((g): g is GuardDefinition => !!g),
-      ...parentGuards.filter((g) => (!g.target ? paramNodes.length === 1 : g.target === name)),
+      ...parentGuards.filter((g) => {
+        if (g.target) return g.target === name;
+        // Untargeted guard: apply to compatible types instead of silently dropping
+        if (g.kind === 'pathContainment') return type === 'string' && !isContentParam(name);
+        if (g.kind === 'sanitize') return type === 'string';
+        if (g.kind === 'sizeLimit') return true; // works on string (byteLength) and non-string (JSON.stringify)
+        return true; // validate applies to all types
+      }),
     ];
 
     // Auto-inject pathContainment for path-like params (from Codex)
@@ -265,25 +310,33 @@ function zodForParam(param: ParamDefinition): string {
       break;
   }
 
-  // Apply validate guards — skip NaN values from malformed .kern input
+  // Apply validate guards — type-gated to prevent invalid Zod chains
+  const isStringType = param.type === 'string' || !param.type || param.type === '';
+  const isNumericType = ['number', 'float', 'int', 'integer'].includes(param.type);
+  const isArrayType = param.type.endsWith('[]');
+  const supportsMinMax = isStringType || isNumericType || isArrayType;
+
   for (const guard of param.guards.filter((g) => g.kind === 'validate')) {
-    if (guard.min && !Number.isNaN(Number(guard.min))) expr += `.min(${Number(guard.min)})`;
-    if (guard.max && !Number.isNaN(Number(guard.max))) expr += `.max(${Number(guard.max)})`;
-    if (guard.regex) {
+    if (guard.min && !Number.isNaN(Number(guard.min)) && supportsMinMax) expr += `.min(${Number(guard.min)})`;
+    if (guard.max && !Number.isNaN(Number(guard.max)) && supportsMinMax) expr += `.max(${Number(guard.max)})`;
+    if (guard.regex && isStringType) {
       try {
         new RegExp(guard.regex);
+        // Reject nested quantifiers to prevent ReDoS
+        if (/([+*}])\s*\)\s*[+*{]/.test(guard.regex)) continue;
         expr += `.regex(new RegExp(${json(guard.regex)}))`;
       } catch {
-        /* skip invalid regex — ReDoS prevention */
+        /* skip invalid regex */
       }
     }
   }
 
-  // Apply inline min/max from param props — skip NaN
+  // Apply inline min/max from param props — type-gated
   const pp = getProps(param.node);
   if (
     pp.min !== undefined &&
     !Number.isNaN(Number(pp.min)) &&
+    supportsMinMax &&
     !param.guards.some((g) => g.kind === 'validate' && g.min)
   ) {
     expr += `.min(${Number(pp.min)})`;
@@ -291,6 +344,7 @@ function zodForParam(param: ParamDefinition): string {
   if (
     pp.max !== undefined &&
     !Number.isNaN(Number(pp.max)) &&
+    supportsMinMax &&
     !param.guards.some((g) => g.kind === 'validate' && g.max)
   ) {
     expr += `.max(${Number(pp.max)})`;
@@ -327,10 +381,11 @@ function emitGuardLines(params: ParamDefinition[]): string[] {
   for (const param of params) {
     const accessor = `params[${json(param.name)}]`;
     for (const guard of param.guards.filter((g) => g.kind === 'sanitize')) {
-      const pattern = guard.pattern || '[^\\w./ -]';
-      // Validate regex at transpile time to prevent ReDoS in generated code
+      const pattern = guard.pattern || '[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]';
+      // Validate regex at transpile time and reject catastrophic patterns
       try {
         new RegExp(pattern);
+        if (/([+*}])\s*\)\s*[+*{]/.test(pattern)) continue; // ReDoS prevention
       } catch {
         continue;
       }
@@ -356,11 +411,33 @@ function emitGuardLines(params: ParamDefinition[]): string[] {
         lines.push(`${accessor} = ensurePathContainment(${base}, ALLOWED_PATHS);`);
       }
     }
-    // sizeLimit guard — check byte length of string params
+    // urlValidation guard — validate URL scheme and optionally host
+    for (const guard of param.guards.filter((g) => g.kind === 'urlValidation')) {
+      const schemes = guard.allowSchemes?.length ? guard.allowSchemes : ['https', 'http'];
+      const schemeLiteral = `[${schemes.map((s) => json(s)).join(', ')}]`;
+      lines.push(`if (typeof ${accessor} === "string") {`);
+      lines.push(
+        `  let _url: URL; try { _url = new URL(${accessor}); } catch { throw new Error("Invalid URL: " + ${accessor}); }`,
+      );
+      lines.push(
+        `  if (!${schemeLiteral}.includes(_url.protocol.replace(":", ""))) throw new Error("URL scheme must be one of ${schemes.join(', ')}: " + ${accessor});`,
+      );
+      if (guard.allowHosts?.length) {
+        const hostLiteral = `[${guard.allowHosts.map((h) => json(h)).join(', ')}]`;
+        lines.push(
+          `  if (!${hostLiteral}.includes(_url.hostname)) throw new Error("URL host not in allowlist: " + _url.hostname);`,
+        );
+      }
+      lines.push(`}`);
+    }
+    // sizeLimit guard — check byte length for strings and serialized size for other types
     for (const guard of param.guards.filter((g) => g.kind === 'sizeLimit')) {
       const maxBytes = guard.maxBytes || guard.max || '1048576';
       lines.push(
         `if (typeof ${accessor} === "string" && Buffer.byteLength(${accessor}) > ${maxBytes}) throw new Error("Input ${param.name} exceeds size limit of ${maxBytes} bytes");`,
+      );
+      lines.push(
+        `else if (${accessor} != null && typeof ${accessor} !== "string") { const _sz = JSON.stringify(${accessor}); if (_sz && Buffer.byteLength(_sz) > ${maxBytes}) throw new Error("Input ${param.name} exceeds size limit of ${maxBytes} bytes"); }`,
       );
     }
   }
@@ -382,14 +459,14 @@ function emitToolGuardLines(node: IRNode): { pre: string[]; helpers: Set<string>
       const envVar = str(props.envVar) || str(props.env) || 'MCP_AUTH_TOKEN';
       const header = str(props.header) || 'authorization';
       helpers.add('auth');
-      pre.push(`checkAuth(${json(envVar)}, ${json(header)});`);
+      pre.push(`checkAuth(${json(envVar)}, ${json(header)}, extra);`);
     }
 
     if (kind === 'rateLimit') {
       const windowMs = str(props.windowMs) || str(props.window) || '60000';
       const maxReqs = str(props.maxRequests) || str(props.requests) || '100';
       helpers.add('rateLimit');
-      pre.push(`checkRateLimit(${json(str(getProps(node).name) || 'tool')}, ${windowMs}, ${maxReqs});`);
+      pre.push(`checkRateLimit(${json(str(getProps(node).name) || 'tool')}, ${windowMs}, ${maxReqs}, extra);`);
     }
 
     if (kind === 'sanitizeOutput') {
@@ -403,12 +480,30 @@ function emitToolGuardLines(node: IRNode): { pre: string[]; helpers: Set<string>
 
 // ── Tool / Resource / Prompt emission ───────────────────────────────────
 
-function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Set<string>): string[] {
+function emitTool(
+  node: IRNode,
+  fallbackAllowlist: string[],
+  requiredHelpers: Set<string>,
+  customDiagnostics: TranspileDiagnostic[],
+): string[] {
   const name = str(getProps(node).name) || 'tool';
   const description = extractDescription(node) || `Run ${name}`;
   const params = collectParams(node, fallbackAllowlist);
   const handlerNode = getFirstChild(node, 'handler');
   const handlerCode = handlerNode ? str(getProps(handlerNode).code) || '' : '';
+
+  // Diagnostic: missing handler
+  if (!handlerCode) {
+    customDiagnostics.push({
+      nodeType: 'tool',
+      outcome: 'suppressed',
+      target: 'mcp',
+      loc: node.loc ? { line: node.loc.line, col: node.loc.col } : undefined,
+      severity: 'error',
+      message: `Tool "${name}" has no handler — add handler <<<...>>>`,
+      reason: 'no-handler',
+    });
+  }
 
   // Auto-inject guards based on handler effects (secure by construction)
   const effects = detectHandlerEffects(handlerCode);
@@ -417,21 +512,22 @@ function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Se
     .filter((g): g is GuardDefinition => !!g);
   autoInjectEffectGuards(params, parentGuards, effects, fallbackAllowlist);
 
-  // Auto-inject sanitizeOutput if handler calls external APIs and no sanitizeOutput guard exists
-  if (effects.network && !getChildren(node, 'guard').some((g) => str(getProps(g).type) === 'sanitizeOutput')) {
-    // Add sanitizeOutput as a tool-level guard node so emitToolGuardLines picks it up
-    const syntheticGuard: IRNode = { type: 'guard', props: { type: 'sanitizeOutput' } };
-    if (!node.children) node.children = [];
-    node.children.push(syntheticGuard);
-  }
+  // Auto-inject sanitizeOutput without mutating the IR tree
+  const autoSanitizeOutput =
+    effects.network && !getChildren(node, 'guard').some((g) => str(getProps(g).type) === 'sanitizeOutput');
 
   const toolGuards = emitToolGuardLines(node);
+  if (autoSanitizeOutput) {
+    toolGuards.sanitizeOutput = true;
+    toolGuards.helpers.add('sanitizeOutput');
+  }
   for (const h of toolGuards.helpers) requiredHelpers.add(h);
 
   // Detect sampling/elicitation children — if present, handler gets extra context
   const hasSampling = getFirstChild(node, 'sampling') !== undefined;
   const hasElicitation = getFirstChild(node, 'elicitation') !== undefined;
-  const needsContext = hasSampling || hasElicitation;
+  const needsContext =
+    hasSampling || hasElicitation || toolGuards.helpers.has('auth') || toolGuards.helpers.has('rateLimit');
 
   const lines: string[] = [];
 
@@ -446,7 +542,7 @@ function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Se
   }
 
   lines.push(
-    `server.tool(${json(name)}, ${json(description)}, ${params.length > 0 ? `${camelKey(name)}Schema` : '{}'}, async (input${needsContext ? ', extra' : ''}) => {`,
+    `server.tool(${json(name)}, ${json(description)}, ${params.length > 0 ? `${camelKey(name)}Schema` : '{}'}, async (_raw_input${needsContext ? ', extra' : ''}) => {`,
   );
   lines.push(`  const requestId = nextRequestId();`);
   lines.push(`  logger.info("tool:call", { requestId, tool: ${json(name)} });`);
@@ -457,23 +553,24 @@ function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Se
     lines.push(`    ${line}`);
   }
 
+  // Always declare params and args — handler code can reference either consistently
   if (params.length > 0) {
+    lines.push(`    const params = { ..._raw_input } as Record<string, unknown>;`);
     const hasRuntimeGuards = params.some((p) =>
-      p.guards.some((g) => g.kind === 'sanitize' || g.kind === 'pathContainment' || g.kind === 'sizeLimit'),
+      p.guards.some(
+        (g) =>
+          g.kind === 'sanitize' || g.kind === 'pathContainment' || g.kind === 'sizeLimit' || g.kind === 'urlValidation',
+      ),
     );
     if (hasRuntimeGuards) {
-      // Guards may mutate values — use Record<string, unknown> for mutation, then expose as args
-      lines.push(`    const params = { ...input } as Record<string, unknown>;`);
       for (const line of emitGuardLines(params)) {
         lines.push(`    ${line}`);
       }
-      lines.push(`    const args = params as typeof input;`);
-    } else {
-      // No runtime param mutations — preserve original types
-      lines.push(`    const args = input;`);
     }
+    lines.push(`    const args = params as typeof _raw_input;`);
   } else {
-    lines.push(`    const args = input ?? {};`);
+    lines.push(`    const params = { ...(_raw_input ?? {}) } as Record<string, unknown>;`);
+    lines.push(`    const args = params as Record<string, unknown>;`);
   }
 
   // Inject sampling/elicitation context helpers
@@ -662,6 +759,7 @@ function buildCode(
   // Allowlist from mcp node props
   const rawAllow = splitCsv(str(props.allowlist) || str(props.allowedPaths) || str(props.baseDir));
   const allowlist = rawAllow.length > 0 ? rawAllow : ['process.cwd()'];
+  const usingDefaultAllowlist = rawAllow.length === 0;
 
   const toolNodes = getChildren(container, 'tool');
   const resourceNodes = getChildren(container, 'resource');
@@ -676,9 +774,30 @@ function buildCode(
   const allNodes = [...toolNodes, ...resourceNodes, ...promptNodes];
   const allGuards = allNodes.flatMap((n) => getChildren(n, 'guard'));
   const allParams = allNodes.flatMap((n) => collectParams(n, allowlist));
+  const customDiagnostics: TranspileDiagnostic[] = [];
+
+  // Pre-scan: detect which helpers auto-injection will need (S5-4 fix)
+  const autoInjectedGuardKinds = new Set<string>();
+  for (const toolNode of toolNodes) {
+    const preParams = collectParams(toolNode, allowlist);
+    const hNode = getFirstChild(toolNode, 'handler');
+    const hCode = hNode ? str(getProps(hNode).code) || '' : '';
+    if (hCode) {
+      const eff = detectHandlerEffects(hCode);
+      const pGuards = getChildren(toolNode, 'guard')
+        .map((g) => collectGuard(g, allowlist))
+        .filter((g): g is GuardDefinition => !!g);
+      autoInjectEffectGuards(preParams, pGuards, eff, allowlist);
+      for (const p of preParams) {
+        for (const g of p.guards) autoInjectedGuardKinds.add(g.kind);
+      }
+    }
+  }
+
   const needsPath =
     allGuards.some((g) => str(getProps(g).type) === 'pathContainment' || str(getProps(g).kind) === 'pathContainment') ||
-    allParams.some((p) => p.guards.some((g) => g.kind === 'pathContainment'));
+    allParams.some((p) => p.guards.some((g) => g.kind === 'pathContainment')) ||
+    autoInjectedGuardKinds.has('pathContainment');
   const needsResourceTemplate = resourceNodes.some((r) => (str(getProps(r).uri) || '').includes('{'));
 
   const transportType = str(props.transport) || 'stdio';
@@ -737,7 +856,7 @@ function buildCode(
   lines.push(`}`);
   lines.push('');
 
-  if (allParams.some((p) => p.guards.some((g) => g.kind === 'sanitize'))) {
+  if (allParams.some((p) => p.guards.some((g) => g.kind === 'sanitize')) || autoInjectedGuardKinds.has('sanitize')) {
     lines.push(`function sanitizeValue(value: unknown, pattern: string, replacement: string): unknown {`);
     lines.push(`  if (typeof value !== "string") return value;`);
     lines.push(`  try { return value.replace(new RegExp(pattern, "g"), replacement); }`);
@@ -766,7 +885,7 @@ function buildCode(
       outLine: lines.length + 1,
       outCol: 1,
     });
-    lines.push(...emitTool(toolNode, allowlist, requiredHelpers), '');
+    lines.push(...emitTool(toolNode, allowlist, requiredHelpers, customDiagnostics), '');
   }
   for (const resourceNode of resourceNodes) {
     sourceMap.push({
@@ -787,26 +906,73 @@ function buildCode(
     lines.push(...emitPrompt(promptNode, allowlist), '');
   }
 
+  // ── Info diagnostics for guard quality (S3-12/13/14)
+  if (usingDefaultAllowlist && needsPath) {
+    customDiagnostics.push({
+      nodeType: 'mcp',
+      outcome: 'expressed',
+      target: 'mcp',
+      severity: 'info',
+      message:
+        'No explicit allowlist — using process.cwd() which may not match workspace root. Set allowlist in .kern file for production.',
+    });
+  }
+
   // ── Inject auth/rateLimit helpers if any tool uses them (after registrations so we know what's needed)
   const helperBlock: string[] = [];
   if (requiredHelpers.has('auth')) {
-    helperBlock.push(`// NOTE: checkAuth is a bootstrap check — it verifies the env var exists, not that`);
-    helperBlock.push(`// the caller is authenticated. For production, add real token verification logic.`);
-    helperBlock.push(`function checkAuth(envVar: string, _header: string): void {`);
-    helperBlock.push(`  const token = process.env[envVar];`);
-    helperBlock.push(
-      `  if (!token) throw new Error("Authentication required: set " + envVar + " environment variable");`,
-    );
-    helperBlock.push(`}`);
+    if (transportType === 'stdio') {
+      // stdio is trusted-local — no caller identity available
+      customDiagnostics.push({
+        nodeType: 'guard',
+        outcome: 'expressed',
+        target: 'mcp',
+        severity: 'warning',
+        message:
+          'Auth guard on stdio transport is config-only — verifies env var exists, cannot authenticate callers. Use HTTP/SSE transport for real auth.',
+      });
+      helperBlock.push(`// WARNING: stdio transport — auth is config-only, not caller verification.`);
+      helperBlock.push(`// Switch to transport=http or transport=sse for real authentication via MCP session.`);
+      helperBlock.push(`function checkAuth(envVar: string, _header: string, _extra?: Record<string, unknown>): void {`);
+      helperBlock.push(`  const token = process.env[envVar];`);
+      helperBlock.push(
+        `  if (!token) throw new Error("Server not configured: set " + envVar + " environment variable");`,
+      );
+      helperBlock.push(`}`);
+    } else {
+      // HTTP/SSE — real caller authentication via MCP session
+      helperBlock.push(`function checkAuth(envVar: string, _header: string, extra?: Record<string, unknown>): void {`);
+      helperBlock.push(`  // Verify caller via MCP session authInfo (HTTP/SSE transport)`);
+      helperBlock.push(`  const authInfo = (extra as any)?.authInfo;`);
+      helperBlock.push(`  if (authInfo) {`);
+      helperBlock.push(`    if (!authInfo.token) throw new Error("Authentication required: no token in session");`);
+      helperBlock.push(
+        `    if (authInfo.expiresAt && authInfo.expiresAt < Date.now() / 1000) throw new Error("Authentication token expired");`,
+      );
+      helperBlock.push(`    return;`);
+      helperBlock.push(`  }`);
+      helperBlock.push(`  // Fallback: verify server configuration`);
+      helperBlock.push(`  const token = process.env[envVar];`);
+      helperBlock.push(
+        `  if (!token) throw new Error("Authentication required: set " + envVar + " or configure MCP auth");`,
+      );
+      helperBlock.push(`}`);
+    }
     helperBlock.push('');
   }
   if (requiredHelpers.has('rateLimit')) {
     helperBlock.push(`const _rateLimitStore = new Map<string, { count: number; resetAt: number }>();`);
-    helperBlock.push(`function checkRateLimit(toolName: string, windowMs: number, maxRequests: number): void {`);
+    helperBlock.push(
+      `function checkRateLimit(toolName: string, windowMs: number, maxRequests: number, extra?: Record<string, unknown>): void {`,
+    );
+    helperBlock.push(
+      `  const sessionId = (extra as any)?.sessionId || (extra as any)?.authInfo?.clientId || "global";`,
+    );
+    helperBlock.push('  const key = `${sessionId}:${toolName}`;');
     helperBlock.push(`  const now = Date.now();`);
-    helperBlock.push(`  const entry = _rateLimitStore.get(toolName);`);
+    helperBlock.push(`  const entry = _rateLimitStore.get(key);`);
     helperBlock.push(`  if (!entry || now > entry.resetAt) {`);
-    helperBlock.push(`    _rateLimitStore.set(toolName, { count: 1, resetAt: now + windowMs });`);
+    helperBlock.push(`    _rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });`);
     helperBlock.push(`    return;`);
     helperBlock.push(`  }`);
     helperBlock.push(`  entry.count++;`);
@@ -892,7 +1058,7 @@ function buildCode(
   return {
     code: lines.join('\n'),
     sourceMap,
-    diagnostics: buildDiagnostics(root, accounted, 'mcp'),
+    diagnostics: [...buildDiagnostics(root, accounted, 'mcp'), ...customDiagnostics],
   };
 }
 

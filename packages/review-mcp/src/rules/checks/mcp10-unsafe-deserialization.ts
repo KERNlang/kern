@@ -33,6 +33,20 @@ export function unsafeDeserialization(source: string, filePath: string): ReviewF
     if (match) {
       // Allow JSON.parse with string literal arg — that's safe
       if (match[0].startsWith('JSON.parse') && /JSON\.parse\s*\(\s*['"`]/.test(rawLines[i])) continue;
+      // Allow JSON.parse when the same arg was sanitized/size-checked upstream (KERN transpiler guards)
+      if (match[0].startsWith('JSON.parse')) {
+        const argMatch = rawLines[i].match(/JSON\.parse\s*\(\s*([\w.[\]"']+)/);
+        if (argMatch) {
+          // Normalize: params["headers"] and params.headers → params.headers
+          const argNorm = argMatch[1].replace(/\["([^"]+)"\]/g, '.$1').replace(/\['([^']+)'\]/g, '.$1');
+          const preceding = rawLines.slice(Math.max(0, i - 30), i).join('\n');
+          // Normalize preceding lines the same way for matching
+          const precNorm = preceding.replace(/\["([^"]+)"\]/g, '.$1').replace(/\['([^']+)'\]/g, '.$1');
+          const escaped = argNorm.replace(/[.*+?^${}()|\\]/g, '\\$&');
+          const varRe = new RegExp(`\\b(sanitizeValue|Buffer\\.byteLength)\\s*\\(\\s*${escaped}`);
+          if (varRe.test(precNorm)) continue;
+        }
+      }
       // Allow yaml.safe_load — that's the safe variant
       if (match[0].startsWith('yaml.load') && /yaml\.safe_load/.test(rawLines[i])) continue;
 

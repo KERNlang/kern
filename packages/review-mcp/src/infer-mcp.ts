@@ -40,7 +40,14 @@ const VALIDATION_PATTERN =
 const PATH_CONTAINMENT_PATTERN = /\.startsWith\s*\(/;
 const PATH_RESOLVE_PATTERN = /\b(path\.resolve|resolve)\s*\(/;
 const AUTH_PATTERN =
-  /\b(authenticate|authorization|auth|verifyToken|requireAuth|jwt\.verify|bearerAuth|isAuthenticated)\b/i;
+  /\b(authenticate|authorization|auth|verifyToken|requireAuth|jwt\.verify|bearerAuth|isAuthenticated|checkAuth)\b/i;
+
+// ── KERN transpiler guard patterns ──────────────────────────────────
+const KERN_SANITIZE_PATTERN = /\bsanitizeValue\s*\(/;
+const KERN_SIZE_LIMIT_PATTERN = /\bBuffer\.byteLength\s*\(.*\)\s*>/;
+const KERN_RATE_LIMIT_PATTERN = /\bcheckRateLimit\s*\(/;
+const KERN_PATH_CONTAINMENT_PATTERN = /\bensurePathContainment\s*\(/;
+const KERN_URL_VALIDATION_PATTERN = /\bnew\s+URL\s*\(\s*\w/;
 
 // ── Python patterns ──────────────────────────────────────────────────
 
@@ -201,6 +208,23 @@ function scanBodyForEffectsAndGuards(bodyText: string, startLine: number): IRNod
     }
     if (AUTH_PATTERN.test(line)) {
       children.push(node('guard', absoluteLine, { kind: 'auth' }));
+    }
+
+    // KERN transpiler-generated guards
+    if (KERN_SANITIZE_PATTERN.test(line)) {
+      children.push(node('guard', absoluteLine, { kind: 'validation' }));
+    }
+    if (KERN_SIZE_LIMIT_PATTERN.test(line)) {
+      children.push(node('guard', absoluteLine, { kind: 'validation' }));
+    }
+    if (KERN_RATE_LIMIT_PATTERN.test(line)) {
+      children.push(node('guard', absoluteLine, { kind: 'rate-limit' }));
+    }
+    if (KERN_PATH_CONTAINMENT_PATTERN.test(line)) {
+      children.push(node('guard', absoluteLine, { kind: 'path-containment' }));
+    }
+    if (KERN_URL_VALIDATION_PATTERN.test(line)) {
+      children.push(node('guard', absoluteLine, { kind: 'validation' }));
     }
   }
   return children;

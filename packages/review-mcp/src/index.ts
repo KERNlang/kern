@@ -144,9 +144,10 @@ export function reviewMCPSource(source: string, filePath: string): ReviewFinding
   }
 
   // Phase 2: KERN IR inference — translate to IR and check structure
+  let irNodes: IRNode[] = [];
   try {
     const isPython = filePath.endsWith('.py');
-    const irNodes = isPython ? inferMCPNodesPython(source, filePath) : inferMCPNodes(source, filePath);
+    irNodes = isPython ? inferMCPNodesPython(source, filePath) : inferMCPNodes(source, filePath);
 
     if (irNodes.length > 0) {
       findings.push(...irToFindings(irNodes, filePath));
@@ -155,13 +156,27 @@ export function reviewMCPSource(source: string, filePath: string): ReviewFinding
     // Intentional: IR inference is best-effort — regex rules always run regardless
   }
 
+  // Phase 2.5: IR-guided suppression — remove false positives where IR shows guards exist
+  if (irNodes.length > 0) {
+    suppressGuardedFindings(findings, irNodes);
+  }
+
   // Phase 3: Post-processing — confidence floor + test file demotion
   const MIN_CONFIDENCE = 0.7;
   const isTestFile = /\.(test|spec)\.[jt]sx?$|__tests__|\/tests\/|\/fixtures\//.test(filePath);
 
+  // Node.js built-in imports are not rug pulls — platform-provided, not supply-chain
+  const sourceLines = source.split('\n');
+
   return findings.filter((f) => {
     // Suppress low-confidence fallback findings (noisy regex-without-handler-region)
     if (f.confidence !== undefined && f.confidence < MIN_CONFIDENCE) return false;
+
+    // Suppress rug-pull for node: built-in imports (not supply-chain risk)
+    if (f.ruleId === 'mcp-rug-pull' && f.message?.includes('import()')) {
+      const line = sourceLines[f.primarySpan.startLine - 1] || '';
+      if (/\bimport\s*\(\s*['"]node:/.test(line)) return false;
+    }
 
     // Demote test file findings to info (don't suppress — tests may intentionally contain patterns)
     if (isTestFile && f.severity !== 'info') {
@@ -189,6 +204,73 @@ export function reviewIfMCP(source: string, filePath: string): ReviewFinding[] |
 export function inferMCP(source: string, filePath: string): IRNode[] {
   const isPython = filePath.endsWith('.py');
   return isPython ? inferMCPNodesPython(source, filePath) : inferMCPNodes(source, filePath);
+}
+
+// ── IR-guided suppression ────────────────────────────────────────────
+
+/** Rule → guard kind mapping: which IR guard suppresses which rule finding */
+const RULE_GUARD_MAP: Record<string, string[]> = {
+  'mcp-path-traversal': ['path-containment'],
+  'mcp-missing-validation': ['validation', 'path-containment'],
+  'mcp-command-injection': ['validation'],
+  'mcp-unsanitized-response': ['validation'],
+  'mcp-ssrf': ['validation'],
+  'mcp-resource-exhaustion': ['rate-limit'],
+};
+
+/** Rules that shouldn't fire on tools with zero effects (no dangerous operations) */
+const EFFECT_REQUIRED_RULES = new Set(['mcp-missing-validation', 'mcp-path-traversal', 'mcp-command-injection']);
+
+/**
+ * Suppress regex-rule findings where the IR shows the containing tool has
+ * the corresponding guard. Mutates the findings array in place (splices out suppressed).
+ */
+function suppressGuardedFindings(findings: ReviewFinding[], irNodes: IRNode[]): void {
+  // Build line-range → guard-kinds map from IR actions
+  const actions = irNodes.filter((n) => n.type === 'action');
+  if (actions.length === 0) return;
+
+  // Sort actions by line to enable range lookup
+  const sorted = actions
+    .map((a) => ({
+      startLine: a.loc?.line ?? 0,
+      guardKinds: new Set(
+        (a.children ?? []).filter((c) => c.type === 'guard').map((c) => (c.props?.kind as string) || ''),
+      ),
+      effectCount: (a.children ?? []).filter((c) => c.type === 'effect').length,
+    }))
+    .sort((a, b) => a.startLine - b.startLine);
+
+  // Find which action a finding belongs to (largest startLine <= finding line)
+  function findAction(findingLine: number) {
+    let best = sorted[0];
+    for (const a of sorted) {
+      if (a.startLine <= findingLine) best = a;
+      else break;
+    }
+    return best;
+  }
+
+  // Suppress in reverse to avoid index shifting
+  for (let i = findings.length - 1; i >= 0; i--) {
+    const f = findings[i];
+    const requiredGuards = RULE_GUARD_MAP[f.ruleId];
+    if (!requiredGuards) continue;
+
+    const action = findAction(f.primarySpan.startLine);
+    if (!action) continue;
+
+    const hasGuard = requiredGuards.some((gk) => action.guardKinds.has(gk));
+    if (hasGuard) {
+      findings.splice(i, 1);
+      continue;
+    }
+
+    // Suppress effect-dependent rules on tools with no effects (e.g. no-param tools)
+    if (EFFECT_REQUIRED_RULES.has(f.ruleId) && action.effectCount === 0) {
+      findings.splice(i, 1);
+    }
+  }
 }
 
 // ── IR → Findings conversion ─────────────────────────────────────────

@@ -4,6 +4,7 @@ import type {
   KernConfig,
   ResolvedKernConfig,
   SourceMapEntry,
+  TranspileDiagnostic,
   TranspileResult,
 } from '@kernlang/core';
 import {
@@ -15,6 +16,7 @@ import {
   getProps,
   serializeIR,
 } from '@kernlang/core';
+import { PY_FILE_IO_PATTERN, PY_NETWORK_PATTERN, PY_SHELL_EXEC_PATTERN } from './effect-patterns.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -103,48 +105,100 @@ function pyType(kernType: string): string {
   }
 }
 
+const CONTENT_PARAMS = /^(content|code|body|data|payload|text|source|script|html|markdown|template)$/i;
+const PATH_PARAMS = /(?:^|[_A-Z])(?:path|file|dir(?:ectory)?|root|workspace)(?:$|[_A-Z])/i;
+
+function isContentParam(name: string): boolean {
+  return CONTENT_PARAMS.test(name);
+}
+
 // ── Guard code generation ───────────────────────────────────────────────
 
-function emitPyGuards(node: IRNode): string[] {
-  const guards = getChildren(node, 'guard');
+function emitPyGuards(node: IRNode, paramNodes: IRNode[], syntheticGuards: IRNode[] = []): string[] {
+  const guards = [...getChildren(node, 'guard'), ...syntheticGuards];
   const toolName = str(getProps(node).name) || 'unknown';
   const lines: string[] = [];
 
   for (const g of guards) {
     const props = getProps(g);
     const kind = str(props.name) || str(props.kind) || str(props.type);
-    const param = str(props.param) || str(props.target) || str(props.field);
+    const targetParam = str(props.param) || str(props.target) || str(props.field);
 
-    if (kind === 'sanitize' && param) {
-      const pattern = str(props.pattern) || '[^\\w./ -]';
-      // Validate regex at transpile time to prevent ReDoS
-      try {
-        new RegExp(pattern);
-      } catch {
-        continue;
+    const targetParams = targetParam
+      ? [targetParam]
+      : paramNodes
+          .filter((p) => {
+            const pName = str(getProps(p).name) || 'input';
+            const pType = str(getProps(p).type) || 'string';
+            if (kind === 'pathContainment') return pType === 'string' && !isContentParam(pName);
+            if (kind === 'sanitize') return pType === 'string' && !isContentParam(pName);
+            if (kind === 'sizeLimit') return true;
+            if (kind === 'validate') return true;
+            return false;
+          })
+          .map((p) => str(getProps(p).name) || 'input');
+
+    for (const param of targetParams) {
+      if (kind === 'sanitize') {
+        const pattern = str(props.pattern) || '[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]';
+        const replacement = str(props.replacement) || '';
+        try {
+          new RegExp(pattern);
+          if (/([+*}])\s*\)\s*[+*{]/.test(pattern)) continue;
+        } catch {
+          continue;
+        }
+        lines.push(`    try:`);
+        // Use non-raw string for hex escapes (\x00 etc.) to work correctly
+        const useRaw = !/\\x[0-9a-fA-F]/.test(pattern);
+        const prefix = useRaw ? 'r' : '';
+        lines.push(`        ${param} = re.sub(${prefix}${pyStr(pattern)}, ${pyStr(replacement)}, str(${param}))`);
+        lines.push(`    except re.error:`);
+        lines.push(`        pass`);
       }
-      lines.push(`    try:`);
-      lines.push(`        ${param} = re.sub(r${pyStr(pattern)}, "", str(${param}))`);
-      lines.push(`    except re.error:`);
-      lines.push(`        pass`);
-    }
 
-    if (kind === 'pathContainment' && param) {
-      const allowRaw = splitCsv(str(props.allowlist) || str(props.allow));
-      const allowPy = allowRaw.length > 0 ? `[${allowRaw.map((a) => pyStr(a)).join(', ')}]` : '[os.getcwd()]';
-      lines.push(`    _resolved = os.path.realpath(str(${param}))`);
-      lines.push(
-        `    if not any(_resolved == os.path.realpath(d) or _resolved.startswith(os.path.realpath(d) + os.sep) for d in ${allowPy}):`,
-      );
-      lines.push(`        raise ValueError(f"Path escapes allowed directories: {${param}}")`);
-      lines.push(`    ${param} = _resolved`);
-    }
+      if (kind === 'pathContainment') {
+        const allowRaw = splitCsv(str(props.allowlist) || str(props.allow));
+        const allowPy = allowRaw.length > 0 ? `[${allowRaw.map((a) => pyStr(a)).join(', ')}]` : '[os.getcwd()]';
+        lines.push(`    _resolved = os.path.realpath(str(${param}))`);
+        lines.push(
+          `    if not any(_resolved == os.path.realpath(d) or _resolved.startswith(os.path.realpath(d) + os.sep) for d in ${allowPy}):`,
+        );
+        lines.push(`        raise ValueError(f"Path escapes allowed directories: {${param}}")`);
+        lines.push(`    ${param} = _resolved`);
+      }
 
-    if (kind === 'validate' && param) {
-      if (props.min !== undefined && !Number.isNaN(Number(props.min)))
-        lines.push(`    if ${param} < ${props.min}: raise ValueError("${param} below minimum ${props.min}")`);
-      if (props.max !== undefined && !Number.isNaN(Number(props.max)))
-        lines.push(`    if ${param} > ${props.max}: raise ValueError("${param} above maximum ${props.max}")`);
+      if (kind === 'validate') {
+        if (props.min !== undefined && !Number.isNaN(Number(props.min)))
+          lines.push(`    if ${param} < ${props.min}: raise ValueError("${param} below minimum ${props.min}")`);
+        if (props.max !== undefined && !Number.isNaN(Number(props.max)))
+          lines.push(`    if ${param} > ${props.max}: raise ValueError("${param} above maximum ${props.max}")`);
+        const regex = str(props.regex);
+        if (regex) {
+          try {
+            new RegExp(regex);
+            if (/([+*}])\s*\)\s*[+*{]/.test(regex)) {
+              /* skip ReDoS */
+            } else {
+              lines.push(`    import re as _re`);
+              lines.push(`    if isinstance(${param}, str) and not _re.match(r${pyStr(regex)}, ${param}):`);
+              lines.push(`        raise ValueError(f"${param} does not match required pattern")`);
+            }
+          } catch {
+            /* skip invalid */
+          }
+        }
+      }
+
+      if (kind === 'sizeLimit') {
+        const maxBytes = str(props.maxBytes) || str(props.max) || '1048576';
+        lines.push(`    if isinstance(${param}, str) and len(${param}.encode()) > ${maxBytes}:`);
+        lines.push(`        raise ValueError(f"${param} exceeds size limit of ${maxBytes} bytes")`);
+        lines.push(`    elif ${param} is not None and not isinstance(${param}, str):`);
+        lines.push(`        import json as _j`);
+        lines.push(`        if len(_j.dumps(${param}).encode()) > ${maxBytes}:`);
+        lines.push(`            raise ValueError(f"${param} exceeds size limit of ${maxBytes} bytes")`);
+      }
     }
 
     if (kind === 'auth') {
@@ -157,12 +211,6 @@ function emitPyGuards(node: IRNode): string[] {
       const windowMs = parseInt(str(props.window) || '60000', 10) || 60000;
       const maxReqs = parseInt(str(props.requests) || str(props.maxRequests) || '100', 10) || 100;
       lines.push(`    _check_rate_limit(${pyStr(toolName)}, ${windowMs}, ${maxReqs})`);
-    }
-
-    if (kind === 'sizeLimit' && param) {
-      const maxBytes = str(props.maxBytes) || str(props.max) || '1048576';
-      lines.push(`    if isinstance(${param}, str) and len(${param}.encode()) > ${maxBytes}:`);
-      lines.push(`        raise ValueError(f"${param} exceeds size limit of ${maxBytes} bytes")`);
     }
   }
 
@@ -197,23 +245,21 @@ function buildPythonCode(
     accountNode(accounted, n, 'expressed', `mcp ${n.type}`, true);
   }
 
+  const customDiagnostics: TranspileDiagnostic[] = [];
+
   // Check what imports we need — match prop priority: name > kind > type (same as emitPyGuards)
   const allGuards = [...toolNodes, ...resourceNodes, ...promptNodes].flatMap((n) => getChildren(n, 'guard'));
   const guardKind = (g: IRNode) => str(getProps(g).name) || str(getProps(g).kind) || str(getProps(g).type);
 
   // Pre-scan handlers for effect-based auto-injection (determines imports + sanitizeOutput)
-  const PRE_FILE_IO =
-    /\b(open|read|write|readlines|os\.path|os\.listdir|os\.remove|os\.unlink|os\.rename|os\.mkdir|shutil\.|pathlib\.|readFile|readFileSync|writeFile|readdir)\b/;
-  const PRE_SHELL = /\b(subprocess|os\.system|os\.popen|execSync|execFile|spawn|spawnSync)\b/;
-  const PRE_NETWORK = /\b(requests\.|httpx\.|aiohttp\.|urllib\.|fetch|http\.request)\b/;
   const willAutoInjectOs = toolNodes.some((n) => {
     const hCode = findPythonHandler(n);
     const existingKinds = new Set(getChildren(n, 'guard').map((g) => guardKind(g)));
-    return hCode && PRE_FILE_IO.test(hCode) && !existingKinds.has('pathContainment');
+    return hCode && PY_FILE_IO_PATTERN.test(hCode) && !existingKinds.has('pathContainment');
   });
   const willAutoInjectRe = toolNodes.some((n) => {
     const hCode = findPythonHandler(n);
-    return hCode && PRE_SHELL.test(hCode);
+    return hCode && PY_SHELL_EXEC_PATTERN.test(hCode);
   });
 
   const needsRe = willAutoInjectRe || allGuards.some((g) => guardKind(g) === 'sanitize');
@@ -228,7 +274,7 @@ function buildPythonCode(
     allGuards.some((g) => guardKind(g) === 'sanitizeOutput') ||
     toolNodes.some((n) => {
       const hCode = findPythonHandler(n);
-      return hCode && PRE_NETWORK.test(hCode);
+      return hCode && PY_NETWORK_PATTERN.test(hCode);
     });
 
   const transport = str(props.transport) || 'stdio';
@@ -354,7 +400,15 @@ function buildPythonCode(
       }
 
       if (defaultVal !== undefined) {
-        const pyDefault = pType === 'bool' ? (defaultVal === 'true' ? 'True' : 'False') : defaultVal;
+        let pyDefault: string;
+        if (pType === 'bool') {
+          pyDefault = defaultVal === 'true' ? 'True' : 'False';
+        } else if (pType === 'int' || pType === 'float') {
+          pyDefault = defaultVal;
+        } else {
+          // String and other types need quoting
+          pyDefault = pyStr(defaultVal);
+        }
         pyParams.push(`${pName}: ${pType} = ${pyDefault}`);
       } else if (isOptional) {
         pyParams.push(`${pName}: ${pType} | None = None`);
@@ -367,42 +421,61 @@ function buildPythonCode(
     if (desc) lines.push(`    """${desc}"""`);
     lines.push(`    logger.info("tool:call", extra={"tool": ${pyStr(name)}})`);
 
-    // Auto-inject guards based on handler effects (secure by construction)
-    const FILE_IO_PY =
-      /\b(open|read|write|readlines|os\.path|os\.listdir|os\.remove|os\.unlink|os\.rename|os\.mkdir|shutil\.|pathlib\.|readFile|readFileSync|writeFile|readdir)\b/;
-    const SHELL_EXEC_PY = /\b(subprocess|os\.system|os\.popen|execSync|execFile|spawn|spawnSync)\b/;
-    const NETWORK_PY = /\b(requests\.|httpx\.|aiohttp\.|urllib\.|fetch|http\.request)\b/;
+    // Missing handler diagnostic (S5-1)
+    if (!handlerCode) {
+      const hasAnyHandler = getChildren(toolNode, 'handler').length > 0;
+      customDiagnostics.push({
+        nodeType: 'tool',
+        outcome: 'suppressed',
+        target: 'mcp-python',
+        loc: toolNode.loc ? { line: toolNode.loc.line, col: toolNode.loc.col } : undefined,
+        severity: 'error',
+        message: hasAnyHandler
+          ? `Tool "${name}" has no Python handler — add handler lang=python <<<...>>>`
+          : `Tool "${name}" has no handler — add handler <<<...>>>`,
+        reason: 'no-handler',
+      });
+    }
+
+    // Auto-inject guards based on handler effects — without mutating IR tree
+    // Effect patterns from shared module
+
+    // Collect synthetic guards locally instead of pushing to IR
+    const syntheticGuards: IRNode[] = [];
     if (handlerCode) {
       const allToolGuards = getChildren(toolNode, 'guard');
       const allToolKinds = new Set(allToolGuards.map((g) => guardKind(g)));
       const stringParams = paramNodes.filter((p) => (str(getProps(p).type) || 'string') === 'string');
 
-      if (FILE_IO_PY.test(handlerCode) && !allToolKinds.has('pathContainment') && stringParams.length > 0) {
+      if (PY_FILE_IO_PATTERN.test(handlerCode) && !allToolKinds.has('pathContainment') && stringParams.length > 0) {
         for (const p of stringParams) {
           const pName = str(getProps(p).name) || 'input';
-          if (!toolNode.children) toolNode.children = [];
-          toolNode.children.push({ type: 'guard', props: { type: 'pathContainment', param: pName } });
+          // Auto-inject on non-content string params
+          if (!isContentParam(pName)) {
+            syntheticGuards.push({ type: 'guard', props: { type: 'pathContainment', param: pName } });
+          }
         }
       }
-      if (SHELL_EXEC_PY.test(handlerCode) && stringParams.length > 0) {
+      if (PY_SHELL_EXEC_PATTERN.test(handlerCode) && stringParams.length > 0) {
         for (const p of stringParams) {
           const pName = str(getProps(p).name) || 'input';
-          const existingGuards = getChildren(toolNode, 'guard').filter((g) => str(getProps(g).param) === pName);
-          if (!existingGuards.some((g) => guardKind(g) === 'sanitize')) {
-            if (!toolNode.children) toolNode.children = [];
-            toolNode.children.push({ type: 'guard', props: { type: 'sanitize', param: pName } });
+          if (!isContentParam(pName)) {
+            const existingGuards = getChildren(toolNode, 'guard').filter((g) => str(getProps(g).param) === pName);
+            if (!existingGuards.some((g) => guardKind(g) === 'sanitize')) {
+              syntheticGuards.push({ type: 'guard', props: { type: 'sanitize', param: pName } });
+            }
           }
         }
       }
     }
     const hasSanitizeOutput =
       getChildren(toolNode, 'guard').some((g) => guardKind(g) === 'sanitizeOutput') ||
-      (handlerCode && NETWORK_PY.test(handlerCode));
+      (handlerCode && PY_NETWORK_PATTERN.test(handlerCode));
 
     lines.push('    try:');
 
     // Guards — inside try so exceptions become MCP errors
-    const guardLines = emitPyGuards(toolNode);
+    const guardLines = emitPyGuards(toolNode, paramNodes, syntheticGuards);
     if (guardLines.length > 0) {
       lines.push(...guardLines.map((l) => (l.length > 0 ? `    ${l}` : '')));
     }
@@ -452,6 +525,13 @@ function buildPythonCode(
     if (desc) lines.push(`    """${desc}"""`);
     lines.push(`    logger.info("resource:read", extra={"resource": ${pyStr(name)}})`);
 
+    // Resource guards
+    const resParamNodes = getChildren(resourceNode, 'param');
+    const resGuardLines = emitPyGuards(resourceNode, resParamNodes);
+    if (resGuardLines.length > 0) {
+      lines.push(...resGuardLines);
+    }
+
     if (handlerCode) {
       lines.push(...ind(handlerCode.split('\n'), 4));
     } else {
@@ -485,6 +565,12 @@ function buildPythonCode(
     lines.push(`async def ${name}(${pyParams.join(', ')}) -> str:`);
     if (desc) lines.push(`    """${desc}"""`);
 
+    // Prompt guards
+    const promptGuardLines = emitPyGuards(promptNode, paramNodes);
+    if (promptGuardLines.length > 0) {
+      lines.push(...promptGuardLines);
+    }
+
     if (handlerCode) {
       lines.push(...ind(handlerCode.split('\n'), 4));
     } else {
@@ -502,7 +588,7 @@ function buildPythonCode(
   return {
     code: lines.join('\n'),
     sourceMap,
-    diagnostics: buildDiagnostics(root, accounted, 'mcp'),
+    diagnostics: [...buildDiagnostics(root, accounted, 'mcp'), ...customDiagnostics],
   };
 }
 
