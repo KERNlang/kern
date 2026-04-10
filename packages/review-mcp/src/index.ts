@@ -165,9 +165,18 @@ export function reviewMCPSource(source: string, filePath: string): ReviewFinding
   const MIN_CONFIDENCE = 0.7;
   const isTestFile = /\.(test|spec)\.[jt]sx?$|__tests__|\/tests\/|\/fixtures\//.test(filePath);
 
+  // Node.js built-in imports are not rug pulls — platform-provided, not supply-chain
+  const sourceLines = source.split('\n');
+
   return findings.filter((f) => {
     // Suppress low-confidence fallback findings (noisy regex-without-handler-region)
     if (f.confidence !== undefined && f.confidence < MIN_CONFIDENCE) return false;
+
+    // Suppress rug-pull for node: built-in imports (not supply-chain risk)
+    if (f.ruleId === 'mcp-rug-pull' && f.message?.includes('import()')) {
+      const line = sourceLines[f.primarySpan.startLine - 1] || '';
+      if (/\bimport\s*\(\s*['"]node:/.test(line)) return false;
+    }
 
     // Demote test file findings to info (don't suppress — tests may intentionally contain patterns)
     if (isTestFile && f.severity !== 'info') {
