@@ -144,15 +144,21 @@ export function reviewMCPSource(source: string, filePath: string): ReviewFinding
   }
 
   // Phase 2: KERN IR inference — translate to IR and check structure
+  let irNodes: IRNode[] = [];
   try {
     const isPython = filePath.endsWith('.py');
-    const irNodes = isPython ? inferMCPNodesPython(source, filePath) : inferMCPNodes(source, filePath);
+    irNodes = isPython ? inferMCPNodesPython(source, filePath) : inferMCPNodes(source, filePath);
 
     if (irNodes.length > 0) {
       findings.push(...irToFindings(irNodes, filePath));
     }
   } catch {
     // Intentional: IR inference is best-effort — regex rules always run regardless
+  }
+
+  // Phase 2.5: IR-guided suppression — remove false positives where IR shows guards exist
+  if (irNodes.length > 0) {
+    suppressGuardedFindings(findings, irNodes);
   }
 
   // Phase 3: Post-processing — confidence floor + test file demotion
@@ -189,6 +195,61 @@ export function reviewIfMCP(source: string, filePath: string): ReviewFinding[] |
 export function inferMCP(source: string, filePath: string): IRNode[] {
   const isPython = filePath.endsWith('.py');
   return isPython ? inferMCPNodesPython(source, filePath) : inferMCPNodes(source, filePath);
+}
+
+// ── IR-guided suppression ────────────────────────────────────────────
+
+/** Rule → guard kind mapping: which IR guard suppresses which rule finding */
+const RULE_GUARD_MAP: Record<string, string[]> = {
+  'mcp-path-traversal': ['path-containment'],
+  'mcp-missing-validation': ['validation', 'path-containment'],
+  'mcp-command-injection': ['validation'],
+  'mcp-unsanitized-response': ['validation'],
+};
+
+/**
+ * Suppress regex-rule findings where the IR shows the containing tool has
+ * the corresponding guard. Mutates the findings array in place (splices out suppressed).
+ */
+function suppressGuardedFindings(findings: ReviewFinding[], irNodes: IRNode[]): void {
+  // Build line-range → guard-kinds map from IR actions
+  const actions = irNodes.filter((n) => n.type === 'action');
+  if (actions.length === 0) return;
+
+  // Sort actions by line to enable range lookup
+  const sorted = actions
+    .map((a) => ({
+      startLine: a.loc?.line ?? 0,
+      guardKinds: new Set(
+        (a.children ?? []).filter((c) => c.type === 'guard').map((c) => (c.props?.kind as string) || ''),
+      ),
+    }))
+    .sort((a, b) => a.startLine - b.startLine);
+
+  // Find which action a finding belongs to (largest startLine <= finding line)
+  function findAction(findingLine: number) {
+    let best = sorted[0];
+    for (const a of sorted) {
+      if (a.startLine <= findingLine) best = a;
+      else break;
+    }
+    return best;
+  }
+
+  // Suppress in reverse to avoid index shifting
+  for (let i = findings.length - 1; i >= 0; i--) {
+    const f = findings[i];
+    const requiredGuards = RULE_GUARD_MAP[f.ruleId];
+    if (!requiredGuards) continue;
+
+    const action = findAction(f.primarySpan.startLine);
+    if (!action) continue;
+
+    const hasGuard = requiredGuards.some((gk) => action.guardKinds.has(gk));
+    if (hasGuard) {
+      findings.splice(i, 1);
+    }
+  }
 }
 
 // ── IR → Findings conversion ─────────────────────────────────────────
