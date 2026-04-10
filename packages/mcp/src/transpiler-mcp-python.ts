@@ -7,7 +7,6 @@ import type {
   TranspileDiagnostic,
   TranspileResult,
 } from '@kernlang/core';
-import { PY_FILE_IO_PATTERN, PY_SHELL_EXEC_PATTERN, PY_NETWORK_PATTERN } from './effect-patterns.js';
 import {
   accountNode,
   buildDiagnostics,
@@ -17,6 +16,7 @@ import {
   getProps,
   serializeIR,
 } from '@kernlang/core';
+import { PY_FILE_IO_PATTERN, PY_NETWORK_PATTERN, PY_SHELL_EXEC_PATTERN } from './effect-patterns.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -105,9 +105,16 @@ function pyType(kernType: string): string {
   }
 }
 
+const CONTENT_PARAMS = /^(content|code|body|data|payload|text|source|script|html|markdown|template)$/i;
+const PATH_PARAMS = /(?:^|[_A-Z])(?:path|file|dir(?:ectory)?|root|workspace)(?:$|[_A-Z])/i;
+
+function isContentParam(name: string): boolean {
+  return CONTENT_PARAMS.test(name);
+}
+
 // ── Guard code generation ───────────────────────────────────────────────
 
-function emitPyGuards(node: IRNode, syntheticGuards: IRNode[] = []): string[] {
+function emitPyGuards(node: IRNode, paramNodes: IRNode[], syntheticGuards: IRNode[] = []): string[] {
   const guards = [...getChildren(node, 'guard'), ...syntheticGuards];
   const toolName = str(getProps(node).name) || 'unknown';
   const lines: string[] = [];
@@ -115,51 +122,79 @@ function emitPyGuards(node: IRNode, syntheticGuards: IRNode[] = []): string[] {
   for (const g of guards) {
     const props = getProps(g);
     const kind = str(props.name) || str(props.kind) || str(props.type);
-    const param = str(props.param) || str(props.target) || str(props.field);
+    const targetParam = str(props.param) || str(props.target) || str(props.field);
 
-    if (kind === 'sanitize' && param) {
-      const pattern = str(props.pattern) || '[\\x00-\\x1f\\x7f]';
-      const replacement = str(props.replacement) || '';
-      // Validate regex and reject catastrophic patterns
-      try {
-        new RegExp(pattern);
-        if (/([+*}])\s*\)\s*[+*{]/.test(pattern)) continue;
-      } catch {
-        continue;
-      }
-      lines.push(`    try:`);
-      lines.push(`        ${param} = re.sub(r${pyStr(pattern)}, ${pyStr(replacement)}, str(${param}))`);
-      lines.push(`    except re.error:`);
-      lines.push(`        pass`);
-    }
+    const targetParams = targetParam
+      ? [targetParam]
+      : paramNodes
+          .filter((p) => {
+            const pName = str(getProps(p).name) || 'input';
+            const pType = str(getProps(p).type) || 'string';
+            if (kind === 'pathContainment') return pType === 'string' && !isContentParam(pName);
+            if (kind === 'sanitize') return pType === 'string' && !isContentParam(pName);
+            if (kind === 'sizeLimit') return true;
+            if (kind === 'validate') return true;
+            return false;
+          })
+          .map((p) => str(getProps(p).name) || 'input');
 
-    if (kind === 'pathContainment' && param) {
-      const allowRaw = splitCsv(str(props.allowlist) || str(props.allow));
-      const allowPy = allowRaw.length > 0 ? `[${allowRaw.map((a) => pyStr(a)).join(', ')}]` : '[os.getcwd()]';
-      lines.push(`    _resolved = os.path.realpath(str(${param}))`);
-      lines.push(
-        `    if not any(_resolved == os.path.realpath(d) or _resolved.startswith(os.path.realpath(d) + os.sep) for d in ${allowPy}):`,
-      );
-      lines.push(`        raise ValueError(f"Path escapes allowed directories: {${param}}")`);
-      lines.push(`    ${param} = _resolved`);
-    }
-
-    if (kind === 'validate' && param) {
-      if (props.min !== undefined && !Number.isNaN(Number(props.min)))
-        lines.push(`    if ${param} < ${props.min}: raise ValueError("${param} below minimum ${props.min}")`);
-      if (props.max !== undefined && !Number.isNaN(Number(props.max)))
-        lines.push(`    if ${param} > ${props.max}: raise ValueError("${param} above maximum ${props.max}")`);
-      const regex = str(props.regex);
-      if (regex) {
+    for (const param of targetParams) {
+      if (kind === 'sanitize') {
+        const pattern = str(props.pattern) || '[\\x00-\\x1f\\x7f]';
+        const replacement = str(props.replacement) || '';
         try {
-          new RegExp(regex);
-          if (/([+*}])\s*\)\s*[+*{]/.test(regex)) { /* skip ReDoS */ }
-          else {
-            lines.push(`    import re as _re`);
-            lines.push(`    if isinstance(${param}, str) and not _re.match(r${pyStr(regex)}, ${param}):`);
-            lines.push(`        raise ValueError(f"${param} does not match required pattern")`);
+          new RegExp(pattern);
+          if (/([+*}])\s*\)\s*[+*{]/.test(pattern)) continue;
+        } catch {
+          continue;
+        }
+        lines.push(`    try:`);
+        lines.push(`        ${param} = re.sub(r${pyStr(pattern)}, ${pyStr(replacement)}, str(${param}))`);
+        lines.push(`    except re.error:`);
+        lines.push(`        pass`);
+      }
+
+      if (kind === 'pathContainment') {
+        const allowRaw = splitCsv(str(props.allowlist) || str(props.allow));
+        const allowPy = allowRaw.length > 0 ? `[${allowRaw.map((a) => pyStr(a)).join(', ')}]` : '[os.getcwd()]';
+        lines.push(`    _resolved = os.path.realpath(str(${param}))`);
+        lines.push(
+          `    if not any(_resolved == os.path.realpath(d) or _resolved.startswith(os.path.realpath(d) + os.sep) for d in ${allowPy}):`,
+        );
+        lines.push(`        raise ValueError(f"Path escapes allowed directories: {${param}}")`);
+        lines.push(`    ${param} = _resolved`);
+      }
+
+      if (kind === 'validate') {
+        if (props.min !== undefined && !Number.isNaN(Number(props.min)))
+          lines.push(`    if ${param} < ${props.min}: raise ValueError("${param} below minimum ${props.min}")`);
+        if (props.max !== undefined && !Number.isNaN(Number(props.max)))
+          lines.push(`    if ${param} > ${props.max}: raise ValueError("${param} above maximum ${props.max}")`);
+        const regex = str(props.regex);
+        if (regex) {
+          try {
+            new RegExp(regex);
+            if (/([+*}])\s*\)\s*[+*{]/.test(regex)) {
+              /* skip ReDoS */
+            } else {
+              lines.push(`    import re as _re`);
+              lines.push(`    if isinstance(${param}, str) and not _re.match(r${pyStr(regex)}, ${param}):`);
+              lines.push(`        raise ValueError(f"${param} does not match required pattern")`);
+            }
+          } catch {
+            /* skip invalid */
           }
-        } catch { /* skip invalid */ }
+        }
+      }
+
+      if (kind === 'sizeLimit') {
+        const maxBytes = str(props.maxBytes) || str(props.max) || '1048576';
+        lines.push(`    if isinstance(${param}, str) and len(${param}.encode()) > ${maxBytes}:`);
+        lines.push(`        raise ValueError(f"${param} exceeds size limit of ${maxBytes} bytes")`);
+        lines.push(`    elif ${param} is not None and not isinstance(${param}, str):`);
+        lines.push(`        import json as _j`);
+        lines.push(`        if len(_j.dumps(${param}).encode()) > ${maxBytes}:`);
+        lines.push(`            raise ValueError(f"${param} exceeds size limit of ${maxBytes} bytes")`);
       }
     }
 
@@ -173,16 +208,6 @@ function emitPyGuards(node: IRNode, syntheticGuards: IRNode[] = []): string[] {
       const windowMs = parseInt(str(props.window) || '60000', 10) || 60000;
       const maxReqs = parseInt(str(props.requests) || str(props.maxRequests) || '100', 10) || 100;
       lines.push(`    _check_rate_limit(${pyStr(toolName)}, ${windowMs}, ${maxReqs})`);
-    }
-
-    if (kind === 'sizeLimit' && param) {
-      const maxBytes = str(props.maxBytes) || str(props.max) || '1048576';
-      lines.push(`    if isinstance(${param}, str) and len(${param}.encode()) > ${maxBytes}:`);
-      lines.push(`        raise ValueError(f"${param} exceeds size limit of ${maxBytes} bytes")`);
-      lines.push(`    elif ${param} is not None and not isinstance(${param}, str):`);
-      lines.push(`        import json as _j`);
-      lines.push(`        if len(_j.dumps(${param}).encode()) > ${maxBytes}:`);
-      lines.push(`            raise ValueError(f"${param} exceeds size limit of ${maxBytes} bytes")`);
     }
   }
 
@@ -404,12 +429,6 @@ function buildPythonCode(
     // Auto-inject guards based on handler effects — without mutating IR tree
     // Effect patterns from shared module
 
-    // Content/code params should not be auto-guarded
-    const isContentParam = (pn: string) =>
-      /^(content|code|body|data|payload|text|source|script|html|markdown|template)$/i.test(pn);
-    const isPathLikeParam = (pn: string) =>
-      /(?:^|[_A-Z])(?:path|file|dir(?:ectory)?|root|workspace)(?:$|[_A-Z])/i.test(pn);
-
     // Collect synthetic guards locally instead of pushing to IR
     const syntheticGuards: IRNode[] = [];
     if (handlerCode) {
@@ -420,7 +439,8 @@ function buildPythonCode(
       if (PY_FILE_IO_PATTERN.test(handlerCode) && !allToolKinds.has('pathContainment') && stringParams.length > 0) {
         for (const p of stringParams) {
           const pName = str(getProps(p).name) || 'input';
-          if (isPathLikeParam(pName)) {
+          // Auto-inject on non-content string params
+          if (!isContentParam(pName)) {
             syntheticGuards.push({ type: 'guard', props: { type: 'pathContainment', param: pName } });
           }
         }
@@ -444,7 +464,7 @@ function buildPythonCode(
     lines.push('    try:');
 
     // Guards — inside try so exceptions become MCP errors
-    const guardLines = emitPyGuards(toolNode, syntheticGuards);
+    const guardLines = emitPyGuards(toolNode, paramNodes, syntheticGuards);
     if (guardLines.length > 0) {
       lines.push(...guardLines.map((l) => (l.length > 0 ? `    ${l}` : '')));
     }
@@ -495,7 +515,8 @@ function buildPythonCode(
     lines.push(`    logger.info("resource:read", extra={"resource": ${pyStr(name)}})`);
 
     // Resource guards
-    const resGuardLines = emitPyGuards(resourceNode);
+    const resParamNodes = getChildren(resourceNode, 'param');
+    const resGuardLines = emitPyGuards(resourceNode, resParamNodes);
     if (resGuardLines.length > 0) {
       lines.push(...resGuardLines);
     }
@@ -534,7 +555,7 @@ function buildPythonCode(
     if (desc) lines.push(`    """${desc}"""`);
 
     // Prompt guards
-    const promptGuardLines = emitPyGuards(promptNode);
+    const promptGuardLines = emitPyGuards(promptNode, paramNodes);
     if (promptGuardLines.length > 0) {
       lines.push(...promptGuardLines);
     }

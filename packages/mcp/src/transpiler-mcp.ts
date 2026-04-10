@@ -17,7 +17,7 @@ import {
   getProps,
   serializeIR,
 } from '@kernlang/core';
-import { FILE_IO_PATTERN, SHELL_EXEC_PATTERN, NETWORK_PATTERN } from './effect-patterns.js';
+import { FILE_IO_PATTERN, NETWORK_PATTERN, SHELL_EXEC_PATTERN } from './effect-patterns.js';
 
 // ── Types (from Codex — proper typed interfaces) ────────────────────────
 
@@ -133,8 +133,17 @@ function collectGuard(node: IRNode, fallbackAllowlist: string[]): GuardDefinitio
   };
 }
 
+// ── Parameter categorization helpers (for auto-injection/guard scoping) ──
+
+const CONTENT_PARAMS = /^(content|code|body|data|payload|text|source|script|html|markdown|template)$/i;
+const PATH_PARAMS = /(?:^|[_A-Z])(?:path|file|dir(?:ectory)?|root|workspace)(?:$|[_A-Z])/i;
+
+function isContentParam(name: string): boolean {
+  return CONTENT_PARAMS.test(name);
+}
+
 function isPathLikeParam(name: string): boolean {
-  return /(?:^|[_A-Z])(?:path|file|dir(?:ectory)?|root|workspace)(?:$|[_A-Z])/i.test(name);
+  return PATH_PARAMS.test(name);
 }
 
 // ── Handler effect detection — auto-inject guards for effects found in handler code ──
@@ -170,14 +179,10 @@ function autoInjectEffectGuards(
   const stringParams = params.filter((p) => p.type === 'string');
   if (stringParams.length === 0) return;
 
-  // Content/code params should not be auto-guarded — they're opaque data
-  const isContentParam = (name: string) =>
-    /^(content|code|body|data|payload|text|source|script|html|markdown|template)$/i.test(name);
-
-  // File I/O without pathContainment → inject only on path-like params
+  // File I/O without pathContainment → inject on all non-content string params
   if (effects.fileIO && !allGuards.some((g) => g.kind === 'pathContainment')) {
     for (const p of stringParams) {
-      if (!p.guards.some((g) => g.kind === 'pathContainment') && isPathLikeParam(p.name)) {
+      if (!p.guards.some((g) => g.kind === 'pathContainment') && !isContentParam(p.name)) {
         p.guards.push({ kind: 'pathContainment', target: p.name, allowlist: fallbackAllowlist });
       }
     }
@@ -219,7 +224,7 @@ function collectParams(node: IRNode, fallbackAllowlist: string[]): ParamDefiniti
       ...parentGuards.filter((g) => {
         if (g.target) return g.target === name;
         // Untargeted guard: apply to compatible types instead of silently dropping
-        if (g.kind === 'pathContainment') return isPathLikeParam(name);
+        if (g.kind === 'pathContainment') return type === 'string' && !isContentParam(name);
         if (g.kind === 'sanitize') return type === 'string';
         if (g.kind === 'sizeLimit') return true; // works on string (byteLength) and non-string (JSON.stringify)
         return true; // validate applies to all types
@@ -851,8 +856,12 @@ function buildCode(
   // ── Info diagnostics for guard quality (S3-12/13/14)
   if (usingDefaultAllowlist && needsPath) {
     customDiagnostics.push({
-      nodeType: 'mcp', outcome: 'expressed', target: 'mcp', severity: 'info',
-      message: 'No explicit allowlist — using process.cwd() which may not match workspace root. Set allowlist in .kern file for production.',
+      nodeType: 'mcp',
+      outcome: 'expressed',
+      target: 'mcp',
+      severity: 'info',
+      message:
+        'No explicit allowlist — using process.cwd() which may not match workspace root. Set allowlist in .kern file for production.',
     });
   }
 
@@ -860,8 +869,12 @@ function buildCode(
   const helperBlock: string[] = [];
   if (requiredHelpers.has('auth')) {
     customDiagnostics.push({
-      nodeType: 'guard', outcome: 'expressed', target: 'mcp', severity: 'info',
-      message: 'checkAuth is a bootstrap check — it verifies the env var exists, not the caller. Implement real token verification for production.',
+      nodeType: 'guard',
+      outcome: 'expressed',
+      target: 'mcp',
+      severity: 'info',
+      message:
+        'checkAuth is a bootstrap check — it verifies the env var exists, not the caller. Implement real token verification for production.',
     });
     helperBlock.push(`// NOTE: checkAuth is a bootstrap check — it verifies the env var exists, not that`);
     helperBlock.push(`// the caller is authenticated. For production, add real token verification logic.`);
@@ -875,10 +888,16 @@ function buildCode(
   }
   if (requiredHelpers.has('rateLimit')) {
     customDiagnostics.push({
-      nodeType: 'guard', outcome: 'expressed', target: 'mcp', severity: 'info',
-      message: 'Rate limiting is global per-tool, not per-client. For multi-client servers, implement session-aware rate limiting.',
+      nodeType: 'guard',
+      outcome: 'expressed',
+      target: 'mcp',
+      severity: 'info',
+      message:
+        'Rate limiting is global per-tool, not per-client. For multi-client servers, implement session-aware rate limiting.',
     });
-    helperBlock.push(`// NOTE: Global per-tool rate limiting. For per-client, key by \`\${clientId}:\${toolName}\` using MCP session context.`);
+    helperBlock.push(
+      `// NOTE: Global per-tool rate limiting. For per-client, key by \`\${clientId}:\${toolName}\` using MCP session context.`,
+    );
     helperBlock.push(`const _rateLimitStore = new Map<string, { count: number; resetAt: number }>();`);
     helperBlock.push(`function checkRateLimit(toolName: string, windowMs: number, maxRequests: number): void {`);
     helperBlock.push(`  const now = Date.now();`);
