@@ -91,6 +91,10 @@ export interface TranspileDiagnostic {
   reason?: string;
   /** Number of children also lost (for root-cause-only reporting) */
   childrenLost?: number;
+  /** Severity level for custom transpiler diagnostics */
+  severity?: 'error' | 'warning' | 'info';
+  /** Human-readable description */
+  message?: string;
 }
 
 /** Result of transpilation */

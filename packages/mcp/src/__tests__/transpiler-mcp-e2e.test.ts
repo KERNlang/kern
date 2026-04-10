@@ -264,7 +264,7 @@ describe('transpileMCP runtime E2E', () => {
     const ast = node('mcp', { name: 'SanitizeE2E' }, [
       node('tool', { name: 'echo' }, [
         node('param', { name: 'input', type: 'string', required: 'true' }),
-        node('guard', { type: 'sanitize', param: 'input' }),
+        node('guard', { type: 'sanitize', param: 'input', pattern: '[^\\w./ -]' }),
         node('handler', { code: 'return { content: [{ type: "text" as const, text: String(args.input) }] };' }),
       ]),
     ]);

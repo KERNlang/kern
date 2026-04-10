@@ -47,6 +47,7 @@ function checkAuth(envVar: string, _header: string): void {
   if (!token) throw new Error("Authentication required: set " + envVar + " environment variable");
 }
 
+// NOTE: Global per-tool rate limiting. For per-client, key by \`\${clientId}:\${toolName}\` using MCP session context.
 const _rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 function checkRateLimit(toolName: string, windowMs: number, maxRequests: number): void {
   const now = Date.now();
@@ -78,17 +79,16 @@ function sanitizeToolOutput<T extends { content: Array<{ type: "text"; text: str
   };
 }
 
-server.tool("httpRequest", "Make an HTTP request to an external API with auth and rate limiting", httprequestSchema, async (input) => {
+server.tool("httpRequest", "Make an HTTP request to an external API with auth and rate limiting", httprequestSchema, async (_raw_input) => {
   const requestId = nextRequestId();
   logger.info("tool:call", { requestId, tool: "httpRequest" });
   try {
     checkAuth("GATEWAY_API_KEY", "x-api-key");
     checkRateLimit("httpRequest", 60000, 100);
-    const params = { ...input } as Record<string, unknown>;
-    params["url"] = sanitizeValue(params["url"], "[^\\\\w./ -]", "");
-    params["method"] = sanitizeValue(params["method"], "[^\\\\w./ -]", "");
-    params["body"] = sanitizeValue(params["body"], "[^\\\\w./ -]", "");
-    const args = params as typeof input;
+    const params = { ..._raw_input } as Record<string, unknown>;
+    params["url"] = sanitizeValue(params["url"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    params["method"] = sanitizeValue(params["method"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    const args = params as typeof _raw_input;
     const _rawResult = await (async () => {
             const options: RequestInit = {
               method: (params.method as string) || 'GET',
@@ -126,15 +126,15 @@ const graphqlquerySchema = {
   "variables": z.record(z.string(), z.unknown()).describe("Query variables as JSON").optional(),
 };
 
-server.tool("graphqlQuery", "Execute a GraphQL query against the configured endpoint", graphqlquerySchema, async (input) => {
+server.tool("graphqlQuery", "Execute a GraphQL query against the configured endpoint", graphqlquerySchema, async (_raw_input) => {
   const requestId = nextRequestId();
   logger.info("tool:call", { requestId, tool: "graphqlQuery" });
   try {
     checkAuth("GRAPHQL_TOKEN", "authorization");
     checkRateLimit("graphqlQuery", 60000, 50);
-    const params = { ...input } as Record<string, unknown>;
-    params["query"] = sanitizeValue(params["query"], "[^\\\\w./ -]", "");
-    const args = params as typeof input;
+    const params = { ..._raw_input } as Record<string, unknown>;
+    params["query"] = sanitizeValue(params["query"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    const args = params as typeof _raw_input;
     const _rawResult = await (async () => {
             const endpoint = process.env.GRAPHQL_ENDPOINT || 'http://localhost:4000/graphql';
             const response = await fetch(endpoint, {
@@ -256,13 +256,13 @@ const querySchema = {
   "limit": z.number().min(1).max(1000).describe("Maximum rows to return").default(100),
 };
 
-server.tool("query", "Execute a read-only SQL query against the database", querySchema, async (input) => {
+server.tool("query", "Execute a read-only SQL query against the database", querySchema, async (_raw_input) => {
   const requestId = nextRequestId();
   logger.info("tool:call", { requestId, tool: "query" });
   try {
-    const params = { ...input } as Record<string, unknown>;
-    params["sql"] = sanitizeValue(params["sql"], "[^\\\\w./ -]", "");
-    const args = params as typeof input;
+    const params = { ..._raw_input } as Record<string, unknown>;
+    params["sql"] = sanitizeValue(params["sql"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    const args = params as typeof _raw_input;
     return await (async () => {
             const normalized = (params.sql as string).trim().toUpperCase();
             if (!normalized.startsWith('SELECT')) {
@@ -295,11 +295,12 @@ server.tool("query", "Execute a read-only SQL query against the database", query
   }
 });
 
-server.tool("listTables", "List all tables in the database with row counts", {}, async (input) => {
+server.tool("listTables", "List all tables in the database with row counts", {}, async (_raw_input) => {
   const requestId = nextRequestId();
   logger.info("tool:call", { requestId, tool: "listTables" });
   try {
-    const args = input ?? {};
+    const params = { ...(_raw_input ?? {}) } as Record<string, unknown>;
+    const args = params as Record<string, unknown>;
     return await (async () => {
             const { Pool } = await import('pg');
             const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -330,13 +331,13 @@ const describetableSchema = {
   "tableName": z.string().describe("Table name to describe"),
 };
 
-server.tool("describeTable", "Show column names, types, and constraints for a table", describetableSchema, async (input) => {
+server.tool("describeTable", "Show column names, types, and constraints for a table", describetableSchema, async (_raw_input) => {
   const requestId = nextRequestId();
   logger.info("tool:call", { requestId, tool: "describeTable" });
   try {
-    const params = { ...input } as Record<string, unknown>;
-    params["tableName"] = sanitizeValue(params["tableName"], "[^\\\\w./ -]", "");
-    const args = params as typeof input;
+    const params = { ..._raw_input } as Record<string, unknown>;
+    params["tableName"] = sanitizeValue(params["tableName"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    const args = params as typeof _raw_input;
     return await (async () => {
             const { Pool } = await import('pg');
             const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -366,13 +367,13 @@ const explainquerySchema = {
   "sql": z.string().describe("SQL query to explain"),
 };
 
-server.tool("explainQuery", "Get the execution plan for a SQL query", explainquerySchema, async (input) => {
+server.tool("explainQuery", "Get the execution plan for a SQL query", explainquerySchema, async (_raw_input) => {
   const requestId = nextRequestId();
   logger.info("tool:call", { requestId, tool: "explainQuery" });
   try {
-    const params = { ...input } as Record<string, unknown>;
-    params["sql"] = sanitizeValue(params["sql"], "[^\\\\w./ -]", "");
-    const args = params as typeof input;
+    const params = { ..._raw_input } as Record<string, unknown>;
+    params["sql"] = sanitizeValue(params["sql"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    const args = params as typeof _raw_input;
     return await (async () => {
             const normalized = (params.sql as string).trim().toUpperCase();
             if (!normalized.startsWith('SELECT')) {
@@ -488,14 +489,14 @@ const readfileSchema = {
   "filePath": z.string(),
 };
 
-server.tool("readFile", "Read a file's contents within allowed directories", readfileSchema, async (input) => {
+server.tool("readFile", "Read a file's contents within allowed directories", readfileSchema, async (_raw_input) => {
   const requestId = nextRequestId();
   logger.info("tool:call", { requestId, tool: "readFile" });
   try {
-    const params = { ...input } as Record<string, unknown>;
+    const params = { ..._raw_input } as Record<string, unknown>;
     if (params["filePath"] == null || params["filePath"] === "") throw new Error("filePath is required for path containment check");
     params["filePath"] = ensurePathContainment(path.resolve(String(params["filePath"])), ["/data", "/home"].map(r => path.resolve(r)));
-    const args = params as typeof input;
+    const args = params as typeof _raw_input;
     return await (async () => {
             const fs = await import('node:fs/promises');
             const content = await fs.readFile(params.filePath as string, 'utf-8');
@@ -512,13 +513,13 @@ const searchfilesSchema = {
   "maxResults": z.number().min(1).max(500).default(50),
 };
 
-server.tool("searchFiles", "Search for files matching a pattern", searchfilesSchema, async (input) => {
+server.tool("searchFiles", "Search for files matching a pattern", searchfilesSchema, async (_raw_input) => {
   const requestId = nextRequestId();
   logger.info("tool:call", { requestId, tool: "searchFiles" });
   try {
-    const params = { ...input } as Record<string, unknown>;
-    params["query"] = sanitizeValue(params["query"], "[^\\\\w./ -]", "");
-    const args = params as typeof input;
+    const params = { ..._raw_input } as Record<string, unknown>;
+    params["query"] = sanitizeValue(params["query"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    const args = params as typeof _raw_input;
     return await (async () => {
             const { globSync } = await import('node:fs');
             const results = globSync(params.query as string).slice(0, params.maxResults as number);
@@ -535,14 +536,14 @@ const writefileSchema = {
   "content": z.string(),
 };
 
-server.tool("writeFile", "Write content to a file within allowed directories", writefileSchema, async (input) => {
+server.tool("writeFile", "Write content to a file within allowed directories", writefileSchema, async (_raw_input) => {
   const requestId = nextRequestId();
   logger.info("tool:call", { requestId, tool: "writeFile" });
   try {
-    const params = { ...input } as Record<string, unknown>;
+    const params = { ..._raw_input } as Record<string, unknown>;
     if (params["filePath"] == null || params["filePath"] === "") throw new Error("filePath is required for path containment check");
     params["filePath"] = ensurePathContainment(path.resolve(String(params["filePath"])), ["/data"].map(r => path.resolve(r)));
-    const args = params as typeof input;
+    const args = params as typeof _raw_input;
     return await (async () => {
             const fs = await import('node:fs/promises');
             await fs.writeFile(params.filePath as string, params.content as string, 'utf-8');
