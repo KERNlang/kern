@@ -12,7 +12,7 @@ import { finding } from '../mcp-types.js';
 
 const UNSAFE_DESER_TS = /\b(eval\s*\(|new\s+Function\s*\(|vm\.run|vm\.createContext|JSON\.parse\s*\(\s*[^'"`])/g;
 const UNSAFE_DESER_PY =
-  /\b(pickle\.loads?|marshal\.loads?|shelve\.open|yaml\.load\s*\(\s*[^,)]+\s*\)|yaml\.unsafe_load|eval\s*\(|exec\s*\(|compile\s*\()/g;
+  /\b(pickle\.loads?|marshal\.loads?|shelve\.open|yaml\.load\s*\(\s*[^,)]+\s*\)|yaml\.unsafe_load|eval\s*\(|exec\s*\(|(?<!re\.)compile\s*\()/g;
 
 export function unsafeDeserialization(source: string, filePath: string): ReviewFinding[] {
   const findings: ReviewFinding[] = [];

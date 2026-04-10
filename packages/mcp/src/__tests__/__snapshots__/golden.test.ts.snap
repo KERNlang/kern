@@ -263,30 +263,32 @@ server.tool("query", "Execute a read-only SQL query against the database", query
     const params = { ...input } as Record<string, unknown>;
     params["sql"] = sanitizeValue(params["sql"], "[^\\\\w./ -]", "");
     const args = params as typeof input;
-          const normalized = (params.sql as string).trim().toUpperCase();
-          if (!normalized.startsWith('SELECT')) {
-            throw new Error('Only SELECT queries are allowed for safety');
-          }
+    return await (async () => {
+            const normalized = (params.sql as string).trim().toUpperCase();
+            if (!normalized.startsWith('SELECT')) {
+              throw new Error('Only SELECT queries are allowed for safety');
+            }
 
-          // Replace with your actual database connection
-          const { Pool } = await import('pg');
-          const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-          const result = await pool.query(
-            \`\${params.sql} LIMIT $1\`,
-            [params.limit]
-          );
-          await pool.end();
+            // Replace with your actual database connection
+            const { Pool } = await import('pg');
+            const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+            const result = await pool.query(
+              \`\${params.sql} LIMIT $1\`,
+              [params.limit]
+            );
+            await pool.end();
 
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                rowCount: result.rowCount,
-                columns: result.fields.map(f => f.name),
-                rows: result.rows,
-              }, null, 2),
-            }],
-          };
+            return {
+              content: [{
+                type: "text",
+                text: JSON.stringify({
+                  rowCount: result.rowCount,
+                  columns: result.fields.map(f => f.name),
+                  rows: result.rows,
+                }, null, 2),
+              }],
+            };
+    })();
   } catch (error) {
     logger.error("tool:error", { requestId, tool: "query", error: fmtError(error) });
     return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
@@ -298,24 +300,26 @@ server.tool("listTables", "List all tables in the database with row counts", {},
   logger.info("tool:call", { requestId, tool: "listTables" });
   try {
     const args = input ?? {};
-          const { Pool } = await import('pg');
-          const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    return await (async () => {
+            const { Pool } = await import('pg');
+            const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-          const result = await pool.query(\`
-            SELECT schemaname, tablename,
-                   pg_size_pretty(pg_total_relation_size(schemaname || '.' || tablename)) as size
-            FROM pg_tables
-            WHERE schemaname = 'public'
-            ORDER BY tablename
-          \`);
-          await pool.end();
+            const result = await pool.query(\`
+              SELECT schemaname, tablename,
+                     pg_size_pretty(pg_total_relation_size(schemaname || '.' || tablename)) as size
+              FROM pg_tables
+              WHERE schemaname = 'public'
+              ORDER BY tablename
+            \`);
+            await pool.end();
 
-          return {
-            content: [{
-              type: "text",
-              text: result.rows.map(r => \`\${r.tablename} (\${r.size})\`).join('\\n'),
-            }],
-          };
+            return {
+              content: [{
+                type: "text",
+                text: result.rows.map(r => \`\${r.tablename} (\${r.size})\`).join('\\n'),
+              }],
+            };
+    })();
   } catch (error) {
     logger.error("tool:error", { requestId, tool: "listTables", error: fmtError(error) });
     return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
@@ -333,23 +337,25 @@ server.tool("describeTable", "Show column names, types, and constraints for a ta
     const params = { ...input } as Record<string, unknown>;
     params["tableName"] = sanitizeValue(params["tableName"], "[^\\\\w./ -]", "");
     const args = params as typeof input;
-          const { Pool } = await import('pg');
-          const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    return await (async () => {
+            const { Pool } = await import('pg');
+            const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-          const result = await pool.query(\`
-            SELECT column_name, data_type, is_nullable, column_default
-            FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = $1
-            ORDER BY ordinal_position
-          \`, [params.tableName]);
-          await pool.end();
+            const result = await pool.query(\`
+              SELECT column_name, data_type, is_nullable, column_default
+              FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = $1
+              ORDER BY ordinal_position
+            \`, [params.tableName]);
+            await pool.end();
 
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify(result.rows, null, 2),
-            }],
-          };
+            return {
+              content: [{
+                type: "text",
+                text: JSON.stringify(result.rows, null, 2),
+              }],
+            };
+    })();
   } catch (error) {
     logger.error("tool:error", { requestId, tool: "describeTable", error: fmtError(error) });
     return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
@@ -367,22 +373,24 @@ server.tool("explainQuery", "Get the execution plan for a SQL query", explainque
     const params = { ...input } as Record<string, unknown>;
     params["sql"] = sanitizeValue(params["sql"], "[^\\\\w./ -]", "");
     const args = params as typeof input;
-          const normalized = (params.sql as string).trim().toUpperCase();
-          if (!normalized.startsWith('SELECT')) {
-            throw new Error('Only SELECT queries can be explained');
-          }
+    return await (async () => {
+            const normalized = (params.sql as string).trim().toUpperCase();
+            if (!normalized.startsWith('SELECT')) {
+              throw new Error('Only SELECT queries can be explained');
+            }
 
-          const { Pool } = await import('pg');
-          const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-          const result = await pool.query(\`EXPLAIN ANALYZE \${params.sql}\`);
-          await pool.end();
+            const { Pool } = await import('pg');
+            const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+            const result = await pool.query(\`EXPLAIN ANALYZE \${params.sql}\`);
+            await pool.end();
 
-          return {
-            content: [{
-              type: "text",
-              text: result.rows.map(r => r['QUERY PLAN']).join('\\n'),
-            }],
-          };
+            return {
+              content: [{
+                type: "text",
+                text: result.rows.map(r => r['QUERY PLAN']).join('\\n'),
+              }],
+            };
+    })();
   } catch (error) {
     logger.error("tool:error", { requestId, tool: "explainQuery", error: fmtError(error) });
     return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
@@ -488,9 +496,11 @@ server.tool("readFile", "Read a file's contents within allowed directories", rea
     if (params["filePath"] == null || params["filePath"] === "") throw new Error("filePath is required for path containment check");
     params["filePath"] = ensurePathContainment(path.resolve(String(params["filePath"])), ["/data", "/home"].map(r => path.resolve(r)));
     const args = params as typeof input;
-          const fs = await import('node:fs/promises');
-          const content = await fs.readFile(params.filePath as string, 'utf-8');
-          return { content: [{ type: "text", text: content }] };
+    return await (async () => {
+            const fs = await import('node:fs/promises');
+            const content = await fs.readFile(params.filePath as string, 'utf-8');
+            return { content: [{ type: "text", text: content }] };
+    })();
   } catch (error) {
     logger.error("tool:error", { requestId, tool: "readFile", error: fmtError(error) });
     return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
@@ -509,9 +519,11 @@ server.tool("searchFiles", "Search for files matching a pattern", searchfilesSch
     const params = { ...input } as Record<string, unknown>;
     params["query"] = sanitizeValue(params["query"], "[^\\\\w./ -]", "");
     const args = params as typeof input;
-          const { globSync } = await import('node:fs');
-          const results = globSync(params.query as string).slice(0, params.maxResults as number);
-          return { content: [{ type: "text", text: results.join('\\n') }] };
+    return await (async () => {
+            const { globSync } = await import('node:fs');
+            const results = globSync(params.query as string).slice(0, params.maxResults as number);
+            return { content: [{ type: "text", text: results.join('\\n') }] };
+    })();
   } catch (error) {
     logger.error("tool:error", { requestId, tool: "searchFiles", error: fmtError(error) });
     return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };
@@ -531,9 +543,11 @@ server.tool("writeFile", "Write content to a file within allowed directories", w
     if (params["filePath"] == null || params["filePath"] === "") throw new Error("filePath is required for path containment check");
     params["filePath"] = ensurePathContainment(path.resolve(String(params["filePath"])), ["/data"].map(r => path.resolve(r)));
     const args = params as typeof input;
-          const fs = await import('node:fs/promises');
-          await fs.writeFile(params.filePath as string, params.content as string, 'utf-8');
-          return { content: [{ type: "text", text: "File written successfully" }] };
+    return await (async () => {
+            const fs = await import('node:fs/promises');
+            await fs.writeFile(params.filePath as string, params.content as string, 'utf-8');
+            return { content: [{ type: "text", text: "File written successfully" }] };
+    })();
   } catch (error) {
     logger.error("tool:error", { requestId, tool: "writeFile", error: fmtError(error) });
     return { isError: true as const, content: [{ type: "text" as const, text: fmtError(error) }] };

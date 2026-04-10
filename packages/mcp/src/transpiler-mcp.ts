@@ -510,8 +510,12 @@ function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Se
     lines.push(`    }`);
   }
 
+  // Always wrap handler code in async IIFE when it contains return statements —
+  // prevents bare return in the server.tool callback from bypassing error handling.
+  // sanitizeOutput wraps the result additionally.
+  const handlerHasReturn = handlerCode && /\breturn\b/.test(handlerCode);
+
   if (toolGuards.sanitizeOutput) {
-    // Wrap handler in output sanitization — strips prompt injection markers from responses
     lines.push(`    const _rawResult = await (async () => {`);
     if (handlerCode) {
       lines.push(...indent(handlerCode, 6));
@@ -520,6 +524,11 @@ function emitTool(node: IRNode, fallbackAllowlist: string[], requiredHelpers: Se
     }
     lines.push(`    })();`);
     lines.push(`    return sanitizeToolOutput(_rawResult);`);
+  } else if (handlerHasReturn) {
+    // Wrap in IIFE so return works correctly inside try/catch
+    lines.push(`    return await (async () => {`);
+    lines.push(...indent(handlerCode, 6));
+    lines.push(`    })();`);
   } else {
     if (handlerCode) {
       lines.push(...indent(handlerCode, 4));
