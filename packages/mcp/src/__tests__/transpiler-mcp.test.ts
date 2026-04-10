@@ -279,8 +279,8 @@ describe('transpileMCP', () => {
     expect(result.code).not.toContain('.default("false")');
   });
 
-  it('should not use IIFE pattern in generated tool handler (Issue 5 regression)', () => {
-    const ast = node('mcp', { name: 'NoIIFEServer' }, [
+  it('should wrap handler with return in IIFE for correct try/catch behavior', () => {
+    const ast = node('mcp', { name: 'IIFEServer' }, [
       node('tool', { name: 'action' }, [
         node('param', { name: 'input', type: 'string' }),
         node('handler', { code: 'return "done";' }),
@@ -288,7 +288,7 @@ describe('transpileMCP', () => {
     ]);
 
     const result = transpileMCP(ast);
-    expect(result.code).not.toContain('await (async () =>');
+    expect(result.code).toContain('await (async () =>');
   });
 
   it('should handle mcp node nested inside document', () => {
