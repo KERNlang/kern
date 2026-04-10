@@ -267,6 +267,16 @@ export function runTranspile(args: string[]): void {
         console.log(`  ⚠ ${d.nodeType}${loc} — unsupported in ${d.target}${lost}`);
       }
     }
+    // Surface severity-based diagnostics from transpiler
+    const sevDiags = result.diagnostics.filter((d) => d.severity);
+    for (const d of sevDiags) {
+      const loc = d.loc ? `:${d.loc.line}` : '';
+      const icon = d.severity === 'error' ? '✖' : d.severity === 'warning' ? '⚠' : 'ℹ';
+      console.log(`  ${icon} ${d.severity}: ${d.message || d.reason || d.nodeType}${loc}`);
+    }
+    if (sevDiags.some((d) => d.severity === 'error')) {
+      process.exitCode = 1;
+    }
   }
 }
 

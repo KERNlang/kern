@@ -149,6 +149,18 @@ function emitPyGuards(node: IRNode, syntheticGuards: IRNode[] = []): string[] {
         lines.push(`    if ${param} < ${props.min}: raise ValueError("${param} below minimum ${props.min}")`);
       if (props.max !== undefined && !Number.isNaN(Number(props.max)))
         lines.push(`    if ${param} > ${props.max}: raise ValueError("${param} above maximum ${props.max}")`);
+      const regex = str(props.regex);
+      if (regex) {
+        try {
+          new RegExp(regex);
+          if (/([+*}])\s*\)\s*[+*{]/.test(regex)) { /* skip ReDoS */ }
+          else {
+            lines.push(`    import re as _re`);
+            lines.push(`    if isinstance(${param}, str) and not _re.match(r${pyStr(regex)}, ${param}):`);
+            lines.push(`        raise ValueError(f"${param} does not match required pattern")`);
+          }
+        } catch { /* skip invalid */ }
+      }
     }
 
     if (kind === 'auth') {
@@ -482,6 +494,12 @@ function buildPythonCode(
     if (desc) lines.push(`    """${desc}"""`);
     lines.push(`    logger.info("resource:read", extra={"resource": ${pyStr(name)}})`);
 
+    // Resource guards
+    const resGuardLines = emitPyGuards(resourceNode);
+    if (resGuardLines.length > 0) {
+      lines.push(...resGuardLines);
+    }
+
     if (handlerCode) {
       lines.push(...ind(handlerCode.split('\n'), 4));
     } else {
@@ -514,6 +532,12 @@ function buildPythonCode(
     }
     lines.push(`async def ${name}(${pyParams.join(', ')}) -> str:`);
     if (desc) lines.push(`    """${desc}"""`);
+
+    // Prompt guards
+    const promptGuardLines = emitPyGuards(promptNode);
+    if (promptGuardLines.length > 0) {
+      lines.push(...promptGuardLines);
+    }
 
     if (handlerCode) {
       lines.push(...ind(handlerCode.split('\n'), 4));
