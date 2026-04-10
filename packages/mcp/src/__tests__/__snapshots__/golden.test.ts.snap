@@ -93,12 +93,12 @@ server.tool("httpRequest", "Make an HTTP request to an external API with auth an
     checkAuth("GATEWAY_API_KEY", "x-api-key", extra);
     checkRateLimit("httpRequest", 60000, 100, extra);
     const params = { ..._raw_input } as Record<string, unknown>;
-    params["url"] = sanitizeValue(params["url"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    params["url"] = sanitizeValue(params["url"], "[\\\\x00-\\\\x08\\\\x0b\\\\x0c\\\\x0e-\\\\x1f\\\\x7f]", "");
     if (typeof params["url"] === "string") {
       let _url: URL; try { _url = new URL(params["url"]); } catch { throw new Error("Invalid URL: " + params["url"]); }
       if (!["https", "http"].includes(_url.protocol.replace(":", ""))) throw new Error("URL scheme must be one of https, http: " + params["url"]);
     }
-    params["method"] = sanitizeValue(params["method"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    params["method"] = sanitizeValue(params["method"], "[\\\\x00-\\\\x08\\\\x0b\\\\x0c\\\\x0e-\\\\x1f\\\\x7f]", "");
     if (typeof params["headers"] === "string" && Buffer.byteLength(params["headers"]) > 1048576) throw new Error("Input headers exceeds size limit of 1048576 bytes");
     else if (params["headers"] != null && typeof params["headers"] !== "string") { const _sz = JSON.stringify(params["headers"]); if (_sz && Buffer.byteLength(_sz) > 1048576) throw new Error("Input headers exceeds size limit of 1048576 bytes"); }
     const args = params as typeof _raw_input;
@@ -146,7 +146,7 @@ server.tool("graphqlQuery", "Execute a GraphQL query against the configured endp
     checkAuth("GRAPHQL_TOKEN", "authorization", extra);
     checkRateLimit("graphqlQuery", 60000, 50, extra);
     const params = { ..._raw_input } as Record<string, unknown>;
-    params["query"] = sanitizeValue(params["query"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    params["query"] = sanitizeValue(params["query"], "[\\\\x00-\\\\x08\\\\x0b\\\\x0c\\\\x0e-\\\\x1f\\\\x7f]", "");
     if (typeof params["variables"] === "string" && Buffer.byteLength(params["variables"]) > 1048576) throw new Error("Input variables exceeds size limit of 1048576 bytes");
     else if (params["variables"] != null && typeof params["variables"] !== "string") { const _sz = JSON.stringify(params["variables"]); if (_sz && Buffer.byteLength(_sz) > 1048576) throw new Error("Input variables exceeds size limit of 1048576 bytes"); }
     const args = params as typeof _raw_input;
@@ -276,7 +276,7 @@ server.tool("query", "Execute a read-only SQL query against the database", query
   logger.info("tool:call", { requestId, tool: "query" });
   try {
     const params = { ..._raw_input } as Record<string, unknown>;
-    params["sql"] = sanitizeValue(params["sql"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    params["sql"] = sanitizeValue(params["sql"], "[\\\\x00-\\\\x08\\\\x0b\\\\x0c\\\\x0e-\\\\x1f\\\\x7f]", "");
     const args = params as typeof _raw_input;
     return await (async () => {
             const normalized = (params.sql as string).trim().toUpperCase();
@@ -351,7 +351,7 @@ server.tool("describeTable", "Show column names, types, and constraints for a ta
   logger.info("tool:call", { requestId, tool: "describeTable" });
   try {
     const params = { ..._raw_input } as Record<string, unknown>;
-    params["tableName"] = sanitizeValue(params["tableName"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    params["tableName"] = sanitizeValue(params["tableName"], "[\\\\x00-\\\\x08\\\\x0b\\\\x0c\\\\x0e-\\\\x1f\\\\x7f]", "");
     const args = params as typeof _raw_input;
     return await (async () => {
             const { Pool } = await import('pg');
@@ -387,7 +387,7 @@ server.tool("explainQuery", "Get the execution plan for a SQL query", explainque
   logger.info("tool:call", { requestId, tool: "explainQuery" });
   try {
     const params = { ..._raw_input } as Record<string, unknown>;
-    params["sql"] = sanitizeValue(params["sql"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    params["sql"] = sanitizeValue(params["sql"], "[\\\\x00-\\\\x08\\\\x0b\\\\x0c\\\\x0e-\\\\x1f\\\\x7f]", "");
     const args = params as typeof _raw_input;
     return await (async () => {
             const normalized = (params.sql as string).trim().toUpperCase();
@@ -533,7 +533,7 @@ server.tool("searchFiles", "Search for files matching a pattern", searchfilesSch
   logger.info("tool:call", { requestId, tool: "searchFiles" });
   try {
     const params = { ..._raw_input } as Record<string, unknown>;
-    params["query"] = sanitizeValue(params["query"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    params["query"] = sanitizeValue(params["query"], "[\\\\x00-\\\\x08\\\\x0b\\\\x0c\\\\x0e-\\\\x1f\\\\x7f]", "");
     const args = params as typeof _raw_input;
     return await (async () => {
             const { globSync } = await import('node:fs');

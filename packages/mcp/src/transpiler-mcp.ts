@@ -381,7 +381,7 @@ function emitGuardLines(params: ParamDefinition[]): string[] {
   for (const param of params) {
     const accessor = `params[${json(param.name)}]`;
     for (const guard of param.guards.filter((g) => g.kind === 'sanitize')) {
-      const pattern = guard.pattern || '[\\x00-\\x1f\\x7f]';
+      const pattern = guard.pattern || '[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]';
       // Validate regex at transpile time and reject catastrophic patterns
       try {
         new RegExp(pattern);

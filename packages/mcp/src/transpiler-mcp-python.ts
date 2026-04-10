@@ -140,7 +140,7 @@ function emitPyGuards(node: IRNode, paramNodes: IRNode[], syntheticGuards: IRNod
 
     for (const param of targetParams) {
       if (kind === 'sanitize') {
-        const pattern = str(props.pattern) || '[\\x00-\\x1f\\x7f]';
+        const pattern = str(props.pattern) || '[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]';
         const replacement = str(props.replacement) || '';
         try {
           new RegExp(pattern);
@@ -149,7 +149,10 @@ function emitPyGuards(node: IRNode, paramNodes: IRNode[], syntheticGuards: IRNod
           continue;
         }
         lines.push(`    try:`);
-        lines.push(`        ${param} = re.sub(r${pyStr(pattern)}, ${pyStr(replacement)}, str(${param}))`);
+        // Use non-raw string for hex escapes (\x00 etc.) to work correctly
+        const useRaw = !/\\x[0-9a-fA-F]/.test(pattern);
+        const prefix = useRaw ? 'r' : '';
+        lines.push(`        ${param} = re.sub(${prefix}${pyStr(pattern)}, ${pyStr(replacement)}, str(${param}))`);
         lines.push(`    except re.error:`);
         lines.push(`        pass`);
       }
