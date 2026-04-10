@@ -216,6 +216,9 @@ const RULE_GUARD_MAP: Record<string, string[]> = {
   'mcp-unsanitized-response': ['validation'],
 };
 
+/** Rules that shouldn't fire on tools with zero effects (no dangerous operations) */
+const EFFECT_REQUIRED_RULES = new Set(['mcp-missing-validation', 'mcp-path-traversal', 'mcp-command-injection']);
+
 /**
  * Suppress regex-rule findings where the IR shows the containing tool has
  * the corresponding guard. Mutates the findings array in place (splices out suppressed).
@@ -232,6 +235,7 @@ function suppressGuardedFindings(findings: ReviewFinding[], irNodes: IRNode[]): 
       guardKinds: new Set(
         (a.children ?? []).filter((c) => c.type === 'guard').map((c) => (c.props?.kind as string) || ''),
       ),
+      effectCount: (a.children ?? []).filter((c) => c.type === 'effect').length,
     }))
     .sort((a, b) => a.startLine - b.startLine);
 
@@ -256,6 +260,12 @@ function suppressGuardedFindings(findings: ReviewFinding[], irNodes: IRNode[]): 
 
     const hasGuard = requiredGuards.some((gk) => action.guardKinds.has(gk));
     if (hasGuard) {
+      findings.splice(i, 1);
+      continue;
+    }
+
+    // Suppress effect-dependent rules on tools with no effects (e.g. no-param tools)
+    if (EFFECT_REQUIRED_RULES.has(f.ruleId) && action.effectCount === 0) {
       findings.splice(i, 1);
     }
   }
