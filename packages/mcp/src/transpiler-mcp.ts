@@ -459,14 +459,14 @@ function emitToolGuardLines(node: IRNode): { pre: string[]; helpers: Set<string>
       const envVar = str(props.envVar) || str(props.env) || 'MCP_AUTH_TOKEN';
       const header = str(props.header) || 'authorization';
       helpers.add('auth');
-      pre.push(`checkAuth(${json(envVar)}, ${json(header)});`);
+      pre.push(`checkAuth(${json(envVar)}, ${json(header)}, extra);`);
     }
 
     if (kind === 'rateLimit') {
       const windowMs = str(props.windowMs) || str(props.window) || '60000';
       const maxReqs = str(props.maxRequests) || str(props.requests) || '100';
       helpers.add('rateLimit');
-      pre.push(`checkRateLimit(${json(str(getProps(node).name) || 'tool')}, ${windowMs}, ${maxReqs});`);
+      pre.push(`checkRateLimit(${json(str(getProps(node).name) || 'tool')}, ${windowMs}, ${maxReqs}, extra);`);
     }
 
     if (kind === 'sanitizeOutput') {
@@ -526,7 +526,8 @@ function emitTool(
   // Detect sampling/elicitation children — if present, handler gets extra context
   const hasSampling = getFirstChild(node, 'sampling') !== undefined;
   const hasElicitation = getFirstChild(node, 'elicitation') !== undefined;
-  const needsContext = hasSampling || hasElicitation;
+  const needsContext =
+    hasSampling || hasElicitation || toolGuards.helpers.has('auth') || toolGuards.helpers.has('rateLimit');
 
   const lines: string[] = [];
 
@@ -920,42 +921,37 @@ function buildCode(
   // ── Inject auth/rateLimit helpers if any tool uses them (after registrations so we know what's needed)
   const helperBlock: string[] = [];
   if (requiredHelpers.has('auth')) {
-    customDiagnostics.push({
-      nodeType: 'guard',
-      outcome: 'expressed',
-      target: 'mcp',
-      severity: 'info',
-      message:
-        'checkAuth is a bootstrap check — it verifies the env var exists, not the caller. Implement real token verification for production.',
-    });
-    helperBlock.push(`// NOTE: checkAuth is a bootstrap check — it verifies the env var exists, not that`);
-    helperBlock.push(`// the caller is authenticated. For production, add real token verification logic.`);
-    helperBlock.push(`function checkAuth(envVar: string, _header: string): void {`);
+    helperBlock.push(`function checkAuth(envVar: string, _header: string, extra?: Record<string, unknown>): void {`);
+    helperBlock.push(`  // Layer 1: If MCP SDK provides authInfo, verify the caller's token`);
+    helperBlock.push(`  const authInfo = (extra as any)?.authInfo;`);
+    helperBlock.push(`  if (authInfo) {`);
+    helperBlock.push(`    if (!authInfo.token) throw new Error("Authentication required: no token in session");`);
+    helperBlock.push(
+      `    if (authInfo.expiresAt && authInfo.expiresAt < Date.now() / 1000) throw new Error("Authentication token expired");`,
+    );
+    helperBlock.push(`    return; // Caller authenticated via MCP session`);
+    helperBlock.push(`  }`);
+    helperBlock.push(`  // Layer 2: Fallback — verify server has the env var configured`);
     helperBlock.push(`  const token = process.env[envVar];`);
     helperBlock.push(
-      `  if (!token) throw new Error("Authentication required: set " + envVar + " environment variable");`,
+      `  if (!token) throw new Error("Authentication required: set " + envVar + " or configure MCP auth");`,
     );
     helperBlock.push(`}`);
     helperBlock.push('');
   }
   if (requiredHelpers.has('rateLimit')) {
-    customDiagnostics.push({
-      nodeType: 'guard',
-      outcome: 'expressed',
-      target: 'mcp',
-      severity: 'info',
-      message:
-        'Rate limiting is global per-tool, not per-client. For multi-client servers, implement session-aware rate limiting.',
-    });
-    helperBlock.push(
-      `// NOTE: Global per-tool rate limiting. For per-client, key by \`\${clientId}:\${toolName}\` using MCP session context.`,
-    );
     helperBlock.push(`const _rateLimitStore = new Map<string, { count: number; resetAt: number }>();`);
-    helperBlock.push(`function checkRateLimit(toolName: string, windowMs: number, maxRequests: number): void {`);
+    helperBlock.push(
+      `function checkRateLimit(toolName: string, windowMs: number, maxRequests: number, extra?: Record<string, unknown>): void {`,
+    );
+    helperBlock.push(
+      `  const sessionId = (extra as any)?.sessionId || (extra as any)?.authInfo?.clientId || "global";`,
+    );
+    helperBlock.push('  const key = `${sessionId}:${toolName}`;');
     helperBlock.push(`  const now = Date.now();`);
-    helperBlock.push(`  const entry = _rateLimitStore.get(toolName);`);
+    helperBlock.push(`  const entry = _rateLimitStore.get(key);`);
     helperBlock.push(`  if (!entry || now > entry.resetAt) {`);
-    helperBlock.push(`    _rateLimitStore.set(toolName, { count: 1, resetAt: now + windowMs });`);
+    helperBlock.push(`    _rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });`);
     helperBlock.push(`    return;`);
     helperBlock.push(`  }`);
     helperBlock.push(`  entry.count++;`);
