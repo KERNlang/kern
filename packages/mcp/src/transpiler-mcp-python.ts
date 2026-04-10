@@ -397,7 +397,15 @@ function buildPythonCode(
       }
 
       if (defaultVal !== undefined) {
-        const pyDefault = pType === 'bool' ? (defaultVal === 'true' ? 'True' : 'False') : defaultVal;
+        let pyDefault: string;
+        if (pType === 'bool') {
+          pyDefault = defaultVal === 'true' ? 'True' : 'False';
+        } else if (pType === 'int' || pType === 'float') {
+          pyDefault = defaultVal;
+        } else {
+          // String and other types need quoting
+          pyDefault = pyStr(defaultVal);
+        }
         pyParams.push(`${pName}: ${pType} = ${pyDefault}`);
       } else if (isOptional) {
         pyParams.push(`${pName}: ${pType} | None = None`);
