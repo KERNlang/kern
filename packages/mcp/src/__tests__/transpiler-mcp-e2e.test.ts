@@ -1019,3 +1019,119 @@ describe('transpileMCP HTTP transport E2E', () => {
     }
   }, 20000);
 });
+
+describe('transpileMCP guard integration', () => {
+  const dirs: string[] = [];
+
+  afterAll(() => {
+    for (const d of dirs) {
+      try {
+        rmSync(d, { recursive: true, force: true });
+      } catch {}
+    }
+  });
+
+  function compile(code: string) {
+    const result = compileServer(code);
+    dirs.push(result.dir);
+    return result;
+  }
+
+  // 16. URL validation guard — rejects invalid URL schemes
+  it('should reject URLs with disallowed schemes via urlValidation guard', async () => {
+    const ast = node('mcp', { name: 'UrlGuardE2E' }, [
+      node('tool', { name: 'fetch' }, [
+        node('param', { name: 'url', type: 'string', required: 'true' }),
+        node('guard', { type: 'urlValidation', param: 'url', allowSchemes: 'https' }),
+        node('handler', { code: 'return { content: [{ type: "text" as const, text: "fetched: " + args.url }] };' }),
+      ]),
+    ]);
+
+    const result = transpileMCP(ast);
+    const { entryJS } = compile(result.code);
+
+    const { responses } = await sendMCP(entryJS, [
+      ...initMessages(),
+      rpc('tools/call', { name: 'fetch', arguments: { url: 'file:///etc/passwd' } }, 2),
+    ]);
+
+    const toolResponse = findResponse(responses, 2);
+    expect((toolResponse.result as any)?.isError).toBe(true);
+    expect((toolResponse.result as any)?.content[0].text).toContain('URL scheme');
+  }, 30000);
+
+  // 17. URL validation guard — accepts valid URLs
+  it('should accept URLs with allowed schemes', async () => {
+    const ast = node('mcp', { name: 'UrlPassE2E' }, [
+      node('tool', { name: 'fetch' }, [
+        node('param', { name: 'url', type: 'string', required: 'true' }),
+        node('guard', { type: 'urlValidation', param: 'url', allowSchemes: 'https,http' }),
+        node('handler', { code: 'return { content: [{ type: "text" as const, text: "ok: " + args.url }] };' }),
+      ]),
+    ]);
+
+    const result = transpileMCP(ast);
+    const { entryJS } = compile(result.code);
+
+    const { responses } = await sendMCP(entryJS, [
+      ...initMessages(),
+      rpc('tools/call', { name: 'fetch', arguments: { url: 'https://example.com/api' } }, 2),
+    ]);
+
+    const toolResponse = findResponse(responses, 2);
+    expect((toolResponse.result as any)?.content[0].text).toBe('ok: https://example.com/api');
+  }, 30000);
+
+  // 18. Path containment guard — rejects path traversal
+  it('should reject path traversal via pathContainment guard', async () => {
+    const ast = node('mcp', { name: 'PathE2E' }, [
+      node('tool', { name: 'readFile' }, [
+        node('param', { name: 'filePath', type: 'string', required: 'true' }),
+        node('guard', { type: 'pathContainment', param: 'filePath', allowlist: '/tmp/safe' }),
+        node('handler', { code: 'return { content: [{ type: "text" as const, text: "read: " + args.filePath }] };' }),
+      ]),
+    ]);
+
+    const result = transpileMCP(ast);
+    const { entryJS } = compile(result.code);
+
+    const { responses } = await sendMCP(entryJS, [
+      ...initMessages(),
+      rpc('tools/call', { name: 'readFile', arguments: { filePath: '/etc/passwd' } }, 2),
+    ]);
+
+    const toolResponse = findResponse(responses, 2);
+    expect((toolResponse.result as any)?.isError).toBe(true);
+    expect((toolResponse.result as any)?.content[0].text).toContain('Path escapes');
+  }, 30000);
+
+  // 19. _raw_input not accessible — handler referencing `input` fails at compile time
+  it('should prevent handler from accessing raw input', () => {
+    const ast = node('mcp', { name: 'ScopeE2E' }, [
+      node('tool', { name: 'test' }, [
+        node('param', { name: 'data', type: 'string', required: 'true' }),
+        node('handler', { code: 'return { content: [{ type: "text" as const, text: String(input.data) }] };' }),
+      ]),
+    ]);
+
+    const result = transpileMCP(ast);
+    // The generated code uses _raw_input, not input — handler code referencing `input` won't compile
+    expect(result.code).toContain('_raw_input');
+    expect(result.code).not.toMatch(/async\s*\(\s*input[\s,)]/);
+    // Verify compile fails for handler code that references `input`
+    expect(() => compile(result.code)).toThrow(/Cannot find name 'input'/);
+  });
+
+  // 20. Missing handler diagnostic
+  it('should emit error diagnostic for tools without handlers', () => {
+    const ast = node('mcp', { name: 'DiagE2E' }, [
+      node('tool', { name: 'noHandler' }, [node('description', { text: 'Missing handler' })]),
+    ]);
+
+    const result = transpileMCP(ast);
+    const errorDiags = (result.diagnostics || []).filter((d) => d.severity === 'error');
+    expect(errorDiags.length).toBeGreaterThan(0);
+    expect(errorDiags[0].reason).toBe('no-handler');
+    expect(errorDiags[0].message).toContain('noHandler');
+  });
+});
