@@ -220,8 +220,8 @@ function collectParams(node: IRNode, fallbackAllowlist: string[]): ParamDefiniti
         if (g.target) return g.target === name;
         // Untargeted guard: apply to compatible types instead of silently dropping
         if (g.kind === 'pathContainment') return isPathLikeParam(name);
-        if (g.kind === 'sanitize') return type === 'string' && isPathLikeParam(name);
-        if (g.kind === 'sizeLimit') return type === 'string';
+        if (g.kind === 'sanitize') return type === 'string';
+        if (g.kind === 'sizeLimit') return true; // works on string (byteLength) and non-string (JSON.stringify)
         return true; // validate applies to all types
       }),
     ];
