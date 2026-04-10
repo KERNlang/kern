@@ -921,22 +921,43 @@ function buildCode(
   // ── Inject auth/rateLimit helpers if any tool uses them (after registrations so we know what's needed)
   const helperBlock: string[] = [];
   if (requiredHelpers.has('auth')) {
-    helperBlock.push(`function checkAuth(envVar: string, _header: string, extra?: Record<string, unknown>): void {`);
-    helperBlock.push(`  // Layer 1: If MCP SDK provides authInfo, verify the caller's token`);
-    helperBlock.push(`  const authInfo = (extra as any)?.authInfo;`);
-    helperBlock.push(`  if (authInfo) {`);
-    helperBlock.push(`    if (!authInfo.token) throw new Error("Authentication required: no token in session");`);
-    helperBlock.push(
-      `    if (authInfo.expiresAt && authInfo.expiresAt < Date.now() / 1000) throw new Error("Authentication token expired");`,
-    );
-    helperBlock.push(`    return; // Caller authenticated via MCP session`);
-    helperBlock.push(`  }`);
-    helperBlock.push(`  // Layer 2: Fallback — verify server has the env var configured`);
-    helperBlock.push(`  const token = process.env[envVar];`);
-    helperBlock.push(
-      `  if (!token) throw new Error("Authentication required: set " + envVar + " or configure MCP auth");`,
-    );
-    helperBlock.push(`}`);
+    if (transportType === 'stdio') {
+      // stdio is trusted-local — no caller identity available
+      customDiagnostics.push({
+        nodeType: 'guard',
+        outcome: 'expressed',
+        target: 'mcp',
+        severity: 'warning',
+        message:
+          'Auth guard on stdio transport is config-only — verifies env var exists, cannot authenticate callers. Use HTTP/SSE transport for real auth.',
+      });
+      helperBlock.push(`// WARNING: stdio transport — auth is config-only, not caller verification.`);
+      helperBlock.push(`// Switch to transport=http or transport=sse for real authentication via MCP session.`);
+      helperBlock.push(`function checkAuth(envVar: string, _header: string, _extra?: Record<string, unknown>): void {`);
+      helperBlock.push(`  const token = process.env[envVar];`);
+      helperBlock.push(
+        `  if (!token) throw new Error("Server not configured: set " + envVar + " environment variable");`,
+      );
+      helperBlock.push(`}`);
+    } else {
+      // HTTP/SSE — real caller authentication via MCP session
+      helperBlock.push(`function checkAuth(envVar: string, _header: string, extra?: Record<string, unknown>): void {`);
+      helperBlock.push(`  // Verify caller via MCP session authInfo (HTTP/SSE transport)`);
+      helperBlock.push(`  const authInfo = (extra as any)?.authInfo;`);
+      helperBlock.push(`  if (authInfo) {`);
+      helperBlock.push(`    if (!authInfo.token) throw new Error("Authentication required: no token in session");`);
+      helperBlock.push(
+        `    if (authInfo.expiresAt && authInfo.expiresAt < Date.now() / 1000) throw new Error("Authentication token expired");`,
+      );
+      helperBlock.push(`    return;`);
+      helperBlock.push(`  }`);
+      helperBlock.push(`  // Fallback: verify server configuration`);
+      helperBlock.push(`  const token = process.env[envVar];`);
+      helperBlock.push(
+        `  if (!token) throw new Error("Authentication required: set " + envVar + " or configure MCP auth");`,
+      );
+      helperBlock.push(`}`);
+    }
     helperBlock.push('');
   }
   if (requiredHelpers.has('rateLimit')) {

@@ -40,17 +40,11 @@ const httprequestSchema = {
   "body": z.string().describe("Request body").optional(),
 };
 
-function checkAuth(envVar: string, _header: string, extra?: Record<string, unknown>): void {
-  // Layer 1: If MCP SDK provides authInfo, verify the caller's token
-  const authInfo = (extra as any)?.authInfo;
-  if (authInfo) {
-    if (!authInfo.token) throw new Error("Authentication required: no token in session");
-    if (authInfo.expiresAt && authInfo.expiresAt < Date.now() / 1000) throw new Error("Authentication token expired");
-    return; // Caller authenticated via MCP session
-  }
-  // Layer 2: Fallback — verify server has the env var configured
+// WARNING: stdio transport — auth is config-only, not caller verification.
+// Switch to transport=http or transport=sse for real authentication via MCP session.
+function checkAuth(envVar: string, _header: string, _extra?: Record<string, unknown>): void {
   const token = process.env[envVar];
-  if (!token) throw new Error("Authentication required: set " + envVar + " or configure MCP auth");
+  if (!token) throw new Error("Server not configured: set " + envVar + " environment variable");
 }
 
 const _rateLimitStore = new Map<string, { count: number; resetAt: number }>();

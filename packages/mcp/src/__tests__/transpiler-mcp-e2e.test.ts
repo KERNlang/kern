@@ -329,7 +329,7 @@ describe('transpileMCP runtime E2E', () => {
     const toolResponse = findResponse(responses, 2);
     // Should fail with auth error (isError: true in MCP tool response)
     expect((toolResponse.result as any)?.isError).toBe(true);
-    expect((toolResponse.result as any)?.content[0].text).toContain('Authentication required');
+    expect((toolResponse.result as any)?.content[0].text).toContain('not configured');
   }, 30000);
 
   // 5. SizeLimit guard — rejects oversized input
@@ -632,7 +632,7 @@ describe('transpileMCP runtime E2E', () => {
 
     const r2 = findResponse(responses, 2);
     expect((r2.result as any)?.isError).toBe(true);
-    expect((r2.result as any)?.content[0].text).toContain('Authentication required');
+    expect((r2.result as any)?.content[0].text).toContain('not configured');
   }, 30000);
 
   // 17. Concurrent requests — send 10 tool calls rapidly, all must respond correctly
