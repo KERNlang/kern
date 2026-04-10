@@ -227,6 +227,14 @@ function autoInjectEffectGuards(
       }
     }
   }
+
+  // JSON/object params → inject sizeLimit to prevent oversized payloads (defense-in-depth)
+  const jsonParams = params.filter((p) => p.type === 'object' || p.type === 'json');
+  for (const p of jsonParams) {
+    if (!p.guards.some((g) => g.kind === 'sizeLimit')) {
+      p.guards.push({ kind: 'sizeLimit', target: p.name, allowlist: [], maxBytes: '1048576' });
+    }
+  }
 }
 
 function collectParams(node: IRNode, fallbackAllowlist: string[]): ParamDefinition[] {

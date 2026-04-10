@@ -37,11 +37,14 @@ export function unsafeDeserialization(source: string, filePath: string): ReviewF
       if (match[0].startsWith('JSON.parse')) {
         const argMatch = rawLines[i].match(/JSON\.parse\s*\(\s*([\w.[\]"']+)/);
         if (argMatch) {
-          const argLit = argMatch[1].replace(/[[\]"']/g, '.');
+          // Normalize: params["headers"] and params.headers → params.headers
+          const argNorm = argMatch[1].replace(/\["([^"]+)"\]/g, '.$1').replace(/\['([^']+)'\]/g, '.$1');
           const preceding = rawLines.slice(Math.max(0, i - 30), i).join('\n');
-          const escaped = argLit.replace(/[.*+?^${}()|\\]/g, '\\$&');
+          // Normalize preceding lines the same way for matching
+          const precNorm = preceding.replace(/\["([^"]+)"\]/g, '.$1').replace(/\['([^']+)'\]/g, '.$1');
+          const escaped = argNorm.replace(/[.*+?^${}()|\\]/g, '\\$&');
           const varRe = new RegExp(`\\b(sanitizeValue|Buffer\\.byteLength)\\s*\\(\\s*${escaped}`);
-          if (varRe.test(preceding)) continue;
+          if (varRe.test(precNorm)) continue;
         }
       }
       // Allow yaml.safe_load — that's the safe variant

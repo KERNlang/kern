@@ -92,6 +92,8 @@ server.tool("httpRequest", "Make an HTTP request to an external API with auth an
       if (!["https", "http"].includes(_url.protocol.replace(":", ""))) throw new Error("URL scheme must be one of https, http: " + params["url"]);
     }
     params["method"] = sanitizeValue(params["method"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    if (typeof params["headers"] === "string" && Buffer.byteLength(params["headers"]) > 1048576) throw new Error("Input headers exceeds size limit of 1048576 bytes");
+    else if (params["headers"] != null && typeof params["headers"] !== "string") { const _sz = JSON.stringify(params["headers"]); if (_sz && Buffer.byteLength(_sz) > 1048576) throw new Error("Input headers exceeds size limit of 1048576 bytes"); }
     const args = params as typeof _raw_input;
     const _rawResult = await (async () => {
             const options: RequestInit = {
@@ -138,6 +140,8 @@ server.tool("graphqlQuery", "Execute a GraphQL query against the configured endp
     checkRateLimit("graphqlQuery", 60000, 50);
     const params = { ..._raw_input } as Record<string, unknown>;
     params["query"] = sanitizeValue(params["query"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    if (typeof params["variables"] === "string" && Buffer.byteLength(params["variables"]) > 1048576) throw new Error("Input variables exceeds size limit of 1048576 bytes");
+    else if (params["variables"] != null && typeof params["variables"] !== "string") { const _sz = JSON.stringify(params["variables"]); if (_sz && Buffer.byteLength(_sz) > 1048576) throw new Error("Input variables exceeds size limit of 1048576 bytes"); }
     const args = params as typeof _raw_input;
     const _rawResult = await (async () => {
             const endpoint = process.env.GRAPHQL_ENDPOINT || 'http://localhost:4000/graphql';
