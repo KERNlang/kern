@@ -87,6 +87,10 @@ server.tool("httpRequest", "Make an HTTP request to an external API with auth an
     checkRateLimit("httpRequest", 60000, 100);
     const params = { ..._raw_input } as Record<string, unknown>;
     params["url"] = sanitizeValue(params["url"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
+    if (typeof params["url"] === "string") {
+      let _url: URL; try { _url = new URL(params["url"]); } catch { throw new Error("Invalid URL: " + params["url"]); }
+      if (!["https", "http"].includes(_url.protocol.replace(":", ""))) throw new Error("URL scheme must be one of https, http: " + params["url"]);
+    }
     params["method"] = sanitizeValue(params["method"], "[\\\\x00-\\\\x1f\\\\x7f]", "");
     const args = params as typeof _raw_input;
     const _rawResult = await (async () => {

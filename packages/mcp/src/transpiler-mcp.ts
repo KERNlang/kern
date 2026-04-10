@@ -21,7 +21,15 @@ import { FILE_IO_PATTERN, NETWORK_PATTERN, SHELL_EXEC_PATTERN } from './effect-p
 
 // ── Types (from Codex — proper typed interfaces) ────────────────────────
 
-type GuardKind = 'sanitize' | 'pathContainment' | 'validate' | 'auth' | 'rateLimit' | 'sizeLimit' | 'sanitizeOutput';
+type GuardKind =
+  | 'sanitize'
+  | 'pathContainment'
+  | 'validate'
+  | 'auth'
+  | 'rateLimit'
+  | 'sizeLimit'
+  | 'sanitizeOutput'
+  | 'urlValidation';
 
 interface GuardDefinition {
   kind: GuardKind;
@@ -41,6 +49,9 @@ interface GuardDefinition {
   maxRequests?: string;
   // sizeLimit guard
   maxBytes?: string;
+  // urlValidation guard
+  allowSchemes?: string[];
+  allowHosts?: string[];
 }
 
 interface ParamDefinition {
@@ -112,6 +123,7 @@ function collectGuard(node: IRNode, fallbackAllowlist: string[]): GuardDefinitio
     'rateLimit',
     'sizeLimit',
     'sanitizeOutput',
+    'urlValidation',
   ];
   if (!validKinds.includes(kind as GuardKind)) return null;
   const rawAllow = splitCsv(str(props.allowlist) || str(props.allow) || str(props.roots));
@@ -130,6 +142,8 @@ function collectGuard(node: IRNode, fallbackAllowlist: string[]): GuardDefinitio
     windowMs: str(props.windowMs) || str(props.window),
     maxRequests: str(props.maxRequests) || str(props.requests),
     maxBytes: str(props.maxBytes) || ((kind as GuardKind) === 'sizeLimit' ? str(props.max) : undefined),
+    allowSchemes: splitCsv(str(props.allowSchemes) || str(props.schemes)),
+    allowHosts: splitCsv(str(props.allowHosts) || str(props.hosts)),
   };
 }
 
@@ -144,6 +158,12 @@ function isContentParam(name: string): boolean {
 
 function isPathLikeParam(name: string): boolean {
   return PATH_PARAMS.test(name);
+}
+
+const URL_PARAMS = /(?:^|[_A-Z])(?:url|uri|endpoint|href|link|origin|host)(?:$|[_A-Z])/i;
+
+function isUrlLikeParam(name: string): boolean {
+  return URL_PARAMS.test(name);
 }
 
 // ── Handler effect detection — auto-inject guards for effects found in handler code ──
@@ -197,10 +217,12 @@ function autoInjectEffectGuards(
     }
   }
 
-  // Network calls without sanitize → inject on non-content string params
+  // Network calls → inject urlValidation on URL-like params, sanitize on others
   if (effects.network) {
     for (const p of stringParams) {
-      if (!p.guards.some((g) => g.kind === 'sanitize') && !isContentParam(p.name)) {
+      if (isUrlLikeParam(p.name) && !p.guards.some((g) => g.kind === 'urlValidation')) {
+        p.guards.push({ kind: 'urlValidation', target: p.name, allowlist: [], allowSchemes: ['https', 'http'] });
+      } else if (!p.guards.some((g) => g.kind === 'sanitize') && !isContentParam(p.name) && !isUrlLikeParam(p.name)) {
         p.guards.push({ kind: 'sanitize', target: p.name, allowlist: [] });
       }
     }
@@ -381,6 +403,25 @@ function emitGuardLines(params: ParamDefinition[]): string[] {
         lines.push(`${accessor} = ensurePathContainment(${base}, ALLOWED_PATHS);`);
       }
     }
+    // urlValidation guard — validate URL scheme and optionally host
+    for (const guard of param.guards.filter((g) => g.kind === 'urlValidation')) {
+      const schemes = guard.allowSchemes?.length ? guard.allowSchemes : ['https', 'http'];
+      const schemeLiteral = `[${schemes.map((s) => json(s)).join(', ')}]`;
+      lines.push(`if (typeof ${accessor} === "string") {`);
+      lines.push(
+        `  let _url: URL; try { _url = new URL(${accessor}); } catch { throw new Error("Invalid URL: " + ${accessor}); }`,
+      );
+      lines.push(
+        `  if (!${schemeLiteral}.includes(_url.protocol.replace(":", ""))) throw new Error("URL scheme must be one of ${schemes.join(', ')}: " + ${accessor});`,
+      );
+      if (guard.allowHosts?.length) {
+        const hostLiteral = `[${guard.allowHosts.map((h) => json(h)).join(', ')}]`;
+        lines.push(
+          `  if (!${hostLiteral}.includes(_url.hostname)) throw new Error("URL host not in allowlist: " + _url.hostname);`,
+        );
+      }
+      lines.push(`}`);
+    }
     // sizeLimit guard — check byte length for strings and serialized size for other types
     for (const guard of param.guards.filter((g) => g.kind === 'sizeLimit')) {
       const maxBytes = guard.maxBytes || guard.max || '1048576';
@@ -507,7 +548,10 @@ function emitTool(
   if (params.length > 0) {
     lines.push(`    const params = { ..._raw_input } as Record<string, unknown>;`);
     const hasRuntimeGuards = params.some((p) =>
-      p.guards.some((g) => g.kind === 'sanitize' || g.kind === 'pathContainment' || g.kind === 'sizeLimit'),
+      p.guards.some(
+        (g) =>
+          g.kind === 'sanitize' || g.kind === 'pathContainment' || g.kind === 'sizeLimit' || g.kind === 'urlValidation',
+      ),
     );
     if (hasRuntimeGuards) {
       for (const line of emitGuardLines(params)) {

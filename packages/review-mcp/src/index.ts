@@ -214,6 +214,8 @@ const RULE_GUARD_MAP: Record<string, string[]> = {
   'mcp-missing-validation': ['validation', 'path-containment'],
   'mcp-command-injection': ['validation'],
   'mcp-unsanitized-response': ['validation'],
+  'mcp-ssrf': ['validation'],
+  'mcp-resource-exhaustion': ['rate-limit'],
 };
 
 /** Rules that shouldn't fire on tools with zero effects (no dangerous operations) */

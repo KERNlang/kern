@@ -47,6 +47,7 @@ const KERN_SANITIZE_PATTERN = /\bsanitizeValue\s*\(/;
 const KERN_SIZE_LIMIT_PATTERN = /\bBuffer\.byteLength\s*\(.*\)\s*>/;
 const KERN_RATE_LIMIT_PATTERN = /\bcheckRateLimit\s*\(/;
 const KERN_PATH_CONTAINMENT_PATTERN = /\bensurePathContainment\s*\(/;
+const KERN_URL_VALIDATION_PATTERN = /\bnew\s+URL\s*\(\s*\w/;
 
 // ── Python patterns ──────────────────────────────────────────────────
 
@@ -221,6 +222,9 @@ function scanBodyForEffectsAndGuards(bodyText: string, startLine: number): IRNod
     }
     if (KERN_PATH_CONTAINMENT_PATTERN.test(line)) {
       children.push(node('guard', absoluteLine, { kind: 'path-containment' }));
+    }
+    if (KERN_URL_VALIDATION_PATTERN.test(line)) {
+      children.push(node('guard', absoluteLine, { kind: 'validation' }));
     }
   }
   return children;
