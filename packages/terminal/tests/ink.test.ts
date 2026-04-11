@@ -48,7 +48,8 @@ describe('Ink Transpiler', () => {
     const ast = parse('screen name=Test\n  spinner message="Loading..." color=214');
     const result = transpileInk(ast);
 
-    expect(result.code).toContain("import Spinner from 'ink-spinner'");
+    expect(result.code).toContain("from '@inkjs/ui'");
+    expect(result.code).toContain('Spinner');
     expect(result.code).toContain('<Spinner');
     expect(result.code).toContain('Loading...');
   });
@@ -77,15 +78,18 @@ describe('Ink Transpiler', () => {
     expect(result.code).toContain('color={color}');
   });
 
-  test('generates state as useState hooks', async () => {
+  test('generates state as useState hooks with __inkSafe wrappers', async () => {
     const { parse } = await import('../../core/src/parser.js');
     const { transpileInk } = await import('../src/transpiler-ink.js');
     const ast = parse('screen name=Test\n  state name=busy initial=false\n  state name=count initial=0');
     const result = transpileInk(ast);
 
     expect(result.code).toContain('useState');
-    expect(result.code).toContain('const [busy, setBusy] = useState(false)');
-    expect(result.code).toContain('const [count, setCount] = useState(0)');
+    // Safe setters are default-on for Ink target
+    expect(result.code).toContain('const [busy, _setBusyRaw] = useState(false)');
+    expect(result.code).toContain('const setBusy = useMemo(() => __inkSafe(_setBusyRaw), [_setBusyRaw])');
+    expect(result.code).toContain('const [count, _setCountRaw] = useState(0)');
+    expect(result.code).toContain('const setCount = useMemo(() => __inkSafe(_setCountRaw), [_setCountRaw])');
   });
 
   test('generates machine with useReducer hook', async () => {
@@ -141,7 +145,8 @@ describe('Ink Transpiler', () => {
     const ast = parse(source);
     const result = transpileInk(ast);
 
-    expect(result.code).toContain("import TextInput from 'ink-text-input'");
+    expect(result.code).toContain("from '@inkjs/ui'");
+    expect(result.code).toContain('TextInput');
     expect(result.code).toContain('<TextInput');
     expect(result.code).toContain('placeholder="Type here..."');
   });
@@ -383,8 +388,8 @@ describe('Ink Transpiler', () => {
     const ast = parse(source);
     const result = transpileInk(ast);
 
-    expect(result.code).toContain('items={menuItems}');
-    expect(result.code).toContain('onSelect={handleSelect}');
+    expect(result.code).toContain('options={menuItems}');
+    expect(result.code).toContain('onChange={handleSelect}');
   });
 
   test('Bug #6: handler blocks preserve indentation', async () => {
@@ -500,5 +505,428 @@ describe('Ink Transpiler', () => {
     expect(result.irTokenCount).toBeGreaterThan(0);
     expect(result.tsTokenCount).toBeGreaterThan(0);
     expect(typeof result.tokenReduction).toBe('number');
+  });
+
+  // ── Phase 1: Ink-safe setters & dispatch ──────────────────────────────
+
+  test('state generates __inkSafe wrapper for setters', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=Test\n  state name=busy initial=false\n  state name=count initial=0');
+    const result = transpileInk(ast);
+
+    // Should emit __inkSafe preamble once
+    expect(result.code).toContain('function __inkSafe<T>');
+    expect(result.code).toContain('setTimeout(() => setter(value), 0)');
+    // Should wrap setters
+    expect(result.code).toContain('const [busy, _setBusyRaw] = useState(false)');
+    expect(result.code).toContain('const setBusy = useMemo(() => __inkSafe(_setBusyRaw), [_setBusyRaw])');
+    expect(result.code).toContain('const [count, _setCountRaw] = useState(0)');
+    expect(result.code).toContain('const setCount = useMemo(() => __inkSafe(_setCountRaw), [_setCountRaw])');
+  });
+
+  test('state with safe=false skips __inkSafe wrapper', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=Test\n  state name=count initial=0 safe=false');
+    const result = transpileInk(ast);
+
+    // Should NOT wrap setter
+    expect(result.code).toContain('const [count, setCount] = useState(0)');
+    expect(result.code).not.toContain('_setCountRaw');
+    // Should NOT emit __inkSafe since no state needs it
+    expect(result.code).not.toContain('function __inkSafe');
+  });
+
+  test('machine generates wrapped dispatch in useReducer hook', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  machine name=App',
+      '    state name=idle initial=true',
+      '    state name=busy',
+      '    transition name=start from=idle to=busy',
+      '    transition name=finish from=busy to=idle',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Should wrap dispatch with setTimeout
+    expect(result.code).toContain('_rawDispatch');
+    expect(result.code).toContain('setTimeout(() => _rawDispatch(action), 0)');
+    // Should still have the reducer hook
+    expect(result.code).toContain('useReducer');
+    expect(result.code).toContain('function useAppReducer');
+  });
+
+  test('logic with setInterval auto-generates clearInterval cleanup', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  state name=tick initial=0',
+      '  logic <<<',
+      '    const id = setInterval(() => setTick(t => t + 1), 1000);',
+      '  >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('useEffect(() => {');
+    expect(result.code).toContain('setInterval');
+    // Auto-cleanup should be injected
+    expect(result.code).toContain('return () => { clearInterval(id); };');
+  });
+
+  test('logic with existing return cleanup does not duplicate', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  logic <<<',
+      '    const timer = setInterval(() => tick(), 1000);',
+      '    return () => clearInterval(timer);',
+      '  >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Should keep existing cleanup
+    expect(result.code).toContain('return () => clearInterval(timer)');
+    // Should NOT inject a second cleanup
+    const cleanupCount = (result.code.match(/clearInterval/g) || []).length;
+    expect(cleanupCount).toBe(1);
+  });
+
+  test('__inkSafe emitted once even with multiple state nodes', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  state name=a initial=1',
+      '  state name=b initial=2',
+      '  state name=c initial=3',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // __inkSafe should appear exactly once as a function definition
+    const preambleCount = (result.code.match(/function __inkSafe/g) || []).length;
+    expect(preambleCount).toBe(1);
+    // All three setters should be wrapped
+    expect(result.code).toContain('const setA = useMemo(() => __inkSafe(_setARaw), [_setARaw])');
+    expect(result.code).toContain('const setB = useMemo(() => __inkSafe(_setBRaw), [_setBRaw])');
+    expect(result.code).toContain('const setC = useMemo(() => __inkSafe(_setCRaw), [_setCRaw])');
+  });
+
+  // ── Phase 2: Throttle, Debounce, Animation, Derive ────────────────────
+
+  test('state with throttle generates throttled setter', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=Test\n  state name=streamText initial="" throttle=90');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain("const [streamText, _setStreamTextRaw] = useState('')");
+    expect(result.code).toContain('const setStreamText = useMemo(() => {');
+    expect(result.code).toContain('let _lastCall = 0');
+    expect(result.code).toContain('now - _lastCall >= 90');
+    expect(result.code).toContain('setTimeout(() => _setStreamTextRaw(value), 0)');
+    // Should NOT use __inkSafe (throttle handles its own setTimeout)
+    expect(result.code).not.toContain('__inkSafe');
+  });
+
+  test('state with debounce generates debounced setter', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=Test\n  state name=query initial="" debounce=300');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain("const [query, _setQueryRaw] = useState('')");
+    expect(result.code).toContain('const setQuery = useMemo(() => {');
+    expect(result.code).toContain('let _timer');
+    expect(result.code).toContain('clearTimeout(_timer)');
+    expect(result.code).toContain('setTimeout(() => _setQueryRaw(value), 300)');
+  });
+
+  test('animation generates useEffect with setInterval and cleanup', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  state name=frame initial=0',
+      '  animation name=frame interval=100 update="(prev) => (prev + 1) % 4"',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('useEffect');
+    expect(result.code).toContain('const _animId = setInterval(() => {');
+    expect(result.code).toContain('setFrame((prev) => (prev + 1) % 4)');
+    expect(result.code).toContain('}, 100)');
+    expect(result.code).toContain('return () => clearInterval(_animId)');
+  });
+
+  test('animation with active prop generates conditional effect', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  state name=frame initial=0',
+      '  state name=loading initial=false',
+      '  animation name=frame interval=100 update="(prev) => (prev + 1) % 4" active={{ loading }}',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('if (!(loading)) return');
+    expect(result.code).toContain('setFrame((prev) => (prev + 1) % 4)');
+    expect(result.code).toContain('[loading]');
+  });
+
+  test('derive in screen generates useMemo with auto-deps', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  state name=items initial=[]',
+      '  state name=filter initial=""',
+      '  derive name=filtered expr={{ items.filter(i => i.name.includes(filter)) }}',
+      '  text value="Results"',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('useMemo');
+    expect(result.code).toContain('const filtered = useMemo');
+    expect(result.code).toContain('items.filter(i => i.name.includes(filter))');
+    // Auto-deps should detect items and filter
+    expect(result.code).toContain('[items, filter]');
+    // derive should NOT appear as JSX
+    expect(result.code).not.toContain('<derive');
+  });
+
+  // ── Phase 3: Ink API Surface + @inkjs/ui ──────────────────────────────
+
+  test('focus node generates useFocus hook', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = 'screen name=Test\n  focus name=emailFocused autoFocus=true\n  text value="Email"';
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('useFocus');
+    expect(result.code).toContain('const { isFocused: emailFocused } = useFocus({ autoFocus: true })');
+    expect(result.code).not.toContain('<focus');
+  });
+
+  test('app-exit node generates useApp with exit effect', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = 'screen name=Test\n  app-exit on={{ complete }}\n  text value="Done"';
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('useApp');
+    expect(result.code).toContain('const { exit } = useApp()');
+    expect(result.code).toContain('if (complete) exit()');
+    expect(result.code).not.toContain('<app-exit');
+  });
+
+  test('static-log generates Static component', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = ['screen name=Test', '  static-log items={{ logs }}', '    text value={{ item.message }}'].join(
+      '\n',
+    );
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('<Static items={logs}>');
+    expect(result.code).toContain('(item: any) => (');
+    expect(result.code).toContain('item.message');
+  });
+
+  test('newline generates Newline component', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=Test\n  text value="Hello"\n  newline\n  text value="World"');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('<Newline />');
+    expect(result.code).toContain("from 'ink'");
+  });
+
+  test('multi-select generates @inkjs/ui MultiSelect', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=Test\n  multi-select options={{ configOptions }} onChange=handleChange');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain("from '@inkjs/ui'");
+    expect(result.code).toContain('<MultiSelect');
+    expect(result.code).toContain('options={configOptions}');
+    expect(result.code).toContain('onChange={handleChange}');
+  });
+
+  test('confirm-input generates @inkjs/ui ConfirmInput', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=Test\n  confirm-input onConfirm=handleYes onCancel=handleNo');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('<ConfirmInput');
+    expect(result.code).toContain('onConfirm={handleYes}');
+    expect(result.code).toContain('onCancel={handleNo}');
+  });
+
+  test('status-message generates @inkjs/ui StatusMessage', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  status-message variant="success"',
+      '    text value="Deployment complete!"',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('<StatusMessage variant="success">');
+    expect(result.code).toContain('Deployment complete!');
+  });
+
+  test('alert generates @inkjs/ui Alert', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  alert variant="warning" title="Caution"',
+      '    text value="Cannot undo."',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('<Alert variant="warning" title="Caution">');
+    expect(result.code).toContain('Cannot undo.');
+  });
+
+  test('spinner migrated to @inkjs/ui import', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=Test\n  spinner message="Loading..."');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain("from '@inkjs/ui'");
+    expect(result.code).toContain('Spinner');
+    expect(result.code).not.toContain("from 'ink-spinner'");
+  });
+
+  test('text-input migrated to @inkjs/ui import', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=Test\n  text-input placeholder="Type..."');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain("from '@inkjs/ui'");
+    expect(result.code).toContain('TextInput');
+    expect(result.code).not.toContain("from 'ink-text-input'");
+  });
+
+  test('select-input migrated to @inkjs/ui Select', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=Test\n  select-input items={{ menuItems }} onSelect=handleSelect');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain("from '@inkjs/ui'");
+    expect(result.code).toContain('Select');
+    expect(result.code).toContain('<Select');
+    expect(result.code).not.toContain("from 'ink-select-input'");
+    expect(result.code).not.toContain('SelectInput');
+  });
+
+  // ── Phase 4: Layout & Composability ───────────────────────────────────
+
+  test('layout-row generates Box with flexDirection=row', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = ['screen name=Test', '  layout-row gap=2', '    text value="Left"', '    text value="Right"'].join(
+      '\n',
+    );
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('flexDirection="row"');
+    expect(result.code).toContain('gap={2}');
+    expect(result.code).toContain('Left');
+    expect(result.code).toContain('Right');
+  });
+
+  test('layout-stack generates vertical Box', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  layout-stack padding=1',
+      '    text value="Header"',
+      '    text value="Body"',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('flexDirection="column"');
+    expect(result.code).toContain('padding={1}');
+  });
+
+  test('spacer generates empty Box with flexGrow=1', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  layout-row',
+      '    text value="Left"',
+      '    spacer',
+      '    text value="Right"',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('<Box flexGrow={1} />');
+  });
+
+  test('screen-embed renders component invocation', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = ['screen name=App', '  screen-embed screen=Header title="Dashboard"', '  text value="Body"'].join(
+      '\n',
+    );
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('<Header title="Dashboard" />');
+    expect(result.code).toContain('Body');
+  });
+
+  test('multiple screens generate named + default exports', async () => {
+    const { parseDocument } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Header props="title:string"',
+      '  text value={{ title }}',
+      '',
+      'screen name=App',
+      '  screen-embed screen=Header title="AGON"',
+      '  text value="Body"',
+    ].join('\n');
+    const ast = parseDocument(source);
+    const result = transpileInk(ast);
+
+    // Header should be a named export
+    expect(result.code).toContain('export function Header(');
+    expect(result.code).toContain('title');
+    // App should be default export
+    expect(result.code).toContain('export default function App(');
+    expect(result.code).toContain('<Header title="AGON" />');
   });
 });

@@ -165,6 +165,19 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       name: { required: true, kind: 'identifier' },
       initial: { kind: 'rawExpr' },
       type: { kind: 'typeAnnotation' },
+      safe: { kind: 'boolean' },
+      throttle: { kind: 'number' },
+      debounce: { kind: 'number' },
+    },
+  },
+  animation: {
+    description: 'Interval-driven state update — generates useEffect with setInterval and auto-cleanup',
+    example: 'animation name=frame interval=100 update="(prev) => (prev + 1) % 4"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      interval: { required: true, kind: 'number' },
+      update: { required: true, kind: 'rawExpr' },
+      active: { kind: 'rawExpr' },
     },
   },
   transition: {
@@ -1270,6 +1283,91 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     description: 'Ink select input — choose from a list',
     example: 'select-input items={{options}} onSelect={{handleSelect}}',
     props: { items: { kind: 'rawExpr' }, onSelect: { kind: 'rawExpr' } },
+  },
+  'multi-select': {
+    description: 'Ink multi-select — choose multiple options from a list',
+    example: 'multi-select options={{items}} onChange={{handleChange}}',
+    props: { options: { kind: 'rawExpr' }, onChange: { kind: 'rawExpr' }, defaultValue: { kind: 'rawExpr' } },
+  },
+  'confirm-input': {
+    description: 'Ink confirmation prompt — yes/no input',
+    example: 'confirm-input onConfirm={{handleConfirm}} onCancel={{handleCancel}}',
+    props: {
+      onConfirm: { kind: 'rawExpr' },
+      onCancel: { kind: 'rawExpr' },
+      defaultChoice: { kind: 'string' },
+      submitOnEnter: { kind: 'boolean' },
+    },
+  },
+  'password-input': {
+    description: 'Ink password input — masked text entry',
+    example: 'password-input bind=password placeholder="Enter password..."',
+    props: { bind: { kind: 'identifier' }, placeholder: { kind: 'string' }, onChange: { kind: 'rawExpr' } },
+  },
+  'status-message': {
+    description: 'Ink status message — success/error/warning indicator',
+    example: 'status-message variant="success"\n  text value="Done!"',
+    props: { variant: { kind: 'string' } },
+  },
+  alert: {
+    description: 'Ink alert — prominent notification box',
+    example: 'alert variant="warning" title="Caution"\n  text value="This cannot be undone."',
+    props: { variant: { kind: 'string' }, title: { kind: 'string' } },
+  },
+  'ordered-list': {
+    description: 'Ink ordered list — numbered items',
+    example: 'ordered-list\n  text value="First"\n  text value="Second"',
+    props: {},
+  },
+  'unordered-list': {
+    description: 'Ink unordered list — bulleted items',
+    example: 'unordered-list\n  text value="Item A"\n  text value="Item B"',
+    props: {},
+  },
+  focus: {
+    description: 'Ink focus management — useFocus hook',
+    example: 'focus name=emailFocus autoFocus=true',
+    props: { name: { required: true, kind: 'identifier' }, autoFocus: { kind: 'boolean' }, id: { kind: 'string' } },
+  },
+  'app-exit': {
+    description: 'Ink app exit — useApp().exit() triggered by condition',
+    example: 'app-exit on={{complete}}',
+    props: { on: { required: true, kind: 'rawExpr' } },
+  },
+  'static-log': {
+    description: 'Ink Static component — log-style output above dynamic content',
+    example: 'static-log items={{logs}}\n  text value={{item.message}}',
+    props: { items: { required: true, kind: 'rawExpr' } },
+  },
+  newline: {
+    description: 'Ink Newline component — insert line breaks',
+    example: 'newline count=2',
+    props: { count: { kind: 'number' } },
+  },
+  'layout-row': {
+    description: 'Ink horizontal layout — Box with flexDirection=row',
+    example: 'layout-row gap=2\n  text value="Left"\n  text value="Right"',
+    props: { gap: { kind: 'number' }, padding: { kind: 'number' } },
+  },
+  'layout-col': {
+    description: 'Ink vertical column — Box with flexDirection=column and flex grow',
+    example: 'layout-col flex=1\n  text value="Content"',
+    props: { flex: { kind: 'number' }, width: { kind: 'number' } },
+  },
+  'layout-stack': {
+    description: 'Ink vertical stack — Box with flexDirection=column (most common layout)',
+    example: 'layout-stack padding=1\n  text value="Header"\n  text value="Body"',
+    props: { padding: { kind: 'number' }, gap: { kind: 'number' } },
+  },
+  spacer: {
+    description: 'Ink spacer — empty Box with flexGrow=1 for filling space',
+    example: 'spacer',
+    props: {},
+  },
+  'screen-embed': {
+    description: 'Embed another screen component inline with typed props',
+    example: 'screen-embed screen=Header title="Dashboard"',
+    props: { screen: { required: true, kind: 'identifier' } },
   },
 
   // Control flow / structural

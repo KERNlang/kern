@@ -91,14 +91,19 @@ export function generateMachine(node: IRNode): string[] {
 
 // ── Machine → useReducer (Ink target) ────────────────────────────────────
 
-export function generateMachineReducer(node: IRNode): string[] {
+export function generateMachineReducer(
+  node: IRNode,
+  options?: { safeDispatch?: boolean; emitImport?: boolean },
+): string[] {
   const props = propsOf<'machine'>(node);
   const name = emitIdentifier(props.name, 'UnknownMachine', node);
   const exp = exportPrefix(node);
   const lines: string[] = [];
 
-  lines.push(`import { useReducer } from 'react';`);
-  lines.push('');
+  if (options?.emitImport !== false) {
+    lines.push(`import { useReducer } from 'react';`);
+    lines.push('');
+  }
 
   // First emit the standard machine output
   lines.push(...generateMachine(node));
@@ -144,9 +149,16 @@ export function generateMachineReducer(node: IRNode): string[] {
 
   // useReducer hook
   lines.push(`${exp}function use${name}Reducer() {`);
-  lines.push(
-    `  const [state, dispatch] = useReducer(${name.charAt(0).toLowerCase() + name.slice(1)}Reducer, '${initialName}' as ${stateType});`,
-  );
+  if (options?.safeDispatch) {
+    lines.push(
+      `  const [state, _rawDispatch] = useReducer(${name.charAt(0).toLowerCase() + name.slice(1)}Reducer, '${initialName}' as ${stateType});`,
+    );
+    lines.push(`  const dispatch = (action: ${name}Action) => setTimeout(() => _rawDispatch(action), 0);`);
+  } else {
+    lines.push(
+      `  const [state, dispatch] = useReducer(${name.charAt(0).toLowerCase() + name.slice(1)}Reducer, '${initialName}' as ${stateType});`,
+    );
+  }
   lines.push(`  return { state, dispatch } as const;`);
   lines.push('}');
   lines.push('');

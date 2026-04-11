@@ -161,6 +161,61 @@ function missingErrorBoundary(ctx: RuleContext): ReviewFinding[] {
   return [];
 }
 
+// ── Rule: ink-raw-setter-in-async (Claude) ─────────────────────────────
+
+function rawSetterInAsync(ctx: RuleContext): ReviewFinding[] {
+  const fullText = ctx.sourceFile.getFullText();
+  if (!isInkFile(fullText)) return [];
+
+  // Detect raw _set*Raw calls — direct usage bypasses KERN's __inkSafe wrapper
+  // Scoped to same line or nearby (avoid cross-function false positives)
+  const pattern = /\b_set\w+Raw\s*\(/g;
+  return findAll(fullText, pattern).map((line) =>
+    finding(
+      'ink-raw-setter-in-async',
+      'warning',
+      'bug',
+      'Raw state setter (_set*Raw) used in async context — bypasses __inkSafe wrapper, may cause missed Ink repaints',
+      ctx.filePath,
+      line,
+      1,
+      {
+        suggestion: 'Use the safe setter (without Raw suffix) which auto-bridges microtask → macrotask via setTimeout',
+      },
+    ),
+  );
+}
+
+// ── Rule: ink-animation-too-fast (Phase 5) ─────────────────────────────
+
+function animationTooFast(ctx: RuleContext): ReviewFinding[] {
+  const fullText = ctx.sourceFile.getFullText();
+  if (!isInkFile(fullText)) return [];
+
+  // Match setInterval with very short intervals (< 16ms = faster than 60fps)
+  const pattern = /setInterval\s*\([^,]+,\s*(\d+)\s*\)/g;
+  const findings: ReviewFinding[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(fullText)) !== null) {
+    const interval = Number(match[1]);
+    if (interval < 16) {
+      findings.push(
+        finding(
+          'ink-animation-too-fast',
+          'warning',
+          'pattern',
+          `setInterval with ${interval}ms interval — faster than 60fps, wastes CPU in terminal rendering`,
+          ctx.filePath,
+          lineForIndex(fullText, match.index),
+          1,
+          { suggestion: 'Use at least 16ms (60fps) or higher intervals for terminal animations' },
+        ),
+      );
+    }
+  }
+  return findings;
+}
+
 export const inkRules: ReviewRule[] = [
   consoleOutput,
   directStdout,
@@ -168,4 +223,6 @@ export const inkRules: ReviewRule[] = [
   stdinBypass,
   unclearedInterval,
   missingErrorBoundary,
+  rawSetterInAsync,
+  animationTooFast,
 ];

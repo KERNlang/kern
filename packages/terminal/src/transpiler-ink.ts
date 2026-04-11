@@ -132,9 +132,7 @@ function keyToCheck(key: string): string {
 class ImportTracker {
   private reactImports = new Set<string>();
   private inkImports = new Set<string>();
-  private inkSpinner = false;
-  private inkTextInput = false;
-  private inkSelectInput = false;
+  private inkUIImports = new Set<string>();
 
   addReact(name: string): void {
     this.reactImports.add(name);
@@ -142,14 +140,19 @@ class ImportTracker {
   addInk(name: string): void {
     this.inkImports.add(name);
   }
+  /** Add an @inkjs/ui component import. */
+  addInkUI(name: string): void {
+    this.inkUIImports.add(name);
+  }
+  // Legacy convenience methods — now route to @inkjs/ui
   needSpinner(): void {
-    this.inkSpinner = true;
+    this.inkUIImports.add('Spinner');
   }
   needTextInput(): void {
-    this.inkTextInput = true;
+    this.inkUIImports.add('TextInput');
   }
   needSelectInput(): void {
-    this.inkSelectInput = true;
+    this.inkUIImports.add('Select');
   }
 
   emit(): string[] {
@@ -162,50 +165,100 @@ class ImportTracker {
     if (this.inkImports.size > 0) {
       lines.push(`import { ${[...this.inkImports].sort().join(', ')} } from 'ink';`);
     }
-    if (this.inkSpinner) {
-      lines.push(`import Spinner from 'ink-spinner';`);
-    }
-    if (this.inkTextInput) {
-      lines.push(`import TextInput from 'ink-text-input';`);
-    }
-    if (this.inkSelectInput) {
-      lines.push(`import SelectInput from 'ink-select-input';`);
+    if (this.inkUIImports.size > 0) {
+      lines.push(`import { ${[...this.inkUIImports].sort().join(', ')} } from '@inkjs/ui';`);
     }
     return lines;
   }
 }
 
+// ── Ink-safe setter utility ─────────────────────────────────────────────
+
+/** Emit the __inkSafe helper once per component — bridges microtask→macrotask for Ink repaints. */
+function emitInkSafePreamble(): string[] {
+  return [
+    '  // Ink-safe setter: bridges microtask → macrotask for reliable repaints',
+    '  function __inkSafe<T>(setter: React.Dispatch<React.SetStateAction<T>>): React.Dispatch<React.SetStateAction<T>> {',
+    '    return (value) => setTimeout(() => setter(value), 0);',
+    '  }',
+    '',
+  ];
+}
+
 // ── State block → useState ──────────────────────────────────────────────
 
-function generateStateHook(stateNode: IRNode, imports: ImportTracker): string[] {
+interface StateHookContext {
+  needsInkSafe: boolean;
+}
+
+function generateStateHook(stateNode: IRNode, imports: ImportTracker, ctx: StateHookContext): string[] {
   const lines: string[] = [];
   const props = getProps(stateNode);
   const name = props.name as string;
   const initialProp = props.initial;
+  const safe = props.safe !== 'false' && props.safe !== false; // default true
 
   if (name && initialProp !== undefined) {
     imports.addReact('useState');
     const initial = isExpr(initialProp) ? (initialProp as { code: string }).code : String(initialProp);
     const initVal = isExpr(initialProp)
       ? initial
-      : initial === 'null'
-        ? 'null'
-        : initial === 'true'
-          ? 'true'
-          : initial === 'false'
-            ? 'false'
-            : initial.startsWith('[') || initial.startsWith('{')
-              ? initial
-              : initial.startsWith("'") || initial.startsWith('"')
+      : initial === ''
+        ? "''"
+        : initial === 'null'
+          ? 'null'
+          : initial === 'true'
+            ? 'true'
+            : initial === 'false'
+              ? 'false'
+              : initial.startsWith('[') || initial.startsWith('{')
                 ? initial
-                : initial.includes('(') || initial.includes('.')
+                : initial.startsWith("'") || initial.startsWith('"')
                   ? initial
-                  : Number.isNaN(Number(initial))
-                    ? `'${initial}'`
-                    : String(initial);
+                  : initial.includes('(') || initial.includes('.')
+                    ? initial
+                    : Number.isNaN(Number(initial))
+                      ? `'${initial}'`
+                      : String(initial);
     const setter = `set${capitalize(name)}`;
     const typeAnnotation = props.type ? `<${props.type as string}>` : '';
-    lines.push(`  const [${name}, ${setter}] = useState${typeAnnotation}(${initVal});`);
+
+    const throttle = props.throttle as string | undefined;
+    const debounce = props.debounce as string | undefined;
+
+    if (throttle) {
+      // Throttled setter — rate-limits updates, uses setTimeout for Ink safety
+      imports.addReact('useMemo');
+      lines.push(`  const [${name}, _${setter}Raw] = useState${typeAnnotation}(${initVal});`);
+      lines.push(`  const ${setter} = useMemo(() => {`);
+      lines.push(`    let _lastCall = 0;`);
+      lines.push(`    return (value: React.SetStateAction<${typeAnnotation ? (props.type as string) : 'any'}>) => {`);
+      lines.push(`      const now = Date.now();`);
+      lines.push(`      if (now - _lastCall >= ${throttle}) {`);
+      lines.push(`        _lastCall = now;`);
+      lines.push(`        setTimeout(() => _${setter}Raw(value), 0);`);
+      lines.push(`      }`);
+      lines.push(`    };`);
+      lines.push(`  }, []);`);
+    } else if (debounce) {
+      // Debounced setter — delays updates, uses setTimeout for Ink safety
+      imports.addReact('useMemo');
+      lines.push(`  const [${name}, _${setter}Raw] = useState${typeAnnotation}(${initVal});`);
+      lines.push(`  const ${setter} = useMemo(() => {`);
+      lines.push(`    let _timer: ReturnType<typeof setTimeout> | null = null;`);
+      lines.push(`    return (value: React.SetStateAction<${typeAnnotation ? (props.type as string) : 'any'}>) => {`);
+      lines.push(`      if (_timer) clearTimeout(_timer);`);
+      lines.push(`      _timer = setTimeout(() => _${setter}Raw(value), ${debounce});`);
+      lines.push(`    };`);
+      lines.push(`  }, []);`);
+    } else if (safe) {
+      ctx.needsInkSafe = true;
+      imports.addReact('useMemo');
+      lines.push(`  const [${name}, _${setter}Raw] = useState${typeAnnotation}(${initVal});`);
+      lines.push(`  const ${setter} = useMemo(() => __inkSafe(_${setter}Raw), [_${setter}Raw]);`);
+    } else {
+      lines.push(`  const [${name}, ${setter}] = useState${typeAnnotation}(${initVal});`);
+    }
   }
 
   return lines;
@@ -278,11 +331,98 @@ function generateLogicEffect(logicNode: IRNode, imports: ImportTracker): string[
     const dedented = dedent(code);
     const depsStr = deps ? `[${deps}]` : '[]';
 
+    // Auto-cleanup: detect setInterval/setTimeout at top-level scope (not inside nested functions)
+    const hasCleanup = /return\s*\(\s*\)\s*=>/.test(dedented) || /return\s*\(\)\s*\{/.test(dedented);
+    // Only match if declaration appears before any function/arrow — i.e., at the effect's top level
+    const hasNestedFn = /(?:function\s|=>)/.test(dedented.split(/set(?:Interval|Timeout)\s*\(/)[0] || '');
+    const intervalMatch = hasNestedFn ? null : dedented.match(/(?:const|let|var)\s+(\w+)\s*=\s*setInterval\s*\(/);
+    const timeoutMatch = hasNestedFn ? null : dedented.match(/(?:const|let|var)\s+(\w+)\s*=\s*setTimeout\s*\(/);
+
     lines.push(`  useEffect(() => {`);
     for (const line of dedented.split('\n')) {
       lines.push(`    ${line}`);
     }
+    if (!hasCleanup && intervalMatch) {
+      lines.push(`    return () => { clearInterval(${intervalMatch[1]}); };`);
+    } else if (!hasCleanup && timeoutMatch) {
+      lines.push(`    return () => { clearTimeout(${timeoutMatch[1]}); };`);
+    }
     lines.push(`  }, ${depsStr});`);
+  }
+
+  return lines;
+}
+
+// ── Focus hook → useFocus (Phase 3) ────────────────────────────────
+
+function generateFocusHook(focusNode: IRNode, imports: ImportTracker): string[] {
+  const lines: string[] = [];
+  const props = getProps(focusNode);
+  const name = props.name as string;
+  const autoFocus = props.autoFocus === 'true' || props.autoFocus === true;
+  const id = props.id as string;
+
+  if (name) {
+    imports.addInk('useFocus');
+    const opts: string[] = [];
+    if (autoFocus) opts.push('autoFocus: true');
+    if (id) opts.push(`id: '${id}'`);
+    const optsStr = opts.length > 0 ? `{ ${opts.join(', ')} }` : '';
+    lines.push(`  const { isFocused: ${name} } = useFocus(${optsStr});`);
+  }
+
+  return lines;
+}
+
+// ── App exit hook → useApp (Phase 3) ───────────────────────────────
+
+function generateAppExitHook(exitNode: IRNode, imports: ImportTracker): string[] {
+  const lines: string[] = [];
+  const props = getProps(exitNode);
+  const on = props.on;
+
+  if (on) {
+    imports.addInk('useApp');
+    imports.addReact('useEffect');
+    const condition = isExpr(on) ? (on as { code: string }).code : String(on);
+    lines.push(`  const { exit } = useApp();`);
+    lines.push(`  useEffect(() => { if (${condition}) exit(); }, [${condition}]);`);
+  }
+
+  return lines;
+}
+
+// ── Animation block → useEffect with setInterval ────────────────────
+
+function generateAnimation(animNode: IRNode, imports: ImportTracker): string[] {
+  const lines: string[] = [];
+  const props = getProps(animNode);
+  const name = props.name as string;
+  const interval = props.interval as string;
+  const update = isExpr(props.update) ? (props.update as { code: string }).code : String(props.update || '');
+  const active = props.active;
+
+  if (name && interval && update) {
+    imports.addReact('useEffect');
+    const setter = `set${capitalize(name)}`;
+
+    if (active) {
+      const activeExpr = isExpr(active) ? (active as { code: string }).code : String(active);
+      lines.push(`  useEffect(() => {`);
+      lines.push(`    if (!(${activeExpr})) return;`);
+      lines.push(`    const _animId = setInterval(() => {`);
+      lines.push(`      ${setter}(${update});`);
+      lines.push(`    }, ${interval});`);
+      lines.push(`    return () => clearInterval(_animId);`);
+      lines.push(`  }, [${activeExpr}]);`);
+    } else {
+      lines.push(`  useEffect(() => {`);
+      lines.push(`    const _animId = setInterval(() => {`);
+      lines.push(`      ${setter}(${update});`);
+      lines.push(`    }, ${interval});`);
+      lines.push(`    return () => clearInterval(_animId);`);
+      lines.push(`  }, []);`);
+    }
   }
 
   return lines;
@@ -335,6 +475,8 @@ function collectNestedOnNodes(node: IRNode): IRNode[] {
 
 // ── Generate useInput from an on-node ───────────────────────────────────
 
+let _onHookCounter = 0;
+
 function generateOnHook(onNode: IRNode, imports: ImportTracker): string[] {
   const lines: string[] = [];
   const onProps = getProps(onNode);
@@ -347,9 +489,12 @@ function generateOnHook(onNode: IRNode, imports: ImportTracker): string[] {
     const handlerChild = (onNode.children || []).find((c) => c.type === 'handler');
     const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
 
-    // Use ref pattern for fresh closures — handler always sees current state
-    lines.push(`  const _inputHandlerRef = useRef<(input: string, key: any) => void>(() => {});`);
-    lines.push(`  _inputHandlerRef.current = (input: string, key: any) => {`);
+    // Use ref pattern with unique suffix for fresh closures — supports multiple on-nodes
+    const suffix = _onHookCounter === 0 ? '' : `_${_onHookCounter}`;
+    _onHookCounter++;
+    const refName = `_inputHandlerRef${suffix}`;
+    lines.push(`  const ${refName} = useRef<(input: string, key: any) => void>(() => {});`);
+    lines.push(`  ${refName}.current = (input: string, key: any) => {`);
     if (key) {
       lines.push(`    if (!(${keyToCheck(key)})) return;`);
     }
@@ -360,7 +505,7 @@ function generateOnHook(onNode: IRNode, imports: ImportTracker): string[] {
       }
     }
     lines.push(`  };`);
-    lines.push(`  useInput((input: string, key: any) => _inputHandlerRef.current(input, key));`);
+    lines.push(`  useInput((input: string, key: any) => ${refName}.current(input, key));`);
     lines.push('');
   }
 
@@ -602,11 +747,14 @@ function renderInkSelectInput(p: Record<string, unknown>, indent: string, import
   const rawItems = p.items;
   const items = isExpr(rawItems) ? (rawItems as { code: string }).code : (rawItems as string) || '[]';
   const onSelect = p.onSelect as string;
-  const selectProps: string[] = [`items={${items}}`];
+  const onChange = p.onChange as string;
+  const selectProps: string[] = [`options={${items}}`];
   if (onSelect) {
-    selectProps.push(`onSelect={${onSelect}}`);
+    selectProps.push(`onChange={${onSelect}}`);
+  } else if (onChange) {
+    selectProps.push(`onChange={${onChange}}`);
   }
-  return [`${indent}<SelectInput ${selectProps.join(' ')} />`];
+  return [`${indent}<Select ${selectProps.join(' ')} />`];
 }
 
 function renderInkHandler(p: Record<string, unknown>, indent: string): string[] {
@@ -665,6 +813,210 @@ function renderInkConditional(
   return lines;
 }
 
+// ── @inkjs/ui Component Renderers (Phase 3) ─────────────────────────────
+
+function renderInkMultiSelect(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInkUI('MultiSelect');
+  const rawOptions = p.options;
+  const options = isExpr(rawOptions) ? (rawOptions as { code: string }).code : (rawOptions as string) || '[]';
+  const onChange = p.onChange as string;
+  const msProps: string[] = [`options={${options}}`];
+  if (onChange) msProps.push(`onChange={${onChange}}`);
+  return [`${indent}<MultiSelect ${msProps.join(' ')} />`];
+}
+
+function renderInkConfirmInput(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInkUI('ConfirmInput');
+  const ciProps: string[] = [];
+  if (p.onConfirm) ciProps.push(`onConfirm={${p.onConfirm}}`);
+  if (p.onCancel) ciProps.push(`onCancel={${p.onCancel}}`);
+  if (p.defaultChoice) ciProps.push(`defaultChoice="${p.defaultChoice}"`);
+  if (p.submitOnEnter === 'false' || p.submitOnEnter === false) ciProps.push('submitOnEnter={false}');
+  return [`${indent}<ConfirmInput ${ciProps.join(' ')} />`];
+}
+
+function renderInkPasswordInput(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInkUI('PasswordInput');
+  const piProps: string[] = [];
+  const bind = p.bind as string;
+  if (p.placeholder) piProps.push(`placeholder=${JSON.stringify(p.placeholder)}`);
+  if (bind) {
+    piProps.push(`onChange={set${capitalize(bind)}}`);
+  }
+  if (p.onChange) piProps.push(`onChange={${p.onChange}}`);
+  return [`${indent}<PasswordInput ${piProps.join(' ')} />`];
+}
+
+function renderInkStatusMessage(
+  node: IRNode,
+  p: Record<string, unknown>,
+  indent: string,
+  imports: ImportTracker,
+): string[] {
+  imports.addInkUI('StatusMessage');
+  const variant = (p.variant as string) || 'info';
+  const lines: string[] = [];
+  lines.push(`${indent}<StatusMessage variant="${variant}">`);
+  for (const child of node.children || []) {
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
+  }
+  lines.push(`${indent}</StatusMessage>`);
+  return lines;
+}
+
+function renderInkAlert(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInkUI('Alert');
+  const variant = (p.variant as string) || 'info';
+  const title = p.title as string;
+  const alertProps: string[] = [`variant="${variant}"`];
+  if (title) alertProps.push(`title=${JSON.stringify(title)}`);
+  const lines: string[] = [];
+  lines.push(`${indent}<Alert ${alertProps.join(' ')}>`);
+  for (const child of node.children || []) {
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
+  }
+  lines.push(`${indent}</Alert>`);
+  return lines;
+}
+
+function renderInkOrderedList(node: IRNode, indent: string, imports: ImportTracker): string[] {
+  imports.addInkUI('OrderedList');
+  const lines: string[] = [];
+  lines.push(`${indent}<OrderedList>`);
+  for (const child of node.children || []) {
+    lines.push(`${indent}  <OrderedList.Item>`);
+    lines.push(...renderInkNode(child, `${indent}    `, imports));
+    lines.push(`${indent}  </OrderedList.Item>`);
+  }
+  lines.push(`${indent}</OrderedList>`);
+  return lines;
+}
+
+function renderInkUnorderedList(node: IRNode, indent: string, imports: ImportTracker): string[] {
+  imports.addInkUI('UnorderedList');
+  const lines: string[] = [];
+  lines.push(`${indent}<UnorderedList>`);
+  for (const child of node.children || []) {
+    lines.push(`${indent}  <UnorderedList.Item>`);
+    lines.push(...renderInkNode(child, `${indent}    `, imports));
+    lines.push(`${indent}  </UnorderedList.Item>`);
+  }
+  lines.push(`${indent}</UnorderedList>`);
+  return lines;
+}
+
+function renderInkStaticLog(
+  node: IRNode,
+  p: Record<string, unknown>,
+  indent: string,
+  imports: ImportTracker,
+): string[] {
+  imports.addInk('Static');
+  imports.addInk('Text');
+  const rawItems = p.items;
+  const items = isExpr(rawItems) ? (rawItems as { code: string }).code : (rawItems as string) || '[]';
+  const lines: string[] = [];
+  lines.push(`${indent}<Static items={${items}}>`);
+  lines.push(`${indent}  {(item: any) => (`);
+  if (node.children && node.children.length > 1) {
+    // Multiple children need a fragment wrapper
+    lines.push(`${indent}    <>`);
+    for (const child of node.children) {
+      lines.push(...renderInkNode(child, `${indent}      `, imports));
+    }
+    lines.push(`${indent}    </>`);
+  } else if (node.children && node.children.length === 1) {
+    lines.push(...renderInkNode(node.children[0], `${indent}    `, imports));
+  } else {
+    lines.push(`${indent}    <Text>{String(item)}</Text>`);
+  }
+  lines.push(`${indent}  )}`);
+  lines.push(`${indent}</Static>`);
+  return lines;
+}
+
+function renderInkNewline(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Newline');
+  const count = p.count as string;
+  if (count && Number(count) > 1) {
+    return [`${indent}<Newline count={${count}} />`];
+  }
+  return [`${indent}<Newline />`];
+}
+
+// ── Layout Primitives (Phase 4) ──────────────────────────────────────────
+
+function renderLayoutRow(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Box');
+  const gap = p.gap as string;
+  const padding = p.padding as string;
+  const boxProps: string[] = ['flexDirection="row"'];
+  if (gap) boxProps.push(`gap={${gap}}`);
+  if (padding) boxProps.push(`padding={${padding}}`);
+  const lines: string[] = [];
+  lines.push(`${indent}<Box ${boxProps.join(' ')}>`);
+  for (const child of node.children || []) {
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
+  }
+  lines.push(`${indent}</Box>`);
+  return lines;
+}
+
+function renderLayoutCol(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Box');
+  const flex = p.flex as string;
+  const width = p.width as string;
+  const boxProps: string[] = ['flexDirection="column"'];
+  if (flex) boxProps.push(`flexGrow={${flex}}`);
+  if (width) boxProps.push(`width={${width}}`);
+  const lines: string[] = [];
+  lines.push(`${indent}<Box ${boxProps.join(' ')}>`);
+  for (const child of node.children || []) {
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
+  }
+  lines.push(`${indent}</Box>`);
+  return lines;
+}
+
+function renderLayoutStack(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Box');
+  const padding = p.padding as string;
+  const gap = p.gap as string;
+  const boxProps: string[] = ['flexDirection="column"'];
+  if (padding) boxProps.push(`padding={${padding}}`);
+  if (gap) boxProps.push(`gap={${gap}}`);
+  const lines: string[] = [];
+  lines.push(`${indent}<Box ${boxProps.join(' ')}>`);
+  for (const child of node.children || []) {
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
+  }
+  lines.push(`${indent}</Box>`);
+  return lines;
+}
+
+function renderSpacer(indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Box');
+  return [`${indent}<Box flexGrow={1} />`];
+}
+
+function renderScreenEmbed(p: Record<string, unknown>, indent: string): string[] {
+  const screen = p.screen as string;
+  if (!screen) return [];
+  // Collect all non-screen props as component props
+  const propEntries = Object.entries(p).filter(([k]) => k !== 'screen' && k !== 'styles' && k !== 'themeRefs');
+  const propsStr = propEntries
+    .map(([k, v]) => {
+      if (isExpr(v)) return `${k}={${(v as { code: string }).code}}`;
+      const s = String(v);
+      // Preserve non-string literals as JSX expressions
+      if (s === 'true' || s === 'false') return `${k}={${s}}`;
+      if (!Number.isNaN(Number(s)) && s !== '') return `${k}={${s}}`;
+      return `${k}=${JSON.stringify(s)}`;
+    })
+    .join(' ');
+  return [`${indent}<${screen}${propsStr ? ` ${propsStr}` : ''} />`];
+}
+
 // ── Node renderer → JSX (dispatcher) ─────────────────────────────────────
 
 function renderInkNode(node: IRNode, indent: string, imports: ImportTracker): string[] {
@@ -695,6 +1047,34 @@ function renderInkNode(node: IRNode, indent: string, imports: ImportTracker): st
       return renderInkTextInput(p as Record<string, unknown>, indent, imports);
     case 'select-input':
       return renderInkSelectInput(p as Record<string, unknown>, indent, imports);
+    case 'multi-select':
+      return renderInkMultiSelect(p as Record<string, unknown>, indent, imports);
+    case 'confirm-input':
+      return renderInkConfirmInput(p as Record<string, unknown>, indent, imports);
+    case 'password-input':
+      return renderInkPasswordInput(p as Record<string, unknown>, indent, imports);
+    case 'status-message':
+      return renderInkStatusMessage(node, p as Record<string, unknown>, indent, imports);
+    case 'alert':
+      return renderInkAlert(node, p as Record<string, unknown>, indent, imports);
+    case 'ordered-list':
+      return renderInkOrderedList(node, indent, imports);
+    case 'unordered-list':
+      return renderInkUnorderedList(node, indent, imports);
+    case 'static-log':
+      return renderInkStaticLog(node, p as Record<string, unknown>, indent, imports);
+    case 'newline':
+      return renderInkNewline(p as Record<string, unknown>, indent, imports);
+    case 'layout-row':
+      return renderLayoutRow(node, p as Record<string, unknown>, indent, imports);
+    case 'layout-col':
+      return renderLayoutCol(node, p as Record<string, unknown>, indent, imports);
+    case 'layout-stack':
+      return renderLayoutStack(node, p as Record<string, unknown>, indent, imports);
+    case 'spacer':
+      return renderSpacer(indent, imports);
+    case 'screen-embed':
+      return renderScreenEmbed(p as Record<string, unknown>, indent);
     case 'handler':
       return renderInkHandler(p as Record<string, unknown>, indent);
     case 'each':
@@ -707,12 +1087,16 @@ function renderInkNode(node: IRNode, indent: string, imports: ImportTracker): st
     case 'logic':
     case 'callback':
     case 'on':
+    case 'animation':
+    case 'derive':
+    case 'focus':
+    case 'app-exit':
       return [];
     default: {
       const lines: string[] = [];
       if (isCoreNode(node.type)) {
         if (node.type === 'machine') {
-          lines.push(...generateMachineReducer(node).map((l) => l));
+          lines.push(...generateMachineReducer(node, { safeDispatch: true, emitImport: false }).map((l) => l));
         } else {
           lines.push(...generateCoreNode(node));
         }
@@ -731,13 +1115,17 @@ function renderInkNode(node: IRNode, indent: string, imports: ImportTracker): st
 // ── Main export ──────────────────────────────────────────────────────────
 
 export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): TranspileResult {
+  _onHookCounter = 0; // Reset per-component counter
   const sourceMap: SourceMapEntry[] = [];
   const imports = new ImportTracker();
   const lines: string[] = [];
 
-  // Handle file-level AST: find the screen node, keep siblings as file-level nodes
-  const screenNode = root.type === 'screen' ? root : (root.children || []).find((c) => c.type === 'screen') || root;
-  const fileLevelNodes = root.type === 'screen' ? [] : (root.children || []).filter((c) => c !== screenNode);
+  // Handle file-level AST: find screen node(s), keep siblings as file-level nodes
+  const allScreenNodes = root.type === 'screen' ? [root] : (root.children || []).filter((c) => c.type === 'screen');
+  const screenNode = allScreenNodes.length > 0 ? allScreenNodes[allScreenNodes.length - 1] : root;
+  const fileLevelNodes = root.type === 'screen' ? [] : (root.children || []).filter((c) => c.type !== 'screen');
+  // Secondary screens (all except the last/default one)
+  const secondaryScreens = allScreenNodes.slice(0, -1);
 
   const screenProps = getProps(screenNode);
   const screenName = (screenProps.name as string) || 'App';
@@ -771,6 +1159,10 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
   const streamNodes = getChildren(screenNode, 'stream');
   const logicNodes = [...getChildren(screenNode, 'logic'), ...getChildren(screenNode, 'effect')];
   const callbackNodes = getChildren(screenNode, 'callback');
+  const animationNodes = getChildren(screenNode, 'animation');
+  const deriveNodes = getChildren(screenNode, 'derive');
+  const focusNodes = getChildren(screenNode, 'focus');
+  const appExitNodes = getChildren(screenNode, 'app-exit');
   const isInkUiNode = (type: string) =>
     type === 'each' ||
     type === 'conditional' ||
@@ -798,6 +1190,10 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
       c.type !== 'memo' &&
       c.type !== 'render' &&
       c.type !== 'prop' &&
+      c.type !== 'animation' &&
+      c.type !== 'derive' &&
+      c.type !== 'focus' &&
+      c.type !== 'app-exit' &&
       (!isCoreNode(c.type) || isInkUiNode(c.type)),
   );
   const fileLevelFns = fileLevelNodes.filter((c) => c.type === 'fn' || c.type === 'const');
@@ -819,7 +1215,7 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     for (const child of coreChildren) {
       if (child.type === 'machine') {
         imports.addReact('useReducer');
-        coreLines.push(...generateMachineReducer(child));
+        coreLines.push(...generateMachineReducer(child, { safeDispatch: true, emitImport: false }));
       } else if (child.type === 'import') {
         // Merge react/ink imports into tracker to avoid duplicates
         const ip = getProps(child);
@@ -850,10 +1246,11 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
 
   // ── Component body ──
   const bodyLines: string[] = [];
+  const stateCtx: StateHookContext = { needsInkSafe: false };
 
   // State hooks
   for (const stateNode of stateNodes) {
-    bodyLines.push(...generateStateHook(stateNode, imports));
+    bodyLines.push(...generateStateHook(stateNode, imports, stateCtx));
   }
   if (stateNodes.length > 0) bodyLines.push('');
 
@@ -862,6 +1259,18 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     bodyLines.push(...generateRefHook(refNode, imports));
   }
   if (refNodes.length > 0) bodyLines.push('');
+
+  // Focus hooks (Phase 3)
+  for (const focusNode of focusNodes) {
+    bodyLines.push(...generateFocusHook(focusNode, imports));
+  }
+  if (focusNodes.length > 0) bodyLines.push('');
+
+  // App exit hooks (Phase 3)
+  for (const exitNode of appExitNodes) {
+    bodyLines.push(...generateAppExitHook(exitNode, imports));
+  }
+  if (appExitNodes.length > 0) bodyLines.push('');
 
   // Memo hooks
   for (const memoNode of memoNodes) {
@@ -906,6 +1315,43 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     bodyLines.push('');
   }
 
+  // Animation effects → useEffect with setInterval (Phase 2)
+  for (const animNode of animationNodes) {
+    bodyLines.push(...generateAnimation(animNode, imports));
+    bodyLines.push('');
+  }
+
+  // Derive nodes → useMemo with auto-dep tracking (Phase 2)
+  for (const deriveNode of deriveNodes) {
+    const dp = getProps(deriveNode);
+    const dName = dp.name as string;
+    const dExpr = isExpr(dp.expr) ? (dp.expr as { code: string }).code : (dp.expr as string) || '';
+    const dDeps = dp.deps as string;
+    const dType = dp.type as string;
+    if (dName && dExpr) {
+      imports.addReact('useMemo');
+      const typeAnnotation = dType ? `<${dType}>` : '';
+      // Auto-dep tracking: find state names referenced in the expression
+      let depsStr: string;
+      if (dDeps) {
+        depsStr = `[${dDeps}]`;
+      } else {
+        const stateNames = stateNodes.map((s) => getProps(s).name as string).filter(Boolean);
+        const refNames = refNodes
+          .map((r) => {
+            const rn = getProps(r).name as string;
+            return rn ? (rn.endsWith('Ref') ? rn : `${rn}Ref`) : '';
+          })
+          .filter(Boolean);
+        const allNames = [...stateNames, ...refNames];
+        const autoDeps = allNames.filter((n) => new RegExp(`\\b${n}\\b`).test(dExpr));
+        depsStr = `[${autoDeps.join(', ')}]`;
+      }
+      bodyLines.push(`  const ${dName} = useMemo${typeAnnotation}(() => ${dExpr}, ${depsStr});`);
+      bodyLines.push('');
+    }
+  }
+
   // JSX return — use explicit render handler if present, otherwise auto-generate
   if (renderNode) {
     const handlerChild = (renderNode.children || []).find((c: IRNode) => c.type === 'handler');
@@ -930,28 +1376,87 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
   }
 
   // ── Assemble ──
-  // Imports (computed last since renderInkNode populates the tracker)
-  lines.push(...imports.emit());
-  lines.push('');
+  // Note: imports.emit() is deferred to AFTER secondary screens + default component
+  // so all required imports are tracked before emission.
+  const componentLines: string[] = [];
 
   // Core nodes
   if (coreLines.length > 0) {
-    lines.push(...coreLines);
+    componentLines.push(...coreLines);
+  }
+
+  // Secondary screen components (named exports, Phase 4 composability)
+  for (const secScreen of secondaryScreens) {
+    const secProps = getProps(secScreen);
+    const secName = (secProps.name as string) || 'Component';
+    const secPropsAttr = secProps.props as string;
+    const secPropChildren = getChildren(secScreen, 'prop');
+    const secPropParts = secPropsAttr ? splitPropsRespectingDepth(secPropsAttr) : [];
+    for (const pc of secPropChildren) {
+      const pp = getProps(pc);
+      const pn = pp.name as string;
+      const pt = (pp.type as string) || 'any';
+      const opt = pp.optional === 'true' || pp.optional === true;
+      if (pn) secPropParts.push(`${pn}${opt ? '?' : ''}:${pt}`);
+    }
+    const secParam =
+      secPropParts.length > 0
+        ? `{ ${secPropParts.map((p) => p.trim().split(':')[0].replace('?', '').trim()).join(', ')} }: { ${secPropParts
+            .map((p) => {
+              const t = p.trim();
+              return t.includes(':') ? t : `${t}: any`;
+            })
+            .join('; ')} }`
+        : '';
+    const secUiChildren = (secScreen.children || []).filter(
+      (c) => c.type !== 'state' && c.type !== 'ref' && c.type !== 'prop' && c.type !== 'on',
+    );
+    const secStateNodes = getChildren(secScreen, 'state');
+    const secCtx: StateHookContext = { needsInkSafe: false };
+
+    const secBodyLines: string[] = [];
+    for (const sn of secStateNodes) {
+      secBodyLines.push(...generateStateHook(sn, imports, secCtx));
+    }
+    componentLines.push(`export function ${secName}(${secParam}) {`);
+    if (secCtx.needsInkSafe) {
+      componentLines.push(...emitInkSafePreamble());
+    }
+    componentLines.push(...secBodyLines);
+    imports.addInk('Box');
+    componentLines.push('  return (');
+    componentLines.push('    <Box flexDirection="column">');
+    for (const child of secUiChildren) {
+      componentLines.push(...renderInkNode(child, '      ', imports));
+    }
+    componentLines.push('    </Box>');
+    componentLines.push('  );');
+    componentLines.push('}');
+    componentLines.push('');
   }
 
   // Component (Feature #9: with props)
-  lines.push(`export default function ${screenName}(${propsParam}) {`);
-  lines.push(...bodyLines);
-  lines.push('}');
+  componentLines.push(`export default function ${screenName}(${propsParam}) {`);
+  // Emit __inkSafe preamble once if any state uses safe setters
+  if (stateCtx.needsInkSafe) {
+    componentLines.push(...emitInkSafePreamble());
+  }
+  componentLines.push(...bodyLines);
+  componentLines.push('}');
 
   // File-level functions/constants emitted after the screen component
   if (fileLevelFns.length > 0) {
-    lines.push('');
+    componentLines.push('');
     for (const fn of fileLevelFns) {
-      lines.push(...generateCoreNode(fn));
-      lines.push('');
+      componentLines.push(...generateCoreNode(fn));
+      componentLines.push('');
     }
   }
+
+  // NOW emit imports — after all components have populated the tracker
+  lines.push(...imports.emit());
+  lines.push('');
+  lines.push(...componentLines);
 
   // Source map
   sourceMap.push({
