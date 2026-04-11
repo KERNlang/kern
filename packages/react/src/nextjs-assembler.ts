@@ -11,10 +11,13 @@ import type { Ctx } from './nextjs-types.js';
  */
 function needsLazyInit(initial: string): boolean {
   const trimmed = initial.trim();
+  // IIFE: ((...) => ...)() or (function() { ... })()
   if (/^\(.*\)\s*\(/.test(trimmed)) return true;
-  if (/^\(?[^)]*\)?\s*=>/.test(trimmed)) return true;
+  // function expression: function( — executes when called
   if (trimmed.startsWith('function(') || trimmed.startsWith('function (')) return true;
+  // new constructor: new Map(), new Set(), etc.
   if (trimmed.startsWith('new ')) return true;
+  // Arrow functions are already lazy — do NOT wrap (avoids double-arrow)
   return false;
 }
 

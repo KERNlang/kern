@@ -56,12 +56,13 @@ function needsLazyInit(initial: string): boolean {
   const trimmed = initial.trim();
   // IIFE: ((...) => ...)() or (function() { ... })()
   if (/^\(.*\)\s*\(/.test(trimmed)) return true;
-  // Arrow function: () => ... or (...) => ...
-  if (/^\(?[^)]*\)?\s*=>/.test(trimmed)) return true;
-  // function expression: function(
+  // function expression: function( — executes when called, needs lazy wrap
   if (trimmed.startsWith('function(') || trimmed.startsWith('function (')) return true;
-  // new constructor: new Map(), new Set(), etc.
+  // new constructor: new Map(), new Set(), etc. — creates a new instance per render
   if (trimmed.startsWith('new ')) return true;
+  // NOTE: Arrow functions (e.g., () => handler) are NOT wrapped — they are already
+  // lazy initializers by nature. Wrapping would produce useState(() => () => handler),
+  // a double-arrow that returns the factory instead of calling it.
   return false;
 }
 
