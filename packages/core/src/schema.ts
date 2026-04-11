@@ -901,8 +901,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   stream: {
     description:
       'Async stream — SSE route (backend), or AsyncGenerator → state with cleanup (Ink). mode=channel for dispatch bridging.',
-    example:
-      'stream name=messages source=session.messages mode=channel dispatch=handleChunk',
+    example: 'stream name=messages source=session.messages mode=channel dispatch=handleChunk',
     props: {
       name: { kind: 'identifier' },
       source: { kind: 'rawExpr' },
