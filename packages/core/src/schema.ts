@@ -813,9 +813,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   screen: {
     description: 'Full-screen container component (minHeight: 100vh flex column)',
-    example: 'screen name=Dashboard\n  row\n    text value="Welcome"',
+    example: 'screen name=Dashboard export=default\n  row\n    text value="Welcome"',
     props: {
       name: { kind: 'identifier' },
+      export: { kind: 'string' },
     },
   },
   row: {
@@ -898,13 +899,16 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   // ── Backend: Stream / Spawn / Timer ───────────────────────────────────
 
   stream: {
-    description: 'SSE stream route — sets up Server-Sent Events with heartbeat and structured emit helper',
+    description:
+      'Async stream — SSE route (backend), or AsyncGenerator → state with cleanup (Ink). mode=channel for dispatch bridging.',
     example:
-      'route path="/api/stream" method=get\n  stream\n    spawn binary=ffmpeg args="[\'-i\',input]"\n      on name=stdout\n        handler <<<\n          emit({ chunk: chunk.toString() })\n        >>>',
+      'stream name=messages source=session.messages mode=channel dispatch=handleChunk',
     props: {
       name: { kind: 'identifier' },
       source: { kind: 'rawExpr' },
       append: { kind: 'boolean' },
+      mode: { kind: 'string' },
+      dispatch: { kind: 'rawExpr' },
     },
     allowedChildren: ['spawn', 'handler', 'on', 'timer'],
   },
@@ -1365,9 +1369,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {},
   },
   'screen-embed': {
-    description: 'Embed another screen component inline with typed props',
-    example: 'screen-embed screen=Header title="Dashboard"',
-    props: { screen: { required: true, kind: 'identifier' } },
+    description: 'Embed another screen component inline with typed props. Use from= for cross-file imports.',
+    example: 'screen-embed screen=Header title="Dashboard"\nscreen-embed screen=SpinnerBlock from="./status.kern"',
+    props: { screen: { required: true, kind: 'identifier' }, from: { kind: 'string' } },
   },
 
   // Control flow / structural

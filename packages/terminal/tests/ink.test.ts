@@ -929,4 +929,82 @@ describe('Ink Transpiler', () => {
     expect(result.code).toContain('export default function App(');
     expect(result.code).toContain('<Header title="AGON" />');
   });
+
+  // ── AGON-requested features ───────────────────────────────────────────
+
+  test('stream mode=channel with dispatch generates async iteration + dispatch', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  state name=messages initial=[]',
+      '  stream name=messages source=session.messages mode=channel dispatch=handleChunk',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('useEffect');
+    expect(result.code).toContain('for await (const chunk of session.messages)');
+    expect(result.code).toContain('handleChunk(chunk)');
+    expect(result.code).toContain('abortController.abort()');
+    expect(result.code).toContain('[session.messages]');
+  });
+
+  test('stream mode=channel without dispatch appends to state', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Test',
+      '  state name=chunks initial=[]',
+      '  stream name=chunks source=session.output mode=channel',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('for await (const chunk of session.output)');
+    expect(result.code).toContain('setChunks(prev => [...prev, chunk])');
+    expect(result.code).toContain('[session.output]');
+  });
+
+  test('screen-embed with from= generates cross-file import', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=App',
+      '  screen-embed screen=SpinnerBlock from="./status.kern"',
+      '  text value="Loading"',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain("import { SpinnerBlock } from './status.js'");
+    expect(result.code).toContain('<SpinnerBlock />');
+  });
+
+  test('screen export=named generates named export instead of default', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=StatusBar export=named\n  text value="Status"');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('export function StatusBar(');
+    expect(result.code).not.toContain('export default');
+  });
+
+  test('secondary screen with export=default gets default export', async () => {
+    const { parseDocument } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Helper',
+      '  text value="Helper"',
+      '',
+      'screen name=Main export=default',
+      '  text value="Main"',
+    ].join('\n');
+    const ast = parseDocument(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('export function Helper(');
+    expect(result.code).toContain('export default function Main(');
+  });
 });

@@ -292,25 +292,68 @@ function generateStreamEffect(streamNode: IRNode, imports: ImportTracker): strin
   const name = props.name as string;
   const source = props.source as string;
   const append = props.append !== 'false'; // default true
+  const mode = props.mode as string;
+  const dispatch = props.dispatch as string;
 
   if (name && source) {
     imports.addReact('useEffect');
     const setter = `set${capitalize(name)}`;
 
-    lines.push(`  useEffect(() => {`);
-    lines.push(`    let cancelled = false;`);
-    lines.push(`    (async () => {`);
-    lines.push(`      for await (const chunk of ${source}()) {`);
-    lines.push(`        if (cancelled) break;`);
-    if (append) {
-      lines.push(`        ${setter}(prev => [...prev, chunk]);`);
+    if (mode === 'channel' && dispatch) {
+      // Channel mode: AsyncGenerator → dispatch function with cleanup
+      // Pattern: session.send() → drain chunks → dispatch(chunk)
+      lines.push(`  useEffect(() => {`);
+      lines.push(`    let cancelled = false;`);
+      lines.push(`    const abortController = new AbortController();`);
+      lines.push(`    (async () => {`);
+      lines.push(`      try {`);
+      lines.push(`        for await (const chunk of ${source}) {`);
+      lines.push(`          if (cancelled) break;`);
+      lines.push(`          ${dispatch}(chunk);`);
+      lines.push(`        }`);
+      lines.push(`      } catch (err) {`);
+      lines.push(`        if (!cancelled) console.error('Stream error:', err);`);
+      lines.push(`      }`);
+      lines.push(`    })();`);
+      lines.push(`    return () => { cancelled = true; abortController.abort(); };`);
+      lines.push(`  }, [${source}]);`);
+    } else if (mode === 'channel') {
+      // Channel mode without dispatch: iterate source directly into state
+      lines.push(`  useEffect(() => {`);
+      lines.push(`    let cancelled = false;`);
+      lines.push(`    (async () => {`);
+      lines.push(`      try {`);
+      lines.push(`        for await (const chunk of ${source}) {`);
+      lines.push(`          if (cancelled) break;`);
+      if (append) {
+        lines.push(`          ${setter}(prev => [...prev, chunk]);`);
+      } else {
+        lines.push(`          ${setter}(chunk);`);
+      }
+      lines.push(`        }`);
+      lines.push(`      } catch (err) {`);
+      lines.push(`        if (!cancelled) console.error('Stream error:', err);`);
+      lines.push(`      }`);
+      lines.push(`    })();`);
+      lines.push(`    return () => { cancelled = true; };`);
+      lines.push(`  }, [${source}]);`);
     } else {
-      lines.push(`        ${setter}(chunk);`);
+      // Default mode: source is a function that returns an AsyncGenerator
+      lines.push(`  useEffect(() => {`);
+      lines.push(`    let cancelled = false;`);
+      lines.push(`    (async () => {`);
+      lines.push(`      for await (const chunk of ${source}()) {`);
+      lines.push(`        if (cancelled) break;`);
+      if (append) {
+        lines.push(`        ${setter}(prev => [...prev, chunk]);`);
+      } else {
+        lines.push(`        ${setter}(chunk);`);
+      }
+      lines.push(`      }`);
+      lines.push(`    })();`);
+      lines.push(`    return () => { cancelled = true; };`);
+      lines.push(`  }, []);`);
     }
-    lines.push(`      }`);
-    lines.push(`    })();`);
-    lines.push(`    return () => { cancelled = true; };`);
-    lines.push(`  }, []);`);
   }
 
   return lines;
@@ -999,11 +1042,26 @@ function renderSpacer(indent: string, imports: ImportTracker): string[] {
   return [`${indent}<Box flexGrow={1} />`];
 }
 
+/** Cross-file import collector — populated by screen-embed with from= */
+const _crossFileImports: Map<string, Set<string>> = new Map();
+
 function renderScreenEmbed(p: Record<string, unknown>, indent: string): string[] {
   const screen = p.screen as string;
   if (!screen) return [];
-  // Collect all non-screen props as component props
-  const propEntries = Object.entries(p).filter(([k]) => k !== 'screen' && k !== 'styles' && k !== 'themeRefs');
+  const from = p.from as string;
+
+  // Track cross-file import if from= is specified
+  if (from) {
+    // Normalize: strip .kern extension, add .js for ESM
+    const importPath = from.replace(/\.kern$/, '.js');
+    if (!_crossFileImports.has(importPath)) _crossFileImports.set(importPath, new Set());
+    _crossFileImports.get(importPath)!.add(screen);
+  }
+
+  // Collect all non-meta props as component props
+  const propEntries = Object.entries(p).filter(
+    ([k]) => k !== 'screen' && k !== 'from' && k !== 'styles' && k !== 'themeRefs',
+  );
   const propsStr = propEntries
     .map(([k, v]) => {
       if (isExpr(v)) return `${k}={${(v as { code: string }).code}}`;
@@ -1120,6 +1178,7 @@ function renderInkNode(node: IRNode, indent: string, imports: ImportTracker): st
 
 export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): TranspileResult {
   _onHookCounter = 0; // Reset per-component counter
+  _crossFileImports.clear(); // Reset cross-file imports
   const sourceMap: SourceMapEntry[] = [];
   const imports = new ImportTracker();
   const lines: string[] = [];
@@ -1437,7 +1496,9 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     for (const sn of secStateNodes) {
       secBodyLines.push(...generateStateHook(sn, imports, secCtx));
     }
-    componentLines.push(`export function ${secName}(${secParam}) {`);
+    const secExportAttr = secProps.export as string;
+    const secExportKw = secExportAttr === 'default' ? 'export default' : 'export';
+    componentLines.push(`${secExportKw} function ${secName}(${secParam}) {`);
     if (secCtx.needsInkSafe) {
       componentLines.push(...emitInkSafePreamble());
     }
@@ -1454,8 +1515,10 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     componentLines.push('');
   }
 
-  // Component (Feature #9: with props)
-  componentLines.push(`export default function ${screenName}(${propsParam}) {`);
+  // Component (Feature #9: with props) — respect export= attribute
+  const screenExportAttr = screenProps.export as string;
+  const exportKw = screenExportAttr === 'named' ? 'export' : 'export default';
+  componentLines.push(`${exportKw} function ${screenName}(${propsParam}) {`);
   // Emit __inkSafe preamble once if any state uses safe setters
   if (stateCtx.needsInkSafe) {
     componentLines.push(...emitInkSafePreamble());
@@ -1474,6 +1537,11 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
 
   // NOW emit imports — after all components have populated the tracker
   lines.push(...imports.emit());
+  // Cross-file screen imports (screen-embed with from=)
+  for (const [path, names] of _crossFileImports) {
+    lines.push(`import { ${[...names].sort().join(', ')} } from '${path}';`);
+  }
+  _crossFileImports.clear();
   lines.push('');
   lines.push(...componentLines);
 
