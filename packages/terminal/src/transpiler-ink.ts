@@ -192,7 +192,7 @@ interface StateHookContext {
 }
 
 /** Detect whether a useState initial value needs lazy initialization (prevents re-eval per render). */
-function needsLazyInit(initial: string): boolean {
+function needsLazyInit(initial: string, type?: string): boolean {
   const trimmed = initial.trim();
   // IIFE: ((...) => ...)() or (function() { ... })()
   if (/^\(.*\)\s*\(/.test(trimmed)) return true;
@@ -200,6 +200,8 @@ function needsLazyInit(initial: string): boolean {
   if (trimmed.startsWith('function(') || trimmed.startsWith('function (')) return true;
   // new constructor: new Map(), new Set(), etc.
   if (trimmed.startsWith('new ')) return true;
+  // Arrow functions: only wrap if state TYPE is a function (state holds a function value)
+  if (/^\(?[^)]*\)?\s*=>/.test(trimmed) && type && /=>/.test(type)) return true;
   return false;
 }
 
@@ -235,7 +237,7 @@ function generateStateHook(stateNode: IRNode, imports: ImportTracker, ctx: State
     const setter = `set${capitalize(name)}`;
     const typeAnnotation = props.type ? `<${props.type as string}>` : '';
     // Lazy initialization for IIFEs and constructors (prevents re-eval per render)
-    const lazyInitVal = needsLazyInit(initVal) ? `() => ${initVal}` : initVal;
+    const lazyInitVal = needsLazyInit(initVal, props.type as string) ? `() => ${initVal}` : initVal;
 
     const throttle = props.throttle as string | undefined;
     const debounce = props.debounce as string | undefined;
@@ -1581,19 +1583,23 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
   entryLines.push(`#!/usr/bin/env node`);
   entryLines.push(`import React from 'react';`);
   entryLines.push(`import { render } from 'ink';`);
-  entryLines.push(`import ${screenName} from './${screenName}.js';`);
+  if (screenExportAttr === 'named') {
+    entryLines.push(`import { ${screenName} } from './${screenName}.js';`);
+  } else {
+    entryLines.push(`import ${screenName} from './${screenName}.js';`);
+  }
   entryLines.push('');
   entryLines.push(`const app = render(<${screenName} />);`);
   entryLines.push(`await app.waitUntilExit();`);
   artifacts.push({ path: 'index.tsx', content: entryLines.join('\n'), type: 'entry' });
 
-  // Per-screen component artifacts for multi-screen files
-  if (secondaryScreens.length > 0) {
-    for (const secScreen of secondaryScreens) {
-      const secName = (getProps(secScreen).name as string) || 'Component';
-      artifacts.push({ path: `${secName}.tsx`, content: '', type: 'component' });
-    }
-    artifacts.push({ path: `${screenName}.tsx`, content: code, type: 'component' });
+  // Main component artifact (always emitted so entry-point import resolves)
+  artifacts.push({ path: `${screenName}.tsx`, content: code, type: 'component' });
+
+  // Per-screen component artifacts for secondary screens
+  for (const secScreen of secondaryScreens) {
+    const secName = (getProps(secScreen).name as string) || 'Component';
+    artifacts.push({ path: `${secName}.tsx`, content: '', type: 'component' });
   }
 
   return {

@@ -9,7 +9,7 @@ import type { Ctx } from './nextjs-types.js';
  * IIFEs and function expressions re-evaluate on every render when passed
  * directly to useState(). Wrapping as useState(() => expr) fixes this.
  */
-function needsLazyInit(initial: string): boolean {
+function needsLazyInit(initial: string, type?: string): boolean {
   const trimmed = initial.trim();
   // IIFE: ((...) => ...)() or (function() { ... })()
   if (/^\(.*\)\s*\(/.test(trimmed)) return true;
@@ -17,7 +17,8 @@ function needsLazyInit(initial: string): boolean {
   if (trimmed.startsWith('function(') || trimmed.startsWith('function (')) return true;
   // new constructor: new Map(), new Set(), etc.
   if (trimmed.startsWith('new ')) return true;
-  // Arrow functions are already lazy — do NOT wrap (avoids double-arrow)
+  // Arrow functions: only wrap if state TYPE is a function (state holds a function value)
+  if (/^\(?[^)]*\)?\s*=>/.test(trimmed) && type && /=>/.test(type)) return true;
   return false;
 }
 
@@ -221,7 +222,8 @@ export function assembleComponentCode(ctx: Ctx, opts: AssembleOptions): string {
       initVal = `'${s.initial}'`;
     }
     // Use lazy initializer for function expressions/IIFEs to avoid re-evaluation per render
-    const useLazy = needsLazyInit(initVal);
+    const sType = stateNode?.props?.type as string | undefined;
+    const useLazy = needsLazyInit(initVal, sType);
     const finalInit = useLazy ? `() => ${initVal}` : initVal;
     code.push(`  const [${s.name}, ${setter}] = useState(${finalInit});`);
   }

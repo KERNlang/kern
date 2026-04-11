@@ -167,23 +167,32 @@ function rawSetterInAsync(ctx: RuleContext): ReviewFinding[] {
   const fullText = ctx.sourceFile.getFullText();
   if (!isInkFile(fullText)) return [];
 
-  // Detect raw _set*Raw calls — direct usage bypasses KERN's __inkSafe wrapper
-  // Scoped to same line or nearby (avoid cross-function false positives)
-  const pattern = /\b_set\w+Raw\s*\(/g;
-  return findAll(fullText, pattern).map((line) =>
-    finding(
-      'ink-raw-setter-in-async',
-      'warning',
-      'bug',
-      'Raw state setter (_set*Raw) used in async context — bypasses __inkSafe wrapper, may cause missed Ink repaints',
-      ctx.filePath,
-      line,
-      1,
-      {
-        suggestion: 'Use the safe setter (without Raw suffix) which auto-bridges microtask → macrotask via setTimeout',
-      },
-    ),
-  );
+  // Detect raw _set*Raw calls outside of KERN-generated wrappers (__inkSafe, throttle, debounce).
+  // Lines containing __inkSafe, useMemo, or setTimeout are part of the generated wrapper — skip them.
+  const lines = fullText.split('\n');
+  const findings: ReviewFinding[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!/_set\w+Raw\s*\(/.test(line)) continue;
+    // Skip KERN-generated wrapper patterns
+    if (/__inkSafe/.test(line) || /useMemo/.test(line) || /setTimeout/.test(line)) continue;
+    findings.push(
+      finding(
+        'ink-raw-setter-in-async',
+        'warning',
+        'bug',
+        'Raw state setter (_set*Raw) called directly — bypasses __inkSafe wrapper, may cause missed Ink repaints',
+        ctx.filePath,
+        i + 1,
+        1,
+        {
+          suggestion:
+            'Use the safe setter (without Raw suffix) which auto-bridges microtask → macrotask via setTimeout',
+        },
+      ),
+    );
+  }
+  return findings;
 }
 
 // ── Rule: ink-animation-too-fast (Phase 5) ─────────────────────────────

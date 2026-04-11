@@ -52,7 +52,7 @@ function propsOf(node: IRNode): Record<string, unknown> {
  * IIFEs and function expressions re-evaluate on every render when passed
  * directly to useState(). Wrapping as useState(() => expr) fixes this.
  */
-function needsLazyInit(initial: string): boolean {
+function needsLazyInit(initial: string, type?: string): boolean {
   const trimmed = initial.trim();
   // IIFE: ((...) => ...)() or (function() { ... })()
   if (/^\(.*\)\s*\(/.test(trimmed)) return true;
@@ -60,9 +60,10 @@ function needsLazyInit(initial: string): boolean {
   if (trimmed.startsWith('function(') || trimmed.startsWith('function (')) return true;
   // new constructor: new Map(), new Set(), etc. — creates a new instance per render
   if (trimmed.startsWith('new ')) return true;
-  // NOTE: Arrow functions (e.g., () => handler) are NOT wrapped — they are already
-  // lazy initializers by nature. Wrapping would produce useState(() => () => handler),
-  // a double-arrow that returns the factory instead of calling it.
+  // Arrow functions: only wrap if the state TYPE is a function (state holds a function value).
+  // Without this, React treats () => x as a lazy initializer and stores x instead of the function.
+  // With a non-function type, the arrow IS the lazy initializer — don't double-wrap.
+  if (/^\(?[^)]*\)?\s*=>/.test(trimmed) && type && /=>/.test(type)) return true;
   return false;
 }
 
@@ -149,7 +150,7 @@ function emitStateDecls(nodes: IRNode[], lines: string[]): void {
     const sType = (sp.type as string) || 'any';
     const sInitial = (sp.initial as string) || 'undefined';
     const setter = `set${sName.charAt(0).toUpperCase()}${sName.slice(1)}`;
-    const useLazy = needsLazyInit(sInitial);
+    const useLazy = needsLazyInit(sInitial, sType);
     const initExpr = useLazy ? `() => ${sInitial}` : sInitial;
     lines.push(`  const [${sName}, ${setter}] = useState<${sType}>(${initExpr});`);
   }
