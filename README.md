@@ -50,8 +50,8 @@ Write `.kern` once, compile to 12 targets. Or skip `.kern` entirely and use `ker
 | Tier | Targets | Status |
 |:-----|:--------|:-------|
 | **Tier 1** (supported) | Next.js, Express, MCP | Full schemas, deterministic output, golden examples |
-| **Tier 2** (stable) | React, Tailwind, Vue, Nuxt, FastAPI, CLI | Working, tested, community-maintained |
-| **Tier 3** (experimental) | React Native, Terminal, Ink | Functional, limited test coverage |
+| **Tier 2** (stable) | React, Tailwind, Vue, Nuxt, FastAPI, CLI, Ink | Working, tested, production-ready |
+| **Tier 3** (experimental) | React Native, Terminal | Functional, limited test coverage |
 
 For detailed examples, interactive demos, and the full rule reference, visit **[kernlang.dev](https://kernlang.dev)**.
 
