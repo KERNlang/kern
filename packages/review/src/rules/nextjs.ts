@@ -4,6 +4,8 @@
  * Catches Server Component / App Router pitfalls.
  */
 
+import { readFileSync } from 'fs';
+import { basename } from 'path';
 import { SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
 import { finding } from './utils.js';
@@ -189,6 +191,38 @@ function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
 
 // ── Rule 23: missing-use-client ──────────────────────────────────────────
 // Event handlers (onClick, onChange, etc.) without 'use client' directive
+// Import-graph-aware: severity depends on who imports this file.
+
+/** Find importers that are NOT within a client boundary (i.e. server components). */
+function findServerImporters(ctx: RuleContext): string[] {
+  const importedBy = ctx.fileContext?.importedBy || [];
+  if (importedBy.length === 0) return [];
+
+  const fileContextMap = ctx.config?.fileContextMap;
+  const serverImporters: string[] = [];
+
+  for (const imp of importedBy) {
+    const impCtx = fileContextMap?.get(imp);
+    if (impCtx) {
+      // Use computed boundary — accounts for transitive 'use client' propagation
+      if (!impCtx.isClientBoundary && !impCtx.hasUseClientDirective) {
+        serverImporters.push(imp);
+      }
+    } else {
+      // Fallback: read file directly (no graph entry for this importer)
+      try {
+        const content = readFileSync(imp, 'utf-8');
+        if (!isClientComponent(content)) {
+          serverImporters.push(imp);
+        }
+      } catch {
+        /* unreadable — skip */
+      }
+    }
+  }
+
+  return serverImporters;
+}
 
 function missingUseClient(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -204,6 +238,33 @@ function missingUseClient(ctx: RuleContext): ReviewFinding[] {
   const fullText = ctx.sourceFile.getFullText();
 
   if (isClientComponent(fullText)) return findings;
+
+  // ── Import-graph-aware severity ─────────────────────────────────────
+  // error   → imported from a server component (will break at runtime)
+  // warning → only client importers, or no import graph available
+  // info    → file has no importers (dead code or entry point)
+  let severity: 'error' | 'warning' | 'info' = 'warning';
+  let category: 'bug' | 'pattern' = 'pattern';
+  let serverImporterNames: string | undefined;
+
+  if (ctx.fileContext) {
+    const importedBy = ctx.fileContext.importedBy;
+    const serverImporters = findServerImporters(ctx);
+
+    if (serverImporters.length > 0) {
+      severity = 'error';
+      category = 'bug';
+      serverImporterNames = serverImporters.map((p) => basename(p)).join(', ');
+    } else if (importedBy.length > 0) {
+      severity = 'warning';
+    } else if (ctx.fileContext.depth === 0) {
+      // Entry point (page.tsx, layout.tsx) — Next.js loads directly as server component
+      severity = 'warning';
+    } else {
+      severity = 'info';
+    }
+  }
+  // No fileContext → keep default 'warning' (single-file review fallback)
 
   const eventHandlers = [
     'onClick',
@@ -231,25 +292,30 @@ function missingUseClient(ctx: RuleContext): ReviewFinding[] {
       if (found.has(handler)) continue;
       found.add(handler);
       const line = fullText.substring(0, match.index).split('\n').length;
+
+      let message: string;
+      if (severity === 'error') {
+        message = `Missing 'use client' — uses ${handler} and is imported from server component (${serverImporterNames})`;
+      } else if (ctx.fileContext && ctx.fileContext.importedBy.length > 0) {
+        message = `Consider adding 'use client' — ${handler} used here, all importers are already client components`;
+      } else if (ctx.fileContext && ctx.fileContext.depth === 0) {
+        message = `'${handler}' in server entry point — needs 'use client' directive`;
+      } else if (ctx.fileContext) {
+        message = `Consider adding 'use client' — ${handler} used but file has no importers`;
+      } else {
+        message = `'${handler}' in Server Component — needs 'use client' directive`;
+      }
+
       findings.push(
-        finding(
-          'missing-use-client',
-          'warning',
-          'pattern',
-          `'${handler}' in Server Component — needs 'use client' directive`,
-          ctx.filePath,
-          line,
-          1,
-          {
-            suggestion: "Add 'use client' at the top of the file, or extract to a Client Component",
-            autofix: {
-              type: 'insert-before',
-              span: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
-              replacement: "'use client';\n\n",
-              description: "Prepend 'use client' directive",
-            },
+        finding('missing-use-client', severity, category, message, ctx.filePath, line, 1, {
+          suggestion: "Add 'use client' at the top of the file, or extract to a Client Component",
+          autofix: {
+            type: 'insert-before',
+            span: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+            replacement: "'use client';\n\n",
+            description: "Prepend 'use client' directive",
           },
-        ),
+        }),
       );
     }
   }
