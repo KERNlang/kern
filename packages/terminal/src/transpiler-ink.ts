@@ -1085,7 +1085,11 @@ function renderInkNode(node: IRNode, indent: string, imports: ImportTracker): st
     case 'ref':
     case 'stream':
     case 'logic':
+    case 'effect':
     case 'callback':
+    case 'memo':
+    case 'render':
+    case 'prop':
     case 'on':
     case 'animation':
     case 'derive':
@@ -1409,7 +1413,22 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
             .join('; ')} }`
         : '';
     const secUiChildren = (secScreen.children || []).filter(
-      (c) => c.type !== 'state' && c.type !== 'ref' && c.type !== 'prop' && c.type !== 'on',
+      (c) =>
+        c.type !== 'state' &&
+        c.type !== 'ref' &&
+        c.type !== 'prop' &&
+        c.type !== 'on' &&
+        c.type !== 'logic' &&
+        c.type !== 'effect' &&
+        c.type !== 'callback' &&
+        c.type !== 'memo' &&
+        c.type !== 'render' &&
+        c.type !== 'stream' &&
+        c.type !== 'animation' &&
+        c.type !== 'derive' &&
+        c.type !== 'focus' &&
+        c.type !== 'app-exit' &&
+        (!isCoreNode(c.type) || isInkUiNode(c.type)),
     );
     const secStateNodes = getChildren(secScreen, 'state');
     const secCtx: StateHookContext = { needsInkSafe: false };
