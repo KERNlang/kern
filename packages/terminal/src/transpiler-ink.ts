@@ -191,6 +191,18 @@ interface StateHookContext {
   needsInkSafe: boolean;
 }
 
+/** Detect whether a useState initial value needs lazy initialization (prevents re-eval per render). */
+function needsLazyInit(initial: string): boolean {
+  const trimmed = initial.trim();
+  // IIFE: ((...) => ...)() or (function() { ... })()
+  if (/^\(.*\)\s*\(/.test(trimmed)) return true;
+  // function expression: function( — executes when called
+  if (trimmed.startsWith('function(') || trimmed.startsWith('function (')) return true;
+  // new constructor: new Map(), new Set(), etc.
+  if (trimmed.startsWith('new ')) return true;
+  return false;
+}
+
 function generateStateHook(stateNode: IRNode, imports: ImportTracker, ctx: StateHookContext): string[] {
   const lines: string[] = [];
   const props = getProps(stateNode);
@@ -222,6 +234,8 @@ function generateStateHook(stateNode: IRNode, imports: ImportTracker, ctx: State
                       : String(initial);
     const setter = `set${capitalize(name)}`;
     const typeAnnotation = props.type ? `<${props.type as string}>` : '';
+    // Lazy initialization for IIFEs and constructors (prevents re-eval per render)
+    const lazyInitVal = needsLazyInit(initVal) ? `() => ${initVal}` : initVal;
 
     const throttle = props.throttle as string | undefined;
     const debounce = props.debounce as string | undefined;
@@ -229,7 +243,7 @@ function generateStateHook(stateNode: IRNode, imports: ImportTracker, ctx: State
     if (throttle) {
       // Throttled setter — rate-limits updates, uses setTimeout for Ink safety
       imports.addReact('useMemo');
-      lines.push(`  const [${name}, _${setter}Raw] = useState${typeAnnotation}(${initVal});`);
+      lines.push(`  const [${name}, _${setter}Raw] = useState${typeAnnotation}(${lazyInitVal});`);
       lines.push(`  const ${setter} = useMemo(() => {`);
       lines.push(`    let _lastCall = 0;`);
       lines.push(`    return (value: React.SetStateAction<${typeAnnotation ? (props.type as string) : 'any'}>) => {`);
@@ -243,7 +257,7 @@ function generateStateHook(stateNode: IRNode, imports: ImportTracker, ctx: State
     } else if (debounce) {
       // Debounced setter — delays updates, uses setTimeout for Ink safety
       imports.addReact('useMemo');
-      lines.push(`  const [${name}, _${setter}Raw] = useState${typeAnnotation}(${initVal});`);
+      lines.push(`  const [${name}, _${setter}Raw] = useState${typeAnnotation}(${lazyInitVal});`);
       lines.push(`  const ${setter} = useMemo(() => {`);
       lines.push(`    let _timer: ReturnType<typeof setTimeout> | null = null;`);
       lines.push(`    return (value: React.SetStateAction<${typeAnnotation ? (props.type as string) : 'any'}>) => {`);
@@ -254,10 +268,10 @@ function generateStateHook(stateNode: IRNode, imports: ImportTracker, ctx: State
     } else if (safe) {
       ctx.needsInkSafe = true;
       imports.addReact('useMemo');
-      lines.push(`  const [${name}, _${setter}Raw] = useState${typeAnnotation}(${initVal});`);
+      lines.push(`  const [${name}, _${setter}Raw] = useState${typeAnnotation}(${lazyInitVal});`);
       lines.push(`  const ${setter} = useMemo(() => __inkSafe(_${setter}Raw), [_${setter}Raw]);`);
     } else {
-      lines.push(`  const [${name}, ${setter}] = useState${typeAnnotation}(${initVal});`);
+      lines.push(`  const [${name}, ${setter}] = useState${typeAnnotation}(${lazyInitVal});`);
     }
   }
 
@@ -1559,12 +1573,36 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
   const tsTokenCount = countTokens(code);
   const tokenReduction = Math.round((1 - irTokenCount / tsTokenCount) * 100);
 
+  // Generate artifacts: entry point + per-screen component files for multi-screen
+  const artifacts: import('@kernlang/core').GeneratedArtifact[] = [];
+
+  // Entry-point artifact: render(<App />) + waitUntilExit()
+  const entryLines: string[] = [];
+  entryLines.push(`#!/usr/bin/env node`);
+  entryLines.push(`import React from 'react';`);
+  entryLines.push(`import { render } from 'ink';`);
+  entryLines.push(`import ${screenName} from './${screenName}.js';`);
+  entryLines.push('');
+  entryLines.push(`const app = render(<${screenName} />);`);
+  entryLines.push(`await app.waitUntilExit();`);
+  artifacts.push({ path: 'index.tsx', content: entryLines.join('\n'), type: 'entry' });
+
+  // Per-screen component artifacts for multi-screen files
+  if (secondaryScreens.length > 0) {
+    for (const secScreen of secondaryScreens) {
+      const secName = (getProps(secScreen).name as string) || 'Component';
+      artifacts.push({ path: `${secName}.tsx`, content: '', type: 'component' });
+    }
+    artifacts.push({ path: `${screenName}.tsx`, content: code, type: 'component' });
+  }
+
   return {
     code,
     sourceMap,
     irTokenCount,
     tsTokenCount,
     tokenReduction,
+    artifacts,
     diagnostics: (() => {
       const accounted = new Map<IRNode, AccountedEntry>();
       accountNode(accounted, root, 'expressed', undefined, true);

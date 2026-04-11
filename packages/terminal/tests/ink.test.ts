@@ -1007,4 +1007,71 @@ describe('Ink Transpiler', () => {
     expect(result.code).toContain('export function Helper(');
     expect(result.code).toContain('export default function Main(');
   });
+
+  // ── Next.js parity features ───────────────────────────────────────────
+
+  test('IIFE initial uses lazy useState initializer', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=Test\n  state name=data initial="(() => computeDefault())()" type=Data safe=false');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('useState<Data>(() =>');
+    expect(result.code).toContain('computeDefault');
+  });
+
+  test('new Map() initial uses lazy useState initializer', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=Test\n  state name=cache initial="new Map()" type="Map<string,any>" safe=false');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('() => new Map()');
+  });
+
+  test('simple initial does NOT use lazy init', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=Test\n  state name=count initial=0 safe=false');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('useState(0)');
+    expect(result.code).not.toContain('() => 0');
+  });
+
+  test('generates entry-point artifact with render + waitUntilExit', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=MyApp\n  text value="Hello"');
+    const result = transpileInk(ast);
+
+    expect(result.artifacts).toBeDefined();
+    const entry = result.artifacts!.find((a) => a.type === 'entry');
+    expect(entry).toBeDefined();
+    expect(entry!.path).toBe('index.tsx');
+    expect(entry!.content).toContain('render(<MyApp />)');
+    expect(entry!.content).toContain('waitUntilExit()');
+    expect(entry!.content).toContain("import MyApp from './MyApp.js'");
+  });
+
+  test('multi-screen generates component artifacts', async () => {
+    const { parseDocument } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Header',
+      '  text value="Header"',
+      '',
+      'screen name=App',
+      '  text value="App"',
+    ].join('\n');
+    const ast = parseDocument(source);
+    const result = transpileInk(ast);
+
+    expect(result.artifacts).toBeDefined();
+    expect(result.artifacts!.length).toBeGreaterThanOrEqual(2);
+    const entry = result.artifacts!.find((a) => a.type === 'entry');
+    expect(entry).toBeDefined();
+    const components = result.artifacts!.filter((a) => a.type === 'component');
+    expect(components.length).toBeGreaterThanOrEqual(1);
+  });
 });
