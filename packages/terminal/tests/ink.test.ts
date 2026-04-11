@@ -1057,13 +1057,9 @@ describe('Ink Transpiler', () => {
   test('multi-screen generates component artifacts', async () => {
     const { parseDocument } = await import('../../core/src/parser.js');
     const { transpileInk } = await import('../src/transpiler-ink.js');
-    const source = [
-      'screen name=Header',
-      '  text value="Header"',
-      '',
-      'screen name=App',
-      '  text value="App"',
-    ].join('\n');
+    const source = ['screen name=Header', '  text value="Header"', '', 'screen name=App', '  text value="App"'].join(
+      '\n',
+    );
     const ast = parseDocument(source);
     const result = transpileInk(ast);
 
