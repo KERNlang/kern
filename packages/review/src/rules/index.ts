@@ -15,6 +15,7 @@
  */
 
 import type { ReviewRule } from '../types.js';
+import { a11yRules } from './a11y.js';
 import { asyncRules } from './async.js';
 import { baseRules } from './base.js';
 import { cliRules } from './cli.js';
@@ -26,6 +27,7 @@ import { nextjsRules } from './nextjs.js';
 import { nextjsAppRouterRules } from './nextjs-app-router.js';
 import { nullSafetyRules } from './null-safety.js';
 import { nuxtRules } from './nuxt.js';
+import { perfRules } from './perf.js';
 import { reactRules } from './react.js';
 import { reactHooksRules } from './react-hooks.js';
 import { securityRules } from './security.js';
@@ -64,6 +66,8 @@ export function getActiveRules(target?: string): ReviewRule[] {
   if (!isBackend && target && REACT_TARGETS.has(target)) {
     rules.push(...reactRules);
     rules.push(...reactHooksRules);
+    rules.push(...a11yRules);
+    rules.push(...perfRules);
   }
 
   if (!isBackend && target && VUE_TARGETS.has(target)) {
@@ -568,6 +572,74 @@ const REGISTRY: RuleInfo[] = [
     rolloutPhase: 2,
   },
 
+  // a11y — Wave 3
+  {
+    id: 'img-missing-alt',
+    layer: 'a11y',
+    severity: 'error',
+    description: '<img> missing alt attribute — use alt="" for decorative images',
+    precision: 'high',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'button-missing-name',
+    layer: 'a11y',
+    severity: 'error',
+    description: '<button> has no accessible name (text, aria-label, or aria-labelledby)',
+    precision: 'high',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'label-missing-for',
+    layer: 'a11y',
+    severity: 'warning',
+    description: '<label> not associated with a form control via htmlFor or nesting',
+    precision: 'high',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'aria-invalid-role',
+    layer: 'a11y',
+    severity: 'error',
+    description: 'role attribute value is not a valid WAI-ARIA 1.2 role',
+    precision: 'high',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'interactive-noninteractive',
+    layer: 'a11y',
+    severity: 'warning',
+    description: 'onClick/onKeyDown on div/span without role+tabIndex — keyboard inaccessible',
+    precision: 'high',
+    rolloutPhase: 3,
+  },
+
+  // perf — Wave 3
+  {
+    id: 'image-no-lazy',
+    layer: 'perf',
+    severity: 'info',
+    description: '<img> without loading="lazy" — below-the-fold images should lazy-load',
+    precision: 'medium',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'heavy-computation-in-render',
+    layer: 'perf',
+    severity: 'info',
+    description: 'Chained expensive array operations (sort/filter/reduce) inline in JSX — consider useMemo',
+    precision: 'medium',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'large-list-no-virtualization',
+    layer: 'perf',
+    severity: 'info',
+    description: 'Large list rendered with .map() without a virtualization library',
+    precision: 'experimental',
+    rolloutPhase: 3,
+  },
+
   // CLI (target: cli)
   {
     id: 'cli-missing-shebang',
@@ -909,6 +981,8 @@ const LAYER_TARGET_MAP: Record<string, string[] | null> = {
   concept: null,
   react: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   'react-hooks': ['nextjs', 'tailwind', 'web', 'native', 'ink'],
+  a11y: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
+  perf: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   cli: ['cli'],
   vue: ['vue', 'nuxt'],
   ink: ['ink'],
