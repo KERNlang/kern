@@ -8,7 +8,7 @@
 
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { finding } from './utils.js';
+import { finding, nodeSpan } from './utils.js';
 
 // ── Rule: xss-href-javascript ────────────────────────────────────────────
 // JSX href / src attribute set to a string starting with `javascript:`,
@@ -25,6 +25,8 @@ function xssHrefJavascript(ctx: RuleContext): ReviewFinding[] {
     if (!init) continue;
 
     // Literal string attribute: href="javascript:alert(1)"
+    // Autofix: replace the string literal with "#". That's the standard
+    // "inert link" marker — safe default, user can change to a real URL later.
     if (Node.isStringLiteral(init)) {
       const value = init.getLiteralValue();
       if (/^\s*javascript:/i.test(value)) {
@@ -37,7 +39,15 @@ function xssHrefJavascript(ctx: RuleContext): ReviewFinding[] {
             ctx.filePath,
             attr.getStartLineNumber(),
             1,
-            { suggestion: 'Replace javascript: URL with an onClick handler or a safe href' },
+            {
+              suggestion: 'Replace javascript: URL with an onClick handler or a safe href',
+              autofix: {
+                type: 'replace',
+                span: nodeSpan(init, ctx.filePath),
+                replacement: '"#"',
+                description: 'Replace javascript: URL with inert "#" — wire an onClick handler for real behavior',
+              },
+            },
           ),
         );
       }
@@ -61,7 +71,15 @@ function xssHrefJavascript(ctx: RuleContext): ReviewFinding[] {
               ctx.filePath,
               attr.getStartLineNumber(),
               1,
-              { suggestion: 'Replace javascript: URL with an onClick handler or a safe href' },
+              {
+                suggestion: 'Replace javascript: URL with an onClick handler or a safe href',
+                autofix: {
+                  type: 'replace',
+                  span: nodeSpan(expr, ctx.filePath),
+                  replacement: '"#"',
+                  description: 'Replace javascript: URL with inert "#"',
+                },
+              },
             ),
           );
         }
@@ -213,6 +231,11 @@ function cryptoWeakKdf(ctx: RuleContext): ReviewFinding[] {
     }
 
     if (iterations !== undefined && iterations < PBKDF2_MIN_ITERATIONS) {
+      // Autofix: replace the iterations literal with 600_000 (OWASP 2023 min
+      // for SHA-256). Only when the arg is a direct literal — don't try to
+      // rewrite a referenced constant, that requires resolving and patching
+      // the declaration.
+      const canAutofix = Node.isNumericLiteral(iterArg);
       findings.push(
         finding(
           'crypto-weak-kdf',
@@ -225,6 +248,16 @@ function cryptoWeakKdf(ctx: RuleContext): ReviewFinding[] {
           {
             suggestion:
               'Use argon2id via `argon2` or increase iterations to at least 600,000 for SHA-256 / 210,000 for SHA-512',
+            ...(canAutofix
+              ? {
+                  autofix: {
+                    type: 'replace' as const,
+                    span: nodeSpan(iterArg, ctx.filePath),
+                    replacement: '600_000',
+                    description: 'Bump iteration count to 600,000 (OWASP 2023 minimum for SHA-256)',
+                  },
+                }
+              : {}),
           },
         ),
       );

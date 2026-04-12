@@ -5,7 +5,7 @@
 
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { finding } from './utils.js';
+import { finding, insertBeforeSpan } from './utils.js';
 
 // ── Rule: promise-all-error-swallow ──────────────────────────────────────
 // Promise.all([...]) without .catch and not inside a try/catch is a bug:
@@ -132,8 +132,10 @@ function abortControllerLeak(ctx: RuleContext): ReviewFinding[] {
 
     // Check the cleanup function (the return value of the effect body)
     let cleanupText = '';
+    let hasExistingReturn = false;
     for (const stmt of body.getStatements()) {
       if (Node.isReturnStatement(stmt)) {
+        hasExistingReturn = true;
         const expr = stmt.getExpression();
         if (expr && (Node.isArrowFunction(expr) || Node.isFunctionExpression(expr))) {
           cleanupText = expr.getText();
@@ -146,6 +148,12 @@ function abortControllerLeak(ctx: RuleContext): ReviewFinding[] {
       // Require both: the ref name appears in cleanup AND .abort() is called
       const hasAbortCall = new RegExp(`\\b${ctrl.name}\\s*\\.\\s*abort\\s*\\(`).test(cleanupText);
       if (!hasAbortCall) {
+        // Autofix: insert a cleanup return immediately before the closing brace
+        // of the effect body. Only safe when there is NO existing return — if
+        // one is there, the user already has a cleanup and we'd need to merge
+        // the abort into it, which is too risky for an automated transform.
+        const closingBrace = body.getLastChildByKind(SyntaxKind.CloseBraceToken);
+        const canAutofix = !hasExistingReturn && controllers.length === 1 && closingBrace != null;
         findings.push(
           finding(
             'abortcontroller-leak',
@@ -157,6 +165,16 @@ function abortControllerLeak(ctx: RuleContext): ReviewFinding[] {
             1,
             {
               suggestion: `Return a cleanup function that calls ${ctrl.name}.abort(): return () => ${ctrl.name}.abort();`,
+              ...(canAutofix && closingBrace
+                ? {
+                    autofix: {
+                      type: 'insert-before' as const,
+                      span: insertBeforeSpan(closingBrace, ctx.filePath),
+                      replacement: `  return () => ${ctrl.name}.abort();\n`,
+                      description: `Insert cleanup return that aborts ${ctrl.name}`,
+                    },
+                  }
+                : {}),
             },
           ),
         );

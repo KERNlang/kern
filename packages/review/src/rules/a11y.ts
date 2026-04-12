@@ -8,7 +8,7 @@
 import type { JsxAttribute, JsxOpeningElement, JsxSelfClosingElement } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { finding } from './utils.js';
+import { finding, insertAfterSpan } from './utils.js';
 
 // ARIA 1.2 valid role values (subset covering the common ones).
 // Source: https://www.w3.org/TR/wai-aria-1.2/#role_definitions
@@ -159,6 +159,10 @@ function imgMissingAlt(ctx: RuleContext): ReviewFinding[] {
     // aria-hidden="true" also exempts
     if (hasAttr(el, 'aria-hidden')) continue;
 
+    // Autofix: insert `alt=""` immediately after the tag name. `alt=""` is
+    // the correct default for images whose intent we can't determine — it
+    // marks them as decorative so screen readers skip them. The user can
+    // replace the empty string with real alt text later.
     findings.push(
       finding(
         'img-missing-alt',
@@ -168,7 +172,15 @@ function imgMissingAlt(ctx: RuleContext): ReviewFinding[] {
         ctx.filePath,
         el.getStartLineNumber(),
         1,
-        { suggestion: 'Add alt="description" for meaningful images, or alt="" for decorative images' },
+        {
+          suggestion: 'Add alt="description" for meaningful images, or alt="" for decorative images',
+          autofix: {
+            type: 'insert-after',
+            span: insertAfterSpan(el.getTagNameNode(), ctx.filePath),
+            replacement: ' alt=""',
+            description: 'Insert alt="" (safe default for unknown-intent images)',
+          },
+        },
       ),
     );
   }

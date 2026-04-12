@@ -8,7 +8,7 @@
 
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { finding } from './utils.js';
+import { finding, nodeSpan } from './utils.js';
 
 const EFFECT_HOOKS = new Set(['useEffect', 'useLayoutEffect']);
 const MEMO_HOOKS = new Set(['useMemo', 'useCallback']);
@@ -248,6 +248,13 @@ function exhaustiveDeps(ctx: RuleContext): ReviewFinding[] {
     if (missing.size > 0) {
       const hookName = calleeName;
       const names = [...missing].sort().join(', ');
+      // Autofix: rebuild the dependency array to include the missing names.
+      // Preserve existing deps in their original order, then append missing
+      // in sorted order. Marked as "review before applying" because adding
+      // deps can introduce render loops when a dep is a non-memoized object.
+      const existingTexts = depsArg.getElements().map((e) => e.getText());
+      const missingSorted = [...missing].sort();
+      const newDepsText = `[${[...existingTexts, ...missingSorted].join(', ')}]`;
       findings.push(
         finding(
           'exhaustive-deps',
@@ -259,6 +266,12 @@ function exhaustiveDeps(ctx: RuleContext): ReviewFinding[] {
           1,
           {
             suggestion: `Add ${names} to the dependency array, or move ${missing.size === 1 ? 'it' : 'them'} out of the enclosing closure`,
+            autofix: {
+              type: 'replace',
+              span: nodeSpan(depsArg, ctx.filePath),
+              replacement: newDepsText,
+              description: `Add ${names} to the dependency array — REVIEW before applying: adding a non-memoized object/function dep can trigger a render loop`,
+            },
           },
         ),
       );
@@ -294,24 +307,39 @@ function refInDeps(ctx: RuleContext): ReviewFinding[] {
 
     const { refs } = collectStableNames(enclosingFn);
 
-    for (const el of depsArg.getElements()) {
-      if (!Node.isIdentifier(el)) continue;
-      if (refs.has(el.getText())) {
-        findings.push(
-          finding(
-            'ref-in-deps',
-            'warning',
-            'pattern',
-            `'${el.getText()}' is a ref from useRef — refs are stable across renders, so including them in a dependency array has no effect`,
-            ctx.filePath,
-            el.getStartLineNumber(),
-            1,
-            {
-              suggestion: `Remove '${el.getText()}' from the dependency array. If you want to react to ref.current changes, you need a different pattern (state or a callback ref).`,
+    // Collect the ref names present in the deps array, then emit one finding
+    // per ref with an autofix that rewrites the deps array without ANY of the
+    // refs. That way applying the first autofix also resolves the others,
+    // and we avoid emitting stale "remove X" fixes after the user accepted one.
+    const depElements = depsArg.getElements();
+    const refElementsInDeps = depElements.filter((el) => Node.isIdentifier(el) && refs.has(el.getText()));
+    if (refElementsInDeps.length === 0) continue;
+
+    const refNamesInDeps = new Set(refElementsInDeps.map((e) => e.getText()));
+    const filteredElements = depElements.filter((el) => !(Node.isIdentifier(el) && refNamesInDeps.has(el.getText())));
+    const newDepsText = `[${filteredElements.map((e) => e.getText()).join(', ')}]`;
+
+    for (const el of refElementsInDeps) {
+      findings.push(
+        finding(
+          'ref-in-deps',
+          'warning',
+          'pattern',
+          `'${el.getText()}' is a ref from useRef — refs are stable across renders, so including them in a dependency array has no effect`,
+          ctx.filePath,
+          el.getStartLineNumber(),
+          1,
+          {
+            suggestion: `Remove '${el.getText()}' from the dependency array. If you want to react to ref.current changes, you need a different pattern (state or a callback ref).`,
+            autofix: {
+              type: 'replace',
+              span: nodeSpan(depsArg, ctx.filePath),
+              replacement: newDepsText,
+              description: `Remove ref(s) from the dependency array`,
             },
-          ),
-        );
-      }
+          },
+        ),
+      );
     }
   }
 

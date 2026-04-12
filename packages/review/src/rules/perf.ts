@@ -9,7 +9,7 @@
 import type { JsxOpeningElement, JsxSelfClosingElement } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { finding } from './utils.js';
+import { finding, insertAfterSpan } from './utils.js';
 
 type JsxElementLike = JsxOpeningElement | JsxSelfClosingElement;
 
@@ -51,6 +51,12 @@ function imageNoLazy(ctx: RuleContext): ReviewFinding[] {
         {
           suggestion:
             'Add loading="lazy" (and optionally decoding="async") or use next/image which lazy-loads by default',
+          autofix: {
+            type: 'insert-after',
+            span: insertAfterSpan(el.getTagNameNode(), ctx.filePath),
+            replacement: ' loading="lazy"',
+            description: 'Insert loading="lazy" attribute',
+          },
         },
       ),
     );

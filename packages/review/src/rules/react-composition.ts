@@ -17,7 +17,7 @@ import type {
 } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { finding } from './utils.js';
+import { finding, nodeSpan } from './utils.js';
 
 type ComponentFn = FunctionDeclaration | ArrowFunction | FunctionExpression;
 
@@ -108,6 +108,32 @@ function childrenNotUsed(ctx: RuleContext): ReviewFinding[] {
 
     if (!rendered) {
       const { name } = isComponentFunction(fn);
+
+      // Autofix: remove the `children` entry from the destructured props
+      // pattern. Only applies when the binding pattern is simple (no renames,
+      // defaults, or rest — those are fine, we just leave them alone here).
+      let autofixAction: ReviewFinding['autofix'] | undefined;
+      const firstParam = fn.getParameters()[0];
+      if (firstParam) {
+        const nameNode = firstParam.getNameNode();
+        if (Node.isObjectBindingPattern(nameNode)) {
+          const elements = (nameNode as ObjectBindingPattern).getElements();
+          const remaining = elements.filter((el) => {
+            const propName = el.getPropertyNameNode()?.getText() ?? el.getNameNode().getText();
+            return propName !== 'children';
+          });
+          // Reconstruct a clean `{ a, b, c }` pattern using each element's
+          // original text. Preserves renames, defaults, and rest operators.
+          const rebuilt = `{ ${remaining.map((el) => el.getText()).join(', ')} }`;
+          autofixAction = {
+            type: 'replace' as const,
+            span: nodeSpan(nameNode, ctx.filePath),
+            replacement: rebuilt,
+            description: `Remove unused 'children' from the props destructuring`,
+          };
+        }
+      }
+
       findings.push(
         finding(
           'children-not-used',
@@ -119,6 +145,7 @@ function childrenNotUsed(ctx: RuleContext): ReviewFinding[] {
           1,
           {
             suggestion: `Render {children} in the JSX output, or remove 'children' from the props destructuring if the component should not accept children`,
+            ...(autofixAction ? { autofix: autofixAction } : {}),
           },
         ),
       );
