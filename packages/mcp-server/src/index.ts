@@ -16,6 +16,10 @@ import {
   countTokens,
   decompile,
   defaultRuntime,
+  expandTemplateNode,
+  generateCoreNode,
+  isCoreNode,
+  isTemplateNode,
   KERN_VERSION,
   NODE_SCHEMAS,
   NODE_TYPES,
@@ -30,7 +34,7 @@ import {
 import { transpileExpress } from '@kernlang/express';
 import { transpileFastAPI } from '@kernlang/fastapi';
 import { transpileMCP, transpileMCPPython } from '@kernlang/mcp';
-import { transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
+import { generateReactNode, isReactNode, transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
 import { reviewKernSource, reviewSource } from '@kernlang/review';
 import type { LiveLockFile } from '@kernlang/review-mcp';
 import {
@@ -76,8 +80,31 @@ function fmtError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function transpileLib(ast: IRNode) {
+  const lines: string[] = [];
+  function processNode(node: IRNode): void {
+    if (isCoreNode(node.type)) {
+      lines.push(...generateCoreNode(node));
+      lines.push('');
+    } else if (isTemplateNode(node.type)) {
+      lines.push(...expandTemplateNode(node));
+      lines.push('');
+    } else if (isReactNode(node.type)) {
+      lines.push(...generateReactNode(node));
+      lines.push('');
+    }
+  }
+  processNode(ast);
+  if (ast.children) {
+    for (const child of ast.children) processNode(child);
+  }
+  return { code: lines.join('\n'), sourceMap: [], irTokenCount: 0, tsTokenCount: 0, tokenReduction: 0, artifacts: [] };
+}
+
 function transpile(ast: IRNode, target: KernTarget, config: ResolvedKernConfig) {
   switch (target) {
+    case 'lib':
+      return transpileLib(ast);
     case 'web':
       return transpileWeb(ast, config);
     case 'tailwind':
