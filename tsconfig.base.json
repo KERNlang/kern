@@ -9,6 +9,7 @@
     "sourceMap": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "composite": true
+    "composite": true,
+    "types": ["node", "jest"]
   }
 }
