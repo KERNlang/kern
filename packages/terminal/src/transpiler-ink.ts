@@ -1397,7 +1397,16 @@ function compileScreenBody(
   // Covers cases where user code calls hooks inline (e.g. useEffect in a render handler)
   // rather than via dedicated KERN nodes.
   const bodyText = bodyLines.join('\n');
-  for (const hook of ['useEffect', 'useState', 'useMemo', 'useCallback', 'useRef', 'useReducer', 'useContext', 'useLayoutEffect']) {
+  for (const hook of [
+    'useEffect',
+    'useState',
+    'useMemo',
+    'useCallback',
+    'useRef',
+    'useReducer',
+    'useContext',
+    'useLayoutEffect',
+  ]) {
     if (bodyText.includes(hook)) imports.addReact(hook);
   }
 
@@ -1447,9 +1456,7 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
 
   // File-level imports go before component; file-level fn/const go after
   // Collect import nodes from ALL screens (not just primary) so user imports aren't dropped
-  const secondaryImports = secondaryScreens.flatMap((s) =>
-    (s.children || []).filter((c) => c.type === 'import'),
-  );
+  const secondaryImports = secondaryScreens.flatMap((s) => (s.children || []).filter((c) => c.type === 'import'));
   const coreChildren = [
     ...fileLevelNodes.filter((c) => isCoreNode(c.type) && c.type !== 'screen' && c.type !== 'fn' && c.type !== 'const'),
     ...(screenNode.children || []).filter((c) => isCoreNode(c.type) && c.type !== 'on' && !isInkUiNode(c.type)),
