@@ -569,7 +569,8 @@ const REGISTRY: RuleInfo[] = [
     id: 'abortcontroller-leak',
     layer: 'async',
     severity: 'warning',
-    description: 'AbortController created in useEffect without .abort() in cleanup — in-flight requests survive unmount',
+    description:
+      'AbortController created in useEffect without .abort() in cleanup — in-flight requests survive unmount',
     precision: 'high',
     rolloutPhase: 2,
   },
@@ -587,7 +588,8 @@ const REGISTRY: RuleInfo[] = [
     id: 'prop-drill-passthrough',
     layer: 'react-composition',
     severity: 'warning',
-    description: 'Component passes >= 2 props through to a single child without reading them — use children prop or context',
+    description:
+      'Component passes >= 2 props through to a single child without reading them — use children prop or context',
     precision: 'medium',
     rolloutPhase: 4,
   },
@@ -595,7 +597,8 @@ const REGISTRY: RuleInfo[] = [
     id: 'parent-rerender-via-state',
     layer: 'react-composition',
     severity: 'info',
-    description: 'Parent with useState renders a child that does not receive that state — lift child to children prop to avoid re-render',
+    description:
+      'Parent with useState renders a child that does not receive that state — lift child to children prop to avoid re-render',
     precision: 'medium',
     rolloutPhase: 4,
   },
@@ -830,7 +833,8 @@ const REGISTRY: RuleInfo[] = [
     id: 'use-client-drilled-too-high',
     layer: 'nextjs-app-router',
     severity: 'warning',
-    description: "'use client' directive placed on a file that uses no client APIs itself — move it to the leaf component",
+    description:
+      "'use client' directive placed on a file that uses no client APIs itself — move it to the leaf component",
     precision: 'medium',
     rolloutPhase: 1,
   },

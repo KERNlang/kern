@@ -149,7 +149,11 @@ function imgMissingAlt(ctx: RuleContext): ReviewFinding[] {
     if (hasAttr(el, 'alt')) continue;
     // Role presentation / none exempts from alt requirement
     const role = getAttr(el, 'role')?.getInitializer();
-    if (role && Node.isStringLiteral(role) && (role.getLiteralValue() === 'presentation' || role.getLiteralValue() === 'none')) {
+    if (
+      role &&
+      Node.isStringLiteral(role) &&
+      (role.getLiteralValue() === 'presentation' || role.getLiteralValue() === 'none')
+    ) {
       continue;
     }
     // aria-hidden="true" also exempts
@@ -254,13 +258,11 @@ function labelMissingFor(ctx: RuleContext): ReviewFinding[] {
     // <label><input /></label> — nested control is fine
     const parent = el.getParent();
     if (parent && Node.isJsxElement(parent)) {
-      const hasNestedControl = parent
-        .getDescendants()
-        .some((d) => {
-          if (!Node.isJsxSelfClosingElement(d) && !Node.isJsxOpeningElement(d)) return false;
-          const name = d.getTagNameNode().getText();
-          return name === 'input' || name === 'select' || name === 'textarea';
-        });
+      const hasNestedControl = parent.getDescendants().some((d) => {
+        if (!Node.isJsxSelfClosingElement(d) && !Node.isJsxOpeningElement(d)) return false;
+        const name = d.getTagNameNode().getText();
+        return name === 'input' || name === 'select' || name === 'textarea';
+      });
       if (hasNestedControl) continue;
     }
 
@@ -304,7 +306,9 @@ function ariaInvalidRole(ctx: RuleContext): ReviewFinding[] {
             ctx.filePath,
             roleAttr.getStartLineNumber(),
             1,
-            { suggestion: `Use a valid ARIA role from the WAI-ARIA 1.2 spec, or remove the role to use the element's implicit role` },
+            {
+              suggestion: `Use a valid ARIA role from the WAI-ARIA 1.2 spec, or remove the role to use the element's implicit role`,
+            },
           ),
         );
         break; // one finding per element
@@ -358,4 +362,10 @@ function interactiveNonInteractive(ctx: RuleContext): ReviewFinding[] {
 
 // ── Exported a11y rules ──────────────────────────────────────────────────
 
-export const a11yRules = [imgMissingAlt, buttonMissingName, labelMissingFor, ariaInvalidRole, interactiveNonInteractive];
+export const a11yRules = [
+  imgMissingAlt,
+  buttonMissingName,
+  labelMissingFor,
+  ariaInvalidRole,
+  interactiveNonInteractive,
+];

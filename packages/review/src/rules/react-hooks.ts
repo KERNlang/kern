@@ -245,11 +245,13 @@ function exhaustiveDeps(ctx: RuleContext): ReviewFinding[] {
           'exhaustive-deps',
           'warning',
           'bug',
-          `${hookName} references ${names} but ${missing.size === 1 ? "it is" : "they are"} missing from the dependency array — will use stale ${missing.size === 1 ? 'value' : 'values'} across renders`,
+          `${hookName} references ${names} but ${missing.size === 1 ? 'it is' : 'they are'} missing from the dependency array — will use stale ${missing.size === 1 ? 'value' : 'values'} across renders`,
           ctx.filePath,
           depsArg.getStartLineNumber(),
           1,
-          { suggestion: `Add ${names} to the dependency array, or move ${missing.size === 1 ? 'it' : 'them'} out of the enclosing closure` },
+          {
+            suggestion: `Add ${names} to the dependency array, or move ${missing.size === 1 ? 'it' : 'them'} out of the enclosing closure`,
+          },
         ),
       );
     }
@@ -296,7 +298,9 @@ function refInDeps(ctx: RuleContext): ReviewFinding[] {
             ctx.filePath,
             el.getStartLineNumber(),
             1,
-            { suggestion: `Remove '${el.getText()}' from the dependency array. If you want to react to ref.current changes, you need a different pattern (state or a callback ref).` },
+            {
+              suggestion: `Remove '${el.getText()}' from the dependency array. If you want to react to ref.current changes, you need a different pattern (state or a callback ref).`,
+            },
           ),
         );
       }

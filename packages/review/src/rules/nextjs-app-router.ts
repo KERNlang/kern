@@ -108,7 +108,10 @@ function useClientDrilledTooHigh(ctx: RuleContext): ReviewFinding[] {
       .map(([k]) => k);
     if (gfImports.length > 0) {
       severity = 'warning';
-      detail += ` Imported children: ${gfImports.slice(0, 3).map((p) => basename(p)).join(', ')}${gfImports.length > 3 ? '…' : ''}.`;
+      detail += ` Imported children: ${gfImports
+        .slice(0, 3)
+        .map((p) => basename(p))
+        .join(', ')}${gfImports.length > 3 ? '…' : ''}.`;
     }
   }
 
@@ -160,7 +163,9 @@ function serverApiInClient(ctx: RuleContext): ReviewFinding[] {
           ctx.filePath,
           imp.getStartLineNumber(),
           1,
-          { suggestion: `Move this logic to a Server Component or a server action, or drop the 'use client' directive if this file does not need it` },
+          {
+            suggestion: `Move this logic to a Server Component or a server action, or drop the 'use client' directive if this file does not need it`,
+          },
         ),
       );
     }
@@ -179,8 +184,7 @@ function serverApiInClient(ctx: RuleContext): ReviewFinding[] {
       .getImportDeclarations()
       .some(
         (imp) =>
-          imp.getModuleSpecifierValue() === 'next/headers' &&
-          imp.getNamedImports().some((ni) => ni.getName() === name),
+          imp.getModuleSpecifierValue() === 'next/headers' && imp.getNamedImports().some((ni) => ni.getName() === name),
       );
     if (!fromNextHeaders) continue;
 

@@ -164,7 +164,8 @@ function cryptoIvReuse(ctx: RuleContext): ReviewFinding[] {
           call.getStartLineNumber(),
           1,
           {
-            suggestion: 'Generate a fresh IV per encryption: `const iv = crypto.randomBytes(ivLength)` and prepend it to the ciphertext for decryption',
+            suggestion:
+              'Generate a fresh IV per encryption: `const iv = crypto.randomBytes(ivLength)` and prepend it to the ciphertext for decryption',
           },
         ),
       );
@@ -187,7 +188,12 @@ function cryptoWeakKdf(ctx: RuleContext): ReviewFinding[] {
 
   for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const callee = call.getExpression().getText();
-    if (callee !== 'pbkdf2' && callee !== 'pbkdf2Sync' && callee !== 'crypto.pbkdf2' && callee !== 'crypto.pbkdf2Sync') {
+    if (
+      callee !== 'pbkdf2' &&
+      callee !== 'pbkdf2Sync' &&
+      callee !== 'crypto.pbkdf2' &&
+      callee !== 'crypto.pbkdf2Sync'
+    ) {
       continue;
     }
 
@@ -217,7 +223,8 @@ function cryptoWeakKdf(ctx: RuleContext): ReviewFinding[] {
           call.getStartLineNumber(),
           1,
           {
-            suggestion: 'Use argon2id via `argon2` or increase iterations to at least 600,000 for SHA-256 / 210,000 for SHA-512',
+            suggestion:
+              'Use argon2id via `argon2` or increase iterations to at least 600,000 for SHA-256 / 210,000 for SHA-512',
           },
         ),
       );

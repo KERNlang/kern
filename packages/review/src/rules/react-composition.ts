@@ -117,7 +117,9 @@ function childrenNotUsed(ctx: RuleContext): ReviewFinding[] {
           ctx.filePath,
           fn.getStartLineNumber(),
           1,
-          { suggestion: `Render {children} in the JSX output, or remove 'children' from the props destructuring if the component should not accept children` },
+          {
+            suggestion: `Render {children} in the JSX output, or remove 'children' from the props destructuring if the component should not accept children`,
+          },
         ),
       );
     }
@@ -130,9 +132,7 @@ function childrenNotUsed(ctx: RuleContext): ReviewFinding[] {
 // those props are passed unchanged to that element without being read anywhere
 // else. Suggest `children` or context.
 
-function getSingleReturnedJsx(fn: ComponentFn):
-  | (JsxOpeningElement | JsxSelfClosingElement)
-  | undefined {
+function getSingleReturnedJsx(fn: ComponentFn): (JsxOpeningElement | JsxSelfClosingElement) | undefined {
   const body = fn.getBody();
   if (!body) return undefined;
 

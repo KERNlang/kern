@@ -48,7 +48,10 @@ function imageNoLazy(ctx: RuleContext): ReviewFinding[] {
         ctx.filePath,
         el.getStartLineNumber(),
         1,
-        { suggestion: 'Add loading="lazy" (and optionally decoding="async") or use next/image which lazy-loads by default' },
+        {
+          suggestion:
+            'Add loading="lazy" (and optionally decoding="async") or use next/image which lazy-loads by default',
+        },
       ),
     );
   }
@@ -108,7 +111,10 @@ function heavyComputationInRender(ctx: RuleContext): ReviewFinding[] {
         ctx.filePath,
         jsxExpr.getStartLineNumber(),
         1,
-        { suggestion: 'Wrap the computation in useMemo with the correct dependencies, or move it out of the render path entirely' },
+        {
+          suggestion:
+            'Wrap the computation in useMemo with the correct dependencies, or move it out of the render path entirely',
+        },
       ),
     );
   }
