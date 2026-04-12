@@ -430,13 +430,8 @@ export function transpileAndWrite(
     const outFilePath = resolve(outDir, outFileName);
     mkdirSync(dirname(outFilePath), { recursive: true });
     writeFileSync(outFilePath, header + result.code);
-    if (result.artifacts) {
-      for (const artifact of result.artifacts) {
-        const artifactPath = resolve(outDir, artifact.path);
-        mkdirSync(dirname(artifactPath), { recursive: true });
-        writeFileSync(artifactPath, header + artifact.content);
-      }
-    }
+    // In flat mode (default), skip artifact emission — single file output only.
+    // Use structure: 'structured' to emit per-screen component files + entry point.
   }
 }
 
