@@ -180,12 +180,20 @@ function exhaustiveDeps(ctx: RuleContext): ReviewFinding[] {
     if (!body) continue;
 
     // Collect identifiers defined INSIDE the hook body itself — they are local.
+    // Must cover: const x = ..., const { a, b } = obj, const [x, y] = arr.
     const locallyDeclared = new Set<string>();
     for (const decl of body.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
       const nameNode = decl.getNameNode();
-      if (Node.isIdentifier(nameNode)) locallyDeclared.add(nameNode.getText());
+      if (Node.isIdentifier(nameNode)) {
+        locallyDeclared.add(nameNode.getText());
+      } else if (Node.isObjectBindingPattern(nameNode) || Node.isArrayBindingPattern(nameNode)) {
+        for (const el of nameNode.getDescendantsOfKind(SyntaxKind.BindingElement)) {
+          const n = el.getNameNode();
+          if (Node.isIdentifier(n)) locallyDeclared.add(n.getText());
+        }
+      }
     }
-    for (const param of (Node.isArrowFunction(fnArg) ? fnArg : fnArg).getParameters()) {
+    for (const param of fnArg.getParameters()) {
       locallyDeclared.add(param.getName());
     }
 
@@ -205,10 +213,10 @@ function exhaustiveDeps(ctx: RuleContext): ReviewFinding[] {
       // (we only care about the root object, which is the expression side)
       const parent = id.getParent();
       if (parent && Node.isPropertyAccessExpression(parent) && parent.getNameNode() === id) continue;
-      // Skip property assignment keys
+      // Skip property assignment keys (but NOT shorthand — shorthand IS a read of the identifier)
       if (parent && Node.isPropertyAssignment(parent) && parent.getNameNode() === id) continue;
-      // Skip shorthand property names
-      if (parent && Node.isShorthandPropertyAssignment(parent)) continue;
+      // Note: shorthand property assignments like `{ userId }` inside a hook body
+      // ARE reads of `userId` and must be checked — do NOT skip them.
       // Skip import specifiers / binding elements (declarations, not references)
       if (parent && (Node.isImportSpecifier(parent) || Node.isBindingElement(parent))) continue;
       // Skip type references

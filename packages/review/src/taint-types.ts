@@ -12,7 +12,7 @@ export interface TaintSource {
 
 export interface TaintSink {
   name: string; // Sink function (e.g., "exec", "writeFileSync")
-  category: 'command' | 'fs' | 'sql' | 'redirect' | 'eval' | 'template' | 'codegen' | 'ssrf' | 'crypto';
+  category: 'command' | 'fs' | 'sql' | 'redirect' | 'eval' | 'template' | 'codegen' | 'ssrf';
   taintedArg: string; // The tainted variable used in the call
   line?: number;
 }
@@ -146,10 +146,11 @@ export const SINK_PATTERNS: SinkPattern[] = [
   { pattern: /\$queryRawUnsafe\s*\(/, name: '$queryRawUnsafe', category: 'sql' },
   { pattern: /\$queryRaw\s*\(/, name: '$queryRaw', category: 'sql' },
   { pattern: /\bsequelize\.query\s*\(/, name: 'sequelize.query', category: 'sql' },
-  // Crypto — symmetric cipher construction (IV reuse, weak KDF detected via args)
-  { pattern: /\bcreateCipheriv\s*\(/, name: 'createCipheriv', category: 'crypto' },
-  { pattern: /\bcreateDecipheriv\s*\(/, name: 'createDecipheriv', category: 'crypto' },
-  { pattern: /\bpbkdf2(Sync)?\s*\(/, name: 'pbkdf2', category: 'crypto' },
+  // NOTE: crypto sinks are handled by bespoke rules in rules/security-v5.ts
+  // (crypto-iv-reuse, crypto-weak-kdf). Adding them as generic taint sinks
+  // would flag normal password input to pbkdf2() as "misuse" — passwords ARE
+  // user input by design. The dedicated rules check the specific arg positions
+  // that actually indicate misuse (literal IV, iterations < 100k).
 ];
 
 // ── Sanitizer Detection ─────────────────────────────────────────────────
@@ -266,11 +267,6 @@ export const SINK_NAMES = new Map<string, TaintSink['category']>([
   ['https.request', 'ssrf'],
   ['undici.fetch', 'ssrf'],
   ['undici.request', 'ssrf'],
-  // Crypto — IV/KDF sinks
-  ['createCipheriv', 'crypto'],
-  ['createDecipheriv', 'crypto'],
-  ['pbkdf2', 'crypto'],
-  ['pbkdf2Sync', 'crypto'],
 ]);
 
 // Sanitizer names to detect (from SANITIZER_PATTERNS)

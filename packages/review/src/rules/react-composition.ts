@@ -240,6 +240,48 @@ function propDrillPassthrough(ctx: RuleContext): ReviewFinding[] {
 // state change for no reason — lifting it to `children` preserves its element
 // identity and avoids the re-render.
 
+/**
+ * Get the DIRECT-child JSX elements of the top-level return. Skips nested
+ * descendants, elements inside callbacks (map renderers), and elements deep
+ * in conditional branches. This is the key guard against false positives:
+ * we only care about JSX that the parent component's own render produces
+ * positionally — those are the elements that could be lifted to `children`.
+ */
+function getDirectChildrenOfReturn(
+  root: JsxOpeningElement | JsxSelfClosingElement,
+): (JsxOpeningElement | JsxSelfClosingElement)[] {
+  // If the root is already a self-closing element, there are no direct JSX children.
+  if (Node.isJsxSelfClosingElement(root)) return [root];
+
+  // Root is a JsxOpeningElement — walk its parent JsxElement children once.
+  const parent = root.getParent();
+  if (!parent || !Node.isJsxElement(parent)) return [root];
+
+  const result: (JsxOpeningElement | JsxSelfClosingElement)[] = [root];
+  for (const child of parent.getJsxChildren()) {
+    if (Node.isJsxElement(child)) {
+      result.push(child.getOpeningElement());
+    } else if (Node.isJsxSelfClosingElement(child)) {
+      result.push(child);
+    }
+    // Skip JsxExpression / JsxText / JsxFragment content — too dynamic to reason about
+  }
+  return result;
+}
+
+/**
+ * Does this expression text mention any of the state variables? Wraps each
+ * variable in \b boundaries and tests the combined text. Handles callbacks
+ * too (e.g. onClick={() => setCount(c => c + 1)} — we treat ANY reference
+ * to setCount as a legitimate state dependency).
+ */
+function mentionsStateVars(text: string, stateVars: Set<string>): boolean {
+  for (const v of stateVars) {
+    if (new RegExp(`\\b${v}\\b`).test(text)) return true;
+  }
+  return false;
+}
+
 function parentRerenderViaState(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
@@ -247,7 +289,9 @@ function parentRerenderViaState(ctx: RuleContext): ReviewFinding[] {
     const body = fn.getBody();
     if (!body) continue;
 
-    // Collect state variable names from `const [x, setX] = useState(...)`
+    // Collect state variable names AND setter names from useState/useReducer.
+    // Both the value and the setter count as "state refs" — a child that
+    // receives `setCount` is wiring to state and should NOT be flagged.
     const stateVars = new Set<string>();
     for (const decl of body.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
       const init = decl.getInitializer();
@@ -266,74 +310,42 @@ function parentRerenderViaState(ctx: RuleContext): ReviewFinding[] {
 
     if (stateVars.size === 0) continue;
 
-    // Check if this component already accepts `children` — if so, the user is
-    // probably already composing correctly.
+    // Already composing with children? Skip — the user is on the correct path.
     const propNames = getDestructuredPropNames(fn);
     const alreadyComposesChildren = propNames?.includes('children') ?? false;
     if (alreadyComposesChildren) continue;
 
-    // Find direct-child custom-component JSX elements in the top-level return
+    // Require a clean single-root returned JSX tree. Fragments, conditional
+    // returns, and dynamic structures are too ambiguous to reason about
+    // without a real dataflow pass — skip them.
     const root = getSingleReturnedJsx(fn);
-    // If the return is a fragment or doesn't yield a single root, look at all custom children
-    const candidates: (JsxOpeningElement | JsxSelfClosingElement)[] = [];
+    if (!root) continue;
 
-    if (root) {
-      // Collect siblings of root (direct children of a fragment won't be here,
-      // so also scan for Jsx elements with custom tag names nested anywhere)
-    }
-
-    // Gather all custom-tag JSX elements under the return statement that are
-    // NOT wrapped in a map/conditional that reads state (we don't try to be smart;
-    // we just check the attribute bag for state-var references).
-    const allJsxOpeners: (JsxOpeningElement | JsxSelfClosingElement)[] = [
-      ...body.getDescendantsOfKind(SyntaxKind.JsxOpeningElement),
-      ...body.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement),
-    ];
-
-    for (const el of allJsxOpeners) {
-      const tag = el.getTagNameNode().getText();
-      if (!/^[A-Z]/.test(tag)) continue; // lowercase = HTML element
-      candidates.push(el);
-    }
-
-    if (candidates.length === 0) continue;
+    // Only look at the DIRECT children of the returned root. Nested helper
+    // JSX inside map callbacks, conditional branches, or deep descendants
+    // are not flaggable — they may close over state transitively.
+    const candidates = getDirectChildrenOfReturn(root);
 
     for (const el of candidates) {
-      // Does this child reference any state var in any attribute?
-      let receivesState = false;
-      for (const attr of el.getAttributes()) {
-        if (!Node.isJsxAttribute(attr)) continue;
-        const init = attr.getInitializer();
-        if (!init || !Node.isJsxExpression(init)) continue;
-        const exprText = init.getText();
-        for (const v of stateVars) {
-          const re = new RegExp(`\\b${v}\\b`);
-          if (re.test(exprText)) {
-            receivesState = true;
-            break;
-          }
-        }
-        if (receivesState) break;
-      }
-      if (receivesState) continue;
-
-      // And does the child tag text itself reference state? (e.g. conditional)
-      // Walk upward: is this JSX element inside a JsxExpression that references state?
-      const parent = el.getParent();
-      if (parent && Node.isJsxExpression(parent)) {
-        const exprText = parent.getText();
-        let mentioned = false;
-        for (const v of stateVars) {
-          if (new RegExp(`\\b${v}\\b`).test(exprText)) {
-            mentioned = true;
-            break;
-          }
-        }
-        if (mentioned) continue;
-      }
-
-      // Flag: this child re-renders on every state change for nothing.
       const tag = el.getTagNameNode().getText();
+      if (!/^[A-Z]/.test(tag)) continue; // HTML element — not a rerender target we care about
+
+      // Does this child receive any state var (or setter) via attributes?
+      // Scan the entire attribute bag's text in one pass so callback props
+      // like onClick={() => setCount(c => c + 1)} count as state-dependent.
+      const attrsText = el
+        .getAttributes()
+        .map((a) => (Node.isJsxAttribute(a) ? a.getText() : ''))
+        .join(' ');
+      if (mentionsStateVars(attrsText, stateVars)) continue;
+
+      // Is this element inside a JsxExpression that references state (a
+      // conditional render like `{count > 0 && <Child />}` or a map based
+      // on state)? Walk up the JSX container chain.
+      const containingExpr = el.getFirstAncestorByKind(SyntaxKind.JsxExpression);
+      if (containingExpr && mentionsStateVars(containingExpr.getText(), stateVars)) continue;
+
+      // Flag: this direct child never sees state and re-renders unnecessarily.
       const info = isComponentFunction(fn);
       findings.push(
         finding(

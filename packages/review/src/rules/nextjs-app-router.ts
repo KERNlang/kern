@@ -210,18 +210,56 @@ function serverApiInClient(ctx: RuleContext): ReviewFinding[] {
 // uses them without passing through a validator (.parse, .safeParse, zod,
 // yup, joi, a schema, or a typeof/instanceof guard).
 
-const VALIDATOR_PATTERNS = [
-  /\.parse\s*\(/,
-  /\.safeParse\s*\(/,
-  /\.validate\s*\(/,
-  /\.validateSync\s*\(/,
-  /\bz\.\w+/, // zod schema reference
+// Validator detection is intentionally strict: we require the call to look
+// like it originates from a known schema library, not just ANY .parse(). A
+// naive /\.parse\(/ test would accept `JSON.parse(str)` or `path.parse(p)`
+// as "validation" and suppress the rule. Instead, we require BOTH a known
+// library reference AND a validating method call in the same body.
+const SCHEMA_LIBRARY_PATTERNS = [
+  /\bz\.\w+/, // zod
   /\byup\.\w+/,
   /\bjoi\.\w+/,
+  /\b(from\s+['"]zod['"]|from\s+['"]yup['"]|from\s+['"]joi['"]|from\s+['"]valibot['"]|from\s+['"]@?superstruct['"])/,
 ];
 
-function hasValidatorUsage(bodyText: string): boolean {
-  return VALIDATOR_PATTERNS.some((p) => p.test(bodyText));
+const SCHEMA_METHOD_PATTERNS = [
+  /\.safeParse\s*\(/,
+  /\bz\.(object|string|number|boolean|array|enum|union|literal|tuple)\s*\(/,
+  /\bparse\s*\(/, // bare parse — only counted alongside a library reference (see hasValidatorUsage)
+];
+
+const NAIVE_VALIDATOR_PATTERNS = [
+  /\.validate(Sync)?\s*\(/,
+  /\.assert\s*\(/,
+  /\bassert\s*\(/,
+];
+
+function hasValidatorUsage(bodyText: string, importsText: string): boolean {
+  // Strong signal: schema library import or reference PLUS a schema method call
+  const hasLib =
+    SCHEMA_LIBRARY_PATTERNS.some((p) => p.test(importsText)) ||
+    SCHEMA_LIBRARY_PATTERNS.some((p) => p.test(bodyText));
+  const hasSchemaMethod = SCHEMA_METHOD_PATTERNS.some((p) => p.test(bodyText));
+  if (hasLib && hasSchemaMethod) return true;
+  // Weaker but still reasonable: explicit .validate()/.assert() call
+  if (NAIVE_VALIDATOR_PATTERNS.some((p) => p.test(bodyText))) return true;
+  return false;
+}
+
+/** Check that at least ONE of the function's params is referenced in the body. */
+function anyParamIsReferenced(paramNames: string[], bodyText: string): string | undefined {
+  for (const name of paramNames) {
+    if (!name) continue;
+    if (new RegExp(`\\b${name}\\b`).test(bodyText)) return name;
+  }
+  return undefined;
+}
+
+function getImportsText(ctx: RuleContext): string {
+  return ctx.sourceFile
+    .getImportDeclarations()
+    .map((d) => d.getText())
+    .join('\n');
 }
 
 function serverActionUnvalidatedInput(ctx: RuleContext): ReviewFinding[] {
@@ -230,6 +268,7 @@ function serverActionUnvalidatedInput(ctx: RuleContext): ReviewFinding[] {
   const fullText = ctx.sourceFile.getFullText();
   const fileIsServerAction = hasServerDirective(fullText);
   const findings: ReviewFinding[] = [];
+  const importsText = getImportsText(ctx);
 
   // Iterate exported async functions
   for (const fn of ctx.sourceFile.getFunctions()) {
@@ -245,19 +284,21 @@ function serverActionUnvalidatedInput(ctx: RuleContext): ReviewFinding[] {
     const fnIsServerAction = fileIsServerAction || /['"]use server['"]/.test(bodyText.substring(0, 100));
     if (!fnIsServerAction) continue;
 
-    if (hasValidatorUsage(bodyText)) continue;
+    if (hasValidatorUsage(bodyText, importsText)) continue;
 
-    // Check that at least one parameter is actually referenced in the body
-    const firstParam = params[0];
-    const paramName = firstParam.getName();
-    if (!new RegExp(`\\b${paramName}\\b`).test(bodyText)) continue;
+    // Check ALL params, not just the first — Next server actions use
+    // `(prevState, formData)` when wired to useActionState, so formData is
+    // often params[1], not params[0].
+    const paramNames = params.map((p) => p.getName());
+    const refParam = anyParamIsReferenced(paramNames, bodyText);
+    if (!refParam) continue;
 
     findings.push(
       finding(
         'server-action-unvalidated-input',
         'warning',
         'bug',
-        `Server action '${fn.getName() || '<anon>'}' uses parameter '${paramName}' without validation — server actions receive untrusted client input`,
+        `Server action '${fn.getName() || '<anon>'}' uses parameter '${refParam}' without validation — server actions receive untrusted client input`,
         ctx.filePath,
         fn.getStartLineNumber(),
         1,
@@ -286,17 +327,18 @@ function serverActionUnvalidatedInput(ctx: RuleContext): ReviewFinding[] {
 
       const fnIsServerAction = fileIsServerAction || /['"]use server['"]/.test(bodyText.substring(0, 100));
       if (!fnIsServerAction) continue;
-      if (hasValidatorUsage(bodyText)) continue;
+      if (hasValidatorUsage(bodyText, importsText)) continue;
 
-      const paramName = params[0].getName();
-      if (!new RegExp(`\\b${paramName}\\b`).test(bodyText)) continue;
+      const paramNames = params.map((p) => p.getName());
+      const refParam = anyParamIsReferenced(paramNames, bodyText);
+      if (!refParam) continue;
 
       findings.push(
         finding(
           'server-action-unvalidated-input',
           'warning',
           'bug',
-          `Server action '${decl.getName()}' uses parameter '${paramName}' without validation`,
+          `Server action '${decl.getName()}' uses parameter '${refParam}' without validation`,
           ctx.filePath,
           decl.getStartLineNumber(),
           1,

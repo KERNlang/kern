@@ -94,14 +94,6 @@ function heavyComputationInRender(ctx: RuleContext): ReviewFinding[] {
 
     if (expensiveCount < 2) continue;
 
-    // Skip if the entire expression is wrapped in useMemo/useCallback
-    // (i.e. the variable being rendered is already the result of a memo hook)
-    // Simpler: check the text of the immediate identifier at the root
-    let root: Node = inner;
-    while (Node.isCallExpression(root) || Node.isPropertyAccessExpression(root)) {
-      root = Node.isCallExpression(root) ? root.getExpression() : root.getExpression();
-    }
-
     findings.push(
       finding(
         'heavy-computation-in-render',

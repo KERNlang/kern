@@ -889,14 +889,6 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
     rolloutPhase: 1,
   },
-  {
-    id: 'taint-crypto',
-    layer: 'security-v5',
-    severity: 'warning',
-    description: 'User input flows into a crypto primitive (cipher/KDF argument)',
-    precision: 'medium',
-    rolloutPhase: 1,
-  },
 
   // Nuxt (target: nuxt)
   {
