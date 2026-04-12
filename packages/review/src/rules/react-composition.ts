@@ -7,7 +7,6 @@
  * of unchanged subtrees.
  */
 
-import { Node, SyntaxKind } from 'ts-morph';
 import type {
   ArrowFunction,
   FunctionDeclaration,
@@ -16,6 +15,7 @@ import type {
   JsxSelfClosingElement,
   ObjectBindingPattern,
 } from 'ts-morph';
+import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
 import { finding } from './utils.js';
 

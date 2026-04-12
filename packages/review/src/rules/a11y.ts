@@ -5,8 +5,8 @@
  * only the checks that have a clear right answer and low false-positive rate.
  */
 
-import { Node, SyntaxKind } from 'ts-morph';
 import type { JsxAttribute, JsxOpeningElement, JsxSelfClosingElement } from 'ts-morph';
+import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
 import { finding } from './utils.js';
 

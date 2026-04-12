@@ -6,8 +6,8 @@
  * noise-budget pass.
  */
 
-import { Node, SyntaxKind } from 'ts-morph';
 import type { JsxOpeningElement, JsxSelfClosingElement } from 'ts-morph';
+import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
 import { finding } from './utils.js';
 
