@@ -12,6 +12,7 @@
 
 import type { IRNode, KernTarget, ResolvedKernConfig } from '@kernlang/core';
 import {
+  ALL_TARGETS,
   countTokens,
   decompile,
   defaultRuntime,
@@ -108,7 +109,7 @@ function countNodes(node: IRNode): number {
   return count;
 }
 
-const targetEnum = z.enum(VALID_TARGETS as [string, ...string[]]);
+const targetEnum = z.enum(ALL_TARGETS as [string, ...string[]]);
 
 // ── Security test generation (ported from kern-sight-mcp) ──────────────
 

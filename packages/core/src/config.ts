@@ -4,8 +4,10 @@
 
 import { KernConfigError } from './errors.js';
 import { DEFAULT_COLORS } from './styles-tailwind.js';
+import type { IRNode } from './types.js';
 
 export type KernTarget =
+  | 'auto'
   | 'nextjs'
   | 'tailwind'
   | 'web'
@@ -19,6 +21,7 @@ export type KernTarget =
   | 'fastapi'
   | 'mcp';
 
+/** Concrete transpiler targets (displayed to users). */
 export const VALID_TARGETS: KernTarget[] = [
   'nextjs',
   'tailwind',
@@ -33,6 +36,9 @@ export const VALID_TARGETS: KernTarget[] = [
   'fastapi',
   'mcp',
 ];
+
+/** All accepted target values including meta-targets like 'auto'. */
+export const ALL_TARGETS: KernTarget[] = ['auto', ...VALID_TARGETS];
 
 export type KernStructure = 'flat' | 'bulletproof' | 'atomic' | 'kern';
 
@@ -207,8 +213,8 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
   if (!user) return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
 
   // Validate target
-  if (user.target && !VALID_TARGETS.includes(user.target)) {
-    throw new KernConfigError(`Valid targets: ${VALID_TARGETS.join(', ')}`, 'target', user.target);
+  if (user.target && !ALL_TARGETS.includes(user.target)) {
+    throw new KernConfigError(`Valid targets: ${ALL_TARGETS.join(', ')}`, 'target', user.target);
   }
 
   // Validate structure
@@ -264,6 +270,66 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
       disabledRules: user.review?.disabledRules ?? DEFAULT_CONFIG.review.disabledRules,
     },
   };
+}
+
+/**
+ * Auto-detect the appropriate transpiler target from AST content.
+ *
+ * Inspects top-level node types to determine the best target:
+ * - screen nodes → 'ink' (terminal UI)
+ * - server/route/middleware → 'express'
+ * - mcp/tool/resource → 'mcp'
+ * - cli/command → 'cli'
+ * - Otherwise → 'nextjs' (default)
+ *
+ * Examines screen target= props for explicit overrides.
+ */
+export function detectTarget(ast: IRNode): KernTarget {
+  const nodes = ast.type === 'document' ? ast.children || [] : [ast];
+
+  let hasScreen = false;
+  let hasServer = false;
+  let hasMcp = false;
+  let hasCli = false;
+  let screenTarget: string | undefined;
+
+  for (const node of nodes) {
+    switch (node.type) {
+      case 'screen': {
+        hasScreen = true;
+        const t = node.props?.target;
+        if (typeof t === 'string') screenTarget = t;
+        break;
+      }
+      case 'server':
+      case 'route':
+      case 'middleware':
+        hasServer = true;
+        break;
+      case 'mcp':
+      case 'tool':
+      case 'resource':
+        hasMcp = true;
+        break;
+      case 'cli':
+      case 'command':
+        hasCli = true;
+        break;
+    }
+  }
+
+  // Explicit screen target= takes priority
+  if (screenTarget && VALID_TARGETS.includes(screenTarget as KernTarget)) {
+    return screenTarget as KernTarget;
+  }
+
+  // Infer from content
+  if (hasScreen) return 'ink';
+  if (hasMcp) return 'mcp';
+  if (hasServer) return 'express';
+  if (hasCli) return 'cli';
+
+  return 'nextjs';
 }
 
 /** @deprecated Use resolveConfig instead */

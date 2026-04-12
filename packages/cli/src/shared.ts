@@ -9,6 +9,7 @@ import type {
 import {
   clearTemplates,
   collectCoverageGaps,
+  detectTarget,
   KERN_VERSION,
   parseWithDiagnostics,
   registerTemplate,
@@ -350,7 +351,7 @@ export function collectTsFilesFlat(dirPath: string, recursive: boolean): string[
 // ── Transpile dispatch ───────────────────────────────────────────────────
 
 export function transpileForTarget(ast: IRNode, cfg: ResolvedKernConfig) {
-  const target = cfg.target;
+  const target = cfg.target === 'auto' ? detectTarget(ast) : cfg.target;
   return target === 'native'
     ? transpile(ast, cfg)
     : target === 'web'
@@ -400,7 +401,9 @@ export function transpileAndWrite(
     }
   }
 
-  const result = transpileForTarget(ast, cfg);
+  // Resolve auto target per-file from AST content
+  const effectiveCfg = cfg.target === 'auto' ? { ...cfg, target: detectTarget(ast) } : cfg;
+  const result = transpileForTarget(ast, effectiveCfg);
 
   const relDir = inputBase ? relative(resolve(inputBase), dirname(file)) : '';
   const baseDir = outDirOverride ? resolve(resolve(outDirOverride), relDir) : dirname(file);

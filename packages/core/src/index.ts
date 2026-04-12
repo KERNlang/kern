@@ -71,7 +71,15 @@ export type {
   ResolvedKernConfig,
 } from './config.js';
 // Config
-export { DEFAULT_CONFIG, mergeConfig, resolveConfig, VALID_STRUCTURES, VALID_TARGETS } from './config.js';
+export {
+  ALL_TARGETS,
+  DEFAULT_CONFIG,
+  detectTarget,
+  mergeConfig,
+  resolveConfig,
+  VALID_STRUCTURES,
+  VALID_TARGETS,
+} from './config.js';
 export type { CoverageGap } from './coverage-gap.js';
 // Coverage gap emitter (v3)
 export { collectCoverageGaps, readCoverageGaps, writeCoverageGaps } from './coverage-gap.js';
