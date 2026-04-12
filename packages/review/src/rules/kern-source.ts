@@ -326,13 +326,19 @@ function capitalize(text: string): string {
 
 function buildParentMap(nodes: IRNode[]): Map<IRNode, IRNode | undefined> {
   const parentMap = new Map<IRNode, IRNode | undefined>();
+  // Mark top-level nodes as having no parent
   for (const node of nodes) {
-    if (!parentMap.has(node)) parentMap.set(node, undefined);
+    parentMap.set(node, undefined);
+  }
+  // Recursively map all descendants to their parents
+  function walk(parent: IRNode): void {
+    for (const child of parent.children || []) {
+      parentMap.set(child, parent);
+      walk(child);
+    }
   }
   for (const node of nodes) {
-    for (const child of node.children || []) {
-      if (parentMap.has(child)) parentMap.set(child, node);
-    }
+    walk(node);
   }
   return parentMap;
 }
@@ -695,6 +701,13 @@ function isNonReferencePropertyName(identifier: import('ts-morph').Identifier): 
       return (parent as unknown as { getNameNode(): import('ts-morph').Node }).getNameNode() === identifier;
     case SyntaxKind.BindingElement:
       return (parent as import('ts-morph').BindingElement).getPropertyNameNode() === identifier;
+    case SyntaxKind.LabeledStatement:
+      // { fn: null } at statement level is parsed as a label, not object literal — skip
+      return true;
+    case SyntaxKind.ShorthandPropertyAssignment:
+      // { fn } shorthand in object literal — the name is both a key and a reference,
+      // but when it appears as shorthand property, skip it (it will be caught as the value ref)
+      return false;
     default:
       return false;
   }
@@ -773,7 +786,8 @@ export const undefinedReference: KernSourceRule = (nodes: IRNode[], filePath: st
   const parentMap = buildParentMap(nodes);
   const project = createInMemoryProject();
 
-  for (const node of nodes) {
+  // Iterate ALL nodes in the tree (not just top-level) to find deeply nested handlers
+  for (const node of parentMap.keys()) {
     if (node.type !== 'handler') continue;
     const code = getCodeProp(node);
     if (!code) continue;
