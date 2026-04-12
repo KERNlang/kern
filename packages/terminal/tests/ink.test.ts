@@ -1008,6 +1008,39 @@ describe('Ink Transpiler', () => {
     expect(result.code).toContain('export default function Main(');
   });
 
+  test('secondary screen compiles all hooks (not just state)', async () => {
+    const { parseDocument } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=StatusBar',
+      '  state name=active initial=false',
+      '  ref name=timer initial=null',
+      '  logic <<<',
+      '    const id = setInterval(() => tick(), 1000);',
+      '  >>>',
+      '  callback name=handleClick deps=active',
+      '    handler <<<',
+      '      setActive(!active);',
+      '    >>>',
+      '  text value="Status"',
+      '',
+      'screen name=App',
+      '  text value="Main"',
+    ].join('\n');
+    const ast = parseDocument(source);
+    const result = transpileInk(ast);
+
+    // Secondary screen should have ALL hooks compiled, not just state
+    expect(result.code).toContain('export function StatusBar(');
+    expect(result.code).toContain('useState'); // state
+    expect(result.code).toContain('useRef'); // ref
+    expect(result.code).toContain('useEffect'); // logic
+    expect(result.code).toContain('useCallback'); // callback
+    expect(result.code).toContain('setInterval'); // logic body
+    expect(result.code).toContain('clearInterval'); // auto-cleanup
+    expect(result.code).toContain('handleClick'); // callback name
+  });
+
   // ── Next.js parity features ───────────────────────────────────────────
 
   test('IIFE initial uses lazy useState initializer', async () => {
