@@ -390,7 +390,6 @@ export function transpileAndWrite(
   const ast = parseAndSurface(source, file);
   const ext = file.endsWith('.kern') ? '.kern' : '.ir';
   const name = basename(file, ext);
-  const target = cfg.target;
   const relSource = relative(process.cwd(), file);
   const header = `${GENERATED_HEADER + relSource}\n\n`;
 
@@ -403,6 +402,7 @@ export function transpileAndWrite(
 
   // Resolve auto target per-file from AST content
   const effectiveCfg = cfg.target === 'auto' ? { ...cfg, target: detectTarget(ast) } : cfg;
+  const target = effectiveCfg.target;
   const result = transpileForTarget(ast, effectiveCfg);
 
   const relDir = inputBase ? relative(resolve(inputBase), dirname(file)) : '';

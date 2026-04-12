@@ -285,15 +285,15 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
  * Examines screen target= props for explicit overrides.
  */
 export function detectTarget(ast: IRNode): KernTarget {
-  const nodes = ast.type === 'document' ? ast.children || [] : [ast];
-
   let hasScreen = false;
   let hasServer = false;
   let hasMcp = false;
   let hasCli = false;
   let screenTarget: string | undefined;
 
-  for (const node of nodes) {
+  // Walk the full tree — parse() may return a single node or a document wrapper,
+  // and screen nodes may be nested or siblings. Check everything.
+  function walk(node: IRNode): void {
     switch (node.type) {
       case 'screen': {
         hasScreen = true;
@@ -316,7 +316,11 @@ export function detectTarget(ast: IRNode): KernTarget {
         hasCli = true;
         break;
     }
+    for (const child of node.children || []) {
+      walk(child);
+    }
   }
+  walk(ast);
 
   // Explicit screen target= takes priority
   if (screenTarget && VALID_TARGETS.includes(screenTarget as KernTarget)) {
@@ -329,6 +333,8 @@ export function detectTarget(ast: IRNode): KernTarget {
   if (hasServer) return 'express';
   if (hasCli) return 'cli';
 
+  // No framework-specific nodes → use nextjs target (emits plain TS passthrough,
+  // same as flag-less default). 'native' is React Native, NOT "plain TypeScript".
   return 'nextjs';
 }
 
