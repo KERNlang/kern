@@ -22,6 +22,7 @@ import { expressRules } from './express.js';
 import { fastapiRules } from './fastapi.js';
 import { inkRules } from './ink.js';
 import { nextjsRules } from './nextjs.js';
+import { nextjsAppRouterRules } from './nextjs-app-router.js';
 import { nullSafetyRules } from './null-safety.js';
 import { nuxtRules } from './nuxt.js';
 import { reactRules } from './react.js';
@@ -29,6 +30,7 @@ import { securityRules } from './security.js';
 import { securityV2Rules } from './security-v2.js';
 import { securityV3Rules } from './security-v3.js';
 import { securityV4Rules } from './security-v4.js';
+import { securityV5Rules } from './security-v5.js';
 import { terminalRules } from './terminal.js';
 import { vueRules } from './vue.js';
 
@@ -48,6 +50,7 @@ export function getActiveRules(target?: string): ReviewRule[] {
     ...securityV2Rules,
     ...securityV3Rules,
     ...securityV4Rules,
+    ...securityV5Rules,
     ...deadLogicRules,
     ...nullSafetyRules,
   ];
@@ -65,6 +68,7 @@ export function getActiveRules(target?: string): ReviewRule[] {
 
   if (!isBackend && target === 'nextjs') {
     rules.push(...nextjsRules);
+    rules.push(...nextjsAppRouterRules);
   }
 
   if (!isBackend && target === 'nuxt') {
@@ -651,18 +655,95 @@ const REGISTRY: RuleInfo[] = [
   },
 
   // Next.js (target: nextjs)
-  { id: 'server-hook', layer: 'nextjs', severity: 'error', description: 'React hook used in Server Component' },
+  {
+    id: 'server-hook',
+    layer: 'nextjs',
+    severity: 'error',
+    description: 'React hook used in Server Component',
+    precision: 'high',
+  },
   {
     id: 'hydration-mismatch',
     layer: 'nextjs',
     severity: 'warning',
     description: 'Nondeterministic expression causes SSR/client mismatch',
+    precision: 'high',
   },
   {
     id: 'missing-use-client',
     layer: 'nextjs',
     severity: 'warning',
     description: 'Event handler in Server Component — needs use client',
+    precision: 'high',
+  },
+
+  // Next.js App Router (Wave 1)
+  {
+    id: 'use-client-drilled-too-high',
+    layer: 'nextjs-app-router',
+    severity: 'warning',
+    description: "'use client' directive placed on a file that uses no client APIs itself — move it to the leaf component",
+    precision: 'medium',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'server-api-in-client',
+    layer: 'nextjs-app-router',
+    severity: 'error',
+    description: 'next/headers (cookies/headers/draftMode) or server-only imported in a Client Component',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'server-action-unvalidated-input',
+    layer: 'nextjs-app-router',
+    severity: 'warning',
+    description: "Exported 'use server' async function uses parameters without validator (.parse/.safeParse/zod)",
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+
+  // Security v5 (Wave 1)
+  {
+    id: 'xss-href-javascript',
+    layer: 'security-v5',
+    severity: 'error',
+    description: 'JSX href/src/action set to a javascript: URL — executes script on click',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'crypto-iv-reuse',
+    layer: 'security-v5',
+    severity: 'error',
+    description: 'createCipheriv called with a literal or constant IV — reused IV breaks AES-GCM and CBC',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'crypto-weak-kdf',
+    layer: 'security-v5',
+    severity: 'error',
+    description: 'pbkdf2 iterations below 100k — key derivation can be brute-forced',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  // Taint-engine auto-emitted rules (Wave 0 added the sinks)
+  {
+    id: 'taint-ssrf',
+    layer: 'security-v5',
+    severity: 'warning',
+    description: 'User input flows into fetch/axios/http.request URL — server-side request forgery',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'taint-crypto',
+    layer: 'security-v5',
+    severity: 'warning',
+    description: 'User input flows into a crypto primitive (cipher/KDF argument)',
+    precision: 'medium',
+    rolloutPhase: 1,
   },
 
   // Nuxt (target: nuxt)
@@ -773,6 +854,7 @@ const LAYER_TARGET_MAP: Record<string, string[] | null> = {
   'security-v2': null,
   'security-v3': null,
   'security-v4': null,
+  'security-v5': null,
   'dead-logic': null,
   'null-safety': null,
   concept: null,
@@ -782,6 +864,7 @@ const LAYER_TARGET_MAP: Record<string, string[] | null> = {
   ink: ['ink'],
   terminal: ['terminal'],
   nextjs: ['nextjs'],
+  'nextjs-app-router': ['nextjs'],
   nuxt: ['nuxt'],
   express: ['express'],
   fastapi: ['fastapi'],
