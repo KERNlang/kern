@@ -390,28 +390,28 @@ export function transpileForTarget(ast: IRNode, cfg: ResolvedKernConfig) {
   return target === 'lib'
     ? transpileLib(ast, cfg)
     : target === 'native'
-    ? transpile(ast, cfg)
-    : target === 'web'
-      ? transpileWeb(ast, cfg)
-      : target === 'tailwind'
-        ? transpileTailwind(ast, cfg)
-        : target === 'mcp'
-          ? transpileMCP(ast, cfg)
-          : target === 'express'
-            ? transpileExpress(ast, cfg)
-            : target === 'fastapi'
-              ? transpileFastAPI(ast, cfg)
-              : target === 'cli'
-                ? transpileCliApp(ast, cfg)
-                : target === 'terminal'
-                  ? transpileTerminal(ast, cfg)
-                  : target === 'ink'
-                    ? transpileInk(ast, cfg)
-                    : target === 'vue'
-                      ? transpileVue(ast, cfg)
-                      : target === 'nuxt'
-                        ? transpileNuxt(ast, cfg)
-                        : transpileNextjs(ast, cfg);
+      ? transpile(ast, cfg)
+      : target === 'web'
+        ? transpileWeb(ast, cfg)
+        : target === 'tailwind'
+          ? transpileTailwind(ast, cfg)
+          : target === 'mcp'
+            ? transpileMCP(ast, cfg)
+            : target === 'express'
+              ? transpileExpress(ast, cfg)
+              : target === 'fastapi'
+                ? transpileFastAPI(ast, cfg)
+                : target === 'cli'
+                  ? transpileCliApp(ast, cfg)
+                  : target === 'terminal'
+                    ? transpileTerminal(ast, cfg)
+                    : target === 'ink'
+                      ? transpileInk(ast, cfg)
+                      : target === 'vue'
+                        ? transpileVue(ast, cfg)
+                        : target === 'nuxt'
+                          ? transpileNuxt(ast, cfg)
+                          : transpileNextjs(ast, cfg);
 }
 
 // ── Transpile + write ────────────────────────────────────────────────────
