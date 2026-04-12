@@ -10,6 +10,10 @@ import {
   clearTemplates,
   collectCoverageGaps,
   detectTarget,
+  expandTemplateNode,
+  generateCoreNode,
+  isCoreNode,
+  isTemplateNode,
   KERN_VERSION,
   parseWithDiagnostics,
   registerTemplate,
@@ -22,7 +26,7 @@ import { transpileExpress } from '@kernlang/express';
 import { transpileFastAPI } from '@kernlang/fastapi';
 import { transpileMCP } from '@kernlang/mcp';
 import { transpile } from '@kernlang/native';
-import { transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
+import { generateReactNode, isReactNode, transpileNextjs, transpileTailwind, transpileWeb } from '@kernlang/react';
 import { transpileInk, transpileTerminal } from '@kernlang/terminal';
 import { transpileNuxt, transpileVue } from '@kernlang/vue';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
@@ -123,6 +127,7 @@ export function getOutputExtension(target: KernTarget): string {
     case 'vue':
     case 'nuxt':
       return '.vue';
+    case 'lib':
     case 'express':
     case 'cli':
     case 'terminal':
@@ -348,33 +353,65 @@ export function collectTsFilesFlat(dirPath: string, recursive: boolean): string[
   return files;
 }
 
+// ── Library passthrough transpiler ───────────────────────────────────────
+
+/** Plain TypeScript output — no framework wrapper, no JSX, no scaffold. */
+function transpileLib(ast: IRNode, _cfg: ResolvedKernConfig): import('@kernlang/core').TranspileResult {
+  const lines: string[] = [];
+
+  function processNode(node: IRNode): void {
+    if (isCoreNode(node.type)) {
+      lines.push(...generateCoreNode(node));
+      lines.push('');
+    } else if (isTemplateNode(node.type)) {
+      lines.push(...expandTemplateNode(node));
+      lines.push('');
+    } else if (isReactNode(node.type)) {
+      lines.push(...generateReactNode(node));
+      lines.push('');
+    }
+  }
+
+  processNode(ast);
+  if (ast.children) {
+    for (const child of ast.children) {
+      processNode(child);
+    }
+  }
+
+  const code = lines.join('\n');
+  return { code, sourceMap: [], irTokenCount: 0, tsTokenCount: 0, tokenReduction: 0 };
+}
+
 // ── Transpile dispatch ───────────────────────────────────────────────────
 
 export function transpileForTarget(ast: IRNode, cfg: ResolvedKernConfig) {
   const target = cfg.target === 'auto' ? detectTarget(ast) : cfg.target;
-  return target === 'native'
-    ? transpile(ast, cfg)
-    : target === 'web'
-      ? transpileWeb(ast, cfg)
-      : target === 'tailwind'
-        ? transpileTailwind(ast, cfg)
-        : target === 'mcp'
-          ? transpileMCP(ast, cfg)
-          : target === 'express'
-            ? transpileExpress(ast, cfg)
-            : target === 'fastapi'
-              ? transpileFastAPI(ast, cfg)
-              : target === 'cli'
-                ? transpileCliApp(ast, cfg)
-                : target === 'terminal'
-                  ? transpileTerminal(ast, cfg)
-                  : target === 'ink'
-                    ? transpileInk(ast, cfg)
-                    : target === 'vue'
-                      ? transpileVue(ast, cfg)
-                      : target === 'nuxt'
-                        ? transpileNuxt(ast, cfg)
-                        : transpileNextjs(ast, cfg);
+  return target === 'lib'
+    ? transpileLib(ast, cfg)
+    : target === 'native'
+      ? transpile(ast, cfg)
+      : target === 'web'
+        ? transpileWeb(ast, cfg)
+        : target === 'tailwind'
+          ? transpileTailwind(ast, cfg)
+          : target === 'mcp'
+            ? transpileMCP(ast, cfg)
+            : target === 'express'
+              ? transpileExpress(ast, cfg)
+              : target === 'fastapi'
+                ? transpileFastAPI(ast, cfg)
+                : target === 'cli'
+                  ? transpileCliApp(ast, cfg)
+                  : target === 'terminal'
+                    ? transpileTerminal(ast, cfg)
+                    : target === 'ink'
+                      ? transpileInk(ast, cfg)
+                      : target === 'vue'
+                        ? transpileVue(ast, cfg)
+                        : target === 'nuxt'
+                          ? transpileNuxt(ast, cfg)
+                          : transpileNextjs(ast, cfg);
 }
 
 // ── Transpile + write ────────────────────────────────────────────────────
@@ -422,7 +459,7 @@ export function transpileAndWrite(
         ? '.py'
         : target === 'vue' || target === 'nuxt'
           ? '.vue'
-          : target === 'express' || target === 'cli' || target === 'terminal' || target === 'mcp'
+          : target === 'lib' || target === 'express' || target === 'cli' || target === 'terminal' || target === 'mcp'
             ? '.ts'
             : '.tsx';
     const resultWithFiles = result as { files?: Array<{ path: string; content: string }> };

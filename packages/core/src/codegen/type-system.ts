@@ -172,12 +172,19 @@ export function generateService(node: IRNode): string[] {
     const mcode = handlerCode(method);
 
     // stream=true → AsyncGenerator, generator=true → Generator/AsyncGenerator
+    // If user already declared full Generator<...>/AsyncGenerator<...>, use as-is
+    const mrt = mp.returns ? emitTypeAnnotation(mp.returns, 'unknown', method) : '';
+    const mGenPrefix = isAsync ? 'AsyncGenerator<' : 'Generator<';
     const mreturns = isStream
-      ? `: AsyncGenerator<${emitTypeAnnotation(mp.returns, 'unknown', method)}>`
+      ? mrt.startsWith('AsyncGenerator<')
+        ? `: ${mrt}`
+        : `: AsyncGenerator<${mrt || 'unknown'}>`
       : isGenerator && mp.returns
-        ? `: ${isAsync ? 'Async' : ''}Generator<${emitTypeAnnotation(mp.returns, 'unknown', method)}>`
+        ? mrt.startsWith('Generator<') || mrt.startsWith('AsyncGenerator<')
+          ? `: ${mrt}`
+          : `: ${mGenPrefix}${mrt}>`
         : mp.returns
-          ? `: ${emitTypeAnnotation(mp.returns, 'unknown', method)}`
+          ? `: ${mrt}`
           : '';
 
     lines.push('');

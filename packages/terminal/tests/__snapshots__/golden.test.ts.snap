@@ -5,7 +5,7 @@ exports[`Golden Snapshot Tests Ink output for agon-terminal.kern 1`] = `
 import { Box, Text } from 'ink';
 import { Spinner } from '@inkjs/ui';
 
-export default function AgonTerminal() {
+export function AgonTerminal() {
   // Ink-safe setter: bridges microtask → macrotask for reliable repaints
   function __inkSafe<T>(setter: React.Dispatch<React.SetStateAction<T>>): React.Dispatch<React.SetStateAction<T>> {
     return (value) => setTimeout(() => setter(value), 0);

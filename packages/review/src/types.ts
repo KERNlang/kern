@@ -46,6 +46,28 @@ export interface FixAction {
   description: string;
 }
 
+/** Single hop in an evidence chain — where a finding came from */
+export interface ProvenanceStep {
+  /** What this step represents — source, sanitizer, boundary, sink, etc. */
+  kind: 'source' | 'sanitizer' | 'boundary' | 'sink' | 'import' | 'call';
+  /** File + location of this step */
+  location: SourceSpan;
+  /** Short human-readable label (e.g., "req.body", "fetch(url)", "use client") */
+  label: string;
+  /** Optional longer explanation rendered in the "why this fired" tooltip */
+  detail?: string;
+}
+
+/** Evidence chain: ordered steps from root cause to the reported sink */
+export interface ProvenanceChain {
+  /** The rule that produced this chain */
+  ruleId: string;
+  /** Ordered steps from source → sink */
+  steps: ProvenanceStep[];
+  /** Optional one-line summary shown before expanding the chain */
+  summary?: string;
+}
+
 /** Unified finding from any review layer */
 export interface ReviewFinding {
   /** Which layer produced this finding */
@@ -76,6 +98,8 @@ export interface ReviewFinding {
   origin?: 'changed' | 'upstream';
   /** Distance from nearest entry file (0 = entry, 1 = direct import, etc.) */
   distance?: number;
+  /** Evidence chain explaining WHY the finding fired (taint path, boundary walk, etc.) */
+  provenance?: ProvenanceChain;
 }
 
 // ── Confidence ───────────────────────────────────────────────────────────

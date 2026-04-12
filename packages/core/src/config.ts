@@ -8,6 +8,7 @@ import type { IRNode } from './types.js';
 
 export type KernTarget =
   | 'auto'
+  | 'lib'
   | 'nextjs'
   | 'tailwind'
   | 'web'
@@ -23,6 +24,7 @@ export type KernTarget =
 
 /** Concrete transpiler targets (displayed to users). */
 export const VALID_TARGETS: KernTarget[] = [
+  'lib',
   'nextjs',
   'tailwind',
   'web',
@@ -333,9 +335,9 @@ export function detectTarget(ast: IRNode): KernTarget {
   if (hasServer) return 'express';
   if (hasCli) return 'cli';
 
-  // No framework-specific nodes → use nextjs target (emits plain TS passthrough,
-  // same as flag-less default). 'native' is React Native, NOT "plain TypeScript".
-  return 'nextjs';
+  // No framework-specific nodes → plain TypeScript library output.
+  // 'native' is React Native, 'nextjs' is a page scaffold — neither fits pure lib code.
+  return 'lib';
 }
 
 /** @deprecated Use resolveConfig instead */

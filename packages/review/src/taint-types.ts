@@ -12,7 +12,7 @@ export interface TaintSource {
 
 export interface TaintSink {
   name: string; // Sink function (e.g., "exec", "writeFileSync")
-  category: 'command' | 'fs' | 'sql' | 'redirect' | 'eval' | 'template' | 'codegen';
+  category: 'command' | 'fs' | 'sql' | 'redirect' | 'eval' | 'template' | 'codegen' | 'ssrf' | 'crypto';
   taintedArg: string; // The tainted variable used in the call
   line?: number;
 }
@@ -133,6 +133,23 @@ export const SINK_PATTERNS: SinkPattern[] = [
   { pattern: /\blines\.push\s*\(`/, name: 'lines.push(template)', category: 'codegen' },
   { pattern: /\bhelperBlock\.push\s*\(`/, name: 'helperBlock.push(template)', category: 'codegen' },
   { pattern: /\bcode\s*\+=\s*`/, name: 'code += template', category: 'codegen' },
+  // SSRF — outbound HTTP request sinks
+  { pattern: /\bfetch\s*\(/, name: 'fetch', category: 'ssrf' },
+  { pattern: /\baxios\s*\(/, name: 'axios', category: 'ssrf' },
+  { pattern: /\baxios\.(get|post|put|delete|patch|head|request)\s*\(/, name: 'axios.request', category: 'ssrf' },
+  { pattern: /\bgot\s*\(/, name: 'got', category: 'ssrf' },
+  { pattern: /\bgot\.(get|post|put|delete|patch|head)\s*\(/, name: 'got.request', category: 'ssrf' },
+  { pattern: /\bhttp\.request\s*\(/, name: 'http.request', category: 'ssrf' },
+  { pattern: /\bhttps\.request\s*\(/, name: 'https.request', category: 'ssrf' },
+  { pattern: /\bundici\.(fetch|request)\s*\(/, name: 'undici.request', category: 'ssrf' },
+  // SQL — raw query sinks beyond generic `query`
+  { pattern: /\$queryRawUnsafe\s*\(/, name: '$queryRawUnsafe', category: 'sql' },
+  { pattern: /\$queryRaw\s*\(/, name: '$queryRaw', category: 'sql' },
+  { pattern: /\bsequelize\.query\s*\(/, name: 'sequelize.query', category: 'sql' },
+  // Crypto — symmetric cipher construction (IV reuse, weak KDF detected via args)
+  { pattern: /\bcreateCipheriv\s*\(/, name: 'createCipheriv', category: 'crypto' },
+  { pattern: /\bcreateDecipheriv\s*\(/, name: 'createDecipheriv', category: 'crypto' },
+  { pattern: /\bpbkdf2(Sync)?\s*\(/, name: 'pbkdf2', category: 'crypto' },
 ];
 
 // ── Sanitizer Detection ─────────────────────────────────────────────────
@@ -178,13 +195,14 @@ const SANITIZER_SUFFICIENCY: Record<string, Set<SinkCategory>> = {
   parseFloat: new Set(['sql']),
   'Number()': new Set(['sql']),
   'Boolean()': new Set([]), // too weak for anything
-  'schema.parse': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template']),
-  'schema.safeParse': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template']),
-  'schema.validate': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template']),
-  'schema.validateSync': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template']),
+  'schema.parse': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf']),
+  'schema.safeParse': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf']),
+  'schema.validate': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf']),
+  'schema.validateSync': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf']),
   'sanitize()': new Set(['template']),
   'escape()': new Set(['sql', 'template']),
   DOMPurify: new Set(['template']),
+  // encodeURIComponent prevents open-redirect but NOT SSRF — the attacker still controls the host
   encodeURIComponent: new Set(['redirect']),
   'path.normalize': new Set(['fs']),
   'replace(../)': new Set(['fs']),
@@ -230,9 +248,29 @@ export const SINK_NAMES = new Map<string, TaintSink['category']>([
   ['raw', 'sql'],
   ['$queryRaw', 'sql'],
   ['$queryRawUnsafe', 'sql'],
+  ['sequelize.query', 'sql'],
   ['redirect', 'redirect'],
   ['eval', 'eval'],
   ['Function', 'eval'],
+  // SSRF — outbound HTTP request sinks
+  ['fetch', 'ssrf'],
+  ['axios', 'ssrf'],
+  ['axios.get', 'ssrf'],
+  ['axios.post', 'ssrf'],
+  ['axios.put', 'ssrf'],
+  ['axios.delete', 'ssrf'],
+  ['axios.patch', 'ssrf'],
+  ['axios.request', 'ssrf'],
+  ['got', 'ssrf'],
+  ['http.request', 'ssrf'],
+  ['https.request', 'ssrf'],
+  ['undici.fetch', 'ssrf'],
+  ['undici.request', 'ssrf'],
+  // Crypto — IV/KDF sinks
+  ['createCipheriv', 'crypto'],
+  ['createDecipheriv', 'crypto'],
+  ['pbkdf2', 'crypto'],
+  ['pbkdf2Sync', 'crypto'],
 ]);
 
 // Sanitizer names to detect (from SANITIZER_PATTERNS)

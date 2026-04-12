@@ -1359,14 +1359,25 @@ function compileScreenBody(
     }
   }
 
-  // JSX return
+  // JSX return — auto-insert return when handler body is a bare JSX expression
   if (renderNode) {
     const handlerChild = (renderNode.children || []).find((c: IRNode) => c.type === 'handler');
     const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
     if (code.trim()) {
       const dedented = dedent(code);
-      for (const line of dedented.split('\n')) {
-        bodyLines.push(`  ${line}`);
+      const trimmed = dedented.trim();
+      if (trimmed.includes('return ') || trimmed.includes('return(')) {
+        // User wrote explicit return — emit as-is
+        for (const line of dedented.split('\n')) {
+          bodyLines.push(`  ${line}`);
+        }
+      } else {
+        // Bare expression (likely JSX) — wrap in return()
+        bodyLines.push('  return (');
+        for (const line of dedented.split('\n')) {
+          bodyLines.push(`    ${line}`);
+        }
+        bodyLines.push('  );');
       }
     } else {
       bodyLines.push('  return null;');
@@ -1380,6 +1391,23 @@ function compileScreenBody(
     }
     bodyLines.push('    </Box>');
     bodyLines.push('  );');
+  }
+
+  // Auto-detect React hooks referenced in handler bodies but not yet in the import tracker.
+  // Covers cases where user code calls hooks inline (e.g. useEffect in a render handler)
+  // rather than via dedicated KERN nodes.
+  const bodyText = bodyLines.join('\n');
+  for (const hook of [
+    'useEffect',
+    'useState',
+    'useMemo',
+    'useCallback',
+    'useRef',
+    'useReducer',
+    'useContext',
+    'useLayoutEffect',
+  ]) {
+    if (bodyText.includes(hook)) imports.addReact(hook);
   }
 
   return { bodyLines, stateCtx };
@@ -1427,9 +1455,12 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
       : '';
 
   // File-level imports go before component; file-level fn/const go after
+  // Collect import nodes from ALL screens (not just primary) so user imports aren't dropped
+  const secondaryImports = secondaryScreens.flatMap((s) => (s.children || []).filter((c) => c.type === 'import'));
   const coreChildren = [
     ...fileLevelNodes.filter((c) => isCoreNode(c.type) && c.type !== 'screen' && c.type !== 'fn' && c.type !== 'const'),
     ...(screenNode.children || []).filter((c) => isCoreNode(c.type) && c.type !== 'on' && !isInkUiNode(c.type)),
+    ...secondaryImports,
   ];
   const fileLevelFns = fileLevelNodes.filter((c) => c.type === 'fn' || c.type === 'const');
 
@@ -1546,7 +1577,7 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
 
   if (useMemo) {
     // React.memo wrapper: const Name = React.memo(function Name(props) { ... }, comparator?);
-    const exportKw = screenExportAttr === 'named' ? 'export' : 'export default';
+    const exportKw = screenExportAttr === 'default' ? 'export default' : 'export';
     componentLines.push(`const ${screenName} = React.memo(function ${screenName}(${propsParam}) {`);
     if (stateCtx.needsInkSafe) {
       componentLines.push(...emitInkSafePreamble());
@@ -1559,7 +1590,7 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     }
     componentLines.push(`${exportKw} { ${screenName} };`);
   } else {
-    const exportKw = screenExportAttr === 'named' ? 'export' : 'export default';
+    const exportKw = screenExportAttr === 'default' ? 'export default' : 'export';
     componentLines.push(`${exportKw} function ${screenName}(${propsParam}) {`);
     if (stateCtx.needsInkSafe) {
       componentLines.push(...emitInkSafePreamble());
