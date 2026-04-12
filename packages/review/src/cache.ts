@@ -4,6 +4,9 @@ import { homedir } from 'os';
 import { join } from 'path';
 import type { ReviewConfig, ReviewReport } from './types.js';
 
+// Version stamp for cache invalidation — changes when rules/analyzers change
+const REVIEW_CACHE_VERSION = '3.2.0';
+
 export class ReviewCache {
   private l1 = new Map<string, ReviewReport>();
   private cacheDir: string;
@@ -72,6 +75,8 @@ export class ReviewCache {
 
 export function computeCacheKey(fileContent: string, config: ReviewConfig, filePath: string): string {
   const hash = createHash('sha256');
+  // Include version so cache auto-invalidates when kern-lang is upgraded
+  hash.update(REVIEW_CACHE_VERSION);
   hash.update(fileContent);
   hash.update(JSON.stringify(config));
   hash.update(filePath);
