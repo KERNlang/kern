@@ -42,6 +42,7 @@ const SCOPE_NODE_TYPES = new Set([
   'callback',
   'memo',
   'effect',
+  'on',
   'route',
   'server',
   'service',
@@ -79,6 +80,14 @@ const DIRECT_BINDING_NODE_TYPES = new Set([
   'method',
   'arg',
   'flag',
+  // Top-level declaration types (visible to all handlers in the file)
+  'screen',
+  'type',
+  'interface',
+  'union',
+  'service',
+  'machine',
+  'singleton',
   // Template node types that declare a name binding
   'arrow-fn',
   'swr-hook',
@@ -195,6 +204,44 @@ const AMBIENT_NAMES = new Set([
   'structuredClone',
   'atob',
   'btoa',
+  // JS global functions
+  'parseInt',
+  'parseFloat',
+  'isNaN',
+  'isFinite',
+  'encodeURI',
+  'encodeURIComponent',
+  'decodeURI',
+  'decodeURIComponent',
+  'eval',
+  // TypedArrays and other constructors
+  'Uint8Array',
+  'Int8Array',
+  'Float32Array',
+  'Float64Array',
+  'ArrayBuffer',
+  'DataView',
+  'TextEncoder',
+  'TextDecoder',
+  'ReadableStream',
+  'WritableStream',
+  'TransformStream',
+  'Blob',
+  'File',
+  'FormData',
+  'Event',
+  'EventTarget',
+  'CustomEvent',
+  // Node.js globals
+  'require',
+  '__dirname',
+  '__filename',
+  'module',
+  'exports',
+  // React/JSX globals
+  'React',
+  'Fragment',
+  'JSX',
   // HTTP handler context (injected by framework)
   'req',
   'res',
@@ -427,6 +474,18 @@ function addBindingsFromScopeNode(scopeNode: IRNode, target: Map<string, Binding
     addBinding(target, binding.name, { kind: 'param', node: scopeNode, typeName: binding.typeName });
   }
 
+  // Inject framework callback parameters for known event types
+  if (scopeNode.type === 'on') {
+    const event = (p.event || p.name) as string;
+    if (event === 'input' || event === 'key') {
+      // Ink useInput((input, key) => ...) callback parameters
+      addBinding(target, 'input', { kind: 'param', node: scopeNode, typeName: 'string' });
+      addBinding(target, 'key', { kind: 'param', node: scopeNode, typeName: 'Key' });
+    } else if (event === 'stdout' || event === 'stderr') {
+      addBinding(target, 'data', { kind: 'param', node: scopeNode, typeName: 'string' });
+    }
+  }
+
   if (DIRECT_BINDING_NODE_TYPES.has(scopeNode.type) && typeof p.name === 'string') {
     addBinding(target, p.name, {
       kind: scopeNode.type,
@@ -454,13 +513,22 @@ function addBindingsFromScopeNode(scopeNode: IRNode, target: Map<string, Binding
 
     if (!DIRECT_BINDING_NODE_TYPES.has(child.type)) continue;
 
-    // Import nodes use 'names' (comma-separated) instead of 'name'
-    if (child.type === 'import' && typeof cp.names === 'string') {
-      for (const importedName of cp.names
-        .split(',')
-        .map((s: string) => s.trim())
-        .filter(Boolean)) {
-        addBinding(target, importedName, { kind: 'import', node: child });
+    // Import nodes: handle 'names' (comma-separated named imports), 'default' (default import),
+    // and 'namespace' (namespace import)
+    if (child.type === 'import') {
+      if (typeof cp.names === 'string') {
+        for (const importedName of cp.names
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter(Boolean)) {
+          addBinding(target, importedName, { kind: 'import', node: child });
+        }
+      }
+      if (typeof cp.default === 'string' && cp.default) {
+        addBinding(target, cp.default as string, { kind: 'import', node: child });
+      }
+      if (typeof cp.namespace === 'string' && cp.namespace) {
+        addBinding(target, cp.namespace as string, { kind: 'import', node: child });
       }
       continue;
     }
