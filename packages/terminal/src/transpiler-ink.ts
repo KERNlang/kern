@@ -1511,25 +1511,62 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
 
     const secExportAttr = secProps.export as string;
     const secExportKw = secExportAttr === 'default' ? 'export default' : 'export';
-    componentLines.push(`${secExportKw} function ${secName}(${secParam}) {`);
-    if (secCtx.needsInkSafe) {
-      componentLines.push(...emitInkSafePreamble());
+    const secMemoAttr = secProps.memo;
+    const secUseMemo =
+      secMemoAttr === 'true' || secMemoAttr === true || (typeof secMemoAttr === 'string' && secMemoAttr !== 'false');
+    const secMemoComp = secUseMemo && typeof secMemoAttr === 'string' && secMemoAttr !== 'true' ? secMemoAttr : null;
+    const secMemoExpr = secMemoComp && isExpr(secProps.memo) ? (secProps.memo as { code: string }).code : secMemoComp;
+
+    if (secUseMemo) {
+      componentLines.push(`const ${secName} = React.memo(function ${secName}(${secParam}) {`);
+      if (secCtx.needsInkSafe) componentLines.push(...emitInkSafePreamble());
+      componentLines.push(...secBodyLines);
+      componentLines.push(secMemoExpr ? `}, ${secMemoExpr});` : '});');
+      componentLines.push(`${secExportKw} { ${secName} };`);
+    } else {
+      componentLines.push(`${secExportKw} function ${secName}(${secParam}) {`);
+      if (secCtx.needsInkSafe) componentLines.push(...emitInkSafePreamble());
+      componentLines.push(...secBodyLines);
+      componentLines.push('}');
     }
-    componentLines.push(...secBodyLines);
-    componentLines.push('}');
     componentLines.push('');
   }
 
-  // Component (Feature #9: with props) — respect export= attribute
+  // Component (Feature #9: with props) — respect export= and memo= attributes
   const screenExportAttr = screenProps.export as string;
-  const exportKw = screenExportAttr === 'named' ? 'export' : 'export default';
-  componentLines.push(`${exportKw} function ${screenName}(${propsParam}) {`);
-  // Emit __inkSafe preamble once if any state uses safe setters
-  if (stateCtx.needsInkSafe) {
-    componentLines.push(...emitInkSafePreamble());
+  const screenMemoAttr = screenProps.memo;
+  const useMemo =
+    screenMemoAttr === 'true' ||
+    screenMemoAttr === true ||
+    (typeof screenMemoAttr === 'string' && screenMemoAttr !== 'false');
+  const memoComparator =
+    useMemo && typeof screenMemoAttr === 'string' && screenMemoAttr !== 'true' ? screenMemoAttr : null;
+  const memoComparatorExpr =
+    memoComparator && isExpr(screenProps.memo) ? (screenProps.memo as { code: string }).code : memoComparator;
+
+  if (useMemo) {
+    // React.memo wrapper: const Name = React.memo(function Name(props) { ... }, comparator?);
+    const exportKw = screenExportAttr === 'named' ? 'export' : 'export default';
+    componentLines.push(`const ${screenName} = React.memo(function ${screenName}(${propsParam}) {`);
+    if (stateCtx.needsInkSafe) {
+      componentLines.push(...emitInkSafePreamble());
+    }
+    componentLines.push(...bodyLines);
+    if (memoComparatorExpr) {
+      componentLines.push(`}, ${memoComparatorExpr});`);
+    } else {
+      componentLines.push('});');
+    }
+    componentLines.push(`${exportKw} { ${screenName} };`);
+  } else {
+    const exportKw = screenExportAttr === 'named' ? 'export' : 'export default';
+    componentLines.push(`${exportKw} function ${screenName}(${propsParam}) {`);
+    if (stateCtx.needsInkSafe) {
+      componentLines.push(...emitInkSafePreamble());
+    }
+    componentLines.push(...bodyLines);
+    componentLines.push('}');
   }
-  componentLines.push(...bodyLines);
-  componentLines.push('}');
 
   // File-level functions/constants emitted after the screen component
   if (fileLevelFns.length > 0) {

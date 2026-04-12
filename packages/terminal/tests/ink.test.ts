@@ -1103,4 +1103,39 @@ describe('Ink Transpiler', () => {
     const components = result.artifacts!.filter((a) => a.type === 'component');
     expect(components.length).toBeGreaterThanOrEqual(1);
   });
+
+  // ── React.memo support ────────────────────────────────────────────────
+
+  test('screen memo=true wraps component in React.memo', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=SpinnerBlock memo=true\n  text value="Spinning"');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('React.memo(function SpinnerBlock(');
+    expect(result.code).toContain('export');
+    expect(result.code).toContain('SpinnerBlock');
+  });
+
+  test('screen memo with custom comparator generates React.memo with second arg', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse(
+      'screen name=StatusBar memo="{{ (prev, next) => prev.active === next.active }}" props="active:boolean"\n  text value="Status"',
+    );
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('React.memo(function StatusBar(');
+    expect(result.code).toContain('prev.active === next.active');
+  });
+
+  test('screen without memo generates normal function', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=App\n  text value="Hello"');
+    const result = transpileInk(ast);
+
+    expect(result.code).not.toContain('React.memo');
+    expect(result.code).toContain('export default function App(');
+  });
 });

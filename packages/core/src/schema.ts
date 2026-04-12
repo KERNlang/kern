@@ -813,10 +813,11 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   screen: {
     description: 'Full-screen container component (minHeight: 100vh flex column)',
-    example: 'screen name=Dashboard export=default\n  row\n    text value="Welcome"',
+    example: 'screen name=Dashboard export=default memo=true\n  row\n    text value="Welcome"',
     props: {
       name: { kind: 'identifier' },
       export: { kind: 'string' },
+      memo: { kind: 'rawExpr' },
     },
   },
   row: {
