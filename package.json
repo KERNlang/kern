@@ -20,6 +20,14 @@
     "lint:fix": "biome check --fix",
     "format": "biome format --write"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp",
+      "tree-sitter",
+      "tree-sitter-python",
+      "unrs-resolver"
+    ]
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.4.11",
     "@types/jest": "^30.0.0",
