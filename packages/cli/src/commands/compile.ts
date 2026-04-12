@@ -1,5 +1,6 @@
 import type { IRNode, KernTarget, ResolvedKernConfig } from '@kernlang/core';
 import {
+  ALL_TARGETS,
   detectVersionsFromPackageJson,
   expandTemplateNode,
   generateCoreNode,
@@ -10,7 +11,6 @@ import {
   parseWithDiagnostics,
   resolveConfig,
   sourceComment,
-  VALID_TARGETS,
 } from '@kernlang/core';
 import { loadEvolvedNodes } from '@kernlang/evolve';
 import { generateReactNode, isReactNode } from '@kernlang/react';
@@ -182,7 +182,7 @@ export async function runCompile(args: string[]): Promise<void> {
   const serveMode = hasFlag(args, '--serve');
   const targetArg = parseFlag(args, '--target') as KernTarget | undefined;
 
-  if (targetArg && !VALID_TARGETS.includes(targetArg)) {
+  if (targetArg && !ALL_TARGETS.includes(targetArg)) {
     console.error(`Unknown target: '${targetArg}'.`);
     process.exit(1);
   }

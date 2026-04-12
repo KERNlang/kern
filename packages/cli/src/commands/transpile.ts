@@ -1,5 +1,5 @@
 import type { IRNode, KernConfig, KernStructure, KernTarget, ResolvedKernConfig } from '@kernlang/core';
-import { decompile, resolveConfig, VALID_STRUCTURES, VALID_TARGETS } from '@kernlang/core';
+import { ALL_TARGETS, decompile, resolveConfig, VALID_STRUCTURES } from '@kernlang/core';
 import { loadEvolvedNodes } from '@kernlang/evolve';
 import { collectLanguageMetrics } from '@kernlang/metrics';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
@@ -117,8 +117,8 @@ export function runTranspile(args: string[]): void {
   // CLI overrides
   const cliTarget = parseFlag(args, '--target');
   if (cliTarget) {
-    if (!VALID_TARGETS.includes(cliTarget as KernTarget)) {
-      console.error(`Unknown target: '${cliTarget}'. Valid targets: ${VALID_TARGETS.join(', ')}`);
+    if (!ALL_TARGETS.includes(cliTarget as KernTarget)) {
+      console.error(`Unknown target: '${cliTarget}'. Valid targets: ${ALL_TARGETS.join(', ')}`);
       process.exit(1);
     }
     config = { ...config, target: cliTarget as KernTarget };
