@@ -15,6 +15,7 @@
  */
 
 import type { ReviewRule } from '../types.js';
+import { asyncRules } from './async.js';
 import { baseRules } from './base.js';
 import { cliRules } from './cli.js';
 import { deadLogicRules } from './dead-logic.js';
@@ -26,6 +27,7 @@ import { nextjsAppRouterRules } from './nextjs-app-router.js';
 import { nullSafetyRules } from './null-safety.js';
 import { nuxtRules } from './nuxt.js';
 import { reactRules } from './react.js';
+import { reactHooksRules } from './react-hooks.js';
 import { securityRules } from './security.js';
 import { securityV2Rules } from './security-v2.js';
 import { securityV3Rules } from './security-v3.js';
@@ -53,6 +55,7 @@ export function getActiveRules(target?: string): ReviewRule[] {
     ...securityV5Rules,
     ...deadLogicRules,
     ...nullSafetyRules,
+    ...asyncRules,
   ];
 
   // Backend targets never load frontend-specific rules
@@ -60,6 +63,7 @@ export function getActiveRules(target?: string): ReviewRule[] {
 
   if (!isBackend && target && REACT_TARGETS.has(target)) {
     rules.push(...reactRules);
+    rules.push(...reactHooksRules);
   }
 
   if (!isBackend && target && VUE_TARGETS.has(target)) {
@@ -509,7 +513,7 @@ const REGISTRY: RuleInfo[] = [
     id: 'missing-memo-deps',
     layer: 'react',
     severity: 'warning',
-    description: 'useMemo/useCallback dependency array missing an identifier referenced in the body',
+    description: 'useMemo/useCallback called without any dependency array',
     precision: 'high',
   },
   {
@@ -518,6 +522,50 @@ const REGISTRY: RuleInfo[] = [
     severity: 'error',
     description: 'Reducer mutates state instead of returning a new object',
     precision: 'high',
+  },
+
+  // React Hooks — Wave 2 net-new rules
+  {
+    id: 'exhaustive-deps',
+    layer: 'react-hooks',
+    severity: 'warning',
+    description: 'useEffect/useMemo/useCallback body references identifiers missing from the dependency array',
+    precision: 'medium',
+    rolloutPhase: 2,
+  },
+  {
+    id: 'ref-in-deps',
+    layer: 'react-hooks',
+    severity: 'warning',
+    description: 'useRef result included in a dependency array — refs are stable, so this has no effect',
+    precision: 'high',
+    rolloutPhase: 2,
+  },
+  {
+    id: 'state-derived-from-props',
+    layer: 'react-hooks',
+    severity: 'warning',
+    description: 'useState initialized from props — state will not update when the prop changes (stale UI)',
+    precision: 'high',
+    rolloutPhase: 2,
+  },
+
+  // Async — Wave 2 net-new rules
+  {
+    id: 'promise-all-error-swallow',
+    layer: 'async',
+    severity: 'warning',
+    description: 'Promise.all without .catch, try/catch, or await — single rejection is silently unhandled',
+    precision: 'high',
+    rolloutPhase: 2,
+  },
+  {
+    id: 'abortcontroller-leak',
+    layer: 'async',
+    severity: 'warning',
+    description: 'AbortController created in useEffect without .abort() in cleanup — in-flight requests survive unmount',
+    precision: 'high',
+    rolloutPhase: 2,
   },
 
   // CLI (target: cli)
@@ -857,8 +905,10 @@ const LAYER_TARGET_MAP: Record<string, string[] | null> = {
   'security-v5': null,
   'dead-logic': null,
   'null-safety': null,
+  async: null,
   concept: null,
   react: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
+  'react-hooks': ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   cli: ['cli'],
   vue: ['vue', 'nuxt'],
   ink: ['ink'],
