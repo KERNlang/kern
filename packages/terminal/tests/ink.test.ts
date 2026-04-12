@@ -17,7 +17,7 @@ describe('Ink Transpiler', () => {
     expect(result.code).toContain('<Text');
     expect(result.code).toContain('bold');
     expect(result.code).toContain('Hello');
-    expect(result.code).toContain('export default function Test()');
+    expect(result.code).toContain('export function Test()');
   });
 
   test('generates separator as dimColor Text', async () => {
@@ -177,7 +177,7 @@ describe('Ink Transpiler', () => {
     const ast = parse(source);
     const result = transpileInk(ast);
 
-    expect(result.code).toContain('export default function AgonTerminal()');
+    expect(result.code).toContain('export function AgonTerminal()');
     expect(result.code).toContain("from 'react'");
     expect(result.code).toContain("from 'ink'");
     expect(result.code).toContain('<Text');
@@ -908,7 +908,7 @@ describe('Ink Transpiler', () => {
     expect(result.code).toContain('Body');
   });
 
-  test('multiple screens generate named + default exports', async () => {
+  test('multiple screens generate all named exports by default', async () => {
     const { parseDocument } = await import('../../core/src/parser.js');
     const { transpileInk } = await import('../src/transpiler-ink.js');
     const source = [
@@ -922,11 +922,11 @@ describe('Ink Transpiler', () => {
     const ast = parseDocument(source);
     const result = transpileInk(ast);
 
-    // Header should be a named export
+    // Both should be named exports (no default unless export=default)
     expect(result.code).toContain('export function Header(');
     expect(result.code).toContain('title');
-    // App should be default export
-    expect(result.code).toContain('export default function App(');
+    expect(result.code).toContain('export function App(');
+    expect(result.code).not.toContain('export default');
     expect(result.code).toContain('<Header title="AGON" />');
   });
 
@@ -1136,6 +1136,6 @@ describe('Ink Transpiler', () => {
     const result = transpileInk(ast);
 
     expect(result.code).not.toContain('React.memo');
-    expect(result.code).toContain('export default function App(');
+    expect(result.code).toContain('export function App(');
   });
 });
