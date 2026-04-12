@@ -49,7 +49,12 @@ function classifyEntryPoint(filePath: string): RuntimeBoundary {
 
 const useClientCache = new Map<string, boolean>();
 
-function hasUseClientDirective(filePath: string): boolean {
+/**
+ * Check if a file starts with a `'use client'` directive.
+ * Exported so App Router rules can detect client-boundary files without
+ * going through the full graph pass. Results are memoized across calls.
+ */
+export function hasUseClientDirective(filePath: string): boolean {
   const cached = useClientCache.get(filePath);
   if (cached !== undefined) return cached;
   try {

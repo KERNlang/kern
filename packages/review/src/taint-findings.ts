@@ -19,6 +19,8 @@ const categoryLabels: Record<TaintSink['category'], string> = {
   eval: 'code injection',
   template: 'template injection',
   codegen: 'code generation injection',
+  ssrf: 'server-side request forgery',
+  crypto: 'cryptographic misuse',
 };
 
 export function getSuggestion(category: TaintSink['category']): string {
@@ -37,6 +39,10 @@ export function getSuggestion(category: TaintSink['category']): string {
       return 'Sanitize user input before embedding in templates';
     case 'codegen':
       return 'Validate type and format of external values before interpolating into generated source code (e.g., parseInt for numeric values)';
+    case 'ssrf':
+      return 'Validate the target URL against a host allowlist before making outbound requests — encodeURIComponent is NOT sufficient';
+    case 'crypto':
+      return 'Use a fresh random IV per encryption (crypto.randomBytes), and use argon2id or scrypt with current recommended parameters for key derivation';
   }
 }
 

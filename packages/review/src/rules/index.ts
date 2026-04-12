@@ -101,6 +101,18 @@ export interface RuleInfo {
   layer: string;
   severity: 'error' | 'warning' | 'info';
   description: string;
+  /**
+   * Precision hint used by kern-sight to stratify rules in the sidebar.
+   * 'high'         — rule has strong substrate (taint graph, file-context, ground-truth AST); ship on.
+   * 'medium'       — rule relies on heuristics; consider hide-by-default after first scan.
+   * 'experimental' — rule may be noisy; hide-by-default, promote after signal data proves it out.
+   */
+  precision?: 'high' | 'medium' | 'experimental';
+  /**
+   * Wave number in the rollout plan. Used by kern-sight to group new rules
+   * visually and by `--list-rules` to surface what just landed. Wave 0 = substrate.
+   */
+  rolloutPhase?: number;
 }
 
 const REGISTRY: RuleInfo[] = [
@@ -418,32 +430,90 @@ const REGISTRY: RuleInfo[] = [
   },
 
   // React (target: nextjs, tailwind, web, native, ink)
-  { id: 'async-effect', layer: 'react', severity: 'error', description: 'Async function passed directly to useEffect' },
+  {
+    id: 'async-effect',
+    layer: 'react',
+    severity: 'error',
+    description: 'Async function passed directly to useEffect',
+    precision: 'high',
+  },
   {
     id: 'render-side-effect',
     layer: 'react',
     severity: 'error',
     description: 'Side effect (fetch, mutation) during render',
+    precision: 'high',
   },
   {
     id: 'unstable-key',
     layer: 'react',
     severity: 'warning',
     description: 'Non-stable key prop (index, random, Date.now)',
+    precision: 'high',
   },
-  { id: 'stale-closure', layer: 'react', severity: 'warning', description: 'Stale variable captured in hook closure' },
+  {
+    id: 'stale-closure',
+    layer: 'react',
+    severity: 'warning',
+    description: 'Stale variable captured in hook closure',
+    precision: 'medium',
+  },
   {
     id: 'state-explosion',
     layer: 'react',
     severity: 'warning',
     description: 'Excessive useState calls — consider useReducer',
+    precision: 'medium',
   },
-  { id: 'hook-order', layer: 'react', severity: 'error', description: 'React hook called inside condition or loop' },
+  {
+    id: 'hook-order',
+    layer: 'react',
+    severity: 'error',
+    description: 'React hook called inside condition or loop',
+    precision: 'high',
+  },
   {
     id: 'effect-self-update-loop',
     layer: 'react',
     severity: 'error',
     description: 'useEffect updates its own dependency — infinite loop',
+    precision: 'high',
+  },
+  // React — backfilled from reactRules export (were exported but missing from registry)
+  {
+    id: 'missing-effect-cleanup',
+    layer: 'react',
+    severity: 'warning',
+    description: 'useEffect uses setInterval/setTimeout/addEventListener without a cleanup return',
+    precision: 'high',
+  },
+  {
+    id: 'inline-context-value',
+    layer: 'react',
+    severity: 'warning',
+    description: 'Inline object/array passed to Context.Provider value — forces consumer re-renders',
+    precision: 'high',
+  },
+  {
+    id: 'ref-in-render',
+    layer: 'react',
+    severity: 'error',
+    description: 'Reading or writing ref.current during render — breaks React purity',
+    precision: 'high',
+  },
+  {
+    id: 'missing-memo-deps',
+    layer: 'react',
+    severity: 'warning',
+    description: 'useMemo/useCallback dependency array missing an identifier referenced in the body',
+    precision: 'high',
+  },
+  {
+    id: 'reducer-mutation',
+    layer: 'react',
+    severity: 'error',
+    description: 'Reducer mutates state instead of returning a new object',
+    precision: 'high',
   },
 
   // CLI (target: cli)
