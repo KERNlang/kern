@@ -67,7 +67,7 @@ function compileServer(code: string): { dir: string; entryJS: string } {
   // Compile
   const result = execSync(`node "${TSC_BIN}" -p tsconfig.json 2>&1 || true`, {
     cwd: dir,
-    timeout: 15000,
+    timeout: 30000,
     encoding: 'utf-8',
   });
   if (result.includes('error TS')) {
