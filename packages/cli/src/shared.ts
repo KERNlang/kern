@@ -422,7 +422,7 @@ export function transpileAndWrite(
         ? '.py'
         : target === 'vue' || target === 'nuxt'
           ? '.vue'
-          : target === 'express' || target === 'cli' || target === 'terminal' || target === 'mcp' || target === 'native'
+          : target === 'express' || target === 'cli' || target === 'terminal' || target === 'mcp'
             ? '.ts'
             : '.tsx';
     const resultWithFiles = result as { files?: Array<{ path: string; content: string }> };

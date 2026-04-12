@@ -333,8 +333,9 @@ export function detectTarget(ast: IRNode): KernTarget {
   if (hasServer) return 'express';
   if (hasCli) return 'cli';
 
-  // Pure fn/const/type/interface/service files → plain TypeScript (no React wrapper)
-  return 'native';
+  // No framework-specific nodes → use nextjs target (emits plain TS passthrough,
+  // same as flag-less default). 'native' is React Native, NOT "plain TypeScript".
+  return 'nextjs';
 }
 
 /** @deprecated Use resolveConfig instead */
