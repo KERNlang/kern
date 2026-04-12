@@ -228,17 +228,12 @@ const SCHEMA_METHOD_PATTERNS = [
   /\bparse\s*\(/, // bare parse — only counted alongside a library reference (see hasValidatorUsage)
 ];
 
-const NAIVE_VALIDATOR_PATTERNS = [
-  /\.validate(Sync)?\s*\(/,
-  /\.assert\s*\(/,
-  /\bassert\s*\(/,
-];
+const NAIVE_VALIDATOR_PATTERNS = [/\.validate(Sync)?\s*\(/, /\.assert\s*\(/, /\bassert\s*\(/];
 
 function hasValidatorUsage(bodyText: string, importsText: string): boolean {
   // Strong signal: schema library import or reference PLUS a schema method call
   const hasLib =
-    SCHEMA_LIBRARY_PATTERNS.some((p) => p.test(importsText)) ||
-    SCHEMA_LIBRARY_PATTERNS.some((p) => p.test(bodyText));
+    SCHEMA_LIBRARY_PATTERNS.some((p) => p.test(importsText)) || SCHEMA_LIBRARY_PATTERNS.some((p) => p.test(bodyText));
   const hasSchemaMethod = SCHEMA_METHOD_PATTERNS.some((p) => p.test(bodyText));
   if (hasLib && hasSchemaMethod) return true;
   // Weaker but still reasonable: explicit .validate()/.assert() call

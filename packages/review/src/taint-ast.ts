@@ -395,10 +395,12 @@ function getCalleeBaseName(call: import('ts-morph').CallExpression): string {
  * `axios.request`, `http.request`, `https.request`, and `undici.request`
  * never match because their base name (`request`) is too generic to register.
  */
-function resolveSinkCategory(call: import('ts-morph').CallExpression): {
-  category: TaintSink['category'];
-  name: string;
-} | undefined {
+function resolveSinkCategory(call: import('ts-morph').CallExpression):
+  | {
+      category: TaintSink['category'];
+      name: string;
+    }
+  | undefined {
   const expr = call.getExpression();
   const k = expr.getKindName();
   if (k === 'PropertyAccessExpression') {
