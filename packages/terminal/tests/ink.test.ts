@@ -631,8 +631,11 @@ describe('Ink Transpiler', () => {
     expect(result.code).toContain("const [streamText, _setStreamTextRaw] = useState('')");
     expect(result.code).toContain('const setStreamText = useMemo(() => {');
     expect(result.code).toContain('let _lastCall = 0');
-    expect(result.code).toContain('now - _lastCall >= 90');
+    expect(result.code).toContain('elapsed >= 90');
     expect(result.code).toContain('setTimeout(() => _setStreamTextRaw(value), 0)');
+    // Trailing edge: pending value + timer for last update in burst
+    expect(result.code).toContain('_pendingValue = value');
+    expect(result.code).toContain('_pendingTimer');
     // Should NOT use __inkSafe (throttle handles its own setTimeout)
     expect(result.code).not.toContain('__inkSafe');
   });

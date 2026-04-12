@@ -243,17 +243,42 @@ function generateStateHook(stateNode: IRNode, imports: ImportTracker, ctx: State
     const debounce = props.debounce as string | undefined;
 
     if (throttle) {
-      // Throttled setter — rate-limits updates, uses setTimeout for Ink safety
+      // Throttled setter — leading+trailing by default (lodash-style).
+      // trailing=false reverts to leading-only (drops intermediate + final values in window).
+      const trailing = props.trailing !== 'false' && props.trailing !== false;
       imports.addReact('useMemo');
+      const valType = typeAnnotation ? (props.type as string) : 'any';
       lines.push(`  const [${name}, _${setter}Raw] = useState${typeAnnotation}(${lazyInitVal});`);
       lines.push(`  const ${setter} = useMemo(() => {`);
       lines.push(`    let _lastCall = 0;`);
-      lines.push(`    return (value: React.SetStateAction<${typeAnnotation ? (props.type as string) : 'any'}>) => {`);
+      if (trailing) {
+        lines.push(`    let _pendingValue: React.SetStateAction<${valType}>;`);
+        lines.push(`    let _pendingTimer: ReturnType<typeof setTimeout> | null = null;`);
+      }
+      lines.push(`    return (value: React.SetStateAction<${valType}>) => {`);
       lines.push(`      const now = Date.now();`);
-      lines.push(`      if (now - _lastCall >= ${throttle}) {`);
-      lines.push(`        _lastCall = now;`);
-      lines.push(`        setTimeout(() => _${setter}Raw(value), 0);`);
-      lines.push(`      }`);
+      if (trailing) {
+        lines.push(`      const elapsed = now - _lastCall;`);
+        lines.push(`      if (elapsed >= ${throttle}) {`);
+        lines.push(`        _lastCall = now;`);
+        lines.push(`        if (_pendingTimer) { clearTimeout(_pendingTimer); _pendingTimer = null; }`);
+        lines.push(`        setTimeout(() => _${setter}Raw(value), 0);`);
+        lines.push(`      } else {`);
+        lines.push(`        _pendingValue = value;`);
+        lines.push(`        if (!_pendingTimer) {`);
+        lines.push(`          _pendingTimer = setTimeout(() => {`);
+        lines.push(`            _lastCall = Date.now();`);
+        lines.push(`            _pendingTimer = null;`);
+        lines.push(`            _${setter}Raw(_pendingValue);`);
+        lines.push(`          }, ${throttle} - elapsed);`);
+        lines.push(`        }`);
+        lines.push(`      }`);
+      } else {
+        lines.push(`      if (now - _lastCall >= ${throttle}) {`);
+        lines.push(`        _lastCall = now;`);
+        lines.push(`        setTimeout(() => _${setter}Raw(value), 0);`);
+        lines.push(`      }`);
+      }
       lines.push(`    };`);
       lines.push(`  }, []);`);
     } else if (debounce) {
