@@ -291,6 +291,7 @@ export function detectTarget(ast: IRNode): KernTarget {
   let hasServer = false;
   let hasMcp = false;
   let hasCli = false;
+  let hasNextjs = false;
   let screenTarget: string | undefined;
 
   // Walk the full tree — parse() may return a single node or a document wrapper,
@@ -317,6 +318,13 @@ export function detectTarget(ast: IRNode): KernTarget {
       case 'command':
         hasCli = true;
         break;
+      case 'page':
+      case 'layout':
+      case 'loading':
+      case 'error':
+      case 'metadata':
+        hasNextjs = true;
+        break;
     }
     for (const child of node.children || []) {
       walk(child);
@@ -334,6 +342,7 @@ export function detectTarget(ast: IRNode): KernTarget {
   if (hasMcp) return 'mcp';
   if (hasServer) return 'express';
   if (hasCli) return 'cli';
+  if (hasNextjs) return 'nextjs';
 
   // No framework-specific nodes → plain TypeScript library output.
   // 'native' is React Native, 'nextjs' is a page scaffold — neither fits pure lib code.

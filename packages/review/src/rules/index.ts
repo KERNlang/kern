@@ -15,6 +15,8 @@
  */
 
 import type { ReviewRule } from '../types.js';
+import { a11yRules } from './a11y.js';
+import { asyncRules } from './async.js';
 import { baseRules } from './base.js';
 import { cliRules } from './cli.js';
 import { deadLogicRules } from './dead-logic.js';
@@ -22,13 +24,18 @@ import { expressRules } from './express.js';
 import { fastapiRules } from './fastapi.js';
 import { inkRules } from './ink.js';
 import { nextjsRules } from './nextjs.js';
+import { nextjsAppRouterRules } from './nextjs-app-router.js';
 import { nullSafetyRules } from './null-safety.js';
 import { nuxtRules } from './nuxt.js';
+import { perfRules } from './perf.js';
 import { reactRules } from './react.js';
+import { reactCompositionRules } from './react-composition.js';
+import { reactHooksRules } from './react-hooks.js';
 import { securityRules } from './security.js';
 import { securityV2Rules } from './security-v2.js';
 import { securityV3Rules } from './security-v3.js';
 import { securityV4Rules } from './security-v4.js';
+import { securityV5Rules } from './security-v5.js';
 import { terminalRules } from './terminal.js';
 import { vueRules } from './vue.js';
 
@@ -48,8 +55,10 @@ export function getActiveRules(target?: string): ReviewRule[] {
     ...securityV2Rules,
     ...securityV3Rules,
     ...securityV4Rules,
+    ...securityV5Rules,
     ...deadLogicRules,
     ...nullSafetyRules,
+    ...asyncRules,
   ];
 
   // Backend targets never load frontend-specific rules
@@ -57,6 +66,10 @@ export function getActiveRules(target?: string): ReviewRule[] {
 
   if (!isBackend && target && REACT_TARGETS.has(target)) {
     rules.push(...reactRules);
+    rules.push(...reactHooksRules);
+    rules.push(...reactCompositionRules);
+    rules.push(...a11yRules);
+    rules.push(...perfRules);
   }
 
   if (!isBackend && target && VUE_TARGETS.has(target)) {
@@ -65,6 +78,7 @@ export function getActiveRules(target?: string): ReviewRule[] {
 
   if (!isBackend && target === 'nextjs') {
     rules.push(...nextjsRules);
+    rules.push(...nextjsAppRouterRules);
   }
 
   if (!isBackend && target === 'nuxt') {
@@ -505,7 +519,7 @@ const REGISTRY: RuleInfo[] = [
     id: 'missing-memo-deps',
     layer: 'react',
     severity: 'warning',
-    description: 'useMemo/useCallback dependency array missing an identifier referenced in the body',
+    description: 'useMemo/useCallback called without any dependency array',
     precision: 'high',
   },
   {
@@ -514,6 +528,147 @@ const REGISTRY: RuleInfo[] = [
     severity: 'error',
     description: 'Reducer mutates state instead of returning a new object',
     precision: 'high',
+  },
+
+  // React Hooks — Wave 2 net-new rules
+  {
+    id: 'exhaustive-deps',
+    layer: 'react-hooks',
+    severity: 'warning',
+    description: 'useEffect/useMemo/useCallback body references identifiers missing from the dependency array',
+    precision: 'medium',
+    rolloutPhase: 2,
+  },
+  {
+    id: 'ref-in-deps',
+    layer: 'react-hooks',
+    severity: 'warning',
+    description: 'useRef result included in a dependency array — refs are stable, so this has no effect',
+    precision: 'high',
+    rolloutPhase: 2,
+  },
+  {
+    id: 'state-derived-from-props',
+    layer: 'react-hooks',
+    severity: 'warning',
+    description: 'useState initialized from props — state will not update when the prop changes (stale UI)',
+    precision: 'high',
+    rolloutPhase: 2,
+  },
+
+  // Async — Wave 2 net-new rules
+  {
+    id: 'promise-all-error-swallow',
+    layer: 'async',
+    severity: 'warning',
+    description: 'Promise.all without .catch, try/catch, or await — single rejection is silently unhandled',
+    precision: 'high',
+    rolloutPhase: 2,
+  },
+  {
+    id: 'abortcontroller-leak',
+    layer: 'async',
+    severity: 'warning',
+    description:
+      'AbortController created in useEffect without .abort() in cleanup — in-flight requests survive unmount',
+    precision: 'high',
+    rolloutPhase: 2,
+  },
+
+  // React composition — Wave 4 (children-as-perf, prop drilling)
+  {
+    id: 'children-not-used',
+    layer: 'react-composition',
+    severity: 'warning',
+    description: "Component destructures 'children' from props but never renders it — dead API or forgotten {children}",
+    precision: 'high',
+    rolloutPhase: 4,
+  },
+  {
+    id: 'prop-drill-passthrough',
+    layer: 'react-composition',
+    severity: 'warning',
+    description:
+      'Component passes >= 2 props through to a single child without reading them — use children prop or context',
+    precision: 'medium',
+    rolloutPhase: 4,
+  },
+  {
+    id: 'parent-rerender-via-state',
+    layer: 'react-composition',
+    severity: 'info',
+    description:
+      'Parent with useState renders a child that does not receive that state — lift child to children prop to avoid re-render',
+    precision: 'medium',
+    rolloutPhase: 4,
+  },
+
+  // a11y — Wave 3
+  {
+    id: 'img-missing-alt',
+    layer: 'a11y',
+    severity: 'error',
+    description: '<img> missing alt attribute — use alt="" for decorative images',
+    precision: 'high',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'button-missing-name',
+    layer: 'a11y',
+    severity: 'error',
+    description: '<button> has no accessible name (text, aria-label, or aria-labelledby)',
+    precision: 'high',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'label-missing-for',
+    layer: 'a11y',
+    severity: 'warning',
+    description: '<label> not associated with a form control via htmlFor or nesting',
+    precision: 'high',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'aria-invalid-role',
+    layer: 'a11y',
+    severity: 'error',
+    description: 'role attribute value is not a valid WAI-ARIA 1.2 role',
+    precision: 'high',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'interactive-noninteractive',
+    layer: 'a11y',
+    severity: 'warning',
+    description: 'onClick/onKeyDown on div/span without role+tabIndex — keyboard inaccessible',
+    precision: 'high',
+    rolloutPhase: 3,
+  },
+
+  // perf — Wave 3
+  {
+    id: 'image-no-lazy',
+    layer: 'perf',
+    severity: 'info',
+    description: '<img> without loading="lazy" — below-the-fold images should lazy-load',
+    precision: 'medium',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'heavy-computation-in-render',
+    layer: 'perf',
+    severity: 'info',
+    description: 'Chained expensive array operations (sort/filter/reduce) inline in JSX — consider useMemo',
+    precision: 'medium',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'large-list-no-virtualization',
+    layer: 'perf',
+    severity: 'info',
+    description: 'Large list rendered with .map() without a virtualization library',
+    precision: 'experimental',
+    rolloutPhase: 3,
   },
 
   // CLI (target: cli)
@@ -651,18 +806,88 @@ const REGISTRY: RuleInfo[] = [
   },
 
   // Next.js (target: nextjs)
-  { id: 'server-hook', layer: 'nextjs', severity: 'error', description: 'React hook used in Server Component' },
+  {
+    id: 'server-hook',
+    layer: 'nextjs',
+    severity: 'error',
+    description: 'React hook used in Server Component',
+    precision: 'high',
+  },
   {
     id: 'hydration-mismatch',
     layer: 'nextjs',
     severity: 'warning',
     description: 'Nondeterministic expression causes SSR/client mismatch',
+    precision: 'high',
   },
   {
     id: 'missing-use-client',
     layer: 'nextjs',
     severity: 'warning',
     description: 'Event handler in Server Component — needs use client',
+    precision: 'high',
+  },
+
+  // Next.js App Router (Wave 1)
+  {
+    id: 'use-client-drilled-too-high',
+    layer: 'nextjs-app-router',
+    severity: 'warning',
+    description:
+      "'use client' directive placed on a file that uses no client APIs itself — move it to the leaf component",
+    precision: 'medium',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'server-api-in-client',
+    layer: 'nextjs-app-router',
+    severity: 'error',
+    description: 'next/headers (cookies/headers/draftMode) or server-only imported in a Client Component',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'server-action-unvalidated-input',
+    layer: 'nextjs-app-router',
+    severity: 'warning',
+    description: "Exported 'use server' async function uses parameters without validator (.parse/.safeParse/zod)",
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+
+  // Security v5 (Wave 1)
+  {
+    id: 'xss-href-javascript',
+    layer: 'security-v5',
+    severity: 'error',
+    description: 'JSX href/src/action set to a javascript: URL — executes script on click',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'crypto-iv-reuse',
+    layer: 'security-v5',
+    severity: 'error',
+    description: 'createCipheriv called with a literal or constant IV — reused IV breaks AES-GCM and CBC',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'crypto-weak-kdf',
+    layer: 'security-v5',
+    severity: 'error',
+    description: 'pbkdf2 iterations below 100k — key derivation can be brute-forced',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  // Taint-engine auto-emitted rules (Wave 0 added the sinks)
+  {
+    id: 'taint-ssrf',
+    layer: 'security-v5',
+    severity: 'warning',
+    description: 'User input flows into fetch/axios/http.request URL — server-side request forgery',
+    precision: 'high',
+    rolloutPhase: 1,
   },
 
   // Nuxt (target: nuxt)
@@ -773,15 +998,22 @@ const LAYER_TARGET_MAP: Record<string, string[] | null> = {
   'security-v2': null,
   'security-v3': null,
   'security-v4': null,
+  'security-v5': null,
   'dead-logic': null,
   'null-safety': null,
+  async: null,
   concept: null,
   react: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
+  'react-hooks': ['nextjs', 'tailwind', 'web', 'native', 'ink'],
+  'react-composition': ['nextjs', 'tailwind', 'web', 'native', 'ink'],
+  a11y: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
+  perf: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   cli: ['cli'],
   vue: ['vue', 'nuxt'],
   ink: ['ink'],
   terminal: ['terminal'],
   nextjs: ['nextjs'],
+  'nextjs-app-router': ['nextjs'],
   nuxt: ['nuxt'],
   express: ['express'],
   fastapi: ['fastapi'],

@@ -60,8 +60,6 @@ export interface ProvenanceStep {
 
 /** Evidence chain: ordered steps from root cause to the reported sink */
 export interface ProvenanceChain {
-  /** The rule that produced this chain */
-  ruleId: string;
   /** Ordered steps from source → sink */
   steps: ProvenanceStep[];
   /** Optional one-line summary shown before expanding the chain */

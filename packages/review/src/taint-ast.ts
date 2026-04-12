@@ -240,9 +240,9 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
       if (n.getKindName() === 'CallExpression') calls.push(n as import('ts-morph').CallExpression);
     });
     for (const call of calls) {
-      const calleeName = getCalleeBaseName(call);
-      const sinkDef = SINK_NAMES.get(calleeName);
-      if (!sinkDef) continue;
+      const resolved = resolveSinkCategory(call);
+      if (!resolved) continue;
+      const { category: sinkDef, name: calleeName } = resolved;
 
       // Check if any argument references a tainted variable
       for (const arg of call.getArguments()) {
@@ -283,9 +283,11 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
 
     // Step 3b: Interprocedural — check calls to internal functions that contain sinks
     for (const call of calls) {
+      // Skip if it's already a known sink (handled above) — use the same
+      // full-path-first resolver so qualified sinks like `axios.request` are
+      // correctly skipped.
+      if (resolveSinkCategory(call)) continue;
       const calleeName = getCalleeBaseName(call);
-      // Skip if it's already a known sink (handled above)
-      if (SINK_NAMES.has(calleeName)) continue;
       const internalFn = internalSinkMap.get(calleeName);
       if (!internalFn) continue;
 
@@ -384,6 +386,34 @@ function getCalleeBaseName(call: import('ts-morph').CallExpression): string {
   if (k === 'Identifier') return expr.getText();
   if (k === 'PropertyAccessExpression') return (expr as any).getName();
   return '';
+}
+
+/**
+ * Resolve the sink category for a call by trying the full dotted path first
+ * (e.g., `axios.request` → ssrf) and falling back to the last-segment base
+ * name (e.g., `exec` → command). Without this, qualified sinks like
+ * `axios.request`, `http.request`, `https.request`, and `undici.request`
+ * never match because their base name (`request`) is too generic to register.
+ */
+function resolveSinkCategory(call: import('ts-morph').CallExpression):
+  | {
+      category: TaintSink['category'];
+      name: string;
+    }
+  | undefined {
+  const expr = call.getExpression();
+  const k = expr.getKindName();
+  if (k === 'PropertyAccessExpression') {
+    const fullPath = getStaticAccessPath(expr);
+    if (fullPath) {
+      const byFullPath = SINK_NAMES.get(fullPath);
+      if (byFullPath) return { category: byFullPath, name: fullPath };
+    }
+  }
+  const baseName = getCalleeBaseName(call);
+  const byBase = SINK_NAMES.get(baseName);
+  if (byBase) return { category: byBase, name: baseName };
+  return undefined;
 }
 
 /** Get the full static access path (e.g., req.query.id). Returns undefined for dynamic access. */
