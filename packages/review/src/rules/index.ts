@@ -29,6 +29,7 @@ import { nullSafetyRules } from './null-safety.js';
 import { nuxtRules } from './nuxt.js';
 import { perfRules } from './perf.js';
 import { reactRules } from './react.js';
+import { reactCompositionRules } from './react-composition.js';
 import { reactHooksRules } from './react-hooks.js';
 import { securityRules } from './security.js';
 import { securityV2Rules } from './security-v2.js';
@@ -66,6 +67,7 @@ export function getActiveRules(target?: string): ReviewRule[] {
   if (!isBackend && target && REACT_TARGETS.has(target)) {
     rules.push(...reactRules);
     rules.push(...reactHooksRules);
+    rules.push(...reactCompositionRules);
     rules.push(...a11yRules);
     rules.push(...perfRules);
   }
@@ -572,6 +574,32 @@ const REGISTRY: RuleInfo[] = [
     rolloutPhase: 2,
   },
 
+  // React composition — Wave 4 (children-as-perf, prop drilling)
+  {
+    id: 'children-not-used',
+    layer: 'react-composition',
+    severity: 'warning',
+    description: "Component destructures 'children' from props but never renders it — dead API or forgotten {children}",
+    precision: 'high',
+    rolloutPhase: 4,
+  },
+  {
+    id: 'prop-drill-passthrough',
+    layer: 'react-composition',
+    severity: 'warning',
+    description: 'Component passes >= 2 props through to a single child without reading them — use children prop or context',
+    precision: 'medium',
+    rolloutPhase: 4,
+  },
+  {
+    id: 'parent-rerender-via-state',
+    layer: 'react-composition',
+    severity: 'info',
+    description: 'Parent with useState renders a child that does not receive that state — lift child to children prop to avoid re-render',
+    precision: 'medium',
+    rolloutPhase: 4,
+  },
+
   // a11y — Wave 3
   {
     id: 'img-missing-alt',
@@ -981,6 +1009,7 @@ const LAYER_TARGET_MAP: Record<string, string[] | null> = {
   concept: null,
   react: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   'react-hooks': ['nextjs', 'tailwind', 'web', 'native', 'ink'],
+  'react-composition': ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   a11y: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   perf: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   cli: ['cli'],
