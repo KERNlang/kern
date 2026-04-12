@@ -42,7 +42,8 @@ export function generateFunction(node: IRNode): string[] {
   // stream=true → async generator function
   if (isStream) {
     const yieldType = emitTypeAnnotation(returns, 'unknown', node);
-    const retClause = `: AsyncGenerator<${yieldType}>`;
+    // If user already declared AsyncGenerator<...>, use as-is to avoid double-wrapping
+    const retClause = yieldType.startsWith('AsyncGenerator<') ? `: ${yieldType}` : `: AsyncGenerator<${yieldType}>`;
     const code = handlerCode(node);
     lines.push(`${exp}async function* ${name}(${paramList})${retClause} {`);
     if (code) {
@@ -54,10 +55,15 @@ export function generateFunction(node: IRNode): string[] {
     return lines;
   }
 
-  // generator=true → Generator<T> return type (sync generators)
+  // generator=true → Generator<T> return type
+  const genPrefix = isAsync ? 'AsyncGenerator<' : 'Generator<';
   const retClause =
     isGenerator && returns
-      ? `: ${isAsync ? 'Async' : ''}Generator<${emitTypeAnnotation(returns, 'unknown', node)}>`
+      ? (() => {
+          const rt = emitTypeAnnotation(returns, 'unknown', node);
+          // If user already declared Generator<...>/AsyncGenerator<...>, use as-is
+          return rt.startsWith('Generator<') || rt.startsWith('AsyncGenerator<') ? `: ${rt}` : `: ${genPrefix}${rt}>`;
+        })()
       : returns
         ? `: ${emitTypeAnnotation(returns, 'unknown', node)}`
         : '';
