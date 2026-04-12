@@ -1190,6 +1190,201 @@ function renderInkNode(node: IRNode, indent: string, imports: ImportTracker): st
   }
 }
 
+// ── Reusable screen body compiler ────────────────────────────────────────
+
+const NON_UI_TYPES = new Set([
+  'state',
+  'ref',
+  'on',
+  'stream',
+  'logic',
+  'effect',
+  'callback',
+  'memo',
+  'render',
+  'prop',
+  'animation',
+  'derive',
+  'focus',
+  'app-exit',
+]);
+
+function isInkUiNode(type: string): boolean {
+  return (
+    type === 'each' ||
+    type === 'conditional' ||
+    type === 'select' ||
+    type === 'model' ||
+    type === 'repository' ||
+    type === 'dependency' ||
+    type === 'cache'
+  );
+}
+
+/**
+ * Compile a screen node's full body: all hooks, effects, and JSX return.
+ * Used for both primary and secondary screens to ensure feature parity.
+ */
+function compileScreenBody(
+  screenNode: IRNode,
+  imports: ImportTracker,
+): { bodyLines: string[]; stateCtx: StateHookContext } {
+  const bodyLines: string[] = [];
+  const stateCtx: StateHookContext = { needsInkSafe: false };
+
+  // Collect all node categories from this screen
+  const stateNodes = getChildren(screenNode, 'state');
+  const refNodes = getChildren(screenNode, 'ref');
+  const onNodes = getChildren(screenNode, 'on');
+  const streamNodes = getChildren(screenNode, 'stream');
+  const logicNodes = [...getChildren(screenNode, 'logic'), ...getChildren(screenNode, 'effect')];
+  const callbackNodes = getChildren(screenNode, 'callback');
+  const animationNodes = getChildren(screenNode, 'animation');
+  const deriveNodes = getChildren(screenNode, 'derive');
+  const focusNodes = getChildren(screenNode, 'focus');
+  const appExitNodes = getChildren(screenNode, 'app-exit');
+  const memoNodes = getChildren(screenNode, 'memo');
+  const renderNode = getChildren(screenNode, 'render')[0];
+  const uiChildren = (screenNode.children || []).filter(
+    (c) => !NON_UI_TYPES.has(c.type) && (!isCoreNode(c.type) || isInkUiNode(c.type)),
+  );
+
+  // Hoist nested on-nodes from UI tree
+  const nestedOnNodes = collectNestedOnNodes(screenNode);
+  const allOnNodes = [...onNodes];
+  for (const nested of nestedOnNodes) {
+    if (!onNodes.includes(nested)) allOnNodes.push(nested);
+  }
+
+  // State hooks
+  for (const stateNode of stateNodes) {
+    bodyLines.push(...generateStateHook(stateNode, imports, stateCtx));
+  }
+  if (stateNodes.length > 0) bodyLines.push('');
+
+  // Ref hooks
+  for (const refNode of refNodes) {
+    bodyLines.push(...generateRefHook(refNode, imports));
+  }
+  if (refNodes.length > 0) bodyLines.push('');
+
+  // Focus hooks
+  for (const focusNode of focusNodes) {
+    bodyLines.push(...generateFocusHook(focusNode, imports));
+  }
+  if (focusNodes.length > 0) bodyLines.push('');
+
+  // App exit hooks
+  for (const exitNode of appExitNodes) {
+    bodyLines.push(...generateAppExitHook(exitNode, imports));
+  }
+  if (appExitNodes.length > 0) bodyLines.push('');
+
+  // Memo hooks
+  for (const memoNode of memoNodes) {
+    const mp = getProps(memoNode);
+    const mName = mp.name as string;
+    const mDeps = (mp.deps as string) || '';
+    const mDepsArr = mDeps ? `[${mDeps}]` : '[]';
+    const handlerChild = (memoNode.children || []).find((c: IRNode) => c.type === 'handler');
+    const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
+    if (mName && code) {
+      imports.addReact('useMemo');
+      const dedented = dedent(code);
+      bodyLines.push(`  const ${mName} = useMemo(() => {`);
+      for (const line of dedented.split('\n')) {
+        bodyLines.push(`          ${line}`);
+      }
+      bodyLines.push(`  }, ${mDepsArr});`);
+      bodyLines.push('');
+    }
+  }
+
+  // Callback hooks
+  for (const callbackNode of callbackNodes) {
+    bodyLines.push(...generateCallbackHook(callbackNode, imports));
+    bodyLines.push('');
+  }
+
+  // on event=key → useInput() hooks
+  for (const onNode of allOnNodes) {
+    bodyLines.push(...generateOnHook(onNode, imports));
+  }
+
+  // Stream effects
+  for (const streamNode of streamNodes) {
+    bodyLines.push(...generateStreamEffect(streamNode, imports));
+    bodyLines.push('');
+  }
+
+  // Logic effects
+  for (const logicNode of logicNodes) {
+    bodyLines.push(...generateLogicEffect(logicNode, imports));
+    bodyLines.push('');
+  }
+
+  // Animation effects
+  for (const animNode of animationNodes) {
+    bodyLines.push(...generateAnimation(animNode, imports));
+    bodyLines.push('');
+  }
+
+  // Derive nodes → useMemo with auto-dep tracking
+  for (const deriveNode of deriveNodes) {
+    const dp = getProps(deriveNode);
+    const dName = dp.name as string;
+    const dExpr = isExpr(dp.expr) ? (dp.expr as { code: string }).code : (dp.expr as string) || '';
+    const dDeps = dp.deps as string;
+    const dType = dp.type as string;
+    if (dName && dExpr) {
+      imports.addReact('useMemo');
+      const typeAnnotation = dType ? `<${dType}>` : '';
+      let depsStr: string;
+      if (dDeps) {
+        depsStr = `[${dDeps}]`;
+      } else {
+        const sNames = stateNodes.map((s) => getProps(s).name as string).filter(Boolean);
+        const rNames = refNodes
+          .map((r) => {
+            const rn = getProps(r).name as string;
+            return rn ? (rn.endsWith('Ref') ? rn : `${rn}Ref`) : '';
+          })
+          .filter(Boolean);
+        const allNames = [...sNames, ...rNames];
+        const autoDeps = allNames.filter((n) => new RegExp(`\\b${n}\\b`).test(dExpr));
+        depsStr = `[${autoDeps.join(', ')}]`;
+      }
+      bodyLines.push(`  const ${dName} = useMemo${typeAnnotation}(() => ${dExpr}, ${depsStr});`);
+      bodyLines.push('');
+    }
+  }
+
+  // JSX return
+  if (renderNode) {
+    const handlerChild = (renderNode.children || []).find((c: IRNode) => c.type === 'handler');
+    const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
+    if (code.trim()) {
+      const dedented = dedent(code);
+      for (const line of dedented.split('\n')) {
+        bodyLines.push(`  ${line}`);
+      }
+    } else {
+      bodyLines.push('  return null;');
+    }
+  } else {
+    imports.addInk('Box');
+    bodyLines.push('  return (');
+    bodyLines.push('    <Box flexDirection="column">');
+    for (const child of uiChildren) {
+      bodyLines.push(...renderInkNode(child, '      ', imports));
+    }
+    bodyLines.push('    </Box>');
+    bodyLines.push('  );');
+  }
+
+  return { bodyLines, stateCtx };
+}
+
 // ── Main export ──────────────────────────────────────────────────────────
 
 export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): TranspileResult {
@@ -1231,61 +1426,12 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
           .join('; ')} }`
       : '';
 
-  // Separate node categories — search inside the screen node
-  const stateNodes = getChildren(screenNode, 'state');
-  const refNodes = getChildren(screenNode, 'ref');
-  const onNodes = getChildren(screenNode, 'on');
-  const streamNodes = getChildren(screenNode, 'stream');
-  const logicNodes = [...getChildren(screenNode, 'logic'), ...getChildren(screenNode, 'effect')];
-  const callbackNodes = getChildren(screenNode, 'callback');
-  const animationNodes = getChildren(screenNode, 'animation');
-  const deriveNodes = getChildren(screenNode, 'derive');
-  const focusNodes = getChildren(screenNode, 'focus');
-  const appExitNodes = getChildren(screenNode, 'app-exit');
-  const isInkUiNode = (type: string) =>
-    type === 'each' ||
-    type === 'conditional' ||
-    type === 'select' ||
-    type === 'model' ||
-    type === 'repository' ||
-    type === 'dependency' ||
-    type === 'cache';
   // File-level imports go before component; file-level fn/const go after
   const coreChildren = [
     ...fileLevelNodes.filter((c) => isCoreNode(c.type) && c.type !== 'screen' && c.type !== 'fn' && c.type !== 'const'),
     ...(screenNode.children || []).filter((c) => isCoreNode(c.type) && c.type !== 'on' && !isInkUiNode(c.type)),
   ];
-  const memoNodes = getChildren(screenNode, 'memo');
-  const renderNode = getChildren(screenNode, 'render')[0];
-  const uiChildren = (screenNode.children || []).filter(
-    (c) =>
-      c.type !== 'state' &&
-      c.type !== 'ref' &&
-      c.type !== 'on' &&
-      c.type !== 'stream' &&
-      c.type !== 'logic' &&
-      c.type !== 'effect' &&
-      c.type !== 'callback' &&
-      c.type !== 'memo' &&
-      c.type !== 'render' &&
-      c.type !== 'prop' &&
-      c.type !== 'animation' &&
-      c.type !== 'derive' &&
-      c.type !== 'focus' &&
-      c.type !== 'app-exit' &&
-      (!isCoreNode(c.type) || isInkUiNode(c.type)),
-  );
   const fileLevelFns = fileLevelNodes.filter((c) => c.type === 'fn' || c.type === 'const');
-
-  // Bug #1: Collect nested on-nodes from UI tree and hoist to component level
-  const nestedOnNodes = collectNestedOnNodes(screenNode);
-  // Deduplicate — top-level on-nodes are already in onNodes
-  const allOnNodes = [...onNodes];
-  for (const nested of nestedOnNodes) {
-    if (!onNodes.includes(nested)) {
-      allOnNodes.push(nested);
-    }
-  }
 
   // ── Core nodes emitted above component (types, interfaces, machines, events) ──
   const coreLines: string[] = [];
@@ -1323,136 +1469,8 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     }
   }
 
-  // ── Component body ──
-  const bodyLines: string[] = [];
-  const stateCtx: StateHookContext = { needsInkSafe: false };
-
-  // State hooks
-  for (const stateNode of stateNodes) {
-    bodyLines.push(...generateStateHook(stateNode, imports, stateCtx));
-  }
-  if (stateNodes.length > 0) bodyLines.push('');
-
-  // Ref hooks (Feature #10)
-  for (const refNode of refNodes) {
-    bodyLines.push(...generateRefHook(refNode, imports));
-  }
-  if (refNodes.length > 0) bodyLines.push('');
-
-  // Focus hooks (Phase 3)
-  for (const focusNode of focusNodes) {
-    bodyLines.push(...generateFocusHook(focusNode, imports));
-  }
-  if (focusNodes.length > 0) bodyLines.push('');
-
-  // App exit hooks (Phase 3)
-  for (const exitNode of appExitNodes) {
-    bodyLines.push(...generateAppExitHook(exitNode, imports));
-  }
-  if (appExitNodes.length > 0) bodyLines.push('');
-
-  // Memo hooks
-  for (const memoNode of memoNodes) {
-    const mp = getProps(memoNode);
-    const mName = mp.name as string;
-    const mDeps = (mp.deps as string) || '';
-    const mDepsArr = mDeps ? `[${mDeps}]` : '[]';
-    const handlerChild = (memoNode.children || []).find((c: IRNode) => c.type === 'handler');
-    const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
-    if (mName && code) {
-      imports.addReact('useMemo');
-      const dedented = dedent(code);
-      bodyLines.push(`  const ${mName} = useMemo(() => {`);
-      for (const line of dedented.split('\n')) {
-        bodyLines.push(`          ${line}`);
-      }
-      bodyLines.push(`  }, ${mDepsArr});`);
-      bodyLines.push('');
-    }
-  }
-
-  // Callback hooks (Feature #11)
-  for (const callbackNode of callbackNodes) {
-    bodyLines.push(...generateCallbackHook(callbackNode, imports));
-    bodyLines.push('');
-  }
-
-  // on event=key → useInput() hooks (Bug #1: now includes hoisted nested on-nodes)
-  for (const onNode of allOnNodes) {
-    bodyLines.push(...generateOnHook(onNode, imports));
-  }
-
-  // Stream effects → useEffect with async generator iteration
-  for (const streamNode of streamNodes) {
-    bodyLines.push(...generateStreamEffect(streamNode, imports));
-    bodyLines.push('');
-  }
-
-  // Logic effects → useEffect (Feature #8)
-  for (const logicNode of logicNodes) {
-    bodyLines.push(...generateLogicEffect(logicNode, imports));
-    bodyLines.push('');
-  }
-
-  // Animation effects → useEffect with setInterval (Phase 2)
-  for (const animNode of animationNodes) {
-    bodyLines.push(...generateAnimation(animNode, imports));
-    bodyLines.push('');
-  }
-
-  // Derive nodes → useMemo with auto-dep tracking (Phase 2)
-  for (const deriveNode of deriveNodes) {
-    const dp = getProps(deriveNode);
-    const dName = dp.name as string;
-    const dExpr = isExpr(dp.expr) ? (dp.expr as { code: string }).code : (dp.expr as string) || '';
-    const dDeps = dp.deps as string;
-    const dType = dp.type as string;
-    if (dName && dExpr) {
-      imports.addReact('useMemo');
-      const typeAnnotation = dType ? `<${dType}>` : '';
-      // Auto-dep tracking: find state names referenced in the expression
-      let depsStr: string;
-      if (dDeps) {
-        depsStr = `[${dDeps}]`;
-      } else {
-        const stateNames = stateNodes.map((s) => getProps(s).name as string).filter(Boolean);
-        const refNames = refNodes
-          .map((r) => {
-            const rn = getProps(r).name as string;
-            return rn ? (rn.endsWith('Ref') ? rn : `${rn}Ref`) : '';
-          })
-          .filter(Boolean);
-        const allNames = [...stateNames, ...refNames];
-        const autoDeps = allNames.filter((n) => new RegExp(`\\b${n}\\b`).test(dExpr));
-        depsStr = `[${autoDeps.join(', ')}]`;
-      }
-      bodyLines.push(`  const ${dName} = useMemo${typeAnnotation}(() => ${dExpr}, ${depsStr});`);
-      bodyLines.push('');
-    }
-  }
-
-  // JSX return — use explicit render handler if present, otherwise auto-generate
-  if (renderNode) {
-    const handlerChild = (renderNode.children || []).find((c: IRNode) => c.type === 'handler');
-    const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
-    if (code.trim()) {
-      const dedented = dedent(code);
-      for (const line of dedented.split('\n')) {
-        bodyLines.push(`  ${line}`);
-      }
-    } else {
-      bodyLines.push('  return null;');
-    }
-  } else {
-    imports.addInk('Box');
-    bodyLines.push('  return (');
-    bodyLines.push('    <Box flexDirection="column">');
-    for (const child of uiChildren) {
-      bodyLines.push(...renderInkNode(child, '      ', imports));
-    }
-    bodyLines.push('    </Box>');
-    bodyLines.push('  );');
-  }
+  // ── Component body (via shared compileScreenBody) ──
+  const { bodyLines, stateCtx } = compileScreenBody(screenNode, imports);
 
   // ── Assemble ──
   // Note: imports.emit() is deferred to AFTER secondary screens + default component
@@ -1464,7 +1482,7 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     componentLines.push(...coreLines);
   }
 
-  // Secondary screen components (named exports, Phase 4 composability)
+  // Secondary screen components — full compilation via shared compileScreenBody
   for (const secScreen of secondaryScreens) {
     const secProps = getProps(secScreen);
     const secName = (secProps.name as string) || 'Component';
@@ -1487,31 +1505,10 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
             })
             .join('; ')} }`
         : '';
-    const secUiChildren = (secScreen.children || []).filter(
-      (c) =>
-        c.type !== 'state' &&
-        c.type !== 'ref' &&
-        c.type !== 'prop' &&
-        c.type !== 'on' &&
-        c.type !== 'logic' &&
-        c.type !== 'effect' &&
-        c.type !== 'callback' &&
-        c.type !== 'memo' &&
-        c.type !== 'render' &&
-        c.type !== 'stream' &&
-        c.type !== 'animation' &&
-        c.type !== 'derive' &&
-        c.type !== 'focus' &&
-        c.type !== 'app-exit' &&
-        (!isCoreNode(c.type) || isInkUiNode(c.type)),
-    );
-    const secStateNodes = getChildren(secScreen, 'state');
-    const secCtx: StateHookContext = { needsInkSafe: false };
 
-    const secBodyLines: string[] = [];
-    for (const sn of secStateNodes) {
-      secBodyLines.push(...generateStateHook(sn, imports, secCtx));
-    }
+    // Full body compilation — same pipeline as primary screen
+    const { bodyLines: secBodyLines, stateCtx: secCtx } = compileScreenBody(secScreen, imports);
+
     const secExportAttr = secProps.export as string;
     const secExportKw = secExportAttr === 'default' ? 'export default' : 'export';
     componentLines.push(`${secExportKw} function ${secName}(${secParam}) {`);
@@ -1519,14 +1516,6 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
       componentLines.push(...emitInkSafePreamble());
     }
     componentLines.push(...secBodyLines);
-    imports.addInk('Box');
-    componentLines.push('  return (');
-    componentLines.push('    <Box flexDirection="column">');
-    for (const child of secUiChildren) {
-      componentLines.push(...renderInkNode(child, '      ', imports));
-    }
-    componentLines.push('    </Box>');
-    componentLines.push('  );');
     componentLines.push('}');
     componentLines.push('');
   }
