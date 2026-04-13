@@ -18,14 +18,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10.32.1
-
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-          cache: 'pnpm'
+
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
 
       - uses: actions/setup-python@v6
         with:
