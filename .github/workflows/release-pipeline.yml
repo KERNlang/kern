@@ -1,0 +1,98 @@
+name: Release Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Release version without the leading v
+        required: true
+        type: string
+      publish:
+        description: Publish packages and sync versions back to dev
+        required: true
+        type: boolean
+
+jobs:
+  release:
+    name: ${{ inputs.publish && 'Publish to npm' || 'Release Preflight' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install Python MCP SDK (for transpiler E2E tests)
+        run: pip install mcp
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set package versions
+        run: |
+          tmp=$(mktemp)
+          jq --arg v "${{ inputs.version }}" '.version = $v' package.json > "$tmp"
+          mv "$tmp" package.json
+
+          for pkg in packages/*/package.json; do
+            tmp=$(mktemp)
+            jq --arg v "${{ inputs.version }}" '.version = $v' "$pkg" > "$tmp"
+            mv "$tmp" "$pkg"
+          done
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      - name: Publish packages
+        if: ${{ inputs.publish }}
+        run: pnpm -r publish --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish dry run
+        if: ${{ !inputs.publish }}
+        run: pnpm -r publish --dry-run --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Sync versions back to dev
+        if: ${{ inputs.publish }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout dev
+          git pull origin dev
+
+          VERSION="${{ inputs.version }}"
+          tmp=$(mktemp)
+          jq --arg v "$VERSION" '.version = $v' package.json > "$tmp"
+          mv "$tmp" package.json
+
+          for pkg in packages/*/package.json; do
+            tmp=$(mktemp)
+            jq --arg v "$VERSION" '.version = $v' "$pkg" > "$tmp"
+            mv "$tmp" "$pkg"
+          done
+
+          git add package.json packages/*/package.json
+          git commit -m "chore: sync versions to v${VERSION} [skip ci]" || echo "No version changes to commit"
+          git push origin dev

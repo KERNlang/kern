@@ -392,6 +392,15 @@ jobs:
         run: npx tsc --noEmit
 ```
 
+### Release Process
+
+Use the built-in release workflows in this order:
+
+1. Run `Release Preflight` from `main` with a plain semver like `3.2.4`.
+2. Wait for the preflight run to pass build, test, and `pnpm publish --dry-run`.
+3. Publish a GitHub Release with a lowercase tag like `v3.2.4`.
+4. Let `Version & Publish` publish to npm and sync versions back to `dev`.
+
 ---
 
 ## Ecosystem
