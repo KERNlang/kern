@@ -166,6 +166,8 @@ export { exportSchemaJSON, NODE_SCHEMAS, validateSchema } from './schema.js';
 // Semantic validation
 export type { SemanticViolation } from './semantic-validator.js';
 export { validateSemantics } from './semantic-validator.js';
+export type { ShadowDiagnostic } from './shadow-analyzer.js';
+export { analyzeShadow } from './shadow-analyzer.js';
 export type { SourceMapV3 } from './source-map.js';
 // Source map serialization
 export { serializeSourceMap } from './source-map.js';
