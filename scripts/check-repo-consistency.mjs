@@ -29,10 +29,35 @@ function checkReadme() {
       fail(message);
     }
   }
+
+  const { targetCount, ruleCount, mcpToolCount, mcpResourceCount, mcpPromptCount } = collectRepoFacts();
+  const expectedPhrases = [
+    `${targetCount} compile targets`,
+    `compile to ${targetCount} targets`,
+    `${ruleCount} review rules`,
+    `${ruleCount} AST-based rules`,
+    `**${ruleCount} rules**`,
+    `**${mcpToolCount} tools**`,
+    `**${mcpResourceCount} resources:**`,
+    `**${mcpPromptCount} prompt:**`,
+  ];
+
+  for (const phrase of expectedPhrases) {
+    if (!readme.includes(phrase)) {
+      fail(`README.md is missing expected verified phrase: "${phrase}"`);
+    }
+  }
 }
 
 function normalizeRepoUrl(url) {
   return url.replace(/^git\+/, '').replace(/\.git$/, '');
+}
+
+function sourcePathForPackageDistPath(packageDir, filePath) {
+  if (!filePath.startsWith('./dist/')) return null;
+  const relative = filePath.slice('./dist/'.length);
+  const tsRelative = relative.replace(/\.d\.ts$|\.js$/g, '.ts');
+  return path.join(packageDir, 'src', tsRelative);
 }
 
 function checkPackages() {
@@ -68,7 +93,62 @@ function checkPackages() {
         `${packageJsonPath}: repository.directory should be ${expectedDirectory} (found ${repo.directory})`,
       );
     }
+
+    const packageDir = path.join(packagesDir, dir);
+
+    for (const [binName, binPath] of Object.entries(pkg.bin || {})) {
+      if (typeof binPath !== 'string') {
+        fail(`${packageJsonPath}: bin entry "${binName}" must be a string`);
+        continue;
+      }
+      const sourcePath = sourcePathForPackageDistPath(packageDir, binPath);
+      if (!sourcePath || !existsSync(sourcePath)) {
+        fail(
+          `${packageJsonPath}: bin entry "${binName}" points to ${binPath}, but no matching source file was found under src/`,
+        );
+      }
+    }
+
+    const exportsField = pkg.exports || {};
+    for (const [exportKey, exportValue] of Object.entries(exportsField)) {
+      const pathsToCheck = [];
+      if (typeof exportValue === 'string') {
+        pathsToCheck.push(exportValue);
+      } else if (exportValue && typeof exportValue === 'object') {
+        for (const value of Object.values(exportValue)) {
+          if (typeof value === 'string') pathsToCheck.push(value);
+        }
+      }
+
+      for (const exportPath of pathsToCheck) {
+        const sourcePath = sourcePathForPackageDistPath(packageDir, exportPath);
+        if (!sourcePath || !existsSync(sourcePath)) {
+          fail(
+            `${packageJsonPath}: export "${exportKey}" points to ${exportPath}, but no matching source file was found under src/`,
+          );
+        }
+      }
+    }
   }
+}
+
+function collectRepoFacts() {
+  const configPath = path.join(root, 'packages', 'core', 'src', 'config.ts');
+  const config = readFileSync(configPath, 'utf8');
+  const targetMatch = config.match(/export const VALID_TARGETS:[^=]*= \[([\s\S]*?)\]/);
+  const targetCount = targetMatch ? [...targetMatch[1].matchAll(/'([^']+)'/g)].length : 0;
+
+  const rulesPath = path.join(root, 'packages', 'review', 'src', 'rules', 'index.ts');
+  const rules = readFileSync(rulesPath, 'utf8');
+  const ruleCount = new Set([...rules.matchAll(/\bid:\s*'([^']+)'/g)].map((match) => match[1])).size;
+
+  const mcpServerPath = path.join(root, 'packages', 'mcp-server', 'src', 'index.ts');
+  const mcpServer = readFileSync(mcpServerPath, 'utf8');
+  const mcpToolCount = [...mcpServer.matchAll(/server\.tool\(/g)].length;
+  const mcpResourceCount = [...mcpServer.matchAll(/server\.resource\(/g)].length;
+  const mcpPromptCount = [...mcpServer.matchAll(/server\.prompt\(/g)].length;
+
+  return { targetCount, ruleCount, mcpToolCount, mcpResourceCount, mcpPromptCount };
 }
 
 checkReadme();
