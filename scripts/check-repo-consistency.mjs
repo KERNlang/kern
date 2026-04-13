@@ -37,14 +37,40 @@ function checkReadme() {
     `${ruleCount} review rules`,
     `${ruleCount} AST-based rules`,
     `**${ruleCount} rules**`,
+    `Static analysis (${ruleCount} rules, taint tracking)`,
     `**${mcpToolCount} tools**`,
     `**${mcpResourceCount} resources:**`,
     `**${mcpPromptCount} prompt:**`,
+    'Contributor architecture guide: [docs/architecture.md](docs/architecture.md)',
   ];
 
   for (const phrase of expectedPhrases) {
     if (!readme.includes(phrase)) {
       fail(`README.md is missing expected verified phrase: "${phrase}"`);
+    }
+  }
+}
+
+function checkContributing() {
+  const contributingPath = path.join(root, 'CONTRIBUTING.md');
+  const contributing = readFileSync(contributingPath, 'utf8');
+  const requiredPhrases = [
+    'corepack prepare pnpm@10.32.1 --activate',
+    'pnpm 10+',
+    '130 rules',
+    'Architecture guide: [docs/architecture.md](docs/architecture.md)',
+  ];
+  const bannedPhrases = ['pnpm 9+', '76 rules'];
+
+  for (const phrase of requiredPhrases) {
+    if (!contributing.includes(phrase)) {
+      fail(`CONTRIBUTING.md is missing expected phrase: "${phrase}"`);
+    }
+  }
+
+  for (const phrase of bannedPhrases) {
+    if (contributing.includes(phrase)) {
+      fail(`CONTRIBUTING.md still contains stale phrase: "${phrase}"`);
     }
   }
 }
@@ -152,6 +178,7 @@ function collectRepoFacts() {
 }
 
 checkReadme();
+checkContributing();
 checkPackages();
 
 if (failures.length > 0) {

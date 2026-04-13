@@ -30,7 +30,7 @@ npm install -g @kernlang/cli
 
 ```bash
 kern compile src/ --target=nextjs --watch --facades --index   # One command — compile, watch, facades, barrel
-kern review src/ --recursive                                  # Static analysis (99 rules, taint tracking)
+kern review src/ --recursive                                  # Static analysis (130 rules, taint tracking)
 kern init --template=fullstack my-app                          # Scaffold fullstack app (Next.js + Express + MCP)
 kern init --mcp                                               # Scaffold an MCP server with security guards
 kern import src/ --outdir=kern/                               # TypeScript → .kern
@@ -400,6 +400,8 @@ Use the built-in release workflows in this order:
 2. Wait for the preflight run to pass build, test, and `pnpm publish --dry-run`.
 3. Publish a GitHub Release with a lowercase tag like `v3.2.4`.
 4. Let `Version & Publish` publish to npm and sync versions back to `dev`.
+
+Contributor architecture guide: [docs/architecture.md](docs/architecture.md)
 
 ---
 
