@@ -11,6 +11,7 @@ function fail(message) {
 function checkReadme() {
   const readmePath = path.join(root, 'README.md');
   const readme = readFileSync(readmePath, 'utf8');
+  const { pnpmVersion } = collectRepoFacts();
   const bannedPatterns = [
     {
       pattern: /pnpm\/action-setup/g,
@@ -42,6 +43,7 @@ function checkReadme() {
     `**${mcpResourceCount} resources:**`,
     `**${mcpPromptCount} prompt:**`,
     'Contributor architecture guide: [docs/architecture.md](docs/architecture.md)',
+    `corepack prepare pnpm@${pnpmVersion} --activate`,
   ];
 
   for (const phrase of expectedPhrases) {
@@ -54,8 +56,9 @@ function checkReadme() {
 function checkContributing() {
   const contributingPath = path.join(root, 'CONTRIBUTING.md');
   const contributing = readFileSync(contributingPath, 'utf8');
+  const { pnpmVersion } = collectRepoFacts();
   const requiredPhrases = [
-    'corepack prepare pnpm@10.32.1 --activate',
+    `corepack prepare pnpm@${pnpmVersion} --activate`,
     'pnpm 10+',
     '130 rules',
     'Architecture guide: [docs/architecture.md](docs/architecture.md)',
@@ -78,9 +81,12 @@ function checkContributing() {
 }
 
 function checkWorkflowContracts() {
+  const { pnpmVersion } = collectRepoFacts();
   const rootPackageJson = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
-  if (rootPackageJson.packageManager !== 'pnpm@10.32.1') {
-    fail(`package.json must pin packageManager to pnpm@10.32.1 (found ${rootPackageJson.packageManager})`);
+  if (rootPackageJson.packageManager !== `pnpm@${pnpmVersion}`) {
+    fail(
+      `package.json must pin packageManager to pnpm@${pnpmVersion} (found ${rootPackageJson.packageManager})`,
+    );
   }
 
   const workflowChecks = [
@@ -89,7 +95,7 @@ function checkWorkflowContracts() {
       required: [
         "node-version: '22'",
         "python-version: '3.12'",
-        'corepack prepare pnpm@10.32.1 --activate',
+        `corepack prepare pnpm@${pnpmVersion} --activate`,
         'pnpm install --frozen-lockfile --ignore-scripts',
       ],
       banned: [/pnpm\/action-setup/g, /cache:\s*['"]pnpm['"]/g],
@@ -100,7 +106,7 @@ function checkWorkflowContracts() {
         'workflow_call:',
         'publish:',
         "registry-url: 'https://registry.npmjs.org'",
-        'corepack prepare pnpm@10.32.1 --activate',
+        `corepack prepare pnpm@${pnpmVersion} --activate`,
         'pnpm install --frozen-lockfile',
         'pnpm -r publish --no-git-checks --access public',
         'pnpm -r publish --dry-run --no-git-checks --access public',
@@ -233,6 +239,15 @@ function checkPackages() {
 }
 
 function collectRepoFacts() {
+  const rootPackageJson = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const packageManager = rootPackageJson.packageManager;
+  const packageManagerMatch = typeof packageManager === 'string' ? packageManager.match(/^pnpm@(.+)$/) : null;
+  const pnpmVersion = packageManagerMatch?.[1] ?? null;
+
+  if (!pnpmVersion) {
+    fail(`package.json must declare packageManager as pnpm@<version> (found ${packageManager})`);
+  }
+
   const configPath = path.join(root, 'packages', 'core', 'src', 'config.ts');
   const config = readFileSync(configPath, 'utf8');
   const targetMatch = config.match(/export const VALID_TARGETS:[^=]*= \[([\s\S]*?)\]/);
@@ -248,7 +263,7 @@ function collectRepoFacts() {
   const mcpResourceCount = [...mcpServer.matchAll(/server\.resource\(/g)].length;
   const mcpPromptCount = [...mcpServer.matchAll(/server\.prompt\(/g)].length;
 
-  return { targetCount, ruleCount, mcpToolCount, mcpResourceCount, mcpPromptCount };
+  return { pnpmVersion, targetCount, ruleCount, mcpToolCount, mcpResourceCount, mcpPromptCount };
 }
 
 checkReadme();
