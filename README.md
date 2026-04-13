@@ -211,16 +211,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v5
-        with:
-          version: 9
-
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-          cache: 'pnpm'
 
-      - run: pnpm install --frozen-lockfile
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm build
 
       - name: KERN Review
@@ -371,16 +372,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v5
-        with:
-          version: 9
-
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-          cache: 'pnpm'
 
-      - run: pnpm install --frozen-lockfile
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm build
 
       - name: Validate .kern files
