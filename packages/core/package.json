@@ -53,5 +53,13 @@
     "build": "tsc -b",
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "peerDependencies": {
+    "typescript": "^6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
+  }
 }
