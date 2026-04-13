@@ -1,0 +1,3 @@
+rule boundary-mutation-shared severity=warning category=pattern
+  pattern subject=concept type=state_mutation scope=shared
+  message "Shared state mutation — consider encapsulating in a store or module"

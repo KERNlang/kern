@@ -45,10 +45,17 @@ function xssUnsafeHtml(ctx: RuleContext): ReviewFinding[] {
   // React: dangerouslySetInnerHTML in JSX
   for (const attr of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxAttribute)) {
     if (attr.getNameNode().getText() === 'dangerouslySetInnerHTML') {
-      findings.push(finding('xss-unsafe-html', 'error', 'bug',
-        'dangerouslySetInnerHTML creates XSS risk — sanitize with DOMPurify or use safe rendering',
-        ctx.filePath, attr.getStartLineNumber(),
-        { suggestion: 'Use DOMPurify.sanitize() or a safe markdown renderer instead' }));
+      findings.push(
+        finding(
+          'xss-unsafe-html',
+          'error',
+          'bug',
+          'dangerouslySetInnerHTML creates XSS risk — sanitize with DOMPurify or use safe rendering',
+          ctx.filePath,
+          attr.getStartLineNumber(),
+          { suggestion: 'Use DOMPurify.sanitize() or a safe markdown renderer instead' },
+        ),
+      );
     }
   }
 
@@ -59,10 +66,17 @@ function xssUnsafeHtml(ctx: RuleContext): ReviewFinding[] {
     if (left.getKind() !== SyntaxKind.PropertyAccessExpression) continue;
     const pa = left as import('ts-morph').PropertyAccessExpression;
     if (pa.getName() === 'innerHTML' || pa.getName() === 'outerHTML') {
-      findings.push(finding('xss-unsafe-html', 'error', 'bug',
-        `Direct .${pa.getName()} assignment creates XSS risk — use textContent or sanitize`,
-        ctx.filePath, bin.getStartLineNumber(),
-        { suggestion: 'Use element.textContent for plain text, or DOMPurify.sanitize() for HTML' }));
+      findings.push(
+        finding(
+          'xss-unsafe-html',
+          'error',
+          'bug',
+          `Direct .${pa.getName()} assignment creates XSS risk — use textContent or sanitize`,
+          ctx.filePath,
+          bin.getStartLineNumber(),
+          { suggestion: 'Use element.textContent for plain text, or DOMPurify.sanitize() for HTML' },
+        ),
+      );
     }
   }
 
@@ -89,7 +103,8 @@ const SECRET_PATTERNS = [
   { pattern: /^(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis):\/\/[^\s]{10,}$/, label: 'Connection string' },
 ];
 
-const SECRET_VAR_NAMES = /^(api[_-]?key|secret[_-]?key|auth[_-]?token|password|passwd|private[_-]?key|access[_-]?token|client[_-]?secret)$/i;
+const SECRET_VAR_NAMES =
+  /^(api[_-]?key|secret[_-]?key|auth[_-]?token|password|passwd|private[_-]?key|access[_-]?token|client[_-]?secret)$/i;
 
 function hardcodedSecret(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -109,20 +124,64 @@ function hardcodedSecret(ctx: RuleContext): ReviewFinding[] {
         // Skip if it's clearly an env reference placeholder
         if (value.startsWith('process.env') || value === '' || value === 'TODO' || value === 'CHANGE_ME') continue;
 
-        findings.push(finding('hardcoded-secret', 'error', 'bug',
-          `Hardcoded secret in '${varName}' — use environment variables`,
-          ctx.filePath, stmt.getStartLineNumber(),
-          { suggestion: `Replace with process.env.${varName.toUpperCase()} or a secret manager` }));
+        const envVar = varName.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+        findings.push(
+          finding(
+            'hardcoded-secret',
+            'error',
+            'bug',
+            `Hardcoded secret in '${varName}' — use environment variables`,
+            ctx.filePath,
+            stmt.getStartLineNumber(),
+            {
+              suggestion: `Replace with process.env.${envVar} or a secret manager`,
+              autofix: {
+                type: 'replace',
+                span: {
+                  file: ctx.filePath,
+                  startLine: init.getStartLineNumber(),
+                  startCol: init.getStart() - ctx.sourceFile.getFullText().lastIndexOf('\n', init.getStart()),
+                  endLine: init.getEndLineNumber(),
+                  endCol: init.getEnd() - ctx.sourceFile.getFullText().lastIndexOf('\n', init.getEnd() - 1),
+                },
+                replacement: `process.env.${envVar}`,
+                description: `Replace hardcoded secret with process.env.${envVar}`,
+              },
+            },
+          ),
+        );
         continue;
       }
 
       // Check if value matches known secret patterns
       for (const { pattern, label } of SECRET_PATTERNS) {
         if (pattern.test(value)) {
-          findings.push(finding('hardcoded-secret', 'error', 'bug',
-            `Hardcoded ${label} detected in '${varName}' — use environment variables`,
-            ctx.filePath, stmt.getStartLineNumber(),
-            { suggestion: `Move to .env file and use process.env.${varName.toUpperCase()}` }));
+          const envKey = varName.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+          findings.push(
+            finding(
+              'hardcoded-secret',
+              'error',
+              'bug',
+              `Hardcoded ${label} detected in '${varName}' — use environment variables`,
+              ctx.filePath,
+              stmt.getStartLineNumber(),
+              {
+                suggestion: `Move to .env file and use process.env.${envKey}`,
+                autofix: {
+                  type: 'replace',
+                  span: {
+                    file: ctx.filePath,
+                    startLine: init.getStartLineNumber(),
+                    startCol: init.getStart() - ctx.sourceFile.getFullText().lastIndexOf('\n', init.getStart()),
+                    endLine: init.getEndLineNumber(),
+                    endCol: init.getEnd() - ctx.sourceFile.getFullText().lastIndexOf('\n', init.getEnd() - 1),
+                  },
+                  replacement: `process.env.${envKey}`,
+                  description: `Replace hardcoded ${label} with process.env.${envKey}`,
+                },
+              },
+            ),
+          );
           break;
         }
       }
@@ -158,17 +217,31 @@ function commandInjection(ctx: RuleContext): ReviewFinding[] {
     const firstArg = args[0];
 
     if (firstArg.getKind() === SyntaxKind.TemplateExpression) {
-      findings.push(finding('command-injection', 'error', 'bug',
-        `${funcName}() with template literal — potential command injection`,
-        ctx.filePath, call.getStartLineNumber(),
-        { suggestion: 'Use spawn() with array arguments instead of string interpolation' }));
+      findings.push(
+        finding(
+          'command-injection',
+          'error',
+          'bug',
+          `${funcName}() with template literal — potential command injection`,
+          ctx.filePath,
+          call.getStartLineNumber(),
+          { suggestion: 'Use spawn() with array arguments instead of string interpolation' },
+        ),
+      );
     } else if (firstArg.getKind() === SyntaxKind.BinaryExpression) {
       const binExpr = firstArg as import('ts-morph').BinaryExpression;
       if (binExpr.getOperatorToken().getKind() === SyntaxKind.PlusToken) {
-        findings.push(finding('command-injection', 'error', 'bug',
-          `${funcName}() with string concatenation — potential command injection`,
-          ctx.filePath, call.getStartLineNumber(),
-          { suggestion: 'Use spawn() with array arguments instead of concatenation' }));
+        findings.push(
+          finding(
+            'command-injection',
+            'error',
+            'bug',
+            `${funcName}() with string concatenation — potential command injection`,
+            ctx.filePath,
+            call.getStartLineNumber(),
+            { suggestion: 'Use spawn() with array arguments instead of concatenation' },
+          ),
+        );
       }
     }
   }
@@ -185,20 +258,34 @@ function noEval(ctx: RuleContext): ReviewFinding[] {
   for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const callee = call.getExpression();
     if (callee.getKind() === SyntaxKind.Identifier && callee.getText() === 'eval') {
-      findings.push(finding('no-eval', 'error', 'bug',
-        'eval() is a code injection risk — use safe alternatives',
-        ctx.filePath, call.getStartLineNumber(),
-        { suggestion: 'Use JSON.parse() for data, or a sandboxed VM for code execution' }));
+      findings.push(
+        finding(
+          'no-eval',
+          'error',
+          'bug',
+          'eval() is a code injection risk — use safe alternatives',
+          ctx.filePath,
+          call.getStartLineNumber(),
+          { suggestion: 'Use JSON.parse() for data, or a sandboxed VM for code execution' },
+        ),
+      );
     }
   }
 
   // new Function('...') constructor
   for (const newExpr of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
     if (newExpr.getExpression().getText() === 'Function') {
-      findings.push(finding('no-eval', 'error', 'bug',
-        'new Function() is equivalent to eval() — code injection risk',
-        ctx.filePath, newExpr.getStartLineNumber(),
-        { suggestion: 'Avoid dynamic code construction' }));
+      findings.push(
+        finding(
+          'no-eval',
+          'error',
+          'bug',
+          'new Function() is equivalent to eval() — code injection risk',
+          ctx.filePath,
+          newExpr.getStartLineNumber(),
+          { suggestion: 'Avoid dynamic code construction' },
+        ),
+      );
     }
   }
 
@@ -234,10 +321,17 @@ function insecureRandom(ctx: RuleContext): ReviewFinding[] {
 
     const securityNames = /token|secret|key|password|hash|salt|nonce|csrf|session|auth|id/i;
     if (securityNames.test(contextName)) {
-      findings.push(finding('insecure-random', 'warning', 'bug',
-        `Math.random() in '${contextName}' is not cryptographically secure`,
-        ctx.filePath, call.getStartLineNumber(),
-        { suggestion: 'Use crypto.randomUUID() or crypto.getRandomValues() for security-sensitive values' }));
+      findings.push(
+        finding(
+          'insecure-random',
+          'warning',
+          'bug',
+          `Math.random() in '${contextName}' is not cryptographically secure`,
+          ctx.filePath,
+          call.getStartLineNumber(),
+          { suggestion: 'Use crypto.randomUUID() or crypto.getRandomValues() for security-sensitive values' },
+        ),
+      );
     }
   }
 
@@ -257,10 +351,17 @@ function corsWildcard(ctx: RuleContext): ReviewFinding[] {
     const args = call.getArguments();
     if (args.length === 0) {
       // cors() with no args = origin: '*' by default
-      findings.push(finding('cors-wildcard', 'warning', 'bug',
-        'cors() without options defaults to origin: * — restrict to specific origins',
-        ctx.filePath, call.getStartLineNumber(),
-        { suggestion: "cors({ origin: ['https://yourdomain.com'] })" }));
+      findings.push(
+        finding(
+          'cors-wildcard',
+          'warning',
+          'bug',
+          'cors() without options defaults to origin: * — restrict to specific origins',
+          ctx.filePath,
+          call.getStartLineNumber(),
+          { suggestion: "cors({ origin: ['https://yourdomain.com'] })" },
+        ),
+      );
       continue;
     }
 
@@ -275,17 +376,31 @@ function corsWildcard(ctx: RuleContext): ReviewFinding[] {
         const init = pa.getInitializer();
         if (init && init.getKind() === SyntaxKind.StringLiteral) {
           if ((init as import('ts-morph').StringLiteral).getLiteralValue() === '*') {
-            findings.push(finding('cors-wildcard', 'warning', 'bug',
-              "cors origin: '*' allows any domain — restrict in production",
-              ctx.filePath, call.getStartLineNumber(),
-              { suggestion: "Set origin to specific domains or a validation function" }));
+            findings.push(
+              finding(
+                'cors-wildcard',
+                'warning',
+                'bug',
+                "cors origin: '*' allows any domain — restrict in production",
+                ctx.filePath,
+                call.getStartLineNumber(),
+                { suggestion: 'Set origin to specific domains or a validation function' },
+              ),
+            );
           }
         }
         if (init && init.getKind() === SyntaxKind.TrueKeyword) {
-          findings.push(finding('cors-wildcard', 'warning', 'bug',
-            'cors origin: true reflects any origin — restrict in production',
-            ctx.filePath, call.getStartLineNumber(),
-            { suggestion: "Set origin to specific domains or a validation function" }));
+          findings.push(
+            finding(
+              'cors-wildcard',
+              'warning',
+              'bug',
+              'cors origin: true reflects any origin — restrict in production',
+              ctx.filePath,
+              call.getStartLineNumber(),
+              { suggestion: 'Set origin to specific domains or a validation function' },
+            ),
+          );
         }
       }
     }
@@ -325,10 +440,17 @@ function helmetMissing(ctx: RuleContext): ReviewFinding[] {
   }
 
   if (!hasHelmet) {
-    findings.push(finding('helmet-missing', 'warning', 'bug',
-      'Express app without helmet — missing security headers (CSP, HSTS, X-Frame-Options)',
-      ctx.filePath, appLine,
-      { suggestion: "npm install helmet && app.use(helmet())" }));
+    findings.push(
+      finding(
+        'helmet-missing',
+        'warning',
+        'bug',
+        'Express app without helmet — missing security headers (CSP, HSTS, X-Frame-Options)',
+        ctx.filePath,
+        appLine,
+        { suggestion: 'npm install helmet && app.use(helmet())' },
+      ),
+    );
   }
 
   return findings;
@@ -351,10 +473,17 @@ function openRedirect(ctx: RuleContext): ReviewFinding[] {
     for (const arg of args) {
       const text = arg.getText();
       if (text.includes('req.query') || text.includes('req.params') || text.includes('req.body')) {
-        findings.push(finding('open-redirect', 'error', 'bug',
-          'res.redirect() with user input — open redirect vulnerability',
-          ctx.filePath, call.getStartLineNumber(),
-          { suggestion: 'Validate redirect URL against an allowlist of safe destinations' }));
+        findings.push(
+          finding(
+            'open-redirect',
+            'error',
+            'bug',
+            'res.redirect() with user input — open redirect vulnerability',
+            ctx.filePath,
+            call.getStartLineNumber(),
+            { suggestion: 'Validate redirect URL against an allowlist of safe destinations' },
+          ),
+        );
         break;
       }
     }

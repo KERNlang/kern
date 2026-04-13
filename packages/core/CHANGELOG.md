@@ -1,5 +1,29 @@
 # @kernlang/core
 
+## Unreleased
+
+### Features
+
+- 0120b71: **Structured parser error recovery** — parser now reports ALL diagnostics at once instead of stopping at the first error
+  - New `parseWithDiagnostics()` and `parseDocumentWithDiagnostics()` APIs return `{ root, diagnostics }`
+  - New `parseStrict()` and `parseDocumentStrict()` throw on any error with full diagnostic list
+  - `ParseDiagnostic` type with severity, code, line/col, endCol, and suggestion fields
+  - Diagnostic codes: `DROPPED_LINE`, `UNKNOWN_NODE_TYPE`, `UNEXPECTED_TOKEN`, `INVALID_INDENT`, `UNCLOSED_BLOCK`
+- fef17d7: **KernRuntime** — instance-based state replacing 6 module-level global registries
+  - Centralizes parserHints, multilineBlockTypes, dynamicNodeTypes, evolvedGenerators, evolvedTargetGenerators, templateRegistry
+  - `defaultRuntime` singleton for backward compatibility
+  - `reset()` method for test isolation
+  - **Runtime threading**: `parse()`, `parseDocument()`, `parseWithDiagnostics()`, `generateCoreNode()`, `isTemplateNode()`, `expandTemplateNode()`, `isKnownNodeType()` all accept optional `runtime?: KernRuntime` parameter for true instance isolation
+- fef17d7: **Schema validation** — `validateSchema()` validates IRNode props against `NODE_SCHEMAS`
+- fef17d7: **Codegen refactor** — safe emitters and helpers extracted to `codegen/emitters.ts` and `codegen/helpers.ts`
+  - New subpath export `@kernlang/core/codegen/emitters`
+  - `emitTypeAnnotation()` and `emitImportSpecifier()` added to safe emitters
+- fef17d7: **API slimming** — individual generator exports (`generateType`, `generateInterface`, etc.) removed from main barrel; available via `@kernlang/core/codegen` subpath
+
+### Bug Fixes
+
+- Removed 3 unused imports
+
 ## 3.0.0
 
 ### Major Changes

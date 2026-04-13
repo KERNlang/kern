@@ -4,6 +4,7 @@
   "scopeName": "source.kern",
   "patterns": [
     { "include": "#comment" },
+    { "include": "#handler-block" },
     { "include": "#node-line" }
   ],
   "repository": {
@@ -11,20 +12,43 @@
       "match": "//.*$",
       "name": "comment.line.double-slash.kern"
     },
+    "handler-block": {
+      "begin": "(<<<)\\s*$",
+      "end": "^\\s*(>>>)",
+      "beginCaptures": { "1": { "name": "punctuation.definition.block.begin.kern" } },
+      "endCaptures": { "1": { "name": "punctuation.definition.block.end.kern" } },
+      "contentName": "meta.embedded.block.typescript",
+      "patterns": [{ "include": "source.ts" }]
+    },
     "node-line": {
       "patterns": [
         { "include": "#theme-ref" },
         { "include": "#style-block" },
-        { "include": "#pseudo-style" },
-        { "include": "#node-type" },
+        { "include": "#pseudo-selector" },
+        { "include": "#node-type-declaration" },
+        { "include": "#node-type-state" },
+        { "include": "#node-type-ui" },
+        { "include": "#node-type-other" },
         { "include": "#prop-quoted-value" },
         { "include": "#prop-bare" },
         { "include": "#string" }
       ]
     },
-    "node-type": {
-      "match": "(?<=^|\\s)(screen|page|layout|loading|error|section|card|row|col|scroll|text|image|progress|divider|button|input|modal|list|item|tabs|tab|header|link|slider|toggle|grid|conditional|component|icon|theme|metadata|nav)\\b",
+    "node-type-ui": {
+      "match": "(?<=^|\\s)(screen|page|row|col|card|grid|scroll|text|image|progress|divider|codeblock|section|form|button|input|textarea|slider|toggle|modal|list|item|tabs|tab|header|link|icon|svg|separator|table|thead|tbody|tr|th|td|scoreboard|metric|spinner|box|gradient|layout|loading|conditional|component|select|option|input-area|output-area|text-input|select-input|nav)\\b",
       "name": "keyword.control.kern"
+    },
+    "node-type-declaration": {
+      "match": "(?<=^|\\s)(type|interface|field|fn|const|union|variant|service|method|singleton|constructor|module|export|import)\\b",
+      "name": "keyword.declaration.kern"
+    },
+    "node-type-state": {
+      "match": "(?<=^|\\s)(state|store|config|signal|machine|transition|model|column|relation|repository|dependency|inject|cache|entry|invalidate|event|prop|ref)\\b",
+      "name": "storage.type.kern"
+    },
+    "node-type-other": {
+      "match": "(?<=^|\\s)(server|route|middleware|handler|schema|stream|spawn|timer|on|env|websocket|params|auth|validate|respond|trigger|cli|command|arg|flag|repl|guard|parallel|dispatch|then|each|hook|provider|effect|logic|memo|callback|context|returns|render|derive|transform|action|assume|invariant|branch|path|resolve|candidate|discriminator|collect|pattern|apply|expect|recover|strategy|reason|evidence|needs|rule|message|template|slot|body|cleanup|error|test|describe|it|mcp|tool|resource|prompt|param|description|sampling|elicitation|metadata|generateMetadata|notFound|redirect|fetch)\\b",
+      "name": "keyword.other.kern"
     },
     "style-block": {
       "begin": "\\{",

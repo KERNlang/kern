@@ -18,7 +18,7 @@ export async function generateResponse(req: any, res: any) {
 }
 `;
     const report = reviewSource(source, 'handler.ts');
-    const f = report.findings.find(f => f.ruleId === 'indirect-prompt-injection');
+    const f = report.findings.find((f) => f.ruleId === 'indirect-prompt-injection');
     expect(f).toBeDefined();
     expect(f!.message).toContain('userData');
     expect(f!.message).toContain('indirect injection');
@@ -34,7 +34,7 @@ export async function generateResponse(req: any, res: any) {
 }
 `;
     const report = reviewSource(source, 'handler.ts');
-    const f = report.findings.find(f => f.ruleId === 'indirect-prompt-injection');
+    const f = report.findings.find((f) => f.ruleId === 'indirect-prompt-injection');
     expect(f).toBeUndefined();
   });
 });
@@ -51,7 +51,7 @@ export async function runCode() {
 }
 `;
     const report = reviewSource(source, 'executor.ts');
-    const f = report.findings.find(f => f.ruleId === 'llm-output-execution');
+    const f = report.findings.find((f) => f.ruleId === 'llm-output-execution');
     expect(f).toBeDefined();
     expect(f!.severity).toBe('error');
     expect(f!.message).toContain('eval');
@@ -67,7 +67,7 @@ export async function summarize() {
 }
 `;
     const report = reviewSource(source, 'summary.ts');
-    const f = report.findings.find(f => f.ruleId === 'llm-output-execution');
+    const f = report.findings.find((f) => f.ruleId === 'llm-output-execution');
     expect(f).toBeUndefined();
   });
 });
@@ -87,7 +87,7 @@ export function handler(req: any, res: any) {
 }
 `;
     const report = reviewSource(source, 'api.ts');
-    const f = report.findings.find(f => f.ruleId === 'system-prompt-leakage');
+    const f = report.findings.find((f) => f.ruleId === 'system-prompt-leakage');
     expect(f).toBeDefined();
     expect(f!.message).toContain('System prompt');
   });
@@ -101,7 +101,7 @@ export function handler(req: any, res: any) {
 }
 `;
     const report = reviewSource(source, 'api.ts');
-    const f = report.findings.find(f => f.ruleId === 'system-prompt-leakage');
+    const f = report.findings.find((f) => f.ruleId === 'system-prompt-leakage');
     expect(f).toBeUndefined();
   });
 });
@@ -118,7 +118,7 @@ export async function ragQuery(query: string) {
 }
 `;
     const report = reviewSource(source, 'rag.ts');
-    const f = report.findings.find(f => f.ruleId === 'rag-poisoning');
+    const f = report.findings.find((f) => f.ruleId === 'rag-poisoning');
     expect(f).toBeDefined();
     expect(f!.message).toContain('context');
     expect(f!.message).toContain('RAG poisoning');
@@ -133,7 +133,7 @@ export async function ragQuery(query: string) {
 }
 `;
     const report = reviewSource(source, 'rag.ts');
-    const f = report.findings.find(f => f.ruleId === 'rag-poisoning');
+    const f = report.findings.find((f) => f.ruleId === 'rag-poisoning');
     expect(f).toBeUndefined();
   });
 });
@@ -152,7 +152,7 @@ export function callTool(req: any) {
 }
 `;
     const report = reviewSource(source, 'tools.ts');
-    const f = report.findings.find(f => f.ruleId === 'tool-calling-manipulation');
+    const f = report.findings.find((f) => f.ruleId === 'tool-calling-manipulation');
     expect(f).toBeDefined();
     expect(f!.severity).toBe('error');
     expect(f!.message).toContain('tool_choice');
@@ -170,7 +170,7 @@ export function callTool() {
 }
 `;
     const report = reviewSource(source, 'tools.ts');
-    const f = report.findings.find(f => f.ruleId === 'tool-calling-manipulation');
+    const f = report.findings.find((f) => f.ruleId === 'tool-calling-manipulation');
     expect(f).toBeUndefined();
   });
 });
@@ -187,7 +187,7 @@ export function processEncoded(encodedInput: string) {
 }
 `;
     const report = reviewSource(source, 'decode.ts');
-    const f = report.findings.find(f => f.ruleId === 'encoding-bypass');
+    const f = report.findings.find((f) => f.ruleId === 'encoding-bypass');
     expect(f).toBeDefined();
     expect(f!.message).toContain('decoded');
     expect(f!.message).toContain('atob()');
@@ -202,7 +202,7 @@ export function processEncoded(encodedInput: string) {
 }
 `;
     const report = reviewSource(source, 'decode.ts');
-    const f = report.findings.find(f => f.ruleId === 'encoding-bypass');
+    const f = report.findings.find((f) => f.ruleId === 'encoding-bypass');
     expect(f).toBeUndefined();
   });
 });
@@ -220,7 +220,7 @@ describe('delimiter-injection', () => {
       '}',
     ].join('\n');
     const report = reviewSource(source, 'prompt.ts');
-    const f = report.findings.find(f => f.ruleId === 'delimiter-injection');
+    const f = report.findings.find((f) => f.ruleId === 'delimiter-injection');
     expect(f).toBeDefined();
     expect(f!.message).toContain('delimiter');
   });
@@ -235,7 +235,7 @@ describe('delimiter-injection', () => {
       '}',
     ].join('\n');
     const report = reviewSource(source, 'prompt.ts');
-    const f = report.findings.find(f => f.ruleId === 'delimiter-injection');
+    const f = report.findings.find((f) => f.ruleId === 'delimiter-injection');
     expect(f).toBeUndefined();
   });
 });
@@ -252,7 +252,7 @@ export async function chat(userMsg: string) {
 }
 `;
     const report = reviewSource(source, 'chat.ts');
-    const f = report.findings.find(f => f.ruleId === 'unsanitized-history');
+    const f = report.findings.find((f) => f.ruleId === 'unsanitized-history');
     expect(f).toBeDefined();
     expect(f!.message).toContain('userMsg');
     expect(f!.message).toContain('conversation injection');
@@ -267,7 +267,7 @@ export async function chat(userMsg: string) {
 }
 `;
     const report = reviewSource(source, 'chat.ts');
-    const f = report.findings.find(f => f.ruleId === 'unsanitized-history');
+    const f = report.findings.find((f) => f.ruleId === 'unsanitized-history');
     expect(f).toBeUndefined();
   });
 });
@@ -284,7 +284,7 @@ export async function getStructured() {
 }
 `;
     const report = reviewSource(source, 'parser.ts');
-    const f = report.findings.find(f => f.ruleId === 'json-output-manipulation');
+    const f = report.findings.find((f) => f.ruleId === 'json-output-manipulation');
     expect(f).toBeDefined();
     expect(f!.message).toContain('JSON.parse');
     expect(f!.message).toContain('schema validation');
@@ -302,7 +302,7 @@ export async function getStructured() {
 }
 `;
     const report = reviewSource(source, 'parser.ts');
-    const f = report.findings.find(f => f.ruleId === 'json-output-manipulation');
+    const f = report.findings.find((f) => f.ruleId === 'json-output-manipulation');
     expect(f).toBeUndefined();
   });
 });
@@ -321,7 +321,7 @@ export async function decide() {
 }
 `;
     const report = reviewSource(source, 'decision.ts');
-    const f = report.findings.find(f => f.ruleId === 'missing-output-validation');
+    const f = report.findings.find((f) => f.ruleId === 'missing-output-validation');
     expect(f).toBeDefined();
     expect(f!.message).toContain('result');
     expect(f!.message).toContain('without validation');
@@ -341,7 +341,7 @@ export async function decide() {
 }
 `;
     const report = reviewSource(source, 'decision.ts');
-    const f = report.findings.find(f => f.ruleId === 'missing-output-validation');
+    const f = report.findings.find((f) => f.ruleId === 'missing-output-validation');
     expect(f).toBeUndefined();
   });
 });

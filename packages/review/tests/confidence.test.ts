@@ -7,13 +7,13 @@
 
 import type { IRNode } from '@kernlang/core';
 import {
-  parseConfidence,
   buildConfidenceGraph,
-  resolveBaseConfidence,
   computeConfidenceSummary,
+  parseConfidence,
+  resolveBaseConfidence,
 } from '../src/confidence.js';
-import { formatReport, formatSARIF, checkEnforcement } from '../src/reporter.js';
-import type { ReviewReport, ReviewConfig, ReviewFinding } from '../src/types.js';
+import { checkEnforcement, formatReport, formatSARIF } from '../src/reporter.js';
+import type { ReviewConfig, ReviewFinding, ReviewReport } from '../src/types.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -77,9 +77,7 @@ describe('buildConfidenceGraph', () => {
   });
 
   it('uses type:line key for anonymous nodes', () => {
-    const nodes = [
-      makeNode('derive', { confidence: '0.5' }, [], 42),
-    ];
+    const nodes = [makeNode('derive', { confidence: '0.5' }, [], 42)];
     const graph = buildConfidenceGraph(nodes);
     expect(graph.nodes.has('derive:42')).toBe(true);
   });
@@ -95,9 +93,7 @@ describe('buildConfidenceGraph', () => {
   });
 
   it('resolves literal nodes', () => {
-    const nodes = [
-      makeNode('derive', { name: 'x', confidence: '0.8' }, [], 1),
-    ];
+    const nodes = [makeNode('derive', { name: 'x', confidence: '0.8' }, [], 1)];
     const graph = buildConfidenceGraph(nodes);
     expect(graph.nodes.get('x')!.resolved).toBe(0.8);
   });
@@ -127,27 +123,28 @@ describe('buildConfidenceGraph', () => {
   });
 
   it('missing source node gets resolved = null', () => {
-    const nodes = [
-      makeNode('derive', { name: 'orphan', confidence: 'from:nonexistent' }, [], 1),
-    ];
+    const nodes = [makeNode('derive', { name: 'orphan', confidence: 'from:nonexistent' }, [], 1)];
     const graph = buildConfidenceGraph(nodes);
     expect(graph.nodes.get('orphan')!.resolved).toBeNull();
   });
 
   it('skips nodes with malformed confidence', () => {
-    const nodes = [
-      makeNode('derive', { name: 'bad', confidence: 'high' }, [], 1),
-    ];
+    const nodes = [makeNode('derive', { name: 'bad', confidence: 'high' }, [], 1)];
     const graph = buildConfidenceGraph(nodes);
     expect(graph.nodes.size).toBe(0);
   });
 
   it('collects needs entries from child nodes', () => {
     const nodes = [
-      makeNode('derive', { name: 'x', confidence: '0.7' }, [
-        makeNode('needs', { what: 'auth config', 'would-raise-to': '0.95' }),
-        makeNode('needs', { what: 'test coverage', resolved: 'true', 'would-raise-to': '0.9' }),
-      ], 1),
+      makeNode(
+        'derive',
+        { name: 'x', confidence: '0.7' },
+        [
+          makeNode('needs', { what: 'auth config', 'would-raise-to': '0.95' }),
+          makeNode('needs', { what: 'test coverage', resolved: 'true', 'would-raise-to': '0.9' }),
+        ],
+        1,
+      ),
     ];
     const graph = buildConfidenceGraph(nodes);
     const cnode = graph.nodes.get('x')!;
@@ -168,9 +165,7 @@ describe('resolveBaseConfidence', () => {
       resolved: null,
       dependsOn: [],
       dependedBy: [],
-      needs: [
-        { what: 'test', wouldRaiseTo: 0.95, resolved: true },
-      ],
+      needs: [{ what: 'test', wouldRaiseTo: 0.95, resolved: true }],
       inCycle: false,
     };
     expect(resolveBaseConfidence(cnode)).toBe(0.95);
@@ -184,9 +179,7 @@ describe('resolveBaseConfidence', () => {
       resolved: null,
       dependsOn: [],
       dependedBy: [],
-      needs: [
-        { what: 'test', wouldRaiseTo: undefined, resolved: true },
-      ],
+      needs: [{ what: 'test', wouldRaiseTo: undefined, resolved: true }],
       inCycle: false,
     };
     expect(resolveBaseConfidence(cnode)).toBe(0.7); // No wouldRaiseTo, stays at declared
@@ -200,9 +193,7 @@ describe('resolveBaseConfidence', () => {
       resolved: null,
       dependsOn: [],
       dependedBy: [],
-      needs: [
-        { what: 'test', wouldRaiseTo: 0.95, resolved: false },
-      ],
+      needs: [{ what: 'test', wouldRaiseTo: 0.95, resolved: false }],
       inCycle: false,
     };
     expect(resolveBaseConfidence(cnode)).toBe(0.5); // Unresolved, stays at declared
@@ -230,25 +221,29 @@ function makeReport(findings: ReviewFinding[], overrides: Partial<ReviewReport> 
     inferred: [],
     templateMatches: [],
     findings,
-    stats: { totalLines: 100, coveredLines: 50, coveragePct: 50, totalTsTokens: 200, totalKernTokens: 100, reductionPct: 50, constructCount: 5 },
+    stats: {
+      totalLines: 100,
+      coveredLines: 50,
+      coveragePct: 50,
+      totalTsTokens: 200,
+      totalKernTokens: 100,
+      reductionPct: 50,
+      constructCount: 5,
+    },
     ...overrides,
   };
 }
 
 describe('Reporter: confidence display', () => {
   it('shows confidence prefix when showConfidence is set', () => {
-    const report = makeReport([
-      makeFinding({ confidence: 0.72, ruleId: 'guard-without-else' }),
-    ]);
+    const report = makeReport([makeFinding({ confidence: 0.72, ruleId: 'guard-without-else' })]);
     const config: ReviewConfig = { showConfidence: true };
     const output = formatReport(report, config);
     expect(output).toContain('[0.72]');
   });
 
   it('hides confidence when showConfidence is not set', () => {
-    const report = makeReport([
-      makeFinding({ confidence: 0.72, ruleId: 'guard-without-else' }),
-    ]);
+    const report = makeReport([makeFinding({ confidence: 0.72, ruleId: 'guard-without-else' })]);
     const output = formatReport(report);
     expect(output).not.toContain('[0.72]');
   });
@@ -268,9 +263,7 @@ describe('Reporter: confidence display', () => {
 
 describe('Reporter: SARIF rank', () => {
   it('includes rank field in SARIF output (0-100 scale per spec)', () => {
-    const report = makeReport([
-      makeFinding({ confidence: 0.72 }),
-    ]);
+    const report = makeReport([makeFinding({ confidence: 0.72 })]);
     const sarif = JSON.parse(formatSARIF([report]));
     const result = sarif.runs[0].results[0];
     expect(result.rank).toBeCloseTo(72);
@@ -278,9 +271,7 @@ describe('Reporter: SARIF rank', () => {
   });
 
   it('omits rank when no confidence', () => {
-    const report = makeReport([
-      makeFinding({}),
-    ]);
+    const report = makeReport([makeFinding({})]);
     const sarif = JSON.parse(formatSARIF([report]));
     const result = sarif.runs[0].results[0];
     expect(result.rank).toBeUndefined();
@@ -310,9 +301,7 @@ describe('Reporter: enforcement with minConfidence', () => {
   });
 
   it('minConfidence=0 counts all findings (backward compat)', () => {
-    const report = makeReport([
-      makeFinding({ severity: 'error', confidence: 0.1 }),
-    ]);
+    const report = makeReport([makeFinding({ severity: 'error', confidence: 0.1 })]);
     const config: ReviewConfig = { minConfidence: 0, maxErrors: 0 };
     const result = checkEnforcement(report, config);
     expect(result.errors.actual).toBe(1);
@@ -328,9 +317,9 @@ describe('Confidence summary', () => {
     ];
     const graph = buildConfidenceGraph(nodes);
     const summary = computeConfidenceSummary(graph);
-    expect(summary.high).toBe(1);    // 0.95 > 0.9
-    expect(summary.medium).toBe(1);  // 0.8 in [0.7, 0.9]
-    expect(summary.low).toBe(1);     // 0.3 < 0.7
+    expect(summary.high).toBe(1); // 0.95 > 0.9
+    expect(summary.medium).toBe(1); // 0.8 in [0.7, 0.9]
+    expect(summary.low).toBe(1); // 0.3 < 0.7
     expect(summary.unresolved).toBe(0);
   });
 });

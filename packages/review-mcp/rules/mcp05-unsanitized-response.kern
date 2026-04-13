@@ -1,0 +1,25 @@
+action name=mcp-unsanitized-response
+  reason value="CWE-1427, OWASP MCP05"
+  config severity=warning confidence=0.80 category=bug
+
+  effect name=external-data kind=network
+    pattern lang=ts match="\b(fetch|axios\.\w+|got\.\w+|db\.query|findOne|findMany|findById|collection\.find|\.findUnique|\.findFirst|readFile|readFileSync|createReadStream)\s*\("
+    pattern lang=py match="\b(requests\.get|requests\.post|httpx\.\w+|aiohttp|cursor\.execute|\.fetchall|\.fetchone|open\s*\()\b"
+
+  effect name=xml-parse kind=network
+    pattern lang=ts match="\b(parseStringPromise|parseString|xml2js|DOMParser|xmldom|fast-xml-parser|cheerio\.load)\s*\("
+    pattern lang=py match="\b(ET\.parse|ET\.fromstring|minidom\.parse|lxml\.etree\.parse|BeautifulSoup)\s*\("
+
+  guard name=sanitize kind=validation
+    pattern lang=ts match="\bsanitize\w*\s*\(|\bescape\w*\s*\(|\bcleanForPrompt\s*\(|\bstripTags\s*\("
+    pattern lang=py match="\bsanitize\w*\s*\(|\bescape\w*\s*\(|\bclean\w*\s*\("
+
+  invariant name=raw-response
+    expect from=source-code to=external-data guarded-by="sanitize"
+    evidence value="MCP tool returns data from external source without sanitization — indirect prompt injection risk"
+    suggestion value="Sanitize external data before including in tool responses. External content may contain prompt injection payloads."
+
+  invariant name=unsafe-xml
+    expect from=source-code to=xml-parse guarded-by="sanitize"
+    evidence value="XML parsing without sanitization — untrusted XML may contain XXE or injection payloads"
+    suggestion value="Use a safe XML parser with entity expansion disabled. Sanitize parsed content before returning in tool responses."

@@ -4,9 +4,9 @@
  * This is the proof that KERN concepts are universal.
  */
 
-import { extractPythonConcepts } from '../src/mapper.js';
 import { extractTsConcepts, runConceptRules } from '@kernlang/review';
 import { Project } from 'ts-morph';
+import { extractPythonConcepts } from '../src/mapper.js';
 
 function tsSourceFile(source: string, filePath = 'test.ts') {
   const project = new Project({ useInMemoryFileSystem: true, compilerOptions: { strict: true } });
@@ -18,7 +18,7 @@ describe('Bilingual: ignored-error', () => {
     const sf = tsSourceFile('try { doWork(); } catch (e) {}');
     const concepts = extractTsConcepts(sf, 'test.ts');
     const findings = runConceptRules(concepts, 'test.ts');
-    const f = findings.find(f => f.ruleId === 'ignored-error');
+    const f = findings.find((f) => f.ruleId === 'ignored-error');
     expect(f).toBeDefined();
     expect(f!.severity).toBe('error');
   });
@@ -32,7 +32,7 @@ except:
 `;
     const concepts = extractPythonConcepts(source, 'test.py');
     const findings = runConceptRules(concepts, 'test.py');
-    const f = findings.find(f => f.ruleId === 'ignored-error');
+    const f = findings.find((f) => f.ruleId === 'ignored-error');
     expect(f).toBeDefined();
     expect(f!.severity).toBe('error');
   });
@@ -46,7 +46,7 @@ except Exception as e:
 `;
     const concepts = extractPythonConcepts(source, 'test.py');
     const findings = runConceptRules(concepts, 'test.py');
-    const f = findings.find(f => f.ruleId === 'ignored-error');
+    const f = findings.find((f) => f.ruleId === 'ignored-error');
     expect(f).toBeDefined();
   });
 
@@ -54,7 +54,7 @@ except Exception as e:
     const sf = tsSourceFile('try { doWork(); } catch (e) { throw new AppError(e); }');
     const concepts = extractTsConcepts(sf, 'test.ts');
     const findings = runConceptRules(concepts, 'test.ts');
-    const f = findings.find(f => f.ruleId === 'ignored-error');
+    const f = findings.find((f) => f.ruleId === 'ignored-error');
     expect(f).toBeUndefined();
   });
 
@@ -67,7 +67,7 @@ except Exception as e:
 `;
     const concepts = extractPythonConcepts(source, 'test.py');
     const findings = runConceptRules(concepts, 'test.py');
-    const f = findings.find(f => f.ruleId === 'ignored-error');
+    const f = findings.find((f) => f.ruleId === 'ignored-error');
     expect(f).toBeUndefined();
   });
 });
@@ -79,8 +79,8 @@ describe('Bilingual: concept parity', () => {
 
     const pyConcepts = extractPythonConcepts('def fail():\n    raise ValueError("boom")', 'test.py');
 
-    const tsRaise = tsConcepts.nodes.find(n => n.kind === 'error_raise');
-    const pyRaise = pyConcepts.nodes.find(n => n.kind === 'error_raise');
+    const tsRaise = tsConcepts.nodes.find((n) => n.kind === 'error_raise');
+    const pyRaise = pyConcepts.nodes.find((n) => n.kind === 'error_raise');
 
     expect(tsRaise).toBeDefined();
     expect(pyRaise).toBeDefined();
@@ -98,8 +98,8 @@ describe('Bilingual: concept parity', () => {
 
     const pyConcepts = extractPythonConcepts('def get_data():\n    requests.get("/api")', 'test.py');
 
-    const tsEffect = tsConcepts.nodes.find(n => n.kind === 'effect');
-    const pyEffect = pyConcepts.nodes.find(n => n.kind === 'effect');
+    const tsEffect = tsConcepts.nodes.find((n) => n.kind === 'effect');
+    const pyEffect = pyConcepts.nodes.find((n) => n.kind === 'effect');
 
     expect(tsEffect).toBeDefined();
     expect(pyEffect).toBeDefined();

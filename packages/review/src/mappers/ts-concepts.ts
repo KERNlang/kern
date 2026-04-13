@@ -5,37 +5,55 @@
  * Phase 2: entrypoint, guard, state_mutation, call, dependency
  */
 
-import { SyntaxKind, type SourceFile } from 'ts-morph';
-import type {
-  ConceptMap, ConceptNode, ConceptEdge, ConceptSpan,
-  ErrorHandlePayload, EntrypointPayload, GuardPayload,
-} from '@kernlang/core';
+import type { ConceptEdge, ConceptMap, ConceptNode, ConceptSpan, ErrorHandlePayload } from '@kernlang/core';
 import { conceptId, conceptSpan } from '@kernlang/core';
+import { type SourceFile, SyntaxKind } from 'ts-morph';
 
 const EXTRACTOR_VERSION = '1.0.0';
 
 // ── Network effect signatures ────────────────────────────────────────────
 
-const NETWORK_CALLS = new Set([
-  'fetch', 'axios', 'got', 'request', 'superagent', 'ky',
-]);
+const NETWORK_CALLS = new Set(['fetch', 'axios', 'got', 'request', 'superagent', 'ky']);
 
-const NETWORK_METHODS = new Set([
-  'get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'request',
-]);
+const NETWORK_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'request']);
 
 const DB_CALLS = new Set([
-  'query', 'execute', 'findMany', 'findFirst', 'findUnique',
-  'create', 'update', 'delete', 'upsert', 'aggregate',
-  'insertOne', 'insertMany', 'updateOne', 'updateMany', 'deleteOne', 'deleteMany',
-  'find', 'findOne', 'countDocuments',
+  'query',
+  'execute',
+  'findMany',
+  'findFirst',
+  'findUnique',
+  'create',
+  'update',
+  'delete',
+  'upsert',
+  'aggregate',
+  'insertOne',
+  'insertMany',
+  'updateOne',
+  'updateMany',
+  'deleteOne',
+  'deleteMany',
+  'find',
+  'findOne',
+  'countDocuments',
 ]);
 
 const FS_CALLS = new Set([
-  'readFile', 'readFileSync', 'writeFile', 'writeFileSync',
-  'readdir', 'readdirSync', 'mkdir', 'mkdirSync',
-  'unlink', 'unlinkSync', 'rename', 'renameSync',
-  'createReadStream', 'createWriteStream',
+  'readFile',
+  'readFileSync',
+  'writeFile',
+  'writeFileSync',
+  'readdir',
+  'readdirSync',
+  'mkdir',
+  'mkdirSync',
+  'unlink',
+  'unlinkSync',
+  'rename',
+  'renameSync',
+  'createReadStream',
+  'createWriteStream',
 ]);
 
 // ── Main Extractor ───────────────────────────────────────────────────────
@@ -48,8 +66,11 @@ export function extractTsConcepts(sourceFile: SourceFile, filePath: string): Con
   extractErrorHandle(sourceFile, filePath, nodes);
   extractEffects(sourceFile, filePath, nodes);
   extractEntrypoints(sourceFile, filePath, nodes);
+  extractNextjsHandlers(sourceFile, filePath, nodes);
   extractGuards(sourceFile, filePath, nodes);
   extractStateMutation(sourceFile, filePath, nodes);
+  extractFunctionDeclarations(sourceFile, filePath, nodes);
+  extractReactWrapperComponents(sourceFile, filePath, nodes);
   extractDependencyEdges(sourceFile, filePath, edges);
 
   return {
@@ -67,7 +88,7 @@ function extractErrorRaise(sf: SourceFile, filePath: string, nodes: ConceptNode[
   // throw statements
   for (const throwStmt of sf.getDescendantsOfKind(SyntaxKind.ThrowStatement)) {
     const start = throwStmt.getStart();
-    const line = throwStmt.getStartLineNumber();
+    const _line = throwStmt.getStartLineNumber();
     const errorType = extractThrowType(throwStmt);
 
     nodes.push({
@@ -188,12 +209,12 @@ function classifyDisposition(
     return { type: 'ignored', confidence: 1.0 };
   }
 
-  const bodyText = stmts.map(s => s.getText()).join('\n');
+  const bodyText = stmts.map((s) => s.getText()).join('\n');
 
   // Check for rethrow
   if (bodyText.includes('throw')) {
-    // throw new XError(err) → wrapped
-    if (errorVar && bodyText.includes(errorVar)) {
+    // throw new XError(err) → wrapped (use word boundary to avoid 'e' matching 'HttpException')
+    if (errorVar && new RegExp(`\\b${errorVar}\\b`).test(bodyText)) {
       return { type: 'wrapped', confidence: 0.95 };
     }
     return { type: 'rethrown', confidence: 0.9 };
@@ -236,8 +257,10 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
     }
 
     // Network effects
-    if (NETWORK_CALLS.has(funcName) ||
-        (NETWORK_METHODS.has(funcName) && /axios|got|ky|http|request|superagent/i.test(objName))) {
+    if (
+      NETWORK_CALLS.has(funcName) ||
+      (NETWORK_METHODS.has(funcName) && /axios|got|ky|http|request|superagent/i.test(objName))
+    ) {
       const isAsync = isInAsyncContext(call);
       nodes.push({
         id: conceptId(filePath, 'effect', call.getStart()),
@@ -333,8 +356,8 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
       if (decl.getKind() === SyntaxKind.FunctionDeclaration) {
         const fn = decl as import('ts-morph').FunctionDeclaration;
         const params = fn.getParameters();
-        const paramNames = params.map(p => p.getName());
-        const isHandler = paramNames.some(n => /req|request|ctx|context|event/i.test(n));
+        const paramNames = params.map((p) => p.getName());
+        const isHandler = paramNames.some((n) => /req|request|ctx|context|event/i.test(n));
         const isComponent = fn.getName()?.[0]?.toUpperCase() === fn.getName()?.[0];
 
         if (isHandler || isComponent) {
@@ -357,6 +380,166 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
   }
 }
 
+// ── Next.js handlers & server actions ────────────────────────────────────
+
+const NEXTJS_HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS']);
+
+function hasUseServerDirective(sf: SourceFile): boolean {
+  const text = sf.getFullText();
+  return /^\s*['"]use server['"];?\s*$/m.test(text.substring(0, 200));
+}
+
+function extractNextjsHandlers(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
+  // Track offsets we already emitted as entrypoints, to avoid duplication with extractEntrypoints
+  const emittedOffsets = new Set<number>();
+
+  // 1. App Router API route handlers: export async function GET/POST/PUT/DELETE/PATCH/HEAD/OPTIONS
+  for (const [name, decls] of sf.getExportedDeclarations()) {
+    if (!NEXTJS_HTTP_METHODS.has(name)) continue;
+    for (const decl of decls) {
+      if (decl.getKind() !== SyntaxKind.FunctionDeclaration) continue;
+      const fn = decl as import('ts-morph').FunctionDeclaration;
+      emittedOffsets.add(fn.getStart());
+      nodes.push({
+        id: conceptId(filePath, 'entrypoint', fn.getStart()),
+        kind: 'entrypoint',
+        primarySpan: span(filePath, fn),
+        evidence: fn.getText().substring(0, 120),
+        confidence: 0.95,
+        language: 'ts',
+        payload: {
+          kind: 'entrypoint',
+          subtype: 'route',
+          name,
+          httpMethod: name,
+        },
+      });
+    }
+  }
+
+  // 2. Pages Router: default export with NextApiRequest/NextApiResponse params OR file in api/ path
+  const isApiPath = /\/api\//.test(filePath) || /\/pages\/api\//.test(filePath);
+  for (const [name, decls] of sf.getExportedDeclarations()) {
+    if (name !== 'default') continue;
+    for (const decl of decls) {
+      if (decl.getKind() !== SyntaxKind.FunctionDeclaration) continue;
+      const fn = decl as import('ts-morph').FunctionDeclaration;
+      if (emittedOffsets.has(fn.getStart())) continue;
+
+      const params = fn.getParameters();
+      const paramTypes = params.map((p) => p.getType().getText()).join(',');
+      const hasNextApiParams =
+        /NextApiRequest|NextApiResponse/.test(paramTypes) ||
+        /NextApiRequest|NextApiResponse/.test(params.map((p) => p.getText()).join(','));
+
+      if (hasNextApiParams || isApiPath) {
+        emittedOffsets.add(fn.getStart());
+        nodes.push({
+          id: conceptId(filePath, 'entrypoint', fn.getStart()),
+          kind: 'entrypoint',
+          primarySpan: span(filePath, fn),
+          evidence: fn.getText().substring(0, 120),
+          confidence: hasNextApiParams ? 0.95 : 0.85,
+          language: 'ts',
+          payload: {
+            kind: 'entrypoint',
+            subtype: 'handler',
+            name: fn.getName() || 'default',
+          },
+        });
+      }
+    }
+  }
+
+  // 3. Server actions: files with 'use server' directive — all exported async functions are server actions
+  if (hasUseServerDirective(sf)) {
+    for (const [name, decls] of sf.getExportedDeclarations()) {
+      if (name === 'default') continue;
+      for (const decl of decls) {
+        if (decl.getKind() !== SyntaxKind.FunctionDeclaration) continue;
+        const fn = decl as import('ts-morph').FunctionDeclaration;
+        if (!fn.isAsync()) continue;
+        if (emittedOffsets.has(fn.getStart())) continue;
+
+        nodes.push({
+          id: conceptId(filePath, 'entrypoint', fn.getStart()),
+          kind: 'entrypoint',
+          primarySpan: span(filePath, fn),
+          evidence: fn.getText().substring(0, 120),
+          confidence: 0.95,
+          language: 'ts',
+          payload: {
+            kind: 'entrypoint',
+            subtype: 'handler',
+            name: fn.getName() || name,
+          },
+        });
+      }
+    }
+  }
+}
+
+// ── React wrapper components (memo, forwardRef) ─────────────────────────
+
+const REACT_WRAPPERS = new Set(['memo', 'forwardRef']);
+const REACT_QUALIFIED_WRAPPERS = new Set(['React.memo', 'React.forwardRef']);
+
+function extractReactWrapperComponents(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
+  // Detect: const MyComponent = React.memo(() => { ... })
+  //         const MyComponent = memo(() => { ... })
+  //         const MyComponent = React.forwardRef((props, ref) => { ... })
+  //         const MyComponent = forwardRef((props, ref) => { ... })
+  //
+  // These are NOT caught by extractFunctionDeclarations because the initializer
+  // is a CallExpression, not ArrowFunction/FunctionExpression.
+  for (const varDecl of sf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = varDecl.getInitializer();
+    if (!init || init.getKind() !== SyntaxKind.CallExpression) continue;
+
+    const call = init as import('ts-morph').CallExpression;
+    const calleeText = call.getExpression().getText();
+
+    // Check if the callee is a known React wrapper
+    const isWrapper = REACT_WRAPPERS.has(calleeText) || REACT_QUALIFIED_WRAPPERS.has(calleeText);
+    if (!isWrapper) continue;
+
+    const name = varDecl.getName();
+    // React components must start with uppercase
+    if (!/^[A-Z]/.test(name)) continue;
+
+    const args = call.getArguments();
+    if (args.length === 0) continue;
+
+    // The first argument should be an arrow function or function expression
+    const innerFn = args[0];
+    const innerKind = innerFn.getKind();
+    if (innerKind !== SyntaxKind.ArrowFunction && innerKind !== SyntaxKind.FunctionExpression) continue;
+
+    const fn = innerFn as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression;
+    const isAsync = (fn as any).isAsync?.() ?? /^async\s/.test(fn.getText());
+    const varStmt = varDecl.getParent()?.getParent();
+    const isExport = varStmt ? /^export\s/.test(varStmt.getText()) : false;
+
+    nodes.push({
+      id: conceptId(filePath, 'function_declaration', varDecl.getStart()),
+      kind: 'function_declaration',
+      primarySpan: span(filePath, varDecl),
+      evidence: `${calleeText}(${name})`,
+      confidence: 0.9,
+      language: 'ts',
+      containerId: getContainerId(varDecl, filePath),
+      payload: {
+        kind: 'function_declaration',
+        name,
+        async: isAsync,
+        hasAwait: isAsync ? hasAwaitInBody(fn) : false,
+        isComponent: true,
+        isExport,
+      },
+    });
+  }
+}
+
 // ── guard ────────────────────────────────────────────────────────────────
 
 const AUTH_KEYWORDS = /auth|session|token|user|role|permission|admin|login|credential/i;
@@ -372,8 +555,12 @@ function extractGuards(sf: SourceFile, filePath: string, nodes: ConceptNode[]): 
     const thenText = thenBlock.getText();
 
     // Must be early exit (return, throw, or response with 401/403)
-    const isEarlyExit = thenText.includes('return') || thenText.includes('throw') ||
-      thenText.includes('401') || thenText.includes('403') || thenText.includes('redirect');
+    const isEarlyExit =
+      thenText.includes('return') ||
+      thenText.includes('throw') ||
+      thenText.includes('401') ||
+      thenText.includes('403') ||
+      thenText.includes('redirect');
 
     if (!isEarlyExit) continue;
 
@@ -418,9 +605,8 @@ function extractStateMutation(sf: SourceFile, filePath: string, nodes: ConceptNo
   // this.x = ..., this.x++, this.x += ...
   for (const binExpr of sf.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
     const op = binExpr.getOperatorToken().getKind();
-    if (op !== SyntaxKind.EqualsToken &&
-        op !== SyntaxKind.PlusEqualsToken &&
-        op !== SyntaxKind.MinusEqualsToken) continue;
+    if (op !== SyntaxKind.EqualsToken && op !== SyntaxKind.PlusEqualsToken && op !== SyntaxKind.MinusEqualsToken)
+      continue;
 
     const leftText = binExpr.getLeft().getText();
     if (!leftText.includes('.')) continue; // only property assignments
@@ -441,7 +627,7 @@ function extractStateMutation(sf: SourceFile, filePath: string, nodes: ConceptNo
       confidence: scope === 'module' ? 0.9 : 0.75,
       language: 'ts',
       containerId: getContainerId(binExpr, filePath),
-      payload: { kind: 'state_mutation', target: leftText, scope },
+      payload: { kind: 'state_mutation', target: leftText, scope, via: 'assignment' },
     });
   }
 
@@ -450,9 +636,10 @@ function extractStateMutation(sf: SourceFile, filePath: string, nodes: ConceptNo
     ...sf.getDescendantsOfKind(SyntaxKind.PostfixUnaryExpression),
     ...sf.getDescendantsOfKind(SyntaxKind.PrefixUnaryExpression),
   ]) {
-    const operandText = unary.getKind() === SyntaxKind.PostfixUnaryExpression
-      ? (unary as import('ts-morph').PostfixUnaryExpression).getOperand().getText()
-      : (unary as import('ts-morph').PrefixUnaryExpression).getOperand().getText();
+    const operandText =
+      unary.getKind() === SyntaxKind.PostfixUnaryExpression
+        ? (unary as import('ts-morph').PostfixUnaryExpression).getOperand().getText()
+        : (unary as import('ts-morph').PrefixUnaryExpression).getOperand().getText();
 
     if (!operandText.includes('.')) continue;
     const root = operandText.split('.')[0];
@@ -470,17 +657,276 @@ function extractStateMutation(sf: SourceFile, filePath: string, nodes: ConceptNo
       confidence: 0.85,
       language: 'ts',
       containerId: getContainerId(unary, filePath),
-      payload: { kind: 'state_mutation', target: operandText, scope },
+      payload: { kind: 'state_mutation', target: operandText, scope, via: 'increment' },
     });
+  }
+
+  // Call-based: setState(), setCount(), dispatch(), store.dispatch()
+  const NON_STATE_SETTERS =
+    /^(setTimeout|setInterval|setImmediate|setAttribute|setProperty|setHeader|setRequestHeader|setItem|setCustomValidity)$/;
+  for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const calleeText = call.getExpression().getText();
+    const target = calleeText;
+    let scope: 'local' | 'module' | 'global' | 'shared' = 'local';
+    let api: string | undefined;
+    let isStateMutation = false;
+
+    if (calleeText === 'dispatch' || calleeText === 'this.setState') {
+      isStateMutation = true;
+      scope = calleeText.startsWith('this.') ? 'module' : 'local';
+      api = calleeText === 'this.setState' ? 'setState' : 'dispatch';
+    } else if (/^store\.dispatch|\.dispatch$/.test(calleeText)) {
+      isStateMutation = true;
+      scope = 'shared';
+      api = 'dispatch';
+    } else if (/^set[A-Z]/.test(calleeText) && !NON_STATE_SETTERS.test(calleeText)) {
+      isStateMutation = true;
+      scope = 'local';
+      api = 'setter';
+    }
+
+    if (!isStateMutation) continue;
+
+    nodes.push({
+      id: conceptId(filePath, 'state_mutation', call.getStart()),
+      kind: 'state_mutation',
+      primarySpan: span(filePath, call),
+      evidence: call.getText().substring(0, 100),
+      confidence: 0.85,
+      language: 'ts',
+      containerId: getContainerId(call, filePath),
+      payload: { kind: 'state_mutation', target, scope, via: 'call', api },
+    });
+  }
+}
+
+// ── function declarations ─────────────────────────────────────────────────
+
+function hasAwaitInBody(node: import('ts-morph').Node): boolean {
+  // Check for AwaitExpression or ForOfStatement with await
+  for (const desc of node.getDescendants()) {
+    const kind = desc.getKind();
+    if (kind === SyntaxKind.AwaitExpression) {
+      // Verify this await is not inside a nested function
+      let parent = desc.getParent();
+      let isNested = false;
+      while (parent && parent !== node) {
+        const pk = parent.getKind();
+        if (
+          pk === SyntaxKind.FunctionDeclaration ||
+          pk === SyntaxKind.FunctionExpression ||
+          pk === SyntaxKind.ArrowFunction ||
+          pk === SyntaxKind.MethodDeclaration
+        ) {
+          isNested = true;
+          break;
+        }
+        parent = parent.getParent();
+      }
+      if (!isNested) return true;
+    }
+    if (kind === SyntaxKind.ForOfStatement) {
+      // Check for `for await` by looking at the text
+      if (/\bfor\s+await\b/.test(desc.getText().substring(0, 20))) {
+        let parent = desc.getParent();
+        let isNested = false;
+        while (parent && parent !== node) {
+          const pk = parent.getKind();
+          if (
+            pk === SyntaxKind.FunctionDeclaration ||
+            pk === SyntaxKind.FunctionExpression ||
+            pk === SyntaxKind.ArrowFunction ||
+            pk === SyntaxKind.MethodDeclaration
+          ) {
+            isNested = true;
+            break;
+          }
+          parent = parent.getParent();
+        }
+        if (!isNested) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function extractFunctionDeclarations(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
+  // FunctionDeclaration
+  for (const fn of sf.getDescendantsOfKind(SyntaxKind.FunctionDeclaration)) {
+    const name = fn.getName() || 'anonymous';
+    const isAsync = fn.isAsync();
+    const isExport = fn.isExported();
+    const isComponent = /^[A-Z]/.test(name);
+    nodes.push({
+      id: conceptId(filePath, 'function_declaration', fn.getStart()),
+      kind: 'function_declaration',
+      primarySpan: span(filePath, fn),
+      evidence: `function ${name}`,
+      confidence: 0.95,
+      language: 'ts',
+      containerId: getContainerId(fn, filePath),
+      payload: {
+        kind: 'function_declaration',
+        name,
+        async: isAsync,
+        hasAwait: isAsync ? hasAwaitInBody(fn) : false,
+        isComponent,
+        isExport,
+      },
+    });
+  }
+
+  // MethodDeclaration
+  for (const method of sf.getDescendantsOfKind(SyntaxKind.MethodDeclaration)) {
+    const name = method.getName();
+    const isAsync = method.isAsync();
+    nodes.push({
+      id: conceptId(filePath, 'function_declaration', method.getStart()),
+      kind: 'function_declaration',
+      primarySpan: span(filePath, method),
+      evidence: `method ${name}`,
+      confidence: 0.95,
+      language: 'ts',
+      containerId: getContainerId(method, filePath),
+      payload: {
+        kind: 'function_declaration',
+        name,
+        async: isAsync,
+        hasAwait: isAsync ? hasAwaitInBody(method) : false,
+        isComponent: false,
+        isExport: false,
+      },
+    });
+  }
+
+  // ArrowFunction / FunctionExpression assigned to named variables
+  for (const varDecl of sf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = varDecl.getInitializer();
+    if (!init) continue;
+    const initKind = init.getKind();
+    if (initKind !== SyntaxKind.ArrowFunction && initKind !== SyntaxKind.FunctionExpression) continue;
+
+    const name = varDecl.getName();
+    const fn = init as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression;
+    const isAsync = (fn as any).isAsync?.() ?? /^async\s/.test(fn.getText());
+    const isComponent = /^[A-Z]/.test(name);
+    const varStmt = varDecl.getParent()?.getParent();
+    const isExport = varStmt ? /^export\s/.test(varStmt.getText()) : false;
+
+    nodes.push({
+      id: conceptId(filePath, 'function_declaration', varDecl.getStart()),
+      kind: 'function_declaration',
+      primarySpan: span(filePath, varDecl),
+      evidence: `${isAsync ? 'async ' : ''}${name}`,
+      confidence: 0.9,
+      language: 'ts',
+      containerId: getContainerId(varDecl, filePath),
+      payload: {
+        kind: 'function_declaration',
+        name,
+        async: isAsync,
+        hasAwait: isAsync ? hasAwaitInBody(fn) : false,
+        isComponent,
+        isExport,
+      },
+    });
+  }
+
+  // Express route handler arrow/function callbacks: router.get('/path', async (req, res) => { ... })
+  // These are NOT assigned to named variables, so the block above misses them.
+  // We synthesize a function name from the HTTP method + route path.
+  extractExpressCallbacks(sf, filePath, nodes);
+}
+
+// ── Express route handler callbacks ──────────────────────────────────────
+
+const EXPRESS_ROUTE_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch', 'use', 'all']);
+
+function extractExpressCallbacks(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
+  // Track offsets already emitted as function_declaration to avoid duplicates
+  const emittedOffsets = new Set<number>();
+  for (const n of nodes) {
+    if (n.kind === 'function_declaration') emittedOffsets.add(n.primarySpan.startLine);
+  }
+
+  for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) continue;
+    const pa = callee as import('ts-morph').PropertyAccessExpression;
+    const methodName = pa.getName();
+    if (!EXPRESS_ROUTE_METHODS.has(methodName)) continue;
+
+    const objText = pa.getExpression().getText();
+    if (!/app|router|server/i.test(objText)) continue;
+
+    const args = call.getArguments();
+    if (args.length < 2) continue;
+
+    // Extract route path from first argument (string literal)
+    let routePath: string | undefined;
+    if (args[0].getKind() === SyntaxKind.StringLiteral) {
+      routePath = (args[0] as import('ts-morph').StringLiteral).getLiteralValue();
+    }
+
+    // Check all arguments after the first for arrow functions / function expressions
+    for (let i = 1; i < args.length; i++) {
+      const arg = args[i];
+      const argKind = arg.getKind();
+      if (argKind !== SyntaxKind.ArrowFunction && argKind !== SyntaxKind.FunctionExpression) continue;
+
+      const fn = arg as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression;
+      const offset = fn.getStart();
+
+      // Skip if already emitted (e.g., assigned to a variable first)
+      if (emittedOffsets.has(fn.getStartLineNumber())) continue;
+
+      const syntheticName = `${methodName.toUpperCase()}_${routePath || '/'}`;
+      const isAsync = (fn as any).isAsync?.() ?? /^async\s/.test(fn.getText());
+
+      nodes.push({
+        id: conceptId(filePath, 'function_declaration', offset),
+        kind: 'function_declaration',
+        primarySpan: span(filePath, fn),
+        evidence: `${isAsync ? 'async ' : ''}${syntheticName}`,
+        confidence: 0.85,
+        language: 'ts',
+        containerId: getContainerId(fn, filePath),
+        payload: {
+          kind: 'function_declaration',
+          name: syntheticName,
+          async: isAsync,
+          hasAwait: isAsync ? hasAwaitInBody(fn) : false,
+          isComponent: false,
+          isExport: false,
+        },
+      });
+    }
   }
 }
 
 // ── dependency edges ─────────────────────────────────────────────────────
 
 const NODE_STDLIB = new Set([
-  'fs', 'path', 'os', 'http', 'https', 'url', 'util', 'crypto',
-  'events', 'stream', 'buffer', 'child_process', 'cluster', 'net',
-  'dns', 'tls', 'zlib', 'readline', 'assert', 'querystring',
+  'fs',
+  'path',
+  'os',
+  'http',
+  'https',
+  'url',
+  'util',
+  'crypto',
+  'events',
+  'stream',
+  'buffer',
+  'child_process',
+  'cluster',
+  'net',
+  'dns',
+  'tls',
+  'zlib',
+  'readline',
+  'assert',
+  'querystring',
 ]);
 
 function extractDependencyEdges(sf: SourceFile, filePath: string, edges: ConceptEdge[]): void {
@@ -521,14 +967,45 @@ function span(filePath: string, node: import('ts-morph').Node): ConceptSpan {
   );
 }
 
+// Incidental HOF callbacks — these are NOT logical containers
+const SKIP_CALLBACKS = new Set([
+  'forEach',
+  'map',
+  'filter',
+  'reduce',
+  'some',
+  'every',
+  'find',
+  'findIndex',
+  'flatMap',
+  'sort',
+  'then',
+  'catch',
+  'finally',
+]);
+
 function getContainerId(node: import('ts-morph').Node, filePath: string): string | undefined {
   let parent = node.getParent();
   while (parent) {
     const kind = parent.getKind();
-    if (kind === SyntaxKind.FunctionDeclaration ||
-        kind === SyntaxKind.MethodDeclaration ||
-        kind === SyntaxKind.ArrowFunction ||
-        kind === SyntaxKind.FunctionExpression) {
+    if (kind === SyntaxKind.FunctionDeclaration || kind === SyntaxKind.MethodDeclaration) {
+      const name = (parent as any).getName?.() || 'anonymous';
+      return `${filePath}#fn:${name}@${parent.getStart()}`;
+    }
+    if (kind === SyntaxKind.ArrowFunction || kind === SyntaxKind.FunctionExpression) {
+      // Skip if this function is an argument to an incidental HOF (forEach, map, etc.)
+      const grandparent = parent.getParent();
+      if (grandparent?.getKind() === SyntaxKind.CallExpression) {
+        const callee = (grandparent as import('ts-morph').CallExpression).getExpression();
+        if (callee.getKind() === SyntaxKind.PropertyAccessExpression) {
+          const methodName = (callee as import('ts-morph').PropertyAccessExpression).getName();
+          if (SKIP_CALLBACKS.has(methodName)) {
+            parent = grandparent.getParent();
+            continue;
+          }
+        }
+      }
+      // Not a skippable callback — this IS the container
       const name = (parent as any).getName?.() || 'anonymous';
       return `${filePath}#fn:${name}@${parent.getStart()}`;
     }
@@ -570,7 +1047,10 @@ function extractTarget(call: import('ts-morph').CallExpression): string | undefi
   if (first.getKind() === SyntaxKind.StringLiteral) {
     return (first as import('ts-morph').StringLiteral).getLiteralValue();
   }
-  if (first.getKind() === SyntaxKind.TemplateExpression || first.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral) {
+  if (
+    first.getKind() === SyntaxKind.TemplateExpression ||
+    first.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral
+  ) {
     return first.getText().substring(0, 80);
   }
   return undefined;

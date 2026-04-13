@@ -8,9 +8,9 @@
  * generates suggested .kern rewrites with actual slot values filled in.
  */
 
-import { SourceFile, SyntaxKind } from 'ts-morph';
 import { countTokens } from '@kernlang/core';
-import type { TemplateMatch, ReviewConfig } from './types.js';
+import type { SourceFile } from 'ts-morph';
+import type { ReviewConfig, TemplateMatch } from './types.js';
 
 interface TemplatePattern {
   templateName: string;
@@ -25,7 +25,7 @@ interface TemplatePattern {
 
 // ── Slot Extractors ──────────────────────────────────────────────────────
 
-function extractZustandSlots(sourceFile: SourceFile, fullText: string): Record<string, string> | null {
+function extractZustandSlots(_sourceFile: SourceFile, fullText: string): Record<string, string> | null {
   // Pattern: const useXStore = create<StateType>((set, get) => ({...}))
   // or: export const useXStore = create<StateType>()(...)
   const match = fullText.match(/(?:export\s+)?const\s+use(\w+)Store\s*=\s*create\s*<\s*(\w+)\s*>/);
@@ -43,7 +43,7 @@ function extractZustandSlots(sourceFile: SourceFile, fullText: string): Record<s
   return null;
 }
 
-function extractSwrSlots(sourceFile: SourceFile, fullText: string): Record<string, string> | null {
+function extractSwrSlots(_sourceFile: SourceFile, fullText: string): Record<string, string> | null {
   // Pattern: function useX() { ... useSWR(key, fetcher) ... }
   const fnMatch = fullText.match(/function\s+(use\w+)\s*\(/);
   const swrMatch = fullText.match(/useSWR\s*\(\s*([^,)]+)/);
@@ -53,7 +53,7 @@ function extractSwrSlots(sourceFile: SourceFile, fullText: string): Record<strin
   return null;
 }
 
-function extractQuerySlots(sourceFile: SourceFile, fullText: string): Record<string, string> | null {
+function extractQuerySlots(_sourceFile: SourceFile, fullText: string): Record<string, string> | null {
   const fnMatch = fullText.match(/function\s+(use\w+)\s*\(/);
   const keyMatch = fullText.match(/queryKey\s*:\s*\[([^\]]+)\]/);
   const fnBodyMatch = fullText.match(/queryFn\s*:\s*(\w+)/);
@@ -67,7 +67,7 @@ function extractQuerySlots(sourceFile: SourceFile, fullText: string): Record<str
   return null;
 }
 
-function extractJotaiSlots(sourceFile: SourceFile, fullText: string): Record<string, string> | null {
+function extractJotaiSlots(_sourceFile: SourceFile, fullText: string): Record<string, string> | null {
   const match = fullText.match(/(?:export\s+)?const\s+(\w+)Atom\s*=\s*atom\s*<\s*(\w+)\s*>\s*\(\s*([^)]+)\s*\)/);
   if (match) {
     return { atomName: match[1], atomType: match[2], initialValue: match[3].trim() };
@@ -75,7 +75,7 @@ function extractJotaiSlots(sourceFile: SourceFile, fullText: string): Record<str
   return null;
 }
 
-function extractZodSlots(sourceFile: SourceFile, fullText: string): Record<string, string> | null {
+function extractZodSlots(_sourceFile: SourceFile, fullText: string): Record<string, string> | null {
   const match = fullText.match(/(?:export\s+)?const\s+(\w+)(?:Schema)?\s*=\s*z\.object\s*\(/);
   if (match) {
     return { schemaName: match[1] };
@@ -167,10 +167,7 @@ const PATTERNS: TemplatePattern[] = [
 
 // ── Build .kern suggestion ───────────────────────────────────────────────
 
-function buildKernSuggestion(
-  templateName: string,
-  slots: Record<string, string>,
-): string {
+function buildKernSuggestion(templateName: string, slots: Record<string, string>): string {
   const parts = [templateName];
   for (const [key, value] of Object.entries(slots)) {
     if (value.includes(' ')) {
@@ -184,10 +181,7 @@ function buildKernSuggestion(
 
 // ── Main Detector ────────────────────────────────────────────────────────
 
-export function detectTemplates(
-  sourceFile: SourceFile,
-  config?: ReviewConfig,
-): TemplateMatch[] {
+export function detectTemplates(sourceFile: SourceFile, config?: ReviewConfig): TemplateMatch[] {
   const results: TemplateMatch[] = [];
   const fullText = sourceFile.getFullText();
   const totalTokens = countTokens(fullText);
@@ -195,28 +189,26 @@ export function detectTemplates(
   const registeredTemplates = new Set(config?.registeredTemplates || []);
 
   for (const pattern of PATTERNS) {
-    const matchingImport = imports.find(imp => {
+    const matchingImport = imports.find((imp) => {
       const source = imp.getModuleSpecifierValue();
       if (typeof pattern.importSource === 'string') {
-        return source === pattern.importSource || source.startsWith(pattern.importSource + '/');
+        return source === pattern.importSource || source.startsWith(`${pattern.importSource}/`);
       }
       return pattern.importSource.test(source);
     });
 
     if (!matchingImport) continue;
 
-    const namedImports = matchingImport.getNamedImports().map(n => n.getName());
+    const namedImports = matchingImport.getNamedImports().map((n) => n.getName());
     const defaultImport = matchingImport.getDefaultImport()?.getText();
-    const hasAnchor = namedImports.includes(pattern.anchorImport) ||
-                      defaultImport === pattern.anchorImport;
+    const hasAnchor = namedImports.includes(pattern.anchorImport) || defaultImport === pattern.anchorImport;
 
     if (!hasAnchor) continue;
 
     let confidence = pattern.confidencePct;
     if (pattern.bodyHint) {
-      const bodyMatches = typeof pattern.bodyHint === 'string'
-        ? fullText.includes(pattern.bodyHint)
-        : pattern.bodyHint.test(fullText);
+      const bodyMatches =
+        typeof pattern.bodyHint === 'string' ? fullText.includes(pattern.bodyHint) : pattern.bodyHint.test(fullText);
       if (!bodyMatches) {
         confidence -= 15;
       }
@@ -228,9 +220,7 @@ export function detectTemplates(
     const endLine = sourceFile.getEndLineNumber();
 
     // Extract slot values if extractor exists
-    const slotValues = pattern.extractSlots
-      ? pattern.extractSlots(sourceFile, fullText) ?? undefined
-      : undefined;
+    const slotValues = pattern.extractSlots ? (pattern.extractSlots(sourceFile, fullText) ?? undefined) : undefined;
 
     // Build .kern suggestion if template is registered and slots extracted
     let suggestedKern: string | undefined;

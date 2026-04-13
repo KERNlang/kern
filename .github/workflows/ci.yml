@@ -18,17 +18,27 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v5
+      - uses: pnpm/action-setup@v6
         with:
-          version: 9
+          version: 10.32.1
 
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: 'pnpm'
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install Python MCP SDK (for transpiler E2E tests)
+        run: pip install mcp
+
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Lint
+        run: pnpm lint
 
       - name: Build
         run: pnpm build

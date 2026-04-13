@@ -2,11 +2,45 @@
  * Kern Configuration Types
  */
 
+import { KernConfigError } from './errors.js';
 import { DEFAULT_COLORS } from './styles-tailwind.js';
+import type { IRNode } from './types.js';
 
-export type KernTarget = 'nextjs' | 'tailwind' | 'web' | 'native' | 'express' | 'cli' | 'terminal' | 'ink' | 'vue' | 'nuxt' | 'fastapi';
+export type KernTarget =
+  | 'auto'
+  | 'lib'
+  | 'nextjs'
+  | 'tailwind'
+  | 'web'
+  | 'native'
+  | 'express'
+  | 'cli'
+  | 'terminal'
+  | 'ink'
+  | 'vue'
+  | 'nuxt'
+  | 'fastapi'
+  | 'mcp';
 
-export const VALID_TARGETS: KernTarget[] = ['nextjs', 'tailwind', 'web', 'native', 'express', 'cli', 'terminal', 'ink', 'vue', 'nuxt', 'fastapi'];
+/** Concrete transpiler targets (displayed to users). */
+export const VALID_TARGETS: KernTarget[] = [
+  'lib',
+  'nextjs',
+  'tailwind',
+  'web',
+  'native',
+  'express',
+  'cli',
+  'terminal',
+  'ink',
+  'vue',
+  'nuxt',
+  'fastapi',
+  'mcp',
+];
+
+/** All accepted target values including meta-targets like 'auto'. */
+export const ALL_TARGETS: KernTarget[] = ['auto', ...VALID_TARGETS];
 
 export type KernStructure = 'flat' | 'bulletproof' | 'atomic' | 'kern';
 
@@ -48,6 +82,9 @@ export interface KernConfig {
     security?: ExpressSecurityLevel;
     helmet?: boolean;
     compression?: boolean;
+    prisma?: {
+      provider?: 'postgresql' | 'mysql' | 'sqlite' | 'sqlserver' | 'mongodb';
+    };
   };
 
   fastapi?: {
@@ -99,6 +136,9 @@ export interface ResolvedKernConfig {
     security: ExpressSecurityLevel;
     helmet: boolean;
     compression: boolean;
+    prisma: {
+      provider: 'postgresql' | 'mysql' | 'sqlite' | 'sqlserver' | 'mongodb';
+    };
   };
 
   fastapi: {
@@ -140,6 +180,9 @@ export const DEFAULT_CONFIG: ResolvedKernConfig = {
     security: 'strict',
     helmet: false,
     compression: false,
+    prisma: {
+      provider: 'postgresql',
+    },
   },
   fastapi: {
     security: 'strict',
@@ -155,17 +198,30 @@ export const DEFAULT_CONFIG: ResolvedKernConfig = {
   },
 };
 
+/**
+ * Merge a partial user config with defaults to produce a fully resolved config.
+ *
+ * @param user - Partial config overrides. Omit for defaults.
+ * @returns A deep-cloned {@link ResolvedKernConfig} with all fields populated.
+ * @throws {KernConfigError} If `target` or `structure` values are not in the valid set.
+ *
+ * @example
+ * ```ts
+ * const cfg = resolveConfig({ target: 'express', express: { helmet: true } });
+ * // cfg.target === 'express', cfg.i18n.enabled === true (default)
+ * ```
+ */
 export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
-  if (!user) return { ...DEFAULT_CONFIG };
+  if (!user) return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
 
   // Validate target
-  if (user.target && !VALID_TARGETS.includes(user.target)) {
-    throw new Error(`Unknown target: '${user.target}'. Valid targets: ${VALID_TARGETS.join(', ')}`);
+  if (user.target && !ALL_TARGETS.includes(user.target)) {
+    throw new KernConfigError(`Valid targets: ${ALL_TARGETS.join(', ')}`, 'target', user.target);
   }
 
   // Validate structure
   if (user.structure && !VALID_STRUCTURES.includes(user.structure)) {
-    throw new Error(`Unknown structure: '${user.structure}'. Valid structures: ${VALID_STRUCTURES.join(', ')}`);
+    throw new KernConfigError(`Valid structures: ${VALID_STRUCTURES.join(', ')}`, 'structure', user.structure);
   }
 
   return {
@@ -195,6 +251,9 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
       security: user.express?.security ?? DEFAULT_CONFIG.express.security,
       helmet: user.express?.helmet ?? DEFAULT_CONFIG.express.helmet,
       compression: user.express?.compression ?? DEFAULT_CONFIG.express.compression,
+      prisma: {
+        provider: user.express?.prisma?.provider ?? DEFAULT_CONFIG.express.prisma.provider,
+      },
     },
     fastapi: {
       security: user.fastapi?.security ?? DEFAULT_CONFIG.fastapi.security,
@@ -203,7 +262,7 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
       uvicorn: {
         host: user.fastapi?.uvicorn?.host ?? DEFAULT_CONFIG.fastapi.uvicorn.host,
         reload: user.fastapi?.uvicorn?.reload ?? DEFAULT_CONFIG.fastapi.uvicorn.reload,
-        ...(user.fastapi?.uvicorn?.workers ? { workers: user.fastapi.uvicorn.workers } : {}),
+        ...(user.fastapi?.uvicorn?.workers !== undefined ? { workers: user.fastapi.uvicorn.workers } : {}),
       },
     },
     review: {
@@ -213,6 +272,81 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
       disabledRules: user.review?.disabledRules ?? DEFAULT_CONFIG.review.disabledRules,
     },
   };
+}
+
+/**
+ * Auto-detect the appropriate transpiler target from AST content.
+ *
+ * Inspects top-level node types to determine the best target:
+ * - screen nodes → 'ink' (terminal UI)
+ * - server/route/middleware → 'express'
+ * - mcp/tool/resource → 'mcp'
+ * - cli/command → 'cli'
+ * - Otherwise → 'nextjs' (default)
+ *
+ * Examines screen target= props for explicit overrides.
+ */
+export function detectTarget(ast: IRNode): KernTarget {
+  let hasScreen = false;
+  let hasServer = false;
+  let hasMcp = false;
+  let hasCli = false;
+  let hasNextjs = false;
+  let screenTarget: string | undefined;
+
+  // Walk the full tree — parse() may return a single node or a document wrapper,
+  // and screen nodes may be nested or siblings. Check everything.
+  function walk(node: IRNode): void {
+    switch (node.type) {
+      case 'screen': {
+        hasScreen = true;
+        const t = node.props?.target;
+        if (typeof t === 'string') screenTarget = t;
+        break;
+      }
+      case 'server':
+      case 'route':
+      case 'middleware':
+        hasServer = true;
+        break;
+      case 'mcp':
+      case 'tool':
+      case 'resource':
+        hasMcp = true;
+        break;
+      case 'cli':
+      case 'command':
+        hasCli = true;
+        break;
+      case 'page':
+      case 'layout':
+      case 'loading':
+      case 'error':
+      case 'metadata':
+        hasNextjs = true;
+        break;
+    }
+    for (const child of node.children || []) {
+      walk(child);
+    }
+  }
+  walk(ast);
+
+  // Explicit screen target= takes priority
+  if (screenTarget && VALID_TARGETS.includes(screenTarget as KernTarget)) {
+    return screenTarget as KernTarget;
+  }
+
+  // Infer from content
+  if (hasScreen) return 'ink';
+  if (hasMcp) return 'mcp';
+  if (hasServer) return 'express';
+  if (hasCli) return 'cli';
+  if (hasNextjs) return 'nextjs';
+
+  // No framework-specific nodes → plain TypeScript library output.
+  // 'native' is React Native, 'nextjs' is a page scaffold — neither fits pure lib code.
+  return 'lib';
 }
 
 /** @deprecated Use resolveConfig instead */

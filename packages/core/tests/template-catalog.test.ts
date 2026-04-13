@@ -1,7 +1,7 @@
-import { detectTemplates, TEMPLATE_CATALOG, COMMON_TEMPLATES } from '../src/template-catalog.js';
-import { parse } from '../src/parser.js';
-import { registerTemplate, clearTemplates, isTemplateNode, expandTemplateNode } from '../src/template-engine.js';
 import { generateCoreNode } from '../src/codegen-core.js';
+import { parse } from '../src/parser.js';
+import { COMMON_TEMPLATES, detectTemplates, TEMPLATE_CATALOG } from '../src/template-catalog.js';
+import { clearTemplates, registerTemplate } from '../src/template-engine.js';
 
 beforeEach(() => {
   clearTemplates();
@@ -70,7 +70,7 @@ describe('Template Catalog', () => {
           react: '^18.2.0',
         },
       });
-      const names = detected.map(d => d.libraryName).sort();
+      const names = detected.map((d) => d.libraryName).sort();
       expect(names).toEqual(['SWR', 'XState', 'Zustand']);
     });
 
@@ -94,7 +94,7 @@ describe('Template Catalog', () => {
       for (const [filename, content] of Object.entries(entry.templates)) {
         it(`${entry.libraryName}: ${filename} parses and registers`, () => {
           const ast = parse(content);
-          const node = ast.type === 'template' ? ast : (ast.children || []).find(n => n.type === 'template');
+          const node = ast.type === 'template' ? ast : (ast.children || []).find((n) => n.type === 'template');
           expect(node).toBeDefined();
           expect(() => registerTemplate(node!)).not.toThrow();
           clearTemplates();
@@ -105,7 +105,7 @@ describe('Template Catalog', () => {
     for (const [filename, content] of Object.entries(COMMON_TEMPLATES)) {
       it(`common: ${filename} parses and registers`, () => {
         const ast = parse(content);
-        const node = ast.type === 'template' ? ast : (ast.children || []).find(n => n.type === 'template');
+        const node = ast.type === 'template' ? ast : (ast.children || []).find((n) => n.type === 'template');
         expect(node).toBeDefined();
         expect(() => registerTemplate(node!)).not.toThrow();
         clearTemplates();
@@ -129,25 +129,29 @@ describe('Template Catalog', () => {
           zod: '4.3.6',
         },
       });
-      const names = detected.map(d => d.libraryName).sort();
+      const names = detected.map((d) => d.libraryName).sort();
       expect(names).toEqual(['XState', 'Zustand']);
     });
 
     it('Zustand store template expands with AudioFacets toast pattern', () => {
       // Register catalog templates
-      const entry = TEMPLATE_CATALOG.find(e => e.packageName === 'zustand')!;
+      const entry = TEMPLATE_CATALOG.find((e) => e.packageName === 'zustand')!;
       for (const content of Object.values(entry.templates)) {
         const ast = parse(content);
-        registerTemplate(ast.type === 'template' ? ast : (ast.children || []).find(n => n.type === 'template')!);
+        registerTemplate(ast.type === 'template' ? ast : (ast.children || []).find((n) => n.type === 'template')!);
       }
 
-      const code = generateCoreNode(parse([
-        'zustand-store storeName=Toast stateType=ToastState',
-        '  handler <<<',
-        '    toasts: [],',
-        '    addToast: (msg: string) => set({ toasts: [msg] }),',
-        '  >>>',
-      ].join('\n'))).join('\n');
+      const code = generateCoreNode(
+        parse(
+          [
+            'zustand-store storeName=Toast stateType=ToastState',
+            '  handler <<<',
+            '    toasts: [],',
+            '    addToast: (msg: string) => set({ toasts: [msg] }),',
+            '  >>>',
+          ].join('\n'),
+        ),
+      ).join('\n');
 
       expect(code).toContain("import { create } from 'zustand';");
       expect(code).toContain('useToastStore');
@@ -171,7 +175,7 @@ describe('Template Catalog', () => {
           'next-rosetta': '2.0.2',
         },
       });
-      const names = detected.map(d => d.libraryName);
+      const names = detected.map((d) => d.libraryName);
       expect(names).toEqual(['XState']);
     });
   });

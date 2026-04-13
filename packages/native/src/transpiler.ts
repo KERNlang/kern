@@ -1,5 +1,5 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR } from '@kernlang/core';
+import type { AccountedEntry, IRNode, ResolvedKernConfig, SourceMapEntry, TranspileResult } from '@kernlang/core';
+import { accountNode, buildDiagnostics, countTokens, expandStyles, serializeIR } from '@kernlang/core';
 
 const NODE_TO_COMPONENT: Record<string, string> = {
   screen: 'View',
@@ -42,8 +42,8 @@ export function transpile(root: IRNode, _config?: ResolvedKernConfig): Transpile
   const themes: Record<string, Record<string, string>> = {};
   function collectThemes(node: IRNode): void {
     if (node.type === 'theme' && node.props) {
-      const name = Object.values(node.props).find(v => typeof v === 'string') as string | undefined;
-      const themeName = (node.props as Record<string, unknown>)['name'] as string | undefined;
+      const name = Object.values(node.props).find((v) => typeof v === 'string') as string | undefined;
+      const themeName = (node.props as Record<string, unknown>).name as string | undefined;
       // theme nodes: type=theme, first prop value or the styles
       if (node.props.styles) {
         const key = themeName || name || `theme_${styleIdx++}`;
@@ -68,9 +68,7 @@ export function transpile(root: IRNode, _config?: ResolvedKernConfig): Transpile
           // Let me check: "theme bar {h:8,br:4}" - type="theme", then "bar" tries to match as prop (no =), fails.
           // So we need to handle theme name specially. For now, get it from the parser result.
           if (props.styles) {
-            // Use first non-style, non-pseudoStyles key as name, or generate one
-            const keys = Object.keys(props).filter(k => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
-            const name = keys[0] || `theme_${styleIdx++}`;
+            const name = (props.name as string) || `theme_${styleIdx++}`;
             themes[name] = props.styles as Record<string, string>;
           }
         }
@@ -126,7 +124,7 @@ export function transpile(root: IRNode, _config?: ResolvedKernConfig): Transpile
     }
 
     // Handle pseudo-styles (simplified: just store as comment)
-    const pseudoStyles = props.pseudoStyles as Record<string, Record<string, string>> | undefined;
+    const _pseudoStyles = props.pseudoStyles as Record<string, Record<string, string>> | undefined;
 
     // Add meaningful props as JSX attributes
     for (const [k, v] of Object.entries(props)) {
@@ -140,11 +138,12 @@ export function transpile(root: IRNode, _config?: ResolvedKernConfig): Transpile
       attrs.push(`${k}="${v}"`);
     }
 
-    const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
-    const hasChildren = (node.children && node.children.length > 0) ||
+    const attrStr = attrs.length > 0 ? ` ${attrs.join(' ')}` : '';
+    const hasChildren =
+      (node.children && node.children.length > 0) ||
       (node.type === 'text' && props.value) ||
       (node.type === 'button' && props.text) ||
-      (node.type === 'progress');
+      node.type === 'progress';
 
     if (hasChildren) {
       lines.push(`${indent}<${comp}${attrStr}>`);
@@ -176,7 +175,12 @@ export function transpile(root: IRNode, _config?: ResolvedKernConfig): Transpile
         styleEntries[barStyle] = { height: 8, borderRadius: 4, backgroundColor: '#E0E0E0', overflow: 'hidden' };
         const color = (props.color as string) || '#007AFF';
         const pct = Number(current) / Number(target);
-        styleEntries[fillStyle] = { height: 8, borderRadius: 4, backgroundColor: color, width: `${Math.round(pct * 100)}%` };
+        styleEntries[fillStyle] = {
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: color,
+          width: `${Math.round(pct * 100)}%`,
+        };
         lines.push(`${indent}  <View style={styles.${barStyle}}>`);
         lines.push(`${indent}    <View style={styles.${fillStyle}} />`);
         lines.push(`${indent}  </View>`);
@@ -185,7 +189,7 @@ export function transpile(root: IRNode, _config?: ResolvedKernConfig): Transpile
       // Child nodes
       if (node.children) {
         for (const child of node.children) {
-          renderNode(child, indent + '  ');
+          renderNode(child, `${indent}  `);
         }
       }
 
@@ -237,6 +241,15 @@ export function transpile(root: IRNode, _config?: ResolvedKernConfig): Transpile
     irTokenCount,
     tsTokenCount,
     tokenReduction,
+    diagnostics: (() => {
+      const accounted = new Map<IRNode, AccountedEntry>();
+      accountNode(accounted, root, 'expressed', undefined, true);
+      if (root.children) {
+        for (const child of root.children) {
+          if (child.type === 'theme') accountNode(accounted, child, 'consumed', 'theme pre-pass', true);
+        }
+      }
+      return buildDiagnostics(root, accounted, 'native');
+    })(),
   };
 }
-

@@ -1,5 +1,11 @@
 # @kernlang/terminal
 
+## Unreleased
+
+### Bug Fixes
+
+- Removed unused import: `GeneratedArtifact` (transpiler-terminal.ts)
+
 ## 3.0.0
 
 ### Major Changes

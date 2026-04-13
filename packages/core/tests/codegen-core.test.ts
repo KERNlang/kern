@@ -1,13 +1,8 @@
 import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { generateCoreNode, isCoreNode } from '../src/codegen-core.js';
 import { parse } from '../src/parser.js';
-import {
-  generateType, generateInterface, generateFunction,
-  generateMachine, generateError, generateConfig,
-  generateStore, generateTest, generateEvent, generateModule,
-  generateCoreNode, isCoreNode, generateHook,
-} from '../src/codegen-core.js';
 
 // Helper: parse a .kern snippet and generate code for the root node
 function gen(source: string): string {
@@ -16,7 +11,7 @@ function gen(source: string): string {
 }
 
 // Helper: parse and return just the root's first child codegen
-function genChild(source: string): string {
+function _genChild(source: string): string {
   const root = parse(source);
   const child = root.children?.[0];
   if (!child) return '';
@@ -29,7 +24,9 @@ describe('Core Language Codegen', () => {
   describe('type', () => {
     it('generates union type from values', () => {
       const code = gen('type name=PlanState values="draft|approved|running|paused|completed|failed|cancelled"');
-      expect(code).toContain("export type PlanState = 'draft' | 'approved' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';");
+      expect(code).toContain(
+        "export type PlanState = 'draft' | 'approved' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';",
+      );
     });
 
     it('generates alias type', () => {
@@ -48,12 +45,14 @@ describe('Core Language Codegen', () => {
 
   describe('interface', () => {
     it('generates interface with fields', () => {
-      const code = gen([
-        'interface name=ArtifactRef',
-        '  field name=type type="\'patch\'|\'diff\'"',
-        '  field name=path type=string',
-        '  field name=engineId type=string optional=true',
-      ].join('\n'));
+      const code = gen(
+        [
+          'interface name=ArtifactRef',
+          "  field name=type type=\"'patch'|'diff'\"",
+          '  field name=path type=string',
+          '  field name=engineId type=string optional=true',
+        ].join('\n'),
+      );
 
       expect(code).toContain('export interface ArtifactRef {');
       expect(code).toContain("  type: 'patch'|'diff';");
@@ -72,12 +71,14 @@ describe('Core Language Codegen', () => {
 
   describe('fn', () => {
     it('generates function with params and return type', () => {
-      const code = gen([
-        'fn name=createPlan params="action:PlanAction,ws:WorkspaceSnapshot" returns=Plan',
-        '  handler <<<',
-        '    return { id: "test" };',
-        '  >>>',
-      ].join('\n'));
+      const code = gen(
+        [
+          'fn name=createPlan params="action:PlanAction,ws:WorkspaceSnapshot" returns=Plan',
+          '  handler <<<',
+          '    return { id: "test" };',
+          '  >>>',
+        ].join('\n'),
+      );
 
       expect(code).toContain('export function createPlan(action: PlanAction, ws: WorkspaceSnapshot): Plan {');
       expect(code).toContain('return { id: "test" };');
@@ -110,7 +111,9 @@ describe('Core Language Codegen', () => {
 
     it('generates state type', () => {
       const code = gen(machineSource);
-      expect(code).toContain("export type PlanState = 'draft' | 'approved' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';");
+      expect(code).toContain(
+        "export type PlanState = 'draft' | 'approved' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';",
+      );
     });
 
     it('generates error class', () => {
@@ -144,15 +147,17 @@ describe('Core Language Codegen', () => {
     });
 
     it('supports custom handler in transition', () => {
-      const code = gen([
-        'machine name=Plan',
-        '  state name=draft',
-        '  state name=running',
-        '  transition name=start from=draft to=running',
-        '    handler <<<',
-        '      return { ...entity, state: "running", startedAt: Date.now() };',
-        '    >>>',
-      ].join('\n'));
+      const code = gen(
+        [
+          'machine name=Plan',
+          '  state name=draft',
+          '  state name=running',
+          '  transition name=start from=draft to=running',
+          '    handler <<<',
+          '      return { ...entity, state: "running", startedAt: Date.now() };',
+          '    >>>',
+        ].join('\n'),
+      );
 
       expect(code).toContain('return { ...entity, state: "running", startedAt: Date.now() };');
       // Should NOT contain the default return
@@ -170,11 +175,13 @@ describe('Core Language Codegen', () => {
     });
 
     it('generates error with fields and message', () => {
-      const code = gen([
-        'error name=PlanStateError extends=AgonError message="Invalid plan state: expected ${expectedStr}, got ${actual}"',
-        '  field name=expected type="string | string[]"',
-        '  field name=actual type=string',
-      ].join('\n'));
+      const code = gen(
+        [
+          'error name=PlanStateError extends=AgonError message="Invalid plan state: expected ${expectedStr}, got ${actual}"',
+          '  field name=expected type="string | string[]"',
+          '  field name=actual type=string',
+        ].join('\n'),
+      );
 
       expect(code).toContain('export class PlanStateError extends AgonError {');
       expect(code).toContain('public readonly expected: string | string[]');
@@ -186,12 +193,14 @@ describe('Core Language Codegen', () => {
 
   describe('config', () => {
     it('generates interface and defaults', () => {
-      const code = gen([
-        'config name=AgonConfig',
-        '  field name=timeout type=number default=120',
-        '  field name=verbose type=boolean default=false',
-        '  field name=approvalLevel type=string default=plan',
-      ].join('\n'));
+      const code = gen(
+        [
+          'config name=AgonConfig',
+          '  field name=timeout type=number default=120',
+          '  field name=verbose type=boolean default=false',
+          '  field name=approvalLevel type=string default=plan',
+        ].join('\n'),
+      );
 
       expect(code).toContain('export interface AgonConfig {');
       expect(code).toContain('timeout?: number;');
@@ -212,7 +221,7 @@ describe('Core Language Codegen', () => {
       expect(code).toContain('function loadPlan(id: string): Plan | null');
       expect(code).toContain('function listPlans(limit = 20): Plan[]');
       expect(code).toContain('function deletePlan(id: string): boolean');
-      expect(code).toContain("PLAN_DIR");
+      expect(code).toContain('PLAN_DIR');
       // Path traversal protection
       expect(code).toContain('sanitized');
     });
@@ -222,14 +231,16 @@ describe('Core Language Codegen', () => {
 
   describe('test', () => {
     it('generates vitest describe/it blocks', () => {
-      const code = gen([
-        'test name="Plan Transitions"',
-        '  describe name=approvePlan',
-        '    it name="transitions draft to approved"',
-        '      handler <<<',
-        '        expect(1).toBe(1);',
-        '      >>>',
-      ].join('\n'));
+      const code = gen(
+        [
+          'test name="Plan Transitions"',
+          '  describe name=approvePlan',
+          '    it name="transitions draft to approved"',
+          '      handler <<<',
+          '        expect(1).toBe(1);',
+          '      >>>',
+        ].join('\n'),
+      );
 
       expect(code).toContain("import { describe, it, expect } from 'vitest';");
       expect(code).toContain("describe('Plan Transitions', () => {");
@@ -243,12 +254,14 @@ describe('Core Language Codegen', () => {
 
   describe('event', () => {
     it('generates typed event system', () => {
-      const code = gen([
-        'event name=ForgeEvent',
-        '  type name="baseline:start"',
-        '  type name="baseline:done" data="{ passes: boolean }"',
-        '  type name="winner:determined" data="{ winner: string }"',
-      ].join('\n'));
+      const code = gen(
+        [
+          'event name=ForgeEvent',
+          '  type name="baseline:start"',
+          '  type name="baseline:done" data="{ passes: boolean }"',
+          '  type name="winner:determined" data="{ winner: string }"',
+        ].join('\n'),
+      );
 
       expect(code).toContain("export type ForgeEventType = 'baseline:start' | 'baseline:done' | 'winner:determined';");
       expect(code).toContain('export interface ForgeEvent {');
@@ -283,7 +296,7 @@ describe('Core Language Codegen', () => {
       expect(result.code).toContain('function failPlan');
       expect(result.code).toContain('function savePlan');
       expect(result.code).toContain('function loadPlan');
-      expect(result.code).toContain("type ForgeEventType =");
+      expect(result.code).toContain('type ForgeEventType =');
       expect(result.code).toContain('interface AgonConfig');
       expect(result.code).toContain('DEFAULT_AGON_CONFIG');
     });
@@ -291,170 +304,7 @@ describe('Core Language Codegen', () => {
 
   // ── hook ──
 
-  describe('hook', () => {
-    it('generates useState from state children', () => {
-      const code = gen([
-        'hook name=useCounter',
-        '  state name=count type=number init=0',
-      ].join('\n'));
-
-      expect(code).toContain("import { useState } from 'react';");
-      expect(code).toContain('const [count, setCount] = useState<number>(0);');
-      expect(code).toContain('export function useCounter()');
-    });
-
-    it('generates useRef from ref children', () => {
-      const code = gen([
-        'hook name=useAbort',
-        '  ref name=abortCtrl type=AbortController init="new AbortController()"',
-      ].join('\n'));
-
-      expect(code).toContain("useRef } from 'react'");
-      expect(code).toContain('const abortCtrl = useRef<AbortController>(new AbortController());');
-    });
-
-    it('generates useContext from context children', () => {
-      const code = gen([
-        'hook name=useTheme',
-        '  context name=theme type=ThemeConfig source=ThemeContext',
-      ].join('\n'));
-
-      expect(code).toContain("useContext } from 'react'");
-      expect(code).toContain('const theme = useContext(ThemeContext);');
-    });
-
-    it('generates useMemo with handler and deps', () => {
-      const code = gen([
-        'hook name=useSearch',
-        '  memo name=cacheKey deps="query,filters"',
-        '    handler <<<',
-        '      return buildCacheKey(query, filters);',
-        '    >>>',
-      ].join('\n'));
-
-      expect(code).toContain("useMemo } from 'react'");
-      expect(code).toContain('const cacheKey = useMemo(() => {');
-      expect(code).toContain('return buildCacheKey(query, filters);');
-      expect(code).toContain('}, [query,filters]);');
-    });
-
-    it('generates useCallback with params and deps', () => {
-      const code = gen([
-        'hook name=useSearch',
-        '  callback name=handleFilter params="field:string,value:string" deps="query"',
-        '    handler <<<',
-        '      setQuery(prev => updateFilter(prev, field, value));',
-        '    >>>',
-      ].join('\n'));
-
-      expect(code).toContain("useCallback } from 'react'");
-      expect(code).toContain('const handleFilter = useCallback((field: string, value: string) => {');
-      expect(code).toContain('setQuery(prev => updateFilter(prev, field, value));');
-      expect(code).toContain('}, [query]);');
-    });
-
-    it('generates useEffect with deps', () => {
-      const code = gen([
-        'hook name=useTracker',
-        '  effect deps="query"',
-        '    handler <<<',
-        '      trackSearch(query);',
-        '    >>>',
-      ].join('\n'));
-
-      expect(code).toContain("useEffect } from 'react'");
-      expect(code).toContain('useEffect(() => {');
-      expect(code).toContain('trackSearch(query);');
-      expect(code).toContain('}, [query]);');
-    });
-
-    it('generates useEffect with cleanup block', () => {
-      const code = gen([
-        'hook name=useSubscribe',
-        '  effect deps="channel"',
-        '    handler <<<',
-        '      const sub = subscribe(channel);',
-        '    >>>',
-        '    cleanup <<<',
-        '      sub.unsubscribe();',
-        '    >>>',
-      ].join('\n'));
-
-      expect(code).toContain('const sub = subscribe(channel);');
-      expect(code).toContain('return () => {');
-      expect(code).toContain('sub.unsubscribe();');
-    });
-
-    it('emits children in source order', () => {
-      const code = gen([
-        'hook name=useSearch',
-        '  state name=query type=string init=""',
-        '  memo name=cacheKey deps="query"',
-        '    handler <<<',
-        '      return buildKey(query);',
-        '    >>>',
-        '  state name=isLoading type=boolean init=false',
-      ].join('\n'));
-
-      // Search for body-specific patterns (not imports)
-      const queryIdx = code.indexOf('useState<string>');
-      const memoIdx = code.indexOf('const cacheKey = useMemo');
-      const loadingIdx = code.indexOf('useState<boolean>');
-      expect(queryIdx).toBeLessThan(memoIdx);
-      expect(memoIdx).toBeLessThan(loadingIdx);
-    });
-
-    it('emits returns always last', () => {
-      const code = gen([
-        'hook name=useSearch',
-        '  returns names="query,isLoading"',
-        '  state name=query type=string init=""',
-        '  state name=isLoading type=boolean init=false',
-      ].join('\n'));
-
-      const stateIdx = code.indexOf('useState');
-      const returnIdx = code.indexOf('return {');
-      expect(stateIdx).toBeLessThan(returnIdx);
-    });
-
-    it('auto-imports only needed React hooks', () => {
-      const code = gen([
-        'hook name=useSimple',
-        '  state name=val type=string init=""',
-      ].join('\n'));
-
-      expect(code).toContain("import { useState } from 'react';");
-      expect(code).not.toContain('useCallback');
-      expect(code).not.toContain('useMemo');
-      expect(code).not.toContain('useEffect');
-      expect(code).not.toContain('useRef');
-    });
-
-    it('handles params and return type', () => {
-      const code = gen('hook name=useSearch params="initial:SearchState" returns=SearchResult');
-      expect(code).toContain('export function useSearch(initial: SearchState): SearchResult {');
-    });
-
-    it('generates inline handler code', () => {
-      const code = gen([
-        'hook name=useData',
-        '  handler <<<',
-        '    const { data } = useSWR("/api", fetcher);',
-        '  >>>',
-      ].join('\n'));
-
-      expect(code).toContain('const { data } = useSWR("/api", fetcher);');
-    });
-
-    it('returns mapped values', () => {
-      const code = gen([
-        'hook name=useSearch',
-        '  returns names="articles:data?.articles,isLoading,handleFilter"',
-      ].join('\n'));
-
-      expect(code).toContain('return { articles: data?.articles, isLoading, handleFilter };');
-    });
-  });
+  // Hook tests moved to @kernlang/react — hook codegen is React-specific
 
   // ── Gap 5: Default params ──
 
@@ -503,7 +353,7 @@ describe('Core Language Codegen', () => {
       ].join('\n');
       const code = gen(source);
 
-      expect(code).toContain("export type ContentSegment =");
+      expect(code).toContain('export type ContentSegment =');
       expect(code).toContain("type: 'prose'; text: string");
       expect(code).toContain("type: 'code'; language: string; code: string");
     });
@@ -699,8 +549,11 @@ describe('Core Language Codegen', () => {
       expect(isCoreNode('hook')).toBe(true);
     });
 
+    it('identifies graduated screen node', () => {
+      expect(isCoreNode('screen')).toBe(true);
+    });
+
     it('rejects non-core nodes', () => {
-      expect(isCoreNode('screen')).toBe(false);
       expect(isCoreNode('button')).toBe(false);
       expect(isCoreNode('route')).toBe(false);
     });

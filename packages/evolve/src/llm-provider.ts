@@ -33,9 +33,7 @@ export function createLLMProvider(options: LLMProviderOptions = {}): LLMProvider
     case 'ollama':
       return createOllamaProvider(options);
     default:
-      throw new Error(
-        `No LLM provider configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or use --provider=ollama`
-      );
+      throw new Error(`No LLM provider configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or use --provider=ollama`);
   }
 }
 
@@ -75,7 +73,7 @@ function createOpenAIProvider(options: LLMProviderOptions): LLMProvider {
         throw new Error(`OpenAI API error ${response.status}: ${text}`);
       }
 
-      const data = await response.json() as { choices: Array<{ message: { content: string } }> };
+      const data = (await response.json()) as { choices: Array<{ message: { content: string } }> };
       return data.choices[0]?.message?.content || '';
     },
   };
@@ -110,7 +108,7 @@ function createAnthropicProvider(options: LLMProviderOptions): LLMProvider {
         throw new Error(`Anthropic API error ${response.status}: ${text}`);
       }
 
-      const data = await response.json() as { content: Array<{ text: string }> };
+      const data = (await response.json()) as { content: Array<{ text: string }> };
       return data.content[0]?.text || '';
     },
   };
@@ -138,7 +136,7 @@ function createOllamaProvider(options: LLMProviderOptions): LLMProvider {
         throw new Error(`Ollama error ${response.status}: ${text}`);
       }
 
-      const data = await response.json() as { response: string };
+      const data = (await response.json()) as { response: string };
       return data.response || '';
     },
   };
@@ -169,6 +167,6 @@ export class TokenBudget {
   }
 
   toString(): string {
-    return `${this.used}/${this.limit} tokens (${Math.round(this.used / this.limit * 100)}%)`;
+    return `${this.used}/${this.limit} tokens (${Math.round((this.used / this.limit) * 100)}%)`;
   }
 }

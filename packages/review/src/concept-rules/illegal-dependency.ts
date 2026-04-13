@@ -9,9 +9,9 @@
  * Go: internal import path that walks too far upward
  */
 
-import type { ConceptRuleContext } from './index.js';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
+import type { ConceptRuleContext } from './index.js';
 
 export function illegalDependency(ctx: ConceptRuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];

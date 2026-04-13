@@ -7,34 +7,9 @@
  * - Nullable function returns used without guard
  */
 
-import { SyntaxKind, Node } from 'ts-morph';
-import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
-import { createFingerprint } from '../types.js';
-
-function span(file: string, line: number, col = 1): SourceSpan {
-  return { file, startLine: line, startCol: col, endLine: line, endCol: col };
-}
-
-function finding(
-  ruleId: string,
-  severity: 'error' | 'warning',
-  message: string,
-  file: string,
-  line: number,
-  col = 1,
-  extra?: Partial<ReviewFinding>,
-): ReviewFinding {
-  return {
-    source: 'kern',
-    ruleId,
-    severity,
-    category: 'bug',
-    message,
-    primarySpan: span(file, line, col),
-    fingerprint: createFingerprint(ruleId, line, col),
-    ...extra,
-  };
-}
+import { Node, SyntaxKind } from 'ts-morph';
+import type { ReviewFinding, RuleContext } from '../types.js';
+import { finding } from './utils.js';
 
 // ── Rule 1: unchecked-find ───────────────────────────────────────────────
 // .find() returns T | undefined — using result without null check is a bug.
@@ -62,31 +37,38 @@ function uncheckedFind(ctx: RuleContext): ReviewFinding[] {
       const container = block || sf;
 
       const line = call.getStartLineNumber();
-      const statementsAfter = container.getStatements().filter(s => s.getStartLineNumber() > line);
+      const statementsAfter = container.getStatements().filter((s) => s.getStartLineNumber() > line);
 
-      let guarded = false;
+      let _guarded = false;
       for (const stmt of statementsAfter) {
         const text = stmt.getText();
-        // Check for null guards: if (x), if (x != null), if (!x), x?, x ? (ternary)
-        if (text.includes(`if (${varName}`) || text.includes(`if (!${varName}`) ||
-            text.includes(`${varName} != null`) || text.includes(`${varName} !== null`) ||
-            text.includes(`${varName} !== undefined`) || text.includes(`${varName} != undefined`) ||
-            text.includes(`${varName}?`) || text.includes(`${varName} ?`)) {
-          guarded = true;
+        // Check for null guards using word boundaries to avoid substring matches
+        // (e.g., var 'el' must not match 'elementCount')
+        const guardRe = new RegExp(`\\b${varName}\\b\\s*(!==?\\s*null|!==?\\s*undefined|\\?[.:]|\\s\\?)`, '');
+        const ifGuardRe = new RegExp(`if\\s*\\(!?\\b${varName}\\b[^.]`, '');
+        if (guardRe.test(text) || ifGuardRe.test(text)) {
+          _guarded = true;
           break;
         }
-        // Used before guard — flag it
-        if (text.includes(`${varName}.`) && !text.includes(`${varName}?.`)) {
-          findings.push(finding(
-            'unchecked-find',
-            'warning',
-            `Result of .${methodName}() used without null check. '${varName}' may be undefined.`,
-            ctx.filePath,
-            stmt.getStartLineNumber(),
-            1,
-            { suggestion: `Add a null check before accessing '${varName}', or use optional chaining (${varName}?.property).` },
-          ));
-          guarded = true; // Don't flag subsequent uses
+        // Used before guard — flag it (word boundary prevents 'el' matching 'element.foo')
+        const accessRe = new RegExp(`\\b${varName}\\b\\.`, '');
+        const optionalRe = new RegExp(`\\b${varName}\\b\\?\\.`, '');
+        if (accessRe.test(text) && !optionalRe.test(text)) {
+          findings.push(
+            finding(
+              'unchecked-find',
+              'warning',
+              'bug',
+              `Result of .${methodName}() used without null check. '${varName}' may be undefined.`,
+              ctx.filePath,
+              stmt.getStartLineNumber(),
+              1,
+              {
+                suggestion: `Add a null check before accessing '${varName}', or use optional chaining (${varName}?.property).`,
+              },
+            ),
+          );
+          _guarded = true; // Don't flag subsequent uses
           break;
         }
       }
@@ -102,15 +84,18 @@ function uncheckedFind(ctx: RuleContext): ReviewFinding[] {
       // Check for optional chaining: arr.find(...)?.x — that's safe
       if (parent.hasQuestionDotToken()) continue;
 
-      findings.push(finding(
-        'unchecked-find',
-        'warning',
-        `Direct property access on .${methodName}() result without null check. May throw at runtime.`,
-        ctx.filePath,
-        call.getStartLineNumber(),
-        1,
-        { suggestion: `Use optional chaining: .${methodName}(...)?.property, or add a null guard.` },
-      ));
+      findings.push(
+        finding(
+          'unchecked-find',
+          'warning',
+          'bug',
+          `Direct property access on .${methodName}() result without null check. May throw at runtime.`,
+          ctx.filePath,
+          call.getStartLineNumber(),
+          1,
+          { suggestion: `Use optional chaining: .${methodName}(...)?.property, or add a null guard.` },
+        ),
+      );
     }
   }
 
@@ -129,15 +114,18 @@ function optionalChainBang(ctx: RuleContext): ReviewFinding[] {
     // Check if the inner expression contains optional chaining
     const text = inner.getText();
     if (text.includes('?.')) {
-      findings.push(finding(
-        'optional-chain-bang',
-        'warning',
-        `Optional chain with non-null assertion (?.…!) — the ?. admits null but ! forces it away. Pick one.`,
-        ctx.filePath,
-        nonNull.getStartLineNumber(),
-        1,
-        { suggestion: 'Either remove the ?. (you trust it exists) or remove the ! (handle the null case).' },
-      ));
+      findings.push(
+        finding(
+          'optional-chain-bang',
+          'warning',
+          'bug',
+          `Optional chain with non-null assertion (?.…!) — the ?. admits null but ! forces it away. Pick one.`,
+          ctx.filePath,
+          nonNull.getStartLineNumber(),
+          1,
+          { suggestion: 'Either remove the ?. (you trust it exists) or remove the ! (handle the null case).' },
+        ),
+      );
     }
   }
 
@@ -166,18 +154,74 @@ function uncheckedAssertion(ctx: RuleContext): ReviewFinding[] {
     // Skip if casting to a union that includes null/undefined
     if (targetType.includes('null') || targetType.includes('undefined')) continue;
 
-    findings.push(finding(
-      'unchecked-cast',
-      'warning',
-      `Casting .${methodName}() result 'as ${targetType}' hides potential null/undefined. Validate first.`,
-      ctx.filePath,
-      asExpr.getStartLineNumber(),
-      1,
-      { suggestion: `Check for null before casting, or use a type guard.` },
-    ));
+    findings.push(
+      finding(
+        'unchecked-cast',
+        'warning',
+        'bug',
+        `Casting .${methodName}() result 'as ${targetType}' hides potential null/undefined. Validate first.`,
+        ctx.filePath,
+        asExpr.getStartLineNumber(),
+        1,
+        { suggestion: `Check for null before casting, or use a type guard.` },
+      ),
+    );
   }
 
   return findings;
 }
 
-export const nullSafetyRules = [uncheckedFind, optionalChainBang, uncheckedAssertion];
+// ── Rule 4: type-checked nullable access ────────────────────────────────
+// Uses TypeChecker to catch property access on any nullable type (not just .find())
+// Catches: Map.get().prop, optional params used without guard, etc.
+
+function typeCheckedNullable(ctx: RuleContext): ReviewFinding[] {
+  if (!ctx.project) return []; // TypeChecker not available
+  const findings: ReviewFinding[] = [];
+  const sf = ctx.sourceFile;
+
+  // Find all property access expressions
+  for (const prop of sf.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
+    // Skip if already using optional chaining
+    if (prop.hasQuestionDotToken()) continue;
+
+    const obj = prop.getExpression();
+
+    // Skip simple identifiers (too noisy — they'd be caught by TS strict mode)
+    // Focus on call results: foo().prop, map.get(key).prop
+    if (!Node.isCallExpression(obj)) continue;
+
+    // Skip if already caught by unchecked-find (avoid duplicate findings)
+    if (Node.isPropertyAccessExpression(obj.getExpression())) {
+      const methodName = (obj.getExpression() as import('ts-morph').PropertyAccessExpression).getName();
+      if (NULLABLE_METHODS.has(methodName)) continue;
+    }
+
+    try {
+      const returnType = obj.getReturnType();
+      const typeText = returnType.getText();
+      // Check if the return type includes undefined or null
+      if (typeText.includes('undefined') || typeText.includes('null')) {
+        const callText = obj.getExpression().getText().substring(0, 30);
+        findings.push(
+          finding(
+            'unchecked-find',
+            'warning',
+            'bug',
+            `Property access on nullable return from '${callText}(...)' (type: ${typeText.substring(0, 50)}). May throw at runtime.`,
+            ctx.filePath,
+            prop.getStartLineNumber(),
+            1,
+            { suggestion: `Use optional chaining (?.) or add a null guard before accessing .${prop.getName()}.` },
+          ),
+        );
+      }
+    } catch {
+      // TypeChecker may fail on some expressions — skip gracefully
+    }
+  }
+
+  return findings;
+}
+
+export const nullSafetyRules = [uncheckedFind, optionalChainBang, uncheckedAssertion, typeCheckedNullable];

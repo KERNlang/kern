@@ -1,0 +1,455 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`golden: action async action with metadata 1`] = `
+"/** @action idempotent=true reversible=true */
+export async function sendEmail(to: string, body: string): Promise<void> {
+  await mailer.send(to, body);
+}"
+`;
+
+exports[`golden: assume assume with evidence and fallback 1`] = `
+"/** @assume [object Object] @scope request @evidence route-signing */
+if (process.env.NODE_ENV !== 'production') {
+  if (!([object Object])) { throw AuthError(); }
+}"
+`;
+
+exports[`golden: branch branch with paths 1`] = `
+"/** branch: route */
+switch (user.tier) {
+  case 'free': {
+    export const limit: number = [object Object];
+    break;
+  }
+  case 'pro': {
+    export const limit: number = [object Object];
+    break;
+  }
+}"
+`;
+
+exports[`golden: collect collect simple 1`] = `"export const all = data;"`;
+
+exports[`golden: collect collect with filter, sort, limit 1`] = `"export const topItems = items.filter(item => [object Object]).sort((a, b) => [object Object]).slice(0, 10);"`;
+
+exports[`golden: config config with defaults 1`] = `
+"export interface AppConfig {
+  port?: number;
+  host?: string;
+  debug?: boolean;
+}
+
+export const DEFAULT_APP_CONFIG: Required<AppConfig> = {
+  port: 3000,
+  host: 'localhost',
+  debug: false,
+};"
+`;
+
+exports[`golden: const const with handler 1`] = `"export const CONFIG: AppConfig = { port: 3000, host: "localhost" };"`;
+
+exports[`golden: const const with value 1`] = `"export const MAX_RETRIES: number = 3;"`;
+
+exports[`golden: const const without value or handler 1`] = `"export const EMPTY: string;"`;
+
+exports[`golden: derive simple derive 1`] = `"export const total: number = [object Object];"`;
+
+exports[`golden: each each with child nodes 1`] = `
+"for (const item of items) {
+  export const processed: Result = [object Object];
+}"
+`;
+
+exports[`golden: each each with index 1`] = `
+"for (const [i, item] of (list).entries()) {
+}"
+`;
+
+exports[`golden: error error with fields and message 1`] = `
+"export class ValidationError extends Error {
+  constructor(
+    public readonly field: string,
+    public readonly value: unknown,
+  ) {
+    super(\`Validation failed: \${field} is invalid\`);
+    this.name = 'ValidationError';
+  }
+}"
+`;
+
+exports[`golden: error simple error 1`] = `
+"export class AppError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AppError';
+  }
+}"
+`;
+
+exports[`golden: event typed event system 1`] = `
+"export type AppEventType = 'user:login' | 'user:logout' | 'error';
+
+export interface AppEvent {
+  type: AppEventType;
+  engineId?: string;
+  data?: Record<string, unknown>;
+}
+
+export interface AppEventMap {
+  'user:login': { userId: string };
+  'user:logout': Record<string, unknown>;
+  'error': { code: number; message: string };
+}
+
+export type AppEventCallback = (event: AppEvent) => void;"
+`;
+
+exports[`golden: fn async function 1`] = `
+"export async function fetchUser(id: string): Promise<User> {
+  return await db.find(id);
+}"
+`;
+
+exports[`golden: fn async generator function 1`] = `
+"export async function* paginate(): AsyncGenerator<Page> {
+  for await (const page of fetchPages()) yield page;
+}"
+`;
+
+exports[`golden: fn default params and generics 1`] = `
+"export function merge(a: Record<string,number>, b: Record<string,number>, deep: boolean = true): Record<string,number> {
+}"
+`;
+
+exports[`golden: fn signal and cleanup 1`] = `
+"export async function fetchData(url: string): Promise<void> {
+  const abort = new AbortController();
+  try {
+    const res = await fetch(url, { signal: abort.signal });
+  } finally {
+    abort.abort();
+  }
+}"
+`;
+
+exports[`golden: fn stream function 1`] = `
+"export async function* generate(): AsyncGenerator<string> {
+  yield "hello";
+}"
+`;
+
+exports[`golden: fn sync function with params and return 1`] = `
+"export function add(a: number, b: number): number {
+  return a + b;
+}"
+`;
+
+exports[`golden: fn sync generator function 1`] = `
+"export function* iterate(): Generator<number> {
+  yield 1;
+  yield 2;
+}"
+`;
+
+exports[`golden: guard + assume + invariant low confidence guard generates TODO 1`] = `
+"// TODO(low-confidence): maybeValid confidence=0.4
+/**
+ * @confidence 0.4
+ */
+if (!([object Object])) { throw new Error('Guard failed: maybeValid'); }"
+`;
+
+exports[`golden: guard guard with code else 1`] = `"if (!([object Object])) { redirect('/error'); }"`;
+
+exports[`golden: guard guard with default throw 1`] = `"if (!([object Object])) { throw new Error('Guard failed: hasAccess'); }"`;
+
+exports[`golden: guard guard with numeric else (HTTP status) 1`] = `"if (!([object Object])) { throw new HttpError(403, 'Guard: isAdmin'); }"`;
+
+exports[`golden: import default + named 1`] = `"import React, { useState, useEffect } from 'react';"`;
+
+exports[`golden: import default import 1`] = `"import express from 'express';"`;
+
+exports[`golden: import named import 1`] = `"import { add, subtract } from './utils';"`;
+
+exports[`golden: import side-effect import 1`] = `"import './polyfill';"`;
+
+exports[`golden: import type-only import 1`] = `"import type { User, Config } from './types';"`;
+
+exports[`golden: interface empty interface 1`] = `
+"export interface EmptyConfig {
+}"
+`;
+
+exports[`golden: interface with fields and extends 1`] = `
+"export interface User extends BaseEntity {
+  email: string;
+  age?: number;
+}"
+`;
+
+exports[`golden: invariant simple invariant 1`] = `"console.assert([object Object], 'Invariant: positiveBalance');"`;
+
+exports[`golden: machine full state machine 1`] = `
+"export type OrderState = 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
+
+export class OrderStateError extends Error {
+  constructor(
+    public readonly expected: string | string[],
+    public readonly actual: string,
+  ) {
+    const expectedStr = Array.isArray(expected) ? expected.join(' | ') : expected;
+    super(\`Invalid order state: expected \${expectedStr}, got \${actual}\`);
+    this.name = 'OrderStateError';
+  }
+}
+
+/** pending → confirmed */
+export function confirmOrder<T extends { state: OrderState }>(entity: T): T {
+  if (entity.state !== 'pending') {
+    throw new OrderStateError('pending', entity.state);
+  }
+  return { ...entity, state: 'confirmed' as OrderState };
+}
+
+/** confirmed → shipped */
+export function shipOrder<T extends { state: OrderState }>(entity: T): T {
+  if (entity.state !== 'confirmed') {
+    throw new OrderStateError('confirmed', entity.state);
+  }
+  return { ...entity, state: 'shipped' as OrderState };
+}
+
+/** shipped → delivered */
+export function deliverOrder<T extends { state: OrderState }>(entity: T): T {
+  if (entity.state !== 'shipped') {
+    throw new OrderStateError('shipped', entity.state);
+  }
+  return { ...entity, state: 'delivered' as OrderState };
+}
+
+/** pending|confirmed → cancelled */
+export function cancelOrder<T extends { state: OrderState }>(entity: T): T {
+  const validStates: OrderState[] = ['pending', 'confirmed'];
+  if (!validStates.includes(entity.state)) {
+    throw new OrderStateError(validStates, entity.state);
+  }
+  return { ...entity, state: 'cancelled' as OrderState };
+}
+"
+`;
+
+exports[`golden: machine transition with custom handler 1`] = `
+"export type TaskState = 'open' | 'closed';
+
+export class TaskStateError extends Error {
+  constructor(
+    public readonly expected: string | string[],
+    public readonly actual: string,
+  ) {
+    const expectedStr = Array.isArray(expected) ? expected.join(' | ') : expected;
+    super(\`Invalid task state: expected \${expectedStr}, got \${actual}\`);
+    this.name = 'TaskStateError';
+  }
+}
+
+/** open → closed */
+export function closeTask<T extends { state: TaskState }>(entity: T): T {
+  if (entity.state !== 'open') {
+    throw new TaskStateError('open', entity.state);
+  }
+  return { ...entity, state: "closed", closedAt: Date.now() };
+}
+"
+`;
+
+exports[`golden: module module with children 1`] = `
+"// ── Module: auth ──
+
+export type Role = 'admin' | 'user' | 'guest';
+
+export function checkRole(role: Role): boolean {
+  return role === "admin";
+}
+"
+`;
+
+exports[`golden: on click handler 1`] = `
+"export function handleClick(e: MouseEvent) {
+  console.log("clicked");
+}"
+`;
+
+exports[`golden: on handler reference 1`] = `"export const onSubmit = handleSubmit;"`;
+
+exports[`golden: on key handler with filter 1`] = `
+"export function handleKey(e: KeyboardEvent) {
+  if (key !== 'Enter') return;
+  submit();
+}"
+`;
+
+exports[`golden: service async generator method 1`] = `
+"export class Stream {
+
+  async *items(): AsyncGenerator<Item> {
+    for await (const item of this.source) {
+      yield item;
+    }
+  }
+}"
+`;
+
+exports[`golden: service class with fields, methods, constructor 1`] = `
+"export class Cache {
+  private store: Map<string,any>;
+  readonly ttl: number = 3600;
+
+  constructor(maxSize: number) {
+    this.store = new Map();
+  }
+
+  get(key: string): any | undefined {
+    return this.store.get(key);
+  }
+
+  set(key: string, value: any): void {
+    this.store.set(key, value);
+  }
+}"
+`;
+
+exports[`golden: service implements clause 1`] = `
+"export class Adapter implements Transport {
+
+  async send(data: Buffer): Promise<void> {
+    await this.socket.write(data);
+  }
+}"
+`;
+
+exports[`golden: service singleton 1`] = `
+"export class Registry {
+  entries: string[] = [];
+}
+
+export const registry = new Registry();"
+`;
+
+exports[`golden: service static and private methods 1`] = `
+"export class Utils {
+
+  private helper(): void {
+    return;
+  }
+
+  static create(): Utils {
+    return new Utils();
+  }
+}"
+`;
+
+exports[`golden: store file-backed store 1`] = `
+"import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { homedir } from 'node:os';
+
+const USER_DIR = join(homedir(), '.app/users');
+
+function ensureUserDir(): void {
+  mkdirSync(USER_DIR, { recursive: true });
+}
+
+function safeUserPath(id: string): string {
+  const sanitized = id.replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!sanitized) throw new Error(\`Invalid ID: \${id}\`);
+  const full = resolve(USER_DIR, \`\${sanitized}.json\`);
+  if (!full.startsWith(resolve(USER_DIR))) throw new Error(\`Invalid ID: \${id}\`);
+  return full;
+}
+
+export function saveUser(item: User): void {
+  ensureUserDir();
+  writeFileSync(safeUserPath((item as any).id), JSON.stringify(item, null, 2) + '\\n');
+}
+
+export function loadUser(id: string): User | null {
+  try { return JSON.parse(readFileSync(safeUserPath(id), 'utf-8')) as User; }
+  catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null; throw e; }
+}
+
+export function listUsers(limit = 20): User[] {
+  ensureUserDir();
+  const files = readdirSync(USER_DIR).filter(f => f.endsWith('.json'));
+  const items: User[] = [];
+  for (const f of files) {
+    try { items.push(JSON.parse(readFileSync(join(USER_DIR, f), 'utf-8')) as User); }
+    catch { /* skip corrupt files */ }
+  }
+  return items.sort((a: any, b: any) => (b.updatedAt || '').localeCompare(a.updatedAt || '')).slice(0, limit);
+}
+
+export function deleteUser(id: string): boolean {
+  try { unlinkSync(safeUserPath(id)); return true; }
+  catch { return false; }
+}"
+`;
+
+exports[`golden: test test suite with describe/it 1`] = `
+"import { describe, it, expect } from 'vitest';
+
+describe('Math Utils', () => {
+  describe('add', () => {
+    it('adds two numbers', () => {
+      expect(add(1, 2)).toBe(3);
+    });
+    it('handles negatives', () => {
+      expect(add(-1, 1)).toBe(0);
+    });
+  });
+});"
+`;
+
+exports[`golden: transform with handler 1`] = `
+"export function processed(state: unknown): Result[] {
+  return data.map(d => process(d));
+}"
+`;
+
+exports[`golden: transform with target and via 1`] = `"export const limited: Item[] = slice(items, 0, 10);"`;
+
+exports[`golden: type alias 1`] = `"export type IdList = string[];"`;
+
+exports[`golden: type export=false 1`] = `"type Internal = 'a' | 'b';"`;
+
+exports[`golden: type union values 1`] = `"export type Status = 'active' | 'paused' | 'done';"`;
+
+exports[`golden: union discriminated union 1`] = `
+"export type Shape =
+  | { kind: 'circle'; radius: number }
+  | { kind: 'rect'; width: number; height: number };"
+`;
+
+exports[`golden: union empty union 1`] = `"export type Never = never;"`;
+
+exports[`golden: union optional fields in variant 1`] = `
+"export type Result =
+  | { status: 'ok'; data: unknown }
+  | { status: 'error'; message: string; code?: number };"
+`;
+
+exports[`golden: websocket websocket with handlers 1`] = `
+"export function setupWs(wss: WebSocketServer) {
+  wss.on('connection', (ws, req) => {
+    const path = req.url || '/ws';
+    ws.send("hello");
+
+    ws.on('message', (raw) => {
+      const data = JSON.parse(raw.toString());
+      const data = JSON.parse(event.data);
+    });
+
+    ws.on('close', () => {
+    });
+  });
+}"
+`;

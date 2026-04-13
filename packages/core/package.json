@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/core",
-  "version": "3.0.0",
+  "version": "3.1.9",
   "description": "Kern core — parser, types, spec, config, style engines, codegen",
   "type": "module",
   "main": "./dist/index.js",
@@ -9,10 +9,39 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./codegen": {
+      "types": "./dist/codegen-core.d.ts",
+      "default": "./dist/codegen-core.js"
+    },
+    "./codegen/emitters": {
+      "types": "./dist/codegen/emitters.d.ts",
+      "default": "./dist/codegen/emitters.js"
+    },
+    "./codegen/helpers": {
+      "types": "./dist/codegen/helpers.d.ts",
+      "default": "./dist/codegen/helpers.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "default": "./dist/runtime.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "default": "./dist/schema.js"
     }
   },
   "files": [
     "dist"
+  ],
+  "keywords": [
+    "kern",
+    "llm",
+    "parser",
+    "transpiler",
+    "ir",
+    "codegen",
+    "ai"
   ],
   "license": "AGPL-3.0",
   "repository": {
@@ -22,7 +51,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --forceExit --config jest.config.js"
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
   },
   "dependencies": {}
 }

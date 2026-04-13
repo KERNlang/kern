@@ -8,10 +8,16 @@
  * 4. Source map generation for debugging
  */
 
+/** Expression object produced by the parser for inline expressions */
+export interface ExprObject {
+  __expr: true;
+  code: string;
+}
+
 /** Base node in the IR tree */
 export interface IRNode {
-  /** Node type identifier */
-  type: string;
+  /** Node type identifier — known types have autocomplete, custom/evolved types accepted as string */
+  type: import('./spec.js').IRNodeType | (string & {});
   /** Source location for source maps */
   loc?: IRSourceLocation;
   /** Child nodes */
@@ -45,7 +51,50 @@ export interface GeneratedArtifact {
   /** Generated code */
   content: string;
   /** Artifact type */
-  type: 'page' | 'layout' | 'route' | 'middleware' | 'component' | 'config' | 'entry' | 'command' | 'hook' | 'types' | 'barrel' | 'theme' | 'template' | 'websocket' | 'model' | 'service' | 'error' | 'lib';
+  type:
+    | 'page'
+    | 'layout'
+    | 'route'
+    | 'middleware'
+    | 'component'
+    | 'config'
+    | 'entry'
+    | 'command'
+    | 'hook'
+    | 'types'
+    | 'barrel'
+    | 'theme'
+    | 'template'
+    | 'websocket'
+    | 'model'
+    | 'service'
+    | 'error'
+    | 'lib'
+    | 'prisma'
+    | 'repository';
+}
+
+/** Diagnostic outcome for an IR node during transpilation */
+export type DiagnosticOutcome = 'expressed' | 'consumed' | 'suppressed' | 'unsupported';
+
+/** Diagnostic entry for a single IR node */
+export interface TranspileDiagnostic {
+  /** The IR node type that was processed */
+  nodeType: string;
+  /** How the node was handled */
+  outcome: DiagnosticOutcome;
+  /** Which transpiler target produced this diagnostic */
+  target: string;
+  /** Source location of the node in .kern file */
+  loc?: { line: number; col: number };
+  /** Why this outcome was chosen */
+  reason?: string;
+  /** Number of children also lost (for root-cause-only reporting) */
+  childrenLost?: number;
+  /** Severity level for custom transpiler diagnostics */
+  severity?: 'error' | 'warning' | 'info';
+  /** Human-readable description */
+  message?: string;
 }
 
 /** Result of transpilation */
@@ -62,6 +111,43 @@ export interface TranspileResult {
   tokenReduction: number;
   /** Multi-file output artifacts */
   artifacts?: GeneratedArtifact[];
+  /** Node-level diagnostics (never silently drop) */
+  diagnostics?: TranspileDiagnostic[];
+}
+
+// ── Parse Diagnostics ────────────────────────────────────────────────────
+
+export type ParseErrorCode =
+  | 'UNCLOSED_EXPR'
+  | 'UNCLOSED_STYLE'
+  | 'UNCLOSED_STRING'
+  | 'UNEXPECTED_TOKEN'
+  | 'EMPTY_DOCUMENT'
+  | 'INVALID_INDENT'
+  | 'UNKNOWN_NODE_TYPE'
+  | 'INDENT_JUMP'
+  | 'DUPLICATE_PROP'
+  | 'DROPPED_LINE';
+
+export type ParseDiagnosticSeverity = 'error' | 'warning' | 'info';
+
+export interface ParseDiagnostic {
+  code: ParseErrorCode;
+  severity: ParseDiagnosticSeverity;
+  message: string;
+  line: number;
+  col: number;
+  endCol: number;
+  suggestion: string;
+}
+
+export interface ParseResult {
+  root: IRNode;
+  diagnostics: ParseDiagnostic[];
+  /** True when the tree contains __error nodes — output is compilable but incomplete */
+  partial?: boolean;
+  /** Number of __error nodes in the tree */
+  errorCount?: number;
 }
 
 /** Result of decompilation (IR → human-readable) */

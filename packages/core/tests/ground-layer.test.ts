@@ -1,25 +1,37 @@
-import { parse } from '../src/parser.js';
 import {
-  generateCoreNode, isCoreNode,
-  generateDerive, generateTransform, generateAction, generateGuard,
-  generateAssume, generateInvariant, generateEach, generateCollect,
-  generateBranch, generateResolve, generateExpect, generateRecover,
-  generatePattern, generateApply,
-  emitReasonAnnotations, emitLowConfidenceTodo,
+  emitLowConfidenceTodo,
+  emitReasonAnnotations,
+  generateAction,
+  generateApply,
+  generateAssume,
+  generateBranch,
+  generateCollect,
+  generateCoreNode,
+  generateDerive,
+  generateEach,
+  generateExpect,
+  generateGuard,
+  generateInvariant,
+  generatePattern,
+  generateRecover,
+  generateResolve,
+  generateTransform,
+  isCoreNode,
 } from '../src/codegen-core.js';
 import { KernCodegenError } from '../src/errors.js';
+import { parse } from '../src/parser.js';
 import type { IRNode } from '../src/types.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 /** Parse a .kern snippet and generate code for the root node. */
-function gen(source: string): string {
+function _gen(source: string): string {
   const root = parse(source);
   return generateCoreNode(root).join('\n');
 }
 
 /** Parse and generate code for the first child node. */
-function genChild(source: string): string {
+function _genChild(source: string): string {
   const root = parse(source);
   const child = root.children?.[0];
   if (!child) return '';
@@ -71,9 +83,7 @@ describe('Ground Layer: transform', () => {
   });
 
   it('generates function form with handler', () => {
-    const node = makeNode('transform', { name: 'normalize' }, [
-      makeNode('handler', { code: 'return state * 2;' }),
-    ]);
+    const node = makeNode('transform', { name: 'normalize' }, [makeNode('handler', { code: 'return state * 2;' })]);
     const code = generateTransform(node).join('\n');
     expect(code).toContain('export function normalize(state: unknown)');
     expect(code).toContain('return state * 2;');
@@ -179,7 +189,10 @@ describe('Ground Layer: assume', () => {
 
   it('includes scope and evidence in JSDoc', () => {
     const node = makeNode('assume', {
-      expr: 'x', scope: 'session', evidence: 'jwt', fallback: 'throw Error()',
+      expr: 'x',
+      scope: 'session',
+      evidence: 'jwt',
+      fallback: 'throw Error()',
     });
     const code = generateAssume(node).join('\n');
     expect(code).toContain('@scope session');
@@ -269,12 +282,8 @@ describe('Ground Layer: collect', () => {
 describe('Ground Layer: branch', () => {
   it('generates switch statement', () => {
     const node = makeNode('branch', { name: 'tierRoute', on: 'user.tier' }, [
-      makeNode('path', { value: 'free' }, [
-        makeNode('derive', { name: 'maxStems', expr: '4', type: 'number' }),
-      ]),
-      makeNode('path', { value: 'pro' }, [
-        makeNode('derive', { name: 'maxStems', expr: 'Infinity', type: 'number' }),
-      ]),
+      makeNode('path', { value: 'free' }, [makeNode('derive', { name: 'maxStems', expr: '4', type: 'number' })]),
+      makeNode('path', { value: 'pro' }, [makeNode('derive', { name: 'maxStems', expr: 'Infinity', type: 'number' })]),
     ]);
     const code = generateBranch(node).join('\n');
     expect(code).toContain('switch (user.tier)');
@@ -302,9 +311,7 @@ describe('Ground Layer: branch', () => {
   });
 
   it('handles empty path (no children)', () => {
-    const node = makeNode('branch', { name: 'empty', on: 'x' }, [
-      makeNode('path', { value: 'empty' }),
-    ]);
+    const node = makeNode('branch', { name: 'empty', on: 'x' }, [makeNode('path', { value: 'empty' })]);
     const code = generateBranch(node).join('\n');
     expect(code).toContain("case 'empty':");
     expect(code).toContain('break;');
@@ -333,9 +340,7 @@ describe('Ground Layer: resolve', () => {
   });
 
   it('throws without discriminator', () => {
-    const node = makeNode('resolve', { name: 'bad' }, [
-      makeNode('candidate', { name: 'only' }),
-    ]);
+    const node = makeNode('resolve', { name: 'bad' }, [makeNode('candidate', { name: 'only' })]);
     expect(() => generateResolve(node)).toThrow(KernCodegenError);
     expect(() => generateResolve(node)).toThrow('discriminator');
   });
@@ -429,9 +434,7 @@ describe('Ground Layer: recover', () => {
   it('generates retry strategy', () => {
     const node = makeNode('recover', { name: 'payment' }, [
       makeNode('strategy', { name: 'retry', max: '3', delay: '1000' }),
-      makeNode('strategy', { name: 'fallback' }, [
-        makeNode('handler', { code: "throw new Error('failed');" }),
-      ]),
+      makeNode('strategy', { name: 'fallback' }, [makeNode('handler', { code: "throw new Error('failed');" })]),
     ]);
     const code = generateRecover(node).join('\n');
     expect(code).toContain('for (let _attempt = 0; _attempt < 3; _attempt++)');
@@ -440,9 +443,7 @@ describe('Ground Layer: recover', () => {
 
   it('generates compensate strategy', () => {
     const node = makeNode('recover', { name: 'tx' }, [
-      makeNode('strategy', { name: 'compensate' }, [
-        makeNode('handler', { code: 'await refund(transaction);' }),
-      ]),
+      makeNode('strategy', { name: 'compensate' }, [makeNode('handler', { code: 'await refund(transaction);' })]),
       makeNode('strategy', { name: 'fallback' }),
     ]);
     const code = generateRecover(node).join('\n');
@@ -464,9 +465,7 @@ describe('Ground Layer: recover', () => {
 
   it('generates fallback strategy', () => {
     const node = makeNode('recover', { name: 'svc' }, [
-      makeNode('strategy', { name: 'fallback' }, [
-        makeNode('handler', { code: "throw new Error('all exhausted');" }),
-      ]),
+      makeNode('strategy', { name: 'fallback' }, [makeNode('handler', { code: "throw new Error('all exhausted');" })]),
     ]);
     const code = generateRecover(node).join('\n');
     expect(code).toContain('strategy: fallback (terminal)');
@@ -474,9 +473,7 @@ describe('Ground Layer: recover', () => {
   });
 
   it('throws without fallback strategy', () => {
-    const node = makeNode('recover', { name: 'bad' }, [
-      makeNode('strategy', { name: 'retry' }),
-    ]);
+    const node = makeNode('recover', { name: 'bad' }, [makeNode('strategy', { name: 'retry' })]);
     expect(() => generateRecover(node)).toThrow(KernCodegenError);
     expect(() => generateRecover(node)).toThrow('fallback');
   });
@@ -495,7 +492,11 @@ describe('Ground Layer: reason annotations (stub)', () => {
 
   it('emits JSDoc with reason child', () => {
     const node = makeNode('guard', { name: 'test', expr: 'true' }, [
-      makeNode('reason', { because: 'Only owners modify', basis: 'schema-contract', survives: 'while=auth.owner_check.enabled' }),
+      makeNode('reason', {
+        because: 'Only owners modify',
+        basis: 'schema-contract',
+        survives: 'while=auth.owner_check.enabled',
+      }),
     ]);
     const result = emitReasonAnnotations(node);
     expect(result.join('\n')).toContain('@reason Only owners modify');
@@ -508,7 +509,9 @@ describe('Ground Layer: reason annotations (stub)', () => {
       makeNode('evidence', { source: 'JWT middleware', method: 'token-verification', authority: 'auth-service' }),
     ]);
     const result = emitReasonAnnotations(node);
-    expect(result.join('\n')).toContain('@evidence source=JWT middleware, method=token-verification, authority=auth-service');
+    expect(result.join('\n')).toContain(
+      '@evidence source=JWT middleware, method=token-verification, authority=auth-service',
+    );
   });
 
   it('emits JSDoc with both reason and evidence', () => {
@@ -541,9 +544,20 @@ describe('Disambiguation', () => {
 
   it('all ground-layer types are recognized as core nodes', () => {
     const groundTypes = [
-      'derive', 'transform', 'action', 'guard', 'assume', 'invariant',
-      'each', 'collect', 'branch', 'resolve', 'expect', 'recover',
-      'pattern', 'apply',
+      'derive',
+      'transform',
+      'action',
+      'guard',
+      'assume',
+      'invariant',
+      'each',
+      'collect',
+      'branch',
+      'resolve',
+      'expect',
+      'recover',
+      'pattern',
+      'apply',
     ];
     for (const type of groundTypes) {
       expect(isCoreNode(type)).toBe(true);
@@ -609,7 +623,12 @@ describe('Python Ground Layer', () => {
   });
 
   it('collect generates list comprehension', () => {
-    const node = makeNode('collect', { name: 'overThreshold', from: 'stems', where: 'item.loudness > 0.5', limit: '10' });
+    const node = makeNode('collect', {
+      name: 'overThreshold',
+      from: 'stems',
+      where: 'item.loudness > 0.5',
+      limit: '10',
+    });
     const code = pyGen.generateCollect(node).join('\n');
     expect(code).toContain('[item for item in stems if item.loudness > 0.5][:10]');
   });
@@ -750,9 +769,13 @@ describe('Integration: generateCoreNode dispatches ground layer', () => {
   });
 
   it('assume dispatches correctly', () => {
-    const code = generateCoreNode(makeNode('assume', {
-      expr: 'x', evidence: 'e', fallback: 'throw Error()',
-    })).join('\n');
+    const code = generateCoreNode(
+      makeNode('assume', {
+        expr: 'x',
+        evidence: 'e',
+        fallback: 'throw Error()',
+      }),
+    ).join('\n');
     expect(code).toContain('if (!(x))');
   });
 
@@ -772,9 +795,9 @@ describe('Integration: generateCoreNode dispatches ground layer', () => {
   });
 
   it('branch dispatches correctly', () => {
-    const code = generateCoreNode(makeNode('branch', { name: 'b', on: 'x' }, [
-      makeNode('path', { value: 'a' }),
-    ])).join('\n');
+    const code = generateCoreNode(makeNode('branch', { name: 'b', on: 'x' }, [makeNode('path', { value: 'a' })])).join(
+      '\n',
+    );
     expect(code).toContain('switch (x)');
   });
 
@@ -784,9 +807,9 @@ describe('Integration: generateCoreNode dispatches ground layer', () => {
   });
 
   it('recover dispatches correctly', () => {
-    const code = generateCoreNode(makeNode('recover', { name: 'r' }, [
-      makeNode('strategy', { name: 'fallback' }),
-    ])).join('\n');
+    const code = generateCoreNode(
+      makeNode('recover', { name: 'r' }, [makeNode('strategy', { name: 'fallback' })]),
+    ).join('\n');
     expect(code).toContain('async function rWithRecovery');
   });
 
@@ -796,9 +819,9 @@ describe('Integration: generateCoreNode dispatches ground layer', () => {
     expect(typeCode).toContain("export type T = 'a' | 'b';");
 
     // fn still works
-    const fnCode = generateCoreNode(makeNode('fn', { name: 'foo', returns: 'void' }, [
-      makeNode('handler', { code: 'return;' }),
-    ])).join('\n');
+    const fnCode = generateCoreNode(
+      makeNode('fn', { name: 'foo', returns: 'void' }, [makeNode('handler', { code: 'return;' })]),
+    ).join('\n');
     expect(fnCode).toContain('export function foo()');
   });
 });

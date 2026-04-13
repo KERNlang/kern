@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/cli",
-  "version": "3.0.0",
+  "version": "3.1.9",
   "description": "KERN CLI — transpile, compile, minify, and analyze .kern files",
   "type": "module",
   "main": "./dist/index.js",
@@ -15,16 +15,26 @@
   "files": [
     "dist"
   ],
+  "keywords": [
+    "kern",
+    "llm",
+    "cli",
+    "transpiler",
+    "compiler",
+    "review",
+    "ai"
+  ],
   "license": "AGPL-3.0",
   "scripts": {
     "build": "tsc -b",
-    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --forceExit --config jest.config.js"
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
   },
   "dependencies": {
     "@kernlang/core": "workspace:*",
     "@kernlang/evolve": "workspace:*",
     "@kernlang/express": "workspace:*",
     "@kernlang/fastapi": "workspace:*",
+    "@kernlang/mcp": "workspace:*",
     "@kernlang/metrics": "workspace:*",
     "@kernlang/native": "workspace:*",
     "@kernlang/react": "workspace:*",

@@ -3,7 +3,7 @@
  */
 
 import type { SourceFile } from 'ts-morph';
-import type { DetectorPack, DetectionResult } from '../types.js';
+import type { DetectionResult, DetectorPack } from '../types.js';
 
 const vueUseDetector: DetectorPack = {
   id: 'vueuse-composable',
@@ -33,16 +33,16 @@ const vueUseDetector: DetectorPack = {
       const endLine = fullText.substring(0, pos).split('\n').length;
 
       // Check if the function body uses any @vueuse import
-      const vueUseImports = sourceFile.getImportDeclarations().filter(imp => {
+      const vueUseImports = sourceFile.getImportDeclarations().filter((imp) => {
         const mod = imp.getModuleSpecifierValue();
         return mod.startsWith('@vueuse/');
       });
 
       if (vueUseImports.length === 0) continue;
 
-      const usedVueUseApis = vueUseImports.flatMap(imp =>
-        imp.getNamedImports().map(n => n.getName()),
-      ).filter(name => fnBody.includes(name));
+      const usedVueUseApis = vueUseImports
+        .flatMap((imp) => imp.getNamedImports().map((n) => n.getName()))
+        .filter((name) => fnBody.includes(name));
 
       if (usedVueUseApis.length === 0) continue;
 

@@ -4,9 +4,9 @@
  * Same concept, two languages, same shape.
  */
 
-import { extractPythonConcepts } from '../src/mapper.js';
 import { extractTsConcepts } from '@kernlang/review';
 import { Project } from 'ts-morph';
+import { extractPythonConcepts } from '../src/mapper.js';
 
 function tsSourceFile(source: string, filePath = 'test.ts') {
   const project = new Project({ useInMemoryFileSystem: true, compilerOptions: { strict: true } });
@@ -19,7 +19,7 @@ describe('Bilingual: entrypoint', () => {
       app.get('/users', (req, res) => { res.json([]); });
     `);
     const concepts = extractTsConcepts(sf, 'test.ts');
-    const ep = concepts.nodes.find(n => n.kind === 'entrypoint');
+    const ep = concepts.nodes.find((n) => n.kind === 'entrypoint');
     expect(ep).toBeDefined();
     expect(ep!.payload.kind).toBe('entrypoint');
     if (ep!.payload.kind === 'entrypoint') {
@@ -37,7 +37,7 @@ def get_users():
     return []
 `;
     const concepts = extractPythonConcepts(source, 'test.py');
-    const ep = concepts.nodes.find(n => n.kind === 'entrypoint');
+    const ep = concepts.nodes.find((n) => n.kind === 'entrypoint');
     expect(ep).toBeDefined();
     expect(ep!.payload.kind).toBe('entrypoint');
     if (ep!.payload.kind === 'entrypoint') {
@@ -55,7 +55,7 @@ describe('Bilingual: guard', () => {
       }
     `);
     const concepts = extractTsConcepts(sf, 'test.ts');
-    const guard = concepts.nodes.find(n => n.kind === 'guard');
+    const guard = concepts.nodes.find((n) => n.kind === 'guard');
     expect(guard).toBeDefined();
     expect(guard!.payload.kind).toBe('guard');
     if (guard!.payload.kind === 'guard') {
@@ -72,7 +72,7 @@ def dashboard(request):
     return render(request, 'dashboard.html')
 `;
     const concepts = extractPythonConcepts(source, 'test.py');
-    const guard = concepts.nodes.find(n => n.kind === 'guard');
+    const guard = concepts.nodes.find((n) => n.kind === 'guard');
     expect(guard).toBeDefined();
     expect(guard!.payload.kind).toBe('guard');
     if (guard!.payload.kind === 'guard') {
@@ -90,7 +90,7 @@ describe('Bilingual: state_mutation', () => {
       }
     `);
     const concepts = extractTsConcepts(sf, 'test.ts');
-    const mut = concepts.nodes.find(n => n.kind === 'state_mutation');
+    const mut = concepts.nodes.find((n) => n.kind === 'state_mutation');
     expect(mut).toBeDefined();
     if (mut!.payload.kind === 'state_mutation') {
       expect(mut!.payload.scope).toBe('module');
@@ -106,7 +106,7 @@ class Counter:
         self.count += 1
 `;
     const concepts = extractPythonConcepts(source, 'test.py');
-    const mut = concepts.nodes.find(n => n.kind === 'state_mutation');
+    const mut = concepts.nodes.find((n) => n.kind === 'state_mutation');
     expect(mut).toBeDefined();
     if (mut!.payload.kind === 'state_mutation') {
       expect(mut!.payload.scope).toBe('module');
@@ -124,9 +124,9 @@ describe('Bilingual: dependency edges', () => {
     const concepts = extractTsConcepts(sf, 'test.ts');
     expect(concepts.edges.length).toBeGreaterThanOrEqual(3);
 
-    const external = concepts.edges.find(e => e.payload.kind === 'dependency' && e.payload.subtype === 'external');
-    const stdlib = concepts.edges.find(e => e.payload.kind === 'dependency' && e.payload.subtype === 'stdlib');
-    const internal = concepts.edges.find(e => e.payload.kind === 'dependency' && e.payload.subtype === 'internal');
+    const external = concepts.edges.find((e) => e.payload.kind === 'dependency' && e.payload.subtype === 'external');
+    const stdlib = concepts.edges.find((e) => e.payload.kind === 'dependency' && e.payload.subtype === 'stdlib');
+    const internal = concepts.edges.find((e) => e.payload.kind === 'dependency' && e.payload.subtype === 'internal');
 
     expect(external).toBeDefined();
     expect(stdlib).toBeDefined();
@@ -142,9 +142,9 @@ from .utils import helper
     const concepts = extractPythonConcepts(source, 'test.py');
     expect(concepts.edges.length).toBeGreaterThanOrEqual(3);
 
-    const external = concepts.edges.find(e => e.payload.kind === 'dependency' && e.payload.subtype === 'external');
-    const stdlib = concepts.edges.find(e => e.payload.kind === 'dependency' && e.payload.subtype === 'stdlib');
-    const internal = concepts.edges.find(e => e.payload.kind === 'dependency' && e.payload.subtype === 'internal');
+    const external = concepts.edges.find((e) => e.payload.kind === 'dependency' && e.payload.subtype === 'external');
+    const stdlib = concepts.edges.find((e) => e.payload.kind === 'dependency' && e.payload.subtype === 'stdlib');
+    const internal = concepts.edges.find((e) => e.payload.kind === 'dependency' && e.payload.subtype === 'internal');
 
     expect(external).toBeDefined();
     expect(stdlib).toBeDefined();

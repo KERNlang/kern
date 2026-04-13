@@ -1,0 +1,21 @@
+action name=mcp-missing-validation
+  reason value="CWE-20, OWASP MCP04"
+  config severity=warning confidence=0.80 category=bug
+
+  effect name=param-usage kind=input
+    pattern lang=ts match="\b(params|arguments|args|input)\b"
+    pattern lang=py match="\barguments\s*\[|:\s*(dict|Dict|Any)\b"
+
+  guard name=ts-validation kind=validation
+    pattern lang=ts match="\.parse\s*\(|\.safeParse\s*\(|\.validate\s*\(|typeof\s+\w+\s*[!=]==|instanceof\s+|Array\.isArray\s*\("
+
+  guard name=zod-schema kind=validation
+    pattern lang=ts match="z\.\w+\("
+
+  guard name=py-validation kind=validation
+    pattern lang=py match="\bpydantic\b|\.model_validate\b|isinstance\s*\(|\.validate\s*\("
+
+  invariant name=unvalidated-params
+    expect from=tool-params to=param-usage guarded-by="ts-validation,zod-schema,py-validation"
+    evidence value="MCP tool handler uses parameters without input validation — injection and type confusion risk"
+    suggestion value="Validate tool parameters with a schema (Zod, joi, etc.) or explicit type checks before use."

@@ -9,9 +9,9 @@
  * Go: if err != nil {}
  */
 
-import type { ConceptRuleContext } from './index.js';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
+import type { ConceptRuleContext } from './index.js';
 
 export function ignoredError(ctx: ConceptRuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];

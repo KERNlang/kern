@@ -1,8 +1,31 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact, TailwindVersionProfile } from '@kernlang/core';
-import { stylesToTailwind, colorToTw, countTokens, serializeIR, camelKey, escapeJsxText, escapeJsxAttr, escapeJsString, buildTailwindProfile, applyTailwindTokenRules, getProps, getStyles, getThemeRefs, getPseudoStyles } from '@kernlang/core';
-import { planStructure } from './structure.js';
-import type { PlannedFile } from './structure.js';
+import type {
+  AccountedEntry,
+  IRNode,
+  ResolvedKernConfig,
+  SourceMapEntry,
+  TailwindVersionProfile,
+  TranspileResult,
+} from '@kernlang/core';
+import {
+  accountNode,
+  applyTailwindTokenRules,
+  buildDiagnostics,
+  buildTailwindProfile,
+  camelKey,
+  colorToTw,
+  countTokens,
+  escapeJsString,
+  escapeJsxAttr,
+  escapeJsxText,
+  getProps,
+  getPseudoStyles,
+  getStyles,
+  serializeIR,
+  stylesToTailwind,
+} from '@kernlang/core';
 import { buildStructuredArtifacts } from './artifact-utils.js';
+import type { PlannedFile } from './structure.js';
+import { planStructure } from './structure.js';
 
 // ── Code generation ─────────────────────────────────────────────────────
 
@@ -31,7 +54,6 @@ function tText(ctx: CodeBuilder, key: string, value: string): string {
   return ctx.i18nEnabled ? `{t('${escapeJsString(key)}', '${escapeJsString(value)}')}` : escapeJsxText(value);
 }
 
-
 function twClasses(node: IRNode, ctx: CodeBuilder, extra: string = ''): string {
   const styles = getStyles(node);
   const pseudo = getPseudoStyles(node);
@@ -45,7 +67,12 @@ function twClasses(node: IRNode, ctx: CodeBuilder, extra: string = ''): string {
     let expanded = stylesToTailwind(stateStyles, ctx.colors);
     if (ctx.twProfile) expanded = applyTailwindTokenRules(expanded, ctx.twProfile);
     if (expanded) {
-      pseudoClasses.push(expanded.split(' ').map(c => `${twState}:${c}`).join(' '));
+      pseudoClasses.push(
+        expanded
+          .split(' ')
+          .map((c) => `${twState}:${c}`)
+          .join(' '),
+      );
     }
   }
 
@@ -65,7 +92,12 @@ function renderNode(node: IRNode, ctx: CodeBuilder, indent: string): void {
       return;
     case 'logic':
       // Collect logic blocks — rendered before return statement
-      ctx.logicBlocks.push(p.code as string);
+      if (p.code) {
+        ctx.logicBlocks.push(String(p.code));
+      } else if (node.children) {
+        const handlerChild = node.children.find((c) => c.type === 'handler');
+        if (handlerChild?.props?.code) ctx.logicBlocks.push(String(handlerChild.props.code));
+      }
       return;
     case 'screen':
       renderScreen(node, ctx, indent);
@@ -109,6 +141,14 @@ function renderNode(node: IRNode, ctx: CodeBuilder, indent: string): void {
     case 'icon':
       renderIcon(node, ctx, indent);
       break;
+    case 'svg':
+      renderSvgNode(node, ctx, indent);
+      break;
+    case 'form':
+      ctx.lines.push(`${indent}<form${twClasses(node, ctx)}>`);
+      renderChildren(node, ctx, indent);
+      ctx.lines.push(`${indent}</form>`);
+      break;
     case 'image':
       renderImage(node, ctx, indent);
       break;
@@ -146,13 +186,13 @@ function renderNode(node: IRNode, ctx: CodeBuilder, indent: string): void {
 function renderChildren(node: IRNode, ctx: CodeBuilder, indent: string): void {
   if (node.children) {
     for (const child of node.children) {
-      renderNode(child, ctx, indent + '  ');
+      renderNode(child, ctx, `${indent}  `);
     }
   }
 }
 
 function renderScreen(node: IRNode, ctx: CodeBuilder, indent: string): void {
-  const p = getProps(node);
+  const _p = getProps(node);
   const styles = getStyles(node);
   // Auto-detect dark background and add light text
   const bgColor = styles.backgroundColor || '';
@@ -164,19 +204,19 @@ function renderScreen(node: IRNode, ctx: CodeBuilder, indent: string): void {
 }
 
 function isDarkColor(hex: string): boolean {
-  if (!hex || !hex.startsWith('#')) return false;
+  if (!hex?.startsWith('#')) return false;
   const c = hex.replace('#', '');
   const r = parseInt(c.substring(0, 2), 16);
   const g = parseInt(c.substring(2, 4), 16);
   const b = parseInt(c.substring(4, 6), 16);
   // Relative luminance
-  return (r * 0.299 + g * 0.587 + b * 0.114) < 128;
+  return r * 0.299 + g * 0.587 + b * 0.114 < 128;
 }
 
 function renderSection(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  const title = p.title as string || '';
-  const key = p.key as string || camelKey(title);
+  const title = (p.title as string) || '';
+  const key = (p.key as string) || camelKey(title);
   const icon = p.icon as string;
   const tooltip = p.tooltip as string;
   const description = p.description as string;
@@ -187,14 +227,16 @@ function renderSection(node: IRNode, ctx: CodeBuilder, indent: string): void {
     ctx.lines.push(`${indent}<SettingsSection`);
     if (ctx.i18nEnabled) {
       ctx.lines.push(`${indent}  title={t('${escapeJsString(key)}.title', '${escapeJsString(title)}')}`);
-      ctx.lines.push(`${indent}  description={t('${escapeJsString(key)}.description', '${escapeJsString(description)}')}`);
+      ctx.lines.push(
+        `${indent}  description={t('${escapeJsString(key)}.description', '${escapeJsString(description)}')}`,
+      );
     } else {
       ctx.lines.push(`${indent}  title="${escapeJsxAttr(title)}"`);
       ctx.lines.push(`${indent}  description="${escapeJsxAttr(description)}"`);
     }
     ctx.lines.push(`${indent}>`);
     ctx.lines.push(`${indent}  <div className="space-y-8">`);
-    renderChildren(node, ctx, indent + '  ');
+    renderChildren(node, ctx, `${indent}  `);
     ctx.lines.push(`${indent}  </div>`);
     ctx.lines.push(`${indent}</SettingsSection>`);
     return;
@@ -208,10 +250,16 @@ function renderSection(node: IRNode, ctx: CodeBuilder, indent: string): void {
     ctx.lines.push(`${indent}    </h3>`);
     ctx.componentImports.add('Icon');
     ctx.lines.push(`${indent}    <div className="relative group">`);
-    ctx.lines.push(`${indent}      <Icon name="${icon}" size="sm" className="text-zinc-500 hover:text-orange-500 cursor-help transition-colors" />`);
-    ctx.lines.push(`${indent}      <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-50 w-72 p-3 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl text-xs text-zinc-300">`);
+    ctx.lines.push(
+      `${indent}      <Icon name="${icon}" size="sm" className="text-zinc-500 hover:text-orange-500 cursor-help transition-colors" />`,
+    );
+    ctx.lines.push(
+      `${indent}      <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-50 w-72 p-3 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl text-xs text-zinc-300">`,
+    );
     if (tooltip) {
-      ctx.lines.push(`${indent}        ${ctx.i18nEnabled ? `{t('${escapeJsString(key)}.tooltip', ${JSON.stringify(tooltip)})}` : escapeJsxText(tooltip)}`);
+      ctx.lines.push(
+        `${indent}        ${ctx.i18nEnabled ? `{t('${escapeJsString(key)}.tooltip', ${JSON.stringify(tooltip)})}` : escapeJsxText(tooltip)}`,
+      );
     }
     ctx.lines.push(`${indent}      </div>`);
     ctx.lines.push(`${indent}    </div>`);
@@ -272,8 +320,21 @@ function renderText(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const bind = p.bind as string;
   const format = p.format as string;
   const key = p.key as string;
-  const tag = p.tag as string || 'span';
-  const el = tag === 'p' ? 'p' : tag === 'h1' ? 'h1' : tag === 'h2' ? 'h2' : tag === 'h3' ? 'h3' : tag === 'label' ? 'label' : 'span';
+  const tag = (p.tag as string) || 'span';
+  const TEXT_TAG_MAP: Record<string, string> = {
+    p: 'p',
+    h1: 'h1',
+    h2: 'h2',
+    h3: 'h3',
+    h4: 'h4',
+    h5: 'h5',
+    h6: 'h6',
+    label: 'label',
+    span: 'span',
+    pre: 'pre',
+    code: 'code',
+  };
+  const el = TEXT_TAG_MAP[tag] || 'span';
 
   const tw = twClasses(node, ctx);
 
@@ -298,10 +359,10 @@ function renderDivider(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
 function renderButton(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  const text = p.text as string || '';
+  const text = (p.text as string) || '';
   const onClick = p.onClick as string;
-  const variant = p.variant as string || 'primary';
-  const size = p.size as string || 'md';
+  const variant = (p.variant as string) || 'primary';
+  const size = (p.size as string) || 'md';
   const iconName = p.icon as string;
 
   ctx.hasEventHandlers = true; // onClick requires 'use client'
@@ -315,7 +376,7 @@ function renderButton(node: IRNode, ctx: CodeBuilder, indent: string): void {
     ctx.lines.push(`${indent}  ${tText(ctx, camelKey(text), text)}`);
     ctx.lines.push(`${indent}</Button>`);
   } else {
-    ctx.lines.push(`${indent}<button${twClasses(node, ctx)} onClick={${onClick || '() => {}'}}>`)
+    ctx.lines.push(`${indent}<button${twClasses(node, ctx)} onClick={${onClick || '() => {}'}}>`);
     ctx.lines.push(`${indent}  ${tText(ctx, camelKey(text), text)}`);
     ctx.lines.push(`${indent}</button>`);
   }
@@ -327,7 +388,7 @@ function renderSlider(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const max = p.max || 100;
   const step = p.step || 1;
   const bind = p.bind as string;
-  const accent = p.accent as string || '#007AFF';
+  const accent = (p.accent as string) || '#007AFF';
   const onDoubleClick = p.onDoubleClick;
 
   const setter = bindSetter(bind);
@@ -342,14 +403,16 @@ function renderSlider(node: IRNode, ctx: CodeBuilder, indent: string): void {
   ctx.lines.push(`${indent}  value={${bindVar(bind)}}`);
   ctx.lines.push(`${indent}  onChange={(e) => ${setter}(parseFloat(e.target.value))}`);
   if (dblClick) ctx.lines.push(`${indent} ${dblClick.trim()}`);
-  ctx.lines.push(`${indent}  className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-[${accent}]"`);
+  ctx.lines.push(
+    `${indent}  className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-[${accent}]"`,
+  );
   ctx.lines.push(`${indent}/>`);
 }
 
 function renderToggle(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
   const bind = p.bind as string;
-  const accent = p.accent as string || '#ea580c';
+  const _accent = (p.accent as string) || '#ea580c';
   const setter = bindSetter(bind);
 
   ctx.hasEventHandlers = true; // onChange requires 'use client'
@@ -360,7 +423,9 @@ function renderToggle(node: IRNode, ctx: CodeBuilder, indent: string): void {
   ctx.lines.push(`${indent}    checked={${bindVar(bind)}}`);
   ctx.lines.push(`${indent}    onChange={(e) => ${setter}(e.target.checked)}`);
   ctx.lines.push(`${indent}  />`);
-  ctx.lines.push(`${indent}  <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600" />`);
+  ctx.lines.push(
+    `${indent}  <div className="w-11 h-6 bg-zinc-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600" />`,
+  );
   ctx.lines.push(`${indent}</label>`);
 }
 
@@ -372,8 +437,8 @@ function renderOnHandler(node: IRNode, ctx: CodeBuilder): void {
   const isAsync = p.async === 'true' || p.async === true;
 
   // Get handler code from child handler node
-  const handlerChild = (node.children || []).find(c => c.type === 'handler');
-  const code = handlerChild ? (getProps(handlerChild).code as string || '') : '';
+  const handlerChild = (node.children || []).find((c) => c.type === 'handler');
+  const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
 
   if (handlerRef && !code) {
     // Just a reference: on event=click handler=handleClick — no code to generate
@@ -385,15 +450,24 @@ function renderOnHandler(node: IRNode, ctx: CodeBuilder): void {
   const asyncKw = isAsync ? 'async ' : '';
 
   // Event parameter type
-  const paramType = event === 'submit' ? 'e: React.FormEvent'
-    : event === 'click' ? 'e: React.MouseEvent'
-    : event === 'change' ? 'e: React.ChangeEvent'
-    : event === 'key' || event === 'keydown' || event === 'keyup' ? 'e: React.KeyboardEvent'
-    : event === 'focus' || event === 'blur' ? 'e: React.FocusEvent'
-    : event === 'drag' || event === 'drop' ? 'e: React.DragEvent'
-    : event === 'scroll' ? 'e: React.UIEvent'
-    : event === 'resize' ? '' // window event, no param
-    : `e: React.SyntheticEvent`;
+  const paramType =
+    event === 'submit'
+      ? 'e: React.FormEvent'
+      : event === 'click'
+        ? 'e: React.MouseEvent'
+        : event === 'change'
+          ? 'e: React.ChangeEvent'
+          : event === 'key' || event === 'keydown' || event === 'keyup'
+            ? 'e: React.KeyboardEvent'
+            : event === 'focus' || event === 'blur'
+              ? 'e: React.FocusEvent'
+              : event === 'drag' || event === 'drop'
+                ? 'e: React.DragEvent'
+                : event === 'scroll'
+                  ? 'e: React.UIEvent'
+                  : event === 'resize'
+                    ? '' // window event, no param
+                    : `e: React.SyntheticEvent`;
 
   const keyGuard = key ? `    if (e.key !== '${key}') return;\n` : '';
 
@@ -434,28 +508,67 @@ function renderOnHandler(node: IRNode, ctx: CodeBuilder): void {
 
 function renderGrid(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  const cols = p.cols || 1;
-  const gap = p.gap || 16;
-  ctx.lines.push(`${indent}<div className="grid grid-cols-1 md:grid-cols-${cols} gap-${Math.round(Number(gap) / 4)}">`);
+  const cols = parseInt(String(p.cols || 1), 10) || 1;
+  const gap = parseInt(String(p.gap || 16), 10) || 16;
+  ctx.lines.push(`${indent}<div className="grid grid-cols-1 md:grid-cols-${cols} gap-${Math.round(gap / 4)}">`);
   renderChildren(node, ctx, indent);
   ctx.lines.push(`${indent}</div>`);
 }
 
+const SVG_ICON_INNER: Record<string, string> = {
+  home: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  plus: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>',
+  chart:
+    '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+  search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  settings:
+    '<circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>',
+  heart:
+    '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>',
+  profile: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  check: '<polyline points="20 6 9 17 4 12"/>',
+  x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  arrow: '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>',
+};
+
+function renderSvgNode(node: IRNode, ctx: CodeBuilder, indent: string): void {
+  const p = getProps(node);
+  const icon = p.icon as string;
+  const size = parseInt(String(p.size || 24), 10) || 24;
+
+  if (icon) {
+    const inner = SVG_ICON_INNER[icon] || '<circle cx="12" cy="12" r="4"/>';
+    ctx.lines.push(
+      `${indent}<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"${twClasses(node, ctx)}>${inner}</svg>`,
+    );
+  } else {
+    const viewBox = (p.viewBox as string) || '0 0 24 24';
+    const width = parseInt(String(p.width || size), 10) || size;
+    const height = parseInt(String(p.height || size), 10) || size;
+    const fill = (p.fill as string) || 'none';
+    const stroke = (p.stroke as string) || 'currentColor';
+    const content = (p.content as string) || '';
+    ctx.lines.push(
+      `${indent}<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${viewBox}" fill="${fill}" stroke="${stroke}" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"${twClasses(node, ctx)}>${content}</svg>`,
+    );
+  }
+}
+
 function renderConditional(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  const condition = p.if as string || 'true';
+  const condition = (p.if as string) || 'true';
   const jsCondition = irConditionToJs(condition);
 
   ctx.lines.push(`${indent}{${jsCondition} && (`);
   ctx.lines.push(`${indent}  <>`);
-  renderChildren(node, ctx, indent + '  ');
+  renderChildren(node, ctx, `${indent}  `);
   ctx.lines.push(`${indent}  </>`);
   ctx.lines.push(`${indent})}`);
 }
 
 function renderComponent(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  const ref = p.ref as string;
+  const ref = (p.ref || p.name) as string;
   if (!ref) return;
 
   ctx.componentImports.add(ref);
@@ -488,7 +601,7 @@ function renderComponent(node: IRNode, ctx: CodeBuilder, indent: string): void {
     }
   }
 
-  const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
+  const attrStr = attrs.length > 0 ? ` ${attrs.join(' ')}` : '';
   ctx.lines.push(`${indent}<${ref}${attrStr} />`);
 }
 
@@ -501,7 +614,7 @@ function renderIcon(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
 function renderImage(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
-  const src = p.src as string || '';
+  const src = (p.src as string) || '';
   const styles = getStyles(node);
   const w = styles.width || '40';
   const h = styles.height || '40';
@@ -512,7 +625,9 @@ function renderImage(node: IRNode, ctx: CodeBuilder, indent: string): void {
 ${indent}  <svg width="${Math.round(Number(w) * 0.5)}" height="${Math.round(Number(h) * 0.5)}" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
 ${indent}</div>`);
   } else {
-    ctx.lines.push(`${indent}<img src="${src.startsWith('http') ? src : `/${src}.png`}" alt="${escapeJsxText(src)}"${twClasses(node, ctx)} />`);
+    ctx.lines.push(
+      `${indent}<img src="${src.startsWith('http') ? src : `/${src}.png`}" alt="${escapeJsxText(src)}"${twClasses(node, ctx)} />`,
+    );
   }
 }
 
@@ -527,7 +642,9 @@ function renderItem(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const hasChildren = node.children && node.children.length > 0;
 
   if (hasChildren) {
-    ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'flex items-center justify-between py-3 px-1')} style={{ borderBottom: '1px solid #1E2530' }}>`);
+    ctx.lines.push(
+      `${indent}<div${twClasses(node, ctx, 'flex items-center justify-between py-3 px-1')} style={{ borderBottom: '1px solid #1E2530' }}>`,
+    );
     renderChildren(node, ctx, indent);
     ctx.lines.push(`${indent}</div>`);
   } else {
@@ -536,19 +653,35 @@ function renderItem(node: IRNode, ctx: CodeBuilder, indent: string): void {
     const time = p.time as string;
     const calories = p.calories as string;
     const category = p.category as string;
-    ctx.lines.push(`${indent}<div${twClasses(node, ctx, 'flex items-center justify-between py-3 px-1')} style={{ borderBottom: '1px solid #1E2530' }}>`);
+    ctx.lines.push(
+      `${indent}<div${twClasses(node, ctx, 'flex items-center justify-between py-3 px-1')} style={{ borderBottom: '1px solid #1E2530' }}>`,
+    );
     ctx.lines.push(`${indent}  <div className="flex items-center gap-2">`);
-    if (name) ctx.lines.push(`${indent}    <span className="text-sm font-semibold" style={{ color: '#F8FAFC' }}>${escapeJsxText(name)}</span>`);
-    if (time) ctx.lines.push(`${indent}    <span className="text-xs" style={{ color: '#7A7485' }}>${escapeJsxText(time)}</span>`);
-    if (category) ctx.lines.push(`${indent}    <span className="text-xs" style={{ color: '#7A7485' }}>${escapeJsxText(category)}</span>`);
+    if (name)
+      ctx.lines.push(
+        `${indent}    <span className="text-sm font-semibold" style={{ color: '#F8FAFC' }}>${escapeJsxText(name)}</span>`,
+      );
+    if (time)
+      ctx.lines.push(
+        `${indent}    <span className="text-xs" style={{ color: '#7A7485' }}>${escapeJsxText(time)}</span>`,
+      );
+    if (category)
+      ctx.lines.push(
+        `${indent}    <span className="text-xs" style={{ color: '#7A7485' }}>${escapeJsxText(category)}</span>`,
+      );
     ctx.lines.push(`${indent}  </div>`);
-    if (calories) ctx.lines.push(`${indent}  <span className="text-sm" style={{ color: '#B8B3C1' }}>${escapeJsxText(calories)} kcal</span>`);
+    if (calories)
+      ctx.lines.push(
+        `${indent}  <span className="text-sm" style={{ color: '#B8B3C1' }}>${escapeJsxText(calories)} kcal</span>`,
+      );
     ctx.lines.push(`${indent}</div>`);
   }
 }
 
 function renderTabs(node: IRNode, ctx: CodeBuilder, indent: string): void {
-  ctx.lines.push(`${indent}<nav${twClasses(node, ctx, 'flex justify-around items-center py-3 mt-auto')} style={{ borderTop: '1px solid #2A3441' }}>`);
+  ctx.lines.push(
+    `${indent}<nav${twClasses(node, ctx, 'flex justify-around items-center py-3 mt-auto')} style={{ borderTop: '1px solid #2A3441' }}>`,
+  );
   renderChildren(node, ctx, indent);
   ctx.lines.push(`${indent}</nav>`);
 }
@@ -557,9 +690,14 @@ function renderTab(node: IRNode, ctx: CodeBuilder, indent: string): void {
   const p = getProps(node);
   const label = p.label as string;
   const icon = p.icon as string;
-  const activeClass = '';
-  ctx.lines.push(`${indent}<button${twClasses(node, ctx, 'flex flex-col items-center gap-1 text-xs')} style={{ color: '#7A7485' }}>`);
-  if (icon) ctx.lines.push(`${indent}  <span dangerouslySetInnerHTML={{ __html: '${iconToSvg(icon).replace(/'/g, "\\'")}' }} />`);
+  const _activeClass = '';
+  ctx.lines.push(
+    `${indent}<button${twClasses(node, ctx, 'flex flex-col items-center gap-1 text-xs')} style={{ color: '#7A7485' }}>`,
+  );
+  if (icon)
+    ctx.lines.push(
+      `${indent}  <span dangerouslySetInnerHTML={{ __html: '${iconToSvg(icon).replace(/'/g, "\\'")}' }} />`,
+    );
   ctx.lines.push(`${indent}  ${tText(ctx, camelKey(label), label)}`);
   ctx.lines.push(`${indent}</button>`);
 }
@@ -568,14 +706,23 @@ function iconToSvg(icon: string): string {
   const svgs: Record<string, string> = {
     home: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
     plus: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
-    chart: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
-    stats: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
-    search: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-    settings: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>',
-    profile: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
-    heart: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
+    chart:
+      '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
+    stats:
+      '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>',
+    search:
+      '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+    settings:
+      '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>',
+    profile:
+      '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+    heart:
+      '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>',
   };
-  return svgs[icon] || '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4"/></svg>';
+  return (
+    svgs[icon] ||
+    '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4"/></svg>'
+  );
 }
 
 function renderProgress(node: IRNode, ctx: CodeBuilder, indent: string): void {
@@ -588,11 +735,19 @@ function renderProgress(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
   ctx.lines.push(`${indent}<div className="mb-4">`);
   ctx.lines.push(`${indent}  <div className="flex justify-between text-sm mb-1.5">`);
-  ctx.lines.push(`${indent}    <span className="font-semibold" style={{ color: '#F8FAFC' }}>${escapeJsxText(String(label))}</span>`);
-  ctx.lines.push(`${indent}    <span style={{ color: '#B8B3C1' }}>${current}/${target} ${escapeJsxText(String(p.unit || ''))}</span>`);
+  ctx.lines.push(
+    `${indent}    <span className="font-semibold" style={{ color: '#F8FAFC' }}>${escapeJsxText(String(label))}</span>`,
+  );
+  ctx.lines.push(
+    `${indent}    <span style={{ color: '#B8B3C1' }}>${current}/${target} ${escapeJsxText(String(p.unit || ''))}</span>`,
+  );
   ctx.lines.push(`${indent}  </div>`);
-  ctx.lines.push(`${indent}  <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: '#1A2030' }}>`);
-  ctx.lines.push(`${indent}    <div className="h-full rounded-full transition-all" style={{ width: '${pct}%', backgroundColor: '${color}' }} />`);
+  ctx.lines.push(
+    `${indent}  <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: '#1A2030' }}>`,
+  );
+  ctx.lines.push(
+    `${indent}    <div className="h-full rounded-full transition-all" style={{ width: '${pct}%', backgroundColor: '${color}' }} />`,
+  );
   ctx.lines.push(`${indent}  </div>`);
   ctx.lines.push(`${indent}</div>`);
 }
@@ -619,7 +774,7 @@ function renderInput(node: IRNode, ctx: CodeBuilder, indent: string): void {
   if (p.placeholder) attrs.push(`placeholder="${p.placeholder}"`);
   if (p.type) attrs.push(`type="${p.type}"`);
 
-  const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
+  const attrStr = attrs.length > 0 ? ` ${attrs.join(' ')}` : '';
   ctx.lines.push(`${indent}<input${tw}${attrStr} />`);
 }
 
@@ -627,10 +782,8 @@ function renderInput(node: IRNode, ctx: CodeBuilder, indent: string): void {
 
 function bindExpr(bind: string, format: string): string {
   // "{v} dB ({presetLabel})" → `${fixStrengthDb.toFixed(1)} dB (${presetLabel})`
-  const expr = format
-    .replace(/\{v\}/g, `\${${bind}.toFixed(1)}`)
-    .replace(/\{(\w+)\}/g, (_, name) => `\${${name}}`);
-  return '`' + expr + '`';
+  const expr = format.replace(/\{v\}/g, `\${${bind}.toFixed(1)}`).replace(/\{(\w+)\}/g, (_, name) => `\${${name}}`);
+  return `\`${expr}\``;
 }
 
 function bindVar(bind: string): string {
@@ -709,10 +862,10 @@ function _transpileTailwindInner(root: IRNode, config?: ResolvedKernConfig): Tra
   // React imports
   const reactImports: string[] = [];
   if (hasState) reactImports.push('useState');
-  if (hasLogic && ctx.logicBlocks.some(b => b.includes('useEffect'))) reactImports.push('useEffect');
-  if (hasLogic && ctx.logicBlocks.some(b => b.includes('useCallback'))) reactImports.push('useCallback');
-  if (hasLogic && ctx.logicBlocks.some(b => b.includes('useMemo'))) reactImports.push('useMemo');
-  if (hasLogic && ctx.logicBlocks.some(b => b.includes('useRef'))) reactImports.push('useRef');
+  if (hasLogic && ctx.logicBlocks.some((b) => b.includes('useEffect'))) reactImports.push('useEffect');
+  if (hasLogic && ctx.logicBlocks.some((b) => b.includes('useCallback'))) reactImports.push('useCallback');
+  if (hasLogic && ctx.logicBlocks.some((b) => b.includes('useMemo'))) reactImports.push('useMemo');
+  if (hasLogic && ctx.logicBlocks.some((b) => b.includes('useRef'))) reactImports.push('useRef');
   if (reactImports.length > 0) {
     code.push(`import React, { ${reactImports.join(', ')} } from 'react';`);
   }
@@ -726,8 +879,8 @@ function _transpileTailwindInner(root: IRNode, config?: ResolvedKernConfig): Tra
   }
 
   if (ctx.componentImports.size > 0) {
-    const uiImports = [...ctx.componentImports].filter(c => ['Icon', 'Button'].includes(c));
-    const featureImports = [...ctx.componentImports].filter(c => !['Icon', 'Button'].includes(c));
+    const uiImports = [...ctx.componentImports].filter((c) => ['Icon', 'Button'].includes(c));
+    const featureImports = [...ctx.componentImports].filter((c) => !['Icon', 'Button'].includes(c));
 
     if (uiImports.length > 0) {
       code.push(`import { ${uiImports.join(', ')} } from '${uiLibrary}';`);
@@ -746,9 +899,16 @@ function _transpileTailwindInner(root: IRNode, config?: ResolvedKernConfig): Tra
   // Generate useState declarations
   for (const s of ctx.stateDecls) {
     const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
-    const init = s.initial === 'true' ? 'true' : s.initial === 'false' ? 'false' : isNaN(Number(s.initial)) ? `'${s.initial}'` : s.initial;
+    const init =
+      s.initial === 'true'
+        ? 'true'
+        : s.initial === 'false'
+          ? 'false'
+          : Number.isNaN(Number(s.initial))
+            ? `'${s.initial}'`
+            : s.initial;
     // Check if initial is an expression
-    const stateNode = root.children?.find(c => c.type === 'state' && c.props?.name === s.name);
+    const stateNode = root.children?.find((c) => c.type === 'state' && c.props?.name === s.name);
     const initProp = stateNode?.props?.initial;
     const isExpr = typeof initProp === 'object' && initProp !== null && '__expr' in (initProp as object);
     const initVal = isExpr ? (initProp as { code: string }).code : init;
@@ -776,12 +936,20 @@ function _transpileTailwindInner(root: IRNode, config?: ResolvedKernConfig): Tra
   const tsTokenCount = countTokens(output);
   const tokenReduction = tsTokenCount > 0 ? Math.round((1 - irTokenCount / tsTokenCount) * 100) : 0;
 
+  const accounted = new Map<IRNode, AccountedEntry>();
+  accountNode(accounted, root, 'expressed', undefined, true);
+  const CONSUMED = new Set(['state', 'logic', 'on', 'theme', 'handler']);
+  for (const child of root.children || []) {
+    if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', `${child.type} pre-pass`, true);
+  }
+
   return {
     code: output,
     sourceMap: ctx.sourceMap,
     irTokenCount,
     tsTokenCount,
     tokenReduction,
+    diagnostics: buildDiagnostics(root, accounted, 'tailwind'),
   };
 }
 
@@ -807,9 +975,7 @@ function _renderTailwindFile(file: PlannedFile, config: ResolvedKernConfig): str
   const rootNode = file.rootNode;
   renderNode(rootNode, ctx, '    ');
 
-  const name = file.componentName
-    || (rootNode.props?.name as string)
-    || 'Component';
+  const name = file.componentName || (rootNode.props?.name as string) || 'Component';
   const hasState = ctx.stateDecls.length > 0;
   const hasLogic = ctx.logicBlocks.length > 0;
 
@@ -825,10 +991,10 @@ function _renderTailwindFile(file: PlannedFile, config: ResolvedKernConfig): str
   // React imports
   const reactImports: string[] = [];
   if (hasState) reactImports.push('useState');
-  if (hasLogic && ctx.logicBlocks.some(b => b.includes('useEffect'))) reactImports.push('useEffect');
-  if (hasLogic && ctx.logicBlocks.some(b => b.includes('useCallback'))) reactImports.push('useCallback');
-  if (hasLogic && ctx.logicBlocks.some(b => b.includes('useMemo'))) reactImports.push('useMemo');
-  if (hasLogic && ctx.logicBlocks.some(b => b.includes('useRef'))) reactImports.push('useRef');
+  if (hasLogic && ctx.logicBlocks.some((b) => b.includes('useEffect'))) reactImports.push('useEffect');
+  if (hasLogic && ctx.logicBlocks.some((b) => b.includes('useCallback'))) reactImports.push('useCallback');
+  if (hasLogic && ctx.logicBlocks.some((b) => b.includes('useMemo'))) reactImports.push('useMemo');
+  if (hasLogic && ctx.logicBlocks.some((b) => b.includes('useRef'))) reactImports.push('useRef');
   if (reactImports.length > 0) {
     code.push(`import React, { ${reactImports.join(', ')} } from 'react';`);
   }
@@ -842,8 +1008,8 @@ function _renderTailwindFile(file: PlannedFile, config: ResolvedKernConfig): str
   }
 
   if (ctx.componentImports.size > 0) {
-    const uiImports = [...ctx.componentImports].filter(c => ['Icon', 'Button'].includes(c));
-    const featureImports = [...ctx.componentImports].filter(c => !['Icon', 'Button'].includes(c));
+    const uiImports = [...ctx.componentImports].filter((c) => ['Icon', 'Button'].includes(c));
+    const featureImports = [...ctx.componentImports].filter((c) => !['Icon', 'Button'].includes(c));
     if (uiImports.length > 0) {
       code.push(`import { ${uiImports.join(', ')} } from '${uiLibrary}';`);
     }
@@ -867,9 +1033,16 @@ function _renderTailwindFile(file: PlannedFile, config: ResolvedKernConfig): str
   // State declarations (only if not extracted to hooks)
   for (const s of ctx.stateDecls) {
     const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
-    const init = s.initial === 'true' ? 'true' : s.initial === 'false' ? 'false' : isNaN(Number(s.initial)) ? `'${s.initial}'` : s.initial;
+    const init =
+      s.initial === 'true'
+        ? 'true'
+        : s.initial === 'false'
+          ? 'false'
+          : Number.isNaN(Number(s.initial))
+            ? `'${s.initial}'`
+            : s.initial;
     // Check if initial is an expression
-    const stateNode = rootNode.children?.find(c => c.type === 'state' && c.props?.name === s.name);
+    const stateNode = rootNode.children?.find((c) => c.type === 'state' && c.props?.name === s.name);
     const initProp = stateNode?.props?.initial;
     const isExprInit = typeof initProp === 'object' && initProp !== null && '__expr' in (initProp as object);
     const initVal = isExprInit ? (initProp as { code: string }).code : init;
@@ -909,6 +1082,13 @@ function _transpileTailwindStructured(
   const tsTokenCount = countTokens(entryCode);
   const tokenReduction = tsTokenCount > 0 ? Math.round((1 - irTokenCount / tsTokenCount) * 100) : 0;
 
+  const accounted = new Map<IRNode, AccountedEntry>();
+  accountNode(accounted, root, 'expressed', undefined, true);
+  const CONSUMED = new Set(['state', 'logic', 'on', 'theme', 'handler']);
+  for (const child of root.children || []) {
+    if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', `${child.type} pre-pass`, true);
+  }
+
   return {
     code: entryCode,
     sourceMap: [],
@@ -916,6 +1096,6 @@ function _transpileTailwindStructured(
     tsTokenCount,
     tokenReduction,
     artifacts,
+    diagnostics: buildDiagnostics(root, accounted, 'tailwind'),
   };
 }
-

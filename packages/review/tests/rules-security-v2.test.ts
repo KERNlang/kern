@@ -1,5 +1,4 @@
 import { reviewSource } from '../src/index.js';
-import type { ReviewConfig } from '../src/types.js';
 
 describe('Security v2 Rules', () => {
   // ── jwt-weak-verification ──────────────────────────────────────────────
@@ -12,7 +11,7 @@ describe('Security v2 Rules', () => {
         if (payload.role === 'admin') { /* grant access */ }
       `;
       const report = reviewSource(source, 'auth.ts');
-      const f = report.findings.filter(f => f.ruleId === 'jwt-weak-verification');
+      const f = report.findings.filter((f) => f.ruleId === 'jwt-weak-verification');
       expect(f.length).toBeGreaterThanOrEqual(1);
       expect(f[0].severity).toBe('warning');
       expect(f[0].message).toContain('decode');
@@ -24,7 +23,7 @@ describe('Security v2 Rules', () => {
         const payload = jwt.verify(token, secret);
       `;
       const report = reviewSource(source, 'auth.ts');
-      const f = report.findings.filter(f => f.ruleId === 'jwt-weak-verification');
+      const f = report.findings.filter((f) => f.ruleId === 'jwt-weak-verification');
       expect(f.length).toBeGreaterThanOrEqual(1);
       expect(f[0].message).toContain('algorithms');
     });
@@ -35,7 +34,7 @@ describe('Security v2 Rules', () => {
         const payload = jwt.verify(token, secret, { issuer: 'myapp' });
       `;
       const report = reviewSource(source, 'auth.ts');
-      const f = report.findings.filter(f => f.ruleId === 'jwt-weak-verification');
+      const f = report.findings.filter((f) => f.ruleId === 'jwt-weak-verification');
       expect(f.length).toBeGreaterThanOrEqual(1);
     });
 
@@ -45,7 +44,7 @@ describe('Security v2 Rules', () => {
         const payload = jwt.verify(token, secret, { algorithms: ['RS256'] });
       `;
       const report = reviewSource(source, 'auth.ts');
-      const f = report.findings.filter(f => f.ruleId === 'jwt-weak-verification');
+      const f = report.findings.filter((f) => f.ruleId === 'jwt-weak-verification');
       expect(f.length).toBe(0);
     });
   });
@@ -62,7 +61,7 @@ describe('Security v2 Rules', () => {
         });
       `;
       const report = reviewSource(source, 'server.ts');
-      const f = report.findings.filter(f => f.ruleId === 'cookie-hardening');
+      const f = report.findings.filter((f) => f.ruleId === 'cookie-hardening');
       expect(f.length).toBeGreaterThanOrEqual(1);
       expect(f[0].severity).toBe('error');
     });
@@ -76,7 +75,7 @@ describe('Security v2 Rules', () => {
         });
       `;
       const report = reviewSource(source, 'server.ts');
-      const f = report.findings.filter(f => f.ruleId === 'cookie-hardening');
+      const f = report.findings.filter((f) => f.ruleId === 'cookie-hardening');
       expect(f.length).toBeGreaterThanOrEqual(1);
       expect(f[0].message).toContain('httpOnly');
     });
@@ -90,7 +89,7 @@ describe('Security v2 Rules', () => {
         });
       `;
       const report = reviewSource(source, 'server.ts');
-      const f = report.findings.filter(f => f.ruleId === 'cookie-hardening');
+      const f = report.findings.filter((f) => f.ruleId === 'cookie-hardening');
       expect(f.length).toBe(0);
     });
 
@@ -103,9 +102,9 @@ describe('Security v2 Rules', () => {
         });
       `;
       const report = reviewSource(source, 'server.ts');
-      const f = report.findings.filter(f => f.ruleId === 'cookie-hardening');
+      const f = report.findings.filter((f) => f.ruleId === 'cookie-hardening');
       expect(f.length).toBeGreaterThanOrEqual(1);
-      expect(f.some(x => x.message.includes('httpOnly: false'))).toBe(true);
+      expect(f.some((x) => x.message.includes('httpOnly: false'))).toBe(true);
     });
   });
 
@@ -121,7 +120,7 @@ describe('Security v2 Rules', () => {
         app.post('/transfer', (req, res) => { /* state change */ });
       `;
       const report = reviewSource(source, 'server.ts');
-      const f = report.findings.filter(f => f.ruleId === 'csrf-detection');
+      const f = report.findings.filter((f) => f.ruleId === 'csrf-detection');
       expect(f.length).toBeGreaterThanOrEqual(1);
     });
 
@@ -132,7 +131,7 @@ describe('Security v2 Rules', () => {
         app.post('/api/data', (req, res) => { /* no cookies */ });
       `;
       const report = reviewSource(source, 'api.ts');
-      const f = report.findings.filter(f => f.ruleId === 'csrf-detection');
+      const f = report.findings.filter((f) => f.ruleId === 'csrf-detection');
       expect(f.length).toBe(0);
     });
   });
@@ -146,8 +145,8 @@ describe('Security v2 Rules', () => {
         res.setHeader('Content-Security-Policy', csp);
       `;
       const report = reviewSource(source, 'server.ts');
-      const f = report.findings.filter(f => f.ruleId === 'csp-strength');
-      expect(f.some(x => x.message.includes('unsafe-inline'))).toBe(true);
+      const f = report.findings.filter((f) => f.ruleId === 'csp-strength');
+      expect(f.some((x) => x.message.includes('unsafe-inline'))).toBe(true);
     });
 
     it('flags unsafe-eval in CSP', () => {
@@ -155,8 +154,8 @@ describe('Security v2 Rules', () => {
         const policy = "default-src 'self'; script-src 'unsafe-eval'";
       `;
       const report = reviewSource(source, 'server.ts');
-      const f = report.findings.filter(f => f.ruleId === 'csp-strength');
-      expect(f.some(x => x.message.includes('unsafe-eval'))).toBe(true);
+      const f = report.findings.filter((f) => f.ruleId === 'csp-strength');
+      expect(f.some((x) => x.message.includes('unsafe-eval'))).toBe(true);
     });
   });
 
@@ -171,7 +170,7 @@ describe('Security v2 Rules', () => {
         });
       `;
       const report = reviewSource(source, 'server.ts');
-      const f = report.findings.filter(f => f.ruleId === 'path-traversal');
+      const f = report.findings.filter((f) => f.ruleId === 'path-traversal');
       expect(f.length).toBeGreaterThanOrEqual(1);
       expect(f[0].severity).toBe('error');
     });
@@ -183,7 +182,7 @@ describe('Security v2 Rules', () => {
         });
       `;
       const report = reviewSource(source, 'server.ts');
-      const f = report.findings.filter(f => f.ruleId === 'path-traversal');
+      const f = report.findings.filter((f) => f.ruleId === 'path-traversal');
       expect(f.length).toBeGreaterThanOrEqual(1);
     });
   });
@@ -199,7 +198,7 @@ describe('Security v2 Rules', () => {
         }
       `;
       const report = reviewSource(source, 'auth.ts');
-      const f = report.findings.filter(f => f.ruleId === 'weak-password-hashing');
+      const f = report.findings.filter((f) => f.ruleId === 'weak-password-hashing');
       expect(f.length).toBeGreaterThanOrEqual(1);
       expect(f[0].message).toContain('md5');
       expect(f[0].severity).toBe('error');
@@ -213,7 +212,7 @@ describe('Security v2 Rules', () => {
         }
       `;
       const report = reviewSource(source, 'util.ts');
-      const f = report.findings.filter(f => f.ruleId === 'weak-password-hashing');
+      const f = report.findings.filter((f) => f.ruleId === 'weak-password-hashing');
       expect(f.length).toBe(0);
     });
 
@@ -223,7 +222,7 @@ describe('Security v2 Rules', () => {
         const hash = bcrypt.hash(password, 4);
       `;
       const report = reviewSource(source, 'auth.ts');
-      const f = report.findings.filter(f => f.ruleId === 'weak-password-hashing');
+      const f = report.findings.filter((f) => f.ruleId === 'weak-password-hashing');
       expect(f.length).toBeGreaterThanOrEqual(1);
       expect(f[0].message).toContain('4 rounds');
     });
@@ -234,7 +233,7 @@ describe('Security v2 Rules', () => {
         crypto.pbkdf2(password, salt, 1000, 64, 'sha512', callback);
       `;
       const report = reviewSource(source, 'auth.ts');
-      const f = report.findings.filter(f => f.ruleId === 'weak-password-hashing');
+      const f = report.findings.filter((f) => f.ruleId === 'weak-password-hashing');
       expect(f.length).toBeGreaterThanOrEqual(1);
       expect(f[0].message).toContain('1');
       expect(f[0].message).toContain('000');
@@ -246,7 +245,7 @@ describe('Security v2 Rules', () => {
         const hash = bcrypt.hash(password, 12);
       `;
       const report = reviewSource(source, 'auth.ts');
-      const f = report.findings.filter(f => f.ruleId === 'weak-password-hashing');
+      const f = report.findings.filter((f) => f.ruleId === 'weak-password-hashing');
       expect(f.length).toBe(0);
     });
   });

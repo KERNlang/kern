@@ -4,20 +4,28 @@
  * Pipeline: scan → gap-detect → analyze → propose → validate → stage
  */
 
-import { readdirSync, statSync, existsSync } from 'fs';
-import { resolve, join } from 'path';
+import { existsSync, readdirSync, statSync } from 'fs';
+import { join, resolve } from 'path';
 import { Project } from 'ts-morph';
-import { detectGaps, detectGapsFromSource } from './gap-detector.js';
+import { isNodeCandidate, scoreExpressibility } from './expressibility-scorer.js';
+import { detectGaps } from './gap-detector.js';
+import { governanceGate } from './node-governance.js';
+import { proposeNodes } from './node-proposer.js';
+import { validateNodeProposal } from './node-validator.js';
 import { analyzePatterns, analyzeStructuralPatterns } from './pattern-analyzer.js';
+import { DEFAULT_THRESHOLDS } from './quality-scorer.js';
+import { stageNodeProposal, stageProposal } from './staging.js';
 import { proposeTemplates } from './template-proposer.js';
 import { validateProposal } from './template-validator.js';
-import { stageProposal, stageNodeProposal } from './staging.js';
-import { DEFAULT_THRESHOLDS } from './quality-scorer.js';
-import { scoreExpressibility, isNodeCandidate } from './expressibility-scorer.js';
-import { proposeNodes } from './node-proposer.js';
-import { governanceGate } from './node-governance.js';
-import { validateNodeProposal } from './node-validator.js';
-import type { EvolveConfig, EvolveResult, QualityThresholds, PatternGap, ConceptGapSummary, ExpressibilityScore, NodeProposal } from './types.js';
+import type {
+  ConceptGapSummary,
+  EvolveConfig,
+  EvolveResult,
+  ExpressibilityScore,
+  NodeProposal,
+  PatternGap,
+  QualityThresholds,
+} from './types.js';
 
 export interface EvolveOptions {
   recursive?: boolean;
@@ -31,10 +39,7 @@ export interface EvolveOptions {
 /**
  * Run the full evolve pipeline on a directory or file.
  */
-export function evolve(
-  inputPath: string,
-  options: EvolveOptions = {},
-): EvolveResult {
+export function evolve(inputPath: string, options: EvolveOptions = {}): EvolveResult {
   const resolvedPath = resolve(inputPath);
   const thresholds: QualityThresholds = {
     ...DEFAULT_THRESHOLDS,
@@ -72,7 +77,7 @@ export function evolve(
   const proposals = proposeTemplates(analyzed);
 
   // Phase 4: Validate proposals
-  const validated = proposals.map(proposal => ({
+  const validated = proposals.map((proposal) => ({
     proposal,
     validation: validateProposal(proposal, options.tsconfigPath),
   }));
@@ -81,12 +86,14 @@ export function evolve(
   const staged = options.preview
     ? []
     : validated
-        .filter(v => v.validation.parseOk && v.validation.registerOk && v.validation.expansionOk)
-        .map(v => stageProposal(v.proposal, v.validation, options.config));
+        .filter((v) => v.validation.parseOk && v.validation.registerOk && v.validation.expansionOk)
+        .map((v) => stageProposal(v.proposal, v.validation, options.config));
 
   // ── v3 branch: Node proposals from structural gaps ──
   let nodeProposals: NodeProposal[] | undefined;
-  let nodeValidated: Array<{ proposal: NodeProposal; validation: import('./types.js').NodeValidationResult }> | undefined;
+  let nodeValidated:
+    | Array<{ proposal: NodeProposal; validation: import('./types.js').NodeValidationResult }>
+    | undefined;
   let stagedNodes: import('./types.js').StagedNodeProposal[] | undefined;
 
   if (options.enableNodeProposals) {
@@ -96,28 +103,26 @@ export function evolve(
     // Phase 2.6: Score expressibility for structural gaps
     const expressScores = new Map<string, ExpressibilityScore>();
     for (const pattern of structuralAnalyzed) {
-      const snippets = allGaps
-        .filter(g => pattern.gapIds.includes(g.id))
-        .map(g => g.snippet);
+      const snippets = allGaps.filter((g) => pattern.gapIds.includes(g.id)).map((g) => g.snippet);
       const score = scoreExpressibility(
-        allGaps.filter(g => pattern.gapIds.includes(g.id)),
+        allGaps.filter((g) => pattern.gapIds.includes(g.id)),
         snippets,
       );
       expressScores.set(pattern.structuralHash, score);
     }
 
     // Phase 2.7: Propose nodes for high-expressibility patterns
-    const candidatePatterns = structuralAnalyzed.filter(p => {
+    const candidatePatterns = structuralAnalyzed.filter((p) => {
       const score = expressScores.get(p.structuralHash);
       return score && isNodeCandidate(score);
     });
     nodeProposals = proposeNodes(candidatePatterns, expressScores);
 
     // Phase 2.8: Governance gate filter
-    const governed = nodeProposals.filter(np => governanceGate(np).pass);
+    const governed = nodeProposals.filter((np) => governanceGate(np).pass);
 
     // Phase 2.9: Validate governed proposals
-    nodeValidated = governed.map(np => ({
+    nodeValidated = governed.map((np) => ({
       proposal: np,
       validation: validateNodeProposal(np),
     }));
@@ -126,8 +131,8 @@ export function evolve(
     stagedNodes = options.preview
       ? []
       : nodeValidated
-          .filter(v => v.validation.parseOk && v.validation.codegenOk)
-          .map(v => stageNodeProposal(v.proposal, v.validation, options.config));
+          .filter((v) => v.validation.parseOk && v.validation.codegenOk)
+          .map((v) => stageNodeProposal(v.proposal, v.validation, options.config));
   }
 
   return {
@@ -146,11 +151,7 @@ export function evolve(
 /**
  * Run evolve on a source string (useful for testing and single-file analysis).
  */
-export function evolveSource(
-  source: string,
-  filePath = 'input.ts',
-  options: EvolveOptions = {},
-): EvolveResult {
+export function evolveSource(source: string, filePath = 'input.ts', options: EvolveOptions = {}): EvolveResult {
   const thresholds: QualityThresholds = {
     ...DEFAULT_THRESHOLDS,
     ...options.thresholds,
@@ -169,7 +170,7 @@ export function evolveSource(
   const proposals = proposeTemplates(analyzed);
 
   // Phase 4
-  const validated = proposals.map(proposal => ({
+  const validated = proposals.map((proposal) => ({
     proposal,
     validation: validateProposal(proposal, options.tsconfigPath),
   }));
@@ -186,7 +187,7 @@ export function evolveSource(
 }
 
 function buildConceptSummary(gaps: PatternGap[]): ConceptGapSummary | undefined {
-  const conceptGaps = gaps.filter(g => g.libraryName === 'structural');
+  const conceptGaps = gaps.filter((g) => g.libraryName === 'structural');
   if (conceptGaps.length === 0) return undefined;
 
   const byRule: Record<string, number> = {};
@@ -222,7 +223,12 @@ function collectTsFiles(inputPath: string, recursive: boolean): string[] {
     const s = statSync(full);
     if (s.isDirectory() && recursive && !entry.startsWith('.') && entry !== 'node_modules' && entry !== 'dist') {
       files.push(...collectTsFiles(full, true));
-    } else if ((entry.endsWith('.ts') || entry.endsWith('.tsx')) && !entry.endsWith('.d.ts') && !entry.endsWith('.test.ts') && !entry.endsWith('.test.tsx')) {
+    } else if (
+      (entry.endsWith('.ts') || entry.endsWith('.tsx')) &&
+      !entry.endsWith('.d.ts') &&
+      !entry.endsWith('.test.ts') &&
+      !entry.endsWith('.test.tsx')
+    ) {
       files.push(full);
     }
   }

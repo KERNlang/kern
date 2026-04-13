@@ -1,19 +1,16 @@
 import { NODE_TYPES } from '@kernlang/core';
 import {
   buildDiscoveryPrompt,
+  estimateTokens,
   parseDiscoveryResponse,
   selectRepresentativeFiles,
-  estimateTokens,
 } from '../src/llm-discovery.js';
 import { TokenBudget } from '../src/llm-provider.js';
 
 describe('LLM Discovery', () => {
   describe('buildDiscoveryPrompt', () => {
     it('includes file contents and node types', () => {
-      const prompt = buildDiscoveryPrompt(
-        [{ path: 'src/cache.ts', content: 'const cache = new Map();' }],
-        NODE_TYPES,
-      );
+      const prompt = buildDiscoveryPrompt([{ path: 'src/cache.ts', content: 'const cache = new Map();' }], NODE_TYPES);
       expect(prompt).toContain('src/cache.ts');
       expect(prompt).toContain('const cache = new Map()');
       expect(prompt).toContain('screen');
@@ -22,29 +19,19 @@ describe('LLM Discovery', () => {
     });
 
     it('includes evolved keywords when provided', () => {
-      const prompt = buildDiscoveryPrompt(
-        [{ path: 'test.ts', content: 'x' }],
-        NODE_TYPES,
-        ['my-evolved-node'],
-      );
+      const prompt = buildDiscoveryPrompt([{ path: 'test.ts', content: 'x' }], NODE_TYPES, ['my-evolved-node']);
       expect(prompt).toContain('my-evolved-node');
     });
 
     it('truncates large files', () => {
       const bigContent = 'x'.repeat(5000);
-      const prompt = buildDiscoveryPrompt(
-        [{ path: 'big.ts', content: bigContent }],
-        NODE_TYPES,
-      );
+      const prompt = buildDiscoveryPrompt([{ path: 'big.ts', content: bigContent }], NODE_TYPES);
       expect(prompt).toContain('truncated');
       expect(prompt.length).toBeLessThan(bigContent.length + 5000);
     });
 
     it('includes codegenSource format instructions', () => {
-      const prompt = buildDiscoveryPrompt(
-        [{ path: 'test.ts', content: 'x' }],
-        NODE_TYPES,
-      );
+      const prompt = buildDiscoveryPrompt([{ path: 'test.ts', content: 'x' }], NODE_TYPES);
       expect(prompt).toContain('module.exports = function(node, helpers)');
       expect(prompt).toContain('helpers.p(node)');
       expect(prompt).toContain('helpers.kids');
@@ -63,7 +50,8 @@ describe('LLM Discovery', () => {
           childTypes: ['entry'],
           kernExample: 'cache-wrapper name=myCache',
           expectedOutput: 'export const myCache = {};',
-          codegenSource: "module.exports = function(node, helpers) { return ['export const ' + helpers.p(node).name + ' = {};']; };",
+          codegenSource:
+            "module.exports = function(node, helpers) { return ['export const ' + helpers.p(node).name + ' = {};']; };",
           reason: {
             observation: 'Found 5 cache patterns',
             inefficiency: '40 lines each',
@@ -117,7 +105,17 @@ These are the main patterns.`;
 
     it('skips malformed entries', () => {
       const response = JSON.stringify([
-        { keyword: 'valid-node', displayName: 'Valid', description: 'ok', props: [], childTypes: [], kernExample: 'valid-node', expectedOutput: 'x', codegenSource: 'module.exports = function() { return []; };', reason: { observation: 'x', inefficiency: 'x', kernBenefit: 'x' } },
+        {
+          keyword: 'valid-node',
+          displayName: 'Valid',
+          description: 'ok',
+          props: [],
+          childTypes: [],
+          kernExample: 'valid-node',
+          expectedOutput: 'x',
+          codegenSource: 'module.exports = function() { return []; };',
+          reason: { observation: 'x', inefficiency: 'x', kernBenefit: 'x' },
+        },
         { noKeyword: true },
         null,
       ]);
@@ -127,24 +125,33 @@ These are the main patterns.`;
     });
 
     it('normalizes uppercase/special-char keywords', () => {
-      const response = JSON.stringify([{
-        keyword: 'My_Special.Node',
-        displayName: 'X', description: 'X', props: [], childTypes: [],
-        kernExample: 'x', expectedOutput: 'x', codegenSource: 'module.exports = function() { return []; };',
-        reason: { observation: 'x', inefficiency: 'x', kernBenefit: 'x' },
-      }]);
+      const response = JSON.stringify([
+        {
+          keyword: 'My_Special.Node',
+          displayName: 'X',
+          description: 'X',
+          props: [],
+          childTypes: [],
+          kernExample: 'x',
+          expectedOutput: 'x',
+          codegenSource: 'module.exports = function() { return []; };',
+          reason: { observation: 'x', inefficiency: 'x', kernBenefit: 'x' },
+        },
+      ]);
       const proposals = parseDiscoveryResponse(response);
       expect(proposals[0].keyword).toBe('my-special-node');
     });
 
     it('fills missing optional fields with defaults', () => {
-      const response = JSON.stringify([{
-        keyword: 'minimal',
-        kernExample: 'minimal',
-        codegenSource: 'module.exports = function() { return []; };',
-        expectedOutput: '',
-        reason: { observation: 'x' },
-      }]);
+      const response = JSON.stringify([
+        {
+          keyword: 'minimal',
+          kernExample: 'minimal',
+          codegenSource: 'module.exports = function() { return []; };',
+          expectedOutput: '',
+          reason: { observation: 'x' },
+        },
+      ]);
       const proposals = parseDiscoveryResponse(response);
       expect(proposals).toHaveLength(1);
       expect(proposals[0].props).toEqual([]);
@@ -156,8 +163,12 @@ These are the main patterns.`;
   describe('selectRepresentativeFiles', () => {
     it('groups files by directory', () => {
       const files = [
-        '/src/cache/a.ts', '/src/cache/b.ts', '/src/cache/c.ts', '/src/cache/d.ts',
-        '/src/auth/x.ts', '/src/auth/y.ts',
+        '/src/cache/a.ts',
+        '/src/cache/b.ts',
+        '/src/cache/c.ts',
+        '/src/cache/d.ts',
+        '/src/auth/x.ts',
+        '/src/auth/y.ts',
       ];
       const batches = selectRepresentativeFiles(files, 2, 5);
       // Should sample 2 from cache, 2 from auth = 4 files, 1 batch

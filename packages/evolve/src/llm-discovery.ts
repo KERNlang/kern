@@ -8,10 +8,9 @@
  * The actual LLM call is handled by llm-provider.ts.
  */
 
-import { readdirSync, readFileSync, statSync } from 'fs';
-import { resolve, join, relative, dirname, basename, extname } from 'path';
-import { NODE_TYPES } from '@kernlang/core';
-import type { EvolveNodeProposal, EvolvedNodeProp } from './evolved-types.js';
+import { readdirSync, statSync } from 'fs';
+import { dirname, join, resolve } from 'path';
+import type { EvolvedNodeProp, EvolveNodeProposal } from './evolved-types.js';
 
 // ── File Selection ───────────────────────────────────────────────────────
 
@@ -23,11 +22,7 @@ import type { EvolveNodeProposal, EvolvedNodeProp } from './evolved-types.js';
  * @param maxPerCluster — max files to sample per directory (default: 3)
  * @param maxBatchSize — max files per LLM batch (default: 5)
  */
-export function selectRepresentativeFiles(
-  filePaths: string[],
-  maxPerCluster = 3,
-  maxBatchSize = 5,
-): string[][] {
+export function selectRepresentativeFiles(filePaths: string[], maxPerCluster = 3, maxBatchSize = 5): string[][] {
   // Cluster by parent directory
   const clusters = new Map<string, string[]>();
   for (const fp of filePaths) {
@@ -39,7 +34,7 @@ export function selectRepresentativeFiles(
 
   // Sample from each cluster: pick diverse files (by size variance)
   const sampled: string[] = [];
-  for (const [dir, files] of clusters) {
+  for (const [_dir, files] of clusters) {
     // Sort by file size (descending) to get diverse samples
     const sorted = [...files].sort((a, b) => {
       try {
@@ -115,9 +110,9 @@ export function buildDiscoveryPrompt(
   nodeTypes: readonly string[],
   evolvedKeywords: string[] = [],
 ): string {
-  const fileBlocks = files.map(f =>
-    `### ${f.path}\n\`\`\`typescript\n${truncate(f.content, 3000)}\n\`\`\``
-  ).join('\n\n');
+  const fileBlocks = files
+    .map((f) => `### ${f.path}\n\`\`\`typescript\n${truncate(f.content, 3000)}\n\`\`\``)
+    .join('\n\n');
 
   const existingNodes = [...nodeTypes, ...evolvedKeywords].join(', ');
 
@@ -224,18 +219,19 @@ export function parseDiscoveryResponse(
   return proposals;
 }
 
-function normalizeProposal(
-  raw: Record<string, unknown>,
-  evolveRunId: string,
-): EvolveNodeProposal | null {
+function normalizeProposal(raw: Record<string, unknown>, evolveRunId: string): EvolveNodeProposal | null {
   const keyword = raw.keyword as string;
   if (!keyword || typeof keyword !== 'string') return null;
 
   // Normalize keyword to lowercase with hyphens
-  const normalizedKeyword = keyword.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  const normalizedKeyword = keyword
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
   if (!normalizedKeyword) return null;
 
-  const reason = raw.reason as Record<string, unknown> || {};
+  const reason = (raw.reason as Record<string, unknown>) || {};
 
   return {
     id: `proposal-${normalizedKeyword}-${Date.now()}`,
@@ -267,19 +263,79 @@ function normalizeProps(raw: unknown[]): EvolvedNodeProp[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((p): p is Record<string, unknown> => p !== null && typeof p === 'object')
-    .map(p => ({
+    .map((p) => ({
       name: (p.name as string) || 'unknown',
-      type: (['string', 'boolean', 'number', 'expression'].includes(p.type as string) ? p.type : 'string') as EvolvedNodeProp['type'],
+      type: (['string', 'boolean', 'number', 'expression'].includes(p.type as string)
+        ? p.type
+        : 'string') as EvolvedNodeProp['type'],
       required: p.required === true,
       description: (p.description as string) || '',
     }));
+}
+
+// ── LLM JSON Extraction ─────────────────────────────────────────────────
+
+/**
+ * Extract and parse a JSON object from an LLM response.
+ * Handles markdown fences, preamble text, and validates the result is a plain object.
+ * Returns null if extraction or parsing fails.
+ */
+export function parseLLMJsonObject(response: string): Record<string, unknown> | null {
+  let json = response.trim();
+  const fenceMatch = json.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  if (fenceMatch) json = fenceMatch[1].trim();
+
+  const objStart = json.indexOf('{');
+  const objEnd = json.lastIndexOf('}');
+  if (objStart === -1 || objEnd <= objStart) return null;
+  json = json.slice(objStart, objEnd + 1);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  return parsed as Record<string, unknown>;
+}
+
+/**
+ * Validate and extract a backfill LLM response.
+ * Returns only known fields with correct types, or null if codegenSource is missing.
+ */
+export function validateBackfillResponse(
+  parsed: Record<string, unknown>,
+): { codegenSource: string; expectedOutput: string | undefined } | null {
+  const codegenSource = typeof parsed.codegenSource === 'string' ? parsed.codegenSource : undefined;
+  if (!codegenSource) return null;
+
+  const expectedOutput = typeof parsed.expectedOutput === 'string' ? parsed.expectedOutput : undefined;
+  return { codegenSource, expectedOutput };
+}
+
+/**
+ * Validate and extract retry response fields for an evolve proposal.
+ * Returns only known string fields that are present.
+ */
+export function validateRetryResponse(parsed: Record<string, unknown>): {
+  kernExample?: string;
+  expectedOutput?: string;
+  codegenSource?: string;
+} {
+  const result: { kernExample?: string; expectedOutput?: string; codegenSource?: string } = {};
+  if (typeof parsed.kernExample === 'string') result.kernExample = parsed.kernExample;
+  if (typeof parsed.expectedOutput === 'string') result.expectedOutput = parsed.expectedOutput;
+  if (typeof parsed.codegenSource === 'string') result.codegenSource = parsed.codegenSource;
+  return result;
 }
 
 // ── Utility ──────────────────────────────────────────────────────────────
 
 function truncate(content: string, maxChars: number): string {
   if (content.length <= maxChars) return content;
-  return content.slice(0, maxChars) + '\n// ... truncated ...';
+  return `${content.slice(0, maxChars)}\n// ... truncated ...`;
 }
 
 /**
@@ -295,10 +351,7 @@ export function estimateTokens(text: string): number {
  * Build a prompt asking the LLM to fix a failed proposal.
  * Feeds back the validation errors so the LLM can correct its output.
  */
-export function buildRetryPrompt(
-  proposal: EvolveNodeProposal,
-  errors: string[],
-): string {
+export function buildRetryPrompt(proposal: EvolveNodeProposal, errors: string[]): string {
   return `Your previous KERN node proposal "${proposal.keyword}" failed validation. Fix the issues and return the corrected proposal.
 
 ## Previous Proposal
@@ -364,7 +417,7 @@ export function buildBackfillPrompt(
 Target: ${target}
 
 ## Props
-${definition.props.map(p => `- ${p.name} (${p.type}${p.required ? ', required' : ''}): ${p.description}`).join('\n')}
+${definition.props.map((p) => `- ${p.name} (${p.type}${p.required ? ', required' : ''}): ${p.description}`).join('\n')}
 
 ## Child Types
 ${definition.childTypes.join(', ') || '(none)'}

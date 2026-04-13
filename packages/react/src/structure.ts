@@ -8,8 +8,7 @@
  * paths per pattern, extracts hooks (state/logic), and resolves imports.
  */
 
-import type { IRNode, GeneratedArtifact, ResolvedKernConfig } from '@kernlang/core';
-import type { KernStructure } from '@kernlang/core';
+import type { GeneratedArtifact, IRNode, ResolvedKernConfig } from '@kernlang/core';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -49,11 +48,39 @@ export interface ExtractedHook {
 const SURFACE_TYPES = new Set(['screen', 'page', 'modal']);
 const BLOCK_TYPES = new Set(['card', 'section', 'form', 'list', 'grid', 'tabs']);
 const CONTAINER_TYPES = new Set(['row', 'col']);
-const ELEMENT_TYPES = new Set(['text', 'button', 'input', 'progress', 'separator', 'divider', 'image', 'icon', 'slider', 'toggle', 'tab', 'item']);
+const ELEMENT_TYPES = new Set([
+  'text',
+  'button',
+  'input',
+  'textarea',
+  'progress',
+  'separator',
+  'divider',
+  'image',
+  'icon',
+  'svg',
+  'link',
+  'slider',
+  'toggle',
+  'tab',
+  'item',
+  'component',
+]);
 const GROUND_LAYER_TYPES = new Set([
-  'derive', 'transform', 'action', 'guard', 'assume', 'invariant',
-  'each', 'collect', 'branch', 'resolve', 'expect', 'recover',
-  'pattern', 'apply',
+  'derive',
+  'transform',
+  'action',
+  'guard',
+  'assume',
+  'invariant',
+  'each',
+  'collect',
+  'branch',
+  'resolve',
+  'expect',
+  'recover',
+  'pattern',
+  'apply',
 ]);
 
 export function classifyNode(node: IRNode): NodeRole {
@@ -165,7 +192,7 @@ export function extractHooks(
   const hooks: ExtractedHook[] = [];
 
   if (stateNodes.length > 0) {
-    const stateDecls = stateNodes.map(n => ({
+    const stateDecls = stateNodes.map((n) => ({
       name: (n.props?.name as string) || 'value',
       initial: String(n.props?.initial ?? ''),
     }));
@@ -187,7 +214,7 @@ export function extractHooks(
   }
 
   if (logicNodes.length > 0) {
-    const logicBlocks = logicNodes.map(n => (n.props?.code as string) || '');
+    const logicBlocks = logicNodes.map((n) => (n.props?.code as string) || '');
 
     // Determine which state values the logic blocks reference
     const returnedValues: string[] = [];
@@ -224,11 +251,16 @@ export function generateStateHookCode(hook: ExtractedHook): string {
 
   for (const s of hook.stateDecls) {
     const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
-    const init = s.initial === 'true' ? 'true'
-      : s.initial === 'false' ? 'false'
-      : s.initial === '' ? "''"
-      : isNaN(Number(s.initial)) ? `'${s.initial}'`
-      : s.initial;
+    const init =
+      s.initial === 'true'
+        ? 'true'
+        : s.initial === 'false'
+          ? 'false'
+          : s.initial === ''
+            ? "''"
+            : Number.isNaN(Number(s.initial))
+              ? `'${s.initial}'`
+              : s.initial;
     lines.push(`  const [${s.name}, ${setter}] = useState(${init});`);
   }
 
@@ -292,9 +324,12 @@ export function generateTypesCode(featureName: string, stateDecls: { name: strin
 
   for (const s of stateDecls) {
     const setter = `set${s.name.charAt(0).toUpperCase() + s.name.slice(1)}`;
-    const tsType = s.initial === 'true' || s.initial === 'false' ? 'boolean'
-      : !isNaN(Number(s.initial)) && s.initial !== '' ? 'number'
-      : 'string';
+    const tsType =
+      s.initial === 'true' || s.initial === 'false'
+        ? 'boolean'
+        : !Number.isNaN(Number(s.initial)) && s.initial !== ''
+          ? 'number'
+          : 'string';
     lines.push(`  ${s.name}: ${tsType};`);
     lines.push(`  ${setter}: (value: ${tsType}) => void;`);
   }
@@ -306,9 +341,7 @@ export function generateTypesCode(featureName: string, stateDecls: { name: strin
 // ── Generate Barrel Export Content ────────────────────────────────────────
 
 export function generateBarrelCode(barrel: BarrelExport): string {
-  return barrel.exports
-    .map(e => `export { ${e.name} } from '${e.from}';`)
-    .join('\n');
+  return barrel.exports.map((e) => `export { ${e.name} } from '${e.from}';`).join('\n');
 }
 
 // ── Pattern Planners ─────────────────────────────────────────────────────
@@ -333,7 +366,7 @@ function planBulletproof(root: IRNode): StructurePlan {
   // Block components → components/
   for (const block of blockNodes) {
     const rawName = getNodeName(block);
-    const hasExplicitName = !!(block.props?.name);
+    const hasExplicitName = !!block.props?.name;
     const compName = deduplicateName(toComponentName(rawName, featureName, hasExplicitName), usedNames);
 
     files.push({
@@ -385,15 +418,17 @@ function planBulletproof(root: IRNode): StructurePlan {
   }
 
   // Barrel re-export (separate from entry index.tsx)
-  const barrels: BarrelExport[] = [{
-    path: `${featureDir}/barrel.ts`,
-    exports: [{ name: featureName, from: './index' }],
-  }];
+  const barrels: BarrelExport[] = [
+    {
+      path: `${featureDir}/barrel.ts`,
+      exports: [{ name: featureName, from: './index' }],
+    },
+  ];
 
   // Wire up dependencies
   const entryFile = files[0];
-  const componentPaths = files.filter(f => f.artifactType === 'component').map(f => f.path);
-  const hookPaths = files.filter(f => f.artifactType === 'hook').map(f => f.path);
+  const componentPaths = files.filter((f) => f.artifactType === 'component').map((f) => f.path);
+  const hookPaths = files.filter((f) => f.artifactType === 'hook').map((f) => f.path);
   entryFile.dependsOn = [...componentPaths, ...hookPaths];
 
   return { files, barrels };
@@ -428,7 +463,7 @@ function planAtomic(root: IRNode): StructurePlan {
   // Blocks → organisms/
   for (const block of blockNodes) {
     const rawName = getNodeName(block);
-    const hasExplicitName = !!(block.props?.name);
+    const hasExplicitName = !!block.props?.name;
     const compName = deduplicateName(toComponentName(rawName, featureName, hasExplicitName), usedNames);
 
     files.push({
@@ -557,7 +592,7 @@ function planKern(root: IRNode): StructurePlan {
   // Blocks
   for (const block of blockNodes) {
     const rawName = getNodeName(block);
-    const hasExplicitName = !!(block.props?.name);
+    const hasExplicitName = !!block.props?.name;
     const compName = deduplicateName(toComponentName(rawName, featureName, hasExplicitName), usedNames);
 
     files.push({
@@ -624,7 +659,8 @@ export function adaptPlanForNextjs(plan: StructurePlan, root: IRNode): Structure
   for (const file of plan.files) {
     if (file.isEntry) {
       if (isLayout) file.path = file.path.replace(/index\.tsx$|[^/]+\.surface\.tsx$|[^/]+Page\.tsx$/, 'layout.tsx');
-      else if (isLoading) file.path = file.path.replace(/index\.tsx$|[^/]+\.surface\.tsx$|[^/]+Page\.tsx$/, 'loading.tsx');
+      else if (isLoading)
+        file.path = file.path.replace(/index\.tsx$|[^/]+\.surface\.tsx$|[^/]+Page\.tsx$/, 'loading.tsx');
       else if (isError) file.path = file.path.replace(/index\.tsx$|[^/]+\.surface\.tsx$|[^/]+Page\.tsx$/, 'error.tsx');
       else {
         // Default page — for bulletproof, keep index.tsx; for others, page.tsx

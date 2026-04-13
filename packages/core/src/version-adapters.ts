@@ -10,7 +10,7 @@
  */
 
 import type { FrameworkVersions } from './config.js';
-import { resolveTailwindMajor, resolveNextjsMajor } from './version-detect.js';
+import { resolveNextjsMajor, resolveTailwindMajor } from './version-detect.js';
 
 // ── Tailwind Version Adapter ────────────────────────────────────────────
 
@@ -19,24 +19,24 @@ import { resolveTailwindMajor, resolveNextjsMajor } from './version-detect.js';
  * If the predicate matches, the transform function is applied.
  */
 export interface TailwindTokenRule {
- /** Human-readable name for debugging */
- name: string;
- /** Returns true if this rule applies to the given class */
- predicate: (cls: string) => boolean;
- /** Transform the class name. Return empty string to remove. */
- transform: (cls: string) => string;
+  /** Human-readable name for debugging */
+  name: string;
+  /** Returns true if this rule applies to the given class */
+  predicate: (cls: string) => boolean;
+  /** Transform the class name. Return empty string to remove. */
+  transform: (cls: string) => string;
 }
 
 /**
  * Output-mode rules for Tailwind structural differences.
  */
 export interface TailwindOutputRules {
- /** Whether to use @import instead of @tailwind directives */
- useAtImport: boolean;
- /** Whether opacity utilities use slash syntax (bg-black/50 vs bg-opacity-50) */
- useSlashOpacity: boolean;
- /** Whether to use the new color-mix() approach for arbitrary opacity */
- useColorMix: boolean;
+  /** Whether to use @import instead of @tailwind directives */
+  useAtImport: boolean;
+  /** Whether opacity utilities use slash syntax (bg-black/50 vs bg-opacity-50) */
+  useSlashOpacity: boolean;
+  /** Whether to use the new color-mix() approach for arbitrary opacity */
+  useColorMix: boolean;
 }
 
 /**
@@ -105,10 +105,7 @@ export function buildTailwindProfile(versions: FrameworkVersions): TailwindVersi
  * Apply token rules to a list of Tailwind classes.
  * Returns the transformed class string.
  */
-export function applyTailwindTokenRules(
-  classes: string,
-  profile: TailwindVersionProfile,
-): string {
+export function applyTailwindTokenRules(classes: string, profile: TailwindVersionProfile): string {
   if (profile.tokenRules.length === 0 && !profile.outputRules.useSlashOpacity) return classes;
 
   const parts = classes.split(/\s+/).filter(Boolean);
@@ -201,7 +198,7 @@ export interface NextjsOutputRules {
  * Combined Next.js compatibility profile.
  */
 export interface NextjsVersionProfile {
-  major: 13 | 14 | 15;
+  major: 13 | 14 | 15 | 16;
   outputRules: NextjsOutputRules;
 }
 
@@ -209,6 +206,17 @@ export function buildNextjsProfile(versions: FrameworkVersions): NextjsVersionPr
   const major = resolveNextjsMajor(versions);
 
   switch (major) {
+    case 16:
+      return {
+        major: 16,
+        outputRules: {
+          metadataStyle: 'satisfies',
+          useAppRouter: true,
+          imageImport: 'next/image',
+          asyncServerComponents: true,
+          linkNoAnchor: true,
+        },
+      };
     case 15:
       return {
         major: 15,
@@ -231,7 +239,6 @@ export function buildNextjsProfile(versions: FrameworkVersions): NextjsVersionPr
           linkNoAnchor: true,
         },
       };
-    case 13:
     default:
       return {
         major: 13,

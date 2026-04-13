@@ -1,5 +1,12 @@
-import type { IRNode, TranspileResult, SourceMapEntry, GeneratedArtifact, ResolvedKernConfig } from '@kernlang/core';
-import { countTokens, getProps, serializeIR, camelKey } from '@kernlang/core';
+import type {
+  AccountedEntry,
+  GeneratedArtifact,
+  IRNode,
+  ResolvedKernConfig,
+  SourceMapEntry,
+  TranspileResult,
+} from '@kernlang/core';
+import { accountNode, buildDiagnostics, camelKey, countTokens, getProps, serializeIR } from '@kernlang/core';
 
 /**
  * CLI Transpiler — generates Commander.js TypeScript from Kern IR
@@ -168,7 +175,10 @@ function extractImport(node: IRNode): ImportInfo {
   const names = (p.names as string) || '';
   return {
     from: (p.from as string) || '',
-    names: names.split(',').map(n => n.trim()).filter(Boolean),
+    names: names
+      .split(',')
+      .map((n) => n.trim())
+      .filter(Boolean),
   };
 }
 
@@ -246,16 +256,14 @@ function generateCommandFile(cmd: CommandInfo): string {
   }
 
   // Action
-  const argParams = cmd.args.map(a => {
+  const argParams = cmd.args.map((a) => {
     const safeName = camelKey(a.name) || a.name;
     const tsType = 'string'; // Commander always passes args as strings
     return `${safeName}${a.required ? '' : '?'}: ${tsType}`;
   });
 
   const optsType = generateOptsType(cmd.flags);
-  const paramList = argParams.length > 0
-    ? argParams.join(', ') + ', '
-    : '';
+  const paramList = argParams.length > 0 ? `${argParams.join(', ')}, ` : '';
 
   lines.push(`  cmd.action(async (${paramList}opts: ${optsType}) => {`);
 
@@ -307,7 +315,7 @@ function generateFlagLine(target: string, flag: FlagInfo): string {
 function generateOptsType(flags: FlagInfo[]): string {
   if (flags.length === 0) return 'Record<string, unknown>';
 
-  const fields = flags.map(f => {
+  const fields = flags.map((f) => {
     // Commander camelCases dashed option names (e.g. --task-class → taskClass)
     const safeName = camelKey(f.name) || f.name;
     const tsType = f.type === 'number' ? 'number' : f.type === 'boolean' ? 'boolean' : 'string';
@@ -324,7 +332,7 @@ export function transpileCliApp(root: IRNode, _config?: ResolvedKernConfig): Tra
   const sourceMap: SourceMapEntry[] = [];
 
   // Find cli node (could be root or child)
-  const cliNode = root.type === 'cli' ? root : root.children?.find(c => c.type === 'cli') || root;
+  const cliNode = root.type === 'cli' ? root : root.children?.find((c) => c.type === 'cli') || root;
   const cli = extractCli(cliNode);
 
   sourceMap.push({
@@ -356,7 +364,7 @@ export function transpileCliApp(root: IRNode, _config?: ResolvedKernConfig): Tra
   }
 
   const irText = serializeIR(root);
-  const allCode = [entryCode, ...artifacts.map(a => a.content)].join('\n');
+  const allCode = [entryCode, ...artifacts.map((a) => a.content)].join('\n');
   const irTokenCount = countTokens(irText);
   const tsTokenCount = countTokens(allCode);
   const tokenReduction = Math.round((1 - irTokenCount / tsTokenCount) * 100);
@@ -368,5 +376,10 @@ export function transpileCliApp(root: IRNode, _config?: ResolvedKernConfig): Tra
     tsTokenCount,
     tokenReduction,
     artifacts,
+    diagnostics: (() => {
+      const accounted = new Map<IRNode, AccountedEntry>();
+      accountNode(accounted, root, 'expressed', undefined, true);
+      return buildDiagnostics(root, accounted, 'cli');
+    })(),
   };
 }

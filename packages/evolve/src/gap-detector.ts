@@ -5,12 +5,12 @@
  * detector packs to find what's NOT covered (gaps).
  */
 
-import { Project, type SourceFile } from 'ts-morph';
+import type { ReviewReport } from '@kernlang/review';
 import { reviewFile } from '@kernlang/review';
-import type { ReviewReport, TemplateMatch } from '@kernlang/review';
-import { getAllDetectors, getDetectorsForImport, getUniversalDetectors } from './detector-registry.js';
+import { Project, type SourceFile } from 'ts-morph';
 import { detectConceptualGaps } from './concept-gap-adapter.js';
-import type { PatternGap, DetectorPack, DetectionResult } from './types.js';
+import { getDetectorsForImport, getUniversalDetectors } from './detector-registry.js';
+import type { DetectorPack, PatternGap } from './types.js';
 
 let _gapIdCounter = 0;
 
@@ -29,11 +29,7 @@ export function resetGapIds(): void {
  * Detect gaps in a single TS file: patterns that exist in the code
  * but are NOT covered by existing KERN templates.
  */
-export function detectGaps(
-  sourceFile: SourceFile,
-  filePath: string,
-  existingCoverage?: ReviewReport,
-): PatternGap[] {
+export function detectGaps(sourceFile: SourceFile, filePath: string, existingCoverage?: ReviewReport): PatternGap[] {
   const fullText = sourceFile.getFullText();
   const imports = sourceFile.getImportDeclarations();
   const gaps: PatternGap[] = [];
@@ -65,7 +61,10 @@ export function detectGaps(
       // Skip if any line in this range is already covered by existing templates
       let isCovered = false;
       for (let l = detection.startLine; l <= detection.endLine; l++) {
-        if (coveredRanges.has(`${l}`)) { isCovered = true; break; }
+        if (coveredRanges.has(`${l}`)) {
+          isCovered = true;
+          break;
+        }
       }
       if (isCovered) continue;
 
@@ -92,7 +91,10 @@ export function detectGaps(
     for (const detection of detections) {
       let isCovered = false;
       for (let l = detection.startLine; l <= detection.endLine; l++) {
-        if (coveredRanges.has(`${l}`)) { isCovered = true; break; }
+        if (coveredRanges.has(`${l}`)) {
+          isCovered = true;
+          break;
+        }
       }
       if (isCovered) continue;
 
@@ -120,10 +122,7 @@ export function detectGaps(
 /**
  * Detect gaps across multiple files.
  */
-export function detectGapsInFiles(
-  filePaths: string[],
-  project?: Project,
-): PatternGap[] {
+export function detectGapsInFiles(filePaths: string[], project?: Project): PatternGap[] {
   const tsProject = project || new Project({ skipAddingFilesFromTsConfig: true });
   const allGaps: PatternGap[] = [];
 
@@ -152,11 +151,7 @@ export function detectGapsInFiles(
 /**
  * Detect gaps from a source string (useful for testing).
  */
-export function detectGapsFromSource(
-  source: string,
-  filePath = 'input.ts',
-  project?: Project,
-): PatternGap[] {
+export function detectGapsFromSource(source: string, filePath = 'input.ts', project?: Project): PatternGap[] {
   const tsProject = project || new Project({ skipAddingFilesFromTsConfig: true });
   const sourceFile = tsProject.createSourceFile(filePath, source, { overwrite: true });
   return detectGaps(sourceFile, filePath);

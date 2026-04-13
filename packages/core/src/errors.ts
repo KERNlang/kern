@@ -1,3 +1,5 @@
+import type { ParseDiagnostic } from './types.js';
+
 /**
  * Kern Error Types
  */
@@ -18,14 +20,39 @@ export class KernError extends Error {
 }
 
 export class KernParseError extends KernError {
+  diagnostics: ParseDiagnostic[] = [];
+
   constructor(message: string, line: number, col: number, source: string) {
     super(`Parse error: ${message}`, line, col, source);
     this.name = 'KernParseError';
   }
 }
 
+export class KernConfigError extends Error {
+  constructor(
+    message: string,
+    public readonly field: string,
+    public readonly value: string,
+  ) {
+    super(`Config error: invalid ${field} '${value}'. ${message}`);
+    this.name = 'KernConfigError';
+  }
+}
+
+export type CodegenErrorCode =
+  | 'UNKNOWN_NODE'
+  | 'MISSING_HANDLER'
+  | 'INVALID_PROP'
+  | 'CODEGEN_FAILED'
+  | 'TEMPLATE_ERROR'
+  | 'UNSUPPORTED_TARGET';
+
 export class KernCodegenError extends Error {
-  constructor(message: string, public readonly node?: { type: string; loc?: { line: number; col: number } }) {
+  constructor(
+    message: string,
+    public readonly node?: { type: string; loc?: { line: number; col: number } },
+    public readonly code: CodegenErrorCode = 'CODEGEN_FAILED',
+  ) {
     const loc = node?.loc ? ` at ${node.type}:${node.loc.line}:${node.loc.col}` : node ? ` at ${node.type}` : '';
     super(`Codegen error: ${message}${loc}`);
     this.name = 'KernCodegenError';
@@ -44,7 +71,7 @@ function codeFrame(source: string, line: number, col: number): string {
     const marker = i + 1 === line ? '>' : ' ';
     result.push(`${marker} ${lineNum} | ${lines[i]}`);
     if (i + 1 === line) {
-      const pointer = ' '.repeat(gutterWidth + 4 + Math.max(0, col - 1)) + '^';
+      const pointer = `${' '.repeat(gutterWidth + 4 + Math.max(0, col - 1))}^`;
       result.push(pointer);
     }
   }

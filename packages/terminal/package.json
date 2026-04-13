@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/terminal",
-  "version": "3.0.0",
+  "version": "3.1.9",
   "description": "Kern ANSI terminal rendering transpiler",
   "type": "module",
   "main": "./dist/index.js",
@@ -14,10 +14,19 @@
   "files": [
     "dist"
   ],
+  "keywords": [
+    "kern",
+    "llm",
+    "terminal",
+    "ansi",
+    "cli",
+    "transpiler",
+    "ai"
+  ],
   "license": "AGPL-3.0",
   "scripts": {
     "build": "tsc -b",
-    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --forceExit --config jest.config.js"
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
   },
   "dependencies": {
     "@kernlang/core": "workspace:*"

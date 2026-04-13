@@ -1,7 +1,6 @@
-import { parseDirectives, configDirectives, isConceptRule } from '../src/suppression/parse-directives.js';
 import { applySuppression } from '../src/suppression/apply-suppression.js';
-import type { ReviewFinding } from '../src/types.js';
-import type { ReviewConfig } from '../src/types.js';
+import { configDirectives, isConceptRule, parseDirectives } from '../src/suppression/parse-directives.js';
+import type { ReviewConfig, ReviewFinding } from '../src/types.js';
 
 function makeFinding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
@@ -129,7 +128,7 @@ describe('applySuppression', () => {
     ];
     const result = applySuppression(findings, source, 'test.ts');
     // Finding on line 3 should be suppressed
-    const nonMeta = result.findings.filter(f => !f.ruleId.startsWith('kern-ignore'));
+    const nonMeta = result.findings.filter((f) => !f.ruleId.startsWith('kern-ignore'));
     expect(nonMeta).toHaveLength(0);
     expect(result.suppressed).toHaveLength(1);
   });
@@ -139,17 +138,20 @@ describe('applySuppression', () => {
       makeFinding({ primarySpan: { file: 'test.ts', startLine: 4, startCol: 1, endLine: 4, endCol: 30 } }),
     ];
     const result = applySuppression(findings, source, 'test.ts');
-    const nonMeta = result.findings.filter(f => !f.ruleId.startsWith('kern-ignore'));
+    const nonMeta = result.findings.filter((f) => !f.ruleId.startsWith('kern-ignore'));
     expect(nonMeta).toHaveLength(1);
     expect(result.suppressed).toHaveLength(0);
   });
 
   it('does not suppress wrong rule ID', () => {
     const findings = [
-      makeFinding({ ruleId: 'empty-catch', primarySpan: { file: 'test.ts', startLine: 3, startCol: 1, endLine: 3, endCol: 30 } }),
+      makeFinding({
+        ruleId: 'empty-catch',
+        primarySpan: { file: 'test.ts', startLine: 3, startCol: 1, endLine: 3, endCol: 30 },
+      }),
     ];
     const result = applySuppression(findings, source, 'test.ts');
-    const nonMeta = result.findings.filter(f => !f.ruleId.startsWith('kern-ignore'));
+    const nonMeta = result.findings.filter((f) => !f.ruleId.startsWith('kern-ignore'));
     expect(nonMeta).toHaveLength(1);
   });
 
@@ -160,7 +162,7 @@ describe('applySuppression', () => {
     ];
     const config: ReviewConfig = { disabledRules: ['floating-promise'] };
     const result = applySuppression(findings, plainSource, 'test.ts', config);
-    expect(result.findings.filter(f => !f.ruleId.startsWith('kern-ignore'))).toHaveLength(0);
+    expect(result.findings.filter((f) => !f.ruleId.startsWith('kern-ignore'))).toHaveLength(0);
     expect(result.suppressed).toHaveLength(1);
   });
 
@@ -171,7 +173,7 @@ describe('applySuppression', () => {
     const config: ReviewConfig = { disabledRules: [] };
     const result = applySuppression(findings, source, 'test.ts', config, 'inline');
     // Inline suppression ignored in strict mode
-    const nonMeta = result.findings.filter(f => !f.ruleId.startsWith('kern-ignore'));
+    const nonMeta = result.findings.filter((f) => !f.ruleId.startsWith('kern-ignore'));
     expect(nonMeta).toHaveLength(1);
     expect(result.suppressed).toHaveLength(0);
   });
@@ -182,7 +184,7 @@ describe('applySuppression', () => {
     ];
     const config: ReviewConfig = { disabledRules: ['floating-promise'] };
     const result = applySuppression(findings, source, 'test.ts', config, 'all');
-    const nonMeta = result.findings.filter(f => !f.ruleId.startsWith('kern-ignore'));
+    const nonMeta = result.findings.filter((f) => !f.ruleId.startsWith('kern-ignore'));
     expect(nonMeta).toHaveLength(1);
     expect(result.suppressed).toHaveLength(0);
   });
@@ -190,7 +192,7 @@ describe('applySuppression', () => {
   it('reports unused directives', () => {
     const findings: ReviewFinding[] = []; // no findings to match
     const result = applySuppression(findings, source, 'test.ts');
-    const unusedWarnings = result.findings.filter(f => f.ruleId === 'kern-ignore-unused');
+    const unusedWarnings = result.findings.filter((f) => f.ruleId === 'kern-ignore-unused');
     expect(unusedWarnings).toHaveLength(1);
     expect(unusedWarnings[0].message).toContain('floating-promise');
   });
@@ -198,7 +200,7 @@ describe('applySuppression', () => {
   it('does not report unused directives in strict mode', () => {
     const findings: ReviewFinding[] = [];
     const result = applySuppression(findings, source, 'test.ts', undefined, 'inline');
-    const unusedWarnings = result.findings.filter(f => f.ruleId === 'kern-ignore-unused');
+    const unusedWarnings = result.findings.filter((f) => f.ruleId === 'kern-ignore-unused');
     expect(unusedWarnings).toHaveLength(0);
   });
 });

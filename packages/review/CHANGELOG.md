@@ -1,5 +1,23 @@
 # @kernlang/review
 
+## Unreleased
+
+### Features
+
+- 08147cd: **Wire parseWithDiagnostics into review pipeline** — `.kern` files now get structured parse diagnostics as review findings
+  - Parse errors surfaced as warnings by default (prevents CI breakage on WIP files)
+  - `hasParseErrors` flag skips structural lint on partial ASTs to prevent cascading false positives
+- **`--strict-parse` flag** — opt-in to preserve parse error severity as `'error'` for strict CI enforcement
+  - New `strictParse?: boolean` in `ReviewConfig`
+
+### Bug Fixes
+
+- Removed unused imports: `resolve`, `flattenIR` (confidence.ts, ground-layer.ts), `IRNode` (differ.ts), `SyntaxKind` (template-detector.ts)
+
+### Dependencies
+
+- @kernlang/core (parseWithDiagnostics, ParseDiagnostic)
+
 ## 3.0.0
 
 ### Major Changes

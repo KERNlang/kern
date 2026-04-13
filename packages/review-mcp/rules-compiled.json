@@ -1,0 +1,1525 @@
+[
+  {
+    "ruleId": "mcp-command-injection",
+    "severity": "error",
+    "confidence": 0.95,
+    "category": "bug",
+    "cweRef": "CWE-77, OWASP MCP04",
+    "sinks": [
+      {
+        "name": "shell-exec",
+        "kind": "shell-exec",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(exec|execSync|execFile|execFileSync|spawn|spawnSync|child_process)\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(os\\.system|os\\.popen|subprocess\\.run|subprocess\\.call|subprocess\\.Popen|subprocess\\.check_output|asyncio\\.create_subprocess_exec|asyncio\\.create_subprocess_shell)\\s*\\(",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "eval-exec",
+        "kind": "shell-exec",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\beval\\s*\\(|\\bnew\\s+Function\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(eval|exec)\\s*\\(",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "guards": [
+      {
+        "name": "array-args",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(?:execFile|execFileSync|spawn|spawnSync)\\s*\\(\\s*['\"][^'\"]+['\"],\\s*\\[",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "schema-validation",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "z\\.\\w+\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\bpydantic\\b|\\.model_validate\\b",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      {
+        "name": "param-to-exec",
+        "from": "tool-params",
+        "to": "shell-exec",
+        "guardedBy": [
+          "array-args",
+          "schema-validation"
+        ],
+        "evidence": "Shell command execution in MCP tool handler with interpolated parameters — command injection risk",
+        "suggestion": "Use execFile/spawn with array arguments instead of exec with string interpolation. Validate parameters against an allowlist."
+      }
+    ]
+  },
+  {
+    "ruleId": "mcp-path-traversal",
+    "severity": "error",
+    "confidence": 0.9,
+    "category": "bug",
+    "cweRef": "CWE-22, OWASP MCP03",
+    "sinks": [
+      {
+        "name": "fs-ops",
+        "kind": "fs",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(readFile|readFileSync|writeFile|writeFileSync|readdir|readdirSync|unlink|unlinkSync|mkdir|mkdirSync|createReadStream|createWriteStream|access|accessSync|stat|statSync|copyFile|copyFileSync|rename|renameSync|rm|rmSync)\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(open|os\\.remove|os\\.unlink|os\\.rmdir|os\\.rename|os\\.listdir|os\\.makedirs|shutil\\.copy|shutil\\.move|shutil\\.rmtree|pathlib\\.Path)\\s*\\(",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "guards": [
+      {
+        "name": "path-containment",
+        "kind": "path-containment",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\.startsWith\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\.startswith\\s*\\(",
+            "flags": ""
+          }
+        ],
+        "needs": [
+          "path-resolve"
+        ]
+      },
+      {
+        "name": "path-resolve",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(path\\.resolve|path\\.normalize|resolve)\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(os\\.path\\.abspath|os\\.path\\.realpath|os\\.path\\.normpath)\\s*\\(",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      {
+        "name": "unvalidated-path",
+        "from": "tool-params",
+        "to": "fs-ops",
+        "guardedBy": [
+          "path-containment"
+        ],
+        "evidence": "File system operation in MCP tool handler without path containment check — path traversal risk",
+        "suggestion": "Resolve the path with path.resolve() then verify it startsWith() the allowed base directory. Reject paths containing '..'."
+      }
+    ]
+  },
+  {
+    "ruleId": "mcp-tool-poisoning",
+    "severity": "error",
+    "confidence": 0.85,
+    "category": "bug",
+    "cweRef": "CWE-1427, OWASP MCP02",
+    "sinks": [
+      {
+        "name": "prompt-injection",
+        "kind": "injection",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "ignore\\s+(previous|above|all)\\s+(instructions?|prompts?|context)",
+            "flags": "i"
+          },
+          {
+            "lang": "ts",
+            "source": "disregard\\s+(previous|above|all)",
+            "flags": "i"
+          },
+          {
+            "lang": "ts",
+            "source": "you\\s+are\\s+now\\b",
+            "flags": "i"
+          },
+          {
+            "lang": "ts",
+            "source": "new\\s+instructions?:",
+            "flags": "i"
+          },
+          {
+            "lang": "ts",
+            "source": "^\\s*system\\s*:",
+            "flags": "im"
+          },
+          {
+            "lang": "ts",
+            "source": "<\\|system\\|>",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "<\\|end\\|>",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "\\[INST\\]",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "<\\/?s>",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "<<SYS>>",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "ignore\\s+(previous|above|all)\\s+(instructions?|prompts?|context)",
+            "flags": "i"
+          },
+          {
+            "lang": "py",
+            "source": "disregard\\s+(previous|above|all)",
+            "flags": "i"
+          },
+          {
+            "lang": "py",
+            "source": "you\\s+are\\s+now\\b",
+            "flags": "i"
+          },
+          {
+            "lang": "py",
+            "source": "new\\s+instructions?:",
+            "flags": "i"
+          },
+          {
+            "lang": "py",
+            "source": "^\\s*system\\s*:",
+            "flags": "im"
+          },
+          {
+            "lang": "py",
+            "source": "<\\|system\\|>",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "<\\|end\\|>",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\[INST\\]",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "<\\/?s>",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "<<SYS>>",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "invisible-chars",
+        "kind": "injection",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "[\\u200B\\u200C\\u200D\\u200E\\u200F\\u202A-\\u202E\\u2060\\u2061\\u2062\\u2063\\u2064\\uFEFF\\u00AD]",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "[\\u200B\\u200C\\u200D\\u200E\\u200F\\u202A-\\u202E\\u2060\\u2061\\u2062\\u2063\\u2064\\uFEFF\\u00AD]",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "direction-override",
+        "kind": "injection",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "[\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "[\\u202A\\u202B\\u202C\\u202D\\u202E\\u2066\\u2067\\u2068\\u2069]",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "role-boundary-escape",
+        "kind": "injection",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "^(Human|User|Assistant|System|Developer|Bot)\\s*:",
+            "flags": "im"
+          },
+          {
+            "lang": "ts",
+            "source": "<\\/(tool|function|result|system|instruction)>",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "^(Human|User|Assistant|System|Developer|Bot)\\s*:",
+            "flags": "im"
+          },
+          {
+            "lang": "py",
+            "source": "<\\/(tool|function|result|system|instruction)>",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "encoded-description",
+        "kind": "injection",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "Buffer\\.from\\s*\\(.*base64",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "\\batob\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "base64\\.b64decode\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "codecs\\.decode\\s*\\(",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "html-markdown-injection",
+        "kind": "injection",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "<!--.*-->",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "\\]\\(\\s*javascript:",
+            "flags": "i"
+          },
+          {
+            "lang": "ts",
+            "source": "!\\[.*\\]\\(data:",
+            "flags": "i"
+          },
+          {
+            "lang": "py",
+            "source": "<!--.*-->",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\]\\(\\s*javascript:",
+            "flags": "i"
+          },
+          {
+            "lang": "py",
+            "source": "!\\[.*\\]\\(data:",
+            "flags": "i"
+          }
+        ]
+      }
+    ],
+    "guards": [
+      {
+        "name": "none",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "THIS_GUARD_NEVER_MATCHES_SENTINEL_DO_NOT_REMOVE",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "THIS_GUARD_NEVER_MATCHES_SENTINEL_DO_NOT_REMOVE",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      {
+        "name": "poisoned-description",
+        "from": "tool-description",
+        "to": "prompt-injection",
+        "guardedBy": [
+          "none"
+        ],
+        "evidence": "Tool description contains prompt injection pattern — tool poisoning risk",
+        "suggestion": "Tool descriptions should only describe the tool's functionality. Remove any instruction-like content."
+      },
+      {
+        "name": "invisible-description",
+        "from": "tool-description",
+        "to": "invisible-chars",
+        "guardedBy": [
+          "none"
+        ],
+        "evidence": "Tool description contains invisible Unicode characters — possible hidden instruction attack",
+        "suggestion": "Remove zero-width spaces, direction overrides, and other invisible characters from tool descriptions."
+      },
+      {
+        "name": "direction-override-description",
+        "from": "tool-description",
+        "to": "direction-override",
+        "guardedBy": [
+          "none"
+        ],
+        "evidence": "Tool description contains Unicode direction override characters — text may appear differently to humans vs LLMs",
+        "suggestion": "Remove Unicode bidirectional override characters from tool descriptions."
+      },
+      {
+        "name": "boundary-escape",
+        "from": "tool-description",
+        "to": "role-boundary-escape",
+        "guardedBy": [
+          "none"
+        ],
+        "evidence": "Tool description contains conversation turn delimiter or XML boundary escape — context manipulation risk",
+        "suggestion": "Remove turn delimiters (Human:/Assistant:) and XML closing tags from tool descriptions."
+      },
+      {
+        "name": "encoded-description",
+        "from": "source-code",
+        "to": "encoded-description",
+        "guardedBy": [
+          "none"
+        ],
+        "evidence": "Tool description uses runtime decoding (base64/atob) — possible obfuscated prompt injection",
+        "suggestion": "Use plain string literals for tool descriptions. Encoded descriptions hide content from review."
+      },
+      {
+        "name": "hidden-markup",
+        "from": "tool-description",
+        "to": "html-markdown-injection",
+        "guardedBy": [
+          "none"
+        ],
+        "evidence": "Tool description contains hidden HTML/markdown — content invisible to humans but parsed by LLMs",
+        "suggestion": "Remove HTML comments, javascript: links, and data: image URIs from tool descriptions."
+      }
+    ]
+  },
+  {
+    "ruleId": "mcp-secrets-exposure",
+    "severity": "error",
+    "confidence": 0.9,
+    "category": "bug",
+    "cweRef": "CWE-798, OWASP MCP01",
+    "sinks": [
+      {
+        "name": "hardcoded-secret",
+        "kind": "credential",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "(?:api[_-]?key|secret[_-]?key|password|token|private[_-]?key|auth[_-]?token|access[_-]?key|client[_-]?secret)\\s*[:=]\\s*['\"][^'\"]{8,}['\"]",
+            "flags": "i"
+          },
+          {
+            "lang": "py",
+            "source": "(?:api[_-]?key|secret[_-]?key|password|token|private[_-]?key|auth[_-]?token|access[_-]?key|client[_-]?secret)\\s*[:=]\\s*['\"][^'\"]{8,}['\"]",
+            "flags": "i"
+          }
+        ]
+      },
+      {
+        "name": "quoted-header-key",
+        "kind": "credential",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "['\"](?:[\\w-]*(?:api[_-]?key|secret|token|password|authorization)[\\w-]*)['\"]?\\s*:\\s*['\"][^'\"]{8,}['\"]",
+            "flags": "i"
+          },
+          {
+            "lang": "py",
+            "source": "['\"](?:[\\w-]*(?:api[_-]?key|secret|token|password|authorization)[\\w-]*)['\"]?\\s*:\\s*['\"][^'\"]{8,}['\"]",
+            "flags": "i"
+          }
+        ]
+      },
+      {
+        "name": "known-key-format",
+        "kind": "credential",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "['\"](?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|AKIA[A-Z0-9]{16}|xox[bpas]-[a-zA-Z0-9-]{10,})['\"]",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "guards": [
+      {
+        "name": "env-var",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "process\\.env|config\\.|settings\\.",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "os\\.environ|os\\.getenv|ENV\\[",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "placeholder",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "['\"]<[^>]+>['\"]|['\"]YOUR_|['\"]REPLACE_|['\"]xxx|['\"]changeme",
+            "flags": "i"
+          },
+          {
+            "lang": "py",
+            "source": "['\"]<[^>]+>['\"]|['\"]YOUR_|['\"]REPLACE_|['\"]xxx|['\"]changeme",
+            "flags": "i"
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      {
+        "name": "exposed-credential",
+        "from": "source-code",
+        "to": "hardcoded-secret",
+        "guardedBy": [
+          "env-var",
+          "placeholder"
+        ],
+        "evidence": "Hardcoded secret or credential in MCP server source — credential exposure risk",
+        "suggestion": "Use environment variables or a secrets manager. Never hardcode credentials in MCP server code."
+      }
+    ]
+  },
+  {
+    "ruleId": "mcp-unsanitized-response",
+    "severity": "warning",
+    "confidence": 0.8,
+    "category": "bug",
+    "cweRef": "CWE-1427, OWASP MCP05",
+    "sinks": [
+      {
+        "name": "external-data",
+        "kind": "network",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(fetch|axios\\.\\w+|got\\.\\w+|db\\.query|findOne|findMany|findById|collection\\.find|\\.findUnique|\\.findFirst|readFile|readFileSync|createReadStream)\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(requests\\.get|requests\\.post|httpx\\.\\w+|aiohttp|cursor\\.execute|\\.fetchall|\\.fetchone|open\\s*\\()\\b",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "xml-parse",
+        "kind": "network",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(parseStringPromise|parseString|xml2js|DOMParser|xmldom|fast-xml-parser|cheerio\\.load)\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(ET\\.parse|ET\\.fromstring|minidom\\.parse|lxml\\.etree\\.parse|BeautifulSoup)\\s*\\(",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "guards": [
+      {
+        "name": "sanitize",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\bsanitize\\w*\\s*\\(|\\bescape\\w*\\s*\\(|\\bcleanForPrompt\\s*\\(|\\bstripTags\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\bsanitize\\w*\\s*\\(|\\bescape\\w*\\s*\\(|\\bclean\\w*\\s*\\(",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      {
+        "name": "raw-response",
+        "from": "source-code",
+        "to": "external-data",
+        "guardedBy": [
+          "sanitize"
+        ],
+        "evidence": "MCP tool returns data from external source without sanitization — indirect prompt injection risk",
+        "suggestion": "Sanitize external data before including in tool responses. External content may contain prompt injection payloads."
+      },
+      {
+        "name": "unsafe-xml",
+        "from": "source-code",
+        "to": "xml-parse",
+        "guardedBy": [
+          "sanitize"
+        ],
+        "evidence": "XML parsing without sanitization — untrusted XML may contain XXE or injection payloads",
+        "suggestion": "Use a safe XML parser with entity expansion disabled. Sanitize parsed content before returning in tool responses."
+      }
+    ]
+  },
+  {
+    "ruleId": "mcp-missing-validation",
+    "severity": "warning",
+    "confidence": 0.8,
+    "category": "bug",
+    "cweRef": "CWE-20, OWASP MCP04",
+    "sinks": [
+      {
+        "name": "param-usage",
+        "kind": "input",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(params|arguments|args|input)\\b",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\barguments\\s*\\[|:\\s*(dict|Dict|Any)\\b",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "guards": [
+      {
+        "name": "ts-validation",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\.parse\\s*\\(|\\.safeParse\\s*\\(|\\.validate\\s*\\(|typeof\\s+\\w+\\s*[!=]==|instanceof\\s+|Array\\.isArray\\s*\\(",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "zod-schema",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "z\\.\\w+\\(",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "py-validation",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "py",
+            "source": "\\bpydantic\\b|\\.model_validate\\b|isinstance\\s*\\(|\\.validate\\s*\\(",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      {
+        "name": "unvalidated-params",
+        "from": "tool-params",
+        "to": "param-usage",
+        "guardedBy": [
+          "ts-validation",
+          "zod-schema",
+          "py-validation"
+        ],
+        "evidence": "MCP tool handler uses parameters without input validation — injection and type confusion risk",
+        "suggestion": "Validate tool parameters with a schema (Zod, joi, etc.) or explicit type checks before use."
+      }
+    ]
+  },
+  {
+    "ruleId": "mcp-missing-auth",
+    "severity": "error",
+    "confidence": 0.8,
+    "category": "bug",
+    "cweRef": "CWE-306, OWASP MCP04",
+    "sinks": [
+      {
+        "name": "remote-server",
+        "kind": "network",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(createServer|express\\s*\\(|app\\.listen|Hono|fastify|http\\.createServer|SSEServerTransport|StreamableHTTPServerTransport)\\b",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(FastAPI|Flask|uvicorn\\.run|app\\.run|SseServerTransport|StreamableHTTPServer)\\b",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "guards": [
+      {
+        "name": "auth-middleware",
+        "kind": "auth",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(authenticate|authorization|auth|verifyToken|requireAuth|isAuthenticated|passport\\.authenticate|jwt\\.verify|bearerAuth)\\b",
+            "flags": "i"
+          },
+          {
+            "lang": "py",
+            "source": "\\b(authenticate|authorization|verify_token|require_auth|is_authenticated|jwt\\.decode|HTTPBearer|Depends.*auth|api_key_header)\\b",
+            "flags": "i"
+          }
+        ]
+      },
+      {
+        "name": "oauth",
+        "kind": "auth",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "authorization.*header|bearer.*token|oauth",
+            "flags": "i"
+          },
+          {
+            "lang": "py",
+            "source": "authorization.*header|bearer.*token|oauth",
+            "flags": "i"
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      {
+        "name": "unauthenticated-server",
+        "from": "mcp-server",
+        "to": "remote-server",
+        "guardedBy": [
+          "auth-middleware",
+          "oauth"
+        ],
+        "evidence": "Remote MCP server (HTTP/SSE) without authentication — any client can connect and use tools",
+        "suggestion": "Add authentication middleware (JWT, API key, OAuth). Remote MCP servers MUST verify client identity."
+      }
+    ]
+  },
+  {
+    "ruleId": "mcp-typosquatting",
+    "severity": "warning",
+    "confidence": 0.85,
+    "category": "bug",
+    "cweRef": "OWASP MCP06",
+    "sinks": [],
+    "guards": [],
+    "invariants": [],
+    "delegate": "typescript"
+  },
+  {
+    "ruleId": "mcp-data-injection",
+    "severity": "warning",
+    "confidence": 0.7,
+    "category": "bug",
+    "cweRef": "CWE-1427, OWASP MCP02",
+    "sinks": [
+      {
+        "name": "system-instruction",
+        "kind": "injection",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\[SYSTEM INSTRUCTION[:\\s]",
+            "flags": "i"
+          },
+          {
+            "lang": "py",
+            "source": "\\[SYSTEM INSTRUCTION[:\\s]",
+            "flags": "i"
+          }
+        ]
+      },
+      {
+        "name": "hidden-comment",
+        "kind": "injection",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "<!--\\s*HIDDEN\\s*:",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "<!--\\s*HIDDEN\\s*:",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "inject-marker",
+        "kind": "injection",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "___INJECT___|___END_INJECT___|\\bINJECT_PAYLOAD\\b",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "___INJECT___|___END_INJECT___|\\bINJECT_PAYLOAD\\b",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "assistant-override",
+        "kind": "injection",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\bAssistant instruction\\s*:|\\bmalicious_instruction\\b|\\[HIDDEN INSTRUCTIONS?\\]|\\bsystem_override\\b",
+            "flags": "i"
+          },
+          {
+            "lang": "py",
+            "source": "\\bAssistant instruction\\s*:|\\bmalicious_instruction\\b|\\[HIDDEN INSTRUCTIONS?\\]|\\bsystem_override\\b",
+            "flags": "i"
+          }
+        ]
+      }
+    ],
+    "guards": [],
+    "invariants": [
+      {
+        "name": "embedded-injection",
+        "from": "string-literal",
+        "to": "system-instruction",
+        "guardedBy": [],
+        "evidence": "String literal contains injection marker — possible data-level prompt injection",
+        "suggestion": "Remove injection markers from data. If this is test code, use kern-ignore to suppress."
+      }
+    ]
+  },
+  {
+    "ruleId": "mcp-ssrf",
+    "severity": "error",
+    "confidence": 0.85,
+    "category": "bug",
+    "cweRef": "CWE-918, OWASP MCP01",
+    "sinks": [
+      {
+        "name": "network-fetch",
+        "kind": "network",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(fetch|axios\\.\\w+|got\\.\\w+|http\\.request|https\\.request)\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(requests\\.(get|post|put|delete|patch)|httpx\\.\\w+|urllib\\.request\\.urlopen|aiohttp\\.ClientSession)\\s*\\(",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "guards": [
+      {
+        "name": "url-parse",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\bnew\\s+URL\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\burlparse\\s*\\(",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "url-allowlist",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(allowlist|whitelist|allowed_hosts|ALLOWED_URLS)\\b",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "\\.includes\\s*\\(\\s*\\w*[Hh]ost",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "\\.startsWith\\s*\\(\\s*['\"]https?:\\/\\/",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(allowlist|whitelist|allowed_hosts|ALLOWED_URLS)\\b",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\.startswith\\s*\\(\\s*['\"]https?:\\/\\/",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "hardcoded-host",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "fetch\\s*\\(\\s*['\"`]https?:\\/\\/[a-zA-Z0-9.-]+",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "requests\\.\\w+\\s*\\(\\s*[fFrRbB]*['\"]https?:\\/\\/[a-zA-Z0-9.-]+",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "schema-validation",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "z\\.string\\(\\)\\.url\\(\\)",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "z\\.string\\(\\)\\.regex\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "HttpUrl|AnyHttpUrl|\\.model_validate",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      {
+        "name": "param-to-fetch",
+        "from": "tool-params",
+        "to": "network-fetch",
+        "guardedBy": [
+          "url-parse",
+          "url-allowlist",
+          "schema-validation",
+          "hardcoded-host"
+        ],
+        "evidence": "MCP tool passes user-controlled params to network request without URL validation — SSRF risk",
+        "suggestion": "Validate URLs against an allowlist or parse with new URL() and check the hostname before making requests."
+      },
+      {
+        "name": "unguarded-fetch",
+        "from": "source-code",
+        "to": "network-fetch",
+        "guardedBy": [
+          "url-parse",
+          "url-allowlist",
+          "schema-validation",
+          "hardcoded-host"
+        ],
+        "evidence": "MCP server makes network requests without URL validation — SSRF risk even if params don't flow directly",
+        "suggestion": "All fetch/request calls in MCP servers should validate URLs against an allowlist."
+      }
+    ]
+  },
+  {
+    "ruleId": "mcp-secret-leakage",
+    "severity": "error",
+    "confidence": 0.8,
+    "category": "bug",
+    "cweRef": "CWE-200, OWASP MCP06",
+    "sinks": [
+      {
+        "name": "env-secret",
+        "kind": "secret",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\bprocess\\.env\\.\\w*(SECRET|KEY|TOKEN|PASSWORD|CREDENTIAL|PRIVATE)\\w*",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "\\bprocess\\.env\\.\\w*(api_key|auth_token|access_token|secret_key)\\b",
+            "flags": "i"
+          },
+          {
+            "lang": "py",
+            "source": "\\bos\\.environ\\[.*(?:SECRET|KEY|TOKEN|PASSWORD|CREDENTIAL|PRIVATE)",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\bos\\.getenv\\s*\\(\\s*['\"].*(?:secret|key|token|password|credential)",
+            "flags": "i"
+          }
+        ]
+      },
+      {
+        "name": "stack-trace",
+        "kind": "secret",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\.\\bstack\\b",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "\\berr(?:or)?\\.message\\b",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\btraceback\\.\\w+\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\.tb_frame\\b",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "connection-string",
+        "kind": "secret",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "(?:postgres|mysql|mongodb|redis|amqp):\\/\\/\\w+:\\w+@",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "(?:postgres|mysql|mongodb|redis|amqp):\\/\\/\\w+:\\w+@",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "api-key-pattern",
+        "kind": "secret",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(sk-[a-zA-Z0-9]{20,}|AKIA[A-Z0-9]{16}|ghp_[a-zA-Z0-9]{36}|xox[bprs]-[a-zA-Z0-9-]+)",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(sk-[a-zA-Z0-9]{20,}|AKIA[A-Z0-9]{16}|ghp_[a-zA-Z0-9]{36}|xox[bprs]-[a-zA-Z0-9-]+)",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "ip-disclosure",
+        "kind": "secret",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(icanhazip\\.com|ifconfig\\.me|ipinfo\\.io|checkip\\.|whatismyip|api\\.ipify\\.org|ipecho\\.net)\\b",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(icanhazip\\.com|ifconfig\\.me|ipinfo\\.io|checkip\\.|whatismyip|api\\.ipify\\.org|ipecho\\.net)\\b",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "system-info",
+        "kind": "secret",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\bos\\.(hostname|homedir|userInfo|cpus|networkInterfaces)\\s*\\(\\)",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\bos\\.(uname|getlogin)\\s*\\(\\)|\\bsocket\\.gethostname\\s*\\(\\)|\\bplatform\\.(node|system|machine)\\s*\\(\\)",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "guards": [
+      {
+        "name": "redaction",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(redact|mask|sanitize|scrub|censor)\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "\\.replace\\s*\\(.*\\*+.*\\)",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(redact|mask|sanitize|scrub|censor)\\s*\\(",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "replacer",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "JSON\\.stringify\\s*\\([^,]+,\\s*(function|\\()",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "json\\.dumps\\s*\\([^,]+,\\s*default\\s*=",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "field-filter",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(allowedFields|safeFields|publicFields|SAFE_KEYS)\\b",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(allowed_fields|safe_fields|public_fields|SAFE_KEYS)\\b",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      {
+        "name": "secret-in-response",
+        "from": "response-content",
+        "to": "env-secret",
+        "guardedBy": [
+          "redaction",
+          "replacer",
+          "field-filter"
+        ],
+        "evidence": "MCP tool leaks sensitive environment variable in response content — secret exposure risk",
+        "suggestion": "Never return secrets in tool responses. Use redaction or filter fields before returning."
+      },
+      {
+        "name": "stack-in-response",
+        "from": "response-content",
+        "to": "stack-trace",
+        "guardedBy": [
+          "redaction"
+        ],
+        "evidence": "MCP tool returns error stack trace in response — information disclosure risk",
+        "suggestion": "Return user-friendly error messages instead of raw stack traces."
+      },
+      {
+        "name": "credential-in-response",
+        "from": "response-content",
+        "to": "connection-string",
+        "guardedBy": [
+          "redaction"
+        ],
+        "evidence": "MCP tool returns connection string with credentials in response — credential leakage",
+        "suggestion": "Never return connection strings in tool responses. Use environment variable names or masked values."
+      },
+      {
+        "name": "hardcoded-key-in-response",
+        "from": "response-content",
+        "to": "api-key-pattern",
+        "guardedBy": [
+          "redaction"
+        ],
+        "evidence": "MCP tool returns API key pattern in response — key leakage risk",
+        "suggestion": "Never return API keys in tool responses. Return masked values or references instead."
+      },
+      {
+        "name": "ip-disclosure-in-source",
+        "from": "source-code",
+        "to": "ip-disclosure",
+        "guardedBy": [
+          "redaction"
+        ],
+        "evidence": "MCP server queries IP disclosure endpoint — exposes server's public IP address to the LLM",
+        "suggestion": "Avoid exposing infrastructure details. If needed, restrict access and redact from tool responses."
+      },
+      {
+        "name": "system-info-in-response",
+        "from": "source-code",
+        "to": "system-info",
+        "guardedBy": [
+          "redaction",
+          "field-filter"
+        ],
+        "evidence": "MCP tool exposes system information (hostname, home directory, CPU) — host detail leakage",
+        "suggestion": "Avoid exposing system details via MCP tool responses. Redact or omit sensitive host information."
+      }
+    ]
+  },
+  {
+    "ruleId": "mcp-rug-pull",
+    "severity": "warning",
+    "confidence": 0.8,
+    "category": "bug",
+    "cweRef": "CWE-829, OWASP MCP02",
+    "sinks": [
+      {
+        "name": "dynamic-handler",
+        "kind": "mutation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "server\\.tool\\s*\\([^,]+,\\s*[^,]+,\\s*[^,]+,\\s*\\w+\\s*\\)",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "server\\.tool\\s*\\([^,]+,\\s*[^,]+,\\s*\\w+\\s*\\)",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "@\\w+\\.tool\\s*\\(\\s*\\w+\\s*\\)",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "dynamic-description",
+        "kind": "mutation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "server\\.tool\\s*\\(\\s*\\w+\\s*,",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "server\\.tool\\s*\\([^,]*Buffer\\.from\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "server\\.tool\\s*\\([^,]*atob\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "description\\s*:\\s*\\w+\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "name\\s*:\\s*\\w+\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "@\\w+\\.tool\\s*\\(\\s*name\\s*=\\s*\\w+[^'\"]",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "base64\\.b64decode\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "description\\s*=\\s*\\w+\\s*\\(",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "dynamic-code-exec",
+        "kind": "mutation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(eval|Function)\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "\\bimport\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "ts",
+            "source": "\\brequire\\s*\\(\\s*[^'\"]",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(eval|exec|compile)\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b__import__\\s*\\(",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "guards": [
+      {
+        "name": "none",
+        "kind": "validation",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "THIS_GUARD_NEVER_MATCHES_SENTINEL_DO_NOT_REMOVE",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "THIS_GUARD_NEVER_MATCHES_SENTINEL_DO_NOT_REMOVE",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      {
+        "name": "mutable-handler",
+        "from": "source-code",
+        "to": "dynamic-handler",
+        "guardedBy": [
+          "none"
+        ],
+        "evidence": "Tool handler is a variable reference, not an inline function — handler can be swapped at runtime (rug pull)",
+        "suggestion": "Define tool handlers as inline functions to prevent runtime replacement."
+      },
+      {
+        "name": "mutable-description",
+        "from": "source-code",
+        "to": "dynamic-description",
+        "guardedBy": [
+          "none"
+        ],
+        "evidence": "Tool name or description comes from a variable — can be changed after user approval (rug pull)",
+        "suggestion": "Use string literals for tool names and descriptions, not variables."
+      },
+      {
+        "name": "dynamic-execution",
+        "from": "source-code",
+        "to": "dynamic-code-exec",
+        "guardedBy": [
+          "none"
+        ],
+        "evidence": "Tool handler uses eval/import()/Function — behavior can change at runtime (rug pull)",
+        "suggestion": "Remove dynamic code execution from tool handlers. Use static imports and fixed logic."
+      }
+    ]
+  },
+  {
+    "ruleId": "mcp-insufficient-logging",
+    "severity": "warning",
+    "confidence": 0.75,
+    "category": "pattern",
+    "cweRef": "CWE-778, OWASP MCP09",
+    "sinks": [
+      {
+        "name": "handler-entry",
+        "kind": "audit",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "server\\.tool\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "@\\w+\\.tool",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "guards": [
+      {
+        "name": "console-logging",
+        "kind": "audit",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\bconsole\\.(log|warn|error|info|debug)\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(print|logging\\.\\w+)\\s*\\(",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "logger-call",
+        "kind": "audit",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(logger|log|winston|pino|bunyan)\\.\\w+\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(logger|log)\\.\\w+\\s*\\(",
+            "flags": ""
+          }
+        ]
+      },
+      {
+        "name": "audit-trail",
+        "kind": "audit",
+        "patterns": [
+          {
+            "lang": "ts",
+            "source": "\\b(audit|track|record|emit)\\s*\\(",
+            "flags": ""
+          },
+          {
+            "lang": "py",
+            "source": "\\b(audit|track|record|emit)\\s*\\(",
+            "flags": ""
+          }
+        ]
+      }
+    ],
+    "invariants": [
+      {
+        "name": "no-logging",
+        "from": "tool-handler",
+        "to": "handler-entry",
+        "guardedBy": [
+          "console-logging",
+          "logger-call",
+          "audit-trail"
+        ],
+        "evidence": "MCP tool handler has no logging — tool invocations leave no audit trail",
+        "suggestion": "Add logging to tool handlers for auditability. Log tool name, params (sanitized), and result status."
+      }
+    ]
+  }
+]

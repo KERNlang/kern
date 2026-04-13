@@ -5,9 +5,9 @@
  * The generator function signature matches core: (node: IRNode) => string[]
  */
 
-import { createContext, Script } from 'vm';
-import { readFileSync } from 'fs';
 import type { IRNode } from '@kernlang/core';
+import { readFileSync } from 'fs';
+import { createContext, Script } from 'vm';
 import type { CodegenHelpers } from './evolved-types.js';
 
 /**
@@ -19,59 +19,62 @@ function buildHelpers(): CodegenHelpers {
     capitalize: (s: string) => s.charAt(0).toUpperCase() + s.slice(1),
 
     parseParamList: (params: string) => {
-      return params.split(',').map(p => {
-        const trimmed = p.trim();
-        const eqIdx = trimmed.indexOf('=');
-        if (eqIdx > 0) {
-          const paramPart = trimmed.slice(0, eqIdx);
-          const defaultVal = trimmed.slice(eqIdx + 1);
-          const colonIdx = paramPart.indexOf(':');
-          if (colonIdx > 0) {
-            return `${paramPart.slice(0, colonIdx)}: ${paramPart.slice(colonIdx + 1)} = ${defaultVal}`;
+      return params
+        .split(',')
+        .map((p) => {
+          const trimmed = p.trim();
+          const eqIdx = trimmed.indexOf('=');
+          if (eqIdx > 0) {
+            const paramPart = trimmed.slice(0, eqIdx);
+            const defaultVal = trimmed.slice(eqIdx + 1);
+            const colonIdx = paramPart.indexOf(':');
+            if (colonIdx > 0) {
+              return `${paramPart.slice(0, colonIdx)}: ${paramPart.slice(colonIdx + 1)} = ${defaultVal}`;
+            }
+            return `${paramPart} = ${defaultVal}`;
           }
-          return `${paramPart} = ${defaultVal}`;
-        }
-        const colonIdx = trimmed.indexOf(':');
-        if (colonIdx > 0) {
-          return `${trimmed.slice(0, colonIdx)}: ${trimmed.slice(colonIdx + 1)}`;
-        }
-        return trimmed;
-      }).join(', ');
+          const colonIdx = trimmed.indexOf(':');
+          if (colonIdx > 0) {
+            return `${trimmed.slice(0, colonIdx)}: ${trimmed.slice(colonIdx + 1)}`;
+          }
+          return trimmed;
+        })
+        .join(', ');
     },
 
     dedent: (code: string) => {
       const lines = code.split('\n');
-      const nonEmpty = lines.filter(l => l.trim().length > 0);
+      const nonEmpty = lines.filter((l) => l.trim().length > 0);
       if (nonEmpty.length === 0) return code;
-      const min = Math.min(...nonEmpty.map(l => l.match(/^(\s*)/)?.[1].length ?? 0));
-      return lines.map(l => l.slice(min)).join('\n');
+      const min = Math.min(...nonEmpty.map((l) => l.match(/^(\s*)/)?.[1].length ?? 0));
+      return lines.map((l) => l.slice(min)).join('\n');
     },
 
     kids: (node: IRNode, type?: string) => {
       const c = node.children || [];
-      return type ? c.filter(n => n.type === type) : c;
+      return type ? c.filter((n) => n.type === type) : c;
     },
 
     firstChild: (node: IRNode, type: string) => {
-      return (node.children || []).find(n => n.type === type);
+      return (node.children || []).find((n) => n.type === type);
     },
 
     p: (node: IRNode) => node.props || {},
 
     handlerCode: (node: IRNode) => {
-      const handler = (node.children || []).find(n => n.type === 'handler');
+      const handler = (node.children || []).find((n) => n.type === 'handler');
       if (!handler) return '';
       const raw = (handler.props?.code as string) || '';
       // Dedent
       const lines = raw.split('\n');
-      const nonEmpty = lines.filter(l => l.trim().length > 0);
+      const nonEmpty = lines.filter((l) => l.trim().length > 0);
       if (nonEmpty.length === 0) return raw;
-      const min = Math.min(...nonEmpty.map(l => l.match(/^(\s*)/)?.[1].length ?? 0));
-      return lines.map(l => l.slice(min)).join('\n');
+      const min = Math.min(...nonEmpty.map((l) => l.match(/^(\s*)/)?.[1].length ?? 0));
+      return lines.map((l) => l.slice(min)).join('\n');
     },
 
     exportPrefix: (node: IRNode) => {
-      return (node.props || {}).export === 'false' ? '' : 'export ';
+      return node.props?.export === 'false' ? '' : 'export ';
     },
   };
 }
@@ -123,16 +126,15 @@ export function compileSandboxedGenerator(code: string): (node: IRNode) => strin
   script.runInContext(ctx);
 
   // Support both `module.exports = fn` and `exports.default = fn` patterns
-  const fn = (sandbox.module.exports as any).default
-    || (sandbox.module.exports as any).generate
-    || sandbox.module.exports
-    || (sandbox.exports as any).default
-    || (sandbox.exports as any).generate;
+  const fn =
+    (sandbox.module.exports as any).default ||
+    (sandbox.module.exports as any).generate ||
+    sandbox.module.exports ||
+    (sandbox.exports as any).default ||
+    (sandbox.exports as any).generate;
 
   if (typeof fn !== 'function') {
-    throw new Error(
-      'Evolved codegen must export a function: module.exports = function(node, helpers) { ... }'
-    );
+    throw new Error('Evolved codegen must export a function: module.exports = function(node, helpers) { ... }');
   }
 
   // Wrap to inject helpers as second argument

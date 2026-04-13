@@ -9,33 +9,8 @@
  */
 
 import { SyntaxKind } from 'ts-morph';
-import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
-import { createFingerprint } from '../types.js';
-
-function span(file: string, line: number, col = 1): SourceSpan {
-  return { file, startLine: line, startCol: col, endLine: line, endCol: col };
-}
-
-function finding(
-  ruleId: string,
-  severity: 'error' | 'warning' | 'info',
-  category: ReviewFinding['category'],
-  message: string,
-  file: string,
-  line: number,
-  extra?: Partial<ReviewFinding>,
-): ReviewFinding {
-  return {
-    source: 'kern',
-    ruleId,
-    severity,
-    category,
-    message,
-    primarySpan: span(file, line),
-    fingerprint: createFingerprint(ruleId, line, 1),
-    ...extra,
-  };
-}
+import type { ReviewFinding, RuleContext } from '../types.js';
+import { finding, span } from './utils.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -60,20 +35,27 @@ function identicalConditions(ctx: RuleContext): ReviewFinding[] {
       const condLine = current.getStartLineNumber();
 
       // Check for duplicate
-      const duplicate = conditions.find(c => c.text === condText);
+      const duplicate = conditions.find((c) => c.text === condText);
       if (duplicate) {
-        findings.push(finding('identical-conditions', 'error', 'bug',
-          `Duplicate condition '${condText.substring(0, 60)}' — already checked at line ${duplicate.line}`,
-          ctx.filePath, condLine,
-          { relatedSpans: [span(ctx.filePath, duplicate.line)] }));
+        findings.push(
+          finding(
+            'identical-conditions',
+            'error',
+            'bug',
+            `Duplicate condition '${condText.substring(0, 60)}' — already checked at line ${duplicate.line}`,
+            ctx.filePath,
+            condLine,
+            1,
+            { relatedSpans: [span(ctx.filePath, duplicate.line)] },
+          ),
+        );
       }
       conditions.push({ text: condText, line: condLine });
 
       // Follow else-if chain
       const elseStmt = current.getElseStatement();
-      current = elseStmt?.getKind() === SyntaxKind.IfStatement
-        ? elseStmt as import('ts-morph').IfStatement
-        : undefined;
+      current =
+        elseStmt?.getKind() === SyntaxKind.IfStatement ? (elseStmt as import('ts-morph').IfStatement) : undefined;
     }
   }
 
@@ -119,9 +101,16 @@ function identicalExpressions(ctx: RuleContext): ReviewFinding[] {
       if (/^[0-9]+$/.test(leftText)) continue;
 
       const opText = binExpr.getOperatorToken().getText();
-      findings.push(finding('identical-expressions', 'error', 'bug',
-        `Identical expressions on both sides of '${opText}': ${leftText.substring(0, 40)}`,
-        ctx.filePath, binExpr.getStartLineNumber()));
+      findings.push(
+        finding(
+          'identical-expressions',
+          'error',
+          'bug',
+          `Identical expressions on both sides of '${opText}': ${leftText.substring(0, 40)}`,
+          ctx.filePath,
+          binExpr.getStartLineNumber(),
+        ),
+      );
     }
   }
 
@@ -162,11 +151,18 @@ function allIdenticalBranches(ctx: RuleContext): ReviewFinding[] {
 
     // Need at least if + else to flag, and all branches must be identical
     if (!hasElse || branches.length < 2) continue;
-    const allSame = branches.every(b => b === branches[0]);
+    const allSame = branches.every((b) => b === branches[0]);
     if (allSame) {
-      findings.push(finding('all-identical-branches', 'error', 'bug',
-        `All ${branches.length} branches have identical code — condition has no effect`,
-        ctx.filePath, ifStmt.getStartLineNumber()));
+      findings.push(
+        finding(
+          'all-identical-branches',
+          'error',
+          'bug',
+          `All ${branches.length} branches have identical code — condition has no effect`,
+          ctx.filePath,
+          ifStmt.getStartLineNumber(),
+        ),
+      );
     }
   }
 
@@ -175,9 +171,16 @@ function allIdenticalBranches(ctx: RuleContext): ReviewFinding[] {
     const whenTrue = normalize(ternary.getWhenTrue().getText());
     const whenFalse = normalize(ternary.getWhenFalse().getText());
     if (whenTrue === whenFalse) {
-      findings.push(finding('all-identical-branches', 'warning', 'bug',
-        'Ternary has identical true/false expressions — condition has no effect',
-        ctx.filePath, ternary.getStartLineNumber()));
+      findings.push(
+        finding(
+          'all-identical-branches',
+          'warning',
+          'bug',
+          'Ternary has identical true/false expressions — condition has no effect',
+          ctx.filePath,
+          ternary.getStartLineNumber(),
+        ),
+      );
     }
   }
 
@@ -193,23 +196,44 @@ function constantCondition(ctx: RuleContext): ReviewFinding[] {
   for (const ifStmt of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.IfStatement)) {
     const exprKind = ifStmt.getExpression().getKind();
     if (exprKind === SyntaxKind.TrueKeyword) {
-      findings.push(finding('constant-condition', 'warning', 'bug',
-        'Condition is always true — else branch is dead code',
-        ctx.filePath, ifStmt.getStartLineNumber()));
+      findings.push(
+        finding(
+          'constant-condition',
+          'warning',
+          'bug',
+          'Condition is always true — else branch is dead code',
+          ctx.filePath,
+          ifStmt.getStartLineNumber(),
+        ),
+      );
     }
     if (exprKind === SyntaxKind.FalseKeyword) {
-      findings.push(finding('constant-condition', 'error', 'bug',
-        'Condition is always false — then branch is dead code',
-        ctx.filePath, ifStmt.getStartLineNumber()));
+      findings.push(
+        finding(
+          'constant-condition',
+          'error',
+          'bug',
+          'Condition is always false — then branch is dead code',
+          ctx.filePath,
+          ifStmt.getStartLineNumber(),
+        ),
+      );
     }
   }
 
   // while (false) — dead loop
   for (const whileStmt of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.WhileStatement)) {
     if (whileStmt.getExpression().getKind() === SyntaxKind.FalseKeyword) {
-      findings.push(finding('constant-condition', 'error', 'bug',
-        'while(false) — loop body is dead code',
-        ctx.filePath, whileStmt.getStartLineNumber()));
+      findings.push(
+        finding(
+          'constant-condition',
+          'error',
+          'bug',
+          'while(false) — loop body is dead code',
+          ctx.filePath,
+          whileStmt.getStartLineNumber(),
+        ),
+      );
     }
   }
 
@@ -218,9 +242,16 @@ function constantCondition(ctx: RuleContext): ReviewFinding[] {
     const condKind = ternary.getCondition().getKind();
     if (condKind === SyntaxKind.TrueKeyword || condKind === SyntaxKind.FalseKeyword) {
       const branch = condKind === SyntaxKind.TrueKeyword ? 'false' : 'true';
-      findings.push(finding('constant-condition', 'warning', 'bug',
-        `Ternary condition is always ${condKind === SyntaxKind.TrueKeyword ? 'true' : 'false'} — ${branch} branch is dead`,
-        ctx.filePath, ternary.getStartLineNumber()));
+      findings.push(
+        finding(
+          'constant-condition',
+          'warning',
+          'bug',
+          `Ternary condition is always ${condKind === SyntaxKind.TrueKeyword ? 'true' : 'false'} — ${branch} branch is dead`,
+          ctx.filePath,
+          ternary.getStartLineNumber(),
+        ),
+      );
     }
   }
 
@@ -259,16 +290,26 @@ function oneIterationLoop(ctx: RuleContext): ReviewFinding[] {
       const lastKind = lastStmt.getKind();
 
       // Unconditional break/return/throw at end of body
-      if (lastKind === SyntaxKind.BreakStatement ||
-          lastKind === SyntaxKind.ReturnStatement ||
-          lastKind === SyntaxKind.ThrowStatement) {
+      if (
+        lastKind === SyntaxKind.BreakStatement ||
+        lastKind === SyntaxKind.ReturnStatement ||
+        lastKind === SyntaxKind.ThrowStatement
+      ) {
         // Make sure there's no continue before it (which would indicate real looping)
         const hasContinue = bodyBlock.getDescendantsOfKind(SyntaxKind.ContinueStatement).length > 0;
         if (!hasContinue) {
-          findings.push(finding('one-iteration-loop', 'warning', 'bug',
-            'Loop runs at most one iteration — unconditional exit at end of body',
-            ctx.filePath, loop.getStartLineNumber(),
-            { suggestion: 'If intentional, use an if statement instead of a loop' }));
+          findings.push(
+            finding(
+              'one-iteration-loop',
+              'warning',
+              'bug',
+              'Loop runs at most one iteration — unconditional exit at end of body',
+              ctx.filePath,
+              loop.getStartLineNumber(),
+              1,
+              { suggestion: 'If intentional, use an if statement instead of a loop' },
+            ),
+          );
         }
       }
     }
@@ -283,17 +324,39 @@ function oneIterationLoop(ctx: RuleContext): ReviewFinding[] {
 function unusedCollection(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   const writeOps = new Set(['push', 'add', 'set', 'unshift', 'splice', 'fill']);
-  const readOps = new Set(['get', 'has', 'includes', 'indexOf', 'find', 'filter', 'map',
-    'reduce', 'some', 'every', 'forEach', 'entries', 'values', 'keys', 'join',
-    'flat', 'flatMap', 'slice', 'at', 'length', 'size']);
+  const readOps = new Set([
+    'get',
+    'has',
+    'includes',
+    'indexOf',
+    'find',
+    'filter',
+    'map',
+    'reduce',
+    'some',
+    'every',
+    'forEach',
+    'entries',
+    'values',
+    'keys',
+    'join',
+    'flat',
+    'flatMap',
+    'slice',
+    'at',
+    'length',
+    'size',
+  ]);
 
   // Find ALL variable declarations (not just top-level) for collection patterns
   for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
     const init = decl.getInitializer();
     if (!init) continue;
     const initText = init.getText();
-    const isCollection = init.getKind() === SyntaxKind.ArrayLiteralExpression ||
-      initText.startsWith('new Map') || initText.startsWith('new Set') ||
+    const isCollection =
+      init.getKind() === SyntaxKind.ArrayLiteralExpression ||
+      initText.startsWith('new Map') ||
+      initText.startsWith('new Set') ||
       initText.startsWith('new Array');
     if (!isCollection) continue;
 
@@ -327,9 +390,16 @@ function unusedCollection(ctx: RuleContext): ReviewFinding[] {
     }
 
     if (hasWrite && !hasRead) {
-      findings.push(finding('unused-collection', 'warning', 'bug',
-        `Collection '${varName}' is populated but never read`,
-        ctx.filePath, declLine));
+      findings.push(
+        finding(
+          'unused-collection',
+          'warning',
+          'bug',
+          `Collection '${varName}' is populated but never read`,
+          ctx.filePath,
+          declLine,
+        ),
+      );
     }
   }
 
@@ -349,8 +419,8 @@ function emptyCollectionAccess(ctx: RuleContext): ReviewFinding[] {
 
     // Only flag collections initialized as empty
     const initText = init.getText().trim();
-    const isEmpty = initText === '[]' || initText === 'new Map()' ||
-      initText === 'new Set()' || initText === 'new Array()';
+    const isEmpty =
+      initText === '[]' || initText === 'new Map()' || initText === 'new Set()' || initText === 'new Array()';
     if (!isEmpty) continue;
 
     const varName = decl.getName();
@@ -392,9 +462,16 @@ function emptyCollectionAccess(ctx: RuleContext): ReviewFinding[] {
     }
 
     if (hasRead && !hasWrite) {
-      findings.push(finding('empty-collection-access', 'warning', 'bug',
-        `Collection '${varName}' is initialized empty and never populated — reads will always be empty`,
-        ctx.filePath, declLine));
+      findings.push(
+        finding(
+          'empty-collection-access',
+          'warning',
+          'bug',
+          `Collection '${varName}' is initialized empty and never populated — reads will always be empty`,
+          ctx.filePath,
+          declLine,
+        ),
+      );
     }
   }
 
@@ -428,10 +505,18 @@ function redundantJump(ctx: RuleContext): ReviewFinding[] {
         const contStmt = last as import('ts-morph').ContinueStatement;
         // Only flag unlabeled continue
         if (!contStmt.getLabel()) {
-          findings.push(finding('redundant-jump', 'info', 'style',
-            'Redundant continue at end of loop body',
-            ctx.filePath, last.getStartLineNumber(),
-            { suggestion: 'Remove — loop naturally continues at end of body' }));
+          findings.push(
+            finding(
+              'redundant-jump',
+              'info',
+              'style',
+              'Redundant continue at end of loop body',
+              ctx.filePath,
+              last.getStartLineNumber(),
+              1,
+              { suggestion: 'Remove — loop naturally continues at end of body' },
+            ),
+          );
         }
       }
     }
@@ -450,11 +535,19 @@ function redundantJump(ctx: RuleContext): ReviewFinding[] {
       const retStmt = last as import('ts-morph').ReturnStatement;
       // Only flag bare return (no value)
       if (!retStmt.getExpression()) {
-        findings.push(finding('redundant-jump', 'info', 'style',
-          'Redundant return at end of function',
-          ctx.filePath, last.getStartLineNumber(),
-          { suggestion: 'Remove — function returns void naturally' }));
-        }
+        findings.push(
+          finding(
+            'redundant-jump',
+            'info',
+            'style',
+            'Redundant return at end of function',
+            ctx.filePath,
+            last.getStartLineNumber(),
+            1,
+            { suggestion: 'Remove — function returns void naturally' },
+          ),
+        );
+      }
     }
   }
 

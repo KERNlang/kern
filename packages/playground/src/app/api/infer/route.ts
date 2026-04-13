@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { inferFromSource, serializeIR, countTokens } from '@/lib/infer';
+import { inferFromSource } from '@/lib/infer';
 
 export async function POST(request: Request) {
   try {
@@ -8,7 +8,12 @@ export async function POST(request: Request) {
 
     if (!source || typeof source !== 'string') {
       return NextResponse.json(
-        { error: { message: 'Missing "source" field', line: 0, col: 0, codeFrame: '' }, kern: null, findings: [], stats: null },
+        {
+          error: { message: 'Missing "source" field', line: 0, col: 0, codeFrame: '' },
+          kern: null,
+          findings: [],
+          stats: null,
+        },
         { status: 400 },
       );
     }
@@ -17,7 +22,12 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch {
     return NextResponse.json(
-      { error: { message: 'Internal server error', line: 0, col: 0, codeFrame: '' }, kern: null, findings: [], stats: null },
+      {
+        error: { message: 'Internal server error', line: 0, col: 0, codeFrame: '' },
+        kern: null,
+        findings: [],
+        stats: null,
+      },
       { status: 500 },
     );
   }

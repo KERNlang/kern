@@ -3,7 +3,7 @@
  */
 
 import type { SourceFile } from 'ts-morph';
-import type { DetectorPack, DetectionResult } from '../types.js';
+import type { DetectionResult, DetectorPack } from '../types.js';
 
 const expressMiddlewareDetector: DetectorPack = {
   id: 'express-middleware',
@@ -16,7 +16,13 @@ const expressMiddlewareDetector: DetectorPack = {
 
     // Detect app.use(cors(...)) patterns — only multi-middleware stacks are template-worthy
     const appUseRe = /app\.use\s*\(\s*(\w+)\s*\(\s*(\{[^}]*\})?\s*\)\s*\)/g;
-    const middlewareCalls: Array<{ name: string; startLine: number; endLine: number; snippet: string; config: string }> = [];
+    const middlewareCalls: Array<{
+      name: string;
+      startLine: number;
+      endLine: number;
+      snippet: string;
+      config: string;
+    }> = [];
 
     let match: RegExpExecArray | null;
     while ((match = appUseRe.exec(fullText)) !== null) {
@@ -27,8 +33,8 @@ const expressMiddlewareDetector: DetectorPack = {
       const snippet = match[0];
 
       // Only detect if the middleware import exists
-      const hasImport = imports.some(imp => {
-        const names = imp.getNamedImports().map(n => n.getName());
+      const hasImport = imports.some((imp) => {
+        const names = imp.getNamedImports().map((n) => n.getName());
         const defaultName = imp.getDefaultImport()?.getText();
         return names.includes(mwName) || defaultName === mwName;
       });
@@ -44,8 +50,8 @@ const expressMiddlewareDetector: DetectorPack = {
         anchorImport: middlewareCalls[0].name,
         startLine: middlewareCalls[0].startLine,
         endLine: middlewareCalls[middlewareCalls.length - 1].endLine,
-        snippet: middlewareCalls.map(m => m.snippet).join('\n'),
-        extractedParams: middlewareCalls.map(m => ({
+        snippet: middlewareCalls.map((m) => m.snippet).join('\n'),
+        extractedParams: middlewareCalls.map((m) => ({
           name: m.name,
           slotType: 'expr' as const,
           value: m.config || '{}',

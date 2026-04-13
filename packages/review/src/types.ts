@@ -6,6 +6,7 @@
  */
 
 import type { IRNode } from '@kernlang/core';
+import type { CrossFileTaintResult } from './taint.js';
 
 // ── File Role ─────────────────────────────────────────────────────────────
 
@@ -37,10 +38,38 @@ export interface SourceSpan {
 
 // ── Unified Finding ──────────────────────────────────────────────────────
 
+/** Structured autofix action */
+export interface FixAction {
+  type: 'replace' | 'insert-before' | 'insert-after' | 'wrap' | 'remove';
+  span: SourceSpan;
+  replacement: string;
+  description: string;
+}
+
+/** Single hop in an evidence chain — where a finding came from */
+export interface ProvenanceStep {
+  /** What this step represents — source, sanitizer, boundary, sink, etc. */
+  kind: 'source' | 'sanitizer' | 'boundary' | 'sink' | 'import' | 'call';
+  /** File + location of this step */
+  location: SourceSpan;
+  /** Short human-readable label (e.g., "req.body", "fetch(url)", "use client") */
+  label: string;
+  /** Optional longer explanation rendered in the "why this fired" tooltip */
+  detail?: string;
+}
+
+/** Evidence chain: ordered steps from root cause to the reported sink */
+export interface ProvenanceChain {
+  /** Ordered steps from source → sink */
+  steps: ProvenanceStep[];
+  /** Optional one-line summary shown before expanding the chain */
+  summary?: string;
+}
+
 /** Unified finding from any review layer */
 export interface ReviewFinding {
   /** Which layer produced this finding */
-  source: 'kern' | 'eslint' | 'tsc' | 'llm';
+  source: 'kern' | 'kern-native' | 'eslint' | 'tsc' | 'llm';
   /** Rule identifier (e.g., 'memory-leak', 'floating-promise') */
   ruleId: string;
   /** Severity level */
@@ -59,12 +88,16 @@ export interface ReviewFinding {
   suggestion?: string;
   /** Confidence (0-1, for LLM findings) */
   confidence?: number;
+  /** Structured autofix */
+  autofix?: FixAction;
   /** Stable fingerprint for dedup across sources */
   fingerprint: string;
   /** Graph provenance: 'changed' = entry file, 'upstream' = dependency */
   origin?: 'changed' | 'upstream';
   /** Distance from nearest entry file (0 = entry, 1 = direct import, etc.) */
   distance?: number;
+  /** Evidence chain explaining WHY the finding fired (taint path, boundary walk, etc.) */
+  provenance?: ProvenanceChain;
 }
 
 // ── Confidence ───────────────────────────────────────────────────────────
@@ -138,10 +171,16 @@ export interface ReviewReport {
   findings: ReviewFinding[];
   /** Summary stats */
   stats: ReviewStats;
+  /** Cross-file taint results (present when graph-aware review detects cross-module taint) */
+  crossFileTaint?: CrossFileTaintResult[];
   /** Confidence graph (present when confidence layer is active) */
   confidenceGraph?: import('./confidence.js').SerializedConfidenceGraph;
   /** Confidence summary bands */
   confidenceSummary?: import('./confidence.js').ConfidenceSummary;
+  /** Proof obligations for AI verification (present in graph mode) */
+  obligations?: import('./obligations.js').ProofObligation[];
+  /** Semantic changes between old and new versions (present in --diff mode) */
+  semanticChanges?: import('./semantic-diff.js').SemanticChange[];
 }
 
 /** Summary statistics for a review */
@@ -206,8 +245,42 @@ export interface ReviewConfig {
   showConfidence?: boolean;
   /** Rule IDs to disable project-wide (findings generated but excluded from report) */
   disabledRules?: string[];
+  /** Custom rule directories for .kern files */
+  rulesDirs?: string[];
   /** Strict mode for CI: false = respect all suppressions, 'inline' = ignore inline comments, 'all' = ignore all suppressions */
   strict?: false | 'inline' | 'all';
+  /** When true, parse errors keep 'error' severity instead of being downgraded to 'warning'. Use with --enforce for strict CI. */
+  strictParse?: boolean;
+  /** When true, skip layered ReviewReport cache. */
+  noCache?: boolean;
+  /** Pre-computed file context map from import graph (populated by reviewGraph) */
+  fileContextMap?: Map<string, FileContext>;
+}
+
+// ── File Context (import chain awareness) ───────────────────────────────
+
+/** Runtime boundary determined by position in the import tree */
+export type RuntimeBoundary = 'server' | 'client' | 'api' | 'middleware' | 'shared' | 'unknown';
+
+/**
+ * Context derived from the import graph — where this file sits in the project.
+ * Populated when reviewing with --graph or --recursive on a directory.
+ */
+export interface FileContext {
+  /** Which runtime boundary this file belongs to (based on import chain, not just file content) */
+  boundary: RuntimeBoundary;
+  /** Entry points that eventually import this file */
+  entryPoints: string[];
+  /** Import chain from nearest entry point to this file */
+  importChain: string[];
+  /** Distance from nearest entry point (0 = is an entry point) */
+  depth: number;
+  /** All files that import this file */
+  importedBy: string[];
+  /** Whether this file is within a 'use client' boundary (Next.js) */
+  isClientBoundary: boolean;
+  /** Whether this file has its own 'use client' directive */
+  hasUseClientDirective: boolean;
 }
 
 // ── Rule Context ─────────────────────────────────────────────────────────
@@ -215,11 +288,15 @@ export interface ReviewConfig {
 /** Context passed to each review rule */
 export interface RuleContext {
   sourceFile: import('ts-morph').SourceFile;
+  /** ts-morph Project — enables TypeChecker access for type-aware rules */
+  project?: import('ts-morph').Project;
   inferred: InferResult[];
   templateMatches: TemplateMatch[];
   config?: ReviewConfig;
   filePath: string;
   fileRole: FileRole;
+  /** Import chain context — present when reviewing with graph awareness */
+  fileContext?: FileContext;
 }
 
 /** A review rule function */
@@ -252,12 +329,8 @@ export interface GraphOptions {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-/** Create a stable fingerprint for dedup across sources and runs */
+/** Create a stable fingerprint for dedup across sources and runs.
+ *  Returns the raw composite key — collision-free by construction. */
 export function createFingerprint(ruleId: string, startLine: number, startCol: number): string {
-  const input = `${ruleId}:${startLine}:${startCol}`;
-  let hash = 0;
-  for (let i = 0; i < input.length; i++) {
-    hash = ((hash << 5) - hash + input.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash).toString(36);
+  return `${ruleId}:${startLine}:${startCol}`;
 }

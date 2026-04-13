@@ -1,0 +1,4 @@
+rule reason-without-basis severity=info category=pattern
+  pattern type=reason
+    guard not=true prop=basis
+  message "Reason '{{name}}' has no basis — add evidence or reference"

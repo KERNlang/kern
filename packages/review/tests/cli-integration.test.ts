@@ -4,9 +4,18 @@
  * Tests --llm, --fix, and --lint paths without subprocess spawning.
  */
 
-import { reviewSource, buildLLMPrompt, parseLLMResponse, dedup, runTSCDiagnostics, runTSCDiagnosticsFromPaths, runESLint, linkToNodes } from '../src/index.js';
+import {
+  buildLLMPrompt,
+  dedup,
+  linkToNodes,
+  parseLLMResponse,
+  reviewSource,
+  runESLint,
+  runTSCDiagnostics,
+  runTSCDiagnosticsFromPaths,
+} from '../src/index.js';
 import { createInMemoryProject } from '../src/inferrer.js';
-import type { ReviewConfig, ReviewFinding, InferResult } from '../src/types.js';
+import type { InferResult, ReviewConfig, ReviewFinding } from '../src/types.js';
 
 // ── --llm tests ──────────────────────────────────────────────────────
 
@@ -30,7 +39,13 @@ export function startPlan(): void {}
 
     // Simulate LLM response with valid alias
     const llmResponse = JSON.stringify([
-      { nodeAlias: 'N1', severity: 'info', category: 'pattern', message: 'Consider documenting state transitions', evidence: 'PlanState' },
+      {
+        nodeAlias: 'N1',
+        severity: 'info',
+        category: 'pattern',
+        message: 'Consider documenting state transitions',
+        evidence: 'PlanState',
+      },
     ]);
 
     const findings = parseLLMResponse(llmResponse, report.inferred);
@@ -45,7 +60,7 @@ export function startPlan(): void {}
     const prompt = buildLLMPrompt(report.inferred, report.templateMatches);
 
     // Imports should NOT appear in prompt aliases
-    const nonImportNodes = report.inferred.filter(r => r.node.type !== 'import');
+    const nonImportNodes = report.inferred.filter((r) => r.node.type !== 'import');
     for (const node of nonImportNodes) {
       expect(prompt).toContain(`[${node.promptAlias}]`);
     }
@@ -65,9 +80,10 @@ export function startPlan(): void {}
 
   it('handles markdown-wrapped JSON response', () => {
     const report = reviewSource(source, 'plan.ts');
-    const llmResponse = '```json\n' + JSON.stringify([
-      { nodeAlias: 'N1', severity: 'warning', category: 'structure', message: 'Test finding' },
-    ]) + '\n```';
+    const llmResponse =
+      '```json\n' +
+      JSON.stringify([{ nodeAlias: 'N1', severity: 'warning', category: 'structure', message: 'Test finding' }]) +
+      '\n```';
 
     const findings = parseLLMResponse(llmResponse, report.inferred);
     expect(findings.length).toBe(1);
@@ -111,10 +127,13 @@ export function add(a: number, b: number): number {
 describe('CLI --lint: tsc diagnostics', () => {
   it('runTSCDiagnostics on project with type error → findings with source=tsc', () => {
     const project = createInMemoryProject();
-    project.createSourceFile('error.ts', `
+    project.createSourceFile(
+      'error.ts',
+      `
 const x: number = "not a number";
 export { x };
-`);
+`,
+    );
 
     const findings = runTSCDiagnostics(project);
     expect(findings.length).toBeGreaterThan(0);
@@ -125,10 +144,13 @@ export { x };
 
   it('runTSCDiagnostics on clean code → empty array', () => {
     const project = createInMemoryProject();
-    project.createSourceFile('clean.ts', `
+    project.createSourceFile(
+      'clean.ts',
+      `
 export const x: number = 42;
 export function add(a: number, b: number): number { return a + b; }
-`);
+`,
+    );
 
     const findings = runTSCDiagnostics(project);
     expect(findings.length).toBe(0);
@@ -148,29 +170,33 @@ export function add(a: number, b: number): number { return a + b; }
 
 describe('CLI --lint: linkToNodes', () => {
   it('attaches nodeIds when spans overlap', () => {
-    const findings: ReviewFinding[] = [{
-      source: 'tsc',
-      ruleId: 'ts2322',
-      severity: 'error',
-      category: 'type',
-      message: 'Type mismatch',
-      primarySpan: { file: 'test.ts', startLine: 5, startCol: 1, endLine: 5, endCol: 10 },
-      fingerprint: 'test-fp',
-    }];
+    const findings: ReviewFinding[] = [
+      {
+        source: 'tsc',
+        ruleId: 'ts2322',
+        severity: 'error',
+        category: 'type',
+        message: 'Type mismatch',
+        primarySpan: { file: 'test.ts', startLine: 5, startCol: 1, endLine: 5, endCol: 10 },
+        fingerprint: 'test-fp',
+      },
+    ];
 
-    const inferred: InferResult[] = [{
-      node: { type: 'fn', props: { name: 'myFn' } },
-      nodeId: 'test.ts#fn:myFn@0',
-      promptAlias: 'N1',
-      startLine: 3,
-      endLine: 10,
-      sourceSpans: [],
-      summary: 'fn myFn',
-      confidence: 'high',
-      confidencePct: 95,
-      kernTokens: 10,
-      tsTokens: 50,
-    }];
+    const inferred: InferResult[] = [
+      {
+        node: { type: 'fn', props: { name: 'myFn' } },
+        nodeId: 'test.ts#fn:myFn@0',
+        promptAlias: 'N1',
+        startLine: 3,
+        endLine: 10,
+        sourceSpans: [],
+        summary: 'fn myFn',
+        confidence: 'high',
+        confidencePct: 95,
+        kernTokens: 10,
+        tsTokens: 50,
+      },
+    ];
 
     const linked = linkToNodes(findings, inferred);
     expect(linked[0].nodeIds).toEqual(['test.ts#fn:myFn@0']);
@@ -212,7 +238,7 @@ describe('CLI --lint: dedup merges kern + tsc findings', () => {
     const deduped = dedup(findings);
     expect(deduped.length).toBe(2);
     // Higher severity (error) should be kept over warning for same fingerprint
-    const kept = deduped.find(f => f.fingerprint === 'fp-1');
+    const kept = deduped.find((f) => f.fingerprint === 'fp-1');
     expect(kept!.severity).toBe('error');
   });
 });

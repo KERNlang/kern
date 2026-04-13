@@ -1,14 +1,15 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "strict": true,
     "esModuleInterop": true,
     "declaration": true,
     "sourceMap": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "composite": true
+    "composite": true,
+    "types": ["node", "jest"]
   }
 }

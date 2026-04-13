@@ -1,0 +1,3 @@
+action name=mcp-typosquatting
+  reason value="OWASP MCP06"
+  config severity=warning confidence=0.85 category=bug delegate=typescript

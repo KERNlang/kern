@@ -5,9 +5,9 @@
  * spans and scope-sensitive analysis over handler/expr bodies.
  */
 
-import { countTokens } from '@kernlang/core';
 import type { IRNode } from '@kernlang/core';
-import { Project, SyntaxKind } from 'ts-morph';
+import { countTokens } from '@kernlang/core';
+import { type Project, SyntaxKind } from 'ts-morph';
 import { createInMemoryProject } from '../inferrer.js';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
@@ -35,20 +35,64 @@ interface SnippetAnalysis {
 }
 
 const SCOPE_NODE_TYPES = new Set([
-  'screen', 'hook', 'provider', 'fn', 'callback', 'memo', 'effect',
-  'route', 'server', 'service', 'method', 'singleton', 'constructor',
-  'middleware', 'cli', 'command', 'test', 'describe', 'it',
+  'screen',
+  'hook',
+  'provider',
+  'fn',
+  'callback',
+  'memo',
+  'effect',
+  'on',
+  'route',
+  'server',
+  'service',
+  'method',
+  'singleton',
+  'constructor',
+  'middleware',
+  'cli',
+  'command',
+  'test',
+  'describe',
+  'it',
   // Template node types + CLI
-  'arrow-fn', 'swr-hook', 'zustand-store', 'zustand-selector', 'module',
+  'arrow-fn',
+  'swr-hook',
+  'zustand-store',
+  'zustand-selector',
+  'module',
   'cli',
 ]);
 
 const DIRECT_BINDING_NODE_TYPES = new Set([
-  'state', 'const', 'fn', 'derive', 'import', 'ref', 'context',
-  'callback', 'memo', 'effect', 'middleware', 'hook', 'method',
-  'arg', 'flag',
+  'state',
+  'const',
+  'fn',
+  'derive',
+  'import',
+  'ref',
+  'context',
+  'callback',
+  'memo',
+  'effect',
+  'middleware',
+  'hook',
+  'method',
+  'arg',
+  'flag',
+  // Top-level declaration types (visible to all handlers in the file)
+  'screen',
+  'type',
+  'interface',
+  'union',
+  'service',
+  'machine',
+  'singleton',
   // Template node types that declare a name binding
-  'arrow-fn', 'swr-hook', 'zustand-store', 'zustand-selector',
+  'arrow-fn',
+  'swr-hook',
+  'zustand-store',
+  'zustand-selector',
 ]);
 
 const TYPE_POSITION_KINDS = new Set([
@@ -78,38 +122,173 @@ const TYPE_POSITION_KINDS = new Set([
 ]);
 
 const SAFE_STRING_MEMBERS = new Set([
-  'at', 'charAt', 'charCodeAt', 'codePointAt', 'concat', 'endsWith',
-  'includes', 'indexOf', 'lastIndexOf', 'length', 'localeCompare',
-  'match', 'matchAll', 'normalize', 'padEnd', 'padStart', 'repeat',
-  'replace', 'replaceAll', 'search', 'slice', 'split', 'startsWith',
-  'substring', 'toLocaleLowerCase', 'toLocaleUpperCase', 'toLowerCase',
-  'toString', 'toUpperCase', 'trim', 'trimEnd', 'trimStart', 'valueOf',
+  'at',
+  'charAt',
+  'charCodeAt',
+  'codePointAt',
+  'concat',
+  'endsWith',
+  'includes',
+  'indexOf',
+  'lastIndexOf',
+  'length',
+  'localeCompare',
+  'match',
+  'matchAll',
+  'normalize',
+  'padEnd',
+  'padStart',
+  'repeat',
+  'replace',
+  'replaceAll',
+  'search',
+  'slice',
+  'split',
+  'startsWith',
+  'substring',
+  'toLocaleLowerCase',
+  'toLocaleUpperCase',
+  'toLowerCase',
+  'toString',
+  'toUpperCase',
+  'trim',
+  'trimEnd',
+  'trimStart',
+  'valueOf',
 ]);
 
 const AMBIENT_NAMES = new Set([
   // JS globals
-  'Array', 'AbortController', 'Boolean', 'Buffer', 'Date', 'Error', 'Headers',
-  'JSON', 'Map', 'Math', 'Number', 'Object', 'Promise', 'RegExp', 'Request',
-  'Response', 'Set', 'String', 'URL', 'URLSearchParams', 'console', 'crypto',
-  'clearInterval', 'clearTimeout', 'document', 'fetch', 'globalThis', 'location',
-  'navigator', 'process', 'setInterval', 'setTimeout', 'window',
-  'undefined', 'NaN', 'Infinity', 'Symbol', 'WeakMap', 'WeakSet', 'Proxy',
-  'Reflect', 'queueMicrotask', 'structuredClone', 'atob', 'btoa',
+  'Array',
+  'AbortController',
+  'Boolean',
+  'Buffer',
+  'Date',
+  'Error',
+  'Headers',
+  'JSON',
+  'Map',
+  'Math',
+  'Number',
+  'Object',
+  'Promise',
+  'RegExp',
+  'Request',
+  'Response',
+  'Set',
+  'String',
+  'URL',
+  'URLSearchParams',
+  'console',
+  'crypto',
+  'clearInterval',
+  'clearTimeout',
+  'document',
+  'fetch',
+  'globalThis',
+  'location',
+  'navigator',
+  'process',
+  'setInterval',
+  'setTimeout',
+  'window',
+  'undefined',
+  'NaN',
+  'Infinity',
+  'Symbol',
+  'WeakMap',
+  'WeakSet',
+  'Proxy',
+  'Reflect',
+  'queueMicrotask',
+  'structuredClone',
+  'atob',
+  'btoa',
+  // JS global functions
+  'parseInt',
+  'parseFloat',
+  'isNaN',
+  'isFinite',
+  'encodeURI',
+  'encodeURIComponent',
+  'decodeURI',
+  'decodeURIComponent',
+  'eval',
+  // TypedArrays and other constructors
+  'Uint8Array',
+  'Int8Array',
+  'Float32Array',
+  'Float64Array',
+  'ArrayBuffer',
+  'DataView',
+  'TextEncoder',
+  'TextDecoder',
+  'ReadableStream',
+  'WritableStream',
+  'TransformStream',
+  'Blob',
+  'File',
+  'FormData',
+  'Event',
+  'EventTarget',
+  'CustomEvent',
+  // Node.js globals
+  'require',
+  '__dirname',
+  '__filename',
+  'module',
+  'exports',
+  // React/JSX globals
+  'React',
+  'Fragment',
+  'JSX',
   // HTTP handler context (injected by framework)
-  'req', 'res', 'ctx', 'next', 'params', 'query', 'body', 'headers',
-  'event', 'env', 'emit', 'send', 'status',
+  'req',
+  'res',
+  'ctx',
+  'next',
+  'params',
+  'query',
+  'body',
+  'headers',
+  'event',
+  'env',
+  'emit',
+  'send',
+  'status',
   // State/dispatch (React/KERN runtime)
-  'state', 'dispatch', 'get', 'set', 'props', 'self', 'this',
+  'state',
+  'dispatch',
+  'get',
+  'set',
+  'props',
+  'self',
+  'this',
   // Common external service references (injected via DI or app context)
-  'db', 'redis', 'cache', 'store', 'config', 'logger', 'app',
+  'db',
+  'redis',
+  'cache',
+  'store',
+  'config',
+  'logger',
+  'app',
   // CLI context (common in KERN CLI examples)
-  'opts', 'args', 'options', 'argv',
+  'opts',
+  'args',
+  'options',
+  'argv',
   // SWR/hook context (data comes from framework)
-  'data', 'error', 'isLoading', 'mutate', 'isValidating',
+  'data',
+  'error',
+  'isLoading',
+  'mutate',
+  'isValidating',
 ]);
 
-const EXTERNAL_SIGNAL_RE = /\b(fetch|axios|db|redis|stripe|openai|supabase|client|api|provider|registry|http|https)\b|await\s+[A-Za-z_$]/;
-const UNCERTAIN_SIGNAL_RE = /\b(guess|heuristic|fallback|bestEffort|approx|uncertain|unknown|maybe)\b|Math\.random|Date\.now/;
+const EXTERNAL_SIGNAL_RE =
+  /\b(fetch|axios|db|redis|stripe|openai|supabase|client|api|provider|registry|http|https)\b|await\s+[A-Za-z_$]/;
+const UNCERTAIN_SIGNAL_RE =
+  /\b(guess|heuristic|fallback|bestEffort|approx|uncertain|unknown|maybe)\b|Math\.random|Date\.now/;
 
 function props(node: IRNode): Record<string, unknown> {
   return node.props || {};
@@ -147,13 +326,19 @@ function capitalize(text: string): string {
 
 function buildParentMap(nodes: IRNode[]): Map<IRNode, IRNode | undefined> {
   const parentMap = new Map<IRNode, IRNode | undefined>();
+  // Mark top-level nodes as having no parent
   for (const node of nodes) {
-    if (!parentMap.has(node)) parentMap.set(node, undefined);
+    parentMap.set(node, undefined);
+  }
+  // Recursively map all descendants to their parents
+  function walk(parent: IRNode): void {
+    for (const child of parent.children || []) {
+      parentMap.set(child, parent);
+      walk(child);
+    }
   }
   for (const node of nodes) {
-    for (const child of node.children || []) {
-      if (parentMap.has(child)) parentMap.set(child, node);
-    }
+    walk(node);
   }
   return parentMap;
 }
@@ -170,7 +355,7 @@ function splitTopLevel(text: string, separator: string): string[] {
 
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
-    if (ch === '"' || ch === '\'') {
+    if (ch === '"' || ch === "'") {
       inQuote = !inQuote;
       current += ch;
       continue;
@@ -199,7 +384,7 @@ function findTopLevelChar(text: string, wanted: string): number {
   let inQuote = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
-    if (ch === '"' || ch === '\'') {
+    if (ch === '"' || ch === "'") {
       inQuote = !inQuote;
       continue;
     }
@@ -217,7 +402,8 @@ function parseParamBindings(raw: unknown): Array<{ name: string; typeName?: stri
   for (const part of splitTopLevel(raw, ',')) {
     const colonIdx = findTopLevelChar(part, ':');
     const eqIdx = findTopLevelChar(part, '=');
-    const rawName = colonIdx >= 0 ? part.slice(0, colonIdx).trim() : (eqIdx >= 0 ? part.slice(0, eqIdx).trim() : part.trim());
+    const rawName =
+      colonIdx >= 0 ? part.slice(0, colonIdx).trim() : eqIdx >= 0 ? part.slice(0, eqIdx).trim() : part.trim();
     if (!/^[A-Za-z_$][\w$]*$/.test(rawName)) continue;
 
     let typeName: string | undefined;
@@ -236,20 +422,25 @@ function getDirectTypeAlias(typeText: string | undefined): string | undefined {
   if (!typeText) return undefined;
   const compact = typeText.replace(/\s+/g, '');
   if (!compact) return undefined;
-  if (compact.includes('<') || compact.includes('[') || compact.includes('{') || compact.includes('&')) return undefined;
+  if (compact.includes('<') || compact.includes('[') || compact.includes('{') || compact.includes('&'))
+    return undefined;
 
-  const parts = compact.split('|').filter(part => part !== 'null' && part !== 'undefined');
+  const parts = compact.split('|').filter((part) => part !== 'null' && part !== 'undefined');
   if (parts.length !== 1) return undefined;
 
   return /^[A-Za-z_$][\w$]*$/.test(parts[0]) ? parts[0] : undefined;
 }
 
 function getUnionLiteralKind(variants: string[]): UnionAliasInfo['literalKind'] {
-  const trimmed = variants.map(variant => variant.trim()).filter(Boolean);
+  const trimmed = variants.map((variant) => variant.trim()).filter(Boolean);
   if (trimmed.length === 0) return 'mixed';
-  if (trimmed.every(variant => variant === 'true' || variant === 'false')) return 'boolean';
-  if (trimmed.every(variant => /^-?\d+(?:\.\d+)?$/.test(variant))) return 'number';
-  if (trimmed.every(variant => /^".*"$/.test(variant) || /^'.*'$/.test(variant) || /^[A-Za-z_][A-Za-z0-9_-]*$/.test(variant))) {
+  if (trimmed.every((variant) => variant === 'true' || variant === 'false')) return 'boolean';
+  if (trimmed.every((variant) => /^-?\d+(?:\.\d+)?$/.test(variant))) return 'number';
+  if (
+    trimmed.every(
+      (variant) => /^".*"$/.test(variant) || /^'.*'$/.test(variant) || /^[A-Za-z_][A-Za-z0-9_-]*$/.test(variant),
+    )
+  ) {
     return 'string';
   }
   return 'mixed';
@@ -262,7 +453,10 @@ function buildUnionAliasMap(nodes: IRNode[]): Map<string, UnionAliasInfo> {
     const p = props(node);
     if (typeof p.name !== 'string' || typeof p.values !== 'string') continue;
 
-    const variants = p.values.split('|').map(part => part.trim()).filter(Boolean);
+    const variants = p.values
+      .split('|')
+      .map((part) => part.trim())
+      .filter(Boolean);
     if (variants.length < 2) continue;
 
     unions.set(p.name, {
@@ -284,6 +478,18 @@ function addBindingsFromScopeNode(scopeNode: IRNode, target: Map<string, Binding
 
   for (const binding of parseParamBindings(p.params)) {
     addBinding(target, binding.name, { kind: 'param', node: scopeNode, typeName: binding.typeName });
+  }
+
+  // Inject framework callback parameters for known event types
+  if (scopeNode.type === 'on') {
+    const event = (p.event || p.name) as string;
+    if (event === 'input' || event === 'key') {
+      // Ink useInput((input, key) => ...) callback parameters
+      addBinding(target, 'input', { kind: 'param', node: scopeNode, typeName: 'string' });
+      addBinding(target, 'key', { kind: 'param', node: scopeNode, typeName: 'Key' });
+    } else if (event === 'stdout' || event === 'stderr') {
+      addBinding(target, 'data', { kind: 'param', node: scopeNode, typeName: 'string' });
+    }
   }
 
   if (DIRECT_BINDING_NODE_TYPES.has(scopeNode.type) && typeof p.name === 'string') {
@@ -313,10 +519,22 @@ function addBindingsFromScopeNode(scopeNode: IRNode, target: Map<string, Binding
 
     if (!DIRECT_BINDING_NODE_TYPES.has(child.type)) continue;
 
-    // Import nodes use 'names' (comma-separated) instead of 'name'
-    if (child.type === 'import' && typeof cp.names === 'string') {
-      for (const importedName of cp.names.split(',').map((s: string) => s.trim()).filter(Boolean)) {
-        addBinding(target, importedName, { kind: 'import', node: child });
+    // Import nodes: handle 'names' (comma-separated named imports), 'default' (default import),
+    // and 'namespace' (namespace import)
+    if (child.type === 'import') {
+      if (typeof cp.names === 'string') {
+        for (const importedName of cp.names
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter(Boolean)) {
+          addBinding(target, importedName, { kind: 'import', node: child });
+        }
+      }
+      if (typeof cp.default === 'string' && cp.default) {
+        addBinding(target, cp.default as string, { kind: 'import', node: child });
+      }
+      if (typeof cp.namespace === 'string' && cp.namespace) {
+        addBinding(target, cp.namespace as string, { kind: 'import', node: child });
       }
       continue;
     }
@@ -349,9 +567,8 @@ function collectVisibleBindings(node: IRNode, parentMap: Map<IRNode, IRNode | un
 
 function createSnippetAnalysis(project: Project, code: string, key: string, mode: 'block' | 'expr'): SnippetAnalysis {
   const filePath = `__kern_${key.replace(/[^A-Za-z0-9_]/g, '_')}_${Math.random().toString(36).slice(2)}.tsx`;
-  const wrapped = mode === 'expr'
-    ? `async function __kern__() { return (${code}); }\n`
-    : `async function __kern__() {\n${code}\n}\n`;
+  const wrapped =
+    mode === 'expr' ? `async function __kern__() { return (${code}); }\n` : `async function __kern__() {\n${code}\n}\n`;
   const sourceFile = project.createSourceFile(filePath, wrapped, { overwrite: true });
 
   const localBindings = collectLocalBindings(sourceFile);
@@ -444,13 +661,22 @@ function isDeclarationIdentifier(identifier: import('ts-morph').Identifier): boo
   const parent = identifier.getParent();
   if (!parent) return false;
 
-  if (parent.getKind() === SyntaxKind.BindingElement && (parent as import('ts-morph').BindingElement).getNameNode() === identifier) {
+  if (
+    parent.getKind() === SyntaxKind.BindingElement &&
+    (parent as import('ts-morph').BindingElement).getNameNode() === identifier
+  ) {
     return true;
   }
-  if (parent.getKind() === SyntaxKind.Parameter && (parent as import('ts-morph').ParameterDeclaration).getNameNode() === identifier) {
+  if (
+    parent.getKind() === SyntaxKind.Parameter &&
+    (parent as import('ts-morph').ParameterDeclaration).getNameNode() === identifier
+  ) {
     return true;
   }
-  if (parent.getKind() === SyntaxKind.VariableDeclaration && (parent as import('ts-morph').VariableDeclaration).getNameNode() === identifier) {
+  if (
+    parent.getKind() === SyntaxKind.VariableDeclaration &&
+    (parent as import('ts-morph').VariableDeclaration).getNameNode() === identifier
+  ) {
     return true;
   }
 
@@ -475,6 +701,13 @@ function isNonReferencePropertyName(identifier: import('ts-morph').Identifier): 
       return (parent as unknown as { getNameNode(): import('ts-morph').Node }).getNameNode() === identifier;
     case SyntaxKind.BindingElement:
       return (parent as import('ts-morph').BindingElement).getPropertyNameNode() === identifier;
+    case SyntaxKind.LabeledStatement:
+      // { fn: null } at statement level is parsed as a label, not object literal — skip
+      return true;
+    case SyntaxKind.ShorthandPropertyAssignment:
+      // { fn } shorthand in object literal — the name is both a key and a reference,
+      // but when it appears as shorthand property, skip it (it will be caught as the value ref)
+      return false;
     default:
       return false;
   }
@@ -553,7 +786,8 @@ export const undefinedReference: KernSourceRule = (nodes: IRNode[], filePath: st
   const parentMap = buildParentMap(nodes);
   const project = createInMemoryProject();
 
-  for (const node of nodes) {
+  // Iterate ALL nodes in the tree (not just top-level) to find deeply nested handlers
+  for (const node of parentMap.keys()) {
     if (node.type !== 'handler') continue;
     const code = getCodeProp(node);
     if (!code) continue;
@@ -561,24 +795,27 @@ export const undefinedReference: KernSourceRule = (nodes: IRNode[], filePath: st
     const visibleBindings = collectVisibleBindings(node, parentMap);
     const analysis = createSnippetAnalysis(project, code, `undef_${loc(node).line}`, 'block');
     const unresolved = [...analysis.referenceNames]
-      .filter(name => !analysis.localBindings.has(name))
-      .filter(name => !visibleBindings.has(name))
-      .filter(name => !AMBIENT_NAMES.has(name))
+      .filter((name) => !analysis.localBindings.has(name))
+      .filter((name) => !visibleBindings.has(name))
+      .filter((name) => !AMBIENT_NAMES.has(name))
       .sort();
 
     if (unresolved.length === 0) continue;
 
-    findings.push(finding(
-      'undefined-reference',
-      'error',
-      'bug',
-      `Handler references name(s) that are not declared in visible KERN scope: ${unresolved.join(', ')}`,
-      filePath,
-      node,
-      {
-        suggestion: 'Declare the value as state/const/fn/derive, add it as a param, or qualify it through an existing scoped object.',
-      },
-    ));
+    findings.push(
+      finding(
+        'undefined-reference',
+        'error',
+        'bug',
+        `Handler references name(s) that are not declared in visible KERN scope: ${unresolved.join(', ')}`,
+        filePath,
+        node,
+        {
+          suggestion:
+            'Declare the value as state/const/fn/derive, add it as a param, or qualify it through an existing scoped object.',
+        },
+      ),
+    );
   }
 
   return findings;
@@ -638,27 +875,32 @@ export const typeModelMismatch: KernSourceRule = (nodes: IRNode[], filePath: str
     for (const [key, members] of mismatches) {
       const [bindingName, alias] = key.split(':');
       const union = unionAliases.get(alias);
-      const relatedInfo = union != null
-        ? {
-            relatedSpans: [{
-              file: filePath,
-              startLine: loc(union.node).line,
-              startCol: loc(union.node).col,
-              endLine: loc(union.node).line,
-              endCol: loc(union.node).col,
-            }],
-            suggestion: `Use '${bindingName}' as a literal value, or change '${alias}' to an interface/union with object variants if field access is intended.`,
-          }
-        : undefined;
-      findings.push(finding(
-        'type-model-mismatch',
-        'warning',
-        'type',
-        `Literal-union type '${alias}' is used like an object in handler code: ${bindingName}.${[...members].join(', ')}`,
-        filePath,
-        node,
-        relatedInfo,
-      ));
+      const relatedInfo =
+        union != null
+          ? {
+              relatedSpans: [
+                {
+                  file: filePath,
+                  startLine: loc(union.node).line,
+                  startCol: loc(union.node).col,
+                  endLine: loc(union.node).line,
+                  endCol: loc(union.node).col,
+                },
+              ],
+              suggestion: `Use '${bindingName}' as a literal value, or change '${alias}' to an interface/union with object variants if field access is intended.`,
+            }
+          : undefined;
+      findings.push(
+        finding(
+          'type-model-mismatch',
+          'warning',
+          'type',
+          `Literal-union type '${alias}' is used like an object in handler code: ${bindingName}.${[...members].join(', ')}`,
+          filePath,
+          node,
+          relatedInfo,
+        ),
+      );
     }
   }
 
@@ -685,21 +927,28 @@ export const unusedState: KernSourceRule = (nodes: IRNode[], filePath: string): 
     const setterName = `set${capitalize(stateName)}`;
     let used = false;
 
-    walkSubtree(scopeRoot, current => {
+    walkSubtree(scopeRoot, (current) => {
       if (used || current === node) return;
 
       // Check bind= attribute (e.g., input bind=query)
       const cp = props(current);
-      if (typeof cp.bind === 'string' && cp.bind === stateName) { used = true; return; }
+      if (typeof cp.bind === 'string' && cp.bind === stateName) {
+        used = true;
+        return;
+      }
 
       // Check value/initial/expr props for direct state references (e.g., value={{ query }})
       for (const val of Object.values(cp)) {
-        if (typeof val === 'string' && new RegExp(`\\b${stateName}\\b`).test(val)) { used = true; return; }
+        if (typeof val === 'string' && new RegExp(`\\b${stateName}\\b`).test(val)) {
+          used = true;
+          return;
+        }
       }
 
-      const blockCode = current.type === 'handler' || current.type === 'logic' || current.type === 'body'
-        ? getCodeProp(current)
-        : undefined;
+      const blockCode =
+        current.type === 'handler' || current.type === 'logic' || current.type === 'body'
+          ? getCodeProp(current)
+          : undefined;
       if (blockCode) {
         const analysis = createSnippetAnalysis(project, blockCode, `state_${stateName}_${loc(current).line}`, 'block');
         const readsState = analysis.referenceNames.has(stateName) && !analysis.localBindings.has(stateName);
@@ -708,9 +957,7 @@ export const unusedState: KernSourceRule = (nodes: IRNode[], filePath: string): 
         return;
       }
 
-      const exprCode = current.type === 'guard' || current.type === 'derive'
-        ? getExprCode(current)
-        : undefined;
+      const exprCode = current.type === 'guard' || current.type === 'derive' ? getExprCode(current) : undefined;
       if (!exprCode) return;
 
       const analysis = createSnippetAnalysis(project, exprCode, `state_expr_${stateName}_${loc(current).line}`, 'expr');
@@ -720,24 +967,26 @@ export const unusedState: KernSourceRule = (nodes: IRNode[], filePath: string): 
 
     if (used) continue;
 
-    findings.push(finding(
-      'unused-state',
-      'warning',
-      'structure',
-      `State '${p.name}' is declared but never referenced in handlers, derives, guards, or logic within its scope`,
-      filePath,
-      node,
-      {
-        suggestion: `Remove '${p.name}' or wire it into the surrounding KERN logic.`,
-      },
-    ));
+    findings.push(
+      finding(
+        'unused-state',
+        'warning',
+        'structure',
+        `State '${p.name}' is declared but never referenced in handlers, derives, guards, or logic within its scope`,
+        filePath,
+        node,
+        {
+          suggestion: `Remove '${p.name}' or wire it into the surrounding KERN logic.`,
+        },
+      ),
+    );
   }
 
   return findings;
 };
 
 export const handlerHeavy: KernSourceRule = (nodes: IRNode[], filePath: string): ReviewFinding[] => {
-  const handlers = nodes.filter(node => node.type === 'handler' && getCodeProp(node));
+  const handlers = nodes.filter((node) => node.type === 'handler' && getCodeProp(node));
   if (handlers.length === 0) return [];
 
   let handlerTokens = 0;
@@ -757,21 +1006,24 @@ export const handlerHeavy: KernSourceRule = (nodes: IRNode[], filePath: string):
   if (ratio <= 0.6) return [];
 
   const anchor = handlers[0];
-  return [finding(
-    'handler-heavy',
-    'warning',
-    'structure',
-    `Embedded handler code accounts for ${(ratio * 100).toFixed(0)}% of file tokens (${handlerTokens}/${totalTokens}); this file is mostly inline JS with a thin KERN wrapper`,
-    filePath,
-    anchor,
-    {
-      suggestion: 'Promote repeated handler logic into native KERN nodes such as derive, guard, collect, respond, or named fn blocks.',
-    },
-  )];
+  return [
+    finding(
+      'handler-heavy',
+      'warning',
+      'structure',
+      `Embedded handler code accounts for ${(ratio * 100).toFixed(0)}% of file tokens (${handlerTokens}/${totalTokens}); this file is mostly inline JS with a thin KERN wrapper`,
+      filePath,
+      anchor,
+      {
+        suggestion:
+          'Promote repeated handler logic into native KERN nodes such as derive, guard, collect, respond, or named fn blocks.',
+      },
+    ),
+  ];
 };
 
 export const missingConfidence: KernSourceRule = (nodes: IRNode[], filePath: string): ReviewFinding[] => {
-  if (nodes.some(node => props(node).confidence !== undefined)) return [];
+  if (nodes.some((node) => props(node).confidence !== undefined)) return [];
   if (nodes.length === 0) return [];
 
   const parentMap = buildParentMap(nodes);
@@ -781,30 +1033,35 @@ export const missingConfidence: KernSourceRule = (nodes: IRNode[], filePath: str
     const code = getCodeProp(node) || getExprCode(node);
     if (!code) continue;
     if (!EXTERNAL_SIGNAL_RE.test(code) && !UNCERTAIN_SIGNAL_RE.test(code)) continue;
-    candidates.add(describeNode(node.type === 'handler' ? (parentMap.get(node) || node) : node, parentMap));
+    candidates.add(describeNode(node.type === 'handler' ? parentMap.get(node) || node : node, parentMap));
     if (candidates.size >= 3) break;
   }
 
   const anchor = nodes[0];
-  const suffix = candidates.size > 0
-    ? ` Candidate nodes: ${[...candidates].join(', ')}.`
-    : '';
+  const suffix = candidates.size > 0 ? ` Candidate nodes: ${[...candidates].join(', ')}.` : '';
 
-  return [finding(
-    'missing-confidence',
-    'info',
-    'pattern',
-    `No confidence annotations found in this .kern file. Add confidence props to external-service calls or uncertain logic.${suffix}`,
-    filePath,
-    anchor,
-    {
-      suggestion: 'Annotate critical nodes with confidence=0.x, confidence=from:name, or confidence=min:a,b to make trust levels explicit.',
-    },
-  )];
+  return [
+    finding(
+      'missing-confidence',
+      'info',
+      'pattern',
+      `No confidence annotations found in this .kern file. Add confidence props to external-service calls or uncertain logic.${suffix}`,
+      filePath,
+      anchor,
+      {
+        suggestion:
+          'Annotate critical nodes with confidence=0.x, confidence=from:name, or confidence=min:a,b to make trust levels explicit.',
+      },
+    ),
+  ];
 };
 
-export function lintKernSourceIR(nodes: IRNode[], filePath: string, rules: KernSourceRule[] = KERN_SOURCE_RULES): ReviewFinding[] {
-  return rules.flatMap(rule => rule(nodes, filePath));
+export function lintKernSourceIR(
+  nodes: IRNode[],
+  filePath: string,
+  rules: KernSourceRule[] = KERN_SOURCE_RULES,
+): ReviewFinding[] {
+  return rules.flatMap((rule) => rule(nodes, filePath));
 }
 
 export const KERN_SOURCE_RULES: KernSourceRule[] = [

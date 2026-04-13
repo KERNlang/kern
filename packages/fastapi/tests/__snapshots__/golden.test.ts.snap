@@ -7,6 +7,9 @@ from routes.get_health import router as get_health_router
 from routes.post_api_providers_test import router as post_api_providers_test_router
 from routes.post_api_providers_toggle import router as post_api_providers_toggle_router
 from routes.post_api_review import router as post_api_review_router
+from uuid import uuid4
+import logging
+import os
 import uvicorn
 
 
@@ -16,7 +19,16 @@ registry = [object Object]
 
 app = FastAPI(title="ReviewAPI")
 
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+@app.middleware("http")
+async def add_request_id(request, call_next):
+    request_id = str(uuid4())
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+app.add_middleware(CORSMiddleware, allow_origins=[origin.strip() for origin in os.environ.get("CORS_ORIGINS", "").split(",") if origin.strip()], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 # JSON parsing handled automatically by FastAPI/Pydantic
 
 app.include_router(post_api_review_router)
@@ -28,6 +40,7 @@ app.include_router(get_health_router)
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     from fastapi.responses import JSONResponse
+    logging.exception("Unhandled exception")
     return JSONResponse(status_code=500, content={"error": "Internal Server Error"})
 
 
@@ -43,6 +56,9 @@ from routes.delete_api_tracks_id import router as delete_api_tracks_id_router
 from routes.get_api_tracks import router as get_api_tracks_router
 from routes.get_api_tracks_id import router as get_api_tracks_id_router
 from routes.post_api_tracks_analyze import router as post_api_tracks_analyze_router
+from uuid import uuid4
+import logging
+import os
 import uvicorn
 
 
@@ -52,9 +68,22 @@ from ./services/analyzer.js import analyzeTrack
 
 app = FastAPI(title="MusicAPI")
 
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+@app.middleware("http")
+async def add_request_id(request, call_next):
+    request_id = str(uuid4())
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+app.add_middleware(CORSMiddleware, allow_origins=[origin.strip() for origin in os.environ.get("CORS_ORIGINS", "").split(",") if origin.strip()], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 # JSON parsing handled automatically by FastAPI/Pydantic
 app.add_middleware(AuthMiddleware)
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
 
 app.include_router(get_api_tracks_router)
 app.include_router(post_api_tracks_analyze_router)
@@ -65,6 +94,7 @@ app.include_router(delete_api_tracks_id_router)
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     from fastapi.responses import JSONResponse
+    logging.exception("Unhandled exception")
     return JSONResponse(status_code=500, content={"error": "Internal Server Error"})
 
 

@@ -1,0 +1,65 @@
+mcp name=FileTools version=1.0
+
+  tool name=readFile
+    description text="Read a file's contents within allowed directories"
+    param name=filePath type=string required=true
+    guard type=pathContainment param=filePath allowlist=/data,/home
+    handler <<<
+      const fs = await import('node:fs/promises');
+      const content = await fs.readFile(params.filePath as string, 'utf-8');
+      return { content: [{ type: "text", text: content }] };
+    >>>
+
+  tool name=searchFiles
+    description text="Search for files matching a pattern"
+    param name=query type=string required=true
+    param name=maxResults type=number default=50
+    guard type=sanitize param=query
+    guard type=validate param=maxResults min=1 max=500
+    handler <<<
+      const { globSync } = await import('node:fs');
+      const results = globSync(params.query as string).slice(0, params.maxResults as number);
+      return { content: [{ type: "text", text: results.join('\n') }] };
+    >>>
+
+  tool name=writeFile
+    description text="Write content to a file within allowed directories"
+    param name=filePath type=string required=true
+    param name=content type=string required=true
+    guard type=pathContainment param=filePath allowlist=/data
+    handler <<<
+      const fs = await import('node:fs/promises');
+      await fs.writeFile(params.filePath as string, params.content as string, 'utf-8');
+      return { content: [{ type: "text", text: "File written successfully" }] };
+    >>>
+
+  resource name=projectDocs uri="docs://{docPath}"
+    description text="Project documentation files"
+    handler <<<
+      const fs = await import('node:fs/promises');
+      const content = await fs.readFile(`./docs/${variables.docPath}`, 'utf-8');
+      return { contents: [{ uri: uri.href, mimeType: 'text/markdown', text: content }] };
+    >>>
+
+  resource name=config uri="config://app"
+    description text="Application configuration"
+    handler <<<
+      const config = { version: "1.0", env: process.env.NODE_ENV || "development" };
+      return { contents: [{ uri: uri.href, mimeType: 'application/json', text: JSON.stringify(config, null, 2) }] };
+    >>>
+
+  prompt name=analyzeFile
+    description text="Analyze a file for issues and suggest improvements"
+    param name=filePath type=string required=true
+    param name=language type=string required=false
+    handler <<<
+      return {
+        messages: [{
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: `Analyze the file at ${args.filePath} (language: ${args.language || 'auto-detect'}) for bugs, security issues, and improvement opportunities.`
+          }
+        }]
+      };
+    >>>

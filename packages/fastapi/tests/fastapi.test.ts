@@ -1,11 +1,10 @@
 import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('FastAPI Transpiler', () => {
-
   // ── Type Mapping ─────────────────────────────────────────────────────
 
   describe('Type Mapping', () => {
@@ -84,7 +83,9 @@ describe('FastAPI Transpiler', () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');
 
-      const ast = parse('interface name=Track\n  field name=id type=string\n  field name=title type=string\n  field name=duration type=number optional=true');
+      const ast = parse(
+        'interface name=Track\n  field name=id type=string\n  field name=title type=string\n  field name=duration type=number optional=true',
+      );
       const lines = generatePythonCoreNode(ast);
       const output = lines.join('\n');
 
@@ -98,7 +99,9 @@ describe('FastAPI Transpiler', () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');
 
-      const ast = parse('fn name=createTrack params="title:string" returns=Track async=true\n  handler <<<\n    return Track(title=title)\n  >>>');
+      const ast = parse(
+        'fn name=createTrack params="title:string" returns=Track async=true\n  handler <<<\n    return Track(title=title)\n  >>>',
+      );
       const lines = generatePythonCoreNode(ast);
       const output = lines.join('\n');
 
@@ -123,14 +126,16 @@ describe('FastAPI Transpiler', () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');
 
-      const ast = parse([
-        'machine name=Plan',
-        '  state name=draft initial=true',
-        '  state name=approved',
-        '  state name=cancelled',
-        '  transition name=approve from=draft to=approved',
-        '  transition name=cancel from="draft|approved" to=cancelled',
-      ].join('\n'));
+      const ast = parse(
+        [
+          'machine name=Plan',
+          '  state name=draft initial=true',
+          '  state name=approved',
+          '  state name=cancelled',
+          '  transition name=approve from=draft to=approved',
+          '  transition name=cancel from="draft|approved" to=cancelled',
+        ].join('\n'),
+      );
       const lines = generatePythonCoreNode(ast);
       const output = lines.join('\n');
 
@@ -159,7 +164,9 @@ describe('FastAPI Transpiler', () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');
 
-      const ast = parse('config name=AppConfig\n  field name=timeout type=number default=120\n  field name=debugMode type=boolean default=false');
+      const ast = parse(
+        'config name=AppConfig\n  field name=timeout type=number default=120\n  field name=debugMode type=boolean default=false',
+      );
       const lines = generatePythonCoreNode(ast);
       const output = lines.join('\n');
 
@@ -188,7 +195,9 @@ describe('FastAPI Transpiler', () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');
 
-      const ast = parse('test name="Plan Transitions"\n  describe name=approve\n    it name="transitions draft to approved"\n      handler <<<\n        assert True\n      >>>');
+      const ast = parse(
+        'test name="Plan Transitions"\n  describe name=approve\n    it name="transitions draft to approved"\n      handler <<<\n        assert True\n      >>>',
+      );
       const lines = generatePythonCoreNode(ast);
       const output = lines.join('\n');
 
@@ -221,7 +230,193 @@ describe('FastAPI Transpiler', () => {
     });
   });
 
+  // ── Model & Union ────────────────────────────────────────────────────
+
+  describe('Model & Union', () => {
+    test('generates SQLModel class for model node', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonModel } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'model name=User table=users',
+          '  column name=id type=uuid primary=true',
+          '  column name=email type=string unique=true',
+          '  column name=bio type=text nullable=true',
+        ].join('\n'),
+      );
+      const output = generatePythonModel(ast).join('\n');
+
+      expect(output).toContain('class User(SQLModel, table=True):');
+      expect(output).toContain('__tablename__ = "users"');
+      expect(output).toContain('id: UUID = Field(primary_key=True)');
+      expect(output).toContain('email: str = Field(unique=True)');
+      expect(output).toContain('bio: str | None');
+    });
+
+    test('generates SQLModel with relations', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonModel } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'model name=User table=users',
+          '  column name=id type=uuid primary=true',
+          '  relation name=posts target=Post kind=one-to-many',
+        ].join('\n'),
+      );
+      const output = generatePythonModel(ast).join('\n');
+
+      expect(output).toContain('posts: list["Post"] = Relationship(back_populates="user")');
+    });
+
+    test('generates SQLModel with default value', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonModel } = await import('../src/codegen-python.js');
+
+      const ast = parse(['model name=Config', '  column name=retries type=int default=3'].join('\n'));
+      const output = generatePythonModel(ast).join('\n');
+
+      expect(output).toContain('retries: int = Field(default=3)');
+    });
+
+    test('generates discriminated union from union node', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonUnion } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'union name=Shape discriminant=kind',
+          '  variant name=Circle',
+          '    field name=radius type=number',
+          '  variant name=Square',
+          '    field name=side type=number',
+        ].join('\n'),
+      );
+      const output = generatePythonUnion(ast).join('\n');
+
+      expect(output).toContain('class Circle');
+      expect(output).toContain('(BaseModel):');
+      expect(output).toContain('Literal["Circle"]');
+      expect(output).toContain('radius: float');
+      expect(output).toContain('class Square');
+      expect(output).toContain('side: float');
+      expect(output).toContain('Shape = Union[');
+    });
+
+    test('model and union dispatch from generatePythonCoreNode', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const modelAst = parse('model name=Item\n  column name=id type=uuid primary=true');
+      const modelOutput = generatePythonCoreNode(modelAst).join('\n');
+      expect(modelOutput).toContain('class Item(SQLModel, table=True):');
+
+      const unionAst = parse('union name=Event discriminant=type\n  variant name=Click\n    field name=x type=number');
+      const unionOutput = generatePythonCoreNode(unionAst).join('\n');
+      expect(unionOutput).toContain('Event = Union[');
+    });
+
+    test('generates Python repository class', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'repository name=UserRepository model=User',
+          '  method name=findByEmail params="email:string" returns="User | null" async=true',
+          '    handler <<<',
+          '      return await self.session.get(User, email)',
+          '    >>>',
+        ].join('\n'),
+      );
+      const output = generatePythonCoreNode(ast).join('\n');
+
+      expect(output).toContain('class UserRepository:');
+      expect(output).toContain('def __init__(self, session: AsyncSession):');
+      expect(output).toContain('async def find_by_email(self, email: str) -> User | None:');
+    });
+
+    test('generates Python cache class', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'cache name=userCache backend=redis prefix="user:" ttl=3600',
+          '  entry name=profile key="user:{id}"',
+          '  invalidate on=userUpdate tags="user:{id}"',
+        ].join('\n'),
+      );
+      const output = generatePythonCoreNode(ast).join('\n');
+
+      expect(output).toContain('class UserCache:');
+      expect(output).toContain('prefix = "user:"');
+      expect(output).toContain('ttl = 3600');
+      expect(output).toContain('async def get_profile(self, id: str):');
+      expect(output).toContain('await redis.get(key)');
+      expect(output).toContain('async def invalidate_on_user_update(self, id: str):');
+    });
+
+    test('generates Python dependency factory', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(['dependency name=authService scope=singleton', '  inject db from=database'].join('\n'));
+      const output = generatePythonCoreNode(ast).join('\n');
+
+      expect(output).toContain('_auth_service_instance = None');
+      expect(output).toContain('def create_auth_service()');
+      expect(output).toContain('global _auth_service_instance');
+      expect(output).toContain('= database');
+    });
+
+    test('generates Python service class', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'service name=AuthService',
+          '  field name=repo type=UserRepository private=true',
+          '  method name=findByEmail params="email:string" returns="User | null" async=true',
+          '    handler <<<',
+          '      return await self._repo.find_by_email(email)',
+          '    >>>',
+        ].join('\n'),
+      );
+      const output = generatePythonCoreNode(ast).join('\n');
+
+      expect(output).toContain('class AuthService:');
+      expect(output).toContain('def __init__(self, repo: UserRepository):');
+      expect(output).toContain('self._repo = repo');
+      expect(output).toContain('async def find_by_email(self, email: str) -> User | None:');
+    });
+  });
+
   // ── FastAPI Transpiler ────────────────────────────────────────────────
+
+  describe('DB Connection', () => {
+    test('generates implicit DB boilerplate when models exist', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const source = [
+        'model name=User table=users',
+        '  column name=id type=uuid primary=true',
+        'server name=Test',
+        '  route method=get path=/health',
+        '    handler <<<',
+        '      return {"status": "ok"}',
+        '    >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source));
+      expect(result.code).toContain('create_async_engine');
+      expect(result.code).toContain('DATABASE_URL');
+      expect(result.code).toContain('async def get_db()');
+      expect(result.code).toContain('async def init_db()');
+      expect(result.code).toContain('@app.on_event("startup")');
+    });
+  });
 
   describe('Server Generation', () => {
     test('generates FastAPI main.py with routes and middleware', async () => {
@@ -251,7 +446,7 @@ describe('FastAPI Transpiler', () => {
       expect(result.code).toContain('port=8080');
       expect(result.artifacts).toBeDefined();
       expect(result.artifacts!.length).toBe(2);
-      expect(result.artifacts!.some(a => a.path.endsWith('.py'))).toBe(true);
+      expect(result.artifacts!.some((a) => a.path.endsWith('.py'))).toBe(true);
     });
 
     test('route artifacts contain APIRouter and correct path conversion', async () => {
@@ -267,7 +462,7 @@ describe('FastAPI Transpiler', () => {
       ].join('\n');
 
       const result = transpileFastAPI(parse(source));
-      const routeArtifact = result.artifacts?.find(a => a.type === 'route');
+      const routeArtifact = result.artifacts?.find((a) => a.type === 'route');
 
       expect(routeArtifact).toBeDefined();
       expect(routeArtifact!.content).toContain('from fastapi import APIRouter');
@@ -282,7 +477,9 @@ describe('FastAPI Transpiler', () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
 
-      const ast = parse('server name=Test\n  route method=get path=/health\n    handler <<<\n      return {"ok": True}\n    >>>');
+      const ast = parse(
+        'server name=Test\n  route method=get path=/health\n    handler <<<\n      return {"ok": True}\n    >>>',
+      );
       const result = transpileFastAPI(ast);
 
       expect(result.code).toContain('Internal Server Error');
@@ -294,10 +491,69 @@ describe('FastAPI Transpiler', () => {
       const { resolveConfig } = await import('../../core/src/config.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
       const config = resolveConfig({ target: 'fastapi' as any, fastapi: { security: 'relaxed' } } as any);
-      const ast = parse('server name=Test\n  route method=get path=/health\n    handler <<<\n      return {"ok": True}\n    >>>');
+      const ast = parse(
+        'server name=Test\n  route method=get path=/health\n    handler <<<\n      return {"ok": True}\n    >>>',
+      );
       const result = transpileFastAPI(ast, config);
 
       expect(result.code).toContain('str(exc)');
+    });
+
+    test('strict mode hardens auth, cors, websocket parsing, health checks, and exception logging', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { resolveConfig } = await import('../../core/src/config.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const config = resolveConfig({ target: 'fastapi' as any, fastapi: { cors: true } } as any);
+      const source = [
+        'server name=Test',
+        '  route GET /api/private',
+        '    auth optional',
+        '    handler <<<',
+        '      return {"ok": True}',
+        '    >>>',
+        '  websocket path=/ws',
+        '    on event=message',
+        '      handler <<<',
+        '        await websocket.send_json(data)',
+        '      >>>',
+      ].join('\n');
+      const result = transpileFastAPI(parse(source), config);
+      const authArtifact = result.artifacts?.find((a) => a.path === 'auth.py');
+      const wsArtifact = result.artifacts?.find((a) => a.type === 'websocket');
+
+      expect(result.code).toContain('import logging');
+      expect(result.code).toContain('import os');
+      expect(result.code).toContain(
+        'allow_origins=[origin.strip() for origin in os.environ.get("CORS_ORIGINS", "").split(",") if origin.strip()]',
+      );
+      expect(result.code).toContain('@app.get("/health")');
+      expect(result.code).toContain('logging.exception("Unhandled exception")');
+      expect(authArtifact?.content).toContain('JWT_SECRET = os.environ.get("JWT_SECRET")');
+      expect(authArtifact?.content).toContain(
+        'raise RuntimeError("JWT_SECRET environment variable is required in strict mode")',
+      );
+      expect(authArtifact?.content).toContain('security_optional = HTTPBearer(auto_error=False)');
+      expect(authArtifact?.content).toContain('Depends(security_optional)');
+      expect(wsArtifact?.content).toContain('import json');
+      expect(wsArtifact?.content).toContain('data = json.loads(await websocket.receive_text())');
+      expect(wsArtifact?.content).toContain('except json.JSONDecodeError:');
+    });
+
+    test('reload uses uvicorn string app path', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { resolveConfig } = await import('../../core/src/config.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+      const config = resolveConfig({
+        target: 'fastapi' as any,
+        fastapi: { security: 'relaxed', uvicorn: { reload: true } },
+      } as any);
+      const ast = parse(
+        'server name=Test\n  route method=get path=/health\n    handler <<<\n      return {"ok": True}\n    >>>',
+      );
+      const result = transpileFastAPI(ast, config);
+
+      expect(result.code).toContain('uvicorn.run("main:app"');
+      expect(result.code).toContain('reload=True');
     });
 
     test('custom middleware generates BaseHTTPMiddleware artifact', async () => {
@@ -318,7 +574,7 @@ describe('FastAPI Transpiler', () => {
       ].join('\n');
 
       const result = transpileFastAPI(parse(source));
-      const mwArtifact = result.artifacts?.find(a => a.type === 'middleware');
+      const mwArtifact = result.artifacts?.find((a) => a.type === 'middleware');
 
       expect(mwArtifact).toBeDefined();
       expect(mwArtifact!.path).toBe('middleware/auth.py');
@@ -340,7 +596,7 @@ describe('FastAPI Transpiler', () => {
       ].join('\n');
 
       const result = transpileFastAPI(parse(source));
-      const routeArtifact = result.artifacts?.find(a => a.type === 'route');
+      const routeArtifact = result.artifacts?.find((a) => a.type === 'route');
 
       expect(routeArtifact!.content).toContain('from pydantic import BaseModel');
       expect(routeArtifact!.content).toContain('class RequestBody(BaseModel):');
@@ -357,9 +613,11 @@ describe('FastAPI Transpiler', () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
 
-      const ast = parse('server name=Test\n  route method=post path=/api/stream\n    stream\n      handler <<<\n        yield f"data: ping\\n\\n"\n      >>>');
+      const ast = parse(
+        'server name=Test\n  route method=post path=/api/stream\n    stream\n      handler <<<\n        yield f"data: ping\\n\\n"\n      >>>',
+      );
       const result = transpileFastAPI(ast);
-      const route = result.artifacts!.find(a => a.type === 'route');
+      const route = result.artifacts!.find((a) => a.type === 'route');
 
       expect(route).toBeDefined();
       expect(route!.content).toContain('StreamingResponse');
@@ -371,9 +629,11 @@ describe('FastAPI Transpiler', () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
 
-      const ast = parse('server name=Test\n  route method=post path=/api/test\n    timer 15\n      handler <<<\n        result = await do_work()\n        return result\n      >>>');
+      const ast = parse(
+        'server name=Test\n  route method=post path=/api/test\n    timer 15\n      handler <<<\n        result = await do_work()\n        return result\n      >>>',
+      );
       const result = transpileFastAPI(ast);
-      const route = result.artifacts!.find(a => a.type === 'route');
+      const route = result.artifacts!.find((a) => a.type === 'route');
 
       expect(route!.content).toContain('asyncio.wait_for');
       expect(route!.content).toContain('timeout=15');
@@ -385,9 +645,11 @@ describe('FastAPI Transpiler', () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
 
-      const ast = parse("server name=Test\n  route method=post path=/api/run\n    stream\n      spawn binary=python args=['-c','print(42)']\n        on name=stdout\n          handler <<<\n            yield f\"data: {chunk.decode()}\\n\\n\"\n          >>>");
+      const ast = parse(
+        "server name=Test\n  route method=post path=/api/run\n    stream\n      spawn binary=python args=['-c','print(42)']\n        on name=stdout\n          handler <<<\n            yield f\"data: {chunk.decode()}\\n\\n\"\n          >>>",
+      );
       const result = transpileFastAPI(ast);
-      const route = result.artifacts!.find(a => a.type === 'route');
+      const route = result.artifacts!.find((a) => a.type === 'route');
 
       expect(route!.content).toContain('asyncio.create_subprocess_exec');
       expect(route!.content).toContain('"python"');
@@ -423,7 +685,7 @@ describe('FastAPI Transpiler', () => {
       expect(result.code).toContain('app.websocket("/ws/chat")');
 
       // Should have a websocket artifact
-      const wsArtifact = result.artifacts?.find(a => a.type === 'websocket');
+      const wsArtifact = result.artifacts?.find((a) => a.type === 'websocket');
       expect(wsArtifact).toBeDefined();
       expect(wsArtifact!.path).toContain('ws/');
       expect(wsArtifact!.path.endsWith('.py')).toBe(true);
@@ -435,7 +697,7 @@ describe('FastAPI Transpiler', () => {
       expect(content).toContain('await websocket.accept()');
       expect(content).toContain('await websocket.send_json({"type": "welcome"})');
       expect(content).toContain('while True:');
-      expect(content).toContain('await websocket.receive_json()');
+      expect(content).toContain('data = json.loads(await websocket.receive_text())');
       expect(content).toContain('await broadcast(data)');
       expect(content).toContain('except WebSocketDisconnect:');
       expect(content).toContain('print("client left")');
@@ -455,7 +717,7 @@ describe('FastAPI Transpiler', () => {
       ].join('\n');
 
       const result = transpileFastAPI(parse(source));
-      const wsArtifact = result.artifacts?.find(a => a.type === 'websocket');
+      const wsArtifact = result.artifacts?.find((a) => a.type === 'websocket');
 
       expect(wsArtifact).toBeDefined();
       const content = wsArtifact!.content;
@@ -481,8 +743,8 @@ describe('FastAPI Transpiler', () => {
 
       const result = transpileFastAPI(parse(source));
 
-      const routeArtifacts = result.artifacts?.filter(a => a.type === 'route') || [];
-      const wsArtifacts = result.artifacts?.filter(a => a.type === 'websocket') || [];
+      const routeArtifacts = result.artifacts?.filter((a) => a.type === 'route') || [];
+      const wsArtifacts = result.artifacts?.filter((a) => a.type === 'websocket') || [];
 
       expect(routeArtifacts.length).toBe(1);
       expect(wsArtifacts.length).toBe(1);
@@ -497,7 +759,9 @@ describe('FastAPI Transpiler', () => {
     const { parse } = await import('../../core/src/parser.js');
     const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
 
-    const ast = parse('server name=Test\n  route method=get path=/health\n    handler <<<\n      return {"ok": True}\n    >>>');
+    const ast = parse(
+      'server name=Test\n  route method=get path=/health\n    handler <<<\n      return {"ok": True}\n    >>>',
+    );
     const result = transpileFastAPI(ast);
 
     expect(result.irTokenCount).toBeGreaterThan(0);
@@ -741,11 +1005,7 @@ describe('FastAPI Transpiler', () => {
     test('respond 200 json=data generates return data', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
-      const source = [
-        'server name=Test',
-        '  route GET /api/users',
-        '    respond 200 json=users',
-      ].join('\n');
+      const source = ['server name=Test', '  route GET /api/users', '    respond 200 json=users'].join('\n');
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       expect(route!.content).toContain('return users');
@@ -754,11 +1014,7 @@ describe('FastAPI Transpiler', () => {
     test('respond 201 json=user generates JSONResponse with status', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
-      const source = [
-        'server name=Test',
-        '  route POST /api/users',
-        '    respond 201 json=user',
-      ].join('\n');
+      const source = ['server name=Test', '  route POST /api/users', '    respond 201 json=user'].join('\n');
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       expect(route!.content).toContain('JSONResponse(content=user, status_code=201)');
@@ -768,11 +1024,7 @@ describe('FastAPI Transpiler', () => {
     test('respond 204 generates Response(status_code=204)', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
-      const source = [
-        'server name=Test',
-        '  route DELETE /api/users/:id',
-        '    respond 204',
-      ].join('\n');
+      const source = ['server name=Test', '  route DELETE /api/users/:id', '    respond 204'].join('\n');
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       expect(route!.content).toContain('Response(status_code=204)');
@@ -782,11 +1034,7 @@ describe('FastAPI Transpiler', () => {
     test('respond 404 error="Not found" generates HTTPException', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
-      const source = [
-        'server name=Test',
-        '  route GET /api/users/:id',
-        '    respond 404 error="Not found"',
-      ].join('\n');
+      const source = ['server name=Test', '  route GET /api/users/:id', '    respond 404 error="Not found"'].join('\n');
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       expect(route!.content).toContain('raise HTTPException(status_code=404, detail="Not found")');
@@ -795,11 +1043,7 @@ describe('FastAPI Transpiler', () => {
     test('respond redirect="/login" generates RedirectResponse', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
-      const source = [
-        'server name=Test',
-        '  route GET /login',
-        '    respond redirect="/login"',
-      ].join('\n');
+      const source = ['server name=Test', '  route GET /login', '    respond redirect="/login"'].join('\n');
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       expect(route!.content).toContain('RedirectResponse(url="/login")');
@@ -809,11 +1053,7 @@ describe('FastAPI Transpiler', () => {
     test('respond 200 text=result generates PlainTextResponse', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
-      const source = [
-        'server name=Test',
-        '  route GET /api/text',
-        '    respond 200 text=result',
-      ].join('\n');
+      const source = ['server name=Test', '  route GET /api/text', '    respond 200 text=result'].join('\n');
       const result = transpileFastAPI(parse(source));
       const route = result.artifacts!.find((a: any) => a.path.includes('route'));
       expect(route!.content).toContain('PlainTextResponse(content=result)');
@@ -967,28 +1207,28 @@ describe('FastAPI Transpiler', () => {
       const fastapiResult = transpileFastAPI(ast);
 
       // Both produce 3 route artifacts
-      const expressRoutes = expressResult.artifacts!.filter(a => a.type === 'route');
-      const fastapiRoutes = fastapiResult.artifacts!.filter(a => a.type === 'route');
+      const expressRoutes = expressResult.artifacts!.filter((a) => a.type === 'route');
+      const fastapiRoutes = fastapiResult.artifacts!.filter((a) => a.type === 'route');
       expect(expressRoutes.length).toBe(3);
       expect(fastapiRoutes.length).toBe(3);
 
       // GET :id — both have derive, guard, respond
-      const exGetId = expressRoutes.find(a => a.path.includes('get'));
-      const pyGetId = fastapiRoutes.find(a => a.path.includes('get'));
+      const exGetId = expressRoutes.find((a) => a.path.includes('get'));
+      const pyGetId = fastapiRoutes.find((a) => a.path.includes('get'));
       expect(exGetId!.content).toContain('const user =');
       expect(pyGetId!.content).toContain('user = ');
       expect(exGetId!.content).toContain('res.json(user)');
       expect(pyGetId!.content).toContain('return user');
 
       // POST — both have auth + create + 201
-      const exPost = expressRoutes.find(a => a.path.includes('post'));
-      const pyPost = fastapiRoutes.find(a => a.path.includes('post'));
+      const exPost = expressRoutes.find((a) => a.path.includes('post'));
+      const pyPost = fastapiRoutes.find((a) => a.path.includes('post'));
       expect(exPost!.content).toContain('res.status(201).json(user)');
       expect(pyPost!.content).toContain('JSONResponse(content=user, status_code=201)');
 
       // DELETE — both respond 204
-      const exDelete = expressRoutes.find(a => a.path.includes('delete'));
-      const pyDelete = fastapiRoutes.find(a => a.path.includes('delete'));
+      const exDelete = expressRoutes.find((a) => a.path.includes('delete'));
+      const pyDelete = fastapiRoutes.find((a) => a.path.includes('delete'));
       expect(exDelete!.content).toContain('res.status(204).send()');
       expect(pyDelete!.content).toContain('Response(status_code=204)');
     });

@@ -1,7 +1,6 @@
+import { Project } from 'ts-morph';
 import { reviewSource } from '../../src/index.js';
 import { extractTsConcepts } from '../../src/mappers/ts-concepts.js';
-import { runConceptRules } from '../../src/concept-rules/index.js';
-import { Project } from 'ts-morph';
 
 function createSourceFile(source: string, filePath = 'test.ts') {
   const project = new Project({ useInMemoryFileSystem: true, compilerOptions: { strict: true } });
@@ -15,7 +14,7 @@ describe('Concept Extraction (TS)', () => {
         function fail() { throw new Error('boom'); }
       `);
       const map = extractTsConcepts(sf, 'test.ts');
-      const raises = map.nodes.filter(n => n.kind === 'error_raise');
+      const raises = map.nodes.filter((n) => n.kind === 'error_raise');
       expect(raises.length).toBe(1);
       expect(raises[0].payload.kind).toBe('error_raise');
       if (raises[0].payload.kind === 'error_raise') {
@@ -29,7 +28,7 @@ describe('Concept Extraction (TS)', () => {
         const p = Promise.reject(new Error('no'));
       `);
       const map = extractTsConcepts(sf, 'test.ts');
-      const raises = map.nodes.filter(n => n.kind === 'error_raise');
+      const raises = map.nodes.filter((n) => n.kind === 'error_raise');
       expect(raises.length).toBe(1);
       if (raises[0].payload.kind === 'error_raise') {
         expect(raises[0].payload.subtype).toBe('reject');
@@ -43,7 +42,7 @@ describe('Concept Extraction (TS)', () => {
         try { doWork(); } catch (e) {}
       `);
       const map = extractTsConcepts(sf, 'test.ts');
-      const handles = map.nodes.filter(n => n.kind === 'error_handle');
+      const handles = map.nodes.filter((n) => n.kind === 'error_handle');
       expect(handles.length).toBe(1);
       if (handles[0].payload.kind === 'error_handle') {
         expect(handles[0].payload.disposition).toBe('ignored');
@@ -56,7 +55,7 @@ describe('Concept Extraction (TS)', () => {
         try { doWork(); } catch (e) { console.error(e); }
       `);
       const map = extractTsConcepts(sf, 'test.ts');
-      const handles = map.nodes.filter(n => n.kind === 'error_handle');
+      const handles = map.nodes.filter((n) => n.kind === 'error_handle');
       expect(handles.length).toBe(1);
       if (handles[0].payload.kind === 'error_handle') {
         expect(handles[0].payload.disposition).toBe('logged');
@@ -68,7 +67,7 @@ describe('Concept Extraction (TS)', () => {
         try { doWork(); } catch (e) { throw new AppError(e); }
       `);
       const map = extractTsConcepts(sf, 'test.ts');
-      const handles = map.nodes.filter(n => n.kind === 'error_handle');
+      const handles = map.nodes.filter((n) => n.kind === 'error_handle');
       expect(handles.length).toBe(1);
       if (handles[0].payload.kind === 'error_handle') {
         expect(['wrapped', 'rethrown']).toContain(handles[0].payload.disposition);
@@ -80,7 +79,7 @@ describe('Concept Extraction (TS)', () => {
         fetchData().catch(() => {});
       `);
       const map = extractTsConcepts(sf, 'test.ts');
-      const handles = map.nodes.filter(n => n.kind === 'error_handle');
+      const handles = map.nodes.filter((n) => n.kind === 'error_handle');
       expect(handles.length).toBe(1);
       if (handles[0].payload.kind === 'error_handle') {
         expect(handles[0].payload.disposition).toBe('ignored');
@@ -94,7 +93,7 @@ describe('Concept Extraction (TS)', () => {
         async function getData() { const res = await fetch('/api'); }
       `);
       const map = extractTsConcepts(sf, 'test.ts');
-      const effects = map.nodes.filter(n => n.kind === 'effect');
+      const effects = map.nodes.filter((n) => n.kind === 'effect');
       expect(effects.length).toBe(1);
       if (effects[0].payload.kind === 'effect') {
         expect(effects[0].payload.subtype).toBe('network');
@@ -108,7 +107,7 @@ describe('Concept Extraction (TS)', () => {
         readFile('data.txt', 'utf-8', cb);
       `);
       const map = extractTsConcepts(sf, 'test.ts');
-      const effects = map.nodes.filter(n => n.kind === 'effect');
+      const effects = map.nodes.filter((n) => n.kind === 'effect');
       expect(effects.length).toBe(1);
       if (effects[0].payload.kind === 'effect') {
         expect(effects[0].payload.subtype).toBe('fs');
@@ -120,7 +119,7 @@ describe('Concept Extraction (TS)', () => {
         async function getUsers() { const rows = await db.query('SELECT *'); }
       `);
       const map = extractTsConcepts(sf, 'test.ts');
-      const effects = map.nodes.filter(n => n.kind === 'effect');
+      const effects = map.nodes.filter((n) => n.kind === 'effect');
       expect(effects.length).toBe(1);
       if (effects[0].payload.kind === 'effect') {
         expect(effects[0].payload.subtype).toBe('db');
@@ -133,14 +132,14 @@ describe('Concept Rules (universal)', () => {
   describe('ignored-error', () => {
     it('fires on empty catch via concept pipeline', () => {
       const report = reviewSource('try { doWork(); } catch (e) {}', 'test.ts');
-      const finding = report.findings.find(f => f.ruleId === 'ignored-error');
+      const finding = report.findings.find((f) => f.ruleId === 'ignored-error');
       expect(finding).toBeDefined();
       expect(finding!.severity).toBe('error');
     });
 
     it('does not fire on catch with handling', () => {
       const report = reviewSource('try { doWork(); } catch (e) { throw new AppError(e); }', 'test.ts');
-      const finding = report.findings.find(f => f.ruleId === 'ignored-error');
+      const finding = report.findings.find((f) => f.ruleId === 'ignored-error');
       expect(finding).toBeUndefined();
     });
   });
@@ -154,7 +153,7 @@ describe('Concept Rules (universal)', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const finding = report.findings.find(f => f.ruleId === 'unrecovered-effect');
+      const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
       expect(finding).toBeDefined();
       expect(finding!.severity).toBe('warning');
       expect(finding!.message).toContain('network');
@@ -172,7 +171,7 @@ describe('Concept Rules (universal)', () => {
         }
       `;
       const report = reviewSource(source, 'test.ts');
-      const finding = report.findings.find(f => f.ruleId === 'unrecovered-effect');
+      const finding = report.findings.find((f) => f.ruleId === 'unrecovered-effect');
       expect(finding).toBeUndefined();
     });
   });

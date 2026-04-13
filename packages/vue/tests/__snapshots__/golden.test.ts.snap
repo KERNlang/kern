@@ -12,9 +12,9 @@ useHead({
   <div class="page-0">
     <div class="row-1">
       <div>
-        <p class="text-2">
+        <h1 class="text-2">
           SoundKit
-        </p>
+        </h1>
       </div>
       <div class="row-3">
         <div>
@@ -33,9 +33,9 @@ useHead({
       </div>
     </div>
     <div class="col-7">
-      <p class="text-8">
+      <h1 class="text-8">
         Analyze your mix in seconds
-      </p>
+      </h1>
       <p class="text-9">
         AI-powered stem separation, frequency analysis, and mastering suggestions.
       </p>
@@ -50,25 +50,25 @@ useHead({
     </div>
     <div class="grid-13">
       <div class="card-14">
-        <p class="text-15">
+        <h3 class="text-15">
           Stem Separation
-        </p>
+        </h3>
         <p class="text-16">
           Split any track into drums, bass, vocals, and more using Demucs ML.
         </p>
       </div>
       <div class="card-17">
-        <p class="text-18">
+        <h3 class="text-18">
           Frequency Analysis
-        </p>
+        </h3>
         <p class="text-19">
           Identify problematic frequencies and get EQ fix suggestions per stem.
         </p>
       </div>
       <div class="card-20">
-        <p class="text-21">
+        <h3 class="text-21">
           Mastering Chain
-        </p>
+        </h3>
         <p class="text-22">
           Auto-generated mastering presets based on your genre and reference tracks.
         </p>
@@ -263,7 +263,7 @@ exports[`Golden Snapshot Tests Vue output for audio-settings.kern 1`] = `
     <h2>Audio & Analysis</h2>
     <section key="settings.masteringDefaults">
       <h2>Mastering Defaults</h2>
-      <p class="text-0" key="settings.masteringDefaults.description" tag="p">
+      <p class="text-0" key="settings.masteringDefaults.description">
         Set your preferred starting point for the mastering chain.
       </p>
       <div ref="MasteringDefaultsSection">
@@ -277,7 +277,7 @@ exports[`Golden Snapshot Tests Vue output for audio-settings.kern 1`] = `
     </section>
     <section key="settings.exportDefaults">
       <h2>Export Defaults</h2>
-      <p class="text-2" key="settings.exportDefaultsDescription" tag="p">
+      <p class="text-2" key="settings.exportDefaultsDescription">
         Set your preferred export format.
       </p>
       <div ref="ExportDefaultsSection" props="isPro,exportFormat,mp3Bitrate">
@@ -724,7 +724,7 @@ exports[`Golden Snapshot Tests Vue output for dashboard.kern 1`] = `
 "<script setup lang="ts">
 import { ref } from 'vue';
 
-const activeTab_6 = ref('0');
+const activeTab_10 = ref('0');
 </script>
 
 <template>
@@ -736,20 +736,20 @@ const activeTab_6 = ref('0');
       <img class="image-3" :src="'/avatar.png'" alt="avatar" />
     </div>
     <div class="card-4">
-      <progress :value="1840" :max="2200">
+      <progress class="progress-5" :value="1840" :max="2200">
         Calories: 1840/2200 kcal
       </progress>
-      <progress :value="96" :max="140">
+      <progress class="progress-6" :value="96" :max="140">
         Protein: 96/140 g
       </progress>
-      <progress :value="210" :max="260">
+      <progress class="progress-7" :value="210" :max="260">
         Carbs: 210/260 g
       </progress>
-      <progress :value="58" :max="70">
+      <progress class="progress-8" :value="58" :max="70">
         Fat: 58/70 g
       </progress>
     </div>
-    <button class="button-5" @click="$router.push('/LogMeal')">
+    <button class="button-9" @click="$router.push('/LogMeal')">
       Log Meal
     </button>
     <ul separator="true">
@@ -766,18 +766,18 @@ const activeTab_6 = ref('0');
     </ul>
     <div>
       <div class="tab-buttons">
-        <button @click="activeTab_6 = 'Dashboard'" :class="{ active: activeTab_6 === 'Dashboard' }">Dashboard</button>
-        <button @click="activeTab_6 = 'Log'" :class="{ active: activeTab_6 === 'Log' }">Log</button>
-        <button @click="activeTab_6 = 'Stats'" :class="{ active: activeTab_6 === 'Stats' }">Stats</button>
-        <button @click="activeTab_6 = 'Settings'" :class="{ active: activeTab_6 === 'Settings' }">Settings</button>
+        <button @click="activeTab_10 = 'Dashboard'" :class="{ active: activeTab_10 === 'Dashboard' }">Dashboard</button>
+        <button @click="activeTab_10 = 'Log'" :class="{ active: activeTab_10 === 'Log' }">Log</button>
+        <button @click="activeTab_10 = 'Stats'" :class="{ active: activeTab_10 === 'Stats' }">Stats</button>
+        <button @click="activeTab_10 = 'Settings'" :class="{ active: activeTab_10 === 'Settings' }">Settings</button>
       </div>
-      <div v-if="activeTab_6 === 'Dashboard'">
+      <div v-if="activeTab_10 === 'Dashboard'">
       </div>
-      <div v-if="activeTab_6 === 'Log'">
+      <div v-if="activeTab_10 === 'Log'">
       </div>
-      <div v-if="activeTab_6 === 'Stats'">
+      <div v-if="activeTab_10 === 'Stats'">
       </div>
-      <div v-if="activeTab_6 === 'Settings'">
+      <div v-if="activeTab_10 === 'Settings'">
       </div>
     </div>
   </div>
@@ -818,7 +818,27 @@ const activeTab_6 = ref('0');
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
-.button-5 {
+.progress-5 {
+  height: 8px;
+  border-radius: 4px;
+}
+
+.progress-6 {
+  height: 8px;
+  border-radius: 4px;
+}
+
+.progress-7 {
+  height: 8px;
+  border-radius: 4px;
+}
+
+.progress-8 {
+  height: 8px;
+  border-radius: 4px;
+}
+
+.button-9 {
   width: 100%;
   border-radius: 8px;
   background-color: #007AFF;

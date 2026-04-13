@@ -1,13 +1,13 @@
 {
   "name": "@kernlang/review-python",
-  "version": "0.2.0",
+  "version": "3.1.9",
   "description": "Python concept mapper for kern review — tree-sitter based",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -b",
-    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --forceExit --config jest.config.js"
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
   },
   "dependencies": {
     "@kernlang/core": "workspace:*",
@@ -17,8 +17,17 @@
   },
   "devDependencies": {
     "ts-morph": "^27.0.0",
-    "typescript": "^5.7.0"
+    "typescript": "^6.0.2"
   },
+  "keywords": [
+    "kern",
+    "llm",
+    "python",
+    "review",
+    "tree-sitter",
+    "static-analysis",
+    "ai"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

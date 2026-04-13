@@ -7,10 +7,9 @@
  */
 
 import type { IRNode } from '@kernlang/core';
+import type { KernLintRule } from '../kern-lint.js';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
-import type { KernLintRule } from '../kern-lint.js';
-import { flattenIR } from '../kern-lint.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -20,7 +19,7 @@ function props(node: IRNode): Record<string, unknown> {
 
 function children(node: IRNode, type?: string): IRNode[] {
   const c = node.children || [];
-  return type ? c.filter(n => n.type === type) : c;
+  return type ? c.filter((n) => n.type === type) : c;
 }
 
 function loc(node: IRNode): { line: number; col: number } {
@@ -55,11 +54,15 @@ export const guardWithoutElse: KernLintRule = (nodes: IRNode[]) => {
   const findings: ReviewFinding[] = [];
   for (const node of nodes) {
     if (node.type === 'guard' && !props(node).else) {
-      findings.push(finding(
-        'guard-without-else', 'warning', 'pattern',
-        `Guard '${props(node).name || 'unnamed'}' has no else action — failures will throw generic Error`,
-        node,
-      ));
+      findings.push(
+        finding(
+          'guard-without-else',
+          'warning',
+          'pattern',
+          `Guard '${props(node).name || 'unnamed'}' has no else action — failures will throw generic Error`,
+          node,
+        ),
+      );
     }
   }
   return findings;
@@ -72,11 +75,15 @@ export const actionMissingIdempotent: KernLintRule = (nodes: IRNode[]) => {
     if (node.type === 'action') {
       const p = props(node);
       if (p.idempotent !== 'true' && p.idempotent !== true) {
-        findings.push(finding(
-          'action-missing-idempotent', 'info', 'pattern',
-          `Action '${p.name}' should declare idempotent=true/false for safety reasoning`,
-          node,
-        ));
+        findings.push(
+          finding(
+            'action-missing-idempotent',
+            'info',
+            'pattern',
+            `Action '${p.name}' should declare idempotent=true/false for safety reasoning`,
+            node,
+          ),
+        );
       }
     }
   }
@@ -90,11 +97,15 @@ export const branchNonExhaustive: KernLintRule = (nodes: IRNode[]) => {
     if (node.type === 'branch') {
       const paths = children(node, 'path');
       if (paths.length === 0) {
-        findings.push(finding(
-          'branch-non-exhaustive', 'warning', 'pattern',
-          `Branch '${props(node).name || 'unnamed'}' has no paths defined`,
-          node,
-        ));
+        findings.push(
+          finding(
+            'branch-non-exhaustive',
+            'warning',
+            'pattern',
+            `Branch '${props(node).name || 'unnamed'}' has no paths defined`,
+            node,
+          ),
+        );
       }
     }
   }
@@ -106,11 +117,15 @@ export const collectUnbounded: KernLintRule = (nodes: IRNode[]) => {
   const findings: ReviewFinding[] = [];
   for (const node of nodes) {
     if (node.type === 'collect' && !props(node).limit) {
-      findings.push(finding(
-        'collect-unbounded', 'info', 'pattern',
-        `Collect '${props(node).name || 'unnamed'}' has no limit — could return unbounded results`,
-        node,
-      ));
+      findings.push(
+        finding(
+          'collect-unbounded',
+          'info',
+          'pattern',
+          `Collect '${props(node).name || 'unnamed'}' has no limit — could return unbounded results`,
+          node,
+        ),
+      );
     }
   }
   return findings;
@@ -121,11 +136,15 @@ export const reasonWithoutBasis: KernLintRule = (nodes: IRNode[]) => {
   const findings: ReviewFinding[] = [];
   for (const node of nodes) {
     if (node.type === 'reason' && !props(node).basis) {
-      findings.push(finding(
-        'reason-without-basis', 'info', 'pattern',
-        `Reason annotation missing basis field — adds low trust level`,
-        node,
-      ));
+      findings.push(
+        finding(
+          'reason-without-basis',
+          'info',
+          'pattern',
+          `Reason annotation missing basis field — adds low trust level`,
+          node,
+        ),
+      );
     }
   }
   return findings;
@@ -140,11 +159,9 @@ export const assumeLowTrust: KernLintRule = (nodes: IRNode[]) => {
       // Check if any reason child has basis but the assume has no evidence
       const reasonChild = children(node, 'reason')[0];
       if (reasonChild && props(reasonChild).basis && !p.evidence) {
-        findings.push(finding(
-          'assume-low-trust', 'info', 'pattern',
-          `Assume has basis but no evidence — low trust level`,
-          node,
-        ));
+        findings.push(
+          finding('assume-low-trust', 'info', 'pattern', `Assume has basis but no evidence — low trust level`, node),
+        );
       }
     }
   }
@@ -158,14 +175,18 @@ export const expectRangeInverted: KernLintRule = (nodes: IRNode[]) => {
     if (node.type === 'expect') {
       const p = props(node);
       const within = p.within as string | undefined;
-      if (within && within.includes('..')) {
+      if (within?.includes('..')) {
         const [lo, hi] = within.split('..').map(Number);
-        if (!isNaN(lo) && !isNaN(hi) && lo > hi) {
-          findings.push(finding(
-            'expect-range-inverted', 'warning', 'bug',
-            `Expect '${p.name || 'unnamed'}' has inverted range: ${lo} > ${hi}`,
-            node,
-          ));
+        if (!Number.isNaN(lo) && !Number.isNaN(hi) && lo > hi) {
+          findings.push(
+            finding(
+              'expect-range-inverted',
+              'warning',
+              'bug',
+              `Expect '${p.name || 'unnamed'}' has inverted range: ${lo} > ${hi}`,
+              node,
+            ),
+          );
         }
       }
     }

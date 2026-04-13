@@ -9,122 +9,315 @@
  * v2: Unified ReviewFinding pipeline. All findings merged into single array.
  */
 
-import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
-import { resolve, relative, join } from 'path';
-import { parse as parseKern, countTokens, serializeIR } from '@kernlang/core';
-import type { IRNode } from '@kernlang/core';
-import { inferFromSource, inferFromFile, inferFromSourceFile, createInMemoryProject } from './inferrer.js';
-import { resolveImportGraph } from './graph.js';
-import type { GraphOptions } from './types.js';
-import { detectTemplates } from './template-detector.js';
-import { structuralDiff } from './differ.js';
-import { runQualityRules } from './quality-rules.js';
-import { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSummary, checkEnforcement, formatEnforcement, dedup, sortAndDedup, sortFindings } from './reporter.js';
-import { classifyFileRole } from './file-role.js';
-import { runTSCDiagnostics } from './external-tools.js';
-import { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
-import { extractTsConcepts } from './mappers/ts-concepts.js';
+import type { IRNode, ParseDiagnostic } from '@kernlang/core';
+import { countTokens, parseWithDiagnostics, serializeIR } from '@kernlang/core';
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
+import { join, relative } from 'path';
+import { buildCallGraph } from './call-graph.js';
 import { runConceptRules } from './concept-rules/index.js';
+import { structuralDiff } from './differ.js';
+import { runTSCDiagnostics } from './external-tools.js';
+import { buildFileContextMap } from './file-context.js';
+import { classifyFileRole } from './file-role.js';
+import { resolveImportGraph } from './graph.js';
+import { createInMemoryProject, inferFromSourceFile } from './inferrer.js';
+import { flattenIR, lintKernIR } from './kern-lint.js';
+import { extractTsConcepts } from './mappers/ts-concepts.js';
+import { mineNorms } from './norm-miner.js';
+import { synthesizeObligations } from './obligations.js';
+import { runQualityRules } from './quality-rules.js';
+import { assignDefaultConfidence, calculateStats, sortAndDedup, sortFindings } from './reporter.js';
+import { loadBuiltinNativeRules, loadNativeRules } from './rule-loader.js';
 import { lintConfidenceGraph } from './rules/confidence.js';
-import { lintKernIR, flattenIR } from './kern-lint.js';
-import { lintKernSourceIR, KERN_SOURCE_RULES } from './rules/kern-source.js';
+import { crossFileAsyncRule, deadExportRule } from './rules/dead-code.js';
+import { runFastapiConceptRules } from './rules/fastapi.js';
 import { GROUND_LAYER_RULES } from './rules/ground-layer.js';
-import { buildConfidenceGraph, serializeGraph, computeConfidenceSummary } from './confidence.js';
-import { analyzeTaint, taintToFindings, analyzeTaintCrossFile, crossFileTaintToFindings } from './taint.js';
+import { KERN_SOURCE_RULES, lintKernSourceIR } from './rules/kern-source.js';
+import { detectTemplates } from './template-detector.js';
+import type { GraphOptions } from './types.js';
+
+// Load native .kern rules once at module init
+// Guard: import.meta.url is undefined when bundled as CJS (e.g. esbuild for VS Code worker)
+let NATIVE_RULES: import('./kern-lint.js').KernLintRule[] = [];
+try {
+  NATIVE_RULES = loadBuiltinNativeRules();
+} catch {
+  // CJS bundle — native .kern rules not available, regex rules still work
+}
+
+import { buildConfidenceGraph, computeConfidenceSummary, serializeGraph } from './confidence.js';
 import { applySuppression } from './suppression/index.js';
-import type { ReviewReport, InferResult, TemplateMatch, ReviewConfig, EnforceResult, ReviewFinding, SourceSpan } from './types.js';
+import { analyzeTaint, analyzeTaintCrossFile, crossFileTaintToFindings, taintToFindings } from './taint.js';
+import type { InferResult, ReviewConfig, ReviewFinding, ReviewReport } from './types.js';
 import { createFingerprint } from './types.js';
 
-export type { ReviewReport, InferResult, TemplateMatch, ReviewFinding, SourceSpan } from './types.js';
-export type { ReviewStats, Confidence, ReviewConfig, EnforceResult, RuleContext, ReviewRule } from './types.js';
-export type { GraphFile, GraphResult, GraphOptions } from './types.js';
-export type { FileRole, AnalysisContext } from './types.js';
-export { resolveImportGraph } from './graph.js';
-export { createFingerprint } from './types.js';
-export { inferFromSource, inferFromFile } from './inferrer.js';
-export { classifyFileRole } from './file-role.js';
-export { detectTemplates } from './template-detector.js';
-export { structuralDiff } from './differ.js';
-export { runQualityRules } from './quality-rules.js';
-export { calculateStats, formatReport, formatReportJSON, formatSARIF, formatSARIFWithSuppressions, formatSummary, checkEnforcement, formatEnforcement, dedup, sortAndDedup, sortFindings } from './reporter.js';
-export { exportKernIR, buildLLMPrompt, parseLLMResponse } from './llm-review.js';
-export type { LLMGraphContext } from './llm-review.js';
-export { runESLint, runTSCDiagnostics, runTSCDiagnosticsFromPaths, linkToNodes } from './external-tools.js';
-export { extractTsConcepts } from './mappers/ts-concepts.js';
-export { runConceptRules } from './concept-rules/index.js';
+export type { CallGraph, CallSite, FunctionNode } from './call-graph.js';
+export { buildCallGraph } from './call-graph.js';
 export type { ConceptRule, ConceptRuleContext } from './concept-rules/index.js';
-
-// Suppression
-export { applySuppression, parseDirectives, configDirectives, isConceptRule } from './suppression/index.js';
-export type { SuppressionDirective, SuppressionResult, StrictMode } from './suppression/index.js';
-
-// KERN-IR lint pipeline (ground layer)
-export { lintKernIR, flattenIR } from './kern-lint.js';
-export type { KernLintRule } from './kern-lint.js';
-export { GROUND_LAYER_RULES } from './rules/ground-layer.js';
-export { lintKernSourceIR, KERN_SOURCE_RULES, undefinedReference, typeModelMismatch, unusedState, handlerHeavy, missingConfidence } from './rules/kern-source.js';
-export type { KernSourceRule } from './rules/kern-source.js';
-export {
-  guardWithoutElse, actionMissingIdempotent, branchNonExhaustive,
-  collectUnbounded, reasonWithoutBasis, assumeLowTrust, expectRangeInverted,
-} from './rules/ground-layer.js';
-
+export { runConceptRules } from './concept-rules/index.js';
+export type {
+  ConfidenceGraph,
+  ConfidenceNode,
+  ConfidenceSpec,
+  ConfidenceSummary,
+  DuplicateNameEntry,
+  MultiFileConfidenceGraph,
+  NeedsEntry,
+  SerializedConfidenceGraph,
+} from './confidence.js';
 // Confidence layer
 export {
-  parseConfidence, buildConfidenceGraph, buildMultiFileConfidenceGraph,
-  propagateConfidence, resolveBaseConfidence, serializeGraph, computeConfidenceSummary,
+  buildConfidenceGraph,
+  buildMultiFileConfidenceGraph,
+  computeConfidenceSummary,
+  parseConfidence,
+  propagateConfidence,
+  resolveBaseConfidence,
+  serializeGraph,
 } from './confidence.js';
-export type {
-  ConfidenceSpec, ConfidenceNode, NeedsEntry, DuplicateNameEntry,
-  ConfidenceGraph, MultiFileConfidenceGraph, SerializedConfidenceGraph, ConfidenceSummary,
-} from './confidence.js';
-export { lintConfidenceGraph, lintMultiFileConfidenceGraph, CONFIDENCE_RULES } from './rules/confidence.js';
-
-// Taint tracking (Phase 2 + cross-file)
-export { analyzeTaint, taintToFindings, analyzeTaintCrossFile, crossFileTaintToFindings, buildExportMap, buildImportMap, isSanitizerSufficient } from './taint.js';
-export type { TaintSource, TaintSink, TaintPath, TaintResult, CrossFileTaintResult, ExportedFunction } from './taint.js';
-
+export { structuralDiff } from './differ.js';
+export { linkToNodes, runESLint, runTSCDiagnostics, runTSCDiagnosticsFromPaths } from './external-tools.js';
+export { buildFileContextMap, clearFileContextCache } from './file-context.js';
+export { classifyFileRole } from './file-role.js';
+export { resolveImportGraph } from './graph.js';
+export { inferFromFile, inferFromSource } from './inferrer.js';
+export type { KernLintRule } from './kern-lint.js';
+// KERN-IR lint pipeline (ground layer)
+export { flattenIR, lintKernIR } from './kern-lint.js';
+export type { LLMBridgeConfig, LLMReviewInput, ReviewInstructionOptions } from './llm-bridge.js';
 // LLM bridge (Phase 3)
-export { runLLMReview, isLLMAvailable } from './llm-bridge.js';
-export type { LLMBridgeConfig, LLMReviewInput } from './llm-bridge.js';
+export { buildReviewInstructions, isLLMAvailable, runLLMReview } from './llm-bridge.js';
+export type { LLMGraphContext } from './llm-review.js';
+export { buildLLMPrompt, exportKernIR, parseLLMResponse } from './llm-review.js';
+export { extractTsConcepts } from './mappers/ts-concepts.js';
+export type { NormViolation } from './norm-miner.js';
+// Norm mining + obligations
+export { mineNorms } from './norm-miner.js';
+export type { ObligationType, ProofObligation } from './obligations.js';
+export { obligationsFromNorms, obligationsFromStructure, synthesizeObligations } from './obligations.js';
+export { runQualityRules } from './quality-rules.js';
+export {
+  assignDefaultConfidence,
+  calculateStats,
+  checkEnforcement,
+  dedup,
+  formatEnforcement,
+  formatReport,
+  formatReportJSON,
+  formatSARIF,
+  formatSARIFWithSuppressions,
+  formatSummary,
+  sortAndDedup,
+  sortFindings,
+} from './reporter.js';
+export { CONFIDENCE_RULES, lintConfidenceGraph, lintMultiFileConfidenceGraph } from './rules/confidence.js';
+export {
+  actionMissingIdempotent,
+  assumeLowTrust,
+  branchNonExhaustive,
+  collectUnbounded,
+  expectRangeInverted,
+  GROUND_LAYER_RULES,
+  guardWithoutElse,
+  reasonWithoutBasis,
+} from './rules/ground-layer.js';
+export type { RuleInfo } from './rules/index.js';
+export { getRuleRegistry } from './rules/index.js';
+export type { KernSourceRule } from './rules/kern-source.js';
+export {
+  handlerHeavy,
+  KERN_SOURCE_RULES,
+  lintKernSourceIR,
+  missingConfidence,
+  typeModelMismatch,
+  undefinedReference,
+  unusedState,
+} from './rules/kern-source.js';
+// ReDoS detection (reusable by rule compilers)
+export { isReDoSVulnerable } from './rules/security-v3.js';
+export type { SemanticChange } from './semantic-diff.js';
+// Semantic diff
+export {
+  computeSemanticDiff,
+  computeSemanticDiffFromSource,
+  formatSemanticDiff,
+  getOldFileContent,
+  semanticChangesToFindings,
+} from './semantic-diff.js';
+export type { StrictMode, SuppressionDirective, SuppressionResult } from './suppression/index.js';
+// Suppression
+export { applySuppression, configDirectives, isConceptRule, parseDirectives } from './suppression/index.js';
+export type {
+  CrossFileTaintResult,
+  ExportedFunction,
+  TaintPath,
+  TaintResult,
+  TaintSink,
+  TaintSource,
+} from './taint.js';
+// Taint tracking (Phase 2 + cross-file)
+export {
+  analyzeTaint,
+  analyzeTaintCrossFile,
+  buildExportMap,
+  buildImportMap,
+  crossFileTaintToFindings,
+  isSanitizerSufficient,
+  taintToFindings,
+} from './taint.js';
+export { detectTemplates } from './template-detector.js';
+export type {
+  AnalysisContext,
+  Confidence,
+  EnforceResult,
+  FileContext,
+  FileRole,
+  GraphFile,
+  GraphOptions,
+  GraphResult,
+  InferResult,
+  ReviewConfig,
+  ReviewFinding,
+  ReviewReport,
+  ReviewRule,
+  ReviewStats,
+  RuleContext,
+  RuntimeBoundary,
+  SourceSpan,
+  TemplateMatch,
+} from './types.js';
+export { createFingerprint } from './types.js';
+
+// Cache (Phase 0)
+import { clearReviewCache, computeCacheKey, reviewCache } from './cache.js';
+
+export type { ImplRoute, SpecCheckResult, SpecContract, SpecViolation, ViolationKind } from './spec-checker.js';
 
 // Spec checker — .kern contract vs .ts implementation
-export { checkSpec, checkSpecFiles, extractSpecContracts, extractImplRoutes, matchRoutes, verifyRouteContract, specViolationsToFindings } from './spec-checker.js';
-export type { SpecContract, ImplRoute, SpecViolation, SpecCheckResult, ViolationKind } from './spec-checker.js';
+export {
+  checkSpec,
+  checkSpecFiles,
+  extractImplRoutes,
+  extractSpecContracts,
+  matchRoutes,
+  specViolationsToFindings,
+  verifyRouteContract,
+} from './spec-checker.js';
+export { clearReviewCache };
+
+/** Shared filesystem-backed Project for type-aware analysis (reused across reviewFile calls) */
+let _fsProject: import('ts-morph').Project | undefined;
+function getOrCreateFsProject(): import('ts-morph').Project {
+  if (!_fsProject) {
+    const { Project } = require('ts-morph') as typeof import('ts-morph');
+    _fsProject = new Project({
+      compilerOptions: {
+        strict: true,
+        target: 99 /* Latest */,
+        module: 99 /* ESNext */,
+        moduleResolution: 100 /* Bundler */,
+        skipLibCheck: true,
+        noEmit: true,
+      },
+      useInMemoryFileSystem: false,
+      skipAddingFilesFromTsConfig: true,
+    });
+  }
+  return _fsProject!;
+}
+
+/** Reset the shared project (for tests / watch mode) */
+export function resetFsProject(): void {
+  _fsProject = undefined;
+}
 
 /**
  * Review a single file. Auto-detects language from extension.
+ * Uses a filesystem-backed ts-morph Project for type-aware analysis.
  * Supports: .ts, .tsx, .py, .kern
  */
 export function reviewFile(filePath: string, config?: ReviewConfig): ReviewReport {
   const source = readFileSync(filePath, 'utf-8');
+
+  let key: string | undefined;
+  if (config?.noCache !== true) {
+    key = computeCacheKey(source, config || {}, filePath);
+    const cached = reviewCache.get(key);
+    if (cached) return cached;
+  }
+
+  let report: ReviewReport;
   if (filePath.endsWith('.kern')) {
-    return reviewKernSource(source, filePath, config);
+    report = reviewKernSource(source, filePath, config);
+  } else if (filePath.endsWith('.py')) {
+    report = reviewPythonSource(source, filePath, config);
+  } else {
+    // Use filesystem-backed project for real files (enables TypeChecker)
+    report = reviewSourceWithProject(source, filePath, config);
   }
-  if (filePath.endsWith('.py')) {
-    return reviewPythonSource(source, filePath, config);
+
+  if (key) {
+    reviewCache.set(key, report);
   }
-  return reviewSource(source, filePath, config);
+
+  return report;
 }
 
 /**
- * Review TypeScript source code (string).
+ * Review TypeScript source with a filesystem-backed project.
+ * The fs project enables .getReturnType() to resolve types from node_modules.
+ */
+function reviewSourceWithProject(source: string, filePath: string, config?: ReviewConfig): ReviewReport {
+  try {
+    const fsProject = getOrCreateFsProject();
+    // Add or update the file in the project
+    let sf = fsProject.getSourceFile(filePath);
+    if (sf) {
+      sf.replaceWithText(source);
+    } else {
+      sf = fsProject.addSourceFileAtPath(filePath);
+    }
+    return reviewSourceInternal(source, filePath, config, fsProject, sf);
+  } catch {
+    // Fallback to in-memory project if fs project fails
+    return reviewSource(source, filePath, config);
+  }
+}
+
+/**
+ * Review TypeScript source code (string). Uses in-memory project (no type resolution).
+ * For file-from-disk review with type resolution, use reviewFile() instead.
  */
 export function reviewSource(source: string, filePath = 'input.ts', config?: ReviewConfig): ReviewReport {
-  const totalLines = source.split('\n').length;
-
-  // ── Shared context: single AST parse, shared across all phases ──
   const project = createInMemoryProject();
   const sourceFile = project.createSourceFile(filePath, source);
+  return reviewSourceInternal(source, filePath, config, project, sourceFile);
+}
+
+/**
+ * Internal review implementation — shared between reviewSource (in-memory) and reviewFile (filesystem).
+ */
+function reviewSourceInternal(
+  source: string,
+  filePath: string,
+  config: ReviewConfig | undefined,
+  project: import('ts-morph').Project,
+  sourceFile: import('ts-morph').SourceFile,
+): ReviewReport {
+  const totalLines = source.split('\n').length;
   const fileRole = classifyFileRole(sourceFile, filePath);
 
   // Helper: run a phase safely, collect findings even if a phase throws
   const allFindings: ReviewFinding[] = [];
   function safePhase<T>(name: string, fn: () => T, fallback: T): T {
-    try { return fn(); }
-    catch (err) {
+    try {
+      return fn();
+    } catch (err) {
       allFindings.push({
-        source: 'kern', ruleId: 'internal-error', severity: 'info', category: 'structure',
+        source: 'kern',
+        ruleId: 'internal-error',
+        severity: 'info',
+        category: 'structure',
         message: `Review phase '${name}' failed: ${(err as Error).message}`,
         primarySpan: { file: filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
         fingerprint: createFingerprint('internal-error', 1, name.charCodeAt(0)),
@@ -137,10 +330,12 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
   const inferred = safePhase('infer', () => inferFromSourceFile(sourceFile), []);
 
   // Phase 2: Taint tracking (AST-based when SourceFile is available)
-  allFindings.push(...safePhase('taint', () => {
-    const taintResults = analyzeTaint(inferred, filePath, sourceFile);
-    return taintToFindings(taintResults);
-  }, []));
+  allFindings.push(
+    ...safePhase('taint', () => {
+      const taintResults = analyzeTaint(inferred, filePath, sourceFile);
+      return taintToFindings(taintResults);
+    }, []),
+  );
 
   // Phase 3: Template detection (config-aware)
   const templateMatches = safePhase('templates', () => detectTemplates(sourceFile, config), []);
@@ -149,7 +344,13 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
   allFindings.push(...safePhase('diff', () => structuralDiff(source, inferred, filePath), []));
 
   // Phase 5: Quality rules → unified findings (receives fileRole)
-  allFindings.push(...safePhase('quality', () => runQualityRules(sourceFile, inferred, templateMatches, config, fileRole), []));
+  allFindings.push(
+    ...safePhase(
+      'quality',
+      () => runQualityRules(sourceFile, inferred, templateMatches, config, fileRole, project),
+      [],
+    ),
+  );
 
   // Phase 6: Concept extraction + concept rules (universal, cross-language)
   const emptyConcepts = { filePath, language: 'typescript', nodes: [], edges: [], extractorVersion: '0' };
@@ -157,9 +358,32 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
   allFindings.push(...safePhase('concept-rules', () => runConceptRules(concepts, filePath), []));
 
   // Phase 7: KERN-IR lint (ground layer + confidence rules on inferred nodes)
-  const irNodes = inferred.map(r => r.node);
-  allFindings.push(...safePhase('ground-lint', () => lintKernIR(irNodes, GROUND_LAYER_RULES), []));
-  allFindings.push(...safePhase('confidence-lint', () => lintConfidenceGraph(irNodes), []));
+  const irNodes = inferred.map((r) => r.node);
+  const groundFindings = safePhase('ground-lint', () => lintKernIR(irNodes, GROUND_LAYER_RULES), []);
+  for (const f of groundFindings) {
+    if (!f.primarySpan.file) f.primarySpan.file = filePath;
+  }
+  allFindings.push(...groundFindings);
+  const confFindings = safePhase('confidence-lint', () => lintConfidenceGraph(irNodes), []);
+  for (const f of confFindings) {
+    if (!f.primarySpan.file) f.primarySpan.file = filePath;
+  }
+  allFindings.push(...confFindings);
+
+  // Phase 7b: Native .kern rules (built-in + custom)
+  const rulesToRun = [...NATIVE_RULES];
+  if (config?.rulesDirs && config.rulesDirs.length > 0) {
+    const builtinIds = new Set(NATIVE_RULES.map((r) => r.ruleId).filter(Boolean) as string[]);
+    const customRules = loadNativeRules(config.rulesDirs, builtinIds);
+    rulesToRun.push(...customRules);
+  }
+  if (rulesToRun.length > 0) {
+    const nativeFindings = safePhase('native-rules', () => lintKernIR(irNodes, rulesToRun, concepts), []);
+    for (const f of nativeFindings) {
+      if (!f.primarySpan.file) f.primarySpan.file = filePath;
+    }
+    allFindings.push(...nativeFindings);
+  }
 
   // Phase 8: TSC diagnostics — native TypeScript compiler errors
   allFindings.push(...safePhase('tsc', () => runTSCDiagnostics(project), []));
@@ -167,7 +391,7 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
   // Build confidence graph if any nodes have confidence props
   let confidenceGraph: ReviewReport['confidenceGraph'];
   let confidenceSummary: ReviewReport['confidenceSummary'];
-  const hasConfidence = irNodes.some(n => n.props?.confidence !== undefined);
+  const hasConfidence = irNodes.some((n) => n.props?.confidence !== undefined);
   if (hasConfidence) {
     const graph = buildConfidenceGraph(irNodes);
     confidenceGraph = serializeGraph(graph);
@@ -176,6 +400,9 @@ export function reviewSource(source: string, filePath = 'input.ts', config?: Rev
 
   // Merge, dedup, sort — single shared utility
   const dedupedFindings = sortAndDedup(allFindings);
+
+  // Assign calibrated confidence scores to all findings
+  assignDefaultConfidence(dedupedFindings);
 
   // Apply suppression (inline comments + config disabledRules)
   const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
@@ -205,10 +432,14 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
   const allFindings: ReviewFinding[] = [];
 
   function safePhase<T>(name: string, fn: () => T, fallback: T): T {
-    try { return fn(); }
-    catch (err) {
+    try {
+      return fn();
+    } catch (err) {
       allFindings.push({
-        source: 'kern', ruleId: 'internal-error', severity: 'info', category: 'structure',
+        source: 'kern',
+        ruleId: 'internal-error',
+        severity: 'info',
+        category: 'structure',
         message: `Review phase '${name}' failed: ${(err as Error).message}`,
         primarySpan: { file: filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
         fingerprint: createFingerprint('internal-error', 1, name.charCodeAt(0)),
@@ -217,35 +448,74 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
     }
   }
 
-  // Parse .kern → IR tree
-  const root = safePhase('parse', () => parseKern(source), { type: 'document' } as IRNode);
+  // Parse .kern → IR tree + structured diagnostics
+  const { root, diagnostics: parseDiags } = safePhase('parse', () => parseWithDiagnostics(source), {
+    root: { type: 'document' } as IRNode,
+    diagnostics: [] as ParseDiagnostic[],
+  });
+
+  // Map parse diagnostics → ReviewFindings (severity capped at 'warning' unless --strict-parse is enabled)
+  const hasParseErrors = parseDiags.some((d) => d.severity === 'error');
+  for (const d of parseDiags) {
+    allFindings.push({
+      source: 'kern',
+      ruleId: `parse/${d.code}`,
+      severity: d.severity === 'error' ? (_config?.strictParse ? 'error' : 'warning') : d.severity,
+      category: 'bug',
+      message: d.message,
+      primarySpan: { file: filePath, startLine: d.line, startCol: d.col, endLine: d.line, endCol: d.endCol },
+      suggestion: d.suggestion,
+      fingerprint: createFingerprint(`parse/${d.code}`, d.line, d.col),
+    });
+  }
 
   // Flatten IR tree for rule consumption
-  const flatNodes = flattenIR(root).filter(n => n.type !== 'document');
+  const flatNodes = flattenIR(root).filter((n) => n.type !== 'document');
 
-  // Ground-layer rules on IR nodes
-  const groundFindings = safePhase('ground-lint', () => lintKernIR(flatNodes, GROUND_LAYER_RULES), []);
-  // Attach filePath to findings (ground rules may leave file empty)
-  for (const f of groundFindings) {
-    if (!f.primarySpan.file) f.primarySpan.file = filePath;
+  // Skip structural lint when parse has errors — partial tree causes cascading false positives
+  if (!hasParseErrors) {
+    // Ground-layer rules on IR nodes
+    const groundFindings = safePhase('ground-lint', () => lintKernIR(flatNodes, GROUND_LAYER_RULES), []);
+    for (const f of groundFindings) {
+      if (!f.primarySpan.file) f.primarySpan.file = filePath;
+    }
+    allFindings.push(...groundFindings);
+
+    // Confidence rules on IR nodes
+    const confFindings = safePhase('confidence-lint', () => lintConfidenceGraph(flatNodes), []);
+    for (const f of confFindings) {
+      if (!f.primarySpan.file) f.primarySpan.file = filePath;
+    }
+    allFindings.push(...confFindings);
+
+    // File-aware .kern review rules on flattened IR nodes
+    const kernSourceFindings = safePhase(
+      'kern-source-lint',
+      () => lintKernSourceIR(flatNodes, filePath, KERN_SOURCE_RULES),
+      [],
+    );
+    allFindings.push(...kernSourceFindings);
+
+    // Native .kern rules (built-in + custom)
+    const rulesToRunKern = [...NATIVE_RULES];
+    if (_config?.rulesDirs && _config.rulesDirs.length > 0) {
+      const builtinIds = new Set(NATIVE_RULES.map((r) => r.ruleId).filter(Boolean) as string[]);
+      const customRules = loadNativeRules(_config.rulesDirs, builtinIds);
+      rulesToRunKern.push(...customRules);
+    }
+    if (rulesToRunKern.length > 0) {
+      const nativeFindings = safePhase('native-rules', () => lintKernIR(flatNodes, rulesToRunKern), []);
+      for (const f of nativeFindings) {
+        if (!f.primarySpan.file) f.primarySpan.file = filePath;
+      }
+      allFindings.push(...nativeFindings);
+    }
   }
-  allFindings.push(...groundFindings);
-
-  // Confidence rules on IR nodes
-  const confFindings = safePhase('confidence-lint', () => lintConfidenceGraph(flatNodes), []);
-  for (const f of confFindings) {
-    if (!f.primarySpan.file) f.primarySpan.file = filePath;
-  }
-  allFindings.push(...confFindings);
-
-  // File-aware .kern review rules on flattened IR nodes
-  const kernSourceFindings = safePhase('kern-source-lint', () => lintKernSourceIR(flatNodes, filePath, KERN_SOURCE_RULES), []);
-  allFindings.push(...kernSourceFindings);
 
   // Confidence graph
   let confidenceGraph: ReviewReport['confidenceGraph'];
   let confidenceSummary: ReviewReport['confidenceSummary'];
-  if (flatNodes.some(n => n.props?.confidence !== undefined)) {
+  if (flatNodes.some((n) => n.props?.confidence !== undefined)) {
     const graph = buildConfidenceGraph(flatNodes);
     confidenceGraph = serializeGraph(graph);
     confidenceSummary = computeConfidenceSummary(graph);
@@ -264,10 +534,15 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
       promptAlias: `N${i + 1}`,
       startLine: line,
       endLine,
-      sourceSpans: [{
-        file: filePath, startLine: line, startCol: node.loc?.col ?? 1,
-        endLine, endCol: node.loc?.endCol ?? 1,
-      }],
+      sourceSpans: [
+        {
+          file: filePath,
+          startLine: line,
+          startCol: node.loc?.col ?? 1,
+          endLine,
+          endCol: node.loc?.endCol ?? 1,
+        },
+      ],
       summary: `${node.type}${name !== node.type ? ` ${name}` : ''}`,
       confidence: 'high' as const,
       confidencePct: 100,
@@ -277,6 +552,7 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
   });
 
   const dedupedFindings = sortAndDedup(allFindings);
+  assignDefaultConfidence(dedupedFindings);
   const suppression = applySuppression(dedupedFindings, source, filePath, _config, _config?.strict ?? false);
   const findings = sortAndDedup(suppression.findings);
   const kernTokens = countTokens(source);
@@ -314,20 +590,36 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
     const { extractPythonConcepts } = require('@kernlang/review-python');
     const concepts = extractPythonConcepts(source, filePath);
     conceptFindings = runConceptRules(concepts, filePath);
+    if (config?.target === 'fastapi') {
+      conceptFindings.push(...runFastapiConceptRules(concepts, filePath, source));
+    }
+    // Native .kern rules with concept matching (built-in + custom)
+    const rulesToRunPy = [...NATIVE_RULES];
+    if (config?.rulesDirs && config.rulesDirs.length > 0) {
+      const builtinIds = new Set(NATIVE_RULES.map((r) => r.ruleId).filter(Boolean) as string[]);
+      const customRules = loadNativeRules(config.rulesDirs, builtinIds);
+      rulesToRunPy.push(...customRules);
+    }
+    if (rulesToRunPy.length > 0) {
+      conceptFindings.push(...lintKernIR([], rulesToRunPy, concepts));
+    }
   } catch (_err) {
     // @kernlang/review-python not installed — skip concept extraction
-    conceptFindings = [{
-      source: 'kern',
-      ruleId: 'missing-python-support',
-      severity: 'info',
-      category: 'structure' as const,
-      message: 'Install @kernlang/review-python for Python concept analysis',
-      primarySpan: { file: filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
-      fingerprint: 'missing-python-0',
-    }];
+    conceptFindings = [
+      {
+        source: 'kern',
+        ruleId: 'missing-python-support',
+        severity: 'info',
+        category: 'structure' as const,
+        message: 'Install @kernlang/review-python for Python concept analysis',
+        primarySpan: { file: filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+        fingerprint: 'missing-python-0',
+      },
+    ];
   }
 
   const dedupedFindings = sortAndDedup(conceptFindings);
+  assignDefaultConfidence(dedupedFindings);
   const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
   const findings = sortAndDedup(suppression.findings);
 
@@ -370,19 +662,19 @@ export function reviewDirectory(dirPath: string, recursive = false, config?: Rev
  * Review files with full import graph context.
  * Entry files get normal findings, upstream dependencies get origin='upstream'.
  */
-export function reviewGraph(
-  entryFiles: string[],
-  config?: ReviewConfig,
-  graphOptions?: GraphOptions,
-): ReviewReport[] {
+export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOptions?: GraphOptions): ReviewReport[] {
   const graph = resolveImportGraph(entryFiles, graphOptions);
   const entrySet = new Set(graph.entryFiles);
   const reports: ReviewReport[] = [];
 
+  // Build file context map — every file gets import chain awareness
+  const fileContextMap = buildFileContextMap(graph);
+  const graphConfig: ReviewConfig = { ...config, fileContextMap };
+
   for (const gf of graph.files) {
     if (!existsSync(gf.path)) continue;
     try {
-      const report = reviewFile(gf.path, config);
+      const report = reviewFile(gf.path, graphConfig);
       const isEntry = entrySet.has(gf.path);
 
       // Tag every finding with provenance
@@ -421,13 +713,111 @@ export function reviewGraph(
   const crossFileResults = analyzeTaintCrossFile(inferredPerFile, graphImports);
   if (crossFileResults.length > 0) {
     const crossFileFindings = crossFileTaintToFindings(crossFileResults);
-    // Add cross-file findings to the caller's report
+    // Add cross-file findings to the caller's report, then re-run suppression
     for (const f of crossFileFindings) {
-      const callerReport = reports.find(r => r.filePath === f.primarySpan.file);
+      const callerReport = reports.find((r) => r.filePath === f.primarySpan.file);
       if (callerReport) {
         callerReport.findings.push(f);
-        callerReport.findings = sortAndDedup(callerReport.findings);
       }
+    }
+    // Attach raw cross-file taint results for structured output
+    for (const result of crossFileResults) {
+      const callerReport = reports.find((r) => r.filePath === result.callerFile);
+      if (callerReport) {
+        if (!callerReport.crossFileTaint) callerReport.crossFileTaint = [];
+        callerReport.crossFileTaint.push(result);
+      }
+    }
+  }
+
+  // Cross-file concept analysis — re-run concept rules with full graph context
+  // This fixes false positives where guards are in middleware files and effects in handlers
+  const allConcepts = new Map<string, import('@kernlang/core').ConceptMap>();
+  for (const report of reports) {
+    const filePath = report.filePath;
+    try {
+      const source = readFileSync(filePath, 'utf-8');
+      if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) {
+        const project = createInMemoryProject();
+        const sf = project.createSourceFile(filePath, source);
+        allConcepts.set(filePath, extractTsConcepts(sf, filePath));
+      }
+    } catch {
+      // Skip files that fail concept extraction
+    }
+  }
+
+  if (allConcepts.size > 0) {
+    // Concept rule IDs to replace (remove per-file findings, add cross-file ones)
+    const CONCEPT_RULE_IDS = new Set(['boundary-mutation', 'ignored-error', 'unguarded-effect', 'unrecovered-effect']);
+
+    for (const report of reports) {
+      const concepts = allConcepts.get(report.filePath);
+      if (!concepts) continue;
+
+      // Remove per-file concept findings (they were run without cross-file context)
+      report.findings = report.findings.filter((f) => !CONCEPT_RULE_IDS.has(f.ruleId));
+
+      // Re-run concept rules with cross-file context
+      const crossFileConceptFindings = runConceptRules(concepts, report.filePath, allConcepts, graphImports);
+      report.findings.push(...crossFileConceptFindings);
+    }
+  }
+
+  // Note: server-hook / missing-use-client client boundary suppression is now handled
+  // by FileContext in the rules themselves (ctx.fileContext.isClientBoundary).
+
+  // ── Norm mining + proof obligations ──
+  if (allConcepts.size > 0) {
+    const normViolations = mineNorms(allConcepts);
+    for (const report of reports) {
+      const obligations = synthesizeObligations(allConcepts, fileContextMap, report.filePath, normViolations);
+      // Attach obligations to the report (as metadata, not findings — they're for the LLM reviewer)
+      (report as any).obligations = obligations;
+    }
+  }
+
+  // ── Call graph analysis: dead exports + cross-file async ──
+  try {
+    // Use provided project, or build one with all graph files loaded
+    let cgProject = graphOptions?.project;
+    if (!cgProject) {
+      const { Project } = require('ts-morph') as typeof import('ts-morph');
+      cgProject = new Project({
+        compilerOptions: { strict: true, target: 99, module: 99, moduleResolution: 100, skipLibCheck: true },
+        useInMemoryFileSystem: false,
+        skipAddingFilesFromTsConfig: true,
+      });
+      for (const gf of graph.files) {
+        try {
+          cgProject.addSourceFileAtPath(gf.path);
+        } catch {
+          /* skip unresolvable */
+        }
+      }
+    }
+
+    const callGraph = buildCallGraph(graph, cgProject);
+
+    for (const report of reports) {
+      const deadExportFindings = deadExportRule(callGraph, report.filePath);
+      report.findings.push(...deadExportFindings);
+
+      const asyncFindings = crossFileAsyncRule(callGraph, report.filePath);
+      report.findings.push(...asyncFindings);
+    }
+  } catch {
+    // Call graph build failure should not crash the review pipeline
+  }
+
+  // Re-run suppression + dedup on all reports (cross-file findings were injected after initial suppression)
+  for (const report of reports) {
+    try {
+      const source = readFileSync(report.filePath, 'utf-8');
+      const suppression = applySuppression(report.findings, source, report.filePath, config, config?.strict ?? false);
+      report.findings = sortAndDedup(suppression.findings);
+    } catch {
+      report.findings = sortAndDedup(report.findings);
     }
   }
 
@@ -439,9 +829,23 @@ function collectReviewableFiles(dirPath: string, recursive: boolean): string[] {
   for (const entry of readdirSync(dirPath)) {
     const full = join(dirPath, entry);
     const stat = statSync(full);
-    if (stat.isDirectory() && recursive && !entry.startsWith('.') && entry !== 'node_modules' && entry !== 'dist' && entry !== '__pycache__' && entry !== '.venv' && entry !== 'venv') {
+    if (
+      stat.isDirectory() &&
+      recursive &&
+      !entry.startsWith('.') &&
+      entry !== 'node_modules' &&
+      entry !== 'dist' &&
+      entry !== '__pycache__' &&
+      entry !== '.venv' &&
+      entry !== 'venv'
+    ) {
       files.push(...collectReviewableFiles(full, true));
-    } else if ((entry.endsWith('.ts') || entry.endsWith('.tsx')) && !entry.endsWith('.d.ts') && !entry.endsWith('.test.ts') && !entry.endsWith('.test.tsx')) {
+    } else if (
+      (entry.endsWith('.ts') || entry.endsWith('.tsx')) &&
+      !entry.endsWith('.d.ts') &&
+      !entry.endsWith('.test.ts') &&
+      !entry.endsWith('.test.tsx')
+    ) {
       files.push(full);
     } else if (entry.endsWith('.py') && !entry.startsWith('test_') && !entry.endsWith('_test.py')) {
       files.push(full);

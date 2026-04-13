@@ -1,5 +1,11 @@
 # @kernlang/playground
 
+## Unreleased
+
+### Bug Fixes
+
+- Removed unused imports: `serializeIR`, `countTokens` (api/infer/route.ts)
+
 ## 3.0.0
 
 ### Major Changes

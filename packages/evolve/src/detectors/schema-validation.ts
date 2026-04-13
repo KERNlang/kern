@@ -3,7 +3,7 @@
  */
 
 import type { SourceFile } from 'ts-morph';
-import type { DetectorPack, DetectionResult } from '../types.js';
+import type { DetectionResult, DetectorPack } from '../types.js';
 
 const yupSchemaDetector: DetectorPack = {
   id: 'yup-schema',
@@ -17,9 +17,7 @@ const yupSchemaDetector: DetectorPack = {
     const schemaRe = /(?:export\s+)?const\s+(\w+)\s*=\s*(?:yup\s*\.\s*)?object\s*\(\s*\{/g;
     let match: RegExpExecArray | null;
     while ((match = schemaRe.exec(fullText)) !== null) {
-      const hasYupImport = sourceFile.getImportDeclarations().some(imp =>
-        imp.getModuleSpecifierValue() === 'yup',
-      );
+      const hasYupImport = sourceFile.getImportDeclarations().some((imp) => imp.getModuleSpecifierValue() === 'yup');
       if (!hasYupImport) continue;
 
       const varName = match[1];
@@ -65,9 +63,7 @@ const valibotDetector: DetectorPack = {
     const schemaRe = /(?:export\s+)?const\s+(\w+)\s*=\s*v\s*\.\s*object\s*\(\s*\{/g;
     let match: RegExpExecArray | null;
     while ((match = schemaRe.exec(fullText)) !== null) {
-      const hasImport = sourceFile.getImportDeclarations().some(imp =>
-        imp.getModuleSpecifierValue() === 'valibot',
-      );
+      const hasImport = sourceFile.getImportDeclarations().some((imp) => imp.getModuleSpecifierValue() === 'valibot');
       if (!hasImport) continue;
 
       const varName = match[1];

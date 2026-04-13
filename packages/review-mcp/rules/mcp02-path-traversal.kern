@@ -1,0 +1,20 @@
+action name=mcp-path-traversal
+  reason value="CWE-22, OWASP MCP03"
+  config severity=error confidence=0.90 category=bug
+
+  effect name=fs-ops kind=fs
+    pattern lang=ts match="\b(readFile|readFileSync|writeFile|writeFileSync|readdir|readdirSync|unlink|unlinkSync|mkdir|mkdirSync|createReadStream|createWriteStream|access|accessSync|stat|statSync|copyFile|copyFileSync|rename|renameSync|rm|rmSync)\s*\("
+    pattern lang=py match="\b(open|os\.remove|os\.unlink|os\.rmdir|os\.rename|os\.listdir|os\.makedirs|shutil\.copy|shutil\.move|shutil\.rmtree|pathlib\.Path)\s*\("
+
+  guard name=path-containment kind=path-containment needs="path-resolve"
+    pattern lang=ts match="\.startsWith\s*\("
+    pattern lang=py match="\.startswith\s*\("
+
+  guard name=path-resolve kind=validation
+    pattern lang=ts match="\b(path\.resolve|path\.normalize|resolve)\s*\("
+    pattern lang=py match="\b(os\.path\.abspath|os\.path\.realpath|os\.path\.normpath)\s*\("
+
+  invariant name=unvalidated-path
+    expect from=tool-params to=fs-ops guarded-by="path-containment"
+    evidence value="File system operation in MCP tool handler without path containment check — path traversal risk"
+    suggestion value="Resolve the path with path.resolve() then verify it startsWith() the allowed base directory. Reject paths containing '..'."

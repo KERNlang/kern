@@ -3,14 +3,14 @@
  */
 
 import type { SourceFile } from 'ts-morph';
-import type { DetectorPack, DetectionResult } from '../types.js';
+import type { DetectionResult, DetectorPack } from '../types.js';
 
 const axiosInstanceDetector: DetectorPack = {
   id: 'axios-instance',
   libraryName: 'Axios',
   packageNames: ['axios'],
   patternKind: 'data-fetching',
-  detect(sourceFile: SourceFile, fullText: string): DetectionResult[] {
+  detect(_sourceFile: SourceFile, fullText: string): DetectionResult[] {
     const results: DetectionResult[] = [];
 
     // Pattern: axios.create({ baseURL, headers, ... })
@@ -86,7 +86,7 @@ const kyDetector: DetectorPack = {
   libraryName: 'Ky',
   packageNames: ['ky'],
   patternKind: 'data-fetching',
-  detect(sourceFile: SourceFile, fullText: string): DetectionResult[] {
+  detect(_sourceFile: SourceFile, fullText: string): DetectionResult[] {
     const results: DetectionResult[] = [];
 
     // Pattern: ky.create({ prefixUrl, hooks })
@@ -112,9 +112,7 @@ const kyDetector: DetectorPack = {
         startLine,
         endLine,
         snippet,
-        extractedParams: [
-          { name: 'instanceName', slotType: 'identifier', value: varName, optional: false },
-        ],
+        extractedParams: [{ name: 'instanceName', slotType: 'identifier', value: varName, optional: false }],
         confidencePct: 78,
       });
     }

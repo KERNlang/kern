@@ -5,7 +5,7 @@
  * Maps detected structural patterns to proposed KERN node types.
  */
 
-import type { AnalyzedPattern, NodeProposal, ExpressibilityScore } from './types.js';
+import type { AnalyzedPattern, ExpressibilityScore, NodeProposal } from './types.js';
 
 let _nodeProposalCounter = 0;
 
@@ -44,16 +44,14 @@ export function deriveNodeName(pattern: AnalyzedPattern): string {
   }
 
   // Fallback: derive from template name
-  const cleaned = pattern.templateName
-    .replace(/^structural-?/, '')
-    .replace(/-\w+$/, '');
+  const cleaned = pattern.templateName.replace(/^structural-?/, '').replace(/-\w+$/, '');
   return cleaned || 'unknown';
 }
 
 /**
  * Generate example KERN syntax for a proposed node.
  */
-export function generateKernSyntaxExample(nodeName: string, pattern: AnalyzedPattern): string {
+export function generateKernSyntaxExample(nodeName: string, _pattern: AnalyzedPattern): string {
   const examples: Record<string, string> = {
     model: [
       `model name=Example table=examples`,
@@ -75,10 +73,7 @@ export function generateKernSyntaxExample(nodeName: string, pattern: AnalyzedPat
       `  entry name=item key="ex:{id}"`,
       `    strategy read-through`,
     ].join('\n'),
-    conditional: [
-      `conditional if=isEnabled`,
-      `  text value="Feature enabled"`,
-    ].join('\n'),
+    conditional: [`conditional if=isEnabled`, `  text value="Feature enabled"`].join('\n'),
     select: [
       `select name=status value=current placeholder="Choose"`,
       `  option value=active label="Active"`,
@@ -92,7 +87,7 @@ export function generateKernSyntaxExample(nodeName: string, pattern: AnalyzedPat
 /**
  * Generate a codegen stub for a proposed node.
  */
-export function generateCodegenStub(nodeName: string, pattern: AnalyzedPattern): string {
+export function generateCodegenStub(nodeName: string, _pattern: AnalyzedPattern): string {
   const fnName = `generate${nodeName[0].toUpperCase()}${nodeName.slice(1)}`;
   return [
     `export function ${fnName}(node: IRNode): string[] {`,
@@ -112,10 +107,7 @@ export function generateCodegenStub(nodeName: string, pattern: AnalyzedPattern):
  * Each pattern with an expressibility score above the threshold
  * gets a deterministic node proposal.
  */
-export function proposeNodes(
-  patterns: AnalyzedPattern[],
-  scores: Map<string, ExpressibilityScore>,
-): NodeProposal[] {
+export function proposeNodes(patterns: AnalyzedPattern[], scores: Map<string, ExpressibilityScore>): NodeProposal[] {
   const proposals: NodeProposal[] = [];
 
   for (const pattern of patterns) {

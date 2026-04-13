@@ -5,11 +5,11 @@
  * to auto-generate a KernConfig that matches the project's setup.
  */
 
-import { readFileSync, existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
-import { detectVersionsFromPackageJson } from './version-detect.js';
-import { DEFAULT_CONFIG } from './config.js';
 import type { KernConfig, KernTarget } from './config.js';
+import { DEFAULT_CONFIG } from './config.js';
+import { detectVersionsFromPackageJson } from './version-detect.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -91,45 +91,85 @@ function detectFromPackageJson(
   if (versions.nextjs || versions.tailwind) {
     config.frameworkVersions = versions;
     if (versions.nextjs) {
-      detections.push({ source: 'package.json', field: 'frameworkVersions.nextjs', value: versions.nextjs, confidence: 'high' });
+      detections.push({
+        source: 'package.json',
+        field: 'frameworkVersions.nextjs',
+        value: versions.nextjs,
+        confidence: 'high',
+      });
     }
     if (versions.tailwind) {
-      detections.push({ source: 'package.json', field: 'frameworkVersions.tailwind', value: versions.tailwind, confidence: 'high' });
+      detections.push({
+        source: 'package.json',
+        field: 'frameworkVersions.tailwind',
+        value: versions.tailwind,
+        confidence: 'high',
+      });
     }
   }
 
   // ── i18n detection ──
   if (allDeps['next-intl']) {
     config.i18n = { enabled: true, hookName: 'useTranslations', importPath: 'next-intl' };
-    detections.push({ source: 'package.json', field: 'i18n', value: 'next-intl (useTranslations)', confidence: 'high' });
+    detections.push({
+      source: 'package.json',
+      field: 'i18n',
+      value: 'next-intl (useTranslations)',
+      confidence: 'high',
+    });
   } else if (allDeps['react-i18next']) {
     config.i18n = { enabled: true, hookName: 'useTranslation', importPath: 'react-i18next' };
-    detections.push({ source: 'package.json', field: 'i18n', value: 'react-i18next (useTranslation)', confidence: 'high' });
+    detections.push({
+      source: 'package.json',
+      field: 'i18n',
+      value: 'react-i18next (useTranslation)',
+      confidence: 'high',
+    });
   } else {
     config.i18n = { enabled: false };
-    detections.push({ source: 'package.json', field: 'i18n', value: 'disabled (no i18n library found)', confidence: 'medium' });
+    detections.push({
+      source: 'package.json',
+      field: 'i18n',
+      value: 'disabled (no i18n library found)',
+      confidence: 'medium',
+    });
   }
 
   // ── UI library detection ──
   if (allDeps['@shadcn/ui'] || pkg.name === 'shadcn' || existsSync(resolve(cwd, 'components.json'))) {
     config.components = { ...config.components, uiLibrary: '@/components/ui' };
-    detections.push({ source: 'package.json', field: 'components.uiLibrary', value: '@/components/ui (shadcn)', confidence: 'high' });
+    detections.push({
+      source: 'package.json',
+      field: 'components.uiLibrary',
+      value: '@/components/ui (shadcn)',
+      confidence: 'high',
+    });
   } else if (allDeps['@mui/material']) {
     config.components = { ...config.components, uiLibrary: '@mui/material' };
-    detections.push({ source: 'package.json', field: 'components.uiLibrary', value: '@mui/material', confidence: 'high' });
+    detections.push({
+      source: 'package.json',
+      field: 'components.uiLibrary',
+      value: '@mui/material',
+      confidence: 'high',
+    });
   } else if (allDeps['@chakra-ui/react']) {
     config.components = { ...config.components, uiLibrary: '@chakra-ui/react' };
-    detections.push({ source: 'package.json', field: 'components.uiLibrary', value: '@chakra-ui/react', confidence: 'high' });
+    detections.push({
+      source: 'package.json',
+      field: 'components.uiLibrary',
+      value: '@chakra-ui/react',
+      confidence: 'high',
+    });
   }
 
   // ── Express extras ──
   if (target === 'express') {
     const express: KernConfig['express'] = {};
-    if (allDeps['helmet']) {
+    if (allDeps.helmet) {
       express.helmet = true;
       detections.push({ source: 'package.json', field: 'express.helmet', value: 'true', confidence: 'high' });
     }
-    if (allDeps['compression']) {
+    if (allDeps.compression) {
       express.compression = true;
       detections.push({ source: 'package.json', field: 'express.compression', value: 'true', confidence: 'high' });
     }
@@ -152,24 +192,20 @@ function detectTarget(allDeps: Record<string, string>): KernTarget | null {
   // Priority: most specific framework first, then broader ones.
   // Order matters — ink/react-native depend on react, nuxt depends on vue,
   // so specific targets must be checked before their base frameworks.
-  if (allDeps['next']) return 'nextjs';
-  if (allDeps['nuxt']) return 'nuxt';
-  if (allDeps['ink']) return 'ink';
+  if (allDeps.next) return 'nextjs';
+  if (allDeps.nuxt) return 'nuxt';
+  if (allDeps.ink) return 'ink';
   if (allDeps['react-native']) return 'native';
-  if (allDeps['express']) return 'express';
-  if (allDeps['tailwindcss'] && !allDeps['next']) return 'tailwind';
-  if (allDeps['vue']) return 'vue';
-  if (allDeps['react']) return 'web';
+  if (allDeps.express) return 'express';
+  if (allDeps.tailwindcss && !allDeps.next) return 'tailwind';
+  if (allDeps.vue) return 'vue';
+  if (allDeps.react) return 'web';
   return null;
 }
 
 // ── Detector: Python project (pyproject.toml / requirements.txt) ─────────
 
-function detectFromPythonProject(
-  cwd: string,
-  config: Partial<KernConfig>,
-  detections: Detection[],
-): void {
+function detectFromPythonProject(cwd: string, config: Partial<KernConfig>, detections: Detection[]): void {
   // Skip if target already detected from package.json
   if (config.target) return;
 
@@ -206,12 +242,7 @@ function detectFromPythonProject(
 
 // ── Detector: tsconfig.json ──────────────────────────────────────────────
 
-function detectFromTsconfig(
-  cwd: string,
-  config: Partial<KernConfig>,
-  info: ScanInfo,
-  detections: Detection[],
-): void {
+function detectFromTsconfig(cwd: string, config: Partial<KernConfig>, info: ScanInfo, detections: Detection[]): void {
   const tsconfigPath = resolve(cwd, 'tsconfig.json');
   if (!existsSync(tsconfigPath)) return;
 
@@ -238,7 +269,7 @@ function detectFromTsconfig(
 
   // Merge compiler options (tsconfig overrides base)
   const baseOpts = (baseConfig.compilerOptions ?? {}) as Record<string, unknown>;
-  const opts = { ...baseOpts, ...(tsconfig.compilerOptions ?? {}) as Record<string, unknown> };
+  const opts = { ...baseOpts, ...((tsconfig.compilerOptions ?? {}) as Record<string, unknown>) };
 
   const strict = opts.strict === true;
   const module = (opts.module as string) ?? null;
@@ -246,7 +277,12 @@ function detectFromTsconfig(
 
   info.typescript = { strict, pathAliases: paths, module };
 
-  detections.push({ source: 'tsconfig.json', field: 'info.typescript.strict', value: String(strict), confidence: 'high' });
+  detections.push({
+    source: 'tsconfig.json',
+    field: 'info.typescript.strict',
+    value: String(strict),
+    confidence: 'high',
+  });
 
   if (module) {
     detections.push({ source: 'tsconfig.json', field: 'info.typescript.module', value: module, confidence: 'medium' });
@@ -254,20 +290,21 @@ function detectFromTsconfig(
 
   // Extract path aliases → componentRoot
   const aliasKeys = Object.keys(paths);
-  const atAlias = aliasKeys.find(k => k.startsWith('@/'));
+  const atAlias = aliasKeys.find((k) => k.startsWith('@/'));
   if (atAlias) {
     config.components = { ...config.components, componentRoot: '@/components' };
-    detections.push({ source: 'tsconfig.json', field: 'components.componentRoot', value: '@/components (from @/* alias)', confidence: 'medium' });
+    detections.push({
+      source: 'tsconfig.json',
+      field: 'components.componentRoot',
+      value: '@/components (from @/* alias)',
+      confidence: 'medium',
+    });
   }
 }
 
 // ── Detector: .prettierrc ────────────────────────────────────────────────
 
-function detectFromPrettierrc(
-  cwd: string,
-  info: ScanInfo,
-  detections: Detection[],
-): void {
+function detectFromPrettierrc(cwd: string, info: ScanInfo, detections: Detection[]): void {
   const candidates = ['.prettierrc', '.prettierrc.json'];
   let raw: string | null = null;
   let source = '';
@@ -301,16 +338,17 @@ function detectFromPrettierrc(
 
   info.formatting = { semicolons, singleQuote, tabWidth, trailingComma };
 
-  detections.push({ source, field: 'info.formatting', value: `semi=${semicolons} quote=${singleQuote ? 'single' : 'double'} tab=${tabWidth}`, confidence: 'medium' });
+  detections.push({
+    source,
+    field: 'info.formatting',
+    value: `semi=${semicolons} quote=${singleQuote ? 'single' : 'double'} tab=${tabWidth}`,
+    confidence: 'medium',
+  });
 }
 
 // ── Detector: .editorconfig ──────────────────────────────────────────────
 
-function detectFromEditorConfig(
-  cwd: string,
-  info: ScanInfo,
-  detections: Detection[],
-): void {
+function detectFromEditorConfig(cwd: string, info: ScanInfo, detections: Detection[]): void {
   const ecPath = resolve(cwd, '.editorconfig');
   if (!existsSync(ecPath)) return;
 
@@ -335,23 +373,24 @@ function detectFromEditorConfig(
     }
     if (!inGlobal) continue;
 
-    const [key, rawVal] = trimmed.split('=').map(s => s.trim());
+    const [key, rawVal] = trimmed.split('=').map((s) => s.trim());
     const val = rawVal?.replace(/[#;].*$/, '').trim();
     if (key === 'indent_style' && val) indentStyle = val;
     if (key === 'indent_size' && val) indentSize = parseInt(val, 10) || 2;
   }
 
   info.editorConfig = { indentStyle, indentSize };
-  detections.push({ source: '.editorconfig', field: 'info.editorConfig', value: `${indentStyle} (${indentSize})`, confidence: 'medium' });
+  detections.push({
+    source: '.editorconfig',
+    field: 'info.editorConfig',
+    value: `${indentStyle} (${indentSize})`,
+    confidence: 'medium',
+  });
 }
 
 // ── Detector: package manager (lockfile) ─────────────────────────────────
 
-function detectPackageManager(
-  cwd: string,
-  info: ScanInfo,
-  detections: Detection[],
-): void {
+function detectPackageManager(cwd: string, info: ScanInfo, detections: Detection[]): void {
   const lockfiles: Array<[string, ScanInfo['packageManager']]> = [
     ['pnpm-lock.yaml', 'pnpm'],
     ['yarn.lock', 'yarn'],

@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -41,7 +41,9 @@ describe('CLI Transpiler', () => {
   test('handler code appears verbatim in action callback', async () => {
     const { parse } = await import('../../core/src/parser.js');
     const { transpileCliApp } = await import('../src/transpiler-cli.js');
-    const ast = parse('cli name=test\n  command name=hello\n    arg name=name type=string required=true\n    handler <<<\n      console.log(name);\n    >>>');
+    const ast = parse(
+      'cli name=test\n  command name=hello\n    arg name=name type=string required=true\n    handler <<<\n      console.log(name);\n    >>>',
+    );
     const result = transpileCliApp(ast);
 
     const cmd = result.artifacts!.find((a: any) => a.path === 'commands/hello.ts');
@@ -71,11 +73,13 @@ describe('CLI Transpiler', () => {
   test('dashed flag names produce camelCase opts type', async () => {
     const { parse } = await import('../../core/src/parser.js');
     const { transpileCliApp } = await import('../src/transpiler-cli.js');
-    const ast = parse('cli name=test\n  command name=run\n    flag name=task-class type=string\n    handler <<<\n      console.log(opts.taskClass);\n    >>>');
+    const ast = parse(
+      'cli name=test\n  command name=run\n    flag name=task-class type=string\n    handler <<<\n      console.log(opts.taskClass);\n    >>>',
+    );
     const result = transpileCliApp(ast);
 
     const cmd = result.artifacts!.find((a: any) => a.path === 'commands/run.ts');
     expect(cmd!.content).toContain('taskClass');
-    expect(cmd!.content).not.toContain("task-class?:");
+    expect(cmd!.content).not.toContain('task-class?:');
   });
 });

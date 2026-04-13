@@ -4,8 +4,11 @@ packages/*/dist/
 examples/src/generated/
 examples/*.tsx
 *.min.kern
-.claude/settings.local.json
-.claude/docs/plans/*.md
+.claude/
 docs/plans/
 .claude*.tsbuildinfo
 *.tsbuildinfo
+.pnpm-store/
+.kern/
+.next/
+claude.md

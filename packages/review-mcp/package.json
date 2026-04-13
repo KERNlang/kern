@@ -1,13 +1,16 @@
 {
   "name": "@kernlang/review-mcp",
-  "version": "0.1.0",
+  "version": "3.1.9",
   "description": "MCP server security scanner — static analysis for Model Context Protocol implementations",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "kern-mcp-security": "./dist/cli.js"
+  },
   "scripts": {
-    "build": "tsc -b",
-    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --forceExit --config jest.config.js"
+    "build": "tsc -b && node scripts/compile-rules.mjs",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
   },
   "dependencies": {
     "@kernlang/core": "workspace:*",
@@ -20,5 +23,14 @@
       "default": "./dist/index.js"
     }
   },
+  "keywords": [
+    "kern",
+    "llm",
+    "mcp",
+    "security",
+    "static-analysis",
+    "owasp",
+    "ai"
+  ],
   "license": "AGPL-3.0"
 }

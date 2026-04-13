@@ -26,13 +26,12 @@ export type ConceptNodeKind =
   | 'state_mutation'
   | 'error_raise'
   | 'error_handle'
-  | 'guard';
+  | 'guard'
+  | 'function_declaration';
 
 // ── Concept Edge Kinds ───────────────────────────────────────────────────
 
-export type ConceptEdgeKind =
-  | 'call'
-  | 'dependency';
+export type ConceptEdgeKind = 'call' | 'dependency';
 
 // ── Typed Payloads ───────────────────────────────────────────────────────
 
@@ -54,6 +53,17 @@ export interface StateMutationPayload {
   readonly kind: 'state_mutation';
   target: string;
   scope: 'local' | 'module' | 'global' | 'shared';
+  via?: 'assignment' | 'increment' | 'call';
+  api?: string;
+}
+
+export interface FunctionDeclarationPayload {
+  readonly kind: 'function_declaration';
+  name: string;
+  async: boolean;
+  hasAwait: boolean;
+  isComponent: boolean;
+  isExport: boolean;
 }
 
 export interface ErrorRaisePayload {
@@ -92,11 +102,10 @@ export type ConceptNodePayload =
   | StateMutationPayload
   | ErrorRaisePayload
   | ErrorHandlePayload
-  | GuardPayload;
+  | GuardPayload
+  | FunctionDeclarationPayload;
 
-export type ConceptEdgePayload =
-  | CallPayload
-  | DependencyPayload;
+export type ConceptEdgePayload = CallPayload | DependencyPayload;
 
 // ── ConceptNode ──────────────────────────────────────────────────────────
 

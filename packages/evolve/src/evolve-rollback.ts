@@ -4,10 +4,10 @@
  * Moves to .trash/ for recovery instead of deleting permanently.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, renameSync, rmSync } from 'fs';
-import { resolve, join } from 'path';
-import { removeFromManifest } from './graduation.js';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs';
+import { join, resolve } from 'path';
 import type { EvolvedManifest } from './evolved-types.js';
+import { removeFromManifest } from './graduation.js';
 
 export interface RollbackResult {
   success: boolean;
@@ -56,11 +56,7 @@ export function findUsages(keyword: string, baseDir: string = process.cwd()): st
  *
  * @param force — skip usage check
  */
-export function rollbackNode(
-  keyword: string,
-  baseDir: string = process.cwd(),
-  force = false,
-): RollbackResult {
+export function rollbackNode(keyword: string, baseDir: string = process.cwd(), force = false): RollbackResult {
   const evolvedDir = resolve(baseDir, '.kern', 'evolved');
   const nodeDir = join(evolvedDir, keyword);
 
@@ -117,11 +113,7 @@ export interface PruneResult {
  *
  * @param dryRun — if true, just report what would be pruned
  */
-export function pruneNodes(
-  baseDir: string = process.cwd(),
-  thresholdDays = 90,
-  dryRun = false,
-): PruneResult[] {
+export function pruneNodes(baseDir: string = process.cwd(), thresholdDays = 90, dryRun = false): PruneResult[] {
   const evolvedDir = resolve(baseDir, '.kern', 'evolved');
   const manifestPath = join(evolvedDir, 'manifest.json');
 
@@ -177,10 +169,7 @@ export interface CollisionInfo {
  * Detect keyword collisions between evolved nodes and core NODE_TYPES.
  * Called when KERN is upgraded and new core types may have been added.
  */
-export function detectCollisions(
-  coreTypes: readonly string[],
-  baseDir: string = process.cwd(),
-): CollisionInfo[] {
+export function detectCollisions(coreTypes: readonly string[], baseDir: string = process.cwd()): CollisionInfo[] {
   const evolvedDir = resolve(baseDir, '.kern', 'evolved');
   const manifestPath = join(evolvedDir, 'manifest.json');
 
@@ -261,10 +250,7 @@ export function renameEvolvedNode(
 /**
  * Restore a previously rolled-back node from .trash/.
  */
-export function restoreNode(
-  keyword: string,
-  baseDir: string = process.cwd(),
-): { success: boolean; error?: string } {
+export function restoreNode(keyword: string, baseDir: string = process.cwd()): { success: boolean; error?: string } {
   const evolvedDir = resolve(baseDir, '.kern', 'evolved');
   const trashDir = join(evolvedDir, '.trash', keyword);
   const nodeDir = join(evolvedDir, keyword);

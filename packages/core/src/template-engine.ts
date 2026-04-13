@@ -5,12 +5,11 @@
  * Templates are registered at config/CLI time, then expanded during codegen.
  */
 
-import type { IRNode, TemplateDefinition, TemplateSlot, TemplateImport, TemplateSlotType } from './types.js';
-import { generateCoreNode } from './codegen-core.js';
+import { emitIdentifier, emitTemplateSafe, generateCoreNode } from './codegen-core.js';
+import { defaultRuntime, type KernRuntime } from './runtime.js';
+import type { IRNode, TemplateDefinition, TemplateImport, TemplateSlot, TemplateSlotType } from './types.js';
 
-// ── Registry ────────────────────────────────────────────────────────────
-
-const _registry = new Map<string, TemplateDefinition>();
+// ── Registry — now delegates to defaultRuntime ──────────────────────────
 
 const MAX_EXPANSION_DEPTH = 10;
 
@@ -31,17 +30,13 @@ function validateSlotValue(name: string, value: string, slotType: TemplateSlotTy
   switch (slotType) {
     case 'identifier':
       if (!IDENTIFIER_RE.test(value)) {
-        throw new KernTemplateError(
-          `Slot '${name}' requires a valid identifier, got '${value}'`
-        );
+        throw new KernTemplateError(`Slot '${name}' requires a valid identifier, got '${value}'`);
       }
       break;
     case 'type':
     case 'expr':
       if (!value || value.trim().length === 0) {
-        throw new KernTemplateError(
-          `Slot '${name}' (${slotType}) must be non-empty`
-        );
+        throw new KernTemplateError(`Slot '${name}' (${slotType}) must be non-empty`);
       }
       break;
     case 'block':
@@ -58,7 +53,7 @@ function p(node: IRNode): Record<string, unknown> {
 
 function kids(node: IRNode, type?: string): IRNode[] {
   const c = node.children || [];
-  return type ? c.filter(n => n.type === type) : c;
+  return type ? c.filter((n) => n.type === type) : c;
 }
 
 /**
@@ -105,27 +100,28 @@ export function registerTemplate(node: IRNode, sourceFile?: string): void {
   }
   const body = (p(bodyNode).code as string) || '';
 
-  _registry.set(name, { name, slots, imports, body, sourceFile });
+  defaultRuntime.registerTemplate(name, { name, slots, imports, body, sourceFile });
 }
 
 /** Check if a node type matches a registered template. */
-export function isTemplateNode(type: string): boolean {
-  return _registry.has(type);
+export function isTemplateNode(type: string, runtime?: KernRuntime): boolean {
+  const rt = runtime ?? defaultRuntime;
+  return rt.isTemplateNode(type);
 }
 
 /** Clear all registered templates (for test isolation). */
 export function clearTemplates(): void {
-  _registry.clear();
+  defaultRuntime.clearTemplates();
 }
 
 /** Get a registered template definition by name. */
 export function getTemplate(name: string): TemplateDefinition | undefined {
-  return _registry.get(name);
+  return defaultRuntime.getTemplate(name);
 }
 
 /** Get count of registered templates. */
 export function templateCount(): number {
-  return _registry.size;
+  return defaultRuntime.templateCount();
 }
 
 // ── Expansion ───────────────────────────────────────────────────────────
@@ -133,29 +129,35 @@ export function templateCount(): number {
 /** Strip common leading whitespace from multiline body text. */
 function dedentBody(code: string): string {
   const lines = code.split('\n');
-  const nonEmpty = lines.filter(l => l.trim().length > 0);
+  const nonEmpty = lines.filter((l) => l.trim().length > 0);
   if (nonEmpty.length === 0) return code;
-  const min = Math.min(...nonEmpty.map(l => l.match(/^(\s*)/)?.[1].length ?? 0));
-  return lines.map(l => l.slice(min)).join('\n');
+  const min = Math.min(...nonEmpty.map((l) => l.match(/^(\s*)/)?.[1].length ?? 0));
+  return lines.map((l) => l.slice(min)).join('\n');
 }
 
 /**
  * Expand a template instance node into TypeScript lines.
  *
- * 1. Look up template definition
- * 2. Validate required slots against node.props
- * 3. Replace {{slotName}} placeholders in body
- * 4. Handle {{CHILDREN}}: iterate child nodes through codegen
- * 5. Prepend import lines
+ * Looks up the template definition by `node.type`, validates required slots against
+ * `node.props`, replaces `{{slotName}}` placeholders, handles `{{CHILDREN}}` recursion,
+ * and prepends import lines.
+ *
+ * @param node - IR node whose `type` matches a registered template name
+ * @param _depth - Internal recursion depth counter (do not set manually)
+ * @param runtime - Optional KernRuntime instance
+ * @returns Array of generated TypeScript source lines
+ * @throws {KernTemplateError} If expansion depth exceeds 10 (recursion guard)
+ *   or required slots are missing
  */
-export function expandTemplateNode(node: IRNode, _depth = 0): string[] {
+export function expandTemplateNode(node: IRNode, _depth = 0, runtime?: KernRuntime): string[] {
+  const rt = runtime ?? defaultRuntime;
   if (_depth > MAX_EXPANSION_DEPTH) {
     throw new KernTemplateError(
-      `Template expansion depth exceeded ${MAX_EXPANSION_DEPTH} — possible recursion in template '${node.type}'`
+      `Template expansion depth exceeded ${MAX_EXPANSION_DEPTH} — possible recursion in template '${node.type}'`,
     );
   }
 
-  const template = _registry.get(node.type);
+  const template = rt.templateRegistry.get(node.type);
   if (!template) {
     throw new KernTemplateError(`No template registered for type '${node.type}'`);
   }
@@ -170,13 +172,13 @@ export function expandTemplateNode(node: IRNode, _depth = 0): string[] {
     if (rawValue !== undefined && rawValue !== null) {
       const value = String(rawValue);
       validateSlotValue(slot.name, value, slot.slotType);
-      slotValues.set(slot.name, value);
+      // Sanitize based on slot type — identifiers are validated, strings are escaped
+      const safeValue = slot.slotType === 'identifier' ? emitIdentifier(value, value) : value;
+      slotValues.set(slot.name, safeValue);
     } else if (slot.optional) {
       slotValues.set(slot.name, slot.defaultValue ?? '');
     } else {
-      throw new KernTemplateError(
-        `Template '${template.name}': required slot '${slot.name}' not provided`
-      );
+      throw new KernTemplateError(`Template '${template.name}': required slot '${slot.name}' not provided`);
     }
   }
 
@@ -193,9 +195,9 @@ export function expandTemplateNode(node: IRNode, _depth = 0): string[] {
       }
     } else {
       // Other children go through codegen (supports nested templates)
-      const expanded = isTemplateNode(child.type)
-        ? expandTemplateNode(child, _depth + 1)
-        : generateCoreNode(child);
+      const expanded = isTemplateNode(child.type, rt)
+        ? expandTemplateNode(child, _depth + 1, rt)
+        : generateCoreNode(child, undefined, rt);
       childrenLines.push(...expanded);
     }
   }
@@ -208,13 +210,14 @@ export function expandTemplateNode(node: IRNode, _depth = 0): string[] {
     // Preserve indentation: find indent before {{CHILDREN}} and apply to each child line
     body = body.replace(/^([ \t]*)(\{\{CHILDREN\}\})/gm, (_match, indent: string) => {
       if (childrenLines.length === 0) return '';
-      return childrenLines.map(l => indent + l).join('\n');
+      return childrenLines.map((l) => indent + l).join('\n');
     });
   }
 
-  // Replace {{slotName}} placeholders
+  // Replace {{slotName}} placeholders — escape slot names for safe RegExp
   for (const [name, value] of slotValues) {
-    const re = new RegExp(`\\{\\{${name}\\}\\}`, 'g');
+    const safeName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`\\{\\{${safeName}\\}\\}`, 'g');
     body = body.replace(re, value);
   }
 
@@ -224,8 +227,12 @@ export function expandTemplateNode(node: IRNode, _depth = 0): string[] {
   if (template.imports.length > 0) {
     const importLines: string[] = [];
     for (const imp of template.imports) {
-      const nameList = imp.names.split(',').map(s => s.trim()).join(', ');
-      importLines.push(`import { ${nameList} } from '${imp.from}';`);
+      const nameList = imp.names
+        .split(',')
+        .map((s) => s.trim())
+        .join(', ');
+      const safeFrom = emitTemplateSafe(imp.from);
+      importLines.push(`import { ${nameList} } from '${safeFrom}';`);
     }
     importLines.push('');
     lines.unshift(...importLines);

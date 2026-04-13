@@ -1,0 +1,144 @@
+name: MCP Security
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+concurrency:
+  group: mcp-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install KERN MCP Security
+        run: npm install -g @kernlang/review-mcp@latest
+
+      - name: Scan MCP server code
+        id: scan
+        run: |
+          kern-mcp-security --format json --output kern-mcp-security.json . || true
+          kern-mcp-security --format sarif --output kern-mcp-security.sarif . || true
+
+          RESULT=$(kern-mcp-security --quiet . 2>&1) || true
+          GRADE=$(echo "$RESULT" | head -1 | awk '{print $1}')
+          SCORE=$(echo "$RESULT" | head -1 | awk '{print $2}')
+
+          echo "grade=$GRADE" >> $GITHUB_OUTPUT
+          echo "score=$SCORE" >> $GITHUB_OUTPUT
+          echo "MCP Security Score: $GRADE ($SCORE/100)"
+
+      - name: Verify tool pinning lockfile
+        id: pin
+        run: |
+          if [ -f .kern-mcp-lock.json ]; then
+            kern-mcp-security --verify . 2>&1 | tee pin-results.txt || {
+              echo "pin_drift=true" >> $GITHUB_OUTPUT
+              echo "::warning::Tool pinning drift detected — possible rug-pull or schema change"
+            }
+          else
+            echo "No .kern-mcp-lock.json found — skipping pin verification"
+            echo "Run 'npx kern-mcp-security --lock .' to generate one"
+          fi
+
+      - name: Scan MCP config files
+        run: |
+          kern-mcp-security --scan-config . 2>&1 || true
+
+      - name: Upload SARIF to Code Scanning
+        if: always() && hashFiles('kern-mcp-security.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: kern-mcp-security.sarif
+          category: kern-mcp-security
+        continue-on-error: true
+
+      - name: Post PR comment
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let report;
+            try {
+              report = JSON.parse(fs.readFileSync('kern-mcp-security.json', 'utf-8'));
+            } catch { return; }
+
+            const score = report.score;
+            const grade = score.grade;
+            const total = score.total;
+            const color = { A: '22c55e', B: '84cc16', C: 'f97316', D: 'f59e0b', F: 'ef4444' }[grade];
+            const badge = `![Score](https://img.shields.io/badge/MCP_Security-${grade}_(${total}%25)-${color})`;
+
+            let body = `## KERN MCP Security Report\n\n${badge}\n\n`;
+            body += `| Metric | Score |\n|--------|-------|\n`;
+            body += `| Guard Coverage | ${score.guardCoverage}% |\n`;
+            body += `| Input Validation | ${score.inputValidation}% |\n`;
+            body += `| Rule Compliance | ${score.ruleCompliance}% |\n`;
+            body += `| Auth Posture | ${score.authPosture}% |\n\n`;
+
+            if (report.perTool && report.perTool.length > 0) {
+              body += `### Per-Tool Breakdown\n\n| Tool | Score | Grade | Guards | Validation |\n|------|-------|-------|--------|------------|\n`;
+              for (const t of report.perTool) {
+                body += `| ${t.toolName} | ${t.total} | ${t.grade} | ${t.guards}/${t.effects} | ${t.hasValidation ? 'Yes' : 'No'} |\n`;
+              }
+              body += '\n';
+            }
+
+            let pinDrift = '';
+            try {
+              pinDrift = fs.readFileSync('pin-results.txt', 'utf-8').trim();
+            } catch {}
+            if (pinDrift) {
+              body += `### Tool Pinning\n\n\`\`\`\n${pinDrift}\n\`\`\`\n\n`;
+            }
+
+            body += `**${report.findingsCount} finding(s)**\n\n`;
+            body += `> Scanned by [KERN MCP Security](https://github.com/KERNlang/kern-sight-mcp)`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body?.includes('KERN MCP Security Report'));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Enforce score threshold
+        if: always()
+        run: |
+          SCORE="${{ steps.scan.outputs.score }}"
+          THRESHOLD=60
+          if [ -n "$SCORE" ] && [ "$SCORE" -lt "$THRESHOLD" ] 2>/dev/null; then
+            echo "::error::MCP Security score $SCORE is below threshold $THRESHOLD"
+            exit 1
+          fi

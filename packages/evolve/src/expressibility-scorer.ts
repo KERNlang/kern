@@ -5,7 +5,7 @@
  * Used to decide when to propose new IR nodes vs. just new templates.
  */
 
-import type { PatternGap, ExpressibilityScore } from './types.js';
+import type { ExpressibilityScore, PatternGap } from './types.js';
 
 // Weights for different signal types
 const HANDLER_ESCAPE_WEIGHT = 3;
@@ -27,10 +27,7 @@ export const EXPRESSIBILITY_NODE_THRESHOLD = 7.0;
  * - Non-standard attributes mean the node types lack proper slots — weight 2
  * - Semantic leaks (raw code in props) mean the abstraction is leaking — weight 1.5
  */
-export function scoreExpressibility(
-  gaps: PatternGap[],
-  snippets: string[],
-): ExpressibilityScore {
+export function scoreExpressibility(gaps: PatternGap[], snippets: string[]): ExpressibilityScore {
   let handlerEscapes = 0;
   let nonStandardAttrs = 0;
   let semanticLeaks = 0;
@@ -70,11 +67,9 @@ export function scoreExpressibility(
 
   // Weighted average
   const totalWeight = HANDLER_ESCAPE_WEIGHT + NON_STANDARD_ATTR_WEIGHT + SEMANTIC_LEAK_WEIGHT;
-  const overall = (
-    normHandler * HANDLER_ESCAPE_WEIGHT +
-    normAttrs * NON_STANDARD_ATTR_WEIGHT +
-    normLeaks * SEMANTIC_LEAK_WEIGHT
-  ) / totalWeight;
+  const overall =
+    (normHandler * HANDLER_ESCAPE_WEIGHT + normAttrs * NON_STANDARD_ATTR_WEIGHT + normLeaks * SEMANTIC_LEAK_WEIGHT) /
+    totalWeight;
 
   return {
     handlerEscapes,

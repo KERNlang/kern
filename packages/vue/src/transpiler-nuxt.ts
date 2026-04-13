@@ -10,8 +10,27 @@
  * - Uses Nuxt composables: useHead, useRoute, navigateTo
  */
 
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig, GeneratedArtifact } from '@kernlang/core';
-import { expandStyles, countTokens, serializeIR, cssPropertyName, getProps, getStyles, getThemeRefs } from '@kernlang/core';
+import type {
+  AccountedEntry,
+  GeneratedArtifact,
+  IRNode,
+  ResolvedKernConfig,
+  SourceMapEntry,
+  TranspileResult,
+} from '@kernlang/core';
+import {
+  accountNode,
+  buildDiagnostics,
+  camelKey,
+  countTokens,
+  cssPropertyName,
+  escapeJsString,
+  expandStyles,
+  getProps,
+  getStyles,
+  getThemeRefs,
+  serializeIR,
+} from '@kernlang/core';
 
 // ── Node → HTML Element Mapping (same as Vue) ───────────────────────────
 
@@ -38,16 +57,31 @@ const NODE_TO_ELEMENT: Record<string, string> = {
   grid: 'div',
 };
 
-function textElement(variant?: string): string {
-  if (!variant) return 'p';
-  const map: Record<string, string> = { h1: 'h1', h2: 'h2', h3: 'h3', h4: 'h4', h5: 'h5', h6: 'h6', caption: 'small', small: 'small', code: 'code' };
-  return map[variant] || 'p';
+function textElement(tag?: string, variant?: string): string {
+  const el = tag || variant;
+  if (!el) return 'p';
+  const map: Record<string, string> = {
+    h1: 'h1',
+    h2: 'h2',
+    h3: 'h3',
+    h4: 'h4',
+    h5: 'h5',
+    h6: 'h6',
+    p: 'p',
+    span: 'span',
+    label: 'label',
+    pre: 'pre',
+    caption: 'small',
+    small: 'small',
+    code: 'code',
+  };
+  return map[el] || 'p';
 }
 
 function cssValue(key: string, value: string | number): string {
   if (typeof value === 'number') {
     const unitless = ['flex', 'fontWeight', 'opacity', 'zIndex', 'lineHeight'];
-    if (unitless.some(u => key.toLowerCase().includes(u.toLowerCase()))) return String(value);
+    if (unitless.some((u) => key.toLowerCase().includes(u.toLowerCase()))) return String(value);
     return `${value}px`;
   }
   return String(value);
@@ -74,7 +108,8 @@ function eventParamType(event: string): string {
   if (event === 'scroll') return 'e: Event';
   if (event === 'resize') return '';
   if (event === 'input') return 'e: Event';
-  if (event === 'mouseover' || event === 'mouseout' || event === 'mouseenter' || event === 'mouseleave') return 'e: MouseEvent';
+  if (event === 'mouseover' || event === 'mouseout' || event === 'mouseenter' || event === 'mouseleave')
+    return 'e: MouseEvent';
   return 'e: Event';
 }
 
@@ -93,6 +128,7 @@ interface NuxtBuilder {
   hasHead: boolean;
   headMeta: Record<string, string>;
   config: ResolvedKernConfig | undefined;
+  i18nEnabled: boolean;
 }
 
 function createBuilder(config?: ResolvedKernConfig): NuxtBuilder {
@@ -109,18 +145,24 @@ function createBuilder(config?: ResolvedKernConfig): NuxtBuilder {
     hasHead: false,
     headMeta: {},
     config,
+    i18nEnabled: config?.i18n?.enabled ?? false,
   };
+}
+
+// ── i18n helper ──────────────────────────────────────────────────────────
+
+function tText(ctx: NuxtBuilder, key: string, value: string): string {
+  return ctx.i18nEnabled ? `{{ $t('${escapeJsString(key)}', '${escapeJsString(value)}') }}` : value;
 }
 
 // ── Theme Collection ─────────────────────────────────────────────────────
 
 function collectThemes(node: IRNode, ctx: NuxtBuilder): void {
   if (node.type === 'theme' && node.props?.styles) {
-    const keys = Object.keys(node.props).filter(k => k !== 'styles' && k !== 'pseudoStyles' && k !== 'themeRefs');
-    const name = keys[0] || `theme_${ctx.classIdx++}`;
+    const name = (node.props.name as string) || `theme_${ctx.classIdx++}`;
     ctx.themes[name] = node.props.styles as Record<string, string>;
   }
-  if (node.children) node.children.forEach(c => collectThemes(c, ctx));
+  if (node.children) node.children.forEach((c) => collectThemes(c, ctx));
 }
 
 // ── Style helpers ────────────────────────────────────────────────────────
@@ -144,12 +186,28 @@ function mergeNodeStyles(node: IRNode, ctx: NuxtBuilder): Record<string, string 
 
 function addLayoutDefaults(nodeType: string, styles: Record<string, string | number>): Record<string, string | number> {
   const s = { ...styles };
-  if (nodeType === 'screen') { if (!s.display) s.display = 'flex'; if (!s.flexDirection) s.flexDirection = 'column'; if (!s.minHeight) s.minHeight = '100vh'; }
-  if (nodeType === 'row') { if (!s.display) s.display = 'flex'; if (!s.flexDirection) s.flexDirection = 'row'; }
-  if (nodeType === 'col') { if (!s.display) s.display = 'flex'; if (!s.flexDirection) s.flexDirection = 'column'; }
-  if (nodeType === 'card') { if (!s.boxShadow) s.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'; }
-  if (nodeType === 'grid') { if (!s.display) s.display = 'grid'; }
-  if (nodeType === 'scroll') { if (!s.overflow) s.overflow = 'auto'; }
+  if (nodeType === 'screen') {
+    if (!s.display) s.display = 'flex';
+    if (!s.flexDirection) s.flexDirection = 'column';
+    if (!s.minHeight) s.minHeight = '100vh';
+  }
+  if (nodeType === 'row') {
+    if (!s.display) s.display = 'flex';
+    if (!s.flexDirection) s.flexDirection = 'row';
+  }
+  if (nodeType === 'col') {
+    if (!s.display) s.display = 'flex';
+    if (!s.flexDirection) s.flexDirection = 'column';
+  }
+  if (nodeType === 'card') {
+    if (!s.boxShadow) s.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+  }
+  if (nodeType === 'grid') {
+    if (!s.display) s.display = 'grid';
+  }
+  if (nodeType === 'scroll') {
+    if (!s.overflow) s.overflow = 'auto';
+  }
   return s;
 }
 
@@ -162,8 +220,8 @@ function collectOnHandler(node: IRNode, ctx: NuxtBuilder): void {
   const key = props.key as string;
   const isAsync = props.async === 'true' || props.async === true;
 
-  const handlerChild = (node.children || []).find(c => c.type === 'handler');
-  const code = handlerChild ? (getProps(handlerChild).code as string || '') : '';
+  const handlerChild = (node.children || []).find((c) => c.type === 'handler');
+  const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
 
   if (handlerRef && !code) return;
 
@@ -175,7 +233,7 @@ function collectOnHandler(node: IRNode, ctx: NuxtBuilder): void {
 
 // ── Node-specific Attribute Builders ─────────────────────────────────────
 
-function addButtonAttrs(node: IRNode, props: Record<string, unknown>, attrs: string[]): string {
+function addButtonAttrs(_node: IRNode, props: Record<string, unknown>, attrs: string[]): string {
   let el = 'button';
   if (props.to) {
     el = 'NuxtLink';
@@ -200,7 +258,7 @@ function addInputAttrs(props: Record<string, unknown>, attrs: string[]): void {
 
 function addListAttrs(props: Record<string, unknown>, attrs: string[]): void {
   if (props.items) {
-    const itemVar = props.itemVar as string || 'item';
+    const itemVar = (props.itemVar as string) || 'item';
     attrs.push(`v-for="${itemVar} in ${props.items}" :key="${itemVar}.id || ${itemVar}"`);
   }
 }
@@ -214,16 +272,24 @@ function addProgressAttrs(props: Record<string, unknown>, attrs: string[]): void
 
 function renderTextContent(props: Record<string, unknown>, ctx: NuxtBuilder, indent: string): void {
   if (!props.value) return;
-  const val = props.value as string;
-  if (typeof val === 'string' && val.startsWith('{{') && val.endsWith('}}')) {
+  const rawVal = props.value;
+  // Expression object: { __expr: true, code: "count" } → {{ count }}
+  if (typeof rawVal === 'object' && rawVal !== null && '__expr' in rawVal) {
+    ctx.templateLines.push(`${indent}  {{ ${(rawVal as unknown as { code: string }).code} }}`);
+    return;
+  }
+  const val = rawVal as string;
+  if (typeof val !== 'string') return;
+  if (val.startsWith('{{') && val.endsWith('}}')) {
     ctx.templateLines.push(`${indent}  {{ ${val.slice(2, -2).trim()} }}`);
   } else {
-    ctx.templateLines.push(`${indent}  ${val}`);
+    const key = (props.key as string) || camelKey(val);
+    ctx.templateLines.push(`${indent}  ${tText(ctx, key, val)}`);
   }
 }
 
-function renderTabs(node: IRNode, ctx: NuxtBuilder, indent: string, el: string): void {
-  const tabs = (node.children || []).filter(c => c.type === 'tab');
+function renderTabs(node: IRNode, ctx: NuxtBuilder, indent: string, _el: string): void {
+  const tabs = (node.children || []).filter((c) => c.type === 'tab');
   if (tabs.length === 0) return;
   const tabVarName = `activeTab_${ctx.classIdx}`;
   const firstTabName = (getProps(tabs[0]).name as string) || '0';
@@ -232,19 +298,21 @@ function renderTabs(node: IRNode, ctx: NuxtBuilder, indent: string, el: string):
   ctx.templateLines.push(`${indent}  <div class="tab-buttons">`);
   for (const tab of tabs) {
     const tp = getProps(tab);
-    const tabName = tp.name as string || 'tab';
-    const label = tp.label as string || tp.name as string || 'Tab';
-    ctx.templateLines.push(`${indent}    <button @click="${tabVarName} = '${tabName}'" :class="{ active: ${tabVarName} === '${tabName}' }">${label}</button>`);
+    const tabName = (tp.name as string) || 'tab';
+    const label = (tp.label as string) || (tp.name as string) || 'Tab';
+    ctx.templateLines.push(
+      `${indent}    <button @click="${tabVarName} = '${tabName}'" :class="{ active: ${tabVarName} === '${tabName}' }">${label}</button>`,
+    );
   }
   ctx.templateLines.push(`${indent}  </div>`);
 
   for (const tab of tabs) {
     const tp = getProps(tab);
-    const tabName = tp.name as string || 'tab';
+    const tabName = (tp.name as string) || 'tab';
     ctx.templateLines.push(`${indent}  <div v-if="${tabVarName} === '${tabName}'">`);
     if (tab.children) {
       for (const child of tab.children) {
-        renderNode(child, ctx, indent + '    ');
+        renderNode(child, ctx, `${indent}    `);
       }
     }
     ctx.templateLines.push(`${indent}  </div>`);
@@ -254,7 +322,7 @@ function renderTabs(node: IRNode, ctx: NuxtBuilder, indent: string, el: string):
 function renderChildren(node: IRNode, ctx: NuxtBuilder, indent: string): void {
   if (node.children) {
     for (const child of node.children) {
-      renderNode(child, ctx, indent + '  ');
+      renderNode(child, ctx, `${indent}  `);
     }
   }
 }
@@ -290,9 +358,10 @@ function renderNode(node: IRNode, ctx: NuxtBuilder, indent: string): void {
       break;
   }
 
-  let el = node.type === 'text'
-    ? textElement(props.variant as string | undefined)
-    : NODE_TO_ELEMENT[node.type] || 'div';
+  let el =
+    node.type === 'text'
+      ? textElement(props.tag as string | undefined, props.variant as string | undefined)
+      : NODE_TO_ELEMENT[node.type] || 'div';
 
   let styles = mergeNodeStyles(node, ctx);
   styles = addLayoutDefaults(node.type, styles);
@@ -308,10 +377,11 @@ function renderNode(node: IRNode, ctx: NuxtBuilder, indent: string): void {
   else if (node.type === 'list') addListAttrs(props as Record<string, unknown>, attrs);
   else if (node.type === 'progress') addProgressAttrs(props as Record<string, unknown>, attrs);
 
-  const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
+  const attrStr = attrs.length > 0 ? ` ${attrs.join(' ')}` : '';
   const selfClosing = ['image', 'divider', 'input'].includes(node.type);
 
-  const hasContent = (node.children && node.children.some(c => !NON_VISUAL.has(c.type))) ||
+  const hasContent =
+    node.children?.some((c) => !NON_VISUAL.has(c.type)) ||
     (node.type === 'text' && props.value) ||
     (node.type === 'button' && props.text) ||
     (node.type === 'section' && props.title);
@@ -396,9 +466,14 @@ function generateScriptSetup(ctx: NuxtBuilder): string {
     const initial = s.initial;
     if (initial === undefined || initial === 'undefined') {
       lines.push(`const ${s.name} = ref();`);
-    } else if (initial === 'true' || initial === 'false' || !isNaN(Number(initial))) {
+    } else if (initial === 'true' || initial === 'false' || !Number.isNaN(Number(initial))) {
       lines.push(`const ${s.name} = ref(${initial});`);
-    } else if (initial.startsWith("'") || initial.startsWith('"') || initial.startsWith('[') || initial.startsWith('{')) {
+    } else if (
+      initial.startsWith("'") ||
+      initial.startsWith('"') ||
+      initial.startsWith('[') ||
+      initial.startsWith('{')
+    ) {
       lines.push(`const ${s.name} = ref(${initial});`);
     } else {
       lines.push(`const ${s.name} = ref('${initial}');`);
@@ -417,8 +492,8 @@ function generateScriptSetup(ctx: NuxtBuilder): string {
     const asyncKw = handler.isAsync ? 'async ' : '';
     const keyGuard = handler.key ? `  if ((e as KeyboardEvent).key !== '${handler.key}') return;\n` : '';
 
-    const needsMounted = handler.event === 'key' || handler.event === 'keydown' ||
-                         handler.event === 'keyup' || handler.event === 'resize';
+    const needsMounted =
+      handler.event === 'key' || handler.event === 'keydown' || handler.event === 'keyup' || handler.event === 'resize';
 
     if (needsMounted) {
       // Generate the function
@@ -465,7 +540,7 @@ function generateScriptSetup(ctx: NuxtBuilder): string {
 export function transpileNuxt(root: IRNode, config?: ResolvedKernConfig): TranspileResult {
   const ctx = createBuilder(config);
   const rootProps = getProps(root);
-  const name = rootProps.name as string || 'Page';
+  const name = (rootProps.name as string) || 'Page';
 
   collectThemes(root, ctx);
   renderNode(root, ctx, '  ');
@@ -494,7 +569,7 @@ export function transpileNuxt(root: IRNode, config?: ResolvedKernConfig): Transp
     sfc.push('</style>');
   }
 
-  const code = sfc.join('\n') + '\n';
+  const code = `${sfc.join('\n')}\n`;
 
   // Generate artifacts for Nuxt file structure
   const nodeType = classifyNuxtNode(root);
@@ -523,7 +598,7 @@ export function transpileNuxt(root: IRNode, config?: ResolvedKernConfig): Transp
     });
   } else if (nodeType === 'server') {
     // Server route — Nuxt convention: users.post.ts, users.get.ts
-    const method = (rootProps.method as string || 'get').toLowerCase();
+    const method = ((rootProps.method as string) || 'get').toLowerCase();
     const serverCode = generateServerRoute(root);
     const methodSuffix = method !== 'get' ? `.${method}` : '';
     artifacts.push({
@@ -545,6 +620,15 @@ export function transpileNuxt(root: IRNode, config?: ResolvedKernConfig): Transp
     tsTokenCount,
     tokenReduction,
     artifacts: artifacts.length > 0 ? artifacts : undefined,
+    diagnostics: (() => {
+      const accounted = new Map<IRNode, AccountedEntry>();
+      accountNode(accounted, root, 'expressed', undefined, true);
+      const CONSUMED = new Set(['state', 'logic', 'on', 'theme', 'handler']);
+      for (const child of root.children || []) {
+        if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', `${child.type} pre-pass`, true);
+      }
+      return buildDiagnostics(root, accounted, 'nuxt');
+    })(),
   };
 }
 
@@ -552,42 +636,42 @@ export function transpileNuxt(root: IRNode, config?: ResolvedKernConfig): Transp
 
 function generateMiddleware(node: IRNode): string {
   const props = getProps(node);
-  const name = props.name as string || 'middleware';
-  const handler = (node.children || []).find(c => c.type === 'handler');
-  const code = handler ? (getProps(handler).code as string || '') : '';
+  const _name = (props.name as string) || 'middleware';
+  const handler = (node.children || []).find((c) => c.type === 'handler');
+  const code = handler ? (getProps(handler).code as string) || '' : '';
 
   const lines: string[] = [];
   lines.push(`export default defineNuxtRouteMiddleware((to, from) => {`);
   if (code) {
     const dedented = code.split('\n');
-    const nonEmpty = dedented.filter(l => l.trim().length > 0);
-    const min = nonEmpty.length > 0 ? Math.min(...nonEmpty.map(l => l.match(/^(\s*)/)?.[1].length ?? 0)) : 0;
+    const nonEmpty = dedented.filter((l) => l.trim().length > 0);
+    const min = nonEmpty.length > 0 ? Math.min(...nonEmpty.map((l) => l.match(/^(\s*)/)?.[1].length ?? 0)) : 0;
     for (const line of dedented) {
       lines.push(`  ${line.slice(min)}`);
     }
   }
   lines.push(`});`);
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
 }
 
 // ── Server Route Generation ──────────────────────────────────────────────
 
 function generateServerRoute(node: IRNode): string {
   const props = getProps(node);
-  const method = (props.method as string || 'get').toLowerCase();
-  const handler = (node.children || []).find(c => c.type === 'handler');
-  const code = handler ? (getProps(handler).code as string || '') : '';
+  const _method = ((props.method as string) || 'get').toLowerCase();
+  const handler = (node.children || []).find((c) => c.type === 'handler');
+  const code = handler ? (getProps(handler).code as string) || '' : '';
 
   const lines: string[] = [];
   lines.push(`export default defineEventHandler(async (event) => {`);
   if (code) {
     const dedented = code.split('\n');
-    const nonEmpty = dedented.filter(l => l.trim().length > 0);
-    const min = nonEmpty.length > 0 ? Math.min(...nonEmpty.map(l => l.match(/^(\s*)/)?.[1].length ?? 0)) : 0;
+    const nonEmpty = dedented.filter((l) => l.trim().length > 0);
+    const min = nonEmpty.length > 0 ? Math.min(...nonEmpty.map((l) => l.match(/^(\s*)/)?.[1].length ?? 0)) : 0;
     for (const line of dedented) {
       lines.push(`  ${line.slice(min)}`);
     }
   }
   lines.push(`});`);
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
 }

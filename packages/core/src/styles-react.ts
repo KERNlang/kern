@@ -7,7 +7,7 @@ export function expandStyleKey(key: string): string {
 export function expandStyleValue(value: string): string | number {
   if (VALUE_SHORTHANDS[value]) return VALUE_SHORTHANDS[value];
   const num = Number(value);
-  if (!isNaN(num) && value !== '') return num;
+  if (!Number.isNaN(num) && value !== '') return num;
   return value;
 }
 

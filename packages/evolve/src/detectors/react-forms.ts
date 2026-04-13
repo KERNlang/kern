@@ -3,14 +3,14 @@
  */
 
 import type { SourceFile } from 'ts-morph';
-import type { DetectorPack, DetectionResult } from '../types.js';
+import type { DetectionResult, DetectorPack } from '../types.js';
 
 const reactHookFormDetector: DetectorPack = {
   id: 'react-hook-form',
   libraryName: 'React Hook Form',
   packageNames: ['react-hook-form'],
   patternKind: 'form-hook',
-  detect(sourceFile: SourceFile, fullText: string): DetectionResult[] {
+  detect(_sourceFile: SourceFile, fullText: string): DetectionResult[] {
     const results: DetectionResult[] = [];
 
     // Pattern: useForm<Schema>() with destructured register, handleSubmit, formState
@@ -24,7 +24,9 @@ const reactHookFormDetector: DetectorPack = {
       // Find the enclosing function/component for end line
       const remaining = fullText.substring(match.index);
       const closingMatch = remaining.match(/\}\s*\)/);
-      const endOffset = closingMatch ? match.index + closingMatch.index! + closingMatch[0].length : match.index + match[0].length;
+      const endOffset = closingMatch
+        ? match.index + closingMatch.index! + closingMatch[0].length
+        : match.index + match[0].length;
       const endLine = fullText.substring(0, endOffset).split('\n').length;
 
       // Try to extract the component/function name (limit lookback to avoid backtracking)
@@ -57,7 +59,7 @@ const formikDetector: DetectorPack = {
   libraryName: 'Formik',
   packageNames: ['formik'],
   patternKind: 'form-hook',
-  detect(sourceFile: SourceFile, fullText: string): DetectionResult[] {
+  detect(_sourceFile: SourceFile, fullText: string): DetectionResult[] {
     const results: DetectionResult[] = [];
 
     // Pattern: useFormik({ initialValues, validationSchema, onSubmit })

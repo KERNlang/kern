@@ -5,12 +5,11 @@
  * Used by validation pipeline and `kern evolve test` command.
  */
 
-import { existsSync, readFileSync, readdirSync } from 'fs';
-import { resolve, join } from 'path';
-import { parse } from '@kernlang/core';
-import { loadSandboxedGenerator } from './sandboxed-generator.js';
-import { registerParserHints, unregisterParserHints } from '@kernlang/core';
+import { parse, registerParserHints, unregisterParserHints } from '@kernlang/core';
+import { existsSync, readFileSync } from 'fs';
+import { join, resolve } from 'path';
 import type { EvolvedManifest } from './evolved-types.js';
+import { loadSandboxedGenerator } from './sandboxed-generator.js';
 
 export interface GoldenTestResult {
   keyword: string;
@@ -38,8 +37,8 @@ export function compareGoldenOutput(actual: string, expected: string): boolean {
 function normalize(code: string): string {
   return code
     .split('\n')
-    .map(l => l.trim().replace(/\s+/g, ' '))
-    .filter(l => l.length > 0)
+    .map((l) => l.trim().replace(/\s+/g, ' '))
+    .filter((l) => l.length > 0)
     .join('\n')
     .trim();
 }

@@ -1,0 +1,24 @@
+action name=mcp-data-injection
+  reason value="CWE-1427, OWASP MCP02"
+  config severity=warning confidence=0.70 category=bug
+
+  effect name=system-instruction kind=injection
+    pattern lang=ts flags=i match="\[SYSTEM INSTRUCTION[:\s]"
+    pattern lang=py flags=i match="\[SYSTEM INSTRUCTION[:\s]"
+
+  effect name=hidden-comment kind=injection
+    pattern lang=ts match="<!--\s*HIDDEN\s*:"
+    pattern lang=py match="<!--\s*HIDDEN\s*:"
+
+  effect name=inject-marker kind=injection
+    pattern lang=ts match="___INJECT___|___END_INJECT___|\bINJECT_PAYLOAD\b"
+    pattern lang=py match="___INJECT___|___END_INJECT___|\bINJECT_PAYLOAD\b"
+
+  effect name=assistant-override kind=injection
+    pattern lang=ts flags=i match="\bAssistant instruction\s*:|\bmalicious_instruction\b|\[HIDDEN INSTRUCTIONS?\]|\bsystem_override\b"
+    pattern lang=py flags=i match="\bAssistant instruction\s*:|\bmalicious_instruction\b|\[HIDDEN INSTRUCTIONS?\]|\bsystem_override\b"
+
+  invariant name=embedded-injection
+    expect from=string-literal to=system-instruction guarded-by=""
+    evidence value="String literal contains injection marker — possible data-level prompt injection"
+    suggestion value="Remove injection markers from data. If this is test code, use kern-ignore to suppress."

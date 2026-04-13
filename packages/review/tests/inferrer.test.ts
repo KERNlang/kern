@@ -6,7 +6,7 @@ describe('TS → KERN Inferrer', () => {
   describe('type inference', () => {
     it('infers string literal union type', () => {
       const results = inferFromSource(`export type PlanState = 'draft' | 'approved' | 'running';`);
-      const typeResult = results.find(r => r.node.type === 'type');
+      const typeResult = results.find((r) => r.node.type === 'type');
       expect(typeResult).toBeDefined();
       expect(typeResult!.node.props?.name).toBe('PlanState');
       expect(typeResult!.node.props?.values).toBe('draft|approved|running');
@@ -15,7 +15,7 @@ describe('TS → KERN Inferrer', () => {
 
     it('infers type alias (non-literal union)', () => {
       const results = inferFromSource(`export type Result = Success | Failure;`);
-      const typeResult = results.find(r => r.node.type === 'type');
+      const typeResult = results.find((r) => r.node.type === 'type');
       expect(typeResult).toBeDefined();
       expect(typeResult!.node.props?.name).toBe('Result');
       expect(typeResult!.node.props?.alias).toBe('Success | Failure');
@@ -23,7 +23,7 @@ describe('TS → KERN Inferrer', () => {
 
     it('infers simple type alias', () => {
       const results = inferFromSource(`export type ID = string;`);
-      const typeResult = results.find(r => r.node.type === 'type');
+      const typeResult = results.find((r) => r.node.type === 'type');
       expect(typeResult).toBeDefined();
       expect(typeResult!.node.props?.alias).toBe('string');
     });
@@ -41,13 +41,13 @@ export interface Plan {
   engineId?: string;
 }`;
       const results = inferFromSource(source);
-      const iface = results.find(r => r.node.type === 'interface');
+      const iface = results.find((r) => r.node.type === 'interface');
       expect(iface).toBeDefined();
       expect(iface!.node.props?.name).toBe('Plan');
       expect(iface!.node.children?.length).toBe(4);
 
       // Check optional field
-      const engineId = iface!.node.children!.find(c => c.props?.name === 'engineId');
+      const engineId = iface!.node.children!.find((c) => c.props?.name === 'engineId');
       expect(engineId?.props?.optional).toBe('true');
     });
 
@@ -57,7 +57,7 @@ export interface PlanStep extends BaseStep {
   action: string;
 }`;
       const results = inferFromSource(source);
-      const iface = results.find(r => r.node.type === 'interface');
+      const iface = results.find((r) => r.node.type === 'interface');
       expect(iface).toBeDefined();
       expect(iface!.node.props?.extends).toBe('BaseStep');
     });
@@ -72,7 +72,7 @@ export function createPlan(action: PlanAction, ws: WorkspaceSnapshot): Plan {
   return { id: nanoid(), action, ws, state: 'draft', steps: [] };
 }`;
       const results = inferFromSource(source);
-      const fn = results.find(r => r.node.type === 'fn');
+      const fn = results.find((r) => r.node.type === 'fn');
       expect(fn).toBeDefined();
       expect(fn!.node.props?.name).toBe('createPlan');
       expect(fn!.node.props?.params).toContain('action:PlanAction');
@@ -86,7 +86,7 @@ export async function fetchData(url: string): Promise<Data> {
   return res.json();
 }`;
       const results = inferFromSource(source);
-      const fn = results.find(r => r.node.type === 'fn');
+      const fn = results.find((r) => r.node.type === 'fn');
       expect(fn).toBeDefined();
       expect(fn!.node.props?.async).toBe('true');
     });
@@ -97,7 +97,7 @@ export function greet(name: string): string {
   return \`Hello, \${name}!\`;
 }`;
       const results = inferFromSource(source);
-      const fn = results.find(r => r.node.type === 'fn');
+      const fn = results.find((r) => r.node.type === 'fn');
       expect(fn!.node.children?.length).toBe(1);
       expect(fn!.node.children![0].type).toBe('handler');
     });
@@ -118,7 +118,7 @@ export class PlanStateError extends Error {
   }
 }`;
       const results = inferFromSource(source);
-      const error = results.find(r => r.node.type === 'error');
+      const error = results.find((r) => r.node.type === 'error');
       expect(error).toBeDefined();
       expect(error!.node.props?.name).toBe('PlanStateError');
       expect(error!.node.props?.extends).toBe('Error');
@@ -133,7 +133,7 @@ export class ApiError extends BaseError {
   }
 }`;
       const results = inferFromSource(source);
-      const error = results.find(r => r.node.type === 'error');
+      const error = results.find((r) => r.node.type === 'error');
       expect(error).toBeDefined();
       expect(error!.node.props?.extends).toBe('BaseError');
     });
@@ -145,7 +145,7 @@ export class ApiError extends BaseError {
     it('infers named imports', () => {
       const source = `import { readFileSync, writeFileSync } from 'node:fs';`;
       const results = inferFromSource(source);
-      const imp = results.find(r => r.node.type === 'import');
+      const imp = results.find((r) => r.node.type === 'import');
       expect(imp).toBeDefined();
       expect(imp!.node.props?.from).toBe('node:fs');
       expect(imp!.node.props?.names).toBe('readFileSync,writeFileSync');
@@ -154,7 +154,7 @@ export class ApiError extends BaseError {
     it('infers type-only imports', () => {
       const source = `import type { Plan } from './types.js';`;
       const results = inferFromSource(source);
-      const imp = results.find(r => r.node.type === 'import');
+      const imp = results.find((r) => r.node.type === 'import');
       expect(imp).toBeDefined();
       expect(imp!.node.props?.types).toBe('true');
     });
@@ -162,7 +162,7 @@ export class ApiError extends BaseError {
     it('infers default imports', () => {
       const source = `import path from 'node:path';`;
       const results = inferFromSource(source);
-      const imp = results.find(r => r.node.type === 'import');
+      const imp = results.find((r) => r.node.type === 'import');
       expect(imp).toBeDefined();
       expect(imp!.node.props?.default).toBe('path');
     });
@@ -174,7 +174,7 @@ export class ApiError extends BaseError {
     it('infers typed constant', () => {
       const source = `export const MAX_RETRIES: number = 3;`;
       const results = inferFromSource(source);
-      const c = results.find(r => r.node.type === 'const');
+      const c = results.find((r) => r.node.type === 'const');
       expect(c).toBeDefined();
       expect(c!.node.props?.name).toBe('MAX_RETRIES');
       expect(c!.node.props?.type).toBe('number');
@@ -184,14 +184,14 @@ export class ApiError extends BaseError {
     it('skips function expressions', () => {
       const source = `export const greet = (name: string) => \`Hello \${name}\`;`;
       const results = inferFromSource(source);
-      const consts = results.filter(r => r.node.type === 'const');
+      const consts = results.filter((r) => r.node.type === 'const');
       expect(consts.length).toBe(0);
     });
 
     it('skips arrow functions without parentheses', () => {
       const source = `export const fetcher = url => fetch(url);`;
       const results = inferFromSource(source);
-      const consts = results.filter(r => r.node.type === 'const');
+      const consts = results.filter((r) => r.node.type === 'const');
       expect(consts.length).toBe(0);
     });
   });
@@ -223,7 +223,7 @@ export function startPlan<T extends { state: PlanState }>(entity: T): T {
   return { ...entity, state: 'running' as PlanState };
 }`;
       const results = inferFromSource(source);
-      const machine = results.find(r => r.node.type === 'machine');
+      const machine = results.find((r) => r.node.type === 'machine');
       expect(machine).toBeDefined();
       expect(machine!.node.props?.name).toBe('Plan');
       expect(machine!.summary).toContain('machine Plan');
@@ -248,7 +248,7 @@ export const DEFAULT_AGON_CONFIG: Required<AgonConfig> = {
   maxRetries: 3,
 };`;
       const results = inferFromSource(source);
-      const config = results.find(r => r.node.type === 'config');
+      const config = results.find((r) => r.node.type === 'config');
       expect(config).toBeDefined();
       expect(config!.node.props?.name).toBe('AgonConfig');
       expect(config!.confidencePct).toBeGreaterThanOrEqual(80);
@@ -274,7 +274,7 @@ export interface ForgeEventMap {
   'winner:determined': { winner: string; bestScore: number };
 }`;
       const results = inferFromSource(source);
-      const event = results.find(r => r.node.type === 'event');
+      const event = results.find((r) => r.node.type === 'event');
       expect(event).toBeDefined();
       expect(event!.node.props?.name).toBe('ForgeEvent');
       expect(event!.confidencePct).toBeGreaterThanOrEqual(85);

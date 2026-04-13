@@ -6,7 +6,17 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { parseParamList, getProps, getChildren, getFirstChild, dedent, handlerCode } from '@kernlang/core';
+import {
+  dedent,
+  emitIdentifier,
+  emitTypeAnnotation,
+  generateCoreNode,
+  getChildren,
+  getFirstChild,
+  getProps,
+  handlerCode,
+  parseParamList,
+} from '@kernlang/core';
 
 // ── Provider → provide/inject ────────────────────────────────────────────
 // provider name=Search type=UseSearchResult
@@ -22,8 +32,8 @@ import { parseParamList, getProps, getChildren, getFirstChild, dedent, handlerCo
 
 export function generateVueProvider(node: IRNode): string[] {
   const props = getProps(node);
-  const name = props.name as string;
-  const valueType = props.type as string;
+  const name = emitIdentifier(props.name as string, 'Provider', node);
+  const valueType = emitTypeAnnotation(props.type as string, 'unknown', node);
   const lines: string[] = [];
 
   lines.push("import type { InjectionKey } from 'vue';");
@@ -39,8 +49,10 @@ export function generateVueProvider(node: IRNode): string[] {
   const paramParts: string[] = [];
   for (const prop of propNodes) {
     const pp = getProps(prop);
+    const propName = emitIdentifier(pp.name as string, 'prop', prop);
+    const propType = emitTypeAnnotation(pp.type as string, 'unknown', prop);
     const opt = pp.optional === 'true' || pp.optional === true ? '?' : '';
-    paramParts.push(`${pp.name}${opt}: ${pp.type}`);
+    paramParts.push(`${propName}${opt}: ${propType}`);
   }
   const paramStr = paramParts.length > 0 ? paramParts.join(', ') : '';
 
@@ -85,7 +97,7 @@ export function generateVueEffect(node: IRNode): string[] {
   const name = props.name as string;
   const generic = props.generic as string | undefined;
   const once = props.once === 'true' || props.once === true;
-  const deps = props.deps as string || '';
+  const deps = (props.deps as string) || '';
   const lines: string[] = [];
 
   const cleanupNode = getFirstChild(node, 'cleanup');
@@ -117,7 +129,7 @@ export function generateVueEffect(node: IRNode): string[] {
   lines.push('');
 
   // Composable function
-  const propNames = propNodes.map(pn => getProps(pn).name as string);
+  const propNames = propNodes.map((pn) => getProps(pn).name as string);
   const destructured = propNames.join(', ');
   lines.push(`export function use${name}${genericParam}({ ${destructured} }: ${name}Props${genericParam}) {`);
 
@@ -125,7 +137,7 @@ export function generateVueEffect(node: IRNode): string[] {
 
   if (deps && !once) {
     // watch mode — immediate: true to match React useEffect behavior (run on mount)
-    const depsArr = deps.split(',').map(d => d.trim());
+    const depsArr = deps.split(',').map((d) => d.trim());
     const watchSource = depsArr.length === 1 ? depsArr[0] : `[${depsArr.join(', ')}]`;
 
     // Vue watch cleanup uses onCleanup param, not return value
@@ -138,7 +150,7 @@ export function generateVueEffect(node: IRNode): string[] {
       }
     }
     if (hasCleanup) {
-      const cleanupCode = getProps(cleanupNode!).code as string || '';
+      const cleanupCode = (getProps(cleanupNode!).code as string) || '';
       const cleanupDedented = dedent(cleanupCode);
       lines.push(`    onCleanup(() => {`);
       for (const line of cleanupDedented.split('\n')) {
@@ -158,7 +170,7 @@ export function generateVueEffect(node: IRNode): string[] {
     lines.push(`  });`);
 
     if (cleanupNode) {
-      const cleanupCode = getProps(cleanupNode).code as string || '';
+      const cleanupCode = (getProps(cleanupNode).code as string) || '';
       const cleanupDedented = dedent(cleanupCode);
       lines.push(`  onUnmounted(() => {`);
       for (const line of cleanupDedented.split('\n')) {
@@ -191,7 +203,7 @@ export function generateVueEffect(node: IRNode): string[] {
 export function generateVueHook(node: IRNode): string[] {
   const props = getProps(node);
   const name = props.name as string;
-  const params = props.params as string || '';
+  const params = (props.params as string) || '';
   const returnsType = props.returns as string | undefined;
   const lines: string[] = [];
   const vueImports = new Set<string>();
@@ -202,8 +214,8 @@ export function generateVueHook(node: IRNode): string[] {
   lines.push(`export function ${name}(${paramList})${retClause} {`);
 
   const children = getChildren(node);
-  const returnsNode = children.find(c => c.type === 'returns');
-  const ordered = children.filter(c => c.type !== 'returns');
+  const returnsNode = children.find((c) => c.type === 'returns');
+  const ordered = children.filter((c) => c.type !== 'returns');
 
   for (const child of ordered) {
     const cp = getProps(child);
@@ -211,16 +223,16 @@ export function generateVueHook(node: IRNode): string[] {
       case 'state': {
         vueImports.add('ref');
         const sname = cp.name as string;
-        const stype = cp.type as string || 'unknown';
-        const sinit = cp.init as string || 'undefined';
+        const stype = (cp.type as string) || 'unknown';
+        const sinit = (cp.init as string) || 'undefined';
         lines.push(`  const ${sname} = ref<${stype}>(${sinit});`);
         break;
       }
       case 'ref': {
         vueImports.add('ref');
         const rname = cp.name as string;
-        const rtype = cp.type as string || 'unknown';
-        const rinit = cp.init as string || 'null';
+        const rtype = (cp.type as string) || 'unknown';
+        const rinit = (cp.init as string) || 'null';
         lines.push(`  const ${rname} = ref<${rtype}>(${rinit});`);
         break;
       }
@@ -232,7 +244,7 @@ export function generateVueHook(node: IRNode): string[] {
         break;
       }
       case 'handler': {
-        const hcode = cp.code as string || '';
+        const hcode = (cp.code as string) || '';
         const hDedented = dedent(hcode);
         for (const line of hDedented.split('\n')) {
           lines.push(`  ${line}`);
@@ -255,7 +267,7 @@ export function generateVueHook(node: IRNode): string[] {
       case 'callback': {
         // Vue doesn't need useCallback — just a plain function
         const cbname = cp.name as string;
-        const cbparams = cp.params as string || '';
+        const cbparams = (cp.params as string) || '';
         const cbcode = handlerCode(child);
         const cbParamList = parseParamList(cbparams);
         lines.push(`  function ${cbname}(${cbParamList}) {`);
@@ -268,12 +280,12 @@ export function generateVueHook(node: IRNode): string[] {
         break;
       }
       case 'effect': {
-        const edeps = cp.deps as string || '';
+        const edeps = (cp.deps as string) || '';
         const ecode = handlerCode(child);
         const effectCleanup = getFirstChild(child, 'cleanup');
         if (edeps) {
           vueImports.add('watch');
-          const depsArr = edeps.split(',').map(d => d.trim());
+          const depsArr = edeps.split(',').map((d) => d.trim());
           const watchSource = depsArr.length === 1 ? depsArr[0] : `[${depsArr.join(', ')}]`;
           const watchCbParams = effectCleanup ? '_value, _oldValue, onCleanup' : '';
           lines.push(`  watch(${watchSource}, (${watchCbParams}) => {`);
@@ -288,7 +300,7 @@ export function generateVueHook(node: IRNode): string[] {
         }
         // Cleanup — Vue watch uses onCleanup param, onMounted uses return
         if (effectCleanup) {
-          const cleanupCode = getProps(effectCleanup).code as string || '';
+          const cleanupCode = (getProps(effectCleanup).code as string) || '';
           const cleanupDedented = dedent(cleanupCode);
           if (edeps) {
             // watch: use onCleanup()
@@ -314,8 +326,8 @@ export function generateVueHook(node: IRNode): string[] {
 
   // Returns
   if (returnsNode) {
-    const rnames = getProps(returnsNode).names as string || '';
-    const entries = rnames.split(',').map(e => {
+    const rnames = (getProps(returnsNode).names as string) || '';
+    const entries = rnames.split(',').map((e) => {
       const [key, ...valueParts] = e.split(':');
       const value = valueParts.join(':').trim();
       return value ? `${key.trim()}: ${value}` : key.trim();
@@ -335,6 +347,72 @@ export function generateVueHook(node: IRNode): string[] {
   return lines;
 }
 
+// ── Ground Layer — Vue Overrides (Tier 2) ───────────────────────────────
+
+const GROUND_NODE_TYPES = new Set([
+  'derive',
+  'transform',
+  'action',
+  'guard',
+  'assume',
+  'invariant',
+  'each',
+  'collect',
+  'branch',
+  'resolve',
+  'expect',
+  'recover',
+  'pattern',
+  'apply',
+]);
+
+/** Check if a node is a ground-layer node that may have Vue-specific overrides. */
+export function isVueGroundNode(type: string): boolean {
+  return GROUND_NODE_TYPES.has(type);
+}
+
+/** Vue Tier 2 override for derive → computed(). */
+function generateVueDerive(node: IRNode): string[] {
+  const props = getProps(node);
+  const name = props.name as string;
+  const expr = props.expr as string;
+
+  return [`const ${name} = computed(() => ${expr});`];
+}
+
+/** Vue Tier 2 override for each → v-for template rendering. */
+function generateVueEach(node: IRNode): string[] {
+  const props = getProps(node);
+  const itemName = (props.name as string) || 'item';
+  const collection = props.in as string;
+  const index = props.index as string | undefined;
+
+  const lines: string[] = [];
+  const iterVar = index ? `(${itemName}, ${index})` : itemName;
+  lines.push(`<template v-for="${iterVar} in ${collection}" :key="${itemName}.id ?? ${itemName}">`);
+  for (const child of getChildren(node)) {
+    // Try Vue-specific codegen first, fall back to core codegen
+    const childLines = isVueNode(child.type) ? generateVueNode(child) : generateCoreNode(child);
+    for (const line of childLines) {
+      lines.push(`  ${line}`);
+    }
+  }
+  lines.push(`</template>`);
+  return lines;
+}
+
+/** Generate Vue-overridden ground-layer node. Returns null for non-overridden nodes (fall through to core). */
+export function generateVueGroundNode(node: IRNode): string[] | null {
+  switch (node.type) {
+    case 'derive':
+      return generateVueDerive(node);
+    case 'each':
+      return generateVueEach(node);
+    default:
+      return null; // No Vue override — fall through to core
+  }
+}
+
 // ── Dispatcher ───────────────────────────────────────────────────────────
 
 export function isVueNode(type: string): boolean {
@@ -343,9 +421,13 @@ export function isVueNode(type: string): boolean {
 
 export function generateVueNode(node: IRNode): string[] {
   switch (node.type) {
-    case 'provider': return generateVueProvider(node);
-    case 'effect': return generateVueEffect(node);
-    case 'hook': return generateVueHook(node);
-    default: return [];
+    case 'provider':
+      return generateVueProvider(node);
+    case 'effect':
+      return generateVueEffect(node);
+    case 'hook':
+      return generateVueHook(node);
+    default:
+      return [];
   }
 }

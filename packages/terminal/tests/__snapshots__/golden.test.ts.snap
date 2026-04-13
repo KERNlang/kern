@@ -1,12 +1,18 @@
 // Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`Golden Snapshot Tests Ink output for agon-terminal.kern 1`] = `
-"import React, { useState } from 'react';
+"import React, { useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
-import Spinner from 'ink-spinner';
+import { Spinner } from '@inkjs/ui';
 
-export default function AgonTerminal() {
-  const [busy, setBusy] = useState(false);
+export function AgonTerminal() {
+  // Ink-safe setter: bridges microtask → macrotask for reliable repaints
+  function __inkSafe<T>(setter: React.Dispatch<React.SetStateAction<T>>): React.Dispatch<React.SetStateAction<T>> {
+    return (value) => setTimeout(() => setter(value), 0);
+  }
+
+  const [busy, _setBusyRaw] = useState(false);
+  const setBusy = useMemo(() => __inkSafe(_setBusyRaw), [_setBusyRaw]);
 
   return (
     <Box flexDirection="column">

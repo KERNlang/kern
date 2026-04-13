@@ -1,5 +1,16 @@
-import type { IRNode, TranspileResult, SourceMapEntry, ResolvedKernConfig } from '@kernlang/core';
-import { countTokens, serializeIR, isCoreNode, generateCoreNode, generateMachineReducer, getProps, getChildren, dedent } from '@kernlang/core';
+import type { AccountedEntry, IRNode, ResolvedKernConfig, SourceMapEntry, TranspileResult } from '@kernlang/core';
+import {
+  accountNode,
+  buildDiagnostics,
+  countTokens,
+  dedent,
+  generateCoreNode,
+  generateMachineReducer,
+  getChildren,
+  getProps,
+  isCoreNode,
+  serializeIR,
+} from '@kernlang/core';
 
 /**
  * Ink Transpiler — generates React (Ink) TSX components for terminal UIs
@@ -84,16 +95,35 @@ function inkColor(color: unknown): string {
 /** Ink key name → key object property check */
 function keyToCheck(key: string): string {
   switch (key) {
-    case 'return': case 'Enter': return 'key.return';
-    case 'escape': case 'Escape': return 'key.escape';
-    case 'tab': case 'Tab': return 'key.tab';
-    case 'up': case 'ArrowUp': return 'key.upArrow';
-    case 'down': case 'ArrowDown': return 'key.downArrow';
-    case 'left': case 'ArrowLeft': return 'key.leftArrow';
-    case 'right': case 'ArrowRight': return 'key.rightArrow';
-    case 'backspace': case 'Backspace': return 'key.backspace';
-    case 'delete': case 'Delete': return 'key.delete';
-    default: return `input === '${key}'`;
+    case 'return':
+    case 'Enter':
+      return 'key.return';
+    case 'escape':
+    case 'Escape':
+      return 'key.escape';
+    case 'tab':
+    case 'Tab':
+      return 'key.tab';
+    case 'up':
+    case 'ArrowUp':
+      return 'key.upArrow';
+    case 'down':
+    case 'ArrowDown':
+      return 'key.downArrow';
+    case 'left':
+    case 'ArrowLeft':
+      return 'key.leftArrow';
+    case 'right':
+    case 'ArrowRight':
+      return 'key.rightArrow';
+    case 'backspace':
+    case 'Backspace':
+      return 'key.backspace';
+    case 'delete':
+    case 'Delete':
+      return 'key.delete';
+    default:
+      return `input === '${key}'`;
   }
 }
 
@@ -102,15 +132,28 @@ function keyToCheck(key: string): string {
 class ImportTracker {
   private reactImports = new Set<string>();
   private inkImports = new Set<string>();
-  private inkSpinner = false;
-  private inkTextInput = false;
-  private inkSelectInput = false;
+  private inkUIImports = new Set<string>();
 
-  addReact(name: string): void { this.reactImports.add(name); }
-  addInk(name: string): void { this.inkImports.add(name); }
-  needSpinner(): void { this.inkSpinner = true; }
-  needTextInput(): void { this.inkTextInput = true; }
-  needSelectInput(): void { this.inkSelectInput = true; }
+  addReact(name: string): void {
+    this.reactImports.add(name);
+  }
+  addInk(name: string): void {
+    this.inkImports.add(name);
+  }
+  /** Add an @inkjs/ui component import. */
+  addInkUI(name: string): void {
+    this.inkUIImports.add(name);
+  }
+  // Legacy convenience methods — now route to @inkjs/ui
+  needSpinner(): void {
+    this.inkUIImports.add('Spinner');
+  }
+  needTextInput(): void {
+    this.inkUIImports.add('TextInput');
+  }
+  needSelectInput(): void {
+    this.inkUIImports.add('Select');
+  }
 
   emit(): string[] {
     const lines: string[] = [];
@@ -122,41 +165,141 @@ class ImportTracker {
     if (this.inkImports.size > 0) {
       lines.push(`import { ${[...this.inkImports].sort().join(', ')} } from 'ink';`);
     }
-    if (this.inkSpinner) {
-      lines.push(`import Spinner from 'ink-spinner';`);
-    }
-    if (this.inkTextInput) {
-      lines.push(`import TextInput from 'ink-text-input';`);
-    }
-    if (this.inkSelectInput) {
-      lines.push(`import SelectInput from 'ink-select-input';`);
+    if (this.inkUIImports.size > 0) {
+      lines.push(`import { ${[...this.inkUIImports].sort().join(', ')} } from '@inkjs/ui';`);
     }
     return lines;
   }
 }
 
+// ── Ink-safe setter utility ─────────────────────────────────────────────
+
+/** Emit the __inkSafe helper once per component — bridges microtask→macrotask for Ink repaints. */
+function emitInkSafePreamble(): string[] {
+  return [
+    '  // Ink-safe setter: bridges microtask → macrotask for reliable repaints',
+    '  function __inkSafe<T>(setter: React.Dispatch<React.SetStateAction<T>>): React.Dispatch<React.SetStateAction<T>> {',
+    '    return (value) => setTimeout(() => setter(value), 0);',
+    '  }',
+    '',
+  ];
+}
+
 // ── State block → useState ──────────────────────────────────────────────
 
-function generateStateHook(stateNode: IRNode, imports: ImportTracker): string[] {
+interface StateHookContext {
+  needsInkSafe: boolean;
+}
+
+/** Detect whether a useState initial value needs lazy initialization (prevents re-eval per render). */
+function needsLazyInit(initial: string, type?: string): boolean {
+  const trimmed = initial.trim();
+  // IIFE: ((...) => ...)() or (function() { ... })()
+  if (/^\(.*\)\s*\(/.test(trimmed)) return true;
+  // function expression: function( — executes when called
+  if (trimmed.startsWith('function(') || trimmed.startsWith('function (')) return true;
+  // new constructor: new Map(), new Set(), etc.
+  if (trimmed.startsWith('new ')) return true;
+  // Arrow functions: only wrap if state TYPE is a function (state holds a function value)
+  if (/^\(?[^)]*\)?\s*=>/.test(trimmed) && type && /=>/.test(type)) return true;
+  return false;
+}
+
+function generateStateHook(stateNode: IRNode, imports: ImportTracker, ctx: StateHookContext): string[] {
   const lines: string[] = [];
   const props = getProps(stateNode);
   const name = props.name as string;
   const initialProp = props.initial;
+  const safe = props.safe !== 'false' && props.safe !== false; // default true
 
   if (name && initialProp !== undefined) {
     imports.addReact('useState');
-    const initial = isExpr(initialProp)
-      ? (initialProp as { code: string }).code
-      : String(initialProp);
-    const initVal = isExpr(initialProp) ? initial
-      : initial === 'null' ? 'null'
-      : initial === 'true' ? 'true'
-      : initial === 'false' ? 'false'
-      : initial.startsWith('[') || initial.startsWith('{') ? initial
-      : isNaN(Number(initial)) ? `'${initial}'`
-      : String(initial);
+    const initial = isExpr(initialProp) ? (initialProp as { code: string }).code : String(initialProp);
+    const initVal = isExpr(initialProp)
+      ? initial
+      : initial === ''
+        ? "''"
+        : initial === 'null'
+          ? 'null'
+          : initial === 'true'
+            ? 'true'
+            : initial === 'false'
+              ? 'false'
+              : initial.startsWith('[') || initial.startsWith('{')
+                ? initial
+                : initial.startsWith("'") || initial.startsWith('"')
+                  ? initial
+                  : initial.includes('(') || initial.includes('.')
+                    ? initial
+                    : Number.isNaN(Number(initial))
+                      ? `'${initial}'`
+                      : String(initial);
     const setter = `set${capitalize(name)}`;
-    lines.push(`  const [${name}, ${setter}] = useState(${initVal});`);
+    const typeAnnotation = props.type ? `<${props.type as string}>` : '';
+    // Lazy initialization for IIFEs and constructors (prevents re-eval per render)
+    const lazyInitVal = needsLazyInit(initVal, props.type as string) ? `() => ${initVal}` : initVal;
+
+    const throttle = props.throttle as string | undefined;
+    const debounce = props.debounce as string | undefined;
+
+    if (throttle) {
+      // Throttled setter — leading+trailing by default (lodash-style).
+      // trailing=false reverts to leading-only (drops intermediate + final values in window).
+      const trailing = props.trailing !== 'false' && props.trailing !== false;
+      imports.addReact('useMemo');
+      const valType = typeAnnotation ? (props.type as string) : 'any';
+      lines.push(`  const [${name}, _${setter}Raw] = useState${typeAnnotation}(${lazyInitVal});`);
+      lines.push(`  const ${setter} = useMemo(() => {`);
+      lines.push(`    let _lastCall = 0;`);
+      if (trailing) {
+        lines.push(`    let _pendingValue: React.SetStateAction<${valType}>;`);
+        lines.push(`    let _pendingTimer: ReturnType<typeof setTimeout> | null = null;`);
+      }
+      lines.push(`    return (value: React.SetStateAction<${valType}>) => {`);
+      lines.push(`      const now = Date.now();`);
+      if (trailing) {
+        lines.push(`      const elapsed = now - _lastCall;`);
+        lines.push(`      if (elapsed >= ${throttle}) {`);
+        lines.push(`        _lastCall = now;`);
+        lines.push(`        if (_pendingTimer) { clearTimeout(_pendingTimer); _pendingTimer = null; }`);
+        lines.push(`        setTimeout(() => _${setter}Raw(value), 0);`);
+        lines.push(`      } else {`);
+        lines.push(`        _pendingValue = value;`);
+        lines.push(`        if (!_pendingTimer) {`);
+        lines.push(`          _pendingTimer = setTimeout(() => {`);
+        lines.push(`            _lastCall = Date.now();`);
+        lines.push(`            _pendingTimer = null;`);
+        lines.push(`            _${setter}Raw(_pendingValue);`);
+        lines.push(`          }, ${throttle} - elapsed);`);
+        lines.push(`        }`);
+        lines.push(`      }`);
+      } else {
+        lines.push(`      if (now - _lastCall >= ${throttle}) {`);
+        lines.push(`        _lastCall = now;`);
+        lines.push(`        setTimeout(() => _${setter}Raw(value), 0);`);
+        lines.push(`      }`);
+      }
+      lines.push(`    };`);
+      lines.push(`  }, []);`);
+    } else if (debounce) {
+      // Debounced setter — delays updates, uses setTimeout for Ink safety
+      imports.addReact('useMemo');
+      lines.push(`  const [${name}, _${setter}Raw] = useState${typeAnnotation}(${lazyInitVal});`);
+      lines.push(`  const ${setter} = useMemo(() => {`);
+      lines.push(`    let _timer: ReturnType<typeof setTimeout> | null = null;`);
+      lines.push(`    return (value: React.SetStateAction<${typeAnnotation ? (props.type as string) : 'any'}>) => {`);
+      lines.push(`      if (_timer) clearTimeout(_timer);`);
+      lines.push(`      _timer = setTimeout(() => _${setter}Raw(value), ${debounce});`);
+      lines.push(`    };`);
+      lines.push(`  }, []);`);
+    } else if (safe) {
+      ctx.needsInkSafe = true;
+      imports.addReact('useMemo');
+      lines.push(`  const [${name}, _${setter}Raw] = useState${typeAnnotation}(${lazyInitVal});`);
+      lines.push(`  const ${setter} = useMemo(() => __inkSafe(_${setter}Raw), [_${setter}Raw]);`);
+    } else {
+      lines.push(`  const [${name}, ${setter}] = useState${typeAnnotation}(${lazyInitVal});`);
+    }
   }
 
   return lines;
@@ -172,10 +315,11 @@ function generateRefHook(refNode: IRNode, imports: ImportTracker): string[] {
 
   if (name) {
     imports.addReact('useRef');
-    const initVal = initialProp === undefined ? 'null'
-      : isExpr(initialProp) ? unwrapProp(initialProp)
-      : String(initialProp);
-    lines.push(`  const ${name}Ref = useRef(${initVal});`);
+    const initVal =
+      initialProp === undefined ? 'null' : isExpr(initialProp) ? unwrapProp(initialProp) : String(initialProp);
+    const refName = name.endsWith('Ref') ? name : `${name}Ref`;
+    const typeAnnotation = props.type ? `<${props.type as string}>` : '';
+    lines.push(`  const ${refName} = useRef${typeAnnotation}(${initVal});`);
   }
 
   return lines;
@@ -189,25 +333,68 @@ function generateStreamEffect(streamNode: IRNode, imports: ImportTracker): strin
   const name = props.name as string;
   const source = props.source as string;
   const append = props.append !== 'false'; // default true
+  const mode = props.mode as string;
+  const dispatch = props.dispatch as string;
 
   if (name && source) {
     imports.addReact('useEffect');
     const setter = `set${capitalize(name)}`;
 
-    lines.push(`  useEffect(() => {`);
-    lines.push(`    let cancelled = false;`);
-    lines.push(`    (async () => {`);
-    lines.push(`      for await (const chunk of ${source}()) {`);
-    lines.push(`        if (cancelled) break;`);
-    if (append) {
-      lines.push(`        ${setter}(prev => [...prev, chunk]);`);
+    if (mode === 'channel' && dispatch) {
+      // Channel mode: AsyncGenerator → dispatch function with cleanup
+      // Pattern: session.send() → drain chunks → dispatch(chunk)
+      lines.push(`  useEffect(() => {`);
+      lines.push(`    let cancelled = false;`);
+      lines.push(`    const abortController = new AbortController();`);
+      lines.push(`    (async () => {`);
+      lines.push(`      try {`);
+      lines.push(`        for await (const chunk of ${source}) {`);
+      lines.push(`          if (cancelled) break;`);
+      lines.push(`          ${dispatch}(chunk);`);
+      lines.push(`        }`);
+      lines.push(`      } catch (err) {`);
+      lines.push(`        if (!cancelled) console.error('Stream error:', err);`);
+      lines.push(`      }`);
+      lines.push(`    })();`);
+      lines.push(`    return () => { cancelled = true; abortController.abort(); };`);
+      lines.push(`  }, [${source}]);`);
+    } else if (mode === 'channel') {
+      // Channel mode without dispatch: iterate source directly into state
+      lines.push(`  useEffect(() => {`);
+      lines.push(`    let cancelled = false;`);
+      lines.push(`    (async () => {`);
+      lines.push(`      try {`);
+      lines.push(`        for await (const chunk of ${source}) {`);
+      lines.push(`          if (cancelled) break;`);
+      if (append) {
+        lines.push(`          ${setter}(prev => [...prev, chunk]);`);
+      } else {
+        lines.push(`          ${setter}(chunk);`);
+      }
+      lines.push(`        }`);
+      lines.push(`      } catch (err) {`);
+      lines.push(`        if (!cancelled) console.error('Stream error:', err);`);
+      lines.push(`      }`);
+      lines.push(`    })();`);
+      lines.push(`    return () => { cancelled = true; };`);
+      lines.push(`  }, [${source}]);`);
     } else {
-      lines.push(`        ${setter}(chunk);`);
+      // Default mode: source is a function that returns an AsyncGenerator
+      lines.push(`  useEffect(() => {`);
+      lines.push(`    let cancelled = false;`);
+      lines.push(`    (async () => {`);
+      lines.push(`      for await (const chunk of ${source}()) {`);
+      lines.push(`        if (cancelled) break;`);
+      if (append) {
+        lines.push(`        ${setter}(prev => [...prev, chunk]);`);
+      } else {
+        lines.push(`        ${setter}(chunk);`);
+      }
+      lines.push(`      }`);
+      lines.push(`    })();`);
+      lines.push(`    return () => { cancelled = true; };`);
+      lines.push(`  }, []);`);
     }
-    lines.push(`      }`);
-    lines.push(`    })();`);
-    lines.push(`    return () => { cancelled = true; };`);
-    lines.push(`  }, []);`);
   }
 
   return lines;
@@ -218,19 +405,108 @@ function generateStreamEffect(streamNode: IRNode, imports: ImportTracker): strin
 function generateLogicEffect(logicNode: IRNode, imports: ImportTracker): string[] {
   const lines: string[] = [];
   const props = getProps(logicNode);
-  const code = props.code as string || '';
   const deps = props.deps as string;
+  // Support both inline code prop and handler child
+  const handlerChild = (logicNode.children || []).find((c) => c.type === 'handler');
+  const code = handlerChild ? (getProps(handlerChild).code as string) || '' : (props.code as string) || '';
 
   if (code) {
     imports.addReact('useEffect');
     const dedented = dedent(code);
     const depsStr = deps ? `[${deps}]` : '[]';
 
+    // Auto-cleanup: detect setInterval/setTimeout at top-level scope (not inside nested functions)
+    const hasCleanup = /return\s*\(\s*\)\s*=>/.test(dedented) || /return\s*\(\)\s*\{/.test(dedented);
+    // Only match if declaration appears before any function/arrow — i.e., at the effect's top level
+    const hasNestedFn = /(?:function\s|=>)/.test(dedented.split(/set(?:Interval|Timeout)\s*\(/)[0] || '');
+    const intervalMatch = hasNestedFn ? null : dedented.match(/(?:const|let|var)\s+(\w+)\s*=\s*setInterval\s*\(/);
+    const timeoutMatch = hasNestedFn ? null : dedented.match(/(?:const|let|var)\s+(\w+)\s*=\s*setTimeout\s*\(/);
+
     lines.push(`  useEffect(() => {`);
     for (const line of dedented.split('\n')) {
       lines.push(`    ${line}`);
     }
+    if (!hasCleanup && intervalMatch) {
+      lines.push(`    return () => { clearInterval(${intervalMatch[1]}); };`);
+    } else if (!hasCleanup && timeoutMatch) {
+      lines.push(`    return () => { clearTimeout(${timeoutMatch[1]}); };`);
+    }
     lines.push(`  }, ${depsStr});`);
+  }
+
+  return lines;
+}
+
+// ── Focus hook → useFocus (Phase 3) ────────────────────────────────
+
+function generateFocusHook(focusNode: IRNode, imports: ImportTracker): string[] {
+  const lines: string[] = [];
+  const props = getProps(focusNode);
+  const name = props.name as string;
+  const autoFocus = props.autoFocus === 'true' || props.autoFocus === true;
+  const id = props.id as string;
+
+  if (name) {
+    imports.addInk('useFocus');
+    const opts: string[] = [];
+    if (autoFocus) opts.push('autoFocus: true');
+    if (id) opts.push(`id: '${id}'`);
+    const optsStr = opts.length > 0 ? `{ ${opts.join(', ')} }` : '';
+    lines.push(`  const { isFocused: ${name} } = useFocus(${optsStr});`);
+  }
+
+  return lines;
+}
+
+// ── App exit hook → useApp (Phase 3) ───────────────────────────────
+
+function generateAppExitHook(exitNode: IRNode, imports: ImportTracker): string[] {
+  const lines: string[] = [];
+  const props = getProps(exitNode);
+  const on = props.on;
+
+  if (on) {
+    imports.addInk('useApp');
+    imports.addReact('useEffect');
+    const condition = isExpr(on) ? (on as { code: string }).code : String(on);
+    lines.push(`  const { exit } = useApp();`);
+    lines.push(`  useEffect(() => { if (${condition}) exit(); }, [${condition}]);`);
+  }
+
+  return lines;
+}
+
+// ── Animation block → useEffect with setInterval ────────────────────
+
+function generateAnimation(animNode: IRNode, imports: ImportTracker): string[] {
+  const lines: string[] = [];
+  const props = getProps(animNode);
+  const name = props.name as string;
+  const interval = props.interval as string;
+  const update = isExpr(props.update) ? (props.update as { code: string }).code : String(props.update || '');
+  const active = props.active;
+
+  if (name && interval && update) {
+    imports.addReact('useEffect');
+    const setter = `set${capitalize(name)}`;
+
+    if (active) {
+      const activeExpr = isExpr(active) ? (active as { code: string }).code : String(active);
+      lines.push(`  useEffect(() => {`);
+      lines.push(`    if (!(${activeExpr})) return;`);
+      lines.push(`    const _animId = setInterval(() => {`);
+      lines.push(`      ${setter}(${update});`);
+      lines.push(`    }, ${interval});`);
+      lines.push(`    return () => clearInterval(_animId);`);
+      lines.push(`  }, [${activeExpr}]);`);
+    } else {
+      lines.push(`  useEffect(() => {`);
+      lines.push(`    const _animId = setInterval(() => {`);
+      lines.push(`      ${setter}(${update});`);
+      lines.push(`    }, ${interval});`);
+      lines.push(`    return () => clearInterval(_animId);`);
+      lines.push(`  }, []);`);
+    }
   }
 
   return lines;
@@ -242,13 +518,16 @@ function generateCallbackHook(callbackNode: IRNode, imports: ImportTracker): str
   const lines: string[] = [];
   const props = getProps(callbackNode);
   const name = props.name as string;
-  const params = props.params as string || '';
+  const params = (props.params as string) || '';
   const deps = props.deps as string;
-  const handlerChild = (callbackNode.children || []).find(c => c.type === 'handler');
-  const code = handlerChild ? (getProps(handlerChild).code as string || '') : '';
+  const handlerChild = (callbackNode.children || []).find((c) => c.type === 'handler');
+  const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
 
   if (name && code) {
     imports.addReact('useCallback');
+    // Auto-detect hooks used inside callback handler code
+    if (code.includes('useMemo')) imports.addReact('useMemo');
+    if (code.includes('useRef')) imports.addReact('useRef');
     const dedented = dedent(code);
     const depsStr = deps ? `[${deps}]` : '[]';
     const isAsync = props.async === 'true' || props.async === true;
@@ -280,6 +559,8 @@ function collectNestedOnNodes(node: IRNode): IRNode[] {
 
 // ── Generate useInput from an on-node ───────────────────────────────────
 
+let _onHookCounter = 0;
+
 function generateOnHook(onNode: IRNode, imports: ImportTracker): string[] {
   const lines: string[] = [];
   const onProps = getProps(onNode);
@@ -287,11 +568,17 @@ function generateOnHook(onNode: IRNode, imports: ImportTracker): string[] {
 
   if (event === 'key' || event === 'input') {
     imports.addInk('useInput');
+    imports.addReact('useRef');
     const key = onProps.key as string;
-    const handlerChild = (onNode.children || []).find(c => c.type === 'handler');
-    const code = handlerChild ? (getProps(handlerChild).code as string || '') : '';
+    const handlerChild = (onNode.children || []).find((c) => c.type === 'handler');
+    const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
 
-    lines.push(`  useInput((input, key) => {`);
+    // Use ref pattern with unique suffix for fresh closures — supports multiple on-nodes
+    const suffix = _onHookCounter === 0 ? '' : `_${_onHookCounter}`;
+    _onHookCounter++;
+    const refName = `_inputHandlerRef${suffix}`;
+    lines.push(`  const ${refName} = useRef<(input: string, key: any) => void>(() => {});`);
+    lines.push(`  ${refName}.current = (input: string, key: any) => {`);
     if (key) {
       lines.push(`    if (!(${keyToCheck(key)})) return;`);
     }
@@ -301,7 +588,8 @@ function generateOnHook(onNode: IRNode, imports: ImportTracker): string[] {
         lines.push(`    ${line}`);
       }
     }
-    lines.push(`  });`);
+    lines.push(`  };`);
+    lines.push(`  useInput((input: string, key: any) => ${refName}.current(input, key));`);
     lines.push('');
   }
 
@@ -322,7 +610,7 @@ function renderInkText(p: Record<string, unknown>, indent: string, imports: Impo
   if (styles.c || styles.color) textProps.push(`color=${inkColor(styles.c || styles.color)}`);
   if (styles.bg) textProps.push(`backgroundColor=${inkColor(styles.bg)}`);
 
-  const propsStr = textProps.length > 0 ? ' ' + textProps.join(' ') : '';
+  const propsStr = textProps.length > 0 ? ` ${textProps.join(' ')}` : '';
   if (isExpr(rawValue)) {
     return [`${indent}<Text${propsStr}>{${(rawValue as { code: string }).code}}</Text>`];
   }
@@ -340,7 +628,7 @@ function renderInkBox(node: IRNode, p: Record<string, unknown>, indent: string, 
   imports.addInk('Box');
   imports.addInk('Text');
   const color = p.color as string;
-  const borderStyle = p.borderStyle as string || 'round';
+  const borderStyle = (p.borderStyle as string) || 'round';
   const flexDirection = p.flexDirection as string;
   const width = p.width as string;
   const flexGrow = p.flexGrow as string;
@@ -357,13 +645,13 @@ function renderInkBox(node: IRNode, p: Record<string, unknown>, indent: string, 
   if (paddingX) boxProps.push(`paddingX={${paddingX}}`);
   if (paddingY) boxProps.push(`paddingY={${paddingY}}`);
 
-  const propsStr = boxProps.length > 0 ? ' ' + boxProps.join(' ') : '';
+  const propsStr = boxProps.length > 0 ? ` ${boxProps.join(' ')}` : '';
   const lines: string[] = [];
   lines.push(`${indent}<Box${propsStr}>`);
 
   for (const child of node.children || []) {
     if (child.type === 'on') continue;
-    lines.push(...renderInkNode(child, indent + '  ', imports));
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
   }
 
   lines.push(`${indent}</Box>`);
@@ -373,7 +661,7 @@ function renderInkBox(node: IRNode, p: Record<string, unknown>, indent: string, 
 function renderInkTable(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
   imports.addInk('Box');
   imports.addInk('Text');
-  const headers = p.headers as string || '[]';
+  const headers = (p.headers as string) || '[]';
   const rows = getChildren(node, 'row');
   const lines: string[] = [];
 
@@ -385,7 +673,7 @@ function renderInkTable(node: IRNode, p: Record<string, unknown>, indent: string
   lines.push(`${indent}  </Box>`);
   lines.push(`${indent}  <Text dimColor>{'${'─'.repeat(60)}'}</Text>`);
   for (const row of rows) {
-    const rowData = getProps(row).data as string || '[]';
+    const rowData = (getProps(row).data as string) || '[]';
     lines.push(`${indent}  <Box>`);
     lines.push(`${indent}    {(${rowData} as string[]).map((cell: string, i: number) => (`);
     lines.push(`${indent}      <Box key={i} width={20}><Text>{cell}</Text></Box>`);
@@ -396,11 +684,16 @@ function renderInkTable(node: IRNode, p: Record<string, unknown>, indent: string
   return lines;
 }
 
-function renderInkScoreboard(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+function renderInkScoreboard(
+  node: IRNode,
+  p: Record<string, unknown>,
+  indent: string,
+  imports: ImportTracker,
+): string[] {
   imports.addInk('Box');
   imports.addInk('Text');
-  const title = p.title as string || 'Results';
-  const winner = p.winner as string || '';
+  const title = (p.title as string) || 'Results';
+  const winner = (p.winner as string) || '';
   const metrics = getChildren(node, 'metric');
   const lines: string[] = [];
 
@@ -411,10 +704,10 @@ function renderInkScoreboard(node: IRNode, p: Record<string, unknown>, indent: s
   }
   for (const metric of metrics) {
     const mp = getProps(metric);
-    const mname = mp.name as string || '';
-    const values = mp.values as string || '[]';
+    const mname = (mp.name as string) || '';
+    const values = (mp.values as string) || '[]';
     lines.push(`${indent}  <Box>`);
-    lines.push(`${indent}    <Text dimColor>{${JSON.stringify(mname + ':')}}</Text>`);
+    lines.push(`${indent}    <Text dimColor>{${JSON.stringify(`${mname}:`)}}</Text>`);
     lines.push(`${indent}    <Text>{' '}{(${values} as string[]).join(' | ')}</Text>`);
     lines.push(`${indent}  </Box>`);
   }
@@ -428,13 +721,10 @@ function renderInkSpinner(p: Record<string, unknown>, indent: string, imports: I
   const rawMsg = p.message;
   const color = p.color as string;
   const spinnerColor = color ? ` color=${inkColor(color)}` : '';
-  const msgContent = isExpr(rawMsg) ? `{${(rawMsg as { code: string }).code}}` : `{' ${String(rawMsg ?? 'Loading...')}'}`;
-  return [
-    `${indent}<Text>`,
-    `${indent}  <Spinner${spinnerColor} />`,
-    `${indent}  ${msgContent}`,
-    `${indent}</Text>`,
-  ];
+  const msgContent = isExpr(rawMsg)
+    ? `{${(rawMsg as { code: string }).code}}`
+    : `{' ${String(rawMsg ?? 'Loading...')}'}`;
+  return [`${indent}<Text>`, `${indent}  <Spinner${spinnerColor} />`, `${indent}  ${msgContent}`, `${indent}</Text>`];
 }
 
 function renderInkProgress(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
@@ -442,7 +732,7 @@ function renderInkProgress(p: Record<string, unknown>, indent: string, imports: 
   imports.addInk('Text');
   const rawValue = p.value;
   const rawMax = p.max;
-  const color = p.color as string || 'green';
+  const color = (p.color as string) || 'green';
   const barWidth = 20;
   const lines: string[] = [];
 
@@ -479,8 +769,8 @@ function renderInkProgress(p: Record<string, unknown>, indent: string, imports: 
 
 function renderInkGradient(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
   imports.addInk('Text');
-  const text = p.text as string || '';
-  const colors = p.colors as string || '[]';
+  const text = (p.text as string) || '';
+  const colors = (p.colors as string) || '[]';
   return [
     `${indent}<Text>`,
     `${indent}  {${JSON.stringify(text)}.split('').map((ch: string, i: number) => {`,
@@ -499,7 +789,7 @@ function renderInkInputArea(node: IRNode, indent: string, imports: ImportTracker
   lines.push(`${indent}<Box flexDirection="column" borderStyle="single" borderColor="gray">`);
   for (const child of node.children || []) {
     if (child.type === 'on') continue;
-    lines.push(...renderInkNode(child, indent + '  ', imports));
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
   }
   lines.push(`${indent}</Box>`);
   return lines;
@@ -511,7 +801,7 @@ function renderInkOutputArea(node: IRNode, indent: string, imports: ImportTracke
   lines.push(`${indent}<Box flexDirection="column" flexGrow={1}>`);
   for (const child of node.children || []) {
     if (child.type === 'on') continue;
-    lines.push(...renderInkNode(child, indent + '  ', imports));
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
   }
   lines.push(`${indent}</Box>`);
   return lines;
@@ -519,7 +809,7 @@ function renderInkOutputArea(node: IRNode, indent: string, imports: ImportTracke
 
 function renderInkTextInput(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
   imports.needTextInput();
-  const placeholder = p.placeholder as string || '';
+  const placeholder = (p.placeholder as string) || '';
   const bind = p.bind as string;
   const history = p.history as string;
   const onSubmit = p.onSubmit as string;
@@ -539,34 +829,39 @@ function renderInkTextInput(p: Record<string, unknown>, indent: string, imports:
 function renderInkSelectInput(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
   imports.needSelectInput();
   const rawItems = p.items;
-  const items = isExpr(rawItems) ? (rawItems as { code: string }).code : (rawItems as string || '[]');
+  const items = isExpr(rawItems) ? (rawItems as { code: string }).code : (rawItems as string) || '[]';
   const onSelect = p.onSelect as string;
-  const selectProps: string[] = [`items={${items}}`];
+  const onChange = p.onChange as string;
+  const selectProps: string[] = [`options={${items}}`];
   if (onSelect) {
-    selectProps.push(`onSelect={${onSelect}}`);
+    selectProps.push(`onChange={${onSelect}}`);
+  } else if (onChange) {
+    selectProps.push(`onChange={${onChange}}`);
   }
-  return [`${indent}<SelectInput ${selectProps.join(' ')} />`];
+  return [`${indent}<Select ${selectProps.join(' ')} />`];
 }
 
 function renderInkHandler(p: Record<string, unknown>, indent: string): string[] {
-  const code = p.code as string || '';
+  const code = (p.code as string) || '';
   const dedented = dedent(code);
-  return dedented.split('\n').map(line => `${indent}${line}`);
+  return dedented.split('\n').map((line) => `${indent}${line}`);
 }
 
 function renderInkEach(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
   const rawCollection = p.collection;
-  const collection = isExpr(rawCollection) ? (rawCollection as { code: string }).code : (rawCollection as string || '[]');
-  const item = p.item as string || 'item';
-  const index = p.index as string || 'i';
+  const collection = isExpr(rawCollection)
+    ? (rawCollection as { code: string }).code
+    : (rawCollection as string) || '[]';
+  const item = (p.item as string) || 'item';
+  const index = (p.index as string) || 'i';
   const rawKey = p.key;
-  const key = isExpr(rawKey) ? (rawKey as { code: string }).code : (rawKey as string || index);
+  const key = isExpr(rawKey) ? (rawKey as { code: string }).code : (rawKey as string) || index;
 
   const lines: string[] = [];
   lines.push(`${indent}{${collection}.map((${item}, ${index}) => (`);
   const children = node.children || [];
   if (children.length === 1) {
-    const childLines = renderInkNode(children[0], indent + '  ', imports);
+    const childLines = renderInkNode(children[0], `${indent}  `, imports);
     if (childLines.length > 0) {
       childLines[0] = childLines[0].replace(/^(\s*<\w+)/, `$1 key={${key}}`);
     }
@@ -574,15 +869,20 @@ function renderInkEach(node: IRNode, p: Record<string, unknown>, indent: string,
   } else {
     lines.push(`${indent}  <React.Fragment key={${key}}>`);
     for (const child of children) {
-      lines.push(...renderInkNode(child, indent + '    ', imports));
+      lines.push(...renderInkNode(child, `${indent}    `, imports));
     }
     lines.push(`${indent}  </React.Fragment>`);
   }
-  lines.push(`${indent}))}`)
+  lines.push(`${indent}))}`);
   return lines;
 }
 
-function renderInkConditional(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+function renderInkConditional(
+  node: IRNode,
+  p: Record<string, unknown>,
+  indent: string,
+  imports: ImportTracker,
+): string[] {
   const condition = p.if;
   const jsCondition = irConditionToJs(condition ?? 'true');
   const lines: string[] = [];
@@ -590,11 +890,230 @@ function renderInkConditional(node: IRNode, p: Record<string, unknown>, indent: 
   lines.push(`${indent}{${jsCondition} && (`);
   lines.push(`${indent}  <>`);
   for (const child of node.children || []) {
-    lines.push(...renderInkNode(child, indent + '    ', imports));
+    lines.push(...renderInkNode(child, `${indent}    `, imports));
   }
   lines.push(`${indent}  </>`);
   lines.push(`${indent})}`);
   return lines;
+}
+
+// ── @inkjs/ui Component Renderers (Phase 3) ─────────────────────────────
+
+function renderInkMultiSelect(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInkUI('MultiSelect');
+  const rawOptions = p.options;
+  const options = isExpr(rawOptions) ? (rawOptions as { code: string }).code : (rawOptions as string) || '[]';
+  const onChange = p.onChange as string;
+  const msProps: string[] = [`options={${options}}`];
+  if (onChange) msProps.push(`onChange={${onChange}}`);
+  return [`${indent}<MultiSelect ${msProps.join(' ')} />`];
+}
+
+function renderInkConfirmInput(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInkUI('ConfirmInput');
+  const ciProps: string[] = [];
+  if (p.onConfirm) ciProps.push(`onConfirm={${p.onConfirm}}`);
+  if (p.onCancel) ciProps.push(`onCancel={${p.onCancel}}`);
+  if (p.defaultChoice) ciProps.push(`defaultChoice="${p.defaultChoice}"`);
+  if (p.submitOnEnter === 'false' || p.submitOnEnter === false) ciProps.push('submitOnEnter={false}');
+  return [`${indent}<ConfirmInput ${ciProps.join(' ')} />`];
+}
+
+function renderInkPasswordInput(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInkUI('PasswordInput');
+  const piProps: string[] = [];
+  const bind = p.bind as string;
+  if (p.placeholder) piProps.push(`placeholder=${JSON.stringify(p.placeholder)}`);
+  if (bind) {
+    piProps.push(`onChange={set${capitalize(bind)}}`);
+  }
+  if (p.onChange) piProps.push(`onChange={${p.onChange}}`);
+  return [`${indent}<PasswordInput ${piProps.join(' ')} />`];
+}
+
+function renderInkStatusMessage(
+  node: IRNode,
+  p: Record<string, unknown>,
+  indent: string,
+  imports: ImportTracker,
+): string[] {
+  imports.addInkUI('StatusMessage');
+  const variant = (p.variant as string) || 'info';
+  const lines: string[] = [];
+  lines.push(`${indent}<StatusMessage variant="${variant}">`);
+  for (const child of node.children || []) {
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
+  }
+  lines.push(`${indent}</StatusMessage>`);
+  return lines;
+}
+
+function renderInkAlert(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInkUI('Alert');
+  const variant = (p.variant as string) || 'info';
+  const title = p.title as string;
+  const alertProps: string[] = [`variant="${variant}"`];
+  if (title) alertProps.push(`title=${JSON.stringify(title)}`);
+  const lines: string[] = [];
+  lines.push(`${indent}<Alert ${alertProps.join(' ')}>`);
+  for (const child of node.children || []) {
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
+  }
+  lines.push(`${indent}</Alert>`);
+  return lines;
+}
+
+function renderInkOrderedList(node: IRNode, indent: string, imports: ImportTracker): string[] {
+  imports.addInkUI('OrderedList');
+  const lines: string[] = [];
+  lines.push(`${indent}<OrderedList>`);
+  for (const child of node.children || []) {
+    lines.push(`${indent}  <OrderedList.Item>`);
+    lines.push(...renderInkNode(child, `${indent}    `, imports));
+    lines.push(`${indent}  </OrderedList.Item>`);
+  }
+  lines.push(`${indent}</OrderedList>`);
+  return lines;
+}
+
+function renderInkUnorderedList(node: IRNode, indent: string, imports: ImportTracker): string[] {
+  imports.addInkUI('UnorderedList');
+  const lines: string[] = [];
+  lines.push(`${indent}<UnorderedList>`);
+  for (const child of node.children || []) {
+    lines.push(`${indent}  <UnorderedList.Item>`);
+    lines.push(...renderInkNode(child, `${indent}    `, imports));
+    lines.push(`${indent}  </UnorderedList.Item>`);
+  }
+  lines.push(`${indent}</UnorderedList>`);
+  return lines;
+}
+
+function renderInkStaticLog(
+  node: IRNode,
+  p: Record<string, unknown>,
+  indent: string,
+  imports: ImportTracker,
+): string[] {
+  imports.addInk('Static');
+  imports.addInk('Text');
+  const rawItems = p.items;
+  const items = isExpr(rawItems) ? (rawItems as { code: string }).code : (rawItems as string) || '[]';
+  const lines: string[] = [];
+  lines.push(`${indent}<Static items={${items}}>`);
+  lines.push(`${indent}  {(item: any) => (`);
+  if (node.children && node.children.length > 1) {
+    // Multiple children need a fragment wrapper
+    lines.push(`${indent}    <>`);
+    for (const child of node.children) {
+      lines.push(...renderInkNode(child, `${indent}      `, imports));
+    }
+    lines.push(`${indent}    </>`);
+  } else if (node.children && node.children.length === 1) {
+    lines.push(...renderInkNode(node.children[0], `${indent}    `, imports));
+  } else {
+    lines.push(`${indent}    <Text>{String(item)}</Text>`);
+  }
+  lines.push(`${indent}  )}`);
+  lines.push(`${indent}</Static>`);
+  return lines;
+}
+
+function renderInkNewline(p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Newline');
+  const count = p.count as string;
+  if (count && Number(count) > 1) {
+    return [`${indent}<Newline count={${count}} />`];
+  }
+  return [`${indent}<Newline />`];
+}
+
+// ── Layout Primitives (Phase 4) ──────────────────────────────────────────
+
+function renderLayoutRow(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Box');
+  const gap = p.gap as string;
+  const padding = p.padding as string;
+  const boxProps: string[] = ['flexDirection="row"'];
+  if (gap) boxProps.push(`gap={${gap}}`);
+  if (padding) boxProps.push(`padding={${padding}}`);
+  const lines: string[] = [];
+  lines.push(`${indent}<Box ${boxProps.join(' ')}>`);
+  for (const child of node.children || []) {
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
+  }
+  lines.push(`${indent}</Box>`);
+  return lines;
+}
+
+function renderLayoutCol(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Box');
+  const flex = p.flex as string;
+  const width = p.width as string;
+  const boxProps: string[] = ['flexDirection="column"'];
+  if (flex) boxProps.push(`flexGrow={${flex}}`);
+  if (width) boxProps.push(`width={${width}}`);
+  const lines: string[] = [];
+  lines.push(`${indent}<Box ${boxProps.join(' ')}>`);
+  for (const child of node.children || []) {
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
+  }
+  lines.push(`${indent}</Box>`);
+  return lines;
+}
+
+function renderLayoutStack(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Box');
+  const padding = p.padding as string;
+  const gap = p.gap as string;
+  const boxProps: string[] = ['flexDirection="column"'];
+  if (padding) boxProps.push(`padding={${padding}}`);
+  if (gap) boxProps.push(`gap={${gap}}`);
+  const lines: string[] = [];
+  lines.push(`${indent}<Box ${boxProps.join(' ')}>`);
+  for (const child of node.children || []) {
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
+  }
+  lines.push(`${indent}</Box>`);
+  return lines;
+}
+
+function renderSpacer(indent: string, imports: ImportTracker): string[] {
+  imports.addInk('Box');
+  return [`${indent}<Box flexGrow={1} />`];
+}
+
+/** Cross-file import collector — populated by screen-embed with from= */
+const _crossFileImports: Map<string, Set<string>> = new Map();
+
+function renderScreenEmbed(p: Record<string, unknown>, indent: string): string[] {
+  const screen = p.screen as string;
+  if (!screen) return [];
+  const from = p.from as string;
+
+  // Track cross-file import if from= is specified
+  if (from) {
+    // Normalize: strip .kern extension, add .js for ESM
+    const importPath = from.replace(/\.kern$/, '.js');
+    if (!_crossFileImports.has(importPath)) _crossFileImports.set(importPath, new Set());
+    _crossFileImports.get(importPath)!.add(screen);
+  }
+
+  // Collect all non-meta props as component props
+  const propEntries = Object.entries(p).filter(
+    ([k]) => k !== 'screen' && k !== 'from' && k !== 'styles' && k !== 'themeRefs',
+  );
+  const propsStr = propEntries
+    .map(([k, v]) => {
+      if (isExpr(v)) return `${k}={${(v as { code: string }).code}}`;
+      const s = String(v);
+      // Preserve non-string literals as JSX expressions
+      if (s === 'true' || s === 'false') return `${k}={${s}}`;
+      if (!Number.isNaN(Number(s)) && s !== '') return `${k}={${s}}`;
+      return `${k}=${JSON.stringify(s)}`;
+    })
+    .join(' ');
+  return [`${indent}<${screen}${propsStr ? ` ${propsStr}` : ''} />`];
 }
 
 // ── Node renderer → JSX (dispatcher) ─────────────────────────────────────
@@ -603,33 +1122,84 @@ function renderInkNode(node: IRNode, indent: string, imports: ImportTracker): st
   const p = getProps(node);
 
   switch (node.type) {
-    case 'text':         return renderInkText(p as Record<string, unknown>, indent, imports);
-    case 'separator':    return renderInkSeparator(p as Record<string, unknown>, indent, imports);
-    case 'box':          return renderInkBox(node, p as Record<string, unknown>, indent, imports);
-    case 'table':        return renderInkTable(node, p as Record<string, unknown>, indent, imports);
-    case 'scoreboard':   return renderInkScoreboard(node, p as Record<string, unknown>, indent, imports);
-    case 'spinner':      return renderInkSpinner(p as Record<string, unknown>, indent, imports);
-    case 'progress':     return renderInkProgress(p as Record<string, unknown>, indent, imports);
-    case 'gradient':     return renderInkGradient(p as Record<string, unknown>, indent, imports);
-    case 'input-area':   return renderInkInputArea(node, indent, imports);
-    case 'output-area':  return renderInkOutputArea(node, indent, imports);
-    case 'text-input':   return renderInkTextInput(p as Record<string, unknown>, indent, imports);
-    case 'select-input': return renderInkSelectInput(p as Record<string, unknown>, indent, imports);
-    case 'handler':      return renderInkHandler(p as Record<string, unknown>, indent);
-    case 'each':         return renderInkEach(node, p as Record<string, unknown>, indent, imports);
-    case 'conditional':  return renderInkConditional(node, p as Record<string, unknown>, indent, imports);
+    case 'text':
+      return renderInkText(p as Record<string, unknown>, indent, imports);
+    case 'separator':
+      return renderInkSeparator(p as Record<string, unknown>, indent, imports);
+    case 'box':
+      return renderInkBox(node, p as Record<string, unknown>, indent, imports);
+    case 'table':
+      return renderInkTable(node, p as Record<string, unknown>, indent, imports);
+    case 'scoreboard':
+      return renderInkScoreboard(node, p as Record<string, unknown>, indent, imports);
+    case 'spinner':
+      return renderInkSpinner(p as Record<string, unknown>, indent, imports);
+    case 'progress':
+      return renderInkProgress(p as Record<string, unknown>, indent, imports);
+    case 'gradient':
+      return renderInkGradient(p as Record<string, unknown>, indent, imports);
+    case 'input-area':
+      return renderInkInputArea(node, indent, imports);
+    case 'output-area':
+      return renderInkOutputArea(node, indent, imports);
+    case 'text-input':
+      return renderInkTextInput(p as Record<string, unknown>, indent, imports);
+    case 'select-input':
+      return renderInkSelectInput(p as Record<string, unknown>, indent, imports);
+    case 'multi-select':
+      return renderInkMultiSelect(p as Record<string, unknown>, indent, imports);
+    case 'confirm-input':
+      return renderInkConfirmInput(p as Record<string, unknown>, indent, imports);
+    case 'password-input':
+      return renderInkPasswordInput(p as Record<string, unknown>, indent, imports);
+    case 'status-message':
+      return renderInkStatusMessage(node, p as Record<string, unknown>, indent, imports);
+    case 'alert':
+      return renderInkAlert(node, p as Record<string, unknown>, indent, imports);
+    case 'ordered-list':
+      return renderInkOrderedList(node, indent, imports);
+    case 'unordered-list':
+      return renderInkUnorderedList(node, indent, imports);
+    case 'static-log':
+      return renderInkStaticLog(node, p as Record<string, unknown>, indent, imports);
+    case 'newline':
+      return renderInkNewline(p as Record<string, unknown>, indent, imports);
+    case 'layout-row':
+      return renderLayoutRow(node, p as Record<string, unknown>, indent, imports);
+    case 'layout-col':
+      return renderLayoutCol(node, p as Record<string, unknown>, indent, imports);
+    case 'layout-stack':
+      return renderLayoutStack(node, p as Record<string, unknown>, indent, imports);
+    case 'spacer':
+      return renderSpacer(indent, imports);
+    case 'screen-embed':
+      return renderScreenEmbed(p as Record<string, unknown>, indent);
+    case 'handler':
+      return renderInkHandler(p as Record<string, unknown>, indent);
+    case 'each':
+      return renderInkEach(node, p as Record<string, unknown>, indent, imports);
+    case 'conditional':
+      return renderInkConditional(node, p as Record<string, unknown>, indent, imports);
     case 'state':
     case 'ref':
     case 'stream':
     case 'logic':
+    case 'effect':
     case 'callback':
+    case 'memo':
+    case 'render':
+    case 'prop':
     case 'on':
+    case 'animation':
+    case 'derive':
+    case 'focus':
+    case 'app-exit':
       return [];
     default: {
       const lines: string[] = [];
       if (isCoreNode(node.type)) {
         if (node.type === 'machine') {
-          lines.push(...generateMachineReducer(node).map(l => l));
+          lines.push(...generateMachineReducer(node, { safeDispatch: true, emitImport: false }).map((l) => l));
         } else {
           lines.push(...generateCoreNode(node));
         }
@@ -645,52 +1215,279 @@ function renderInkNode(node: IRNode, indent: string, imports: ImportTracker): st
   }
 }
 
+// ── Reusable screen body compiler ────────────────────────────────────────
+
+const NON_UI_TYPES = new Set([
+  'state',
+  'ref',
+  'on',
+  'stream',
+  'logic',
+  'effect',
+  'callback',
+  'memo',
+  'render',
+  'prop',
+  'animation',
+  'derive',
+  'focus',
+  'app-exit',
+]);
+
+function isInkUiNode(type: string): boolean {
+  return (
+    type === 'each' ||
+    type === 'conditional' ||
+    type === 'select' ||
+    type === 'model' ||
+    type === 'repository' ||
+    type === 'dependency' ||
+    type === 'cache'
+  );
+}
+
+/**
+ * Compile a screen node's full body: all hooks, effects, and JSX return.
+ * Used for both primary and secondary screens to ensure feature parity.
+ */
+function compileScreenBody(
+  screenNode: IRNode,
+  imports: ImportTracker,
+): { bodyLines: string[]; stateCtx: StateHookContext } {
+  const bodyLines: string[] = [];
+  const stateCtx: StateHookContext = { needsInkSafe: false };
+
+  // Collect all node categories from this screen
+  const stateNodes = getChildren(screenNode, 'state');
+  const refNodes = getChildren(screenNode, 'ref');
+  const onNodes = getChildren(screenNode, 'on');
+  const streamNodes = getChildren(screenNode, 'stream');
+  const logicNodes = [...getChildren(screenNode, 'logic'), ...getChildren(screenNode, 'effect')];
+  const callbackNodes = getChildren(screenNode, 'callback');
+  const animationNodes = getChildren(screenNode, 'animation');
+  const deriveNodes = getChildren(screenNode, 'derive');
+  const focusNodes = getChildren(screenNode, 'focus');
+  const appExitNodes = getChildren(screenNode, 'app-exit');
+  const memoNodes = getChildren(screenNode, 'memo');
+  const renderNode = getChildren(screenNode, 'render')[0];
+  const uiChildren = (screenNode.children || []).filter(
+    (c) => !NON_UI_TYPES.has(c.type) && (!isCoreNode(c.type) || isInkUiNode(c.type)),
+  );
+
+  // Hoist nested on-nodes from UI tree
+  const nestedOnNodes = collectNestedOnNodes(screenNode);
+  const allOnNodes = [...onNodes];
+  for (const nested of nestedOnNodes) {
+    if (!onNodes.includes(nested)) allOnNodes.push(nested);
+  }
+
+  // State hooks
+  for (const stateNode of stateNodes) {
+    bodyLines.push(...generateStateHook(stateNode, imports, stateCtx));
+  }
+  if (stateNodes.length > 0) bodyLines.push('');
+
+  // Ref hooks
+  for (const refNode of refNodes) {
+    bodyLines.push(...generateRefHook(refNode, imports));
+  }
+  if (refNodes.length > 0) bodyLines.push('');
+
+  // Focus hooks
+  for (const focusNode of focusNodes) {
+    bodyLines.push(...generateFocusHook(focusNode, imports));
+  }
+  if (focusNodes.length > 0) bodyLines.push('');
+
+  // App exit hooks
+  for (const exitNode of appExitNodes) {
+    bodyLines.push(...generateAppExitHook(exitNode, imports));
+  }
+  if (appExitNodes.length > 0) bodyLines.push('');
+
+  // Memo hooks
+  for (const memoNode of memoNodes) {
+    const mp = getProps(memoNode);
+    const mName = mp.name as string;
+    const mDeps = (mp.deps as string) || '';
+    const mDepsArr = mDeps ? `[${mDeps}]` : '[]';
+    const handlerChild = (memoNode.children || []).find((c: IRNode) => c.type === 'handler');
+    const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
+    if (mName && code) {
+      imports.addReact('useMemo');
+      const dedented = dedent(code);
+      bodyLines.push(`  const ${mName} = useMemo(() => {`);
+      for (const line of dedented.split('\n')) {
+        bodyLines.push(`          ${line}`);
+      }
+      bodyLines.push(`  }, ${mDepsArr});`);
+      bodyLines.push('');
+    }
+  }
+
+  // Callback hooks
+  for (const callbackNode of callbackNodes) {
+    bodyLines.push(...generateCallbackHook(callbackNode, imports));
+    bodyLines.push('');
+  }
+
+  // on event=key → useInput() hooks
+  for (const onNode of allOnNodes) {
+    bodyLines.push(...generateOnHook(onNode, imports));
+  }
+
+  // Stream effects
+  for (const streamNode of streamNodes) {
+    bodyLines.push(...generateStreamEffect(streamNode, imports));
+    bodyLines.push('');
+  }
+
+  // Logic effects
+  for (const logicNode of logicNodes) {
+    bodyLines.push(...generateLogicEffect(logicNode, imports));
+    bodyLines.push('');
+  }
+
+  // Animation effects
+  for (const animNode of animationNodes) {
+    bodyLines.push(...generateAnimation(animNode, imports));
+    bodyLines.push('');
+  }
+
+  // Derive nodes → useMemo with auto-dep tracking
+  for (const deriveNode of deriveNodes) {
+    const dp = getProps(deriveNode);
+    const dName = dp.name as string;
+    const dExpr = isExpr(dp.expr) ? (dp.expr as { code: string }).code : (dp.expr as string) || '';
+    const dDeps = dp.deps as string;
+    const dType = dp.type as string;
+    if (dName && dExpr) {
+      imports.addReact('useMemo');
+      const typeAnnotation = dType ? `<${dType}>` : '';
+      let depsStr: string;
+      if (dDeps) {
+        depsStr = `[${dDeps}]`;
+      } else {
+        const sNames = stateNodes.map((s) => getProps(s).name as string).filter(Boolean);
+        const rNames = refNodes
+          .map((r) => {
+            const rn = getProps(r).name as string;
+            return rn ? (rn.endsWith('Ref') ? rn : `${rn}Ref`) : '';
+          })
+          .filter(Boolean);
+        const allNames = [...sNames, ...rNames];
+        const autoDeps = allNames.filter((n) => new RegExp(`\\b${n}\\b`).test(dExpr));
+        depsStr = `[${autoDeps.join(', ')}]`;
+      }
+      bodyLines.push(`  const ${dName} = useMemo${typeAnnotation}(() => ${dExpr}, ${depsStr});`);
+      bodyLines.push('');
+    }
+  }
+
+  // JSX return — auto-insert return when handler body is a bare JSX expression
+  if (renderNode) {
+    const handlerChild = (renderNode.children || []).find((c: IRNode) => c.type === 'handler');
+    const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
+    if (code.trim()) {
+      const dedented = dedent(code);
+      const trimmed = dedented.trim();
+      if (trimmed.includes('return ') || trimmed.includes('return(')) {
+        // User wrote explicit return — emit as-is
+        for (const line of dedented.split('\n')) {
+          bodyLines.push(`  ${line}`);
+        }
+      } else {
+        // Bare expression (likely JSX) — wrap in return()
+        bodyLines.push('  return (');
+        for (const line of dedented.split('\n')) {
+          bodyLines.push(`    ${line}`);
+        }
+        bodyLines.push('  );');
+      }
+    } else {
+      bodyLines.push('  return null;');
+    }
+  } else {
+    imports.addInk('Box');
+    bodyLines.push('  return (');
+    bodyLines.push('    <Box flexDirection="column">');
+    for (const child of uiChildren) {
+      bodyLines.push(...renderInkNode(child, '      ', imports));
+    }
+    bodyLines.push('    </Box>');
+    bodyLines.push('  );');
+  }
+
+  // Auto-detect React hooks referenced in handler bodies but not yet in the import tracker.
+  // Covers cases where user code calls hooks inline (e.g. useEffect in a render handler)
+  // rather than via dedicated KERN nodes.
+  const bodyText = bodyLines.join('\n');
+  for (const hook of [
+    'useEffect',
+    'useState',
+    'useMemo',
+    'useCallback',
+    'useRef',
+    'useReducer',
+    'useContext',
+    'useLayoutEffect',
+  ]) {
+    if (bodyText.includes(hook)) imports.addReact(hook);
+  }
+
+  return { bodyLines, stateCtx };
+}
+
 // ── Main export ──────────────────────────────────────────────────────────
 
 export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): TranspileResult {
+  _onHookCounter = 0; // Reset per-component counter
+  _crossFileImports.clear(); // Reset cross-file imports
   const sourceMap: SourceMapEntry[] = [];
   const imports = new ImportTracker();
   const lines: string[] = [];
 
-  const rootProps = getProps(root);
-  const screenName = rootProps.name as string || 'App';
+  // Handle file-level AST: find screen node(s), keep siblings as file-level nodes
+  const allScreenNodes = root.type === 'screen' ? [root] : (root.children || []).filter((c) => c.type === 'screen');
+  const screenNode = allScreenNodes.length > 0 ? allScreenNodes[allScreenNodes.length - 1] : root;
+  const fileLevelNodes = root.type === 'screen' ? [] : (root.children || []).filter((c) => c.type !== 'screen');
+  // Secondary screens (all except the last/default one)
+  const secondaryScreens = allScreenNodes.slice(0, -1);
 
-  // Feature #9: Component props from screen attributes
-  const propsAttr = rootProps.props as string;
+  const screenProps = getProps(screenNode);
+  const screenName = (screenProps.name as string) || 'App';
+
+  // Component props from screen attributes OR prop child nodes
+  const propsAttr = screenProps.props as string;
+  const propChildren = getChildren(screenNode, 'prop');
   const propParts = propsAttr ? splitPropsRespectingDepth(propsAttr) : [];
-  const propsParam = propParts.length > 0
-    ? `{ ${propParts.map(p => p.trim().split(':')[0].trim()).join(', ')} }: { ${propParts.map(p => {
-        const trimmed = p.trim();
-        if (trimmed.includes(':')) return trimmed;
-        return `${trimmed}: any`;
-      }).join('; ')} }`
-    : '';
-
-  // Separate node categories
-  const stateNodes = getChildren(root, 'state');
-  const refNodes = getChildren(root, 'ref');
-  const onNodes = getChildren(root, 'on');
-  const streamNodes = getChildren(root, 'stream');
-  const logicNodes = getChildren(root, 'logic');
-  const callbackNodes = getChildren(root, 'callback');
-  // In Ink context, 'each' is a UI node (.map iteration), not a core node (for...of loop)
-  const isInkUiNode = (type: string) => type === 'each' || type === 'conditional' || type === 'select'
-    || type === 'model' || type === 'repository' || type === 'dependency' || type === 'cache';
-  const coreChildren = (root.children || []).filter(c => isCoreNode(c.type) && c.type !== 'on' && !isInkUiNode(c.type));
-  const uiChildren = (root.children || []).filter(c =>
-    c.type !== 'state' && c.type !== 'ref' && c.type !== 'on' && c.type !== 'stream'
-    && c.type !== 'logic' && c.type !== 'callback' && (!isCoreNode(c.type) || isInkUiNode(c.type))
-  );
-
-  // Bug #1: Collect nested on-nodes from UI tree and hoist to component level
-  const nestedOnNodes = collectNestedOnNodes(root);
-  // Deduplicate — top-level on-nodes are already in onNodes
-  const allOnNodes = [...onNodes];
-  for (const nested of nestedOnNodes) {
-    if (!onNodes.includes(nested)) {
-      allOnNodes.push(nested);
-    }
+  for (const pc of propChildren) {
+    const pp = getProps(pc);
+    const pName = pp.name as string;
+    const pType = (pp.type as string) || 'any';
+    const optional = pp.optional === 'true' || pp.optional === true;
+    if (pName) propParts.push(`${pName}${optional ? '?' : ''}:${pType}`);
   }
+  const propsParam =
+    propParts.length > 0
+      ? `{ ${propParts.map((p) => p.trim().split(':')[0].replace('?', '').trim()).join(', ')} }: { ${propParts
+          .map((p) => {
+            const trimmed = p.trim();
+            if (trimmed.includes(':')) return trimmed;
+            return `${trimmed}: any`;
+          })
+          .join('; ')} }`
+      : '';
+
+  // File-level imports go before component; file-level fn/const go after
+  // Collect import nodes from ALL screens (not just primary) so user imports aren't dropped
+  const secondaryImports = secondaryScreens.flatMap((s) => (s.children || []).filter((c) => c.type === 'import'));
+  const coreChildren = [
+    ...fileLevelNodes.filter((c) => isCoreNode(c.type) && c.type !== 'screen' && c.type !== 'fn' && c.type !== 'const'),
+    ...(screenNode.children || []).filter((c) => isCoreNode(c.type) && c.type !== 'on' && !isInkUiNode(c.type)),
+    ...secondaryImports,
+  ];
+  const fileLevelFns = fileLevelNodes.filter((c) => c.type === 'fn' || c.type === 'const');
 
   // ── Core nodes emitted above component (types, interfaces, machines, events) ──
   const coreLines: string[] = [];
@@ -698,9 +1495,29 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     coreLines.push('// ── Core ───────────────────────────────────────────────');
     for (const child of coreChildren) {
       if (child.type === 'machine') {
-        // Machine nodes get useReducer treatment
         imports.addReact('useReducer');
-        coreLines.push(...generateMachineReducer(child));
+        coreLines.push(...generateMachineReducer(child, { safeDispatch: true, emitImport: false }));
+      } else if (child.type === 'import') {
+        // Merge react/ink imports into tracker to avoid duplicates
+        const ip = getProps(child);
+        const from = ip.from as string;
+        if (from === 'react') {
+          const names = ((ip.names as string) || '')
+            .split(',')
+            .map((n: string) => n.trim())
+            .filter(Boolean);
+          for (const n of names) imports.addReact(n);
+          continue;
+        }
+        if (from === 'ink') {
+          const names = ((ip.names as string) || '')
+            .split(',')
+            .map((n: string) => n.trim())
+            .filter(Boolean);
+          for (const n of names) imports.addInk(n);
+          continue;
+        }
+        coreLines.push(...generateCoreNode(child));
       } else {
         coreLines.push(...generateCoreNode(child));
       }
@@ -708,70 +1525,123 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     }
   }
 
-  // ── Component body ──
-  const bodyLines: string[] = [];
-
-  // State hooks
-  for (const stateNode of stateNodes) {
-    bodyLines.push(...generateStateHook(stateNode, imports));
-  }
-  if (stateNodes.length > 0) bodyLines.push('');
-
-  // Ref hooks (Feature #10)
-  for (const refNode of refNodes) {
-    bodyLines.push(...generateRefHook(refNode, imports));
-  }
-  if (refNodes.length > 0) bodyLines.push('');
-
-  // Callback hooks (Feature #11)
-  for (const callbackNode of callbackNodes) {
-    bodyLines.push(...generateCallbackHook(callbackNode, imports));
-    bodyLines.push('');
-  }
-
-  // on event=key → useInput() hooks (Bug #1: now includes hoisted nested on-nodes)
-  for (const onNode of allOnNodes) {
-    bodyLines.push(...generateOnHook(onNode, imports));
-  }
-
-  // Stream effects → useEffect with async generator iteration
-  for (const streamNode of streamNodes) {
-    bodyLines.push(...generateStreamEffect(streamNode, imports));
-    bodyLines.push('');
-  }
-
-  // Logic effects → useEffect (Feature #8)
-  for (const logicNode of logicNodes) {
-    bodyLines.push(...generateLogicEffect(logicNode, imports));
-    bodyLines.push('');
-  }
-
-  // JSX return
-  imports.addInk('Box');
-  bodyLines.push('  return (');
-  bodyLines.push('    <Box flexDirection="column">');
-
-  for (const child of uiChildren) {
-    bodyLines.push(...renderInkNode(child, '      ', imports));
-  }
-
-  bodyLines.push('    </Box>');
-  bodyLines.push('  );');
+  // ── Component body (via shared compileScreenBody) ──
+  const { bodyLines, stateCtx } = compileScreenBody(screenNode, imports);
 
   // ── Assemble ──
-  // Imports (computed last since renderInkNode populates the tracker)
-  lines.push(...imports.emit());
-  lines.push('');
+  // Note: imports.emit() is deferred to AFTER secondary screens + default component
+  // so all required imports are tracked before emission.
+  const componentLines: string[] = [];
 
   // Core nodes
   if (coreLines.length > 0) {
-    lines.push(...coreLines);
+    componentLines.push(...coreLines);
   }
 
-  // Component (Feature #9: with props)
-  lines.push(`export default function ${screenName}(${propsParam}) {`);
-  lines.push(...bodyLines);
-  lines.push('}');
+  // Secondary screen components — full compilation via shared compileScreenBody
+  for (const secScreen of secondaryScreens) {
+    const secProps = getProps(secScreen);
+    const secName = (secProps.name as string) || 'Component';
+    const secPropsAttr = secProps.props as string;
+    const secPropChildren = getChildren(secScreen, 'prop');
+    const secPropParts = secPropsAttr ? splitPropsRespectingDepth(secPropsAttr) : [];
+    for (const pc of secPropChildren) {
+      const pp = getProps(pc);
+      const pn = pp.name as string;
+      const pt = (pp.type as string) || 'any';
+      const opt = pp.optional === 'true' || pp.optional === true;
+      if (pn) secPropParts.push(`${pn}${opt ? '?' : ''}:${pt}`);
+    }
+    const secParam =
+      secPropParts.length > 0
+        ? `{ ${secPropParts.map((p) => p.trim().split(':')[0].replace('?', '').trim()).join(', ')} }: { ${secPropParts
+            .map((p) => {
+              const t = p.trim();
+              return t.includes(':') ? t : `${t}: any`;
+            })
+            .join('; ')} }`
+        : '';
+
+    // Full body compilation — same pipeline as primary screen
+    const { bodyLines: secBodyLines, stateCtx: secCtx } = compileScreenBody(secScreen, imports);
+
+    const secExportAttr = secProps.export as string;
+    const secExportKw = secExportAttr === 'default' ? 'export default' : 'export';
+    const secMemoAttr = secProps.memo;
+    const secUseMemo =
+      secMemoAttr === 'true' || secMemoAttr === true || (typeof secMemoAttr === 'string' && secMemoAttr !== 'false');
+    const secMemoComp = secUseMemo && typeof secMemoAttr === 'string' && secMemoAttr !== 'true' ? secMemoAttr : null;
+    const secMemoExpr = secMemoComp && isExpr(secProps.memo) ? (secProps.memo as { code: string }).code : secMemoComp;
+
+    if (secUseMemo) {
+      componentLines.push(`const ${secName} = React.memo(function ${secName}(${secParam}) {`);
+      if (secCtx.needsInkSafe) componentLines.push(...emitInkSafePreamble());
+      componentLines.push(...secBodyLines);
+      componentLines.push(secMemoExpr ? `}, ${secMemoExpr});` : '});');
+      componentLines.push(`${secExportKw} { ${secName} };`);
+    } else {
+      componentLines.push(`${secExportKw} function ${secName}(${secParam}) {`);
+      if (secCtx.needsInkSafe) componentLines.push(...emitInkSafePreamble());
+      componentLines.push(...secBodyLines);
+      componentLines.push('}');
+    }
+    componentLines.push('');
+  }
+
+  // Component (Feature #9: with props) — respect export= and memo= attributes
+  const screenExportAttr = screenProps.export as string;
+  const screenMemoAttr = screenProps.memo;
+  const useMemo =
+    screenMemoAttr === 'true' ||
+    screenMemoAttr === true ||
+    (typeof screenMemoAttr === 'string' && screenMemoAttr !== 'false');
+  const memoComparator =
+    useMemo && typeof screenMemoAttr === 'string' && screenMemoAttr !== 'true' ? screenMemoAttr : null;
+  const memoComparatorExpr =
+    memoComparator && isExpr(screenProps.memo) ? (screenProps.memo as { code: string }).code : memoComparator;
+
+  if (useMemo) {
+    // React.memo wrapper: const Name = React.memo(function Name(props) { ... }, comparator?);
+    const exportKw = screenExportAttr === 'default' ? 'export default' : 'export';
+    componentLines.push(`const ${screenName} = React.memo(function ${screenName}(${propsParam}) {`);
+    if (stateCtx.needsInkSafe) {
+      componentLines.push(...emitInkSafePreamble());
+    }
+    componentLines.push(...bodyLines);
+    if (memoComparatorExpr) {
+      componentLines.push(`}, ${memoComparatorExpr});`);
+    } else {
+      componentLines.push('});');
+    }
+    componentLines.push(`${exportKw} { ${screenName} };`);
+  } else {
+    const exportKw = screenExportAttr === 'default' ? 'export default' : 'export';
+    componentLines.push(`${exportKw} function ${screenName}(${propsParam}) {`);
+    if (stateCtx.needsInkSafe) {
+      componentLines.push(...emitInkSafePreamble());
+    }
+    componentLines.push(...bodyLines);
+    componentLines.push('}');
+  }
+
+  // File-level functions/constants emitted after the screen component
+  if (fileLevelFns.length > 0) {
+    componentLines.push('');
+    for (const fn of fileLevelFns) {
+      componentLines.push(...generateCoreNode(fn));
+      componentLines.push('');
+    }
+  }
+
+  // NOW emit imports — after all components have populated the tracker
+  lines.push(...imports.emit());
+  // Cross-file screen imports (screen-embed with from=)
+  for (const [path, names] of _crossFileImports) {
+    lines.push(`import { ${[...names].sort().join(', ')} } from '${path}';`);
+  }
+  _crossFileImports.clear();
+  lines.push('');
+  lines.push(...componentLines);
 
   // Source map
   sourceMap.push({
@@ -787,11 +1657,48 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
   const tsTokenCount = countTokens(code);
   const tokenReduction = Math.round((1 - irTokenCount / tsTokenCount) * 100);
 
+  // Generate artifacts: entry point + per-screen component files for multi-screen
+  const artifacts: import('@kernlang/core').GeneratedArtifact[] = [];
+
+  // Entry-point artifact: render(<App />) + waitUntilExit()
+  const entryLines: string[] = [];
+  entryLines.push(`#!/usr/bin/env node`);
+  entryLines.push(`import React from 'react';`);
+  entryLines.push(`import { render } from 'ink';`);
+  if (screenExportAttr === 'named') {
+    entryLines.push(`import { ${screenName} } from './${screenName}.js';`);
+  } else {
+    entryLines.push(`import ${screenName} from './${screenName}.js';`);
+  }
+  entryLines.push('');
+  entryLines.push(`const app = render(<${screenName} />);`);
+  entryLines.push(`await app.waitUntilExit();`);
+  artifacts.push({ path: 'index.tsx', content: entryLines.join('\n'), type: 'entry' });
+
+  // Main component artifact (always emitted so entry-point import resolves)
+  artifacts.push({ path: `${screenName}.tsx`, content: code, type: 'component' });
+
+  // Per-screen component artifacts for secondary screens
+  for (const secScreen of secondaryScreens) {
+    const secName = (getProps(secScreen).name as string) || 'Component';
+    artifacts.push({ path: `${secName}.tsx`, content: '', type: 'component' });
+  }
+
   return {
     code,
     sourceMap,
     irTokenCount,
     tsTokenCount,
     tokenReduction,
+    artifacts,
+    diagnostics: (() => {
+      const accounted = new Map<IRNode, AccountedEntry>();
+      accountNode(accounted, root, 'expressed', undefined, true);
+      const CONSUMED = new Set(['state', 'on', 'handler']);
+      for (const child of root.children || []) {
+        if (CONSUMED.has(child.type)) accountNode(accounted, child, 'consumed', `${child.type} pre-pass`, true);
+      }
+      return buildDiagnostics(root, accounted, 'ink');
+    })(),
   };
 }

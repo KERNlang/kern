@@ -4,9 +4,9 @@
  * v2: Thin orchestrator. Actual rules live in ./rules/*.ts
  */
 
-import type { SourceFile } from 'ts-morph';
-import type { InferResult, TemplateMatch, ReviewConfig, ReviewFinding, FileRole } from './types.js';
+import type { Project, SourceFile } from 'ts-morph';
 import { getActiveRules } from './rules/index.js';
+import type { FileRole, InferResult, ReviewConfig, ReviewFinding, TemplateMatch } from './types.js';
 
 /**
  * Run all active quality rules against a source file.
@@ -18,13 +18,17 @@ export function runQualityRules(
   templateMatches: TemplateMatch[],
   config?: ReviewConfig,
   fileRole: FileRole = 'runtime',
+  project?: Project,
 ): ReviewFinding[] {
   const filePath = sourceFile.getFilePath() || 'input.ts';
   const rules = getActiveRules(config?.target);
 
+  // Resolve file context from import graph (if available)
+  const fileContext = config?.fileContextMap?.get(filePath);
+
   const findings: ReviewFinding[] = [];
   for (const rule of rules) {
-    findings.push(...rule({ sourceFile, inferred, templateMatches, config, filePath, fileRole }));
+    findings.push(...rule({ sourceFile, project, inferred, templateMatches, config, filePath, fileRole, fileContext }));
   }
 
   return findings;

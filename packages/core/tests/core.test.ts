@@ -1,5 +1,5 @@
-import { readFileSync, existsSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { existsSync, readFileSync } from 'fs';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -48,6 +48,36 @@ describe('Kern Core', () => {
       expect(stateNode?.props?.initial).toBe('0');
     });
 
+    test('compiles IIFE initial as lazy useState initializer', async () => {
+      const { parse } = await import('../src/parser.js');
+      const { generateScreen } = await import('../src/codegen/screens.js');
+      const ast = parse('screen name=Test\n  state name=data initial="(() => computeExpensiveDefault())()" type=Data');
+      const lines = generateScreen(ast);
+      const useStateLine = lines.find((l) => l.includes('useState'));
+      expect(useStateLine).toBeDefined();
+      // Should use lazy initializer: useState<Data>(() => ...) not useState<Data>((...))
+      expect(useStateLine).toContain('useState<Data>(() =>');
+    });
+
+    test('compiles simple initial as direct useState value', async () => {
+      const { parse } = await import('../src/parser.js');
+      const { generateScreen } = await import('../src/codegen/screens.js');
+      const ast = parse('screen name=Test\n  state name=count initial=0 type=number');
+      const lines = generateScreen(ast);
+      const useStateLine = lines.find((l) => l.includes('useState'));
+      expect(useStateLine).toContain('useState<number>(0)');
+      expect(useStateLine).not.toContain('() =>');
+    });
+
+    test('compiles new Map() initial as lazy useState initializer', async () => {
+      const { parse } = await import('../src/parser.js');
+      const { generateScreen } = await import('../src/codegen/screens.js');
+      const ast = parse('screen name=Test\n  state name=cache initial="new Map()" type="Map<string,any>"');
+      const lines = generateScreen(ast);
+      const useStateLine = lines.find((l) => l.includes('useState'));
+      expect(useStateLine).toContain('() => new Map()');
+    });
+
     test('parses logic blocks', async () => {
       const { parse } = await import('../src/parser.js');
       const ast = parse('screen name=Test\n  logic <<<\n    console.log("hi");\n  >>>');
@@ -81,7 +111,7 @@ describe('Kern Core', () => {
       const styles = card?.props?.styles as Record<string, string>;
       expect(styles).toBeDefined();
       expect(styles['backdrop-filter']).toBe('blur(8px)');
-      expect(styles['p']).toBe('16');
+      expect(styles.p).toBe('16');
     });
 
     test('parser supports server, schema, and handler backend nodes', async () => {
@@ -149,7 +179,7 @@ describe('Kern Core', () => {
 
     test('resolveConfig throws on unknown target', async () => {
       const { resolveConfig } = await import('../src/config.js');
-      expect(() => resolveConfig({ target: 'invalid-target' as any })).toThrow('Unknown target');
+      expect(() => resolveConfig({ target: 'invalid-target' as any })).toThrow('Config error');
     });
 
     test('resolveConfig accepts express as a valid target', async () => {
@@ -173,7 +203,23 @@ describe('Kern Core', () => {
     test('GeneratedArtifact type exists on TranspileResult', async () => {
       const types = readFileSync(resolve(ROOT, 'packages/core/src/types.ts'), 'utf-8');
       expect(types).toContain('export interface GeneratedArtifact');
-      expect(types).toContain("'page' | 'layout' | 'route' | 'middleware' | 'component' | 'config' | 'entry' | 'command' | 'hook' | 'types' | 'barrel' | 'theme' | 'template'");
+      for (const kind of [
+        'page',
+        'layout',
+        'route',
+        'middleware',
+        'component',
+        'config',
+        'entry',
+        'command',
+        'hook',
+        'types',
+        'barrel',
+        'theme',
+        'template',
+      ]) {
+        expect(types).toContain(`'${kind}'`);
+      }
       expect(types).toContain('artifacts?: GeneratedArtifact[]');
     });
   });
@@ -337,14 +383,14 @@ describe('Kern Core', () => {
       expect(ast.props?.path).toBe('/api/users');
       expect(ast.children).toHaveLength(7); // params, auth, validate, middleware, handler, error x2
 
-      const types = ast.children!.map(c => c.type);
+      const types = ast.children!.map((c) => c.type);
       expect(types).toContain('params');
       expect(types).toContain('auth');
       expect(types).toContain('validate');
       expect(types).toContain('middleware');
       expect(types).toContain('handler');
       expect(types).toContain('error');
-      expect(types.filter(t => t === 'error')).toHaveLength(2);
+      expect(types.filter((t) => t === 'error')).toHaveLength(2);
     });
   });
 });

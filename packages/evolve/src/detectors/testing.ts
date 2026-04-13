@@ -3,14 +3,14 @@
  */
 
 import type { SourceFile } from 'ts-morph';
-import type { DetectorPack, DetectionResult } from '../types.js';
+import type { DetectionResult, DetectorPack } from '../types.js';
 
 const testingLibraryDetector: DetectorPack = {
   id: 'testing-library',
   libraryName: 'Testing Library',
   packageNames: ['@testing-library/react', '@testing-library/vue', '@testing-library/user-event'],
   patternKind: 'testing',
-  detect(sourceFile: SourceFile, fullText: string): DetectionResult[] {
+  detect(_sourceFile: SourceFile, fullText: string): DetectionResult[] {
     const results: DetectionResult[] = [];
 
     // Pattern: render(<Component />) with screen.getByX queries
@@ -22,7 +22,9 @@ const testingLibraryDetector: DetectorPack = {
 
       // Find the test block this render is in
       const beforeRender = fullText.substring(0, match.index);
-      const testMatch = beforeRender.match(/(?:it|test)\s*\(\s*['"]([^'"]+)['"]\s*,\s*(?:async\s*)?\(\)\s*=>\s*\{[^]*$/);
+      const testMatch = beforeRender.match(
+        /(?:it|test)\s*\(\s*['"]([^'"]+)['"]\s*,\s*(?:async\s*)?\(\)\s*=>\s*\{[^]*$/,
+      );
 
       // Count screen.getBy/findBy/queryBy calls after render
       const afterRender = fullText.substring(match.index);

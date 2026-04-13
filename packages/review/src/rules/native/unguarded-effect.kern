@@ -1,0 +1,5 @@
+rule unguarded-effect severity=warning category=bug
+  pattern subject=concept type=effect subtype=network|db
+    guard not=true peer=containerId
+      pattern subject=concept type=guard subtype=auth|validation
+  message "Network/DB effect without auth/validation guard"

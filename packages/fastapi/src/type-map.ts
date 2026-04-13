@@ -28,9 +28,9 @@ export function mapTsTypeToPython(tsType: string): string {
   if (SIMPLE_MAP[trimmed]) return SIMPLE_MAP[trimmed];
 
   // String literal union: "a" | "b" | "c" → Literal["a", "b", "c"]
-  if (/^["']/.test(trimmed) || (trimmed.includes('|') && trimmed.split('|').every(p => /^\s*["']/.test(p)))) {
-    const parts = trimmed.split('|').map(p => p.trim());
-    const literals = parts.map(p => {
+  if (/^["']/.test(trimmed) || (trimmed.includes('|') && trimmed.split('|').every((p) => /^\s*["']/.test(p)))) {
+    const parts = trimmed.split('|').map((p) => p.trim());
+    const literals = parts.map((p) => {
       const unquoted = p.replace(/^['"]|['"]$/g, '');
       return `"${unquoted}"`;
     });
@@ -75,8 +75,11 @@ export function mapTsTypeToPython(tsType: string): string {
 
   // Union types: T | U
   if (trimmed.includes('|')) {
-    const parts = trimmed.split('|').map(p => p.trim()).filter(Boolean);
-    const mapped = parts.map(p => mapTsTypeToPython(p));
+    const parts = trimmed
+      .split('|')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const mapped = parts.map((p) => mapTsTypeToPython(p));
     return mapped.join(' | ');
   }
 

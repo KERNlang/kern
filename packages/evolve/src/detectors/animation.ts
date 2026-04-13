@@ -3,7 +3,7 @@
  */
 
 import type { SourceFile } from 'ts-morph';
-import type { DetectorPack, DetectionResult } from '../types.js';
+import type { DetectionResult, DetectorPack } from '../types.js';
 
 const framerMotionDetector: DetectorPack = {
   id: 'framer-motion',
@@ -27,19 +27,20 @@ const framerMotionDetector: DetectorPack = {
         startLine,
         endLine,
         snippet,
-        extractedParams: [
-          { name: 'controlsName', slotType: 'identifier', value: varName, optional: false },
-        ],
+        extractedParams: [{ name: 'controlsName', slotType: 'identifier', value: varName, optional: false }],
         confidencePct: 80,
       });
     }
 
     // Pattern: variants object for motion components
-    const variantsRe = /(?:export\s+)?const\s+(\w+)\s*(?::\s*Variants)?\s*=\s*\{[^}]*(?:hidden|visible|initial|animate|exit|enter|center|closed|open)\s*:/g;
+    const variantsRe =
+      /(?:export\s+)?const\s+(\w+)\s*(?::\s*Variants)?\s*=\s*\{[^}]*(?:hidden|visible|initial|animate|exit|enter|center|closed|open)\s*:/g;
     while ((match = variantsRe.exec(fullText)) !== null) {
-      const hasImport = sourceFile.getImportDeclarations().some(imp => {
+      const hasImport = sourceFile.getImportDeclarations().some((imp) => {
         const mod = imp.getModuleSpecifierValue();
-        return mod === 'framer-motion' || mod === 'motion' || mod.startsWith('motion/') || mod.startsWith('framer-motion/');
+        return (
+          mod === 'framer-motion' || mod === 'motion' || mod.startsWith('motion/') || mod.startsWith('framer-motion/')
+        );
       });
       if (!hasImport) continue;
 
@@ -61,9 +62,7 @@ const framerMotionDetector: DetectorPack = {
         startLine,
         endLine,
         snippet,
-        extractedParams: [
-          { name: 'variantsName', slotType: 'identifier', value: varName, optional: false },
-        ],
+        extractedParams: [{ name: 'variantsName', slotType: 'identifier', value: varName, optional: false }],
         confidencePct: 75,
       });
     }
