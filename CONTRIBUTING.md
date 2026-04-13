@@ -33,6 +33,14 @@ Build uses `tsc -b` from root with project references. Do not use `pnpm -r build
 - `dev` — daily development. Push here.
 - `main` — releases only. Merge via PR. CI must pass.
 
+## Release conventions
+
+- Always activate the repo-pinned pnpm via Corepack.
+- Run `Release Preflight` from `main` before tagging a release.
+- Use plain semver like `3.2.4` for preflight input.
+- Publish GitHub Releases with lowercase tags like `v3.2.4`.
+- Do not release from `dev` or from a commit that has not already passed CI on `main`.
+
 ## Before submitting a PR
 
 ```bash

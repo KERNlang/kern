@@ -59,6 +59,8 @@ function checkContributing() {
     'pnpm 10+',
     '130 rules',
     'Architecture guide: [docs/architecture.md](docs/architecture.md)',
+    'Run `Release Preflight` from `main` before tagging a release.',
+    'Publish GitHub Releases with lowercase tags like `v3.2.4`.',
   ];
   const bannedPhrases = ['pnpm 9+', '76 rules'];
 
@@ -71,6 +73,78 @@ function checkContributing() {
   for (const phrase of bannedPhrases) {
     if (contributing.includes(phrase)) {
       fail(`CONTRIBUTING.md still contains stale phrase: "${phrase}"`);
+    }
+  }
+}
+
+function checkWorkflowContracts() {
+  const rootPackageJson = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
+  if (rootPackageJson.packageManager !== 'pnpm@10.32.1') {
+    fail(`package.json must pin packageManager to pnpm@10.32.1 (found ${rootPackageJson.packageManager})`);
+  }
+
+  const workflowChecks = [
+    {
+      path: '.github/workflows/ci.yml',
+      required: [
+        "node-version: '22'",
+        "python-version: '3.12'",
+        'corepack prepare pnpm@10.32.1 --activate',
+        'pnpm install --frozen-lockfile --ignore-scripts',
+      ],
+      banned: [/pnpm\/action-setup/g, /cache:\s*['"]pnpm['"]/g],
+    },
+    {
+      path: '.github/workflows/release-pipeline.yml',
+      required: [
+        'workflow_call:',
+        'publish:',
+        "registry-url: 'https://registry.npmjs.org'",
+        'corepack prepare pnpm@10.32.1 --activate',
+        'pnpm install --frozen-lockfile',
+        'pnpm -r publish --no-git-checks --access public',
+        'pnpm -r publish --dry-run --no-git-checks --access public',
+      ],
+      banned: [/pnpm\/action-setup/g, /cache:\s*['"]pnpm['"]/g],
+    },
+    {
+      path: '.github/workflows/release-preflight.yml',
+      required: [
+        'name: Release Preflight',
+        'Run this workflow from the main branch',
+        'Version must be plain semver without a leading v',
+        'uses: ./.github/workflows/release-pipeline.yml',
+        'publish: false',
+      ],
+      banned: [],
+    },
+    {
+      path: '.github/workflows/release.yml',
+      required: [
+        'name: Version & Publish',
+        "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+        'Release tags must use lowercase v and semver',
+        'uses: ./.github/workflows/release-pipeline.yml',
+        'publish: true',
+      ],
+      banned: [/pnpm\/action-setup/g, /cache:\s*['"]pnpm['"]/g],
+    },
+  ];
+
+  for (const workflow of workflowChecks) {
+    const workflowPath = path.join(root, workflow.path);
+    const contents = readFileSync(workflowPath, 'utf8');
+
+    for (const phrase of workflow.required) {
+      if (!contents.includes(phrase)) {
+        fail(`${workflow.path} is missing expected workflow contract phrase: "${phrase}"`);
+      }
+    }
+
+    for (const pattern of workflow.banned) {
+      if (pattern.test(contents)) {
+        fail(`${workflow.path} contains banned workflow pattern: ${pattern}`);
+      }
     }
   }
 }
@@ -179,6 +253,7 @@ function collectRepoFacts() {
 
 checkReadme();
 checkContributing();
+checkWorkflowContracts();
 checkPackages();
 
 if (failures.length > 0) {
