@@ -31,8 +31,10 @@ import {
   loadTemplates,
   parseFlag,
   parseWithJSONDiagnostics,
+  runShadowAnalysis,
   scanOutputForBarrelEntries,
   surfaceParseDiagnostics,
+  surfaceShadowDiagnostics,
   transpileAndWrite,
 } from '../shared.js';
 
@@ -46,14 +48,15 @@ interface DefaultCompileResult {
 }
 
 /** Compile a single .kern file using core/template/react codegen (no target transpiler). */
-function compileDefaultSingle(
+async function compileDefaultSingle(
   file: string,
   outDir: string,
   strictParse: boolean,
   jsonOutput: boolean,
   jsonDiagnostics: FileDiagnosticsJSON[],
+  shadow: boolean,
   inputBase?: string,
-): DefaultCompileResult {
+): Promise<DefaultCompileResult> {
   const source = readFileSync(file, 'utf-8');
 
   let ast: IRNode;
@@ -84,6 +87,25 @@ function compileDefaultSingle(
     ast = result.root;
     errors = diag.errors;
     warnings = diag.warnings;
+  }
+
+  // ── Shadow semantic analysis (opt-in) ────────────────────────────────
+  if (shadow) {
+    const shadowDiagnostics = await runShadowAnalysis(ast);
+    if (jsonOutput) {
+      // The JSON path pushes one entry per file; attach shadow results to the last one.
+      const current = jsonDiagnostics[jsonDiagnostics.length - 1];
+      if (current && current.file === file) {
+        current.shadowDiagnostics = shadowDiagnostics;
+        const shadowErrors = shadowDiagnostics.filter((d) => d.rule === 'shadow-ts').length;
+        errors += shadowErrors;
+        if (shadowErrors > 0) current.success = false;
+      }
+    } else {
+      const counts = surfaceShadowDiagnostics(shadowDiagnostics, file);
+      errors += counts.errors;
+      warnings += counts.warnings;
+    }
   }
 
   const lines: string[] = [];
@@ -146,7 +168,7 @@ export async function runCompile(args: string[]): Promise<void> {
 
   if (!compileInput) {
     console.error(
-      'Usage: kern compile <file.kern|dir> [--target=<target>] [--outdir=<dir>] [--watch] [--facades] [--index]',
+      'Usage: kern compile <file.kern|dir> [--target=<target>] [--outdir=<dir>] [--watch] [--facades] [--index] [--shadow]',
     );
     process.exit(1);
   }
@@ -180,6 +202,7 @@ export async function runCompile(args: string[]): Promise<void> {
   const jsonOutput = hasFlag(args, '--json');
   const watchMode = hasFlag(args, '--watch');
   const serveMode = hasFlag(args, '--serve');
+  const shadow = hasFlag(args, '--shadow');
   const targetArg = parseFlag(args, '--target') as KernTarget | undefined;
 
   if (targetArg && !ALL_TARGETS.includes(targetArg)) {
@@ -224,7 +247,9 @@ export async function runCompile(args: string[]): Promise<void> {
   // ── Initial compilation ────────────────────────────────────────────
   const jsonDiagnostics: FileDiagnosticsJSON[] = [];
 
-  function compileAll(files: string[]): { compiled: number; totalErrors: number; barrelEntries: BarrelEntry[] } {
+  async function compileAll(
+    files: string[],
+  ): Promise<{ compiled: number; totalErrors: number; barrelEntries: BarrelEntry[] }> {
     let compiled = 0;
     let totalErrors = 0;
     const barrelEntries: BarrelEntry[] = [];
@@ -259,12 +284,13 @@ export async function runCompile(args: string[]): Promise<void> {
       }
     } else {
       for (const file of files) {
-        const result = compileDefaultSingle(
+        const result = await compileDefaultSingle(
           file,
           outDir,
           strictParse,
           jsonOutput,
           jsonDiagnostics,
+          shadow,
           isDir ? inputPath : undefined,
         );
         if (result.compiled) compiled++;
@@ -276,7 +302,7 @@ export async function runCompile(args: string[]): Promise<void> {
     return { compiled, totalErrors, barrelEntries };
   }
 
-  const { compiled, totalErrors, barrelEntries } = compileAll(kernFiles);
+  const { compiled, totalErrors, barrelEntries } = await compileAll(kernFiles);
 
   // ── Barrel & facades ───────────────────────────────────────────────
   if (barrel && barrelEntries.length > 0) {
@@ -379,14 +405,14 @@ export async function runCompile(args: string[]): Promise<void> {
     awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
   });
 
-  const handleChange = (filePath: string) => {
+  const handleChange = async (filePath: string) => {
     const rel = relative(process.cwd(), filePath);
     const start = performance.now();
     try {
       if (targetArg) {
         transpileAndWrite(filePath, cfg as ResolvedKernConfig, args, outDir, isDir ? inputPath : undefined);
       } else {
-        compileDefaultSingle(filePath, outDir, strictParse, false, [], isDir ? inputPath : undefined);
+        await compileDefaultSingle(filePath, outDir, strictParse, false, [], shadow, isDir ? inputPath : undefined);
       }
 
       // Regenerate barrel/facades from current output state

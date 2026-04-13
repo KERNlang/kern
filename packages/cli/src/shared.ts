@@ -5,8 +5,10 @@ import type {
   ParseDiagnostic,
   ResolvedKernConfig,
   SchemaViolation,
+  ShadowDiagnostic,
 } from '@kernlang/core';
 import {
+  analyzeShadow,
   clearTemplates,
   collectCoverageGaps,
   detectTarget,
@@ -90,6 +92,7 @@ export interface FileDiagnosticsJSON {
   success: boolean;
   diagnostics: ParseDiagnostic[];
   schemaViolations: SchemaViolation[];
+  shadowDiagnostics?: ShadowDiagnostic[];
 }
 
 /** Parse a .kern file and return structured diagnostics as JSON-serializable object. */
@@ -552,4 +555,76 @@ export function loadTemplates(cfg: ResolvedKernConfig): void {
       }
     }
   }
+}
+
+// ── Shadow analysis (opt-in) ─────────────────────────────────────────────
+
+/**
+ * Run shadow semantic analysis on an already-parsed IR root. Wraps analyzeShadow()
+ * and swallows errors from the optional `typescript` peer so a missing peer becomes
+ * a single diagnostic rather than a crash.
+ */
+export async function runShadowAnalysis(root: IRNode): Promise<ShadowDiagnostic[]> {
+  try {
+    return await analyzeShadow(root);
+  } catch (err) {
+    return [
+      {
+        rule: 'shadow-analysis-crashed',
+        nodeType: root.type,
+        message: `Shadow analysis failed: ${(err as Error).message}`,
+      },
+    ];
+  }
+}
+
+/**
+ * Print shadow diagnostics to the console using the same shape as parse diagnostics.
+ * Returns the error / warning / info counts so callers can update their totals.
+ */
+export function surfaceShadowDiagnostics(
+  diagnostics: readonly ShadowDiagnostic[],
+  file: string,
+): { errors: number; warnings: number } {
+  if (diagnostics.length === 0) return { errors: 0, warnings: 0 };
+
+  const tsErrors = diagnostics.filter((d) => d.rule === 'shadow-ts');
+  const unsupported = diagnostics.filter((d) => d.rule === 'shadow-unsupported-context');
+  const missingPeer = diagnostics.filter((d) => d.rule === 'shadow-typescript-missing');
+  const crashed = diagnostics.filter((d) => d.rule === 'shadow-analysis-crashed');
+
+  if (missingPeer.length > 0) {
+    console.error(`\n${file}:`);
+    for (const d of missingPeer) {
+      console.error(`  [SHADOW] ${d.message}`);
+    }
+    return { errors: 0, warnings: missingPeer.length };
+  }
+
+  if (crashed.length > 0) {
+    console.error(`\n${file}:`);
+    for (const d of crashed) {
+      console.error(`  [SHADOW] ${d.message}`);
+    }
+    return { errors: 0, warnings: crashed.length };
+  }
+
+  if (tsErrors.length > 0) {
+    console.error(`\n${file}:`);
+    for (const d of tsErrors) {
+      const loc = d.line ? `${d.line}:${d.col ?? 1}` : '?';
+      const code = d.tsCode ? ` TS${d.tsCode}` : '';
+      console.error(`  [SHADOW${code}] ${loc}  ${d.message}`);
+    }
+  }
+
+  if (unsupported.length > 0) {
+    // Unsupported contexts are informational, not failures.
+    for (const d of unsupported) {
+      const loc = d.line ? `${d.line}:${d.col ?? 1}` : '?';
+      console.error(`  [SHADOW-SKIP] ${loc}  ${d.message}`);
+    }
+  }
+
+  return { errors: tsErrors.length, warnings: unsupported.length };
 }
