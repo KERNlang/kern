@@ -3,6 +3,7 @@
   "version": "3.1.9",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.32.1",
   "description": "Kern — the LLM-native language. Monorepo for @kern/* packages.",
   "author": "cukas",
   "repository": {
