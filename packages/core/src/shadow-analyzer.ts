@@ -262,7 +262,7 @@ function buildHandlerUnit(
           lines: [
             buildModuleMarker(),
             buildReferenceLine(),
-            `${fnKeyword} __shadow(${safeParams(parentNode.props?.params)})${returnClause(parentNode.props?.returns)} {`,
+            `${fnKeyword} __shadow(${safeParams(parentNode.props?.params)})${wrappedReturnClause(parentNode)} {`,
             rawCode,
             '}',
           ],
@@ -296,7 +296,7 @@ function buildHandlerUnit(
             buildModuleMarker(),
             buildReferenceLine(),
             ...scopeLines,
-            `${fnKeyword} __shadow(${methodParams(parentNode, isStatic, selfTypeName, staticSelfTypeName)})${returnClause(parentNode.props?.returns)} {`,
+            `${fnKeyword} __shadow(${methodParams(parentNode, isStatic, selfTypeName, staticSelfTypeName)})${wrappedReturnClause(parentNode)} {`,
             rawCode,
             '}',
           ],
@@ -531,6 +531,32 @@ function returnType(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value.trim() : 'unknown';
 }
 
+/**
+ * Mirror codegen/functions.ts:27-108 return-type inference for both the
+ * __shadow wrapper and the module-scope stub. Keeps generator/stream/async
+ * handling in one place.
+ */
+function wrappedReturnType(node: IRNode): string {
+  const declared = returnType(node.props?.returns);
+  const async = node.props?.async === 'true' || node.props?.async === true;
+  const generator = node.props?.generator === 'true' || node.props?.generator === true;
+  const stream = node.props?.stream === 'true' || node.props?.stream === true;
+  if (stream || (async && generator)) {
+    return /^AsyncGenerator</.test(declared) ? declared : `AsyncGenerator<${declared}>`;
+  }
+  if (generator) {
+    return /^Generator</.test(declared) ? declared : `Generator<${declared}>`;
+  }
+  if (async && !/^Promise</.test(declared)) {
+    return `Promise<${declared}>`;
+  }
+  return declared;
+}
+
+function wrappedReturnClause(node: IRNode): string {
+  return `: ${wrappedReturnType(node)}`;
+}
+
 function safeParams(value: unknown): string {
   return typeof value === 'string' && value.trim() ? parseParamList(value) : '';
 }
@@ -658,10 +684,7 @@ function collectModuleDeclarations(root: IRNode): string[] {
     switch (node.type) {
       case 'fn': {
         const params = safeParams(node.props?.params);
-        const returns = returnType(node.props?.returns);
-        const async = node.props?.async === 'true' || node.props?.async === true;
-        const retType = async && !/^Promise</.test(returns) ? `Promise<${returns}>` : returns;
-        lines.push(`declare function ${name}(${params}): ${retType};`);
+        lines.push(`declare function ${name}(${params}): ${wrappedReturnType(node)};`);
         seen.add(key);
         break;
       }
@@ -680,15 +703,17 @@ function collectModuleDeclarations(root: IRNode): string[] {
         break;
       case 'service':
       case 'repository':
-      case 'model':
+        // These compile to real classes (generateService/generateRepository).
         lines.push(`declare const ${name}: { new (...args: any[]): { [key: string]: any } } & { [key: string]: any };`);
         seen.add(key);
         break;
+      case 'model':
       case 'type':
       case 'interface':
       case 'union':
       case 'event':
-        // Covered by the declaredTypeNames `type X = any;` emission in buildSupportFile.
+        // Type-only: generateModel emits `interface ${name}`, not a value.
+        // Already covered by declaredTypeNames -> `type X = any;` in the support file.
         break;
       default:
         // Ignore UI/framework nodes — their identifiers aren't referenced from handler bodies.

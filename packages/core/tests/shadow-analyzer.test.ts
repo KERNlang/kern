@@ -276,6 +276,73 @@ describe('Shadow Analyzer — module scope + signature diagnostics', () => {
   });
 });
 
+describe('Shadow Analyzer — generator/stream/model correctness', () => {
+  it('generator fn return type uses Generator<T> for both stub and wrapper', async () => {
+    const diagnostics = await analyze(
+      [
+        'fn name=nums generator=true returns=number',
+        '  handler <<<',
+        '    yield 1;',
+        '    yield 2;',
+        '  >>>',
+        'fn name=sumNums returns=number',
+        '  handler <<<',
+        '    let total = 0;',
+        '    for (const x of nums()) { total += x; }',
+        '    return total;',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(diagnostics.some((d) => d.rule === 'shadow-ts')).toBe(false);
+  });
+
+  it('stream fn return type uses AsyncGenerator<T>', async () => {
+    const diagnostics = await analyze(
+      [
+        'fn name=pump stream=true returns=number',
+        '  handler <<<',
+        '    yield 1;',
+        '  >>>',
+        'fn name=drain async=true returns="Promise<number>"',
+        '  handler <<<',
+        '    let total = 0;',
+        '    for await (const x of pump()) { total += x; }',
+        '    return total;',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(diagnostics.some((d) => d.rule === 'shadow-ts')).toBe(false);
+  });
+
+  it('model name is not constructible as a value', async () => {
+    const diagnostics = await analyze(
+      [
+        'model name=User',
+        '  column name=id type=string',
+        'fn name=bad returns=unknown',
+        '  handler <<<',
+        '    return new User();',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(diagnostics.some((d) => d.rule === 'shadow-ts')).toBe(true);
+  });
+
+  it('model name is usable as a type parameter', async () => {
+    const diagnostics = await analyze(
+      [
+        'model name=User',
+        '  column name=id type=string',
+        'fn name=greet params="u:User" returns=string',
+        '  handler <<<',
+        '    return "hi " + u.id;',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(diagnostics.some((d) => d.rule === 'shadow-ts')).toBe(false);
+  });
+});
+
 describe('Shadow Analyzer — unsupported contexts', () => {
   it('flags route handlers as unsupported (no route codegen exists yet)', async () => {
     const diagnostics = await analyze(

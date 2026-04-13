@@ -274,6 +274,66 @@ await check(
   hasShadowTs(2355),
 );
 
+console.log('\n── Codex review round 4 regressions ────────────────');
+await check(
+  'generator fn return type uses Generator<T>',
+  [
+    'fn name=nums generator=true returns=number',
+    '  handler <<<',
+    '    yield 1;',
+    '    yield 2;',
+    '  >>>',
+    'fn name=sumNums returns=number',
+    '  handler <<<',
+    '    let total = 0;',
+    '    for (const x of nums()) { total += x; }',
+    '    return total;',
+    '  >>>',
+  ].join('\n'),
+  (diags) => diags.every((d) => d.rule !== 'shadow-ts'),
+);
+await check(
+  'stream fn return type uses AsyncGenerator<T>',
+  [
+    'fn name=pump stream=true returns=number',
+    '  handler <<<',
+    '    yield 1;',
+    '  >>>',
+    'fn name=drain async=true returns="Promise<number>"',
+    '  handler <<<',
+    '    let total = 0;',
+    '    for await (const x of pump()) { total += x; }',
+    '    return total;',
+    '  >>>',
+  ].join('\n'),
+  (diags) => diags.every((d) => d.rule !== 'shadow-ts'),
+);
+await check(
+  'model name is not constructible as a value',
+  [
+    'model name=User',
+    '  column name=id type=string',
+    'fn name=bad returns=unknown',
+    '  handler <<<',
+    '    return new User();',
+    '  >>>',
+  ].join('\n'),
+  // Accept any shadow-ts diagnostic — TS2693 "only refers to a type" or similar.
+  (diags) => diags.some((d) => d.rule === 'shadow-ts'),
+);
+await check(
+  'model name is usable as a type',
+  [
+    'model name=User',
+    '  column name=id type=string',
+    'fn name=greet params="u:User" returns=string',
+    '  handler <<<',
+    '    return "hi " + u.id;',
+    '  >>>',
+  ].join('\n'),
+  (diags) => diags.every((d) => d.rule !== 'shadow-ts'),
+);
+
 console.log('\n── unsupported ─────────────────────────────────────');
 await check(
   'route handler flagged unsupported',
