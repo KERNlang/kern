@@ -10,7 +10,7 @@
 
   <br>
 
-  **Built for humans and AI.** 192-line spec. 12 compile targets. 99 review rules.<br>
+  **Built for humans and AI.** 192-line spec. 13 compile targets. 130 review rules.<br>
   <sub>LLMs write .kern in up to 85% fewer tokens. 7 LLMs verified.</sub>
 
   <br>
@@ -30,7 +30,7 @@ npm install -g @kernlang/cli
 
 ```bash
 kern compile src/ --target=nextjs --watch --facades --index   # One command — compile, watch, facades, barrel
-kern review src/ --recursive                                  # Static analysis (99 rules, taint tracking)
+kern review src/ --recursive                                  # Static analysis (130 rules, taint tracking)
 kern init --template=fullstack my-app                          # Scaffold fullstack app (Next.js + Express + MCP)
 kern init --mcp                                               # Scaffold an MCP server with security guards
 kern import src/ --outdir=kern/                               # TypeScript → .kern
@@ -43,7 +43,7 @@ kern schema --json                                            # Full schema for 
 
 **KERN is a structural language with five capabilities: Compile, Review, Evolve, Infer, and MCP Security.**
 
-Write `.kern` once, compile to 12 targets. Or skip `.kern` entirely and use `kern review` to scan your existing TypeScript and Python for security bugs, unguarded effects, and prompt injection — 99 AST-based rules that catch what ESLint misses.
+Write `.kern` once, compile to 13 targets. Or skip `.kern` entirely and use `kern review` to scan your existing TypeScript and Python for security bugs, unguarded effects, and prompt injection — 130 AST-based rules that catch what ESLint misses.
 
 ### Compilation Targets
 
@@ -112,7 +112,7 @@ kern review src/ --lint                 # KERN + ESLint + tsc unified
 kern review src/ --llm                  # AI review (see below)
 ```
 
-**99 rules** across 10 layers: Base, React, Next.js, Vue, Express, Security (v1-v4), Dead Logic, Null Safety, Concept Rules, Taint Tracking.
+**130 rules** across base, security, framework, performance, null-safety, dead-logic, concept, and taint-aware analysis layers.
 
 ### AI-Assisted Review (`--llm`)
 
@@ -211,16 +211,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v5
-        with:
-          version: 9
-
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-          cache: 'pnpm'
 
-      - run: pnpm install --frozen-lockfile
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm build
 
       - name: KERN Review
@@ -371,16 +372,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: pnpm/action-setup@v5
-        with:
-          version: 9
-
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-          cache: 'pnpm'
 
-      - run: pnpm install --frozen-lockfile
+      - name: Activate pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.32.1 --activate
+          pnpm --version
+
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - run: pnpm build
 
       - name: Validate .kern files
@@ -390,6 +392,17 @@ jobs:
         run: npx tsc --noEmit
 ```
 
+### Release Process
+
+Use the built-in release workflows in this order:
+
+1. Run `Release Preflight` from `main` with a plain semver like `3.2.4`.
+2. Wait for the preflight run to pass build, test, and `pnpm publish --dry-run`.
+3. Publish a GitHub Release with a lowercase tag like `v3.2.4`.
+4. Let `Version & Publish` publish to npm and sync versions back to `dev`.
+
+Contributor architecture guide: [docs/architecture.md](docs/architecture.md)
+
 ---
 
 ## Ecosystem
@@ -398,7 +411,7 @@ jobs:
 |:--------|:-------------|
 | **[@kernlang/cli](https://www.npmjs.com/package/@kernlang/cli)** | CLI — compile, review, evolve, dev |
 | **[@kernlang/core](https://www.npmjs.com/package/@kernlang/core)** | Parser, codegen, types — the compiler engine |
-| **[@kernlang/review](https://www.npmjs.com/package/@kernlang/review)** | 99 rules, taint tracking, OWASP LLM01, concept model |
+| **[@kernlang/review](https://www.npmjs.com/package/@kernlang/review)** | 130 rules, taint tracking, OWASP LLM01, concept model |
 | **[@kernlang/review-mcp](https://www.npmjs.com/package/@kernlang/review-mcp)** | MCP security scanner (12 rules, OWASP MCP Top 10) |
 | @kernlang/react | Next.js, Tailwind, Web transpilers |
 | @kernlang/vue | Vue 3 SFC, Nuxt 3 transpilers |

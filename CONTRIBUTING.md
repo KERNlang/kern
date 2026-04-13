@@ -7,12 +7,14 @@ Thanks for your interest in contributing to KERN.
 ```bash
 git clone https://github.com/KERNlang/kern.git
 cd kern
+corepack enable
+corepack prepare pnpm@10.32.1 --activate
 pnpm install
 pnpm build
 pnpm test
 ```
 
-**Requirements:** Node.js 22+, pnpm 9+, Python 3.12+ (for FastAPI transpiler tests)
+**Requirements:** Node.js 22+, pnpm 10+, Python 3.12+ (for FastAPI transpiler tests)
 
 ## Development
 
@@ -31,6 +33,14 @@ Build uses `tsc -b` from root with project references. Do not use `pnpm -r build
 - `dev` — daily development. Push here.
 - `main` — releases only. Merge via PR. CI must pass.
 
+## Release conventions
+
+- Always activate the repo-pinned pnpm via Corepack.
+- Run `Release Preflight` from `main` before tagging a release.
+- Use plain semver like `3.2.4` for preflight input.
+- Publish GitHub Releases with lowercase tags like `v3.2.4`.
+- Do not release from `dev` or from a commit that has not already passed CI on `main`.
+
 ## Before submitting a PR
 
 ```bash
@@ -47,12 +57,21 @@ KERN is a pnpm monorepo. Key packages:
 |---------|---------|
 | `packages/core` | Parser, codegen, types, spec |
 | `packages/cli` | CLI commands (compile, review, evolve, dev) |
-| `packages/review` | Static analysis engine (76 rules, taint tracking) |
+| `packages/review` | Static analysis engine (130 rules, taint tracking) |
 | `packages/review-mcp` | MCP server security scanner |
 | `packages/react` | Next.js / React / Tailwind transpilers |
 | `packages/vue` | Vue 3 / Nuxt 3 transpilers |
 | `packages/express` | Express backend transpiler |
 | `packages/fastapi` | FastAPI Python transpiler |
+
+Architecture guide: [docs/architecture.md](docs/architecture.md)
+
+Boundary rules:
+
+- `packages/core` owns shared semantics and should stay at the bottom of the dependency graph.
+- Target packages should depend on `packages/core`, not on each other.
+- `packages/cli`, `packages/mcp-server`, and `packages/playground` are orchestration surfaces and may aggregate lower packages.
+- New review rules belong in `packages/review` unless they are explicitly Python- or MCP-specific.
 
 ## Adding a review rule
 

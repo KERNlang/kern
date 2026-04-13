@@ -17,6 +17,7 @@
     "test": "pnpm -r --filter '!@kernlang/review-python' test",
     "test:root": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.config.js",
     "fitness": "pnpm test",
+    "check:repo": "node ./scripts/check-repo-consistency.mjs",
     "lint": "biome check",
     "lint:fix": "biome check --fix",
     "format": "biome format --write"

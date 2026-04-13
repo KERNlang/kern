@@ -40,7 +40,7 @@
   "homepage": "https://kernlang.dev",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nickcukas/kern",
+    "url": "https://github.com/KERNlang/kern",
     "directory": "packages/mcp-server"
   },
   "author": "Nicolas Cukas",
