@@ -277,6 +277,31 @@ export async function runCompile(args: string[]): Promise<void> {
           totalErrors++;
           console.error(`  ${basename(file)} → ERROR: ${(err as Error).message}`);
         }
+
+        // Shadow analysis runs independently of the transpiler path so
+        // `--target=<x> --shadow` isn't a silent no-op. Re-parse is accepted
+        // until a shared pre-parse hook exists.
+        if (shadow) {
+          try {
+            const source = readFileSync(file, 'utf-8');
+            const { root: shadowRoot } = parseWithDiagnostics(source);
+            const shadowDiagnostics = await runShadowAnalysis(shadowRoot);
+            if (jsonOutput) {
+              jsonDiagnostics.push({
+                file,
+                success: shadowDiagnostics.every((d) => d.rule !== 'shadow-ts'),
+                diagnostics: [],
+                schemaViolations: [],
+                shadowDiagnostics,
+              });
+            } else {
+              const counts = surfaceShadowDiagnostics(shadowDiagnostics, file);
+              totalErrors += counts.errors;
+            }
+          } catch (err) {
+            if (!jsonOutput) console.error(`  [SHADOW] ${basename(file)}: ${(err as Error).message}`);
+          }
+        }
       }
       // Barrel entries from output scan for --target path
       if (barrel || facades) {

@@ -152,6 +152,7 @@ export async function analyzeShadow(root: IRNode): Promise<ShadowDiagnostic[]> {
   }
 
   const declaredTypeNames = collectDeclaredTypeNames(root);
+  const moduleDeclarations = collectModuleDeclarations(root);
   const diagnostics: ShadowDiagnostic[] = [];
   const units: HandlerUnit[] = [];
 
@@ -170,7 +171,9 @@ export async function analyzeShadow(root: IRNode): Promise<ShadowDiagnostic[]> {
   if (units.length === 0) return diagnostics;
 
   const supportFileName = '/__kern_shadow__/support.d.ts';
-  const files = new Map<string, string>([[supportFileName, buildSupportFile(declaredTypeNames)]]);
+  const files = new Map<string, string>([
+    [supportFileName, buildSupportFile(declaredTypeNames, moduleDeclarations)],
+  ]);
   const unitsByFile = new Map<string, HandlerUnit>();
 
   for (const unit of units) {
@@ -432,7 +435,7 @@ function createUnit({
   };
 }
 
-function buildSupportFile(declaredTypeNames: Set<string>): string {
+function buildSupportFile(declaredTypeNames: Set<string>, moduleDeclarations: string[]): string {
   const extraTypes = [...declaredTypeNames]
     .filter((name) => !BUILTIN_TYPE_NAMES.has(name))
     .sort()
@@ -474,6 +477,9 @@ function buildSupportFile(declaredTypeNames: Set<string>): string {
     '  on(event: string, listener: (...args: any[]) => void): void;',
     '};',
     ...extraTypes,
+    '',
+    '// ── Module-scope declarations from the KERN file ──',
+    ...moduleDeclarations,
   ].join('\n');
 }
 
@@ -571,24 +577,41 @@ function mapDiagnostic(ts: TsApi, diagnostic: TsDiagnostic, unit: HandlerUnit): 
 
   const position = ts.getLineAndCharacterOfPosition(file, diagnostic.start);
   const diagnosticLine = position.line + 1;
-  if (diagnosticLine < unit.bodyStartLine || diagnosticLine >= unit.bodyStartLine + unit.bodyLineCount) {
-    return undefined;
+
+  // Diagnostics inside the body — map 1:1.
+  if (diagnosticLine >= unit.bodyStartLine && diagnosticLine < unit.bodyStartLine + unit.bodyLineCount) {
+    const sourceLine = unit.sourceStartLine + (diagnosticLine - unit.bodyStartLine);
+    const sourceCol =
+      diagnosticLine === unit.bodyStartLine
+        ? unit.sourceStartCol + position.character
+        : position.character + 1;
+    return {
+      rule: 'shadow-ts',
+      nodeType: unit.parentType,
+      message: ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
+      line: sourceLine,
+      col: sourceCol,
+      tsCode: diagnostic.code,
+    };
   }
 
-  const sourceLine = unit.sourceStartLine + (diagnosticLine - unit.bodyStartLine);
-  const sourceCol =
-    diagnosticLine === unit.bodyStartLine
-      ? unit.sourceStartCol + position.character
-      : position.character + 1;
+  // Diagnostics in the wrapper region (signature, scope types, module marker) —
+  // e.g. TS2355 "function whose declared type is neither 'void' nor 'any' must
+  // return a value" lands on the signature line. Attribute it to the handler's
+  // first source line so real errors aren't silently dropped.
+  if (diagnosticLine < unit.bodyStartLine + unit.bodyLineCount) {
+    return {
+      rule: 'shadow-ts',
+      nodeType: unit.parentType,
+      message: ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
+      line: unit.sourceStartLine,
+      col: unit.sourceStartCol,
+      tsCode: diagnostic.code,
+    };
+  }
 
-  return {
-    rule: 'shadow-ts',
-    nodeType: unit.parentType,
-    message: ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
-    line: sourceLine,
-    col: sourceCol,
-    tsCode: diagnostic.code,
-  };
+  // Outside the unit's extent entirely — belongs to a different unit or the support file.
+  return undefined;
 }
 
 function inferSourceStart(handlerNode: IRNode, rawCode: string): { line: number; col: number } {
@@ -608,6 +631,72 @@ function inferSourceStart(handlerNode: IRNode, rawCode: string): { line: number;
     line: handlerLine + 1,
     col: 1,
   };
+}
+
+/**
+ * Collect `declare`-style entries for every top-level KERN symbol that would be
+ * visible from sibling handlers in the emitted TypeScript. Goes in the support
+ * file as ambient declarations so each virtual handler file sees them without
+ * importing. Keeps signatures loose (`any` args, `unknown` returns) — this is
+ * a lint assist, not a strict type-check.
+ */
+function collectModuleDeclarations(root: IRNode): string[] {
+  const lines: string[] = [];
+  const seen = new Set<string>();
+
+  // The parser promotes the first top-level declaration to the root and nests
+  // the rest as its children. Walking the whole tree and filtering by type is
+  // simpler than reasoning about which level is "top" in any given file. Any
+  // declaration we encounter is module-scope from the handler's perspective
+  // because handlers can't be parents of these node kinds.
+  walk(root, [], (node) => {
+    const name = typeof node.props?.name === 'string' ? node.props.name : '';
+    if (!name || !/^[A-Za-z_]\w*$/.test(name)) return;
+    const key = `${node.type}:${name}`;
+    if (seen.has(key)) return;
+
+    switch (node.type) {
+      case 'fn': {
+        const params = safeParams(node.props?.params);
+        const returns = returnType(node.props?.returns);
+        const async = node.props?.async === 'true' || node.props?.async === true;
+        const retType = async && !/^Promise</.test(returns) ? `Promise<${returns}>` : returns;
+        lines.push(`declare function ${name}(${params}): ${retType};`);
+        seen.add(key);
+        break;
+      }
+      case 'const': {
+        const type = typeof node.props?.type === 'string' ? node.props.type : 'any';
+        lines.push(`declare const ${name}: ${type};`);
+        seen.add(key);
+        break;
+      }
+      case 'error':
+        // Use a namespace+var merge so `new NotFound()` works without pulling in
+        // a full class body (declare class would also work but can trip on
+        // `extends Error` in the minimal lib we load).
+        lines.push(`declare const ${name}: { new (...args: any[]): Error & { [key: string]: any } };`);
+        seen.add(key);
+        break;
+      case 'service':
+      case 'repository':
+      case 'model':
+        lines.push(`declare const ${name}: { new (...args: any[]): { [key: string]: any } } & { [key: string]: any };`);
+        seen.add(key);
+        break;
+      case 'type':
+      case 'interface':
+      case 'union':
+      case 'event':
+        // Covered by the declaredTypeNames `type X = any;` emission in buildSupportFile.
+        break;
+      default:
+        // Ignore UI/framework nodes — their identifiers aren't referenced from handler bodies.
+        break;
+    }
+  });
+
+  return lines;
 }
 
 function collectDeclaredTypeNames(root: IRNode): Set<string> {

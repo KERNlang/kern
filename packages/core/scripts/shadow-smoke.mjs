@@ -223,6 +223,57 @@ await check(
   none,
 );
 
+console.log('\n── Codex review round 3 regressions ────────────────');
+await check(
+  'sibling fn can be called from another fn handler',
+  [
+    'fn name=double params="n:number" returns=number',
+    '  handler <<<',
+    '    return n * 2;',
+    '  >>>',
+    'fn name=quad params="n:number" returns=number',
+    '  handler <<<',
+    '    return double(double(n));',
+    '  >>>',
+  ].join('\n'),
+  none,
+);
+await check(
+  'sibling const can be referenced (ignoring the const-handler skip)',
+  [
+    'const name=MAX type=number',
+    '  handler <<<',
+    '    42',
+    '  >>>',
+    'fn name=cap params="n:number" returns=number',
+    '  handler <<<',
+    '    return Math.min(n, MAX);',
+    '  >>>',
+  ].join('\n'),
+  (diags) => diags.every((d) => d.rule !== 'shadow-ts'),
+);
+await check(
+  'sibling error class can be thrown',
+  [
+    'error name=NotFound',
+    'fn name=find params="id:string" returns=string',
+    '  handler <<<',
+    '    throw new NotFound();',
+    '  >>>',
+  ].join('\n'),
+  none,
+);
+await check(
+  'fn missing return value surfaced (signature-level TS2355)',
+  [
+    'fn name=bad returns=number',
+    '  handler <<<',
+    '    const x = 1;',
+    '  >>>',
+  ].join('\n'),
+  hasShadowTs(2355),
+);
+
 console.log('\n── unsupported ─────────────────────────────────────');
 await check(
   'route handler flagged unsupported',

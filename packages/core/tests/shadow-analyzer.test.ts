@@ -236,6 +236,46 @@ describe('Shadow Analyzer — regression coverage', () => {
   });
 });
 
+describe('Shadow Analyzer — module scope + signature diagnostics', () => {
+  it('sibling fn is visible from another fn handler', async () => {
+    const diagnostics = await analyze(
+      [
+        'fn name=double params="n:number" returns=number',
+        '  handler <<<',
+        '    return n * 2;',
+        '  >>>',
+        'fn name=quad params="n:number" returns=number',
+        '  handler <<<',
+        '    return double(double(n));',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(diagnostics.some((d) => d.rule === 'shadow-ts')).toBe(false);
+  });
+
+  it('sibling error class can be thrown', async () => {
+    const diagnostics = await analyze(
+      [
+        'error name=NotFound',
+        'fn name=find params="id:string" returns=string',
+        '  handler <<<',
+        '    throw new NotFound();',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(diagnostics.some((d) => d.rule === 'shadow-ts')).toBe(false);
+  });
+
+  it('signature-level diagnostics are preserved (TS2355 on missing return)', async () => {
+    const diagnostics = await analyze(
+      ['fn name=bad returns=number', '  handler <<<', '    const x = 1;', '  >>>'].join('\n'),
+    );
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ rule: 'shadow-ts', tsCode: 2355 })]),
+    );
+  });
+});
+
 describe('Shadow Analyzer — unsupported contexts', () => {
   it('flags route handlers as unsupported (no route codegen exists yet)', async () => {
     const diagnostics = await analyze(
