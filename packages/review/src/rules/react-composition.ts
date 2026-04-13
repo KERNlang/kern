@@ -201,7 +201,12 @@ function propDrillPassthrough(ctx: RuleContext): ReviewFinding[] {
     const tag = root.getTagNameNode().getText();
     if (!/^[A-Z]/.test(tag)) continue;
 
-    // Collect prop names passed as attributes to the root child
+    // Collect prop names passed as shorthand attributes to the root child.
+    // Only count attributes where the passed identifier is actually one of
+    // THIS component's destructured props — local variables with matching
+    // names (e.g. `title={title}` where `title` is a local const) are not
+    // drilling.
+    const propSet = new Set(propNames);
     const passedToChild = new Set<string>();
     const passedWithShorthand = new Set<string>();
     for (const attr of root.getAttributes()) {
@@ -212,8 +217,8 @@ function propDrillPassthrough(ctx: RuleContext): ReviewFinding[] {
       if (!Node.isJsxExpression(init)) continue;
       const expr = init.getExpression();
       if (!expr) continue;
-      if (Node.isIdentifier(expr) && expr.getText() === attrName) {
-        // Classic shorthand: <Child user={user} theme={theme} />
+      if (Node.isIdentifier(expr) && expr.getText() === attrName && propSet.has(attrName)) {
+        // Classic shorthand of a destructured prop: <Child user={user} theme={theme} />
         passedToChild.add(attrName);
         passedWithShorthand.add(attrName);
       }
@@ -230,10 +235,13 @@ function propDrillPassthrough(ctx: RuleContext): ReviewFinding[] {
     const consumedProps = new Set<string>();
     for (const propName of propNames) {
       if (propName === 'children') continue;
-      // Skip counting refs that are literally the attribute value of the root child
+      // Skip counting refs that are literally the attribute value of the root child.
+      // For a shorthand pass like `<Child user={user} />`, the identifier `user`
+      // appears TWICE in the body text: once as the attribute name and once as
+      // the value expression. Subtract 2 per shorthand to compensate.
       const escaped = propName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const totalRefs = (bodyText.match(new RegExp(`\\b${escaped}\\b`, 'g')) ?? []).length;
-      const passthroughRefs = passedWithShorthand.has(propName) ? 1 : 0;
+      const passthroughRefs = passedWithShorthand.has(propName) ? 2 : 0;
       if (totalRefs - passthroughRefs > 0) {
         consumedProps.add(propName);
       }
