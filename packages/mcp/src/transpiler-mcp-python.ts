@@ -710,7 +710,11 @@ function buildPythonCode(
       const allToolKinds = new Set(allToolGuards.map((g) => guardKind(g)));
       const stringParams = paramNodes.filter((p) => (str(getProps(p).type) || 'string') === 'string');
 
-      if (PY_FILE_IO_PATTERN.test(analyzedHandlerCode) && !allToolKinds.has('pathContainment') && stringParams.length > 0) {
+      if (
+        PY_FILE_IO_PATTERN.test(analyzedHandlerCode) &&
+        !allToolKinds.has('pathContainment') &&
+        stringParams.length > 0
+      ) {
         for (const p of stringParams) {
           const pName = str(getProps(p).name) || 'input';
           // Auto-inject on non-content string params

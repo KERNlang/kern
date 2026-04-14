@@ -133,7 +133,9 @@ describe('transpileMCP', () => {
   it('should suppress helper bindings that collide with generated MCP identifiers', () => {
     const ast = node('mcp', { name: 'CollisionServer' }, [
       node('import', { from: 'node:path', default: 'path' }),
-      node('tool', { name: 'noop' }, [node('handler', { code: 'return { content: [{ type: "text", text: "ok" }] };' })]),
+      node('tool', { name: 'noop' }, [
+        node('handler', { code: 'return { content: [{ type: "text", text: "ok" }] };' }),
+      ]),
     ]);
 
     const result = transpileMCP(ast);
