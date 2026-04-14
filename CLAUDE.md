@@ -9,6 +9,7 @@
 - Run `Release Preflight` from `main` before creating a release tag.
 - Use plain semver like `3.2.4` for preflight input.
 - Publish GitHub Releases with lowercase tags like `v3.2.4`.
+- **Whenever you edit any `package.json` `dependencies` / `devDependencies` / `peerDependencies` / `optionalDependencies` / `peerDependenciesMeta` field — regenerate `pnpm-lock.yaml` in the SAME commit.** CI runs `pnpm install --frozen-lockfile`; a mismatched lockfile breaks every workflow on the branch with `ERR_PNPM_OUTDATED_LOCKFILE`. Use `pnpm install --ignore-scripts --no-frozen-lockfile` if the local tree-sitter native build is broken — `--ignore-scripts` skips postinstalls so the lockfile gets written even when a postinstall would otherwise crash. Always `git add pnpm-lock.yaml` alongside the `package.json` change. Never push a `package.json` dep change without the matching lockfile update.
 
 ## Pnpm Activation
 
