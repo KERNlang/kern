@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/review",
-  "version": "3.1.9",
+  "version": "3.2.3",
   "description": "Kern Review — scan TS, infer .kern IR, roundtrip diff, report",
   "type": "module",
   "main": "./dist/index.js",
