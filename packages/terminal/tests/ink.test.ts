@@ -722,6 +722,76 @@ describe('Ink Transpiler', () => {
     expect(result.code).toContain('_setCountRaw(count + 1)');
   });
 
+  test('batch=true does not rewrite member-access calls like form.setCount(...)', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Form',
+      '  state name=count initial=0',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setCount(count + 1);',
+      '      form.setCount(99);',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Bare setter is rewritten
+    expect(result.code).toContain('_setCountRaw(count + 1)');
+    // Member access is NOT rewritten — preserves the user's intent
+    expect(result.code).toContain('form.setCount(99)');
+    expect(result.code).not.toContain('form._setCountRaw(99)');
+  });
+
+  test('batch=true rejects handlers containing setTimeout', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Bad',
+      '  state name=count initial=0',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setCount(1);',
+      '      setTimeout(() => setCount(2), 100);',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    expect(() => transpileInk(ast)).toThrow(/batch=true handler.*contains 'setTimeout/);
+  });
+
+  test('batch=true rejects handlers containing await', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Bad',
+      '  state name=count initial=0',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setCount(1);',
+      '      await fetch("/api");',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    expect(() => transpileInk(ast)).toThrow(/batch=true handler.*contains 'await/);
+  });
+
+  test('batch=true rejects handlers containing .then(', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Bad',
+      '  state name=count initial=0',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setCount(1);',
+      '      Promise.resolve().then(() => setCount(2));',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    expect(() => transpileInk(ast)).toThrow(/batch=true handler.*contains '.then/);
+  });
+
   // ── Phase 2: Throttle, Debounce, Animation, Derive ────────────────────
 
   test('state with throttle generates throttled setter', async () => {

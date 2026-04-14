@@ -565,11 +565,15 @@ let _onHookCounter = 0;
  * Rewrite a handler body so that every `setX(...)` call against a known safe state
  * is replaced with the corresponding raw setter `_setXRaw(...)`. Used by batched
  * handlers to bypass the per-setter __inkSafe macrotask deferral, so the whole
- * batch can share a single deferred macrotask. Word-boundary anchored to avoid
- * touching identifiers that merely contain a setter name as a substring.
+ * batch can share a single deferred macrotask.
  *
- * Limitation: substitution is text-based, so a setter name appearing inside a
- * string literal will also be rewritten. Document this in the language reference.
+ * The match uses a negative lookbehind so it only fires on bare setter calls.
+ * `form.setCount(...)` and any locally-shadowed `const setCount = ...; setCount(...)`
+ * preceded by a member access or word char are NOT rewritten.
+ *
+ * Limitation: substitution is text-based, so a setter name appearing as a bare
+ * call inside a string literal will also be rewritten. Document this in the
+ * language reference.
  */
 function rewriteToRawSetters(code: string, stateNodes: IRNode[]): string {
   let out = code;
@@ -582,11 +586,41 @@ function rewriteToRawSetters(code: string, stateNodes: IRNode[]): string {
     if (!name) continue;
     const setter = `set${capitalize(name)}`;
     const raw = `_${setter}Raw`;
-    // Word-boundary rewrite of `setX(` → `_setXRaw(` — matches call sites only.
-    const pattern = new RegExp(`\\b${setter}\\s*\\(`, 'g');
+    // Negative lookbehind: setter must not be preceded by `.` (member access)
+    // or `\w` (substring of a longer identifier).
+    const pattern = new RegExp(`(?<![\\w.])${setter}\\s*\\(`, 'g');
     out = out.replace(pattern, `${raw}(`);
   }
   return out;
+}
+
+/**
+ * Refuse to batch handlers that contain async or deferred constructs. The whole
+ * point of batch=true is "collapse N synchronous setter calls into one shared
+ * macrotask." If the handler defers work into a nested timer or promise, those
+ * inner setter calls would land in their own task AFTER the batch's setTimeout
+ * has already flushed, with no __inkSafe wrapper to bridge them — exactly the
+ * missed-repaint failure mode __inkSafe exists to prevent. Better to surface
+ * the misuse at compile time than ship code that silently regresses on a
+ * subset of paths.
+ */
+const BATCH_FORBIDDEN_PATTERNS: { name: string; pattern: RegExp }[] = [
+  { name: 'setTimeout(', pattern: /\bsetTimeout\s*\(/ },
+  { name: 'setInterval(', pattern: /\bsetInterval\s*\(/ },
+  { name: 'setImmediate(', pattern: /\bsetImmediate\s*\(/ },
+  { name: 'queueMicrotask(', pattern: /\bqueueMicrotask\s*\(/ },
+  { name: 'await', pattern: /\bawait\b/ },
+  { name: '.then(', pattern: /\.then\s*\(/ },
+];
+
+function checkBatchBodyIsSync(code: string, onNode: IRNode): void {
+  for (const { name, pattern } of BATCH_FORBIDDEN_PATTERNS) {
+    if (pattern.test(code)) {
+      throw new Error(
+        `batch=true handler at on-node '${(getProps(onNode).key as string) || (getProps(onNode).event as string) || 'unknown'}' contains '${name}'. Batched handlers must be fully synchronous — deferred work would bypass __inkSafe and cause missed repaints. Either remove batch=true or move the deferred work to a separate non-batched on-node.`,
+      );
+    }
+  }
 }
 
 function generateOnHook(onNode: IRNode, imports: ImportTracker, stateNodes: IRNode[]): string[] {
@@ -613,8 +647,9 @@ function generateOnHook(onNode: IRNode, imports: ImportTracker, stateNodes: IRNo
     }
     if (code) {
       const dedented = dedent(code);
-      const body = batch ? rewriteToRawSetters(dedented, stateNodes) : dedented;
       if (batch) {
+        checkBatchBodyIsSync(dedented, onNode);
+        const body = rewriteToRawSetters(dedented, stateNodes);
         // Single deferred macrotask: collapse N __inkSafe wrappers into one paint cycle.
         lines.push(`    setTimeout(() => {`);
         for (const line of body.split('\n')) {
@@ -622,7 +657,7 @@ function generateOnHook(onNode: IRNode, imports: ImportTracker, stateNodes: IRNo
         }
         lines.push(`    }, 0);`);
       } else {
-        for (const line of body.split('\n')) {
+        for (const line of dedented.split('\n')) {
           lines.push(`    ${line}`);
         }
       }
