@@ -17,9 +17,7 @@ describe('Shadow Analyzer — fn', () => {
     );
 
     expect(diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ rule: 'shadow-ts', nodeType: 'fn', tsCode: 2304 }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ rule: 'shadow-ts', nodeType: 'fn', tsCode: 2304 })]),
     );
     expect(diagnostics.some((d) => d.message.includes('missingValue'))).toBe(true);
   });
@@ -36,9 +34,7 @@ describe('Shadow Analyzer — fn', () => {
       ['fn name=count returns=number', '  handler <<<', "    return 'oops';", '  >>>'].join('\n'),
     );
     expect(diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ rule: 'shadow-ts', nodeType: 'fn', tsCode: 2322 }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ rule: 'shadow-ts', nodeType: 'fn', tsCode: 2322 })]),
     );
   });
 
@@ -91,9 +87,7 @@ describe('Shadow Analyzer — method', () => {
       ].join('\n'),
     );
     expect(diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ rule: 'shadow-ts', nodeType: 'method', tsCode: 2339 }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ rule: 'shadow-ts', nodeType: 'method', tsCode: 2339 })]),
     );
   });
 });
@@ -135,11 +129,7 @@ describe('Shadow Analyzer — websocket', () => {
         '    >>>',
       ].join('\n'),
     );
-    expect(diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ rule: 'shadow-ts', tsCode: 2304 }),
-      ]),
-    );
+    expect(diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ rule: 'shadow-ts', tsCode: 2304 })]));
   });
 });
 
@@ -177,9 +167,7 @@ describe('Shadow Analyzer — regression coverage', () => {
         '  field name=b type=string',
       ].join('\n'),
     );
-    expect(diagnostics).toEqual(
-      expect.arrayContaining([expect.objectContaining({ rule: 'shadow-ts', tsCode: 2339 })]),
-    );
+    expect(diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ rule: 'shadow-ts', tsCode: 2339 })]));
   });
 
   it('async fn allows `await` without TS1308', async () => {
@@ -199,11 +187,7 @@ describe('Shadow Analyzer — regression coverage', () => {
     const diagnostics = await analyze(
       ['fn name=bad returns=number', '  handler <<<', '    return await Promise.resolve(42);', '  >>>'].join('\n'),
     );
-    expect(
-      diagnostics.some(
-        (d) => d.rule === 'shadow-ts' && (d.tsCode === 1308 || d.tsCode === 2355),
-      ),
-    ).toBe(true);
+    expect(diagnostics.some((d) => d.rule === 'shadow-ts' && (d.tsCode === 1308 || d.tsCode === 2355))).toBe(true);
   });
 
   it('repository method can reference this.modelType', async () => {
@@ -270,9 +254,7 @@ describe('Shadow Analyzer — module scope + signature diagnostics', () => {
     const diagnostics = await analyze(
       ['fn name=bad returns=number', '  handler <<<', '    const x = 1;', '  >>>'].join('\n'),
     );
-    expect(diagnostics).toEqual(
-      expect.arrayContaining([expect.objectContaining({ rule: 'shadow-ts', tsCode: 2355 })]),
-    );
+    expect(diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ rule: 'shadow-ts', tsCode: 2355 })]));
   });
 });
 
@@ -346,18 +328,12 @@ describe('Shadow Analyzer — generator/stream/model correctness', () => {
 describe('Shadow Analyzer — unsupported contexts', () => {
   it('flags route handlers as unsupported (no route codegen exists yet)', async () => {
     const diagnostics = await analyze(
-      [
-        'server name=API',
-        '  route path="/users" method=get',
-        '    handler <<<',
-        '      res.json([]);',
-        '    >>>',
-      ].join('\n'),
+      ['server name=API', '  route path="/users" method=get', '    handler <<<', '      res.json([]);', '    >>>'].join(
+        '\n',
+      ),
     );
     expect(diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ rule: 'shadow-unsupported-context', nodeType: 'route' }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ rule: 'shadow-unsupported-context', nodeType: 'route' })]),
     );
   });
 });
