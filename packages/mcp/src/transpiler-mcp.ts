@@ -12,6 +12,7 @@ import {
   buildDiagnostics,
   camelKey,
   countTokens,
+  generateCoreNode,
   getChildren,
   getFirstChild,
   getProps,
@@ -64,6 +65,32 @@ interface ParamDefinition {
   node: IRNode;
 }
 
+const MCP_HELPER_NODE_TYPES = new Set(['import', 'const', 'fn']);
+const RESERVED_MCP_TS_BINDINGS = new Set([
+  'McpServer',
+  'ResourceTemplate',
+  'StdioServerTransport',
+  'z',
+  'path',
+  '_realpathSync',
+  'server',
+  'ALLOWED_PATHS',
+  'logger',
+  'nextRequestId',
+  'fmtError',
+  'sanitizeValue',
+  'ensurePathContainment',
+  'checkAuth',
+  'checkRateLimit',
+  '_rateLimitStore',
+  'sanitizeToolOutput',
+  'main',
+]);
+
+function reservedToolSchemaBinding(name: string): string {
+  return `${camelKey(name)}Schema`;
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 function json(value: string): string {
@@ -104,6 +131,55 @@ function splitCsv(value?: string): string[] {
     .split(',')
     .map((p) => p.trim())
     .filter(Boolean);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function helperBindings(node: IRNode): string[] {
+  const props = getProps(node);
+  if (node.type === 'import') {
+    if (props.types === 'true' || props.types === true) return [];
+    return [str(props.default), ...splitCsv(str(props.names))].filter((binding): binding is string => !!binding);
+  }
+  if (node.type === 'const' || node.type === 'fn') {
+    const name = str(props.name);
+    return name ? [name] : [];
+  }
+  return [];
+}
+
+function collectHelperFunctionBodies(helperNodes: IRNode[]): Map<string, string> {
+  const bodies = new Map<string, string>();
+  for (const helperNode of helperNodes) {
+    if (helperNode.type !== 'fn') continue;
+    const name = str(getProps(helperNode).name);
+    const handlerNode = getFirstChild(helperNode, 'handler');
+    const code = handlerNode ? str(getProps(handlerNode).code) || '' : '';
+    if (name && code) bodies.set(name, code);
+  }
+  return bodies;
+}
+
+function collectReachableHelperCode(entryCode: string, helperFunctionBodies: Map<string, string>): string {
+  if (!entryCode) return '';
+  const visited = new Set<string>();
+  const chunks = [entryCode];
+  const queue = [entryCode];
+
+  while (queue.length > 0) {
+    const current = queue.pop() || '';
+    for (const [name, code] of helperFunctionBodies) {
+      if (visited.has(name)) continue;
+      if (!new RegExp(`\\b${escapeRegExp(name)}\\s*\\(`).test(current)) continue;
+      visited.add(name);
+      chunks.push(code);
+      queue.push(code);
+    }
+  }
+
+  return chunks.join('\n');
 }
 
 // ── Guard collection (from Codex — robust prop aliases) ─────────────────
@@ -485,12 +561,14 @@ function emitTool(
   fallbackAllowlist: string[],
   requiredHelpers: Set<string>,
   customDiagnostics: TranspileDiagnostic[],
+  helperFunctionBodies: Map<string, string>,
 ): string[] {
   const name = str(getProps(node).name) || 'tool';
   const description = extractDescription(node) || `Run ${name}`;
   const params = collectParams(node, fallbackAllowlist);
   const handlerNode = getFirstChild(node, 'handler');
   const handlerCode = handlerNode ? str(getProps(handlerNode).code) || '' : '';
+  const analyzedHandlerCode = collectReachableHelperCode(handlerCode, helperFunctionBodies);
 
   // Diagnostic: missing handler
   if (!handlerCode) {
@@ -506,7 +584,7 @@ function emitTool(
   }
 
   // Auto-inject guards based on handler effects (secure by construction)
-  const effects = detectHandlerEffects(handlerCode);
+  const effects = detectHandlerEffects(analyzedHandlerCode);
   const parentGuards = getChildren(node, 'guard')
     .map((g) => collectGuard(g, fallbackAllowlist))
     .filter((g): g is GuardDefinition => !!g);
@@ -764,6 +842,46 @@ function buildCode(
   const toolNodes = getChildren(container, 'tool');
   const resourceNodes = getChildren(container, 'resource');
   const promptNodes = getChildren(container, 'prompt');
+  const helperNodes = (container.children || []).filter((child) => MCP_HELPER_NODE_TYPES.has(child.type));
+  const customDiagnostics: TranspileDiagnostic[] = [];
+  const emittedHelperNodes: IRNode[] = [];
+  const seenHelperBindings = new Map<string, string>();
+  const generatedBindings = new Set<string>(RESERVED_MCP_TS_BINDINGS);
+
+  for (const toolNode of toolNodes) {
+    const toolName = str(getProps(toolNode).name);
+    if (toolName) generatedBindings.add(reservedToolSchemaBinding(toolName));
+  }
+
+  for (const helperNode of helperNodes) {
+    const bindings = helperBindings(helperNode);
+    const reservedBindings = bindings.filter((binding) => generatedBindings.has(binding));
+    const duplicateBindings = bindings.filter((binding) => seenHelperBindings.has(binding));
+
+    if (reservedBindings.length > 0 || duplicateBindings.length > 0) {
+      accountNode(accounted, helperNode, 'suppressed', 'helper-binding-conflict', true);
+      customDiagnostics.push({
+        nodeType: helperNode.type,
+        outcome: 'suppressed',
+        target: 'mcp',
+        loc: helperNode.loc ? { line: helperNode.loc.line, col: helperNode.loc.col } : undefined,
+        severity: 'error',
+        message: `MCP helper ${helperNode.type} conflicts with existing bindings: ${[
+          ...reservedBindings,
+          ...duplicateBindings,
+        ].join(', ')}. Rename the helper binding.`,
+        reason: 'helper-binding-conflict',
+      });
+      continue;
+    }
+
+    for (const binding of bindings) {
+      seenHelperBindings.set(binding, helperNode.type);
+    }
+    emittedHelperNodes.push(helperNode);
+    accountNode(accounted, helperNode, 'expressed', `mcp helper ${helperNode.type}`, true);
+  }
+  const helperFunctionBodies = collectHelperFunctionBodies(emittedHelperNodes);
 
   // Track all children
   for (const n of [...toolNodes, ...resourceNodes, ...promptNodes]) {
@@ -774,7 +892,6 @@ function buildCode(
   const allNodes = [...toolNodes, ...resourceNodes, ...promptNodes];
   const allGuards = allNodes.flatMap((n) => getChildren(n, 'guard'));
   const allParams = allNodes.flatMap((n) => collectParams(n, allowlist));
-  const customDiagnostics: TranspileDiagnostic[] = [];
 
   // Pre-scan: detect which helpers auto-injection will need (S5-4 fix)
   const autoInjectedGuardKinds = new Set<string>();
@@ -783,7 +900,7 @@ function buildCode(
     const hNode = getFirstChild(toolNode, 'handler');
     const hCode = hNode ? str(getProps(hNode).code) || '' : '';
     if (hCode) {
-      const eff = detectHandlerEffects(hCode);
+      const eff = detectHandlerEffects(collectReachableHelperCode(hCode, helperFunctionBodies));
       const pGuards = getChildren(toolNode, 'guard')
         .map((g) => collectGuard(g, allowlist))
         .filter((g): g is GuardDefinition => !!g);
@@ -806,6 +923,16 @@ function buildCode(
   const allowlistLiteral = `[${allowlist.map((v) => (v === 'process.cwd()' ? 'process.cwd()' : json(v))).join(', ')}]`;
   const sourceMap: SourceMapEntry[] = [];
   const lines: string[] = [];
+  const helperImportLines: string[] = [];
+  const helperDeclarationLines: string[] = [];
+
+  for (const helperNode of emittedHelperNodes) {
+    const emitted = generateCoreNode(helperNode, 'mcp');
+    if (emitted.length === 0) continue;
+    const targetLines = helperNode.type === 'import' ? helperImportLines : helperDeclarationLines;
+    if (targetLines.length > 0) targetLines.push('');
+    targetLines.push(...emitted);
+  }
 
   // ── Imports
   if (needsResourceTemplate) {
@@ -820,6 +947,9 @@ function buildCode(
   if (needsPath) {
     lines.push(`import path from "node:path";`);
     lines.push(`import { realpathSync as _realpathSync } from "node:fs";`);
+  }
+  if (helperImportLines.length > 0) {
+    lines.push(...helperImportLines);
   }
   lines.push('');
 
@@ -876,6 +1006,11 @@ function buildCode(
     lines.push('');
   }
 
+  if (helperDeclarationLines.length > 0) {
+    lines.push(...helperDeclarationLines);
+    lines.push('');
+  }
+
   // ── Registrations (collect required helpers from tool guards)
   const requiredHelpers = new Set<string>();
   for (const toolNode of toolNodes) {
@@ -885,7 +1020,7 @@ function buildCode(
       outLine: lines.length + 1,
       outCol: 1,
     });
-    lines.push(...emitTool(toolNode, allowlist, requiredHelpers, customDiagnostics), '');
+    lines.push(...emitTool(toolNode, allowlist, requiredHelpers, customDiagnostics, helperFunctionBodies), '');
   }
   for (const resourceNode of resourceNodes) {
     sourceMap.push({

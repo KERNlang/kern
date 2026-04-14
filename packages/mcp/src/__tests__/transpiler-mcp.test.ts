@@ -90,6 +90,68 @@ describe('transpileMCP', () => {
     expect(result.code).toContain('server.tool(');
   });
 
+  it('should emit helper imports and declarations before tool registrations', () => {
+    const ast = node('mcp', { name: 'HelperServer' }, [
+      node('import', { from: 'node:fs', names: 'readFileSync' }),
+      node('const', { name: 'DEFAULT_GREETING', value: '"hello"' }),
+      node('fn', { name: 'formatGreeting', params: 'name:string', returns: 'string' }, [
+        node('handler', { code: 'return `${DEFAULT_GREETING}, ${name}`;' }),
+      ]),
+      node('tool', { name: 'greet' }, [
+        node('param', { name: 'name', type: 'string', required: 'true' }),
+        node('handler', { code: 'return { content: [{ type: "text", text: formatGreeting(args.name) }] };' }),
+      ]),
+    ]);
+
+    const result = transpileMCP(ast);
+    expect(result.code).toContain("import { readFileSync } from 'node:fs';");
+    expect(result.code).toContain('const DEFAULT_GREETING = "hello";');
+    expect(result.code).toContain('function formatGreeting(name: string): string {');
+    expect(result.code).toContain('return `${DEFAULT_GREETING}, ${name}`;');
+    expect(result.code.indexOf('function formatGreeting')).toBeLessThan(result.code.indexOf('server.tool('));
+    assertCompiles(result.code, 'helper core nodes');
+  });
+
+  it('should auto-inject path guards when helper functions perform file io', () => {
+    const ast = node('mcp', { name: 'HelperEffectsServer' }, [
+      node('import', { from: 'node:fs', names: 'readFileSync' }),
+      node('fn', { name: 'readHelper', params: 'filePath:string', returns: 'string' }, [
+        node('handler', { code: 'return readFileSync(filePath, "utf8");' }),
+      ]),
+      node('tool', { name: 'readFile' }, [
+        node('param', { name: 'filePath', type: 'string', required: 'true' }),
+        node('handler', { code: 'return { content: [{ type: "text", text: readHelper(args.filePath) }] };' }),
+      ]),
+    ]);
+
+    const result = transpileMCP(ast);
+    expect(result.code).toContain('ensurePathContainment');
+    expect(result.code).toContain('params["filePath"] = ensurePathContainment');
+    assertCompiles(result.code, 'helper effect guards');
+  });
+
+  it('should suppress helper bindings that collide with generated MCP identifiers', () => {
+    const ast = node('mcp', { name: 'CollisionServer' }, [
+      node('import', { from: 'node:path', default: 'path' }),
+      node('tool', { name: 'noop' }, [node('handler', { code: 'return { content: [{ type: "text", text: "ok" }] };' })]),
+    ]);
+
+    const result = transpileMCP(ast);
+    expect((result.diagnostics || []).some((d) => d.reason === 'helper-binding-conflict')).toBe(true);
+    expect(result.code).not.toContain("import path from 'node:path';");
+  });
+
+  it('should suppress helper bindings that collide with generated tool schema identifiers', () => {
+    const ast = node('mcp', { name: 'SchemaCollisionServer' }, [
+      node('const', { name: 'readfileSchema', value: '"bad"' }),
+      node('tool', { name: 'readFile' }, [node('param', { name: 'filePath', type: 'string', required: 'true' })]),
+    ]);
+
+    const result = transpileMCP(ast);
+    expect((result.diagnostics || []).some((d) => d.reason === 'helper-binding-conflict')).toBe(true);
+    expect(result.code).not.toContain('const readfileSchema = "bad";');
+  });
+
   it('should generate tool with Zod schema for typed params', () => {
     const ast = node('mcp', { name: 'TypedServer' }, [
       node('tool', { name: 'calculate' }, [

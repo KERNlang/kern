@@ -12,7 +12,7 @@ export const NETWORK_PATTERN = /\b(fetch|http\.request|https\.request|axios|got\
 // ── Python patterns ─────────────────────────────────────────────────────
 
 export const PY_FILE_IO_PATTERN =
-  /\b(open|read|write|readlines|os\.path|os\.listdir|os\.remove|os\.unlink|os\.rename|os\.mkdir|shutil\.|pathlib\.|readFile|readFileSync|writeFile|readdir)\b/;
+  /\b(open|read|write|readlines|read_text|write_text|os\.path|os\.listdir|os\.remove|os\.unlink|os\.rename|os\.mkdir|shutil\.|pathlib\.|Path\s*\(|readFile|readFileSync|writeFile|readdir)\b/;
 
 export const PY_SHELL_EXEC_PATTERN = /\b(subprocess|os\.system|os\.popen|execSync|execFile|spawn|spawnSync)\b/;
 

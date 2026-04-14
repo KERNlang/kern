@@ -18,6 +18,29 @@ import {
 } from '@kernlang/core';
 import { PY_FILE_IO_PATTERN, PY_NETWORK_PATTERN, PY_SHELL_EXEC_PATTERN } from './effect-patterns.js';
 
+const MCP_HELPER_NODE_TYPES = new Set(['import', 'const', 'fn']);
+const RESERVED_MCP_PY_BINDINGS = new Set([
+  'logging',
+  'os',
+  're',
+  'time',
+  'FastMCP',
+  'McpError',
+  'INTERNAL_ERROR',
+  'mcp',
+  'logger',
+  '_JsonFormatter',
+  '_handler',
+  '_rate_limit_store',
+  '_check_rate_limit',
+  '_INJECTION_PATTERNS',
+  '_sanitize_output',
+]);
+
+function entrypointBindingName(node: IRNode): string | undefined {
+  return str(getProps(node).name);
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 function pyStr(value: string): string {
@@ -58,6 +81,53 @@ function splitCsv(value?: string): string[] {
     .split(',')
     .map((p) => p.trim())
     .filter(Boolean);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function helperBindings(node: IRNode): string[] {
+  const props = getProps(node);
+  if (node.type === 'import') {
+    return [str(props.default), ...splitCsv(str(props.names))].filter((binding): binding is string => !!binding);
+  }
+  if (node.type === 'const' || node.type === 'fn') {
+    const name = str(props.name);
+    return name ? [name] : [];
+  }
+  return [];
+}
+
+function collectHelperFunctionBodies(helperNodes: IRNode[]): Map<string, string> {
+  const bodies = new Map<string, string>();
+  for (const helperNode of helperNodes) {
+    if (helperNode.type !== 'fn') continue;
+    const name = str(getProps(helperNode).name);
+    const code = findPythonHandler(helperNode);
+    if (name && code) bodies.set(name, code);
+  }
+  return bodies;
+}
+
+function collectReachableHelperCode(entryCode: string, helperFunctionBodies: Map<string, string>): string {
+  if (!entryCode) return '';
+  const visited = new Set<string>();
+  const chunks = [entryCode];
+  const queue = [entryCode];
+
+  while (queue.length > 0) {
+    const current = queue.pop() || '';
+    for (const [name, code] of helperFunctionBodies) {
+      if (visited.has(name)) continue;
+      if (!new RegExp(`\\b${escapeRegExp(name)}\\s*\\(`).test(current)) continue;
+      visited.add(name);
+      chunks.push(code);
+      queue.push(code);
+    }
+  }
+
+  return chunks.join('\n');
 }
 
 /** Find a handler node appropriate for Python output.
@@ -102,6 +172,132 @@ function pyType(kernType: string): string {
       return 'dict';
     default:
       return 'str';
+  }
+}
+
+function pyHelperType(kernType: string): string {
+  const trimmed = kernType.trim();
+  switch (trimmed) {
+    case 'number':
+    case 'float':
+      return 'float';
+    case 'int':
+    case 'integer':
+      return 'int';
+    case 'boolean':
+    case 'bool':
+      return 'bool';
+    case 'string':
+      return 'str';
+    case 'string[]':
+      return 'list[str]';
+    case 'number[]':
+      return 'list[float]';
+    case 'object':
+    case 'json':
+      return 'dict';
+    case 'void':
+    case 'undefined':
+    case 'null':
+      return 'None';
+    default:
+      break;
+  }
+
+  if (trimmed.endsWith('[]')) {
+    return `list[${pyHelperType(trimmed.slice(0, -2))}]`;
+  }
+
+  const promiseMatch = trimmed.match(/^Promise<(.+)>$/);
+  if (promiseMatch) {
+    return pyHelperType(promiseMatch[1]);
+  }
+
+  if (trimmed.includes('|')) {
+    return trimmed
+      .split('|')
+      .map((part) => pyHelperType(part))
+      .join(' | ');
+  }
+
+  return trimmed;
+}
+
+function emitPyHelperImport(node: IRNode): string[] {
+  const props = getProps(node);
+  const from = str(props.from);
+  const names = splitCsv(str(props.names));
+  const defaultImport = str(props.default);
+
+  if (!from) return [];
+  if (defaultImport && names.length > 0) {
+    return [`from ${from} import ${defaultImport}, ${names.join(', ')}`];
+  }
+  if (defaultImport) {
+    return [`import ${from} as ${defaultImport}`];
+  }
+  if (names.length > 0) {
+    return [`from ${from} import ${names.join(', ')}`];
+  }
+  return [`import ${from}`];
+}
+
+function emitPyHelperConst(node: IRNode): string[] {
+  const props = getProps(node);
+  const name = str(props.name) || 'UNKNOWN_CONST';
+  const constType = str(props.type);
+  const value = str(props.value);
+  const code = findPythonHandler(node);
+  const typeAnnotation = constType ? `: ${pyHelperType(constType)}` : '';
+
+  if (code) return [`${name}${typeAnnotation} = ${code.trim()}`];
+  if (value !== undefined) return [`${name}${typeAnnotation} = ${value}`];
+  return [`${name}${typeAnnotation} = None`];
+}
+
+function emitPyHelperFn(node: IRNode): string[] {
+  const props = getProps(node);
+  const name = str(props.name) || 'helper';
+  const params = str(props.params) || '';
+  const returns = str(props.returns);
+  const isAsync = props.async === 'true' || props.async === true;
+  const code = findPythonHandler(node);
+  const lines: string[] = [];
+
+  const paramList = params
+    ? params
+        .split(',')
+        .map((part) => {
+          const [rawName, ...rawType] = part.split(':').map((token) => token.trim());
+          if (!rawName) return '';
+          if (rawType.length === 0) return rawName;
+          return `${rawName}: ${pyHelperType(rawType.join(':'))}`;
+        })
+        .filter(Boolean)
+        .join(', ')
+    : '';
+
+  const retClause = returns ? ` -> ${pyHelperType(returns)}` : '';
+  const asyncKw = isAsync ? 'async ' : '';
+  lines.push(`${asyncKw}def ${name}(${paramList})${retClause}:`);
+  if (code) {
+    lines.push(...ind(code.split('\n'), 4));
+  } else {
+    lines.push('    pass');
+  }
+  return lines;
+}
+
+function emitPyHelperNode(node: IRNode): string[] {
+  switch (node.type) {
+    case 'import':
+      return emitPyHelperImport(node);
+    case 'const':
+      return emitPyHelperConst(node);
+    case 'fn':
+      return emitPyHelperFn(node);
+    default:
+      return [];
   }
 }
 
@@ -240,12 +436,62 @@ function buildPythonCode(
   const toolNodes = getChildren(container, 'tool');
   const resourceNodes = getChildren(container, 'resource');
   const promptNodes = getChildren(container, 'prompt');
+  const helperNodes = (container.children || []).filter((child) => MCP_HELPER_NODE_TYPES.has(child.type));
+  const customDiagnostics: TranspileDiagnostic[] = [];
+  const emittedHelperNodes: IRNode[] = [];
+  const seenHelperBindings = new Map<string, string>();
+  const generatedBindings = new Set<string>(RESERVED_MCP_PY_BINDINGS);
+
+  for (const node of [...toolNodes, ...resourceNodes, ...promptNodes]) {
+    const binding = entrypointBindingName(node);
+    if (binding) generatedBindings.add(binding);
+  }
+
+  for (const helperNode of helperNodes) {
+    const bindings = helperBindings(helperNode);
+    const reservedBindings = bindings.filter((binding) => generatedBindings.has(binding));
+    const duplicateBindings = bindings.filter((binding) => seenHelperBindings.has(binding));
+
+    if (reservedBindings.length > 0 || duplicateBindings.length > 0) {
+      accountNode(accounted, helperNode, 'suppressed', 'helper-binding-conflict', true);
+      customDiagnostics.push({
+        nodeType: helperNode.type,
+        outcome: 'suppressed',
+        target: 'mcp-python',
+        loc: helperNode.loc ? { line: helperNode.loc.line, col: helperNode.loc.col } : undefined,
+        severity: 'error',
+        message: `MCP Python helper ${helperNode.type} conflicts with existing bindings: ${[
+          ...reservedBindings,
+          ...duplicateBindings,
+        ].join(', ')}. Rename the helper binding.`,
+        reason: 'helper-binding-conflict',
+      });
+      continue;
+    }
+
+    if (helperNode.type === 'fn' && !findPythonHandler(helperNode)) {
+      accountNode(accounted, helperNode, 'suppressed', 'helper-no-python-handler', true);
+      customDiagnostics.push({
+        nodeType: helperNode.type,
+        outcome: 'suppressed',
+        target: 'mcp-python',
+        loc: helperNode.loc ? { line: helperNode.loc.line, col: helperNode.loc.col } : undefined,
+        severity: 'error',
+        message: `Helper fn "${str(getProps(helperNode).name) || 'helper'}" has no Python handler — add handler lang=python <<<...>>>`,
+        reason: 'helper-no-python-handler',
+      });
+      continue;
+    }
+
+    for (const binding of bindings) seenHelperBindings.set(binding, helperNode.type);
+    emittedHelperNodes.push(helperNode);
+    accountNode(accounted, helperNode, 'expressed', `mcp helper ${helperNode.type}`, true);
+  }
+  const helperFunctionBodies = collectHelperFunctionBodies(emittedHelperNodes);
 
   for (const n of [...toolNodes, ...resourceNodes, ...promptNodes]) {
     accountNode(accounted, n, 'expressed', `mcp ${n.type}`, true);
   }
-
-  const customDiagnostics: TranspileDiagnostic[] = [];
 
   // Check what imports we need — match prop priority: name > kind > type (same as emitPyGuards)
   const allGuards = [...toolNodes, ...resourceNodes, ...promptNodes].flatMap((n) => getChildren(n, 'guard'));
@@ -253,12 +499,12 @@ function buildPythonCode(
 
   // Pre-scan handlers for effect-based auto-injection (determines imports + sanitizeOutput)
   const willAutoInjectOs = toolNodes.some((n) => {
-    const hCode = findPythonHandler(n);
+    const hCode = collectReachableHelperCode(findPythonHandler(n), helperFunctionBodies);
     const existingKinds = new Set(getChildren(n, 'guard').map((g) => guardKind(g)));
     return hCode && PY_FILE_IO_PATTERN.test(hCode) && !existingKinds.has('pathContainment');
   });
   const willAutoInjectRe = toolNodes.some((n) => {
-    const hCode = findPythonHandler(n);
+    const hCode = collectReachableHelperCode(findPythonHandler(n), helperFunctionBodies);
     return hCode && PY_SHELL_EXEC_PATTERN.test(hCode);
   });
 
@@ -273,13 +519,23 @@ function buildPythonCode(
   let needsSanitizeOutput =
     allGuards.some((g) => guardKind(g) === 'sanitizeOutput') ||
     toolNodes.some((n) => {
-      const hCode = findPythonHandler(n);
+      const hCode = collectReachableHelperCode(findPythonHandler(n), helperFunctionBodies);
       return hCode && PY_NETWORK_PATTERN.test(hCode);
     });
 
   const transport = str(props.transport) || 'stdio';
   const sourceMap: SourceMapEntry[] = [];
   const lines: string[] = [];
+  const helperImportLines: string[] = [];
+  const helperDeclarationLines: string[] = [];
+
+  for (const helperNode of emittedHelperNodes) {
+    const emitted = emitPyHelperNode(helperNode);
+    if (emitted.length === 0) continue;
+    const targetLines = helperNode.type === 'import' ? helperImportLines : helperDeclarationLines;
+    if (targetLines.length > 0) targetLines.push('');
+    targetLines.push(...emitted);
+  }
 
   // ── Imports
   lines.push(`"""${serverName} — Generated by KERN MCP transpiler."""`);
@@ -288,6 +544,7 @@ function buildPythonCode(
   if (needsOs) lines.push('import os');
   if (needsRe || needsSanitizeOutput) lines.push('import re');
   if (needsRateLimit) lines.push('import time');
+  if (helperImportLines.length > 0) lines.push(...helperImportLines);
   lines.push('');
   lines.push('from mcp.server.fastmcp import FastMCP');
   lines.push('from mcp.shared.exceptions import McpError');
@@ -316,6 +573,11 @@ function buildPythonCode(
   lines.push('logger.addHandler(_handler)');
   lines.push('logger.setLevel(logging.INFO)');
   lines.push('');
+
+  if (helperDeclarationLines.length > 0) {
+    lines.push(...helperDeclarationLines);
+    lines.push('');
+  }
 
   if (needsRateLimit) {
     lines.push('_rate_limit_store: dict[str, dict] = {}');
@@ -369,6 +631,7 @@ function buildPythonCode(
     const desc = extractDescription(toolNode);
     const paramNodes = getChildren(toolNode, 'param');
     const handlerCode = findPythonHandler(toolNode);
+    const analyzedHandlerCode = collectReachableHelperCode(handlerCode, helperFunctionBodies);
 
     lines.push('@mcp.tool()');
 
@@ -447,7 +710,7 @@ function buildPythonCode(
       const allToolKinds = new Set(allToolGuards.map((g) => guardKind(g)));
       const stringParams = paramNodes.filter((p) => (str(getProps(p).type) || 'string') === 'string');
 
-      if (PY_FILE_IO_PATTERN.test(handlerCode) && !allToolKinds.has('pathContainment') && stringParams.length > 0) {
+      if (PY_FILE_IO_PATTERN.test(analyzedHandlerCode) && !allToolKinds.has('pathContainment') && stringParams.length > 0) {
         for (const p of stringParams) {
           const pName = str(getProps(p).name) || 'input';
           // Auto-inject on non-content string params
@@ -456,7 +719,7 @@ function buildPythonCode(
           }
         }
       }
-      if (PY_SHELL_EXEC_PATTERN.test(handlerCode) && stringParams.length > 0) {
+      if (PY_SHELL_EXEC_PATTERN.test(analyzedHandlerCode) && stringParams.length > 0) {
         for (const p of stringParams) {
           const pName = str(getProps(p).name) || 'input';
           if (!isContentParam(pName)) {
@@ -470,7 +733,7 @@ function buildPythonCode(
     }
     const hasSanitizeOutput =
       getChildren(toolNode, 'guard').some((g) => guardKind(g) === 'sanitizeOutput') ||
-      (handlerCode && PY_NETWORK_PATTERN.test(handlerCode));
+      (analyzedHandlerCode && PY_NETWORK_PATTERN.test(analyzedHandlerCode));
 
     lines.push('    try:');
 
