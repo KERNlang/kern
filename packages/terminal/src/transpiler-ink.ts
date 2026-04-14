@@ -211,6 +211,7 @@ function generateStateHook(stateNode: IRNode, imports: ImportTracker, ctx: State
   const name = props.name as string;
   const initialProp = props.initial;
   const safe = props.safe !== 'false' && props.safe !== false; // default true
+  const external = props.external === 'true' || props.external === true;
 
   if (name && initialProp !== undefined) {
     imports.addReact('useState');
@@ -241,6 +242,29 @@ function generateStateHook(stateNode: IRNode, imports: ImportTracker, ctx: State
 
     const throttle = props.throttle as string | undefined;
     const debounce = props.debounce as string | undefined;
+
+    if (external) {
+      // External-state primitive: a stable reference whose internal mutations
+      // are tracked via a sibling version counter. Replaces the manual
+      // `state foo + state fooVersion + setFooVersion(v => v + 1)` pattern.
+      // The held value is emitted as a bare useState (no __inkSafe wrap — the
+      // user mutates the object in place; the rare full-replacement case is
+      // a sync setState that React 18 batches inside event handlers). The
+      // version counter is hidden; the user calls `bumpFoo()` after mutating
+      // the object, and any memo that references `foo` automatically gets
+      // `_fooVersion` injected into its dep array.
+      imports.addReact('useMemo');
+      const cap = capitalize(name);
+      lines.push(`  const [${name}, ${setter}] = useState${typeAnnotation}(${lazyInitVal});`);
+      lines.push(`  const [_${name}Version, _set${cap}VersionRaw] = useState<number>(0);`);
+      lines.push(`  const bump${cap} = useMemo(() => {`);
+      lines.push(`    return () => setTimeout(() => _set${cap}VersionRaw((v: number) => v + 1), 0);`);
+      lines.push(`  }, []);`);
+      // Touch the version in the closure so React picks it up if the user references
+      // it directly. The void cast keeps the lint quiet about an unused binding.
+      lines.push(`  void _${name}Version;`);
+      return lines;
+    }
 
     if (throttle) {
       // Throttled setter — leading+trailing by default (lodash-style).
@@ -612,6 +636,31 @@ const BATCH_FORBIDDEN_PATTERNS: { name: string; pattern: RegExp }[] = [
   { name: 'await', pattern: /\bawait\b/ },
   { name: '.then(', pattern: /\.then\s*\(/ },
 ];
+
+/**
+ * Append `_${name}Version` to a memo's dep list for every external state name
+ * the memo already references. The user writes `deps="registry"` and the codegen
+ * produces `[registry, _registryVersion]`, so the memo invalidates when the user
+ * calls `bumpRegistry()` after mutating the held object in place. Idempotent —
+ * if the user already listed the version manually, nothing is duplicated.
+ */
+function injectExternalVersionDeps(depsRaw: string, externalStateNames: string[]): string {
+  if (externalStateNames.length === 0) return depsRaw;
+  const tokens = depsRaw
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const present = new Set(tokens);
+  for (const name of externalStateNames) {
+    if (!present.has(name)) continue;
+    const versionTok = `_${name}Version`;
+    if (!present.has(versionTok)) {
+      tokens.push(versionTok);
+      present.add(versionTok);
+    }
+  }
+  return tokens.join(', ');
+}
 
 function checkBatchBodyIsSync(code: string, onNode: IRNode): void {
   for (const { name, pattern } of BATCH_FORBIDDEN_PATTERNS) {
@@ -1379,11 +1428,24 @@ function compileScreenBody(
   }
   if (appExitNodes.length > 0) bodyLines.push('');
 
+  // Names of state nodes declared with external=true. Memos that reference
+  // any of these names auto-receive the corresponding `_${name}Version` token
+  // in their dep array, so the user does not have to remember to list both.
+  const externalStateNames = stateNodes
+    .filter((s) => {
+      const sp = getProps(s);
+      return sp.external === 'true' || sp.external === true;
+    })
+    .map((s) => getProps(s).name as string)
+    .filter(Boolean);
+
   // Memo hooks
   for (const memoNode of memoNodes) {
     const mp = getProps(memoNode);
     const mName = mp.name as string;
-    const mDeps = (mp.deps as string) || '';
+    const mDepsRaw = (mp.deps as string) || '';
+    // Auto-inject `_${name}Version` for every external state referenced in deps.
+    const mDeps = injectExternalVersionDeps(mDepsRaw, externalStateNames);
     const mDepsArr = mDeps ? `[${mDeps}]` : '[]';
     const handlerChild = (memoNode.children || []).find((c: IRNode) => c.type === 'handler');
     const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
