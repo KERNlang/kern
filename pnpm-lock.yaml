@@ -112,7 +112,11 @@ importers:
         specifier: workspace:*
         version: link:../vue
 
-  packages/core: {}
+  packages/core:
+    dependencies:
+      typescript:
+        specifier: ^6.0.0
+        version: 6.0.2
 
   packages/evolve:
     dependencies:
