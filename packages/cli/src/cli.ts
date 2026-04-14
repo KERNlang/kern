@@ -3,6 +3,7 @@ import { runCompile } from './commands/compile.js';
 import { runConfidence } from './commands/confidence.js';
 import { runDev } from './commands/dev.js';
 import { routeEvolve } from './commands/evolve/index.js';
+import { runGaps } from './commands/gaps.js';
 import { runImport } from './commands/import.js';
 import { runInit } from './commands/init.js';
 import { runReview } from './commands/review.js';
@@ -22,6 +23,7 @@ const COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
   init: runInit,
   test: runTest,
   scan: runScan,
+  gaps: runGaps,
   'init-templates': runInitTemplates,
   import: runImport,
   review: runReview,
