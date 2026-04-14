@@ -10,6 +10,7 @@
 - Use plain semver like `3.2.4` for preflight input.
 - Publish GitHub Releases with lowercase tags like `v3.2.4`.
 - **Whenever you edit any `package.json` `dependencies` / `devDependencies` / `peerDependencies` / `optionalDependencies` / `peerDependenciesMeta` field — regenerate `pnpm-lock.yaml` in the SAME commit.** CI runs `pnpm install --frozen-lockfile`; a mismatched lockfile breaks every workflow on the branch with `ERR_PNPM_OUTDATED_LOCKFILE`. Use `pnpm install --ignore-scripts --no-frozen-lockfile` if the local tree-sitter native build is broken — `--ignore-scripts` skips postinstalls so the lockfile gets written even when a postinstall would otherwise crash. Always `git add pnpm-lock.yaml` alongside the `package.json` change. Never push a `package.json` dep change without the matching lockfile update.
+- **Always run `pnpm lint` locally before pushing source changes.** Biome's format errors are blocking in CI (the lint job fails the run), so the only safe path is to catch them locally first. `scripts/install-git-hooks.mjs` installs a `pre-push` hook that runs `pnpm lint` automatically — the hook auto-installs via the `prepare` lifecycle on every `pnpm install`, so you don't need to remember. Bypass only with `git push --no-verify` when you truly need to (e.g. mid-rebase, throwaway branch).
 
 ## Pnpm Activation
 
