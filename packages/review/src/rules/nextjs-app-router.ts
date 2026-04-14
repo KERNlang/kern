@@ -46,7 +46,15 @@ const CLIENT_EVENT_HANDLERS = new Set([
 ]);
 
 const BROWSER_GLOBALS = /\b(window|document|localStorage|sessionStorage|navigator|history|location)\b/;
-const BROWSER_GLOBAL_NAMES = ['window', 'document', 'localStorage', 'sessionStorage', 'navigator', 'history', 'location'];
+const BROWSER_GLOBAL_NAMES = [
+  'window',
+  'document',
+  'localStorage',
+  'sessionStorage',
+  'navigator',
+  'history',
+  'location',
+];
 const ACTION_STATE_HOOKS = new Set(['useActionState']);
 
 interface ActionStateBinding {
@@ -57,7 +65,10 @@ interface ActionStateBinding {
 }
 
 type JsxTagLike = import('ts-morph').JsxOpeningElement | import('ts-morph').JsxSelfClosingElement;
-type FunctionLikeNode = import('ts-morph').FunctionDeclaration | import('ts-morph').FunctionExpression | import('ts-morph').ArrowFunction;
+type FunctionLikeNode =
+  | import('ts-morph').FunctionDeclaration
+  | import('ts-morph').FunctionExpression
+  | import('ts-morph').ArrowFunction;
 
 function hasClientDirective(fullText: string): boolean {
   return /^['"]use client['"];?\s*$/m.test(fullText.substring(0, 200));
@@ -95,7 +106,9 @@ function fileUsesClientApi(ctx: RuleContext): boolean {
 }
 
 function isClientBoundary(ctx: RuleContext, fullText: string): boolean {
-  return hasClientDirective(fullText) || ctx.fileContext?.isClientBoundary === true || ctx.fileContext?.boundary === 'client';
+  return (
+    hasClientDirective(fullText) || ctx.fileContext?.isClientBoundary === true || ctx.fileContext?.boundary === 'client'
+  );
 }
 
 function unwrapParens(node: Node): Node {
@@ -127,9 +140,7 @@ function getTypeofGuardState(node: Node, globalName: string): 'defined' | 'undef
   const isUndefinedLiteral = (candidate: Node): boolean =>
     Node.isStringLiteral(candidate) && candidate.getLiteralText() === 'undefined';
 
-  if (
-    !((isTypeofGlobal(left) && isUndefinedLiteral(right)) || (isUndefinedLiteral(left) && isTypeofGlobal(right)))
-  ) {
+  if (!((isTypeofGlobal(left) && isUndefinedLiteral(right)) || (isUndefinedLiteral(left) && isTypeofGlobal(right)))) {
     return undefined;
   }
 
@@ -181,7 +192,8 @@ function isBrowserGlobalReference(node: Node, globalName: string): boolean {
     const decls = node.getSymbol()?.getDeclarations() ?? [];
     return decls.every((decl) => decl.getSourceFile() !== node.getSourceFile());
   }
-  if (Node.isImportSpecifier(parent) || Node.isBindingElement(parent) || Node.isParameterDeclaration(parent)) return false;
+  if (Node.isImportSpecifier(parent) || Node.isBindingElement(parent) || Node.isParameterDeclaration(parent))
+    return false;
   if (Node.isVariableDeclaration(parent) && parent.getNameNode() === node) return false;
   if (Node.isFunctionDeclaration(parent) && parent.getNameNode() === node) return false;
   if (Node.isClassDeclaration(parent) && parent.getNameNode() === node) return false;
@@ -237,7 +249,9 @@ function isGuardedBrowserGlobalUse(node: Node, globalName: string): boolean {
 }
 
 function getReactActionStateBindings(ctx: RuleContext): ActionStateBinding[] {
-  const reactImports = ctx.sourceFile.getImportDeclarations().filter((decl) => decl.getModuleSpecifierValue() === 'react');
+  const reactImports = ctx.sourceFile
+    .getImportDeclarations()
+    .filter((decl) => decl.getModuleSpecifierValue() === 'react');
   if (reactImports.length === 0) return [];
 
   const importedHookNames = new Set<string>();
@@ -265,7 +279,8 @@ function getReactActionStateBindings(ctx: RuleContext): ActionStateBinding[] {
     if (Node.isIdentifier(expr)) {
       isActionStateCall = importedHookNames.has(expr.getText());
     } else if (Node.isPropertyAccessExpression(expr)) {
-      isActionStateCall = namespaceImports.has(expr.getExpression().getText()) && ACTION_STATE_HOOKS.has(expr.getName());
+      isActionStateCall =
+        namespaceImports.has(expr.getExpression().getText()) && ACTION_STATE_HOOKS.has(expr.getName());
     }
     if (!isActionStateCall) continue;
 
@@ -378,14 +393,17 @@ function isSubmitControl(node: JsxTagLike): boolean {
 }
 
 function fileUsesUseFormStatus(ctx: RuleContext): boolean {
-  const imports = ctx.sourceFile.getImportDeclarations().filter((decl) => decl.getModuleSpecifierValue() === 'react-dom');
+  const imports = ctx.sourceFile
+    .getImportDeclarations()
+    .filter((decl) => decl.getModuleSpecifierValue() === 'react-dom');
   if (imports.length === 0) return false;
 
   const importedHookNames = new Set<string>();
   const namespaceImports = new Set<string>();
   for (const decl of imports) {
     for (const named of decl.getNamedImports()) {
-      if (named.getName() === 'useFormStatus') importedHookNames.add(named.getAliasNode()?.getText() ?? named.getName());
+      if (named.getName() === 'useFormStatus')
+        importedHookNames.add(named.getAliasNode()?.getText() ?? named.getName());
     }
     const namespace = decl.getNamespaceImport();
     if (namespace) namespaceImports.add(namespace.getText());
@@ -394,7 +412,11 @@ function fileUsesUseFormStatus(ctx: RuleContext): boolean {
   for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const expr = call.getExpression();
     if (Node.isIdentifier(expr) && importedHookNames.has(expr.getText())) return true;
-    if (Node.isPropertyAccessExpression(expr) && namespaceImports.has(expr.getExpression().getText()) && expr.getName() === 'useFormStatus') {
+    if (
+      Node.isPropertyAccessExpression(expr) &&
+      namespaceImports.has(expr.getExpression().getText()) &&
+      expr.getName() === 'useFormStatus'
+    ) {
       return true;
     }
   }
@@ -403,7 +425,8 @@ function fileUsesUseFormStatus(ctx: RuleContext): boolean {
 }
 
 function functionLikeHasUseServerDirective(node: Node): boolean {
-  if (!Node.isFunctionDeclaration(node) && !Node.isFunctionExpression(node) && !Node.isArrowFunction(node)) return false;
+  if (!Node.isFunctionDeclaration(node) && !Node.isFunctionExpression(node) && !Node.isArrowFunction(node))
+    return false;
   const body = node.getBody();
   if (!body) return false;
   return /['"]use server['"]/.test(body.getText().substring(0, 100));
@@ -644,7 +667,7 @@ function browserApiInServer(ctx: RuleContext): ReviewFinding[] {
         1,
         {
           suggestion:
-            "Move this logic into a Client Component, or pass a server-safe value down as a prop instead of reading browser globals here",
+            'Move this logic into a Client Component, or pass a server-safe value down as a prop instead of reading browser globals here',
         },
       ),
     );
@@ -678,7 +701,7 @@ function useActionStateMissingPending(ctx: RuleContext): ReviewFinding[] {
         1,
         {
           suggestion:
-            "Capture the third tuple value from useActionState, e.g. const [state, formAction, pending] = useActionState(...), then disable the submit button or show loading UI while pending",
+            'Capture the third tuple value from useActionState, e.g. const [state, formAction, pending] = useActionState(...), then disable the submit button or show loading UI while pending',
         },
       ),
     );

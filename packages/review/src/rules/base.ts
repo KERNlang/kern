@@ -956,7 +956,9 @@ function buildLeakSpecs(
           cleanupPatterns: assignedName
             ? [
                 new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\(`),
-                new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\.\\s*(?:unsubscribe|dispose|destroy|off|removeListener)\\s*\\(`),
+                new RegExp(
+                  `\\b${escapeRegex(assignedName)}\\s*\\.\\s*(?:unsubscribe|dispose|destroy|off|removeListener)\\s*\\(`,
+                ),
                 new RegExp(`${escapeRegex(targetText)}\\s*\\.\\s*(?:off|removeListener|unsubscribe)\\s*\\(`),
               ]
             : [/\.\s*(?:off|removeListener|unsubscribe|dispose|destroy)\s*\(/],
@@ -1011,7 +1013,6 @@ function buildLeakSpecs(
   return specs;
 }
 
-
 function memoryLeak(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
@@ -1027,7 +1028,8 @@ function memoryLeak(ctx: RuleContext): ReviewFinding[] {
     if (!Node.isArrowFunction(callback) && !Node.isFunctionExpression(callback)) continue;
 
     const leakSpecs = buildLeakSpecs(callback).filter(
-      (spec, index, specs) => specs.findIndex((candidate) => candidate.label === spec.label && candidate.line === spec.line) === index,
+      (spec, index, specs) =>
+        specs.findIndex((candidate) => candidate.label === spec.label && candidate.line === spec.line) === index,
     );
     if (leakSpecs.length === 0) continue;
 

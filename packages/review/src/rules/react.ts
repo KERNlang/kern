@@ -6,7 +6,13 @@
 
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { cleanupExpressionMatches, escapeRegex, findAssignedIdentifier, finding, getTopLevelCleanupExpressions } from './utils.js';
+import {
+  cleanupExpressionMatches,
+  escapeRegex,
+  findAssignedIdentifier,
+  finding,
+  getTopLevelCleanupExpressions,
+} from './utils.js';
 
 /**
  * Check if a file is actually a React file — has JSX syntax or React imports.
@@ -37,7 +43,11 @@ function unwrapJsxExpression(node: Node): Node {
 
 function getMapCallbackRootJsx(
   callback: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
-): import('ts-morph').JsxElement | import('ts-morph').JsxSelfClosingElement | import('ts-morph').JsxFragment | undefined {
+):
+  | import('ts-morph').JsxElement
+  | import('ts-morph').JsxSelfClosingElement
+  | import('ts-morph').JsxFragment
+  | undefined {
   const body = callback.getBody();
   if (Node.isBlock(body)) {
     const returnStmt = body.getStatements().find((stmt) => Node.isReturnStatement(stmt));
@@ -552,7 +562,9 @@ function missingEffectCleanup(ctx: RuleContext): ReviewFinding[] {
     cleanupReturnCallPattern?: RegExp;
   }
 
-  const buildEffectLeakSpecs = (callback: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression): EffectLeakSpec[] => {
+  const buildEffectLeakSpecs = (
+    callback: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+  ): EffectLeakSpec[] => {
     const specs: EffectLeakSpec[] = [];
 
     for (const desc of callback.getDescendantsOfKind(SyntaxKind.CallExpression)) {
@@ -596,7 +608,9 @@ function missingEffectCleanup(ctx: RuleContext): ReviewFinding[] {
           cleanupPatterns: assignedName
             ? [
                 new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\(`),
-                new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\.\\s*(?:unsubscribe|dispose|destroy|off|removeListener)\\s*\\(`),
+                new RegExp(
+                  `\\b${escapeRegex(assignedName)}\\s*\\.\\s*(?:unsubscribe|dispose|destroy|off|removeListener)\\s*\\(`,
+                ),
                 new RegExp(`${escapeRegex(targetText)}\\s*\\.\\s*(?:off|removeListener|unsubscribe)\\s*\\(`),
               ]
             : [/\.\s*(?:off|removeListener|unsubscribe|dispose|destroy)\s*\(/],
@@ -637,7 +651,8 @@ function missingEffectCleanup(ctx: RuleContext): ReviewFinding[] {
     if (!Node.isArrowFunction(callback) && !Node.isFunctionExpression(callback)) continue;
 
     const leakSpecs = buildEffectLeakSpecs(callback).filter(
-      (spec, index, specs) => specs.findIndex((candidate) => candidate.label === spec.label && candidate.line === spec.line) === index,
+      (spec, index, specs) =>
+        specs.findIndex((candidate) => candidate.label === spec.label && candidate.line === spec.line) === index,
     );
     if (leakSpecs.length === 0) continue;
 

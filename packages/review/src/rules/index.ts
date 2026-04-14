@@ -952,7 +952,8 @@ const REGISTRY: RuleInfo[] = [
     id: 'use-action-state-missing-feedback',
     layer: 'nextjs-app-router',
     severity: 'warning',
-    description: 'useActionState is wired to a form action but its returned state is never read for success/error feedback',
+    description:
+      'useActionState is wired to a form action but its returned state is never read for success/error feedback',
     precision: 'medium',
     rolloutPhase: 1,
   },
@@ -960,7 +961,8 @@ const REGISTRY: RuleInfo[] = [
     id: 'server-action-form-missing-pending',
     layer: 'nextjs-app-router',
     severity: 'warning',
-    description: 'Native submit control posts directly to a same-file Server Action but no pending-state UX substrate was detected',
+    description:
+      'Native submit control posts directly to a same-file Server Action but no pending-state UX substrate was detected',
     precision: 'medium',
     rolloutPhase: 1,
   },
