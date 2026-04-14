@@ -108,6 +108,46 @@ The `_setRegistryVersionRaw` underscore-name is documented as the escape hatch f
 
 ## Limitations
 
-- **Auto-injection is exact-name match.** A memo that uses `registry.foo` is matched (the dep list contains `registry`), but a memo that aliases through a local — `const r = registry; ... r.foo` — is not, because the dep list says `r`, not `registry`. Either reference the external state name directly in `deps=` or list `_registryVersion` manually.
+- **Auto-injection matches against `deps=` tokens, not memo body content.** The injection logic splits `deps="..."` on commas, trims, and looks for an exact token match against the external state name. A memo whose **body** uses `registry.foo` but whose `deps="registry"` is matched and gets `_registryVersion` injected. A memo whose `deps="registry.items"` is **not** matched — property access has no place in a dep array, and the token is a literal string compare. A memo that aliases through a local (`const r = registry; ... r.foo`) is also not matched, because the dep list says `r`, not `registry`. Rule of thumb: list the bare external state name in `deps=`, never a property path.
 - **Per-screen scope.** External state is a per-component primitive. Two different screens cannot share one external state via `external=true` — that would be a context provider, which is a different shape.
 - **No automatic bump on object-method call.** The user must call `bumpRegistry()` explicitly after mutating. The codegen has no way to know which method calls mutate vs. read.
+
+## Hard rejections
+
+The codegen throws at compile time if `external=true` is combined with any of:
+
+- `throttle=N` — external state holds a stable reference, throttling has no meaning here. Drop one.
+- `debounce=N` — same reason.
+- `safe=false` — external state already emits a bare `useState` (the safe wrapper does not apply), so `safe=false` is redundant. Drop it.
+
+These were silent ignores in the first cut and are now enforced because each combination signals a misunderstanding of what `external=true` means.
+
+## Interaction with `batch=true` (corrected)
+
+The `batch=true` rewrite (`setX(...)` → `_setXRaw(...)`) **never rewrites external state setters**. The held value's `useState` is bare — there is no `_setRegistryRaw` to rewrite to. This means a full-replacement call inside a batched handler:
+
+```kern
+on event=key key=return batch=true
+  handler <<<
+    setRegistry(new Registry());
+    setCount(count + 1);
+  >>>
+```
+
+emits `setRegistry(new Registry())` unchanged inside the batched setTimeout, alongside `_setCountRaw(count + 1)`. The full replacement is a synchronous setState — React 18 batches it inside the same task as the raw setter calls, so you still get one render. If you want strict version-bump semantics in this case, call `bumpRegistry()` after the replacement (or both — bump is idempotent against re-bump).
+
+## Interaction with `derive` nodes
+
+Both `memo` and `derive` nodes auto-receive `_${name}Version` when their deps reference an external state. For `derive` with **explicit** `deps="..."`, the same token-match injection runs. For `derive` with **auto-detected** deps (no `deps=` prop, the codegen scans the expression for state/ref names), if the auto-detected list contains an external state name, `_${name}Version` is appended automatically. So:
+
+```kern
+derive name=count expr={{ registry.list().length }}
+```
+
+compiles to:
+
+```ts
+const count = useMemo(() => registry.list().length, [registry, _registryVersion]);
+```
+
+with no explicit deps needed.

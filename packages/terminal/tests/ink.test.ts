@@ -878,6 +878,92 @@ describe('Ink Transpiler', () => {
     expect(result.code).toMatch(/useMemo\(\(\) => \{[\s\S]*?return count \* 2;[\s\S]*?\}, \[count\]\);/);
   });
 
+  test('external=true throws when combined with throttle', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse(
+      'screen name=Bad\n  state name=reg type=Registry initial="new Registry()" external=true throttle=100',
+    );
+    expect(() => transpileInk(ast)).toThrow(/external=true with throttle\/debounce/);
+  });
+
+  test('external=true throws when combined with debounce', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse(
+      'screen name=Bad\n  state name=reg type=Registry initial="new Registry()" external=true debounce=200',
+    );
+    expect(() => transpileInk(ast)).toThrow(/external=true with throttle\/debounce/);
+  });
+
+  test('external=true throws when combined with safe=false', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse(
+      'screen name=Bad\n  state name=reg type=Registry initial="new Registry()" external=true safe=false',
+    );
+    expect(() => transpileInk(ast)).toThrow(/external=true with safe=false/);
+  });
+
+  test('batch=true does not rewrite an external state setter (no _setRaw exists)', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Mixed',
+      '  state name=registry type=Registry initial="new Registry()" external=true',
+      '  state name=count initial=0',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setRegistry(new Registry());',
+      '      setCount(count + 1);',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // The full-replacement setter on the external state is left as-is —
+    // there is no `_setRegistryRaw` to rewrite to.
+    expect(result.code).toContain('setRegistry(new Registry())');
+    expect(result.code).not.toContain('_setRegistryRaw');
+    // Normal safe state still gets the rewrite
+    expect(result.code).toContain('_setCountRaw(count + 1)');
+  });
+
+  test('derive node with explicit deps referencing external state auto-injects version', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=DerivedReg',
+      '  state name=registry type=Registry initial="new Registry()" external=true',
+      '  derive name=count expr={{ registry.list().length }} deps="registry"',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Derive's explicit deps should auto-receive `_registryVersion`
+    expect(result.code).toMatch(
+      /const count = useMemo\(\(\) => registry\.list\(\)\.length, \[registry, _registryVersion\]\);/,
+    );
+  });
+
+  test('derive node with auto-detected deps referencing external state appends version', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=DerivedReg',
+      '  state name=registry type=Registry initial="new Registry()" external=true',
+      // no explicit deps — codegen auto-detects from the expression
+      '  derive name=count expr={{ registry.list().length }}',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Auto-detect should produce [registry, _registryVersion]
+    expect(result.code).toMatch(
+      /const count = useMemo\(\(\) => registry\.list\(\)\.length, \[registry, _registryVersion\]\);/,
+    );
+  });
+
   // ── Phase 2: Throttle, Debounce, Animation, Derive ────────────────────
 
   test('state with throttle generates throttled setter', async () => {

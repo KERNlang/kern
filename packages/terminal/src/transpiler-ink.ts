@@ -253,6 +253,18 @@ function generateStateHook(stateNode: IRNode, imports: ImportTracker, ctx: State
       // version counter is hidden; the user calls `bumpFoo()` after mutating
       // the object, and any memo that references `foo` automatically gets
       // `_fooVersion` injected into its dep array.
+      if (throttle !== undefined || debounce !== undefined) {
+        throw new Error(
+          `state '${name}' uses external=true with throttle/debounce, which are mutually exclusive. ` +
+            `External state holds a stable reference; throttle/debounce apply to setter call rates and have no meaning ` +
+            `here. Drop one of the two, or split into a separate state node if you really need both.`,
+        );
+      }
+      if (props.safe === 'false' || props.safe === false) {
+        throw new Error(
+          `state '${name}' uses external=true with safe=false. External state already emits a bare useState (the safe wrapper does not apply), so safe=false is redundant — and combining them suggests a misunderstanding. Drop safe=false.`,
+        );
+      }
       imports.addReact('useMemo');
       const cap = capitalize(name);
       lines.push(`  const [${name}, ${setter}] = useState${typeAnnotation}(${lazyInitVal});`);
@@ -603,6 +615,9 @@ function rewriteToRawSetters(code: string, stateNodes: IRNode[]): string {
   let out = code;
   for (const stateNode of stateNodes) {
     const sp = getProps(stateNode);
+    // External-state setters use the bare useState form — there is no
+    // `_setXRaw` to rewrite to. Leave call sites alone.
+    if (sp.external === 'true' || sp.external === true) continue;
     const safe = sp.safe !== 'false' && sp.safe !== false;
     if (!safe) continue;
     if (sp.throttle !== undefined || sp.debounce !== undefined) continue;
@@ -1502,7 +1517,9 @@ function compileScreenBody(
       const typeAnnotation = dType ? `<${dType}>` : '';
       let depsStr: string;
       if (dDeps) {
-        depsStr = `[${dDeps}]`;
+        // Explicit deps — same auto-injection path as memo nodes.
+        const injected = injectExternalVersionDeps(dDeps, externalStateNames);
+        depsStr = `[${injected}]`;
       } else {
         const sNames = stateNodes.map((s) => getProps(s).name as string).filter(Boolean);
         const rNames = refNodes
@@ -1513,7 +1530,19 @@ function compileScreenBody(
           .filter(Boolean);
         const allNames = [...sNames, ...rNames];
         const autoDeps = allNames.filter((n) => new RegExp(`\\b${n}\\b`).test(dExpr));
-        depsStr = `[${autoDeps.join(', ')}]`;
+        // After auto-detect, append `_${name}Version` for any external state that
+        // showed up in the expression — otherwise bumpRegistry() never invalidates.
+        const autoDepsWithVersions: string[] = [];
+        for (const dep of autoDeps) {
+          autoDepsWithVersions.push(dep);
+          if (externalStateNames.includes(dep)) {
+            const versionTok = `_${dep}Version`;
+            if (!autoDepsWithVersions.includes(versionTok)) {
+              autoDepsWithVersions.push(versionTok);
+            }
+          }
+        }
+        depsStr = `[${autoDepsWithVersions.join(', ')}]`;
       }
       bodyLines.push(`  const ${dName} = useMemo${typeAnnotation}(() => ${dExpr}, ${depsStr});`);
       bodyLines.push('');
