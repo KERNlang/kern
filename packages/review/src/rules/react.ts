@@ -782,6 +782,19 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
     return undefined;
   }
 
+  function getEnclosingFunctionScope(
+    node: import('ts-morph').Node,
+  ): import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | import('ts-morph').FunctionDeclaration | undefined {
+    let cur = node.getParent();
+    while (cur) {
+      if (Node.isArrowFunction(cur) || Node.isFunctionExpression(cur) || Node.isFunctionDeclaration(cur)) {
+        return cur;
+      }
+      cur = cur.getParent();
+    }
+    return undefined;
+  }
+
   function getFunctionBindingName(
     fn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | import('ts-morph').FunctionDeclaration,
   ): import('ts-morph').Identifier | undefined {
@@ -830,6 +843,51 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
     return false;
   }
 
+  function isGuardedLazyRefInitialization(prop: import('ts-morph').PropertyAccessExpression, refName: string): boolean {
+    const ifAncestor = prop.getFirstAncestorByKind(SyntaxKind.IfStatement);
+    if (!ifAncestor) return false;
+
+    const condText = ifAncestor.getExpression().getText().replace(/\s+/g, '');
+    const escapedRef = refName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const patterns = [
+      new RegExp(`\\b${escapedRef}\\.current\\b.*(?:===|==|!==|!=).*(?:null|undefined)`),
+      new RegExp(`(?:null|undefined).*(?:===|==|!==|!=).*\\b${escapedRef}\\.current\\b`),
+      new RegExp(`!${escapedRef}\\.current\\b`),
+      new RegExp(`\\b${escapedRef}\\.current\\.length===0\\b`),
+      new RegExp(`\\b${escapedRef}\\.current\\.length==0\\b`),
+      new RegExp(`!${escapedRef}\\.current\\.length\\b`),
+    ];
+
+    return patterns.some((pattern) => pattern.test(condText));
+  }
+
+  function scopeHasGuardedLazyInitializationReadAllowance(
+    scope: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | import('ts-morph').FunctionDeclaration,
+    refName: string,
+  ): boolean {
+    const escapedRef = refName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    for (const ifStmt of scope.getDescendantsOfKind(SyntaxKind.IfStatement)) {
+      const condText = ifStmt.getExpression().getText().replace(/\s+/g, '');
+      const guardPatterns = [
+        new RegExp(`\\b${escapedRef}\\.current\\b.*(?:===|==|!==|!=).*(?:null|undefined)`),
+        new RegExp(`(?:null|undefined).*(?:===|==|!==|!=).*\\b${escapedRef}\\.current\\b`),
+        new RegExp(`!${escapedRef}\\.current\\b`),
+        new RegExp(`\\b${escapedRef}\\.current\\.length===0\\b`),
+        new RegExp(`\\b${escapedRef}\\.current\\.length==0\\b`),
+        new RegExp(`!${escapedRef}\\.current\\.length\\b`),
+      ];
+      if (!guardPatterns.some((pattern) => pattern.test(condText))) continue;
+
+      const writesInThen = ifStmt
+        .getThenStatement()
+        .getDescendantsOfKind(SyntaxKind.BinaryExpression)
+        .some((expr) => expr.getLeft().getText() === `${refName}.current` && expr.getOperatorToken().getKind() === SyntaxKind.EqualsToken);
+      if (writesInThen) return true;
+    }
+
+    return false;
+  }
+
   // Find .current access on ref variables
   for (const prop of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
     if (prop.getName() !== 'current') continue;
@@ -842,17 +900,7 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
 
     // Skip lazy initialization pattern: if (ref.current === null) ref.current = x
     // React explicitly allows this during render (react.dev/reference/react/useRef)
-    const ifAncestor = prop.getFirstAncestorByKind(SyntaxKind.IfStatement);
-    if (ifAncestor) {
-      const condText = ifAncestor.getExpression().getText();
-      const refName = obj.getText();
-      if (
-        condText.includes(`${refName}.current`) &&
-        (condText.includes('null') || condText.includes('undefined') || condText.startsWith('!'))
-      ) {
-        continue;
-      }
-    }
+    if (isGuardedLazyRefInitialization(prop, obj.getText())) continue;
 
     // Writes inside nested local callbacks are not render-time unless the
     // callback is actually invoked during render.
@@ -866,6 +914,11 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
       Node.isBinaryExpression(parent) &&
       parent.getLeft() === prop &&
       parent.getOperatorToken().getKind() === SyntaxKind.EqualsToken;
+
+    if (!isWrite) {
+      const enclosingScope = getEnclosingFunctionScope(prop);
+      if (enclosingScope && scopeHasGuardedLazyInitializationReadAllowance(enclosingScope, obj.getText())) continue;
+    }
 
     const action = isWrite ? 'written to' : 'read';
     findings.push(

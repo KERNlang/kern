@@ -1034,6 +1034,23 @@ export function Component() {
       expect(finding).toBeUndefined();
     });
 
+    it('does not flag guarded one-time array initialization during render', () => {
+      const source = `
+import { useRef } from 'react';
+
+export function Component({ data }: { data?: { results?: string[] } }) {
+  const frozenStoresRef = useRef<string[]>([]);
+  if (data?.results?.length && frozenStoresRef.current.length === 0) {
+    frozenStoresRef.current = data.results;
+  }
+  return <div>{frozenStoresRef.current.length}</div>;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
+      expect(finding).toBeUndefined();
+    });
+
     it('still flags nested local callbacks that are invoked during render', () => {
       const source = `
 import { useRef } from 'react';
