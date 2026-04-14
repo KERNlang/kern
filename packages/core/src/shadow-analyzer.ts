@@ -119,22 +119,59 @@ const HANDLER_OPEN = 'handler <<<';
 // Narrowly scoped — everything not in this set but referenced as a type must either come from
 // an IR declaration (collected in collectDeclaredTypeNames) or trigger a real TS diagnostic.
 const BUILTIN_TYPE_NAMES = new Set([
-  'any', 'unknown', 'never', 'void', 'undefined', 'null',
-  'string', 'number', 'boolean', 'object', 'bigint', 'symbol',
-  'true', 'false',
-  'Promise', 'Array', 'ReadonlyArray', 'Record', 'Pick', 'Omit',
-  'Partial', 'Required', 'ReturnType', 'Parameters', 'NonNullable',
-  'Exclude', 'Extract', 'Awaited',
-  'Map', 'Set', 'WeakMap', 'WeakSet',
-  'Date', 'Error', 'RegExp', 'URL', 'URLSearchParams',
-  'Uint8Array', 'Buffer',
-  'AbortController', 'AbortSignal',
+  'any',
+  'unknown',
+  'never',
+  'void',
+  'undefined',
+  'null',
+  'string',
+  'number',
+  'boolean',
+  'object',
+  'bigint',
+  'symbol',
+  'true',
+  'false',
+  'Promise',
+  'Array',
+  'ReadonlyArray',
+  'Record',
+  'Pick',
+  'Omit',
+  'Partial',
+  'Required',
+  'ReturnType',
+  'Parameters',
+  'NonNullable',
+  'Exclude',
+  'Extract',
+  'Awaited',
+  'Map',
+  'Set',
+  'WeakMap',
+  'WeakSet',
+  'Date',
+  'Error',
+  'RegExp',
+  'URL',
+  'URLSearchParams',
+  'Uint8Array',
+  'Buffer',
+  'AbortController',
+  'AbortSignal',
 ]);
 
 // IR node types that DECLARE a type name usable inside handlers.
 const DECLARING_NODE_TYPES = new Set([
-  'type', 'interface', 'union', 'error', 'event',
-  'model', 'service', 'repository',
+  'type',
+  'interface',
+  'union',
+  'error',
+  'event',
+  'model',
+  'service',
+  'repository',
 ]);
 
 export async function analyzeShadow(root: IRNode): Promise<ShadowDiagnostic[]> {
@@ -171,9 +208,7 @@ export async function analyzeShadow(root: IRNode): Promise<ShadowDiagnostic[]> {
   if (units.length === 0) return diagnostics;
 
   const supportFileName = '/__kern_shadow__/support.d.ts';
-  const files = new Map<string, string>([
-    [supportFileName, buildSupportFile(declaredTypeNames, moduleDeclarations)],
-  ]);
+  const files = new Map<string, string>([[supportFileName, buildSupportFile(declaredTypeNames, moduleDeclarations)]]);
   const unitsByFile = new Map<string, HandlerUnit>();
 
   for (const unit of units) {
@@ -241,12 +276,7 @@ async function loadTypeScript(): Promise<TsApi | null> {
   }
 }
 
-function buildHandlerUnit(
-  handlerNode: IRNode,
-  parentNode: IRNode,
-  ancestors: IRNode[],
-  index: number,
-): BuildResult {
+function buildHandlerUnit(handlerNode: IRNode, parentNode: IRNode, ancestors: IRNode[], index: number): BuildResult {
   const rawCode = typeof handlerNode.props?.code === 'string' ? handlerNode.props.code : '';
   if (!rawCode.trim()) return { diagnostics: [] };
 
@@ -275,11 +305,7 @@ function buildHandlerUnit(
     case 'method': {
       const ownerNode = ancestors[ancestors.length - 2];
       if (!ownerNode || (ownerNode.type !== 'service' && ownerNode.type !== 'repository')) {
-        return unsupportedContext(
-          handlerNode,
-          parentNode,
-          'method owner is not a service or repository',
-        );
+        return unsupportedContext(handlerNode, parentNode, 'method owner is not a service or repository');
       }
       const scopeLines = buildMethodScopeLines(ownerNode, index);
       const selfTypeName = `__ShadowSelf_${index}`;
@@ -331,12 +357,7 @@ function buildHandlerUnit(
   }
 }
 
-function buildWebSocketOnUnit(
-  handlerNode: IRNode,
-  onNode: IRNode,
-  index: number,
-  rawCode: string,
-): HandlerUnit {
+function buildWebSocketOnUnit(handlerNode: IRNode, onNode: IRNode, index: number, rawCode: string): HandlerUnit {
   // Mirrors events.ts:144-194. All websocket handlers share the outer
   // `wss.on('connection', (ws, req) => { const path = req.url || ...; ... })` scope,
   // so `ws`, `req`, `path` are in lexical scope for every inner handler.
@@ -357,10 +378,7 @@ function buildWebSocketOnUnit(
   if (eventName === 'message') {
     // events.ts:158-161: `ws.on('message', (raw) => { const data = JSON.parse(raw.toString()); ... })`
     // `raw` is the ws RawData argument; `data` is any (JSON.parse return).
-    eventLocals.push(
-      '  const raw: Buffer = new Uint8Array() as Buffer;',
-      '  const data: any = undefined;',
-    );
+    eventLocals.push('  const raw: Buffer = new Uint8Array() as Buffer;', '  const data: any = undefined;');
   } else if (eventName === 'error') {
     // events.ts:172: `ws.on('error', (error) => { ... })` — `error` param, typed unknown/Error in ws.
     eventLocals.push('  const error: Error = new Error();');
@@ -523,10 +541,6 @@ function buildMethodScopeLines(ownerNode: IRNode, index: number): string[] {
   ];
 }
 
-function returnClause(value: unknown): string {
-  return `: ${returnType(value)}`;
-}
-
 function returnType(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value.trim() : 'unknown';
 }
@@ -561,12 +575,7 @@ function safeParams(value: unknown): string {
   return typeof value === 'string' && value.trim() ? parseParamList(value) : '';
 }
 
-function methodParams(
-  node: IRNode,
-  isStatic: boolean,
-  selfTypeName: string,
-  staticSelfTypeName: string,
-): string {
+function methodParams(node: IRNode, isStatic: boolean, selfTypeName: string, staticSelfTypeName: string): string {
   const parts = [`this: ${isStatic ? staticSelfTypeName : selfTypeName}`];
   const params = safeParams(node.props?.params);
   if (params) parts.push(params);
@@ -608,9 +617,7 @@ function mapDiagnostic(ts: TsApi, diagnostic: TsDiagnostic, unit: HandlerUnit): 
   if (diagnosticLine >= unit.bodyStartLine && diagnosticLine < unit.bodyStartLine + unit.bodyLineCount) {
     const sourceLine = unit.sourceStartLine + (diagnosticLine - unit.bodyStartLine);
     const sourceCol =
-      diagnosticLine === unit.bodyStartLine
-        ? unit.sourceStartCol + position.character
-        : position.character + 1;
+      diagnosticLine === unit.bodyStartLine ? unit.sourceStartCol + position.character : position.character + 1;
     return {
       rule: 'shadow-ts',
       nodeType: unit.parentType,
