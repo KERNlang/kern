@@ -396,7 +396,13 @@ async function runReviewPipeline(
         console.error(`  LLM review failed: ${(err as Error).message}`);
       }
     } else {
-      // No API key — AI CLI tool IS the reviewer
+      // No API key — emit machine-readable context for an upstream AI CLI
+      // (claude/codex/gemini) to consume as the reviewer. Without a banner
+      // this looks like "--llm did nothing" to someone running it standalone.
+      console.log('  LLM review: KERN_LLM_API_KEY not set — emitting LLM-prompt context.');
+      console.log('    Pipe to an AI CLI:   kern review --llm <file> | claude');
+      console.log('    Or set an API key:   export KERN_LLM_API_KEY=<key>');
+      console.log('');
       for (const report of reports) {
         const rel = relative(process.cwd(), report.filePath);
 
