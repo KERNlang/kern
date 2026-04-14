@@ -1,8 +1,8 @@
+import { reviewFile } from '@kernlang/review';
 import { execFileSync } from 'child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { reviewFile } from '@kernlang/review';
 import { runReview } from '../src/commands/review.js';
 import { createReviewBaseline } from '../src/review-baseline.js';
 
@@ -54,10 +54,10 @@ describe('kern review command', () => {
     writeFileSync(file, `screen name=Home\n  text value="hi"\n`);
 
     let exitCode: number | undefined;
-    process.exit = (((code?: number) => {
+    process.exit = ((code?: number) => {
       exitCode = code;
       throw new Error(`EXIT:${code ?? 0}`);
-    }) as never);
+    }) as never;
 
     await expect(runReview(['review', '--diff=HEAD', '--json'])).rejects.toThrow('EXIT:0');
     expect(exitCode).toBe(0);
@@ -87,10 +87,10 @@ fn name=loadUser params="id:string" returns=unknown
     writeFileSync(baselinePath, JSON.stringify(baseline, null, 2));
 
     let exitCode: number | undefined;
-    process.exit = (((code?: number) => {
+    process.exit = ((code?: number) => {
       exitCode = code;
       throw new Error(`EXIT:${code ?? 0}`);
-    }) as never);
+    }) as never;
 
     await expect(runReview(['review', file, `--baseline=${baselinePath}`, '--new-only', '--json'])).rejects.toThrow(
       'EXIT:0',
@@ -123,10 +123,10 @@ fn name=loadUser params="id:string" returns=unknown
     writeFileSync(baselinePath, JSON.stringify(baseline, null, 2));
 
     let exitCode: number | undefined;
-    process.exit = (((code?: number) => {
+    process.exit = ((code?: number) => {
       exitCode = code;
       throw new Error(`EXIT:${code ?? 0}`);
-    }) as never);
+    }) as never;
 
     await expect(runReview(['review', file, `--baseline=${baselinePath}`, '--sarif'])).rejects.toThrow('EXIT:0');
     expect(exitCode).toBe(0);
@@ -151,10 +151,10 @@ fetch('/api/data');
     );
 
     let exitCode: number | undefined;
-    process.exit = (((code?: number) => {
+    process.exit = ((code?: number) => {
       exitCode = code;
       throw new Error(`EXIT:${code ?? 0}`);
-    }) as never);
+    }) as never;
 
     await expect(runReview(['review', file, '--sarif'])).rejects.toThrow('EXIT:0');
     expect(exitCode).toBe(0);
@@ -175,10 +175,10 @@ fetch('/api/data');
     writeFileSync(baselinePath, '{not valid json}\n');
 
     let exitCode: number | undefined;
-    process.exit = (((code?: number) => {
+    process.exit = ((code?: number) => {
       exitCode = code;
       throw new Error(`EXIT:${code ?? 0}`);
-    }) as never);
+    }) as never;
 
     await expect(runReview(['review', file, `--baseline=${baselinePath}`])).rejects.toThrow('EXIT:1');
     expect(exitCode).toBe(1);

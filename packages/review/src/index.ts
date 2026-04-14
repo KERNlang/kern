@@ -32,8 +32,8 @@ import { lintConfidenceGraph, lintMultiFileConfidenceGraph } from './rules/confi
 import { crossFileAsyncRule, deadExportRule } from './rules/dead-code.js';
 import { runFastapiConceptRules } from './rules/fastapi.js';
 import { GROUND_LAYER_RULES } from './rules/ground-layer.js';
-import { lintKernSourceCrossFile } from './rules/kern-source-cross-file.js';
 import { KERN_SOURCE_RULES, lintKernSourceIR } from './rules/kern-source.js';
+import { lintKernSourceCrossFile } from './rules/kern-source-cross-file.js';
 import { detectTemplates } from './template-detector.js';
 import type { GraphOptions } from './types.js';
 
@@ -861,8 +861,7 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
         config?.strict ?? false,
       );
       report.findings = sortAndDedup(suppression.findings);
-      report.suppressedFindings =
-        suppression.suppressed.length > 0 ? sortAndDedup(suppression.suppressed) : undefined;
+      report.suppressedFindings = suppression.suppressed.length > 0 ? sortAndDedup(suppression.suppressed) : undefined;
     } catch {
       report.findings = sortAndDedup(report.findings);
     }

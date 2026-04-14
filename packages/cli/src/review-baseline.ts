@@ -72,10 +72,9 @@ export function createReviewBaseline(reports: ReviewReport[]): ReviewBaselineFil
 export function parseReviewBaseline(raw: string): ReviewBaselineFile {
   const parsed = JSON.parse(raw) as unknown;
 
-  const candidate =
-    Array.isArray(parsed)
-      ? { version: 1 as const, createdAt: '', entries: parsed }
-      : (parsed as Partial<ReviewBaselineFile> | null | undefined);
+  const candidate = Array.isArray(parsed)
+    ? { version: 1 as const, createdAt: '', entries: parsed }
+    : (parsed as Partial<ReviewBaselineFile> | null | undefined);
 
   if (!candidate || candidate.version !== 1 || !Array.isArray(candidate.entries)) {
     throw new Error('Invalid baseline format: expected { version: 1, entries: [...] }');

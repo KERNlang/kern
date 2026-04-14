@@ -275,7 +275,7 @@ fn name=loadUser returns=string
     const bFinding = bReport?.findings.find((f) => f.ruleId === 'kern-duplicate-symbol');
 
     expect(aFinding).toBeDefined();
-    expect(aFinding?.message).toContain("loadUser");
+    expect(aFinding?.message).toContain('loadUser');
     expect(aFinding?.relatedSpans?.some((span) => span.file === bFile)).toBe(true);
     expect(bFinding).toBeDefined();
     expect(bFinding?.relatedSpans?.some((span) => span.file === aFile)).toBe(true);

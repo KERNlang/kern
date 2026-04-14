@@ -423,8 +423,7 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
       });
     }
 
-    const sarifLevel =
-      finding.severity === 'error' ? 'error' : finding.severity === 'warning' ? 'warning' : 'note';
+    const sarifLevel = finding.severity === 'error' ? 'error' : finding.severity === 'warning' ? 'warning' : 'note';
     const baselineStatus = report ? getBaselineStatus?.(report, finding) : undefined;
     const properties: Record<string, unknown> = {};
 

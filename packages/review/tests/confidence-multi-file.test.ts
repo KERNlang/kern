@@ -2,10 +2,10 @@
  * Cross-file confidence graph tests (Plan 2)
  */
 
-import { mkdirSync, rmSync, writeFileSync } from 'fs';
-import { join } from 'path';
 import type { IRNode } from '@kernlang/core';
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
+import { join } from 'path';
 import { buildConfidenceGraph, buildMultiFileConfidenceGraph } from '../src/confidence.js';
 import { reviewGraph } from '../src/index.js';
 import { lintMultiFileConfidenceGraph } from '../src/rules/confidence.js';

@@ -98,16 +98,16 @@ function confidenceNeedsUnresolved(graph: ConfidenceGraph): ReviewFinding[] {
       const descs = unresolvedNeeds.map((n) => n.what).join(', ');
       findings.push(
         finding(
-            'confidence-needs-unresolved',
-            'info',
-            'pattern',
-            `'${cnode.name}' has ${unresolvedNeeds.length} unresolved need(s): ${descs}`,
-            cnode.nodeRef.line,
-            1,
-            cnode.sourceFile,
-          ),
-        );
-      }
+          'confidence-needs-unresolved',
+          'info',
+          'pattern',
+          `'${cnode.name}' has ${unresolvedNeeds.length} unresolved need(s): ${descs}`,
+          cnode.nodeRef.line,
+          1,
+          cnode.sourceFile,
+        ),
+      );
+    }
   }
   return findings;
 }
@@ -120,16 +120,16 @@ function confidenceLow(graph: ConfidenceGraph, threshold = 0.5): ReviewFinding[]
     if (cnode.resolved !== null && cnode.resolved > 0 && cnode.resolved < threshold) {
       findings.push(
         finding(
-            'confidence-low',
-            'warning',
-            'pattern',
-            `'${cnode.name}' has low confidence: ${cnode.resolved}`,
-            cnode.nodeRef.line,
-            1,
-            cnode.sourceFile,
-          ),
-        );
-      }
+          'confidence-low',
+          'warning',
+          'pattern',
+          `'${cnode.name}' has low confidence: ${cnode.resolved}`,
+          cnode.nodeRef.line,
+          1,
+          cnode.sourceFile,
+        ),
+      );
+    }
   }
   return findings;
 }

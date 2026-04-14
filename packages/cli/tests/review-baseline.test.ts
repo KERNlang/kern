@@ -153,7 +153,9 @@ describe('review baseline helpers', () => {
     const baseline = createReviewBaseline([report('a.ts', [finding])]);
     const comparison = compareReportsToBaseline(reports, baseline);
     const filtered = filterReportsToNewFindings(reports, comparison);
-    const filteredReport = filtered[0] as ReviewReport & { suppressedFindings?: typeof reports[0]['suppressedFindings'] };
+    const filteredReport = filtered[0] as ReviewReport & {
+      suppressedFindings?: (typeof reports)[0]['suppressedFindings'];
+    };
 
     expect(filteredReport.findings).toEqual([]);
     expect(filteredReport.suppressedFindings).toEqual([]);

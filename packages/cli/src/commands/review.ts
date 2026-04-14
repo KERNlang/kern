@@ -28,7 +28,6 @@ import {
 } from '@kernlang/review';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { basename, dirname, relative, resolve } from 'path';
-import { collectTsFilesFlat, hasFlag, loadConfig, parseAndSurface, parseFlag, parseFlagOrNext } from '../shared.js';
 import {
   compareReportsToBaseline,
   createReviewBaseline,
@@ -38,6 +37,7 @@ import {
   type ReviewBaselineComparison,
   type ReviewBaselineFile,
 } from '../review-baseline.js';
+import { collectTsFilesFlat, hasFlag, loadConfig, parseAndSurface, parseFlag, parseFlagOrNext } from '../shared.js';
 
 type ReviewReportWithSuppressed = ReviewReport & { suppressedFindings?: ReviewFinding[] };
 
@@ -691,7 +691,7 @@ async function runReviewPipeline(
     if (baselineDir && baselineDir !== '.') {
       mkdirSync(baselineDir, { recursive: true });
     }
-    writeFileSync(writeBaselinePath, JSON.stringify(createReviewBaseline(reports), null, 2) + '\n');
+    writeFileSync(writeBaselinePath, `${JSON.stringify(createReviewBaseline(reports), null, 2)}\n`);
     if (!jsonOutput && !sarifOutput) {
       console.log(`  Baseline written: ${writeBaselinePath}`);
     }
@@ -717,7 +717,9 @@ async function runReviewPipeline(
           },
         }),
       );
-    } else if (reportsForOutput.some((report) => (((report as ReviewReportWithSuppressed).suppressedFindings?.length ?? 0) > 0))) {
+    } else if (
+      reportsForOutput.some((report) => ((report as ReviewReportWithSuppressed).suppressedFindings?.length ?? 0) > 0)
+    ) {
       console.log(formatSARIFWithMetadata(reportsForOutput));
     } else {
       console.log(formatSARIF(reportsForOutput));
