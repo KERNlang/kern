@@ -6,7 +6,7 @@
 
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { finding } from './utils.js';
+import { cleanupExpressionMatches, escapeRegex, findAssignedIdentifier, finding, getTopLevelCleanupExpressions } from './utils.js';
 
 /**
  * Check if a file is actually a React file — has JSX syntax or React imports.
@@ -544,6 +544,87 @@ function effectSelfUpdateLoop(ctx: RuleContext): ReviewFinding[] {
 // useEffect with setInterval/addEventListener but no cleanup return function
 
 function missingEffectCleanup(ctx: RuleContext): ReviewFinding[] {
+  interface EffectLeakSpec {
+    label: string;
+    line: number;
+    cleanupPatterns: RegExp[];
+    cleanupReturnIdentifiers?: string[];
+    cleanupReturnCallPattern?: RegExp;
+  }
+
+  const buildEffectLeakSpecs = (callback: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression): EffectLeakSpec[] => {
+    const specs: EffectLeakSpec[] = [];
+
+    for (const desc of callback.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      const callee = desc.getExpression();
+
+      if (Node.isIdentifier(callee)) {
+        const name = callee.getText();
+        const assignedName = findAssignedIdentifier(desc);
+        if (name === 'setInterval' || name === 'setTimeout') {
+          const clearName = name === 'setInterval' ? 'clearInterval' : 'clearTimeout';
+          specs.push({
+            label: name,
+            line: desc.getStartLineNumber(),
+            cleanupPatterns: assignedName
+              ? [new RegExp(`\\b${clearName}\\s*\\(\\s*${escapeRegex(assignedName)}\\s*\\)`)]
+              : [new RegExp(`\\b${clearName}\\s*\\(`)],
+          });
+        }
+        continue;
+      }
+
+      if (!Node.isPropertyAccessExpression(callee)) continue;
+
+      const method = callee.getName();
+      const targetText = callee.getExpression().getText();
+      const assignedName = findAssignedIdentifier(desc);
+
+      if (method === 'addEventListener') {
+        specs.push({
+          label: 'addEventListener',
+          line: desc.getStartLineNumber(),
+          cleanupPatterns: [new RegExp(`${escapeRegex(targetText)}\\s*\\.\\s*removeEventListener\\s*\\(`)],
+        });
+        continue;
+      }
+
+      if (method === 'on') {
+        specs.push({
+          label: 'on',
+          line: desc.getStartLineNumber(),
+          cleanupPatterns: assignedName
+            ? [
+                new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\(`),
+                new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\.\\s*(?:unsubscribe|dispose|destroy|off|removeListener)\\s*\\(`),
+                new RegExp(`${escapeRegex(targetText)}\\s*\\.\\s*(?:off|removeListener|unsubscribe)\\s*\\(`),
+              ]
+            : [/\.\s*(?:off|removeListener|unsubscribe|dispose|destroy)\s*\(/],
+          cleanupReturnIdentifiers: assignedName ? [assignedName] : [],
+          cleanupReturnCallPattern: /\.\s*on\s*\(/,
+        });
+        continue;
+      }
+
+      if (method === 'subscribe') {
+        specs.push({
+          label: 'subscribe',
+          line: desc.getStartLineNumber(),
+          cleanupPatterns: assignedName
+            ? [
+                new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\(`),
+                new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\.\\s*(?:unsubscribe|dispose|destroy|off)\\s*\\(`),
+              ]
+            : [/\.\s*(?:unsubscribe|dispose|destroy|off)\s*\(/],
+          cleanupReturnIdentifiers: assignedName ? [assignedName] : [],
+          cleanupReturnCallPattern: /\.\s*subscribe\s*\(/,
+        });
+      }
+    }
+
+    return specs;
+  };
+
   const findings: ReviewFinding[] = [];
 
   for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
@@ -555,35 +636,21 @@ function missingEffectCleanup(ctx: RuleContext): ReviewFinding[] {
     const callback = args[0];
     if (!Node.isArrowFunction(callback) && !Node.isFunctionExpression(callback)) continue;
 
-    const body = callback.getBody();
-    let hasCleanup = false;
+    const leakSpecs = buildEffectLeakSpecs(callback).filter(
+      (spec, index, specs) => specs.findIndex((candidate) => candidate.label === spec.label && candidate.line === spec.line) === index,
+    );
+    if (leakSpecs.length === 0) continue;
 
-    if (Node.isBlock(body)) {
-      hasCleanup = body.getStatements().some((s) => {
-        if (!Node.isReturnStatement(s)) return false;
-        const expr = s.getExpression();
-        return (
-          expr != null && (Node.isArrowFunction(expr) || Node.isFunctionExpression(expr) || Node.isIdentifier(expr))
-        );
-      });
-    }
+    const cleanupExprs = getTopLevelCleanupExpressions(callback.getBody());
+    const leakedSpec = leakSpecs.find((spec) => !cleanupExprs.some((expr) => cleanupExpressionMatches(expr, spec)));
 
-    if (hasCleanup) continue;
-
-    const leakyCalls = callback.getDescendantsOfKind(SyntaxKind.CallExpression).filter((c) => {
-      const name = c.getExpression().getText();
-      return (
-        name === 'setInterval' || name === 'setTimeout' || name.endsWith('.addEventListener') || name.endsWith('.on')
-      );
-    });
-
-    if (leakyCalls.length > 0) {
+    if (leakedSpec) {
       findings.push(
         finding(
           'missing-effect-cleanup',
           'warning',
           'bug',
-          `useEffect uses '${leakyCalls[0].getExpression().getText()}' but is missing a cleanup return function`,
+          `useEffect uses '${leakedSpec.label}' but is missing matching cleanup`,
           ctx.filePath,
           call.getStartLineNumber(),
           1,

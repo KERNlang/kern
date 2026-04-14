@@ -49,6 +49,16 @@ const BROWSER_GLOBALS = /\b(window|document|localStorage|sessionStorage|navigato
 const BROWSER_GLOBAL_NAMES = ['window', 'document', 'localStorage', 'sessionStorage', 'navigator', 'history', 'location'];
 const ACTION_STATE_HOOKS = new Set(['useActionState']);
 
+interface ActionStateBinding {
+  decl: Node;
+  stateNameNode?: Node;
+  actionName: string;
+  hasPendingBinding: boolean;
+}
+
+type JsxTagLike = import('ts-morph').JsxOpeningElement | import('ts-morph').JsxSelfClosingElement;
+type FunctionLikeNode = import('ts-morph').FunctionDeclaration | import('ts-morph').FunctionExpression | import('ts-morph').ArrowFunction;
+
 function hasClientDirective(fullText: string): boolean {
   return /^['"]use client['"];?\s*$/m.test(fullText.substring(0, 200));
 }
@@ -59,8 +69,10 @@ function hasServerDirective(fullText: string): boolean {
 
 /** Does this file itself use any client-only API (hooks, browser globals, event handlers)? */
 function fileUsesClientApi(ctx: RuleContext): boolean {
-  const fullText = ctx.sourceFile.getFullText();
-  if (BROWSER_GLOBALS.test(fullText)) return true;
+  for (const identifier of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
+    const name = identifier.getText();
+    if (BROWSER_GLOBAL_NAMES.includes(name) && isBrowserGlobalReference(identifier, name)) return true;
+  }
 
   // JSX event handlers
   for (const attr of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxAttribute)) {
@@ -84,6 +96,396 @@ function fileUsesClientApi(ctx: RuleContext): boolean {
 
 function isClientBoundary(ctx: RuleContext, fullText: string): boolean {
   return hasClientDirective(fullText) || ctx.fileContext?.isClientBoundary === true || ctx.fileContext?.boundary === 'client';
+}
+
+function unwrapParens(node: Node): Node {
+  let current = node;
+  while (Node.isParenthesizedExpression(current)) {
+    current = current.getExpression();
+  }
+  return current;
+}
+
+function isNodeWithin(node: Node, container: Node | undefined): boolean {
+  if (!container) return false;
+  return node.getStart() >= container.getStart() && node.getEnd() <= container.getEnd();
+}
+
+function getTypeofGuardState(node: Node, globalName: string): 'defined' | 'undefined' | undefined {
+  const expr = unwrapParens(node);
+  if (!Node.isBinaryExpression(expr)) return undefined;
+
+  const operator = expr.getOperatorToken().getText();
+  if (operator !== '===' && operator !== '==' && operator !== '!==' && operator !== '!=') return undefined;
+
+  const left = unwrapParens(expr.getLeft());
+  const right = unwrapParens(expr.getRight());
+  const isTypeofGlobal = (candidate: Node): boolean =>
+    Node.isTypeOfExpression(candidate) &&
+    Node.isIdentifier(candidate.getExpression()) &&
+    candidate.getExpression().getText() === globalName;
+  const isUndefinedLiteral = (candidate: Node): boolean =>
+    Node.isStringLiteral(candidate) && candidate.getLiteralText() === 'undefined';
+
+  if (
+    !((isTypeofGlobal(left) && isUndefinedLiteral(right)) || (isUndefinedLiteral(left) && isTypeofGlobal(right)))
+  ) {
+    return undefined;
+  }
+
+  return operator === '!==' || operator === '!=' ? 'defined' : 'undefined';
+}
+
+function conditionGuaranteesBrowserGlobal(node: Node, globalName: string, branch: 'true' | 'false'): boolean {
+  const expr = unwrapParens(node);
+  const state = getTypeofGuardState(expr, globalName);
+  if (state) return branch === 'true' ? state === 'defined' : state === 'undefined';
+
+  if (Node.isPrefixUnaryExpression(expr) && expr.getOperatorToken() === SyntaxKind.ExclamationToken) {
+    return conditionGuaranteesBrowserGlobal(expr.getOperand(), globalName, branch === 'true' ? 'false' : 'true');
+  }
+
+  if (!Node.isBinaryExpression(expr)) return false;
+
+  const operator = expr.getOperatorToken().getText();
+  if (branch === 'true' && operator === '&&') {
+    return (
+      conditionGuaranteesBrowserGlobal(expr.getLeft(), globalName, 'true') ||
+      conditionGuaranteesBrowserGlobal(expr.getRight(), globalName, 'true')
+    );
+  }
+
+  if (branch === 'false' && operator === '||') {
+    return (
+      conditionGuaranteesBrowserGlobal(expr.getLeft(), globalName, 'false') ||
+      conditionGuaranteesBrowserGlobal(expr.getRight(), globalName, 'false')
+    );
+  }
+
+  return false;
+}
+
+function isBrowserGlobalReference(node: Node, globalName: string): boolean {
+  if (!Node.isIdentifier(node) || node.getText() !== globalName) return false;
+
+  const parent = node.getParent();
+  if (!parent) return false;
+
+  if (parent.getKind() === SyntaxKind.TypeOfExpression) return false;
+  if (Node.isPropertyAccessExpression(parent) && parent.getNameNode() === node) return false;
+  if (Node.isPropertyAssignment(parent) && parent.getNameNode() === node) return false;
+  if (Node.isPropertyDeclaration(parent) && parent.getNameNode() === node) return false;
+  if (Node.isPropertySignature(parent) && parent.getNameNode() === node) return false;
+  if (Node.isMethodDeclaration(parent) && parent.getNameNode() === node) return false;
+  if (Node.isShorthandPropertyAssignment(parent) && parent.getNameNode() === node) {
+    const decls = node.getSymbol()?.getDeclarations() ?? [];
+    return decls.every((decl) => decl.getSourceFile() !== node.getSourceFile());
+  }
+  if (Node.isImportSpecifier(parent) || Node.isBindingElement(parent) || Node.isParameterDeclaration(parent)) return false;
+  if (Node.isVariableDeclaration(parent) && parent.getNameNode() === node) return false;
+  if (Node.isFunctionDeclaration(parent) && parent.getNameNode() === node) return false;
+  if (Node.isClassDeclaration(parent) && parent.getNameNode() === node) return false;
+  if (Node.isTypeReference(parent) || Node.isQualifiedName(parent) || Node.isTypeAliasDeclaration(parent)) return false;
+
+  const declarations = node.getSymbol()?.getDeclarations() ?? [];
+  if (declarations.some((decl) => decl.getSourceFile() === node.getSourceFile())) return false;
+
+  return true;
+}
+
+function isGuardedBrowserGlobalUse(node: Node, globalName: string): boolean {
+  let current: Node | undefined = node;
+  while ((current = current.getParent())) {
+    if (Node.isIfStatement(current)) {
+      if (
+        isNodeWithin(node, current.getThenStatement()) &&
+        conditionGuaranteesBrowserGlobal(current.getExpression(), globalName, 'true')
+      ) {
+        return true;
+      }
+      if (
+        isNodeWithin(node, current.getElseStatement()) &&
+        conditionGuaranteesBrowserGlobal(current.getExpression(), globalName, 'false')
+      ) {
+        return true;
+      }
+    }
+
+    if (Node.isConditionalExpression(current)) {
+      if (
+        isNodeWithin(node, current.getWhenTrue()) &&
+        conditionGuaranteesBrowserGlobal(current.getCondition(), globalName, 'true')
+      ) {
+        return true;
+      }
+      if (
+        isNodeWithin(node, current.getWhenFalse()) &&
+        conditionGuaranteesBrowserGlobal(current.getCondition(), globalName, 'false')
+      ) {
+        return true;
+      }
+    }
+
+    if (Node.isBinaryExpression(current) && isNodeWithin(node, current.getRight())) {
+      const operator = current.getOperatorToken().getText();
+      if (operator === '&&' && conditionGuaranteesBrowserGlobal(current.getLeft(), globalName, 'true')) return true;
+      if (operator === '||' && conditionGuaranteesBrowserGlobal(current.getLeft(), globalName, 'false')) return true;
+    }
+  }
+
+  return false;
+}
+
+function getReactActionStateBindings(ctx: RuleContext): ActionStateBinding[] {
+  const reactImports = ctx.sourceFile.getImportDeclarations().filter((decl) => decl.getModuleSpecifierValue() === 'react');
+  if (reactImports.length === 0) return [];
+
+  const importedHookNames = new Set<string>();
+  const namespaceImports = new Set<string>();
+  for (const decl of reactImports) {
+    for (const named of decl.getNamedImports()) {
+      if (ACTION_STATE_HOOKS.has(named.getName())) {
+        importedHookNames.add(named.getAliasNode()?.getText() ?? named.getName());
+      }
+    }
+    const namespace = decl.getNamespaceImport();
+    if (namespace) namespaceImports.add(namespace.getText());
+  }
+
+  if (importedHookNames.size === 0 && namespaceImports.size === 0) return [];
+
+  const bindings: ActionStateBinding[] = [];
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = decl.getNameNode();
+    const init = decl.getInitializer();
+    if (!Node.isArrayBindingPattern(nameNode) || !init || !Node.isCallExpression(init)) continue;
+
+    const expr = init.getExpression();
+    let isActionStateCall = false;
+    if (Node.isIdentifier(expr)) {
+      isActionStateCall = importedHookNames.has(expr.getText());
+    } else if (Node.isPropertyAccessExpression(expr)) {
+      isActionStateCall = namespaceImports.has(expr.getExpression().getText()) && ACTION_STATE_HOOKS.has(expr.getName());
+    }
+    if (!isActionStateCall) continue;
+
+    const elements = nameNode.getElements();
+    if (elements.length < 2) continue;
+
+    const actionElement = elements[1];
+    if (!Node.isBindingElement(actionElement)) continue;
+    const actionNameNode = actionElement.getNameNode();
+    if (!Node.isIdentifier(actionNameNode)) continue;
+
+    const pendingElement = elements[2];
+    const hasPendingBinding =
+      pendingElement !== undefined &&
+      Node.isBindingElement(pendingElement) &&
+      Node.isIdentifier(pendingElement.getNameNode()) &&
+      pendingElement.getNameNode().getText().trim().length > 0;
+
+    const stateElement = elements[0];
+    const stateNameNode =
+      stateElement !== undefined &&
+      Node.isBindingElement(stateElement) &&
+      Node.isIdentifier(stateElement.getNameNode()) &&
+      stateElement.getNameNode().getText().trim().length > 0
+        ? stateElement.getNameNode()
+        : undefined;
+
+    bindings.push({
+      decl,
+      stateNameNode,
+      actionName: actionNameNode.getText(),
+      hasPendingBinding,
+    });
+  }
+
+  return bindings;
+}
+
+function isActionBoundInJsx(ctx: RuleContext, actionName: string): boolean {
+  return ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxAttribute).some((attr) => {
+    const attrName = attr.getNameNode().getText();
+    if (attrName !== 'action' && attrName !== 'formAction') return false;
+    const initNode = attr.getInitializer();
+    if (!initNode || !Node.isJsxExpression(initNode)) return false;
+    const expression = initNode.getExpression();
+    return expression?.getText() === actionName;
+  });
+}
+
+function hasNonDeclarationReferenceInFile(ctx: RuleContext, identifier: Node): boolean {
+  if (!Node.isIdentifier(identifier)) return false;
+
+  const declarations = identifier.getSymbol()?.getDeclarations() ?? [];
+  if (declarations.length === 0) return false;
+
+  for (const candidate of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
+    if (candidate === identifier) continue;
+    if (candidate.getText() !== identifier.getText()) continue;
+    const candidateDeclarations = candidate.getSymbol()?.getDeclarations() ?? [];
+    if (candidateDeclarations.length === 0) continue;
+    const sameBinding = candidateDeclarations.some((decl) => declarations.includes(decl));
+    if (!sameBinding) continue;
+    return true;
+  }
+
+  return false;
+}
+
+function getJsxTagName(node: JsxTagLike): string {
+  return node.getTagNameNode().getText();
+}
+
+function getJsxAttributes(node: JsxTagLike): import('ts-morph').JsxAttributeLike[] {
+  return node.getAttributes();
+}
+
+function getJsxExpressionAttribute(node: JsxTagLike, attrName: string): Node | undefined {
+  for (const attr of getJsxAttributes(node)) {
+    if (!Node.isJsxAttribute(attr) || attr.getNameNode().getText() !== attrName) continue;
+    const init = attr.getInitializer();
+    if (!init || !Node.isJsxExpression(init)) return undefined;
+    return init.getExpression() ?? undefined;
+  }
+  return undefined;
+}
+
+function getStringAttribute(node: JsxTagLike, attrName: string): string | undefined {
+  for (const attr of getJsxAttributes(node)) {
+    if (!Node.isJsxAttribute(attr) || attr.getNameNode().getText() !== attrName) continue;
+    const init = attr.getInitializer();
+    if (!init || !Node.isStringLiteral(init)) return undefined;
+    return init.getLiteralText();
+  }
+  return undefined;
+}
+
+function isSubmitControl(node: JsxTagLike): boolean {
+  const tagName = getJsxTagName(node);
+  if (tagName === 'button') {
+    const typeAttr = getStringAttribute(node, 'type');
+    return typeAttr === undefined || typeAttr === 'submit';
+  }
+
+  if (tagName === 'input') {
+    const typeAttr = getStringAttribute(node, 'type');
+    return typeAttr === 'submit' || typeAttr === 'image';
+  }
+
+  return false;
+}
+
+function fileUsesUseFormStatus(ctx: RuleContext): boolean {
+  const imports = ctx.sourceFile.getImportDeclarations().filter((decl) => decl.getModuleSpecifierValue() === 'react-dom');
+  if (imports.length === 0) return false;
+
+  const importedHookNames = new Set<string>();
+  const namespaceImports = new Set<string>();
+  for (const decl of imports) {
+    for (const named of decl.getNamedImports()) {
+      if (named.getName() === 'useFormStatus') importedHookNames.add(named.getAliasNode()?.getText() ?? named.getName());
+    }
+    const namespace = decl.getNamespaceImport();
+    if (namespace) namespaceImports.add(namespace.getText());
+  }
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const expr = call.getExpression();
+    if (Node.isIdentifier(expr) && importedHookNames.has(expr.getText())) return true;
+    if (Node.isPropertyAccessExpression(expr) && namespaceImports.has(expr.getExpression().getText()) && expr.getName() === 'useFormStatus') {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function functionLikeHasUseServerDirective(node: Node): boolean {
+  if (!Node.isFunctionDeclaration(node) && !Node.isFunctionExpression(node) && !Node.isArrowFunction(node)) return false;
+  const body = node.getBody();
+  if (!body) return false;
+  return /['"]use server['"]/.test(body.getText().substring(0, 100));
+}
+
+function functionLikeIsAsync(node: Node): boolean {
+  if (Node.isFunctionDeclaration(node) || Node.isFunctionExpression(node) || Node.isArrowFunction(node)) {
+    return node.isAsync();
+  }
+  return false;
+}
+
+function resolveServerActionFunctions(ctx: RuleContext, expr: Node | undefined): FunctionLikeNode[] {
+  const resolved: FunctionLikeNode[] = [];
+  if (!expr) return resolved;
+
+  const candidate = unwrapParens(expr);
+  if ((Node.isFunctionExpression(candidate) || Node.isArrowFunction(candidate)) && functionLikeIsAsync(candidate)) {
+    if (functionLikeHasUseServerDirective(candidate)) resolved.push(candidate);
+    return resolved;
+  }
+
+  if (!Node.isIdentifier(candidate)) return resolved;
+
+  const fileHasUseServer = hasServerDirective(ctx.sourceFile.getFullText());
+  const declarations = candidate.getSymbol()?.getDeclarations() ?? [];
+  for (const decl of declarations) {
+    if (decl.getSourceFile() !== ctx.sourceFile) continue;
+
+    if (Node.isFunctionDeclaration(decl) && decl.isAsync()) {
+      if (functionLikeHasUseServerDirective(decl) || (fileHasUseServer && decl.isExported())) resolved.push(decl);
+    }
+
+    if (Node.isVariableDeclaration(decl)) {
+      const init = decl.getInitializer();
+      if (!init || (!Node.isArrowFunction(init) && !Node.isFunctionExpression(init)) || !init.isAsync()) continue;
+      const variableStatement = decl.getVariableStatement();
+      if (functionLikeHasUseServerDirective(init) || (fileHasUseServer && variableStatement?.isExported())) {
+        resolved.push(init);
+      }
+    }
+  }
+
+  return resolved;
+}
+
+function isServerActionReference(ctx: RuleContext, expr: Node | undefined): boolean {
+  return resolveServerActionFunctions(ctx, expr).length > 0;
+}
+
+function hasNativeSubmitDescendant(form: import('ts-morph').JsxElement): boolean {
+  const opening = form.getOpeningElement();
+  if (isSubmitControl(opening)) return true;
+
+  for (const child of form.getDescendants()) {
+    if (Node.isJsxOpeningElement(child) && isSubmitControl(child)) return true;
+    if (Node.isJsxSelfClosingElement(child) && isSubmitControl(child)) return true;
+  }
+
+  return false;
+}
+
+function functionReturnsValue(node: FunctionLikeNode): boolean {
+  const body = node.getBody();
+  if (!body || !Node.isBlock(body)) return false;
+
+  for (const stmt of body.getDescendantsOfKind(SyntaxKind.ReturnStatement)) {
+    const expr = stmt.getExpression();
+    if (!expr) continue;
+    if (Node.isIdentifier(expr) && expr.getText() === 'undefined') continue;
+    if (Node.isVoidExpression(expr)) continue;
+    if (
+      Node.isCallExpression(expr) &&
+      Node.isIdentifier(expr.getExpression()) &&
+      ['redirect', 'permanentRedirect', 'notFound'].includes(expr.getExpression().getText())
+    ) {
+      continue;
+    }
+    return true;
+  }
+
+  return false;
 }
 
 // ── Rule: use-client-drilled-too-high ────────────────────────────────────
@@ -221,69 +623,31 @@ function browserApiInServer(ctx: RuleContext): ReviewFinding[] {
   if (isClientBoundary(ctx, fullText)) return [];
   if (!BROWSER_GLOBALS.test(fullText)) return [];
 
-  const safeRanges: Array<[number, number]> = [];
-  const guardRegex =
-    /typeof\s+(window|document|localStorage|sessionStorage|navigator|history|location)\s*!==?\s*['"]undefined['"]/g;
-  let guardMatch: RegExpExecArray | null;
-  while ((guardMatch = guardRegex.exec(fullText)) !== null) {
-    const ifStart = fullText.lastIndexOf('if', guardMatch.index);
-    if (ifStart === -1) continue;
-
-    let depth = 0;
-    let blockStart = -1;
-    let blockEnd = -1;
-    for (let i = guardMatch.index; i < fullText.length; i++) {
-      if (fullText[i] === '{') {
-        if (depth === 0) blockStart = i;
-        depth++;
-      }
-      if (fullText[i] === '}') {
-        depth--;
-        if (depth === 0) {
-          blockEnd = i;
-          break;
-        }
-      }
-    }
-
-    if (blockStart !== -1 && blockEnd !== -1) {
-      safeRanges.push([blockStart, blockEnd]);
-    }
-  }
-
-  const isInSafeRange = (idx: number) => safeRanges.some(([start, end]) => idx >= start && idx <= end);
-
   const findings: ReviewFinding[] = [];
   const reported = new Set<string>();
-  for (const globalName of BROWSER_GLOBAL_NAMES) {
-    const regex = new RegExp(`\\b${globalName}\\b(?!\\s*(?:!==?|===?)\\s*['"]?undefined)`, 'g');
-    let match: RegExpExecArray | null;
-    while ((match = regex.exec(fullText)) !== null) {
-      if (isInSafeRange(match.index)) continue;
+  for (const identifier of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
+    const globalName = identifier.getText();
+    if (!BROWSER_GLOBAL_NAMES.includes(globalName)) continue;
+    if (reported.has(globalName)) continue;
+    if (!isBrowserGlobalReference(identifier, globalName)) continue;
+    if (isGuardedBrowserGlobalUse(identifier, globalName)) continue;
 
-      const line = fullText.substring(0, match.index).split('\n').length;
-      const lineText = fullText.split('\n')[line - 1] || '';
-      if (lineText.trim().startsWith('//') || lineText.trim().startsWith('*')) continue;
-      if (lineText.includes('typeof')) continue;
-      if (reported.has(globalName)) continue;
-      reported.add(globalName);
-
-      findings.push(
-        finding(
-          'browser-api-in-server',
-          'error',
-          'bug',
-          `'${globalName}' is used in a Server Component/server boundary — browser APIs require 'use client' or a Client Component`,
-          ctx.filePath,
-          line,
-          1,
-          {
-            suggestion:
-              "Move this logic into a Client Component, or pass a server-safe value down as a prop instead of reading browser globals here",
-          },
-        ),
-      );
-    }
+    reported.add(globalName);
+    findings.push(
+      finding(
+        'browser-api-in-server',
+        'error',
+        'bug',
+        `'${globalName}' is used in a Server Component/server boundary — browser APIs require 'use client' or a Client Component`,
+        ctx.filePath,
+        identifier.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            "Move this logic into a Client Component, or pass a server-safe value down as a prop instead of reading browser globals here",
+        },
+      ),
+    );
   }
 
   return findings;
@@ -298,77 +662,140 @@ function useActionStateMissingPending(ctx: RuleContext): ReviewFinding[] {
   const fullText = ctx.sourceFile.getFullText();
   if (!isClientBoundary(ctx, fullText)) return [];
 
-  const reactImports = ctx.sourceFile.getImportDeclarations().filter((decl) => decl.getModuleSpecifierValue() === 'react');
-  if (reactImports.length === 0) return [];
-
-  const importedHookNames = new Set<string>();
-  const namespaceImports = new Set<string>();
-  for (const decl of reactImports) {
-    for (const named of decl.getNamedImports()) {
-      if (ACTION_STATE_HOOKS.has(named.getName())) {
-        importedHookNames.add(named.getAliasNode()?.getText() ?? named.getName());
-      }
-    }
-    const namespace = decl.getNamespaceImport();
-    if (namespace) namespaceImports.add(namespace.getText());
-  }
-
-  if (importedHookNames.size === 0 && namespaceImports.size === 0) return [];
-
   const findings: ReviewFinding[] = [];
-  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
-    const nameNode = decl.getNameNode();
-    const init = decl.getInitializer();
-    if (!Node.isArrayBindingPattern(nameNode) || !init || !Node.isCallExpression(init)) continue;
-
-    const expr = init.getExpression();
-    let isActionStateCall = false;
-    if (Node.isIdentifier(expr)) {
-      isActionStateCall = importedHookNames.has(expr.getText());
-    } else if (Node.isPropertyAccessExpression(expr)) {
-      isActionStateCall = namespaceImports.has(expr.getExpression().getText()) && ACTION_STATE_HOOKS.has(expr.getName());
-    }
-    if (!isActionStateCall) continue;
-
-    const elements = nameNode.getElements();
-    if (elements.length < 2) continue;
-
-    const actionElement = elements[1];
-    if (!Node.isBindingElement(actionElement)) continue;
-    const actionNameNode = actionElement.getNameNode();
-    if (!Node.isIdentifier(actionNameNode)) continue;
-    const actionName = actionNameNode.getText();
-
-    const pendingElement = elements[2];
-    const hasPendingBinding =
-      pendingElement !== undefined &&
-      Node.isBindingElement(pendingElement) &&
-      Node.isIdentifier(pendingElement.getNameNode()) &&
-      pendingElement.getNameNode().getText().trim().length > 0;
-    if (hasPendingBinding) continue;
-
-    const isActionBoundInJsx = ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxAttribute).some((attr) => {
-      const attrName = attr.getNameNode().getText();
-      if (attrName !== 'action' && attrName !== 'formAction') return false;
-      const initNode = attr.getInitializer();
-      if (!initNode || !Node.isJsxExpression(initNode)) return false;
-      const expression = initNode.getExpression();
-      return expression?.getText() === actionName;
-    });
-    if (!isActionBoundInJsx) continue;
+  for (const binding of getReactActionStateBindings(ctx)) {
+    if (binding.hasPendingBinding) continue;
+    if (!isActionBoundInJsx(ctx, binding.actionName)) continue;
 
     findings.push(
       finding(
         'use-action-state-missing-pending',
         'warning',
         'pattern',
-        `useActionState is bound to '${actionName}' without capturing the pending tuple value — server action submits have no in-flight UI state`,
+        `useActionState is bound to '${binding.actionName}' without capturing the pending tuple value — server action submits have no in-flight UI state`,
         ctx.filePath,
-        decl.getStartLineNumber(),
+        binding.decl.getStartLineNumber(),
         1,
         {
           suggestion:
             "Capture the third tuple value from useActionState, e.g. const [state, formAction, pending] = useActionState(...), then disable the submit button or show loading UI while pending",
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: use-action-state-missing-feedback ──────────────────────────────
+// useActionState bound to form action but returned state is never read.
+
+function useActionStateMissingFeedback(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+
+  const fullText = ctx.sourceFile.getFullText();
+  if (!isClientBoundary(ctx, fullText)) return [];
+
+  const findings: ReviewFinding[] = [];
+  for (const binding of getReactActionStateBindings(ctx)) {
+    if (!isActionBoundInJsx(ctx, binding.actionName)) continue;
+    if (binding.stateNameNode && hasNonDeclarationReferenceInFile(ctx, binding.stateNameNode)) continue;
+
+    findings.push(
+      finding(
+        'use-action-state-missing-feedback',
+        'warning',
+        'pattern',
+        `useActionState is bound to '${binding.actionName}' but its state value is never read — server action success/error feedback is not surfaced`,
+        ctx.filePath,
+        binding.decl.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Read the first tuple value from useActionState and surface result state in the UI or a side effect (for example an error message, success state, toast, or redirect)',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: server-action-form-missing-pending ─────────────────────────────
+// Native submit control is wired directly to a Server Action but no pending
+// state substrate (useActionState / useFormStatus) is present in the file.
+
+function serverActionFormMissingPending(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+
+  const actionStateBindings = getReactActionStateBindings(ctx);
+  const actionStateNames = new Set(actionStateBindings.map((binding) => binding.actionName));
+  if (fileUsesUseFormStatus(ctx)) return [];
+
+  const findings: ReviewFinding[] = [];
+  for (const form of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxElement)) {
+    if (getJsxTagName(form.getOpeningElement()) !== 'form') continue;
+
+    const actionExpr = getJsxExpressionAttribute(form.getOpeningElement(), 'action');
+    if (!actionExpr) continue;
+    if (Node.isIdentifier(actionExpr) && actionStateNames.has(actionExpr.getText())) continue;
+    if (!isServerActionReference(ctx, actionExpr)) continue;
+    if (!hasNativeSubmitDescendant(form)) continue;
+
+    findings.push(
+      finding(
+        'server-action-form-missing-pending',
+        'warning',
+        'pattern',
+        'Form is wired directly to a Server Action with a native submit control but no pending-state UX was detected — users can resubmit while the action is in flight',
+        ctx.filePath,
+        form.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Render the submit button from a Client Component that uses useFormStatus(), then disable it or show loading text while pending. If you need result state too, consider useActionState().',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: server-action-form-return-value-ignored ────────────────────────
+// Direct form actions do not surface returned values. If a same-file Server
+// Action returns data, it should usually be wired through useActionState.
+
+function serverActionFormReturnValueIgnored(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+
+  const actionStateBindings = getReactActionStateBindings(ctx);
+  const actionStateNames = new Set(actionStateBindings.map((binding) => binding.actionName));
+
+  const findings: ReviewFinding[] = [];
+  for (const form of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxElement)) {
+    if (getJsxTagName(form.getOpeningElement()) !== 'form') continue;
+
+    const actionExpr = getJsxExpressionAttribute(form.getOpeningElement(), 'action');
+    if (!actionExpr) continue;
+    if (Node.isIdentifier(actionExpr) && actionStateNames.has(actionExpr.getText())) continue;
+
+    const serverActions = resolveServerActionFunctions(ctx, actionExpr);
+    if (serverActions.length === 0) continue;
+    if (!serverActions.some((fn) => functionReturnsValue(fn))) continue;
+
+    findings.push(
+      finding(
+        'server-action-form-return-value-ignored',
+        'warning',
+        'bug',
+        'Form posts directly to a Server Action that returns a value, but plain form actions do not surface returned state — the result is ignored unless you use useActionState()',
+        ctx.filePath,
+        form.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'If the action result drives success/error UI, wrap it in useActionState() and render the returned state. Otherwise remove the unused return value and redirect/revalidate explicitly.',
         },
       ),
     );
@@ -528,5 +955,8 @@ export const nextjsAppRouterRules = [
   serverApiInClient,
   browserApiInServer,
   useActionStateMissingPending,
+  useActionStateMissingFeedback,
+  serverActionFormMissingPending,
+  serverActionFormReturnValueIgnored,
   serverActionUnvalidatedInput,
 ];

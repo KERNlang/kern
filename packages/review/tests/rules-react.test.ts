@@ -775,8 +775,42 @@ export function Component() {
   useEffect(() => {
     const handler = () => {};
     window.addEventListener('resize', handler);
+    const cleanup = () => window.removeEventListener('resize', handler);
     return cleanup;
   }, []);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'missing-effect-cleanup');
+      expect(finding).toBeUndefined();
+    });
+
+    it('flags noop returned cleanup that does not clear the subscription', () => {
+      const source = `
+import { useEffect } from 'react';
+export function Component() {
+  useEffect(() => {
+    const handler = () => {};
+    window.addEventListener('resize', handler);
+    const cleanup = () => console.log('cleanup');
+    return cleanup;
+  }, []);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'missing-effect-cleanup');
+      expect(finding).toBeDefined();
+    });
+
+    it('does not flag when subscribe returns an unsubscribe function directly', () => {
+      const source = `
+import { useEffect } from 'react';
+export function Component({ store }: { store: { subscribe(cb: () => void): () => void } }) {
+  useEffect(() => {
+    return store.subscribe(() => {});
+  }, [store]);
   return null;
 }
 `;

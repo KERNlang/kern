@@ -80,5 +80,39 @@ export function C() {
       const r = reviewSource(src, 'c.tsx', cfg);
       expect(r.findings.find((x) => x.ruleId === 'abortcontroller-leak')).toBeUndefined();
     });
+
+    it('does not flag when returned cleanup identifier aborts the controller', () => {
+      const src = `
+import { useEffect } from 'react';
+export function C() {
+  useEffect(() => {
+    const ctrl = new AbortController();
+    fetch('/x', { signal: ctrl.signal });
+    const cleanup = () => ctrl.abort();
+    return cleanup;
+  }, []);
+  return null;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((x) => x.ruleId === 'abortcontroller-leak')).toBeUndefined();
+    });
+
+    it('still flags when returned cleanup identifier does not abort the controller', () => {
+      const src = `
+import { useEffect } from 'react';
+export function C() {
+  useEffect(() => {
+    const ctrl = new AbortController();
+    fetch('/x', { signal: ctrl.signal });
+    const cleanup = () => console.log('cleanup');
+    return cleanup;
+  }, []);
+  return null;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((x) => x.ruleId === 'abortcontroller-leak')).toBeDefined();
+    });
   });
 });

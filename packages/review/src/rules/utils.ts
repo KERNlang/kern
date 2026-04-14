@@ -3,7 +3,7 @@
  * across base.ts, react.ts, nextjs.ts, express.ts, security.ts, vue.ts, dead-logic.ts.
  */
 
-import type { Node } from 'ts-morph';
+import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 
@@ -80,4 +80,78 @@ export function finding(
     fingerprint: createFingerprint(ruleId, line, col),
     ...extra,
   };
+}
+
+export interface CleanupMatcherSpec {
+  cleanupPatterns: RegExp[];
+  cleanupReturnIdentifiers?: string[];
+  cleanupReturnCallPattern?: RegExp;
+}
+
+export function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function findAssignedIdentifier(node: Node): string | undefined {
+  let cur: Node | undefined = node.getParent();
+  while (cur && !Node.isVariableDeclaration(cur)) {
+    cur = cur.getParent();
+  }
+  if (!cur || !Node.isVariableDeclaration(cur)) return undefined;
+  const nameNode = cur.getNameNode();
+  return Node.isIdentifier(nameNode) ? nameNode.getText() : undefined;
+}
+
+export function getTopLevelCleanupExpressions(body: Node): Node[] {
+  if (!Node.isBlock(body)) return [body];
+
+  const cleanupExprs: Node[] = [];
+  for (const retStmt of body.getDescendantsOfKind(SyntaxKind.ReturnStatement)) {
+    let inNested = false;
+    let cur: Node | undefined = retStmt.getParent();
+    while (cur && cur !== body) {
+      if (Node.isArrowFunction(cur) || Node.isFunctionExpression(cur) || Node.isFunctionDeclaration(cur)) {
+        inNested = true;
+        break;
+      }
+      cur = cur.getParent();
+    }
+    if (inNested) continue;
+
+    const expr = retStmt.getExpression();
+    if (expr) cleanupExprs.push(expr);
+  }
+
+  return cleanupExprs;
+}
+
+export function resolveCleanupExpressionTexts(expr: Node): string[] {
+  if (Node.isArrowFunction(expr) || Node.isFunctionExpression(expr)) return [expr.getText(), expr.getBody().getText()];
+  if (Node.isCallExpression(expr)) return [expr.getText()];
+  if (!Node.isIdentifier(expr)) return [expr.getText()];
+
+  const texts = [expr.getText()];
+  const declarations = expr.getSymbol()?.getDeclarations() ?? [];
+  for (const decl of declarations) {
+    if (Node.isFunctionDeclaration(decl) && decl.getBody()) {
+      texts.push(decl.getText(), decl.getBody()!.getText());
+      continue;
+    }
+    if (!Node.isVariableDeclaration(decl)) continue;
+    const init = decl.getInitializer();
+    if (!init) continue;
+    texts.push(init.getText());
+    if (Node.isArrowFunction(init) || Node.isFunctionExpression(init)) {
+      texts.push(init.getBody().getText());
+    }
+  }
+  return texts;
+}
+
+export function cleanupExpressionMatches(expr: Node, spec: CleanupMatcherSpec): boolean {
+  if (Node.isIdentifier(expr) && spec.cleanupReturnIdentifiers?.includes(expr.getText())) return true;
+  if (Node.isCallExpression(expr) && spec.cleanupReturnCallPattern?.test(expr.getText())) return true;
+
+  const texts = resolveCleanupExpressionTexts(expr);
+  return texts.some((text) => spec.cleanupPatterns.some((pattern) => pattern.test(text)));
 }

@@ -6,9 +6,16 @@
  */
 
 import { countTokens } from '@kernlang/core';
-import { SyntaxKind } from 'ts-morph';
+import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { finding, span } from './utils.js';
+import {
+  cleanupExpressionMatches,
+  escapeRegex,
+  findAssignedIdentifier,
+  finding,
+  getTopLevelCleanupExpressions,
+  span,
+} from './utils.js';
 
 // ── Rule 1: floating-promise ─────────────────────────────────────────────
 // fn body with call returning Promise but no await/void/return
@@ -887,8 +894,6 @@ function handlerSize(ctx: RuleContext): ReviewFinding[] {
 // useEffect/watch/onMounted that creates subscriptions without cleanup
 
 const EFFECT_CALLEE_NAMES = new Set(['useEffect', 'watch', 'onMounted', 'watchEffect']);
-const SUBSCRIPTION_METHODS = new Set(['addEventListener', 'subscribe', 'on']);
-const SUBSCRIPTION_FUNCTIONS = new Set(['setInterval', 'setTimeout']);
 const SUBSCRIPTION_CONSTRUCTORS = new Set([
   'WebSocket',
   'EventSource',
@@ -896,6 +901,116 @@ const SUBSCRIPTION_CONSTRUCTORS = new Set([
   'IntersectionObserver',
   'ResizeObserver',
 ]);
+
+interface LeakSpec {
+  label: string;
+  line: number;
+  cleanupPatterns: RegExp[];
+  cleanupReturnIdentifiers?: string[];
+  cleanupReturnCallPattern?: RegExp;
+}
+
+function buildLeakSpecs(
+  callback: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+): LeakSpec[] {
+  const specs: LeakSpec[] = [];
+
+  for (const desc of callback.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const descCallee = desc.getExpression();
+
+    if (Node.isPropertyAccessExpression(descCallee)) {
+      const method = descCallee.getName();
+      const targetText = descCallee.getExpression().getText();
+
+      if (method === 'addEventListener') {
+        specs.push({
+          label: 'addEventListener',
+          line: desc.getStartLineNumber(),
+          cleanupPatterns: [new RegExp(`${escapeRegex(targetText)}\\s*\\.\\s*removeEventListener\\s*\\(`)],
+        });
+        continue;
+      }
+
+      if (method === 'subscribe') {
+        const assignedName = findAssignedIdentifier(desc);
+        specs.push({
+          label: 'subscribe',
+          line: desc.getStartLineNumber(),
+          cleanupPatterns: assignedName
+            ? [
+                new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\(`),
+                new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\.\\s*(?:unsubscribe|dispose|destroy|off)\\s*\\(`),
+              ]
+            : [/\.\s*(?:unsubscribe|dispose|destroy|off)\s*\(/],
+          cleanupReturnIdentifiers: assignedName ? [assignedName] : [],
+          cleanupReturnCallPattern: /\.\s*subscribe\s*\(/,
+        });
+        continue;
+      }
+
+      if (method === 'on') {
+        const assignedName = findAssignedIdentifier(desc);
+        specs.push({
+          label: 'on',
+          line: desc.getStartLineNumber(),
+          cleanupPatterns: assignedName
+            ? [
+                new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\(`),
+                new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\.\\s*(?:unsubscribe|dispose|destroy|off|removeListener)\\s*\\(`),
+                new RegExp(`${escapeRegex(targetText)}\\s*\\.\\s*(?:off|removeListener|unsubscribe)\\s*\\(`),
+              ]
+            : [/\.\s*(?:off|removeListener|unsubscribe|dispose|destroy)\s*\(/],
+          cleanupReturnIdentifiers: assignedName ? [assignedName] : [],
+          cleanupReturnCallPattern: /\.\s*on\s*\(/,
+        });
+        continue;
+      }
+    }
+
+    if (Node.isIdentifier(descCallee)) {
+      const name = descCallee.getText();
+      const assignedName = findAssignedIdentifier(desc);
+      if (name === 'setInterval' || name === 'setTimeout') {
+        const clearName = name === 'setInterval' ? 'clearInterval' : 'clearTimeout';
+        specs.push({
+          label: name,
+          line: desc.getStartLineNumber(),
+          cleanupPatterns: assignedName
+            ? [new RegExp(`\\b${clearName}\\s*\\(\\s*${escapeRegex(assignedName)}\\s*\\)`)]
+            : [new RegExp(`\\b${clearName}\\s*\\(`)],
+        });
+      }
+    }
+  }
+
+  for (const newExpr of callback.getDescendantsOfKind(SyntaxKind.NewExpression)) {
+    const ctorName = newExpr.getExpression().getText();
+    if (!SUBSCRIPTION_CONSTRUCTORS.has(ctorName)) continue;
+
+    const assignedName = findAssignedIdentifier(newExpr);
+    if (ctorName === 'WebSocket' || ctorName === 'EventSource') {
+      specs.push({
+        label: `new ${ctorName}`,
+        line: newExpr.getStartLineNumber(),
+        cleanupPatterns: assignedName
+          ? [new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\.\\s*close\\s*\\(`)]
+          : [/\.\s*close\s*\(/],
+      });
+      continue;
+    }
+
+    specs.push({
+      label: `new ${ctorName}`,
+      line: newExpr.getStartLineNumber(),
+      cleanupPatterns: assignedName
+        ? [new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\.\\s*(?:disconnect|unobserve)\\s*\\(`)]
+        : [/\.\s*(?:disconnect|unobserve)\s*\(/],
+    });
+  }
+
+  return specs;
+}
+
 
 function memoryLeak(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -909,102 +1024,23 @@ function memoryLeak(ctx: RuleContext): ReviewFinding[] {
     const args = call.getArguments();
     if (args.length === 0) continue;
     const callback = args[0];
-    if (callback.getKind() !== SyntaxKind.ArrowFunction && callback.getKind() !== SyntaxKind.FunctionExpression)
-      continue;
+    if (!Node.isArrowFunction(callback) && !Node.isFunctionExpression(callback)) continue;
 
-    // Walk callback descendants for subscription patterns
-    let subscriptionLabel: string | null = null;
+    const leakSpecs = buildLeakSpecs(callback).filter(
+      (spec, index, specs) => specs.findIndex((candidate) => candidate.label === spec.label && candidate.line === spec.line) === index,
+    );
+    if (leakSpecs.length === 0) continue;
 
-    for (const desc of callback.getDescendantsOfKind(SyntaxKind.CallExpression)) {
-      const descCallee = desc.getExpression();
-
-      // PropertyAccess calls: obj.addEventListener(), obs.subscribe(), emitter.on()
-      if (descCallee.getKind() === SyntaxKind.PropertyAccessExpression) {
-        const pa = descCallee as import('ts-morph').PropertyAccessExpression;
-        if (SUBSCRIPTION_METHODS.has(pa.getName())) {
-          subscriptionLabel = pa.getName();
-          break;
-        }
-      }
-
-      // Direct calls: setInterval(), setTimeout()
-      if (descCallee.getKind() === SyntaxKind.Identifier) {
-        if (SUBSCRIPTION_FUNCTIONS.has(descCallee.getText())) {
-          subscriptionLabel = descCallee.getText();
-          break;
-        }
-      }
-    }
-
-    // Also check for new WebSocket/EventSource/Observer constructors
-    if (!subscriptionLabel) {
-      for (const newExpr of callback.getDescendantsOfKind(SyntaxKind.NewExpression)) {
-        const ctorName = newExpr.getExpression().getText();
-        if (SUBSCRIPTION_CONSTRUCTORS.has(ctorName)) {
-          subscriptionLabel = `new ${ctorName}`;
-          break;
-        }
-      }
-    }
-
-    if (!subscriptionLabel) continue;
-
-    // Check if callback has a cleanup return statement
-    const callbackBody =
-      callback.getKind() === SyntaxKind.ArrowFunction
-        ? (callback as import('ts-morph').ArrowFunction).getBody()
-        : (callback as import('ts-morph').FunctionExpression).getBody();
-
-    if (!callbackBody) continue;
-
-    let hasCleanupReturn = false;
-
-    // Check ALL return statements in the callback (including inside conditionals)
-    if (callbackBody.getKind() === SyntaxKind.Block) {
-      for (const retStmt of callbackBody.getDescendantsOfKind(SyntaxKind.ReturnStatement)) {
-        // Skip returns inside nested functions (they're not cleanup returns)
-        let inNested = false;
-        let cur: import('ts-morph').Node | undefined = retStmt.getParent();
-        while (cur && cur !== callbackBody) {
-          const k = cur.getKind();
-          if (
-            k === SyntaxKind.ArrowFunction ||
-            k === SyntaxKind.FunctionExpression ||
-            k === SyntaxKind.FunctionDeclaration
-          ) {
-            inNested = true;
-            break;
-          }
-          cur = cur.getParent();
-        }
-        if (inNested) continue;
-
-        const retExpr = retStmt.getExpression();
-        if (!retExpr) continue;
-
-        if (retExpr.getKind() === SyntaxKind.ArrowFunction) {
-          hasCleanupReturn = true;
-          break;
-        }
-        if (retExpr.getKind() === SyntaxKind.FunctionExpression) {
-          hasCleanupReturn = true;
-          break;
-        }
-        if (retExpr.getKind() === SyntaxKind.Identifier) {
-          hasCleanupReturn = true;
-          break;
-        }
-      }
-    }
-
-    if (hasCleanupReturn) continue;
+    const cleanupExprs = getTopLevelCleanupExpressions(callback.getBody());
+    const leakedSpec = leakSpecs.find((spec) => !cleanupExprs.some((expr) => cleanupExpressionMatches(expr, spec)));
+    if (!leakedSpec) continue;
 
     findings.push(
       finding(
         'memory-leak',
         'error',
         'bug',
-        `Effect creates ${subscriptionLabel}() but has no cleanup — memory leak`,
+        `Effect creates ${leakedSpec.label}() but has no matching cleanup — memory leak`,
         ctx.filePath,
         call.getStartLineNumber(),
         1,

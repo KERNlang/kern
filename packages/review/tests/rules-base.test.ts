@@ -40,6 +40,71 @@ function handleResize() {}
       const leak = report.findings.find((f) => f.ruleId === 'memory-leak');
       expect(leak).toBeUndefined();
     });
+
+    it('still flags when returned cleanup does not remove the subscription', () => {
+      const source = `
+import { useEffect } from 'react';
+export function Component() {
+  useEffect(() => {
+    window.addEventListener('resize', handleResize);
+    return () => console.log('cleanup');
+  }, []);
+  return null;
+}
+function handleResize() {}
+`;
+      const report = reviewSource(source, 'comp.tsx');
+      const leak = report.findings.find((f) => f.ruleId === 'memory-leak');
+      expect(leak).toBeDefined();
+    });
+
+    it('does not flag subscribe when the returned unsubscribe function is returned directly', () => {
+      const source = `
+import { useEffect } from 'react';
+export function Component({ store }: { store: { subscribe(cb: () => void): () => void } }) {
+  useEffect(() => {
+    return store.subscribe(() => {});
+  }, [store]);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx');
+      const leak = report.findings.find((f) => f.ruleId === 'memory-leak');
+      expect(leak).toBeUndefined();
+    });
+
+    it('does not flag subscribe when unsubscribe identifier is returned', () => {
+      const source = `
+import { useEffect } from 'react';
+export function Component({ store }: { store: { subscribe(cb: () => void): () => void } }) {
+  useEffect(() => {
+    const unsubscribe = store.subscribe(() => {});
+    return unsubscribe;
+  }, [store]);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx');
+      const leak = report.findings.find((f) => f.ruleId === 'memory-leak');
+      expect(leak).toBeUndefined();
+    });
+
+    it('does not flag observers when cleanup disconnects them', () => {
+      const source = `
+import { useEffect } from 'react';
+export function Component({ el }: { el: Element }) {
+  useEffect(() => {
+    const observer = new ResizeObserver(() => {});
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [el]);
+  return null;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx');
+      const leak = report.findings.find((f) => f.ruleId === 'memory-leak');
+      expect(leak).toBeUndefined();
+    });
   });
 
   // ── unhandled-async ──
