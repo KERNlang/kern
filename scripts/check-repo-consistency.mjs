@@ -266,10 +266,29 @@ function collectRepoFacts() {
   return { pnpmVersion, targetCount, ruleCount, mcpToolCount, mcpResourceCount, mcpPromptCount };
 }
 
+function checkKernVersion() {
+  const rootPackageJson = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const rootVersion = rootPackageJson.version;
+
+  const specPath = path.join(root, 'packages', 'core', 'src', 'spec.ts');
+  const spec = readFileSync(specPath, 'utf8');
+  const match = spec.match(/export const KERN_VERSION = ['"]([^'"]+)['"]/);
+  if (!match) {
+    fail('packages/core/src/spec.ts must export `KERN_VERSION` as a string literal.');
+    return;
+  }
+  if (match[1] !== rootVersion) {
+    fail(
+      `packages/core/src/spec.ts KERN_VERSION (${match[1]}) must equal root package.json version (${rootVersion}). The release pipeline jq-sweeps every package.json on a tag — KERN_VERSION must be bumped in lockstep so the @generated header in compiled output is truthful.`,
+    );
+  }
+}
+
 checkReadme();
 checkContributing();
 checkWorkflowContracts();
 checkPackages();
+checkKernVersion();
 
 if (failures.length > 0) {
   console.error('Repo consistency check failed:\n');
