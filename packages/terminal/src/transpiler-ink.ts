@@ -561,10 +561,39 @@ function collectNestedOnNodes(node: IRNode): IRNode[] {
 
 let _onHookCounter = 0;
 
-function generateOnHook(onNode: IRNode, imports: ImportTracker): string[] {
+/**
+ * Rewrite a handler body so that every `setX(...)` call against a known safe state
+ * is replaced with the corresponding raw setter `_setXRaw(...)`. Used by batched
+ * handlers to bypass the per-setter __inkSafe macrotask deferral, so the whole
+ * batch can share a single deferred macrotask. Word-boundary anchored to avoid
+ * touching identifiers that merely contain a setter name as a substring.
+ *
+ * Limitation: substitution is text-based, so a setter name appearing inside a
+ * string literal will also be rewritten. Document this in the language reference.
+ */
+function rewriteToRawSetters(code: string, stateNodes: IRNode[]): string {
+  let out = code;
+  for (const stateNode of stateNodes) {
+    const sp = getProps(stateNode);
+    const safe = sp.safe !== 'false' && sp.safe !== false;
+    if (!safe) continue;
+    if (sp.throttle !== undefined || sp.debounce !== undefined) continue;
+    const name = sp.name as string;
+    if (!name) continue;
+    const setter = `set${capitalize(name)}`;
+    const raw = `_${setter}Raw`;
+    // Word-boundary rewrite of `setX(` → `_setXRaw(` — matches call sites only.
+    const pattern = new RegExp(`\\b${setter}\\s*\\(`, 'g');
+    out = out.replace(pattern, `${raw}(`);
+  }
+  return out;
+}
+
+function generateOnHook(onNode: IRNode, imports: ImportTracker, stateNodes: IRNode[]): string[] {
   const lines: string[] = [];
   const onProps = getProps(onNode);
   const event = (onProps.event || onProps.name) as string;
+  const batch = onProps.batch === 'true' || onProps.batch === true;
 
   if (event === 'key' || event === 'input') {
     imports.addInk('useInput');
@@ -584,8 +613,18 @@ function generateOnHook(onNode: IRNode, imports: ImportTracker): string[] {
     }
     if (code) {
       const dedented = dedent(code);
-      for (const line of dedented.split('\n')) {
-        lines.push(`    ${line}`);
+      const body = batch ? rewriteToRawSetters(dedented, stateNodes) : dedented;
+      if (batch) {
+        // Single deferred macrotask: collapse N __inkSafe wrappers into one paint cycle.
+        lines.push(`    setTimeout(() => {`);
+        for (const line of body.split('\n')) {
+          lines.push(`      ${line}`);
+        }
+        lines.push(`    }, 0);`);
+      } else {
+        for (const line of body.split('\n')) {
+          lines.push(`    ${line}`);
+        }
       }
     }
     lines.push(`  };`);
@@ -1333,7 +1372,7 @@ function compileScreenBody(
 
   // on event=key → useInput() hooks
   for (const onNode of allOnNodes) {
-    bodyLines.push(...generateOnHook(onNode, imports));
+    bodyLines.push(...generateOnHook(onNode, imports, stateNodes));
   }
 
   // Stream effects

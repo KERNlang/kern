@@ -620,6 +620,108 @@ describe('Ink Transpiler', () => {
     expect(result.code).toContain('const setC = useMemo(() => __inkSafe(_setCRaw), [_setCRaw])');
   });
 
+  // ── batch=true: collapse N __inkSafe macrotasks into 1 paint cycle ──────
+
+  test('on event=key without batch keeps per-setter __inkSafe (baseline, 2 macrotasks)', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Counter',
+      '  state name=count initial=0',
+      '  state name=tick initial=0',
+      '  on event=key key=return',
+      '    handler <<<',
+      '      setCount(count + 1);',
+      '      setTick(Date.now());',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Baseline: setters are emitted as the wrapped names, NOT wrapped in a shared setTimeout
+    expect(result.code).toContain('setCount(count + 1)');
+    expect(result.code).toContain('setTick(Date.now())');
+    expect(result.code).not.toContain('_setCountRaw(count + 1)');
+    expect(result.code).not.toContain('_setTickRaw(Date.now())');
+  });
+
+  test('on event=key with batch=true wraps body in single setTimeout and uses raw setters', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Counter',
+      '  state name=count initial=0',
+      '  state name=tick initial=0',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setCount(count + 1);',
+      '      setTick(Date.now());',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Should call the raw setters (bypassing __inkSafe)
+    expect(result.code).toContain('_setCountRaw(count + 1)');
+    expect(result.code).toContain('_setTickRaw(Date.now())');
+    // Should NOT call the wrapped setters inside the handler body
+    expect(result.code).not.toMatch(/=>\s*\{\s*\n\s*setCount\(count \+ 1\)/);
+    // Should wrap the body in exactly one shared setTimeout
+    const handlerBlock = result.code
+      .split('_inputHandlerRef.current = (input: string, key: any) => {')[1]
+      .split('useInput((input')[0];
+    const setTimeoutCount = (handlerBlock.match(/setTimeout\s*\(/g) || []).length;
+    expect(setTimeoutCount).toBe(1);
+    // Should still preserve the key gate
+    expect(handlerBlock).toContain('if (!(key.return)) return');
+  });
+
+  test('batch=true does not rewrite setters for state with safe=false', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Mixed',
+      '  state name=count initial=0',
+      '  state name=raw initial=0 safe=false',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setCount(count + 1);',
+      '      setRaw(0);',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // safe-wrapped state gets rewritten to its raw form
+    expect(result.code).toContain('_setCountRaw(count + 1)');
+    // safe=false state has no _setRawRaw — its setter is already the bare useState setter
+    expect(result.code).toContain('setRaw(0)');
+    expect(result.code).not.toContain('_setRawRaw');
+  });
+
+  test('batch=true does not rewrite throttled or debounced setters', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Stream',
+      '  state name=text initial="" throttle=90',
+      '  state name=count initial=0',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setText("update");',
+      '      setCount(count + 1);',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Throttled setter must keep its wrapper (it has its own scheduling)
+    expect(result.code).toContain('setText("update")');
+    expect(result.code).not.toContain('_setTextRaw("update")');
+    // Safe setter still gets the raw rewrite
+    expect(result.code).toContain('_setCountRaw(count + 1)');
+  });
+
   // ── Phase 2: Throttle, Debounce, Animation, Derive ────────────────────
 
   test('state with throttle generates throttled setter', async () => {
