@@ -44,29 +44,80 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Set package versions
-        run: |
-          tmp=$(mktemp)
-          jq --arg v "${{ inputs.version }}" '.version = $v' package.json > "$tmp"
-          mv "$tmp" package.json
-
-          for pkg in packages/*/package.json; do
-            tmp=$(mktemp)
-            jq --arg v "${{ inputs.version }}" '.version = $v' "$pkg" > "$tmp"
-            mv "$tmp" "$pkg"
-          done
-
       - name: Build
         run: pnpm build
 
       - name: Test
         run: pnpm test
 
+      - name: Set package versions
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          tmp=$(mktemp)
+          jq --arg v "$RELEASE_VERSION" '.version = $v' package.json > "$tmp"
+          mv "$tmp" package.json
+
+          for pkg in packages/*/package.json; do
+            tmp=$(mktemp)
+            jq --arg v "$RELEASE_VERSION" '.version = $v' "$pkg" > "$tmp"
+            mv "$tmp" "$pkg"
+          done
+
+          # Keep KERN_VERSION in lockstep with root package.json so the @generated
+          # header in compiled output is truthful. Enforced by check-repo-consistency.mjs.
+          spec=packages/core/src/spec.ts
+          tmp=$(mktemp)
+          awk -v v="$RELEASE_VERSION" '{
+            if ($0 ~ /^export const KERN_VERSION = /) {
+              print "export const KERN_VERSION = '\''" v "'\'';"
+            } else {
+              print
+            }
+          }' "$spec" > "$tmp"
+          mv "$tmp" "$spec"
+
+      - name: Publish dry run
+        if: ${{ inputs.publish }}
+        run: pnpm -r publish --dry-run --no-git-checks --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Publish packages
         if: ${{ inputs.publish }}
         run: pnpm -r publish --no-git-checks --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify published packages on npm
+        if: ${{ inputs.publish }}
+        run: |
+          VERSION="${{ inputs.version }}"
+
+          for pkg in packages/*/package.json; do
+            NAME=$(jq -r '.name' "$pkg")
+            PRIVATE=$(jq -r '.private // false' "$pkg")
+
+            if [ "$PRIVATE" = "true" ]; then
+              continue
+            fi
+
+            ENCODED_NAME=$(node -p "encodeURIComponent(process.argv[1])" "$NAME")
+            PUBLISHED=false
+
+            for attempt in 1 2 3 4 5 6; do
+              if curl -fsS "https://registry.npmjs.org/$ENCODED_NAME/$VERSION" > /dev/null; then
+                PUBLISHED=true
+                break
+              fi
+              sleep 10
+            done
+
+            if [ "$PUBLISHED" != "true" ]; then
+              echo "::error::Package $NAME@$VERSION is not available from the npm registry after publish"
+              exit 1
+            fi
+          done
 
       - name: Publish dry run
         if: ${{ !inputs.publish }}
@@ -76,23 +127,35 @@ jobs:
 
       - name: Sync versions back to dev
         if: ${{ inputs.publish }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout dev
           git pull origin dev
 
-          VERSION="${{ inputs.version }}"
           tmp=$(mktemp)
-          jq --arg v "$VERSION" '.version = $v' package.json > "$tmp"
+          jq --arg v "$RELEASE_VERSION" '.version = $v' package.json > "$tmp"
           mv "$tmp" package.json
 
           for pkg in packages/*/package.json; do
             tmp=$(mktemp)
-            jq --arg v "$VERSION" '.version = $v' "$pkg" > "$tmp"
+            jq --arg v "$RELEASE_VERSION" '.version = $v' "$pkg" > "$tmp"
             mv "$tmp" "$pkg"
           done
 
-          git add package.json packages/*/package.json
-          git commit -m "chore: sync versions to v${VERSION} [skip ci]" || echo "No version changes to commit"
+          spec=packages/core/src/spec.ts
+          tmp=$(mktemp)
+          awk -v v="$RELEASE_VERSION" '{
+            if ($0 ~ /^export const KERN_VERSION = /) {
+              print "export const KERN_VERSION = '\''" v "'\'';"
+            } else {
+              print
+            }
+          }' "$spec" > "$tmp"
+          mv "$tmp" "$spec"
+
+          git add package.json packages/*/package.json packages/core/src/spec.ts
+          git commit -m "chore: sync versions to v${RELEASE_VERSION} [skip ci]"
           git push origin dev
