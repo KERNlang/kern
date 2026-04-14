@@ -5,8 +5,8 @@ on:
     types: [published]
 
 concurrency:
-  group: kernlang-release
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
