@@ -136,6 +136,38 @@ export function Parent({ label }: { label: string }) {
       const r = reviewSource(src, 'memo.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'memoized-child-inline-prop')).toBeUndefined();
     });
+
+    it('flags inline props passed to imported aliased memoized child', () => {
+      const dir = join(TMP, 'memo-imported-prop');
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+
+      writeFileSync(
+        join(dir, 'child.tsx'),
+        `
+import React, { memo } from 'react';
+
+export const Child = memo(function Child(props: any) {
+  return <div>{props.label}</div>;
+});
+`,
+      );
+
+      writeFileSync(
+        join(dir, 'parent.tsx'),
+        `
+import React from 'react';
+import { Child as MemoChild } from './child.js';
+
+export function Parent({ label }: { label: string }) {
+  return <MemoChild label={label} options={{ dense: true }} onSave={() => console.log(label)} />;
+}
+`,
+      );
+
+      const report = reviewFile(join(dir, 'parent.tsx'), cfg);
+      expect(report.findings.find((f) => f.ruleId === 'memoized-child-inline-prop')).toBeDefined();
+    });
   });
 
   describe('memoized-child-inline-children', () => {
@@ -169,6 +201,40 @@ export function Parent() {
 `;
       const r = reviewSource(src, 'memo-children.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'memoized-child-inline-children')).toBeUndefined();
+    });
+
+    it('flags inline JSX children passed to imported default memoized child', () => {
+      const dir = join(TMP, 'memo-imported-children');
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+
+      writeFileSync(
+        join(dir, 'panel.tsx'),
+        `
+import React, { memo } from 'react';
+
+const Panel = memo(function Panel(props: any) {
+  return <section>{props.children}</section>;
+});
+
+export default Panel;
+`,
+      );
+
+      writeFileSync(
+        join(dir, 'parent.tsx'),
+        `
+import React from 'react';
+import Panel from './panel.js';
+
+export function Parent() {
+  return <Panel><span>inline</span></Panel>;
+}
+`,
+      );
+
+      const report = reviewFile(join(dir, 'parent.tsx'), cfg);
+      expect(report.findings.find((f) => f.ruleId === 'memoized-child-inline-children')).toBeDefined();
     });
   });
 
@@ -252,6 +318,38 @@ export function Middle({ user, theme, locale }: { user: string; theme: string; l
 
       const secondReport = reviewFile(join(dir, 'outer.tsx'), cfg);
       expect(secondReport.findings.find((f) => f.ruleId === 'prop-drill-chain')).toBeUndefined();
+    });
+
+    it('flags aliased imported wrapper components too', () => {
+      const dir = join(TMP, 'prop-drill-chain-aliased');
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+
+      writeFileSync(
+        join(dir, 'outer.tsx'),
+        `
+import { Middle as Shell } from './middle.js';
+export function Outer({ user, theme, locale }: { user: string; theme: string; locale: string }) {
+  return <Shell user={user} theme={theme} locale={locale} />;
+}
+`,
+      );
+
+      writeFileSync(
+        join(dir, 'middle.tsx'),
+        `
+function Inner(props: any) {
+  return <div>{props.user}</div>;
+}
+
+export function Middle({ user, theme, locale }: { user: string; theme: string; locale: string }) {
+  return <Inner user={user} theme={theme} locale={locale} />;
+}
+`,
+      );
+
+      const report = reviewFile(join(dir, 'outer.tsx'), cfg);
+      expect(report.findings.find((f) => f.ruleId === 'prop-drill-chain')).toBeDefined();
     });
   });
 

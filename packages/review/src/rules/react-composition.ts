@@ -11,11 +11,13 @@ import { existsSync, readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import type {
   ArrowFunction,
+  CallExpression,
   FunctionDeclaration,
   FunctionExpression,
   JsxOpeningElement,
   JsxSelfClosingElement,
   ObjectBindingPattern,
+  VariableDeclaration,
 } from 'ts-morph';
 import { Node, Project, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
@@ -27,6 +29,11 @@ type PassthroughAnalysis = {
   componentName: string;
   childTag: string;
   passthroughProps: string[];
+};
+type ImportBinding = {
+  importDecl: import('ts-morph').ImportDeclaration;
+  importedName: string;
+  isDefault: boolean;
 };
 
 /** Is this node a React component function? (Capitalized name + returns JSX) */
@@ -304,6 +311,93 @@ function findComponentFunctionByName(
   return undefined;
 }
 
+function isMemoCall(expr: Node | undefined): expr is CallExpression {
+  return Node.isCallExpression(expr) && ['memo', 'React.memo'].includes(expr.getExpression().getText());
+}
+
+function findVariableDeclarationByName(
+  sourceFile: import('ts-morph').SourceFile,
+  variableName: string,
+): VariableDeclaration | undefined {
+  for (const stmt of sourceFile.getVariableStatements()) {
+    for (const decl of stmt.getDeclarations()) {
+      if (decl.getName() === variableName) return decl;
+    }
+  }
+  return undefined;
+}
+
+function findImportBinding(ctx: RuleContext, localName: string): ImportBinding | undefined {
+  for (const decl of ctx.sourceFile.getImportDeclarations()) {
+    const defaultImport = decl.getDefaultImport();
+    if (defaultImport?.getText() === localName) {
+      return { importDecl: decl, importedName: 'default', isDefault: true };
+    }
+
+    for (const named of decl.getNamedImports()) {
+      const boundLocal = named.getAliasNode()?.getText() ?? named.getNameNode().getText();
+      if (boundLocal === localName) {
+        return { importDecl: decl, importedName: named.getNameNode().getText(), isDefault: false };
+      }
+    }
+  }
+  return undefined;
+}
+
+function findDefaultExportedComponentFunction(sourceFile: import('ts-morph').SourceFile): ComponentFn | undefined {
+  for (const fn of sourceFile.getFunctions()) {
+    const info = isComponentFunction(fn);
+    if (info.isComponent && fn.isDefaultExport()) return fn;
+  }
+
+  for (const assign of sourceFile.getExportAssignments()) {
+    const expr = assign.getExpression();
+    if (!expr) continue;
+
+    if (Node.isIdentifier(expr)) {
+      const resolved = findComponentFunctionByName(sourceFile, expr.getText());
+      if (resolved) return resolved;
+    }
+
+    if (isMemoCall(expr)) {
+      const firstArg = expr.getArguments()[0];
+      if (firstArg && (Node.isArrowFunction(firstArg) || Node.isFunctionExpression(firstArg))) {
+        const info = isComponentFunction(firstArg);
+        if (info.isComponent) return firstArg;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function findImportedComponentFunction(
+  sourceFile: import('ts-morph').SourceFile,
+  binding: ImportBinding,
+): ComponentFn | undefined {
+  return binding.isDefault
+    ? findDefaultExportedComponentFunction(sourceFile)
+    : findComponentFunctionByName(sourceFile, binding.importedName);
+}
+
+function isMemoizedExport(sourceFile: import('ts-morph').SourceFile, binding: ImportBinding): boolean {
+  if (binding.isDefault) {
+    for (const assign of sourceFile.getExportAssignments()) {
+      const expr = assign.getExpression();
+      if (!expr) continue;
+      if (isMemoCall(expr)) return true;
+      if (Node.isIdentifier(expr)) {
+        const decl = findVariableDeclarationByName(sourceFile, expr.getText());
+        if (decl && isMemoCall(decl.getInitializer())) return true;
+      }
+    }
+    return false;
+  }
+
+  const decl = findVariableDeclarationByName(sourceFile, binding.importedName);
+  return !!decl && isMemoCall(decl.getInitializer());
+}
+
 function resolveImportedSourceFile(
   ctx: RuleContext,
   importDecl: import('ts-morph').ImportDeclaration,
@@ -381,15 +475,13 @@ function propDrillChain(ctx: RuleContext): ReviewFinding[] {
     const localAnalysis = analyzePassthroughComponent(fn);
     if (!localAnalysis) continue;
 
-    const importDecl = ctx.sourceFile
-      .getImportDeclarations()
-      .find((decl) => decl.getNamedImports().some((ni) => ni.getNameNode().getText() === localAnalysis.childTag));
-    if (!importDecl) continue;
+    const binding = findImportBinding(ctx, localAnalysis.childTag);
+    if (!binding) continue;
 
-    const importedSf = resolveImportedSourceFile(ctx, importDecl);
+    const importedSf = resolveImportedSourceFile(ctx, binding.importDecl);
     if (!importedSf) continue;
 
-    const importedFn = findComponentFunctionByName(importedSf, localAnalysis.childTag);
+    const importedFn = findImportedComponentFunction(importedSf, binding);
     if (!importedFn) continue;
 
     const importedAnalysis = analyzePassthroughComponent(importedFn);
@@ -425,10 +517,7 @@ function propDrillChain(ctx: RuleContext): ReviewFinding[] {
 function collectMemoizedComponentNames(ctx: RuleContext): Set<string> {
   const names = new Set<string>();
   for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
-    const init = decl.getInitializer();
-    if (!init || !Node.isCallExpression(init)) continue;
-    const calleeText = init.getExpression().getText();
-    if (calleeText !== 'memo' && calleeText !== 'React.memo') continue;
+    if (!isMemoCall(decl.getInitializer())) continue;
     const nameNode = decl.getNameNode();
     if (Node.isIdentifier(nameNode) && /^[A-Z]/.test(nameNode.getText())) {
       names.add(nameNode.getText());
@@ -440,7 +529,7 @@ function collectMemoizedComponentNames(ctx: RuleContext): Set<string> {
 function memoizedChildInlineProp(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   const memoizedNames = collectMemoizedComponentNames(ctx);
-  if (memoizedNames.size === 0) return findings;
+  const memoizedImportCache = new Map<string, boolean>();
 
   for (const fn of iterComponentFunctions(ctx)) {
     const body = fn.getBody();
@@ -453,7 +542,16 @@ function memoizedChildInlineProp(ctx: RuleContext): ReviewFinding[] {
 
     for (const jsx of jsxNodes) {
       const tag = jsx.getTagNameNode().getText();
-      if (!memoizedNames.has(tag)) continue;
+      let isMemoizedChild = memoizedNames.has(tag);
+      if (!isMemoizedChild) {
+        if (!memoizedImportCache.has(tag)) {
+          const binding = findImportBinding(ctx, tag);
+          const importedSf = binding ? resolveImportedSourceFile(ctx, binding.importDecl) : undefined;
+          memoizedImportCache.set(tag, !!(binding && importedSf && isMemoizedExport(importedSf, binding)));
+        }
+        isMemoizedChild = memoizedImportCache.get(tag) ?? false;
+      }
+      if (!isMemoizedChild) continue;
 
       const unstableProps: string[] = [];
       for (const attr of jsx.getAttributes()) {
@@ -503,7 +601,7 @@ function memoizedChildInlineProp(ctx: RuleContext): ReviewFinding[] {
 function memoizedChildInlineChildren(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   const memoizedNames = collectMemoizedComponentNames(ctx);
-  if (memoizedNames.size === 0) return findings;
+  const memoizedImportCache = new Map<string, boolean>();
 
   for (const fn of iterComponentFunctions(ctx)) {
     const body = fn.getBody();
@@ -512,7 +610,16 @@ function memoizedChildInlineChildren(ctx: RuleContext): ReviewFinding[] {
     for (const jsx of body.getDescendantsOfKind(SyntaxKind.JsxElement)) {
       const opening = jsx.getOpeningElement();
       const tag = opening.getTagNameNode().getText();
-      if (!memoizedNames.has(tag)) continue;
+      let isMemoizedChild = memoizedNames.has(tag);
+      if (!isMemoizedChild) {
+        if (!memoizedImportCache.has(tag)) {
+          const binding = findImportBinding(ctx, tag);
+          const importedSf = binding ? resolveImportedSourceFile(ctx, binding.importDecl) : undefined;
+          memoizedImportCache.set(tag, !!(binding && importedSf && isMemoizedExport(importedSf, binding)));
+        }
+        isMemoizedChild = memoizedImportCache.get(tag) ?? false;
+      }
+      if (!isMemoizedChild) continue;
 
       const unstableChildren = jsx.getJsxChildren().filter(
         (child) =>
