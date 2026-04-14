@@ -106,7 +106,7 @@ function pyType(kernType: string): string {
 }
 
 const CONTENT_PARAMS = /^(content|code|body|data|payload|text|source|script|html|markdown|template)$/i;
-const PATH_PARAMS = /(?:^|[_A-Z])(?:path|file|dir(?:ectory)?|root|workspace)(?:$|[_A-Z])/i;
+const _PATH_PARAMS = /(?:^|[_A-Z])(?:path|file|dir(?:ectory)?|root|workspace)(?:$|[_A-Z])/i;
 
 function isContentParam(name: string): boolean {
   return CONTENT_PARAMS.test(name);
