@@ -169,6 +169,8 @@ export interface ReviewReport {
   templateMatches: TemplateMatch[];
   /** All findings from every review layer (unified) */
   findings: ReviewFinding[];
+  /** Findings removed by inline/config suppression, preserved for SARIF and audit output */
+  suppressedFindings?: ReviewFinding[];
   /** Summary stats */
   stats: ReviewStats;
   /** Cross-file taint results (present when graph-aware review detects cross-module taint) */

@@ -379,6 +379,16 @@ export function formatReportJSON(report: ReviewReport, options?: { includeLLMPro
 // ── SARIF Format ─────────────────────────────────────────────────────────
 
 export function formatSARIF(reports: ReviewReport[]): string {
+  return formatSARIFWithMetadata(reports);
+}
+
+export interface SARIFMetadataOptions {
+  suppressedFindings?: ReviewFinding[];
+  getBaselineStatus?: (report: ReviewReport, finding: ReviewFinding) => 'new' | 'existing' | undefined;
+}
+
+export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFMetadataOptions = {}): string {
+  const { suppressedFindings, getBaselineStatus } = options;
   const sarif = {
     $schema: 'https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0-rtm.5.json',
     version: '2.1.0',
@@ -397,45 +407,89 @@ export function formatSARIF(reports: ReviewReport[]): string {
   };
 
   const rules = new Set<string>();
+  const suppressedSet = new Set(suppressedFindings?.map((f) => `${f.primarySpan.file}:${f.fingerprint}`) ?? []);
 
-  for (const report of reports) {
-    for (const f of report.findings) {
-      if (!rules.has(f.ruleId)) {
-        rules.add(f.ruleId);
-        sarif.runs[0].tool.driver.rules.push({
-          id: f.ruleId,
-          shortDescription: { text: f.ruleId },
-          helpUri: `https://github.com/kern-lang/kern-lang/blob/main/docs/rules.md#${f.ruleId}`,
-        });
-      }
+  function pushResult(
+    finding: ReviewFinding,
+    report: ReviewReport | undefined,
+    overrides: { isSuppressedInSource?: boolean } = {},
+  ): void {
+    if (!rules.has(finding.ruleId)) {
+      rules.add(finding.ruleId);
+      sarif.runs[0].tool.driver.rules.push({
+        id: finding.ruleId,
+        shortDescription: { text: finding.ruleId },
+        helpUri: `https://github.com/kern-lang/kern-lang/blob/main/docs/rules.md#${finding.ruleId}`,
+      });
+    }
 
-      const sarifLevel = f.severity === 'error' ? 'error' : f.severity === 'warning' ? 'warning' : 'note';
+    const sarifLevel =
+      finding.severity === 'error' ? 'error' : finding.severity === 'warning' ? 'warning' : 'note';
+    const baselineStatus = report ? getBaselineStatus?.(report, finding) : undefined;
+    const properties: Record<string, unknown> = {};
 
-      const result: Record<string, unknown> = {
-        ruleId: f.ruleId,
-        level: sarifLevel,
-        message: { text: f.message },
-        locations: [
-          {
-            physicalLocation: {
-              artifactLocation: { uri: f.primarySpan.file },
-              region: {
-                startLine: f.primarySpan.startLine,
-                startColumn: f.primarySpan.startCol,
-                endLine: f.primarySpan.endLine,
-                endColumn: f.primarySpan.endCol,
-              },
+    const result: Record<string, unknown> = {
+      ruleId: finding.ruleId,
+      level: sarifLevel,
+      message: { text: finding.message },
+      locations: [
+        {
+          physicalLocation: {
+            artifactLocation: { uri: finding.primarySpan.file },
+            region: {
+              startLine: finding.primarySpan.startLine,
+              startColumn: finding.primarySpan.startCol,
+              endLine: finding.primarySpan.endLine,
+              endColumn: finding.primarySpan.endCol,
             },
           },
-        ],
-      };
-      // SARIF result.rank is 0.0–100.0 per spec; kern/confidence stays 0–1
-      if (f.confidence !== undefined) {
-        result.rank = f.confidence * 100;
-        result.properties = { 'kern/confidence': f.confidence };
-      }
-      sarif.runs[0].results.push(result);
+        },
+      ],
+    };
+
+    // SARIF result.rank is 0.0–100.0 per spec; kern/confidence stays 0–1
+    if (finding.confidence !== undefined) {
+      result.rank = finding.confidence * 100;
+      properties['kern/confidence'] = finding.confidence;
     }
+    if (baselineStatus) {
+      properties['kern/baselineStatus'] = baselineStatus;
+    }
+    if (Object.keys(properties).length > 0) {
+      result.properties = properties;
+    }
+
+    const suppressions: Array<{ kind: string; justification: string }> = [];
+    if (overrides.isSuppressedInSource || suppressedSet.has(`${finding.primarySpan.file}:${finding.fingerprint}`)) {
+      suppressions.push({
+        kind: 'inSource',
+        justification: 'kern-ignore directive',
+      });
+    }
+    if (baselineStatus === 'existing') {
+      suppressions.push({
+        kind: 'external',
+        justification: 'Present in review baseline',
+      });
+    }
+    if (suppressions.length > 0) {
+      result.suppressions = suppressions;
+    }
+
+    sarif.runs[0].results.push(result);
+  }
+
+  for (const report of reports) {
+    for (const finding of report.findings) {
+      pushResult(finding, report);
+    }
+    for (const finding of report.suppressedFindings ?? []) {
+      pushResult(finding, report, { isSuppressedInSource: true });
+    }
+  }
+
+  for (const finding of suppressedFindings ?? []) {
+    pushResult(finding, undefined, { isSuppressedInSource: true });
   }
 
   return JSON.stringify(sarif, null, 2);
@@ -446,77 +500,7 @@ export function formatSARIF(reports: ReviewReport[]): string {
  * Suppressed findings appear with a `suppressions` array per SARIF v2.1.0 section 3.35.
  */
 export function formatSARIFWithSuppressions(reports: ReviewReport[], suppressedFindings?: ReviewFinding[]): string {
-  const sarif = {
-    $schema: 'https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0-rtm.5.json',
-    version: '2.1.0',
-    runs: [
-      {
-        tool: {
-          driver: {
-            name: '@kernlang/review',
-            version: '2.0.0',
-            rules: [] as any[],
-          },
-        },
-        results: [] as any[],
-      },
-    ],
-  };
-
-  const rules = new Set<string>();
-  // Include file path in suppression key to avoid cross-file fingerprint collisions
-  const suppressedSet = new Set(suppressedFindings?.map((f) => `${f.primarySpan.file}:${f.fingerprint}`) ?? []);
-  const allFindings = [...reports.flatMap((r) => r.findings), ...(suppressedFindings ?? [])];
-
-  for (const f of allFindings) {
-    if (!rules.has(f.ruleId)) {
-      rules.add(f.ruleId);
-      sarif.runs[0].tool.driver.rules.push({
-        id: f.ruleId,
-        shortDescription: { text: f.ruleId },
-        helpUri: `https://github.com/kern-lang/kern-lang/blob/main/docs/rules.md#${f.ruleId}`,
-      });
-    }
-
-    const sarifLevel = f.severity === 'error' ? 'error' : f.severity === 'warning' ? 'warning' : 'note';
-
-    const result: Record<string, unknown> = {
-      ruleId: f.ruleId,
-      level: sarifLevel,
-      message: { text: f.message },
-      locations: [
-        {
-          physicalLocation: {
-            artifactLocation: { uri: f.primarySpan.file },
-            region: {
-              startLine: f.primarySpan.startLine,
-              startColumn: f.primarySpan.startCol,
-              endLine: f.primarySpan.endLine,
-              endColumn: f.primarySpan.endCol,
-            },
-          },
-        },
-      ],
-    };
-
-    if (f.confidence !== undefined) {
-      result.rank = f.confidence * 100;
-      result.properties = { 'kern/confidence': f.confidence };
-    }
-
-    if (suppressedSet.has(`${f.primarySpan.file}:${f.fingerprint}`)) {
-      result.suppressions = [
-        {
-          kind: 'inSource',
-          justification: `kern-ignore directive`,
-        },
-      ];
-    }
-
-    sarif.runs[0].results.push(result);
-  }
-
-  return JSON.stringify(sarif, null, 2);
+  return formatSARIFWithMetadata(reports, { suppressedFindings });
 }
 
 // ── Multi-file Summary ───────────────────────────────────────────────────

@@ -46,6 +46,8 @@ const CLIENT_EVENT_HANDLERS = new Set([
 ]);
 
 const BROWSER_GLOBALS = /\b(window|document|localStorage|sessionStorage|navigator|history|location)\b/;
+const BROWSER_GLOBAL_NAMES = ['window', 'document', 'localStorage', 'sessionStorage', 'navigator', 'history', 'location'];
+const ACTION_STATE_HOOKS = new Set(['useActionState']);
 
 function hasClientDirective(fullText: string): boolean {
   return /^['"]use client['"];?\s*$/m.test(fullText.substring(0, 200));
@@ -78,6 +80,10 @@ function fileUsesClientApi(ctx: RuleContext): boolean {
   }
 
   return false;
+}
+
+function isClientBoundary(ctx: RuleContext, fullText: string): boolean {
+  return hasClientDirective(fullText) || ctx.fileContext?.isClientBoundary === true || ctx.fileContext?.boundary === 'client';
 }
 
 // ── Rule: use-client-drilled-too-high ────────────────────────────────────
@@ -145,7 +151,7 @@ function serverApiInClient(ctx: RuleContext): ReviewFinding[] {
   if (ctx.fileRole !== 'runtime') return [];
 
   const fullText = ctx.sourceFile.getFullText();
-  const isClient = hasClientDirective(fullText) || ctx.fileContext?.isClientBoundary === true;
+  const isClient = isClientBoundary(ctx, fullText);
   if (!isClient) return [];
 
   const findings: ReviewFinding[] = [];
@@ -198,6 +204,172 @@ function serverApiInClient(ctx: RuleContext): ReviewFinding[] {
         call.getStartLineNumber(),
         1,
         { suggestion: `Call '${name}()' in a Server Component or server action, then pass the result as a prop` },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: browser-api-in-server ──────────────────────────────────────────
+// Browser globals used directly in a Server Component / server boundary.
+
+function browserApiInServer(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+
+  const fullText = ctx.sourceFile.getFullText();
+  if (isClientBoundary(ctx, fullText)) return [];
+  if (!BROWSER_GLOBALS.test(fullText)) return [];
+
+  const safeRanges: Array<[number, number]> = [];
+  const guardRegex =
+    /typeof\s+(window|document|localStorage|sessionStorage|navigator|history|location)\s*!==?\s*['"]undefined['"]/g;
+  let guardMatch: RegExpExecArray | null;
+  while ((guardMatch = guardRegex.exec(fullText)) !== null) {
+    const ifStart = fullText.lastIndexOf('if', guardMatch.index);
+    if (ifStart === -1) continue;
+
+    let depth = 0;
+    let blockStart = -1;
+    let blockEnd = -1;
+    for (let i = guardMatch.index; i < fullText.length; i++) {
+      if (fullText[i] === '{') {
+        if (depth === 0) blockStart = i;
+        depth++;
+      }
+      if (fullText[i] === '}') {
+        depth--;
+        if (depth === 0) {
+          blockEnd = i;
+          break;
+        }
+      }
+    }
+
+    if (blockStart !== -1 && blockEnd !== -1) {
+      safeRanges.push([blockStart, blockEnd]);
+    }
+  }
+
+  const isInSafeRange = (idx: number) => safeRanges.some(([start, end]) => idx >= start && idx <= end);
+
+  const findings: ReviewFinding[] = [];
+  const reported = new Set<string>();
+  for (const globalName of BROWSER_GLOBAL_NAMES) {
+    const regex = new RegExp(`\\b${globalName}\\b(?!\\s*(?:!==?|===?)\\s*['"]?undefined)`, 'g');
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(fullText)) !== null) {
+      if (isInSafeRange(match.index)) continue;
+
+      const line = fullText.substring(0, match.index).split('\n').length;
+      const lineText = fullText.split('\n')[line - 1] || '';
+      if (lineText.trim().startsWith('//') || lineText.trim().startsWith('*')) continue;
+      if (lineText.includes('typeof')) continue;
+      if (reported.has(globalName)) continue;
+      reported.add(globalName);
+
+      findings.push(
+        finding(
+          'browser-api-in-server',
+          'error',
+          'bug',
+          `'${globalName}' is used in a Server Component/server boundary — browser APIs require 'use client' or a Client Component`,
+          ctx.filePath,
+          line,
+          1,
+          {
+            suggestion:
+              "Move this logic into a Client Component, or pass a server-safe value down as a prop instead of reading browser globals here",
+          },
+        ),
+      );
+    }
+  }
+
+  return findings;
+}
+
+// ── Rule: use-action-state-missing-pending ───────────────────────────────
+// useActionState bound to form action but pending tuple value is not captured.
+
+function useActionStateMissingPending(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+
+  const fullText = ctx.sourceFile.getFullText();
+  if (!isClientBoundary(ctx, fullText)) return [];
+
+  const reactImports = ctx.sourceFile.getImportDeclarations().filter((decl) => decl.getModuleSpecifierValue() === 'react');
+  if (reactImports.length === 0) return [];
+
+  const importedHookNames = new Set<string>();
+  const namespaceImports = new Set<string>();
+  for (const decl of reactImports) {
+    for (const named of decl.getNamedImports()) {
+      if (ACTION_STATE_HOOKS.has(named.getName())) {
+        importedHookNames.add(named.getAliasNode()?.getText() ?? named.getName());
+      }
+    }
+    const namespace = decl.getNamespaceImport();
+    if (namespace) namespaceImports.add(namespace.getText());
+  }
+
+  if (importedHookNames.size === 0 && namespaceImports.size === 0) return [];
+
+  const findings: ReviewFinding[] = [];
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = decl.getNameNode();
+    const init = decl.getInitializer();
+    if (!Node.isArrayBindingPattern(nameNode) || !init || !Node.isCallExpression(init)) continue;
+
+    const expr = init.getExpression();
+    let isActionStateCall = false;
+    if (Node.isIdentifier(expr)) {
+      isActionStateCall = importedHookNames.has(expr.getText());
+    } else if (Node.isPropertyAccessExpression(expr)) {
+      isActionStateCall = namespaceImports.has(expr.getExpression().getText()) && ACTION_STATE_HOOKS.has(expr.getName());
+    }
+    if (!isActionStateCall) continue;
+
+    const elements = nameNode.getElements();
+    if (elements.length < 2) continue;
+
+    const actionElement = elements[1];
+    if (!Node.isBindingElement(actionElement)) continue;
+    const actionNameNode = actionElement.getNameNode();
+    if (!Node.isIdentifier(actionNameNode)) continue;
+    const actionName = actionNameNode.getText();
+
+    const pendingElement = elements[2];
+    const hasPendingBinding =
+      pendingElement !== undefined &&
+      Node.isBindingElement(pendingElement) &&
+      Node.isIdentifier(pendingElement.getNameNode()) &&
+      pendingElement.getNameNode().getText().trim().length > 0;
+    if (hasPendingBinding) continue;
+
+    const isActionBoundInJsx = ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxAttribute).some((attr) => {
+      const attrName = attr.getNameNode().getText();
+      if (attrName !== 'action' && attrName !== 'formAction') return false;
+      const initNode = attr.getInitializer();
+      if (!initNode || !Node.isJsxExpression(initNode)) return false;
+      const expression = initNode.getExpression();
+      return expression?.getText() === actionName;
+    });
+    if (!isActionBoundInJsx) continue;
+
+    findings.push(
+      finding(
+        'use-action-state-missing-pending',
+        'warning',
+        'pattern',
+        `useActionState is bound to '${actionName}' without capturing the pending tuple value — server action submits have no in-flight UI state`,
+        ctx.filePath,
+        decl.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            "Capture the third tuple value from useActionState, e.g. const [state, formAction, pending] = useActionState(...), then disable the submit button or show loading UI while pending",
+        },
       ),
     );
   }
@@ -351,4 +523,10 @@ function serverActionUnvalidatedInput(ctx: RuleContext): ReviewFinding[] {
 
 // ── Exported App Router Rules ────────────────────────────────────────────
 
-export const nextjsAppRouterRules = [useClientDrilledTooHigh, serverApiInClient, serverActionUnvalidatedInput];
+export const nextjsAppRouterRules = [
+  useClientDrilledTooHigh,
+  serverApiInClient,
+  browserApiInServer,
+  useActionStateMissingPending,
+  serverActionUnvalidatedInput,
+];

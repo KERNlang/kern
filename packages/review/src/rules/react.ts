@@ -21,6 +21,42 @@ function isReactFile(ctx: RuleContext): boolean {
   return false;
 }
 
+function unwrapJsxExpression(node: Node): Node {
+  let current = node;
+  while (
+    Node.isParenthesizedExpression(current) ||
+    Node.isAsExpression(current) ||
+    Node.isTypeAssertion(current) ||
+    Node.isNonNullExpression(current) ||
+    Node.isSatisfiesExpression(current)
+  ) {
+    current = current.getExpression();
+  }
+  return current;
+}
+
+function getMapCallbackRootJsx(
+  callback: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+): import('ts-morph').JsxElement | import('ts-morph').JsxSelfClosingElement | import('ts-morph').JsxFragment | undefined {
+  const body = callback.getBody();
+  if (Node.isBlock(body)) {
+    const returnStmt = body.getStatements().find((stmt) => Node.isReturnStatement(stmt));
+    const expr = returnStmt?.getExpression();
+    if (!expr) return undefined;
+    const unwrapped = unwrapJsxExpression(expr);
+    if (Node.isJsxElement(unwrapped) || Node.isJsxSelfClosingElement(unwrapped) || Node.isJsxFragment(unwrapped)) {
+      return unwrapped;
+    }
+    return undefined;
+  }
+
+  const unwrapped = unwrapJsxExpression(body);
+  if (Node.isJsxElement(unwrapped) || Node.isJsxSelfClosingElement(unwrapped) || Node.isJsxFragment(unwrapped)) {
+    return unwrapped;
+  }
+  return undefined;
+}
+
 // ── Rule 11: async-effect ────────────────────────────────────────────────
 // useEffect(async () => ...) — React doesn't support async effect callbacks
 
@@ -146,6 +182,38 @@ function renderSideEffect(ctx: RuleContext): ReviewFinding[] {
 // ── Rule 13: unstable-key ────────────────────────────────────────────────
 // Missing key or key={index} in .map() JSX expressions
 
+function mappedFragmentKey(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee) || callee.getName() !== 'map') continue;
+
+    const args = call.getArguments();
+    if (args.length === 0) continue;
+    const callback = args[0];
+    if (!Node.isArrowFunction(callback) && !Node.isFunctionExpression(callback)) continue;
+
+    const rootJsx = getMapCallbackRootJsx(callback);
+    if (!rootJsx || !Node.isJsxFragment(rootJsx)) continue;
+
+    findings.push(
+      finding(
+        'mapped-fragment-key',
+        'warning',
+        'bug',
+        'JSX fragment returned from .map() cannot carry a key — use <Fragment key={...}> or a keyed element',
+        ctx.filePath,
+        rootJsx.getStartLineNumber(),
+        1,
+        { suggestion: 'Replace <>...</> with <Fragment key={item.id}>...</Fragment> or wrap in a keyed element' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 function unstableKey(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
@@ -161,8 +229,7 @@ function unstableKey(ctx: RuleContext): ReviewFinding[] {
     const args = call.getArguments();
     if (args.length === 0) continue;
     const callback = args[0];
-    if (callback.getKind() !== SyntaxKind.ArrowFunction && callback.getKind() !== SyntaxKind.FunctionExpression)
-      continue;
+    if (!Node.isArrowFunction(callback) && !Node.isFunctionExpression(callback)) continue;
 
     // Get the index parameter (second param of the callback)
     const params =
@@ -171,23 +238,16 @@ function unstableKey(ctx: RuleContext): ReviewFinding[] {
         : (callback as import('ts-morph').FunctionExpression).getParameters();
     const indexParam = params.length >= 2 ? params[1].getName() : null;
 
-    // Walk callback descendants for JSX elements
-    const jsxElements = [
-      ...callback.getDescendantsOfKind(SyntaxKind.JsxOpeningElement),
-      ...callback.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement),
-    ];
-
-    if (jsxElements.length === 0) continue; // No JSX → skip (fixes non-JSX .map() FP)
-
-    // Check the FIRST (root) JSX element for key prop
-    const firstJsx = jsxElements.sort((a, b) => a.getStart() - b.getStart())[0];
+    const rootJsx = getMapCallbackRootJsx(callback);
+    if (!rootJsx) continue; // No JSX → skip (fixes non-JSX .map() FP)
+    if (Node.isJsxFragment(rootJsx)) continue; // handled by mapped-fragment-key
     const line = call.getStartLineNumber();
 
     // Get attributes from the first JSX element
     const attributes =
-      firstJsx.getKind() === SyntaxKind.JsxSelfClosingElement
-        ? (firstJsx as import('ts-morph').JsxSelfClosingElement).getAttributes()
-        : (firstJsx as import('ts-morph').JsxOpeningElement).getAttributes();
+      rootJsx.getKind() === SyntaxKind.JsxSelfClosingElement
+        ? (rootJsx as import('ts-morph').JsxSelfClosingElement).getAttributes()
+        : (rootJsx as import('ts-morph').JsxElement).getOpeningElement().getAttributes();
 
     let hasKey = false;
     let usesIndexKey = false;
@@ -854,6 +914,7 @@ function reducerMutation(ctx: RuleContext): ReviewFinding[] {
 export const reactRules = [
   asyncEffect,
   renderSideEffect,
+  mappedFragmentKey,
   unstableKey,
   staleClosure,
   stateExplosion,

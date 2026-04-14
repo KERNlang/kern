@@ -262,6 +262,34 @@ export function List({ items }: { items: string[] }) {
     });
   });
 
+  describe('mapped-fragment-key', () => {
+    it('detects fragment shorthand returned from .map()', () => {
+      const source = `
+export function List({ items }: { items: { id: string; name: string }[] }) {
+  return <ul>{items.map(item => <><li>{item.name}</li></>)}</ul>;
+}
+`;
+      const report = reviewSource(source, 'list.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'mapped-fragment-key');
+      expect(finding).toBeDefined();
+      expect(finding!.message).toContain('cannot carry a key');
+      expect(report.findings.find((f) => f.ruleId === 'unstable-key')).toBeUndefined();
+    });
+
+    it('does not flag keyed Fragment in .map()', () => {
+      const source = `
+import { Fragment } from 'react';
+export function List({ items }: { items: { id: string; name: string }[] }) {
+  return <ul>{items.map(item => <Fragment key={item.id}><li>{item.name}</li></Fragment>)}</ul>;
+}
+`;
+      const report = reviewSource(source, 'list.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'mapped-fragment-key');
+      expect(finding).toBeUndefined();
+      expect(report.findings.find((f) => f.ruleId === 'unstable-key')).toBeUndefined();
+    });
+  });
+
   // ── stale-closure ──
 
   describe('stale-closure', () => {
@@ -1191,6 +1219,52 @@ export default function ClientPage() {
 `;
       const report = reviewSource(source, 'page.tsx', nextjsConfig);
       const finding = report.findings.find((f) => f.ruleId === 'server-hook');
+      expect(finding).toBeUndefined();
+    });
+  });
+
+  // ── next-client-api-in-server ──
+
+  describe('next-client-api-in-server', () => {
+    it('detects useRouter in server component', () => {
+      const source = `
+import { useRouter } from 'next/navigation';
+export default function Page() {
+  const router = useRouter();
+  return <button onClick={() => router.push('/x')}>Go</button>;
+}
+`;
+      const report = reviewSource(source, 'page.tsx', nextjsConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'next-client-api-in-server');
+      expect(finding).toBeDefined();
+      expect(finding!.message).toContain('useRouter');
+    });
+
+    it('detects useSearchParams via namespace import in server component', () => {
+      const source = `
+import * as navigation from 'next/navigation';
+export default function Page() {
+  const params = navigation.useSearchParams();
+  return <div>{params.get('q')}</div>;
+}
+`;
+      const report = reviewSource(source, 'page.tsx', nextjsConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'next-client-api-in-server');
+      expect(finding).toBeDefined();
+      expect(finding!.message).toContain('useSearchParams');
+    });
+
+    it('does not flag client component with use client', () => {
+      const source = `
+'use client';
+import { usePathname } from 'next/navigation';
+export default function ClientPage() {
+  const pathname = usePathname();
+  return <div>{pathname}</div>;
+}
+`;
+      const report = reviewSource(source, 'page.tsx', nextjsConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'next-client-api-in-server');
       expect(finding).toBeUndefined();
     });
   });

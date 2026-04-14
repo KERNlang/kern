@@ -2,13 +2,19 @@
  * Cross-file confidence graph tests (Plan 2)
  */
 
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { join } from 'path';
 import type { IRNode } from '@kernlang/core';
+import { tmpdir } from 'os';
 import { buildConfidenceGraph, buildMultiFileConfidenceGraph } from '../src/confidence.js';
+import { reviewGraph } from '../src/index.js';
 import { lintMultiFileConfidenceGraph } from '../src/rules/confidence.js';
 
 function makeNode(type: string, props: Record<string, unknown> = {}, children: IRNode[] = [], line = 0): IRNode {
   return { type, props, children, loc: { line, col: 1 } };
 }
+
+const TMP = join(tmpdir(), 'kern-review-confidence-tests');
 
 describe('Cross-file confidence: buildMultiFileConfidenceGraph', () => {
   it('resolves from: across files', () => {
@@ -103,5 +109,25 @@ describe('Cross-file confidence: regression', () => {
     expect(graph.nodes.get('a')!.resolved).toBe(0.7);
     expect(graph.nodes.get('b')!.resolved).toBe(0.7);
     expect(graph.nodes.get('a')!.sourceFile).toBeUndefined();
+  });
+});
+
+describe('Cross-file confidence: reviewGraph integration', () => {
+  it('attaches duplicate-name findings to each .kern report', () => {
+    const dir = join(TMP, 'duplicate-name-review-graph');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+
+    const aFile = join(dir, 'a.kern');
+    const bFile = join(dir, 'b.kern');
+    writeFileSync(aFile, `derive name=shared confidence=0.7`);
+    writeFileSync(bFile, `derive name=shared confidence=0.9`);
+
+    const reports = reviewGraph([aFile, bFile], { noCache: true });
+    const aReport = reports.find((r) => r.filePath === aFile);
+    const bReport = reports.find((r) => r.filePath === bFile);
+
+    expect(aReport?.findings.some((f) => f.ruleId === 'confidence-duplicate-name')).toBe(true);
+    expect(bReport?.findings.some((f) => f.ruleId === 'confidence-duplicate-name')).toBe(true);
   });
 });

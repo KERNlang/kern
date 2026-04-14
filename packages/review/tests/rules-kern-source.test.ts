@@ -1,4 +1,9 @@
-import { reviewKernSource } from '../src/index.js';
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { reviewGraph, reviewKernSource } from '../src/index.js';
+
+const TMP = join(tmpdir(), 'kern-review-kern-source-tests');
 
 describe('.kern source rules', () => {
   it('reports undefined references from handler scope', () => {
@@ -234,5 +239,45 @@ fn name=loadUser confidence=0.7 params="id:string" returns=unknown
 `;
     const annotatedReport = reviewKernSource(annotatedSource, 'confidence-present.kern');
     expect(annotatedReport.findings.some((f) => f.ruleId === 'missing-confidence')).toBe(false);
+  });
+
+  it('reports duplicate top-level symbols across .kern files in graph review', () => {
+    const dir = join(TMP, 'duplicate-symbols');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+
+    const aFile = join(dir, 'a.kern');
+    const bFile = join(dir, 'b.kern');
+    writeFileSync(
+      aFile,
+      `
+fn name=loadUser returns=string
+  handler <<<
+    return "a";
+  >>>
+`,
+    );
+    writeFileSync(
+      bFile,
+      `
+fn name=loadUser returns=string
+  handler <<<
+    return "b";
+  >>>
+`,
+    );
+
+    const reports = reviewGraph([aFile, bFile], { noCache: true });
+    const aReport = reports.find((r) => r.filePath === aFile);
+    const bReport = reports.find((r) => r.filePath === bFile);
+
+    const aFinding = aReport?.findings.find((f) => f.ruleId === 'kern-duplicate-symbol');
+    const bFinding = bReport?.findings.find((f) => f.ruleId === 'kern-duplicate-symbol');
+
+    expect(aFinding).toBeDefined();
+    expect(aFinding?.message).toContain("loadUser");
+    expect(aFinding?.relatedSpans?.some((span) => span.file === bFile)).toBe(true);
+    expect(bFinding).toBeDefined();
+    expect(bFinding?.relatedSpans?.some((span) => span.file === aFile)).toBe(true);
   });
 });
