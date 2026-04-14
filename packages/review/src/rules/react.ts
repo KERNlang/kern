@@ -765,6 +765,71 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
     return false;
   }
 
+  function getNearestNestedFunctionScope(
+    node: import('ts-morph').Node,
+  ): import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | import('ts-morph').FunctionDeclaration | undefined {
+    let cur = node.getParent();
+    while (cur) {
+      if (Node.isArrowFunction(cur) || Node.isFunctionExpression(cur) || Node.isFunctionDeclaration(cur)) {
+        const outer = cur.getFirstAncestor(
+          (ancestor) =>
+            Node.isArrowFunction(ancestor) || Node.isFunctionExpression(ancestor) || Node.isFunctionDeclaration(ancestor),
+        );
+        return outer ? cur : undefined;
+      }
+      cur = cur.getParent();
+    }
+    return undefined;
+  }
+
+  function getFunctionBindingName(
+    fn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | import('ts-morph').FunctionDeclaration,
+  ): import('ts-morph').Identifier | undefined {
+    if (Node.isFunctionDeclaration(fn)) {
+      const nameNode = fn.getNameNode();
+      return nameNode && Node.isIdentifier(nameNode) ? nameNode : undefined;
+    }
+
+    const parent = fn.getParent();
+    if (Node.isVariableDeclaration(parent)) {
+      const nameNode = parent.getNameNode();
+      return Node.isIdentifier(nameNode) ? nameNode : undefined;
+    }
+
+    return undefined;
+  }
+
+  function hasRenderTimeInvocation(
+    fn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | import('ts-morph').FunctionDeclaration,
+  ): boolean {
+    const binding = getFunctionBindingName(fn);
+    if (!binding) return true;
+
+    const declarations = binding.getSymbol()?.getDeclarations() ?? [];
+    if (declarations.length === 0) return true;
+
+    for (const candidate of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
+      if (candidate === binding) continue;
+      if (candidate.getText() !== binding.getText()) continue;
+      if (candidate.getStart() >= fn.getStart() && candidate.getEnd() <= fn.getEnd()) continue;
+
+      const candidateDeclarations = candidate.getSymbol()?.getDeclarations() ?? [];
+      if (!candidateDeclarations.some((decl) => declarations.includes(decl))) continue;
+
+      const parent = candidate.getParent();
+      const isDirectInvocation =
+        (Node.isCallExpression(parent) && parent.getExpression() === candidate) ||
+        (Node.isNewExpression(parent) && parent.getExpression() === candidate) ||
+        (Node.isTaggedTemplateExpression(parent) && parent.getTag() === candidate);
+
+      if (!isDirectInvocation) continue;
+      if (isInSafeScope(candidate)) continue;
+      return true;
+    }
+
+    return false;
+  }
+
   // Find .current access on ref variables
   for (const prop of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
     if (prop.getName() !== 'current') continue;
@@ -788,6 +853,11 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
         continue;
       }
     }
+
+    // Writes inside nested local callbacks are not render-time unless the
+    // callback is actually invoked during render.
+    const nestedFunctionScope = getNearestNestedFunctionScope(prop);
+    if (nestedFunctionScope && !hasRenderTimeInvocation(nestedFunctionScope)) continue;
 
     // Check if this is a read or write
     const parent = prop.getParent();

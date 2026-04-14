@@ -1011,6 +1011,47 @@ export function Component() {
       const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
       expect(finding).toBeUndefined();
     });
+
+    it('does not flag ref.current writes inside deferred local callbacks', () => {
+      const source = `
+import { useRef } from 'react';
+
+function Picker({ onSelect }: { onSelect: () => void }) {
+  return <button onClick={onSelect}>Pick</button>;
+}
+
+export function Component() {
+  const isManualStoreSelectionRef = useRef(false);
+  const handlePickupSelect = async (): Promise<void> => {
+    isManualStoreSelectionRef.current = true;
+  };
+
+  return <Picker onSelect={handlePickupSelect} />;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
+      expect(finding).toBeUndefined();
+    });
+
+    it('still flags nested local callbacks that are invoked during render', () => {
+      const source = `
+import { useRef } from 'react';
+
+export function Component() {
+  const myRef = useRef(0);
+  const writeRef = () => {
+    myRef.current = 123;
+  };
+  writeRef();
+  return <div>Hello</div>;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
+      expect(finding).toBeDefined();
+      expect(finding!.message).toContain('written');
+    });
   });
 
   // ── missing-memo-deps ──
