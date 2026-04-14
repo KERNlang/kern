@@ -7,6 +7,8 @@
  * of unchanged subtrees.
  */
 
+import { existsSync, readFileSync } from 'fs';
+import { dirname, resolve } from 'path';
 import type {
   ArrowFunction,
   FunctionDeclaration,
@@ -15,11 +17,17 @@ import type {
   JsxSelfClosingElement,
   ObjectBindingPattern,
 } from 'ts-morph';
-import { Node, SyntaxKind } from 'ts-morph';
+import { Node, Project, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
 import { finding, nodeSpan } from './utils.js';
 
 type ComponentFn = FunctionDeclaration | ArrowFunction | FunctionExpression;
+type PropBinding = { propName: string; localName: string };
+type PassthroughAnalysis = {
+  componentName: string;
+  childTag: string;
+  passthroughProps: string[];
+};
 
 /** Is this node a React component function? (Capitalized name + returns JSX) */
 function isComponentFunction(node: ComponentFn): { name: string; isComponent: boolean } {
@@ -48,19 +56,28 @@ function isComponentFunction(node: ComponentFn): { name: string; isComponent: bo
 }
 
 /** Extract destructured prop names from the first parameter of a component function. */
-function getDestructuredPropNames(fn: ComponentFn): string[] | undefined {
+function getDestructuredPropBindings(fn: ComponentFn): PropBinding[] | undefined {
   const params = fn.getParameters();
   if (params.length === 0) return undefined;
   const nameNode = params[0].getNameNode();
   if (!Node.isObjectBindingPattern(nameNode)) return undefined;
 
-  const names: string[] = [];
+  const bindings: PropBinding[] = [];
   for (const el of (nameNode as ObjectBindingPattern).getElements()) {
     // Use the property name if aliased, otherwise the binding name
     const propName = el.getPropertyNameNode()?.getText() ?? el.getNameNode().getText();
-    names.push(propName);
+    const localName = el.getNameNode().getText();
+    bindings.push({ propName, localName });
   }
-  return names;
+  return bindings;
+}
+
+function getPropsParamName(fn: ComponentFn): string | undefined {
+  const params = fn.getParameters();
+  if (params.length === 0) return undefined;
+  const nameNode = params[0].getNameNode();
+  if (Node.isIdentifier(nameNode)) return nameNode.getText();
+  return undefined;
 }
 
 function iterComponentFunctions(ctx: RuleContext): ComponentFn[] {
@@ -89,8 +106,8 @@ function childrenNotUsed(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
   for (const fn of iterComponentFunctions(ctx)) {
-    const propNames = getDestructuredPropNames(fn);
-    if (!propNames || !propNames.includes('children')) continue;
+    const propBindings = getDestructuredPropBindings(fn);
+    if (!propBindings?.some((p) => p.propName === 'children')) continue;
 
     const body = fn.getBody();
     if (!body) continue;
@@ -187,85 +204,354 @@ function getSingleReturnedJsx(fn: ComponentFn): (JsxOpeningElement | JsxSelfClos
   return undefined;
 }
 
+function analyzePassthroughComponent(fn: ComponentFn): PassthroughAnalysis | undefined {
+  const propBindings = getDestructuredPropBindings(fn) ?? [];
+  const propsParamName = getPropsParamName(fn);
+  if (propBindings.length === 0 && !propsParamName) return undefined;
+
+  const root = getSingleReturnedJsx(fn);
+  if (!root) return undefined;
+
+  const tag = root.getTagNameNode().getText();
+  if (!/^[A-Z]/.test(tag)) return undefined;
+
+  const bindingByLocal = new Map(propBindings.map((b) => [b.localName, b]));
+  const passedToChild = new Map<string, { attrExpr: import('ts-morph').Node; localName?: string }>();
+  for (const attr of root.getAttributes()) {
+    if (!Node.isJsxAttribute(attr)) continue;
+    const init = attr.getInitializer();
+    if (!init) continue;
+    if (!Node.isJsxExpression(init)) continue;
+    const expr = init.getExpression();
+    if (!expr) continue;
+
+    if (Node.isIdentifier(expr)) {
+      const binding = bindingByLocal.get(expr.getText());
+      if (binding) {
+        passedToChild.set(binding.propName, { attrExpr: expr, localName: binding.localName });
+      }
+      continue;
+    }
+
+    if (propsParamName && Node.isPropertyAccessExpression(expr)) {
+      const obj = expr.getExpression();
+      if (Node.isIdentifier(obj) && obj.getText() === propsParamName) {
+        passedToChild.set(expr.getName(), { attrExpr: expr });
+      }
+    }
+  }
+
+  if (passedToChild.size < 2) return undefined;
+
+  const body = fn.getBody();
+  if (!body) return undefined;
+
+  const consumedProps = new Set<string>();
+
+  for (const [propName, { attrExpr, localName }] of passedToChild) {
+    if (propName === 'children') continue;
+
+    if (localName) {
+      for (const id of body.getDescendantsOfKind(SyntaxKind.Identifier)) {
+        if (id.getText() !== localName) continue;
+        const parent = id.getParent();
+        if (parent && Node.isBindingElement(parent)) continue;
+        if (parent && Node.isJsxAttribute(parent) && parent.getNameNode() === id) continue;
+        if (id === attrExpr) continue;
+        consumedProps.add(propName);
+        break;
+      }
+    } else if (propsParamName) {
+      for (const access of body.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
+        if (access === attrExpr) continue;
+        const obj = access.getExpression();
+        if (Node.isIdentifier(obj) && obj.getText() === propsParamName && access.getName() === propName) {
+          consumedProps.add(propName);
+          break;
+        }
+      }
+    }
+  }
+
+  const passthroughProps = [...passedToChild.keys()].filter((p) => p !== 'children' && !consumedProps.has(p));
+  if (passthroughProps.length < 2) return undefined;
+
+  const info = isComponentFunction(fn);
+  return {
+    componentName: info.name,
+    childTag: tag,
+    passthroughProps,
+  };
+}
+
+function findComponentFunctionByName(
+  sourceFile: import('ts-morph').SourceFile,
+  componentName: string,
+): ComponentFn | undefined {
+  for (const fn of sourceFile.getFunctions()) {
+    const info = isComponentFunction(fn);
+    if (info.isComponent && info.name === componentName) return fn;
+  }
+  for (const stmt of sourceFile.getVariableStatements()) {
+    for (const decl of stmt.getDeclarations()) {
+      const init = decl.getInitializer();
+      if (!init) continue;
+      if (!Node.isArrowFunction(init) && !Node.isFunctionExpression(init)) continue;
+      const info = isComponentFunction(init);
+      if (info.isComponent && info.name === componentName) return init;
+    }
+  }
+  return undefined;
+}
+
+function resolveImportedSourceFile(
+  ctx: RuleContext,
+  importDecl: import('ts-morph').ImportDeclaration,
+): import('ts-morph').SourceFile | undefined {
+  const resolved = importDecl.getModuleSpecifierSourceFile();
+  if (resolved) return resolved;
+
+  const spec = importDecl.getModuleSpecifierValue();
+  if (!spec.startsWith('.')) return undefined;
+
+  const baseDir = dirname(ctx.filePath);
+  const candidates: string[] = [];
+  if (/\.[cm]?[jt]sx?$/.test(spec)) {
+    candidates.push(resolve(baseDir, spec));
+    if (spec.endsWith('.js')) {
+      candidates.push(resolve(baseDir, `${spec.slice(0, -3)}.ts`));
+      candidates.push(resolve(baseDir, `${spec.slice(0, -3)}.tsx`));
+    } else if (spec.endsWith('.jsx')) {
+      candidates.push(resolve(baseDir, `${spec.slice(0, -4)}.tsx`));
+    }
+  } else {
+    candidates.push(resolve(baseDir, `${spec}.ts`));
+    candidates.push(resolve(baseDir, `${spec}.tsx`));
+    candidates.push(resolve(baseDir, `${spec}/index.ts`));
+    candidates.push(resolve(baseDir, `${spec}/index.tsx`));
+  }
+
+  for (const candidate of candidates) {
+    if (!existsSync(candidate)) continue;
+    const auxProject = new Project({
+      useInMemoryFileSystem: true,
+      skipAddingFilesFromTsConfig: true,
+      compilerOptions: { target: 99, module: 99, moduleResolution: 100, jsx: 4 },
+    });
+    return auxProject.createSourceFile(candidate, readFileSync(candidate, 'utf-8'), { overwrite: true });
+  }
+
+  return undefined;
+}
+
 function propDrillPassthrough(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
   for (const fn of iterComponentFunctions(ctx)) {
-    const propNames = getDestructuredPropNames(fn);
-    if (!propNames || propNames.length < 3) continue;
-
-    const root = getSingleReturnedJsx(fn);
-    if (!root) continue;
-
-    // The root element must be a custom component (capitalized tag) to be a meaningful passthrough.
-    const tag = root.getTagNameNode().getText();
-    if (!/^[A-Z]/.test(tag)) continue;
-
-    // Collect prop names passed as shorthand attributes to the root child.
-    // Only count attributes where the passed identifier is actually one of
-    // THIS component's destructured props — local variables with matching
-    // names (e.g. `title={title}` where `title` is a local const) are not
-    // drilling.
-    const propSet = new Set(propNames);
-    const passedToChild = new Set<string>();
-    const passedWithShorthand = new Set<string>();
-    for (const attr of root.getAttributes()) {
-      if (!Node.isJsxAttribute(attr)) continue;
-      const attrName = attr.getNameNode().getText();
-      const init = attr.getInitializer();
-      if (!init) continue;
-      if (!Node.isJsxExpression(init)) continue;
-      const expr = init.getExpression();
-      if (!expr) continue;
-      if (Node.isIdentifier(expr) && expr.getText() === attrName && propSet.has(attrName)) {
-        // Classic shorthand of a destructured prop: <Child user={user} theme={theme} />
-        passedToChild.add(attrName);
-        passedWithShorthand.add(attrName);
-      }
-    }
-
-    // Count props read OUTSIDE of passing to the root child
-    const body = fn.getBody();
-    if (!body) continue;
-
-    const bodyText = body.getText();
-    // A prop is "consumed" if it appears somewhere other than as the RHS of an attribute
-    // of the single root child. We approximate: count total identifier refs in the body,
-    // and subtract the passthrough refs.
-    const consumedProps = new Set<string>();
-    for (const propName of propNames) {
-      if (propName === 'children') continue;
-      // Skip counting refs that are literally the attribute value of the root child.
-      // For a shorthand pass like `<Child user={user} />`, the identifier `user`
-      // appears TWICE in the body text: once as the attribute name and once as
-      // the value expression. Subtract 2 per shorthand to compensate.
-      const escaped = propName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const totalRefs = (bodyText.match(new RegExp(`\\b${escaped}\\b`, 'g')) ?? []).length;
-      const passthroughRefs = passedWithShorthand.has(propName) ? 2 : 0;
-      if (totalRefs - passthroughRefs > 0) {
-        consumedProps.add(propName);
-      }
-    }
-
-    const passthroughCount = [...passedToChild].filter((p) => !consumedProps.has(p)).length;
-    if (passthroughCount >= 2 && propNames.length >= 3) {
-      const info = isComponentFunction(fn);
+    const analysis = analyzePassthroughComponent(fn);
+    if (analysis) {
+      const passthroughCount = analysis.passthroughProps.length;
       findings.push(
         finding(
           'prop-drill-passthrough',
           'warning',
           'pattern',
-          `'${info.name}' passes ${passthroughCount} of ${propNames.length} props through to <${tag}> without reading them — consider 'children' prop or React context`,
+          `'${analysis.componentName}' passes ${passthroughCount} prop${passthroughCount === 1 ? '' : 's'} (${analysis.passthroughProps.join(', ')}) through to <${analysis.childTag}> without reading ${passthroughCount === 1 ? 'it' : 'them'} — consider 'children' prop or React context`,
           ctx.filePath,
           fn.getStartLineNumber(),
           1,
           {
-            suggestion: `Accept <${tag} .../> as the 'children' prop, or move the shared data into a React context. Passing props through an intermediate component forces it to re-render whenever any of them change.`,
+            suggestion: `Accept <${analysis.childTag} .../> as the 'children' prop, or move the shared data into a React context. Passing props through an intermediate component forces it to re-render whenever any of them change.`,
           },
         ),
       );
     }
   }
+  return findings;
+}
+
+// ── Rule: prop-drill-chain ───────────────────────────────────────────────
+// Current file passes props into an imported wrapper component that itself
+// passes those same props onward without reading them.
+
+function propDrillChain(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const fn of iterComponentFunctions(ctx)) {
+    const localAnalysis = analyzePassthroughComponent(fn);
+    if (!localAnalysis) continue;
+
+    const importDecl = ctx.sourceFile
+      .getImportDeclarations()
+      .find((decl) => decl.getNamedImports().some((ni) => ni.getNameNode().getText() === localAnalysis.childTag));
+    if (!importDecl) continue;
+
+    const importedSf = resolveImportedSourceFile(ctx, importDecl);
+    if (!importedSf) continue;
+
+    const importedFn = findComponentFunctionByName(importedSf, localAnalysis.childTag);
+    if (!importedFn) continue;
+
+    const importedAnalysis = analyzePassthroughComponent(importedFn);
+    if (!importedAnalysis) continue;
+
+    const sharedProps = localAnalysis.passthroughProps.filter((p) => importedAnalysis.passthroughProps.includes(p));
+    if (sharedProps.length < 2) continue;
+
+    findings.push(
+      finding(
+        'prop-drill-chain',
+        'warning',
+        'pattern',
+        `'${localAnalysis.componentName}' passes props (${sharedProps.join(', ')}) into imported wrapper <${localAnalysis.childTag}>, which then passes them through to <${importedAnalysis.childTag}> — multi-hop prop drilling across files`,
+        ctx.filePath,
+        fn.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Collapse the intermediate wrapper, switch to children-based composition, or lift the shared data into React context so the props stop crossing multiple component boundaries',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule: memoized-child-inline-prop ─────────────────────────────────────
+// Inline object/array/function props create a new identity every render and
+// defeat React.memo's shallow prop comparison for that child.
+
+function collectMemoizedComponentNames(ctx: RuleContext): Set<string> {
+  const names = new Set<string>();
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = decl.getInitializer();
+    if (!init || !Node.isCallExpression(init)) continue;
+    const calleeText = init.getExpression().getText();
+    if (calleeText !== 'memo' && calleeText !== 'React.memo') continue;
+    const nameNode = decl.getNameNode();
+    if (Node.isIdentifier(nameNode) && /^[A-Z]/.test(nameNode.getText())) {
+      names.add(nameNode.getText());
+    }
+  }
+  return names;
+}
+
+function memoizedChildInlineProp(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+  const memoizedNames = collectMemoizedComponentNames(ctx);
+  if (memoizedNames.size === 0) return findings;
+
+  for (const fn of iterComponentFunctions(ctx)) {
+    const body = fn.getBody();
+    if (!body) continue;
+
+    const jsxNodes = [
+      ...body.getDescendantsOfKind(SyntaxKind.JsxOpeningElement),
+      ...body.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement),
+    ];
+
+    for (const jsx of jsxNodes) {
+      const tag = jsx.getTagNameNode().getText();
+      if (!memoizedNames.has(tag)) continue;
+
+      const unstableProps: string[] = [];
+      for (const attr of jsx.getAttributes()) {
+        if (!Node.isJsxAttribute(attr)) continue;
+        const attrName = attr.getNameNode().getText();
+        const init = attr.getInitializer();
+        if (!init || !Node.isJsxExpression(init)) continue;
+        const expr = init.getExpression();
+        if (!expr) continue;
+
+        const isUnstable =
+          Node.isArrowFunction(expr) ||
+          Node.isFunctionExpression(expr) ||
+          Node.isObjectLiteralExpression(expr) ||
+          Node.isArrayLiteralExpression(expr);
+
+        if (isUnstable) unstableProps.push(attrName);
+      }
+
+      if (unstableProps.length === 0) continue;
+
+      findings.push(
+        finding(
+          'memoized-child-inline-prop',
+          'warning',
+          'pattern',
+          `<${tag}> is memoized with React.memo, but inline prop${unstableProps.length === 1 ? '' : 's'} (${unstableProps.join(', ')}) create a new identity every render and defeat memoization`,
+          ctx.filePath,
+          jsx.getStartLineNumber(),
+          1,
+          {
+            suggestion:
+              'Hoist static literals, memoize object/array props with useMemo, and memoize callback props with useCallback before passing them to a memoized child',
+          },
+        ),
+      );
+    }
+  }
+
+  return findings;
+}
+
+// ── Rule: memoized-child-inline-children ─────────────────────────────────
+// Inline JSX children create fresh React element objects every render, so a
+// React.memo child receiving them through `children` cannot bail out.
+
+function memoizedChildInlineChildren(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+  const memoizedNames = collectMemoizedComponentNames(ctx);
+  if (memoizedNames.size === 0) return findings;
+
+  for (const fn of iterComponentFunctions(ctx)) {
+    const body = fn.getBody();
+    if (!body) continue;
+
+    for (const jsx of body.getDescendantsOfKind(SyntaxKind.JsxElement)) {
+      const opening = jsx.getOpeningElement();
+      const tag = opening.getTagNameNode().getText();
+      if (!memoizedNames.has(tag)) continue;
+
+      const unstableChildren = jsx.getJsxChildren().filter(
+        (child) =>
+          Node.isJsxElement(child) ||
+          Node.isJsxSelfClosingElement(child) ||
+          Node.isJsxFragment(child) ||
+          (Node.isJsxExpression(child) &&
+            (() => {
+              const expr = child.getExpression();
+              return (
+                expr != null &&
+                (Node.isArrowFunction(expr) ||
+                  Node.isFunctionExpression(expr) ||
+                  Node.isObjectLiteralExpression(expr) ||
+                  Node.isArrayLiteralExpression(expr))
+              );
+            })()),
+      );
+
+      if (unstableChildren.length === 0) continue;
+
+      findings.push(
+        finding(
+          'memoized-child-inline-children',
+          'warning',
+          'pattern',
+          `<${tag}> is memoized with React.memo, but its inline children create new React element identities every render and defeat memoization`,
+          ctx.filePath,
+          opening.getStartLineNumber(),
+          1,
+          {
+            suggestion:
+              'Hoist the child subtree outside the parent render, memoize it with useMemo, or restructure the component so the memoized child receives stable primitive props instead of inline children',
+          },
+        ),
+      );
+    }
+  }
+
   return findings;
 }
 
@@ -346,8 +632,8 @@ function parentRerenderViaState(ctx: RuleContext): ReviewFinding[] {
     if (stateVars.size === 0) continue;
 
     // Already composing with children? Skip — the user is on the correct path.
-    const propNames = getDestructuredPropNames(fn);
-    const alreadyComposesChildren = propNames?.includes('children') ?? false;
+    const propBindings = getDestructuredPropBindings(fn);
+    const alreadyComposesChildren = propBindings?.some((p) => p.propName === 'children') ?? false;
     if (alreadyComposesChildren) continue;
 
     // Require a clean single-root returned JSX tree. Fragments, conditional
@@ -404,4 +690,11 @@ function parentRerenderViaState(ctx: RuleContext): ReviewFinding[] {
 
 // ── Exported composition rules ───────────────────────────────────────────
 
-export const reactCompositionRules = [childrenNotUsed, propDrillPassthrough, parentRerenderViaState];
+export const reactCompositionRules = [
+  childrenNotUsed,
+  propDrillPassthrough,
+  propDrillChain,
+  memoizedChildInlineProp,
+  memoizedChildInlineChildren,
+  parentRerenderViaState,
+];

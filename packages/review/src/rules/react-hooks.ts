@@ -424,6 +424,62 @@ function stateDerivedFromProps(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: usecallback-no-benefit ─────────────────────────────────────────
+// useCallback used only as a host-element event handler provides no memoized
+// consumer and usually just adds indirection.
+
+function useCallbackNoBenefit(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const decl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = decl.getInitializer();
+    if (!init || !Node.isCallExpression(init)) continue;
+    const calleeText = init.getExpression().getText();
+    const calleeName = calleeText.includes('.') ? calleeText.split('.').pop()! : calleeText;
+    if (calleeName !== 'useCallback') continue;
+
+    const nameNode = decl.getNameNode();
+    if (!Node.isIdentifier(nameNode)) continue;
+    const callbackName = nameNode.getText();
+
+    const refs = ctx.sourceFile
+      .getDescendantsOfKind(SyntaxKind.Identifier)
+      .filter((id) => id.getText() === callbackName && id !== nameNode);
+
+    if (refs.length !== 1) continue;
+
+    const onlyRef = refs[0];
+    const jsxAttr = onlyRef.getFirstAncestorByKind(SyntaxKind.JsxAttribute);
+    if (!jsxAttr) continue;
+
+    const jsxTag =
+      jsxAttr.getFirstAncestorByKind(SyntaxKind.JsxSelfClosingElement) ||
+      jsxAttr.getFirstAncestorByKind(SyntaxKind.JsxOpeningElement);
+    if (!jsxTag) continue;
+
+    const tagName = jsxTag.getTagNameNode().getText();
+    if (!/^[a-z]/.test(tagName)) continue; // only intrinsic DOM tags
+
+    findings.push(
+      finding(
+        'usecallback-no-benefit',
+        'info',
+        'pattern',
+        `'${callbackName}' is wrapped in useCallback but is only used as a '${jsxAttr.getNameNode().getText()}' handler on <${tagName}> — this adds memoization overhead without a memoized consumer`,
+        ctx.filePath,
+        decl.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Inline the handler in JSX or use a normal local function. Keep useCallback for memoized children, hook dependency stability, or imperative subscription APIs that need stable identity',
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 // ── Exported React Hooks Rules ───────────────────────────────────────────
 
-export const reactHooksRules = [exhaustiveDeps, refInDeps, stateDerivedFromProps];
+export const reactHooksRules = [exhaustiveDeps, refInDeps, stateDerivedFromProps, useCallbackNoBenefit];

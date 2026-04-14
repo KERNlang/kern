@@ -140,4 +140,31 @@ export function C() {
       expect(r.findings.find((f) => f.ruleId === 'state-derived-from-props')).toBeUndefined();
     });
   });
+
+  describe('usecallback-no-benefit', () => {
+    it('flags useCallback used only on a host-element event handler', () => {
+      const src = `
+import { useCallback } from 'react';
+export function C({ onDone }: { onDone: () => void }) {
+  const handleClick = useCallback(() => onDone(), [onDone]);
+  return <button onClick={handleClick}>Save</button>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'usecallback-no-benefit')).toBeDefined();
+    });
+
+    it('does not flag useCallback passed to a custom component', () => {
+      const src = `
+import { useCallback } from 'react';
+function Button(props: any) { return <button onClick={props.onClick}>Save</button>; }
+export function C({ onDone }: { onDone: () => void }) {
+  const handleClick = useCallback(() => onDone(), [onDone]);
+  return <Button onClick={handleClick} />;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'usecallback-no-benefit')).toBeUndefined();
+    });
+  });
 });

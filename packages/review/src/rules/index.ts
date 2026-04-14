@@ -555,6 +555,15 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
     rolloutPhase: 2,
   },
+  {
+    id: 'usecallback-no-benefit',
+    layer: 'react-hooks',
+    severity: 'info',
+    description:
+      'useCallback value is only used as a host-element event handler and has no memoized consumer in the current file',
+    precision: 'high',
+    rolloutPhase: 2,
+  },
 
   // Async — Wave 2 net-new rules
   {
@@ -591,6 +600,33 @@ const REGISTRY: RuleInfo[] = [
     description:
       'Component passes >= 2 props through to a single child without reading them — use children prop or context',
     precision: 'medium',
+    rolloutPhase: 4,
+  },
+  {
+    id: 'prop-drill-chain',
+    layer: 'react-composition',
+    severity: 'warning',
+    description:
+      'Component passes props into an imported wrapper that also passes them through — multi-hop prop drilling across files',
+    precision: 'high',
+    rolloutPhase: 4,
+  },
+  {
+    id: 'memoized-child-inline-prop',
+    layer: 'react-composition',
+    severity: 'warning',
+    description:
+      'React.memo child receives inline object/array/function props that change identity every render and defeat memoization',
+    precision: 'high',
+    rolloutPhase: 4,
+  },
+  {
+    id: 'memoized-child-inline-children',
+    layer: 'react-composition',
+    severity: 'warning',
+    description:
+      'React.memo child receives inline JSX children that create new element identities every render and defeat memoization',
+    precision: 'high',
     rolloutPhase: 4,
   },
   {
