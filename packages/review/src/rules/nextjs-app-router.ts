@@ -6,8 +6,9 @@
  * in single-file mode (no ctx.fileContext).
  */
 
-import { basename } from 'path';
-import { Node, SyntaxKind } from 'ts-morph';
+import { existsSync } from 'fs';
+import { basename, dirname, resolve } from 'path';
+import { Node, Project, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
 import { finding } from './utils.js';
 
@@ -439,6 +440,114 @@ function functionLikeIsAsync(node: Node): boolean {
   return false;
 }
 
+function resolveImportSourceFile(
+  ctx: RuleContext,
+  importDecl: import('ts-morph').ImportDeclaration,
+): import('ts-morph').SourceFile | undefined {
+  const resolvedSourceFile = importDecl.getModuleSpecifierSourceFile();
+  if (resolvedSourceFile) return resolvedSourceFile;
+
+  const specifier = importDecl.getModuleSpecifierValue();
+  if (!specifier.startsWith('.')) return undefined;
+
+  const project = ctx.sourceFile.getProject();
+  const fromDir = dirname(ctx.sourceFile.getFilePath());
+  const fallbackCandidates = [specifier];
+  if (specifier.endsWith('.js')) {
+    fallbackCandidates.push(specifier.slice(0, -3) + '.ts', specifier.slice(0, -3) + '.tsx');
+  } else if (specifier.endsWith('.jsx')) {
+    fallbackCandidates.push(specifier.slice(0, -4) + '.tsx');
+  } else {
+    fallbackCandidates.push(`${specifier}.ts`, `${specifier}.tsx`, `${specifier}/index.ts`, `${specifier}/index.tsx`);
+  }
+
+  for (const candidate of fallbackCandidates) {
+    const fullPath = resolve(fromDir, candidate);
+    if (!existsSync(fullPath)) continue;
+    const sourceFile = project.getSourceFile(fullPath);
+    if (sourceFile) return sourceFile;
+    try {
+      return project.addSourceFileAtPath(fullPath);
+    } catch {
+      try {
+        return new Project({
+          compilerOptions: {
+            strict: true,
+            target: 99,
+            module: 99,
+            moduleResolution: 100,
+          },
+        }).addSourceFileAtPath(fullPath);
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function resolveExportedServerActionFunctions(
+  sourceFile: import('ts-morph').SourceFile | undefined,
+  exportName: string,
+): FunctionLikeNode[] {
+  const resolved: FunctionLikeNode[] = [];
+  if (!sourceFile) return resolved;
+
+  const fileHasUseServer = hasServerDirective(sourceFile.getFullText());
+
+  for (const fn of sourceFile.getFunctions()) {
+    if (!fn.isExported() || fn.getName() !== exportName || !fn.isAsync()) continue;
+    if (functionLikeHasUseServerDirective(fn) || (fileHasUseServer && fn.isExported())) resolved.push(fn);
+  }
+
+  for (const stmt of sourceFile.getVariableStatements()) {
+    if (!stmt.isExported()) continue;
+    for (const decl of stmt.getDeclarations()) {
+      if (decl.getName() !== exportName) continue;
+      const init = decl.getInitializer();
+      if (!init || (!Node.isArrowFunction(init) && !Node.isFunctionExpression(init)) || !init.isAsync()) continue;
+      if (functionLikeHasUseServerDirective(init) || fileHasUseServer) resolved.push(init);
+    }
+  }
+
+  return resolved;
+}
+
+function resolveImportedServerActionFunctions(ctx: RuleContext, decl: Node): FunctionLikeNode[] {
+  if (Node.isImportSpecifier(decl)) {
+    return resolveExportedServerActionFunctions(resolveImportSourceFile(ctx, decl.getImportDeclaration()), decl.getName());
+  }
+
+  if (Node.isNamespaceImport(decl)) return [];
+
+  return [];
+}
+
+function resolveDirectImportedServerActionFunctions(ctx: RuleContext, expr: Node): FunctionLikeNode[] {
+  if (Node.isIdentifier(expr)) {
+    for (const decl of ctx.sourceFile.getImportDeclarations()) {
+      for (const named of decl.getNamedImports()) {
+        const localName = named.getAliasNode()?.getText() ?? named.getName();
+        if (localName !== expr.getText()) continue;
+        return resolveExportedServerActionFunctions(resolveImportSourceFile(ctx, decl), named.getName());
+      }
+    }
+    return [];
+  }
+
+  if (Node.isPropertyAccessExpression(expr) && Node.isIdentifier(expr.getExpression())) {
+    const namespaceName = expr.getExpression().getText();
+    for (const decl of ctx.sourceFile.getImportDeclarations()) {
+      const namespaceImport = decl.getNamespaceImport();
+      if (!namespaceImport || namespaceImport.getText() !== namespaceName) continue;
+      return resolveExportedServerActionFunctions(resolveImportSourceFile(ctx, decl), expr.getName());
+    }
+  }
+
+  return [];
+}
+
 function resolveServerActionFunctions(ctx: RuleContext, expr: Node | undefined): FunctionLikeNode[] {
   const resolved: FunctionLikeNode[] = [];
   if (!expr) return resolved;
@@ -449,20 +558,46 @@ function resolveServerActionFunctions(ctx: RuleContext, expr: Node | undefined):
     return resolved;
   }
 
+  const directImportedActions = resolveDirectImportedServerActionFunctions(ctx, candidate);
+  if (directImportedActions.length > 0) return directImportedActions;
+
+  if (Node.isPropertyAccessExpression(candidate)) {
+    const objectExpr = candidate.getExpression();
+    if (!Node.isIdentifier(objectExpr)) return resolved;
+
+    const declarations = objectExpr.getSymbol()?.getDeclarations() ?? [];
+    for (const decl of declarations) {
+      if (!Node.isNamespaceImport(decl)) continue;
+      const importDecl = decl.getFirstAncestorByKind(SyntaxKind.ImportDeclaration);
+      const sourceFile = importDecl ? resolveImportSourceFile(ctx, importDecl) : undefined;
+      resolved.push(...resolveExportedServerActionFunctions(sourceFile, candidate.getName()));
+    }
+    return resolved;
+  }
+
   if (!Node.isIdentifier(candidate)) return resolved;
 
-  const fileHasUseServer = hasServerDirective(ctx.sourceFile.getFullText());
   const declarations = candidate.getSymbol()?.getDeclarations() ?? [];
   for (const decl of declarations) {
-    if (decl.getSourceFile() !== ctx.sourceFile) continue;
+    if (Node.isImportSpecifier(decl)) {
+      resolved.push(...resolveImportedServerActionFunctions(ctx, decl));
+      continue;
+    }
+
+    if (decl.getSourceFile() !== ctx.sourceFile) {
+      resolved.push(...resolveImportedServerActionFunctions(ctx, decl));
+      continue;
+    }
 
     if (Node.isFunctionDeclaration(decl) && decl.isAsync()) {
+      const fileHasUseServer = hasServerDirective(ctx.sourceFile.getFullText());
       if (functionLikeHasUseServerDirective(decl) || (fileHasUseServer && decl.isExported())) resolved.push(decl);
     }
 
     if (Node.isVariableDeclaration(decl)) {
       const init = decl.getInitializer();
       if (!init || (!Node.isArrowFunction(init) && !Node.isFunctionExpression(init)) || !init.isAsync()) continue;
+      const fileHasUseServer = hasServerDirective(ctx.sourceFile.getFullText());
       const variableStatement = decl.getVariableStatement();
       if (functionLikeHasUseServerDirective(init) || (fileHasUseServer && variableStatement?.isExported())) {
         resolved.push(init);

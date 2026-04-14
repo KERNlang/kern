@@ -1,7 +1,19 @@
-import { reviewSource } from '../src/index.js';
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { reviewGraph, reviewSource } from '../src/index.js';
 import type { ReviewConfig } from '../src/types.js';
 
 const cfg: ReviewConfig = { target: 'nextjs' };
+const TMP = join(tmpdir(), 'kern-review-nextjs-app-router');
+
+beforeAll(() => {
+  mkdirSync(TMP, { recursive: true });
+});
+
+afterAll(() => {
+  rmSync(TMP, { recursive: true, force: true });
+});
 
 describe('Next.js App Router Rules', () => {
   describe('use-client-drilled-too-high', () => {
@@ -408,6 +420,78 @@ export default function Page() {
       const r = reviewSource(src, 'page.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'server-action-form-missing-pending')).toBeUndefined();
     });
+
+    it('flags direct native submit button on imported server action forms', () => {
+      const dir = join(TMP, 'imported-server-action-pending');
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+
+      writeFileSync(
+        join(dir, 'page.tsx'),
+        `
+import { saveUser } from './actions.js';
+
+export default function Page() {
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`,
+      );
+
+      writeFileSync(
+        join(dir, 'actions.ts'),
+        `
+'use server';
+
+export async function saveUser(formData: FormData) {
+  return { ok: true };
+}
+`,
+      );
+
+      const reports = reviewGraph([join(dir, 'page.tsx')], { ...cfg, noCache: true });
+      const pageReport = reports.find((report) => report.filePath === join(dir, 'page.tsx'));
+      expect(pageReport?.findings.find((f) => f.ruleId === 'server-action-form-missing-pending')).toBeDefined();
+    });
+
+    it('does not flag imported async helpers that are not server actions', () => {
+      const dir = join(TMP, 'imported-non-server-action');
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+
+      writeFileSync(
+        join(dir, 'page.tsx'),
+        `
+import { saveUser } from './actions.js';
+
+export default function Page() {
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`,
+      );
+
+      writeFileSync(
+        join(dir, 'actions.ts'),
+        `
+export async function saveUser(formData: FormData) {
+  return { ok: true };
+}
+`,
+      );
+
+      const reports = reviewGraph([join(dir, 'page.tsx')], { ...cfg, noCache: true });
+      const pageReport = reports.find((report) => report.filePath === join(dir, 'page.tsx'));
+      expect(pageReport?.findings.find((f) => f.ruleId === 'server-action-form-missing-pending')).toBeUndefined();
+    });
   });
 
   describe('server-action-form-return-value-ignored', () => {
@@ -519,6 +603,44 @@ export default function Page() {
 `;
       const r = reviewSource(src, 'page.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'server-action-form-return-value-ignored')).toBeUndefined();
+    });
+
+    it('flags imported server actions that return state through namespace imports', () => {
+      const dir = join(TMP, 'imported-server-action-return-value');
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+
+      writeFileSync(
+        join(dir, 'page.tsx'),
+        `
+import * as actions from './actions.js';
+
+export default function Page() {
+  return (
+    <form action={actions.saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`,
+      );
+
+      writeFileSync(
+        join(dir, 'actions.ts'),
+        `
+'use server';
+
+export async function saveUser(formData: FormData) {
+  if (!formData.get('name')) return { ok: false, error: 'Name is required' };
+  return { ok: true, error: null };
+}
+`,
+      );
+
+      const reports = reviewGraph([join(dir, 'page.tsx')], { ...cfg, noCache: true });
+      const pageReport = reports.find((report) => report.filePath === join(dir, 'page.tsx'));
+      expect(pageReport?.findings.find((f) => f.ruleId === 'server-action-form-return-value-ignored')).toBeDefined();
     });
   });
 
