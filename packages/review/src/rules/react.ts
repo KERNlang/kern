@@ -6,7 +6,13 @@
 
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { finding } from './utils.js';
+import {
+  cleanupExpressionMatches,
+  escapeRegex,
+  findAssignedIdentifier,
+  finding,
+  getTopLevelCleanupExpressions,
+} from './utils.js';
 
 /**
  * Check if a file is actually a React file — has JSX syntax or React imports.
@@ -19,6 +25,46 @@ function isReactFile(ctx: RuleContext): boolean {
   const fullText = ctx.sourceFile.getFullText();
   if (/\buse(?:State|Effect|Ref|Callback|Memo|Reducer|Context)\s*[<(]/.test(fullText)) return true;
   return false;
+}
+
+function unwrapJsxExpression(node: Node): Node {
+  let current = node;
+  while (
+    Node.isParenthesizedExpression(current) ||
+    Node.isAsExpression(current) ||
+    Node.isTypeAssertion(current) ||
+    Node.isNonNullExpression(current) ||
+    Node.isSatisfiesExpression(current)
+  ) {
+    current = current.getExpression();
+  }
+  return current;
+}
+
+function getMapCallbackRootJsx(
+  callback: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+):
+  | import('ts-morph').JsxElement
+  | import('ts-morph').JsxSelfClosingElement
+  | import('ts-morph').JsxFragment
+  | undefined {
+  const body = callback.getBody();
+  if (Node.isBlock(body)) {
+    const returnStmt = body.getStatements().find((stmt) => Node.isReturnStatement(stmt));
+    const expr = returnStmt?.getExpression();
+    if (!expr) return undefined;
+    const unwrapped = unwrapJsxExpression(expr);
+    if (Node.isJsxElement(unwrapped) || Node.isJsxSelfClosingElement(unwrapped) || Node.isJsxFragment(unwrapped)) {
+      return unwrapped;
+    }
+    return undefined;
+  }
+
+  const unwrapped = unwrapJsxExpression(body);
+  if (Node.isJsxElement(unwrapped) || Node.isJsxSelfClosingElement(unwrapped) || Node.isJsxFragment(unwrapped)) {
+    return unwrapped;
+  }
+  return undefined;
 }
 
 // ── Rule 11: async-effect ────────────────────────────────────────────────
@@ -146,6 +192,38 @@ function renderSideEffect(ctx: RuleContext): ReviewFinding[] {
 // ── Rule 13: unstable-key ────────────────────────────────────────────────
 // Missing key or key={index} in .map() JSX expressions
 
+function mappedFragmentKey(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee) || callee.getName() !== 'map') continue;
+
+    const args = call.getArguments();
+    if (args.length === 0) continue;
+    const callback = args[0];
+    if (!Node.isArrowFunction(callback) && !Node.isFunctionExpression(callback)) continue;
+
+    const rootJsx = getMapCallbackRootJsx(callback);
+    if (!rootJsx || !Node.isJsxFragment(rootJsx)) continue;
+
+    findings.push(
+      finding(
+        'mapped-fragment-key',
+        'warning',
+        'bug',
+        'JSX fragment returned from .map() cannot carry a key — use <Fragment key={...}> or a keyed element',
+        ctx.filePath,
+        rootJsx.getStartLineNumber(),
+        1,
+        { suggestion: 'Replace <>...</> with <Fragment key={item.id}>...</Fragment> or wrap in a keyed element' },
+      ),
+    );
+  }
+
+  return findings;
+}
+
 function unstableKey(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
@@ -161,8 +239,7 @@ function unstableKey(ctx: RuleContext): ReviewFinding[] {
     const args = call.getArguments();
     if (args.length === 0) continue;
     const callback = args[0];
-    if (callback.getKind() !== SyntaxKind.ArrowFunction && callback.getKind() !== SyntaxKind.FunctionExpression)
-      continue;
+    if (!Node.isArrowFunction(callback) && !Node.isFunctionExpression(callback)) continue;
 
     // Get the index parameter (second param of the callback)
     const params =
@@ -171,23 +248,16 @@ function unstableKey(ctx: RuleContext): ReviewFinding[] {
         : (callback as import('ts-morph').FunctionExpression).getParameters();
     const indexParam = params.length >= 2 ? params[1].getName() : null;
 
-    // Walk callback descendants for JSX elements
-    const jsxElements = [
-      ...callback.getDescendantsOfKind(SyntaxKind.JsxOpeningElement),
-      ...callback.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement),
-    ];
-
-    if (jsxElements.length === 0) continue; // No JSX → skip (fixes non-JSX .map() FP)
-
-    // Check the FIRST (root) JSX element for key prop
-    const firstJsx = jsxElements.sort((a, b) => a.getStart() - b.getStart())[0];
+    const rootJsx = getMapCallbackRootJsx(callback);
+    if (!rootJsx) continue; // No JSX → skip (fixes non-JSX .map() FP)
+    if (Node.isJsxFragment(rootJsx)) continue; // handled by mapped-fragment-key
     const line = call.getStartLineNumber();
 
     // Get attributes from the first JSX element
     const attributes =
-      firstJsx.getKind() === SyntaxKind.JsxSelfClosingElement
-        ? (firstJsx as import('ts-morph').JsxSelfClosingElement).getAttributes()
-        : (firstJsx as import('ts-morph').JsxOpeningElement).getAttributes();
+      rootJsx.getKind() === SyntaxKind.JsxSelfClosingElement
+        ? (rootJsx as import('ts-morph').JsxSelfClosingElement).getAttributes()
+        : (rootJsx as import('ts-morph').JsxElement).getOpeningElement().getAttributes();
 
     let hasKey = false;
     let usesIndexKey = false;
@@ -484,6 +554,91 @@ function effectSelfUpdateLoop(ctx: RuleContext): ReviewFinding[] {
 // useEffect with setInterval/addEventListener but no cleanup return function
 
 function missingEffectCleanup(ctx: RuleContext): ReviewFinding[] {
+  interface EffectLeakSpec {
+    label: string;
+    line: number;
+    cleanupPatterns: RegExp[];
+    cleanupReturnIdentifiers?: string[];
+    cleanupReturnCallPattern?: RegExp;
+  }
+
+  const buildEffectLeakSpecs = (
+    callback: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+  ): EffectLeakSpec[] => {
+    const specs: EffectLeakSpec[] = [];
+
+    for (const desc of callback.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      const callee = desc.getExpression();
+
+      if (Node.isIdentifier(callee)) {
+        const name = callee.getText();
+        const assignedName = findAssignedIdentifier(desc);
+        if (name === 'setInterval' || name === 'setTimeout') {
+          const clearName = name === 'setInterval' ? 'clearInterval' : 'clearTimeout';
+          specs.push({
+            label: name,
+            line: desc.getStartLineNumber(),
+            cleanupPatterns: assignedName
+              ? [new RegExp(`\\b${clearName}\\s*\\(\\s*${escapeRegex(assignedName)}\\s*\\)`)]
+              : [new RegExp(`\\b${clearName}\\s*\\(`)],
+          });
+        }
+        continue;
+      }
+
+      if (!Node.isPropertyAccessExpression(callee)) continue;
+
+      const method = callee.getName();
+      const targetText = callee.getExpression().getText();
+      const assignedName = findAssignedIdentifier(desc);
+
+      if (method === 'addEventListener') {
+        specs.push({
+          label: 'addEventListener',
+          line: desc.getStartLineNumber(),
+          cleanupPatterns: [new RegExp(`${escapeRegex(targetText)}\\s*\\.\\s*removeEventListener\\s*\\(`)],
+        });
+        continue;
+      }
+
+      if (method === 'on') {
+        specs.push({
+          label: 'on',
+          line: desc.getStartLineNumber(),
+          cleanupPatterns: assignedName
+            ? [
+                new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\(`),
+                new RegExp(
+                  `\\b${escapeRegex(assignedName)}\\s*\\.\\s*(?:unsubscribe|dispose|destroy|off|removeListener)\\s*\\(`,
+                ),
+                new RegExp(`${escapeRegex(targetText)}\\s*\\.\\s*(?:off|removeListener|unsubscribe)\\s*\\(`),
+              ]
+            : [/\.\s*(?:off|removeListener|unsubscribe|dispose|destroy)\s*\(/],
+          cleanupReturnIdentifiers: assignedName ? [assignedName] : [],
+          cleanupReturnCallPattern: /\.\s*on\s*\(/,
+        });
+        continue;
+      }
+
+      if (method === 'subscribe') {
+        specs.push({
+          label: 'subscribe',
+          line: desc.getStartLineNumber(),
+          cleanupPatterns: assignedName
+            ? [
+                new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\(`),
+                new RegExp(`\\b${escapeRegex(assignedName)}\\s*\\.\\s*(?:unsubscribe|dispose|destroy|off)\\s*\\(`),
+              ]
+            : [/\.\s*(?:unsubscribe|dispose|destroy|off)\s*\(/],
+          cleanupReturnIdentifiers: assignedName ? [assignedName] : [],
+          cleanupReturnCallPattern: /\.\s*subscribe\s*\(/,
+        });
+      }
+    }
+
+    return specs;
+  };
+
   const findings: ReviewFinding[] = [];
 
   for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
@@ -495,35 +650,22 @@ function missingEffectCleanup(ctx: RuleContext): ReviewFinding[] {
     const callback = args[0];
     if (!Node.isArrowFunction(callback) && !Node.isFunctionExpression(callback)) continue;
 
-    const body = callback.getBody();
-    let hasCleanup = false;
+    const leakSpecs = buildEffectLeakSpecs(callback).filter(
+      (spec, index, specs) =>
+        specs.findIndex((candidate) => candidate.label === spec.label && candidate.line === spec.line) === index,
+    );
+    if (leakSpecs.length === 0) continue;
 
-    if (Node.isBlock(body)) {
-      hasCleanup = body.getStatements().some((s) => {
-        if (!Node.isReturnStatement(s)) return false;
-        const expr = s.getExpression();
-        return (
-          expr != null && (Node.isArrowFunction(expr) || Node.isFunctionExpression(expr) || Node.isIdentifier(expr))
-        );
-      });
-    }
+    const cleanupExprs = getTopLevelCleanupExpressions(callback.getBody());
+    const leakedSpec = leakSpecs.find((spec) => !cleanupExprs.some((expr) => cleanupExpressionMatches(expr, spec)));
 
-    if (hasCleanup) continue;
-
-    const leakyCalls = callback.getDescendantsOfKind(SyntaxKind.CallExpression).filter((c) => {
-      const name = c.getExpression().getText();
-      return (
-        name === 'setInterval' || name === 'setTimeout' || name.endsWith('.addEventListener') || name.endsWith('.on')
-      );
-    });
-
-    if (leakyCalls.length > 0) {
+    if (leakedSpec) {
       findings.push(
         finding(
           'missing-effect-cleanup',
           'warning',
           'bug',
-          `useEffect uses '${leakyCalls[0].getExpression().getText()}' but is missing a cleanup return function`,
+          `useEffect uses '${leakedSpec.label}' but is missing matching cleanup`,
           ctx.filePath,
           call.getStartLineNumber(),
           1,
@@ -854,6 +996,7 @@ function reducerMutation(ctx: RuleContext): ReviewFinding[] {
 export const reactRules = [
   asyncEffect,
   renderSideEffect,
+  mappedFragmentKey,
   unstableKey,
   staleClosure,
   stateExplosion,

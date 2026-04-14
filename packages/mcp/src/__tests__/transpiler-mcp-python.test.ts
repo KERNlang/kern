@@ -160,6 +160,71 @@ describe('transpileMCPPython', () => {
     expect(result).toHaveProperty('diagnostics');
     expect(typeof result.code).toBe('string');
   });
+
+  it('should emit helper imports and declarations before tools', () => {
+    const ast = node('mcp', { name: 'HelperPy' }, [
+      node('import', { from: 'pathlib', names: 'Path' }),
+      node('const', { name: 'DEFAULT_GREETING', type: 'string', value: '"hello"' }),
+      node('fn', { name: 'formatGreeting', params: 'name:string', returns: 'string' }, [
+        node('handler', { lang: 'python', code: 'return f"Hello {name}"' }),
+      ]),
+      node('tool', { name: 'greet' }, [
+        node('param', { name: 'name', type: 'string', required: 'true' }),
+        node('handler', { lang: 'python', code: 'return formatGreeting(name)' }),
+      ]),
+    ]);
+
+    const result = transpileMCPPython(ast);
+    expect(result.code).toContain('from pathlib import Path');
+    expect(result.code).toContain('DEFAULT_GREETING: str = "hello"');
+    expect(result.code).toContain('def formatGreeting(name: str) -> str:');
+    expect(result.code).toContain('return f"Hello {name}"');
+    expect(result.code.indexOf('def formatGreeting')).toBeLessThan(result.code.indexOf('@mcp.tool()'));
+  });
+
+  it('should auto-inject path guards when helper functions perform file io', () => {
+    const ast = node('mcp', { name: 'HelperPathPy' }, [
+      node('import', { from: 'pathlib', names: 'Path' }),
+      node('fn', { name: 'readHelper', params: 'filePath:string', returns: 'string' }, [
+        node('handler', { lang: 'python', code: 'return Path(filePath).read_text()' }),
+      ]),
+      node('tool', { name: 'readFile' }, [
+        node('param', { name: 'filePath', type: 'string', required: 'true' }),
+        node('handler', { lang: 'python', code: 'return readHelper(filePath)' }),
+      ]),
+    ]);
+
+    const result = transpileMCPPython(ast);
+    expect(result.code).toContain('_resolved = os.path.realpath(str(filePath))');
+    expect(result.code).toContain('return readHelper(filePath)');
+  });
+
+  it('should suppress helper bindings that collide with generated Python identifiers', () => {
+    const ast = node('mcp', { name: 'CollisionPy' }, [
+      node('import', { from: 'pathlib', default: 'mcp' }),
+      node('tool', { name: 'noop' }, [node('handler', { lang: 'python', code: 'return "ok"' })]),
+    ]);
+
+    const result = transpileMCPPython(ast);
+    expect((result.diagnostics || []).some((d) => d.reason === 'helper-binding-conflict')).toBe(true);
+    expect(result.code).not.toContain('import pathlib as mcp');
+  });
+
+  it('should suppress helper bindings that collide with tool names', () => {
+    const ast = node('mcp', { name: 'NameCollisionPy' }, [
+      node('fn', { name: 'greet', params: 'name:string', returns: 'string' }, [
+        node('handler', { lang: 'python', code: 'return f"Hello {name}"' }),
+      ]),
+      node('tool', { name: 'greet' }, [
+        node('param', { name: 'name', type: 'string', required: 'true' }),
+        node('handler', { lang: 'python', code: 'return "ok"' }),
+      ]),
+    ]);
+
+    const result = transpileMCPPython(ast);
+    expect((result.diagnostics || []).some((d) => d.reason === 'helper-binding-conflict')).toBe(true);
+    expect(result.code).not.toContain('return f"Hello {name}"');
+  });
 });
 
 // ── Review fix regressions ──────────────────────────────────────────────

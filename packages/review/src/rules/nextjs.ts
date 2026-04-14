@@ -50,6 +50,8 @@ const CLIENT_HOOKS = new Set([
   'useSyncExternalStore',
 ]);
 
+const CLIENT_NAVIGATION_APIS = new Set(['useRouter', 'useSearchParams', 'usePathname', 'useParams']);
+
 function serverHook(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
@@ -113,7 +115,84 @@ function serverHook(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
-// ── Rule 22: hydration-mismatch ──────────────────────────────────────────
+// ── Rule 22: next-client-api-in-server ──────────────────────────────────
+// Client-only navigation hooks from next/navigation in a Server Component.
+
+function nextClientApiInServer(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  if (ctx.fileRole !== 'runtime') return findings;
+
+  const fullText = ctx.sourceFile.getFullText();
+  if (isClientComponent(fullText)) return findings;
+  if (ctx.fileContext?.isClientBoundary) return findings;
+  if (ctx.fileContext?.boundary === 'client') return findings;
+
+  const nextNavigationImports = ctx.sourceFile
+    .getImportDeclarations()
+    .filter((decl) => decl.getModuleSpecifierValue() === 'next/navigation');
+  if (nextNavigationImports.length === 0) return findings;
+
+  const importedApis = new Map<string, string>();
+  const namespaceImports = new Set<string>();
+  for (const decl of nextNavigationImports) {
+    for (const named of decl.getNamedImports()) {
+      const importedName = named.getName();
+      if (CLIENT_NAVIGATION_APIS.has(importedName)) {
+        importedApis.set(named.getAliasNode()?.getText() ?? importedName, importedName);
+      }
+    }
+
+    const namespace = decl.getNamespaceImport();
+    if (namespace) {
+      namespaceImports.add(namespace.getText());
+    }
+  }
+
+  if (importedApis.size === 0 && namespaceImports.size === 0) return findings;
+
+  const seen = new Set<string>();
+  const calls = ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
+  for (const call of calls) {
+    const expr = call.getExpression();
+    let apiName: string | undefined;
+
+    if (expr.getKind() === SyntaxKind.Identifier) {
+      apiName = importedApis.get(expr.getText());
+    } else if (expr.getKind() === SyntaxKind.PropertyAccessExpression) {
+      const prop = expr.asKind(SyntaxKind.PropertyAccessExpression);
+      if (prop && namespaceImports.has(prop.getExpression().getText()) && CLIENT_NAVIGATION_APIS.has(prop.getName())) {
+        apiName = prop.getName();
+      }
+    }
+
+    if (!apiName || seen.has(`${apiName}:${call.getStart()}`)) continue;
+    seen.add(`${apiName}:${call.getStart()}`);
+
+    const line = call.getStartLineNumber();
+    findings.push(
+      finding(
+        'next-client-api-in-server',
+        'error',
+        'bug',
+        `'${apiName}' from next/navigation is client-only — add 'use client' or move this logic to a Client Component`,
+        ctx.filePath,
+        line,
+        1,
+        {
+          suggestion:
+            apiName === 'useSearchParams'
+              ? 'Read search params from page props/server inputs, or move this hook into a Client Component'
+              : "Add 'use client' at the top of the file, or move this hook into a Client Component",
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+// ── Rule 23: hydration-mismatch ──────────────────────────────────────────
 // Nondeterministic expressions (Date.now, Math.random, new Date) in render
 
 function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
@@ -189,7 +268,7 @@ function hydrationMismatch(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
-// ── Rule 23: missing-use-client ──────────────────────────────────────────
+// ── Rule 24: missing-use-client ──────────────────────────────────────────
 // Event handlers (onClick, onChange, etc.) without 'use client' directive
 // Import-graph-aware: severity depends on who imports this file.
 
@@ -325,4 +404,4 @@ function missingUseClient(ctx: RuleContext): ReviewFinding[] {
 
 // ── Exported Next.js Rules ───────────────────────────────────────────────
 
-export const nextjsRules = [serverHook, hydrationMismatch, missingUseClient];
+export const nextjsRules = [serverHook, nextClientApiInServer, hydrationMismatch, missingUseClient];

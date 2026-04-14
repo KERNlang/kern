@@ -319,6 +319,44 @@ export function useThing() {
     const hookReport = reports.find((r) => r.filePath === join(dir, 'use-thing.ts'));
     expect(hookReport?.findings.find((f) => f.ruleId === 'server-hook')).toBeDefined();
   });
+
+  it('suppresses next-client-api-in-server through a transitive client boundary', () => {
+    const dir = join(TMP, 'nextjs-client-boundary-next-navigation');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'page.tsx'),
+      `
+'use client';
+import { Widget } from './widget.js';
+export default function Page() {
+  return <Widget />;
+}
+`,
+    );
+    writeFileSync(
+      join(dir, 'widget.tsx'),
+      `
+import { useNav } from './use-nav.js';
+export function Widget() {
+  return <div>{useNav()}</div>;
+}
+`,
+    );
+    writeFileSync(
+      join(dir, 'use-nav.ts'),
+      `
+import { usePathname } from 'next/navigation';
+export function useNav() {
+  return usePathname();
+}
+`,
+    );
+
+    const reports = reviewGraph([join(dir, 'page.tsx')], nextjsConfig);
+    const navReport = reports.find((r) => r.filePath === join(dir, 'use-nav.ts'));
+    expect(navReport?.findings.find((f) => f.ruleId === 'next-client-api-in-server')).toBeUndefined();
+  });
 });
 
 describe('False Positive Regression: server-hook (Next.js)', () => {

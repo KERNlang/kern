@@ -466,6 +466,13 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
   },
   {
+    id: 'mapped-fragment-key',
+    layer: 'react',
+    severity: 'warning',
+    description: 'Fragment returned from .map() cannot carry a key in shorthand form',
+    precision: 'high',
+  },
+  {
     id: 'stale-closure',
     layer: 'react',
     severity: 'warning',
@@ -555,6 +562,15 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
     rolloutPhase: 2,
   },
+  {
+    id: 'usecallback-no-benefit',
+    layer: 'react-hooks',
+    severity: 'info',
+    description:
+      'useCallback value is only used as a host-element event handler and has no memoized consumer in the current file',
+    precision: 'high',
+    rolloutPhase: 2,
+  },
 
   // Async — Wave 2 net-new rules
   {
@@ -591,6 +607,33 @@ const REGISTRY: RuleInfo[] = [
     description:
       'Component passes >= 2 props through to a single child without reading them — use children prop or context',
     precision: 'medium',
+    rolloutPhase: 4,
+  },
+  {
+    id: 'prop-drill-chain',
+    layer: 'react-composition',
+    severity: 'warning',
+    description:
+      'Component passes props into an imported wrapper that also passes them through — multi-hop prop drilling across files',
+    precision: 'high',
+    rolloutPhase: 4,
+  },
+  {
+    id: 'memoized-child-inline-prop',
+    layer: 'react-composition',
+    severity: 'warning',
+    description:
+      'React.memo child receives inline object/array/function props that change identity every render and defeat memoization',
+    precision: 'high',
+    rolloutPhase: 4,
+  },
+  {
+    id: 'memoized-child-inline-children',
+    layer: 'react-composition',
+    severity: 'warning',
+    description:
+      'React.memo child receives inline JSX children that create new element identities every render and defeat memoization',
+    precision: 'high',
     rolloutPhase: 4,
   },
   {
@@ -821,11 +864,54 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
   },
   {
+    id: 'next-client-api-in-server',
+    layer: 'nextjs',
+    severity: 'error',
+    description: 'Client-only next/navigation hook used in a Server Component',
+    precision: 'high',
+  },
+  {
     id: 'missing-use-client',
     layer: 'nextjs',
     severity: 'warning',
     description: 'Event handler in Server Component — needs use client',
     precision: 'high',
+  },
+  {
+    id: 'undefined-reference',
+    layer: 'kern-source',
+    severity: 'error',
+    description: 'Handler references names not declared in visible KERN scope',
+  },
+  {
+    id: 'type-model-mismatch',
+    layer: 'kern-source',
+    severity: 'warning',
+    description: 'Literal-union type used like an object in handler code',
+  },
+  {
+    id: 'unused-state',
+    layer: 'kern-source',
+    severity: 'warning',
+    description: 'State declared but never referenced within its KERN scope',
+  },
+  {
+    id: 'handler-heavy',
+    layer: 'kern-source',
+    severity: 'warning',
+    description: 'Inline handler JS dominates the .kern file',
+  },
+  {
+    id: 'missing-confidence',
+    layer: 'kern-source',
+    severity: 'info',
+    description: 'No confidence annotations found on external or uncertain logic',
+  },
+  {
+    id: 'kern-duplicate-symbol',
+    layer: 'kern-source',
+    severity: 'error',
+    description: 'Top-level named KERN declaration defined in multiple files',
   },
 
   // Next.js App Router (Wave 1)
@@ -843,6 +929,48 @@ const REGISTRY: RuleInfo[] = [
     layer: 'nextjs-app-router',
     severity: 'error',
     description: 'next/headers (cookies/headers/draftMode) or server-only imported in a Client Component',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'browser-api-in-server',
+    layer: 'nextjs-app-router',
+    severity: 'error',
+    description: 'Browser globals like window/document/localStorage used in a Server Component or server boundary',
+    precision: 'high',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'use-action-state-missing-pending',
+    layer: 'nextjs-app-router',
+    severity: 'warning',
+    description: 'useActionState is wired to a form action but the pending tuple value is not captured',
+    precision: 'medium',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'use-action-state-missing-feedback',
+    layer: 'nextjs-app-router',
+    severity: 'warning',
+    description:
+      'useActionState is wired to a form action but its returned state is never read for success/error feedback',
+    precision: 'medium',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'server-action-form-missing-pending',
+    layer: 'nextjs-app-router',
+    severity: 'warning',
+    description:
+      'Native submit control posts directly to a same-file Server Action but no pending-state UX substrate was detected',
+    precision: 'medium',
+    rolloutPhase: 1,
+  },
+  {
+    id: 'server-action-form-return-value-ignored',
+    layer: 'nextjs-app-router',
+    severity: 'warning',
+    description: 'Direct form action points at a same-file Server Action that returns data no plain form can observe',
     precision: 'high',
     rolloutPhase: 1,
   },
@@ -1011,6 +1139,7 @@ const LAYER_TARGET_MAP: Record<string, string[] | null> = {
   cli: ['cli'],
   vue: ['vue', 'nuxt'],
   ink: ['ink'],
+  'kern-source': null,
   terminal: ['terminal'],
   nextjs: ['nextjs'],
   'nextjs-app-router': ['nextjs'],

@@ -5,7 +5,7 @@
 
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { finding, insertBeforeSpan } from './utils.js';
+import { cleanupExpressionMatches, finding, getTopLevelCleanupExpressions, insertBeforeSpan } from './utils.js';
 
 // ── Rule: promise-all-error-swallow ──────────────────────────────────────
 // Promise.all([...]) without .catch and not inside a try/catch is a bug:
@@ -130,23 +130,13 @@ function abortControllerLeak(ctx: RuleContext): ReviewFinding[] {
 
     if (controllers.length === 0) continue;
 
-    // Check the cleanup function (the return value of the effect body)
-    let cleanupText = '';
-    let hasExistingReturn = false;
-    for (const stmt of body.getStatements()) {
-      if (Node.isReturnStatement(stmt)) {
-        hasExistingReturn = true;
-        const expr = stmt.getExpression();
-        if (expr && (Node.isArrowFunction(expr) || Node.isFunctionExpression(expr))) {
-          cleanupText = expr.getText();
-        }
-        break;
-      }
-    }
+    const cleanupExprs = getTopLevelCleanupExpressions(body);
+    const hasExistingReturn = cleanupExprs.length > 0;
 
     for (const ctrl of controllers) {
-      // Require both: the ref name appears in cleanup AND .abort() is called
-      const hasAbortCall = new RegExp(`\\b${ctrl.name}\\s*\\.\\s*abort\\s*\\(`).test(cleanupText);
+      const hasAbortCall = cleanupExprs.some((expr) =>
+        cleanupExpressionMatches(expr, { cleanupPatterns: [new RegExp(`\\b${ctrl.name}\\s*\\.\\s*abort\\s*\\(`)] }),
+      );
       if (!hasAbortCall) {
         // Autofix: insert a cleanup return immediately before the closing brace
         // of the effect body. Only safe when there is NO existing return — if

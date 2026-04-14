@@ -133,6 +133,21 @@ describe('Schema Validation', () => {
       );
       expect(v).toHaveLength(0);
     });
+
+    it('allows helper core nodes in mcp', () => {
+      const v = validate(
+        [
+          'mcp name=HelperServer',
+          '  import from="node:fs" names=readFileSync',
+          '  const name=DEFAULT_GREETING value="hello"',
+          '  fn name=formatGreeting params="name:string" returns=string',
+          '    handler <<<return `${DEFAULT_GREETING}, ${name}`;>>>',
+          '  tool name=greet',
+          '    param name=name type=string required=true',
+        ].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
   });
 
   describe('complex valid nodes', () => {

@@ -8,7 +8,7 @@
 import type { IRNode } from '@kernlang/core';
 import type { ConfidenceGraph, MultiFileConfidenceGraph } from '../confidence.js';
 import { buildConfidenceGraph, buildMultiFileConfidenceGraph, parseConfidence } from '../confidence.js';
-import type { ReviewFinding } from '../types.js';
+import type { ReviewFinding, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -28,6 +28,7 @@ function finding(
   message: string,
   line: number,
   col: number,
+  file = '',
   extra?: Partial<ReviewFinding>,
 ): ReviewFinding {
   return {
@@ -36,7 +37,7 @@ function finding(
     severity,
     category,
     message,
-    primarySpan: { file: '', startLine: line, startCol: col, endLine: line, endCol: col },
+    primarySpan: { file, startLine: line, startCol: col, endLine: line, endCol: col },
     fingerprint: createFingerprint(ruleId, line, col),
     ...extra,
   };
@@ -59,6 +60,7 @@ function confidenceMissingSource(graph: ConfidenceGraph): ReviewFinding[] {
             `Confidence source '${src}' not found (referenced by '${cnode.name}')`,
             cnode.nodeRef.line,
             1,
+            cnode.sourceFile,
           ),
         );
       }
@@ -80,6 +82,7 @@ function confidenceCycle(graph: ConfidenceGraph): ReviewFinding[] {
         `Circular confidence dependency: ${cycle.join(' → ')}`,
         first?.nodeRef.line ?? 0,
         1,
+        first?.sourceFile ?? '',
       ),
     );
   }
@@ -101,6 +104,7 @@ function confidenceNeedsUnresolved(graph: ConfidenceGraph): ReviewFinding[] {
           `'${cnode.name}' has ${unresolvedNeeds.length} unresolved need(s): ${descs}`,
           cnode.nodeRef.line,
           1,
+          cnode.sourceFile,
         ),
       );
     }
@@ -122,6 +126,7 @@ function confidenceLow(graph: ConfidenceGraph, threshold = 0.5): ReviewFinding[]
           `'${cnode.name}' has low confidence: ${cnode.resolved}`,
           cnode.nodeRef.line,
           1,
+          cnode.sourceFile,
         ),
       );
     }
@@ -144,6 +149,7 @@ function confidenceImpossible(graph: ConfidenceGraph): ReviewFinding[] {
             `'${cnode.name}' need "${need.what}" has would-raise-to=${need.wouldRaiseTo} which is less than current confidence ${cnode.spec.value}`,
             cnode.nodeRef.line,
             1,
+            cnode.sourceFile,
           ),
         );
       }
@@ -153,7 +159,10 @@ function confidenceImpossible(graph: ConfidenceGraph): ReviewFinding[] {
 }
 
 /** Anonymous node (no name) has confidence=from:X — can't be referenced by others */
-function confidenceAnonymousRef(irNodes: IRNode[]): ReviewFinding[] {
+function confidenceAnonymousRef(
+  irNodes: IRNode[],
+  locateFile?: (node: IRNode, line: number, col: number) => string | undefined,
+): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   for (const node of irNodes) {
     const conf = props(node).confidence;
@@ -171,6 +180,7 @@ function confidenceAnonymousRef(irNodes: IRNode[]): ReviewFinding[] {
           `Anonymous ${node.type} node has inherited confidence but can't be referenced by others`,
           line,
           col,
+          locateFile?.(node, line, col) ?? '',
         ),
       );
     }
@@ -182,16 +192,29 @@ function confidenceAnonymousRef(irNodes: IRNode[]): ReviewFinding[] {
 function confidenceDuplicateName(graph: MultiFileConfidenceGraph): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   for (const dup of graph.duplicates) {
-    findings.push(
-      finding(
-        'confidence-duplicate-name',
-        'error',
-        'pattern',
-        `Confidence node '${dup.name}' defined in multiple files: ${dup.files.join(', ')}`,
-        0,
-        1,
-      ),
-    );
+    for (const file of dup.files) {
+      const relatedSpans: SourceSpan[] = dup.files
+        .filter((other) => other !== file)
+        .map((other) => ({
+          file: other,
+          startLine: 1,
+          startCol: 1,
+          endLine: 1,
+          endCol: 1,
+        }));
+      findings.push(
+        finding(
+          'confidence-duplicate-name',
+          'error',
+          'pattern',
+          `Confidence node '${dup.name}' defined in multiple files: ${dup.files.join(', ')}`,
+          1,
+          1,
+          file,
+          { relatedSpans },
+        ),
+      );
+    }
   }
   return findings;
 }
@@ -199,39 +222,49 @@ function confidenceDuplicateName(graph: MultiFileConfidenceGraph): ReviewFinding
 // ── Exported lint entry points ───────────────────────────────────────────
 
 /** Run all confidence lint rules against a flat list of IR nodes (single file). */
-export function lintConfidenceGraph(irNodes: IRNode[]): ReviewFinding[] {
+export function lintConfidenceGraph(irNodes: IRNode[], filePath?: string): ReviewFinding[] {
   const hasConfidence = irNodes.some((n) => props(n).confidence !== undefined);
   if (!hasConfidence) return [];
 
   const graph = buildConfidenceGraph(irNodes);
-  return runGraphRules(graph, irNodes);
+  return runGraphRules(graph, irNodes, filePath ? () => filePath : undefined);
 }
 
 /** Run all confidence lint rules against multiple files (cross-file resolution). */
 export function lintMultiFileConfidenceGraph(fileMap: Map<string, IRNode[]>): ReviewFinding[] {
   // Collect all nodes to check for confidence props
   const allNodes: IRNode[] = [];
+  const nodeFiles = new Map<IRNode, string>();
   for (const nodes of fileMap.values()) {
     allNodes.push(...nodes);
+  }
+  for (const [filePath, nodes] of fileMap) {
+    for (const node of nodes) {
+      nodeFiles.set(node, filePath);
+    }
   }
   const hasConfidence = allNodes.some((n) => props(n).confidence !== undefined);
   if (!hasConfidence) return [];
 
   const graph = buildMultiFileConfidenceGraph(fileMap);
-  const findings = runGraphRules(graph, allNodes);
+  const findings = runGraphRules(graph, allNodes, (node) => nodeFiles.get(node));
   findings.push(...confidenceDuplicateName(graph));
   return findings;
 }
 
 /** Shared rule runner for both single-file and multi-file graphs. */
-function runGraphRules(graph: ConfidenceGraph, allNodes: IRNode[]): ReviewFinding[] {
+function runGraphRules(
+  graph: ConfidenceGraph,
+  allNodes: IRNode[],
+  locateFile?: (node: IRNode, line: number, col: number) => string | undefined,
+): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   findings.push(...confidenceMissingSource(graph));
   findings.push(...confidenceCycle(graph));
   findings.push(...confidenceNeedsUnresolved(graph));
   findings.push(...confidenceLow(graph));
   findings.push(...confidenceImpossible(graph));
-  findings.push(...confidenceAnonymousRef(allNodes));
+  findings.push(...confidenceAnonymousRef(allNodes, locateFile));
   return findings;
 }
 

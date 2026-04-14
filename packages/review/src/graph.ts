@@ -8,6 +8,8 @@
  * Codex contributions: extension fallback, shortest-distance tracking, skip counters.
  */
 
+import { existsSync } from 'fs';
+import { resolve } from 'path';
 import { Project, type SourceFile } from 'ts-morph';
 import type { GraphFile, GraphOptions, GraphResult } from './types.js';
 
@@ -48,7 +50,14 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
       try {
         sf = project.addSourceFileAtPath(entry);
       } catch {
-        skipped++;
+        const entryPath = resolve(entry);
+        if (!existsSync(entryPath)) {
+          skipped++;
+          continue;
+        }
+        if (!fileMap.has(entryPath)) {
+          fileMap.set(entryPath, { path: entryPath, distance: 0, imports: [], importedBy: [] });
+        }
         continue;
       }
     }

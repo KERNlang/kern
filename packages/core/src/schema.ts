@@ -740,7 +740,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       allowedPaths: { kind: 'string' },
       baseDir: { kind: 'string' },
     },
-    allowedChildren: ['tool', 'resource', 'prompt'],
+    allowedChildren: ['import', 'const', 'fn', 'tool', 'resource', 'prompt'],
   },
   tool: {
     description: 'MCP tool definition — a callable function exposed to AI agents with typed params and security guards',

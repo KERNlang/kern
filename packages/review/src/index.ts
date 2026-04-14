@@ -28,11 +28,12 @@ import { synthesizeObligations } from './obligations.js';
 import { runQualityRules } from './quality-rules.js';
 import { assignDefaultConfidence, calculateStats, sortAndDedup, sortFindings } from './reporter.js';
 import { loadBuiltinNativeRules, loadNativeRules } from './rule-loader.js';
-import { lintConfidenceGraph } from './rules/confidence.js';
+import { lintConfidenceGraph, lintMultiFileConfidenceGraph } from './rules/confidence.js';
 import { crossFileAsyncRule, deadExportRule } from './rules/dead-code.js';
 import { runFastapiConceptRules } from './rules/fastapi.js';
 import { GROUND_LAYER_RULES } from './rules/ground-layer.js';
 import { KERN_SOURCE_RULES, lintKernSourceIR } from './rules/kern-source.js';
+import { lintKernSourceCrossFile } from './rules/kern-source-cross-file.js';
 import { detectTemplates } from './template-detector.js';
 import type { GraphOptions } from './types.js';
 
@@ -105,6 +106,7 @@ export {
   formatReport,
   formatReportJSON,
   formatSARIF,
+  formatSARIFWithMetadata,
   formatSARIFWithSuppressions,
   formatSummary,
   sortAndDedup,
@@ -416,6 +418,7 @@ function reviewSourceInternal(
     inferred,
     templateMatches,
     findings,
+    ...(suppression.suppressed.length > 0 ? { suppressedFindings: sortAndDedup(suppression.suppressed) } : {}),
     stats,
     ...(confidenceGraph ? { confidenceGraph } : {}),
     ...(confidenceSummary ? { confidenceSummary } : {}),
@@ -562,6 +565,7 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
     inferred,
     templateMatches: [],
     findings,
+    ...(suppression.suppressed.length > 0 ? { suppressedFindings: sortAndDedup(suppression.suppressed) } : {}),
     stats: {
       totalLines,
       coveredLines: totalLines,
@@ -628,6 +632,7 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
     inferred: [],
     templateMatches: [],
     findings,
+    ...(suppression.suppressed.length > 0 ? { suppressedFindings: sortAndDedup(suppression.suppressed) } : {}),
     stats: {
       totalLines,
       coveredLines: 0,
@@ -691,8 +696,14 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
         }
       }
 
+      for (const f of report.suppressedFindings ?? []) {
+        f.origin = isEntry ? 'changed' : 'upstream';
+        f.distance = gf.distance;
+      }
+
       // Re-sort after severity mutations
       sortFindings(report.findings);
+      if (report.suppressedFindings) sortFindings(report.suppressedFindings);
 
       reports.push(report);
     } catch (err) {
@@ -727,6 +738,33 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
         if (!callerReport.crossFileTaint) callerReport.crossFileTaint = [];
         callerReport.crossFileTaint.push(result);
       }
+    }
+  }
+
+  // Cross-file confidence analysis for KERN IR nodes across the reviewed graph.
+  const confidenceFileMap = new Map<string, IRNode[]>();
+  for (const report of reports) {
+    if (!report.filePath.endsWith('.kern')) continue;
+    const nodes = report.inferred.map((r) => r.node);
+    if (nodes.length > 0) {
+      confidenceFileMap.set(report.filePath, nodes);
+    }
+  }
+  if (confidenceFileMap.size > 1) {
+    const crossFileConfidenceFindings = lintMultiFileConfidenceGraph(confidenceFileMap);
+    for (const finding of crossFileConfidenceFindings) {
+      const targetReport = reports.find((r) => r.filePath === finding.primarySpan.file);
+      if (targetReport) {
+        targetReport.findings.push(finding);
+      }
+    }
+  }
+
+  const crossFileKernFindings = lintKernSourceCrossFile(reports);
+  for (const finding of crossFileKernFindings) {
+    const targetReport = reports.find((r) => r.filePath === finding.primarySpan.file);
+    if (targetReport) {
+      targetReport.findings.push(finding);
     }
   }
 
@@ -814,8 +852,16 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
   for (const report of reports) {
     try {
       const source = readFileSync(report.filePath, 'utf-8');
-      const suppression = applySuppression(report.findings, source, report.filePath, config, config?.strict ?? false);
+      const unsuppressedCandidates = [...report.findings, ...(report.suppressedFindings ?? [])];
+      const suppression = applySuppression(
+        sortAndDedup(unsuppressedCandidates),
+        source,
+        report.filePath,
+        config,
+        config?.strict ?? false,
+      );
       report.findings = sortAndDedup(suppression.findings);
+      report.suppressedFindings = suppression.suppressed.length > 0 ? sortAndDedup(suppression.suppressed) : undefined;
     } catch {
       report.findings = sortAndDedup(report.findings);
     }

@@ -1,11 +1,19 @@
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { dirname, join, resolve } from 'path';
 import type { ReviewConfig, ReviewReport } from './types.js';
 
 // Version stamp for cache invalidation — changes when rules/analyzers change
-const REVIEW_CACHE_VERSION = '3.2.0';
+const REVIEW_CACHE_VERSION = '3.2.1';
+const IMPORT_SPECIFIER_RE =
+  /(?:import|export)\s+(?:[^'"`]*?\s+from\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
+const EXTENSION_FALLBACK: Record<string, string[]> = {
+  '.js': ['.ts', '.tsx', '.mts', '.cts'],
+  '.jsx': ['.tsx'],
+  '.mjs': ['.mts'],
+  '.cjs': ['.cts'],
+};
 
 export class ReviewCache {
   private l1 = new Map<string, ReviewReport>();
@@ -80,6 +88,7 @@ export function computeCacheKey(fileContent: string, config: ReviewConfig, fileP
   hash.update(fileContent);
   hash.update(JSON.stringify(config));
   hash.update(filePath);
+  hashRelativeImportTree(hash, filePath, fileContent, new Set([filePath]), 0);
   // Include custom rule file contents in cache key to avoid stale hits when rules change
   if (config.rulesDirs) {
     for (const dir of config.rulesDirs) {
@@ -97,6 +106,71 @@ export function computeCacheKey(fileContent: string, config: ReviewConfig, fileP
     }
   }
   return hash.digest('hex');
+}
+
+function hashRelativeImportTree(
+  hash: ReturnType<typeof createHash>,
+  filePath: string,
+  fileContent: string,
+  seen: Set<string>,
+  depth: number,
+  maxDepth = 3,
+): void {
+  if (depth >= maxDepth) return;
+
+  for (const specifier of collectRelativeImportSpecifiers(fileContent)) {
+    for (const candidate of resolveImportCandidates(filePath, specifier)) {
+      if (!existsSync(candidate) || seen.has(candidate)) continue;
+      seen.add(candidate);
+
+      try {
+        const importedContent = readFileSync(candidate, 'utf-8');
+        hash.update(candidate);
+        hash.update(importedContent);
+        hashRelativeImportTree(hash, candidate, importedContent, seen, depth + 1, maxDepth);
+        break;
+      } catch {
+        /* skip unreadable imports */
+      }
+    }
+  }
+}
+
+function collectRelativeImportSpecifiers(fileContent: string): string[] {
+  const specs = new Set<string>();
+  for (const match of fileContent.matchAll(IMPORT_SPECIFIER_RE)) {
+    const spec = match[1] ?? match[2];
+    if (spec?.startsWith('.')) specs.add(spec);
+  }
+  return [...specs];
+}
+
+function resolveImportCandidates(filePath: string, specifier: string): string[] {
+  const baseDir = dirname(filePath);
+  const candidates: string[] = [];
+
+  const pushResolved = (relativePath: string) => {
+    candidates.push(resolve(baseDir, relativePath));
+  };
+
+  const ext = Object.keys(EXTENSION_FALLBACK).find((suffix) => specifier.endsWith(suffix));
+  if (ext) {
+    pushResolved(specifier);
+    for (const fallback of EXTENSION_FALLBACK[ext]) {
+      pushResolved(`${specifier.slice(0, -ext.length)}${fallback}`);
+    }
+    return candidates;
+  }
+
+  if (/\.[cm]?[jt]sx?$/.test(specifier)) {
+    pushResolved(specifier);
+    return candidates;
+  }
+
+  for (const suffix of ['.ts', '.tsx', '.mts', '.cts', '/index.ts', '/index.tsx', '/index.mts', '/index.cts']) {
+    pushResolved(`${specifier}${suffix}`);
+  }
+  return candidates;
 }
 
 export const reviewCache = new ReviewCache();

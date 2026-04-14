@@ -133,6 +133,16 @@ describe('confidence-anonymous-ref', () => {
     expect(findings.some((f) => f.ruleId === 'confidence-anonymous-ref')).toBe(true);
   });
 
+  it('preserves file attribution when file path is provided', () => {
+    const nodes = [
+      makeNode('derive', { name: 'a', confidence: '0.7' }, [], 1),
+      makeNode('guard', { confidence: 'from:a', expr: 'x' }, [], 10),
+    ];
+    const findings = lintConfidenceGraph(nodes, 'input.kern');
+    const finding = findings.find((f) => f.ruleId === 'confidence-anonymous-ref');
+    expect(finding?.primarySpan.file).toBe('input.kern');
+  });
+
   it('does not fire on named node', () => {
     const nodes = [
       makeNode('derive', { name: 'a', confidence: '0.7' }, [], 1),

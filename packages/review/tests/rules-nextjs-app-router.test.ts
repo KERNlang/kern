@@ -40,6 +40,16 @@ export function Ls() {
       const r = reviewSource(src, 'ls.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'use-client-drilled-too-high')).toBeUndefined();
     });
+
+    it('still flags drilled use client when browser global names only appear in strings', () => {
+      const src = `'use client';
+export function Label() {
+  return <div>{"window"}</div>;
+}
+`;
+      const r = reviewSource(src, 'label.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'use-client-drilled-too-high')).toBeDefined();
+    });
   });
 
   describe('server-api-in-client', () => {
@@ -79,6 +89,436 @@ export default function Page() {
 `;
       const r = reviewSource(src, 'page.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'server-api-in-client')).toBeUndefined();
+    });
+  });
+
+  describe('browser-api-in-server', () => {
+    it('flags browser globals in a server component', () => {
+      const src = `
+export default function Page() {
+  const token = localStorage.getItem('token');
+  return <div>{token}</div>;
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'browser-api-in-server')).toBeDefined();
+    });
+
+    it('does not flag browser globals in a client component', () => {
+      const src = `'use client';
+export default function Page() {
+  const token = localStorage.getItem('token');
+  return <div>{token}</div>;
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'browser-api-in-server')).toBeUndefined();
+    });
+
+    it('does not flag typeof-window guarded access', () => {
+      const src = `
+export default function Page() {
+  const href = typeof window !== 'undefined' ? window.location.href : '';
+  return <div>{href}</div>;
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'browser-api-in-server')).toBeUndefined();
+    });
+
+    it('does not flag nested typeof-window guarded access inside a block', () => {
+      const src = `
+export default function Page() {
+  let href = '';
+  if (process.env.NODE_ENV !== 'test') {
+    if (typeof window !== 'undefined') {
+      href = window.location.href;
+    }
+  }
+  return <div>{href}</div>;
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'browser-api-in-server')).toBeUndefined();
+    });
+
+    it('does not flag string literals that mention browser globals', () => {
+      const src = `
+export default function Page() {
+  const label = 'window';
+  return <div>{label}</div>;
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'browser-api-in-server')).toBeUndefined();
+    });
+
+    it('does not flag object property names like obj.window', () => {
+      const src = `
+export default function Page() {
+  const obj = { window: 'x' };
+  return <div>{obj.window}</div>;
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'browser-api-in-server')).toBeUndefined();
+    });
+  });
+
+  describe('use-action-state-missing-pending', () => {
+    it('flags useActionState form flow without pending tuple value', () => {
+      const src = `'use client';
+import { useActionState } from 'react';
+
+export function SignupForm() {
+  const [state, formAction] = useActionState(createUser, { ok: false });
+  return (
+    <form action={formAction}>
+      <button type="submit">Save</button>
+      {state.ok ? <p>Saved</p> : null}
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'signup-form.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'use-action-state-missing-pending')).toBeDefined();
+    });
+
+    it('does not flag when pending tuple value is captured', () => {
+      const src = `'use client';
+import { useActionState } from 'react';
+
+export function SignupForm() {
+  const [state, formAction, pending] = useActionState(createUser, { ok: false });
+  return (
+    <form action={formAction}>
+      <button type="submit" disabled={pending}>Save</button>
+      {state.ok ? <p>Saved</p> : null}
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'signup-form.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'use-action-state-missing-pending')).toBeUndefined();
+    });
+
+    it('does not flag useActionState when action is not wired into form JSX', () => {
+      const src = `'use client';
+import { useActionState } from 'react';
+
+export function SignupForm() {
+  const [state, formAction] = useActionState(createUser, { ok: false });
+  return <div>{state.ok ? 'done' : 'idle'} {String(formAction)}</div>;
+}
+`;
+      const r = reviewSource(src, 'signup-form.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'use-action-state-missing-pending')).toBeUndefined();
+    });
+  });
+
+  describe('use-action-state-missing-feedback', () => {
+    it('flags useActionState when state is never read', () => {
+      const src = `'use client';
+import { useActionState } from 'react';
+
+export function SignupForm() {
+  const [state, formAction, pending] = useActionState(createUser, { ok: false, error: null });
+  return (
+    <form action={formAction}>
+      <button type="submit" disabled={pending}>Save</button>
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'signup-form.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'use-action-state-missing-feedback')).toBeDefined();
+    });
+
+    it('flags useActionState when the state tuple slot is omitted entirely', () => {
+      const src = `'use client';
+import { useActionState } from 'react';
+
+export function SignupForm() {
+  const [, formAction, pending] = useActionState(createUser, { ok: false, error: null });
+  return (
+    <form action={formAction}>
+      <button type="submit" disabled={pending}>Save</button>
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'signup-form.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'use-action-state-missing-feedback')).toBeDefined();
+    });
+
+    it('does not flag when state is rendered in JSX', () => {
+      const src = `'use client';
+import { useActionState } from 'react';
+
+export function SignupForm() {
+  const [state, formAction, pending] = useActionState(createUser, { ok: false, error: null });
+  return (
+    <form action={formAction}>
+      <button type="submit" disabled={pending}>Save</button>
+      {state.error ? <p role="alert">{state.error}</p> : null}
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'signup-form.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'use-action-state-missing-feedback')).toBeUndefined();
+    });
+
+    it('does not flag when state drives a side effect like a toast', () => {
+      const src = `'use client';
+import { useActionState, useEffect } from 'react';
+
+export function SignupForm() {
+  const [state, formAction, pending] = useActionState(createUser, { ok: false, error: null });
+
+  useEffect(() => {
+    if (state.error) showToast(state.error);
+  }, [state]);
+
+  return (
+    <form action={formAction}>
+      <button type="submit" disabled={pending}>Save</button>
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'signup-form.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'use-action-state-missing-feedback')).toBeUndefined();
+    });
+  });
+
+  describe('server-action-form-missing-pending', () => {
+    it('flags direct native submit button on same-file server action form', () => {
+      const src = `
+export default function Page() {
+  async function saveUser(formData: FormData) {
+    'use server';
+    await db.insert({ name: formData.get('name') });
+  }
+
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-action-form-missing-pending')).toBeDefined();
+    });
+
+    it('flags exported const server actions in use server files', () => {
+      const src = `'use server';
+
+export const saveUser = async (formData: FormData) => {
+  await db.insert({ name: formData.get('name') });
+};
+
+export default function Page() {
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-action-form-missing-pending')).toBeDefined();
+    });
+
+    it('does not flag when useFormStatus is used in the file', () => {
+      const src = `'use client';
+import { useFormStatus } from 'react-dom';
+
+function SubmitButton() {
+  const { pending } = useFormStatus();
+  return <button type="submit" disabled={pending}>{pending ? 'Saving...' : 'Save'}</button>;
+}
+
+export default function Page() {
+  async function saveUser(formData: FormData) {
+    'use server';
+    await db.insert({ name: formData.get('name') });
+  }
+
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <SubmitButton />
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-action-form-missing-pending')).toBeUndefined();
+    });
+
+    it('does not flag forms already covered by useActionState', () => {
+      const src = `'use client';
+import { useActionState } from 'react';
+
+async function saveUser(prevState: { ok: boolean }, formData: FormData) {
+  'use server';
+  await db.insert({ name: formData.get('name') });
+  return { ok: true };
+}
+
+export default function Page() {
+  const [state, formAction] = useActionState(saveUser, { ok: false });
+  return (
+    <form action={formAction}>
+      <input name="name" />
+      <button type="submit">Save</button>
+      {state.ok ? <p>Saved</p> : null}
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-action-form-missing-pending')).toBeUndefined();
+    });
+
+    it('does not flag custom submit components without native button evidence in the form tree', () => {
+      const src = `
+function SubmitButton() {
+  return <button type="submit">Save</button>;
+}
+
+export default function Page() {
+  async function saveUser(formData: FormData) {
+    'use server';
+    await db.insert({ name: formData.get('name') });
+  }
+
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <SubmitButton />
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-action-form-missing-pending')).toBeUndefined();
+    });
+  });
+
+  describe('server-action-form-return-value-ignored', () => {
+    it('flags direct form action when the server action returns structured state', () => {
+      const src = `
+export default function Page() {
+  async function saveUser(formData: FormData) {
+    'use server';
+    if (!formData.get('name')) return { ok: false, error: 'Name is required' };
+    return { ok: true, error: null };
+  }
+
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-action-form-return-value-ignored')).toBeDefined();
+    });
+
+    it('flags returned state from exported const server actions in use server files', () => {
+      const src = `'use server';
+
+export const saveUser = async (formData: FormData) => {
+  if (!formData.get('name')) return { ok: false, error: 'Name is required' };
+  return { ok: true, error: null };
+};
+
+export default function Page() {
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-action-form-return-value-ignored')).toBeDefined();
+    });
+
+    it('does not flag direct form action when the server action has no return value', () => {
+      const src = `
+export default function Page() {
+  async function saveUser(formData: FormData) {
+    'use server';
+    await db.insert({ name: formData.get('name') });
+  }
+
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-action-form-return-value-ignored')).toBeUndefined();
+    });
+
+    it('does not flag redirect-style server actions', () => {
+      const src = `
+import { redirect } from 'next/navigation';
+
+export default function Page() {
+  async function saveUser(formData: FormData) {
+    'use server';
+    await db.insert({ name: formData.get('name') });
+    return redirect('/users');
+  }
+
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-action-form-return-value-ignored')).toBeUndefined();
+    });
+
+    it('does not flag when return state is consumed via useActionState', () => {
+      const src = `'use client';
+import { useActionState } from 'react';
+
+async function saveUser(prevState: { ok: boolean; error: string | null }, formData: FormData) {
+  'use server';
+  if (!formData.get('name')) return { ok: false, error: 'Name is required' };
+  return { ok: true, error: null };
+}
+
+export default function Page() {
+  const [state, formAction] = useActionState(saveUser, { ok: false, error: null });
+  return (
+    <form action={formAction}>
+      <input name="name" />
+      <button type="submit">Save</button>
+      {state.error ? <p role="alert">{state.error}</p> : null}
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-action-form-return-value-ignored')).toBeUndefined();
     });
   });
 

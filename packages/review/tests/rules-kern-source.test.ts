@@ -1,4 +1,9 @@
-import { reviewKernSource } from '../src/index.js';
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { reviewGraph, reviewKernSource } from '../src/index.js';
+
+const TMP = join(tmpdir(), 'kern-review-kern-source-tests');
 
 describe('.kern source rules', () => {
   it('reports undefined references from handler scope', () => {
@@ -85,6 +90,130 @@ fn name=heavy params="input:string" returns=string
     expect(finding?.message).toContain('file tokens');
   });
 
+  it('sees file-level imports from inside top-level fn handlers', () => {
+    const source = `
+import from="node:child_process" names=execFileSync
+fn name=listBranches returns=string
+  handler <<<
+    return execFileSync('git', ['branch']).toString();
+  >>>
+`;
+    const report = reviewKernSource(source, 'git.kern');
+    const undef = report.findings.filter(
+      (f) => f.ruleId === 'undefined-reference' && f.message.includes('execFileSync'),
+    );
+    expect(undef).toHaveLength(0);
+  });
+
+  it('sees cross-file .kern imports from handlers', () => {
+    const source = `
+import from="./agent.kern" names=AgentSession
+fn name=startSession returns=unknown
+  handler <<<
+    return new AgentSession();
+  >>>
+`;
+    const report = reviewKernSource(source, 'team.kern');
+    const undef = report.findings.filter(
+      (f) => f.ruleId === 'undefined-reference' && f.message.includes('AgentSession'),
+    );
+    expect(undef).toHaveLength(0);
+  });
+
+  it('registers optional params (cause?:unknown) as visible bindings', () => {
+    const source = `
+fn name=explain params="cause?:unknown, engineId?:string, count?:number" returns=string
+  handler <<<
+    return String(cause) + (engineId ?? '') + (count ?? 0);
+  >>>
+`;
+    const report = reviewKernSource(source, 'explain.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef.flatMap((f) => f.message)).toEqual([]);
+  });
+
+  it('registers signal name=abort as a file-level binding visible to handlers', () => {
+    const source = `
+signal name=abort
+fn name=runAgentMode returns=void
+  handler <<<
+    if (abort) return;
+  >>>
+`;
+    const report = reviewKernSource(source, 'agent.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference' && f.message.includes('abort'));
+    expect(undef).toHaveLength(0);
+  });
+
+  it('treats setImmediate and clearImmediate as Node ambients', () => {
+    const source = `
+fn name=yieldEventLoop returns=void
+  handler <<<
+    const token = setImmediate(() => {});
+    clearImmediate(token);
+  >>>
+`;
+    const report = reviewKernSource(source, 'yield.kern');
+    const undef = report.findings.filter(
+      (f) =>
+        f.ruleId === 'undefined-reference' &&
+        (f.message.includes('setImmediate') || f.message.includes('clearImmediate')),
+    );
+    expect(undef).toHaveLength(0);
+  });
+
+  it('lets local bindings shadow file-level declarations (no inverted scoping)', () => {
+    // If the seed ran before the upward walk, top-level `Status` type would
+    // override the inner `const status:string` and typeModelMismatch would
+    // flag `.toUpperCase()` as a misuse of the literal union.
+    const source = `
+type name=Status values="ok|err"
+fn name=describe returns=string
+  const name=status type=string value="ready"
+  handler <<<
+    return status.toUpperCase();
+  >>>
+`;
+    const report = reviewKernSource(source, 'shadow.kern');
+    const mismatch = report.findings.filter((f) => f.ruleId === 'type-model-mismatch');
+    expect(mismatch).toHaveLength(0);
+  });
+
+  it('does not leak a top-level fn nested declaration into a sibling fn', () => {
+    // Two fns share a service parent. producer's local const must NOT leak
+    // into consumer, even though both are seen during file-level seeding.
+    const source = `
+service name=Manager
+  fn name=producer returns=string
+    const name=secret value="shh"
+    handler <<<
+      return secret;
+    >>>
+  fn name=consumer returns=string
+    handler <<<
+      return secret;
+    >>>
+`;
+    const report = reviewKernSource(source, 'leak.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference' && f.message.includes('secret'));
+    expect(undef).toHaveLength(1);
+  });
+
+  it('still surfaces type-model-mismatch when the typed binding is file-level', () => {
+    const source = `
+type name=Article values="news|blog"
+const name=current type=Article value="news"
+fn name=render returns=string
+  handler <<<
+    return current.name;
+  >>>
+`;
+    const report = reviewKernSource(source, 'article-toplevel.kern');
+    const mismatch = report.findings.filter((f) => f.ruleId === 'type-model-mismatch');
+    expect(mismatch.length).toBeGreaterThan(0);
+    expect(mismatch[0].message).toContain('Article');
+  });
+
   it('reports missing confidence when none is present and suppresses it when confidence exists', () => {
     const source = `
 fn name=loadUser params="id:string" returns=unknown
@@ -110,5 +239,45 @@ fn name=loadUser confidence=0.7 params="id:string" returns=unknown
 `;
     const annotatedReport = reviewKernSource(annotatedSource, 'confidence-present.kern');
     expect(annotatedReport.findings.some((f) => f.ruleId === 'missing-confidence')).toBe(false);
+  });
+
+  it('reports duplicate top-level symbols across .kern files in graph review', () => {
+    const dir = join(TMP, 'duplicate-symbols');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+
+    const aFile = join(dir, 'a.kern');
+    const bFile = join(dir, 'b.kern');
+    writeFileSync(
+      aFile,
+      `
+fn name=loadUser returns=string
+  handler <<<
+    return "a";
+  >>>
+`,
+    );
+    writeFileSync(
+      bFile,
+      `
+fn name=loadUser returns=string
+  handler <<<
+    return "b";
+  >>>
+`,
+    );
+
+    const reports = reviewGraph([aFile, bFile], { noCache: true });
+    const aReport = reports.find((r) => r.filePath === aFile);
+    const bReport = reports.find((r) => r.filePath === bFile);
+
+    const aFinding = aReport?.findings.find((f) => f.ruleId === 'kern-duplicate-symbol');
+    const bFinding = bReport?.findings.find((f) => f.ruleId === 'kern-duplicate-symbol');
+
+    expect(aFinding).toBeDefined();
+    expect(aFinding?.message).toContain('loadUser');
+    expect(aFinding?.relatedSpans?.some((span) => span.file === bFile)).toBe(true);
+    expect(bFinding).toBeDefined();
+    expect(bFinding?.relatedSpans?.some((span) => span.file === aFile)).toBe(true);
   });
 });

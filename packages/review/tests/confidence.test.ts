@@ -12,7 +12,7 @@ import {
   parseConfidence,
   resolveBaseConfidence,
 } from '../src/confidence.js';
-import { checkEnforcement, formatReport, formatSARIF } from '../src/reporter.js';
+import { checkEnforcement, formatReport, formatSARIF, formatSARIFWithMetadata } from '../src/reporter.js';
 import type { ReviewConfig, ReviewFinding, ReviewReport } from '../src/types.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -275,6 +275,42 @@ describe('Reporter: SARIF rank', () => {
     const sarif = JSON.parse(formatSARIF([report]));
     const result = sarif.runs[0].results[0];
     expect(result.rank).toBeUndefined();
+  });
+
+  it('marks baseline findings and suppresses existing ones in SARIF metadata', () => {
+    const report = makeReport([
+      makeFinding({ ruleId: 'existing-rule', fingerprint: 'existing-fp', message: 'existing message' }),
+      makeFinding({ ruleId: 'new-rule', fingerprint: 'new-fp', message: 'new message' }),
+    ]);
+    const sarif = JSON.parse(
+      formatSARIFWithMetadata([report], {
+        getBaselineStatus: (_report, finding) => (finding.ruleId === 'existing-rule' ? 'existing' : 'new'),
+      }),
+    );
+
+    const existing = sarif.runs[0].results.find((result: any) => result.ruleId === 'existing-rule');
+    const fresh = sarif.runs[0].results.find((result: any) => result.ruleId === 'new-rule');
+
+    expect(existing.properties['kern/baselineStatus']).toBe('existing');
+    expect(existing.suppressions).toEqual([{ kind: 'external', justification: 'Present in review baseline' }]);
+    expect(fresh.properties['kern/baselineStatus']).toBe('new');
+    expect(fresh.suppressions).toBeUndefined();
+  });
+
+  it('combines in-source and baseline suppressions in SARIF metadata', () => {
+    const suppressed = makeFinding({ ruleId: 'suppressed-rule', fingerprint: 'suppressed-fp', message: 'suppressed' });
+    const sarif = JSON.parse(
+      formatSARIFWithMetadata([makeReport([], { suppressedFindings: [suppressed] })], {
+        getBaselineStatus: (_report, finding) => (finding.ruleId === 'suppressed-rule' ? 'existing' : undefined),
+      }),
+    );
+
+    const result = sarif.runs[0].results[0];
+    expect(result.properties['kern/baselineStatus']).toBe('existing');
+    expect(result.suppressions).toEqual([
+      { kind: 'inSource', justification: 'kern-ignore directive' },
+      { kind: 'external', justification: 'Present in review baseline' },
+    ]);
   });
 });
 

@@ -211,6 +211,7 @@ function generateStateHook(stateNode: IRNode, imports: ImportTracker, ctx: State
   const name = props.name as string;
   const initialProp = props.initial;
   const safe = props.safe !== 'false' && props.safe !== false; // default true
+  const external = props.external === 'true' || props.external === true;
 
   if (name && initialProp !== undefined) {
     imports.addReact('useState');
@@ -241,6 +242,41 @@ function generateStateHook(stateNode: IRNode, imports: ImportTracker, ctx: State
 
     const throttle = props.throttle as string | undefined;
     const debounce = props.debounce as string | undefined;
+
+    if (external) {
+      // External-state primitive: a stable reference whose internal mutations
+      // are tracked via a sibling version counter. Replaces the manual
+      // `state foo + state fooVersion + setFooVersion(v => v + 1)` pattern.
+      // The held value is emitted as a bare useState (no __inkSafe wrap — the
+      // user mutates the object in place; the rare full-replacement case is
+      // a sync setState that React 18 batches inside event handlers). The
+      // version counter is hidden; the user calls `bumpFoo()` after mutating
+      // the object, and any memo that references `foo` automatically gets
+      // `_fooVersion` injected into its dep array.
+      if (throttle !== undefined || debounce !== undefined) {
+        throw new Error(
+          `state '${name}' uses external=true with throttle/debounce, which are mutually exclusive. ` +
+            `External state holds a stable reference; throttle/debounce apply to setter call rates and have no meaning ` +
+            `here. Drop one of the two, or split into a separate state node if you really need both.`,
+        );
+      }
+      if (props.safe === 'false' || props.safe === false) {
+        throw new Error(
+          `state '${name}' uses external=true with safe=false. External state already emits a bare useState (the safe wrapper does not apply), so safe=false is redundant — and combining them suggests a misunderstanding. Drop safe=false.`,
+        );
+      }
+      imports.addReact('useMemo');
+      const cap = capitalize(name);
+      lines.push(`  const [${name}, ${setter}] = useState${typeAnnotation}(${lazyInitVal});`);
+      lines.push(`  const [_${name}Version, _set${cap}VersionRaw] = useState<number>(0);`);
+      lines.push(`  const bump${cap} = useMemo(() => {`);
+      lines.push(`    return () => setTimeout(() => _set${cap}VersionRaw((v: number) => v + 1), 0);`);
+      lines.push(`  }, []);`);
+      // Touch the version in the closure so React picks it up if the user references
+      // it directly. The void cast keeps the lint quiet about an unused binding.
+      lines.push(`  void _${name}Version;`);
+      return lines;
+    }
 
     if (throttle) {
       // Throttled setter — leading+trailing by default (lodash-style).
@@ -561,10 +597,101 @@ function collectNestedOnNodes(node: IRNode): IRNode[] {
 
 let _onHookCounter = 0;
 
-function generateOnHook(onNode: IRNode, imports: ImportTracker): string[] {
+/**
+ * Rewrite a handler body so that every `setX(...)` call against a known safe state
+ * is replaced with the corresponding raw setter `_setXRaw(...)`. Used by batched
+ * handlers to bypass the per-setter __inkSafe macrotask deferral, so the whole
+ * batch can share a single deferred macrotask.
+ *
+ * The match uses a negative lookbehind so it only fires on bare setter calls.
+ * `form.setCount(...)` and any locally-shadowed `const setCount = ...; setCount(...)`
+ * preceded by a member access or word char are NOT rewritten.
+ *
+ * Limitation: substitution is text-based, so a setter name appearing as a bare
+ * call inside a string literal will also be rewritten. Document this in the
+ * language reference.
+ */
+function rewriteToRawSetters(code: string, stateNodes: IRNode[]): string {
+  let out = code;
+  for (const stateNode of stateNodes) {
+    const sp = getProps(stateNode);
+    // External-state setters use the bare useState form — there is no
+    // `_setXRaw` to rewrite to. Leave call sites alone.
+    if (sp.external === 'true' || sp.external === true) continue;
+    const safe = sp.safe !== 'false' && sp.safe !== false;
+    if (!safe) continue;
+    if (sp.throttle !== undefined || sp.debounce !== undefined) continue;
+    const name = sp.name as string;
+    if (!name) continue;
+    const setter = `set${capitalize(name)}`;
+    const raw = `_${setter}Raw`;
+    // Negative lookbehind: setter must not be preceded by `.` (member access)
+    // or `\w` (substring of a longer identifier).
+    const pattern = new RegExp(`(?<![\\w.])${setter}\\s*\\(`, 'g');
+    out = out.replace(pattern, `${raw}(`);
+  }
+  return out;
+}
+
+/**
+ * Refuse to batch handlers that contain async or deferred constructs. The whole
+ * point of batch=true is "collapse N synchronous setter calls into one shared
+ * macrotask." If the handler defers work into a nested timer or promise, those
+ * inner setter calls would land in their own task AFTER the batch's setTimeout
+ * has already flushed, with no __inkSafe wrapper to bridge them — exactly the
+ * missed-repaint failure mode __inkSafe exists to prevent. Better to surface
+ * the misuse at compile time than ship code that silently regresses on a
+ * subset of paths.
+ */
+const BATCH_FORBIDDEN_PATTERNS: { name: string; pattern: RegExp }[] = [
+  { name: 'setTimeout(', pattern: /\bsetTimeout\s*\(/ },
+  { name: 'setInterval(', pattern: /\bsetInterval\s*\(/ },
+  { name: 'setImmediate(', pattern: /\bsetImmediate\s*\(/ },
+  { name: 'queueMicrotask(', pattern: /\bqueueMicrotask\s*\(/ },
+  { name: 'await', pattern: /\bawait\b/ },
+  { name: '.then(', pattern: /\.then\s*\(/ },
+];
+
+/**
+ * Append `_${name}Version` to a memo's dep list for every external state name
+ * the memo already references. The user writes `deps="registry"` and the codegen
+ * produces `[registry, _registryVersion]`, so the memo invalidates when the user
+ * calls `bumpRegistry()` after mutating the held object in place. Idempotent —
+ * if the user already listed the version manually, nothing is duplicated.
+ */
+function injectExternalVersionDeps(depsRaw: string, externalStateNames: string[]): string {
+  if (externalStateNames.length === 0) return depsRaw;
+  const tokens = depsRaw
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const present = new Set(tokens);
+  for (const name of externalStateNames) {
+    if (!present.has(name)) continue;
+    const versionTok = `_${name}Version`;
+    if (!present.has(versionTok)) {
+      tokens.push(versionTok);
+      present.add(versionTok);
+    }
+  }
+  return tokens.join(', ');
+}
+
+function checkBatchBodyIsSync(code: string, onNode: IRNode): void {
+  for (const { name, pattern } of BATCH_FORBIDDEN_PATTERNS) {
+    if (pattern.test(code)) {
+      throw new Error(
+        `batch=true handler at on-node '${(getProps(onNode).key as string) || (getProps(onNode).event as string) || 'unknown'}' contains '${name}'. Batched handlers must be fully synchronous — deferred work would bypass __inkSafe and cause missed repaints. Either remove batch=true or move the deferred work to a separate non-batched on-node.`,
+      );
+    }
+  }
+}
+
+function generateOnHook(onNode: IRNode, imports: ImportTracker, stateNodes: IRNode[]): string[] {
   const lines: string[] = [];
   const onProps = getProps(onNode);
   const event = (onProps.event || onProps.name) as string;
+  const batch = onProps.batch === 'true' || onProps.batch === true;
 
   if (event === 'key' || event === 'input') {
     imports.addInk('useInput');
@@ -584,8 +711,19 @@ function generateOnHook(onNode: IRNode, imports: ImportTracker): string[] {
     }
     if (code) {
       const dedented = dedent(code);
-      for (const line of dedented.split('\n')) {
-        lines.push(`    ${line}`);
+      if (batch) {
+        checkBatchBodyIsSync(dedented, onNode);
+        const body = rewriteToRawSetters(dedented, stateNodes);
+        // Single deferred macrotask: collapse N __inkSafe wrappers into one paint cycle.
+        lines.push(`    setTimeout(() => {`);
+        for (const line of body.split('\n')) {
+          lines.push(`      ${line}`);
+        }
+        lines.push(`    }, 0);`);
+      } else {
+        for (const line of dedented.split('\n')) {
+          lines.push(`    ${line}`);
+        }
       }
     }
     lines.push(`  };`);
@@ -1305,11 +1443,24 @@ function compileScreenBody(
   }
   if (appExitNodes.length > 0) bodyLines.push('');
 
+  // Names of state nodes declared with external=true. Memos that reference
+  // any of these names auto-receive the corresponding `_${name}Version` token
+  // in their dep array, so the user does not have to remember to list both.
+  const externalStateNames = stateNodes
+    .filter((s) => {
+      const sp = getProps(s);
+      return sp.external === 'true' || sp.external === true;
+    })
+    .map((s) => getProps(s).name as string)
+    .filter(Boolean);
+
   // Memo hooks
   for (const memoNode of memoNodes) {
     const mp = getProps(memoNode);
     const mName = mp.name as string;
-    const mDeps = (mp.deps as string) || '';
+    const mDepsRaw = (mp.deps as string) || '';
+    // Auto-inject `_${name}Version` for every external state referenced in deps.
+    const mDeps = injectExternalVersionDeps(mDepsRaw, externalStateNames);
     const mDepsArr = mDeps ? `[${mDeps}]` : '[]';
     const handlerChild = (memoNode.children || []).find((c: IRNode) => c.type === 'handler');
     const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
@@ -1333,7 +1484,7 @@ function compileScreenBody(
 
   // on event=key → useInput() hooks
   for (const onNode of allOnNodes) {
-    bodyLines.push(...generateOnHook(onNode, imports));
+    bodyLines.push(...generateOnHook(onNode, imports, stateNodes));
   }
 
   // Stream effects
@@ -1366,7 +1517,9 @@ function compileScreenBody(
       const typeAnnotation = dType ? `<${dType}>` : '';
       let depsStr: string;
       if (dDeps) {
-        depsStr = `[${dDeps}]`;
+        // Explicit deps — same auto-injection path as memo nodes.
+        const injected = injectExternalVersionDeps(dDeps, externalStateNames);
+        depsStr = `[${injected}]`;
       } else {
         const sNames = stateNodes.map((s) => getProps(s).name as string).filter(Boolean);
         const rNames = refNodes
@@ -1377,7 +1530,19 @@ function compileScreenBody(
           .filter(Boolean);
         const allNames = [...sNames, ...rNames];
         const autoDeps = allNames.filter((n) => new RegExp(`\\b${n}\\b`).test(dExpr));
-        depsStr = `[${autoDeps.join(', ')}]`;
+        // After auto-detect, append `_${name}Version` for any external state that
+        // showed up in the expression — otherwise bumpRegistry() never invalidates.
+        const autoDepsWithVersions: string[] = [];
+        for (const dep of autoDeps) {
+          autoDepsWithVersions.push(dep);
+          if (externalStateNames.includes(dep)) {
+            const versionTok = `_${dep}Version`;
+            if (!autoDepsWithVersions.includes(versionTok)) {
+              autoDepsWithVersions.push(versionTok);
+            }
+          }
+        }
+        depsStr = `[${autoDepsWithVersions.join(', ')}]`;
       }
       bodyLines.push(`  const ${dName} = useMemo${typeAnnotation}(() => ${dExpr}, ${depsStr});`);
       bodyLines.push('');

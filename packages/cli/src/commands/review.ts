@@ -13,6 +13,7 @@ import {
   formatEnforcement,
   formatReport,
   formatSARIF,
+  formatSARIFWithMetadata,
   formatSummary,
   getRuleRegistry,
   isLLMAvailable,
@@ -25,9 +26,20 @@ import {
   runTSCDiagnosticsFromPaths,
   specViolationsToFindings,
 } from '@kernlang/review';
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
-import { basename, relative, resolve } from 'path';
-import { collectTsFilesFlat, hasFlag, loadConfig, parseAndSurface, parseFlag } from '../shared.js';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { basename, dirname, relative, resolve } from 'path';
+import {
+  compareReportsToBaseline,
+  createReviewBaseline,
+  filterReportsToNewFindings,
+  getReviewBaselineKeyForFinding,
+  parseReviewBaseline,
+  type ReviewBaselineComparison,
+  type ReviewBaselineFile,
+} from '../review-baseline.js';
+import { collectTsFilesFlat, hasFlag, loadConfig, parseAndSurface, parseFlag, parseFlagOrNext } from '../shared.js';
+
+type ReviewReportWithSuppressed = ReviewReport & { suppressedFindings?: ReviewFinding[] };
 
 // ── Review pipeline ──────────────────────────────────────────────────────
 
@@ -59,6 +71,9 @@ async function runReviewPipeline(
     maxErrorsArg?: string | number;
     maxWarningsArg?: string | number;
     showConfidence: boolean;
+    baseline?: ReviewBaselineFile;
+    writeBaselinePath?: string;
+    newOnly: boolean;
   },
 ): Promise<{ reports: ReviewReport[]; exitCode: number }> {
   const {
@@ -84,6 +99,9 @@ async function runReviewPipeline(
     maxComplexityArg,
     maxErrorsArg,
     maxWarningsArg,
+    baseline,
+    writeBaselinePath,
+    newOnly,
   } = modes;
 
   let reports: ReviewReport[] = [];
@@ -396,7 +414,13 @@ async function runReviewPipeline(
         console.error(`  LLM review failed: ${(err as Error).message}`);
       }
     } else {
-      // No API key — AI CLI tool IS the reviewer
+      // No API key — emit machine-readable context for an upstream AI CLI
+      // (claude/codex/gemini) to consume as the reviewer. Without a banner
+      // this looks like "--llm did nothing" to someone running it standalone.
+      console.log('  LLM review: KERN_LLM_API_KEY not set — emitting LLM-prompt context.');
+      console.log('    Pipe to an AI CLI:   kern review --llm <file> | claude');
+      console.log('    Or set an API key:   export KERN_LLM_API_KEY=<key>');
+      console.log('');
       for (const report of reports) {
         const rel = relative(process.cwd(), report.filePath);
 
@@ -650,24 +674,74 @@ async function runReviewPipeline(
     }
   }
 
+  let baselineComparison: ReviewBaselineComparison | undefined;
+  let reportsForOutput = reports;
+  let reportsForEnforcement = reports;
+
+  if (baseline) {
+    baselineComparison = compareReportsToBaseline(reports, baseline);
+    reportsForEnforcement = filterReportsToNewFindings(reports, baselineComparison);
+    if (newOnly) {
+      reportsForOutput = reportsForEnforcement;
+    }
+  }
+
+  if (writeBaselinePath) {
+    const baselineDir = dirname(writeBaselinePath);
+    if (baselineDir && baselineDir !== '.') {
+      mkdirSync(baselineDir, { recursive: true });
+    }
+    writeFileSync(writeBaselinePath, `${JSON.stringify(createReviewBaseline(reports), null, 2)}\n`);
+    if (!jsonOutput && !sarifOutput) {
+      console.log(`  Baseline written: ${writeBaselinePath}`);
+    }
+  }
+
   // Output
   if (jsonOutput) {
-    const enriched = reports.map((report) => {
+    const enriched = reportsForOutput.map((report) => {
       const llmPrompt = buildLLMPrompt(report.inferred, report.templateMatches);
       const kernIR = exportKernIR(report.inferred, report.templateMatches);
       return { ...report, kernIR, llmPrompt };
     });
     console.log(JSON.stringify(enriched.length === 1 ? enriched[0] : enriched, null, 2));
   } else if (sarifOutput) {
-    console.log(formatSARIF(reports));
+    if (baselineComparison) {
+      console.log(
+        formatSARIFWithMetadata(reportsForOutput, {
+          getBaselineStatus: (report: ReviewReport, finding: ReviewFinding) => {
+            const key = getReviewBaselineKeyForFinding(report.filePath, finding);
+            if (baselineComparison!.knownKeys.has(key)) return 'existing';
+            if (baselineComparison!.newKeys.has(key)) return 'new';
+            return undefined;
+          },
+        }),
+      );
+    } else if (
+      reportsForOutput.some((report) => ((report as ReviewReportWithSuppressed).suppressedFindings?.length ?? 0) > 0)
+    ) {
+      console.log(formatSARIFWithMetadata(reportsForOutput));
+    } else {
+      console.log(formatSARIF(reportsForOutput));
+    }
   } else {
-    for (const report of reports) {
+    for (const report of reportsForOutput) {
       console.log('');
       console.log(formatReport(report, reviewConfig));
     }
-    if (reports.length > 1) {
+    if (reportsForOutput.length > 1) {
       console.log('');
-      console.log(formatSummary(reports));
+      console.log(formatSummary(reportsForOutput));
+    }
+
+    if (baselineComparison) {
+      console.log('');
+      console.log(
+        `  Baseline: ${baselineComparison.knownCount} existing, ${baselineComparison.newCount} new, ${baselineComparison.resolvedCount} resolved`,
+      );
+      if (newOnly) {
+        console.log('  Output: showing only new findings compared to baseline');
+      }
     }
 
     const hasThresholds =
@@ -678,7 +752,7 @@ async function runReviewPipeline(
     if (enforce || hasThresholds) {
       console.log('');
       let allPassed = true;
-      for (const report of reports) {
+      for (const report of reportsForEnforcement) {
         const result = checkEnforcement(report, reviewConfig);
         if (!result.passed) {
           allPassed = false;
@@ -689,7 +763,8 @@ async function runReviewPipeline(
       }
 
       if (allPassed) {
-        console.log(`  Enforcement: PASS (all files checked against thresholds)`);
+        const suffix = baselineComparison ? ' on new findings vs baseline' : '';
+        console.log(`  Enforcement: PASS (all files checked against thresholds${suffix})`);
       } else {
         return { reports, exitCode: 1 };
       }
@@ -733,6 +808,13 @@ export async function runReview(args: string[]): Promise<void> {
   const minConfidenceArg = parseFlag(args, '--min-confidence');
   const minConfidence = minConfidenceArg ? Number(minConfidenceArg) : undefined;
   const disableRuleArgs = args.filter((a) => a.startsWith('--disable-rule=')).map((a) => a.split('=')[1]);
+  const baselinePath = parseFlagOrNext(args, '--baseline');
+  const writeBaselinePath = parseFlagOrNext(args, '--write-baseline');
+  const newOnly = hasFlag(args, '--new-only');
+  if (newOnly && !baselinePath) {
+    console.error('--new-only requires --baseline=<file.json>');
+    process.exit(1);
+  }
 
   const rulesDirs: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -749,9 +831,31 @@ export async function runReview(args: string[]): Promise<void> {
     strictArg === '--strict' ? 'inline' : strictArg === '--strict=all' ? 'all' : false;
   const strictParse = hasFlag(args, '--strict-parse');
   const listRules = hasFlag(args, '--list-rules');
-  const diffBase = args.find((a) => a.startsWith('--diff'))
-    ? parseFlag(args, '--diff') || args[args.indexOf('--diff') + 1] || 'origin/main'
+  const diffBase = args.some((a) => a === '--diff' || a.startsWith('--diff'))
+    ? parseFlagOrNext(args, '--diff') || 'origin/main'
     : undefined;
+
+  let baseline: ReviewBaselineFile | undefined;
+  if (baselinePath) {
+    const resolvedBaselinePath = resolve(baselinePath);
+    if (!existsSync(resolvedBaselinePath)) {
+      console.error(`Baseline not found: ${baselinePath}`);
+      process.exit(1);
+    }
+    let rawBaseline: string;
+    try {
+      rawBaseline = readFileSync(resolvedBaselinePath, 'utf-8');
+    } catch (err) {
+      console.error(`Failed to read baseline ${baselinePath}: ${(err as Error).message}`);
+      process.exit(1);
+    }
+    try {
+      baseline = parseReviewBaseline(rawBaseline);
+    } catch (err) {
+      console.error(`Failed to parse baseline ${baselinePath}: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  }
 
   // --list-rules
   if (listRules) {
@@ -777,7 +881,32 @@ export async function runReview(args: string[]): Promise<void> {
   }
 
   // Diff mode
-  const reviewInputs = args.filter((a) => !a.startsWith('--') && a !== 'review');
+  const flagsWithValues = new Set([
+    '--spec',
+    '--diff',
+    '--rules-dir',
+    '--tsconfig',
+    '--max-depth',
+    '--batch-size',
+    '--min-coverage',
+    '--max-complexity',
+    '--max-errors',
+    '--max-warnings',
+    '--min-confidence',
+    '--baseline',
+    '--write-baseline',
+  ]);
+  const reviewInputs: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === 'review') continue;
+    if (flagsWithValues.has(arg)) {
+      i++;
+      continue;
+    }
+    if (arg.startsWith('--')) continue;
+    reviewInputs.push(arg);
+  }
   let reviewInput = reviewInputs[0];
   if (diffBase && !reviewInput) {
     try {
@@ -788,10 +917,10 @@ export async function runReview(args: string[]): Promise<void> {
       })
         .trim()
         .split('\n')
-        .filter((f) => f.endsWith('.ts') || f.endsWith('.tsx'))
+        .filter((f) => f.endsWith('.ts') || f.endsWith('.tsx') || f.endsWith('.kern'))
         .filter((f) => !f.endsWith('.d.ts') && !f.endsWith('.test.ts'));
       if (diffFiles.length === 0) {
-        console.log(`  No changed .ts/.tsx files since ${diffBase}`);
+        console.log(`  No changed .ts/.tsx/.kern files since ${diffBase}`);
         process.exit(0);
       }
       console.log(`  Reviewing ${diffFiles.length} changed files (diff from ${diffBase})\n`);
@@ -833,9 +962,11 @@ export async function runReview(args: string[]): Promise<void> {
   }
 
   if (!reviewInput) {
-    console.error('Usage: kern review <file.ts|dir> [--security] [--mcp] [--llm] [--spec file.kern] [--cloud]');
     console.error(
-      '       [--diff base] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--fix] [--autofix] [--rules-dir <dir>]',
+      'Usage: kern review <file|dir> [--security] [--mcp] [--llm] [--spec file.kern] [--cloud] [--baseline=file.json] [--new-only]',
+    );
+    console.error(
+      '       [--diff base] [--write-baseline=file.json] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--fix] [--autofix] [--rules-dir <dir>]',
     );
     process.exit(1);
   }
@@ -961,6 +1092,9 @@ export async function runReview(args: string[]): Promise<void> {
     maxErrorsArg,
     maxWarningsArg,
     showConfidence,
+    baseline,
+    writeBaselinePath: writeBaselinePath ? resolve(writeBaselinePath) : undefined,
+    newOnly,
   };
 
   const noCache = hasFlag(args, '--no-cache');

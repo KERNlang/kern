@@ -620,6 +620,350 @@ describe('Ink Transpiler', () => {
     expect(result.code).toContain('const setC = useMemo(() => __inkSafe(_setCRaw), [_setCRaw])');
   });
 
+  // ── batch=true: collapse N __inkSafe macrotasks into 1 paint cycle ──────
+
+  test('on event=key without batch keeps per-setter __inkSafe (baseline, 2 macrotasks)', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Counter',
+      '  state name=count initial=0',
+      '  state name=tick initial=0',
+      '  on event=key key=return',
+      '    handler <<<',
+      '      setCount(count + 1);',
+      '      setTick(Date.now());',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Baseline: setters are emitted as the wrapped names, NOT wrapped in a shared setTimeout
+    expect(result.code).toContain('setCount(count + 1)');
+    expect(result.code).toContain('setTick(Date.now())');
+    expect(result.code).not.toContain('_setCountRaw(count + 1)');
+    expect(result.code).not.toContain('_setTickRaw(Date.now())');
+  });
+
+  test('on event=key with batch=true wraps body in single setTimeout and uses raw setters', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Counter',
+      '  state name=count initial=0',
+      '  state name=tick initial=0',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setCount(count + 1);',
+      '      setTick(Date.now());',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Should call the raw setters (bypassing __inkSafe)
+    expect(result.code).toContain('_setCountRaw(count + 1)');
+    expect(result.code).toContain('_setTickRaw(Date.now())');
+    // Should NOT call the wrapped setters inside the handler body
+    expect(result.code).not.toMatch(/=>\s*\{\s*\n\s*setCount\(count \+ 1\)/);
+    // Should wrap the body in exactly one shared setTimeout
+    const handlerBlock = result.code
+      .split('_inputHandlerRef.current = (input: string, key: any) => {')[1]
+      .split('useInput((input')[0];
+    const setTimeoutCount = (handlerBlock.match(/setTimeout\s*\(/g) || []).length;
+    expect(setTimeoutCount).toBe(1);
+    // Should still preserve the key gate
+    expect(handlerBlock).toContain('if (!(key.return)) return');
+  });
+
+  test('batch=true does not rewrite setters for state with safe=false', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Mixed',
+      '  state name=count initial=0',
+      '  state name=raw initial=0 safe=false',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setCount(count + 1);',
+      '      setRaw(0);',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // safe-wrapped state gets rewritten to its raw form
+    expect(result.code).toContain('_setCountRaw(count + 1)');
+    // safe=false state has no _setRawRaw — its setter is already the bare useState setter
+    expect(result.code).toContain('setRaw(0)');
+    expect(result.code).not.toContain('_setRawRaw');
+  });
+
+  test('batch=true does not rewrite throttled or debounced setters', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Stream',
+      '  state name=text initial="" throttle=90',
+      '  state name=count initial=0',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setText("update");',
+      '      setCount(count + 1);',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Throttled setter must keep its wrapper (it has its own scheduling)
+    expect(result.code).toContain('setText("update")');
+    expect(result.code).not.toContain('_setTextRaw("update")');
+    // Safe setter still gets the raw rewrite
+    expect(result.code).toContain('_setCountRaw(count + 1)');
+  });
+
+  test('batch=true does not rewrite member-access calls like form.setCount(...)', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Form',
+      '  state name=count initial=0',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setCount(count + 1);',
+      '      form.setCount(99);',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Bare setter is rewritten
+    expect(result.code).toContain('_setCountRaw(count + 1)');
+    // Member access is NOT rewritten — preserves the user's intent
+    expect(result.code).toContain('form.setCount(99)');
+    expect(result.code).not.toContain('form._setCountRaw(99)');
+  });
+
+  test('batch=true rejects handlers containing setTimeout', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Bad',
+      '  state name=count initial=0',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setCount(1);',
+      '      setTimeout(() => setCount(2), 100);',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    expect(() => transpileInk(ast)).toThrow(/batch=true handler.*contains 'setTimeout/);
+  });
+
+  test('batch=true rejects handlers containing await', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Bad',
+      '  state name=count initial=0',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setCount(1);',
+      '      await fetch("/api");',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    expect(() => transpileInk(ast)).toThrow(/batch=true handler.*contains 'await/);
+  });
+
+  test('batch=true rejects handlers containing .then(', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Bad',
+      '  state name=count initial=0',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setCount(1);',
+      '      Promise.resolve().then(() => setCount(2));',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    expect(() => transpileInk(ast)).toThrow(/batch=true handler.*contains '.then/);
+  });
+
+  // ── external=true: stable-reference state with auto-version tracking ──
+
+  test('external=true emits version counter and bump callback', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Reg',
+      '  state name=registry type=Registry initial="new Registry()" external=true',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Bare state hook (no __inkSafe wrap — user mutates in place)
+    expect(result.code).toContain('const [registry, setRegistry] = useState<Registry>(() => new Registry())');
+    // Hidden version counter
+    expect(result.code).toContain('const [_registryVersion, _setRegistryVersionRaw] = useState<number>(0)');
+    // Bump callback uses setTimeout to bridge Ink's microtask→macrotask gap
+    expect(result.code).toContain('const bumpRegistry = useMemo(() => {');
+    expect(result.code).toContain('return () => setTimeout(() => _setRegistryVersionRaw((v: number) => v + 1), 0)');
+    // Touch the version so the binding is "used"
+    expect(result.code).toContain('void _registryVersion;');
+    // Should NOT emit __inkSafe wrap on the external state's setter
+    expect(result.code).not.toContain('const setRegistry = useMemo(() => __inkSafe');
+  });
+
+  test('memo referencing an external state auto-receives the version dep', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Reg',
+      '  state name=registry type=Registry initial="new Registry()" external=true',
+      '  memo name=availableEngines deps="registry"',
+      '    handler <<<',
+      '      return registry.list();',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Auto-injection: memo deps array contains BOTH `registry` and `_registryVersion`
+    expect(result.code).toContain('useMemo');
+    expect(result.code).toMatch(
+      /useMemo\(\(\) => \{[\s\S]*?return registry\.list\(\);[\s\S]*?\}, \[registry, _registryVersion\]\);/,
+    );
+  });
+
+  test('memo deps auto-injection is idempotent when user lists version manually', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Reg',
+      '  state name=registry type=Registry initial="new Registry()" external=true',
+      '  memo name=available deps="registry, _registryVersion"',
+      '    handler <<<',
+      '      return registry.list();',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Should appear exactly once — no double `_registryVersion`
+    const matches = result.code.match(/_registryVersion/g) || [];
+    // Three occurrences expected: declaration, void touch, dep array
+    expect(matches.length).toBe(3);
+  });
+
+  test('memo not referencing an external state gets no auto-injection', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Mixed',
+      '  state name=registry type=Registry initial="new Registry()" external=true',
+      '  state name=count initial=0',
+      '  memo name=double deps="count"',
+      '    handler <<<',
+      '      return count * 2;',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // The `double` memo only depends on `count`, not on `registry`,
+    // so it must not get `_registryVersion` injected.
+    expect(result.code).toMatch(/useMemo\(\(\) => \{[\s\S]*?return count \* 2;[\s\S]*?\}, \[count\]\);/);
+  });
+
+  test('external=true throws when combined with throttle', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse(
+      'screen name=Bad\n  state name=reg type=Registry initial="new Registry()" external=true throttle=100',
+    );
+    expect(() => transpileInk(ast)).toThrow(/external=true with throttle\/debounce/);
+  });
+
+  test('external=true throws when combined with debounce', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse(
+      'screen name=Bad\n  state name=reg type=Registry initial="new Registry()" external=true debounce=200',
+    );
+    expect(() => transpileInk(ast)).toThrow(/external=true with throttle\/debounce/);
+  });
+
+  test('external=true throws when combined with safe=false', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse(
+      'screen name=Bad\n  state name=reg type=Registry initial="new Registry()" external=true safe=false',
+    );
+    expect(() => transpileInk(ast)).toThrow(/external=true with safe=false/);
+  });
+
+  test('batch=true does not rewrite an external state setter (no _setRaw exists)', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=Mixed',
+      '  state name=registry type=Registry initial="new Registry()" external=true',
+      '  state name=count initial=0',
+      '  on event=key key=return batch=true',
+      '    handler <<<',
+      '      setRegistry(new Registry());',
+      '      setCount(count + 1);',
+      '    >>>',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // The full-replacement setter on the external state is left as-is —
+    // there is no `_setRegistryRaw` to rewrite to.
+    expect(result.code).toContain('setRegistry(new Registry())');
+    expect(result.code).not.toContain('_setRegistryRaw');
+    // Normal safe state still gets the rewrite
+    expect(result.code).toContain('_setCountRaw(count + 1)');
+  });
+
+  test('derive node with explicit deps referencing external state auto-injects version', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=DerivedReg',
+      '  state name=registry type=Registry initial="new Registry()" external=true',
+      '  derive name=count expr={{ registry.list().length }} deps="registry"',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Derive's explicit deps should auto-receive `_registryVersion`
+    expect(result.code).toMatch(
+      /const count = useMemo\(\(\) => registry\.list\(\)\.length, \[registry, _registryVersion\]\);/,
+    );
+  });
+
+  test('derive node with auto-detected deps referencing external state appends version', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=DerivedReg',
+      '  state name=registry type=Registry initial="new Registry()" external=true',
+      // no explicit deps — codegen auto-detects from the expression
+      '  derive name=count expr={{ registry.list().length }}',
+    ].join('\n');
+    const ast = parse(source);
+    const result = transpileInk(ast);
+
+    // Auto-detect should produce [registry, _registryVersion]
+    expect(result.code).toMatch(
+      /const count = useMemo\(\(\) => registry\.list\(\)\.length, \[registry, _registryVersion\]\);/,
+    );
+  });
+
   // ── Phase 2: Throttle, Debounce, Animation, Derive ────────────────────
 
   test('state with throttle generates throttled setter', async () => {
