@@ -88,6 +88,7 @@ const DIRECT_BINDING_NODE_TYPES = new Set([
   'service',
   'machine',
   'singleton',
+  'signal',
   // Template node types that declare a name binding
   'arrow-fn',
   'swr-hook',
@@ -189,6 +190,8 @@ const AMBIENT_NAMES = new Set([
   'location',
   'navigator',
   'process',
+  'setImmediate',
+  'clearImmediate',
   'setInterval',
   'setTimeout',
   'window',
@@ -402,8 +405,9 @@ function parseParamBindings(raw: unknown): Array<{ name: string; typeName?: stri
   for (const part of splitTopLevel(raw, ',')) {
     const colonIdx = findTopLevelChar(part, ':');
     const eqIdx = findTopLevelChar(part, '=');
-    const rawName =
+    const rawNameRaw =
       colonIdx >= 0 ? part.slice(0, colonIdx).trim() : eqIdx >= 0 ? part.slice(0, eqIdx).trim() : part.trim();
+    const rawName = rawNameRaw.endsWith('?') ? rawNameRaw.slice(0, -1) : rawNameRaw;
     if (!/^[A-Za-z_$][\w$]*$/.test(rawName)) continue;
 
     let typeName: string | undefined;
@@ -551,15 +555,64 @@ function addBindingsFromScopeNode(scopeNode: IRNode, target: Map<string, Binding
   }
 }
 
-function collectVisibleBindings(node: IRNode, parentMap: Map<IRNode, IRNode | undefined>): Map<string, BindingInfo> {
+function addTopLevelBindingsFrom(rootNode: IRNode, target: Map<string, BindingInfo>): void {
+  const p = props(rootNode);
+
+  // Root-level import: register its imported names without descending further
+  if (rootNode.type === 'import') {
+    if (typeof p.names === 'string') {
+      for (const importedName of p.names
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean)) {
+        addBinding(target, importedName, { kind: 'import', node: rootNode });
+      }
+    }
+    if (typeof p.default === 'string' && p.default) {
+      addBinding(target, p.default as string, { kind: 'import', node: rootNode });
+    }
+    if (typeof p.namespace === 'string' && p.namespace) {
+      addBinding(target, p.namespace as string, { kind: 'import', node: rootNode });
+    }
+    return;
+  }
+
+  // Only the root node's own name — NOT its nested children. Recursing here would
+  // leak e.g. a top-level `fn a`'s inner `const x` into sibling `fn b`'s scope.
+  if (DIRECT_BINDING_NODE_TYPES.has(rootNode.type) && typeof p.name === 'string') {
+    addBinding(target, p.name, {
+      kind: rootNode.type,
+      node: rootNode,
+      typeName: typeof p.type === 'string' ? getDirectTypeAlias(p.type) : undefined,
+    });
+    if (rootNode.type === 'state') {
+      addBinding(target, `set${capitalize(p.name)}`, { kind: 'state-setter', node: rootNode });
+    }
+  }
+}
+
+function collectVisibleBindings(
+  node: IRNode,
+  parentMap: Map<IRNode, IRNode | undefined>,
+  rootNodes: IRNode[],
+): Map<string, BindingInfo> {
   const bindings = new Map<string, BindingInfo>();
 
+  // Walk innermost → outermost first. `addBinding` is first-write-wins, so nearer
+  // scopes take precedence over file-level declarations seeded afterwards.
   let current = parentMap.get(node);
   while (current) {
     if (isScopeNode(current) || parentMap.get(current) === undefined) {
       addBindingsFromScopeNode(current, bindings);
     }
     current = parentMap.get(current);
+  }
+
+  // Seed file-level bindings LAST so local params/state/consts can shadow them.
+  // Use the narrow helper so nested declarations of one top-level scope don't
+  // leak into siblings.
+  for (const root of rootNodes) {
+    addTopLevelBindingsFrom(root, bindings);
   }
 
   return bindings;
@@ -784,6 +837,7 @@ function describeNode(node: IRNode, parentMap: Map<IRNode, IRNode | undefined>):
 export const undefinedReference: KernSourceRule = (nodes: IRNode[], filePath: string): ReviewFinding[] => {
   const findings: ReviewFinding[] = [];
   const parentMap = buildParentMap(nodes);
+  const rootNodes = nodes.filter((n) => parentMap.get(n) === undefined);
   const project = createInMemoryProject();
 
   // Iterate ALL nodes in the tree (not just top-level) to find deeply nested handlers
@@ -792,7 +846,7 @@ export const undefinedReference: KernSourceRule = (nodes: IRNode[], filePath: st
     const code = getCodeProp(node);
     if (!code) continue;
 
-    const visibleBindings = collectVisibleBindings(node, parentMap);
+    const visibleBindings = collectVisibleBindings(node, parentMap, rootNodes);
     const analysis = createSnippetAnalysis(project, code, `undef_${loc(node).line}`, 'block');
     const unresolved = [...analysis.referenceNames]
       .filter((name) => !analysis.localBindings.has(name))
@@ -824,6 +878,7 @@ export const undefinedReference: KernSourceRule = (nodes: IRNode[], filePath: st
 export const typeModelMismatch: KernSourceRule = (nodes: IRNode[], filePath: string): ReviewFinding[] => {
   const findings: ReviewFinding[] = [];
   const parentMap = buildParentMap(nodes);
+  const rootNodes = nodes.filter((n) => parentMap.get(n) === undefined);
   const unionAliases = buildUnionAliasMap(nodes);
   if (unionAliases.size === 0) return findings;
 
@@ -834,7 +889,7 @@ export const typeModelMismatch: KernSourceRule = (nodes: IRNode[], filePath: str
     const code = getCodeProp(node);
     if (!code) continue;
 
-    const visibleBindings = collectVisibleBindings(node, parentMap);
+    const visibleBindings = collectVisibleBindings(node, parentMap, rootNodes);
     const unionBindings = new Map<string, { alias: string; union: UnionAliasInfo; sourceNode: IRNode }>();
     for (const [name, binding] of visibleBindings) {
       if (!binding.typeName) continue;
