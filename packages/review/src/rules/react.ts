@@ -767,13 +767,19 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
 
   function getNearestNestedFunctionScope(
     node: import('ts-morph').Node,
-  ): import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | import('ts-morph').FunctionDeclaration | undefined {
+  ):
+    | import('ts-morph').ArrowFunction
+    | import('ts-morph').FunctionExpression
+    | import('ts-morph').FunctionDeclaration
+    | undefined {
     let cur = node.getParent();
     while (cur) {
       if (Node.isArrowFunction(cur) || Node.isFunctionExpression(cur) || Node.isFunctionDeclaration(cur)) {
         const outer = cur.getFirstAncestor(
           (ancestor) =>
-            Node.isArrowFunction(ancestor) || Node.isFunctionExpression(ancestor) || Node.isFunctionDeclaration(ancestor),
+            Node.isArrowFunction(ancestor) ||
+            Node.isFunctionExpression(ancestor) ||
+            Node.isFunctionDeclaration(ancestor),
         );
         return outer ? cur : undefined;
       }
@@ -784,7 +790,11 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
 
   function getEnclosingFunctionScope(
     node: import('ts-morph').Node,
-  ): import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | import('ts-morph').FunctionDeclaration | undefined {
+  ):
+    | import('ts-morph').ArrowFunction
+    | import('ts-morph').FunctionExpression
+    | import('ts-morph').FunctionDeclaration
+    | undefined {
     let cur = node.getParent();
     while (cur) {
       if (Node.isArrowFunction(cur) || Node.isFunctionExpression(cur) || Node.isFunctionDeclaration(cur)) {
@@ -796,7 +806,10 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
   }
 
   function getFunctionBindingName(
-    fn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | import('ts-morph').FunctionDeclaration,
+    fn:
+      | import('ts-morph').ArrowFunction
+      | import('ts-morph').FunctionExpression
+      | import('ts-morph').FunctionDeclaration,
   ): import('ts-morph').Identifier | undefined {
     if (Node.isFunctionDeclaration(fn)) {
       const nameNode = fn.getNameNode();
@@ -813,7 +826,10 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
   }
 
   function hasRenderTimeInvocation(
-    fn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | import('ts-morph').FunctionDeclaration,
+    fn:
+      | import('ts-morph').ArrowFunction
+      | import('ts-morph').FunctionExpression
+      | import('ts-morph').FunctionDeclaration,
   ): boolean {
     const binding = getFunctionBindingName(fn);
     if (!binding) return true;
@@ -862,7 +878,10 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
   }
 
   function scopeHasGuardedLazyInitializationReadAllowance(
-    scope: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | import('ts-morph').FunctionDeclaration,
+    scope:
+      | import('ts-morph').ArrowFunction
+      | import('ts-morph').FunctionExpression
+      | import('ts-morph').FunctionDeclaration,
     refName: string,
   ): boolean {
     const escapedRef = refName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -881,7 +900,11 @@ function refInRender(ctx: RuleContext): ReviewFinding[] {
       const writesInThen = ifStmt
         .getThenStatement()
         .getDescendantsOfKind(SyntaxKind.BinaryExpression)
-        .some((expr) => expr.getLeft().getText() === `${refName}.current` && expr.getOperatorToken().getKind() === SyntaxKind.EqualsToken);
+        .some(
+          (expr) =>
+            expr.getLeft().getText() === `${refName}.current` &&
+            expr.getOperatorToken().getKind() === SyntaxKind.EqualsToken,
+        );
       if (writesInThen) return true;
     }
 
