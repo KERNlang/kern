@@ -454,9 +454,9 @@ function resolveImportSourceFile(
   const fromDir = dirname(ctx.sourceFile.getFilePath());
   const fallbackCandidates = [specifier];
   if (specifier.endsWith('.js')) {
-    fallbackCandidates.push(specifier.slice(0, -3) + '.ts', specifier.slice(0, -3) + '.tsx');
+    fallbackCandidates.push(`${specifier.slice(0, -3)}.ts`, `${specifier.slice(0, -3)}.tsx`);
   } else if (specifier.endsWith('.jsx')) {
-    fallbackCandidates.push(specifier.slice(0, -4) + '.tsx');
+    fallbackCandidates.push(`${specifier.slice(0, -4)}.tsx`);
   } else {
     fallbackCandidates.push(`${specifier}.ts`, `${specifier}.tsx`, `${specifier}/index.ts`, `${specifier}/index.tsx`);
   }
@@ -479,7 +479,7 @@ function resolveImportSourceFile(
           },
         }).addSourceFileAtPath(fullPath);
       } catch {
-        continue;
+        // Keep trying other extension fallbacks.
       }
     }
   }
@@ -516,7 +516,10 @@ function resolveExportedServerActionFunctions(
 
 function resolveImportedServerActionFunctions(ctx: RuleContext, decl: Node): FunctionLikeNode[] {
   if (Node.isImportSpecifier(decl)) {
-    return resolveExportedServerActionFunctions(resolveImportSourceFile(ctx, decl.getImportDeclaration()), decl.getName());
+    return resolveExportedServerActionFunctions(
+      resolveImportSourceFile(ctx, decl.getImportDeclaration()),
+      decl.getName(),
+    );
   }
 
   if (Node.isNamespaceImport(decl)) return [];
@@ -663,40 +666,81 @@ function useClientDrilledTooHigh(ctx: RuleContext): ReviewFinding[] {
   // cheaply check that without the full fileContextMap. Fire as a warning
   // either way; severity bumps to error when we can prove a child needs it.
 
-  let severity: 'warning' | 'error' = 'warning';
+  const severity: 'warning' | 'error' = 'warning';
   let detail = 'File has "use client" but uses no hooks, event handlers, or browser APIs itself.';
+  let importedChildren: string[] = [];
 
-  const fileContextMap = ctx.config?.fileContextMap;
-  if (fileContextMap) {
-    // If at least one imported child has its own 'use client' or needs one, this is a drilled directive.
-    const gfImports = [...fileContextMap.entries()]
-      .filter(([, v]) => v.importedBy.includes(ctx.filePath))
-      .map(([k]) => k);
-    if (gfImports.length > 0) {
-      severity = 'warning';
-      detail += ` Imported children: ${gfImports
-        .slice(0, 3)
-        .map((p) => basename(p))
-        .join(', ')}${gfImports.length > 3 ? '…' : ''}.`;
+  const graphFile = ctx.config?.graphFileMap?.get(ctx.filePath);
+  if (graphFile && graphFile.imports.length > 0) {
+    importedChildren = graphFile.imports;
+    detail += ` Imported children: ${importedChildren
+      .slice(0, 3)
+      .map((p) => basename(p))
+      .join(', ')}${importedChildren.length > 3 ? '…' : ''}.`;
+  } else {
+    const fileContextMap = ctx.config?.fileContextMap;
+    if (fileContextMap) {
+      // Fallback for older graph-aware callers that only provide fileContextMap.
+      importedChildren = [...fileContextMap.entries()]
+        .filter(([, v]) => v.importedBy.includes(ctx.filePath))
+        .map(([k]) => k);
+      if (importedChildren.length > 0) {
+        detail += ` Imported children: ${importedChildren
+          .slice(0, 3)
+          .map((p) => basename(p))
+          .join(', ')}${importedChildren.length > 3 ? '…' : ''}.`;
+      }
     }
   }
 
   const line = 1;
-  return [
-    finding(
-      'use-client-drilled-too-high',
-      severity,
-      'pattern',
-      `'use client' directive is drilled too high — ${detail} Move it to the leaf component that actually uses client APIs to preserve Server Component benefits.`,
-      ctx.filePath,
-      line,
-      1,
+  const result = finding(
+    'use-client-drilled-too-high',
+    severity,
+    'pattern',
+    `'use client' directive is drilled too high — ${detail} Move it to the leaf component that actually uses client APIs to preserve Server Component benefits.`,
+    ctx.filePath,
+    line,
+    1,
+    {
+      suggestion:
+        'Remove the top-level "use client" and add it to only the child component(s) that use hooks or browser APIs',
+    },
+  );
+  result.relatedSpans = importedChildren.slice(0, 3).map((child) => ({
+    file: child,
+    startLine: 1,
+    startCol: 1,
+    endLine: 1,
+    endCol: 1,
+  }));
+  result.provenance = {
+    summary:
+      importedChildren.length > 0
+        ? `"use client" sits above ${importedChildren.length} imported child${importedChildren.length === 1 ? '' : 'ren'} while this file uses no client-only APIs itself.`
+        : '"use client" is present, but the file itself has no local client-only API usage.',
+    steps: [
       {
-        suggestion:
-          'Remove the top-level "use client" and add it to only the child component(s) that use hooks or browser APIs',
+        kind: 'boundary',
+        location: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+        label: `'use client'`,
+        detail: 'Client boundary is declared at the top of this file.',
       },
-    ),
-  ];
+      {
+        kind: 'boundary',
+        location: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+        label: 'no local client API usage',
+        detail: 'This file does not use hooks, event handlers, or browser globals directly.',
+      },
+      ...importedChildren.slice(0, 3).map((child) => ({
+        kind: 'import' as const,
+        location: { file: child, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+        label: basename(child),
+        detail: 'Imported child under the same declared client boundary.',
+      })),
+    ],
+  };
+  return [result];
 }
 
 // ── Rule: server-api-in-client ───────────────────────────────────────────
@@ -720,20 +764,42 @@ function serverApiInClient(ctx: RuleContext): ReviewFinding[] {
   for (const imp of ctx.sourceFile.getImportDeclarations()) {
     const mod = imp.getModuleSpecifierValue();
     if (mod === 'next/headers' || mod === 'server-only') {
-      findings.push(
-        finding(
-          'server-api-in-client',
-          'error',
-          'bug',
-          `Client Component imports '${mod}' — this will fail at build time. Server-only APIs cannot run in a client boundary.`,
-          ctx.filePath,
-          imp.getStartLineNumber(),
-          1,
-          {
-            suggestion: `Move this logic to a Server Component or a server action, or drop the 'use client' directive if this file does not need it`,
-          },
-        ),
+      const hit = finding(
+        'server-api-in-client',
+        'error',
+        'bug',
+        `Client Component imports '${mod}' — this will fail at build time. Server-only APIs cannot run in a client boundary.`,
+        ctx.filePath,
+        imp.getStartLineNumber(),
+        1,
+        {
+          suggestion: `Move this logic to a Server Component or a server action, or drop the 'use client' directive if this file does not need it`,
+        },
       );
+      hit.provenance = {
+        summary: `Client boundary imports server-only module '${mod}'.`,
+        steps: [
+          {
+            kind: 'boundary',
+            location: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+            label: `'use client'`,
+            detail: 'This file is treated as a Client Component.',
+          },
+          {
+            kind: 'import',
+            location: {
+              file: ctx.filePath,
+              startLine: imp.getStartLineNumber(),
+              startCol: 1,
+              endLine: imp.getStartLineNumber(),
+              endCol: 1,
+            },
+            label: mod,
+            detail: 'Server-only module imported into a client boundary.',
+          },
+        ],
+      };
+      findings.push(hit);
     }
   }
 
@@ -754,18 +820,42 @@ function serverApiInClient(ctx: RuleContext): ReviewFinding[] {
       );
     if (!fromNextHeaders) continue;
 
-    findings.push(
-      finding(
-        'server-api-in-client',
-        'error',
-        'bug',
-        `'${name}()' called in Client Component — next/headers APIs are server-only and will throw at runtime`,
-        ctx.filePath,
-        call.getStartLineNumber(),
-        1,
-        { suggestion: `Call '${name}()' in a Server Component or server action, then pass the result as a prop` },
-      ),
+    const hit = finding(
+      'server-api-in-client',
+      'error',
+      'bug',
+      `'${name}()' called in Client Component — next/headers APIs are server-only and will throw at runtime`,
+      ctx.filePath,
+      call.getStartLineNumber(),
+      1,
+      {
+        suggestion: `Call '${name}()' in a Server Component or server action, then pass the result as a prop`,
+      },
     );
+    hit.provenance = {
+      summary: `Client boundary calls server-only API ${name}().`,
+      steps: [
+        {
+          kind: 'boundary',
+          location: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+          label: `'use client'`,
+          detail: 'This file is treated as a Client Component.',
+        },
+        {
+          kind: 'call',
+          location: {
+            file: ctx.filePath,
+            startLine: call.getStartLineNumber(),
+            startCol: 1,
+            endLine: call.getStartLineNumber(),
+            endCol: 1,
+          },
+          label: `${name}()`,
+          detail: `Call is only valid from 'next/headers' on the server.`,
+        },
+      ],
+    };
+    findings.push(hit);
   }
 
   return findings;

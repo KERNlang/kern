@@ -11,7 +11,7 @@
 import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { Project, type SourceFile } from 'ts-morph';
-import type { GraphFile, GraphOptions, GraphResult } from './types.js';
+import type { GraphEdge, GraphEdgeKind, GraphFile, GraphOptions, GraphResult } from './types.js';
 
 /** Extension fallback map: .js→.ts, .jsx→.tsx (Codex idea) */
 const EXT_FALLBACK: Record<string, string[]> = {
@@ -20,6 +20,14 @@ const EXT_FALLBACK: Record<string, string[]> = {
   '.mjs': ['.mts'],
   '.cjs': ['.cts'],
 };
+
+interface ModuleEdgeRef {
+  specifier: string;
+  resolved: SourceFile | undefined;
+  kind: GraphEdgeKind;
+  importedName?: string;
+  localName?: string;
+}
 
 export function resolveImportGraph(entryFiles: string[], options: GraphOptions = {}): GraphResult {
   const maxDepth = options.maxDepth ?? 3;
@@ -56,14 +64,14 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
           continue;
         }
         if (!fileMap.has(entryPath)) {
-          fileMap.set(entryPath, { path: entryPath, distance: 0, imports: [], importedBy: [] });
+          fileMap.set(entryPath, makeGraphFile(entryPath, 0));
         }
         continue;
       }
     }
     const p = sf.getFilePath();
     if (!fileMap.has(p)) {
-      fileMap.set(p, { path: p, distance: 0, imports: [], importedBy: [] });
+      fileMap.set(p, makeGraphFile(p, 0));
       queue.push({ path: p, distance: 0 });
     }
   }
@@ -83,33 +91,10 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
     const current = fileMap.get(filePath)!;
 
     // Collect module references from imports and re-exports (barrel file support)
-    const refs: Array<{ specifier: string; resolved: SourceFile | undefined }> = [];
+    const refs = collectModuleEdgeRefs(sf);
 
-    for (const decl of sf.getImportDeclarations()) {
-      try {
-        refs.push({
-          specifier: decl.getModuleSpecifierValue(),
-          resolved: decl.getModuleSpecifierSourceFile(),
-        });
-      } catch {
-        /* skip dynamic imports with non-literal specifiers */
-      }
-    }
-    for (const decl of sf.getExportDeclarations()) {
-      const spec = decl.getModuleSpecifierValue();
-      if (spec) {
-        refs.push({ specifier: spec, resolved: decl.getModuleSpecifierSourceFile() });
-      }
-    }
-
-    for (const { specifier, resolved } of refs) {
-      // Try ts-morph resolution first (handles path aliases via tsconfig)
-      let resolvedFile = resolved;
-
-      // For relative imports that weren't resolved, try extension fallback
-      if (!resolvedFile && (specifier.startsWith('.') || specifier.startsWith('/'))) {
-        resolvedFile = tryExtensionFallback(project, sf, specifier);
-      }
+    for (const ref of refs) {
+      const { sourceFile: resolvedFile, via } = resolveModuleReference(project, sf, ref.specifier, ref.resolved);
 
       if (!resolvedFile) {
         skipped++;
@@ -128,17 +113,26 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
         continue;
       }
 
+      const edge: GraphEdge = {
+        from: filePath,
+        to: resolvedPath,
+        specifier: ref.specifier,
+        kind: ref.kind,
+        importedName: ref.importedName,
+        localName: ref.localName,
+        via,
+      };
+      pushUniqueEdge(current.importEdges, edge);
+
       if (!current.imports.includes(resolvedPath)) {
         current.imports.push(resolvedPath);
       }
 
       if (!fileMap.has(resolvedPath)) {
-        fileMap.set(resolvedPath, {
-          path: resolvedPath,
-          distance: distance + 1,
-          imports: [],
-          importedBy: [filePath],
-        });
+        const nextFile = makeGraphFile(resolvedPath, distance + 1);
+        nextFile.importedBy.push(filePath);
+        nextFile.incomingEdges.push(edge);
+        fileMap.set(resolvedPath, nextFile);
         queue.push({ path: resolvedPath, distance: distance + 1 });
       } else {
         const existing = fileMap.get(resolvedPath)!;
@@ -149,6 +143,7 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
         if (!existing.importedBy.includes(filePath)) {
           existing.importedBy.push(filePath);
         }
+        pushUniqueEdge(existing.incomingEdges, edge);
       }
     }
   }
@@ -172,12 +167,132 @@ function tryExtensionFallback(project: Project, fromFile: SourceFile, specifier:
     const base = specifier.slice(0, -jsExt.length);
     for (const tsExt of tsExts) {
       const candidate = base + tsExt;
-      // Try resolving relative to the importing file's directory
-      const fromDir = fromFile.getDirectoryPath();
-      const fullPath = `${fromDir}/${candidate.replace(/^\.\//, '')}`;
-      const sf = project.getSourceFile(fullPath);
-      if (sf) return sf;
+      const fullPath = resolve(fromFile.getDirectoryPath(), candidate);
+      const existing = project.getSourceFile(fullPath);
+      if (existing) return existing;
+      if (!existsSync(fullPath)) continue;
+      try {
+        return project.addSourceFileAtPath(fullPath);
+      } catch {
+        /* ignore unreadable candidates */
+      }
     }
   }
   return undefined;
+}
+
+function makeGraphFile(path: string, distance: number): GraphFile {
+  return {
+    path,
+    distance,
+    imports: [],
+    importedBy: [],
+    importEdges: [],
+    incomingEdges: [],
+  };
+}
+
+function resolveModuleReference(
+  project: Project,
+  fromFile: SourceFile,
+  specifier: string,
+  resolved: SourceFile | undefined,
+): { sourceFile: SourceFile | undefined; via: GraphEdge['via'] } {
+  if (resolved) return { sourceFile: resolved, via: 'ts-morph' };
+  if (specifier.startsWith('.') || specifier.startsWith('/')) {
+    const fallback = tryExtensionFallback(project, fromFile, specifier);
+    if (fallback) return { sourceFile: fallback, via: 'extension-fallback' };
+  }
+  return { sourceFile: undefined, via: 'ts-morph' };
+}
+
+function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
+  const refs: ModuleEdgeRef[] = [];
+
+  for (const decl of sourceFile.getImportDeclarations()) {
+    try {
+      const specifier = decl.getModuleSpecifierValue();
+      const resolved = decl.getModuleSpecifierSourceFile();
+      let recorded = false;
+
+      const defaultImport = decl.getDefaultImport();
+      if (defaultImport) {
+        refs.push({
+          specifier,
+          resolved,
+          kind: 'default-import',
+          importedName: 'default',
+          localName: defaultImport.getText(),
+        });
+        recorded = true;
+      }
+
+      for (const named of decl.getNamedImports()) {
+        refs.push({
+          specifier,
+          resolved,
+          kind: 'named-import',
+          importedName: named.getName(),
+          localName: named.getAliasNode()?.getText() ?? named.getName(),
+        });
+        recorded = true;
+      }
+
+      const namespaceImport = decl.getNamespaceImport();
+      if (namespaceImport) {
+        refs.push({
+          specifier,
+          resolved,
+          kind: 'namespace-import',
+          importedName: '*',
+          localName: namespaceImport.getText(),
+        });
+        recorded = true;
+      }
+
+      if (!recorded) {
+        refs.push({ specifier, resolved, kind: 'side-effect-import' });
+      }
+    } catch {
+      /* skip dynamic imports with non-literal specifiers */
+    }
+  }
+
+  for (const decl of sourceFile.getExportDeclarations()) {
+    const specifier = decl.getModuleSpecifierValue();
+    if (!specifier) continue;
+    const resolved = decl.getModuleSpecifierSourceFile();
+    const namedExports = decl.getNamedExports();
+
+    if (namedExports.length === 0) {
+      refs.push({ specifier, resolved, kind: 'export-all' });
+      continue;
+    }
+
+    for (const named of namedExports) {
+      refs.push({
+        specifier,
+        resolved,
+        kind: 'named-reexport',
+        importedName: named.getName(),
+        localName: named.getAliasNode()?.getText() ?? named.getName(),
+      });
+    }
+  }
+
+  return refs;
+}
+
+function pushUniqueEdge(edges: GraphEdge[], edge: GraphEdge): void {
+  const exists = edges.some(
+    (existing) =>
+      existing.from === edge.from &&
+      existing.to === edge.to &&
+      existing.specifier === edge.specifier &&
+      existing.kind === edge.kind &&
+      existing.importedName === edge.importedName &&
+      existing.localName === edge.localName &&
+      existing.via === edge.via,
+  );
+  if (!exists) edges.push(edge);
 }

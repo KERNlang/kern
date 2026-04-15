@@ -44,6 +44,20 @@ export function deadExportRule(callGraph: CallGraph, filePath: string): ReviewFi
       fingerprint: createFingerprint('dead-export', fn.line, 1),
       confidence,
       suggestion: `Remove the export, or if used externally (by consumers of this package), add to the public API documentation.`,
+      provenance: {
+        summary:
+          fn.calledBy.length === 0
+            ? `No resolved callers found in the analyzed graph for '${fn.name}'.`
+            : `Only unresolved callers were found for '${fn.name}'.`,
+        steps: [
+          {
+            kind: 'source',
+            location: span(filePath, fn.line),
+            label: `export ${fn.name}`,
+            detail: `Exported symbol '${fn.name}' has no resolved incoming call edges in the analyzed graph.`,
+          },
+        ],
+      },
     });
   }
 
@@ -76,9 +90,27 @@ export function crossFileAsyncRule(callGraph: CallGraph, filePath: string): Revi
         category: 'bug',
         message: `Cross-file: '${call.targetName}()' from ${target.filePath.split('/').pop()} is async but called without await`,
         primarySpan: span(filePath, call.line),
+        relatedSpans: [span(target.filePath, target.line)],
         fingerprint: createFingerprint('floating-promise', call.line, 2),
         confidence: 0.9,
         suggestion: `Add 'await' before the call, or use 'void' if intentionally fire-and-forget.`,
+        provenance: {
+          summary: `${fn.name}() calls async ${target.name}() across a file boundary without await.`,
+          steps: [
+            {
+              kind: 'call',
+              location: span(filePath, call.line),
+              label: `${fn.name}() → ${call.targetName}()`,
+              detail: `Cross-file call in ${filePath.split('/').pop()} is not awaited.`,
+            },
+            {
+              kind: 'call',
+              location: span(target.filePath, target.line),
+              label: `async ${target.name}()`,
+              detail: `Target function is declared async in ${target.filePath.split('/').pop()}.`,
+            },
+          ],
+        },
       });
     }
   }

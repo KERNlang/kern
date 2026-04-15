@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'path';
 import type { ReviewConfig, ReviewReport } from './types.js';
 
 // Version stamp for cache invalidation — changes when rules/analyzers change
-const REVIEW_CACHE_VERSION = '3.2.1';
+const REVIEW_CACHE_VERSION = '3.2.3';
 const IMPORT_SPECIFIER_RE =
   /(?:import|export)\s+(?:[^'"`]*?\s+from\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
 const EXTENSION_FALLBACK: Record<string, string[]> = {
@@ -86,7 +86,7 @@ export function computeCacheKey(fileContent: string, config: ReviewConfig, fileP
   // Include version so cache auto-invalidates when kern-lang is upgraded
   hash.update(REVIEW_CACHE_VERSION);
   hash.update(fileContent);
-  hash.update(JSON.stringify(config));
+  hash.update(JSON.stringify(serializeConfigForCache(config, filePath)));
   hash.update(filePath);
   hashRelativeImportTree(hash, filePath, fileContent, new Set([filePath]), 0);
   // Include custom rule file contents in cache key to avoid stale hits when rules change
@@ -106,6 +106,38 @@ export function computeCacheKey(fileContent: string, config: ReviewConfig, fileP
     }
   }
   return hash.digest('hex');
+}
+
+function serializeConfigForCache(config: ReviewConfig, filePath: string): Record<string, unknown> {
+  const serialized: Record<string, unknown> = {
+    ...config,
+    fileContextMap: undefined,
+    graphFileMap: undefined,
+  };
+
+  const fileContext = config.fileContextMap?.get(filePath);
+  if (fileContext) {
+    serialized.fileContext = fileContext;
+    if (fileContext.importedBy.length > 0 && config.fileContextMap) {
+      serialized.importerContexts = fileContext.importedBy
+        .map((importer) => config.fileContextMap?.get(importer))
+        .filter(Boolean);
+    }
+  }
+
+  const graphFile = config.graphFileMap?.get(filePath);
+  if (graphFile) {
+    serialized.graphFile = graphFile;
+  }
+
+  if (config.fileContextMap) {
+    serialized.graphContextEnabled = true;
+  }
+  if (config.graphFileMap) {
+    serialized.graphEdgesEnabled = true;
+  }
+
+  return serialized;
 }
 
 function hashRelativeImportTree(

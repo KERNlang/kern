@@ -20,7 +20,7 @@
  * Dead export findings from unresolved edges get lower confidence (0.70 vs 0.90).
  */
 
-import { type Project, type SourceFile, SyntaxKind } from 'ts-morph';
+import { type Node, type Project, type SourceFile, SyntaxKind } from 'ts-morph';
 import type { GraphFile, GraphResult } from './types.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -65,9 +65,19 @@ export interface CallGraph {
 
 // ── Import Resolution ───────────────────────────────────────────────────
 
-/** Build a map of importName → resolvedFilePath#exportName for a source file */
-function buildImportBindings(sourceFile: SourceFile, graphFiles: Map<string, GraphFile>): Map<string, string> {
-  const bindings = new Map<string, string>();
+interface ResolvedBinding {
+  targetFile: string;
+  targetName: string;
+}
+
+interface ImportBinding extends ResolvedBinding {
+  kind: 'named' | 'default' | 'namespace';
+  members?: Map<string, ResolvedBinding>;
+}
+
+/** Build a map of local import binding → resolved export target for a source file */
+function buildImportBindings(sourceFile: SourceFile, graphFiles: Map<string, GraphFile>): Map<string, ImportBinding> {
+  const bindings = new Map<string, ImportBinding>();
 
   for (const decl of sourceFile.getImportDeclarations()) {
     const resolvedSf = decl.getModuleSpecifierSourceFile();
@@ -77,27 +87,100 @@ function buildImportBindings(sourceFile: SourceFile, graphFiles: Map<string, Gra
 
     // Named imports: import { foo, bar as baz } from './mod'
     for (const named of decl.getNamedImports()) {
-      const localName = named.getName();
-      const _originalName = named.getAliasNode()?.getText() || localName;
-      // The imported name is the original export name
       const importedName = named.getName();
-      bindings.set(localName, `${resolvedPath}#${importedName}`);
+      const localName = named.getAliasNode()?.getText() ?? importedName;
+      const target = resolveExportBinding(resolvedSf, importedName, graphFiles) ?? {
+        targetFile: resolvedPath,
+        targetName: importedName,
+      };
+      bindings.set(localName, { kind: 'named', ...target });
     }
 
     // Default import: import Foo from './mod'
     const defaultImport = decl.getDefaultImport();
     if (defaultImport) {
-      bindings.set(defaultImport.getText(), `${resolvedPath}#default`);
+      const target = resolveDefaultExportBinding(resolvedSf, graphFiles) ?? {
+        targetFile: resolvedPath,
+        targetName: 'default',
+      };
+      bindings.set(defaultImport.getText(), { kind: 'default', ...target });
     }
 
     // Namespace import: import * as mod from './mod'
     const namespaceImport = decl.getNamespaceImport();
     if (namespaceImport) {
-      bindings.set(namespaceImport.getText(), `${resolvedPath}#*`);
+      bindings.set(namespaceImport.getText(), {
+        kind: 'namespace',
+        targetFile: resolvedPath,
+        targetName: '*',
+        members: buildNamespaceMembers(resolvedSf, graphFiles),
+      });
     }
   }
 
   return bindings;
+}
+
+function resolveExportBinding(
+  sourceFile: SourceFile,
+  exportName: string,
+  graphFiles: Map<string, GraphFile>,
+): ResolvedBinding | undefined {
+  const decls = sourceFile.getExportedDeclarations().get(exportName);
+  if (!decls || decls.length === 0) return undefined;
+  return resolveBindingFromDeclarations(decls, exportName, graphFiles);
+}
+
+function resolveDefaultExportBinding(
+  sourceFile: SourceFile,
+  graphFiles: Map<string, GraphFile>,
+): ResolvedBinding | undefined {
+  const symbol = sourceFile.getDefaultExportSymbol();
+  if (!symbol) return undefined;
+  return resolveBindingFromDeclarations(symbol.getDeclarations(), 'default', graphFiles);
+}
+
+function buildNamespaceMembers(
+  sourceFile: SourceFile,
+  graphFiles: Map<string, GraphFile>,
+): Map<string, ResolvedBinding> {
+  const members = new Map<string, ResolvedBinding>();
+  for (const [exportName, decls] of sourceFile.getExportedDeclarations()) {
+    const resolved = resolveBindingFromDeclarations(decls, exportName, graphFiles);
+    if (resolved) members.set(exportName, resolved);
+  }
+  return members;
+}
+
+function resolveBindingFromDeclarations(
+  declarations: Node[],
+  fallbackName: string,
+  graphFiles: Map<string, GraphFile>,
+): ResolvedBinding | undefined {
+  for (const decl of declarations) {
+    const declFile = decl.getSourceFile().getFilePath();
+    if (!graphFiles.has(declFile)) continue;
+    return {
+      targetFile: declFile,
+      targetName: getDeclarationBindingName(decl, fallbackName),
+    };
+  }
+  return undefined;
+}
+
+function getDeclarationBindingName(decl: Node, fallbackName: string): string {
+  const maybeNamed = decl as Node & { getName?: () => string | undefined };
+  if (typeof maybeNamed.getName === 'function') {
+    const name = maybeNamed.getName();
+    if (name) return name;
+  }
+
+  if (decl.getKindName() === 'ExportAssignment') {
+    const expr = (decl as Node & { getExpression?: () => Node }).getExpression?.();
+    if (expr?.getKind() === SyntaxKind.Identifier) return expr.getText();
+  }
+
+  return fallbackName;
 }
 
 // ── Function Collection ─────────────────────────────────────────────────
@@ -180,7 +263,7 @@ function extractCallSites(
   fnNode: FunctionNode,
   sourceFile: SourceFile,
   localFnNames: Set<string>,
-  importBindings: Map<string, string>,
+  importBindings: Map<string, ImportBinding>,
 ): CallSite[] {
   const callSites: CallSite[] = [];
 
@@ -225,13 +308,12 @@ function extractCallSites(
 
       // Imported function?
       const binding = importBindings.get(targetName);
-      if (binding) {
-        const [targetFile, exportName] = splitBinding(binding);
+      if (binding && binding.kind !== 'namespace') {
         callSites.push({
           callerName: fnNode.name,
           callerFile: fnNode.filePath,
-          targetName: exportName,
-          targetFile,
+          targetName: binding.targetName,
+          targetFile: binding.targetFile,
           line: call.getStartLineNumber(),
           argumentCount: args.length,
           resolved: true,
@@ -278,13 +360,26 @@ function extractCallSites(
 
       // Namespace import: mod.foo()
       const nsBinding = importBindings.get(objName);
-      if (nsBinding?.endsWith('#*')) {
-        const targetFile = nsBinding.slice(0, -2);
+      if (nsBinding?.kind === 'namespace') {
+        const memberBinding = nsBinding.members?.get(methodName);
+        if (!memberBinding) {
+          callSites.push({
+            callerName: fnNode.name,
+            callerFile: fnNode.filePath,
+            targetName: `${objName}.${methodName}`,
+            targetFile: '',
+            line: call.getStartLineNumber(),
+            argumentCount: args.length,
+            resolved: false,
+            hasAwait,
+          });
+          return;
+        }
         callSites.push({
           callerName: fnNode.name,
           callerFile: fnNode.filePath,
-          targetName: methodName,
-          targetFile,
+          targetName: memberBinding.targetName,
+          targetFile: memberBinding.targetFile,
           line: call.getStartLineNumber(),
           argumentCount: args.length,
           resolved: true,
@@ -343,11 +438,6 @@ function findFunctionBody(fnNode: FunctionNode, sourceFile: SourceFile): import(
     }
   }
   return undefined;
-}
-
-function splitBinding(binding: string): [string, string] {
-  const idx = binding.lastIndexOf('#');
-  return [binding.slice(0, idx), binding.slice(idx + 1)];
 }
 
 const BUILTINS = new Set([

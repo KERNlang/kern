@@ -174,6 +174,8 @@ export type {
   EnforceResult,
   FileContext,
   FileRole,
+  GraphEdge,
+  GraphEdgeKind,
   GraphFile,
   GraphOptions,
   GraphResult,
@@ -674,7 +676,8 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
 
   // Build file context map — every file gets import chain awareness
   const fileContextMap = buildFileContextMap(graph);
-  const graphConfig: ReviewConfig = { ...config, fileContextMap };
+  const graphFileMap = new Map(graph.files.map((gf) => [gf.path, gf] as const));
+  const graphConfig: ReviewConfig = { ...config, fileContextMap, graphFileMap };
 
   for (const gf of graph.files) {
     if (!existsSync(gf.path)) continue;

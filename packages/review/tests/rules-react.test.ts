@@ -1285,6 +1285,9 @@ export default function ServerPage() {
       const finding = report.findings.find((f) => f.ruleId === 'server-hook');
       expect(finding).toBeDefined();
       expect(finding!.severity).toBe('error');
+      expect(finding!.provenance?.summary).toContain('client-only React hook');
+      expect(finding!.provenance?.steps.map((step) => step.kind)).toEqual(['boundary', 'call']);
+      expect(finding!.provenance?.steps[1]?.label).toBe('useState()');
     });
 
     it('detects useEffect in server component', () => {
@@ -1330,6 +1333,9 @@ export default function Page() {
       const finding = report.findings.find((f) => f.ruleId === 'next-client-api-in-server');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('useRouter');
+      expect(finding!.provenance?.summary).toContain('next/navigation API useRouter()');
+      expect(finding!.provenance?.steps.map((step) => step.kind)).toEqual(['boundary', 'call']);
+      expect(finding!.provenance?.steps[1]?.label).toBe('useRouter()');
     });
 
     it('detects useSearchParams via namespace import in server component', () => {

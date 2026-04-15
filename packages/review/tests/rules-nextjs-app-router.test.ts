@@ -62,6 +62,33 @@ export function Label() {
       const r = reviewSource(src, 'label.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'use-client-drilled-too-high')).toBeDefined();
     });
+
+    it('uses direct graph imports to describe drilled children in graph review', () => {
+      const dir = join(TMP, 'use-client-drilled-too-high-graph');
+      mkdirSync(dir, { recursive: true });
+      const parentPath = join(dir, 'parent.tsx');
+      const childPath = join(dir, 'child.tsx');
+      writeFileSync(
+        parentPath,
+        `'use client';
+import { Child } from './child.js';
+
+export function Parent() {
+  return <div><Child /></div>;
+}
+`,
+      );
+      writeFileSync(childPath, `export function Child() { return <div />; }\n`);
+
+      const reports = reviewGraph([parentPath], cfg);
+      const parent = reports.find((r) => r.filePath === parentPath)!;
+      const finding = parent.findings.find((f) => f.ruleId === 'use-client-drilled-too-high');
+      expect(finding).toBeDefined();
+      expect(finding!.message).toContain('child.tsx');
+      expect(finding!.relatedSpans?.[0]?.file).toBe(childPath);
+      expect(finding!.provenance?.summary).toContain('imported child');
+      expect(finding!.provenance?.steps.some((s) => s.kind === 'import' && s.label === 'child.tsx')).toBe(true);
+    });
   });
 
   describe('server-api-in-client', () => {
@@ -76,6 +103,8 @@ export function C() {
       const r = reviewSource(src, 'c.tsx', cfg);
       const hits = r.findings.filter((f) => f.ruleId === 'server-api-in-client');
       expect(hits.length).toBeGreaterThanOrEqual(1);
+      expect(hits[0].provenance?.summary).toContain('Client boundary imports server-only module');
+      expect(hits[0].provenance?.steps[0]?.kind).toBe('boundary');
     });
 
     it('flags server-only import in client component', () => {
@@ -88,7 +117,9 @@ export function C() {
 }
 `;
       const r = reviewSource(src, 'c.tsx', cfg);
-      expect(r.findings.find((f) => f.ruleId === 'server-api-in-client')).toBeDefined();
+      const finding = r.findings.find((f) => f.ruleId === 'server-api-in-client');
+      expect(finding).toBeDefined();
+      expect(finding?.provenance?.steps[1]?.label).toBe('server-only');
     });
 
     it('does not flag next/headers in server component', () => {
