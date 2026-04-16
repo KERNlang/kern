@@ -1011,6 +1011,64 @@ export function Component() {
       const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
       expect(finding).toBeUndefined();
     });
+
+    it('does not flag ref.current writes inside deferred local callbacks', () => {
+      const source = `
+import { useRef } from 'react';
+
+function Picker({ onSelect }: { onSelect: () => void }) {
+  return <button onClick={onSelect}>Pick</button>;
+}
+
+export function Component() {
+  const isManualStoreSelectionRef = useRef(false);
+  const handlePickupSelect = async (): Promise<void> => {
+    isManualStoreSelectionRef.current = true;
+  };
+
+  return <Picker onSelect={handlePickupSelect} />;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
+      expect(finding).toBeUndefined();
+    });
+
+    it('does not flag guarded one-time array initialization during render', () => {
+      const source = `
+import { useRef } from 'react';
+
+export function Component({ data }: { data?: { results?: string[] } }) {
+  const frozenStoresRef = useRef<string[]>([]);
+  if (data?.results?.length && frozenStoresRef.current.length === 0) {
+    frozenStoresRef.current = data.results;
+  }
+  return <div>{frozenStoresRef.current.length}</div>;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
+      expect(finding).toBeUndefined();
+    });
+
+    it('still flags nested local callbacks that are invoked during render', () => {
+      const source = `
+import { useRef } from 'react';
+
+export function Component() {
+  const myRef = useRef(0);
+  const writeRef = () => {
+    myRef.current = 123;
+  };
+  writeRef();
+  return <div>Hello</div>;
+}
+`;
+      const report = reviewSource(source, 'comp.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'ref-in-render');
+      expect(finding).toBeDefined();
+      expect(finding!.message).toContain('written');
+    });
   });
 
   // ── missing-memo-deps ──
@@ -1227,6 +1285,9 @@ export default function ServerPage() {
       const finding = report.findings.find((f) => f.ruleId === 'server-hook');
       expect(finding).toBeDefined();
       expect(finding!.severity).toBe('error');
+      expect(finding!.provenance?.summary).toContain('client-only React hook');
+      expect(finding!.provenance?.steps.map((step) => step.kind)).toEqual(['boundary', 'call']);
+      expect(finding!.provenance?.steps[1]?.label).toBe('useState()');
     });
 
     it('detects useEffect in server component', () => {
@@ -1272,6 +1333,9 @@ export default function Page() {
       const finding = report.findings.find((f) => f.ruleId === 'next-client-api-in-server');
       expect(finding).toBeDefined();
       expect(finding!.message).toContain('useRouter');
+      expect(finding!.provenance?.summary).toContain('next/navigation API useRouter()');
+      expect(finding!.provenance?.steps.map((step) => step.kind)).toEqual(['boundary', 'call']);
+      expect(finding!.provenance?.steps[1]?.label).toBe('useRouter()');
     });
 
     it('detects useSearchParams via namespace import in server component', () => {

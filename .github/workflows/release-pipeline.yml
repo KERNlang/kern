@@ -44,12 +44,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build
-        run: pnpm build
-
-      - name: Test
-        run: pnpm test
-
       - name: Set package versions
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -66,6 +60,7 @@ jobs:
 
           # Keep KERN_VERSION in lockstep with root package.json so the @generated
           # header in compiled output is truthful. Enforced by check-repo-consistency.mjs.
+          # Must happen BEFORE the build below so dist/ carries the correct stamp.
           spec=packages/core/src/spec.ts
           tmp=$(mktemp)
           awk -v v="$RELEASE_VERSION" '{
@@ -76,6 +71,12 @@ jobs:
             }
           }' "$spec" > "$tmp"
           mv "$tmp" "$spec"
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
 
       - name: Publish dry run
         if: ${{ inputs.publish }}
@@ -91,8 +92,10 @@ jobs:
 
       - name: Verify published packages on npm
         if: ${{ inputs.publish }}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          VERSION="${{ inputs.version }}"
+          VERSION="$RELEASE_VERSION"
 
           for pkg in packages/*/package.json; do
             NAME=$(jq -r '.name' "$pkg")

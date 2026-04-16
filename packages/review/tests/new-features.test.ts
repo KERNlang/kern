@@ -12,7 +12,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { buildFileContextMap } from '../src/file-context.js';
 import { resolveImportGraph } from '../src/graph.js';
-import { reviewSource } from '../src/index.js';
+import { reviewGraph, reviewSource } from '../src/index.js';
 import { assignDefaultConfidence } from '../src/reporter.js';
 import { getActiveRules } from '../src/rules/index.js';
 import type { ReviewConfig, ReviewFinding } from '../src/types.js';
@@ -388,5 +388,124 @@ export async function GET(req: Request) {
     // Import chain should go entry → mid → leaf
     expect(leafCtx!.importChain.length).toBeGreaterThanOrEqual(2);
     expect(leafCtx!.depth).toBe(2);
+  });
+
+  it('attaches graph-backed evidence to missing-use-client findings', () => {
+    const dir = join(TMP, 'missing-use-client-evidence');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+
+    const pagePath = join(dir, 'page.tsx');
+    const buttonPath = join(dir, 'button.tsx');
+
+    writeFileSync(
+      pagePath,
+      `
+import { Button } from './button.js';
+export default function Page() {
+  return <Button />;
+}
+`,
+    );
+    writeFileSync(
+      buttonPath,
+      `
+export function Button() {
+  return <button onClick={() => {}}>Push</button>;
+}
+`,
+    );
+
+    const reports = reviewGraph([pagePath], nextjsConfig);
+    const buttonReport = reports.find((r) => r.filePath === buttonPath);
+    const finding = buttonReport?.findings.find((f) => f.ruleId === 'missing-use-client');
+
+    expect(finding).toBeDefined();
+    expect(finding!.severity).toBe('error');
+    expect(finding!.relatedSpans?.[0]?.file).toBe(pagePath);
+    expect(finding!.provenance?.summary).toContain('server importer');
+    expect(finding!.provenance?.steps.map((step) => step.kind)).toEqual(['source', 'boundary', 'import']);
+    expect(finding!.provenance?.steps[0]?.label).toBe('onClick');
+    expect(finding!.provenance?.steps[2]?.label).toBe('page.tsx');
+  });
+
+  it('attaches import-chain evidence to server-hook findings', () => {
+    const dir = join(TMP, 'server-hook-evidence');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+
+    const pagePath = join(dir, 'page.tsx');
+    const widgetPath = join(dir, 'widget.tsx');
+
+    writeFileSync(
+      pagePath,
+      `
+import { Widget } from './widget.js';
+export default function Page() {
+  return <Widget />;
+}
+`,
+    );
+    writeFileSync(
+      widgetPath,
+      `
+import { useState } from 'react';
+export function Widget() {
+  const [count] = useState(0);
+  return <div>{count}</div>;
+}
+`,
+    );
+
+    const reports = reviewGraph([pagePath], nextjsConfig);
+    const widgetReport = reports.find((r) => r.filePath === widgetPath);
+    const finding = widgetReport?.findings.find((f) => f.ruleId === 'server-hook');
+
+    expect(finding).toBeDefined();
+    expect(finding!.relatedSpans?.[0]?.file).toBe(pagePath);
+    expect(finding!.provenance?.summary).toContain('page.tsx -> widget.tsx');
+    expect(finding!.provenance?.steps.map((step) => step.kind)).toEqual(['boundary', 'call']);
+    expect(finding!.provenance?.steps[0]?.label).toBe('server entry page.tsx');
+    expect(finding!.provenance?.steps[1]?.label).toBe('useState()');
+  });
+
+  it('attaches import-chain evidence to next-client-api-in-server findings', () => {
+    const dir = join(TMP, 'next-client-api-evidence');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+
+    const pagePath = join(dir, 'page.tsx');
+    const navPath = join(dir, 'nav.tsx');
+
+    writeFileSync(
+      pagePath,
+      `
+import { NavWidget } from './nav.js';
+export default function Page() {
+  return <NavWidget />;
+}
+`,
+    );
+    writeFileSync(
+      navPath,
+      `
+import { useRouter } from 'next/navigation';
+export function NavWidget() {
+  const router = useRouter();
+  return <button onClick={() => router.push('/next')}>Go</button>;
+}
+`,
+    );
+
+    const reports = reviewGraph([pagePath], nextjsConfig);
+    const navReport = reports.find((r) => r.filePath === navPath);
+    const finding = navReport?.findings.find((f) => f.ruleId === 'next-client-api-in-server');
+
+    expect(finding).toBeDefined();
+    expect(finding!.relatedSpans?.[0]?.file).toBe(pagePath);
+    expect(finding!.provenance?.summary).toContain('page.tsx -> nav.tsx');
+    expect(finding!.provenance?.steps.map((step) => step.kind)).toEqual(['boundary', 'call']);
+    expect(finding!.provenance?.steps[0]?.label).toBe('server entry page.tsx');
+    expect(finding!.provenance?.steps[1]?.label).toBe('useRouter()');
   });
 });

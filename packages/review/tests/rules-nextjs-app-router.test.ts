@@ -1,7 +1,19 @@
-import { reviewSource } from '../src/index.js';
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { reviewGraph, reviewSource } from '../src/index.js';
 import type { ReviewConfig } from '../src/types.js';
 
 const cfg: ReviewConfig = { target: 'nextjs' };
+const TMP = join(tmpdir(), 'kern-review-nextjs-app-router');
+
+beforeAll(() => {
+  mkdirSync(TMP, { recursive: true });
+});
+
+afterAll(() => {
+  rmSync(TMP, { recursive: true, force: true });
+});
 
 describe('Next.js App Router Rules', () => {
   describe('use-client-drilled-too-high', () => {
@@ -30,6 +42,32 @@ export function Counter() {
       expect(r.findings.find((f) => f.ruleId === 'use-client-drilled-too-high')).toBeUndefined();
     });
 
+    it('does not flag use client file that uses next/navigation hooks', () => {
+      const src = `'use client';
+import { useSearchParams } from 'next/navigation';
+export function ListingParams() {
+  const searchParams = useSearchParams();
+  return <div>{searchParams.get('page') ?? '1'}</div>;
+}
+`;
+      const r = reviewSource(src, 'listing-params.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'use-client-drilled-too-high')).toBeUndefined();
+    });
+
+    it('does not flag use client file that uses custom hooks', () => {
+      const src = `'use client';
+function useNavigationCacheKey() {
+  return 'cache-key';
+}
+export function ListingParams() {
+  const cacheKey = useNavigationCacheKey();
+  return <div>{cacheKey}</div>;
+}
+`;
+      const r = reviewSource(src, 'listing-params.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'use-client-drilled-too-high')).toBeUndefined();
+    });
+
     it('does not flag use client file with browser globals', () => {
       const src = `'use client';
 export function Ls() {
@@ -50,6 +88,33 @@ export function Label() {
       const r = reviewSource(src, 'label.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'use-client-drilled-too-high')).toBeDefined();
     });
+
+    it('uses direct graph imports to describe drilled children in graph review', () => {
+      const dir = join(TMP, 'use-client-drilled-too-high-graph');
+      mkdirSync(dir, { recursive: true });
+      const parentPath = join(dir, 'parent.tsx');
+      const childPath = join(dir, 'child.tsx');
+      writeFileSync(
+        parentPath,
+        `'use client';
+import { Child } from './child.js';
+
+export function Parent() {
+  return <div><Child /></div>;
+}
+`,
+      );
+      writeFileSync(childPath, `export function Child() { return <div />; }\n`);
+
+      const reports = reviewGraph([parentPath], cfg);
+      const parent = reports.find((r) => r.filePath === parentPath)!;
+      const finding = parent.findings.find((f) => f.ruleId === 'use-client-drilled-too-high');
+      expect(finding).toBeDefined();
+      expect(finding!.message).toContain('child.tsx');
+      expect(finding!.relatedSpans?.[0]?.file).toBe(childPath);
+      expect(finding!.provenance?.summary).toContain('imported child');
+      expect(finding!.provenance?.steps.some((s) => s.kind === 'import' && s.label === 'child.tsx')).toBe(true);
+    });
   });
 
   describe('server-api-in-client', () => {
@@ -64,6 +129,8 @@ export function C() {
       const r = reviewSource(src, 'c.tsx', cfg);
       const hits = r.findings.filter((f) => f.ruleId === 'server-api-in-client');
       expect(hits.length).toBeGreaterThanOrEqual(1);
+      expect(hits[0].provenance?.summary).toContain('Client boundary imports server-only module');
+      expect(hits[0].provenance?.steps[0]?.kind).toBe('boundary');
     });
 
     it('flags server-only import in client component', () => {
@@ -76,7 +143,9 @@ export function C() {
 }
 `;
       const r = reviewSource(src, 'c.tsx', cfg);
-      expect(r.findings.find((f) => f.ruleId === 'server-api-in-client')).toBeDefined();
+      const finding = r.findings.find((f) => f.ruleId === 'server-api-in-client');
+      expect(finding).toBeDefined();
+      expect(finding?.provenance?.steps[1]?.label).toBe('server-only');
     });
 
     it('does not flag next/headers in server component', () => {
@@ -408,6 +477,78 @@ export default function Page() {
       const r = reviewSource(src, 'page.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'server-action-form-missing-pending')).toBeUndefined();
     });
+
+    it('flags direct native submit button on imported server action forms', () => {
+      const dir = join(TMP, 'imported-server-action-pending');
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+
+      writeFileSync(
+        join(dir, 'page.tsx'),
+        `
+import { saveUser } from './actions.js';
+
+export default function Page() {
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`,
+      );
+
+      writeFileSync(
+        join(dir, 'actions.ts'),
+        `
+'use server';
+
+export async function saveUser(formData: FormData) {
+  return { ok: true };
+}
+`,
+      );
+
+      const reports = reviewGraph([join(dir, 'page.tsx')], { ...cfg, noCache: true });
+      const pageReport = reports.find((report) => report.filePath === join(dir, 'page.tsx'));
+      expect(pageReport?.findings.find((f) => f.ruleId === 'server-action-form-missing-pending')).toBeDefined();
+    });
+
+    it('does not flag imported async helpers that are not server actions', () => {
+      const dir = join(TMP, 'imported-non-server-action');
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+
+      writeFileSync(
+        join(dir, 'page.tsx'),
+        `
+import { saveUser } from './actions.js';
+
+export default function Page() {
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`,
+      );
+
+      writeFileSync(
+        join(dir, 'actions.ts'),
+        `
+export async function saveUser(formData: FormData) {
+  return { ok: true };
+}
+`,
+      );
+
+      const reports = reviewGraph([join(dir, 'page.tsx')], { ...cfg, noCache: true });
+      const pageReport = reports.find((report) => report.filePath === join(dir, 'page.tsx'));
+      expect(pageReport?.findings.find((f) => f.ruleId === 'server-action-form-missing-pending')).toBeUndefined();
+    });
   });
 
   describe('server-action-form-return-value-ignored', () => {
@@ -519,6 +660,117 @@ export default function Page() {
 `;
       const r = reviewSource(src, 'page.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'server-action-form-return-value-ignored')).toBeUndefined();
+    });
+
+    it('flags imported server actions that return state through namespace imports', () => {
+      const dir = join(TMP, 'imported-server-action-return-value');
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+
+      writeFileSync(
+        join(dir, 'page.tsx'),
+        `
+import * as actions from './actions.js';
+
+export default function Page() {
+  return (
+    <form action={actions.saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`,
+      );
+
+      writeFileSync(
+        join(dir, 'actions.ts'),
+        `
+'use server';
+
+export async function saveUser(formData: FormData) {
+  if (!formData.get('name')) return { ok: false, error: 'Name is required' };
+  return { ok: true, error: null };
+}
+`,
+      );
+
+      const reports = reviewGraph([join(dir, 'page.tsx')], { ...cfg, noCache: true });
+      const pageReport = reports.find((report) => report.filePath === join(dir, 'page.tsx'));
+      expect(pageReport?.findings.find((f) => f.ruleId === 'server-action-form-return-value-ignored')).toBeDefined();
+    });
+  });
+
+  describe('server-action-form-mutation-missing-invalidation', () => {
+    it('flags direct form action when a server action mutates without revalidation or redirect', () => {
+      const src = `
+export default function Page() {
+  async function saveUser(formData: FormData) {
+    'use server';
+    await db.insert({ name: formData.get('name') });
+  }
+
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      const finding = r.findings.find((f) => f.ruleId === 'server-action-form-mutation-missing-invalidation');
+      expect(finding).toBeDefined();
+      expect(finding?.relatedSpans?.length).toBeGreaterThanOrEqual(1);
+      expect(finding?.provenance?.summary).toContain('likely mutation');
+    });
+
+    it('does not flag when the action revalidates after mutating', () => {
+      const src = `
+import { revalidatePath } from 'next/cache';
+
+export default function Page() {
+  async function saveUser(formData: FormData) {
+    'use server';
+    await db.insert({ name: formData.get('name') });
+    revalidatePath('/users');
+  }
+
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-action-form-mutation-missing-invalidation')).toBeUndefined();
+    });
+
+    it('does not flag useActionState flows that already surface post-submit state', () => {
+      const src = `'use client';
+import { useActionState } from 'react';
+
+async function saveUser(prevState: { ok: boolean }, formData: FormData) {
+  'use server';
+  await db.insert({ name: formData.get('name') });
+  return { ok: true };
+}
+
+export default function Page() {
+  const [state, formAction] = useActionState(saveUser, { ok: false });
+  return (
+    <form action={formAction}>
+      <input name="name" />
+      <button type="submit">Save</button>
+      {state.ok ? <p>Saved</p> : null}
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-action-form-mutation-missing-invalidation')).toBeUndefined();
     });
   });
 

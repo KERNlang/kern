@@ -8,7 +8,7 @@ import { readFileSync } from 'fs';
 import { basename } from 'path';
 import { SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { finding } from './utils.js';
+import { finding, span } from './utils.js';
 
 function isClientComponent(fullText: string): boolean {
   // Check for 'use client' directive (must be at the top of the file)
@@ -29,6 +29,48 @@ function isReactFile(ctx: RuleContext): boolean {
   // Has React hooks
   if (/\buse(?:State|Effect|Ref|Callback|Memo|Reducer|Context)\s*[<(]/.test(fullText)) return true;
   return false;
+}
+
+function getServerBoundaryContext(ctx: RuleContext): {
+  relatedSpans?: ReviewFinding['relatedSpans'];
+  steps: NonNullable<ReviewFinding['provenance']>['steps'];
+  summaryPrefix?: string;
+} {
+  const chain = ctx.fileContext?.importChain ?? [];
+  if (chain.length <= 1) {
+    return {
+      steps: [
+        {
+          kind: 'boundary',
+          location: span(ctx.filePath, 1),
+          label: 'server boundary',
+          detail: 'This file is treated as a Server Component because it does not opt into a client boundary.',
+        },
+      ],
+    };
+  }
+
+  const entry = chain[0];
+  const importers = chain.slice(0, -1);
+  const intermediateImporters = chain.slice(1, -1).slice(0, 2);
+  return {
+    relatedSpans: importers.slice(0, 3).map((file) => span(file, 1)),
+    summaryPrefix: `Server entry ${basename(entry)} reaches this file via ${chain.map((file) => basename(file)).join(' -> ')}.`,
+    steps: [
+      {
+        kind: 'boundary',
+        location: span(entry, 1),
+        label: `server entry ${basename(entry)}`,
+        detail: 'Nearest entry point reaches this file from the server boundary.',
+      },
+      ...intermediateImporters.map((file) => ({
+        kind: 'import' as const,
+        location: span(file, 1),
+        label: basename(file),
+        detail: 'Import chain segment between the server entry and the violating file.',
+      })),
+    ],
+  };
 }
 
 // ── Rule 21: server-hook ─────────────────────────────────────────────────
@@ -98,18 +140,33 @@ function serverHook(ctx: RuleContext): ReviewFinding[] {
       continue;
 
     const line = call.getStartLineNumber();
-    findings.push(
-      finding(
-        'server-hook',
-        'error',
-        'bug',
-        `'${hookName}' used in Server Component — add 'use client' directive or move to a Client Component`,
-        ctx.filePath,
-        line,
-        1,
-        { suggestion: "Add 'use client' at the top of the file" },
-      ),
+    const boundaryContext = getServerBoundaryContext(ctx);
+    const hit = finding(
+      'server-hook',
+      'error',
+      'bug',
+      `'${hookName}' used in Server Component — add 'use client' directive or move to a Client Component`,
+      ctx.filePath,
+      line,
+      1,
+      { suggestion: "Add 'use client' at the top of the file" },
     );
+    hit.relatedSpans = boundaryContext.relatedSpans;
+    hit.provenance = {
+      summary: boundaryContext.summaryPrefix
+        ? `${boundaryContext.summaryPrefix} Client-only React hook ${hookName}() is called here.`
+        : `Server boundary calls client-only React hook ${hookName}().`,
+      steps: [
+        ...boundaryContext.steps,
+        {
+          kind: 'call',
+          location: span(ctx.filePath, line),
+          label: `${hookName}()`,
+          detail: 'React client hooks only run in Client Components.',
+        },
+      ],
+    };
+    findings.push(hit);
   }
 
   return findings;
@@ -170,23 +227,38 @@ function nextClientApiInServer(ctx: RuleContext): ReviewFinding[] {
     seen.add(`${apiName}:${call.getStart()}`);
 
     const line = call.getStartLineNumber();
-    findings.push(
-      finding(
-        'next-client-api-in-server',
-        'error',
-        'bug',
-        `'${apiName}' from next/navigation is client-only — add 'use client' or move this logic to a Client Component`,
-        ctx.filePath,
-        line,
-        1,
-        {
-          suggestion:
-            apiName === 'useSearchParams'
-              ? 'Read search params from page props/server inputs, or move this hook into a Client Component'
-              : "Add 'use client' at the top of the file, or move this hook into a Client Component",
-        },
-      ),
+    const boundaryContext = getServerBoundaryContext(ctx);
+    const hit = finding(
+      'next-client-api-in-server',
+      'error',
+      'bug',
+      `'${apiName}' from next/navigation is client-only — add 'use client' or move this logic to a Client Component`,
+      ctx.filePath,
+      line,
+      1,
+      {
+        suggestion:
+          apiName === 'useSearchParams'
+            ? 'Read search params from page props/server inputs, or move this hook into a Client Component'
+            : "Add 'use client' at the top of the file, or move this hook into a Client Component",
+      },
     );
+    hit.relatedSpans = boundaryContext.relatedSpans;
+    hit.provenance = {
+      summary: boundaryContext.summaryPrefix
+        ? `${boundaryContext.summaryPrefix} Client-only next/navigation API ${apiName}() is called here.`
+        : `Server boundary calls client-only next/navigation API ${apiName}().`,
+      steps: [
+        ...boundaryContext.steps,
+        {
+          kind: 'call',
+          location: span(ctx.filePath, line),
+          label: `${apiName}()`,
+          detail: 'The next/navigation hook is only valid inside a Client Component.',
+        },
+      ],
+    };
+    findings.push(hit);
   }
 
   return findings;
@@ -325,10 +397,11 @@ function missingUseClient(ctx: RuleContext): ReviewFinding[] {
   let severity: 'error' | 'warning' | 'info' = 'warning';
   let category: 'bug' | 'pattern' = 'pattern';
   let serverImporterNames: string | undefined;
+  let serverImporters: string[] = [];
+  const importedBy = ctx.fileContext?.importedBy ?? [];
 
   if (ctx.fileContext) {
-    const importedBy = ctx.fileContext.importedBy;
-    const serverImporters = findServerImporters(ctx);
+    serverImporters = findServerImporters(ctx);
 
     if (serverImporters.length > 0) {
       severity = 'error';
@@ -375,7 +448,7 @@ function missingUseClient(ctx: RuleContext): ReviewFinding[] {
       let message: string;
       if (severity === 'error') {
         message = `Missing 'use client' — uses ${handler} and is imported from server component (${serverImporterNames})`;
-      } else if (ctx.fileContext && ctx.fileContext.importedBy.length > 0) {
+      } else if (ctx.fileContext && importedBy.length > 0) {
         message = `Consider adding 'use client' — ${handler} used here, all importers are already client components`;
       } else if (ctx.fileContext && ctx.fileContext.depth === 0) {
         message = `'${handler}' in server entry point — needs 'use client' directive`;
@@ -385,17 +458,72 @@ function missingUseClient(ctx: RuleContext): ReviewFinding[] {
         message = `'${handler}' in Server Component — needs 'use client' directive`;
       }
 
-      findings.push(
-        finding('missing-use-client', severity, category, message, ctx.filePath, line, 1, {
-          suggestion: "Add 'use client' at the top of the file, or extract to a Client Component",
-          autofix: {
-            type: 'insert-before',
-            span: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
-            replacement: "'use client';\n\n",
-            description: "Prepend 'use client' directive",
-          },
-        }),
-      );
+      const hit = finding('missing-use-client', severity, category, message, ctx.filePath, line, 1, {
+        suggestion: "Add 'use client' at the top of the file, or extract to a Client Component",
+        autofix: {
+          type: 'insert-before',
+          span: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+          replacement: "'use client';\n\n",
+          description: "Prepend 'use client' directive",
+        },
+      });
+
+      hit.relatedSpans =
+        severity === 'error'
+          ? serverImporters.slice(0, 3).map((imp) => span(imp, 1))
+          : importedBy.slice(0, 3).map((imp) => span(imp, 1));
+
+      const provenanceSteps: NonNullable<ReviewFinding['provenance']>['steps'] = [
+        {
+          kind: 'source',
+          location: span(ctx.filePath, line),
+          label: handler,
+          detail: `Interactive handler '${handler}' appears in a file without its own client directive.`,
+        },
+        {
+          kind: 'boundary',
+          location: span(ctx.filePath, 1),
+          label: `no 'use client'`,
+          detail: 'This file is still treated as a Server Component unless an upstream client boundary encloses it.',
+        },
+      ];
+
+      let provenanceSummary = `${handler} is used here without a local 'use client' directive.`;
+      if (severity === 'error') {
+        provenanceSummary = `${handler} is used here without 'use client', and ${serverImporters.length} server importer${serverImporters.length === 1 ? '' : 's'} reach this file.`;
+        provenanceSteps.push(
+          ...serverImporters.slice(0, 3).map((imp) => ({
+            kind: 'import' as const,
+            location: span(imp, 1),
+            label: basename(imp),
+            detail: 'Server-side importer reaches this component without an enclosing client boundary.',
+          })),
+        );
+      } else if (ctx.fileContext && importedBy.length > 0) {
+        provenanceSummary = `${handler} is used here without 'use client'; current importers are already in a client boundary.`;
+        provenanceSteps.push(
+          ...importedBy.slice(0, 3).map((imp) => ({
+            kind: 'import' as const,
+            location: span(imp, 1),
+            label: basename(imp),
+            detail: 'Importer path currently reaches this file from an already-client boundary.',
+          })),
+        );
+      } else if (ctx.fileContext && ctx.fileContext.depth === 0) {
+        provenanceSummary = `${handler} appears in a Next.js entry file that defaults to the server boundary.`;
+        provenanceSteps.push({
+          kind: 'boundary',
+          location: span(ctx.filePath, 1),
+          label: 'entry point',
+          detail: 'Page/layout entry files default to the server boundary unless they opt into a client directive.',
+        });
+      }
+
+      hit.provenance = {
+        summary: provenanceSummary,
+        steps: provenanceSteps,
+      };
+      findings.push(hit);
     }
   }
 

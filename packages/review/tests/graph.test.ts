@@ -1,3 +1,6 @@
+import { mkdirSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { Project } from 'ts-morph';
 import { resolveImportGraph } from '../src/graph.js';
 
@@ -14,6 +17,16 @@ function createTestProject(): Project {
   });
 }
 
+const TMP = join(tmpdir(), 'kern-review-graph-tests');
+
+beforeAll(() => {
+  mkdirSync(TMP, { recursive: true });
+});
+
+afterAll(() => {
+  rmSync(TMP, { recursive: true, force: true });
+});
+
 describe('resolveImportGraph', () => {
   it('resolves basic 2-file import', () => {
     const project = createTestProject();
@@ -29,6 +42,16 @@ describe('resolveImportGraph', () => {
     expect(fileB.distance).toBe(1);
     expect(fileA.imports).toContain(fileB.path);
     expect(fileB.importedBy).toContain(fileA.path);
+    expect(fileA.importEdges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'named-import',
+          importedName: 'foo',
+          localName: 'foo',
+          to: fileB.path,
+        }),
+      ]),
+    );
   });
 
   it('handles circular imports', () => {
@@ -72,6 +95,58 @@ describe('resolveImportGraph', () => {
     expect(barrel.distance).toBe(1);
     const foo = result.files.find((f) => f.path.includes('foo.ts'))!;
     expect(foo.distance).toBe(2);
+    expect(barrel.importEdges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'named-reexport',
+          importedName: 'foo',
+          localName: 'foo',
+          to: foo.path,
+        }),
+      ]),
+    );
+  });
+
+  it('records alias metadata for named imports and re-exports', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/a.ts', `import { baz } from './barrel.js';\nexport const a = baz;`);
+    project.createSourceFile('/src/barrel.ts', `export { foo as baz } from './foo.js';`);
+    project.createSourceFile('/src/foo.ts', `export const foo = 1;`);
+
+    const result = resolveImportGraph(['/src/a.ts'], { project });
+
+    const fileA = result.files.find((f) => f.path.includes('a.ts'))!;
+    const barrel = result.files.find((f) => f.path.includes('barrel.ts'))!;
+    const foo = result.files.find((f) => f.path.includes('foo.ts'))!;
+
+    expect(fileA.importEdges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'named-import',
+          importedName: 'baz',
+          localName: 'baz',
+          to: barrel.path,
+        }),
+      ]),
+    );
+    expect(barrel.importEdges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'named-reexport',
+          importedName: 'foo',
+          localName: 'baz',
+          to: foo.path,
+        }),
+      ]),
+    );
+    expect(foo.incomingEdges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: barrel.path,
+          kind: 'named-reexport',
+        }),
+      ]),
+    );
   });
 
   it('excludes node_modules imports', () => {
@@ -147,5 +222,28 @@ describe('resolveImportGraph', () => {
     expect(result.totalFiles).toBe(3);
     const sharedFile = result.files.find((f) => f.path.includes('shared.ts'))!;
     expect(sharedFile.importedBy).toHaveLength(2);
+  });
+
+  it('resolves extension fallback from filesystem-backed graph review', () => {
+    const dir = join(TMP, 'fs-extension-fallback');
+    mkdirSync(dir, { recursive: true });
+    const entry = join(dir, 'entry.ts');
+    const child = join(dir, 'child.ts');
+    writeFileSync(entry, `import { child } from './child.js';\nexport const entrypoint = child;\n`);
+    writeFileSync(child, `export const child = 1;\n`);
+
+    const result = resolveImportGraph([entry]);
+    const entryFile = result.files.find((f) => f.path === entry)!;
+    expect(entryFile.imports).toContain(child);
+    expect(entryFile.importEdges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'named-import',
+          importedName: 'child',
+          localName: 'child',
+          to: child,
+        }),
+      ]),
+    );
   });
 });

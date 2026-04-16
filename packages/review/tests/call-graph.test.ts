@@ -128,6 +128,99 @@ export function unused() { return 2; }
     expect(callGraph.deadExports).toContain('/src/lib.ts#unused');
     expect(callGraph.deadExports).not.toContain('/src/lib.ts#used');
   });
+
+  it('resolves aliased named imports through re-export chains', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import { baz } from './barrel.js';
+export function main() { baz(); }
+`,
+    );
+    project.createSourceFile(
+      '/src/barrel.ts',
+      `
+export { helper as baz } from './helper.js';
+`,
+    );
+    project.createSourceFile(
+      '/src/helper.ts',
+      `
+export function helper() { return 42; }
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const fnMain = callGraph.functions.get('/src/main.ts#main');
+    const helperCall = fnMain!.calls.find((c) => c.targetFile === '/src/helper.ts');
+    expect(helperCall).toBeDefined();
+    expect(helperCall!.resolved).toBe(true);
+    expect(helperCall!.targetName).toBe('helper');
+
+    const fnHelper = callGraph.functions.get('/src/helper.ts#helper');
+    expect(fnHelper!.calledBy.some((c) => c.callerFile === '/src/main.ts')).toBe(true);
+  });
+
+  it('resolves namespace imports through barrel re-exports', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import * as api from './barrel.js';
+export function main() { api.helper(); }
+`,
+    );
+    project.createSourceFile(
+      '/src/barrel.ts',
+      `
+export { helper } from './helper.js';
+`,
+    );
+    project.createSourceFile(
+      '/src/helper.ts',
+      `
+export function helper() { return 42; }
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const fnMain = callGraph.functions.get('/src/main.ts#main');
+    const helperCall = fnMain!.calls.find((c) => c.targetFile === '/src/helper.ts');
+    expect(helperCall).toBeDefined();
+    expect(helperCall!.resolved).toBe(true);
+    expect(helperCall!.targetName).toBe('helper');
+  });
+
+  it('resolves default imports to the actual exported function name', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import helper from './helper.js';
+export function main() { helper(); }
+`,
+    );
+    project.createSourceFile(
+      '/src/helper.ts',
+      `
+export default function helper() { return 42; }
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const fnMain = callGraph.functions.get('/src/main.ts#main');
+    const helperCall = fnMain!.calls.find((c) => c.targetFile === '/src/helper.ts');
+    expect(helperCall).toBeDefined();
+    expect(helperCall!.resolved).toBe(true);
+    expect(helperCall!.targetName).toBe('helper');
+  });
 });
 
 describe('Dead export rule', () => {
@@ -152,8 +245,11 @@ export function unused() { return 2; }
     const callGraph = buildCallGraph(graph, project);
 
     const findings = deadExportRule(callGraph, '/src/lib.ts');
-    expect(findings.some((f) => f.ruleId === 'dead-export' && f.message.includes('unused'))).toBe(true);
+    const deadExport = findings.find((f) => f.ruleId === 'dead-export' && f.message.includes('unused'));
+    expect(deadExport).toBeDefined();
     expect(findings.some((f) => f.message.includes('used') && !f.message.includes('unused'))).toBe(false);
+    expect(deadExport?.provenance?.summary).toContain('No resolved callers');
+    expect(deadExport?.provenance?.steps[0]?.label).toContain('unused');
   });
 });
 
@@ -178,7 +274,11 @@ export async function fetchData() { return []; }
     const callGraph = buildCallGraph(graph, project);
 
     const findings = crossFileAsyncRule(callGraph, '/src/main.ts');
-    expect(findings.some((f) => f.ruleId === 'floating-promise' && f.message.includes('fetchData'))).toBe(true);
+    const fp = findings.find((f) => f.ruleId === 'floating-promise' && f.message.includes('fetchData'));
+    expect(fp).toBeDefined();
+    expect(fp?.relatedSpans?.[0]?.file).toBe('/src/api.ts');
+    expect(fp?.provenance?.summary).toContain('calls async fetchData()');
+    expect(fp?.provenance?.steps).toHaveLength(2);
   });
 
   it('does NOT flag awaited calls', () => {

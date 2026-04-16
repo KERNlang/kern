@@ -975,6 +975,15 @@ const REGISTRY: RuleInfo[] = [
     rolloutPhase: 1,
   },
   {
+    id: 'server-action-form-mutation-missing-invalidation',
+    layer: 'nextjs-app-router',
+    severity: 'warning',
+    description:
+      'Direct form action points at a mutating Server Action that neither revalidates cache nor redirects after submit',
+    precision: 'medium',
+    rolloutPhase: 1,
+  },
+  {
     id: 'server-action-unvalidated-input',
     layer: 'nextjs-app-router',
     severity: 'warning',

@@ -257,6 +257,8 @@ export interface ReviewConfig {
   noCache?: boolean;
   /** Pre-computed file context map from import graph (populated by reviewGraph) */
   fileContextMap?: Map<string, FileContext>;
+  /** Pre-computed file graph map from import graph (populated by reviewGraph) */
+  graphFileMap?: Map<string, GraphFile>;
 }
 
 // ── File Context (import chain awareness) ───────────────────────────────
@@ -306,12 +308,35 @@ export type ReviewRule = (ctx: RuleContext) => ReviewFinding[];
 
 // ── Import Graph ─────────────────────────────────────────────────────────
 
+export type GraphEdgeKind =
+  | 'side-effect-import'
+  | 'default-import'
+  | 'named-import'
+  | 'namespace-import'
+  | 'named-reexport'
+  | 'export-all';
+
+export interface GraphEdge {
+  from: string;
+  to: string;
+  specifier: string;
+  kind: GraphEdgeKind;
+  /** Exported symbol name, when known. */
+  importedName?: string;
+  /** Local bound name in the importing file, when applicable. */
+  localName?: string;
+  /** How the module resolution succeeded. */
+  via: 'ts-morph' | 'extension-fallback';
+}
+
 /** A file node in the import graph */
 export interface GraphFile {
   path: string;
   distance: number;
   imports: string[];
   importedBy: string[];
+  importEdges: GraphEdge[];
+  incomingEdges: GraphEdge[];
 }
 
 /** Result of resolving the import graph */

@@ -6,10 +6,11 @@
  * in single-file mode (no ctx.fileContext).
  */
 
-import { basename } from 'path';
-import { Node, SyntaxKind } from 'ts-morph';
+import { existsSync } from 'fs';
+import { basename, dirname, resolve } from 'path';
+import { Node, Project, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { finding } from './utils.js';
+import { finding, span } from './utils.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -78,6 +79,10 @@ function hasServerDirective(fullText: string): boolean {
   return /^['"]use server['"];?\s*$/m.test(fullText.substring(0, 200));
 }
 
+function isHookLikeName(name: string): boolean {
+  return CLIENT_HOOKS.has(name) || /^use[A-Z0-9]/.test(name);
+}
+
 /** Does this file itself use any client-only API (hooks, browser globals, event handlers)? */
 function fileUsesClientApi(ctx: RuleContext): boolean {
   for (const identifier of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
@@ -95,10 +100,10 @@ function fileUsesClientApi(ctx: RuleContext): boolean {
   for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const expr = call.getExpression();
     if (expr.getKind() === SyntaxKind.Identifier) {
-      if (CLIENT_HOOKS.has(expr.getText())) return true;
+      if (isHookLikeName(expr.getText())) return true;
     } else if (expr.getKind() === SyntaxKind.PropertyAccessExpression) {
       const prop = expr.asKind(SyntaxKind.PropertyAccessExpression);
-      if (prop && CLIENT_HOOKS.has(prop.getName())) return true;
+      if (prop && isHookLikeName(prop.getName())) return true;
     }
   }
 
@@ -439,6 +444,117 @@ function functionLikeIsAsync(node: Node): boolean {
   return false;
 }
 
+function resolveImportSourceFile(
+  ctx: RuleContext,
+  importDecl: import('ts-morph').ImportDeclaration,
+): import('ts-morph').SourceFile | undefined {
+  const resolvedSourceFile = importDecl.getModuleSpecifierSourceFile();
+  if (resolvedSourceFile) return resolvedSourceFile;
+
+  const specifier = importDecl.getModuleSpecifierValue();
+  if (!specifier.startsWith('.')) return undefined;
+
+  const project = ctx.sourceFile.getProject();
+  const fromDir = dirname(ctx.sourceFile.getFilePath());
+  const fallbackCandidates = [specifier];
+  if (specifier.endsWith('.js')) {
+    fallbackCandidates.push(`${specifier.slice(0, -3)}.ts`, `${specifier.slice(0, -3)}.tsx`);
+  } else if (specifier.endsWith('.jsx')) {
+    fallbackCandidates.push(`${specifier.slice(0, -4)}.tsx`);
+  } else {
+    fallbackCandidates.push(`${specifier}.ts`, `${specifier}.tsx`, `${specifier}/index.ts`, `${specifier}/index.tsx`);
+  }
+
+  for (const candidate of fallbackCandidates) {
+    const fullPath = resolve(fromDir, candidate);
+    if (!existsSync(fullPath)) continue;
+    const sourceFile = project.getSourceFile(fullPath);
+    if (sourceFile) return sourceFile;
+    try {
+      return project.addSourceFileAtPath(fullPath);
+    } catch {
+      try {
+        return new Project({
+          compilerOptions: {
+            strict: true,
+            target: 99,
+            module: 99,
+            moduleResolution: 100,
+          },
+        }).addSourceFileAtPath(fullPath);
+      } catch {
+        // Keep trying other extension fallbacks.
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function resolveExportedServerActionFunctions(
+  sourceFile: import('ts-morph').SourceFile | undefined,
+  exportName: string,
+): FunctionLikeNode[] {
+  const resolved: FunctionLikeNode[] = [];
+  if (!sourceFile) return resolved;
+
+  const fileHasUseServer = hasServerDirective(sourceFile.getFullText());
+
+  for (const fn of sourceFile.getFunctions()) {
+    if (!fn.isExported() || fn.getName() !== exportName || !fn.isAsync()) continue;
+    if (functionLikeHasUseServerDirective(fn) || (fileHasUseServer && fn.isExported())) resolved.push(fn);
+  }
+
+  for (const stmt of sourceFile.getVariableStatements()) {
+    if (!stmt.isExported()) continue;
+    for (const decl of stmt.getDeclarations()) {
+      if (decl.getName() !== exportName) continue;
+      const init = decl.getInitializer();
+      if (!init || (!Node.isArrowFunction(init) && !Node.isFunctionExpression(init)) || !init.isAsync()) continue;
+      if (functionLikeHasUseServerDirective(init) || fileHasUseServer) resolved.push(init);
+    }
+  }
+
+  return resolved;
+}
+
+function resolveImportedServerActionFunctions(ctx: RuleContext, decl: Node): FunctionLikeNode[] {
+  if (Node.isImportSpecifier(decl)) {
+    return resolveExportedServerActionFunctions(
+      resolveImportSourceFile(ctx, decl.getImportDeclaration()),
+      decl.getName(),
+    );
+  }
+
+  if (Node.isNamespaceImport(decl)) return [];
+
+  return [];
+}
+
+function resolveDirectImportedServerActionFunctions(ctx: RuleContext, expr: Node): FunctionLikeNode[] {
+  if (Node.isIdentifier(expr)) {
+    for (const decl of ctx.sourceFile.getImportDeclarations()) {
+      for (const named of decl.getNamedImports()) {
+        const localName = named.getAliasNode()?.getText() ?? named.getName();
+        if (localName !== expr.getText()) continue;
+        return resolveExportedServerActionFunctions(resolveImportSourceFile(ctx, decl), named.getName());
+      }
+    }
+    return [];
+  }
+
+  if (Node.isPropertyAccessExpression(expr) && Node.isIdentifier(expr.getExpression())) {
+    const namespaceName = expr.getExpression().getText();
+    for (const decl of ctx.sourceFile.getImportDeclarations()) {
+      const namespaceImport = decl.getNamespaceImport();
+      if (!namespaceImport || namespaceImport.getText() !== namespaceName) continue;
+      return resolveExportedServerActionFunctions(resolveImportSourceFile(ctx, decl), expr.getName());
+    }
+  }
+
+  return [];
+}
+
 function resolveServerActionFunctions(ctx: RuleContext, expr: Node | undefined): FunctionLikeNode[] {
   const resolved: FunctionLikeNode[] = [];
   if (!expr) return resolved;
@@ -449,20 +565,46 @@ function resolveServerActionFunctions(ctx: RuleContext, expr: Node | undefined):
     return resolved;
   }
 
+  const directImportedActions = resolveDirectImportedServerActionFunctions(ctx, candidate);
+  if (directImportedActions.length > 0) return directImportedActions;
+
+  if (Node.isPropertyAccessExpression(candidate)) {
+    const objectExpr = candidate.getExpression();
+    if (!Node.isIdentifier(objectExpr)) return resolved;
+
+    const declarations = objectExpr.getSymbol()?.getDeclarations() ?? [];
+    for (const decl of declarations) {
+      if (!Node.isNamespaceImport(decl)) continue;
+      const importDecl = decl.getFirstAncestorByKind(SyntaxKind.ImportDeclaration);
+      const sourceFile = importDecl ? resolveImportSourceFile(ctx, importDecl) : undefined;
+      resolved.push(...resolveExportedServerActionFunctions(sourceFile, candidate.getName()));
+    }
+    return resolved;
+  }
+
   if (!Node.isIdentifier(candidate)) return resolved;
 
-  const fileHasUseServer = hasServerDirective(ctx.sourceFile.getFullText());
   const declarations = candidate.getSymbol()?.getDeclarations() ?? [];
   for (const decl of declarations) {
-    if (decl.getSourceFile() !== ctx.sourceFile) continue;
+    if (Node.isImportSpecifier(decl)) {
+      resolved.push(...resolveImportedServerActionFunctions(ctx, decl));
+      continue;
+    }
+
+    if (decl.getSourceFile() !== ctx.sourceFile) {
+      resolved.push(...resolveImportedServerActionFunctions(ctx, decl));
+      continue;
+    }
 
     if (Node.isFunctionDeclaration(decl) && decl.isAsync()) {
+      const fileHasUseServer = hasServerDirective(ctx.sourceFile.getFullText());
       if (functionLikeHasUseServerDirective(decl) || (fileHasUseServer && decl.isExported())) resolved.push(decl);
     }
 
     if (Node.isVariableDeclaration(decl)) {
       const init = decl.getInitializer();
       if (!init || (!Node.isArrowFunction(init) && !Node.isFunctionExpression(init)) || !init.isAsync()) continue;
+      const fileHasUseServer = hasServerDirective(ctx.sourceFile.getFullText());
       const variableStatement = decl.getVariableStatement();
       if (functionLikeHasUseServerDirective(init) || (fileHasUseServer && variableStatement?.isExported())) {
         resolved.push(init);
@@ -511,6 +653,90 @@ function functionReturnsValue(node: FunctionLikeNode): boolean {
   return false;
 }
 
+const POST_SUBMIT_CLOSURE_CALLS = new Set([
+  'revalidatePath',
+  'revalidateTag',
+  'updateTag',
+  'refresh',
+  'redirect',
+  'permanentRedirect',
+  'notFound',
+]);
+
+const MUTATION_CALL_RE = /\b(create|update|delete|remove|insert|upsert|save|write|publish|archive|destroy|replace)\b/i;
+const MUTATION_FETCH_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function functionCallsPostSubmitClosure(node: FunctionLikeNode): boolean {
+  const body = node.getBody();
+  if (!body) return false;
+
+  for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const expr = call.getExpression();
+    if (Node.isIdentifier(expr) && POST_SUBMIT_CLOSURE_CALLS.has(expr.getText())) return true;
+    if (Node.isPropertyAccessExpression(expr) && POST_SUBMIT_CLOSURE_CALLS.has(expr.getName())) return true;
+  }
+
+  return false;
+}
+
+function isKnownInputCarrier(node: Node): boolean {
+  if (!Node.isIdentifier(node)) return false;
+  const typeText = node.getType().getText(node);
+  return (
+    typeText.includes('FormData') ||
+    typeText.includes('URLSearchParams') ||
+    typeText.includes('Headers') ||
+    ['formData', 'searchParams', 'headers'].includes(node.getText())
+  );
+}
+
+function getMutationCall(node: FunctionLikeNode): import('ts-morph').CallExpression | undefined {
+  const body = node.getBody();
+  if (!body) return undefined;
+
+  for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const expr = call.getExpression();
+
+    if (Node.isIdentifier(expr)) {
+      if (expr.getText() === 'fetch') {
+        const options = call.getArguments()[1];
+        if (!options || !Node.isObjectLiteralExpression(options)) continue;
+        const methodProp = options
+          .getProperties()
+          .find(
+            (prop) =>
+              Node.isPropertyAssignment(prop) &&
+              prop.getName() === 'method' &&
+              Node.isStringLiteral(prop.getInitializer() ?? undefined),
+          );
+        if (!methodProp || !Node.isPropertyAssignment(methodProp)) continue;
+        const methodInit = methodProp.getInitializer();
+        if (!methodInit || !Node.isStringLiteral(methodInit)) continue;
+        if (MUTATION_FETCH_METHODS.has(methodInit.getLiteralText().toUpperCase())) return call;
+        continue;
+      }
+
+      if (MUTATION_CALL_RE.test(expr.getText())) return call;
+      continue;
+    }
+
+    if (!Node.isPropertyAccessExpression(expr)) continue;
+    if (isKnownInputCarrier(expr.getExpression())) continue;
+    if (MUTATION_CALL_RE.test(expr.getName())) return call;
+  }
+
+  return undefined;
+}
+
+function getFunctionLikeName(node: FunctionLikeNode): string {
+  if (Node.isFunctionDeclaration(node)) return node.getName() ?? '<anon>';
+
+  const parent = node.getParent();
+  if (Node.isVariableDeclaration(parent)) return parent.getName();
+
+  return '<anon>';
+}
+
 // ── Rule: use-client-drilled-too-high ────────────────────────────────────
 // File has 'use client' but doesn't actually use any client API itself.
 // Its children do. Moving the directive down would preserve RSC benefits.
@@ -528,40 +754,81 @@ function useClientDrilledTooHigh(ctx: RuleContext): ReviewFinding[] {
   // cheaply check that without the full fileContextMap. Fire as a warning
   // either way; severity bumps to error when we can prove a child needs it.
 
-  let severity: 'warning' | 'error' = 'warning';
+  const severity: 'warning' | 'error' = 'warning';
   let detail = 'File has "use client" but uses no hooks, event handlers, or browser APIs itself.';
+  let importedChildren: string[] = [];
 
-  const fileContextMap = ctx.config?.fileContextMap;
-  if (fileContextMap) {
-    // If at least one imported child has its own 'use client' or needs one, this is a drilled directive.
-    const gfImports = [...fileContextMap.entries()]
-      .filter(([, v]) => v.importedBy.includes(ctx.filePath))
-      .map(([k]) => k);
-    if (gfImports.length > 0) {
-      severity = 'warning';
-      detail += ` Imported children: ${gfImports
-        .slice(0, 3)
-        .map((p) => basename(p))
-        .join(', ')}${gfImports.length > 3 ? '…' : ''}.`;
+  const graphFile = ctx.config?.graphFileMap?.get(ctx.filePath);
+  if (graphFile && graphFile.imports.length > 0) {
+    importedChildren = graphFile.imports;
+    detail += ` Imported children: ${importedChildren
+      .slice(0, 3)
+      .map((p) => basename(p))
+      .join(', ')}${importedChildren.length > 3 ? '…' : ''}.`;
+  } else {
+    const fileContextMap = ctx.config?.fileContextMap;
+    if (fileContextMap) {
+      // Fallback for older graph-aware callers that only provide fileContextMap.
+      importedChildren = [...fileContextMap.entries()]
+        .filter(([, v]) => v.importedBy.includes(ctx.filePath))
+        .map(([k]) => k);
+      if (importedChildren.length > 0) {
+        detail += ` Imported children: ${importedChildren
+          .slice(0, 3)
+          .map((p) => basename(p))
+          .join(', ')}${importedChildren.length > 3 ? '…' : ''}.`;
+      }
     }
   }
 
   const line = 1;
-  return [
-    finding(
-      'use-client-drilled-too-high',
-      severity,
-      'pattern',
-      `'use client' directive is drilled too high — ${detail} Move it to the leaf component that actually uses client APIs to preserve Server Component benefits.`,
-      ctx.filePath,
-      line,
-      1,
+  const result = finding(
+    'use-client-drilled-too-high',
+    severity,
+    'pattern',
+    `'use client' directive is drilled too high — ${detail} Move it to the leaf component that actually uses client APIs to preserve Server Component benefits.`,
+    ctx.filePath,
+    line,
+    1,
+    {
+      suggestion:
+        'Remove the top-level "use client" and add it to only the child component(s) that use hooks or browser APIs',
+    },
+  );
+  result.relatedSpans = importedChildren.slice(0, 3).map((child) => ({
+    file: child,
+    startLine: 1,
+    startCol: 1,
+    endLine: 1,
+    endCol: 1,
+  }));
+  result.provenance = {
+    summary:
+      importedChildren.length > 0
+        ? `"use client" sits above ${importedChildren.length} imported child${importedChildren.length === 1 ? '' : 'ren'} while this file uses no client-only APIs itself.`
+        : '"use client" is present, but the file itself has no local client-only API usage.',
+    steps: [
       {
-        suggestion:
-          'Remove the top-level "use client" and add it to only the child component(s) that use hooks or browser APIs',
+        kind: 'boundary',
+        location: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+        label: `'use client'`,
+        detail: 'Client boundary is declared at the top of this file.',
       },
-    ),
-  ];
+      {
+        kind: 'boundary',
+        location: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+        label: 'no local client API usage',
+        detail: 'This file does not use hooks, event handlers, or browser globals directly.',
+      },
+      ...importedChildren.slice(0, 3).map((child) => ({
+        kind: 'import' as const,
+        location: { file: child, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+        label: basename(child),
+        detail: 'Imported child under the same declared client boundary.',
+      })),
+    ],
+  };
+  return [result];
 }
 
 // ── Rule: server-api-in-client ───────────────────────────────────────────
@@ -585,20 +852,42 @@ function serverApiInClient(ctx: RuleContext): ReviewFinding[] {
   for (const imp of ctx.sourceFile.getImportDeclarations()) {
     const mod = imp.getModuleSpecifierValue();
     if (mod === 'next/headers' || mod === 'server-only') {
-      findings.push(
-        finding(
-          'server-api-in-client',
-          'error',
-          'bug',
-          `Client Component imports '${mod}' — this will fail at build time. Server-only APIs cannot run in a client boundary.`,
-          ctx.filePath,
-          imp.getStartLineNumber(),
-          1,
-          {
-            suggestion: `Move this logic to a Server Component or a server action, or drop the 'use client' directive if this file does not need it`,
-          },
-        ),
+      const hit = finding(
+        'server-api-in-client',
+        'error',
+        'bug',
+        `Client Component imports '${mod}' — this will fail at build time. Server-only APIs cannot run in a client boundary.`,
+        ctx.filePath,
+        imp.getStartLineNumber(),
+        1,
+        {
+          suggestion: `Move this logic to a Server Component or a server action, or drop the 'use client' directive if this file does not need it`,
+        },
       );
+      hit.provenance = {
+        summary: `Client boundary imports server-only module '${mod}'.`,
+        steps: [
+          {
+            kind: 'boundary',
+            location: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+            label: `'use client'`,
+            detail: 'This file is treated as a Client Component.',
+          },
+          {
+            kind: 'import',
+            location: {
+              file: ctx.filePath,
+              startLine: imp.getStartLineNumber(),
+              startCol: 1,
+              endLine: imp.getStartLineNumber(),
+              endCol: 1,
+            },
+            label: mod,
+            detail: 'Server-only module imported into a client boundary.',
+          },
+        ],
+      };
+      findings.push(hit);
     }
   }
 
@@ -619,18 +908,42 @@ function serverApiInClient(ctx: RuleContext): ReviewFinding[] {
       );
     if (!fromNextHeaders) continue;
 
-    findings.push(
-      finding(
-        'server-api-in-client',
-        'error',
-        'bug',
-        `'${name}()' called in Client Component — next/headers APIs are server-only and will throw at runtime`,
-        ctx.filePath,
-        call.getStartLineNumber(),
-        1,
-        { suggestion: `Call '${name}()' in a Server Component or server action, then pass the result as a prop` },
-      ),
+    const hit = finding(
+      'server-api-in-client',
+      'error',
+      'bug',
+      `'${name}()' called in Client Component — next/headers APIs are server-only and will throw at runtime`,
+      ctx.filePath,
+      call.getStartLineNumber(),
+      1,
+      {
+        suggestion: `Call '${name}()' in a Server Component or server action, then pass the result as a prop`,
+      },
     );
+    hit.provenance = {
+      summary: `Client boundary calls server-only API ${name}().`,
+      steps: [
+        {
+          kind: 'boundary',
+          location: { file: ctx.filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+          label: `'use client'`,
+          detail: 'This file is treated as a Client Component.',
+        },
+        {
+          kind: 'call',
+          location: {
+            file: ctx.filePath,
+            startLine: call.getStartLineNumber(),
+            startCol: 1,
+            endLine: call.getStartLineNumber(),
+            endCol: 1,
+          },
+          label: `${name}()`,
+          detail: `Call is only valid from 'next/headers' on the server.`,
+        },
+      ],
+    };
+    findings.push(hit);
   }
 
   return findings;
@@ -827,6 +1140,78 @@ function serverActionFormReturnValueIgnored(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: server-action-form-mutation-missing-invalidation ───────────────
+// Direct form action posts to a mutating Server Action that neither revalidates
+// cache nor redirects, so the submit likely completes with stale UI.
+
+function serverActionFormMutationMissingInvalidation(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+
+  const actionStateBindings = getReactActionStateBindings(ctx);
+  const actionStateNames = new Set(actionStateBindings.map((binding) => binding.actionName));
+
+  const findings: ReviewFinding[] = [];
+  for (const form of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxElement)) {
+    if (getJsxTagName(form.getOpeningElement()) !== 'form') continue;
+
+    const actionExpr = getJsxExpressionAttribute(form.getOpeningElement(), 'action');
+    if (!actionExpr) continue;
+    if (Node.isIdentifier(actionExpr) && actionStateNames.has(actionExpr.getText())) continue;
+
+    const candidate = resolveServerActionFunctions(ctx, actionExpr).find((fn) => {
+      if (functionReturnsValue(fn)) return false;
+      if (functionCallsPostSubmitClosure(fn)) return false;
+      return !!getMutationCall(fn);
+    });
+    if (!candidate) continue;
+
+    const actionFile = candidate.getSourceFile().getFilePath();
+    const actionName = getFunctionLikeName(candidate);
+    const mutationCall = getMutationCall(candidate);
+    const actionLine = candidate.getStartLineNumber();
+    const mutationLine = mutationCall?.getStartLineNumber();
+
+    const hit = finding(
+      'server-action-form-mutation-missing-invalidation',
+      'warning',
+      'bug',
+      `Form posts directly to mutating Server Action '${actionName}' but no redirect or cache invalidation was detected — the submit can complete with stale UI`,
+      ctx.filePath,
+      form.getStartLineNumber(),
+      1,
+      {
+        suggestion:
+          'After a successful mutation, call revalidatePath(), revalidateTag(), updateTag(), redirect(), or return state through useActionState() so the UI closes the loop.',
+      },
+    );
+    hit.relatedSpans = [span(actionFile, actionLine), ...(mutationLine ? [span(actionFile, mutationLine)] : [])];
+    hit.provenance = {
+      summary: `Form action resolves to ${actionName}(), which performs a likely mutation but does not redirect or refresh server data.`,
+      steps: [
+        {
+          kind: 'call',
+          location: span(actionFile, actionLine),
+          label: `${actionName}()`,
+          detail: 'Resolved Server Action bound to the form action.',
+        },
+        ...(mutationLine
+          ? [
+              {
+                kind: 'call' as const,
+                location: span(actionFile, mutationLine),
+                label: mutationCall?.getExpression().getText() ?? 'mutation call',
+                detail: 'Likely mutating operation inside the Server Action body.',
+              },
+            ]
+          : []),
+      ],
+    };
+    findings.push(hit);
+  }
+
+  return findings;
+}
+
 // ── Rule: server-action-unvalidated-input ────────────────────────────────
 // Server action (file or function marked 'use server') receives args and
 // uses them without passing through a validator (.parse, .safeParse, zod,
@@ -981,5 +1366,6 @@ export const nextjsAppRouterRules = [
   useActionStateMissingFeedback,
   serverActionFormMissingPending,
   serverActionFormReturnValueIgnored,
+  serverActionFormMutationMissingInvalidation,
   serverActionUnvalidatedInput,
 ];
