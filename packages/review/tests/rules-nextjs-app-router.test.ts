@@ -42,6 +42,32 @@ export function Counter() {
       expect(r.findings.find((f) => f.ruleId === 'use-client-drilled-too-high')).toBeUndefined();
     });
 
+    it('does not flag use client file that uses next/navigation hooks', () => {
+      const src = `'use client';
+import { useSearchParams } from 'next/navigation';
+export function ListingParams() {
+  const searchParams = useSearchParams();
+  return <div>{searchParams.get('page') ?? '1'}</div>;
+}
+`;
+      const r = reviewSource(src, 'listing-params.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'use-client-drilled-too-high')).toBeUndefined();
+    });
+
+    it('does not flag use client file that uses custom hooks', () => {
+      const src = `'use client';
+function useNavigationCacheKey() {
+  return 'cache-key';
+}
+export function ListingParams() {
+  const cacheKey = useNavigationCacheKey();
+  return <div>{cacheKey}</div>;
+}
+`;
+      const r = reviewSource(src, 'listing-params.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'use-client-drilled-too-high')).toBeUndefined();
+    });
+
     it('does not flag use client file with browser globals', () => {
       const src = `'use client';
 export function Ls() {
@@ -672,6 +698,79 @@ export async function saveUser(formData: FormData) {
       const reports = reviewGraph([join(dir, 'page.tsx')], { ...cfg, noCache: true });
       const pageReport = reports.find((report) => report.filePath === join(dir, 'page.tsx'));
       expect(pageReport?.findings.find((f) => f.ruleId === 'server-action-form-return-value-ignored')).toBeDefined();
+    });
+  });
+
+  describe('server-action-form-mutation-missing-invalidation', () => {
+    it('flags direct form action when a server action mutates without revalidation or redirect', () => {
+      const src = `
+export default function Page() {
+  async function saveUser(formData: FormData) {
+    'use server';
+    await db.insert({ name: formData.get('name') });
+  }
+
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      const finding = r.findings.find((f) => f.ruleId === 'server-action-form-mutation-missing-invalidation');
+      expect(finding).toBeDefined();
+      expect(finding?.relatedSpans?.length).toBeGreaterThanOrEqual(1);
+      expect(finding?.provenance?.summary).toContain('likely mutation');
+    });
+
+    it('does not flag when the action revalidates after mutating', () => {
+      const src = `
+import { revalidatePath } from 'next/cache';
+
+export default function Page() {
+  async function saveUser(formData: FormData) {
+    'use server';
+    await db.insert({ name: formData.get('name') });
+    revalidatePath('/users');
+  }
+
+  return (
+    <form action={saveUser}>
+      <input name="name" />
+      <button type="submit">Save</button>
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-action-form-mutation-missing-invalidation')).toBeUndefined();
+    });
+
+    it('does not flag useActionState flows that already surface post-submit state', () => {
+      const src = `'use client';
+import { useActionState } from 'react';
+
+async function saveUser(prevState: { ok: boolean }, formData: FormData) {
+  'use server';
+  await db.insert({ name: formData.get('name') });
+  return { ok: true };
+}
+
+export default function Page() {
+  const [state, formAction] = useActionState(saveUser, { ok: false });
+  return (
+    <form action={formAction}>
+      <input name="name" />
+      <button type="submit">Save</button>
+      {state.ok ? <p>Saved</p> : null}
+    </form>
+  );
+}
+`;
+      const r = reviewSource(src, 'page.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'server-action-form-mutation-missing-invalidation')).toBeUndefined();
     });
   });
 

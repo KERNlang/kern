@@ -10,7 +10,7 @@ import { existsSync } from 'fs';
 import { basename, dirname, resolve } from 'path';
 import { Node, Project, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { finding } from './utils.js';
+import { finding, span } from './utils.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -79,6 +79,10 @@ function hasServerDirective(fullText: string): boolean {
   return /^['"]use server['"];?\s*$/m.test(fullText.substring(0, 200));
 }
 
+function isHookLikeName(name: string): boolean {
+  return CLIENT_HOOKS.has(name) || /^use[A-Z0-9]/.test(name);
+}
+
 /** Does this file itself use any client-only API (hooks, browser globals, event handlers)? */
 function fileUsesClientApi(ctx: RuleContext): boolean {
   for (const identifier of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
@@ -96,10 +100,10 @@ function fileUsesClientApi(ctx: RuleContext): boolean {
   for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const expr = call.getExpression();
     if (expr.getKind() === SyntaxKind.Identifier) {
-      if (CLIENT_HOOKS.has(expr.getText())) return true;
+      if (isHookLikeName(expr.getText())) return true;
     } else if (expr.getKind() === SyntaxKind.PropertyAccessExpression) {
       const prop = expr.asKind(SyntaxKind.PropertyAccessExpression);
-      if (prop && CLIENT_HOOKS.has(prop.getName())) return true;
+      if (prop && isHookLikeName(prop.getName())) return true;
     }
   }
 
@@ -649,6 +653,90 @@ function functionReturnsValue(node: FunctionLikeNode): boolean {
   return false;
 }
 
+const POST_SUBMIT_CLOSURE_CALLS = new Set([
+  'revalidatePath',
+  'revalidateTag',
+  'updateTag',
+  'refresh',
+  'redirect',
+  'permanentRedirect',
+  'notFound',
+]);
+
+const MUTATION_CALL_RE = /\b(create|update|delete|remove|insert|upsert|save|write|publish|archive|destroy|replace)\b/i;
+const MUTATION_FETCH_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function functionCallsPostSubmitClosure(node: FunctionLikeNode): boolean {
+  const body = node.getBody();
+  if (!body) return false;
+
+  for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const expr = call.getExpression();
+    if (Node.isIdentifier(expr) && POST_SUBMIT_CLOSURE_CALLS.has(expr.getText())) return true;
+    if (Node.isPropertyAccessExpression(expr) && POST_SUBMIT_CLOSURE_CALLS.has(expr.getName())) return true;
+  }
+
+  return false;
+}
+
+function isKnownInputCarrier(node: Node): boolean {
+  if (!Node.isIdentifier(node)) return false;
+  const typeText = node.getType().getText(node);
+  return (
+    typeText.includes('FormData') ||
+    typeText.includes('URLSearchParams') ||
+    typeText.includes('Headers') ||
+    ['formData', 'searchParams', 'headers'].includes(node.getText())
+  );
+}
+
+function getMutationCall(node: FunctionLikeNode): import('ts-morph').CallExpression | undefined {
+  const body = node.getBody();
+  if (!body) return undefined;
+
+  for (const call of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const expr = call.getExpression();
+
+    if (Node.isIdentifier(expr)) {
+      if (expr.getText() === 'fetch') {
+        const options = call.getArguments()[1];
+        if (!options || !Node.isObjectLiteralExpression(options)) continue;
+        const methodProp = options
+          .getProperties()
+          .find(
+            (prop) =>
+              Node.isPropertyAssignment(prop) &&
+              prop.getName() === 'method' &&
+              Node.isStringLiteral(prop.getInitializer() ?? undefined),
+          );
+        if (!methodProp || !Node.isPropertyAssignment(methodProp)) continue;
+        const methodInit = methodProp.getInitializer();
+        if (!methodInit || !Node.isStringLiteral(methodInit)) continue;
+        if (MUTATION_FETCH_METHODS.has(methodInit.getLiteralText().toUpperCase())) return call;
+        continue;
+      }
+
+      if (MUTATION_CALL_RE.test(expr.getText())) return call;
+      continue;
+    }
+
+    if (!Node.isPropertyAccessExpression(expr)) continue;
+    if (isKnownInputCarrier(expr.getExpression())) continue;
+    if (MUTATION_CALL_RE.test(expr.getName())) return call;
+  }
+
+  return undefined;
+}
+
+function getFunctionLikeName(node: FunctionLikeNode): string {
+  if (Node.isFunctionDeclaration(node)) return node.getName() ?? '<anon>';
+
+  const parent = node.getParent();
+  if (Node.isVariableDeclaration(parent)) return parent.getName();
+
+  return '<anon>';
+}
+
 // ── Rule: use-client-drilled-too-high ────────────────────────────────────
 // File has 'use client' but doesn't actually use any client API itself.
 // Its children do. Moving the directive down would preserve RSC benefits.
@@ -1052,6 +1140,78 @@ function serverActionFormReturnValueIgnored(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: server-action-form-mutation-missing-invalidation ───────────────
+// Direct form action posts to a mutating Server Action that neither revalidates
+// cache nor redirects, so the submit likely completes with stale UI.
+
+function serverActionFormMutationMissingInvalidation(ctx: RuleContext): ReviewFinding[] {
+  if (ctx.fileRole !== 'runtime') return [];
+
+  const actionStateBindings = getReactActionStateBindings(ctx);
+  const actionStateNames = new Set(actionStateBindings.map((binding) => binding.actionName));
+
+  const findings: ReviewFinding[] = [];
+  for (const form of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.JsxElement)) {
+    if (getJsxTagName(form.getOpeningElement()) !== 'form') continue;
+
+    const actionExpr = getJsxExpressionAttribute(form.getOpeningElement(), 'action');
+    if (!actionExpr) continue;
+    if (Node.isIdentifier(actionExpr) && actionStateNames.has(actionExpr.getText())) continue;
+
+    const candidate = resolveServerActionFunctions(ctx, actionExpr).find((fn) => {
+      if (functionReturnsValue(fn)) return false;
+      if (functionCallsPostSubmitClosure(fn)) return false;
+      return !!getMutationCall(fn);
+    });
+    if (!candidate) continue;
+
+    const actionFile = candidate.getSourceFile().getFilePath();
+    const actionName = getFunctionLikeName(candidate);
+    const mutationCall = getMutationCall(candidate);
+    const actionLine = candidate.getStartLineNumber();
+    const mutationLine = mutationCall?.getStartLineNumber();
+
+    const hit = finding(
+      'server-action-form-mutation-missing-invalidation',
+      'warning',
+      'bug',
+      `Form posts directly to mutating Server Action '${actionName}' but no redirect or cache invalidation was detected — the submit can complete with stale UI`,
+      ctx.filePath,
+      form.getStartLineNumber(),
+      1,
+      {
+        suggestion:
+          'After a successful mutation, call revalidatePath(), revalidateTag(), updateTag(), redirect(), or return state through useActionState() so the UI closes the loop.',
+      },
+    );
+    hit.relatedSpans = [span(actionFile, actionLine), ...(mutationLine ? [span(actionFile, mutationLine)] : [])];
+    hit.provenance = {
+      summary: `Form action resolves to ${actionName}(), which performs a likely mutation but does not redirect or refresh server data.`,
+      steps: [
+        {
+          kind: 'call',
+          location: span(actionFile, actionLine),
+          label: `${actionName}()`,
+          detail: 'Resolved Server Action bound to the form action.',
+        },
+        ...(mutationLine
+          ? [
+              {
+                kind: 'call' as const,
+                location: span(actionFile, mutationLine),
+                label: mutationCall?.getExpression().getText() ?? 'mutation call',
+                detail: 'Likely mutating operation inside the Server Action body.',
+              },
+            ]
+          : []),
+      ],
+    };
+    findings.push(hit);
+  }
+
+  return findings;
+}
+
 // ── Rule: server-action-unvalidated-input ────────────────────────────────
 // Server action (file or function marked 'use server') receives args and
 // uses them without passing through a validator (.parse, .safeParse, zod,
@@ -1206,5 +1366,6 @@ export const nextjsAppRouterRules = [
   useActionStateMissingFeedback,
   serverActionFormMissingPending,
   serverActionFormReturnValueIgnored,
+  serverActionFormMutationMissingInvalidation,
   serverActionUnvalidatedInput,
 ];
