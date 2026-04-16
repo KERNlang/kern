@@ -1338,6 +1338,69 @@ describe('Ink Transpiler', () => {
     expect(result.code).not.toContain('export default');
   });
 
+  test('secondary screen export=false omits export while keeping main screen exported', async () => {
+    const { parseDocument } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=AgonTip export=false',
+      '  text value="Tip"',
+      '',
+      'screen name=Main',
+      '  text value="Main"',
+      '  conditional if=true',
+      '    screen-embed screen=AgonTip',
+    ].join('\n');
+    const ast = parseDocument(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('function AgonTip(');
+    expect(result.code).not.toContain('export function AgonTip(');
+    expect(result.code).toContain('export function Main(');
+    expect(result.code).toContain('<AgonTip />');
+  });
+
+  test('memoized screen export=false omits re-export', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=StatusBar export=false memo=true\n  text value="Status"');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('const StatusBar = React.memo(function StatusBar(');
+    expect(result.code).not.toContain('export { StatusBar };');
+    expect(result.code).not.toContain('export default { StatusBar };');
+  });
+
+  test('memoized screen export=default emits a valid default export binding', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse('screen name=StatusBar export=default memo=true\n  text value="Status"');
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('const StatusBar = React.memo(function StatusBar(');
+    expect(result.code).toContain('export default StatusBar;');
+    expect(result.code).not.toContain('export default { StatusBar };');
+  });
+
+  test('memoized secondary screen export=default emits a valid default export binding', async () => {
+    const { parseDocument } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const source = [
+      'screen name=StatusBar export=default memo=true',
+      '  text value="Status"',
+      '',
+      'screen name=Main',
+      '  text value="Main"',
+      '  conditional if=true',
+      '    screen-embed screen=StatusBar',
+    ].join('\n');
+    const ast = parseDocument(source);
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('const StatusBar = React.memo(function StatusBar(');
+    expect(result.code).toContain('export default StatusBar;');
+    expect(result.code).not.toContain('export default { StatusBar };');
+  });
+
   test('secondary screen with export=default gets default export', async () => {
     const { parseDocument } = await import('../../core/src/parser.js');
     const { transpileInk } = await import('../src/transpiler-ink.js');
@@ -1431,7 +1494,7 @@ describe('Ink Transpiler', () => {
     expect(entry!.path).toBe('index.tsx');
     expect(entry!.content).toContain('render(<MyApp />)');
     expect(entry!.content).toContain('waitUntilExit()');
-    expect(entry!.content).toContain("import MyApp from './MyApp.js'");
+    expect(entry!.content).toContain("import { MyApp } from './MyApp.js'");
   });
 
   test('multi-screen generates component artifacts', async () => {

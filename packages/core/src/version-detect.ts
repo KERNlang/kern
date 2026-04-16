@@ -21,6 +21,7 @@ export function parseMajorVersion(version: string): number {
  * Detect framework versions from a parsed package.json object.
  *
  * Looks in both dependencies and devDependencies for:
+ * - react -> react version
  * - tailwindcss -> tailwind version
  * - next -> nextjs version
  */
@@ -29,6 +30,12 @@ export function detectVersionsFromPackageJson(packageJson: Record<string, unknow
 
   const deps = (packageJson.dependencies ?? {}) as Record<string, string>;
   const devDeps = (packageJson.devDependencies ?? {}) as Record<string, string>;
+
+  // React
+  const reactVersion = deps.react ?? devDeps.react;
+  if (reactVersion) {
+    versions.react = reactVersion;
+  }
 
   // Tailwind CSS
   const twVersion = devDeps.tailwindcss ?? deps.tailwindcss;
@@ -43,6 +50,17 @@ export function detectVersionsFromPackageJson(packageJson: Record<string, unknow
   }
 
   return versions;
+}
+
+/**
+ * Resolve the effective React major version.
+ * Defaults to 19 when unspecified because React 19 is the current baseline.
+ * Future majors collapse to 19 until they gain explicit adapters.
+ */
+export function resolveReactMajor(versions: FrameworkVersions): 18 | 19 {
+  if (!versions.react) return 19;
+  const major = parseMajorVersion(versions.react);
+  return major <= 18 ? 18 : 19;
 }
 
 /**

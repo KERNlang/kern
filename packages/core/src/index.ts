@@ -238,6 +238,8 @@ export {
 export type {
   NextjsOutputRules,
   NextjsVersionProfile,
+  ReactOutputRules,
+  ReactVersionProfile,
   TailwindOutputRules,
   TailwindTokenRule,
   TailwindVersionProfile,
@@ -246,6 +248,7 @@ export type {
 export {
   applyTailwindTokenRules,
   buildNextjsProfile,
+  buildReactProfile,
   buildTailwindProfile,
   buildVersionProfile,
 } from './version-adapters.js';
@@ -254,6 +257,7 @@ export {
   detectVersionsFromPackageJson,
   parseMajorVersion,
   resolveNextjsMajor,
+  resolveReactMajor,
   resolveTailwindMajor,
 } from './version-detect.js';
 export type { Visitor, VisitorFn, VisitorMap, WalkContext } from './walk.js';

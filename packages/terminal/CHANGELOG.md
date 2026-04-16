@@ -6,6 +6,10 @@
 
 - Removed unused import: `GeneratedArtifact` (transpiler-terminal.ts)
 
+### Testing
+
+- Added a real Ink runtime integration test that compiles generated `target=ink` output, runs it against actual `react` + `ink` + `@inkjs/ui`, and verifies clean render/exit on Node 22+.
+
 ## 3.0.0
 
 ### Major Changes

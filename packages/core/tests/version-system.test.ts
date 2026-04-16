@@ -1,12 +1,14 @@
 import {
   applyTailwindTokenRules,
   buildNextjsProfile,
+  buildReactProfile,
   buildTailwindProfile,
   buildVersionProfile,
   detectVersionsFromPackageJson,
   parseMajorVersion,
   resolveConfig,
   resolveNextjsMajor,
+  resolveReactMajor,
   resolveTailwindMajor,
 } from '../src/index.js';
 
@@ -32,6 +34,12 @@ describe('parseMajorVersion', () => {
 });
 
 describe('detectVersionsFromPackageJson', () => {
+  it('detects react from dependencies', () => {
+    const pkg = { dependencies: { react: '^19.2.0' } };
+    const v = detectVersionsFromPackageJson(pkg);
+    expect(v.react).toBe('^19.2.0');
+  });
+
   it('detects tailwindcss from devDependencies', () => {
     const pkg = { devDependencies: { tailwindcss: '^3.4.1' } };
     const v = detectVersionsFromPackageJson(pkg);
@@ -46,19 +54,36 @@ describe('detectVersionsFromPackageJson', () => {
 
   it('detects both frameworks', () => {
     const pkg = {
-      dependencies: { next: '15.0.0' },
+      dependencies: { react: '^19.0.0', next: '15.0.0' },
       devDependencies: { tailwindcss: '4.0.0' },
     };
     const v = detectVersionsFromPackageJson(pkg);
+    expect(v.react).toBe('^19.0.0');
     expect(v.tailwind).toBe('4.0.0');
     expect(v.nextjs).toBe('15.0.0');
   });
 
   it('returns empty for missing frameworks', () => {
-    const pkg = { dependencies: { react: '^18.0.0' } };
+    const pkg = { dependencies: { vue: '^3.5.0' } };
     const v = detectVersionsFromPackageJson(pkg);
+    expect(v.react).toBeUndefined();
     expect(v.tailwind).toBeUndefined();
     expect(v.nextjs).toBeUndefined();
+  });
+});
+
+describe('resolveReactMajor', () => {
+  it('defaults to 19 when no version is set', () => {
+    expect(resolveReactMajor({})).toBe(19);
+  });
+  it('resolves 18 for React 18.x', () => {
+    expect(resolveReactMajor({ react: '^18.3.1' })).toBe(18);
+  });
+  it('resolves 19 for React 19.x', () => {
+    expect(resolveReactMajor({ react: '19.2.0' })).toBe(19);
+  });
+  it('collapses future majors to 19 until explicitly modeled', () => {
+    expect(resolveReactMajor({ react: '^20.0.0' })).toBe(19);
   });
 });
 
@@ -173,9 +198,28 @@ describe('buildNextjsProfile', () => {
   });
 });
 
+describe('buildReactProfile', () => {
+  it('builds a React 18 compatibility profile', () => {
+    const profile = buildReactProfile({ react: '^18.3.1' });
+    expect(profile.major).toBe(18);
+    expect(profile.outputRules.supportsActions).toBe(false);
+    expect(profile.outputRules.supportsEffectEvent).toBe(false);
+    expect(profile.outputRules.supportsUmdBuilds).toBe(true);
+  });
+
+  it('builds a React 19 compatibility profile', () => {
+    const profile = buildReactProfile({ react: '^19.2.0' });
+    expect(profile.major).toBe(19);
+    expect(profile.outputRules.supportsActions).toBe(true);
+    expect(profile.outputRules.supportsEffectEvent).toBe(true);
+    expect(profile.outputRules.supportsUmdBuilds).toBe(false);
+  });
+});
+
 describe('buildVersionProfile', () => {
   it('builds combined profile', () => {
-    const profile = buildVersionProfile({ tailwind: '4.0.0', nextjs: '15.0.0' });
+    const profile = buildVersionProfile({ react: '^19.2.0', tailwind: '4.0.0', nextjs: '15.0.0' });
+    expect(profile.react.major).toBe(19);
     expect(profile.tailwind.major).toBe(4);
     expect(profile.nextjs.major).toBe(15);
   });
@@ -190,8 +234,9 @@ describe('resolveConfig with frameworkVersions', () => {
   });
   it('passes through user frameworkVersions', () => {
     const config = resolveConfig({
-      frameworkVersions: { tailwind: '4.0.0', nextjs: '15.0.0' },
+      frameworkVersions: { react: '^19.2.0', tailwind: '4.0.0', nextjs: '15.0.0' },
     });
+    expect(config.frameworkVersions.react).toBe('^19.2.0');
     expect(config.frameworkVersions.tailwind).toBe('4.0.0');
     expect(config.frameworkVersions.nextjs).toBe('15.0.0');
   });

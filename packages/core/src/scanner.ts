@@ -88,8 +88,16 @@ function detectFromPackageJson(
 
   // ── Framework versions (reuse core utility) ──
   const versions = detectVersionsFromPackageJson(pkg);
-  if (versions.nextjs || versions.tailwind) {
+  if (versions.nextjs || versions.tailwind || versions.react) {
     config.frameworkVersions = versions;
+    if (versions.react) {
+      detections.push({
+        source: 'package.json',
+        field: 'frameworkVersions.react',
+        value: versions.react,
+        confidence: 'high',
+      });
+    }
     if (versions.nextjs) {
       detections.push({
         source: 'package.json',
@@ -426,6 +434,7 @@ export function generateConfigSource(result: ScanResult): string {
   if (config.frameworkVersions) {
     const fv = config.frameworkVersions;
     const entries: string[] = [];
+    if (fv.react) entries.push(`react: '${fv.react}'`);
     if (fv.nextjs) entries.push(`nextjs: '${fv.nextjs}'`);
     if (fv.tailwind) entries.push(`tailwind: '${fv.tailwind}'`);
     if (entries.length > 0) {
