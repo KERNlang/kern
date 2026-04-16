@@ -2,11 +2,16 @@
  * Taint tracking tests — source→sink analysis on KERN IR handler bodies.
  */
 
+import { Project } from 'ts-morph';
+import { resolveImportGraph } from '../src/graph.js';
 import { reviewSource } from '../src/index.js';
 import { inferFromSource } from '../src/inferrer.js';
 import {
   analyzeTaint,
+  analyzeTaintCrossFile,
   buildExportMap,
+  buildExportMapFromGraph,
+  buildImportMapFromGraph,
   crossFileTaintToFindings,
   isSanitizerSufficient,
   propagateTaintMultiHop,
@@ -442,5 +447,240 @@ describe('propagateTaintMultiHop', () => {
     expect(result.has('a')).toBe(true);
     expect(result.has('b')).toBe(true);
     expect(result.has('c')).toBe(true);
+  });
+});
+
+// ── Control-flow validation guards ──────────────────────────────────────
+
+describe('Control-flow guards suppress taint after validation (AST engine)', () => {
+  function astTaint(source: string) {
+    const project = new Project({
+      useInMemoryFileSystem: true,
+      skipAddingFilesFromTsConfig: true,
+      compilerOptions: { target: 99, module: 99, moduleResolution: 100 },
+    });
+    const sf = project.createSourceFile('/h.ts', source);
+    const inferred = inferFromSource(source, '/h.ts');
+    return analyzeTaint(inferred, '/h.ts', sf);
+  }
+
+  it('treats exec(cmd) as sanitized when preceded by `if (!isValidCommand(cmd)) return`', () => {
+    const results = astTaint(`
+export function run(req: Request, res: Response): void {
+  const cmd = req.body.command;
+  if (!isValidCommand(cmd)) {
+    return res.status(400).json({ error: 'bad command' });
+  }
+  exec(cmd);
+}
+`);
+    const unsanitized = results.flatMap((r) => r.paths).filter((p) => !p.sanitized);
+    expect(unsanitized.length).toBe(0);
+  });
+
+  it('treats typeof guard followed by early throw as validation', () => {
+    const results = astTaint(`
+export function run(req: Request): void {
+  const cmd = req.body.command;
+  if (typeof cmd !== 'string') throw new Error('invalid');
+  exec(cmd);
+}
+`);
+    const unsanitized = results.flatMap((r) => r.paths).filter((p) => !p.sanitized);
+    expect(unsanitized.length).toBe(0);
+  });
+
+  it('does NOT treat a plain null check as a validation guard', () => {
+    const results = astTaint(`
+export function run(req: Request): void {
+  const cmd = req.body.command;
+  if (!cmd) return;
+  exec(cmd);
+}
+`);
+    const unsanitized = results.flatMap((r) => r.paths).filter((p) => !p.sanitized);
+    expect(unsanitized.length).toBeGreaterThan(0);
+  });
+
+  it('does NOT suppress when the guard appears AFTER the sink', () => {
+    const results = astTaint(`
+export function run(req: Request): void {
+  const cmd = req.body.command;
+  exec(cmd);
+  if (!isValidCommand(cmd)) return;
+}
+`);
+    const unsanitized = results.flatMap((r) => r.paths).filter((p) => !p.sanitized);
+    expect(unsanitized.length).toBeGreaterThan(0);
+  });
+
+  it('does NOT suppress when polarity is inverted — `if (isValid(x)) return; exec(x)`', () => {
+    const results = astTaint(`
+export function run(req: Request): void {
+  const cmd = req.body.command;
+  if (isValidCommand(cmd)) return;
+  exec(cmd);
+}
+`);
+    const unsanitized = results.flatMap((r) => r.paths).filter((p) => !p.sanitized);
+    expect(unsanitized.length).toBeGreaterThan(0);
+  });
+
+  it('does NOT suppress when polarity is inverted on typeof — `typeof x === "string"`', () => {
+    const results = astTaint(`
+export function run(req: Request): void {
+  const cmd = req.body.command;
+  if (typeof cmd === 'string') return;
+  exec(cmd);
+}
+`);
+    const unsanitized = results.flatMap((r) => r.paths).filter((p) => !p.sanitized);
+    expect(unsanitized.length).toBeGreaterThan(0);
+  });
+
+  it('does NOT suppress when the guard is inside a sibling branch (not dominating)', () => {
+    const results = astTaint(`
+export function run(req: Request, flag: boolean): void {
+  const cmd = req.body.command;
+  if (flag) {
+    if (!isValidCommand(cmd)) return;
+  }
+  exec(cmd);
+}
+`);
+    const unsanitized = results.flatMap((r) => r.paths).filter((p) => !p.sanitized);
+    expect(unsanitized.length).toBeGreaterThan(0);
+  });
+
+  it('DOES suppress for negated-on-property pattern — `if (!isValidResult(x).ok) return`', () => {
+    const results = astTaint(`
+export function run(req: Request): void {
+  const cmd = req.body.command;
+  if (!isValidResult(cmd).ok) return;
+  exec(cmd);
+}
+`);
+    const unsanitized = results.flatMap((r) => r.paths).filter((p) => !p.sanitized);
+    expect(unsanitized.length).toBe(0);
+  });
+});
+
+// ── ts-morph-backed cross-file taint (works on non-KERN codebases) ──────
+
+describe('Cross-file taint on pure TS codebase (no KERN IR)', () => {
+  function createProject(): Project {
+    return new Project({
+      compilerOptions: { strict: true, target: 99, module: 99, moduleResolution: 100 },
+      useInMemoryFileSystem: true,
+      skipAddingFilesFromTsConfig: true,
+    });
+  }
+
+  it('buildExportMapFromGraph detects exec() sink in exported TS function', () => {
+    const project = createProject();
+    project.createSourceFile(
+      '/src/db.ts',
+      `
+import { exec } from 'child_process';
+export function runQuery(query: string): void {
+  exec(query);
+}
+`,
+    );
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import { runQuery } from './db.js';
+export function handler(req: any): void { runQuery(req.body.q); }
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const exportMap = buildExportMapFromGraph(project, graph);
+
+    const runQuery = exportMap.get('/src/db.ts::runQuery');
+    expect(runQuery).toBeDefined();
+    expect(runQuery!.hasSink).toBe(true);
+    expect(runQuery!.sinks.some((s) => s.category === 'command')).toBe(true);
+  });
+
+  it('buildImportMapFromGraph resolves named imports on plain TS files', () => {
+    const project = createProject();
+    project.createSourceFile('/src/db.ts', `export function runQuery(q: string): void {}`);
+    project.createSourceFile('/src/main.ts', `import { runQuery } from './db.js';`);
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const importMap = buildImportMapFromGraph(project, graph);
+
+    expect(importMap.get('/src/main.ts::runQuery')).toBe('/src/db.ts');
+  });
+
+  it('resolves aliased named imports — `import { runQuery as rq }`', () => {
+    const project = createProject();
+    project.createSourceFile(
+      '/src/db.ts',
+      `
+import { exec } from 'child_process';
+export function runQuery(query: string): void {
+  exec(query);
+}
+`,
+    );
+    project.createSourceFile(
+      '/src/handler.ts',
+      `
+import { runQuery as rq } from './db.js';
+export function handler(req: any): void {
+  rq(req.body.q);
+}
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/handler.ts'], { project });
+    const results = analyzeTaintCrossFile(new Map(), new Map(), graph);
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    const taint = results[0];
+    expect(taint.calleeFile).toBe('/src/db.ts');
+    // Reports the *exported* name, not the local alias.
+    expect(taint.calleeFn).toBe('runQuery');
+  });
+
+  it('analyzeTaintCrossFile finds cross-file taint in pure TS codebase', () => {
+    const project = createProject();
+    project.createSourceFile(
+      '/src/db.ts',
+      `
+import { exec } from 'child_process';
+export function runQuery(query: string): void {
+  exec(query);
+}
+`,
+    );
+    project.createSourceFile(
+      '/src/handler.ts',
+      `
+import { runQuery } from './db.js';
+export function handler(req: any): void {
+  runQuery(req.body.q);
+}
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/handler.ts'], { project });
+
+    // No KERN IR at all — empty inferredPerFile
+    const inferredPerFile = new Map();
+    const graphImports = new Map<string, string[]>();
+    for (const gf of graph.files) graphImports.set(gf.path, gf.imports);
+
+    const results = analyzeTaintCrossFile(inferredPerFile, graphImports, graph);
+
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    const taint = results[0];
+    expect(taint.callerFile).toBe('/src/handler.ts');
+    expect(taint.callerFn).toBe('handler');
+    expect(taint.calleeFile).toBe('/src/db.ts');
+    expect(taint.calleeFn).toBe('runQuery');
+    expect(taint.sinkInCallee.category).toBe('command');
   });
 });

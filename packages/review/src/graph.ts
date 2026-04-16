@@ -154,6 +154,7 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
     entryFiles: files.filter((f) => f.distance === 0).map((f) => f.path),
     totalFiles: files.length,
     skipped,
+    project,
   };
 }
 
