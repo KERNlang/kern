@@ -47,6 +47,7 @@ export type KernStructure = 'flat' | 'bulletproof' | 'atomic' | 'kern';
 export const VALID_STRUCTURES: KernStructure[] = ['flat', 'bulletproof', 'atomic', 'kern'];
 
 export interface FrameworkVersions {
+  react?: string;
   tailwind?: string;
   nextjs?: string;
 }

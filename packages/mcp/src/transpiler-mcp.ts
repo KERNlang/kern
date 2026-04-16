@@ -481,7 +481,9 @@ function emitGuardLines(params: ParamDefinition[]): string[] {
         pathGuard.allowlist.length > 0 &&
         !(pathGuard.allowlist.length === 1 && pathGuard.allowlist[0] === 'process.cwd()');
       if (hasExplicitAllowlist) {
-        const inlineList = `[${pathGuard.allowlist.map((v) => json(v)).join(', ')}].map(r => path.resolve(r))`;
+        const inlineList =
+          `[${pathGuard.allowlist.map((v) => json(v)).join(', ')}]` +
+          '.map(r => { try { return _realpathSync(r); } catch { return path.resolve(r); } })';
         lines.push(`${accessor} = ensurePathContainment(${base}, ${inlineList});`);
       } else {
         lines.push(`${accessor} = ensurePathContainment(${base}, ALLOWED_PATHS);`);
