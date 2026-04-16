@@ -466,7 +466,82 @@ function propDrillPassthrough(ctx: RuleContext): ReviewFinding[] {
 
 // ── Rule: prop-drill-chain ───────────────────────────────────────────────
 // Current file passes props into an imported wrapper component that itself
-// passes those same props onward without reading them.
+// passes those same props onward without reading them. Walks up to MAX_HOPS
+// imported components to detect drilling that spans 3+ files, not just 2.
+
+const MAX_PROP_DRILL_HOPS = 3;
+
+/**
+ * Extend a prop-drill chain: starting from `currentSf` and `currentComponent`,
+ * follow the `childTag` import and see whether the imported component is
+ * itself a passthrough wrapper that shares props with `carriedProps`.
+ *
+ * Returns the list of hops beyond the initial component (excluding the
+ * starting component itself). Each hop: { componentName, childTag, file }.
+ */
+interface DrillHop {
+  componentName: string;
+  childTag: string;
+  filePath: string;
+  props: string[];
+}
+
+function walkPropDrillChain(
+  initialCarriedProps: string[],
+  initialBinding: ImportBinding,
+  ctx: RuleContext,
+): DrillHop[] {
+  const hops: DrillHop[] = [];
+  const visitedFiles = new Set<string>([ctx.filePath]);
+  const analysisCache = new Map<string, ReturnType<typeof analyzePassthroughComponent>>();
+
+  let currentCarriedProps = initialCarriedProps;
+  let currentBinding: ImportBinding | undefined = initialBinding;
+  let currentSf: import('ts-morph').SourceFile | undefined;
+
+  for (let hopIdx = 0; hopIdx < MAX_PROP_DRILL_HOPS; hopIdx++) {
+    if (!currentBinding) break;
+
+    currentSf = resolveImportedSourceFile(
+      hopIdx === 0 ? ctx : { ...ctx, filePath: currentSf!.getFilePath(), sourceFile: currentSf! },
+      currentBinding.importDecl,
+    );
+    if (!currentSf) break;
+
+    const nextFilePath = currentSf.getFilePath();
+    if (visitedFiles.has(nextFilePath)) break;
+    visitedFiles.add(nextFilePath);
+
+    const importedFn = findImportedComponentFunction(currentSf, currentBinding);
+    if (!importedFn) break;
+
+    const cacheKey = `${nextFilePath}::${currentBinding.importedName}::${currentBinding.isDefault}`;
+    let analysis = analysisCache.get(cacheKey);
+    if (analysis === undefined) {
+      analysis = analyzePassthroughComponent(importedFn);
+      analysisCache.set(cacheKey, analysis);
+    }
+    if (!analysis) break;
+
+    const sharedProps = currentCarriedProps.filter((p) => analysis!.passthroughProps.includes(p));
+    if (sharedProps.length < 2) break;
+
+    hops.push({
+      componentName: analysis.componentName,
+      childTag: analysis.childTag,
+      filePath: nextFilePath,
+      props: sharedProps,
+    });
+
+    const nextCtx: RuleContext = { ...ctx, filePath: nextFilePath, sourceFile: currentSf };
+    const nextBinding = findImportBinding(nextCtx, analysis.childTag);
+    if (!nextBinding) break;
+    currentCarriedProps = sharedProps;
+    currentBinding = nextBinding;
+  }
+
+  return hops;
+}
 
 function propDrillChain(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -478,30 +553,30 @@ function propDrillChain(ctx: RuleContext): ReviewFinding[] {
     const binding = findImportBinding(ctx, localAnalysis.childTag);
     if (!binding) continue;
 
-    const importedSf = resolveImportedSourceFile(ctx, binding.importDecl);
-    if (!importedSf) continue;
+    const hops = walkPropDrillChain(localAnalysis.passthroughProps, binding, ctx);
+    if (hops.length === 0) continue;
 
-    const importedFn = findImportedComponentFunction(importedSf, binding);
-    if (!importedFn) continue;
+    const firstHop = hops[0];
+    const sharedProps = firstHop.props;
 
-    const importedAnalysis = analyzePassthroughComponent(importedFn);
-    if (!importedAnalysis) continue;
-
-    const sharedProps = localAnalysis.passthroughProps.filter((p) => importedAnalysis.passthroughProps.includes(p));
-    if (sharedProps.length < 2) continue;
+    // Describe the chain: local → first imported wrapper → ... → last wrapper's child
+    const chainDesc =
+      hops.length === 1
+        ? `<${localAnalysis.childTag}>, which then passes them through to <${firstHop.childTag}>`
+        : `<${localAnalysis.childTag}> → ${hops.map((h) => `<${h.componentName}>`).join(' → ')} → <${hops[hops.length - 1].childTag}>`;
 
     findings.push(
       finding(
         'prop-drill-chain',
         'warning',
         'pattern',
-        `'${localAnalysis.componentName}' passes props (${sharedProps.join(', ')}) into imported wrapper <${localAnalysis.childTag}>, which then passes them through to <${importedAnalysis.childTag}> — multi-hop prop drilling across files`,
+        `'${localAnalysis.componentName}' drills props (${sharedProps.join(', ')}) across ${hops.length + 1} component${hops.length + 1 === 1 ? '' : 's'}: ${chainDesc}`,
         ctx.filePath,
         fn.getStartLineNumber(),
         1,
         {
           suggestion:
-            'Collapse the intermediate wrapper, switch to children-based composition, or lift the shared data into React context so the props stop crossing multiple component boundaries',
+            'Collapse the intermediate wrappers, switch to children-based composition, or lift the shared data into React context so the props stop crossing multiple component boundaries',
         },
       ),
     );
