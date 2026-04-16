@@ -281,14 +281,19 @@ export function runTranspile(args: string[]): void {
 }
 
 export function printHelp(): void {
-  console.log('Usage: kern <file.kern> [--target=nextjs|tailwind|web|native|express|cli] [options]');
+  console.log(
+    'Usage: kern <file.kern> [--target=lib|nextjs|tailwind|web|native|express|cli|terminal|ink|vue|nuxt|fastapi|mcp] [options]',
+  );
   console.log('');
   console.log('Commands:');
   console.log('  dev <dir|file> [--target=...] [--outdir=...]  Watch & hot-transpile .kern files');
   console.log('  compile <dir|file> --outdir=<dir>             Compile .kern → .ts (core nodes)');
   console.log('  scan [--force] [--dry-run]                    Detect project → generate kern.config.ts');
   console.log('  init-templates [--force] [--dry-run]          Scan deps → scaffold template .kern files');
+  console.log('  gaps [--root=<dir>] [--json] [--verbose]      Report explicit KERN-GAP comments + coverage gaps');
+  console.log('  import <file.ts|dir> [options]                Convert TypeScript source into starter .kern files');
   console.log('  review <file.ts|dir> [options]                Static analysis, Cognitive Complexity & CI Gate');
+  console.log('  schema                                        Print the current KERN schema JSON');
   console.log('  evolve <dir|file> [options]                   Detect gaps → propose templates');
   console.log('  evolve:review [options]                       Review staged template proposals');
   console.log('  evolve:review-v4 [options]                    Review & graduate v4 node proposals');
@@ -309,6 +314,9 @@ export function printHelp(): void {
   console.log('  express   Express TypeScript backend');
   console.log('  cli       Commander.js CLI app');
   console.log('  terminal  ANSI terminal rendering');
+  console.log('  ink       React Ink terminal UI');
+  console.log('  fastapi   FastAPI Python backend');
+  console.log('  mcp       Model Context Protocol server');
   console.log('');
   console.log('Options:');
   console.log('  --structure=flat|bulletproof|atomic|kern  Output structure pattern (React targets)');
