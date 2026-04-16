@@ -260,9 +260,15 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
   }
 
   for (const decl of sourceFile.getExportDeclarations()) {
-    const specifier = decl.getModuleSpecifierValue();
-    if (!specifier) continue;
-    const resolved = decl.getModuleSpecifierSourceFile();
+    let specifier: string | undefined;
+    let resolved: SourceFile | undefined;
+    try {
+      specifier = decl.getModuleSpecifierValue();
+      if (!specifier) continue;
+      resolved = decl.getModuleSpecifierSourceFile() ?? undefined;
+    } catch {
+      continue;
+    }
     const namedExports = decl.getNamedExports();
 
     if (namedExports.length === 0) {

@@ -615,6 +615,17 @@ export function handler(req: any): void { runQuery(req.body.q); }
     expect(importMap.get('/src/main.ts::runQuery')).toBe('/src/db.ts');
   });
 
+  it('buildImportMapFromGraph skips malformed imports instead of throwing', () => {
+    const project = createProject();
+    project.createSourceFile('/src/db.ts', `export function runQuery(q: string): void {}`);
+    project.createSourceFile('/src/main.ts', `import { runQuery } from ./db.js;`);
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+
+    expect(() => buildImportMapFromGraph(project, graph)).not.toThrow();
+    expect(buildImportMapFromGraph(project, graph).size).toBe(0);
+  });
+
   it('resolves aliased named imports — `import { runQuery as rq }`', () => {
     const project = createProject();
     project.createSourceFile(

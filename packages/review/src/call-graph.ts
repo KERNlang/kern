@@ -83,7 +83,12 @@ function buildImportBindings(sourceFile: SourceFile, graphFiles: Map<string, Gra
   const bindings = new Map<string, ImportBinding>();
 
   for (const decl of sourceFile.getImportDeclarations()) {
-    const resolvedSf = decl.getModuleSpecifierSourceFile();
+    let resolvedSf: SourceFile | undefined;
+    try {
+      resolvedSf = decl.getModuleSpecifierSourceFile() ?? undefined;
+    } catch {
+      continue;
+    }
     if (!resolvedSf) continue;
     const resolvedPath = resolvedSf.getFilePath();
     if (!graphFiles.has(resolvedPath)) continue;

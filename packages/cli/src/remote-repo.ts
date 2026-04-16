@@ -19,16 +19,18 @@ export interface RemoteRepoOptions {
 function formatGitError(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
   const withOutput = err as Error & { stderr?: string | Buffer; stdout?: string | Buffer };
-  const stderr = typeof withOutput.stderr === 'string'
-    ? withOutput.stderr.trim()
-    : Buffer.isBuffer(withOutput.stderr)
-      ? withOutput.stderr.toString('utf-8').trim()
-      : '';
-  const stdout = typeof withOutput.stdout === 'string'
-    ? withOutput.stdout.trim()
-    : Buffer.isBuffer(withOutput.stdout)
-      ? withOutput.stdout.toString('utf-8').trim()
-      : '';
+  const stderr =
+    typeof withOutput.stderr === 'string'
+      ? withOutput.stderr.trim()
+      : Buffer.isBuffer(withOutput.stderr)
+        ? withOutput.stderr.toString('utf-8').trim()
+        : '';
+  const stdout =
+    typeof withOutput.stdout === 'string'
+      ? withOutput.stdout.trim()
+      : Buffer.isBuffer(withOutput.stdout)
+        ? withOutput.stdout.toString('utf-8').trim()
+        : '';
   return stderr || stdout || err.message;
 }
 

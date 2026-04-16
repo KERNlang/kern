@@ -175,7 +175,12 @@ export function buildImportMapFromGraph(project: Project, graph: GraphResult): M
     if (!sf) continue;
 
     for (const imp of sf.getImportDeclarations()) {
-      const target = imp.getModuleSpecifierSourceFile();
+      let target: SourceFile | undefined;
+      try {
+        target = imp.getModuleSpecifierSourceFile() ?? undefined;
+      } catch {
+        continue;
+      }
       if (!target) continue;
       const targetPath = target.getFilePath();
 

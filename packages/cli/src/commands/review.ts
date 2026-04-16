@@ -28,6 +28,7 @@ import {
 } from '@kernlang/review';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { basename, dirname, relative, resolve } from 'path';
+import { withOptionalRemoteRepo } from '../remote-repo.js';
 import {
   compareReportsToBaseline,
   createReviewBaseline,
@@ -37,7 +38,6 @@ import {
   type ReviewBaselineComparison,
   type ReviewBaselineFile,
 } from '../review-baseline.js';
-import { withOptionalRemoteRepo } from '../remote-repo.js';
 import { collectTsFilesFlat, hasFlag, loadConfig, parseAndSurface, parseFlag, parseFlagOrNext } from '../shared.js';
 
 type ReviewReportWithSuppressed = ReviewReport & { suppressedFindings?: ReviewFinding[] };
