@@ -223,6 +223,201 @@ export default function helper() { return 42; }
   });
 });
 
+describe('Call Graph: local alias tracking', () => {
+  it('resolves local alias to imported function — const f = imported; f()', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import { fetchData } from './api.js';
+const f = fetchData;
+export async function handler() { await f(); }
+`,
+    );
+    project.createSourceFile(
+      '/src/api.ts',
+      `
+export async function fetchData() { return []; }
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const fnHandler = callGraph.functions.get('/src/main.ts#handler');
+    const call = fnHandler!.calls.find((c) => c.targetName === 'fetchData');
+    expect(call).toBeDefined();
+    expect(call!.resolved).toBe(true);
+    expect(call!.targetFile).toBe('/src/api.ts');
+
+    const fnFetch = callGraph.functions.get('/src/api.ts#fetchData');
+    expect(fnFetch!.calledBy.some((c) => c.callerFile === '/src/main.ts')).toBe(true);
+  });
+
+  it('resolves local alias to local function — const g = helper; g()', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+function helper() { return 42; }
+const g = helper;
+export function main() { g(); }
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const fnMain = callGraph.functions.get('/src/main.ts#main');
+    const call = fnMain!.calls.find((c) => c.targetName === 'helper');
+    expect(call).toBeDefined();
+    expect(call!.resolved).toBe(true);
+    expect(call!.targetFile).toBe('/src/main.ts');
+  });
+
+  it('resolves transitive alias — const g = f where f = imported', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import { fetchData } from './api.js';
+const f = fetchData;
+const g = f;
+export async function handler() { await g(); }
+`,
+    );
+    project.createSourceFile(
+      '/src/api.ts',
+      `
+export async function fetchData() { return []; }
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const fnHandler = callGraph.functions.get('/src/main.ts#handler');
+    const call = fnHandler!.calls.find((c) => c.targetName === 'fetchData');
+    expect(call).toBeDefined();
+    expect(call!.resolved).toBe(true);
+    expect(call!.targetFile).toBe('/src/api.ts');
+  });
+
+  it('does not create alias for non-identifier RHS — const x = 42', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import { fetchData } from './api.js';
+const x = 42;
+const fn = fetchData;
+export async function main() { await fn(); await fetchData(); void x; }
+`,
+    );
+    project.createSourceFile(
+      '/src/api.ts',
+      `
+export async function fetchData() { return []; }
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const fnMain = callGraph.functions.get('/src/main.ts#main');
+    // Both alias call (fn) and direct import call should resolve to fetchData
+    const resolvedToFetch = fnMain!.calls.filter(
+      (c) => c.resolved && c.targetFile === '/src/api.ts' && c.targetName === 'fetchData',
+    );
+    expect(resolvedToFetch.length).toBe(2);
+  });
+
+  it('does NOT apply file-global alias inside a function that shadows the name', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import { fetchData } from './api.js';
+const load = fetchData;
+function localFallback() { return []; }
+export function handler() {
+  const load = localFallback;
+  load();
+}
+`,
+    );
+    project.createSourceFile(
+      '/src/api.ts',
+      `
+export async function fetchData() { return []; }
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const fnHandler = callGraph.functions.get('/src/main.ts#handler');
+    // The `load()` call MUST NOT resolve to fetchData — the inner `const load`
+    // shadows the outer alias.
+    const fetchDataCall = fnHandler!.calls.find(
+      (c) => c.resolved && c.targetFile === '/src/api.ts' && c.targetName === 'fetchData',
+    );
+    expect(fetchDataCall).toBeUndefined();
+
+    // fetchData in api.ts should have ZERO callers from handler()
+    const fnFetch = callGraph.functions.get('/src/api.ts#fetchData');
+    expect(fnFetch!.calledBy.some((c) => c.callerFile === '/src/main.ts' && c.callerName === 'handler')).toBe(false);
+  });
+
+  it('cross-file async rule catches missing await through an alias', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import { fetchData } from './api.js';
+const load = fetchData;
+export function handler() { load(); }
+`,
+    );
+    project.createSourceFile(
+      '/src/api.ts',
+      `
+export async function fetchData() { return []; }
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+    const findings = crossFileAsyncRule(callGraph, '/src/main.ts');
+
+    const fp = findings.find((f) => f.ruleId === 'floating-promise' && f.message.includes('fetchData'));
+    expect(fp).toBeDefined();
+  });
+
+  it('dead export rule no longer flags an export that is called through an alias', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import { used } from './lib.js';
+const u = used;
+export function main() { u(); }
+`,
+    );
+    project.createSourceFile(
+      '/src/lib.ts',
+      `
+export function used() { return 1; }
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    expect(callGraph.deadExports).not.toContain('/src/lib.ts#used');
+  });
+});
+
 describe('Dead export rule', () => {
   it('produces finding for dead exports', () => {
     const project = createTestProject();

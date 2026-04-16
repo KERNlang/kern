@@ -15,7 +15,10 @@
  *   - Higher-order functions: arr.map(callback)
  *   - Computed property access: obj[key]()
  *   - Framework magic: decorators, DI containers
- *   - Aliased function variables: const f = foo; f()
+ *
+ * Resolved via local alias tracking:
+ *   - const f = foo; f()           (identifier alias to local / imported fn)
+ *   - const g = f; g()             (transitive alias, one extra hop)
  *
  * Dead export findings from unresolved edges get lower confidence (0.70 vs 0.90).
  */
@@ -183,6 +186,75 @@ function getDeclarationBindingName(decl: Node, fallbackName: string): string {
   return fallbackName;
 }
 
+// ── Local Alias Resolution ──────────────────────────────────────────────
+
+/**
+ * Build a map of local variable aliases pointing to functions.
+ *
+ *   const f = importedFn  → { targetFile: '<import target>', targetName: '<export name>' }
+ *   const g = localFn     → { targetFile: '<this file>',     targetName: 'localFn' }
+ *   const h = g           → resolved transitively on a second pass
+ *
+ * Only covers top-level `const/let/var name = <identifier>` patterns (no destructuring,
+ * no reassignment tracking, no function-returned aliases). Namespace imports are
+ * deliberately skipped here — they are handled by the property-access branch of
+ * extractCallSites (e.g. `ns.foo()`).
+ */
+function buildLocalAliases(
+  sourceFile: SourceFile,
+  localFnNames: Set<string>,
+  importBindings: Map<string, ImportBinding>,
+): Map<string, ResolvedBinding> {
+  const aliases = new Map<string, ResolvedBinding>();
+  const filePath = sourceFile.getFilePath();
+
+  // First pass: direct aliases (imported fn or local fn as RHS)
+  for (const stmt of sourceFile.getVariableStatements()) {
+    for (const decl of stmt.getDeclarations()) {
+      const init = decl.getInitializer();
+      if (!init || init.getKind() !== SyntaxKind.Identifier) continue;
+
+      const aliasName = decl.getName();
+      const sourceName = init.getText();
+      if (aliasName === sourceName) continue;
+
+      const importBinding = importBindings.get(sourceName);
+      if (importBinding && importBinding.kind !== 'namespace') {
+        aliases.set(aliasName, {
+          targetFile: importBinding.targetFile,
+          targetName: importBinding.targetName,
+        });
+        continue;
+      }
+
+      if (localFnNames.has(sourceName)) {
+        aliases.set(aliasName, {
+          targetFile: filePath,
+          targetName: sourceName,
+        });
+      }
+    }
+  }
+
+  // Second pass: transitive aliases (RHS is itself an alias created in pass 1).
+  // One extra hop catches `const g = f` where `f` was `const f = imp`.
+  for (const stmt of sourceFile.getVariableStatements()) {
+    for (const decl of stmt.getDeclarations()) {
+      const init = decl.getInitializer();
+      if (!init || init.getKind() !== SyntaxKind.Identifier) continue;
+
+      const aliasName = decl.getName();
+      const sourceName = init.getText();
+      if (aliases.has(aliasName)) continue;
+
+      const transitive = aliases.get(sourceName);
+      if (transitive) aliases.set(aliasName, transitive);
+    }
+  }
+
+  return aliases;
+}
+
 // ── Function Collection ─────────────────────────────────────────────────
 
 /** Collect all function declarations from a source file */
@@ -264,12 +336,21 @@ function extractCallSites(
   sourceFile: SourceFile,
   localFnNames: Set<string>,
   importBindings: Map<string, ImportBinding>,
+  localAliases: Map<string, ResolvedBinding>,
 ): CallSite[] {
   const callSites: CallSite[] = [];
 
   // Find the AST node for this function
   const body = findFunctionBody(fnNode, sourceFile);
   if (!body) return callSites;
+
+  // Names that are re-bound anywhere inside this function (parameters or
+  // local var/let/const). If a file-global alias name is rebound here, we
+  // must not apply the alias — the inner binding shadows it. Conservative
+  // by design: we drop the alias even if the rebinding is in a sibling
+  // branch, falling back to an unresolved call site rather than resolving
+  // to the wrong target.
+  const shadowedNames = collectShadowedNames(body);
 
   // Walk all call expressions in the body
   body.forEachDescendant((node) => {
@@ -314,6 +395,23 @@ function extractCallSites(
           callerFile: fnNode.filePath,
           targetName: binding.targetName,
           targetFile: binding.targetFile,
+          line: call.getStartLineNumber(),
+          argumentCount: args.length,
+          resolved: true,
+          hasAwait,
+        });
+        return;
+      }
+
+      // Local alias — `const f = foo; f()` resolves to foo's target.
+      // Skip if the name is rebound within this function body (shadowed).
+      const alias = localAliases.get(targetName);
+      if (alias && !shadowedNames.has(targetName)) {
+        callSites.push({
+          callerName: fnNode.name,
+          callerFile: fnNode.filePath,
+          targetName: alias.targetName,
+          targetFile: alias.targetFile,
           line: call.getStartLineNumber(),
           argumentCount: args.length,
           resolved: true,
@@ -418,6 +516,50 @@ function extractCallSites(
   return callSites;
 }
 
+/**
+ * Collect every identifier name that is rebound inside this function body —
+ * function parameters plus every variable declaration anywhere in the body.
+ * Used to suppress file-global aliases when the function shadows them.
+ */
+function collectShadowedNames(body: import('ts-morph').Node): Set<string> {
+  const names = new Set<string>();
+
+  // Parameters of the enclosing function.
+  const enclosingFn = body.getParent();
+  if (enclosingFn && 'getParameters' in enclosingFn && typeof (enclosingFn as any).getParameters === 'function') {
+    for (const p of (enclosingFn as any).getParameters() as import('ts-morph').ParameterDeclaration[]) {
+      const nameNode = p.getNameNode();
+      const k = nameNode.getKindName();
+      if (k === 'Identifier') {
+        names.add(nameNode.getText());
+      } else if (k === 'ObjectBindingPattern' || k === 'ArrayBindingPattern') {
+        for (const el of (nameNode as any).getElements()) {
+          const nm = (el as any).getName?.();
+          if (typeof nm === 'string') names.add(nm);
+        }
+      }
+    }
+  }
+
+  // All variable declarations anywhere inside the body (any nested scope).
+  body.forEachDescendant((node) => {
+    if (node.getKind() !== SyntaxKind.VariableDeclaration) return;
+    const decl = node as import('ts-morph').VariableDeclaration;
+    const nameNode = decl.getNameNode();
+    const k = nameNode.getKindName();
+    if (k === 'Identifier') {
+      names.add(nameNode.getText());
+    } else if (k === 'ObjectBindingPattern' || k === 'ArrayBindingPattern') {
+      for (const el of (nameNode as any).getElements()) {
+        const nm = (el as any).getName?.();
+        if (typeof nm === 'string') names.add(nm);
+      }
+    }
+  });
+
+  return names;
+}
+
 /** Find the AST body node for a FunctionNode */
 function findFunctionBody(fnNode: FunctionNode, sourceFile: SourceFile): import('ts-morph').Node | undefined {
   // Try named function
@@ -507,9 +649,10 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
     const fns = fileFunctions.get(gf.path) || [];
     const localFnNames = new Set(fns.map((f) => f.name));
     const importBindings = buildImportBindings(sf, graphFiles);
+    const localAliases = buildLocalAliases(sf, localFnNames, importBindings);
 
     for (const fn of fns) {
-      fn.calls = extractCallSites(fn, sf, localFnNames, importBindings);
+      fn.calls = extractCallSites(fn, sf, localFnNames, importBindings, localAliases);
       unresolvedCount += fn.calls.filter((c) => !c.resolved).length;
     }
   }
