@@ -8,7 +8,7 @@
 
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
-import { finding, nodeSpan } from './utils.js';
+import { finding, nodeSpan, shouldSkipHookRules } from './utils.js';
 
 const EFFECT_HOOKS = new Set(['useEffect', 'useLayoutEffect']);
 const MEMO_HOOKS = new Set(['useMemo', 'useCallback']);
@@ -482,4 +482,15 @@ function useCallbackNoBenefit(ctx: RuleContext): ReviewFinding[] {
 
 // ── Exported React Hooks Rules ───────────────────────────────────────────
 
-export const reactHooksRules = [exhaustiveDeps, refInDeps, stateDerivedFromProps, useCallbackNoBenefit];
+/** All rules in this file assume a client runtime — skip on server/api/middleware
+ *  unless the file still has React content (JSX / react import / hook call). */
+function clientOnly<T extends (ctx: RuleContext) => ReviewFinding[]>(fn: T): T {
+  return ((ctx: RuleContext) => (shouldSkipHookRules(ctx) ? [] : fn(ctx))) as T;
+}
+
+export const reactHooksRules = [
+  clientOnly(exhaustiveDeps),
+  clientOnly(refInDeps),
+  clientOnly(stateDerivedFromProps),
+  clientOnly(useCallbackNoBenefit),
+];
