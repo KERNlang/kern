@@ -316,6 +316,19 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
     // Step 4: Check for sanitizers (AST-based)
     const foundSanitizers = findSanitizersAST(body, taintedNames);
 
+    // Index sink calls by tainted arg for guard lookup below.
+    const sinkCallsByArg = new Map<string, import('ts-morph').CallExpression[]>();
+    for (const call of calls) {
+      for (const arg of call.getArguments()) {
+        const tArg = findTaintedIdentifier(arg, taintedNames);
+        if (tArg) {
+          const existing = sinkCallsByArg.get(tArg) ?? [];
+          existing.push(call);
+          sinkCallsByArg.set(tArg, existing);
+        }
+      }
+    }
+
     // Build paths
     const paths: TaintPath[] = [];
     for (const sink of sinks) {
@@ -330,15 +343,22 @@ export function analyzeTaintAST(_inferred: InferResult[], filePath: string, sour
         }
         return false;
       });
-      const hasSanitizer = sanitizer != null;
-      const sufficient = sanitizer != null ? isSanitizerSufficient(sanitizer.name, sink.category) : false;
+
+      // Control-flow guard: was the tainted arg validated in a prior
+      // early-exit guard? (e.g. `if (!isValid(x)) return;`) If yes, the sink
+      // is dominated by a validation — treat it as sanitized.
+      const candidateCalls = sinkCallsByArg.get(sink.taintedArg) ?? [];
+      const sinkGuarded = candidateCalls.some((c) => isGuardedByValidation(c, sink.taintedArg, body));
+
+      const hasSanitizer = sanitizer != null || sinkGuarded;
+      const sufficient = sanitizer != null ? isSanitizerSufficient(sanitizer.name, sink.category) : sinkGuarded;
 
       paths.push({
         source,
         sink,
         sanitized: hasSanitizer && sufficient,
-        sanitizer: sanitizer?.name,
-        insufficientSanitizer: hasSanitizer && !sufficient ? sanitizer.name : undefined,
+        sanitizer: sanitizer?.name ?? (sinkGuarded ? 'cfg-guard' : undefined),
+        insufficientSanitizer: sanitizer != null && !sufficient ? sanitizer.name : undefined,
       });
     }
 
@@ -487,4 +507,214 @@ function findSanitizersAST(body: Node, taintedNames: Set<string>): Array<{ name:
   }
 
   return sanitizers;
+}
+
+// ── Control-Flow Guards ─────────────────────────────────────────────────
+//
+// A "validation guard" is an early-exit branch that bails out when a tainted
+// value FAILS a check, e.g.:
+//
+//   if (!isValidId(id)) return res.status(400).json({ error: 'bad id' });
+//   if (typeof name !== 'string') throw new Error('name must be string');
+//   if (!schema.safeParse(body).success) return;
+//
+// The sink is marked sanitized only when:
+//   1. Polarity is correct — the guard exits on the INVALID branch, so
+//      subsequent code runs only on validated input. Call-based validators
+//      must be negated (`!<validator>(x)`); typeof checks must use `!==`/
+//      `!=` so the exit fires when the type is wrong.
+//   2. Dominance holds — the guard's `if` must live in a block that
+//      contains the sink, and appear textually before the sink inside that
+//      block. Guards in sibling branches or appearing after the sink do not
+//      count.
+//
+// Deliberately conservative: null-only checks (`if (!x) return`) never
+// qualify as validators.
+
+const VALIDATOR_PREFIXES = [
+  'is',
+  'validate',
+  'check',
+  'assert',
+  'sanitize',
+  'clean',
+  'escape',
+  'normalize',
+  'parse',
+  'safeParse',
+  'verify',
+  'match',
+];
+
+function looksLikeValidatorName(name: string): boolean {
+  return VALIDATOR_PREFIXES.some((p) => name === p || name.startsWith(p));
+}
+
+/**
+ * True if `call` is dominated by an earlier early-exit guard that validates
+ * `taintedArg` using a recognizable validator/type-guard pattern with the
+ * correct exit-on-invalid polarity.
+ */
+function isGuardedByValidation(call: import('ts-morph').CallExpression, taintedArg: string, fnBody: Node): boolean {
+  const guards = collectEarlyExitGuards(fnBody);
+
+  for (const guard of guards) {
+    if (!guardDominatesSink(guard, call)) continue;
+    if (!guardTestsValidatesVar(guard.test, taintedArg)) continue;
+    return true;
+  }
+  return false;
+}
+
+interface EarlyExitGuard {
+  test: Node;
+  ifStmt: import('ts-morph').IfStatement;
+}
+
+/**
+ * Find every `if (test) <early-exit>` inside `body` where `<early-exit>` is
+ * a `return`, `throw`, or `res.status(4xx)`-style statement.
+ */
+function collectEarlyExitGuards(body: Node): EarlyExitGuard[] {
+  const guards: EarlyExitGuard[] = [];
+
+  body.forEachDescendant((node) => {
+    if (node.getKind() !== SyntaxKind.IfStatement) return;
+    const ifStmt = node as import('ts-morph').IfStatement;
+    const thenStmt = ifStmt.getThenStatement();
+
+    if (!isEarlyExit(thenStmt)) return;
+
+    guards.push({
+      test: ifStmt.getExpression(),
+      ifStmt,
+    });
+  });
+
+  return guards;
+}
+
+/**
+ * Structural dominance: the guard's `if` statement must be a direct child of
+ * a block that is an ancestor of (or equal to) the sink's containing block,
+ * and appear textually before the sink within that block. This rejects
+ * guards nested in sibling branches (`if (cond) { guard } else { sink }`)
+ * and guards that appear after the sink.
+ */
+function guardDominatesSink(guard: EarlyExitGuard, sink: Node): boolean {
+  const sinkStart = sink.getStart();
+  const guardIf = guard.ifStmt;
+  const guardParent = guardIf.getParent();
+  if (!guardParent) return false;
+
+  let cur: Node | undefined = sink;
+  while (cur) {
+    if (cur === guardIf) return false; // sink lives inside guard's test/then
+    const parent = cur.getParent();
+    if (parent === guardParent) {
+      return guardIf.getEnd() < sinkStart;
+    }
+    cur = parent;
+  }
+  return false;
+}
+
+function isEarlyExit(stmt: Node): boolean {
+  const k = stmt.getKindName();
+  if (k === 'ReturnStatement' || k === 'ThrowStatement') return true;
+  if (k === 'Block') {
+    const statements = (stmt as import('ts-morph').Block).getStatements();
+    if (statements.length === 0) return false;
+    // Accept `{ ...; return; }` patterns. The final stmt must be return/throw.
+    const last = statements[statements.length - 1];
+    const lk = last.getKindName();
+    return lk === 'ReturnStatement' || lk === 'ThrowStatement';
+  }
+  return false;
+}
+
+/**
+ * True if the guard's test expression references `varName` through a
+ * recognizable validator or type-guard pattern WITH exit-on-invalid polarity:
+ *   - typeof varName !== '<literal>'   (exits when type is wrong)
+ *   - !<validator>(varName)            (exits when validator rejects)
+ *   - !<dotted>.success / !<dotted>.ok (schema result shapes)
+ *
+ * `if (isValid(x)) return;` is rejected because it exits on VALID input —
+ * the subsequent code runs on INVALID input, so taint is still live.
+ */
+function guardTestsValidatesVar(test: Node, varName: string): boolean {
+  if (isNegatedTypeofGuard(test, varName)) return true;
+  return containsNegatedValidator(test, varName);
+}
+
+/**
+ * Matches `typeof x !== '<literal>'` or `typeof x != '<literal>'` where x
+ * refers to `varName`. Equality (`===`) is rejected — that polarity exits on
+ * VALID input.
+ */
+function isNegatedTypeofGuard(node: Node, varName: string): boolean {
+  if (node.getKind() !== SyntaxKind.BinaryExpression) {
+    for (const child of node.getChildren()) {
+      if (isNegatedTypeofGuard(child, varName)) return true;
+    }
+    return false;
+  }
+  const bin = node as import('ts-morph').BinaryExpression;
+  const op = bin.getOperatorToken().getText();
+  if (op !== '!==' && op !== '!=') return false;
+  for (const side of [bin.getLeft(), bin.getRight()]) {
+    if (side.getKind() !== SyntaxKind.TypeOfExpression) continue;
+    const operand = (side as import('ts-morph').TypeOfExpression).getExpression();
+    if (refersToVar(operand, varName)) return true;
+  }
+  return false;
+}
+
+/**
+ * Matches `!<validator>(...)` (PrefixUnary `!`) where the validator's argument
+ * subtree references `varName`. Handles nested negation inside logical-or
+ * expressions such as `!isValid(x) || !matchesSchema(x)`.
+ */
+function containsNegatedValidator(node: Node, varName: string): boolean {
+  if (node.getKind() === SyntaxKind.PrefixUnaryExpression) {
+    const unary = node as import('ts-morph').PrefixUnaryExpression;
+    if (unary.getOperatorToken() === SyntaxKind.ExclamationToken) {
+      const operand = unary.getOperand();
+      if (callIsValidatorOf(operand, varName)) return true;
+    }
+  }
+  for (const child of node.getChildren()) {
+    if (containsNegatedValidator(child, varName)) return true;
+  }
+  return false;
+}
+
+function callIsValidatorOf(expr: Node, varName: string): boolean {
+  // Unwrap property access on call results: `!schema.safeParse(x).success`
+  // — the root is a PropertyAccess whose expression is the CallExpression.
+  let cur: Node = expr;
+  while (cur.getKind() === SyntaxKind.PropertyAccessExpression) {
+    cur = (cur as import('ts-morph').PropertyAccessExpression).getExpression();
+  }
+  if (cur.getKind() !== SyntaxKind.CallExpression) return false;
+  const call = cur as import('ts-morph').CallExpression;
+  const calleeText = call.getExpression().getText();
+  const lastSegment = calleeText.includes('.') ? calleeText.split('.').pop()! : calleeText;
+  if (!looksLikeValidatorName(lastSegment)) return false;
+  for (const arg of call.getArguments()) {
+    if (refersToVar(arg, varName)) return true;
+  }
+  return false;
+}
+
+function refersToVar(expr: Node, varName: string): boolean {
+  if (expr.getKindName() === 'Identifier' && expr.getText() === varName) return true;
+  if (expr.getKindName() === 'PropertyAccessExpression') {
+    return refersToVar((expr as import('ts-morph').PropertyAccessExpression).getExpression(), varName);
+  }
+  for (const child of expr.getChildren()) {
+    if (refersToVar(child, varName)) return true;
+  }
+  return false;
 }
