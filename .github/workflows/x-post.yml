@@ -37,16 +37,16 @@ jobs:
           CHANGES=$(echo "$BODY" | grep -E '^\s*[-*•]' | head -3 | sed 's/^\s*[-*•]\s*//' | tr '\n' ' ' | cut -c1-150)
 
           if [ -n "$CHANGES" ]; then
-            TWEET="KERNlang v${VERSION} released! New: ${CHANGES}
+            TWEET="🚀 KERNlang v${VERSION} released! New: ${CHANGES}
 
-          npm install -g @kernlang/cli
+          📦 npm install -g @kernlang/cli
           🔗 github.com/KERNlang/kern/releases/v${VERSION}
 
           #KERNlang #AIcoding"
           else
-            TWEET="KERNlang v${VERSION} is live!
+            TWEET="🚀 KERNlang v${VERSION} is live!
 
-          npm install -g @kernlang/cli
+          📦 npm install -g @kernlang/cli
           🔗 github.com/KERNlang/kern/releases
 
           #KERNlang"
@@ -62,11 +62,3 @@ jobs:
           twitter-secret: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
           api-key: ${{ secrets.X_API_KEY }}
           api-secret: ${{ secrets.X_API_SECRET }}
-
-      - name: Notify Telegram
-        if: always()
-        uses: appleboy/telegram-action@v0.1.0
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          message: "KERNlang v${{ steps.release_info.outputs.version }} released! ${{ steps.tweet.outputs.tweet_length }} chars"
