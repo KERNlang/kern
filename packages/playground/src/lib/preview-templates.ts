@@ -16,6 +16,10 @@ export function buildPreviewHtml(compiledCode: string, target: PlaygroundTarget)
   return buildReactPreview(compiledCode, target === 'tailwind');
 }
 
+function escapeInlineScript(value: string): string {
+  return JSON.stringify(value).replace(/<\/script/gi, '<\\/script');
+}
+
 function buildReactPreview(code: string, withTailwind: boolean): string {
   // Extract the component name from "export function Foo" or "export const Foo = ..."
   const componentMatch = code.match(/export\s+(?:default\s+)?(?:function|const)\s+(\w+)/);
@@ -33,6 +37,8 @@ function buildReactPreview(code: string, withTailwind: boolean): string {
     )
     .replace(/^export\s+default\s+/gm, '')
     .replace(/^export\s+/gm, '');
+  const sourceCode = escapeInlineScript(cleanCode);
+  const componentNameLiteral = escapeInlineScript(componentName);
 
   return `<!DOCTYPE html>
 <html>
@@ -49,31 +55,74 @@ function buildReactPreview(code: string, withTailwind: boolean): string {
     .preview-error { color: #ff6b6b; padding: 16px; font-family: monospace; font-size: 13px; white-space: pre-wrap; }
   </style>
   ${withTailwind ? '<script src="https://cdn.tailwindcss.com"></script>' : ''}
-  <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
 </head>
 <body>
   <div id="root"></div>
-  <script>
-    window.onerror = function(msg, url, line) {
-      document.getElementById('root').innerHTML = '<div class="preview-error">Preview error:\\n' + msg + '\\nLine: ' + line + '</div>';
-    };
-  </script>
-  <script type="text/babel">
-    try {
-      const { 
-        useState, useEffect, useMemo, useCallback, useRef, useContext, 
-        useReducer, useTransition, useDeferredValue, useId, useLayoutEffect 
-      } = React;
+  <script type="module">
+    import * as React from 'https://esm.sh/react@19.2.0?dev';
+    import * as ReactDOMClient from 'https://esm.sh/react-dom@19.2.0/client?dev';
+    import * as ReactDOM from 'https://esm.sh/react-dom@19.2.0?dev';
 
-      ${cleanCode}
+    const sourceCode = ${sourceCode};
+    const componentName = ${componentNameLiteral};
 
-      const root = ReactDOM.createRoot(document.getElementById('root'));
-      root.render(React.createElement(${componentName}));
-    } catch (err) {
+    function renderError(message) {
       document.getElementById('root').innerHTML =
-        '<div class="preview-error">Preview error:\\n' + err.message + '</div>';
+        '<div class="preview-error">Preview error:\\n' + String(message) + '</div>';
+    }
+
+    window.onerror = function(msg, url, line) {
+      renderError(msg + '\\nLine: ' + line);
+    };
+
+    try {
+      const transformed = Babel.transform(sourceCode, {
+        filename: 'preview.tsx',
+        presets: ['react', 'typescript'],
+        sourceType: 'script',
+      }).code ?? '';
+
+      const hookBindings = {
+        useState: React.useState,
+        useEffect: React.useEffect,
+        useMemo: React.useMemo,
+        useCallback: React.useCallback,
+        useRef: React.useRef,
+        useContext: React.useContext,
+        useReducer: React.useReducer,
+        useTransition: React.useTransition,
+        useDeferredValue: React.useDeferredValue,
+        useId: React.useId,
+        useLayoutEffect: React.useLayoutEffect,
+        useInsertionEffect: React.useInsertionEffect,
+        useSyncExternalStore: React.useSyncExternalStore,
+        useImperativeHandle: React.useImperativeHandle,
+        useActionState: React.useActionState,
+        useOptimistic: React.useOptimistic,
+        useEffectEvent: React.useEffectEvent,
+        use: React.use,
+        memo: React.memo,
+        forwardRef: React.forwardRef,
+        startTransition: React.startTransition,
+        useFormStatus: ReactDOM.useFormStatus,
+      };
+
+      const bindingNames = ['React', ...Object.keys(hookBindings)];
+      const bindingValues = [React, ...Object.values(hookBindings)];
+      const factory = new Function(
+        ...bindingNames,
+        transformed + '\\nreturn typeof ' + componentName + ' !== "undefined" ? ' + componentName + ' : null;',
+      );
+      const Component = factory(...bindingValues);
+      if (!Component) {
+        throw new Error('Preview entry "' + componentName + '" was not defined.');
+      }
+
+      const root = ReactDOMClient.createRoot(document.getElementById('root'));
+      root.render(React.createElement(Component));
+    } catch (err) {
+      renderError(err instanceof Error ? err.message : String(err));
     }
   </script>
   <script>

@@ -724,7 +724,7 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     graphImports.set(gf.path, gf.imports);
   }
 
-  const crossFileResults = analyzeTaintCrossFile(inferredPerFile, graphImports);
+  const crossFileResults = analyzeTaintCrossFile(inferredPerFile, graphImports, graph);
   if (crossFileResults.length > 0) {
     const crossFileFindings = crossFileTaintToFindings(crossFileResults);
     // Add cross-file findings to the caller's report, then re-run suppression

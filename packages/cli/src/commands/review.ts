@@ -28,6 +28,7 @@ import {
 } from '@kernlang/review';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { basename, dirname, relative, resolve } from 'path';
+import { withOptionalRemoteRepo } from '../remote-repo.js';
 import {
   compareReportsToBaseline,
   createReviewBaseline,
@@ -776,7 +777,7 @@ async function runReviewPipeline(
 
 // ── Review command entry point ───────────────────────────────────────────
 
-export async function runReview(args: string[]): Promise<void> {
+async function runReviewLocal(args: string[]): Promise<void> {
   const jsonOutput = hasFlag(args, '--json');
   const sarifOutput = hasFlag(args, '--sarif', '--format=sarif');
   const recursive = hasFlag(args, '--recursive', '-r');
@@ -884,8 +885,11 @@ export async function runReview(args: string[]): Promise<void> {
   const flagsWithValues = new Set([
     '--spec',
     '--diff',
+    '--git',
+    '--ref',
     '--rules-dir',
     '--tsconfig',
+    '--target',
     '--max-depth',
     '--batch-size',
     '--min-coverage',
@@ -908,6 +912,10 @@ export async function runReview(args: string[]): Promise<void> {
     reviewInputs.push(arg);
   }
   let reviewInput = reviewInputs[0];
+  const remoteUrl = parseFlagOrNext(args, '--git');
+  if (remoteUrl && !reviewInput && !diffBase) {
+    reviewInput = '.';
+  }
   if (diffBase && !reviewInput) {
     try {
       const { execFileSync } = await import('child_process');
@@ -963,7 +971,7 @@ export async function runReview(args: string[]): Promise<void> {
 
   if (!reviewInput) {
     console.error(
-      'Usage: kern review <file|dir> [--security] [--mcp] [--llm] [--spec file.kern] [--cloud] [--baseline=file.json] [--new-only]',
+      'Usage: kern review <file|dir> [--git=<url>] [--security] [--mcp] [--llm] [--spec file.kern] [--cloud] [--baseline=file.json] [--new-only]',
     );
     console.error(
       '       [--diff base] [--write-baseline=file.json] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--fix] [--autofix] [--rules-dir <dir>]',
@@ -1133,4 +1141,21 @@ export async function runReview(args: string[]): Promise<void> {
     const result = await runReviewPipeline(reviewConfig, entryFilePaths, modes);
     process.exit(result.exitCode);
   }
+}
+
+export async function runReview(args: string[]): Promise<void> {
+  const diffBase = args.some((a) => a === '--diff' || a.startsWith('--diff'))
+    ? parseFlagOrNext(args, '--diff') || 'origin/main'
+    : undefined;
+
+  await withOptionalRemoteRepo(
+    args,
+    {
+      commandName: 'review',
+      fullClone: Boolean(diffBase),
+    },
+    async () => {
+      await runReviewLocal(args);
+    },
+  );
 }

@@ -351,6 +351,56 @@ export function Middle({ user, theme, locale }: { user: string; theme: string; l
       const report = reviewFile(join(dir, 'outer.tsx'), cfg);
       expect(report.findings.find((f) => f.ruleId === 'prop-drill-chain')).toBeDefined();
     });
+
+    it('detects 3-hop prop drilling across four component files', () => {
+      const dir = join(TMP, 'prop-drill-chain-3hop');
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+
+      writeFileSync(
+        join(dir, 'outer.tsx'),
+        `
+import { Middle1 } from './middle1.js';
+export function Outer({ user, theme, locale }: { user: string; theme: string; locale: string }) {
+  return <Middle1 user={user} theme={theme} locale={locale} />;
+}
+`,
+      );
+      writeFileSync(
+        join(dir, 'middle1.tsx'),
+        `
+import { Middle2 } from './middle2.js';
+export function Middle1({ user, theme, locale }: { user: string; theme: string; locale: string }) {
+  return <Middle2 user={user} theme={theme} locale={locale} />;
+}
+`,
+      );
+      writeFileSync(
+        join(dir, 'middle2.tsx'),
+        `
+import { Inner } from './inner.js';
+export function Middle2({ user, theme, locale }: { user: string; theme: string; locale: string }) {
+  return <Inner user={user} theme={theme} locale={locale} />;
+}
+`,
+      );
+      writeFileSync(
+        join(dir, 'inner.tsx'),
+        `
+export function Inner({ user }: { user: string }) {
+  return <div>{user}</div>;
+}
+`,
+      );
+
+      const report = reviewFile(join(dir, 'outer.tsx'), cfg);
+      const finding = report.findings.find((f) => f.ruleId === 'prop-drill-chain');
+      expect(finding).toBeDefined();
+      // Message should describe more than 2 components (proof of multi-hop).
+      expect(finding!.message).toMatch(/across \d+ components/);
+      // At 3 hops the chain should mention both Middle2 and Inner by arrow-ref.
+      expect(finding!.message).toContain('Middle2');
+    });
   });
 
   describe('parent-rerender-via-state', () => {

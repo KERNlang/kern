@@ -10,6 +10,7 @@ import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { parse } from '../../../core/src/parser.js';
 import { transpileMCP } from '../transpiler-mcp.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -37,6 +38,9 @@ function compileServer(code: string): { dir: string; entryJS: string } {
   const dir = mkdtempSync(join(tmpdir(), 'kern-mcp-e2e-'));
 
   writeFileSync(join(dir, 'server.ts'), code);
+  // The generated MCP server is emitted as ESM. Mark the temp project as ESM
+  // so Node executes out/server.js correctly during runtime E2E tests.
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
 
   // Symlink node_modules from mcp-server package (has @modelcontextprotocol/sdk + zod)
   const nmTarget = join(dir, 'node_modules');
@@ -497,6 +501,10 @@ describe('transpileMCP runtime E2E', () => {
 
   // 12. PathContainment guard — allows valid paths
   it('should allow valid paths through pathContainment guard', async () => {
+    const safeDir = mkdtempSync('/tmp/kern-mcp-allow-');
+    const safeFile = join(safeDir, 'data.txt');
+    writeFileSync(safeFile, 'ok');
+
     const ast = node('mcp', { name: 'PathAllowE2E' }, [
       node('tool', { name: 'readFile' }, [
         node('param', { name: 'filePath', type: 'string', required: 'true' }),
@@ -510,13 +518,13 @@ describe('transpileMCP runtime E2E', () => {
 
     const { responses } = await sendMCP(entryJS, [
       ...initMessages(),
-      rpc('tools/call', { name: 'readFile', arguments: { filePath: '/tmp/data.txt' } }, 2),
+      rpc('tools/call', { name: 'readFile', arguments: { filePath: safeFile } }, 2),
     ]);
 
     const toolResponse = findResponse(responses, 2);
     // Should succeed — path is within /tmp
     expect((toolResponse.result as any)?.isError).not.toBe(true);
-    expect((toolResponse.result as any)?.content[0].text).toContain('/tmp/data.txt');
+    expect((toolResponse.result as any)?.content[0].text).toContain('data.txt');
   }, 30000);
 
   // 13. RateLimit guard — rejects after exceeding limit
@@ -932,6 +940,86 @@ describe('transpileMCP sanitizeOutput E2E', () => {
 
     const toolResponse = findResponse(responses, 2);
     expect((toolResponse.result as any)?.content[0].text).toBe('Hello, this is normal text');
+  }, 30000);
+});
+
+// ── Parsed .kern round-trip E2E ────────────────────────────────────────
+
+describe('transpileMCP parsed source round-trip E2E', () => {
+  const dirs: string[] = [];
+
+  afterAll(() => {
+    for (const dir of dirs) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {}
+    }
+  });
+
+  function compile(code: string) {
+    const result = compileServer(code);
+    dirs.push(result.dir);
+    return result;
+  }
+
+  it('round-trips parsed .kern source into a working MCP server', async () => {
+    const kernSource = [
+      'mcp name=RoundTripEcho version=1.0',
+      '',
+      '  tool name=echo',
+      '    description text="Echo a message"',
+      '    param name=msg type=string required=true',
+      '    guard type=sanitize param=msg',
+      '    guard type=rateLimit window=60000 requests=5',
+      '    handler <<<',
+      '      return { content: [{ type: "text" as const, text: "echo:" + args.msg }] };',
+      '    >>>',
+    ].join('\n');
+
+    const ast = parse(kernSource);
+    const result = transpileMCP(ast);
+    const { entryJS } = compile(result.code);
+
+    const { responses } = await sendMCP(entryJS, [
+      ...initMessages(),
+      rpc('tools/call', { name: 'echo', arguments: { msg: 'hello' } }, 2),
+    ]);
+
+    const toolResponse = findResponse(responses, 2);
+    expect((toolResponse.result as any)?.content[0].text).toBe('echo:hello');
+  }, 30000);
+
+  it('round-trips guarded file access from parsed .kern source through runtime', async () => {
+    const safeDir = mkdtempSync(join(tmpdir(), 'kern-mcp-roundtrip-safe-'));
+    const safeFile = join(safeDir, 'note.txt');
+    writeFileSync(safeFile, 'round-trip ok');
+
+    const kernSource = [
+      'mcp name=RoundTripRead version=1.0',
+      '',
+      '  import from="node:fs" names="readFileSync"',
+      '',
+      '  tool name=readFile',
+      '    description text="Read a file from disk"',
+      '    param name=filePath type=string required=true',
+      `    guard type=pathContainment param=filePath allowlist="${safeDir}"`,
+      '    guard type=rateLimit window=60000 requests=5',
+      '    handler <<<',
+      '      return { content: [{ type: "text" as const, text: readFileSync(args.filePath, "utf8") }] };',
+      '    >>>',
+    ].join('\n');
+
+    const ast = parse(kernSource);
+    const result = transpileMCP(ast);
+    const { entryJS } = compile(result.code);
+
+    const { responses } = await sendMCP(entryJS, [
+      ...initMessages(),
+      rpc('tools/call', { name: 'readFile', arguments: { filePath: safeFile } }, 2),
+    ]);
+
+    const toolResponse = findResponse(responses, 2);
+    expect((toolResponse.result as any)?.content[0].text).toBe('round-trip ok');
   }, 30000);
 });
 

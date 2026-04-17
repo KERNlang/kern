@@ -16,7 +16,7 @@ import {
  * Ink Transpiler — generates React (Ink) TSX components for terminal UIs
  *
  * Maps KERN terminal nodes to Ink components:
- *   screen  → React function component (export default)
+ *   screen  → React function component (named export by default, default export when requested)
  *   text    → <Text bold color="blue">...</Text>
  *   box     → <Box borderStyle="round" borderColor="blue">...</Box>
  *   separator → <Text dimColor>{'─'.repeat(48)}</Text>
@@ -42,6 +42,16 @@ import {
 
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function inkScreenExportKeyword(exportAttr: unknown): 'export default' | 'export' | '' {
+  if (exportAttr === false || exportAttr === 'false') return '';
+  return exportAttr === 'default' ? 'export default' : 'export';
+}
+
+function inkScreenExportStatement(exportKw: 'export default' | 'export' | '', symbol: string): string | null {
+  if (!exportKw) return null;
+  return exportKw === 'export default' ? `export default ${symbol};` : `export { ${symbol} };`;
 }
 
 /** Check if a prop value is a {{ expression }} object from the parser. */
@@ -1730,8 +1740,7 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     // Full body compilation — same pipeline as primary screen
     const { bodyLines: secBodyLines, stateCtx: secCtx } = compileScreenBody(secScreen, imports);
 
-    const secExportAttr = secProps.export as string;
-    const secExportKw = secExportAttr === 'default' ? 'export default' : 'export';
+    const secExportKw = inkScreenExportKeyword(secProps.export);
     const secMemoAttr = secProps.memo;
     const secUseMemo =
       secMemoAttr === 'true' || secMemoAttr === true || (typeof secMemoAttr === 'string' && secMemoAttr !== 'false');
@@ -1743,9 +1752,12 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
       if (secCtx.needsInkSafe) componentLines.push(...emitInkSafePreamble());
       componentLines.push(...secBodyLines);
       componentLines.push(secMemoExpr ? `}, ${secMemoExpr});` : '});');
-      componentLines.push(`${secExportKw} { ${secName} };`);
+      const secExportStatement = inkScreenExportStatement(secExportKw, secName);
+      if (secExportStatement) {
+        componentLines.push(secExportStatement);
+      }
     } else {
-      componentLines.push(`${secExportKw} function ${secName}(${secParam}) {`);
+      componentLines.push(`${secExportKw ? `${secExportKw} ` : ''}function ${secName}(${secParam}) {`);
       if (secCtx.needsInkSafe) componentLines.push(...emitInkSafePreamble());
       componentLines.push(...secBodyLines);
       componentLines.push('}');
@@ -1754,7 +1766,7 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
   }
 
   // Component (Feature #9: with props) — respect export= and memo= attributes
-  const screenExportAttr = screenProps.export as string;
+  const screenExportKw = inkScreenExportKeyword(screenProps.export);
   const screenMemoAttr = screenProps.memo;
   const useMemo =
     screenMemoAttr === 'true' ||
@@ -1767,7 +1779,6 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
 
   if (useMemo) {
     // React.memo wrapper: const Name = React.memo(function Name(props) { ... }, comparator?);
-    const exportKw = screenExportAttr === 'default' ? 'export default' : 'export';
     componentLines.push(`const ${screenName} = React.memo(function ${screenName}(${propsParam}) {`);
     if (stateCtx.needsInkSafe) {
       componentLines.push(...emitInkSafePreamble());
@@ -1778,10 +1789,12 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
     } else {
       componentLines.push('});');
     }
-    componentLines.push(`${exportKw} { ${screenName} };`);
+    const exportStatement = inkScreenExportStatement(screenExportKw, screenName);
+    if (exportStatement) {
+      componentLines.push(exportStatement);
+    }
   } else {
-    const exportKw = screenExportAttr === 'default' ? 'export default' : 'export';
-    componentLines.push(`${exportKw} function ${screenName}(${propsParam}) {`);
+    componentLines.push(`${screenExportKw ? `${screenExportKw} ` : ''}function ${screenName}(${propsParam}) {`);
     if (stateCtx.needsInkSafe) {
       componentLines.push(...emitInkSafePreamble());
     }
@@ -1826,19 +1839,21 @@ export function transpileInk(root: IRNode, _config?: ResolvedKernConfig): Transp
   const artifacts: import('@kernlang/core').GeneratedArtifact[] = [];
 
   // Entry-point artifact: render(<App />) + waitUntilExit()
-  const entryLines: string[] = [];
-  entryLines.push(`#!/usr/bin/env node`);
-  entryLines.push(`import React from 'react';`);
-  entryLines.push(`import { render } from 'ink';`);
-  if (screenExportAttr === 'named') {
-    entryLines.push(`import { ${screenName} } from './${screenName}.js';`);
-  } else {
-    entryLines.push(`import ${screenName} from './${screenName}.js';`);
+  if (screenExportKw) {
+    const entryLines: string[] = [];
+    entryLines.push(`#!/usr/bin/env node`);
+    entryLines.push(`import React from 'react';`);
+    entryLines.push(`import { render } from 'ink';`);
+    if (screenExportKw === 'export default') {
+      entryLines.push(`import ${screenName} from './${screenName}.js';`);
+    } else {
+      entryLines.push(`import { ${screenName} } from './${screenName}.js';`);
+    }
+    entryLines.push('');
+    entryLines.push(`const app = render(<${screenName} />);`);
+    entryLines.push(`await app.waitUntilExit();`);
+    artifacts.push({ path: 'index.tsx', content: entryLines.join('\n'), type: 'entry' });
   }
-  entryLines.push('');
-  entryLines.push(`const app = render(<${screenName} />);`);
-  entryLines.push(`await app.waitUntilExit();`);
-  artifacts.push({ path: 'index.tsx', content: entryLines.join('\n'), type: 'entry' });
 
   // Main component artifact (always emitted so entry-point import resolves)
   artifacts.push({ path: `${screenName}.tsx`, content: code, type: 'component' });

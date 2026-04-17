@@ -4,8 +4,50 @@
  */
 
 import { Node, SyntaxKind } from 'ts-morph';
-import type { ReviewFinding, SourceSpan } from '../types.js';
+import type { ReviewFinding, RuleContext, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
+
+/**
+ * True when the file's runtime boundary is clearly non-client (server
+ * component, API route, Next.js middleware). React hook rules should
+ * short-circuit on these files — hooks cannot run there, so any match is
+ * either unused code or a false positive.
+ *
+ * `shared` and `unknown` intentionally return false: shared utilities are
+ * often imported from both client and server; unknown happens when reviewing
+ * a single file without graph context.
+ */
+export function isNonClientBoundary(ctx: RuleContext): boolean {
+  const b = ctx.fileContext?.boundary;
+  return b === 'server' || b === 'api' || b === 'middleware';
+}
+
+/**
+ * True when the source file looks like a React file — has JSX, a `react`
+ * import, or calls a recognizable React hook. Used to override an aggressive
+ * boundary classifier: `src/routes/Home.tsx` gets `boundary=api` from the
+ * path-based classifier (because of `/routes/`), but its JSX content tells us
+ * it really is a client React file where hook rules should still run.
+ */
+export function hasReactContent(ctx: RuleContext): boolean {
+  const sf = ctx.sourceFile;
+  if (sf.getDescendantsOfKind(SyntaxKind.JsxOpeningElement).length > 0) return true;
+  if (sf.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).length > 0) return true;
+  if (sf.getImportDeclarations().some((i) => i.getModuleSpecifierValue() === 'react')) return true;
+  const fullText = sf.getFullText();
+  return /\buse(?:State|Effect|Ref|Callback|Memo|Reducer|Context|LayoutEffect)\s*[<(]/.test(fullText);
+}
+
+/**
+ * Convenience: true when hook-specific rules should skip this file. Combines
+ * the boundary gate with a React-content override so misclassified React
+ * routes (`src/routes/Home.tsx`) still get checked.
+ */
+export function shouldSkipHookRules(ctx: RuleContext): boolean {
+  if (!isNonClientBoundary(ctx)) return false;
+  // Non-client boundary — but if it has React content, the classifier is wrong.
+  return !hasReactContent(ctx);
+}
 
 export function span(file: string, line: number, col = 1, endLine?: number, endCol?: number): SourceSpan {
   return { file, startLine: line, startCol: col, endLine: endLine ?? line, endCol: endCol ?? col };

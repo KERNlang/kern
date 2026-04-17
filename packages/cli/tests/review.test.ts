@@ -184,4 +184,71 @@ fetch('/api/data');
     expect(exitCode).toBe(1);
     expect(errors.join('\n')).toContain('Failed to parse baseline');
   });
+
+  it('reviews a remote repo via --git without a pre-existing local checkout', async () => {
+    process.chdir(tmpDir);
+
+    const repoDir = join(tmpDir, 'remote-review');
+    execFileSync('git', ['init', repoDir]);
+    execFileSync('git', ['config', 'user.email', 'kern@example.com'], { cwd: repoDir });
+    execFileSync('git', ['config', 'user.name', 'KERN Test'], { cwd: repoDir });
+
+    const file = join(repoDir, 'confidence.kern');
+    writeFileSync(
+      file,
+      `
+fn name=loadUser params="id:string" returns=unknown
+  handler <<<
+    const response = await fetch("/api/users/" + id);
+    return response.json();
+  >>>
+`,
+    );
+    execFileSync('git', ['add', 'confidence.kern'], { cwd: repoDir });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: repoDir });
+
+    let exitCode: number | undefined;
+    process.exit = ((code?: number) => {
+      exitCode = code;
+      throw new Error(`EXIT:${code ?? 0}`);
+    }) as never;
+
+    await expect(runReview(['review', `--git=${repoDir}`, 'confidence.kern', '--json'])).rejects.toThrow('EXIT:0');
+    expect(exitCode).toBe(0);
+
+    const output = logs.join('\n');
+    expect(output).toContain('"filePath"');
+    expect(output).toContain('confidence.kern');
+  });
+
+  it('supports remote diff review with full clone history', async () => {
+    process.chdir(tmpDir);
+
+    const repoDir = join(tmpDir, 'remote-diff-review');
+    execFileSync('git', ['init', repoDir]);
+    execFileSync('git', ['config', 'user.email', 'kern@example.com'], { cwd: repoDir });
+    execFileSync('git', ['config', 'user.name', 'KERN Test'], { cwd: repoDir });
+
+    const file = join(repoDir, 'screen.kern');
+    writeFileSync(file, 'screen name=Home\n  text value="hello"\n');
+    execFileSync('git', ['add', 'screen.kern'], { cwd: repoDir });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: repoDir });
+
+    writeFileSync(file, 'screen name=Home\n  text value="hi"\n');
+    execFileSync('git', ['add', 'screen.kern'], { cwd: repoDir });
+    execFileSync('git', ['commit', '-m', 'update'], { cwd: repoDir });
+
+    let exitCode: number | undefined;
+    process.exit = ((code?: number) => {
+      exitCode = code;
+      throw new Error(`EXIT:${code ?? 0}`);
+    }) as never;
+
+    await expect(runReview(['review', `--git=${repoDir}`, '--diff=HEAD~1', '--json'])).rejects.toThrow('EXIT:0');
+    expect(exitCode).toBe(0);
+
+    const output = logs.join('\n');
+    expect(output).toContain('"filePath"');
+    expect(output).toContain('screen.kern');
+  });
 });

@@ -12,7 +12,18 @@ import {
   findAssignedIdentifier,
   finding,
   getTopLevelCleanupExpressions,
+  shouldSkipHookRules,
 } from './utils.js';
+
+/**
+ * Wrap a hook-specific rule so it short-circuits on server/api/middleware
+ * files — unless the file still has React content (JSX / react import /
+ * hook call), which means the boundary classifier is wrong for this file
+ * (common on `/routes/` and `/controllers/` React components).
+ */
+function clientOnly<T extends (ctx: RuleContext) => ReviewFinding[]>(fn: T): T {
+  return ((ctx: RuleContext) => (shouldSkipHookRules(ctx) ? [] : fn(ctx))) as T;
+}
 
 /**
  * Check if a file is actually a React file — has JSX syntax or React imports.
@@ -1140,17 +1151,17 @@ function reducerMutation(ctx: RuleContext): ReviewFinding[] {
 // ── Exported React Rules ─────────────────────────────────────────────────
 
 export const reactRules = [
-  asyncEffect,
-  renderSideEffect,
+  clientOnly(asyncEffect),
+  clientOnly(renderSideEffect),
   mappedFragmentKey,
   unstableKey,
-  staleClosure,
-  stateExplosion,
-  hookOrder,
-  effectSelfUpdateLoop,
-  missingEffectCleanup,
+  clientOnly(staleClosure),
+  clientOnly(stateExplosion),
+  clientOnly(hookOrder),
+  clientOnly(effectSelfUpdateLoop),
+  clientOnly(missingEffectCleanup),
   inlineContextValue,
-  refInRender,
-  missingMemoDeps,
-  reducerMutation,
+  clientOnly(refInRender),
+  clientOnly(missingMemoDeps),
+  clientOnly(reducerMutation),
 ];

@@ -62,7 +62,14 @@ export { crossFileTaintToFindings, taintToFindings } from './taint-findings.js';
 
 // ── Cross-File Analysis ─────────────────────────────────────────────────
 
-export { analyzeTaintCrossFile, buildExportMap, buildImportMap } from './taint-crossfile.js';
+export {
+  analyzeTaintCrossFile,
+  buildExportMap,
+  buildExportMapFromGraph,
+  buildImportAliasMap,
+  buildImportMap,
+  buildImportMapFromGraph,
+} from './taint-crossfile.js';
 
 // ── Main Entry Point ────────────────────────────────────────────────────
 

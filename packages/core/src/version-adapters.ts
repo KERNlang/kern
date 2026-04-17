@@ -10,7 +10,47 @@
  */
 
 import type { FrameworkVersions } from './config.js';
-import { resolveNextjsMajor, resolveTailwindMajor } from './version-detect.js';
+import { resolveNextjsMajor, resolveReactMajor, resolveTailwindMajor } from './version-detect.js';
+
+// ── React Version Adapter ───────────────────────────────────────────────
+
+export interface ReactOutputRules {
+  /** Whether React action hooks like useActionState are available */
+  supportsActions: boolean;
+  /** Whether React 19's useEffectEvent hook is available */
+  supportsEffectEvent: boolean;
+  /** Whether UMD globals are available for preview/runtime bootstrapping */
+  supportsUmdBuilds: boolean;
+}
+
+export interface ReactVersionProfile {
+  major: 18 | 19;
+  outputRules: ReactOutputRules;
+}
+
+export function buildReactProfile(versions: FrameworkVersions): ReactVersionProfile {
+  const major = resolveReactMajor(versions);
+
+  if (major >= 19) {
+    return {
+      major: 19,
+      outputRules: {
+        supportsActions: true,
+        supportsEffectEvent: true,
+        supportsUmdBuilds: false,
+      },
+    };
+  }
+
+  return {
+    major: 18,
+    outputRules: {
+      supportsActions: false,
+      supportsEffectEvent: false,
+      supportsUmdBuilds: true,
+    },
+  };
+}
 
 // ── Tailwind Version Adapter ────────────────────────────────────────────
 
@@ -256,12 +296,14 @@ export function buildNextjsProfile(versions: FrameworkVersions): NextjsVersionPr
 // ── Combined Version Profile ────────────────────────────────────────────
 
 export interface VersionProfile {
+  react: ReactVersionProfile;
   tailwind: TailwindVersionProfile;
   nextjs: NextjsVersionProfile;
 }
 
 export function buildVersionProfile(versions: FrameworkVersions): VersionProfile {
   return {
+    react: buildReactProfile(versions),
     tailwind: buildTailwindProfile(versions),
     nextjs: buildNextjsProfile(versions),
   };

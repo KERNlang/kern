@@ -1,3 +1,4 @@
+import { execFileSync } from 'child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -27,13 +28,13 @@ describe('kern gaps command', () => {
     return stdoutChunks.join('');
   }
 
-  test('reports "No gaps found" on an empty tree', () => {
-    runGaps([`--root=${tmpDir}`]);
+  test('reports "No gaps found" on an empty tree', async () => {
+    await runGaps([`--root=${tmpDir}`]);
     expect(out()).toContain('scanned 0 files');
     expect(out()).toContain('No gaps found.');
   });
 
-  test('finds KERN-GAP comments across .ts, .kern, and .tsx files', () => {
+  test('finds KERN-GAP comments across .ts, .kern, and .tsx files', async () => {
     writeFileSync(join(tmpDir, 'a.ts'), '// KERN-GAP: async state initializers not supported\nfoo();\n');
     writeFileSync(
       join(tmpDir, 'b.kern'),
@@ -41,7 +42,7 @@ describe('kern gaps command', () => {
     );
     writeFileSync(join(tmpDir, 'c.tsx'), 'const x = 1; // unrelated\n// KERN-GAP: tsx too\n');
 
-    runGaps([`--root=${tmpDir}`]);
+    await runGaps([`--root=${tmpDir}`]);
     const text = out();
 
     expect(text).toContain('scanned 3 files');
@@ -51,7 +52,7 @@ describe('kern gaps command', () => {
     expect(text).toContain('tsx too');
   });
 
-  test('skips node_modules, dist, .git, and other tool dirs', () => {
+  test('skips node_modules, dist, .git, and other tool dirs', async () => {
     mkdirSync(join(tmpDir, 'node_modules'));
     mkdirSync(join(tmpDir, 'dist'));
     mkdirSync(join(tmpDir, '.git'));
@@ -60,7 +61,7 @@ describe('kern gaps command', () => {
     writeFileSync(join(tmpDir, '.git', 'fake.ts'), '// KERN-GAP: should not be found\n');
     writeFileSync(join(tmpDir, 'real.ts'), '// KERN-GAP: real one\n');
 
-    runGaps([`--root=${tmpDir}`]);
+    await runGaps([`--root=${tmpDir}`]);
     const text = out();
 
     expect(text).toContain('scanned 1 files');
@@ -68,10 +69,10 @@ describe('kern gaps command', () => {
     expect(text).not.toContain('should not be found');
   });
 
-  test('--json emits structured output and suppresses human output', () => {
+  test('--json emits structured output and suppresses human output', async () => {
     writeFileSync(join(tmpDir, 'a.ts'), '// KERN-GAP: one\n// KERN-GAP: two\n');
 
-    runGaps([`--root=${tmpDir}`, '--json']);
+    await runGaps([`--root=${tmpDir}`, '--json']);
     const text = out();
 
     // Should be parseable JSON
@@ -85,7 +86,7 @@ describe('kern gaps command', () => {
     expect(text).not.toContain('kern gaps — scanned');
   });
 
-  test('reads compiler coverage gaps from .kern-gaps/ JSON', () => {
+  test('reads compiler coverage gaps from .kern-gaps/ JSON', async () => {
     const gapDir = join(tmpDir, '.kern-gaps');
     mkdirSync(gapDir);
     writeFileSync(
@@ -101,14 +102,14 @@ describe('kern gaps command', () => {
       ]),
     );
 
-    runGaps([`--root=${tmpDir}`]);
+    await runGaps([`--root=${tmpDir}`]);
     const text = out();
 
     expect(text).toContain('Compiler coverage gaps (1)');
     expect(text).toContain('handler: 1');
   });
 
-  test('--verbose expands the coverage gap list', () => {
+  test('--verbose expands the coverage gap list', async () => {
     const gapDir = join(tmpDir, '.kern-gaps');
     mkdirSync(gapDir);
     writeFileSync(
@@ -124,12 +125,53 @@ describe('kern gaps command', () => {
       ]),
     );
 
-    runGaps([`--root=${tmpDir}`, '--verbose']);
+    await runGaps([`--root=${tmpDir}`, '--verbose']);
     const text = out();
 
     expect(text).toContain('Detail:');
     expect(text).toContain('examples/foo.kern:12');
     expect(text).toContain('[handler] handler 180ch');
     expect(text).not.toContain('(run with --verbose for per-file detail)');
+  });
+
+  test('clones and scans a remote repo via --git', async () => {
+    const repoDir = join(tmpDir, 'repo');
+    mkdirSync(repoDir);
+    execFileSync('git', ['init'], { cwd: repoDir });
+    execFileSync('git', ['config', 'user.email', 'kern@example.com'], { cwd: repoDir });
+    execFileSync('git', ['config', 'user.name', 'KERN Test'], { cwd: repoDir });
+    writeFileSync(join(repoDir, 'remote.ts'), '// KERN-GAP: remote gap\n');
+    execFileSync('git', ['add', 'remote.ts'], { cwd: repoDir });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: repoDir });
+
+    await runGaps([`--git=${repoDir}`]);
+    const text = out();
+
+    expect(text).toContain('scanned 1 files');
+    expect(text).toContain('remote gap');
+  });
+
+  test('checks out --ref for remote gap scans', async () => {
+    const repoDir = join(tmpDir, 'repo-ref');
+    mkdirSync(repoDir);
+    execFileSync('git', ['init'], { cwd: repoDir });
+    execFileSync('git', ['config', 'user.email', 'kern@example.com'], { cwd: repoDir });
+    execFileSync('git', ['config', 'user.name', 'KERN Test'], { cwd: repoDir });
+
+    const file = join(repoDir, 'history.ts');
+    writeFileSync(file, '// KERN-GAP: old gap\n');
+    execFileSync('git', ['add', 'history.ts'], { cwd: repoDir });
+    execFileSync('git', ['commit', '-m', 'first'], { cwd: repoDir });
+    execFileSync('git', ['tag', 'v1'], { cwd: repoDir });
+
+    writeFileSync(file, '// KERN-GAP: new gap\n');
+    execFileSync('git', ['add', 'history.ts'], { cwd: repoDir });
+    execFileSync('git', ['commit', '-m', 'second'], { cwd: repoDir });
+
+    await runGaps([`--git=${repoDir}`, '--ref=v1']);
+    const text = out();
+
+    expect(text).toContain('old gap');
+    expect(text).not.toContain('new gap');
   });
 });

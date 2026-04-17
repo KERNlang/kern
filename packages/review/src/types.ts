@@ -345,6 +345,9 @@ export interface GraphResult {
   entryFiles: string[];
   totalFiles: number;
   skipped: number;
+  /** ts-morph Project used to resolve the graph. Exposed so downstream
+   *  analyses (call graph, cross-file taint) can reuse it without re-parsing. */
+  project?: import('ts-morph').Project;
 }
 
 /** Options for resolveImportGraph */

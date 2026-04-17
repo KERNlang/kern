@@ -504,7 +504,7 @@ server.tool("readFile", "Read a file's contents within allowed directories", rea
   try {
     const params = { ..._raw_input } as Record<string, unknown>;
     if (params["filePath"] == null || params["filePath"] === "") throw new Error("filePath is required for path containment check");
-    params["filePath"] = ensurePathContainment(path.resolve(String(params["filePath"])), ["/data", "/home"].map(r => path.resolve(r)));
+    params["filePath"] = ensurePathContainment(path.resolve(String(params["filePath"])), ["/data", "/home"].map(r => { try { return _realpathSync(r); } catch { return path.resolve(r); } }));
     const args = params as typeof _raw_input;
     return await (async () => {
             const fs = await import('node:fs/promises');
@@ -551,7 +551,7 @@ server.tool("writeFile", "Write content to a file within allowed directories", w
   try {
     const params = { ..._raw_input } as Record<string, unknown>;
     if (params["filePath"] == null || params["filePath"] === "") throw new Error("filePath is required for path containment check");
-    params["filePath"] = ensurePathContainment(path.resolve(String(params["filePath"])), ["/data"].map(r => path.resolve(r)));
+    params["filePath"] = ensurePathContainment(path.resolve(String(params["filePath"])), ["/data"].map(r => { try { return _realpathSync(r); } catch { return path.resolve(r); } }));
     const args = params as typeof _raw_input;
     return await (async () => {
             const fs = await import('node:fs/promises');

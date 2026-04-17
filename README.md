@@ -49,9 +49,11 @@ Write `.kern` once, compile to 13 targets. Or skip `.kern` entirely and use `ker
 
 | Tier | Targets | Status |
 |:-----|:--------|:-------|
-| **Tier 1** (supported) | Next.js, Express, MCP | Full schemas, deterministic output, golden examples |
-| **Tier 2** (stable) | React, Tailwind, Vue, Nuxt, FastAPI, CLI, Ink | Working, tested, production-ready |
+| **Tier 1** (supported) | Next.js, Web (React), Tailwind, Express, MCP, CLI, Ink | Full schemas, deterministic output, golden examples |
+| **Tier 2** (stable) | Vue, Nuxt, FastAPI | Working, tested, production-ready |
 | **Tier 3** (experimental) | React Native, Terminal | Functional, limited test coverage |
+
+Tiers are tracked per compile target, not per npm package. For example, `@kernlang/terminal` contains two separate targets: `--target=terminal` (pure ANSI/Node.js output) and `--target=ink` (React + Ink TSX output).
 
 For detailed examples, interactive demos, and the full rule reference, visit **[kernlang.dev](https://kernlang.dev)**.
 

@@ -143,10 +143,11 @@ describe('scanProject — framework versions', () => {
   it('extracts exact semver from deps', () => {
     testDir = createTestDir();
     writeJson(testDir, 'package.json', {
-      dependencies: { next: '^15.2.0' },
+      dependencies: { react: '^19.2.0', next: '^15.2.0' },
       devDependencies: { tailwindcss: '^4.0.0' },
     });
     const result = scanProject(testDir);
+    expect(result.config.frameworkVersions?.react).toBe('^19.2.0');
     expect(result.config.frameworkVersions?.nextjs).toBe('^15.2.0');
     expect(result.config.frameworkVersions?.tailwind).toBe('^4.0.0');
   });
@@ -352,7 +353,7 @@ describe('generateConfigSource', () => {
     const result: ScanResult = {
       config: {
         target: 'nextjs',
-        frameworkVersions: { nextjs: '^15.2.0', tailwind: '^4.0.0' },
+        frameworkVersions: { react: '^19.2.0', nextjs: '^15.2.0', tailwind: '^4.0.0' },
         i18n: { enabled: false },
       },
       info: { packageManager: 'pnpm', typescript: null, formatting: null, editorConfig: null, typeLibraries: [] },
@@ -361,6 +362,7 @@ describe('generateConfigSource', () => {
     const source = generateConfigSource(result);
     expect(source).toContain("import type { KernConfig } from '@kernlang/core'");
     expect(source).toContain("target: 'nextjs'");
+    expect(source).toContain("react: '^19.2.0'");
     expect(source).toContain("nextjs: '^15.2.0'");
     expect(source).toContain("tailwind: '^4.0.0'");
     expect(source).toContain('i18n: { enabled: false }');
