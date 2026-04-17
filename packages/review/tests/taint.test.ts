@@ -694,4 +694,46 @@ export function handler(req: any): void {
     expect(taint.calleeFn).toBe('runQuery');
     expect(taint.sinkInCallee.category).toBe('command');
   });
+
+  it('ignores python files when building ts-morph graph import maps', () => {
+    const project = createProject();
+    project.createSourceFile(
+      '/src/db.ts',
+      `
+export function runQuery(query: string): void {
+  console.log(query);
+}
+`,
+    );
+    project.createSourceFile(
+      '/src/handler.ts',
+      `
+import { runQuery } from './db.js';
+export function handler(req: any): void {
+  runQuery(req.body.q);
+}
+`,
+    );
+    project.createSourceFile(
+      '/src/safe-py-server.py',
+      `
+import subprocess
+from mcp.server.fastmcp import FastMCP
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/handler.ts'], { project });
+    graph.files.push({
+      path: '/src/safe-py-server.py',
+      distance: 0,
+      imports: [],
+      importedBy: [],
+      importEdges: [],
+      incomingEdges: [],
+    });
+
+    expect(() => buildImportMapFromGraph(project, graph)).not.toThrow();
+    const importMap = buildImportMapFromGraph(project, graph);
+    expect(importMap.get('/src/handler.ts::runQuery')).toBe('/src/db.ts');
+  });
 });
