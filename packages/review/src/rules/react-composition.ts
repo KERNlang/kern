@@ -402,7 +402,12 @@ function resolveImportedSourceFile(
   ctx: RuleContext,
   importDecl: import('ts-morph').ImportDeclaration,
 ): import('ts-morph').SourceFile | undefined {
-  const resolved = importDecl.getModuleSpecifierSourceFile();
+  let resolved: import('ts-morph').SourceFile | undefined;
+  try {
+    resolved = importDecl.getModuleSpecifierSourceFile() ?? undefined;
+  } catch {
+    return undefined;
+  }
   if (resolved) return resolved;
 
   const spec = importDecl.getModuleSpecifierValue();
