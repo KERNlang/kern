@@ -1,0 +1,72 @@
+name: KERNlang — Post to X on Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tweet_text:
+        description: 'Tweet text'
+        required: false
+        default: ''
+
+jobs:
+  post-to-x:
+    name: Post Release Tweet
+    runs-on: ubuntu-latest
+    steps:
+      - name: Detect release info
+        id: release_info
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION="manual"
+            BODY="Manual trigger"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+            VERSION="${VERSION#v}"
+            BODY="${{ github.event.release.body }}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "body=${BODY:-Release}" >> $GITHUB_OUTPUT
+
+      - name: Build tweet
+        id: tweet
+        run: |
+          VERSION="${{ steps.release_info.outputs.version }}"
+          BODY="${{ steps.release_info.outputs.body }}"
+          CHANGES=$(echo "$BODY" | grep -E '^\s*[-*•]' | head -3 | sed 's/^\s*[-*•]\s*//' | tr '\n' ' ' | cut -c1-150)
+
+          if [ -n "$CHANGES" ]; then
+            TWEET="KERNlang v${VERSION} released! New: ${CHANGES}
+
+          npm install -g @kernlang/cli
+          🔗 github.com/KERNlang/kern/releases/v${VERSION}
+
+          #KERNlang #AIcoding"
+          else
+            TWEET="KERNlang v${VERSION} is live!
+
+          npm install -g @kernlang/cli
+          🔗 github.com/KERNlang/kern/releases
+
+          #KERNlang"
+          fi
+          echo "tweet_length=${#TWEET}" >> $GITHUB_OUTPUT
+          echo "tweet=$TWEET" >> $GITHUB_OUTPUT
+
+      - name: Post to X
+        uses: Ethanien/get-tweet-as-github-action@v1.0.0
+        with:
+          status: ${{ steps.tweet.outputs.tweet }}
+          twitter-token: ${{ secrets.X_ACCESS_TOKEN }}
+          twitter-secret: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          api-key: ${{ secrets.X_API_KEY }}
+          api-secret: ${{ secrets.X_API_SECRET }}
+
+      - name: Notify Telegram
+        if: always()
+        uses: appleboy/telegram-action@v0.1.0
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: "KERNlang v${{ steps.release_info.outputs.version }} released! ${{ steps.tweet.outputs.tweet_length }} chars"
