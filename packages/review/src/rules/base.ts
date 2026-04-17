@@ -848,10 +848,11 @@ function handlerExtraction(ctx: RuleContext): ReviewFinding[] {
 // ── Rule 11: handler-size ────────────────────────────────────────────────
 // Handler blocks exceeding a line threshold suggest extraction
 
-const HANDLER_LINE_LIMIT = 30;
+const DEFAULT_HANDLER_LINE_LIMIT = 30;
 
 function handlerSize(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
+  const limit = ctx.config?.maxHandlerLines ?? DEFAULT_HANDLER_LINE_LIMIT;
 
   for (const r of ctx.inferred) {
     // Check all node types that can contain handlers, not just fn
@@ -866,20 +867,20 @@ function handlerSize(ctx: RuleContext): ReviewFinding[] {
         return trimmed.length > 0 && !trimmed.startsWith('//') && !trimmed.startsWith('#');
       });
 
-      if (lines.length > HANDLER_LINE_LIMIT) {
+      if (lines.length > limit) {
         const parentName = (r.node.props?.name as string) || r.node.type;
         findings.push(
           finding(
             'handler-size',
             'warning',
             'structure',
-            `Handler in '${parentName}' is ${lines.length} lines (limit: ${HANDLER_LINE_LIMIT}). Extract logic into separate fn nodes for better structure and reviewability.`,
+            `Handler in '${parentName}' is ${lines.length} lines (limit: ${limit}). Extract logic into separate fn nodes for better structure and reviewability.`,
             ctx.filePath,
             handler.loc?.line ?? r.startLine,
             1,
             {
               nodeIds: [r.nodeId],
-              suggestion: `Split the handler into smaller fn nodes called from the handler. KERN's value is structure — keep handlers under ${HANDLER_LINE_LIMIT} lines.`,
+              suggestion: `Split the handler into smaller fn nodes called from the handler. KERN's value is structure — keep handlers under ${limit} lines.`,
             },
           ),
         );

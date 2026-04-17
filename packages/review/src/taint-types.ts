@@ -191,24 +191,53 @@ export const SANITIZER_PATTERNS = [
 
 export type SinkCategory = TaintSink['category'];
 
+// SANITIZER_PATTERN_NAMES emits bare names ('safeParse', 'parse'); SANITIZER_PATTERNS (regex) emits
+// prefixed names ('schema.safeParse', 'path.normalize'). Both call isSanitizerSufficient(), so the
+// table below carries BOTH forms explicitly for each sanitizer.
+//
+// Design rule: only include a BARE key when the name is unlikely to collide with unrelated methods.
+// `safeParse` is distinctive enough (almost always a Zod/Yup schema call), but bare `parse`,
+// `validate`, `normalize`, `resolve`, `basename` are ambiguous — a user's custom `.parse()` or
+// `.normalize()` would otherwise be silently treated as a full sanitizer, producing false negatives
+// on real taint bugs. Those stay prefixed-only so the regex engine catches them and the AST engine
+// defaults to deny (unknown sanitizer → taint still fires, conservative).
 const SANITIZER_SUFFICIENCY: Record<string, Set<SinkCategory>> = {
+  // Coercion sanitizers (bare names are unambiguous)
   parseInt: new Set(['sql']),
   parseFloat: new Set(['sql']),
+  Number: new Set(['sql']),
   'Number()': new Set(['sql']),
-  'Boolean()': new Set([]), // too weak for anything
+  Boolean: new Set([]), // too weak for any sink — documented for intent
+  'Boolean()': new Set([]),
+  // Schema validation — `safeParse` stays bare (Zod/Yup-specific); `parse`/`validate`/`validateSync` only as prefixed to avoid colliding with JSON.parse, Date.parse, user methods, etc.
   'schema.parse': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf']),
   'schema.safeParse': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf']),
+  safeParse: new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf']),
   'schema.validate': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf']),
   'schema.validateSync': new Set(['command', 'fs', 'sql', 'redirect', 'eval', 'template', 'ssrf']),
+  // String sanitization
   'sanitize()': new Set(['template']),
+  sanitize: new Set(['template']),
   'escape()': new Set(['sql', 'template']),
+  escape: new Set(['sql', 'template']),
+  escapeHtml: new Set(['template']),
   DOMPurify: new Set(['template']),
+  purify: new Set(['template']),
+  xss: new Set(['template']),
   // encodeURIComponent prevents open-redirect but NOT SSRF — the attacker still controls the host
   encodeURIComponent: new Set(['redirect']),
+  encodeURI: new Set(['redirect']),
+  // Path sanitization — only prefixed; a user's `.normalize()` is not safe to treat as FS-sufficient
   'path.normalize': new Set(['fs']),
+  'path.resolve': new Set(['fs']),
+  'path.basename': new Set(['fs']),
   'replace(../)': new Set(['fs']),
+  // SQL parameterization
   'parameterized query ($N)': new Set(['sql']),
   'parameterized query (?)': new Set(['sql']),
+  parameterized: new Set(['sql']),
+  sqlstring: new Set(['sql']),
+  // Prompt sanitization
   sanitizeForPrompt: new Set(['template']),
   escapePrompt: new Set(['template']),
   stripDelimiters: new Set(['template']),
@@ -218,7 +247,8 @@ const SANITIZER_SUFFICIENCY: Record<string, Set<SinkCategory>> = {
 /**
  * Check if a sanitizer is actually sufficient for a given sink category.
  * Returns true if the sanitizer protects against the sink, false if it's
- * a mismatch (e.g., parseInt used to "sanitize" command injection).
+ * a mismatch (e.g., parseInt used to "sanitize" command injection) or if the
+ * sanitizer name is unrecognized (default-deny so real taint still fires).
  */
 export function isSanitizerSufficient(sanitizerName: string, sinkCategory: SinkCategory): boolean {
   const allowed = SANITIZER_SUFFICIENCY[sanitizerName];

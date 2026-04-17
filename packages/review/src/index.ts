@@ -12,7 +12,8 @@
 import type { IRNode, ParseDiagnostic } from '@kernlang/core';
 import { countTokens, parseWithDiagnostics, serializeIR } from '@kernlang/core';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
-import { join, relative } from 'path';
+import { dirname, join, relative } from 'path';
+import { Project } from 'ts-morph';
 import { buildCallGraph } from './call-graph.js';
 import { runConceptRules } from './concept-rules/index.js';
 import { structuralDiff } from './differ.js';
@@ -20,7 +21,7 @@ import { runTSCDiagnostics } from './external-tools.js';
 import { buildFileContextMap } from './file-context.js';
 import { classifyFileRole } from './file-role.js';
 import { resolveImportGraph } from './graph.js';
-import { createInMemoryProject, inferFromSourceFile } from './inferrer.js';
+import { createInMemoryProject, findTsConfig, inferFromSourceFile } from './inferrer.js';
 import { flattenIR, lintKernIR } from './kern-lint.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { mineNorms } from './norm-miner.js';
@@ -81,7 +82,7 @@ export { linkToNodes, runESLint, runTSCDiagnostics, runTSCDiagnosticsFromPaths }
 export { buildFileContextMap, clearFileContextCache } from './file-context.js';
 export { classifyFileRole } from './file-role.js';
 export { resolveImportGraph } from './graph.js';
-export { inferFromFile, inferFromSource } from './inferrer.js';
+export { findTsConfig, inferFromFile, inferFromSource } from './inferrer.js';
 export type { KernLintRule } from './kern-lint.js';
 // KERN-IR lint pipeline (ground layer)
 export { flattenIR, lintKernIR } from './kern-lint.js';
@@ -211,21 +212,48 @@ export { clearReviewCache };
 
 /** Shared filesystem-backed Project for type-aware analysis (reused across reviewFile calls) */
 let _fsProject: import('ts-morph').Project | undefined;
-function getOrCreateFsProject(): import('ts-morph').Project {
+let _fsProjectTsConfig: string | undefined;
+let _fsProjectTsConfigMtimeMs: number | undefined;
+function getOrCreateFsProject(tsConfigFilePath?: string): import('ts-morph').Project {
+  // Rebuild when either the tsconfig path OR its contents change. Watch-mode users who edit
+  // compilerOptions in place would otherwise keep running with the stale Project's resolver even
+  // though the cache key (which hashes tsconfig content) correctly invalidates — the two must stay
+  // consistent or findings lag a process restart behind.
+  let currentMtime: number | undefined;
+  if (tsConfigFilePath) {
+    try {
+      currentMtime = statSync(tsConfigFilePath).mtimeMs;
+    } catch {
+      // Unreadable tsconfig — fall through; we'll still attempt construction and let ts-morph surface the error.
+    }
+  }
+  if (_fsProject && (_fsProjectTsConfig !== tsConfigFilePath || _fsProjectTsConfigMtimeMs !== currentMtime)) {
+    _fsProject = undefined;
+  }
   if (!_fsProject) {
-    const { Project } = require('ts-morph') as typeof import('ts-morph');
     _fsProject = new Project({
-      compilerOptions: {
-        strict: true,
-        target: 99 /* Latest */,
-        module: 99 /* ESNext */,
-        moduleResolution: 100 /* Bundler */,
-        skipLibCheck: true,
-        noEmit: true,
-      },
-      useInMemoryFileSystem: false,
+      tsConfigFilePath,
       skipAddingFilesFromTsConfig: true,
+      useInMemoryFileSystem: false,
+      // When a tsconfig is loaded, let it own compilerOptions (jsx/paths/lib/allowJs come from there).
+      // When no tsconfig, ship permissive defaults so .tsx files don't emit phantom ts17004 errors.
+      compilerOptions: tsConfigFilePath
+        ? undefined
+        : {
+            strict: true,
+            target: 99 /* Latest */,
+            module: 99 /* ESNext */,
+            moduleResolution: 100 /* Bundler */,
+            jsx: 4 /* Preserve */,
+            allowJs: true,
+            esModuleInterop: true,
+            allowSyntheticDefaultImports: true,
+            skipLibCheck: true,
+            noEmit: true,
+          },
     });
+    _fsProjectTsConfig = tsConfigFilePath;
+    _fsProjectTsConfigMtimeMs = currentMtime;
   }
   return _fsProject!;
 }
@@ -233,6 +261,17 @@ function getOrCreateFsProject(): import('ts-morph').Project {
 /** Reset the shared project (for tests / watch mode) */
 export function resetFsProject(): void {
   _fsProject = undefined;
+  _fsProjectTsConfig = undefined;
+  _fsProjectTsConfigMtimeMs = undefined;
+}
+
+/** True when the file is codegen output — detected via common path patterns or a @generated header. */
+export function isGeneratedFile(filePath: string, source?: string): boolean {
+  // Path heuristic — covers /generated/, /__generated__/, /.generated/ anywhere in the path.
+  if (/[/\\](?:generated|__generated__|\.generated)[/\\]/i.test(filePath)) return true;
+  // Leading `// @generated` or `/* @generated */` header — the standard convention enforced by many codegens.
+  if (source && /^\s*(?:\/\/|\/\*)\s*@generated\b/m.test(source.slice(0, 500))) return true;
+  return false;
 }
 
 /**
@@ -243,21 +282,33 @@ export function resetFsProject(): void {
 export function reviewFile(filePath: string, config?: ReviewConfig): ReviewReport {
   const source = readFileSync(filePath, 'utf-8');
 
+  // Resolve the effective tsconfig up-front so both the cache key and the ts-morph Project see the
+  // same path. If we only discovered it later inside reviewSourceWithProject, adding or changing the
+  // nearest tsconfig without editing the source would serve stale cached findings.
+  const effectiveConfig: ReviewConfig | undefined =
+    config?.tsConfigFilePath || filePath.endsWith('.kern') || filePath.endsWith('.py')
+      ? config
+      : { ...(config ?? {}), tsConfigFilePath: findTsConfig(dirname(filePath)) };
+
   let key: string | undefined;
-  if (config?.noCache !== true) {
-    key = computeCacheKey(source, config || {}, filePath);
+  if (effectiveConfig?.noCache !== true) {
+    key = computeCacheKey(source, effectiveConfig || {}, filePath);
     const cached = reviewCache.get(key);
     if (cached) return cached;
   }
 
   let report: ReviewReport;
   if (filePath.endsWith('.kern')) {
-    report = reviewKernSource(source, filePath, config);
+    report = reviewKernSource(source, filePath, effectiveConfig);
   } else if (filePath.endsWith('.py')) {
-    report = reviewPythonSource(source, filePath, config);
+    report = reviewPythonSource(source, filePath, effectiveConfig);
   } else {
     // Use filesystem-backed project for real files (enables TypeChecker)
-    report = reviewSourceWithProject(source, filePath, config);
+    report = reviewSourceWithProject(source, filePath, effectiveConfig);
+  }
+
+  if (isGeneratedFile(filePath, source)) {
+    report.generated = true;
   }
 
   if (key) {
@@ -273,7 +324,11 @@ export function reviewFile(filePath: string, config?: ReviewConfig): ReviewRepor
  */
 function reviewSourceWithProject(source: string, filePath: string, config?: ReviewConfig): ReviewReport {
   try {
-    const fsProject = getOrCreateFsProject();
+    // Prefer explicit override from caller; otherwise discover the nearest tsconfig from this file's directory.
+    // Discovering per-file (not cwd) lets monorepo reviews pick up the per-package tsconfig with real paths/jsx,
+    // instead of the root solution-style tsconfig that only lists `references`.
+    const tsConfigFilePath = config?.tsConfigFilePath ?? findTsConfig(dirname(filePath));
+    const fsProject = getOrCreateFsProject(tsConfigFilePath);
     // Add or update the file in the project
     let sf = fsProject.getSourceFile(filePath);
     if (sf) {
@@ -389,8 +444,19 @@ function reviewSourceInternal(
     allFindings.push(...nativeFindings);
   }
 
-  // Phase 8: TSC diagnostics — native TypeScript compiler errors
-  allFindings.push(...safePhase('tsc', () => runTSCDiagnostics(project), []));
+  // Phase 8: TSC diagnostics — native TypeScript compiler errors.
+  // runTSCDiagnostics returns findings for every file in the shared Project, so filter down to
+  // just the file we're reviewing — otherwise findings-for-project-file leaks into unrelated reports.
+  // ts-morph normalizes filePaths (absolute, posix separators) while callers may pass relative paths,
+  // so compare against the sourceFile's own normalized path rather than the raw argument.
+  // downgradeProjectLoadingErrors: we injected this file ad-hoc into a Project that carries the
+  // host tsconfig, so TS6059/TS6307 are our noise, not the user's bug.
+  const normalizedCurrentPath = sourceFile.getFilePath();
+  allFindings.push(
+    ...safePhase('tsc', () => runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true }), []).filter(
+      (f) => f.primarySpan.file === normalizedCurrentPath || f.primarySpan.file === filePath,
+    ),
+  );
 
   // Build confidence graph if any nodes have confidence props
   let confidenceGraph: ReviewReport['confidenceGraph'];
@@ -823,11 +889,26 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     // Use provided project, or build one with all graph files loaded
     let cgProject = graphOptions?.project;
     if (!cgProject) {
-      const { Project } = require('ts-morph') as typeof import('ts-morph');
+      // Fall back to discovering from the first graph file when the caller didn't supply a tsconfig.
+      const cgTsConfig =
+        graphOptions?.tsConfigFilePath ?? (graph.files[0] ? findTsConfig(dirname(graph.files[0].path)) : undefined);
       cgProject = new Project({
-        compilerOptions: { strict: true, target: 99, module: 99, moduleResolution: 100, skipLibCheck: true },
-        useInMemoryFileSystem: false,
+        tsConfigFilePath: cgTsConfig,
         skipAddingFilesFromTsConfig: true,
+        useInMemoryFileSystem: false,
+        compilerOptions: cgTsConfig
+          ? undefined
+          : {
+              strict: true,
+              target: 99,
+              module: 99,
+              moduleResolution: 100,
+              jsx: 4 /* Preserve */,
+              allowJs: true,
+              esModuleInterop: true,
+              allowSyntheticDefaultImports: true,
+              skipLibCheck: true,
+            },
       });
       for (const gf of graph.files) {
         try {

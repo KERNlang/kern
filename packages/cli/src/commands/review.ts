@@ -58,6 +58,7 @@ async function runReviewPipeline(
     fixMode: boolean;
     autofixMode: boolean;
     lintMode: boolean;
+    skipGenerated: boolean;
     exportKern: boolean;
     enforce: boolean;
     jsonOutput: boolean;
@@ -88,6 +89,7 @@ async function runReviewPipeline(
     fixMode,
     autofixMode,
     lintMode,
+    skipGenerated,
     exportKern,
     enforce,
     jsonOutput,
@@ -108,7 +110,7 @@ async function runReviewPipeline(
   let reports: ReviewReport[] = [];
 
   if (graphMode && entryFilePaths.length > 0) {
-    const graphOpts = { maxDepth, tsConfigFilePath: tsconfigPath ? resolve(tsconfigPath) : undefined };
+    const graphOpts = { maxDepth, tsConfigFilePath: tsconfigPath };
     const graph = resolveImportGraph(entryFilePaths, graphOpts);
     console.log(`  Graph: ${graph.totalFiles} files resolved (${graph.skipped} skipped, depth ${maxDepth})`);
     reports = reviewGraph(entryFilePaths, reviewConfig, graphOpts);
@@ -134,6 +136,15 @@ async function runReviewPipeline(
       } catch (e) {
         console.error(`  Review error in ${f}: ${(e as Error).message}`);
       }
+    }
+  }
+
+  if (skipGenerated) {
+    const before = reports.length;
+    reports = reports.filter((r) => !r.generated);
+    const dropped = before - reports.length;
+    if (dropped > 0) {
+      console.log(`  --skip-generated: filtered ${dropped} codegen report(s)`);
     }
   }
 
@@ -792,15 +803,43 @@ async function runReviewLocal(args: string[]): Promise<void> {
   const fixMode = hasFlag(args, '--fix');
   const autofixMode = hasFlag(args, '--autofix');
   const lintMode = hasFlag(args, '--lint');
+  const skipGenerated = hasFlag(args, '--skip-generated');
   const graphMode = hasFlag(args, '--graph') || recursive;
   const batchMode = hasFlag(args, '--batch');
   const maxDepth = Number(parseFlag(args, '--max-depth') ?? 3);
   const batchSize = Number(parseFlag(args, '--batch-size') ?? 20);
-  const tsconfigPath = parseFlag(args, '--tsconfig');
+  const explicitTsconfigPath = parseFlag(args, '--tsconfig');
+  // Only resolve when explicitly passed — per-file auto-discovery (via findTsConfig in the review engine)
+  // is usually right in monorepos, where the root tsconfig is a solution-only references file.
+  const tsconfigPath = explicitTsconfigPath ? resolve(explicitTsconfigPath) : undefined;
+  // Warn when the user explicitly points --tsconfig at a solution-only (references-only) file.
+  // ts-morph will load it but the resulting Project has no compilerOptions, which silently
+  // degrades review quality (no jsx, no paths, no strict). Tell the user before they waste a run.
+  if (tsconfigPath && existsSync(tsconfigPath)) {
+    try {
+      const raw = readFileSync(tsconfigPath, 'utf-8');
+      const stripped = raw.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+      const parsed = JSON.parse(stripped);
+      const hasCompilerOptions = parsed.compilerOptions && Object.keys(parsed.compilerOptions).length > 0;
+      const hasReferences = Array.isArray(parsed.references) && parsed.references.length > 0;
+      if (!hasCompilerOptions && hasReferences) {
+        console.warn(
+          `  Warning: --tsconfig ${tsconfigPath} is a solution-only file (references-only, no compilerOptions).`,
+        );
+        console.warn(
+          `  Review quality will be degraded (no jsx/paths/strict). Point --tsconfig at a per-package tsconfig instead, or omit --tsconfig to let kern-review discover the nearest one per file.`,
+        );
+      }
+    } catch {
+      // Bad JSON / unreadable — ts-morph will surface a clearer error during loading.
+    }
+  }
   const minCoverageArg = parseFlag(args, '--min-coverage');
   const minCoverage = minCoverageArg ? Number(minCoverageArg) : undefined;
   const maxComplexityArg = parseFlag(args, '--max-complexity');
   const maxComplexity = maxComplexityArg ? Number(maxComplexityArg) : 15;
+  const maxHandlerLinesArg = parseFlag(args, '--max-handler-lines');
+  const maxHandlerLines = maxHandlerLinesArg ? Number(maxHandlerLinesArg) : undefined;
   const maxErrorsArg = parseFlag(args, '--max-errors');
   const maxErrors = maxErrorsArg ? Number(maxErrorsArg) : 0;
   const maxWarningsArg = parseFlag(args, '--max-warnings');
@@ -1008,6 +1047,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
     minCoverage: minCoverage ?? 0,
     enforceTemplates: enforce,
     maxComplexity: maxComplexity ?? reviewCfg.review.maxComplexity,
+    maxHandlerLines,
     maxErrors,
     maxWarnings,
     target: reviewCfg.target,
@@ -1017,6 +1057,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
     rulesDirs: rulesDirs.length > 0 ? rulesDirs : undefined,
     strict,
     strictParse,
+    tsConfigFilePath: tsconfigPath,
   };
 
   // Load templates for review
@@ -1086,6 +1127,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
     fixMode,
     autofixMode,
     lintMode,
+    skipGenerated,
     exportKern,
     enforce,
     jsonOutput,

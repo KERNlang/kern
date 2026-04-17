@@ -11,4 +11,5 @@ docs/plans/
 .pnpm-store/
 .kern/
 .next/
+.ink-debug-*/
 claude.md
