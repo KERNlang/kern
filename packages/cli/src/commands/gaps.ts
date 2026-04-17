@@ -1,7 +1,7 @@
 import { readCoverageGaps } from '@kernlang/core';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { extname, join, relative, resolve } from 'path';
-import { withOptionalRemoteRepo } from '../remote-repo.js';
+import { type RemoteRepoContext, withOptionalRemoteRepo } from '../remote-repo.js';
 import { hasFlag, parseFlagOrNext } from '../shared.js';
 
 interface SourceGap {
@@ -137,8 +137,8 @@ function printHumanReport(report: GapsReport, rootDir: string, verbose: boolean)
   process.stdout.write(`\nTotal: ${total} gaps across ${report.scannedFiles} scanned files.\n`);
 }
 
-async function runGapsLocal(args: string[]): Promise<void> {
-  const rootDir = resolve(parseFlagOrNext(args, '--root') ?? process.cwd());
+async function runGapsLocal(args: string[], remoteContext?: RemoteRepoContext): Promise<void> {
+  const rootDir = resolve(parseFlagOrNext(args, '--root') ?? remoteContext?.rootDir ?? process.cwd());
   const gapDir = resolve(parseFlagOrNext(args, '--gap-dir') ?? join(rootDir, '.kern-gaps'));
   const json = hasFlag(args, '--json');
   const verbose = hasFlag(args, '--verbose', '-v');
@@ -154,7 +154,7 @@ async function runGapsLocal(args: string[]): Promise<void> {
 }
 
 export async function runGaps(args: string[]): Promise<void> {
-  await withOptionalRemoteRepo(args, { commandName: 'gaps' }, async () => {
-    await runGapsLocal(args);
+  await withOptionalRemoteRepo(args, { commandName: 'gaps' }, async (remoteContext) => {
+    await runGapsLocal(args, remoteContext);
   });
 }

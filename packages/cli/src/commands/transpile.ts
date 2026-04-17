@@ -290,9 +290,13 @@ export function printHelp(): void {
   console.log('  compile <dir|file> --outdir=<dir>             Compile .kern → .ts (core nodes)');
   console.log('  scan [--force] [--dry-run]                    Detect project → generate kern.config.ts');
   console.log('  init-templates [--force] [--dry-run]          Scan deps → scaffold template .kern files');
-  console.log('  gaps [--root=<dir>|--git=<url>] [options]     Report explicit KERN-GAP comments + coverage gaps');
+  console.log(
+    '  gaps [--root=<dir>|--git=<repo|github-url>] [options]  Report explicit KERN-GAP comments + coverage gaps',
+  );
   console.log('  import <file.ts|dir> [options]                Convert TypeScript source into starter .kern files');
-  console.log('  review <file.ts|dir> [--git=<url>] [options]  Static analysis, Cognitive Complexity & CI Gate');
+  console.log(
+    '  review <file.ts|dir> [--git=<repo|github-url>] [options]  Static analysis, Cognitive Complexity & CI Gate',
+  );
   console.log('  schema                                        Print the current KERN schema JSON');
   console.log('  evolve <dir|file> [options]                   Detect gaps → propose templates');
   console.log('  evolve:review [options]                       Review staged template proposals');
