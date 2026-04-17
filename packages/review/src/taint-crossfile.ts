@@ -5,10 +5,17 @@
  *   handler(req) → importedFn(req.body) → exec() in another file.
  */
 
+import { extname } from 'path';
 import type { Project, SourceFile } from 'ts-morph';
 import { classifyParams, detectSanitizers, findClosingParen, findTaintedSinks, propagateTaint } from './taint-regex.js';
 import type { CrossFileTaintResult, ExportedFunction, TaintSink, TaintSource } from './taint-types.js';
 import type { GraphResult, InferResult } from './types.js';
+
+const TS_MORPH_GRAPH_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs']);
+
+function supportsTsMorphGraphFile(filePath: string): boolean {
+  return TS_MORPH_GRAPH_EXTENSIONS.has(extname(filePath).toLowerCase());
+}
 
 // ── Export Map ───────────────────────────────────────────────────────────
 
@@ -122,6 +129,7 @@ export function buildExportMapFromGraph(project: Project, graph: GraphResult): M
   const exportMap = new Map<string, ExportedFunction>();
 
   for (const gf of graph.files) {
+    if (!supportsTsMorphGraphFile(gf.path)) continue;
     const sf = project.getSourceFile(gf.path);
     if (!sf) continue;
 
@@ -171,6 +179,7 @@ export function buildImportMapFromGraph(project: Project, graph: GraphResult): M
   const importMap = new Map<string, string>();
 
   for (const gf of graph.files) {
+    if (!supportsTsMorphGraphFile(gf.path)) continue;
     const sf = project.getSourceFile(gf.path);
     if (!sf) continue;
 
@@ -203,6 +212,7 @@ export function buildImportAliasMap(project: Project, graph: GraphResult): Map<s
   const aliasMap = new Map<string, string>();
 
   for (const gf of graph.files) {
+    if (!supportsTsMorphGraphFile(gf.path)) continue;
     const sf = project.getSourceFile(gf.path);
     if (!sf) continue;
 
@@ -303,6 +313,7 @@ export function analyzeTaintCrossFile(
   if (graph?.project) {
     for (const gf of graph.files) {
       if (iteratedFiles.has(gf.path)) continue;
+      if (!supportsTsMorphGraphFile(gf.path)) continue;
       const sf = graph.project.getSourceFile(gf.path);
       if (sf) extraFiles.push([gf.path, sf]);
     }
