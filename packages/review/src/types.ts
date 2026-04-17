@@ -157,6 +157,54 @@ export interface TemplateMatch {
   tsTokens?: number;
 }
 
+// ── Review Health ────────────────────────────────────────────────────────
+
+/**
+ * Which analysis subsystem an entry concerns. Kept stable — reporters and downstream
+ * consumers pattern-match on these strings.
+ */
+export type ReviewHealthSubsystem =
+  | 'eslint'
+  | 'tsc'
+  | 'call-graph'
+  | 'fs-project'
+  | 'rule-loader'
+  | 'concept-extraction';
+
+/**
+ * What happened to a subsystem during the review.
+ *   skipped — subsystem was not available and was cleanly skipped (e.g. optional peer dep missing)
+ *   fallback — subsystem partially ran but had to degrade (e.g. fs project fell back to in-memory)
+ *   error — subsystem failed outright; its findings are missing from this report
+ */
+export type ReviewHealthKind = 'skipped' | 'fallback' | 'error';
+
+/** A single note about a subsystem that didn't run at full fidelity. */
+export interface ReviewHealthEntry {
+  subsystem: ReviewHealthSubsystem;
+  kind: ReviewHealthKind;
+  /** Human-readable note — rendered in the report header */
+  message: string;
+  /** Error detail; only populated when KERN_DEBUG is set or the caller opts in */
+  detail?: string;
+}
+
+/**
+ * Aggregate subsystem status for a review. Present only when something degraded analysis —
+ * a clean run leaves this undefined so consumers that check for its presence can treat
+ * "no health field" as "all subsystems ran clean." Does NOT affect CI exit codes: `status`
+ * is observability, not gatekeeping.
+ */
+export interface ReviewHealth {
+  /**
+   *   ok — all subsystems ran clean (this case is normally represented by omitting the field entirely)
+   *   degraded — one or more subsystems fell back or were skipped; findings are still trustworthy within scope
+   *   partial — one or more subsystems failed outright; findings may be incomplete
+   */
+  status: 'ok' | 'degraded' | 'partial';
+  entries: ReviewHealthEntry[];
+}
+
 // ── Review Report ────────────────────────────────────────────────────────
 
 /** Full review report for a single file */
@@ -185,6 +233,11 @@ export interface ReviewReport {
   semanticChanges?: import('./semantic-diff.js').SemanticChange[];
   /** True when the reviewed file is codegen output (path matches /generated/ | /__generated__/ or has @generated header). */
   generated?: boolean;
+  /**
+   * Subsystem status — present only when something degraded analysis. Does NOT count
+   * toward findings-based CI gates; reporters surface it as a banner. See ReviewHealth.
+   */
+  health?: ReviewHealth;
 }
 
 /** Summary statistics for a review */

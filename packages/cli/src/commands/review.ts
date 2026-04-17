@@ -18,6 +18,7 @@ import {
   getRuleRegistry,
   isLLMAvailable,
   linkToNodes,
+  ReviewHealthBuilder,
   resolveImportGraph,
   reviewFile,
   reviewGraph,
@@ -660,8 +661,11 @@ async function runReviewPipeline(
   // Lint mode
   if (lintMode) {
     const filePaths = reports.map((r) => r.filePath).filter((f) => existsSync(f));
+    // Collect lint-phase health across runESLint + runTSCDiagnosticsFromPaths; merge onto every
+    // report at the end so "ESLint not installed" shows up in the review header, not just console.
+    const lintHealth = new ReviewHealthBuilder();
 
-    const eslintFindings: ReviewFinding[] = await runESLint(filePaths, process.cwd());
+    const eslintFindings: ReviewFinding[] = await runESLint(filePaths, process.cwd(), lintHealth);
     if (eslintFindings.length > 0) {
       console.log(`  ESLint: ${eslintFindings.length} findings`);
       for (const report of reports) {
@@ -673,7 +677,7 @@ async function runReviewPipeline(
       console.log('  ESLint: no findings (or not installed)');
     }
 
-    const tscFindings: ReviewFinding[] = runTSCDiagnosticsFromPaths(filePaths);
+    const tscFindings: ReviewFinding[] = runTSCDiagnosticsFromPaths(filePaths, lintHealth);
     if (tscFindings.length > 0) {
       console.log(`  tsc: ${tscFindings.length} findings`);
       for (const report of reports) {
@@ -683,6 +687,18 @@ async function runReviewPipeline(
       }
     } else {
       console.log('  tsc: no findings');
+    }
+
+    // Fold lint-phase health into each report's existing health (builder dedupes by key so merging
+    // a skipped-ESLint note on a report that already has an fs-project fallback keeps both).
+    const lintHealthBuilt = lintHealth.build();
+    if (lintHealthBuilt) {
+      for (const report of reports) {
+        const merged = new ReviewHealthBuilder();
+        for (const e of report.health?.entries ?? []) merged.note(e);
+        for (const e of lintHealthBuilt.entries) merged.note(e);
+        report.health = merged.build();
+      }
     }
   }
 

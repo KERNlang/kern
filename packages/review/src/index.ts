@@ -28,6 +28,7 @@ import { mineNorms } from './norm-miner.js';
 import { synthesizeObligations } from './obligations.js';
 import { runQualityRules } from './quality-rules.js';
 import { assignDefaultConfidence, calculateStats, sortAndDedup, sortFindings } from './reporter.js';
+import { debugDetail, ReviewHealthBuilder } from './review-health.js';
 import { loadBuiltinNativeRules, loadNativeRules } from './rule-loader.js';
 import { lintConfidenceGraph, lintMultiFileConfidenceGraph } from './rules/confidence.js';
 import { crossFileAsyncRule, deadExportRule } from './rules/dead-code.js';
@@ -113,6 +114,7 @@ export {
   sortAndDedup,
   sortFindings,
 } from './reporter.js';
+export { debugDetail, ReviewHealthBuilder } from './review-health.js';
 export { CONFIDENCE_RULES, lintConfidenceGraph, lintMultiFileConfidenceGraph } from './rules/confidence.js';
 export {
   actionMissingIdempotent,
@@ -183,6 +185,10 @@ export type {
   InferResult,
   ReviewConfig,
   ReviewFinding,
+  ReviewHealth,
+  ReviewHealthEntry,
+  ReviewHealthKind,
+  ReviewHealthSubsystem,
   ReviewReport,
   ReviewRule,
   ReviewStats,
@@ -337,9 +343,21 @@ function reviewSourceWithProject(source: string, filePath: string, config?: Revi
       sf = fsProject.addSourceFileAtPath(filePath);
     }
     return reviewSourceInternal(source, filePath, config, fsProject, sf);
-  } catch {
-    // Fallback to in-memory project if fs project fails
-    return reviewSource(source, filePath, config);
+  } catch (err) {
+    // Fs project failed — fall back to in-memory project, but record the degradation on the
+    // report so callers can tell this file was reviewed without full type resolution.
+    const report = reviewSource(source, filePath, config);
+    const health = new ReviewHealthBuilder();
+    for (const e of report.health?.entries ?? []) health.note(e);
+    health.noteKind(
+      'fs-project',
+      'fallback',
+      'Fell back to in-memory ts-morph project — cross-module type resolution is limited for this file',
+      debugDetail(err),
+    );
+    if (process.env.KERN_DEBUG) console.error('fs-project failure, using in-memory fallback:', (err as Error).message);
+    report.health = health.build();
+    return report;
   }
 }
 
@@ -739,6 +757,9 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
   const graph = resolveImportGraph(entryFiles, graphOptions);
   const entrySet = new Set(graph.entryFiles);
   const reports: ReviewReport[] = [];
+  // Graph-wide subsystem status — one entry per (subsystem, kind) across the whole run.
+  // Attached to every report on return so any single ReviewReport is self-describing.
+  const graphHealth = new ReviewHealthBuilder();
 
   // Build file context map — every file gets import chain awareness
   const fileContextMap = buildFileContextMap(graph);
@@ -849,8 +870,15 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
         const sf = project.createSourceFile(filePath, source);
         allConcepts.set(filePath, extractTsConcepts(sf, filePath));
       }
-    } catch {
-      // Skip files that fail concept extraction
+    } catch (err) {
+      // Per-file failure — record once at graph level (builder dedupes), then move on.
+      graphHealth.noteKind(
+        'concept-extraction',
+        'fallback',
+        'One or more files failed concept extraction — boundary/effect rules may be incomplete',
+        debugDetail(err),
+      );
+      if (process.env.KERN_DEBUG) console.error(`concept extraction failed for ${filePath}:`, (err as Error).message);
     }
   }
 
@@ -928,8 +956,16 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
       const asyncFindings = crossFileAsyncRule(callGraph, report.filePath);
       report.findings.push(...asyncFindings);
     }
-  } catch {
-    // Call graph build failure should not crash the review pipeline
+  } catch (err) {
+    // Call graph build failure must not crash the review pipeline — surface the failure on
+    // health so dead-export / cross-file-async rules aren't silently missing from the report.
+    graphHealth.noteKind(
+      'call-graph',
+      'error',
+      'Call graph build failed — dead exports and cross-file async checks are unavailable',
+      debugDetail(err),
+    );
+    if (process.env.KERN_DEBUG) console.error('call graph build error:', (err as Error).message);
   }
 
   // Re-run suppression + dedup on all reports (cross-file findings were injected after initial suppression)
@@ -949,6 +985,16 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     } catch {
       report.findings = sortAndDedup(report.findings);
     }
+  }
+
+  // Merge graph-level health into every report. Each report may already carry per-file health
+  // (e.g. fs-project fallback); fold those entries into the graph builder so every report sees
+  // the complete, deduped picture before we emit.
+  for (const report of reports) {
+    const merged = new ReviewHealthBuilder();
+    for (const e of report.health?.entries ?? []) merged.note(e);
+    for (const e of graphHealth.build()?.entries ?? []) merged.note(e);
+    report.health = merged.build();
   }
 
   return reports;

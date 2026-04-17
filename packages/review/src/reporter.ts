@@ -234,6 +234,18 @@ export function formatReport(report: ReviewReport, config?: ReviewConfig): strin
   lines.push(`  @kernlang/review — analyzing ${report.filePath}`);
   lines.push('');
 
+  // Render health banner BEFORE findings. Users need to know which subsystems skipped/fell
+  // back before they interpret "0 findings" as "the file is clean" — a clean report and a
+  // report where half the checks didn't run used to look identical in the CLI.
+  if (report.health && report.health.entries.length > 0) {
+    const label = report.health.status === 'partial' ? 'PARTIAL' : 'DEGRADED';
+    lines.push(`  [${label}] Review ran in ${report.health.status} mode:`);
+    for (const entry of report.health.entries) {
+      lines.push(`    - ${entry.subsystem} (${entry.kind}): ${entry.message}`);
+    }
+    lines.push('');
+  }
+
   if (report.inferred.length > 0) {
     lines.push(`  KERN-expressible (${report.inferred.length} constructs):`);
     for (const r of report.inferred) {
