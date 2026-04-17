@@ -89,6 +89,14 @@ export function computeCacheKey(fileContent: string, config: ReviewConfig, fileP
   hash.update(JSON.stringify(serializeConfigForCache(config, filePath)));
   hash.update(filePath);
   hashRelativeImportTree(hash, filePath, fileContent, new Set([filePath]), 0);
+  // Include the host tsconfig's path + content in the cache key so findings are invalidated when
+  // the user edits (or adds) a tsconfig that changes compilerOptions like `jsx`, `paths`, `strict`.
+  // Monorepos typically put shared options in a tsconfig.base.json that the per-package configs
+  // `extends`, so walk the extends chain and hash every file along the way.
+  if (config.tsConfigFilePath) {
+    hashTsConfigChain(hash, config.tsConfigFilePath);
+  }
+
   // Include custom rule file contents in cache key to avoid stale hits when rules change
   if (config.rulesDirs) {
     for (const dir of config.rulesDirs) {
@@ -138,6 +146,47 @@ function serializeConfigForCache(config: ReviewConfig, filePath: string): Record
   }
 
   return serialized;
+}
+
+function hashTsConfigChain(
+  hash: ReturnType<typeof createHash>,
+  tsconfigPath: string,
+  seen: Set<string> = new Set(),
+  depth = 0,
+): void {
+  if (depth > 10) return; // Cycle / pathological chain guard.
+  const absPath = resolve(tsconfigPath);
+  if (seen.has(absPath)) return;
+  seen.add(absPath);
+  if (!existsSync(absPath)) return;
+  hash.update(absPath);
+  let content = '';
+  try {
+    content = readFileSync(absPath, 'utf-8');
+    hash.update(content);
+  } catch {
+    return;
+  }
+  // Follow the `extends` field so shared base configs participate in invalidation. Stripping
+  // comments with a naive regex is good enough for the extends field — tsconfigs rarely hide a
+  // string like `"extends"` inside a comment, and JSONC edge cases are acceptable loss here.
+  try {
+    const stripped = content.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
+    const parsed = JSON.parse(stripped);
+    const extended = parsed?.extends;
+    const extendsList = Array.isArray(extended) ? extended : typeof extended === 'string' ? [extended] : [];
+    for (const raw of extendsList) {
+      if (typeof raw !== 'string') continue;
+      // Resolve relative to the current tsconfig; non-relative specifiers (package refs) aren't walked —
+      // they live in node_modules and would require full resolution, which is overkill for cache invalidation.
+      const candidate = raw.startsWith('.') ? resolve(dirname(absPath), raw) : undefined;
+      if (!candidate) continue;
+      const withExt = candidate.endsWith('.json') ? candidate : `${candidate}.json`;
+      hashTsConfigChain(hash, withExt, seen, depth + 1);
+    }
+  } catch {
+    // Malformed JSONC — skip extends walk; already hashed the raw content above.
+  }
 }
 
 function hashRelativeImportTree(

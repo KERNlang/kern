@@ -21,7 +21,7 @@ import { dirname, resolve } from 'path';
  * Walk up from a directory to find the nearest tsconfig.json.
  * Returns the path or undefined if not found.
  */
-function findTsConfig(startDir: string): string | undefined {
+export function findTsConfig(startDir: string): string | undefined {
   let dir = startDir;
   for (let i = 0; i < 20; i++) {
     const candidate = resolve(dir, 'tsconfig.json');

@@ -78,11 +78,21 @@ function categorizeESLintRule(ruleId: string): ReviewFinding['category'] {
 
 // ── tsc Diagnostics via ts-morph ─────────────────────────────────────────
 
+export interface RunTSCDiagnosticsOptions {
+  /**
+   * When true, downgrade TS6059 ("file not listed in project") and TS6307 ("file not under rootDir")
+   * from error to info. Set this only for callers that inject ad-hoc files into a Project that carries
+   * a host tsconfig — those two codes then fire as infrastructure noise, not user bugs. The --lint
+   * path must leave this false so a real tsconfig misconfiguration still surfaces as an error.
+   */
+  downgradeProjectLoadingErrors?: boolean;
+}
+
 /**
  * Run TypeScript compiler diagnostics using ts-morph's existing Project.
  * Reuses the Project already created by the inferrer — no extra compilation.
  */
-export function runTSCDiagnostics(project: Project): ReviewFinding[] {
+export function runTSCDiagnostics(project: Project, options: RunTSCDiagnosticsOptions = {}): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
   try {
@@ -124,10 +134,19 @@ export function runTSCDiagnostics(project: Project): ReviewFinding[] {
       const message = diag.getMessageText();
       const messageStr = typeof message === 'string' ? message : message.getMessageText();
 
+      // ts6059 / ts6307 fire both for real tsconfig misconfigurations (error) and for kern-review's
+      // ad-hoc file injection into a host tsconfig (noise). The caller decides which mode we're in
+      // via options.downgradeProjectLoadingErrors.
+      //   ts6059 — "File is not listed within the file list of project"
+      //   ts6307 — "File is not under 'rootDir'"
+      const isLoadingNoise = code === 6059 || code === 6307;
+      const effectiveSeverity: ReviewFinding['severity'] =
+        isLoadingNoise && options.downgradeProjectLoadingErrors ? 'info' : severity;
+
       findings.push({
         source: 'tsc',
         ruleId: `ts${code}`,
-        severity,
+        severity: effectiveSeverity,
         category: 'type',
         message: messageStr,
         primarySpan: {

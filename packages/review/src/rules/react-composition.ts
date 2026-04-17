@@ -408,7 +408,16 @@ function resolveImportedSourceFile(
   } catch {
     return undefined;
   }
-  if (resolved) return resolved;
+  if (resolved) {
+    // The main Project caches resolved source files across reviewFile calls. If the file on disk
+    // changed since the last review (watch mode, test re-runs), refresh it so the rule sees fresh content.
+    try {
+      resolved.refreshFromFileSystemSync();
+    } catch {
+      // File may have been deleted — caller will decide.
+    }
+    return resolved;
+  }
 
   const spec = importDecl.getModuleSpecifierValue();
   if (!spec.startsWith('.')) return undefined;

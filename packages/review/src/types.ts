@@ -183,6 +183,8 @@ export interface ReviewReport {
   obligations?: import('./obligations.js').ProofObligation[];
   /** Semantic changes between old and new versions (present in --diff mode) */
   semanticChanges?: import('./semantic-diff.js').SemanticChange[];
+  /** True when the reviewed file is codegen output (path matches /generated/ | /__generated__/ or has @generated header). */
+  generated?: boolean;
 }
 
 /** Summary statistics for a review */
@@ -233,6 +235,8 @@ export interface ReviewConfig {
   enforceTemplates?: boolean;
   /** Maximum cognitive complexity allowed (default: 15) */
   maxComplexity?: number;
+  /** Maximum handler-body line count before handler-size fires (default: 30) */
+  maxHandlerLines?: number;
   /** Maximum errors allowed in CI (default: 0) */
   maxErrors?: number;
   /** Maximum warnings allowed in CI (default: undefined - no limit) */
@@ -259,6 +263,8 @@ export interface ReviewConfig {
   fileContextMap?: Map<string, FileContext>;
   /** Pre-computed file graph map from import graph (populated by reviewGraph) */
   graphFileMap?: Map<string, GraphFile>;
+  /** Path to host project's tsconfig.json — loaded into the ts-morph Project so jsx/paths/lib/allowJs match the real build. */
+  tsConfigFilePath?: string;
 }
 
 // ── File Context (import chain awareness) ───────────────────────────────

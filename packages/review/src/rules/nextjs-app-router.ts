@@ -454,7 +454,16 @@ function resolveImportSourceFile(
   } catch {
     return undefined;
   }
-  if (resolvedSourceFile) return resolvedSourceFile;
+  if (resolvedSourceFile) {
+    // The shared fsProject caches resolved source files across reviewFile calls; refresh so edits
+    // in the imported file (watch mode, repeated reviewFile invocations) are picked up.
+    try {
+      resolvedSourceFile.refreshFromFileSystemSync();
+    } catch {
+      // File may have been deleted — leave the (now-stale) reference; caller decides what to do.
+    }
+    return resolvedSourceFile;
+  }
 
   const specifier = importDecl.getModuleSpecifierValue();
   if (!specifier.startsWith('.')) return undefined;
@@ -485,6 +494,10 @@ function resolveImportSourceFile(
             target: 99,
             module: 99,
             moduleResolution: 100,
+            jsx: 4 /* Preserve */,
+            allowJs: true,
+            esModuleInterop: true,
+            allowSyntheticDefaultImports: true,
           },
         }).addSourceFileAtPath(fullPath);
       } catch {
