@@ -30,6 +30,7 @@
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
   },
   "dependencies": {
+    "@kernlang/codemod": "workspace:*",
     "@kernlang/core": "workspace:*",
     "@kernlang/evolve": "workspace:*",
     "@kernlang/express": "workspace:*",

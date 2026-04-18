@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { runApply } from './commands/apply.js';
 import { runCompile } from './commands/compile.js';
 import { runConfidence } from './commands/confidence.js';
 import { runDev } from './commands/dev.js';
@@ -27,6 +28,7 @@ const COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
   'init-templates': runInitTemplates,
   import: runImport,
   review: runReview,
+  apply: runApply,
   confidence: runConfidence,
   schema: runSchema,
 };
