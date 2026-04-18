@@ -28,6 +28,7 @@ import { mineNorms } from './norm-miner.js';
 import { synthesizeObligations } from './obligations.js';
 import { runQualityRules } from './quality-rules.js';
 import { assignDefaultConfidence, calculateStats, sortAndDedup, sortFindings } from './reporter.js';
+import { debugDetail, ReviewHealthBuilder } from './review-health.js';
 import { loadBuiltinNativeRules, loadNativeRules } from './rule-loader.js';
 import { lintConfidenceGraph, lintMultiFileConfidenceGraph } from './rules/confidence.js';
 import { crossFileAsyncRule, deadExportRule } from './rules/dead-code.js';
@@ -113,6 +114,7 @@ export {
   sortAndDedup,
   sortFindings,
 } from './reporter.js';
+export { debugDetail, ReviewHealthBuilder } from './review-health.js';
 export { CONFIDENCE_RULES, lintConfidenceGraph, lintMultiFileConfidenceGraph } from './rules/confidence.js';
 export {
   actionMissingIdempotent,
@@ -183,6 +185,10 @@ export type {
   InferResult,
   ReviewConfig,
   ReviewFinding,
+  ReviewHealth,
+  ReviewHealthEntry,
+  ReviewHealthKind,
+  ReviewHealthSubsystem,
   ReviewReport,
   ReviewRule,
   ReviewStats,
@@ -263,7 +269,55 @@ export function resetFsProject(): void {
   _fsProject = undefined;
   _fsProjectTsConfig = undefined;
   _fsProjectTsConfigMtimeMs = undefined;
+  _fsProjectSourceMtimes.clear();
 }
+
+/**
+ * Refresh stale source files in the shared fs Project from disk.
+ *
+ * The singleton caches every source file it has ever loaded — including transitive imports
+ * followed by cross-file taint and call-graph analysis. In a long-running process (watch mode,
+ * IDE extension, repeated CLI invocations) those cached ASTs go stale whenever the underlying
+ * file changes on disk outside our own `replaceWithText` path. Cross-file findings would then
+ * reflect the OLD imported source, not the current one.
+ *
+ * This helper is the lightweight counterpart to resetFsProject(): instead of throwing the
+ * whole Project away, it stat-checks each loaded source file and calls ts-morph's
+ * refreshFromFileSystemSync only on the ones whose mtime moved. Use it between reviews in
+ * watch-mode callers. One-shot CLI runs don't need it — the process exits before stale
+ * reads matter.
+ *
+ * Returns the number of source files actually refreshed, so callers can log "reloaded N
+ * files" or decide not to re-review when the count is zero.
+ */
+export function refreshFsProjectFromDisk(): number {
+  if (!_fsProject) return 0;
+  let refreshed = 0;
+  for (const sf of _fsProject.getSourceFiles()) {
+    const path = sf.getFilePath();
+    let diskMtime: number;
+    try {
+      diskMtime = statSync(path).mtimeMs;
+    } catch {
+      // File deleted on disk since it was loaded — skip. ts-morph will raise on next access.
+      continue;
+    }
+    const lastKnown = _fsProjectSourceMtimes.get(path);
+    if (lastKnown === diskMtime) continue;
+    try {
+      sf.refreshFromFileSystemSync();
+      _fsProjectSourceMtimes.set(path, diskMtime);
+      refreshed++;
+    } catch {
+      // Refresh can fail for unreadable/unparseable files — leave the stale copy rather than
+      // hard-crashing the review. The next resetFsProject() call will clear it either way.
+    }
+  }
+  return refreshed;
+}
+
+/** Per-file mtimes tracked for the shared fs Project — see refreshFsProjectFromDisk. */
+const _fsProjectSourceMtimes = new Map<string, number>();
 
 /** True when the file is codegen output — detected via common path patterns or a @generated header. */
 export function isGeneratedFile(filePath: string, source?: string): boolean {
@@ -336,10 +390,30 @@ function reviewSourceWithProject(source: string, filePath: string, config?: Revi
     } else {
       sf = fsProject.addSourceFileAtPath(filePath);
     }
+    // Track the disk mtime we just synced with — refreshFsProjectFromDisk uses this to decide
+    // whether the cached AST has drifted from disk on later calls. Best-effort: if stat fails
+    // we simply don't record a mtime (refresh will unconditionally refresh such files later).
+    try {
+      _fsProjectSourceMtimes.set(filePath, statSync(filePath).mtimeMs);
+    } catch {
+      // File may have been deleted between read and stat; leave mtime unrecorded.
+    }
     return reviewSourceInternal(source, filePath, config, fsProject, sf);
-  } catch {
-    // Fallback to in-memory project if fs project fails
-    return reviewSource(source, filePath, config);
+  } catch (err) {
+    // Fs project failed — fall back to in-memory project, but record the degradation on the
+    // report so callers can tell this file was reviewed without full type resolution.
+    const report = reviewSource(source, filePath, config);
+    const health = new ReviewHealthBuilder();
+    for (const e of report.health?.entries ?? []) health.note(e);
+    health.noteKind(
+      'fs-project',
+      'fallback',
+      'Fell back to in-memory ts-morph project — cross-module type resolution is limited for this file',
+      debugDetail(err),
+    );
+    if (process.env.KERN_DEBUG) console.error('fs-project failure, using in-memory fallback:', (err as Error).message);
+    report.health = health.build();
+    return report;
   }
 }
 
@@ -739,6 +813,9 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
   const graph = resolveImportGraph(entryFiles, graphOptions);
   const entrySet = new Set(graph.entryFiles);
   const reports: ReviewReport[] = [];
+  // Graph-wide subsystem status — one entry per (subsystem, kind) across the whole run.
+  // Attached to every report on return so any single ReviewReport is self-describing.
+  const graphHealth = new ReviewHealthBuilder();
 
   // Build file context map — every file gets import chain awareness
   const fileContextMap = buildFileContextMap(graph);
@@ -849,8 +926,15 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
         const sf = project.createSourceFile(filePath, source);
         allConcepts.set(filePath, extractTsConcepts(sf, filePath));
       }
-    } catch {
-      // Skip files that fail concept extraction
+    } catch (err) {
+      // Per-file failure — record once at graph level (builder dedupes), then move on.
+      graphHealth.noteKind(
+        'concept-extraction',
+        'fallback',
+        'One or more files failed concept extraction — boundary/effect rules may be incomplete',
+        debugDetail(err),
+      );
+      if (process.env.KERN_DEBUG) console.error(`concept extraction failed for ${filePath}:`, (err as Error).message);
     }
   }
 
@@ -928,8 +1012,16 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
       const asyncFindings = crossFileAsyncRule(callGraph, report.filePath);
       report.findings.push(...asyncFindings);
     }
-  } catch {
-    // Call graph build failure should not crash the review pipeline
+  } catch (err) {
+    // Call graph build failure must not crash the review pipeline — surface the failure on
+    // health so dead-export / cross-file-async rules aren't silently missing from the report.
+    graphHealth.noteKind(
+      'call-graph',
+      'error',
+      'Call graph build failed — dead exports and cross-file async checks are unavailable',
+      debugDetail(err),
+    );
+    if (process.env.KERN_DEBUG) console.error('call graph build error:', (err as Error).message);
   }
 
   // Re-run suppression + dedup on all reports (cross-file findings were injected after initial suppression)
@@ -949,6 +1041,16 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     } catch {
       report.findings = sortAndDedup(report.findings);
     }
+  }
+
+  // Merge graph-level health into every report. Each report may already carry per-file health
+  // (e.g. fs-project fallback); fold those entries into the graph builder so every report sees
+  // the complete, deduped picture before we emit.
+  for (const report of reports) {
+    const merged = new ReviewHealthBuilder();
+    for (const e of report.health?.entries ?? []) merged.note(e);
+    for (const e of graphHealth.build()?.entries ?? []) merged.note(e);
+    report.health = merged.build();
   }
 
   return reports;

@@ -36,6 +36,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@kernlang/codemod':
+        specifier: workspace:*
+        version: link:../codemod
       '@kernlang/core':
         specifier: workspace:*
         version: link:../core
@@ -78,6 +81,18 @@ importers:
       jiti:
         specifier: ^2.6.1
         version: 2.6.1
+
+  packages/codemod:
+    dependencies:
+      '@kernlang/core':
+        specifier: workspace:*
+        version: link:../core
+      '@kernlang/review':
+        specifier: workspace:*
+        version: link:../review
+      ts-morph:
+        specifier: ^27.0.0
+        version: 27.0.2
 
   packages/compat:
     dependencies:

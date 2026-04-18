@@ -1,0 +1,39 @@
+{
+  "name": "@kernlang/codemod",
+  "version": "3.2.3",
+  "description": "Kern Codemod — apply kern-review TemplateMatch results to rewrite TS into KERN-template-backed TS",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "kern",
+    "codemod",
+    "refactor",
+    "typescript",
+    "ai"
+  ],
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KERNlang/kern",
+    "directory": "packages/codemod"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
+  },
+  "dependencies": {
+    "@kernlang/core": "workspace:*",
+    "@kernlang/review": "workspace:*",
+    "ts-morph": "^27.0.0"
+  }
+}

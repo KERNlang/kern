@@ -13,6 +13,7 @@
     { "path": "packages/compat" },
     { "path": "packages/evolve" },
     { "path": "packages/review" },
+    { "path": "packages/codemod" },
     { "path": "packages/review-python" },
     { "path": "packages/review-mcp" },
     { "path": "packages/vue" },

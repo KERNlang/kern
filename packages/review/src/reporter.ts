@@ -234,6 +234,18 @@ export function formatReport(report: ReviewReport, config?: ReviewConfig): strin
   lines.push(`  @kernlang/review — analyzing ${report.filePath}`);
   lines.push('');
 
+  // Render health banner BEFORE findings. Users need to know which subsystems skipped/fell
+  // back before they interpret "0 findings" as "the file is clean" — a clean report and a
+  // report where half the checks didn't run used to look identical in the CLI.
+  if (report.health && report.health.entries.length > 0) {
+    const label = report.health.status === 'partial' ? 'PARTIAL' : 'DEGRADED';
+    lines.push(`  [${label}] Review ran in ${report.health.status} mode:`);
+    for (const entry of report.health.entries) {
+      lines.push(`    - ${entry.subsystem} (${entry.kind}): ${entry.message}`);
+    }
+    lines.push('');
+  }
+
   if (report.inferred.length > 0) {
     lines.push(`  KERN-expressible (${report.inferred.length} constructs):`);
     for (const r of report.inferred) {
@@ -402,9 +414,56 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
           },
         },
         results: [] as any[],
+        // SARIF spec 3.20: invocations describe tool-execution events. toolExecutionNotifications
+        // carries messages FROM the tool (not findings ABOUT the code), which is exactly where
+        // "ESLint skipped" / "call graph failed" belong. Without this, enterprise consumers of
+        // SARIF (GitHub code scanning, Azure DevOps) see 0 results and assume "clean" when the
+        // truth is "half the analyzers didn't run."
+        invocations: [
+          {
+            executionSuccessful: true,
+            toolExecutionNotifications: [] as any[],
+          },
+        ],
       },
     ],
   };
+
+  // Aggregate + dedupe health entries across every report. The in-process ReviewHealthBuilder
+  // already dedupes within one review, but reports from different reviewFile calls can each
+  // carry their own builders — dedupe again here by (subsystem, kind) so SARIF output emits one
+  // notification per distinct failure mode, not one per report.
+  const healthSeen = new Set<string>();
+  let anyError = false;
+  for (const report of reports) {
+    for (const entry of report.health?.entries ?? []) {
+      const key = `${entry.subsystem}:${entry.kind}`;
+      if (healthSeen.has(key)) continue;
+      healthSeen.add(key);
+      // SARIF notification levels map to health kinds:
+      //   skipped  -> note     (optional subsystem absent — nothing wrong)
+      //   fallback -> warning  (analysis degraded but still ran)
+      //   error    -> error    (subsystem failed outright; findings may be missing)
+      const level = entry.kind === 'error' ? 'error' : entry.kind === 'fallback' ? 'warning' : 'note';
+      if (entry.kind === 'error') anyError = true;
+      sarif.runs[0].invocations[0].toolExecutionNotifications.push({
+        descriptor: { id: `kern/health/${entry.subsystem}` },
+        level,
+        message: { text: entry.message },
+        properties: {
+          'kern/subsystem': entry.subsystem,
+          'kern/kind': entry.kind,
+          ...(entry.detail !== undefined ? { 'kern/detail': entry.detail } : {}),
+        },
+      });
+    }
+  }
+  // Spec 3.20.6: executionSuccessful=false means the tool raised any error-level notification.
+  // Setting this correctly lets CI systems distinguish "tool ran cleanly, zero findings" from
+  // "tool errored on a subsystem, zero findings from that subsystem don't mean safe code."
+  if (anyError) {
+    sarif.runs[0].invocations[0].executionSuccessful = false;
+  }
 
   const rules = new Set<string>();
   const suppressedSet = new Set(suppressedFindings?.map((f) => `${f.primarySpan.file}:${f.fingerprint}`) ?? []);

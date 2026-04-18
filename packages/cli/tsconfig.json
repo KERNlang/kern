@@ -15,6 +15,7 @@
     { "path": "../terminal" },
     { "path": "../vue" },
     { "path": "../review" },
+    { "path": "../codemod" },
     { "path": "../review-mcp" },
     { "path": "../metrics" },
     { "path": "../evolve" }
