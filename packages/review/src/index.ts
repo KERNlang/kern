@@ -269,7 +269,55 @@ export function resetFsProject(): void {
   _fsProject = undefined;
   _fsProjectTsConfig = undefined;
   _fsProjectTsConfigMtimeMs = undefined;
+  _fsProjectSourceMtimes.clear();
 }
+
+/**
+ * Refresh stale source files in the shared fs Project from disk.
+ *
+ * The singleton caches every source file it has ever loaded — including transitive imports
+ * followed by cross-file taint and call-graph analysis. In a long-running process (watch mode,
+ * IDE extension, repeated CLI invocations) those cached ASTs go stale whenever the underlying
+ * file changes on disk outside our own `replaceWithText` path. Cross-file findings would then
+ * reflect the OLD imported source, not the current one.
+ *
+ * This helper is the lightweight counterpart to resetFsProject(): instead of throwing the
+ * whole Project away, it stat-checks each loaded source file and calls ts-morph's
+ * refreshFromFileSystemSync only on the ones whose mtime moved. Use it between reviews in
+ * watch-mode callers. One-shot CLI runs don't need it — the process exits before stale
+ * reads matter.
+ *
+ * Returns the number of source files actually refreshed, so callers can log "reloaded N
+ * files" or decide not to re-review when the count is zero.
+ */
+export function refreshFsProjectFromDisk(): number {
+  if (!_fsProject) return 0;
+  let refreshed = 0;
+  for (const sf of _fsProject.getSourceFiles()) {
+    const path = sf.getFilePath();
+    let diskMtime: number;
+    try {
+      diskMtime = statSync(path).mtimeMs;
+    } catch {
+      // File deleted on disk since it was loaded — skip. ts-morph will raise on next access.
+      continue;
+    }
+    const lastKnown = _fsProjectSourceMtimes.get(path);
+    if (lastKnown === diskMtime) continue;
+    try {
+      sf.refreshFromFileSystemSync();
+      _fsProjectSourceMtimes.set(path, diskMtime);
+      refreshed++;
+    } catch {
+      // Refresh can fail for unreadable/unparseable files — leave the stale copy rather than
+      // hard-crashing the review. The next resetFsProject() call will clear it either way.
+    }
+  }
+  return refreshed;
+}
+
+/** Per-file mtimes tracked for the shared fs Project — see refreshFsProjectFromDisk. */
+const _fsProjectSourceMtimes = new Map<string, number>();
 
 /** True when the file is codegen output — detected via common path patterns or a @generated header. */
 export function isGeneratedFile(filePath: string, source?: string): boolean {
@@ -341,6 +389,14 @@ function reviewSourceWithProject(source: string, filePath: string, config?: Revi
       sf.replaceWithText(source);
     } else {
       sf = fsProject.addSourceFileAtPath(filePath);
+    }
+    // Track the disk mtime we just synced with — refreshFsProjectFromDisk uses this to decide
+    // whether the cached AST has drifted from disk on later calls. Best-effort: if stat fails
+    // we simply don't record a mtime (refresh will unconditionally refresh such files later).
+    try {
+      _fsProjectSourceMtimes.set(filePath, statSync(filePath).mtimeMs);
+    } catch {
+      // File may have been deleted between read and stat; leave mtime unrecorded.
     }
     return reviewSourceInternal(source, filePath, config, fsProject, sf);
   } catch (err) {
