@@ -1,5 +1,5 @@
 import { runESLint, runTSCDiagnosticsFromPaths } from '../src/external-tools.js';
-import { formatReport } from '../src/reporter.js';
+import { formatReport, formatSARIF } from '../src/reporter.js';
 import { ReviewHealthBuilder } from '../src/review-health.js';
 import type { ReviewReport } from '../src/types.js';
 
@@ -109,5 +109,82 @@ describe('formatReport health banner', () => {
     const out = formatReport(baseReport({ health: builder.build() }));
     expect(out).toContain('[PARTIAL]');
     expect(out).toContain('call-graph (error)');
+  });
+});
+
+describe('formatSARIF health export', () => {
+  const baseReport = (overrides: Partial<ReviewReport> = {}): ReviewReport => ({
+    filePath: '/tmp/example.ts',
+    inferred: [],
+    templateMatches: [],
+    findings: [],
+    stats: {
+      totalLines: 0,
+      coveredLines: 0,
+      coveragePct: 0,
+      totalTsTokens: 0,
+      totalKernTokens: 0,
+      reductionPct: 0,
+      constructCount: 0,
+    },
+    ...overrides,
+  });
+
+  it('emits an empty toolExecutionNotifications array when no health entries exist', () => {
+    const sarif = JSON.parse(formatSARIF([baseReport()]));
+    const notifications = sarif.runs[0].invocations[0].toolExecutionNotifications;
+    expect(Array.isArray(notifications)).toBe(true);
+    expect(notifications.length).toBe(0);
+    // Clean run — executionSuccessful stays true so CI doesn't see a false-positive tool failure.
+    expect(sarif.runs[0].invocations[0].executionSuccessful).toBe(true);
+  });
+
+  it('maps health kinds to SARIF notification levels', () => {
+    const builder = new ReviewHealthBuilder();
+    builder.noteKind('eslint', 'skipped', 'eslint not installed');
+    builder.noteKind('fs-project', 'fallback', 'fell back to in-memory');
+    builder.noteKind('call-graph', 'error', 'call graph failed');
+    const sarif = JSON.parse(formatSARIF([baseReport({ health: builder.build() })]));
+    const notifications = sarif.runs[0].invocations[0].toolExecutionNotifications;
+    const byLevel = new Map(
+      notifications.map((n: { level: string; descriptor: { id: string } }) => [n.level, n.descriptor.id]),
+    );
+    expect(byLevel.get('note')).toBe('kern/health/eslint');
+    expect(byLevel.get('warning')).toBe('kern/health/fs-project');
+    expect(byLevel.get('error')).toBe('kern/health/call-graph');
+  });
+
+  it('flips executionSuccessful to false when any notification is error-level', () => {
+    const builder = new ReviewHealthBuilder();
+    builder.noteKind('call-graph', 'error', 'failed');
+    const sarif = JSON.parse(formatSARIF([baseReport({ health: builder.build() })]));
+    expect(sarif.runs[0].invocations[0].executionSuccessful).toBe(false);
+  });
+
+  it('dedupes health entries across multiple reports', () => {
+    // Two reports both carrying the same (subsystem, kind) health entry must collapse to one
+    // SARIF notification — otherwise CI sees N copies of "ESLint skipped" for N reviewed files.
+    const builder1 = new ReviewHealthBuilder();
+    builder1.noteKind('eslint', 'skipped', 'eslint not installed');
+    const builder2 = new ReviewHealthBuilder();
+    builder2.noteKind('eslint', 'skipped', 'eslint not installed');
+    const sarif = JSON.parse(
+      formatSARIF([
+        baseReport({ filePath: '/tmp/a.ts', health: builder1.build() }),
+        baseReport({ filePath: '/tmp/b.ts', health: builder2.build() }),
+      ]),
+    );
+    const notifications = sarif.runs[0].invocations[0].toolExecutionNotifications;
+    expect(notifications.length).toBe(1);
+  });
+
+  it('preserves debug detail in notification properties when set', () => {
+    const builder = new ReviewHealthBuilder();
+    builder.noteKind('eslint', 'error', 'failed', 'underlying stack trace here');
+    const sarif = JSON.parse(formatSARIF([baseReport({ health: builder.build() })]));
+    const notif = sarif.runs[0].invocations[0].toolExecutionNotifications[0];
+    expect(notif.properties['kern/detail']).toBe('underlying stack trace here');
+    expect(notif.properties['kern/subsystem']).toBe('eslint');
+    expect(notif.properties['kern/kind']).toBe('error');
   });
 });
