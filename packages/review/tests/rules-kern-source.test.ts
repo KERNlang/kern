@@ -26,6 +26,22 @@ screen name=Lookup
     expect(finding?.primarySpan.file).toBe('lookup.kern');
   });
 
+  it('treats prop declarations inside a screen as bindings visible to handlers', () => {
+    const source = `
+screen name=Card
+  prop name=title type=string
+  prop name=count type=number optional=true
+  fn name=render returns=string
+    handler <<<
+      return \`\${title} (\${count})\`;
+    >>>
+`;
+    const report = reviewKernSource(source, 'card.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef.some((f) => f.message.includes('title'))).toBe(false);
+    expect(undef.some((f) => f.message.includes('count'))).toBe(false);
+  });
+
   it('reports literal-union values used like objects but allows string methods', () => {
     const badSource = `
 type name=Article values="news|blog"
