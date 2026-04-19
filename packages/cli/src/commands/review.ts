@@ -27,6 +27,7 @@ import {
   runTSCDiagnosticsFromPaths,
   specViolationsToFindings,
 } from '@kernlang/review';
+import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { basename, dirname, relative, resolve } from 'path';
 import { withOptionalRemoteRepo } from '../remote-repo.js';
@@ -42,6 +43,43 @@ import {
 import { collectTsFilesFlat, hasFlag, loadConfig, parseAndSurface, parseFlag, parseFlagOrNext } from '../shared.js';
 
 type ReviewReportWithSuppressed = ReviewReport & { suppressedFindings?: ReviewFinding[] };
+
+/**
+ * Pick a safe default diff base for bare `kern review` inside a git repo.
+ * Tries `origin/main`, then `origin/master`, then `HEAD~1`, returning the
+ * first ref that `git rev-parse --verify` accepts. Returns undefined when
+ * not in a git repo or no suitable ref exists (e.g. single-commit repo).
+ *
+ * Exported for testability.
+ */
+export function detectAutoDiffBase(cwd: string = process.cwd()): string | undefined {
+  const verify = (ref: string): boolean => {
+    try {
+      execFileSync('git', ['rev-parse', '--verify', '--quiet', ref], {
+        cwd,
+        stdio: ['ignore', 'ignore', 'ignore'],
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // Require this to actually be a git repo before trying refs.
+  try {
+    execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
+      cwd,
+      stdio: ['ignore', 'ignore', 'ignore'],
+    });
+  } catch {
+    return undefined;
+  }
+
+  for (const candidate of ['origin/main', 'origin/master', 'HEAD~1']) {
+    if (verify(candidate)) return candidate;
+  }
+  return undefined;
+}
 
 // ── Review pipeline ──────────────────────────────────────────────────────
 
@@ -144,8 +182,8 @@ async function runReviewPipeline(
     const before = reports.length;
     reports = reports.filter((r) => !r.generated);
     const dropped = before - reports.length;
-    if (dropped > 0) {
-      console.log(`  --skip-generated: filtered ${dropped} codegen report(s)`);
+    if (dropped > 0 && !jsonOutput && !sarifOutput) {
+      console.log(`  Skipped ${dropped} generated file(s). Use --include-generated to review them.`);
     }
   }
 
@@ -819,7 +857,13 @@ async function runReviewLocal(args: string[]): Promise<void> {
   const fixMode = hasFlag(args, '--fix');
   const autofixMode = hasFlag(args, '--autofix');
   const lintMode = hasFlag(args, '--lint');
-  const skipGenerated = hasFlag(args, '--skip-generated');
+  // Phase 6: generated files skipped by default — bugs in compiler output
+  // belong to the compiler, not the user, and inference re-fires every
+  // handler-size/handler-heavy rule on transpiled function bodies. Opt back
+  // in with --include-generated. --skip-generated stays accepted as a no-op
+  // so CI configs that pass it explicitly don't break.
+  const includeGenerated = hasFlag(args, '--include-generated');
+  const skipGenerated = !includeGenerated;
   const graphMode = hasFlag(args, '--graph') || recursive;
   const batchMode = hasFlag(args, '--batch');
   const maxDepth = Number(parseFlag(args, '--max-depth') ?? 3);
@@ -887,9 +931,15 @@ async function runReviewLocal(args: string[]): Promise<void> {
     strictArg === '--strict' ? 'inline' : strictArg === '--strict=all' ? 'all' : false;
   const strictParse = hasFlag(args, '--strict-parse');
   const listRules = hasFlag(args, '--list-rules');
-  const diffBase = args.some((a) => a === '--diff' || a.startsWith('--diff'))
+  let diffBase = args.some((a) => a === '--diff' || a.startsWith('--diff'))
     ? parseFlagOrNext(args, '--diff') || 'origin/main'
     : undefined;
+  const fullMode = hasFlag(args, '--full');
+
+  if (fullMode && diffBase) {
+    console.error('  --full and --diff are mutually exclusive.');
+    process.exit(1);
+  }
 
   let baseline: ReviewBaselineFile | undefined;
   if (baselinePath) {
@@ -971,6 +1021,29 @@ async function runReviewLocal(args: string[]): Promise<void> {
   if (remoteUrl && !reviewInput && !diffBase) {
     reviewInput = '.';
   }
+
+  // Phase 5: diff-scoped by default.
+  // Bare `kern review` (no path, no --diff, no --full, no --git) inside a git
+  // repo defaults to reviewing changes vs the upstream branch. `--full` opts
+  // back into a cwd-wide scan. Explicit paths are unchanged — `kern review
+  // src/` still scans src/ in full. This keeps `kern review` quiet by default
+  // on large codebases without breaking CI invocations that pass a path.
+  if (!reviewInput && !diffBase && !remoteUrl && !fullMode) {
+    const autoBase = detectAutoDiffBase();
+    if (autoBase) {
+      diffBase = autoBase;
+      if (!hasFlag(args, '--json') && !hasFlag(args, '--sarif')) {
+        console.log(
+          `  No path given — reviewing changes vs ${autoBase}. Use --full to scan the whole tree, or pass a path.\n`,
+        );
+      }
+    }
+  }
+
+  if (fullMode && !reviewInput) {
+    reviewInput = '.';
+  }
+
   if (diffBase && !reviewInput) {
     try {
       const { execFileSync } = await import('child_process');
@@ -982,11 +1055,14 @@ async function runReviewLocal(args: string[]): Promise<void> {
         .split('\n')
         .filter((f) => f.endsWith('.ts') || f.endsWith('.tsx') || f.endsWith('.kern'))
         .filter((f) => !f.endsWith('.d.ts') && !f.endsWith('.test.ts'));
+      const machineOutput = hasFlag(args, '--json') || hasFlag(args, '--sarif');
       if (diffFiles.length === 0) {
-        console.log(`  No changed .ts/.tsx/.kern files since ${diffBase}`);
+        if (!machineOutput) console.log(`  No changed .ts/.tsx/.kern files since ${diffBase}`);
         process.exit(0);
       }
-      console.log(`  Reviewing ${diffFiles.length} changed files (diff from ${diffBase})\n`);
+      if (!machineOutput) {
+        console.log(`  Reviewing ${diffFiles.length} changed files (diff from ${diffBase})\n`);
+      }
 
       const diffRanges = new Map<string, Array<[number, number]>>();
       try {
@@ -1026,10 +1102,15 @@ async function runReviewLocal(args: string[]): Promise<void> {
 
   if (!reviewInput) {
     console.error(
-      'Usage: kern review <file|dir> [--git=<url>] [--security] [--mcp] [--llm] [--spec file.kern] [--cloud] [--baseline=file.json] [--new-only]',
+      'Usage: kern review [file|dir] [--full] [--diff base] [--git=<url>] [--security] [--mcp] [--llm] [--spec file.kern] [--cloud] [--baseline=file.json] [--new-only]',
     );
     console.error(
-      '       [--diff base] [--write-baseline=file.json] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--fix] [--autofix] [--rules-dir <dir>]',
+      '       [--write-baseline=file.json] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--fix] [--autofix] [--rules-dir <dir>] [--include-generated]',
+    );
+    console.error('');
+    console.error('  Default (inside git): reviews changes vs origin/main. Use --full to scan the whole tree.');
+    console.error(
+      '  Default skips generated files (src/generated/, files with @generated stamps). Use --include-generated to audit them.',
     );
     process.exit(1);
   }
