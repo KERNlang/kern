@@ -325,13 +325,25 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'action name=sendEmail params="to:string,body:string" async=true export=true\n  handler <<<\n    await mailer.send(to, body)\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
+      key: { kind: 'string' },
       params: { kind: 'string' },
       returns: { kind: 'typeAnnotation' },
+      async: { kind: 'boolean' },
       idempotent: { kind: 'boolean' },
       reversible: { kind: 'boolean' },
       export: { kind: 'boolean' },
     },
     allowedChildren: ['handler'],
+  },
+  actionRegistry: {
+    description:
+      'Calls an imported registration function with a map of string-keyed async action handlers. Emits `target({ key: async (...) => body, ... })` directly — no IIFE wrapper.',
+    example:
+      'actionRegistry target=registerActions\n  action key=share\n    handler <<<\n      await broadcastToRenderer("bridge:share-requested");\n    >>>\n  action key=create params="req:URL"\n    handler <<<\n      await persist(req);\n    >>>',
+    props: {
+      target: { required: true, kind: 'rawExpr' },
+    },
+    allowedChildren: ['action'],
   },
   guard: {
     description:

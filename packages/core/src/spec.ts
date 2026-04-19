@@ -212,6 +212,7 @@ export const NODE_TYPES = [
   'derive',
   'transform',
   'action',
+  'actionRegistry',
   'assume',
   'invariant',
   'branch',

@@ -126,6 +126,56 @@ export function generateAction(node: IRNode): string[] {
   return lines;
 }
 
+// ── Ground Layer: actionRegistry ─────────────────────────────────────────
+//
+// Emits `<target>({ "<key>": async (<params>) => { <body> }, ... });` so that
+// files like `registerActions({ 'share': async () => {...}, ... })` become
+// first-class KERN nodes instead of IIFE-wrapped handler escape hatches.
+// `target` accepts a bare identifier (`target=registerActions`) or a rawExpr
+// block (`target={{ router.register }}`). Each child action uses `key=` for
+// the registration string (or falls back to `name=`).
+
+export function generateActionRegistry(node: IRNode): string[] {
+  const props = propsOf<'actionRegistry'>(node);
+  const rawTarget = props.target;
+  const target =
+    typeof rawTarget === 'object' && rawTarget !== null && '__expr' in rawTarget
+      ? (rawTarget as { code: string }).code
+      : typeof rawTarget === 'string'
+        ? rawTarget
+        : '';
+  if (!target) {
+    throw new KernCodegenError('actionRegistry requires a `target` prop', node);
+  }
+
+  const actions = kids(node, 'action');
+  if (actions.length === 0) {
+    return [`${target}({});`];
+  }
+
+  const lines: string[] = [`${target}({`];
+  for (let i = 0; i < actions.length; i++) {
+    const child = actions[i];
+    const cp = propsOf<'action'>(child);
+    const key = cp.key ?? cp.name;
+    if (!key) {
+      throw new KernCodegenError('action inside actionRegistry requires `key` or `name`', child);
+    }
+    const params = cp.params ? parseParamList(cp.params) : '';
+    const code = handlerCode(child);
+    const comma = i === actions.length - 1 ? '' : ',';
+    lines.push(`  ${JSON.stringify(key)}: async (${params}) => {`);
+    if (code) {
+      for (const line of code.split('\n')) {
+        lines.push(`    ${line}`);
+      }
+    }
+    lines.push(`  }${comma}`);
+  }
+  lines.push('});');
+  return lines;
+}
+
 // ── Ground Layer: guard ──────────────────────────────────────────────────
 
 export function generateGuard(node: IRNode): string[] {

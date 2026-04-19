@@ -512,6 +512,46 @@ describe('golden: action', () => {
   });
 });
 
+describe('golden: actionRegistry', () => {
+  it('registers a map of async action handlers', () => {
+    expect(
+      gen(
+        [
+          'actionRegistry target=registerActions',
+          '  action key=share_review name=shareReview',
+          '    handler <<<',
+          '      await broadcastToRenderer("bridge:share-requested");',
+          '    >>>',
+          '  action key=create_review name=createReview params="reqUrl:URL"',
+          '    handler <<<',
+          '      await persist(reqUrl);',
+          '    >>>',
+          '  action key=cancel_review name=cancelReview',
+          '    handler <<<',
+          '      state.isCreatingReview = false;',
+          '    >>>',
+        ].join('\n'),
+      ),
+    ).toMatchSnapshot();
+  });
+  it('supports rawExpr target for dotted callees', () => {
+    expect(
+      gen(
+        [
+          'actionRegistry target={{ router.register }}',
+          '  action key=ping name=ping',
+          '    handler <<<',
+          '      return "pong";',
+          '    >>>',
+        ].join('\n'),
+      ),
+    ).toMatchSnapshot();
+  });
+  it('handles zero-action registry as empty object', () => {
+    expect(gen('actionRegistry target=registerActions')).toMatchSnapshot();
+  });
+});
+
 describe('golden: guard', () => {
   it('guard with numeric else (HTTP status)', () => {
     expect(gen('guard name=isAdmin expr={{user.role === "admin"}} else=403')).toMatchSnapshot();

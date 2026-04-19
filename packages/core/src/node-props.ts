@@ -135,8 +135,16 @@ export interface TransformProps extends BaseProps {
 }
 
 export interface ActionProps extends BaseProps {
+  key?: string;
   params?: string;
   returns?: string;
+  async?: string | boolean;
+  idempotent?: string | boolean;
+  reversible?: string | boolean;
+}
+
+export interface ActionRegistryProps extends BaseProps {
+  target?: string | ExprObject;
 }
 
 export interface GuardProps extends BaseProps {
@@ -290,6 +298,7 @@ export interface NodePropsMap {
   derive: DeriveProps;
   transform: TransformProps;
   action: ActionProps;
+  actionRegistry: ActionRegistryProps;
   guard: GuardProps;
   assume: AssumeProps;
   invariant: InvariantProps;

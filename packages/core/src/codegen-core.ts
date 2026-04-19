@@ -38,6 +38,7 @@ export { generateEvent, generateOn, generateWebSocket } from './codegen/events.j
 export { generateError, generateFunction } from './codegen/functions.js';
 export {
   generateAction,
+  generateActionRegistry,
   generateApply,
   generateAssume,
   generateCollect,
@@ -97,6 +98,7 @@ import { generateEvent, generateOn, generateWebSocket } from './codegen/events.j
 import { generateError, generateFunction } from './codegen/functions.js';
 import {
   generateAction,
+  generateActionRegistry,
   generateApply,
   generateAssume,
   generateCollect,
@@ -410,6 +412,7 @@ export const CORE_NODE_TYPES = new Set([
   'derive',
   'transform',
   'action',
+  'actionRegistry',
   'guard',
   'assume',
   'invariant',
@@ -517,6 +520,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateTransform(node);
     case 'action':
       return generateAction(node);
+    case 'actionRegistry':
+      return generateActionRegistry(node);
     case 'guard':
       return generateGuard(node);
     case 'assume':
