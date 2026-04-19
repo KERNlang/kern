@@ -106,7 +106,11 @@ export interface KernConfig {
     disabledRules?: string[];
     /** Declare intentional public API so dead-export doesn't flag symbols consumed externally. */
     publicApi?: {
-      /** Paths (project-relative or absolute) whose exports are all public. */
+      /**
+       * Paths or POSIX-style globs (project-relative or absolute) whose
+       * exports are all public. Supports `*`, `**`, `?`, and `[...]` —
+       * e.g. `packages/*\/src/index.ts` or `src/registry/**\/*.handler.ts`.
+       */
       files?: string[];
       /** Per-symbol overrides in `path#name` form. */
       symbols?: string[];

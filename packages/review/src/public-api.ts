@@ -28,7 +28,12 @@ export interface PublicApiMap {
 }
 
 export interface PublicApiOverrides {
-  /** Paths (absolute or relative to projectRoot) whose exports are all public. */
+  /**
+   * Paths or POSIX-style globs (absolute or relative to projectRoot) whose
+   * exports are all public. Supports `*`, `**`, `?`, and `[...]`. Literal
+   * paths keep their existing behavior — they are added verbatim even if
+   * no file of that name is in the review graph.
+   */
   files?: string[];
   /** Per-symbol overrides in `path#name` form (path absolute or relative to projectRoot). */
   symbols?: string[];
@@ -45,6 +50,80 @@ interface PackageJsonLike {
 }
 
 const SRC_EXTS = ['.ts', '.tsx'] as const;
+
+/** Characters that, when present in a pattern, trigger glob expansion. */
+const GLOB_CHARS = /[*?[]/;
+
+function hasGlobChars(pattern: string): boolean {
+  return GLOB_CHARS.test(pattern);
+}
+
+/**
+ * Convert a POSIX-style glob pattern to a `RegExp` that matches full paths.
+ *
+ * Supported syntax:
+ *   - `*`  — any run of non-separator chars
+ *   - `**` — any path fragment, including separators (zero or more segments)
+ *   - `?`  — a single non-separator char
+ *   - `[abc]` / `[a-z]` — character class
+ *   - `[!abc]` — negated character class (POSIX-style; translated to regex `[^abc]`)
+ *
+ * All other regex metacharacters are escaped. Brace expansion (`{a,b}`) is
+ * NOT supported — keep config patterns simple; split into multiple entries.
+ *
+ * The pattern is expected to be POSIX-separated (forward slashes). The caller
+ * normalizes Windows backslashes to `/` before calling this. Consecutive `*`
+ * runs are collapsed first to prevent catastrophic backtracking on patterns
+ * like `**\/**\/**`.
+ */
+function globToRegex(pattern: string): RegExp {
+  const squashed = pattern.replace(/\*{2,}/g, '**').replace(/(?:\*\*\/)+/g, '**/');
+  let out = '';
+  let i = 0;
+  while (i < squashed.length) {
+    const c = squashed[i]!;
+    if (c === '*') {
+      if (squashed[i + 1] === '*') {
+        if (squashed[i + 2] === '/') {
+          out += '(?:.*/)?';
+          i += 3;
+        } else {
+          out += '.*';
+          i += 2;
+        }
+      } else {
+        out += '[^/]*';
+        i++;
+      }
+    } else if (c === '?') {
+      out += '[^/]';
+      i++;
+    } else if (c === '[') {
+      const end = squashed.indexOf(']', i + 1);
+      if (end === -1) {
+        out += '\\[';
+        i++;
+      } else {
+        let inner = squashed.substring(i + 1, end);
+        if (inner.startsWith('!')) inner = `^${inner.slice(1)}`;
+        out += `[${inner}]`;
+        i = end + 1;
+      }
+    } else if ('.+^$|(){}\\'.includes(c)) {
+      out += `\\${c}`;
+      i++;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return new RegExp(`^${out}$`);
+}
+
+/** Normalize path separators so glob matching works on Windows. */
+function toPosix(p: string): string {
+  return p.replace(/\\/g, '/');
+}
 
 function collectSpecifiers(value: unknown): string[] {
   if (typeof value === 'string') return [value];
@@ -189,7 +268,20 @@ export function buildPublicApiMap(filePaths: string[], overrides?: PublicApiOver
     for (const pattern of overrides.files) {
       if (typeof pattern !== 'string' || pattern.length === 0) continue;
       const abs = isAbsolute(pattern) ? pattern : resolve(projectRoot, pattern);
+      // Always add the literal resolved path. This preserves the pre-glob
+      // behavior ("files listed here are public even if absent from the
+      // reviewed graph") AND gives the right answer for Next.js-style
+      // literal brackets like "src/app/[slug]/page.tsx" — the bracketed
+      // segment looks like a glob character class but is actually part of
+      // the filename. Glob expansion still runs below, so users who meant
+      // [...] as a class get that behavior too.
       entryFiles.add(abs);
+      if (hasGlobChars(pattern)) {
+        const regex = globToRegex(toPosix(abs));
+        for (const fp of filePaths) {
+          if (regex.test(toPosix(fp))) entryFiles.add(fp);
+        }
+      }
     }
   }
   if (overrides?.symbols) {

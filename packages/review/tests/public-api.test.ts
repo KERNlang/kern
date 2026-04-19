@@ -186,6 +186,203 @@ describe('buildPublicApiMap (filesystem)', () => {
     const map = buildPublicApiMap([orphan]);
     expect(isPublicApi(map, orphan, 'solo')).toBe(false);
   });
+
+  it('expands single-star globs in overrides.files against the reviewed file list', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const pkgA = join(tmp, 'packages/a/src/index.ts');
+    const pkgB = join(tmp, 'packages/b/src/index.ts');
+    const internal = join(tmp, 'packages/a/src/internal.ts');
+    writeFile(pkgA, `export function a() {}\n`);
+    writeFile(pkgB, `export function b() {}\n`);
+    writeFile(internal, `export function hidden() {}\n`);
+
+    const map = buildPublicApiMap([pkgA, pkgB, internal], {
+      files: ['packages/*/src/index.ts'],
+      projectRoot: tmp,
+    });
+
+    expect(isPublicApi(map, pkgA, 'a')).toBe(true);
+    expect(isPublicApi(map, pkgB, 'b')).toBe(true);
+    expect(isPublicApi(map, internal, 'hidden')).toBe(false);
+  });
+
+  it('expands double-star globs across nested directories', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    // Zero-segment case: `**/` should match no separator segments, so
+    // `src/**/*.ts` must also match a file directly under `src/`.
+    const flat = join(tmp, 'src/flat.ts');
+    const shallow = join(tmp, 'src/handlers/foo.ts');
+    const deep = join(tmp, 'src/registry/v2/bar.ts');
+    const outside = join(tmp, 'other/root.ts');
+    writeFile(flat, `export function flat() {}\n`);
+    writeFile(shallow, `export function foo() {}\n`);
+    writeFile(deep, `export function bar() {}\n`);
+    writeFile(outside, `export function root() {}\n`);
+
+    const map = buildPublicApiMap([flat, shallow, deep, outside], {
+      files: ['src/**/*.ts'],
+      projectRoot: tmp,
+    });
+
+    expect(isPublicApi(map, flat, 'flat')).toBe(true);
+    expect(isPublicApi(map, shallow, 'foo')).toBe(true);
+    expect(isPublicApi(map, deep, 'bar')).toBe(true);
+    expect(isPublicApi(map, outside, 'root')).toBe(false);
+  });
+
+  it('keeps literal paths as-is even when they are not in the reviewed file list', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const handler = join(tmp, 'src/handler.ts');
+    writeFile(handler, `export function handle() {}\n`);
+
+    // Literal path for a file NOT passed to buildPublicApiMap — should still
+    // be added verbatim (backward compatible with pre-glob behavior).
+    const map = buildPublicApiMap([handler], {
+      files: ['src/handler.ts', 'src/not-in-graph.ts'],
+      projectRoot: tmp,
+    });
+
+    expect(map.entryFiles.has(handler)).toBe(true);
+    expect(map.entryFiles.has(join(tmp, 'src/not-in-graph.ts'))).toBe(true);
+  });
+
+  it('combines literal paths and globs in the same config', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const literal = join(tmp, 'src/literal.ts');
+    const matchesGlob = join(tmp, 'src/a.entry.ts');
+    const other = join(tmp, 'src/b.ts');
+    writeFile(literal, `export function l() {}\n`);
+    writeFile(matchesGlob, `export function a() {}\n`);
+    writeFile(other, `export function b() {}\n`);
+
+    const map = buildPublicApiMap([literal, matchesGlob, other], {
+      files: ['src/literal.ts', 'src/*.entry.ts'],
+      projectRoot: tmp,
+    });
+
+    expect(isPublicApi(map, literal, 'l')).toBe(true);
+    expect(isPublicApi(map, matchesGlob, 'a')).toBe(true);
+    expect(isPublicApi(map, other, 'b')).toBe(false);
+  });
+
+  it('accepts absolute glob patterns', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const entry = join(tmp, 'src/pages/home.ts');
+    writeFile(entry, `export default function Home() {}\n`);
+
+    const map = buildPublicApiMap([entry], {
+      files: [join(tmp, 'src/pages/*.ts')],
+      projectRoot: tmp,
+    });
+
+    expect(map.entryFiles.has(entry)).toBe(true);
+  });
+
+  it('a glob that matches nothing in the reviewed file list contributes nothing beyond the literal', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const file = join(tmp, 'src/other.ts');
+    writeFile(file, `export function x() {}\n`);
+
+    // The glob points at a directory layout that doesn't exist in the reviewed
+    // files. The resolved literal pattern is added (harmless — it will never
+    // match any real file because it still contains glob syntax), but no
+    // expansion contributes real files.
+    const map = buildPublicApiMap([file], {
+      files: ['packages/*/src/index.ts'],
+      projectRoot: tmp,
+    });
+
+    expect(map.entryFiles.has(file)).toBe(false);
+  });
+
+  it('treats Next.js-style literal brackets as a real filename, not a glob character class', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    // Next.js dynamic route segment — real filename contains `[slug]`.
+    const page = join(tmp, 'src/app/[slug]/page.tsx');
+    const otherPage = join(tmp, 'src/app/s/page.tsx');
+    writeFile(page, `export default function Page() {}\n`);
+    writeFile(otherPage, `export default function OtherPage() {}\n`);
+
+    const map = buildPublicApiMap([page, otherPage], {
+      files: ['src/app/[slug]/page.tsx'],
+      projectRoot: tmp,
+    });
+
+    expect(map.entryFiles.has(page)).toBe(true);
+    // The bracketed pattern is ALSO expanded as a glob, so a path like
+    // `src/app/s/page.tsx` (where `s` is in the char class `[slug]`) matches.
+    // That's acceptable — a user who genuinely wanted the literal Next.js
+    // route gets it; a user who wanted `[slug]` as a char class gets that
+    // too. Both semantics satisfied.
+    expect(map.entryFiles.has(otherPage)).toBe(true);
+  });
+
+  it('translates POSIX negated character class [!abc] to regex [^abc]', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const a = join(tmp, 'src/a.ts');
+    const b = join(tmp, 'src/b.ts');
+    const x = join(tmp, 'src/x.ts');
+    writeFile(a, `export const a = 1;\n`);
+    writeFile(b, `export const b = 1;\n`);
+    writeFile(x, `export const x = 1;\n`);
+
+    const map = buildPublicApiMap([a, b, x], {
+      files: ['src/[!ab].ts'],
+      projectRoot: tmp,
+    });
+
+    expect(map.entryFiles.has(a)).toBe(false);
+    expect(map.entryFiles.has(b)).toBe(false);
+    expect(map.entryFiles.has(x)).toBe(true);
+  });
+
+  it('expands ? to a single non-separator character', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const a = join(tmp, 'src/a.ts');
+    const ab = join(tmp, 'src/ab.ts');
+    writeFile(a, `export const a = 1;\n`);
+    writeFile(ab, `export const ab = 1;\n`);
+
+    const map = buildPublicApiMap([a, ab], {
+      files: ['src/?.ts'],
+      projectRoot: tmp,
+    });
+
+    expect(map.entryFiles.has(a)).toBe(true);
+    expect(map.entryFiles.has(ab)).toBe(false);
+  });
+
+  it('collapses consecutive **s so deeply-nested globs do not cause catastrophic backtracking', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    // Build a long, deeply-nested non-matching path. Without star-squashing
+    // a pattern like `**/**/**/**/z.ts` becomes a regex with multiple
+    // overlapping `.*` groups that explode on long inputs.
+    const deep = join(tmp, 'a/a/a/a/a/a/a/a/a/b.ts');
+    writeFile(deep, `export const a = 1;\n`);
+
+    const start = Date.now();
+    const map = buildPublicApiMap([deep], {
+      files: ['**/**/**/**/**/z.ts'],
+      projectRoot: tmp,
+    });
+    const elapsed = Date.now() - start;
+
+    // Even on a slow CI runner this should complete in well under a second.
+    // The old (un-squashed) implementation could backtrack for minutes on
+    // the same input.
+    expect(elapsed).toBeLessThan(1000);
+    expect(map.entryFiles.has(deep)).toBe(false);
+  });
 });
 
 describe('dead-export + public-api integration', () => {
