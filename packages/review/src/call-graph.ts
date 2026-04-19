@@ -83,12 +83,7 @@ function buildImportBindings(sourceFile: SourceFile, graphFiles: Map<string, Gra
   const bindings = new Map<string, ImportBinding>();
 
   for (const decl of sourceFile.getImportDeclarations()) {
-    let resolvedSf: SourceFile | undefined;
-    try {
-      resolvedSf = decl.getModuleSpecifierSourceFile() ?? undefined;
-    } catch {
-      continue;
-    }
+    const resolvedSf = resolveImportSourceFile(sourceFile, decl, graphFiles);
     if (!resolvedSf) continue;
     const resolvedPath = resolvedSf.getFilePath();
     if (!graphFiles.has(resolvedPath)) continue;
@@ -129,6 +124,30 @@ function buildImportBindings(sourceFile: SourceFile, graphFiles: Map<string, Gra
   return bindings;
 }
 
+function resolveImportSourceFile(
+  sourceFile: SourceFile,
+  decl: import('ts-morph').ImportDeclaration,
+  graphFiles: Map<string, GraphFile>,
+): SourceFile | undefined {
+  try {
+    const resolved = decl.getModuleSpecifierSourceFile() ?? undefined;
+    if (resolved && graphFiles.has(resolved.getFilePath())) return resolved;
+  } catch {
+    /* fall back to the import graph edge below */
+  }
+
+  let specifier: string;
+  try {
+    specifier = decl.getModuleSpecifierValue();
+  } catch {
+    return undefined;
+  }
+
+  const graphFile = graphFiles.get(sourceFile.getFilePath());
+  const edge = graphFile?.importEdges.find((candidate) => candidate.specifier === specifier);
+  return edge ? sourceFile.getProject().getSourceFile(edge.to) : undefined;
+}
+
 function resolveExportBinding(
   sourceFile: SourceFile,
   exportName: string,
@@ -158,6 +177,18 @@ function buildNamespaceMembers(
     if (resolved) members.set(exportName, resolved);
   }
   return members;
+}
+
+function addImportedExportKeys(importedExportKeys: Set<string>, importBindings: Map<string, ImportBinding>): void {
+  for (const binding of importBindings.values()) {
+    if (binding.kind === 'namespace') {
+      for (const member of binding.members?.values() ?? []) {
+        importedExportKeys.add(`${member.targetFile}#${member.targetName}`);
+      }
+      continue;
+    }
+    importedExportKeys.add(`${binding.targetFile}#${binding.targetName}`);
+  }
 }
 
 function resolveBindingFromDeclarations(
@@ -632,6 +663,7 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
 
   const allFunctions = new Map<string, FunctionNode>();
   const fileFunctions = new Map<string, FunctionNode[]>();
+  const importedExportKeys = new Set<string>();
 
   // Phase 1: Collect all functions from all files
   for (const gf of graph.files) {
@@ -654,6 +686,7 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
     const fns = fileFunctions.get(gf.path) || [];
     const localFnNames = new Set(fns.map((f) => f.name));
     const importBindings = buildImportBindings(sf, graphFiles);
+    addImportedExportKeys(importedExportKeys, importBindings);
     const localAliases = buildLocalAliases(sf, localFnNames, importBindings);
 
     for (const fn of fns) {
@@ -679,7 +712,7 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
   const orphanFunctions: string[] = [];
 
   for (const [key, fn] of allFunctions) {
-    if (fn.isExported && fn.calledBy.length === 0) {
+    if (fn.isExported && fn.calledBy.length === 0 && !importedExportKeys.has(key)) {
       deadExports.push(key);
     }
     if (!fn.isExported && fn.calledBy.length === 0) {

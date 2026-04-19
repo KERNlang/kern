@@ -5,7 +5,7 @@
  */
 
 import { propsOf } from '../node-props.js';
-import type { IRNode } from '../types.js';
+import type { ExprObject, IRNode } from '../types.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
 import {
   emitDocComment,
@@ -20,6 +20,15 @@ import {
 const p = getProps;
 const kids = getChildren;
 const firstChild = getFirstChild;
+
+function isExprObject(value: unknown): value is ExprObject {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { __expr?: unknown }).__expr === true &&
+    typeof (value as { code?: unknown }).code === 'string'
+  );
+}
 
 // ── Type Alias ───────────────────────────────────────────────────────────
 // type name=PlanState values="draft|approved|running|paused|completed|failed|cancelled"
@@ -217,7 +226,7 @@ export function generateConst(node: IRNode): string[] {
   const props = propsOf<'const'>(node);
   const name = emitIdentifier(props.name, 'unknownConst', node);
   const constType = props.type;
-  const value = props.value;
+  const rawValue = props.value;
   const exp = exportPrefix(node);
   const code = handlerCode(node);
   const docs = emitDocComment(node);
@@ -227,7 +236,10 @@ export function generateConst(node: IRNode): string[] {
   if (code) {
     return [...docs, `${exp}const ${name}${typeAnnotation} = ${code.trim()};`];
   }
-  if (value) {
+  if (rawValue !== undefined && rawValue !== '') {
+    // `value={{ expr }}` is parsed as ExprObject; emit the raw code. Bare
+    // literal values (`value=42`) come through as strings.
+    const value = isExprObject(rawValue) ? rawValue.code : rawValue;
     return [...docs, `${exp}const ${name}${typeAnnotation} = ${value};`];
   }
   return [...docs, `${exp}const ${name}${typeAnnotation};`];

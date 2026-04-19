@@ -82,7 +82,7 @@ function findStateObjectLiteral(createCall: CallExpression): ObjectLiteralExpres
   // hold the arrow fn. For direct form, createCall itself has the arguments.
   const parent = createCall.getParent();
   let argsCall: CallExpression;
-  if (parent && parent.isKind(SyntaxKind.CallExpression)) {
+  if (parent?.isKind(SyntaxKind.CallExpression)) {
     const parentCall = parent.asKindOrThrow(SyntaxKind.CallExpression);
     if (parentCall.getExpression() === createCall) {
       // Curried: parent call holds the arrow fn
@@ -128,10 +128,10 @@ function findStateObjectLiteral(createCall: CallExpression): ObjectLiteralExpres
     const only = stmts[0];
     if (!only.isKind(SyntaxKind.ReturnStatement)) return undefined;
     const retExpr = only.asKindOrThrow(SyntaxKind.ReturnStatement).getExpression();
-    if (retExpr && retExpr.isKind(SyntaxKind.ObjectLiteralExpression)) {
+    if (retExpr?.isKind(SyntaxKind.ObjectLiteralExpression)) {
       return retExpr.asKindOrThrow(SyntaxKind.ObjectLiteralExpression);
     }
-    if (retExpr && retExpr.isKind(SyntaxKind.ParenthesizedExpression)) {
+    if (retExpr?.isKind(SyntaxKind.ParenthesizedExpression)) {
       const inner = retExpr.asKindOrThrow(SyntaxKind.ParenthesizedExpression).getExpression();
       if (inner.isKind(SyntaxKind.ObjectLiteralExpression)) {
         return inner.asKindOrThrow(SyntaxKind.ObjectLiteralExpression);

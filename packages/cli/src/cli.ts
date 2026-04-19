@@ -7,6 +7,7 @@ import { routeEvolve } from './commands/evolve/index.js';
 import { runGaps } from './commands/gaps.js';
 import { runImport } from './commands/import.js';
 import { runInit } from './commands/init.js';
+import { runMigrate } from './commands/migrate.js';
 import { runReview } from './commands/review.js';
 import { runInitTemplates, runScan } from './commands/scan.js';
 import { runSchema } from './commands/schema.js';
@@ -27,6 +28,7 @@ const COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
   gaps: runGaps,
   'init-templates': runInitTemplates,
   import: runImport,
+  migrate: runMigrate,
   review: runReview,
   apply: runApply,
   confidence: runConfidence,
@@ -34,28 +36,33 @@ const COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
 };
 
 async function main(): Promise<void> {
-  // Route evolve commands (evolve + evolve:*)
-  if (cmd === 'evolve' || cmd?.startsWith('evolve:')) {
-    await routeEvolve(args);
-    return;
-  }
+  try {
+    // Route evolve commands (evolve + evolve:*)
+    if (cmd === 'evolve' || cmd?.startsWith('evolve:')) {
+      await routeEvolve(args);
+      return;
+    }
 
-  // Route standard commands
-  const handler = cmd ? COMMANDS[cmd] : undefined;
-  if (handler) {
-    await handler(args);
-    return;
-  }
+    // Route standard commands
+    const handler = cmd ? COMMANDS[cmd] : undefined;
+    if (handler) {
+      await handler(args);
+      return;
+    }
 
-  // No command match — default to transpile mode (kern <file.kern> [options])
-  // or show help if no input file given
-  if (!cmd || cmd.startsWith('--')) {
-    printHelp();
+    // No command match — default to transpile mode (kern <file.kern> [options])
+    // or show help if no input file given
+    if (!cmd || cmd.startsWith('--')) {
+      printHelp();
+      process.exit(1);
+    }
+
+    // Treat as file input for transpile
+    runTranspile(args);
+  } catch (err) {
+    console.error((err as Error).message);
     process.exit(1);
   }
-
-  // Treat as file input for transpile
-  runTranspile(args);
 }
 
 await main();

@@ -318,6 +318,15 @@ export interface ReviewConfig {
   graphFileMap?: Map<string, GraphFile>;
   /** Path to host project's tsconfig.json — loaded into the ts-morph Project so jsx/paths/lib/allowJs match the real build. */
   tsConfigFilePath?: string;
+  /** Override what dead-export treats as intentional public API. */
+  publicApi?: {
+    /** Absolute or projectRoot-relative paths whose exports are all public. */
+    files?: string[];
+    /** Per-symbol overrides in `path#name` form. */
+    symbols?: string[];
+    /** Root for resolving relative `files`/`symbols`. Defaults to process.cwd(). */
+    projectRoot?: string;
+  };
 }
 
 // ── File Context (import chain awareness) ───────────────────────────────

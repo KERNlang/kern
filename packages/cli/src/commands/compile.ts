@@ -451,7 +451,7 @@ export async function runCompile(args: string[]): Promise<void> {
       console.log(`  ${rel} → compiled (${ms}ms)`);
 
       // Restart MCP server if --serve (fire-and-forget, log errors)
-      restartMcpServer().catch((err) => {
+      void restartMcpServer().catch((err) => {
         console.error(`  MCP restart failed: ${(err as Error).message}`);
       });
     } catch (err) {

@@ -10,7 +10,7 @@
  * Config: { "mcpServers": { "kern": { "command": "npx", "args": ["@kernlang/mcp-server"] } } }
  */
 
-import type { IRNode, KernTarget, ResolvedKernConfig } from '@kernlang/core';
+import type { IRNode, KernStructure, KernTarget, ResolvedKernConfig } from '@kernlang/core';
 import {
   ALL_TARGETS,
   countTokens,
@@ -28,6 +28,7 @@ import {
   resolveConfig,
   STYLE_SHORTHANDS,
   serializeIR,
+  VALID_STRUCTURES,
   VALID_TARGETS,
   VALUE_SHORTHANDS,
 } from '@kernlang/core';
@@ -137,6 +138,7 @@ function countNodes(node: IRNode): number {
 }
 
 const targetEnum = z.enum(ALL_TARGETS as [string, ...string[]]);
+const structureEnum = z.enum(VALID_STRUCTURES as [string, ...string[]]);
 
 // ── Security test generation (ported from kern-sight-mcp) ──────────────
 
@@ -307,14 +309,18 @@ server.tool(
   {
     source: z.string().describe('.kern source code'),
     target: targetEnum.default('nextjs').describe('Target framework'),
+    structure: structureEnum
+      .default('flat')
+      .describe('Output structure for React targets: flat, bulletproof, atomic, kern'),
   },
-  async ({ source, target }) => {
-    log('tool:compile', { target, len: source.length });
+  async ({ source, target, structure }) => {
+    log('tool:compile', { target, structure, len: source.length });
     try {
       const ast = parse(source);
-      const config = resolveConfig({ target: target as KernTarget });
+      const config = resolveConfig({ target: target as KernTarget, structure: structure as KernStructure });
       const result = transpile(ast, target as KernTarget, config);
-      let text = `// Compiled to ${target} (${result.irTokenCount} KERN → ${result.tsTokenCount} output tokens)\n${result.code}`;
+      const structureSuffix = structure !== 'flat' ? ` / ${structure}` : '';
+      let text = `// Compiled to ${target}${structureSuffix} (${result.irTokenCount} KERN → ${result.tsTokenCount} output tokens)\n${result.code}`;
       if (result.artifacts?.length) {
         text += `\n\n${result.artifacts.map((a) => `--- ${a.path} ---\n${a.content}`).join('\n\n')}`;
       }
@@ -522,9 +528,15 @@ server.tool('list-targets', 'List all available KERN compile targets.', {}, asyn
     mcp: 'MCP server (Model Context Protocol)',
   };
   const lines = Object.entries(targets).map(([k, v]) => `  ${k.padEnd(10)} — ${v}`);
+  const structures = VALID_STRUCTURES.map((s) => `  ${s}`).join('\n');
   return {
     content: [
-      { type: 'text', text: `KERN v${KERN_VERSION} — ${VALID_TARGETS.length} targets:\n\n${lines.join('\n')}` },
+      {
+        type: 'text',
+        text: `KERN v${KERN_VERSION} — ${VALID_TARGETS.length} targets:\n\n${lines.join(
+          '\n',
+        )}\n\nStructures for React targets:\n\n${structures}`,
+      },
     ],
   };
 });
@@ -678,18 +690,21 @@ server.tool(
   {
     source: z.string().describe('.kern source code'),
     target: targetEnum.default('nextjs').describe('Target framework'),
+    structure: structureEnum
+      .default('flat')
+      .describe('Output structure for React targets: flat, bulletproof, atomic, kern'),
   },
-  async ({ source, target }) => {
-    log('tool:compile-json', { target, len: source.length });
+  async ({ source, target, structure }) => {
+    log('tool:compile-json', { target, structure, len: source.length });
     try {
       const result = parseWithDiagnostics(source);
-      const config = resolveConfig({ target: target as KernTarget });
+      const config = resolveConfig({ target: target as KernTarget, structure: structure as KernStructure });
       const compiled = transpile(result.root, target as KernTarget, config);
       const output = {
         success: result.diagnostics.filter((d) => d.severity === 'error').length === 0,
         code: compiled.code,
         diagnostics: result.diagnostics,
-        stats: { irTokens: compiled.irTokenCount, outputTokens: compiled.tsTokenCount },
+        stats: { irTokens: compiled.irTokenCount, outputTokens: compiled.tsTokenCount, structure },
       };
       return { content: [{ type: 'text', text: JSON.stringify(output) }] };
     } catch (e) {

@@ -1548,4 +1548,69 @@ describe('Ink Transpiler', () => {
     expect(result.code).not.toContain('React.memo');
     expect(result.code).toContain('export function App(');
   });
+
+  test('alternate-screen emits AlternateScreen wrapper from @kernlang/terminal/runtime', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse(['screen name=App', '  alternate-screen mouse-tracking=true', '    text value="hi"'].join('\n'));
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain("from '@kernlang/terminal/runtime'");
+    expect(result.code).toContain('AlternateScreen');
+    expect(result.code).toContain('<AlternateScreen mouseTracking>');
+    expect(result.code).toContain('</AlternateScreen>');
+  });
+
+  test('alternate-screen without mouse-tracking omits prop', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse(['screen name=App', '  alternate-screen', '    text value="hi"'].join('\n'));
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('<AlternateScreen>');
+    expect(result.code).not.toContain('mouseTracking');
+  });
+
+  test('scroll-box emits ScrollBox wrapper with sticky-scroll and flex-grow', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse(
+      ['screen name=Chat', '  scroll-box sticky-scroll=true flex-grow=1', '    text value="row"'].join('\n'),
+    );
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain("from '@kernlang/terminal/runtime'");
+    expect(result.code).toContain('ScrollBox');
+    expect(result.code).toContain('<ScrollBox stickyScroll flexGrow={1}>');
+    expect(result.code).toContain('</ScrollBox>');
+  });
+
+  test('scroll-box passes height and row-height props through', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse(['screen name=App', '  scroll-box height=20 row-height=2', '    text value="row"'].join('\n'));
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('height={20}');
+    expect(result.code).toContain('rowHeight={2}');
+  });
+
+  test('alternate-screen wrapping scroll-box nests both primitives correctly', async () => {
+    const { parse } = await import('../../core/src/parser.js');
+    const { transpileInk } = await import('../src/transpiler-ink.js');
+    const ast = parse(
+      [
+        'screen name=App',
+        '  alternate-screen mouse-tracking=true',
+        '    scroll-box sticky-scroll=true flex-grow=1',
+        '      text value="chat row"',
+      ].join('\n'),
+    );
+    const result = transpileInk(ast);
+
+    expect(result.code).toContain('<AlternateScreen mouseTracking>');
+    expect(result.code).toContain('<ScrollBox stickyScroll flexGrow={1}>');
+    expect(result.code).toMatch(/AlternateScreen[\s\S]*ScrollBox[\s\S]*\/ScrollBox[\s\S]*\/AlternateScreen/);
+    expect(result.code).toContain('AlternateScreen, ScrollBox');
+  });
 });

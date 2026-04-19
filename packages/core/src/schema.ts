@@ -144,6 +144,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       async: { kind: 'boolean' },
       stream: { kind: 'boolean' },
       export: { kind: 'boolean' },
+      expr: { kind: 'rawExpr' },
     },
     allowedChildren: ['handler', 'signal', 'cleanup'],
   },

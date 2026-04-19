@@ -25,7 +25,7 @@
 
 import { expandTemplateNode, type IRNode, parse } from '@kernlang/core';
 import { detectTemplates, type TemplateMatch } from '@kernlang/review';
-import type { Project, SourceFile } from 'ts-morph';
+import type { Project } from 'ts-morph';
 import { getAdapter } from './adapter-registry.js';
 import { runAffectedSetDiagnostics, runWholeProgramDiagnostics, snapshotWholeProgram } from './diagnostics.js';
 import { ensureTemplate } from './template-loader.js';
@@ -74,7 +74,7 @@ function minimalDiff(oldText: string, newText: string, filePath: string): string
   const oldLines = oldText.split('\n');
   const newLines = newText.split('\n');
   const header = `--- a/${filePath}\n+++ b/${filePath}\n`;
-  return header + oldLines.map((l) => `-${l}`).join('\n') + '\n' + newLines.map((l) => `+${l}`).join('\n') + '\n';
+  return `${header}${oldLines.map((l) => `-${l}`).join('\n')}\n${newLines.map((l) => `+${l}`).join('\n')}\n`;
 }
 
 // ── Core apply ─────────────────────────────────────────────────────────

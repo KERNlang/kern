@@ -1074,6 +1074,14 @@ async function runReviewLocal(args: string[]): Promise<void> {
     strict,
     strictParse,
     tsConfigFilePath: tsconfigPath,
+    publicApi:
+      reviewCfg.review.publicApi.files.length > 0 || reviewCfg.review.publicApi.symbols.length > 0
+        ? {
+            files: reviewCfg.review.publicApi.files,
+            symbols: reviewCfg.review.publicApi.symbols,
+            projectRoot: process.cwd(),
+          }
+        : undefined,
   };
 
   // Load templates for review

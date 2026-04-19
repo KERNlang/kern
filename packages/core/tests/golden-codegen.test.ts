@@ -367,6 +367,18 @@ describe('golden: const', () => {
   it('const with value', () => {
     expect(gen('const name=MAX_RETRIES type=number value=3')).toMatchSnapshot();
   });
+  it('const with expression value', () => {
+    expect(gen('const name=HOUR_MS type=number value={{ 60 * 60 * 1000 }}')).toMatchSnapshot();
+  });
+  it('const with string-literal expression value', () => {
+    expect(gen('const name=HOST type=string value={{ "localhost" }}')).toMatchSnapshot();
+  });
+  it('fn with expr body', () => {
+    expect(gen('fn name=getPath returns=string expr={{ return join(tmp, "x"); }}')).toMatchSnapshot();
+  });
+  it('fn with expr body void return', () => {
+    expect(gen('fn name=tick returns=void expr={{ state.count++; }}')).toMatchSnapshot();
+  });
   it('const with handler', () => {
     expect(
       gen(

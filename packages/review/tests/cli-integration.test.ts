@@ -4,6 +4,10 @@
  * Tests --llm, --fix, and --lint paths without subprocess spawning.
  */
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { Project } from 'ts-morph';
 import {
   buildLLMPrompt,
   dedup,
@@ -159,6 +163,44 @@ export function add(a: number, b: number): number { return a + b; }
   it('runTSCDiagnosticsFromPaths with empty input → empty array', () => {
     const findings = runTSCDiagnosticsFromPaths([]);
     expect(findings.length).toBe(0);
+  });
+
+  it('runTSCDiagnostics can suppress ad-hoc composite project loading noise', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-review-tsc-noise-'));
+    try {
+      const srcDir = join(dir, 'src');
+      writeFileSync(
+        join(dir, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            composite: true,
+            target: 'ES2022',
+            module: 'NodeNext',
+            moduleResolution: 'NodeNext',
+            rootDir: 'src',
+            outDir: 'dist',
+          },
+          include: ['src/**/*'],
+        }),
+      );
+      mkdirSync(srcDir);
+      const indexPath = join(srcDir, 'index.ts');
+      writeFileSync(indexPath, "export { value } from './dep.js';\n");
+      writeFileSync(join(srcDir, 'dep.ts'), 'export const value = 1;\n');
+
+      const project = new Project({
+        tsConfigFilePath: join(dir, 'tsconfig.json'),
+        skipAddingFilesFromTsConfig: true,
+      });
+      project.addSourceFileAtPath(indexPath);
+
+      expect(runTSCDiagnostics(project).some((f) => f.ruleId === 'ts6307')).toBe(true);
+      expect(
+        runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true }).some((f) => f.ruleId === 'ts6307'),
+      ).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('runESLint returns empty when ESLint not installed (CI safe)', async () => {

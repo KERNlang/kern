@@ -1,10 +1,11 @@
 import { reviewFile } from '@kernlang/review';
 import { execFileSync } from 'child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { runReview } from '../src/commands/review.js';
 import { createReviewBaseline } from '../src/review-baseline.js';
+import { collectTsFilesFlat } from '../src/shared.js';
 
 describe('kern review command', () => {
   let cwd: string;
@@ -65,6 +66,16 @@ describe('kern review command', () => {
     const output = logs.join('\n');
     expect(output).toContain('"filePath"');
     expect(output).toContain('screen.kern');
+  });
+
+  it('does not collect .kern directories as reviewable files', () => {
+    mkdirSync(join(tmpDir, 'packages', 'app', '.kern'), { recursive: true });
+    writeFileSync(join(tmpDir, 'packages', 'app', 'index.ts'), 'export const ok = true;\n');
+
+    const files = collectTsFilesFlat(join(tmpDir, 'packages'), true);
+
+    expect(files).toContain(join(tmpDir, 'packages', 'app', 'index.ts'));
+    expect(files).not.toContain(join(tmpDir, 'packages', 'app', '.kern'));
   });
 
   it('filters known findings with --baseline and --new-only', async () => {

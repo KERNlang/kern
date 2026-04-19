@@ -89,6 +89,12 @@ describe('Core Language Codegen', () => {
       const code = gen('fn name=fetchData async=true returns="Promise<Data>"');
       expect(code).toContain('export async function fetchData(): Promise<Data> {');
     });
+
+    it('generates function body from expr prop', () => {
+      const code = gen('fn name=getAnswer returns=number expr={{ return 42; }}');
+      expect(code).toContain('export function getAnswer(): number {');
+      expect(code).toContain('  return 42;');
+    });
   });
 
   // ── machine (KERN's killer feature) ──
@@ -268,6 +274,22 @@ describe('Core Language Codegen', () => {
       expect(code).toContain('export interface ForgeEventMap {');
       expect(code).toContain("'baseline:done': { passes: boolean };");
       expect(code).toContain('export type ForgeEventCallback = (event: ForgeEvent) => void;');
+    });
+  });
+
+  // ── const ──
+
+  describe('const', () => {
+    it('generates raw TypeScript from expression value blocks', () => {
+      expect(gen('const name=TTL type=number value={{ 60 * 60 * 1000 }}')).toContain(
+        'export const TTL: number = 60 * 60 * 1000;',
+      );
+      expect(gen('const name=NAME type=string value={{ "AudioFacets" }}')).toContain(
+        'export const NAME: string = "AudioFacets";',
+      );
+      expect(gen('const name=INIT type=any value={{ { current: null } }}')).toContain(
+        'export const INIT: any = { current: null };',
+      );
     });
   });
 

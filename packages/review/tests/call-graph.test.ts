@@ -129,6 +129,36 @@ export function unused() { return 2; }
     expect(callGraph.deadExports).not.toContain('/src/lib.ts#used');
   });
 
+  it('does NOT mark command-registry imports as dead exports', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/cli.ts',
+      `
+import { runApply } from './apply.js';
+
+const COMMANDS = { apply: runApply };
+
+export function main() {
+  const handler = COMMANDS.apply;
+  handler([]);
+}
+`,
+    );
+    project.createSourceFile(
+      '/src/apply.ts',
+      `
+export function runApply(args: string[]) { return args.length; }
+export function unused() { return 0; }
+`,
+    );
+
+    const graph = resolveImportGraph(['/src/cli.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    expect(callGraph.deadExports).not.toContain('/src/apply.ts#runApply');
+    expect(callGraph.deadExports).toContain('/src/apply.ts#unused');
+  });
+
   it('resolves aliased named imports through re-export chains', () => {
     const project = createTestProject();
     project.createSourceFile(
