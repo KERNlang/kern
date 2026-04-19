@@ -51,13 +51,16 @@ export async function loadData() {
   });
 
   it('detects ignored catch block as concept gap', () => {
+    // Fixture has NO intent comment inside the empty catch. The concept mapper
+    // exempts empty catches that carry an author comment as `wrapped`
+    // (documented intent) rather than `ignored`, so the fixture must avoid
+    // any comment to trigger the ignored-error rule.
     const source = `
 export async function loadData() {
   try {
     const res = await fetch('/api/data');
     return res.json();
   } catch (e) {
-    // empty catch — error is swallowed
   }
 }
 `;
