@@ -1,0 +1,13 @@
+# Scan artifacts
+kern-mcp-security.json
+kern-mcp-security.sarif
+
+# Node
+node_modules/
+npm-debug.log
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
