@@ -143,6 +143,7 @@ class ImportTracker {
   private reactImports = new Set<string>();
   private inkImports = new Set<string>();
   private inkUIImports = new Set<string>();
+  private kernRuntimeImports = new Set<string>();
 
   addReact(name: string): void {
     this.reactImports.add(name);
@@ -153,6 +154,10 @@ class ImportTracker {
   /** Add an @inkjs/ui component import. */
   addInkUI(name: string): void {
     this.inkUIImports.add(name);
+  }
+  /** Add a component from @kernlang/terminal/runtime. */
+  addKernRuntime(name: string): void {
+    this.kernRuntimeImports.add(name);
   }
   // Legacy convenience methods — now route to @inkjs/ui
   needSpinner(): void {
@@ -177,6 +182,9 @@ class ImportTracker {
     }
     if (this.inkUIImports.size > 0) {
       lines.push(`import { ${[...this.inkUIImports].sort().join(', ')} } from '@inkjs/ui';`);
+    }
+    if (this.kernRuntimeImports.size > 0) {
+      lines.push(`import { ${[...this.kernRuntimeImports].sort().join(', ')} } from '@kernlang/terminal/runtime';`);
     }
     return lines;
   }
@@ -806,6 +814,68 @@ function renderInkBox(node: IRNode, p: Record<string, unknown>, indent: string, 
   return lines;
 }
 
+function renderInkAlternateScreen(
+  node: IRNode,
+  p: Record<string, unknown>,
+  indent: string,
+  imports: ImportTracker,
+): string[] {
+  imports.addKernRuntime('AlternateScreen');
+  const mouseTracking =
+    p.mouseTracking === 'true' ||
+    p.mouseTracking === true ||
+    p['mouse-tracking'] === 'true' ||
+    p['mouse-tracking'] === true;
+
+  const attrs: string[] = [];
+  if (mouseTracking) attrs.push('mouseTracking');
+  const propsStr = attrs.length > 0 ? ` ${attrs.join(' ')}` : '';
+
+  const lines: string[] = [];
+  lines.push(`${indent}<AlternateScreen${propsStr}>`);
+  for (const child of node.children || []) {
+    if (child.type === 'on') continue;
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
+  }
+  lines.push(`${indent}</AlternateScreen>`);
+  return lines;
+}
+
+function renderInkScrollBox(
+  node: IRNode,
+  p: Record<string, unknown>,
+  indent: string,
+  imports: ImportTracker,
+): string[] {
+  imports.addKernRuntime('ScrollBox');
+  const stickyScroll =
+    p.stickyScroll === 'true' ||
+    p.stickyScroll === true ||
+    p['sticky-scroll'] === 'true' ||
+    p['sticky-scroll'] === true;
+  const flexGrow = p.flexGrow ?? p['flex-grow'];
+  const flexShrink = p.flexShrink ?? p['flex-shrink'];
+  const height = p.height;
+  const rowHeight = p.rowHeight ?? p['row-height'];
+
+  const attrs: string[] = [];
+  if (stickyScroll) attrs.push('stickyScroll');
+  if (flexGrow !== undefined) attrs.push(`flexGrow={${unwrapProp(flexGrow)}}`);
+  if (flexShrink !== undefined) attrs.push(`flexShrink={${unwrapProp(flexShrink)}}`);
+  if (height !== undefined) attrs.push(`height={${unwrapProp(height)}}`);
+  if (rowHeight !== undefined) attrs.push(`rowHeight={${unwrapProp(rowHeight)}}`);
+  const propsStr = attrs.length > 0 ? ` ${attrs.join(' ')}` : '';
+
+  const lines: string[] = [];
+  lines.push(`${indent}<ScrollBox${propsStr}>`);
+  for (const child of node.children || []) {
+    if (child.type === 'on') continue;
+    lines.push(...renderInkNode(child, `${indent}  `, imports));
+  }
+  lines.push(`${indent}</ScrollBox>`);
+  return lines;
+}
+
 function renderInkTable(node: IRNode, p: Record<string, unknown>, indent: string, imports: ImportTracker): string[] {
   imports.addInk('Box');
   imports.addInk('Text');
@@ -1276,6 +1346,10 @@ function renderInkNode(node: IRNode, indent: string, imports: ImportTracker): st
       return renderInkSeparator(p as Record<string, unknown>, indent, imports);
     case 'box':
       return renderInkBox(node, p as Record<string, unknown>, indent, imports);
+    case 'alternate-screen':
+      return renderInkAlternateScreen(node, p as Record<string, unknown>, indent, imports);
+    case 'scroll-box':
+      return renderInkScrollBox(node, p as Record<string, unknown>, indent, imports);
     case 'table':
       return renderInkTable(node, p as Record<string, unknown>, indent, imports);
     case 'scoreboard':

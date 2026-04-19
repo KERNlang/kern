@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "default": "./dist/runtime/index.js"
     }
   },
   "files": [
@@ -30,6 +34,14 @@
   },
   "dependencies": {
     "@kernlang/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@inkjs/ui": ">=2.0.0",
+    "ink": ">=7.0.0",
+    "react": ">=19.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@inkjs/ui": { "optional": true }
   },
   "devDependencies": {
     "@types/react": "19.2.14",
