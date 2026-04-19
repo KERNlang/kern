@@ -89,6 +89,12 @@ describe('Core Language Codegen', () => {
       const code = gen('fn name=fetchData async=true returns="Promise<Data>"');
       expect(code).toContain('export async function fetchData(): Promise<Data> {');
     });
+
+    it('generates function body from expr prop', () => {
+      const code = gen('fn name=getAnswer returns=number expr={{ return 42; }}');
+      expect(code).toContain('export function getAnswer(): number {');
+      expect(code).toContain('  return 42;');
+    });
   });
 
   // ── machine (KERN's killer feature) ──

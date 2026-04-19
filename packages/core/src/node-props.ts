@@ -56,6 +56,7 @@ export interface FnProps extends BaseProps {
   async?: string | boolean;
   stream?: string | boolean;
   generator?: string | boolean;
+  expr?: string | ExprObject;
 }
 
 export interface ErrorProps extends BaseProps {

@@ -5,7 +5,7 @@
  */
 
 import { propsOf } from '../node-props.js';
-import type { IRNode } from '../types.js';
+import type { ExprObject, IRNode } from '../types.js';
 import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import {
   dedent,
@@ -84,6 +84,13 @@ export function generateFunction(node: IRNode): string[] {
     lines.push(`  const ${signalName} = new AbortController();`);
   }
 
+  // `expr={{ ... }}` — single-expression function body. The expr is emitted
+  // verbatim so that migrations from `handler <<< <body> >>>` produce
+  // byte-identical TypeScript. Schema permits `expr` to coexist with
+  // `handler` so that either (but not both) supplies the body; here `code`
+  // wins because an explicit handler child is a stronger signal.
+  const exprBody = !code ? fnExprBody(props.expr) : undefined;
+
   // Wrap body in try/finally if cleanup exists
   if (hasCleanup) {
     lines.push('  try {');
@@ -91,6 +98,8 @@ export function generateFunction(node: IRNode): string[] {
       for (const line of code.split('\n')) {
         lines.push(`    ${line}`);
       }
+    } else if (exprBody !== undefined) {
+      lines.push(`    ${exprBody}`);
     }
     lines.push('  } finally {');
     const cleanupCode = (p(cleanupNode!).code as string) || '';
@@ -105,10 +114,18 @@ export function generateFunction(node: IRNode): string[] {
     for (const line of code.split('\n')) {
       lines.push(`  ${line}`);
     }
+  } else if (exprBody !== undefined) {
+    lines.push(`  ${exprBody}`);
   }
 
   lines.push('}');
   return lines;
+}
+
+function fnExprBody(raw: string | ExprObject | undefined): string | undefined {
+  if (raw === undefined || raw === '') return undefined;
+  if (typeof raw === 'object' && raw !== null && '__expr' in raw) return raw.code;
+  return raw;
 }
 
 // ── Error Class ──────────────────────────────────────────────────────────
