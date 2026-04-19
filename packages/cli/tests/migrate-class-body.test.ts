@@ -117,6 +117,26 @@ describe('rewriteClassBodies', () => {
     expect(assignIdx).toBeLessThan(bodyIdx);
   });
 
+  test('widens optional param-property field types to include undefined', () => {
+    // `constructor(private x?: number)` implicitly declares `x: number | undefined`.
+    // The synthesised field type must also include undefined so the ctor
+    // assign `this.x = x;` type-checks under strictNullChecks.
+    const source = [
+      'const name=Thing type=any',
+      '  handler <<<',
+      '    class Thing {',
+      '      constructor(private x?: number, readonly y?: string) {}',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteClassBodies(source);
+
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('field name=x type="number | undefined" private=true');
+    expect(result.output).toContain('field name=y type="string | undefined" readonly=true');
+  });
+
   test('expands TS parameter-property shortcuts into sibling fields + ctor assigns', () => {
     const source = [
       'const name=Widget type=any',

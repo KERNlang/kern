@@ -283,8 +283,17 @@ function emitMember(
       // plain (public-equivalent) to avoid silently dropping access-level
       // intent on a rarer pattern.
       const paramName = text(param.name);
-      const paramType = param.type ? text(param.type) : '';
+      let paramType = param.type ? text(param.type) : '';
       if (hasNewline(paramType)) return null;
+      // Optional parameter properties (`constructor(private x?: number)`)
+      // implicitly declare a field of type `T | undefined`. If we emit
+      // `field name=x type=number` the ctor assign `this.x = x;` would fail
+      // strictNullChecks (T | undefined → T). Widen the synthesised field
+      // type to include undefined so both sides stay consistent.
+      const isOptional = param.questionToken !== undefined;
+      if (isOptional && paramType) {
+        paramType = /[|&]/.test(paramType) ? `(${paramType}) | undefined` : `${paramType} | undefined`;
+      }
       const privStr = isPriv ? ' private=true' : '';
       const readStr = isReadonly ? ' readonly=true' : '';
       const typeStr = paramType ? ` type=${quoteTypeIfNeeded(paramType)}` : '';

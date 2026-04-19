@@ -130,7 +130,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       abstract: { kind: 'boolean' },
       export: { kind: 'boolean' },
     },
-    allowedChildren: ['field', 'method', 'constructor', 'singleton'],
+    allowedChildren: ['field', 'method', 'constructor', 'singleton', 'getter', 'setter'],
   },
   method: {
     description: 'A method within a service or repository, with handler body',
