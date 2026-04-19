@@ -90,4 +90,98 @@ describe('kern migrate command', () => {
     expect(out()).toContain('applied: 1 hits across 1 files');
     expect(readFileSync(kernFile, 'utf-8')).toContain('const name=ANSWER type=number value=42');
   });
+
+  test('accepts numeric edge cases: negatives, hex, scientific, underscore separators', () => {
+    const cases = ['-1', '0xFF', '0b101', '0o17', '1e10', '3.14', '5_000', '-2.5e-3'];
+    for (const c of cases) {
+      expect(__test__.isInlineSafeLiteral(c)).toBe(true);
+    }
+  });
+
+  test('accepts booleans, null, undefined', () => {
+    for (const c of ['true', 'false', 'null', 'undefined']) {
+      expect(__test__.isInlineSafeLiteral(c)).toBe(true);
+    }
+  });
+
+  test('rejects identifiers, expressions, template literals, objects', () => {
+    const cases = ['Math.PI', 'a + b', '`hello ${x}`', '{ foo: 1 }', '[1, 2]', 'foo()', 'new Date()'];
+    for (const c of cases) {
+      expect(__test__.isInlineSafeLiteral(c)).toBe(false);
+    }
+  });
+
+  test('rejects strings to avoid latent codegen bug', () => {
+    // Strings are excluded because KERN parser strips quotes from `quoted`
+    // tokens, causing `value="foo"` to round-trip as unquoted TS.
+    for (const c of ['"hello"', "'world'", '"AFREC\\x01"']) {
+      expect(__test__.isInlineSafeLiteral(c)).toBe(false);
+    }
+  });
+
+  test('skips multi-line handler bodies', () => {
+    const source = [
+      'const name=FOO type=object',
+      '  handler <<<',
+      '    {',
+      '      nested: true,',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = __test__.rewriteLiteralConsts(source);
+
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('does not swallow a sibling handler of an indented const', () => {
+    // A const nested under a parent node followed by a sibling `handler`
+    // block at the SAME indent. The old matcher required any whitespace in
+    // front of `handler`, which meant siblings were mistakenly consumed.
+    const source = [
+      'module name=Foo',
+      '  const name=COUNT type=number',
+      '  handler <<<',
+      '    runModule();',
+      '  >>>',
+    ].join('\n');
+
+    const result = __test__.rewriteLiteralConsts(source);
+
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('skips const headers with inline # or // comments', () => {
+    // KERN strips `#` and `//` inline comments; appending `value=...` after
+    // one would put the value inside the stripped comment, silently losing
+    // the handler's value.
+    const source = [
+      'const name=A type=number # retries',
+      '  handler <<<',
+      '    42',
+      '  >>>',
+      'const name=B type=number // note',
+      '  handler <<<',
+      '    7',
+      '  >>>',
+    ].join('\n');
+
+    const result = __test__.rewriteLiteralConsts(source);
+
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('leaves unrelated const declarations and fn handlers alone', () => {
+    const source = ['const name=NO_TYPE', 'fn name=doStuff returns=void', '  handler <<<', '    return;', '  >>>'].join(
+      '\n',
+    );
+
+    const result = __test__.rewriteLiteralConsts(source);
+
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
 });

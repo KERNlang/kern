@@ -137,11 +137,20 @@ function rewriteLiteralConsts(source: string): LiteralConstResult {
       i++;
       continue;
     }
+    // Skip headers with inline `#` or `//` comments. The KERN parser strips
+    // them (see parser-core.ts stripLineComment), so appending `value=...`
+    // after a comment would put the value *inside* the comment and the
+    // migration would silently delete the handler without preserving it.
+    if (/(?:^|\s)(?:#|\/\/)/.test(headerRest)) {
+      out.push(line);
+      i++;
+      continue;
+    }
 
     // Look ahead for the handler block:
-    //   line i+1:  <indent>  handler <<<
-    //   line i+2:  <indent>    <literal>
-    //   line i+3:  <indent>  >>>
+    //   line i+1:  <deeper-indent>  handler <<<
+    //   line i+2:  <deeper-indent>    <literal>
+    //   line i+3:  <deeper-indent>  >>>
     const openLine = lines[i + 1];
     const bodyLine = lines[i + 2];
     const closeLine = lines[i + 3];
@@ -153,6 +162,14 @@ function rewriteLiteralConsts(source: string): LiteralConstResult {
     const openMatch = openLine.match(/^(\s+)handler\s*<<<\s*$/);
     const closeMatch = closeLine.match(/^\s+>>>\s*$/);
     if (!openMatch || !closeMatch) {
+      out.push(line);
+      i++;
+      continue;
+    }
+    // Require the handler to be a CHILD of the const — its indent must be
+    // strictly deeper than the const header's. Otherwise a sibling handler
+    // block would be swallowed when the const itself is indented.
+    if (openMatch[1].length <= headerIndent.length) {
       out.push(line);
       i++;
       continue;
