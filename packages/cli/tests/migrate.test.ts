@@ -47,7 +47,7 @@ describe('kern migrate command', () => {
     expect(result.output).not.toContain('handler <<<');
   });
 
-  test('leaves strings, expressions, and existing value attributes unchanged', () => {
+  test('wraps strings, expressions, and object/array literals in value={{ ... }}', () => {
     const source = [
       'const name=NAME type=string',
       '  handler <<<',
@@ -57,11 +57,23 @@ describe('kern migrate command', () => {
       '  handler <<<',
       '    40 + 2',
       '  >>>',
-      'const name=READY type=boolean value=true',
+      'const name=INIT type=any',
       '  handler <<<',
-      '    false',
+      '    { current: null }',
       '  >>>',
     ].join('\n');
+
+    const result = __test__.rewriteLiteralConsts(source);
+
+    expect(result.hits).toHaveLength(3);
+    expect(result.output).toContain('const name=NAME type=string value={{ "AudioFacets" }}');
+    expect(result.output).toContain('const name=EXPR type=number value={{ 40 + 2 }}');
+    expect(result.output).toContain('const name=INIT type=any value={{ { current: null } }}');
+    expect(result.output).not.toContain('handler <<<');
+  });
+
+  test('leaves consts that already have value= unchanged', () => {
+    const source = ['const name=READY type=boolean value=true', '  handler <<<', '    false', '  >>>'].join('\n');
 
     const result = __test__.rewriteLiteralConsts(source);
 
@@ -104,19 +116,29 @@ describe('kern migrate command', () => {
     }
   });
 
-  test('rejects identifiers, expressions, template literals, objects', () => {
+  test('rejects identifiers, expressions, template literals, objects as bare literals', () => {
+    // These must not take the bare `value=` path (whitespace breaks the KERN
+    // prop tokeniser); they go through the `value={{ ... }}` expression path.
     const cases = ['Math.PI', 'a + b', '`hello ${x}`', '{ foo: 1 }', '[1, 2]', 'foo()', 'new Date()'];
     for (const c of cases) {
       expect(__test__.isInlineSafeLiteral(c)).toBe(false);
     }
   });
 
-  test('rejects strings to avoid latent codegen bug', () => {
-    // Strings are excluded because KERN parser strips quotes from `quoted`
-    // tokens, causing `value="foo"` to round-trip as unquoted TS.
+  test('rejects strings as bare literals but accepts them as expressions', () => {
+    // Bare form `value="foo"` is broken by the parser's quote-stripping;
+    // wrapping in `{{ ... }}` is safe because the expr block preserves raw
+    // content between `{{` and `}}` verbatim.
     for (const c of ['"hello"', "'world'", '"AFREC\\x01"']) {
       expect(__test__.isInlineSafeLiteral(c)).toBe(false);
+      expect(__test__.isInlineSafeExpression(c)).toBe(true);
     }
+  });
+
+  test('rejects expressions that contain the `}}` closing delimiter', () => {
+    // `}}` inside a body would close the expr block prematurely.
+    expect(__test__.isInlineSafeExpression('obj}}x')).toBe(false);
+    expect(__test__.isInlineSafeExpression('')).toBe(false);
   });
 
   test('skips multi-line handler bodies', () => {

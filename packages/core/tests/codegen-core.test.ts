@@ -271,6 +271,22 @@ describe('Core Language Codegen', () => {
     });
   });
 
+  // ── const ──
+
+  describe('const', () => {
+    it('generates raw TypeScript from expression value blocks', () => {
+      expect(gen('const name=TTL type=number value={{ 60 * 60 * 1000 }}')).toContain(
+        'export const TTL: number = 60 * 60 * 1000;',
+      );
+      expect(gen('const name=NAME type=string value={{ "AudioFacets" }}')).toContain(
+        'export const NAME: string = "AudioFacets";',
+      );
+      expect(gen('const name=INIT type=any value={{ { current: null } }}')).toContain(
+        'export const INIT: any = { current: null };',
+      );
+    });
+  });
+
   // ── agon-plan.kern integration ──
 
   describe('agon-plan.kern example', () => {

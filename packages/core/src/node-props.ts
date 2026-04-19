@@ -10,7 +10,7 @@
  *   props.params // string | undefined
  */
 
-import type { IRNode } from './types.js';
+import type { ExprObject, IRNode } from './types.js';
 
 // ── Common prop shape (shared by most nodes) ────────────────────────────
 
@@ -45,7 +45,7 @@ export interface ServiceProps extends BaseProps {
 
 export interface ConstProps extends BaseProps {
   type?: string;
-  value?: string;
+  value?: string | ExprObject;
 }
 
 // ── Functions ───────────────────────────────────────────────────────────
@@ -181,7 +181,7 @@ export interface PatternProps extends BaseProps {
 // ── UI Controls ─────────────────────────────────────────────────────────
 
 export interface ConditionalProps extends BaseProps {
-  if?: string | import('./types.js').ExprObject;
+  if?: string | ExprObject;
 }
 
 export interface SelectProps extends BaseProps {

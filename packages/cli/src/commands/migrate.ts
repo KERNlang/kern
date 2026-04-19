@@ -2,11 +2,10 @@
  * `kern migrate <migration> [dir]` - in-place migrations of .kern sources.
  *
  * First migration: `literal-const`
- *   Detects `const name=X ... handler <<< <primitive-literal> >>>` and rewrites
- *   to `const name=X ... value=<primitive-literal>`. This closes the single
- *   largest class of coverage-gap handlers: primitive constant literals that
- *   were wrapped in handler blocks by older importers (or hand-authored) even
- *   though the schema supports inline `value=` attributes.
+ *   Detects `const name=X ... handler <<< <single-line const expression> >>>`
+ *   and rewrites to `const name=X ... value=...`. Primitive literals use the
+ *   compact `value=42` form; strings and expressions use `value={{ ... }}` so
+ *   generated TypeScript stays byte-equivalent to the original handler body.
  *
  * Dry-run by default; `--write` commits edits.
  */
@@ -54,15 +53,14 @@ function walkKern(root: string, out: string[]): void {
 // -- literal-const ----------------------------------------------------------
 
 /**
- * Return true if the given single-line string is a safe-to-inline literal:
+ * Return true if the given single-line string is a bare-safe literal that
+ * can be inlined as `value=<literal>` without quoting:
  * - numeric (int, float, hex, scientific, underscore-separated)
  * - boolean / null / undefined
  *
- * Strings are deliberately excluded. The KERN parser strips quotes from
- * `quoted` tokens before they reach const codegen, so `value="foo"` would
- * round-trip as unquoted TS (`const X = foo;`). That's a latent pre-existing
- * bug that also affects `kern import`; migrating strings here would corrupt
- * compiled output until the codegen path is fixed in a separate change.
+ * The KERN prop parser tokenises on whitespace, so anything containing spaces
+ * (e.g. `60 * 60 * 1000`) or special tokens (`"..."`, `{`, `[`) must use the
+ * `value={{ ... }}` form instead; see `isInlineSafeExpression`.
  */
 function isInlineSafeLiteral(text: string): boolean {
   const t = text.trim();
@@ -82,9 +80,25 @@ function isInlineSafeLiteral(text: string): boolean {
   return false;
 }
 
+/**
+ * Return true if the given single-line string is safe to wrap as
+ * `value={{ ... }}`. The expression block preserves raw content verbatim
+ * between the opening `{{` and closing `}}`, so anything works as long as:
+ *   - the body is non-empty (after trim),
+ *   - the body contains no `}}` substring (would close the wrapper early),
+ *   - the body has no embedded newline (caller already guarantees this).
+ */
+function isInlineSafeExpression(text: string): boolean {
+  const t = text.trim();
+  if (t.length === 0) return false;
+  if (t.includes('}}')) return false;
+  return true;
+}
+
 interface LiteralConstHit {
   headerLine: number; // 1-based line of the `const name=...` line
   literal: string;
+  valueAttr: string;
 }
 
 interface LiteralConstResult {
@@ -183,19 +197,32 @@ function rewriteLiteralConsts(source: string): LiteralConstResult {
       i++;
       continue;
     }
-    const literalText = bodyMatch[2];
-    if (!isInlineSafeLiteral(literalText)) {
+    const bodyText = bodyMatch[2];
+    // Two-tier: prefer the bare `value=<literal>` form for pure primitives
+    // (cleaner output); fall back to `value={{ <expr> }}` for anything else
+    // that's a single-line, non-empty, non-closing-delimiter body. The
+    // compiled TS is byte-identical to the original handler form either way
+    // because both paths route through the same codegen branch in
+    // codegen/type-system.ts:generateConst.
+    let valueAttr: string;
+    let rendered: string;
+    if (isInlineSafeLiteral(bodyText)) {
+      const lit = bodyText.trim();
+      valueAttr = `value=${lit}`;
+      rendered = lit;
+    } else if (isInlineSafeExpression(bodyText)) {
+      const expr = bodyText.trim();
+      valueAttr = `value={{ ${expr} }}`;
+      rendered = expr;
+    } else {
       out.push(line);
       i++;
       continue;
     }
 
     // Preserve trailing attributes after name=... so export=false etc. stay.
-    // Build the rewritten header: insert ` value=<literal>` before the end.
-    // Strategy: append at end. Same codegen (see codegen/type-system.ts:216)
-    // so order doesn't matter.
-    const rewrittenHeader = `${headerIndent}const ${headerRest.trimEnd()} value=${literalText.trim()}`;
-    hits.push({ headerLine: i + 1, literal: literalText.trim() });
+    const rewrittenHeader = `${headerIndent}const ${headerRest.trimEnd()} ${valueAttr}`;
+    hits.push({ headerLine: i + 1, literal: rendered, valueAttr });
     out.push(rewrittenHeader);
     i += 4; // skip handler <<<, body, >>>
   }
@@ -208,6 +235,8 @@ function rewriteLiteralConsts(source: string): LiteralConstResult {
 interface FileReport {
   file: string;
   hits: number;
+  rewrites: string[];
+  // Legacy JSON field: original single-line handler bodies.
   literals: string[];
 }
 
@@ -235,11 +264,11 @@ function formatHuman(report: MigrateReport, rootDir: string): string {
     if (file.hits === 0) continue;
     const rel = relative(rootDir, file.file) || file.file;
     lines.push(`  ${rel}  (${file.hits} hit${file.hits === 1 ? '' : 's'})`);
-    for (const lit of file.literals.slice(0, 5)) {
-      lines.push(`    -> value=${lit}`);
+    for (const rewrite of file.rewrites.slice(0, 5)) {
+      lines.push(`    -> ${rewrite}`);
     }
-    if (file.literals.length > 5) {
-      lines.push(`    ... ${file.literals.length - 5} more`);
+    if (file.rewrites.length > 5) {
+      lines.push(`    ... ${file.rewrites.length - 5} more`);
     }
   }
   const action = report.mode === 'write' ? 'applied' : 'would apply';
@@ -256,7 +285,7 @@ export function runMigrate(args: string[]): void {
   if (!sub || sub.startsWith('--')) {
     process.stderr.write('Usage: kern migrate <migration> [dir] [--write] [--json]\n');
     process.stderr.write('Migrations:\n');
-    process.stderr.write('  literal-const   Inline primitive-literal handler bodies as `value=` attributes\n');
+    process.stderr.write('  literal-const   Inline single-line const handler bodies as `value=` attributes\n');
     process.exit(1);
   }
   if (sub !== 'literal-const') {
@@ -287,6 +316,7 @@ export function runMigrate(args: string[]): void {
     fileReports.push({
       file,
       hits: result.hits.length,
+      rewrites: result.hits.map((h) => h.valueAttr),
       literals: result.hits.map((h) => h.literal),
     });
     if (result.hits.length > 0) {
@@ -315,4 +345,4 @@ export function runMigrate(args: string[]): void {
 }
 
 // Exported for unit tests.
-export const __test__ = { isInlineSafeLiteral, rewriteLiteralConsts };
+export const __test__ = { isInlineSafeLiteral, isInlineSafeExpression, rewriteLiteralConsts };

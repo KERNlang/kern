@@ -46,7 +46,11 @@ export const DEFAULT_APP_CONFIG: Required<AppConfig> = {
 };"
 `;
 
+exports[`golden: const const with expression value 1`] = `"export const HOUR_MS: number = 60 * 60 * 1000;"`;
+
 exports[`golden: const const with handler 1`] = `"export const CONFIG: AppConfig = { port: 3000, host: "localhost" };"`;
+
+exports[`golden: const const with string-literal expression value 1`] = `"export const HOST: string = "localhost";"`;
 
 exports[`golden: const const with value 1`] = `"export const MAX_RETRIES: number = 3;"`;
 
