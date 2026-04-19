@@ -60,4 +60,9 @@ async function main(): Promise<void> {
   runTranspile(args);
 }
 
-await main();
+try {
+  await main();
+} catch (err) {
+  console.error((err as Error).message);
+  process.exit(1);
+}
