@@ -28,8 +28,8 @@ import {
   resolveConfig,
   STYLE_SHORTHANDS,
   serializeIR,
-  VALID_TARGETS,
   VALID_STRUCTURES,
+  VALID_TARGETS,
   VALUE_SHORTHANDS,
 } from '@kernlang/core';
 import { transpileExpress } from '@kernlang/express';
@@ -309,7 +309,9 @@ server.tool(
   {
     source: z.string().describe('.kern source code'),
     target: targetEnum.default('nextjs').describe('Target framework'),
-    structure: structureEnum.default('flat').describe('Output structure for React targets: flat, bulletproof, atomic, kern'),
+    structure: structureEnum
+      .default('flat')
+      .describe('Output structure for React targets: flat, bulletproof, atomic, kern'),
   },
   async ({ source, target, structure }) => {
     log('tool:compile', { target, structure, len: source.length });
@@ -688,7 +690,9 @@ server.tool(
   {
     source: z.string().describe('.kern source code'),
     target: targetEnum.default('nextjs').describe('Target framework'),
-    structure: structureEnum.default('flat').describe('Output structure for React targets: flat, bulletproof, atomic, kern'),
+    structure: structureEnum
+      .default('flat')
+      .describe('Output structure for React targets: flat, bulletproof, atomic, kern'),
   },
   async ({ source, target, structure }) => {
     log('tool:compile-json', { target, structure, len: source.length });
