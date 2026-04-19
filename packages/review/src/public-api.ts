@@ -65,19 +65,26 @@ function hasGlobChars(pattern: string): boolean {
  *   - `*`  — any run of non-separator chars
  *   - `**` — any path fragment, including separators (zero or more segments)
  *   - `?`  — a single non-separator char
- *   - `[abc]` / `[a-z]` — character class (copied through untouched)
+ *   - `[abc]` / `[a-z]` — character class
+ *   - `[!abc]` — negated character class (POSIX-style; translated to regex `[^abc]`)
  *
  * All other regex metacharacters are escaped. Brace expansion (`{a,b}`) is
  * NOT supported — keep config patterns simple; split into multiple entries.
+ *
+ * The pattern is expected to be POSIX-separated (forward slashes). The caller
+ * normalizes Windows backslashes to `/` before calling this. Consecutive `*`
+ * runs are collapsed first to prevent catastrophic backtracking on patterns
+ * like `**\/**\/**`.
  */
 function globToRegex(pattern: string): RegExp {
+  const squashed = pattern.replace(/\*{2,}/g, '**').replace(/(?:\*\*\/)+/g, '**/');
   let out = '';
   let i = 0;
-  while (i < pattern.length) {
-    const c = pattern[i]!;
+  while (i < squashed.length) {
+    const c = squashed[i]!;
     if (c === '*') {
-      if (pattern[i + 1] === '*') {
-        if (pattern[i + 2] === '/') {
+      if (squashed[i + 1] === '*') {
+        if (squashed[i + 2] === '/') {
           out += '(?:.*/)?';
           i += 3;
         } else {
@@ -92,12 +99,14 @@ function globToRegex(pattern: string): RegExp {
       out += '[^/]';
       i++;
     } else if (c === '[') {
-      const end = pattern.indexOf(']', i + 1);
+      const end = squashed.indexOf(']', i + 1);
       if (end === -1) {
         out += '\\[';
         i++;
       } else {
-        out += pattern.substring(i, end + 1);
+        let inner = squashed.substring(i + 1, end);
+        if (inner.startsWith('!')) inner = `^${inner.slice(1)}`;
+        out += `[${inner}]`;
         i = end + 1;
       }
     } else if ('.+^$|(){}\\'.includes(c)) {
@@ -109,6 +118,11 @@ function globToRegex(pattern: string): RegExp {
     }
   }
   return new RegExp(`^${out}$`);
+}
+
+/** Normalize path separators so glob matching works on Windows. */
+function toPosix(p: string): string {
+  return p.replace(/\\/g, '/');
 }
 
 function collectSpecifiers(value: unknown): string[] {
@@ -254,13 +268,19 @@ export function buildPublicApiMap(filePaths: string[], overrides?: PublicApiOver
     for (const pattern of overrides.files) {
       if (typeof pattern !== 'string' || pattern.length === 0) continue;
       const abs = isAbsolute(pattern) ? pattern : resolve(projectRoot, pattern);
+      // Always add the literal resolved path. This preserves the pre-glob
+      // behavior ("files listed here are public even if absent from the
+      // reviewed graph") AND gives the right answer for Next.js-style
+      // literal brackets like "src/app/[slug]/page.tsx" — the bracketed
+      // segment looks like a glob character class but is actually part of
+      // the filename. Glob expansion still runs below, so users who meant
+      // [...] as a class get that behavior too.
+      entryFiles.add(abs);
       if (hasGlobChars(pattern)) {
-        const regex = globToRegex(abs);
+        const regex = globToRegex(toPosix(abs));
         for (const fp of filePaths) {
-          if (regex.test(fp)) entryFiles.add(fp);
+          if (regex.test(toPosix(fp))) entryFiles.add(fp);
         }
-      } else {
-        entryFiles.add(abs);
       }
     }
   }
