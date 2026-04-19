@@ -3,11 +3,11 @@ name: Sync MCP Security Action
 on:
   push:
     tags:
-      - 'v*'
+      - 'action-v*'
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to sync (e.g., v0.0.1-test). Leave empty on tag push.'
+        description: 'Tag to sync (e.g., action-v0.0.1-test). Leave empty on tag push.'
         required: false
         default: ''
 
@@ -31,8 +31,11 @@ jobs:
           else
             VERSION="${GITHUB_REF#refs/tags/}"
           fi
+          # Strip 'action-' prefix for the mirrored repo's own tag
+          MIRROR_VERSION="${VERSION#action-}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Resolved version: $VERSION"
+          echo "mirror_version=$MIRROR_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION (mirror tag: $MIRROR_VERSION)"
 
       - name: Prepare action payload
         run: |
@@ -45,7 +48,7 @@ jobs:
       - name: Push to mcp-security-action repo
         env:
           SYNC_TOKEN: ${{ secrets.ACTION_SYNC_TOKEN }}
-          VERSION: ${{ steps.v.outputs.version }}
+          VERSION: ${{ steps.v.outputs.mirror_version }}
         run: |
           cd /tmp/action-repo
           git init -b main
