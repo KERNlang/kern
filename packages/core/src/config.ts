@@ -104,6 +104,8 @@ export interface KernConfig {
     maxComplexity?: number;
     /** Rule IDs to disable project-wide */
     disabledRules?: string[];
+    /** When true, the `missing-confidence` finding fires for .kern files without confidence annotations. Default: false (opt-in). */
+    requireConfidenceAnnotations?: boolean;
     /** Declare intentional public API so dead-export doesn't flag symbols consumed externally. */
     publicApi?: {
       /**
@@ -165,6 +167,7 @@ export interface ResolvedKernConfig {
     minConfidence: number;
     maxComplexity: number;
     disabledRules: string[];
+    requireConfidenceAnnotations: boolean;
     publicApi: {
       files: string[];
       symbols: string[];
@@ -211,6 +214,7 @@ export const DEFAULT_CONFIG: ResolvedKernConfig = {
     minConfidence: 0,
     maxComplexity: 15,
     disabledRules: [],
+    requireConfidenceAnnotations: false,
     publicApi: {
       files: [],
       symbols: [],
@@ -290,6 +294,8 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
       minConfidence: user.review?.minConfidence ?? DEFAULT_CONFIG.review.minConfidence,
       maxComplexity: user.review?.maxComplexity ?? DEFAULT_CONFIG.review.maxComplexity,
       disabledRules: user.review?.disabledRules ?? DEFAULT_CONFIG.review.disabledRules,
+      requireConfidenceAnnotations:
+        user.review?.requireConfidenceAnnotations ?? DEFAULT_CONFIG.review.requireConfidenceAnnotations,
       publicApi: {
         files: user.review?.publicApi?.files ?? DEFAULT_CONFIG.review.publicApi.files,
         symbols: user.review?.publicApi?.symbols ?? DEFAULT_CONFIG.review.publicApi.symbols,
