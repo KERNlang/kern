@@ -28,6 +28,39 @@ switch (user.tier) {
 }"
 `;
 
+exports[`golden: class abstract class 1`] = `
+"export abstract class Shape {
+  private area: number;
+
+  render(): void {
+  }
+}"
+`;
+
+exports[`golden: class class with extends and implements 1`] = `
+"export class Cat extends Animal implements Purrer {
+
+  purr(): void {
+    console.log("purr");
+  }
+}"
+`;
+
+exports[`golden: class class with private fields, typed constructor, methods 1`] = `
+"export class AudioRecorder {
+  private fd: number | null = null;
+  private totalBytes: number = 0;
+
+  constructor(sessionKey: string) {
+    this.sessionKey = sessionKey;
+  }
+
+  write(buf: Buffer): void {
+    writeSync(this.fd!, buf);
+  }
+}"
+`;
+
 exports[`golden: collect collect simple 1`] = `"export const all = data;"`;
 
 exports[`golden: collect collect with filter, sort, limit 1`] = `"export const topItems = items.filter(item => [object Object]).sort((a, b) => [object Object]).slice(0, 10);"`;

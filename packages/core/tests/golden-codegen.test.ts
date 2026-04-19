@@ -158,6 +158,52 @@ describe('golden: service', () => {
   });
 });
 
+describe('golden: class', () => {
+  it('class with private fields, typed constructor, methods', () => {
+    expect(
+      gen(
+        [
+          'class name=AudioRecorder export=true',
+          '  field name=fd type="number | null" private=true default={{ null }}',
+          '  field name=totalBytes type=number private=true default=0',
+          '  constructor params="sessionKey:string"',
+          '    handler <<<',
+          '      this.sessionKey = sessionKey;',
+          '    >>>',
+          '  method name=write params="buf:Buffer" returns=void',
+          '    handler <<<',
+          '      writeSync(this.fd!, buf);',
+          '    >>>',
+        ].join('\n'),
+      ),
+    ).toMatchSnapshot();
+  });
+  it('abstract class', () => {
+    expect(
+      gen(
+        [
+          'class name=Shape abstract=true',
+          '  field name=area type=number private=true',
+          '  method name=render returns=void',
+        ].join('\n'),
+      ),
+    ).toMatchSnapshot();
+  });
+  it('class with extends and implements', () => {
+    expect(
+      gen(
+        [
+          'class name=Cat extends=Animal implements=Purrer',
+          '  method name=purr returns=void',
+          '    handler <<<',
+          '      console.log("purr");',
+          '    >>>',
+        ].join('\n'),
+      ),
+    ).toMatchSnapshot();
+  });
+});
+
 describe('golden: fn', () => {
   it('sync function with params and return', () => {
     expect(

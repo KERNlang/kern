@@ -134,6 +134,7 @@ export const NODE_TYPES = [
   'union',
   'variant',
   'service',
+  'class',
   'method',
   'singleton',
   'constructor',

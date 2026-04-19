@@ -43,6 +43,12 @@ export interface ServiceProps extends BaseProps {
   implements?: string;
 }
 
+export interface ClassProps extends BaseProps {
+  extends?: string;
+  implements?: string;
+  abstract?: string | boolean;
+}
+
 export interface ConstProps extends BaseProps {
   type?: string;
   value?: string | ExprObject;
@@ -267,6 +273,7 @@ export interface NodePropsMap {
   interface: InterfaceProps;
   union: UnionProps;
   service: ServiceProps;
+  class: ClassProps;
   const: ConstProps;
   fn: FnProps;
   error: ErrorProps;

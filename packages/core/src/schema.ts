@@ -118,6 +118,19 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: ['field', 'method', 'constructor', 'singleton'],
   },
+  class: {
+    description: 'Stateful class — owned instance with fields, constructor, methods, getters',
+    example:
+      'class name=AudioRecorder export=true\n  field name=fd type="number | null" visibility=private value={{ null }}\n  constructor params="sessionKey:string"\n    handler <<<\n      this.sessionKey = sessionKey;\n    >>>\n  method name=close returns=void\n    handler <<<\n      closeSync(this.fd!);\n    >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      extends: { kind: 'typeAnnotation' },
+      implements: { kind: 'typeAnnotation' },
+      abstract: { kind: 'boolean' },
+      export: { kind: 'boolean' },
+    },
+    allowedChildren: ['field', 'method', 'constructor', 'singleton'],
+  },
   method: {
     description: 'A method within a service or repository, with handler body',
     example:

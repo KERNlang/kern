@@ -75,6 +75,7 @@ export { mapSemanticType, SEMANTIC_TYPE_MAP } from './codegen/semantic-types.js'
 export { generateTest } from './codegen/test-gen.js';
 // ── Re-exports: domain generators (backward compatibility) ──────────────
 export {
+  generateClass,
   generateConst,
   generateInterface,
   generateService,
@@ -120,6 +121,7 @@ import { generateImport } from './codegen/modules.js';
 import { generateScreen } from './codegen/screens.js';
 import { generateTest } from './codegen/test-gen.js';
 import {
+  generateClass,
   generateConst,
   generateInterface,
   generateService,
@@ -378,6 +380,7 @@ export const CORE_NODE_TYPES = new Set([
   'union',
   'variant',
   'service',
+  'class',
   'method',
   'singleton',
   'constructor',
@@ -477,6 +480,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateUnion(node);
     case 'service':
       return generateService(node);
+    case 'class':
+      return generateClass(node);
     case 'fn':
       return generateFunction(node);
     case 'machine':
