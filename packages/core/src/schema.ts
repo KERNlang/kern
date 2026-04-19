@@ -105,6 +105,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       default: { kind: 'rawExpr' },
       private: { kind: 'boolean' },
       readonly: { kind: 'boolean' },
+      static: { kind: 'boolean' },
     },
   },
   service: {
@@ -116,7 +117,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       implements: { kind: 'typeAnnotation' },
       export: { kind: 'boolean' },
     },
-    allowedChildren: ['field', 'method', 'constructor', 'singleton'],
+    allowedChildren: ['field', 'method', 'constructor', 'singleton', 'getter', 'setter'],
   },
   class: {
     description: 'Stateful class — owned instance with fields, constructor, methods, getters',
@@ -141,6 +142,28 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       returns: { kind: 'typeAnnotation' },
       async: { kind: 'boolean' },
       stream: { kind: 'boolean' },
+      private: { kind: 'boolean' },
+      static: { kind: 'boolean' },
+    },
+    allowedChildren: ['handler'],
+  },
+  getter: {
+    description: 'A getter accessor within a class or service — emits `get name(): T { body }`.',
+    example: 'getter name=state returns=string\n  handler <<<\n    return this._state\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      returns: { kind: 'typeAnnotation' },
+      private: { kind: 'boolean' },
+      static: { kind: 'boolean' },
+    },
+    allowedChildren: ['handler'],
+  },
+  setter: {
+    description: 'A setter accessor within a class or service — emits `set name(v: T) { body }`.',
+    example: 'setter name=state params="value:string"\n  handler <<<\n    this._state = value\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      params: { kind: 'string' },
       private: { kind: 'boolean' },
       static: { kind: 'boolean' },
     },

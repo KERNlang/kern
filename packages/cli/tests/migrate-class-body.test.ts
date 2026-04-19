@@ -87,9 +87,7 @@ describe('rewriteClassBodies', () => {
     expect(result.output).toBe(source);
   });
 
-  test('skips classes with TS parameter-property shortcuts', () => {
-    // `private x: T` in the ctor param list declares a field implicitly;
-    // migrating without expanding it would silently drop the field.
+  test('expands TS parameter-property shortcuts into sibling fields + ctor assigns', () => {
     const source = [
       'const name=Widget type=any',
       '  handler <<<',
@@ -101,11 +99,15 @@ describe('rewriteClassBodies', () => {
 
     const result = rewriteClassBodies(source);
 
-    expect(result.hits).toHaveLength(0);
-    expect(result.output).toBe(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('field name=x type=number private=true');
+    expect(result.output).toContain('field name=y type=string readonly=true');
+    expect(result.output).toContain('this.x = x;');
+    expect(result.output).toContain('this.y = y;');
+    expect(result.output).toContain('constructor params="x:number,y:string"');
   });
 
-  test('skips classes with static fields (not yet supported by field schema)', () => {
+  test('migrates classes with static fields', () => {
     const source = [
       'const name=Counter type=any',
       '  handler <<<',
@@ -117,25 +119,29 @@ describe('rewriteClassBodies', () => {
 
     const result = rewriteClassBodies(source);
 
-    expect(result.hits).toHaveLength(0);
-    expect(result.output).toBe(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('field name=count private=true static=true default={{ 0 }}');
   });
 
-  test('skips classes with getter/setter members', () => {
+  test('migrates classes with getter/setter members', () => {
     const source = [
       'const name=Gauge type=any',
       '  handler <<<',
       '    class Gauge {',
       '      private _v: number = 0;',
       '      get v(): number { return this._v; }',
+      '      set v(value: number) { this._v = value; }',
       '    }',
       '  >>>',
     ].join('\n');
 
     const result = rewriteClassBodies(source);
 
-    expect(result.hits).toHaveLength(0);
-    expect(result.output).toBe(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('getter name=v returns=number');
+    expect(result.output).toContain('setter name=v params="value:number"');
+    expect(result.output).toContain('return this._v;');
+    expect(result.output).toContain('this._v = value;');
   });
 
   test('skips methods with multi-line inline type annotations', () => {

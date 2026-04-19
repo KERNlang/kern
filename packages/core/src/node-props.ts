@@ -223,6 +223,20 @@ export interface FieldProps extends BaseProps {
   optional?: string | boolean;
   default?: string;
   private?: string | boolean;
+  readonly?: string | boolean;
+  static?: string | boolean;
+}
+
+export interface GetterProps extends BaseProps {
+  returns?: string;
+  private?: string | boolean;
+  static?: string | boolean;
+}
+
+export interface SetterProps extends BaseProps {
+  params?: string;
+  private?: string | boolean;
+  static?: string | boolean;
 }
 
 export interface VariantProps extends BaseProps {
@@ -314,6 +328,8 @@ export interface NodePropsMap {
   module: ModuleProps;
   import: ImportProps;
   field: FieldProps;
+  getter: GetterProps;
+  setter: SetterProps;
   variant: VariantProps;
   method: MethodProps;
   transition: TransitionProps;

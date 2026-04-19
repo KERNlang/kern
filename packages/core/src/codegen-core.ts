@@ -384,6 +384,8 @@ export const CORE_NODE_TYPES = new Set([
   'service',
   'class',
   'method',
+  'getter',
+  'setter',
   'singleton',
   'constructor',
   'machine',

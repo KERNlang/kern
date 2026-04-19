@@ -189,6 +189,25 @@ describe('golden: class', () => {
       ),
     ).toMatchSnapshot();
   });
+  it('class with getter, setter, and static fields', () => {
+    expect(
+      gen(
+        [
+          'class name=Gauge export=true',
+          '  field name=_v type=number private=true default={{ 0 }}',
+          '  field name=MAX type=number private=true static=true readonly=true default=100',
+          '  getter name=v returns=number',
+          '    handler <<<',
+          '      return this._v;',
+          '    >>>',
+          '  setter name=v params="value:number"',
+          '    handler <<<',
+          '      this._v = value;',
+          '    >>>',
+        ].join('\n'),
+      ),
+    ).toMatchSnapshot();
+  });
   it('class with extends and implements', () => {
     expect(
       gen(

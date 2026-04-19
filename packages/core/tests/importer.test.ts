@@ -62,7 +62,9 @@ export class NotFoundError extends Error {
     const result = importTypeScript(source, 'services.ts');
 
     expect(result.kern).toContain('class name=UserService implements=Reader export=true');
-    expect(result.kern).toContain('field name=baseUrl type=string readonly=true default="/api"');
+    // Field initializers are emitted as `{{ ... }}` rawExpr blocks so string
+    // literals round-trip with their quotes preserved by the parser.
+    expect(result.kern).toContain('field name=baseUrl type=string readonly=true default={{ "/api" }}');
     // Type strings with whitespace are quoted so the prop tokeniser preserves them.
     expect(result.kern).toContain('field name=cache type="Map<string, User>" private=true');
     expect(result.kern).toContain('method name=fetchUser params="id:string" returns=Promise<User> async=true');

@@ -336,10 +336,13 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
       const fieldType = typeToString(member.type, source);
       const priv = isPrivate(member) ? ' private=true' : '';
       const ro = isReadonly(member) ? ' readonly=true' : '';
-      const defaultVal = member.initializer ? ` default=${member.initializer.getText(source)}` : '';
+      const staticStr = isStatic(member) ? ' static=true' : '';
+      const defaultVal = member.initializer ? ` default={{ ${member.initializer.getText(source)} }}` : '';
       const memberDoc = getJSDoc(member, source);
       if (memberDoc) lines.push(`  doc text="${escapeKernString(memberDoc)}"`);
-      lines.push(`  field name=${fieldName}${fieldType ? ` type=${fieldType}` : ''}${priv}${ro}${defaultVal}`);
+      lines.push(
+        `  field name=${fieldName}${fieldType ? ` type=${fieldType}` : ''}${priv}${staticStr}${ro}${defaultVal}`,
+      );
     } else if (ts.isConstructorDeclaration(member)) {
       const ctorParams = formatParams(member.parameters, source);
       const ctorParamsStr = ctorParams ? ` params="${ctorParams}"` : '';
@@ -370,6 +373,32 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
         for (const bodyLine of body.split('\n')) {
           lines.push(`      ${bodyLine}`);
         }
+        lines.push('    >>>');
+      }
+    } else if (ts.isGetAccessorDeclaration(member)) {
+      const gname = member.name.getText(source);
+      const returns = typeToString(member.type, source);
+      const returnsStr = returns ? ` returns=${returns}` : '';
+      const privStr = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword) ? ' private=true' : '';
+      const staticStr = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) ? ' static=true' : '';
+      lines.push(`  getter name=${gname}${returnsStr}${privStr}${staticStr}`);
+      const body = getBodyText(member.body, source);
+      if (body) {
+        lines.push('    handler <<<');
+        for (const bodyLine of body.split('\n')) lines.push(`      ${bodyLine}`);
+        lines.push('    >>>');
+      }
+    } else if (ts.isSetAccessorDeclaration(member)) {
+      const sname = member.name.getText(source);
+      const params = formatParams(member.parameters, source);
+      const paramsStr = params ? ` params="${params}"` : '';
+      const privStr = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword) ? ' private=true' : '';
+      const staticStr = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) ? ' static=true' : '';
+      lines.push(`  setter name=${sname}${paramsStr}${privStr}${staticStr}`);
+      const body = getBodyText(member.body, source);
+      if (body) {
+        lines.push('    handler <<<');
+        for (const bodyLine of body.split('\n')) lines.push(`      ${bodyLine}`);
         lines.push('    >>>');
       }
     }

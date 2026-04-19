@@ -70,6 +70,21 @@ exports[`golden: class class with extends and implements 1`] = `
 }"
 `;
 
+exports[`golden: class class with getter, setter, and static fields 1`] = `
+"export class Gauge {
+  private _v: number = 0;
+  private static readonly MAX: number = 100;
+
+  get v(): number {
+    return this._v;
+  }
+
+  set v(value: number) {
+    this._v = value;
+  }
+}"
+`;
+
 exports[`golden: class class with private fields, typed constructor, methods 1`] = `
 "export class AudioRecorder {
   private fd: number | null = null;

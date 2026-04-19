@@ -205,8 +205,6 @@ function emitMember(
   indent: string,
 ): string[] | null {
   if (ts.isPropertyDeclaration(member)) {
-    // Static fields aren't expressible as KERN `field` nodes today — bail.
-    if (hasModifier(member, ts.SyntaxKind.StaticKeyword)) return null;
     const rawType = member.type ? text(member.type) : '';
     const rawInit = member.initializer ? text(member.initializer) : '';
     if (hasNewline(rawType) || hasNewline(rawInit)) return null;
@@ -214,37 +212,51 @@ function emitMember(
     const type = rawType ? quoteTypeIfNeeded(rawType) : '';
     const priv = hasModifier(member, ts.SyntaxKind.PrivateKeyword) ? ' private=true' : '';
     const readonly = hasModifier(member, ts.SyntaxKind.ReadonlyKeyword) ? ' readonly=true' : '';
+    const staticStr = hasModifier(member, ts.SyntaxKind.StaticKeyword) ? ' static=true' : '';
     const init = rawInit ? ` default={{ ${rawInit} }}` : '';
-    return [`${indent}field name=${name}${type ? ` type=${type}` : ''}${priv}${readonly}${init}`];
+    return [`${indent}field name=${name}${type ? ` type=${type}` : ''}${priv}${staticStr}${readonly}${init}`];
   }
   if (ts.isConstructorDeclaration(member)) {
     // Parameter-property shortcuts like `constructor(private x: T, readonly y: U)`
-    // implicitly declare fields; KERN params syntax has no modifier slot, so
-    // migrating would lose the field declarations and silently break the class.
+    // implicitly declare fields. KERN params have no modifier slot, so we
+    // expand: each modified param becomes a sibling `field` line (inserted
+    // BEFORE the constructor) and the body gets a leading `this.x = x;`
+    // assignment. The constructor's visible param list keeps only the types.
+    const shortcutFields: string[] = [];
+    const assignLines: string[] = [];
     for (const param of member.parameters) {
       const paramMods = ts.canHaveModifiers(param) ? ts.getModifiers(param) : undefined;
-      if (
-        paramMods?.some(
-          (m) =>
-            m.kind === ts.SyntaxKind.PrivateKeyword ||
-            m.kind === ts.SyntaxKind.PublicKeyword ||
-            m.kind === ts.SyntaxKind.ProtectedKeyword ||
-            m.kind === ts.SyntaxKind.ReadonlyKeyword,
-        )
-      ) {
-        return null;
-      }
+      const isPriv = paramMods?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword) ?? false;
+      const isPublic = paramMods?.some((m) => m.kind === ts.SyntaxKind.PublicKeyword) ?? false;
+      const isProtected = paramMods?.some((m) => m.kind === ts.SyntaxKind.ProtectedKeyword) ?? false;
+      const isReadonly = paramMods?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword) ?? false;
+      if (!isPriv && !isPublic && !isProtected && !isReadonly) continue;
+
+      // Protected is not a first-class KERN field modifier yet; fall back to
+      // plain (public-equivalent) to avoid silently dropping access-level
+      // intent on a rarer pattern.
+      const paramName = text(param.name);
+      const paramType = param.type ? text(param.type) : '';
+      if (hasNewline(paramType)) return null;
+      const privStr = isPriv ? ' private=true' : '';
+      const readStr = isReadonly ? ' readonly=true' : '';
+      const typeStr = paramType ? ` type=${quoteTypeIfNeeded(paramType)}` : '';
+      shortcutFields.push(`${indent}field name=${paramName}${typeStr}${privStr}${readStr}`);
+      assignLines.push(`this.${paramName} = ${paramName};`);
     }
+
     const params = formatParams(member.parameters, text);
     if (hasNewline(params)) return null;
     const paramsStr = params ? ` params="${params}"` : '';
-    const lines = [`${indent}constructor${paramsStr}`];
+    const lines = [...shortcutFields];
+    lines.push(`${indent}constructor${paramsStr}`);
     const body = member.body;
-    if (body) {
-      const bodyText = text(body).slice(1, -1); // strip outer { }
-      const trimmed = dedentInteriorLines(bodyText);
+    const bodyText = body ? text(body).slice(1, -1) : '';
+    const trimmed = body ? dedentInteriorLines(bodyText) : '';
+    const bodyLines = [...assignLines, ...(trimmed ? trimmed.split('\n') : [])];
+    if (bodyLines.length > 0) {
       lines.push(`${indent}  handler <<<`);
-      for (const line of trimmed.split('\n')) lines.push(`${indent}    ${line}`);
+      for (const line of bodyLines) lines.push(`${indent}    ${line}`);
       lines.push(`${indent}  >>>`);
     }
     return lines;
@@ -278,7 +290,44 @@ function emitMember(
     }
     return lines;
   }
-  // Getter / setter / static block / signature / index signature — bail.
+  if (ts.isGetAccessorDeclaration(member)) {
+    if (!member.body) return null;
+    const rawReturn = member.type ? text(member.type) : '';
+    if (hasNewline(rawReturn)) return null;
+    const name = text(member.name);
+    const returns = rawReturn ? quoteTypeIfNeeded(rawReturn) : '';
+    const returnsStr = returns ? ` returns=${returns}` : '';
+    const isStatic = hasModifier(member, ts.SyntaxKind.StaticKeyword);
+    const isPriv = hasModifier(member, ts.SyntaxKind.PrivateKeyword);
+    const staticStr = isStatic ? ' static=true' : '';
+    const privStr = isPriv ? ' private=true' : '';
+    const lines = [`${indent}getter name=${name}${returnsStr}${privStr}${staticStr}`];
+    const bodyText = text(member.body).slice(1, -1);
+    const trimmed = dedentInteriorLines(bodyText);
+    lines.push(`${indent}  handler <<<`);
+    for (const line of trimmed.split('\n')) lines.push(`${indent}    ${line}`);
+    lines.push(`${indent}  >>>`);
+    return lines;
+  }
+  if (ts.isSetAccessorDeclaration(member)) {
+    if (!member.body) return null;
+    const params = formatParams(member.parameters, text);
+    if (hasNewline(params)) return null;
+    const name = text(member.name);
+    const paramsStr = params ? ` params="${params}"` : '';
+    const isStatic = hasModifier(member, ts.SyntaxKind.StaticKeyword);
+    const isPriv = hasModifier(member, ts.SyntaxKind.PrivateKeyword);
+    const staticStr = isStatic ? ' static=true' : '';
+    const privStr = isPriv ? ' private=true' : '';
+    const lines = [`${indent}setter name=${name}${paramsStr}${privStr}${staticStr}`];
+    const bodyText = text(member.body).slice(1, -1);
+    const trimmed = dedentInteriorLines(bodyText);
+    lines.push(`${indent}  handler <<<`);
+    for (const line of trimmed.split('\n')) lines.push(`${indent}    ${line}`);
+    lines.push(`${indent}  >>>`);
+    return lines;
+  }
+  // Static block / signature / index signature — bail.
   return null;
 }
 

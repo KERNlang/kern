@@ -136,6 +136,8 @@ export const NODE_TYPES = [
   'service',
   'class',
   'method',
+  'getter',
+  'setter',
   'singleton',
   'constructor',
   'signal',

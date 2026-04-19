@@ -183,10 +183,8 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const fp = propsOf<'field'>(field);
     const fieldName = emitIdentifier(fp.name, 'field', field);
     const vis = fp.private === 'true' || fp.private === true ? 'private ' : '';
-    const readonly =
-      (fp as Record<string, unknown>).readonly === 'true' || (fp as Record<string, unknown>).readonly === true
-        ? 'readonly '
-        : '';
+    const staticKw = fp.static === 'true' || fp.static === true ? 'static ' : '';
+    const readonly = fp.readonly === 'true' || fp.readonly === true ? 'readonly ' : '';
     const typeAnnotation = fp.type ? `: ${emitTypeAnnotation(fp.type, 'unknown', field)}` : '';
     const defaultVal = (fp as { default?: unknown }).default;
     // `default={{ expr }}` parses as an ExprObject; emit its raw code.
@@ -196,7 +194,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
       if (isExprObject(defaultVal)) return ` = ${defaultVal.code}`;
       return ` = ${defaultVal}`;
     })();
-    lines.push(`  ${vis}${readonly}${fieldName}${typeAnnotation}${init};`);
+    lines.push(`  ${vis}${staticKw}${readonly}${fieldName}${typeAnnotation}${init};`);
   }
 
   // Constructor (if any constructor child exists)
@@ -256,6 +254,42 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     lines.push(`  ${vis}${staticKw}${asyncKw}${star}${mname}(${mparams})${mreturns} {`);
     if (mcode) {
       for (const line of mcode.split('\n')) {
+        lines.push(`    ${line}`);
+      }
+    }
+    lines.push('  }');
+  }
+
+  // Getters — `get name(): T { body }`
+  for (const getter of kids(node, 'getter')) {
+    const gp = propsOf<'getter'>(getter);
+    const gname = emitIdentifier(gp.name, 'getter', getter);
+    const gvis = gp.private === 'true' || gp.private === true ? 'private ' : '';
+    const gstatic = gp.static === 'true' || gp.static === true ? 'static ' : '';
+    const greturns = gp.returns ? `: ${emitTypeAnnotation(gp.returns, 'unknown', getter)}` : '';
+    const gcode = handlerCode(getter);
+    lines.push('');
+    lines.push(`  ${gvis}${gstatic}get ${gname}()${greturns} {`);
+    if (gcode) {
+      for (const line of gcode.split('\n')) {
+        lines.push(`    ${line}`);
+      }
+    }
+    lines.push('  }');
+  }
+
+  // Setters — `set name(v: T) { body }`
+  for (const setter of kids(node, 'setter')) {
+    const sp = propsOf<'setter'>(setter);
+    const sname = emitIdentifier(sp.name, 'setter', setter);
+    const svis = sp.private === 'true' || sp.private === true ? 'private ' : '';
+    const sstatic = sp.static === 'true' || sp.static === true ? 'static ' : '';
+    const sparams = sp.params ? parseParamList(sp.params) : 'value: unknown';
+    const scode = handlerCode(setter);
+    lines.push('');
+    lines.push(`  ${svis}${sstatic}set ${sname}(${sparams}) {`);
+    if (scode) {
+      for (const line of scode.split('\n')) {
         lines.push(`    ${line}`);
       }
     }
