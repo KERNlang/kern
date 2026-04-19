@@ -98,7 +98,7 @@ export function fetchData(url: string) {
 
       const errorRemoved = changes.find((c) => c.type === 'error-handling-removed');
       expect(errorRemoved).toBeDefined();
-      expect(errorRemoved!.severity).toBe('warning');
+      expect(errorRemoved!.severity).toBe('info');
       expect(errorRemoved!.functionName).toBe('fetchData');
     });
   });
@@ -223,7 +223,7 @@ export function getUser(id: string): { id: string; name: string } | null {
 
       const returnChanged = changes.find((c) => c.type === 'return-type-changed');
       expect(returnChanged).toBeDefined();
-      expect(returnChanged!.severity).toBe('warning');
+      expect(returnChanged!.severity).toBe('info');
       expect(returnChanged!.functionName).toBe('getUser');
     });
   });

@@ -174,7 +174,7 @@ export function computeSemanticDiff(
     if (oldReturns !== newReturns && oldReturns !== '' && newReturns !== '') {
       changes.push({
         type: 'return-type-changed',
-        severity: 'warning',
+        severity: 'info',
         functionName: fnName,
         filePath,
         line: newFn.startLine,
@@ -237,7 +237,7 @@ export function computeSemanticDiff(
       const descriptions = oldErrorHandlers.map((e) => summarizeConcept(e)).join('; ');
       changes.push({
         type: 'error-handling-removed',
-        severity: 'warning',
+        severity: 'info',
         functionName: fnName,
         filePath,
         line: newFn.startLine,
