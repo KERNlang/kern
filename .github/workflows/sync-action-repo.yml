@@ -1,0 +1,68 @@
+name: Sync MCP Security Action
+
+on:
+  push:
+    tags:
+      - 'action-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to sync (e.g., action-v0.0.1-test). Leave empty on tag push.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout monorepo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.tag }}" ]; then
+            VERSION="${{ inputs.tag }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          # Strip 'action-' prefix for the mirrored repo's own tag
+          MIRROR_VERSION="${VERSION#action-}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "mirror_version=$MIRROR_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION (mirror tag: $MIRROR_VERSION)"
+
+      - name: Prepare action payload
+        run: |
+          mkdir -p /tmp/action-repo
+          cp -r packages/mcp-security-action/. /tmp/action-repo/
+          # Ensure LICENSE is always the monorepo's canonical one
+          cp LICENSE /tmp/action-repo/LICENSE
+          ls -la /tmp/action-repo
+
+      - name: Push to mcp-security-action repo
+        env:
+          SYNC_TOKEN: ${{ secrets.ACTION_SYNC_TOKEN }}
+          VERSION: ${{ steps.v.outputs.mirror_version }}
+        run: |
+          cd /tmp/action-repo
+          git init -b main
+          git config user.name  "kernlang-bot"
+          git config user.email "bot@kernlang.dev"
+          git add .
+          git commit -m "Release $VERSION"
+          git remote add origin "https://x-access-token:${SYNC_TOKEN}@github.com/KERNlang/mcp-security-action.git"
+          git push --force origin main
+          git tag "$VERSION"
+          git push --force origin "$VERSION"
+          # Major-alias (v1, v2, ...) — standard for Marketplace actions
+          MAJOR=$(echo "$VERSION" | sed -E 's/^v([0-9]+).*/v\1/')
+          if [ "$MAJOR" != "$VERSION" ] && [[ "$MAJOR" =~ ^v[0-9]+$ ]]; then
+            git tag -f "$MAJOR"
+            git push --force origin "$MAJOR"
+          fi
