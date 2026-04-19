@@ -194,7 +194,7 @@ describe('rewriteClassBodies', () => {
     expect(result.output).toContain('this._v = value;');
   });
 
-  test('skips methods with multi-line inline type annotations', () => {
+  test('migrates methods with multi-line inline type annotations', () => {
     const source = [
       'const name=Reader type=any',
       '  handler <<<',
@@ -208,8 +208,9 @@ describe('rewriteClassBodies', () => {
 
     const result = rewriteClassBodies(source);
 
-    expect(result.hits).toHaveLength(0);
-    expect(result.output).toBe(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('class name=Reader');
+    expect(result.output).toContain('method name=read params="req:{\n    id: string;\n  }" returns=void');
   });
 
   test('carries through extends, implements, and abstract', () => {

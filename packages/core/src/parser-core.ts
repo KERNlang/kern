@@ -354,6 +354,79 @@ function expandMinified(source: string): string {
 
 // ── Multi-line block + line orchestration ────────────────────────────────
 
+function scanLineState(s: string, prev?: { inQuote: boolean }): { inQuote: boolean } {
+  let inQuote = prev?.inQuote ?? false;
+  let exprDepth = 0;
+  let styleDepth = 0;
+  let styleInQuote = false;
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    const next = s[i + 1];
+    const prevCh = i > 0 ? s[i - 1] : '';
+
+    if (inQuote) {
+      if (ch === '\\') {
+        i++;
+        continue;
+      }
+      if (ch === '"') inQuote = false;
+      continue;
+    }
+
+    if (exprDepth > 0) {
+      if (ch === '{' && next === '{') {
+        exprDepth++;
+        i++;
+        continue;
+      }
+      if (ch === '}' && next === '}') {
+        exprDepth--;
+        i++;
+      }
+      continue;
+    }
+
+    if (styleDepth > 0) {
+      if (ch === '\\' && styleInQuote) {
+        i++;
+        continue;
+      }
+      if (ch === '"') {
+        styleInQuote = !styleInQuote;
+        continue;
+      }
+      if (styleInQuote) continue;
+      if (ch === '{') {
+        styleDepth++;
+        continue;
+      }
+      if (ch === '}') {
+        styleDepth--;
+      }
+      continue;
+    }
+
+    const precededByWs = i === 0 || prevCh === ' ' || prevCh === '\t';
+    if (ch === '#' && precededByWs) break;
+    if (ch === '/' && next === '/' && precededByWs) break;
+
+    if (ch === '{' && next === '{') {
+      exprDepth++;
+      i++;
+      continue;
+    }
+    if (ch === '{') {
+      styleDepth++;
+      styleInQuote = false;
+      continue;
+    }
+    if (ch === '"') inQuote = true;
+  }
+
+  return { inQuote };
+}
+
 /** Process source lines into ParsedLine entries (multiline blocks + regular lines). */
 function parseLines(state: ParseState, source: string, runtime: KernRuntime = defaultRuntime): ParsedLine[] {
   const lines = expandMinified(source).split('\n');
@@ -424,7 +497,25 @@ function parseLines(state: ParseState, source: string, runtime: KernRuntime = de
       continue;
     }
 
-    const p = parseLine(state, lines[i], i + 1, runtime);
+    const startLine = i + 1;
+    const joinedParts: string[] = [lines[i]];
+    let lineState = scanLineState(lines[i]);
+    // An unterminated quote must not silently absorb structural lines that the
+    // outer loop would otherwise handle specially — comment lines and
+    // multiline-block openers (`handler <<<`, etc.). Stop stitching at those
+    // boundaries; the tokeniser will emit UNCLOSED_STRING for what we already
+    // consumed, preserving the block/comment line for the next iteration.
+    while (lineState.inQuote && i + 1 < lines.length) {
+      const nextTrimmed = lines[i + 1].trimStart();
+      if (nextTrimmed.startsWith('//') || nextTrimmed.startsWith('#')) break;
+      if ([...runtime.multilineBlockTypes].some((t) => nextTrimmed.startsWith(`${t} <<<`))) break;
+      i++;
+      joinedParts.push(lines[i]);
+      lineState = scanLineState(lines[i], lineState);
+    }
+    const joined = joinedParts.length === 1 ? joinedParts[0] : joinedParts.join('\n');
+
+    const p = parseLine(state, joined, startLine, runtime);
     if (p) parsed.push(p); // null only for blank/comment lines; __error nodes are always pushed
   }
 

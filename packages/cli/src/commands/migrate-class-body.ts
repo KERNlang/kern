@@ -188,16 +188,6 @@ function quoteTypeIfNeeded(raw: string): string {
  * shape is unsupported (e.g. static block, getter/setter) — that causes the
  * whole migration to abort for this const so nothing is silently dropped.
  */
-/**
- * KERN props live on a single line. If a param list or return-type annotation
- * spans multiple lines in TS (e.g. inline object types `{\n  foo: string;\n}`)
- * we can't safely emit it as `params="..."` — the embedded newline would close
- * the string literal and corrupt the parse. Detect and bail so the caller can
- * fall back to leaving the handler escape-hatch in place.
- */
-function hasNewline(s: string): boolean {
-  return s.includes('\n');
-}
 
 /**
  * Insert synthesised `this.x = x;` lines in the correct position:
@@ -254,7 +244,6 @@ function emitMember(
   if (ts.isPropertyDeclaration(member)) {
     const rawType = member.type ? text(member.type) : '';
     const rawInit = member.initializer ? text(member.initializer) : '';
-    if (hasNewline(rawType) || hasNewline(rawInit)) return null;
     const name = text(member.name);
     const type = rawType ? quoteTypeIfNeeded(rawType) : '';
     const priv = hasModifier(member, ts.SyntaxKind.PrivateKeyword) ? ' private=true' : '';
@@ -284,7 +273,6 @@ function emitMember(
       // intent on a rarer pattern.
       const paramName = text(param.name);
       let paramType = param.type ? text(param.type) : '';
-      if (hasNewline(paramType)) return null;
       // Optional parameter properties (`constructor(private x?: number)`)
       // implicitly declare a field of type `T | undefined`. If we emit
       // `field name=x type=number` the ctor assign `this.x = x;` would fail
@@ -302,7 +290,6 @@ function emitMember(
     }
 
     const params = formatParams(member.parameters, text);
-    if (hasNewline(params)) return null;
     const paramsStr = params ? ` params="${params}"` : '';
     const lines = [...shortcutFields];
     lines.push(`${indent}constructor${paramsStr}`);
@@ -329,7 +316,6 @@ function emitMember(
     if (hasModifier(member, ts.SyntaxKind.AbstractKeyword) || !member.body) return null;
     const params = formatParams(member.parameters, text);
     const rawReturn = member.type ? text(member.type) : '';
-    if (hasNewline(params) || hasNewline(rawReturn)) return null;
     const name = text(member.name);
     const paramsStr = params ? ` params="${params}"` : '';
     const returns = rawReturn ? quoteTypeIfNeeded(rawReturn) : '';
@@ -354,7 +340,6 @@ function emitMember(
   if (ts.isGetAccessorDeclaration(member)) {
     if (!member.body) return null;
     const rawReturn = member.type ? text(member.type) : '';
-    if (hasNewline(rawReturn)) return null;
     const name = text(member.name);
     const returns = rawReturn ? quoteTypeIfNeeded(rawReturn) : '';
     const returnsStr = returns ? ` returns=${returns}` : '';
@@ -373,7 +358,6 @@ function emitMember(
   if (ts.isSetAccessorDeclaration(member)) {
     if (!member.body) return null;
     const params = formatParams(member.parameters, text);
-    if (hasNewline(params)) return null;
     const name = text(member.name);
     const paramsStr = params ? ` params="${params}"` : '';
     const isStatic = hasModifier(member, ts.SyntaxKind.StaticKeyword);
