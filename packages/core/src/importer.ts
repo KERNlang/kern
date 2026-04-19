@@ -63,7 +63,12 @@ function _isDefault(node: ts.Node): boolean {
 
 function typeToString(typeNode: ts.TypeNode | undefined, source: ts.SourceFile): string {
   if (!typeNode) return '';
-  return typeNode.getText(source);
+  const raw = typeNode.getText(source);
+  // The KERN prop tokeniser splits bare values on whitespace, so a type like
+  // `number | null` or `Record<string, any>` would be lost past the first
+  // space. Wrap in quotes when we see whitespace — `emitTypeAnnotation`
+  // consumes the value as a string either way.
+  return /\s/.test(raw) ? `"${raw.replace(/"/g, '\\"')}"` : raw;
 }
 
 function getJSDoc(node: ts.Node, source: ts.SourceFile): string | undefined {
@@ -313,13 +318,17 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
     return convertErrorClass(node, source, name, baseClass!, exp, lines);
   }
 
-  // Regular class → service
+  // Regular class → class node. Carry extends/implements/abstract so round-
+  // tripping TS classes preserves the header shape.
   const implementsClause = node.heritageClauses?.find((h) => h.token === ts.SyntaxKind.ImplementsKeyword);
   const implementsStr = implementsClause
     ? ` implements=${implementsClause.types.map((t) => t.getText(source)).join(',')}`
     : '';
+  const extendsStr =
+    extendsClause && !isError ? ` extends=${extendsClause.types.map((t) => t.getText(source)).join(',')}` : '';
+  const abstractStr = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword) ? ' abstract=true' : '';
 
-  lines.push(`service name=${name}${implementsStr}${exp}`);
+  lines.push(`class name=${name}${extendsStr}${implementsStr}${abstractStr}${exp}`);
 
   for (const member of node.members) {
     if (ts.isPropertyDeclaration(member)) {
@@ -332,7 +341,9 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
       if (memberDoc) lines.push(`  doc text="${escapeKernString(memberDoc)}"`);
       lines.push(`  field name=${fieldName}${fieldType ? ` type=${fieldType}` : ''}${priv}${ro}${defaultVal}`);
     } else if (ts.isConstructorDeclaration(member)) {
-      lines.push('  constructor');
+      const ctorParams = formatParams(member.parameters, source);
+      const ctorParamsStr = ctorParams ? ` params="${ctorParams}"` : '';
+      lines.push(`  constructor${ctorParamsStr}`);
       const body = getBodyText(member.body, source);
       if (body) {
         lines.push('    handler <<<');

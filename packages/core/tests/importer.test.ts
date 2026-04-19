@@ -37,7 +37,7 @@ export async function loadUser(id: string, retries: number = 3): Promise<User> {
     expect(() => parse(result.kern)).not.toThrow();
   });
 
-  test('imports service and error classes', () => {
+  test('imports class and error classes', () => {
     const source = `
 export class UserService implements Reader {
   readonly baseUrl: string = "/api";
@@ -61,9 +61,10 @@ export class NotFoundError extends Error {
 
     const result = importTypeScript(source, 'services.ts');
 
-    expect(result.kern).toContain('service name=UserService implements=Reader export=true');
+    expect(result.kern).toContain('class name=UserService implements=Reader export=true');
     expect(result.kern).toContain('field name=baseUrl type=string readonly=true default="/api"');
-    expect(result.kern).toContain('field name=cache type=Map<string, User> private=true');
+    // Type strings with whitespace are quoted so the prop tokeniser preserves them.
+    expect(result.kern).toContain('field name=cache type="Map<string, User>" private=true');
     expect(result.kern).toContain('method name=fetchUser params="id:string" returns=Promise<User> async=true');
     expect(result.kern).toContain('error name=NotFoundError extends=Error message="\\"Not found\\"" export=true');
     expect(result.kern).toContain('field name=resource type=string');
