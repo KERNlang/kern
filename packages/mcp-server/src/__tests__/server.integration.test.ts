@@ -110,6 +110,39 @@ describe('KERN MCP Server Integration', () => {
     expect(callResponse.result.content[0].text).toContain('Compiled to nextjs');
   });
 
+  it('should compile React targets with bulletproof structure via tools/call', async () => {
+    const { stdout } = await sendMCP([
+      rpc(
+        'initialize',
+        {
+          protocolVersion: '2024-11-05',
+          capabilities: {},
+          clientInfo: { name: 'test', version: '1.0' },
+        },
+        1,
+      ),
+      { jsonrpc: '2.0', method: 'notifications/initialized' },
+      rpc(
+        'tools/call',
+        {
+          name: 'compile',
+          arguments: {
+            source: ['screen name=Dashboard', '  card name=CalorieCard', '    text value=Calories'].join('\n'),
+            target: 'nextjs',
+            structure: 'bulletproof',
+          },
+        },
+        2,
+      ),
+    ]);
+
+    const lines = stdout.split('\n').filter(Boolean);
+    const callResponse = JSON.parse(lines[lines.length - 1]);
+    const text = callResponse.result.content[0].text;
+    expect(text).toContain('Compiled to nextjs / bulletproof');
+    expect(text).toContain('--- features/dashboard/');
+  });
+
   it('should parse .kern source', async () => {
     const { stdout } = await sendMCP([
       rpc(
@@ -186,6 +219,7 @@ describe('KERN MCP Server Integration', () => {
     expect(text).toContain('mcp');
     expect(text).toContain('nextjs');
     expect(text).toContain('express');
+    expect(text).toContain('bulletproof');
   });
 
   it('should log server start to stderr', async () => {

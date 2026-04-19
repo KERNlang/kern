@@ -75,7 +75,8 @@ Compile `.kern` source to any target framework. Returns generated code.
 
 ```
 source: ".kern source code"
-target: "nextjs" | "react" | "vue" | "express" | "fastapi" | "mcp" | ...
+target: "nextjs" | "tailwind" | "web" | "vue" | "express" | "fastapi" | "mcp" | ...
+structure: "flat" | "bulletproof" | "atomic" | "kern"  // React targets
 ```
 
 ### compile-json
@@ -116,7 +117,7 @@ Validate `.kern` syntax without compiling. Returns parse errors or success.
 
 ### list-targets
 
-List all 12 available compile targets with descriptions.
+List all 13 available compile targets plus React output structures.
 
 ### list-nodes
 
@@ -296,6 +297,7 @@ kern review src/
 |------|-------------|
 | `--outdir=DIR` | Output directory (default: `generated/`) |
 | `--target=TARGET` | Override compile target |
+| `--structure=flat\|bulletproof\|atomic\|kern` | React output structure |
 | `--facades` | Auto-generate `src/*.ts` re-export facades |
 | `--facades-dir=DIR` | Custom facades directory |
 | `--barrel` | Generate barrel `index.ts` in output dir |
