@@ -1,11 +1,16 @@
 /**
  * `kern migrate <migration> [dir]` - in-place migrations of .kern sources.
  *
- * First migration: `literal-const`
+ * `literal-const`
  *   Detects `const name=X ... handler <<< <single-line const expression> >>>`
  *   and rewrites to `const name=X ... value=...`. Primitive literals use the
  *   compact `value=42` form; strings and expressions use `value={{ ... }}` so
  *   generated TypeScript stays byte-equivalent to the original handler body.
+ *
+ * `fn-expr`
+ *   Detects `fn name=X ... handler <<< <single-line function body> >>>` and
+ *   rewrites to `fn name=X ... expr={{ ... }}`. The compiler emits the expr
+ *   body verbatim inside the function, matching the original handler output.
  *
  * Dry-run by default; `--write` commits edits.
  */
@@ -230,6 +235,105 @@ function rewriteLiteralConsts(source: string): LiteralConstResult {
   return { hits, output: out.join('\n') };
 }
 
+// -- fn-expr ----------------------------------------------------------------
+
+/**
+ * Line-based migration for single-line `fn` handler bodies. Matches:
+ *
+ *   [indent]fn name=X [props...]    <- header, no handler= attr, no expr= attr
+ *   [deeper]  handler <<<
+ *   [deeper]    <single body line>  <- preserved verbatim (incl. `return`, `;`)
+ *   [deeper]  >>>
+ *
+ * Rewrites to `fn name=X ... expr={{ <body> }}`. The codegen in
+ * generateFunction emits the expr verbatim inside the function body, so the
+ * compiled TypeScript is byte-identical to the handler form.
+ *
+ * Shares the same safety guards as rewriteLiteralConsts:
+ *   - handler must be a child of the fn (strictly deeper indent),
+ *   - no `}}` in the body (would close the expr block early),
+ *   - header must not already carry expr= or handler=,
+ *   - header must not contain an inline `#` or `//` comment,
+ *   - body must not be empty after trim,
+ *   - handler must have exactly ONE body line (no multi-line blocks).
+ */
+function rewriteFnExpr(source: string): LiteralConstResult {
+  const lines = source.split('\n');
+  const hits: LiteralConstHit[] = [];
+  const out: string[] = [];
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const headerMatch = line.match(/^(\s*)fn\s+(.*)$/);
+    if (!headerMatch) {
+      out.push(line);
+      i++;
+      continue;
+    }
+    const headerIndent = headerMatch[1];
+    const headerRest = headerMatch[2];
+    if (/\bexpr=/.test(headerRest) || /\bhandler=/.test(headerRest)) {
+      out.push(line);
+      i++;
+      continue;
+    }
+    if (!/\bname=/.test(headerRest)) {
+      out.push(line);
+      i++;
+      continue;
+    }
+    if (/(?:^|\s)(?:#|\/\/)/.test(headerRest)) {
+      out.push(line);
+      i++;
+      continue;
+    }
+
+    const openLine = lines[i + 1];
+    const bodyLine = lines[i + 2];
+    const closeLine = lines[i + 3];
+    if (openLine === undefined || bodyLine === undefined || closeLine === undefined) {
+      out.push(line);
+      i++;
+      continue;
+    }
+    const openMatch = openLine.match(/^(\s+)handler\s*<<<\s*$/);
+    const closeMatch = closeLine.match(/^\s+>>>\s*$/);
+    if (!openMatch || !closeMatch) {
+      out.push(line);
+      i++;
+      continue;
+    }
+    if (openMatch[1].length <= headerIndent.length) {
+      out.push(line);
+      i++;
+      continue;
+    }
+    const openIndent = openMatch[1];
+    const bodyMatch = bodyLine.match(/^(\s+)(.*)$/);
+    if (!bodyMatch || bodyMatch[1].length <= openIndent.length) {
+      out.push(line);
+      i++;
+      continue;
+    }
+    const bodyText = bodyMatch[2];
+    if (!isInlineSafeExpression(bodyText)) {
+      out.push(line);
+      i++;
+      continue;
+    }
+
+    const body = bodyText.trim();
+    const valueAttr = `expr={{ ${body} }}`;
+    const rewritten = `${headerIndent}fn ${headerRest.trimEnd()} ${valueAttr}`;
+    hits.push({ headerLine: i + 1, literal: body, valueAttr });
+    out.push(rewritten);
+    i += 4;
+  }
+
+  return { hits, output: out.join('\n') };
+}
+
 // -- Command entry ----------------------------------------------------------
 
 interface FileReport {
@@ -280,15 +384,22 @@ function formatHuman(report: MigrateReport, rootDir: string): string {
   return `${lines.join('\n')}\n`;
 }
 
+const MIGRATIONS: Record<string, (source: string) => LiteralConstResult> = {
+  'literal-const': rewriteLiteralConsts,
+  'fn-expr': rewriteFnExpr,
+};
+
 export function runMigrate(args: string[]): void {
   const sub = args[1];
   if (!sub || sub.startsWith('--')) {
     process.stderr.write('Usage: kern migrate <migration> [dir] [--write] [--json]\n');
     process.stderr.write('Migrations:\n');
     process.stderr.write('  literal-const   Inline single-line const handler bodies as `value=` attributes\n');
+    process.stderr.write('  fn-expr         Inline single-line fn handler bodies as `expr={{ ... }}` attributes\n');
     process.exit(1);
   }
-  if (sub !== 'literal-const') {
+  const rewrite = MIGRATIONS[sub];
+  if (!rewrite) {
     process.stderr.write(`Unknown migration: ${sub}\n`);
     process.exit(1);
   }
@@ -312,7 +423,7 @@ export function runMigrate(args: string[]): void {
     } catch {
       continue;
     }
-    const result = rewriteLiteralConsts(source);
+    const result = rewrite(source);
     fileReports.push({
       file,
       hits: result.hits.length,
@@ -329,7 +440,7 @@ export function runMigrate(args: string[]): void {
   }
 
   const report: MigrateReport = {
-    migration: 'literal-const',
+    migration: sub,
     scannedFiles: files.length,
     changedFiles,
     totalHits,
@@ -345,4 +456,9 @@ export function runMigrate(args: string[]): void {
 }
 
 // Exported for unit tests.
-export const __test__ = { isInlineSafeLiteral, isInlineSafeExpression, rewriteLiteralConsts };
+export const __test__ = {
+  isInlineSafeLiteral,
+  isInlineSafeExpression,
+  rewriteLiteralConsts,
+  rewriteFnExpr,
+};

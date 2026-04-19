@@ -206,4 +206,81 @@ describe('kern migrate command', () => {
     expect(result.hits).toHaveLength(0);
     expect(result.output).toBe(source);
   });
+
+  test('rewrites single-line fn handler bodies to expr blocks', () => {
+    const source = [
+      'fn name=getAnswer returns=number export=false',
+      '  handler <<<',
+      '    return 42;',
+      '  >>>',
+      'fn name=log returns=void',
+      '  handler <<<',
+      '    console.log("hi");',
+      '  >>>',
+    ].join('\n');
+
+    const result = __test__.rewriteFnExpr(source);
+
+    expect(result.hits).toHaveLength(2);
+    expect(result.output).toContain('fn name=getAnswer returns=number export=false expr={{ return 42; }}');
+    expect(result.output).toContain('fn name=log returns=void expr={{ console.log("hi"); }}');
+    expect(result.output).not.toContain('handler <<<');
+  });
+
+  test('fn-expr skips existing expr or handler attributes and unsafe bodies', () => {
+    const source = [
+      'fn name=existing returns=void expr={{ return; }}',
+      '  handler <<<',
+      '    return;',
+      '  >>>',
+      'fn name=inline returns=void handler=run',
+      '  handler <<<',
+      '    return;',
+      '  >>>',
+      'fn name=unsafe returns=void',
+      '  handler <<<',
+      '    return obj}}x;',
+      '  >>>',
+    ].join('\n');
+
+    const result = __test__.rewriteFnExpr(source);
+
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('fn-expr skips multi-line handler bodies and sibling handlers', () => {
+    const source = [
+      'fn name=multi returns=void',
+      '  handler <<<',
+      '    if (ready) {',
+      '      return;',
+      '    }',
+      '  >>>',
+      'module name=Foo',
+      '  fn name=nested returns=void',
+      '  handler <<<',
+      '    return;',
+      '  >>>',
+    ].join('\n');
+
+    const result = __test__.rewriteFnExpr(source);
+
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('fn-expr --write applies migration in place', () => {
+    const kernFile = join(tmpDir, 'functions.kern');
+    writeFileSync(
+      kernFile,
+      ['fn name=getAnswer returns=number', '  handler <<<', '    return 42;', '  >>>'].join('\n'),
+    );
+
+    runMigrate(['migrate', 'fn-expr', tmpDir, '--write']);
+
+    expect(out()).toContain('kern migrate fn-expr');
+    expect(out()).toContain('applied: 1 hits across 1 files');
+    expect(readFileSync(kernFile, 'utf-8')).toContain('fn name=getAnswer returns=number expr={{ return 42; }}');
+  });
 });
