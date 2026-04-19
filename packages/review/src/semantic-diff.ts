@@ -237,7 +237,7 @@ export function computeSemanticDiff(
       const descriptions = oldErrorHandlers.map((e) => summarizeConcept(e)).join('; ');
       changes.push({
         type: 'error-handling-removed',
-        severity: 'info',
+        severity: 'warning',
         functionName: fnName,
         filePath,
         line: newFn.startLine,

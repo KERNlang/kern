@@ -98,7 +98,7 @@ export function fetchData(url: string) {
 
       const errorRemoved = changes.find((c) => c.type === 'error-handling-removed');
       expect(errorRemoved).toBeDefined();
-      expect(errorRemoved!.severity).toBe('info');
+      expect(errorRemoved!.severity).toBe('warning');
       expect(errorRemoved!.functionName).toBe('fetchData');
     });
   });
