@@ -121,10 +121,10 @@ function categorizeESLintRule(ruleId: string): ReviewFinding['category'] {
 
 export interface RunTSCDiagnosticsOptions {
   /**
-   * When true, downgrade TS6059 ("file not listed in project") and TS6307 ("file not under rootDir")
-   * from error to info. Set this only for callers that inject ad-hoc files into a Project that carries
-   * a host tsconfig — those two codes then fire as infrastructure noise, not user bugs. The --lint
-   * path must leave this false so a real tsconfig misconfiguration still surfaces as an error.
+   * When true, suppress TS6059/TS6307 project-loading diagnostics. Set this only for callers that
+   * inject ad-hoc files into a Project that carries a host tsconfig — those two codes then fire as
+   * infrastructure noise, not user bugs. The --lint path must leave this false so a real tsconfig
+   * misconfiguration still surfaces as an error.
    */
   downgradeProjectLoadingErrors?: boolean;
 }
@@ -179,19 +179,21 @@ export function runTSCDiagnostics(
       const message = diag.getMessageText();
       const messageStr = typeof message === 'string' ? message : message.getMessageText();
 
-      // ts6059 / ts6307 fire both for real tsconfig misconfigurations (error) and for kern-review's
+      // ts6059 / ts6307 fire both for real tsconfig misconfigurations and for kern-review's
       // ad-hoc file injection into a host tsconfig (noise). The caller decides which mode we're in
-      // via options.downgradeProjectLoadingErrors.
+      // via options.downgradeProjectLoadingErrors. In review mode we drop them entirely; surfacing
+      // them as info still pollutes every barrel/re-export report in composite monorepos.
       //   ts6059 — "File is not listed within the file list of project"
       //   ts6307 — "File is not under 'rootDir'"
       const isLoadingNoise = code === 6059 || code === 6307;
-      const effectiveSeverity: ReviewFinding['severity'] =
-        isLoadingNoise && options.downgradeProjectLoadingErrors ? 'info' : severity;
+      if (isLoadingNoise && options.downgradeProjectLoadingErrors) {
+        continue;
+      }
 
       findings.push({
         source: 'tsc',
         ruleId: `ts${code}`,
-        severity: effectiveSeverity,
+        severity,
         category: 'type',
         message: messageStr,
         primarySpan: {

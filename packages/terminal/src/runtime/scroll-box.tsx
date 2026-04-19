@@ -9,6 +9,7 @@ import React, {
   useState,
 } from 'react';
 import { Box, measureElement, useStdin, useStdout } from 'ink';
+import { acquireRawMode } from './terminal-mode.js';
 
 export type ScrollBoxHandle = {
   scrollTo(y: number): void;
@@ -34,32 +35,24 @@ export type ScrollBoxProps = {
 };
 
 const SGR_MOUSE_PATTERN = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
+const STDIN_BUFFER_MAX = 4096;
 
 function parseWheelDelta(chunk: string): number {
+  // XTerm mouse: bit 6 (64) = wheel, bit 7 (128) = extended, bits 2-5 = modifiers.
+  // Wheel-up = bit 6 set, low bits 00. Wheel-down = bit 6 set, low bits 01.
+  // Drag, release, and plain clicks are intentionally ignored.
   let delta = 0;
   SGR_MOUSE_PATTERN.lastIndex = 0;
   let match = SGR_MOUSE_PATTERN.exec(chunk);
   while (match !== null) {
     const button = Number(match[1]);
+    const isWheel = (button & 64) === 64 && (button & 128) === 0;
     const low = button & 3;
-    const extra = button & ~3;
-    if (extra === 64 && low === 0) delta -= 3;
-    else if (extra === 64 && low === 1) delta += 3;
+    if (isWheel && low === 0) delta -= 3;
+    else if (isWheel && low === 1) delta += 3;
     match = SGR_MOUSE_PATTERN.exec(chunk);
   }
   return delta;
-}
-
-let rawModeRefCount = 0;
-
-function acquireRawMode(setRawMode: (v: boolean) => void, supported: boolean): () => void {
-  if (!supported) return () => undefined;
-  if (rawModeRefCount === 0) setRawMode(true);
-  rawModeRefCount += 1;
-  return () => {
-    rawModeRefCount -= 1;
-    if (rawModeRefCount === 0) setRawMode(false);
-  };
 }
 
 export const ScrollBox = forwardRef<ScrollBoxHandle, ScrollBoxProps>(function ScrollBox(
@@ -92,8 +85,8 @@ export const ScrollBox = forwardRef<ScrollBoxHandle, ScrollBoxProps>(function Sc
   const stdinBufferRef = useRef<string>('');
   const latestRef = useRef({
     scrollTop: 0,
-    viewportRows: viewportRows,
-    totalRows: totalRows,
+    viewportRows,
+    totalRows,
     clampMin: 0,
     clampMax: Number.POSITIVE_INFINITY,
     stickyScroll,
@@ -155,7 +148,12 @@ export const ScrollBox = forwardRef<ScrollBoxHandle, ScrollBoxProps>(function Sc
     const onData = (chunk: Buffer | string) => {
       const text = typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
       stdinBufferRef.current += text;
-      const buf = stdinBufferRef.current;
+      let buf = stdinBufferRef.current;
+      if (buf.length > STDIN_BUFFER_MAX) {
+        const keepFrom = buf.lastIndexOf('\x1b');
+        buf = keepFrom >= 0 ? buf.slice(keepFrom) : '';
+        stdinBufferRef.current = buf;
+      }
       const lastComplete = Math.max(buf.lastIndexOf('M'), buf.lastIndexOf('m'));
       if (lastComplete === -1) return;
       const toParse = buf.slice(0, lastComplete + 1);
@@ -167,6 +165,7 @@ export const ScrollBox = forwardRef<ScrollBoxHandle, ScrollBoxProps>(function Sc
         const next = Math.max(cMin, Math.min(cMax, prev + delta));
         if (next !== cMax) stickyRef.current = false;
         else if (s) stickyRef.current = true;
+        notifyImperative(next);
         return next;
       });
     };
@@ -175,7 +174,7 @@ export const ScrollBox = forwardRef<ScrollBoxHandle, ScrollBoxProps>(function Sc
       stdin.off('data', onData);
       release();
     };
-  }, [stdin, isRawModeSupported, setRawMode]);
+  }, [stdin, isRawModeSupported, setRawMode, notifyImperative]);
 
   useImperativeHandle(
     ref,

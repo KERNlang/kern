@@ -1,5 +1,6 @@
-import React, { useEffect, useInsertionEffect, useRef } from 'react';
+import React, { useEffect, useInsertionEffect, useRef, useState } from 'react';
 import { Box, useStdin, useStdout } from 'ink';
+import { acquireAltScreen, acquireRawMode } from './terminal-mode.js';
 
 const ENTER_ALT_SCREEN = '\x1b[?1049h\x1b[2J\x1b[H';
 const EXIT_ALT_SCREEN = '\x1b[?1049l';
@@ -12,31 +13,24 @@ export type AlternateScreenProps = {
 };
 
 type InstanceState = {
-  stdout: NodeJS.WriteStream;
-  mouseTracking: boolean;
-  cleanedUp: boolean;
+  release: () => void;
 };
 
 const activeInstances = new Set<InstanceState>();
-let signalHandlersAttached = false;
 let signalHandlers: { cleanup: () => void; onInt: () => void; onTerm: () => void; onExcept: (e: unknown) => void } | null = null;
 
 function runGlobalCleanup(): void {
   for (const inst of activeInstances) {
-    if (inst.cleanedUp) continue;
     try {
-      if (inst.mouseTracking) inst.stdout.write(DISABLE_MOUSE);
-      inst.stdout.write(EXIT_ALT_SCREEN);
+      inst.release();
     } catch {
       // stream already closed
     }
-    inst.cleanedUp = true;
   }
 }
 
 function attachSignalHandlers(): void {
-  if (signalHandlersAttached) return;
-  signalHandlersAttached = true;
+  if (signalHandlers) return;
   const cleanup = () => runGlobalCleanup();
   const onInt = () => {
     cleanup();
@@ -58,37 +52,36 @@ function attachSignalHandlers(): void {
 }
 
 function detachSignalHandlers(): void {
-  if (!signalHandlersAttached || !signalHandlers) return;
+  if (!signalHandlers) return;
   process.off('exit', signalHandlers.cleanup);
   process.off('SIGINT', signalHandlers.onInt);
   process.off('SIGTERM', signalHandlers.onTerm);
   process.off('uncaughtException', signalHandlers.onExcept);
   signalHandlers = null;
-  signalHandlersAttached = false;
 }
 
 export function AlternateScreen({ mouseTracking = false, children }: AlternateScreenProps): React.ReactElement {
   const { stdout } = useStdout();
   const { stdin, setRawMode, isRawModeSupported } = useStdin();
+  const [dimensions, setDimensions] = useState(() => ({
+    rows: stdout?.rows ?? 24,
+    columns: stdout?.columns ?? 80,
+  }));
   const instanceRef = useRef<InstanceState | null>(null);
 
   useInsertionEffect(() => {
-    const inst: InstanceState = { stdout, mouseTracking, cleanedUp: false };
+    const release = acquireAltScreen({
+      enter: () => stdout.write(ENTER_ALT_SCREEN),
+      exit: () => stdout.write(EXIT_ALT_SCREEN),
+      enableMouse: mouseTracking ? () => stdout.write(ENABLE_MOUSE) : undefined,
+      disableMouse: mouseTracking ? () => stdout.write(DISABLE_MOUSE) : undefined,
+    });
+    const inst: InstanceState = { release };
     instanceRef.current = inst;
-    stdout.write(ENTER_ALT_SCREEN);
-    if (mouseTracking) stdout.write(ENABLE_MOUSE);
     activeInstances.add(inst);
     attachSignalHandlers();
     return () => {
-      if (!inst.cleanedUp) {
-        try {
-          if (inst.mouseTracking) stdout.write(DISABLE_MOUSE);
-          stdout.write(EXIT_ALT_SCREEN);
-        } catch {
-          // stream already closed
-        }
-        inst.cleanedUp = true;
-      }
+      release();
       activeInstances.delete(inst);
       instanceRef.current = null;
       if (activeInstances.size === 0) detachSignalHandlers();
@@ -96,18 +89,29 @@ export function AlternateScreen({ mouseTracking = false, children }: AlternateSc
   }, [stdout, mouseTracking]);
 
   useEffect(() => {
-    if (!mouseTracking || !isRawModeSupported) return;
-    setRawMode(true);
+    if (!mouseTracking) return;
+    const release = acquireRawMode(setRawMode, isRawModeSupported);
     return () => {
-      setRawMode(false);
+      release();
     };
   }, [mouseTracking, isRawModeSupported, setRawMode, stdin]);
 
-  const rows = stdout.rows ?? 24;
-  const columns = stdout.columns ?? 80;
+  useEffect(() => {
+    if (!stdout) return;
+    const onResize = () => {
+      setDimensions({
+        rows: stdout.rows ?? 24,
+        columns: stdout.columns ?? 80,
+      });
+    };
+    stdout.on('resize', onResize);
+    return () => {
+      stdout.off('resize', onResize);
+    };
+  }, [stdout]);
 
   return (
-    <Box flexDirection="column" width={columns} height={rows} flexShrink={0}>
+    <Box flexDirection="column" width={dimensions.columns} height={dimensions.rows} flexShrink={0}>
       {children}
     </Box>
   );
