@@ -130,7 +130,7 @@ fn name=loadUser params="id:string" returns=unknown
     );
 
     const baselinePath = join(tmpDir, 'baseline.json');
-    const baseline = createReviewBaseline([reviewFile(file)]);
+    const baseline = createReviewBaseline([reviewFile(file, { requireConfidenceAnnotations: true })]);
     writeFileSync(baselinePath, JSON.stringify(baseline, null, 2));
 
     let exitCode: number | undefined;
@@ -139,7 +139,9 @@ fn name=loadUser params="id:string" returns=unknown
       throw new Error(`EXIT:${code ?? 0}`);
     }) as never;
 
-    await expect(runReview(['review', file, `--baseline=${baselinePath}`, '--sarif'])).rejects.toThrow('EXIT:0');
+    await expect(
+      runReview(['review', file, `--baseline=${baselinePath}`, '--sarif', '--require-confidence']),
+    ).rejects.toThrow('EXIT:0');
     expect(exitCode).toBe(0);
 
     const sarif = JSON.parse(logs.join('\n'));

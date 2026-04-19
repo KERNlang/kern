@@ -35,7 +35,7 @@ import { lintConfidenceGraph, lintMultiFileConfidenceGraph } from './rules/confi
 import { crossFileAsyncRule, deadExportRule } from './rules/dead-code.js';
 import { runFastapiConceptRules } from './rules/fastapi.js';
 import { GROUND_LAYER_RULES } from './rules/ground-layer.js';
-import { KERN_SOURCE_RULES, lintKernSourceIR } from './rules/kern-source.js';
+import { KERN_SOURCE_RULES, lintKernSourceIR, missingConfidence } from './rules/kern-source.js';
 import { lintKernSourceCrossFile } from './rules/kern-source-cross-file.js';
 import { detectTemplates } from './template-detector.js';
 import type { GraphOptions } from './types.js';
@@ -338,12 +338,53 @@ export function isGeneratedFile(filePath: string, source?: string): boolean {
   return false;
 }
 
+/** Extensions the review engine analyzes. Anything else (.md, .json, .yaml, .patch, binaries) returns an empty report at the entry point, so callers that blindly feed changed-file lists (e.g. kern-guard on a PR diff) don't surface noise findings on docs/config files. */
+const REVIEWABLE_EXTENSIONS = new Set([
+  '.ts',
+  '.tsx',
+  '.mts',
+  '.cts',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
+  '.kern',
+  '.py',
+  '.vue',
+]);
+
+export function isReviewableFile(filePath: string): boolean {
+  const dot = filePath.lastIndexOf('.');
+  if (dot === -1) return false;
+  const ext = filePath.slice(dot);
+  return REVIEWABLE_EXTENSIONS.has(ext);
+}
+
+function emptyReport(filePath: string): ReviewReport {
+  return {
+    filePath,
+    inferred: [],
+    templateMatches: [],
+    findings: [],
+    stats: {
+      totalLines: 0,
+      coveredLines: 0,
+      coveragePct: 0,
+      totalTsTokens: 0,
+      totalKernTokens: 0,
+      reductionPct: 0,
+      constructCount: 0,
+    },
+  };
+}
+
 /**
  * Review a single file. Auto-detects language from extension.
  * Uses a filesystem-backed ts-morph Project for type-aware analysis.
  * Supports: .ts, .tsx, .py, .kern
  */
 export function reviewFile(filePath: string, config?: ReviewConfig): ReviewReport {
+  if (!isReviewableFile(filePath)) return emptyReport(filePath);
   const source = readFileSync(filePath, 'utf-8');
 
   // Resolve the effective tsconfig up-front so both the cache key and the ts-morph Project see the
@@ -432,6 +473,7 @@ function reviewSourceWithProject(source: string, filePath: string, config?: Revi
  * For file-from-disk review with type resolution, use reviewFile() instead.
  */
 export function reviewSource(source: string, filePath = 'input.ts', config?: ReviewConfig): ReviewReport {
+  if (!isReviewableFile(filePath)) return emptyReport(filePath);
   const project = createInMemoryProject();
   const sourceFile = project.createSourceFile(filePath, source);
   return reviewSourceInternal(source, filePath, config, project, sourceFile);
@@ -483,8 +525,14 @@ function reviewSourceInternal(
   // Phase 3: Template detection (config-aware)
   const templateMatches = safePhase('templates', () => detectTemplates(sourceFile, config), []);
 
-  // Phase 4: Structural diff → unified findings
-  allFindings.push(...safePhase('diff', () => structuralDiff(source, inferred, filePath), []));
+  // Phase 4: Structural diff → unified findings.
+  // `extra-code` and `inconsistent-pattern` are only meaningful on runtime source; on codegen/barrel/test/example
+  // files they produce noise (e.g. entire barrel flagged as extra-code). Keep other diff findings regardless.
+  const diffFindings = safePhase('diff', () => structuralDiff(source, inferred, filePath), []);
+  const diffNoiseRules = new Set(['extra-code', 'inconsistent-pattern']);
+  allFindings.push(
+    ...(fileRole === 'runtime' ? diffFindings : diffFindings.filter((f) => !diffNoiseRules.has(f.ruleId))),
+  );
 
   // Phase 5: Quality rules → unified findings (receives fileRole)
   allFindings.push(
@@ -643,10 +691,15 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
     }
     allFindings.push(...confFindings);
 
-    // File-aware .kern review rules on flattened IR nodes
+    // File-aware .kern review rules on flattened IR nodes.
+    // missing-confidence fires only when the user opts into confidence annotations — defaulting
+    // it on produced noise for every .kern file that didn't use the feature (see Agon kern-guard run, 2026-04-19).
+    const kernSourceRules = _config?.requireConfidenceAnnotations
+      ? KERN_SOURCE_RULES
+      : KERN_SOURCE_RULES.filter((r) => r !== missingConfidence);
     const kernSourceFindings = safePhase(
       'kern-source-lint',
-      () => lintKernSourceIR(flatNodes, filePath, KERN_SOURCE_RULES),
+      () => lintKernSourceIR(flatNodes, filePath, kernSourceRules),
       [],
     );
     allFindings.push(...kernSourceFindings);

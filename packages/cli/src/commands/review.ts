@@ -930,6 +930,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
   const strict: false | 'inline' | 'all' =
     strictArg === '--strict' ? 'inline' : strictArg === '--strict=all' ? 'all' : false;
   const strictParse = hasFlag(args, '--strict-parse');
+  const requireConfidenceAnnotations = hasFlag(args, '--require-confidence');
   const listRules = hasFlag(args, '--list-rules');
   let diffBase = args.some((a) => a === '--diff' || a.startsWith('--diff'))
     ? parseFlagOrNext(args, '--diff') || 'origin/main'
@@ -1105,7 +1106,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
       'Usage: kern review [file|dir] [--full] [--diff base] [--git=<url>] [--security] [--mcp] [--llm] [--spec file.kern] [--cloud] [--baseline=file.json] [--new-only]',
     );
     console.error(
-      '       [--write-baseline=file.json] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--fix] [--autofix] [--rules-dir <dir>] [--include-generated]',
+      '       [--write-baseline=file.json] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--fix] [--autofix] [--require-confidence] [--rules-dir <dir>] [--include-generated]',
     );
     console.error('');
     console.error('  Default (inside git): reviews changes vs origin/main. Use --full to scan the whole tree.');
@@ -1154,6 +1155,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
     rulesDirs: rulesDirs.length > 0 ? rulesDirs : undefined,
     strict,
     strictParse,
+    requireConfidenceAnnotations: requireConfidenceAnnotations || reviewCfg.review.requireConfidenceAnnotations,
     tsConfigFilePath: tsconfigPath,
     publicApi:
       reviewCfg.review.publicApi.files.length > 0 || reviewCfg.review.publicApi.symbols.length > 0

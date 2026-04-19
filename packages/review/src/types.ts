@@ -318,6 +318,8 @@ export interface ReviewConfig {
   graphFileMap?: Map<string, GraphFile>;
   /** Path to host project's tsconfig.json — loaded into the ts-morph Project so jsx/paths/lib/allowJs match the real build. */
   tsConfigFilePath?: string;
+  /** When true, emit the `missing-confidence` finding for .kern files without confidence annotations. Default: false (opt-in) — teams that don't use confidence annotations see no noise. */
+  requireConfidenceAnnotations?: boolean;
   /** Override what dead-export treats as intentional public API. */
   publicApi?: {
     /** Absolute or projectRoot-relative paths whose exports are all public. */
