@@ -199,6 +199,53 @@ function hasNewline(s: string): boolean {
   return s.includes('\n');
 }
 
+/**
+ * Insert synthesised `this.x = x;` lines in the correct position:
+ *   - If the body opens with `super(...)`, place the assigns immediately
+ *     AFTER the first statement that contains the super call.
+ *   - Otherwise, prepend to the top.
+ *
+ * A single super call can span multiple indented lines (a multi-line arg
+ * list). We detect the opening `super(` and advance past the matching `)`
+ * at paren-depth zero, treating that as the end of the super statement.
+ * This is a line-level heuristic — good enough for the shapes the migration
+ * actually accepts (TS already validated the class as syntactically clean).
+ */
+function spliceAssignsAfterSuper(body: string[], assigns: string[]): string[] {
+  if (assigns.length === 0) return body;
+  if (body.length === 0) return assigns;
+
+  // Find the first non-blank line that starts with `super(` (modulo
+  // leading whitespace).
+  let superStart = -1;
+  for (let i = 0; i < body.length; i++) {
+    const trimmed = body[i].trimStart();
+    if (trimmed === '') continue;
+    if (/^super\s*\(/.test(trimmed)) {
+      superStart = i;
+    }
+    break;
+  }
+  if (superStart === -1) {
+    return [...assigns, ...body];
+  }
+
+  // Advance through lines until paren depth returns to zero and the line
+  // looks terminated (ends with `;` or `)` at depth 0).
+  let depth = 0;
+  let end = superStart;
+  for (let i = superStart; i < body.length; i++) {
+    for (const ch of body[i]) {
+      if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+    }
+    end = i;
+    if (depth <= 0) break;
+  }
+
+  return [...body.slice(0, end + 1), ...assigns, ...body.slice(end + 1)];
+}
+
 function emitMember(
   member: ts.ClassElement,
   text: (n: ts.Node | undefined) => string,
@@ -253,7 +300,12 @@ function emitMember(
     const body = member.body;
     const bodyText = body ? text(body).slice(1, -1) : '';
     const trimmed = body ? dedentInteriorLines(bodyText) : '';
-    const bodyLines = [...assignLines, ...(trimmed ? trimmed.split('\n') : [])];
+    const originalLines = trimmed ? trimmed.split('\n') : [];
+    // TypeScript requires `super(...)` to be the FIRST statement in a derived
+    // class constructor before any `this.*` access. If the body opens with a
+    // super call, splice the synthesised assignments AFTER it; otherwise
+    // prepend at the top as usual.
+    const bodyLines = spliceAssignsAfterSuper(originalLines, assignLines);
     if (bodyLines.length > 0) {
       lines.push(`${indent}  handler <<<`);
       for (const line of bodyLines) lines.push(`${indent}    ${line}`);

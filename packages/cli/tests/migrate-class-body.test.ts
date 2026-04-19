@@ -87,6 +87,36 @@ describe('rewriteClassBodies', () => {
     expect(result.output).toBe(source);
   });
 
+  test('keeps super() first when expanding param-property shortcuts in a derived class', () => {
+    // TS requires `super(...)` before any `this.*` access. The synthesised
+    // `this.x = x;` assignments must therefore be spliced AFTER the super
+    // call, not prepended to the top of the ctor body.
+    const source = [
+      'const name=MyError type=any',
+      '  handler <<<',
+      '    class MyError extends Error {',
+      '      constructor(public code: number, message: string) {',
+      '        super(message);',
+      '        this.name = "MyError";',
+      '      }',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteClassBodies(source);
+
+    expect(result.hits).toHaveLength(1);
+    const out = result.output;
+    const superIdx = out.indexOf('super(message);');
+    const assignIdx = out.indexOf('this.code = code;');
+    const bodyIdx = out.indexOf('this.name = "MyError";');
+    expect(superIdx).toBeGreaterThan(-1);
+    expect(assignIdx).toBeGreaterThan(-1);
+    expect(bodyIdx).toBeGreaterThan(-1);
+    expect(superIdx).toBeLessThan(assignIdx);
+    expect(assignIdx).toBeLessThan(bodyIdx);
+  });
+
   test('expands TS parameter-property shortcuts into sibling fields + ctor assigns', () => {
     const source = [
       'const name=Widget type=any',
