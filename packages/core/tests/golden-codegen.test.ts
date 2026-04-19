@@ -158,6 +158,71 @@ describe('golden: service', () => {
   });
 });
 
+describe('golden: class', () => {
+  it('class with private fields, typed constructor, methods', () => {
+    expect(
+      gen(
+        [
+          'class name=AudioRecorder export=true',
+          '  field name=fd type="number | null" private=true default={{ null }}',
+          '  field name=totalBytes type=number private=true default=0',
+          '  constructor params="sessionKey:string"',
+          '    handler <<<',
+          '      this.sessionKey = sessionKey;',
+          '    >>>',
+          '  method name=write params="buf:Buffer" returns=void',
+          '    handler <<<',
+          '      writeSync(this.fd!, buf);',
+          '    >>>',
+        ].join('\n'),
+      ),
+    ).toMatchSnapshot();
+  });
+  it('abstract class', () => {
+    expect(
+      gen(
+        [
+          'class name=Shape abstract=true',
+          '  field name=area type=number private=true',
+          '  method name=render returns=void',
+        ].join('\n'),
+      ),
+    ).toMatchSnapshot();
+  });
+  it('class with getter, setter, and static fields', () => {
+    expect(
+      gen(
+        [
+          'class name=Gauge export=true',
+          '  field name=_v type=number private=true default={{ 0 }}',
+          '  field name=MAX type=number private=true static=true readonly=true default=100',
+          '  getter name=v returns=number',
+          '    handler <<<',
+          '      return this._v;',
+          '    >>>',
+          '  setter name=v params="value:number"',
+          '    handler <<<',
+          '      this._v = value;',
+          '    >>>',
+        ].join('\n'),
+      ),
+    ).toMatchSnapshot();
+  });
+  it('class with extends and implements', () => {
+    expect(
+      gen(
+        [
+          'class name=Cat extends=Animal implements=Purrer',
+          '  method name=purr returns=void',
+          '    handler <<<',
+          '      console.log("purr");',
+          '    >>>',
+        ].join('\n'),
+      ),
+    ).toMatchSnapshot();
+  });
+});
+
 describe('golden: fn', () => {
   it('sync function with params and return', () => {
     expect(
@@ -463,6 +528,46 @@ describe('golden: action', () => {
         ].join('\n'),
       ),
     ).toMatchSnapshot();
+  });
+});
+
+describe('golden: actionRegistry', () => {
+  it('registers a map of async action handlers', () => {
+    expect(
+      gen(
+        [
+          'actionRegistry target=registerActions',
+          '  action key=share_review name=shareReview',
+          '    handler <<<',
+          '      await broadcastToRenderer("bridge:share-requested");',
+          '    >>>',
+          '  action key=create_review name=createReview params="reqUrl:URL"',
+          '    handler <<<',
+          '      await persist(reqUrl);',
+          '    >>>',
+          '  action key=cancel_review name=cancelReview',
+          '    handler <<<',
+          '      state.isCreatingReview = false;',
+          '    >>>',
+        ].join('\n'),
+      ),
+    ).toMatchSnapshot();
+  });
+  it('supports rawExpr target for dotted callees', () => {
+    expect(
+      gen(
+        [
+          'actionRegistry target={{ router.register }}',
+          '  action key=ping name=ping',
+          '    handler <<<',
+          '      return "pong";',
+          '    >>>',
+        ].join('\n'),
+      ),
+    ).toMatchSnapshot();
+  });
+  it('handles zero-action registry as empty object', () => {
+    expect(gen('actionRegistry target=registerActions')).toMatchSnapshot();
   });
 });
 

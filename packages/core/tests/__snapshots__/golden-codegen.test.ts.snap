@@ -7,6 +7,30 @@ export async function sendEmail(to: string, body: string): Promise<void> {
 }"
 `;
 
+exports[`golden: actionRegistry handles zero-action registry as empty object 1`] = `"registerActions({});"`;
+
+exports[`golden: actionRegistry registers a map of async action handlers 1`] = `
+"registerActions({
+  "share_review": async () => {
+    await broadcastToRenderer("bridge:share-requested");
+  },
+  "create_review": async (reqUrl: URL) => {
+    await persist(reqUrl);
+  },
+  "cancel_review": async () => {
+    state.isCreatingReview = false;
+  }
+});"
+`;
+
+exports[`golden: actionRegistry supports rawExpr target for dotted callees 1`] = `
+"router.register({
+  "ping": async () => {
+    return "pong";
+  }
+});"
+`;
+
 exports[`golden: assume assume with evidence and fallback 1`] = `
 "/** @assume [object Object] @scope request @evidence route-signing */
 if (process.env.NODE_ENV !== 'production') {
@@ -24,6 +48,54 @@ switch (user.tier) {
   case 'pro': {
     export const limit: number = [object Object];
     break;
+  }
+}"
+`;
+
+exports[`golden: class abstract class 1`] = `
+"export abstract class Shape {
+  private area: number;
+
+  render(): void {
+  }
+}"
+`;
+
+exports[`golden: class class with extends and implements 1`] = `
+"export class Cat extends Animal implements Purrer {
+
+  purr(): void {
+    console.log("purr");
+  }
+}"
+`;
+
+exports[`golden: class class with getter, setter, and static fields 1`] = `
+"export class Gauge {
+  private _v: number = 0;
+  private static readonly MAX: number = 100;
+
+  get v(): number {
+    return this._v;
+  }
+
+  set v(value: number) {
+    this._v = value;
+  }
+}"
+`;
+
+exports[`golden: class class with private fields, typed constructor, methods 1`] = `
+"export class AudioRecorder {
+  private fd: number | null = null;
+  private totalBytes: number = 0;
+
+  constructor(sessionKey: string) {
+    this.sessionKey = sessionKey;
+  }
+
+  write(buf: Buffer): void {
+    writeSync(this.fd!, buf);
   }
 }"
 `;

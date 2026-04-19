@@ -85,6 +85,47 @@ describe('Concept Extraction (TS)', () => {
         expect(handles[0].payload.disposition).toBe('ignored');
       }
     });
+
+    it('treats an empty catch with ANY intent comment as wrapped (Agon/AudioFacets FP regression)', () => {
+      // Real shapes from AudioFacets + Agon generated code — 67 FPs in Agon
+      // and ~50 in AudioFacets used these comment forms. Prior regex only
+      // trusted `Intentional|Expected|@suppress|eslint-disable`.
+      const samples = [
+        `try { x(); } catch { /* ignore */ }`,
+        `try { x(); } catch { /* swallow during janitor */ }`,
+        `try { x(); } catch { /* non-fatal */ }`,
+        `try { x(); } catch { /* already gone — ok */ }`,
+        `try { x(); } catch { // Folder might already exist\n}`,
+        `try { x(); } catch { // Process likely already exited.\n}`,
+      ];
+      for (const source of samples) {
+        const sf = createSourceFile(source, `fixture-${Math.random()}.ts`);
+        const map = extractTsConcepts(sf, 'fixture.ts');
+        const handle = map.nodes.find((n) => n.kind === 'error_handle');
+        expect(handle?.payload.kind).toBe('error_handle');
+        if (handle?.payload.kind === 'error_handle') {
+          expect(handle.payload.disposition).toBe('wrapped');
+        }
+      }
+    });
+
+    it('still flags a truly empty catch with no comment as ignored (genuine bug)', () => {
+      const sf = createSourceFile('try { x(); } catch {}', 'empty-catch.ts');
+      const map = extractTsConcepts(sf, 'empty-catch.ts');
+      const handle = map.nodes.find((n) => n.kind === 'error_handle');
+      if (handle?.payload.kind === 'error_handle') {
+        expect(handle.payload.disposition).toBe('ignored');
+      }
+    });
+
+    it('still flags an empty /* */ comment (no content) as ignored', () => {
+      const sf = createSourceFile('try { x(); } catch { /* */ }', 'empty-comment.ts');
+      const map = extractTsConcepts(sf, 'empty-comment.ts');
+      const handle = map.nodes.find((n) => n.kind === 'error_handle');
+      if (handle?.payload.kind === 'error_handle') {
+        expect(handle.payload.disposition).toBe('ignored');
+      }
+    });
   });
 
   describe('effect', () => {

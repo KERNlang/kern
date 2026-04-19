@@ -115,32 +115,86 @@ export function generateUnion(node: IRNode): string[] {
   return lines;
 }
 
-// ── Service (Class) ─────────────────────────────────────────────────────
+// ── Class-like (Service + Class) ────────────────────────────────────────
+//
+// Both `service` and `class` emit a TypeScript class declaration with the
+// same field/method/constructor body. They differ only in the header clause:
+//   service name=X implements=Y   → `class X implements Y { ... }`
+//   class name=X extends=Y        → `class X extends Y { ... }`
+//   class name=X abstract=true    → `abstract class X { ... }`
+// Sharing emitClassBody keeps codegen parity as new schema fields are added.
+
+function emitClassHeader(
+  node: IRNode,
+  fallbackName: string,
+): { exp: string; name: string; header: string; docs: string[] } {
+  const props = p(node) as { name?: string; extends?: string; implements?: string; abstract?: unknown };
+  const name = emitIdentifier(props.name, fallbackName, node);
+  const exp = exportPrefix(node);
+  const docs = emitDocComment(node);
+
+  const extendsClause = props.extends ? ` extends ${emitTypeAnnotation(props.extends, 'unknown', node)}` : '';
+  const implementsClause = props.implements
+    ? ` implements ${emitTypeAnnotation(props.implements, 'unknown', node)}`
+    : '';
+  const abstractKw = props.abstract === 'true' || props.abstract === true ? 'abstract ' : '';
+
+  return {
+    exp,
+    name,
+    docs,
+    header: `${exp}${abstractKw}class ${name}${extendsClause}${implementsClause} {`,
+  };
+}
+
+export function generateClass(node: IRNode): string[] {
+  const { exp, name, header, docs } = emitClassHeader(node, 'UnknownClass');
+  const lines: string[] = [...docs];
+  lines.push(header);
+  emitClassBody(node, lines);
+  lines.push('}');
+  emitSingletons(node, lines, name, exp);
+  return lines;
+}
 
 export function generateService(node: IRNode): string[] {
-  const props = propsOf<'service'>(node);
-  const name = emitIdentifier(props.name, 'UnknownService', node);
-  const impl = props.implements;
-  const exp = exportPrefix(node);
-  const lines: string[] = [...emitDocComment(node)];
+  const { exp, name, header, docs } = emitClassHeader(node, 'UnknownService');
+  const lines: string[] = [...docs];
+  lines.push(header);
+  emitClassBody(node, lines);
+  lines.push('}');
+  emitSingletons(node, lines, name, exp);
+  return lines;
+}
 
-  const implClause = impl ? ` implements ${emitTypeAnnotation(impl, 'unknown', node)}` : '';
-  lines.push(`${exp}class ${name}${implClause} {`);
+function emitSingletons(node: IRNode, lines: string[], className: string, exp: string): void {
+  for (const singleton of kids(node, 'singleton')) {
+    const sp = p(singleton);
+    const sname = emitIdentifier(sp.name as string, 'instance', singleton);
+    const stype = emitIdentifier(sp.type as string, className, singleton);
+    lines.push('');
+    lines.push(`${exp}const ${sname} = new ${stype}();`);
+  }
+}
 
+function emitClassBody(node: IRNode, lines: string[]): void {
   // Fields
   for (const field of kids(node, 'field')) {
     const fp = propsOf<'field'>(field);
     const fieldName = emitIdentifier(fp.name, 'field', field);
     const vis = fp.private === 'true' || fp.private === true ? 'private ' : '';
-    const readonly =
-      (fp as Record<string, unknown>).readonly === 'true' || (fp as Record<string, unknown>).readonly === true
-        ? 'readonly '
-        : '';
+    const staticKw = fp.static === 'true' || fp.static === true ? 'static ' : '';
+    const readonly = fp.readonly === 'true' || fp.readonly === true ? 'readonly ' : '';
     const typeAnnotation = fp.type ? `: ${emitTypeAnnotation(fp.type, 'unknown', field)}` : '';
-    const defaultVal = fp.default;
-    // default values are by-design raw code (escape hatch) — documented, not sanitized
-    const init = defaultVal !== undefined ? ` = ${defaultVal}` : '';
-    lines.push(`  ${vis}${readonly}${fieldName}${typeAnnotation}${init};`);
+    const defaultVal = (fp as { default?: unknown }).default;
+    // `default={{ expr }}` parses as an ExprObject; emit its raw code.
+    // Bare `default=0` arrives as a string. Either way it's by-design raw TS.
+    const init = (() => {
+      if (defaultVal === undefined || defaultVal === '') return '';
+      if (isExprObject(defaultVal)) return ` = ${defaultVal.code}`;
+      return ` = ${defaultVal}`;
+    })();
+    lines.push(`  ${vis}${staticKw}${readonly}${fieldName}${typeAnnotation}${init};`);
   }
 
   // Constructor (if any constructor child exists)
@@ -206,18 +260,41 @@ export function generateService(node: IRNode): string[] {
     lines.push('  }');
   }
 
-  lines.push('}');
-
-  // Singleton instances
-  for (const singleton of kids(node, 'singleton')) {
-    const sp = p(singleton);
-    const sname = emitIdentifier(sp.name as string, 'instance', singleton);
-    const stype = emitIdentifier(sp.type as string, name, singleton);
+  // Getters — `get name(): T { body }`
+  for (const getter of kids(node, 'getter')) {
+    const gp = propsOf<'getter'>(getter);
+    const gname = emitIdentifier(gp.name, 'getter', getter);
+    const gvis = gp.private === 'true' || gp.private === true ? 'private ' : '';
+    const gstatic = gp.static === 'true' || gp.static === true ? 'static ' : '';
+    const greturns = gp.returns ? `: ${emitTypeAnnotation(gp.returns, 'unknown', getter)}` : '';
+    const gcode = handlerCode(getter);
     lines.push('');
-    lines.push(`${exp}const ${sname} = new ${stype}();`);
+    lines.push(`  ${gvis}${gstatic}get ${gname}()${greturns} {`);
+    if (gcode) {
+      for (const line of gcode.split('\n')) {
+        lines.push(`    ${line}`);
+      }
+    }
+    lines.push('  }');
   }
 
-  return lines;
+  // Setters — `set name(v: T) { body }`
+  for (const setter of kids(node, 'setter')) {
+    const sp = propsOf<'setter'>(setter);
+    const sname = emitIdentifier(sp.name, 'setter', setter);
+    const svis = sp.private === 'true' || sp.private === true ? 'private ' : '';
+    const sstatic = sp.static === 'true' || sp.static === true ? 'static ' : '';
+    const sparams = sp.params ? parseParamList(sp.params) : 'value: unknown';
+    const scode = handlerCode(setter);
+    lines.push('');
+    lines.push(`  ${svis}${sstatic}set ${sname}(${sparams}) {`);
+    if (scode) {
+      for (const line of scode.split('\n')) {
+        lines.push(`    ${line}`);
+      }
+    }
+    lines.push('  }');
+  }
 }
 
 // ── Const ───────────────────────────────────────────────────────────────

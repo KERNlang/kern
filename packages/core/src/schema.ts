@@ -105,6 +105,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       default: { kind: 'rawExpr' },
       private: { kind: 'boolean' },
       readonly: { kind: 'boolean' },
+      static: { kind: 'boolean' },
     },
   },
   service: {
@@ -116,7 +117,20 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       implements: { kind: 'typeAnnotation' },
       export: { kind: 'boolean' },
     },
-    allowedChildren: ['field', 'method', 'constructor', 'singleton'],
+    allowedChildren: ['field', 'method', 'constructor', 'singleton', 'getter', 'setter'],
+  },
+  class: {
+    description: 'Stateful class — owned instance with fields, constructor, methods, getters',
+    example:
+      'class name=AudioRecorder export=true\n  field name=fd type="number | null" visibility=private value={{ null }}\n  constructor params="sessionKey:string"\n    handler <<<\n      this.sessionKey = sessionKey;\n    >>>\n  method name=close returns=void\n    handler <<<\n      closeSync(this.fd!);\n    >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      extends: { kind: 'typeAnnotation' },
+      implements: { kind: 'typeAnnotation' },
+      abstract: { kind: 'boolean' },
+      export: { kind: 'boolean' },
+    },
+    allowedChildren: ['field', 'method', 'constructor', 'singleton', 'getter', 'setter'],
   },
   method: {
     description: 'A method within a service or repository, with handler body',
@@ -128,6 +142,28 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       returns: { kind: 'typeAnnotation' },
       async: { kind: 'boolean' },
       stream: { kind: 'boolean' },
+      private: { kind: 'boolean' },
+      static: { kind: 'boolean' },
+    },
+    allowedChildren: ['handler'],
+  },
+  getter: {
+    description: 'A getter accessor within a class or service — emits `get name(): T { body }`.',
+    example: 'getter name=state returns=string\n  handler <<<\n    return this._state\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      returns: { kind: 'typeAnnotation' },
+      private: { kind: 'boolean' },
+      static: { kind: 'boolean' },
+    },
+    allowedChildren: ['handler'],
+  },
+  setter: {
+    description: 'A setter accessor within a class or service — emits `set name(v: T) { body }`.',
+    example: 'setter name=state params="value:string"\n  handler <<<\n    this._state = value\n  >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      params: { kind: 'string' },
       private: { kind: 'boolean' },
       static: { kind: 'boolean' },
     },
@@ -312,13 +348,25 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'action name=sendEmail params="to:string,body:string" async=true export=true\n  handler <<<\n    await mailer.send(to, body)\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
+      key: { kind: 'string' },
       params: { kind: 'string' },
       returns: { kind: 'typeAnnotation' },
+      async: { kind: 'boolean' },
       idempotent: { kind: 'boolean' },
       reversible: { kind: 'boolean' },
       export: { kind: 'boolean' },
     },
     allowedChildren: ['handler'],
+  },
+  actionRegistry: {
+    description:
+      'Calls an imported registration function with a map of string-keyed async action handlers. Emits `target({ key: async (...) => body, ... })` directly — no IIFE wrapper.',
+    example:
+      'actionRegistry target=registerActions\n  action key=share\n    handler <<<\n      await broadcastToRenderer("bridge:share-requested");\n    >>>\n  action key=create params="req:URL"\n    handler <<<\n      await persist(req);\n    >>>',
+    props: {
+      target: { required: true, kind: 'rawExpr' },
+    },
+    allowedChildren: ['action'],
   },
   guard: {
     description:

@@ -38,6 +38,7 @@ export { generateEvent, generateOn, generateWebSocket } from './codegen/events.j
 export { generateError, generateFunction } from './codegen/functions.js';
 export {
   generateAction,
+  generateActionRegistry,
   generateApply,
   generateAssume,
   generateCollect,
@@ -75,6 +76,7 @@ export { mapSemanticType, SEMANTIC_TYPE_MAP } from './codegen/semantic-types.js'
 export { generateTest } from './codegen/test-gen.js';
 // ── Re-exports: domain generators (backward compatibility) ──────────────
 export {
+  generateClass,
   generateConst,
   generateInterface,
   generateService,
@@ -96,6 +98,7 @@ import { generateEvent, generateOn, generateWebSocket } from './codegen/events.j
 import { generateError, generateFunction } from './codegen/functions.js';
 import {
   generateAction,
+  generateActionRegistry,
   generateApply,
   generateAssume,
   generateCollect,
@@ -120,6 +123,7 @@ import { generateImport } from './codegen/modules.js';
 import { generateScreen } from './codegen/screens.js';
 import { generateTest } from './codegen/test-gen.js';
 import {
+  generateClass,
   generateConst,
   generateInterface,
   generateService,
@@ -378,7 +382,10 @@ export const CORE_NODE_TYPES = new Set([
   'union',
   'variant',
   'service',
+  'class',
   'method',
+  'getter',
+  'setter',
   'singleton',
   'constructor',
   'machine',
@@ -407,6 +414,7 @@ export const CORE_NODE_TYPES = new Set([
   'derive',
   'transform',
   'action',
+  'actionRegistry',
   'guard',
   'assume',
   'invariant',
@@ -477,6 +485,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateUnion(node);
     case 'service':
       return generateService(node);
+    case 'class':
+      return generateClass(node);
     case 'fn':
       return generateFunction(node);
     case 'machine':
@@ -512,6 +522,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateTransform(node);
     case 'action':
       return generateAction(node);
+    case 'actionRegistry':
+      return generateActionRegistry(node);
     case 'guard':
       return generateGuard(node);
     case 'assume':

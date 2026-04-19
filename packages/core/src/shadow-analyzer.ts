@@ -171,6 +171,7 @@ const DECLARING_NODE_TYPES = new Set([
   'event',
   'model',
   'service',
+  'class',
   'repository',
 ]);
 
@@ -304,8 +305,11 @@ function buildHandlerUnit(handlerNode: IRNode, parentNode: IRNode, ancestors: IR
 
     case 'method': {
       const ownerNode = ancestors[ancestors.length - 2];
-      if (!ownerNode || (ownerNode.type !== 'service' && ownerNode.type !== 'repository')) {
-        return unsupportedContext(handlerNode, parentNode, 'method owner is not a service or repository');
+      if (
+        !ownerNode ||
+        (ownerNode.type !== 'service' && ownerNode.type !== 'repository' && ownerNode.type !== 'class')
+      ) {
+        return unsupportedContext(handlerNode, parentNode, 'method owner is not a service, class, or repository');
       }
       const scopeLines = buildMethodScopeLines(ownerNode, index);
       const selfTypeName = `__ShadowSelf_${index}`;

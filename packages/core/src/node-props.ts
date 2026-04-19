@@ -43,6 +43,12 @@ export interface ServiceProps extends BaseProps {
   implements?: string;
 }
 
+export interface ClassProps extends BaseProps {
+  extends?: string;
+  implements?: string;
+  abstract?: string | boolean;
+}
+
 export interface ConstProps extends BaseProps {
   type?: string;
   value?: string | ExprObject;
@@ -129,8 +135,16 @@ export interface TransformProps extends BaseProps {
 }
 
 export interface ActionProps extends BaseProps {
+  key?: string;
   params?: string;
   returns?: string;
+  async?: string | boolean;
+  idempotent?: string | boolean;
+  reversible?: string | boolean;
+}
+
+export interface ActionRegistryProps extends BaseProps {
+  target?: string | ExprObject;
 }
 
 export interface GuardProps extends BaseProps {
@@ -209,6 +223,20 @@ export interface FieldProps extends BaseProps {
   optional?: string | boolean;
   default?: string;
   private?: string | boolean;
+  readonly?: string | boolean;
+  static?: string | boolean;
+}
+
+export interface GetterProps extends BaseProps {
+  returns?: string;
+  private?: string | boolean;
+  static?: string | boolean;
+}
+
+export interface SetterProps extends BaseProps {
+  params?: string;
+  private?: string | boolean;
+  static?: string | boolean;
 }
 
 export interface VariantProps extends BaseProps {
@@ -267,6 +295,7 @@ export interface NodePropsMap {
   interface: InterfaceProps;
   union: UnionProps;
   service: ServiceProps;
+  class: ClassProps;
   const: ConstProps;
   fn: FnProps;
   error: ErrorProps;
@@ -283,6 +312,7 @@ export interface NodePropsMap {
   derive: DeriveProps;
   transform: TransformProps;
   action: ActionProps;
+  actionRegistry: ActionRegistryProps;
   guard: GuardProps;
   assume: AssumeProps;
   invariant: InvariantProps;
@@ -298,6 +328,8 @@ export interface NodePropsMap {
   module: ModuleProps;
   import: ImportProps;
   field: FieldProps;
+  getter: GetterProps;
+  setter: SetterProps;
   variant: VariantProps;
   method: MethodProps;
   transition: TransitionProps;
