@@ -6,7 +6,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export default {
   preset: 'ts-jest/presets/default-esm',
   testEnvironment: 'node',
-  extensionsToTreatAsEsm: ['.ts'],
+  extensionsToTreatAsEsm: ['.ts', '.tsx'],
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
@@ -16,6 +16,7 @@ export default {
       tsconfig: {
         module: 'es2022',
         moduleResolution: 'bundler',
+        jsx: 'react-jsx',
         rootDir: ROOT,
       },
     }],

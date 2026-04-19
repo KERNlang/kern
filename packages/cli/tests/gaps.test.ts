@@ -106,7 +106,46 @@ describe('kern gaps command', () => {
     const text = out();
 
     expect(text).toContain('Compiler coverage gaps (1)');
-    expect(text).toContain('handler: 1');
+    // BC: old gap JSON without `category` defaults to `detected`.
+    expect(text).toContain('detected (1):');
+  });
+
+  test('groups coverage gaps by category and surfaces migration hint for migratable ones', async () => {
+    const gapDir = join(tmpDir, '.kern-gaps');
+    mkdirSync(gapDir);
+    writeFileSync(
+      join(gapDir, 'mixed.json'),
+      JSON.stringify([
+        {
+          file: 'examples/a.kern',
+          line: 3,
+          nodeType: 'handler',
+          handlerLength: 4,
+          timestamp: '2026-04-14T10:00:00.000Z',
+          category: 'migratable',
+          migration: 'literal-const',
+          parentType: 'const',
+        },
+        {
+          file: 'examples/b.kern',
+          line: 12,
+          nodeType: 'handler',
+          handlerLength: 180,
+          timestamp: '2026-04-14T10:00:00.000Z',
+          category: 'detected',
+          parentType: 'route',
+        },
+      ]),
+    );
+
+    await runGaps([`--root=${tmpDir}`]);
+    const text = out();
+
+    expect(text).toContain('migratable (1):');
+    expect(text).toContain('kern migrate literal-const');
+    expect(text).toContain('detected (1):');
+    // migratable must render before detected — most actionable first.
+    expect(text.indexOf('migratable (1):')).toBeLessThan(text.indexOf('detected (1):'));
   });
 
   test('--verbose expands the coverage gap list', async () => {
@@ -130,7 +169,9 @@ describe('kern gaps command', () => {
 
     expect(text).toContain('Detail:');
     expect(text).toContain('examples/foo.kern:12');
-    expect(text).toContain('[handler] handler 180ch');
+    // Verbose detail now leads with the category tag.
+    expect(text).toContain('[detected]');
+    expect(text).toContain('handler 180ch');
     expect(text).not.toContain('(run with --verbose for per-file detail)');
   });
 

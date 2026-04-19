@@ -90,6 +90,8 @@ export { KernCodegenError, KernConfigError, KernParseError } from './errors.js';
 // TS → .kern importer
 export type { ImportResult } from './importer.js';
 export { importTypeScript } from './importer.js';
+export type { GapCategory, GapClassification } from './migrate-literals.js';
+export { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } from './migrate-literals.js';
 export type {
   ActionProps,
   AssumeProps,

@@ -15,6 +15,7 @@
  * Dry-run by default; `--write` commits edits.
  */
 
+import { isInlineSafeExpression, isInlineSafeLiteral } from '@kernlang/core';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { extname, join, relative, resolve } from 'path';
 import { hasFlag, parseFlagOrNext } from '../shared.js';
@@ -56,49 +57,8 @@ function walkKern(root: string, out: string[]): void {
 }
 
 // -- literal-const ----------------------------------------------------------
-
-/**
- * Return true if the given single-line string is a bare-safe literal that
- * can be inlined as `value=<literal>` without quoting:
- * - numeric (int, float, hex, scientific, underscore-separated)
- * - boolean / null / undefined
- *
- * The KERN prop parser tokenises on whitespace, so anything containing spaces
- * (e.g. `60 * 60 * 1000`) or special tokens (`"..."`, `{`, `[`) must use the
- * `value={{ ... }}` form instead; see `isInlineSafeExpression`.
- */
-function isInlineSafeLiteral(text: string): boolean {
-  const t = text.trim();
-  if (t.length === 0) return false;
-  if (t === 'true' || t === 'false' || t === 'null' || t === 'undefined') return true;
-
-  // Numeric: int, float, hex, binary, octal, scientific, underscore
-  // separators. Optional leading minus; no operators, no identifiers.
-  if (
-    /^-?(?:0x[0-9a-fA-F][0-9a-fA-F_]*|0b[01][01_]*|0o[0-7][0-7_]*|\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d[\d_]*)?)$/.test(
-      t,
-    )
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * Return true if the given single-line string is safe to wrap as
- * `value={{ ... }}`. The expression block preserves raw content verbatim
- * between the opening `{{` and closing `}}`, so anything works as long as:
- *   - the body is non-empty (after trim),
- *   - the body contains no `}}` substring (would close the wrapper early),
- *   - the body has no embedded newline (caller already guarantees this).
- */
-function isInlineSafeExpression(text: string): boolean {
-  const t = text.trim();
-  if (t.length === 0) return false;
-  if (t.includes('}}')) return false;
-  return true;
-}
+// Classifiers live in @kernlang/core so `kern gaps` can tag migratable handlers
+// using the exact same rules the rewriter applies here.
 
 interface LiteralConstHit {
   headerLine: number; // 1-based line of the `const name=...` line

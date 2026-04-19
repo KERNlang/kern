@@ -9,6 +9,7 @@
 import { randomBytes } from 'crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
+import { classifyHandlerGap, type GapCategory } from './migrate-literals.js';
 import type { IRNode } from './types.js';
 
 export interface CoverageGap {
@@ -17,37 +18,56 @@ export interface CoverageGap {
   nodeType: string;
   handlerLength: number;
   timestamp: string;
+  /**
+   * Actionable category for triage. Optional for backwards compatibility with
+   * `.kern-gaps/*.json` written by older compilers; readers must default to
+   * `detected` when the field is missing.
+   */
+  category?: GapCategory;
+  /** Name of the `kern migrate` migration that would rewrite this gap, if any. */
+  migration?: string;
+  /** Type of the enclosing IR node (e.g. `const`, `fn`) — helps triage. */
+  parentType?: string;
 }
 
 /**
  * Walk the AST and collect coverage gaps — handler nodes signal IR limitations.
+ *
+ * Threads the parent node type so the classifier can tag migratable gaps
+ * (e.g. `const` with a single-line literal body is rewritable via
+ * `kern migrate literal-const`).
  */
 export function collectCoverageGaps(root: IRNode, filePath: string): CoverageGap[] {
   const gaps: CoverageGap[] = [];
   const timestamp = new Date().toISOString();
 
-  function walk(node: IRNode): void {
+  function walk(node: IRNode, parentType: string | undefined): void {
     if (node.type === 'handler') {
       const code = (node.props?.code as string) || '';
       if (code.trim().length > 0) {
-        gaps.push({
+        const classification = classifyHandlerGap(parentType, code);
+        const gap: CoverageGap = {
           file: filePath,
           line: node.loc?.line ?? 0,
           nodeType: 'handler',
           handlerLength: code.length,
           timestamp,
-        });
+          category: classification.category,
+        };
+        if (classification.migration) gap.migration = classification.migration;
+        if (parentType) gap.parentType = parentType;
+        gaps.push(gap);
       }
     }
 
     if (node.children) {
       for (const child of node.children) {
-        walk(child);
+        walk(child, node.type);
       }
     }
   }
 
-  walk(root);
+  walk(root, undefined);
   return gaps;
 }
 

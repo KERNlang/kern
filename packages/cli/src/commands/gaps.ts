@@ -1,4 +1,4 @@
-import { readCoverageGaps } from '@kernlang/core';
+import { type GapCategory, readCoverageGaps } from '@kernlang/core';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { extname, join, relative, resolve } from 'path';
 import { type RemoteRepoContext, withOptionalRemoteRepo } from '../remote-repo.js';
@@ -9,6 +9,23 @@ interface SourceGap {
   line: number;
   message: string;
 }
+
+/** Display order — most actionable first. Keeps the report scanable. */
+const CATEGORY_ORDER: GapCategory[] = [
+  'migratable',
+  'blocked-by-parser',
+  'blocked-by-codegen',
+  'needs-new-node',
+  'detected',
+];
+
+const CATEGORY_HINTS: Record<GapCategory, string> = {
+  migratable: 'run `kern migrate <name>` to auto-rewrite',
+  'blocked-by-parser': 'parser cannot read this yet — file a parser issue',
+  'blocked-by-codegen': 'parses but no codegen path — file a codegen issue',
+  'needs-new-node': 'no IR node models this — proposal needed',
+  detected: 'feature observed; no migration or schema change available yet',
+};
 
 interface GapsReport {
   scannedFiles: number;
@@ -114,22 +131,47 @@ function printHumanReport(report: GapsReport, rootDir: string, verbose: boolean)
 
   if (report.coverageGaps.length > 0) {
     process.stdout.write(`\nCompiler coverage gaps (${report.coverageGaps.length}):\n`);
-    const byNodeType = new Map<string, number>();
+
+    // Group by category; missing category (older .kern-gaps JSONs) counts as `detected`.
+    const byCategory = new Map<GapCategory, typeof report.coverageGaps>();
     for (const gap of report.coverageGaps) {
-      byNodeType.set(gap.nodeType, (byNodeType.get(gap.nodeType) ?? 0) + 1);
+      const category = gap.category ?? 'detected';
+      if (!byCategory.has(category)) byCategory.set(category, []);
+      byCategory.get(category)!.push(gap);
     }
-    for (const [nodeType, count] of [...byNodeType.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-      process.stdout.write(`  ${nodeType}: ${count}\n`);
+
+    for (const category of CATEGORY_ORDER) {
+      const gaps = byCategory.get(category);
+      if (!gaps || gaps.length === 0) continue;
+
+      const migrationNames = new Set<string>();
+      for (const g of gaps) if (g.migration) migrationNames.add(g.migration);
+      const hint = CATEGORY_HINTS[category];
+      const migrationSuffix =
+        category === 'migratable' && migrationNames.size > 0
+          ? ` — ${[...migrationNames]
+              .sort()
+              .map((m) => `kern migrate ${m}`)
+              .join(', ')}`
+          : '';
+      process.stdout.write(`  ${category} (${gaps.length}): ${hint}${migrationSuffix}\n`);
     }
+
     if (!verbose) {
       process.stdout.write('\n  (run with --verbose for per-file detail)\n');
     } else {
       process.stdout.write('\n  Detail:\n');
-      for (const gap of report.coverageGaps) {
-        const rel = relative(rootDir, gap.file) || gap.file;
-        process.stdout.write(
-          `    ${rel}:${gap.line}  [${gap.nodeType}] handler ${gap.handlerLength}ch  @ ${gap.timestamp}\n`,
-        );
+      for (const category of CATEGORY_ORDER) {
+        const gaps = byCategory.get(category);
+        if (!gaps || gaps.length === 0) continue;
+        for (const gap of gaps) {
+          const rel = relative(rootDir, gap.file) || gap.file;
+          const migration = gap.migration ? ` migration=${gap.migration}` : '';
+          const parent = gap.parentType ? ` parent=${gap.parentType}` : '';
+          process.stdout.write(
+            `    [${category}] ${rel}:${gap.line}  handler ${gap.handlerLength}ch${parent}${migration}  @ ${gap.timestamp}\n`,
+          );
+        }
       }
     }
   }

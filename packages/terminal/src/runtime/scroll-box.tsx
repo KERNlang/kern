@@ -56,7 +56,12 @@ export const ScrollBox = forwardRef<ScrollBoxHandle, ScrollBoxProps>(function Sc
   const totalRows = childArray.length * rowHeight;
 
   const [viewportRows, setViewportRows] = useState<number>(height ?? 24);
-  const [scrollTop, setScrollTop] = useState(0);
+  const [scrollTop, setScrollTop] = useState(() => {
+    if (!stickyScroll) return 0;
+    const initialViewport = height ?? 24;
+    const initialTotal = React.Children.count(children) * rowHeight;
+    return Math.max(0, initialTotal - initialViewport);
+  });
   const [clampMin, setClampMin] = useState(0);
   const [clampMax, setClampMax] = useState(Number.POSITIVE_INFINITY);
   const stickyRef = useRef(stickyScroll);
@@ -147,8 +152,8 @@ export const ScrollBox = forwardRef<ScrollBoxHandle, ScrollBoxProps>(function Sc
   );
 
   const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight));
-  const visibleCount = Math.ceil(viewportRows / rowHeight) + 1;
-  const endIndex = Math.min(childArray.length, startIndex + visibleCount);
+  const endScroll = scrollTop + viewportRows;
+  const endIndex = Math.min(childArray.length, Math.ceil(endScroll / rowHeight));
   const visible = childArray.slice(startIndex, endIndex);
 
   return (
