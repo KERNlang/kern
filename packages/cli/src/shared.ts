@@ -409,14 +409,15 @@ export function collectTsFilesFlat(dirPath: string, recursive: boolean): string[
     if (s.isDirectory() && recursive && !entry.startsWith('.') && entry !== 'node_modules' && entry !== 'dist') {
       files.push(...collectTsFilesFlat(full, true));
     } else if (
+      s.isFile() &&
       (entry.endsWith('.ts') || entry.endsWith('.tsx')) &&
       !entry.endsWith('.d.ts') &&
       !entry.endsWith('.test.ts')
     ) {
       files.push(full);
-    } else if (entry.endsWith('.kern')) {
+    } else if (s.isFile() && entry.endsWith('.kern')) {
       files.push(full);
-    } else if (entry.endsWith('.py') && !entry.startsWith('test_') && !entry.endsWith('_test.py')) {
+    } else if (s.isFile() && entry.endsWith('.py') && !entry.startsWith('test_') && !entry.endsWith('_test.py')) {
       files.push(full);
     }
   }

@@ -1073,15 +1073,16 @@ function collectReviewableFiles(dirPath: string, recursive: boolean): string[] {
     ) {
       files.push(...collectReviewableFiles(full, true));
     } else if (
+      stat.isFile() &&
       (entry.endsWith('.ts') || entry.endsWith('.tsx')) &&
       !entry.endsWith('.d.ts') &&
       !entry.endsWith('.test.ts') &&
       !entry.endsWith('.test.tsx')
     ) {
       files.push(full);
-    } else if (entry.endsWith('.py') && !entry.startsWith('test_') && !entry.endsWith('_test.py')) {
+    } else if (stat.isFile() && entry.endsWith('.py') && !entry.startsWith('test_') && !entry.endsWith('_test.py')) {
       files.push(full);
-    } else if (entry.endsWith('.kern')) {
+    } else if (stat.isFile() && entry.endsWith('.kern')) {
       files.push(full);
     }
   }

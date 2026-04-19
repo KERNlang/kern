@@ -1,4 +1,7 @@
-import { formatReport, reviewSource } from '../src/index.js';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { formatReport, reviewDirectory, reviewSource } from '../src/index.js';
 
 describe('Review Pipeline (end-to-end)', () => {
   it('reviews a complete TypeScript file', () => {
@@ -108,6 +111,20 @@ export interface User { name: string; status: Status; }
     expect(formatted).toContain('user.ts');
     expect(formatted).toContain('KERN-expressible');
     expect(formatted).toContain('Summary');
+  });
+
+  it('does not treat .kern directories as reviewable .kern files', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-review-dir-'));
+    try {
+      mkdirSync(join(dir, 'pkg', '.kern'), { recursive: true });
+      writeFileSync(join(dir, 'pkg', 'index.ts'), 'export const ok = true;\n');
+
+      const reports = reviewDirectory(join(dir, 'pkg'), true);
+
+      expect(reports.map((r) => r.filePath)).toEqual([join(dir, 'pkg', 'index.ts')]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('handles empty file', () => {
