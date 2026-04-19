@@ -186,6 +186,114 @@ describe('buildPublicApiMap (filesystem)', () => {
     const map = buildPublicApiMap([orphan]);
     expect(isPublicApi(map, orphan, 'solo')).toBe(false);
   });
+
+  it('expands single-star globs in overrides.files against the reviewed file list', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const pkgA = join(tmp, 'packages/a/src/index.ts');
+    const pkgB = join(tmp, 'packages/b/src/index.ts');
+    const internal = join(tmp, 'packages/a/src/internal.ts');
+    writeFile(pkgA, `export function a() {}\n`);
+    writeFile(pkgB, `export function b() {}\n`);
+    writeFile(internal, `export function hidden() {}\n`);
+
+    const map = buildPublicApiMap([pkgA, pkgB, internal], {
+      files: ['packages/*/src/index.ts'],
+      projectRoot: tmp,
+    });
+
+    expect(isPublicApi(map, pkgA, 'a')).toBe(true);
+    expect(isPublicApi(map, pkgB, 'b')).toBe(true);
+    expect(isPublicApi(map, internal, 'hidden')).toBe(false);
+  });
+
+  it('expands double-star globs across nested directories', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const shallow = join(tmp, 'src/handlers/foo.handler.ts');
+    const deep = join(tmp, 'src/registry/v2/bar.handler.ts');
+    const nonMatch = join(tmp, 'src/registry/v2/bar.ts');
+    writeFile(shallow, `export function foo() {}\n`);
+    writeFile(deep, `export function bar() {}\n`);
+    writeFile(nonMatch, `export function baz() {}\n`);
+
+    const map = buildPublicApiMap([shallow, deep, nonMatch], {
+      files: ['src/**/*.handler.ts'],
+      projectRoot: tmp,
+    });
+
+    expect(isPublicApi(map, shallow, 'foo')).toBe(true);
+    expect(isPublicApi(map, deep, 'bar')).toBe(true);
+    expect(isPublicApi(map, nonMatch, 'baz')).toBe(false);
+  });
+
+  it('keeps literal paths as-is even when they are not in the reviewed file list', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const handler = join(tmp, 'src/handler.ts');
+    writeFile(handler, `export function handle() {}\n`);
+
+    // Literal path for a file NOT passed to buildPublicApiMap — should still
+    // be added verbatim (backward compatible with pre-glob behavior).
+    const map = buildPublicApiMap([handler], {
+      files: ['src/handler.ts', 'src/not-in-graph.ts'],
+      projectRoot: tmp,
+    });
+
+    expect(map.entryFiles.has(handler)).toBe(true);
+    expect(map.entryFiles.has(join(tmp, 'src/not-in-graph.ts'))).toBe(true);
+  });
+
+  it('combines literal paths and globs in the same config', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const literal = join(tmp, 'src/literal.ts');
+    const matchesGlob = join(tmp, 'src/a.entry.ts');
+    const other = join(tmp, 'src/b.ts');
+    writeFile(literal, `export function l() {}\n`);
+    writeFile(matchesGlob, `export function a() {}\n`);
+    writeFile(other, `export function b() {}\n`);
+
+    const map = buildPublicApiMap([literal, matchesGlob, other], {
+      files: ['src/literal.ts', 'src/*.entry.ts'],
+      projectRoot: tmp,
+    });
+
+    expect(isPublicApi(map, literal, 'l')).toBe(true);
+    expect(isPublicApi(map, matchesGlob, 'a')).toBe(true);
+    expect(isPublicApi(map, other, 'b')).toBe(false);
+  });
+
+  it('accepts absolute glob patterns', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const entry = join(tmp, 'src/pages/home.ts');
+    writeFile(entry, `export default function Home() {}\n`);
+
+    const map = buildPublicApiMap([entry], {
+      files: [join(tmp, 'src/pages/*.ts')],
+      projectRoot: tmp,
+    });
+
+    expect(map.entryFiles.has(entry)).toBe(true);
+  });
+
+  it('silently drops globs that match nothing in the reviewed file list', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const file = join(tmp, 'src/other.ts');
+    writeFile(file, `export function x() {}\n`);
+
+    // The glob points at a directory layout that doesn't exist in the reviewed
+    // files — neither the glob nor the conservative barrel fallback (src/index.ts
+    // is absent) should add anything.
+    const map = buildPublicApiMap([file], {
+      files: ['packages/*/src/index.ts'],
+      projectRoot: tmp,
+    });
+
+    expect(map.entryFiles.size).toBe(0);
+  });
 });
 
 describe('dead-export + public-api integration', () => {

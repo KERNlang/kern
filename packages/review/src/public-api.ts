@@ -28,7 +28,12 @@ export interface PublicApiMap {
 }
 
 export interface PublicApiOverrides {
-  /** Paths (absolute or relative to projectRoot) whose exports are all public. */
+  /**
+   * Paths or POSIX-style globs (absolute or relative to projectRoot) whose
+   * exports are all public. Supports `*`, `**`, `?`, and `[...]`. Literal
+   * paths keep their existing behavior — they are added verbatim even if
+   * no file of that name is in the review graph.
+   */
   files?: string[];
   /** Per-symbol overrides in `path#name` form (path absolute or relative to projectRoot). */
   symbols?: string[];
@@ -45,6 +50,66 @@ interface PackageJsonLike {
 }
 
 const SRC_EXTS = ['.ts', '.tsx'] as const;
+
+/** Characters that, when present in a pattern, trigger glob expansion. */
+const GLOB_CHARS = /[*?[]/;
+
+function hasGlobChars(pattern: string): boolean {
+  return GLOB_CHARS.test(pattern);
+}
+
+/**
+ * Convert a POSIX-style glob pattern to a `RegExp` that matches full paths.
+ *
+ * Supported syntax:
+ *   - `*`  — any run of non-separator chars
+ *   - `**` — any path fragment, including separators (zero or more segments)
+ *   - `?`  — a single non-separator char
+ *   - `[abc]` / `[a-z]` — character class (copied through untouched)
+ *
+ * All other regex metacharacters are escaped. Brace expansion (`{a,b}`) is
+ * NOT supported — keep config patterns simple; split into multiple entries.
+ */
+function globToRegex(pattern: string): RegExp {
+  let out = '';
+  let i = 0;
+  while (i < pattern.length) {
+    const c = pattern[i]!;
+    if (c === '*') {
+      if (pattern[i + 1] === '*') {
+        if (pattern[i + 2] === '/') {
+          out += '(?:.*/)?';
+          i += 3;
+        } else {
+          out += '.*';
+          i += 2;
+        }
+      } else {
+        out += '[^/]*';
+        i++;
+      }
+    } else if (c === '?') {
+      out += '[^/]';
+      i++;
+    } else if (c === '[') {
+      const end = pattern.indexOf(']', i + 1);
+      if (end === -1) {
+        out += '\\[';
+        i++;
+      } else {
+        out += pattern.substring(i, end + 1);
+        i = end + 1;
+      }
+    } else if ('.+^$|(){}\\'.includes(c)) {
+      out += `\\${c}`;
+      i++;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return new RegExp(`^${out}$`);
+}
 
 function collectSpecifiers(value: unknown): string[] {
   if (typeof value === 'string') return [value];
@@ -189,7 +254,14 @@ export function buildPublicApiMap(filePaths: string[], overrides?: PublicApiOver
     for (const pattern of overrides.files) {
       if (typeof pattern !== 'string' || pattern.length === 0) continue;
       const abs = isAbsolute(pattern) ? pattern : resolve(projectRoot, pattern);
-      entryFiles.add(abs);
+      if (hasGlobChars(pattern)) {
+        const regex = globToRegex(abs);
+        for (const fp of filePaths) {
+          if (regex.test(fp)) entryFiles.add(fp);
+        }
+      } else {
+        entryFiles.add(abs);
+      }
     }
   }
   if (overrides?.symbols) {
