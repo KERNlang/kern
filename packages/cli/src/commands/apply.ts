@@ -12,7 +12,7 @@
  * explicitly deferred to a follow-up PR.
  */
 
-import { type ApplyResult, applyFiles } from '@kernlang/codemod';
+import { type ApplyDecision, type ApplyResult, applyFiles } from '@kernlang/codemod';
 import { existsSync, readdirSync, statSync } from 'fs';
 import { extname, join, resolve } from 'path';
 import { hasFlag, parseFlagOrNext } from '../shared.js';
@@ -53,6 +53,16 @@ function walk(root: string, out: string[]): void {
 
 /** Flags that take a value as the next arg (unless passed --flag=value). */
 const VALUE_FLAGS = new Set(['--min-confidence', '--template', '--audit']);
+type DecisionCounts = Record<ApplyDecision, number>;
+
+interface ApplyCommandOptions {
+  cwd: string;
+  write: boolean;
+  minConfidence: number | undefined;
+  templateName: string | undefined;
+  auditPath: string | undefined;
+  files: string[];
+}
 
 function resolveInputs(cwd: string, args: string[]): string[] {
   // Strip leading 'apply' subcommand, then walk args skipping flags + their values.
@@ -104,18 +114,19 @@ function printResult(r: ApplyResult): void {
   }
 }
 
-export async function runApply(args: string[]): Promise<void> {
-  const cwd = process.cwd();
-  const write = hasFlag(args, '--write');
+function parseMinConfidence(args: string[]): number | undefined {
   const minRaw = parseFlagOrNext(args, '--min-confidence');
   const minConfidence = minRaw ? Number(minRaw) : undefined;
   if (minRaw && (Number.isNaN(minConfidence) || minConfidence! < 0 || minConfidence! > 100)) {
     console.error(`--min-confidence must be a number in [0, 100], got: ${minRaw}`);
     process.exit(2);
   }
-  const templateName = parseFlagOrNext(args, '--template');
-  const auditPath = parseFlagOrNext(args, '--audit');
+  return minConfidence;
+}
 
+function resolveApplyOptions(args: string[]): ApplyCommandOptions {
+  const cwd = process.cwd();
+  const minConfidence = parseMinConfidence(args);
   const files = resolveInputs(cwd, args);
   if (files.length === 0) {
     console.error(
@@ -124,33 +135,49 @@ export async function runApply(args: string[]): Promise<void> {
     process.exit(2);
   }
 
-  const { results, auditPath: writtenAuditPath } = applyFiles(files, {
-    write,
-    minConfidence,
-    templateName,
-    auditPath,
+  return {
     cwd,
-  });
-
-  const byDecision = {
-    applied: 0,
-    'dry-run': 0,
-    rejected: 0,
-    skipped: 0,
+    files,
+    write: hasFlag(args, '--write'),
+    minConfidence,
+    templateName: parseFlagOrNext(args, '--template'),
+    auditPath: parseFlagOrNext(args, '--audit'),
   };
+}
+
+function printResults(results: ApplyResult[]): DecisionCounts {
+  const byDecision: DecisionCounts = { applied: 0, 'dry-run': 0, rejected: 0, skipped: 0 };
   for (const r of results) {
     byDecision[r.decision]++;
     printResult(r);
   }
+  return byDecision;
+}
 
+function printSummary(byDecision: DecisionCounts, auditPath: string, write: boolean): void {
   console.log('');
   console.log(
     `Summary: ${byDecision.applied} applied, ${byDecision['dry-run']} dry-run, ${byDecision.rejected} rejected, ${byDecision.skipped} skipped`,
   );
-  console.log(`Audit: ${writtenAuditPath}`);
+  console.log(`Audit: ${auditPath}`);
   if (!write && byDecision['dry-run'] > 0) {
     console.log('Run with --write to apply the transforms.');
   }
+}
+
+export function runApply(args: string[]): void {
+  const options = resolveApplyOptions(args);
+
+  const { results, auditPath } = applyFiles(options.files, {
+    write: options.write,
+    minConfidence: options.minConfidence,
+    templateName: options.templateName,
+    auditPath: options.auditPath,
+    cwd: options.cwd,
+  });
+
+  const byDecision = printResults(results);
+  printSummary(byDecision, auditPath, options.write);
   if (byDecision.rejected > 0) {
     process.exit(1);
   }
