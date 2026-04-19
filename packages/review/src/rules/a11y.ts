@@ -179,6 +179,7 @@ function imgMissingAlt(ctx: RuleContext): ReviewFinding[] {
             span: insertAfterSpan(el.getTagNameNode(), ctx.filePath),
             replacement: ' alt=""',
             description: 'Insert alt="" (safe default for unknown-intent images)',
+            safety: 'safe',
           },
         },
       ),

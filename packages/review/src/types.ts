@@ -38,12 +38,16 @@ export interface SourceSpan {
 
 // ── Unified Finding ──────────────────────────────────────────────────────
 
+/** Safety tier controlling when a FixAction auto-applies. `kern review --autofix` applies `safe`; `--autofix=suggested` adds `suggested`; `--autofix=risky` applies all. */
+export type FixSafety = 'safe' | 'suggested' | 'risky';
+
 /** Structured autofix action */
 export interface FixAction {
   type: 'replace' | 'insert-before' | 'insert-after' | 'wrap' | 'remove';
   span: SourceSpan;
   replacement: string;
   description: string;
+  safety: FixSafety;
 }
 
 /** Single hop in an evidence chain — where a finding came from */

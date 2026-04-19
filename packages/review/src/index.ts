@@ -187,6 +187,8 @@ export type {
   EnforceResult,
   FileContext,
   FileRole,
+  FixAction,
+  FixSafety,
   GraphEdge,
   GraphEdgeKind,
   GraphFile,

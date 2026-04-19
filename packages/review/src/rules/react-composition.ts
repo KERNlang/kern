@@ -154,6 +154,7 @@ function childrenNotUsed(ctx: RuleContext): ReviewFinding[] {
             span: nodeSpan(nameNode, ctx.filePath),
             replacement: rebuilt,
             description: `Remove unused 'children' from the props destructuring`,
+            safety: 'safe' as const,
           };
         }
       }

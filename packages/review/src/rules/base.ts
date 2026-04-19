@@ -14,6 +14,7 @@ import {
   findAssignedIdentifier,
   finding,
   getTopLevelCleanupExpressions,
+  insertAfterSpan,
   span,
 } from './utils.js';
 
@@ -67,6 +68,7 @@ function floatingPromise(ctx: RuleContext): ReviewFinding[] {
                 span: span(ctx.filePath, thenLine, thenCol),
                 replacement: 'await ',
                 description: 'Add await to handle the promise',
+                safety: 'safe',
               },
             },
           ),
@@ -100,6 +102,7 @@ function floatingPromise(ctx: RuleContext): ReviewFinding[] {
                 span: span(ctx.filePath, asyncLine, asyncCol),
                 replacement: 'await ',
                 description: `Add await before ${fnName}()`,
+                safety: 'safe',
               },
             },
           ),
@@ -133,6 +136,7 @@ function floatingPromise(ctx: RuleContext): ReviewFinding[] {
                   span: span(ctx.filePath, promiseLine, promiseCol),
                   replacement: 'await ',
                   description: `Add await before ${callText}()`,
+                  safety: 'safe',
                 },
               },
             ),
@@ -250,10 +254,8 @@ function emptyCatch(ctx: RuleContext): ReviewFinding[] {
       if (/\/\/[^\n]*\S/.test(blockText)) continue;
       if (/\/\*[\s\S]*?\S[\s\S]*?\*\//.test(blockText)) continue;
       const line = stmt.getStartLineNumber();
-      // Build autofix: insert console.error into empty catch block
       const catchParam = stmt.getVariableDeclaration()?.getName() || 'error';
-      const blockStartLine = block.getStartLineNumber();
-      const _blockStartCol = block.getStart() - ctx.sourceFile.getFullText().lastIndexOf('\n', block.getStart()) || 1;
+      const openBrace = block.getFirstChildByKind(SyntaxKind.OpenBraceToken);
       findings.push(
         finding(
           'empty-catch',
@@ -263,14 +265,17 @@ function emptyCatch(ctx: RuleContext): ReviewFinding[] {
           ctx.filePath,
           line,
           1,
-          {
-            autofix: {
-              type: 'insert-after',
-              span: span(ctx.filePath, blockStartLine, 1),
-              replacement: `    console.error(${catchParam});`,
-              description: `Log caught ${catchParam} to console`,
-            },
-          },
+          openBrace
+            ? {
+                autofix: {
+                  type: 'insert-after',
+                  span: insertAfterSpan(openBrace, ctx.filePath),
+                  replacement: `\n    console.error(${catchParam});`,
+                  description: `Log caught ${catchParam} to console`,
+                  safety: 'suggested',
+                },
+              }
+            : {},
         ),
       );
     }
