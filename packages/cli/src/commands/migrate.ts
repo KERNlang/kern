@@ -313,6 +313,8 @@ export interface MigrationDef {
   rewrite: (source: string) => LiteralConstResult;
 }
 
+import { rewriteClassBodies } from './migrate-class-body.js';
+
 export const MIGRATIONS: Record<string, MigrationDef> = {
   'literal-const': {
     name: 'literal-const',
@@ -325,6 +327,12 @@ export const MIGRATIONS: Record<string, MigrationDef> = {
     category: 'migratable',
     summary: 'Inline single-line fn handler bodies as `expr={{ ... }}` attributes',
     rewrite: rewriteFnExpr,
+  },
+  'class-body': {
+    name: 'class-body',
+    category: 'migratable',
+    summary: 'Convert `const X type=any handler<<<class X{...}>>>` to a `class` node',
+    rewrite: rewriteClassBodies,
   },
 };
 
