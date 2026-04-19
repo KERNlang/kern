@@ -1,0 +1,176 @@
+name: 'KERN MCP Security'
+description: 'Scan MCP servers for vulnerabilities. 12 rules mapped to OWASP MCP Top 10. SARIF + PR comments.'
+author: 'KERNlang'
+
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  path:
+    description: 'Path to scan for MCP server code'
+    required: false
+    default: '.'
+  format:
+    description: 'Output format: json, sarif, or text'
+    required: false
+    default: 'sarif'
+  output:
+    description: 'Output file path (leave empty for stdout)'
+    required: false
+    default: 'kern-mcp-security.sarif'
+  threshold:
+    description: 'Minimum security score (0-100). Fails the action if below. Set to 0 to disable.'
+    required: false
+    default: '60'
+  verify-lock:
+    description: 'Verify .kern-mcp-lock.json for tool pinning drift'
+    required: false
+    default: 'true'
+  upload-sarif:
+    description: 'Upload SARIF results to GitHub Code Scanning'
+    required: false
+    default: 'true'
+  pr-comment:
+    description: 'Post a summary comment on pull requests'
+    required: false
+    default: 'true'
+  version:
+    description: 'Version of @kernlang/review-mcp to install (e.g., "latest", "3.2.4")'
+    required: false
+    default: 'latest'
+  node-version:
+    description: 'Node.js version to use'
+    required: false
+    default: '20'
+  github-token:
+    description: 'GitHub token for PR comments and SARIF upload'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  grade:
+    description: 'Security grade (A-F)'
+    value: ${{ steps.scan.outputs.grade }}
+  score:
+    description: 'Security score (0-100)'
+    value: ${{ steps.scan.outputs.score }}
+  findings:
+    description: 'Total number of findings'
+    value: ${{ steps.scan.outputs.findings }}
+  sarif-file:
+    description: 'Path to generated SARIF file'
+    value: ${{ steps.scan.outputs.sarif-file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Install KERN MCP Security
+      shell: bash
+      run: npm install -g @kernlang/review-mcp@${{ inputs.version }}
+
+    - name: Run scan
+      id: scan
+      shell: bash
+      run: |
+        set +e
+        SARIF_FILE="${{ inputs.output }}"
+        JSON_FILE="kern-mcp-security.json"
+
+        kern-mcp-security --format json   --output "$JSON_FILE"   "${{ inputs.path }}" || true
+        kern-mcp-security --format sarif  --output "$SARIF_FILE"  "${{ inputs.path }}" || true
+
+        RESULT=$(kern-mcp-security --quiet "${{ inputs.path }}" 2>&1) || true
+        GRADE=$(echo "$RESULT" | head -1 | awk '{print $1}')
+        SCORE=$(echo "$RESULT" | head -1 | awk '{print $2}')
+        FINDINGS=$(jq '.findingsCount // 0' "$JSON_FILE" 2>/dev/null || echo 0)
+
+        echo "grade=$GRADE"       >> "$GITHUB_OUTPUT"
+        echo "score=$SCORE"       >> "$GITHUB_OUTPUT"
+        echo "findings=$FINDINGS" >> "$GITHUB_OUTPUT"
+        echo "sarif-file=$SARIF_FILE" >> "$GITHUB_OUTPUT"
+
+        echo "MCP Security Score: $GRADE ($SCORE/100) — $FINDINGS finding(s)"
+
+    - name: Verify tool pinning lockfile
+      if: inputs.verify-lock == 'true'
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.path }}/.kern-mcp-lock.json" ]; then
+          kern-mcp-security --verify "${{ inputs.path }}" || echo "::warning::Tool pinning drift detected"
+        else
+          echo "::notice::No .kern-mcp-lock.json found — run 'npx kern-mcp-security --lock .' to generate one"
+        fi
+
+    - name: Upload SARIF to Code Scanning
+      if: inputs.upload-sarif == 'true' && hashFiles(inputs.output) != ''
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.output }}
+        category: kern-mcp-security
+      continue-on-error: true
+
+    - name: Post PR comment
+      if: inputs.pr-comment == 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const fs = require('fs');
+          let report;
+          try {
+            report = JSON.parse(fs.readFileSync('kern-mcp-security.json', 'utf-8'));
+          } catch {
+            core.info('No JSON report found — skipping PR comment.');
+            return;
+          }
+          const { grade, total } = report.score;
+          const color = { A: '22c55e', B: '84cc16', C: 'f97316', D: 'f59e0b', F: 'ef4444' }[grade] || '9ca3af';
+          const badge = `![Score](https://img.shields.io/badge/MCP_Security-${grade}_(${total}%25)-${color})`;
+
+          let body = `## KERN MCP Security Report\n\n${badge}\n\n`;
+          body += `| Metric | Score |\n|--------|-------|\n`;
+          body += `| Guard Coverage   | ${report.score.guardCoverage}% |\n`;
+          body += `| Input Validation | ${report.score.inputValidation}% |\n`;
+          body += `| Rule Compliance  | ${report.score.ruleCompliance}% |\n`;
+          body += `| Auth Posture     | ${report.score.authPosture}% |\n\n`;
+          body += `**${report.findingsCount} finding(s)**\n\n`;
+          body += `> Scanned by [KERN MCP Security](https://kernlang.dev/review)`;
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          const existing = comments.find(c => c.body?.includes('KERN MCP Security Report'));
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+          }
+
+    - name: Enforce score threshold
+      if: inputs.threshold != '0'
+      shell: bash
+      run: |
+        SCORE="${{ steps.scan.outputs.score }}"
+        THRESHOLD="${{ inputs.threshold }}"
+        if [ -n "$SCORE" ] && [ "$SCORE" -lt "$THRESHOLD" ] 2>/dev/null; then
+          echo "::error::MCP Security score $SCORE is below threshold $THRESHOLD"
+          exit 1
+        fi
