@@ -26,7 +26,7 @@ import { flattenIR, lintKernIR } from './kern-lint.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { mineNorms } from './norm-miner.js';
 import { synthesizeObligations } from './obligations.js';
-import { buildPublicApiMap } from './public-api.js';
+import { buildPublicApiMap, expandPublicApiThroughReExports } from './public-api.js';
 import { runQualityRules } from './quality-rules.js';
 import { assignDefaultConfidence, calculateStats, sortAndDedup, sortFindings } from './reporter.js';
 import { debugDetail, ReviewHealthBuilder } from './review-health.js';
@@ -103,6 +103,7 @@ export type { PublicApiMap, PublicApiOverrides } from './public-api.js';
 export {
   buildPublicApiMap,
   EMPTY_PUBLIC_API,
+  expandPublicApiThroughReExports,
   isPublicApi,
   resolvePackageEntryFiles,
   resolveSpecifierToSrc,
@@ -1015,10 +1016,13 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     const callGraph = buildCallGraph(graph, cgProject);
 
     // Build the public-API map once per run — package.json walk is the heavy bit.
-    const publicApi = buildPublicApiMap(
+    // Then propagate through re-export chains so curated barrels (Agon-style:
+    // `export { foo } from './worker.js'`) carry public-API status upstream.
+    const basePublicApi = buildPublicApiMap(
       graph.files.map((gf) => gf.path),
       config?.publicApi,
     );
+    const publicApi = expandPublicApiThroughReExports(basePublicApi, (path) => cgProject?.getSourceFile(path));
 
     for (const report of reports) {
       const deadExportFindings = deadExportRule(callGraph, report.filePath, publicApi);

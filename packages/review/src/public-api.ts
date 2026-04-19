@@ -18,6 +18,7 @@
 
 import { existsSync, readFileSync } from 'fs';
 import { dirname, isAbsolute, join, resolve } from 'path';
+import { type Node, type SourceFile, SyntaxKind } from 'ts-morph';
 
 export interface PublicApiMap {
   /** Absolute paths where every named export is considered public. */
@@ -215,4 +216,77 @@ export function isPublicApi(map: PublicApiMap, filePath: string, exportName: str
   if (map.entryFiles.has(filePath)) return true;
   if (map.explicitSymbols.has(`${filePath}#${exportName}`)) return true;
   return false;
+}
+
+// Re-export propagation.
+//
+// A curated barrel (`export { foo } from './worker.js'`) makes worker.ts#foo
+// part of the package's public API even if no file in the graph imports
+// worker.ts directly. Without this, dead-export would fire on every symbol
+// a package re-exports but never uses internally: the exact FP that Agon
+// hit before Phase 1, and which the single-file buildPublicApiMap cannot
+// catch on its own.
+
+function getDeclName(decl: Node, fallback: string): string {
+  const maybeNamed = decl as Node & { getName?: () => string | undefined };
+  if (typeof maybeNamed.getName === 'function') {
+    const name = maybeNamed.getName();
+    if (name) return name;
+  }
+  if (decl.getKindName() === 'ExportAssignment') {
+    const expr = (decl as Node & { getExpression?: () => Node }).getExpression?.();
+    if (expr?.getKind() === SyntaxKind.Identifier) return expr.getText();
+  }
+  return fallback;
+}
+
+/**
+ * Expand `map.entryFiles` through re-export chains: for each public entry,
+ * walk `getExportedDeclarations()` and mark every upstream `(file, symbol)`
+ * that the entry re-exports as also public. Returns a new map; the input is
+ * not mutated.
+ *
+ * `sourceFileFor(path)` should return the ts-morph SourceFile for an
+ * absolute path (or undefined when the file is outside the analyzed graph).
+ */
+export function expandPublicApiThroughReExports(
+  map: PublicApiMap,
+  sourceFileFor: (path: string) => SourceFile | undefined,
+): PublicApiMap {
+  const entryFiles = new Set(map.entryFiles);
+  const explicitSymbols = new Set(map.explicitSymbols);
+
+  // BFS through re-export chains so a barrel-of-barrels propagates too.
+  const frontier = [...map.entryFiles];
+  const seen = new Set<string>(map.entryFiles);
+
+  while (frontier.length > 0) {
+    const entry = frontier.shift()!;
+    const sf = sourceFileFor(entry);
+    if (!sf) continue;
+
+    let exported: ReturnType<SourceFile['getExportedDeclarations']>;
+    try {
+      exported = sf.getExportedDeclarations();
+    } catch {
+      continue;
+    }
+
+    for (const [exportName, decls] of exported) {
+      for (const decl of decls) {
+        const declFile = decl.getSourceFile().getFilePath();
+        if (declFile === entry) continue;
+        explicitSymbols.add(`${declFile}#${getDeclName(decl, exportName)}`);
+        if (!seen.has(declFile)) {
+          seen.add(declFile);
+          // An upstream barrel's own re-exports should also be followed;
+          // don't mark it as an entry (only declared entries get that), but
+          // do walk it so transitive symbols are captured.
+          frontier.push(declFile);
+        }
+      }
+    }
+  }
+
+  return { entryFiles, explicitSymbols };
 }
