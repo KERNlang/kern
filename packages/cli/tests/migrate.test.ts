@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { __test__, runMigrate } from '../src/commands/migrate.js';
+import { __test__, MIGRATIONS, runMigrate } from '../src/commands/migrate.js';
 
 describe('kern migrate command', () => {
   let tmpDir: string;
@@ -282,5 +282,53 @@ describe('kern migrate command', () => {
     expect(out()).toContain('kern migrate fn-expr');
     expect(out()).toContain('applied: 1 hits across 1 files');
     expect(readFileSync(kernFile, 'utf-8')).toContain('fn name=getAnswer returns=number expr={{ return 42; }}');
+  });
+
+  describe('registry + list subcommand', () => {
+    test('MIGRATIONS exposes every migration with name/category/summary', () => {
+      const keys = Object.keys(MIGRATIONS).sort();
+      expect(keys).toEqual(['fn-expr', 'literal-const']);
+      for (const key of keys) {
+        const def = MIGRATIONS[key];
+        expect(def.name).toBe(key);
+        expect(def.category).toBe('migratable');
+        expect(typeof def.summary).toBe('string');
+        expect(def.summary.length).toBeGreaterThan(0);
+        expect(typeof def.rewrite).toBe('function');
+      }
+    });
+
+    test('kern migrate list prints each migration tagged with its category', () => {
+      runMigrate(['migrate', 'list']);
+      const text = out();
+      expect(text).toContain('literal-const');
+      expect(text).toContain('fn-expr');
+      expect(text).toContain('[migratable]');
+    });
+
+    test('kern migrate list --json emits the registry as structured data', () => {
+      runMigrate(['migrate', 'list', '--json']);
+      const parsed = JSON.parse(out());
+      expect(Array.isArray(parsed)).toBe(true);
+      expect(parsed).toHaveLength(2);
+      for (const entry of parsed) {
+        expect(entry.category).toBe('migratable');
+        expect(typeof entry.name).toBe('string');
+        expect(typeof entry.summary).toBe('string');
+      }
+    });
+
+    test('JSON migration reports now carry category for cross-reference with `kern gaps`', () => {
+      const kernFile = join(tmpDir, 'constants.kern');
+      writeFileSync(kernFile, ['const name=C type=number', '  handler <<<', '    42', '  >>>'].join('\n'));
+
+      runMigrate(['migrate', 'literal-const', tmpDir, '--json']);
+      const parsed = JSON.parse(out());
+
+      expect(parsed.migration).toBe('literal-const');
+      expect(parsed.category).toBe('migratable');
+      expect(parsed.mode).toBe('dry-run');
+      expect(parsed.totalHits).toBe(1);
+    });
   });
 });

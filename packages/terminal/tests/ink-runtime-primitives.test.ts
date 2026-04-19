@@ -205,6 +205,44 @@ describe('Ink runtime primitives', () => {
     }
   });
 
+  runtimeTest('ScrollBox with flexGrow inside fixed-height parent measures actual viewport', async () => {
+    const React = (await import('react')).default;
+    const { Box, render, Text } = await import('ink');
+    const { ScrollBox } = await import('../src/runtime/index.js');
+
+    const { stdin, stdout, stderr, getStdout, getStderr } = setupRender();
+    const rows = Array.from({ length: 50 }, (_, i) =>
+      React.createElement(Text, { key: i }, `row-${String(i).padStart(3, '0')}`),
+    );
+    const scrollBox = React.createElement(ScrollBox, { flexGrow: 1, rowHeight: 1 }, rows);
+    const wrapper = React.createElement(Box, { flexDirection: 'column', height: 6 }, scrollBox);
+    const app = render(wrapper, {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stderr: stderr as unknown as NodeJS.WriteStream,
+      interactive: true,
+      debug: true,
+      patchConsole: false,
+      exitOnCtrlC: false,
+    });
+
+    try {
+      await app.waitUntilRenderFlush();
+      await waitForText(getStdout, 'row-000');
+      const text = getStdout();
+      expect(text).toContain('row-000');
+      expect(text).not.toContain('row-020');
+      expect(text).not.toContain('row-049');
+      expect(getStderr()).toBe('');
+    } finally {
+      app.unmount();
+      app.cleanup();
+      stdin.end();
+      stdout.end();
+      stderr.end();
+    }
+  });
+
   runtimeTest('ScrollBox mouse wheel down shifts scrollTop via SGR sequence', async () => {
     const React = (await import('react')).default;
     const { render, Text } = await import('ink');

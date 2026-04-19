@@ -1,4 +1,4 @@
-import React, { useEffect, useInsertionEffect } from 'react';
+import React, { useEffect, useInsertionEffect, useRef } from 'react';
 import { Box, useStdin, useStdout } from 'ink';
 
 const ENTER_ALT_SCREEN = '\x1b[?1049h\x1b[2J\x1b[H';
@@ -11,51 +11,87 @@ export type AlternateScreenProps = {
   children?: React.ReactNode;
 };
 
-let altScreenCleanupRegistered = false;
-const altScreenCleanupState = { active: false, mouse: false };
+type InstanceState = {
+  stdout: NodeJS.WriteStream;
+  mouseTracking: boolean;
+  cleanedUp: boolean;
+};
 
-function registerSignalCleanup(stdout: NodeJS.WriteStream): void {
-  if (altScreenCleanupRegistered) return;
-  altScreenCleanupRegistered = true;
-  const cleanup = () => {
-    if (!altScreenCleanupState.active) return;
+const activeInstances = new Set<InstanceState>();
+let signalHandlersAttached = false;
+let signalHandlers: { cleanup: () => void; onInt: () => void; onTerm: () => void; onExcept: (e: unknown) => void } | null = null;
+
+function runGlobalCleanup(): void {
+  for (const inst of activeInstances) {
+    if (inst.cleanedUp) continue;
     try {
-      if (altScreenCleanupState.mouse) stdout.write(DISABLE_MOUSE);
-      stdout.write(EXIT_ALT_SCREEN);
+      if (inst.mouseTracking) inst.stdout.write(DISABLE_MOUSE);
+      inst.stdout.write(EXIT_ALT_SCREEN);
     } catch {
-      // terminal already closed, nothing to do
+      // stream already closed
     }
-  };
-  process.on('exit', cleanup);
-  process.on('SIGINT', () => {
+    inst.cleanedUp = true;
+  }
+}
+
+function attachSignalHandlers(): void {
+  if (signalHandlersAttached) return;
+  signalHandlersAttached = true;
+  const cleanup = () => runGlobalCleanup();
+  const onInt = () => {
     cleanup();
     process.exit(130);
-  });
-  process.on('SIGTERM', () => {
+  };
+  const onTerm = () => {
     cleanup();
     process.exit(143);
-  });
-  process.on('uncaughtException', (err) => {
+  };
+  const onExcept = (err: unknown) => {
     cleanup();
     throw err;
-  });
+  };
+  signalHandlers = { cleanup, onInt, onTerm, onExcept };
+  process.on('exit', cleanup);
+  process.on('SIGINT', onInt);
+  process.on('SIGTERM', onTerm);
+  process.on('uncaughtException', onExcept);
+}
+
+function detachSignalHandlers(): void {
+  if (!signalHandlersAttached || !signalHandlers) return;
+  process.off('exit', signalHandlers.cleanup);
+  process.off('SIGINT', signalHandlers.onInt);
+  process.off('SIGTERM', signalHandlers.onTerm);
+  process.off('uncaughtException', signalHandlers.onExcept);
+  signalHandlers = null;
+  signalHandlersAttached = false;
 }
 
 export function AlternateScreen({ mouseTracking = false, children }: AlternateScreenProps): React.ReactElement {
   const { stdout } = useStdout();
   const { stdin, setRawMode, isRawModeSupported } = useStdin();
+  const instanceRef = useRef<InstanceState | null>(null);
 
   useInsertionEffect(() => {
+    const inst: InstanceState = { stdout, mouseTracking, cleanedUp: false };
+    instanceRef.current = inst;
     stdout.write(ENTER_ALT_SCREEN);
     if (mouseTracking) stdout.write(ENABLE_MOUSE);
-    altScreenCleanupState.active = true;
-    altScreenCleanupState.mouse = mouseTracking;
-    registerSignalCleanup(stdout);
+    activeInstances.add(inst);
+    attachSignalHandlers();
     return () => {
-      if (mouseTracking) stdout.write(DISABLE_MOUSE);
-      stdout.write(EXIT_ALT_SCREEN);
-      altScreenCleanupState.active = false;
-      altScreenCleanupState.mouse = false;
+      if (!inst.cleanedUp) {
+        try {
+          if (inst.mouseTracking) stdout.write(DISABLE_MOUSE);
+          stdout.write(EXIT_ALT_SCREEN);
+        } catch {
+          // stream already closed
+        }
+        inst.cleanedUp = true;
+      }
+      activeInstances.delete(inst);
+      instanceRef.current = null;
+      if (activeInstances.size === 0) detachSignalHandlers();
     };
   }, [stdout, mouseTracking]);
 

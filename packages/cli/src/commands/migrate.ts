@@ -15,7 +15,7 @@
  * Dry-run by default; `--write` commits edits.
  */
 
-import { isInlineSafeExpression, isInlineSafeLiteral } from '@kernlang/core';
+import { type GapCategory, isInlineSafeExpression, isInlineSafeLiteral } from '@kernlang/core';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { extname, join, relative, resolve } from 'path';
 import { hasFlag, parseFlagOrNext } from '../shared.js';
@@ -294,6 +294,45 @@ function rewriteFnExpr(source: string): LiteralConstResult {
   return { hits, output: out.join('\n') };
 }
 
+// -- Migration registry ----------------------------------------------------
+//
+// Each entry is a self-describing migration. `kern migrate list` enumerates
+// the registry; `kern migrate <name>` dispatches to one entry. The `category`
+// field matches the `GapCategory` surfaced by `kern gaps` so tooling (MCP,
+// VS Code, CI) can cross-reference migratable gaps with the migration that
+// would resolve them.
+
+export interface MigrationDef {
+  /** Canonical name — also the CLI subcommand. */
+  name: string;
+  /** Category this migration services. Today always `migratable`. */
+  category: GapCategory;
+  /** One-line description shown in help + `list` output. */
+  summary: string;
+  /** Pure rewriter — takes source, returns new source + per-hit breakdown. */
+  rewrite: (source: string) => LiteralConstResult;
+}
+
+export const MIGRATIONS: Record<string, MigrationDef> = {
+  'literal-const': {
+    name: 'literal-const',
+    category: 'migratable',
+    summary: 'Inline single-line const handler bodies as `value=` attributes',
+    rewrite: rewriteLiteralConsts,
+  },
+  'fn-expr': {
+    name: 'fn-expr',
+    category: 'migratable',
+    summary: 'Inline single-line fn handler bodies as `expr={{ ... }}` attributes',
+    rewrite: rewriteFnExpr,
+  },
+};
+
+/** Stable iteration order for help + list output. */
+function migrationList(): MigrationDef[] {
+  return Object.values(MIGRATIONS).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // -- Command entry ----------------------------------------------------------
 
 interface FileReport {
@@ -306,6 +345,8 @@ interface FileReport {
 
 interface MigrateReport {
   migration: string;
+  /** Category from the registry — mirrors `kern gaps` taxonomy. */
+  category: GapCategory;
   scannedFiles: number;
   changedFiles: number;
   totalHits: number;
@@ -344,30 +385,57 @@ function formatHuman(report: MigrateReport, rootDir: string): string {
   return `${lines.join('\n')}\n`;
 }
 
-const MIGRATIONS: Record<string, (source: string) => LiteralConstResult> = {
-  'literal-const': rewriteLiteralConsts,
-  'fn-expr': rewriteFnExpr,
-};
+function printUsage(): void {
+  process.stderr.write('Usage: kern migrate <migration|list> [dir] [--write] [--json]\n');
+  process.stderr.write('Migrations:\n');
+  const padTo = migrationList().reduce((m, d) => Math.max(m, d.name.length), 0);
+  for (const def of migrationList()) {
+    process.stderr.write(`  ${def.name.padEnd(padTo)}  [${def.category}] ${def.summary}\n`);
+  }
+  process.stderr.write('\nList programmatically:\n');
+  process.stderr.write('  kern migrate list [--json]   # print the registry\n');
+}
+
+function runMigrateList(json: boolean): void {
+  const entries = migrationList().map((d) => ({
+    name: d.name,
+    category: d.category,
+    summary: d.summary,
+  }));
+  if (json) {
+    process.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
+    return;
+  }
+  const padTo = entries.reduce((m, d) => Math.max(m, d.name.length), 0);
+  for (const entry of entries) {
+    process.stdout.write(`${entry.name.padEnd(padTo)}  [${entry.category}]  ${entry.summary}\n`);
+  }
+}
 
 export function runMigrate(args: string[]): void {
   const sub = args[1];
+  const json = hasFlag(args, '--json');
+
   if (!sub || sub.startsWith('--')) {
-    process.stderr.write('Usage: kern migrate <migration> [dir] [--write] [--json]\n');
-    process.stderr.write('Migrations:\n');
-    process.stderr.write('  literal-const   Inline single-line const handler bodies as `value=` attributes\n');
-    process.stderr.write('  fn-expr         Inline single-line fn handler bodies as `expr={{ ... }}` attributes\n');
+    printUsage();
     process.exit(1);
   }
-  const rewrite = MIGRATIONS[sub];
-  if (!rewrite) {
+
+  if (sub === 'list') {
+    runMigrateList(json);
+    return;
+  }
+
+  const def = MIGRATIONS[sub];
+  if (!def) {
     process.stderr.write(`Unknown migration: ${sub}\n`);
+    printUsage();
     process.exit(1);
   }
 
   const rootArg = args.slice(2).find((a) => !a.startsWith('--'));
   const rootDir = resolve(parseFlagOrNext(args, '--root') ?? rootArg ?? process.cwd());
   const write = hasFlag(args, '--write');
-  const json = hasFlag(args, '--json');
 
   const files: string[] = [];
   walkKern(rootDir, files);
@@ -383,7 +451,7 @@ export function runMigrate(args: string[]): void {
     } catch {
       continue;
     }
-    const result = rewrite(source);
+    const result = def.rewrite(source);
     fileReports.push({
       file,
       hits: result.hits.length,
@@ -400,7 +468,8 @@ export function runMigrate(args: string[]): void {
   }
 
   const report: MigrateReport = {
-    migration: sub,
+    migration: def.name,
+    category: def.category,
     scannedFiles: files.length,
     changedFiles,
     totalHits,

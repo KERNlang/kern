@@ -56,6 +56,18 @@ exports[`golden: const const with value 1`] = `"export const MAX_RETRIES: number
 
 exports[`golden: const const without value or handler 1`] = `"export const EMPTY: string;"`;
 
+exports[`golden: const fn with expr body 1`] = `
+"export function getPath(): string {
+  return join(tmp, "x");
+}"
+`;
+
+exports[`golden: const fn with expr body void return 1`] = `
+"export function tick(): void {
+  state.count++;
+}"
+`;
+
 exports[`golden: derive simple derive 1`] = `"export const total: number = [object Object];"`;
 
 exports[`golden: each each with child nodes 1`] = `
