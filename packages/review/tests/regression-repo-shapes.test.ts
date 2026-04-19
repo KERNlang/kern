@@ -199,6 +199,138 @@ export function listWorkers(): string[] { return []; }
     expect(workerFindings).toEqual([]);
   });
 
+  it('does not flag methods of a publicly re-exported class as dead', () => {
+    // Real FP surfaced when running `kern review` on Agon's packages/core:
+    // `FileStateCache` the class was re-exported from the barrel, but every
+    // method (.get, .set, .has, …) came back flagged because static call
+    // graph can't resolve `obj.method()` to a specific class.
+    repo = makeRepo('agon-class-methods');
+    write(
+      join(repo, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          target: 'ES2022',
+          module: 'ESNext',
+          moduleResolution: 'Bundler',
+          strict: true,
+          esModuleInterop: true,
+          skipLibCheck: true,
+        },
+        include: ['src/**/*'],
+      }),
+    );
+    write(join(repo, 'package.json'), JSON.stringify({ name: 'agon-core-class', main: './dist/index.js' }));
+    write(
+      join(repo, 'src/cache.ts'),
+      `export class FileStateCache {
+  private store = new Map<string, unknown>();
+  get(key: string): unknown { return this.store.get(key); }
+  set(key: string, value: unknown): void { this.store.set(key, value); }
+  has(key: string): boolean { return this.store.has(key); }
+  clear(): void { this.store.clear(); }
+}
+`,
+    );
+    write(join(repo, 'src/index.ts'), `export { FileStateCache } from './cache.js';\n`);
+
+    const reports = reviewGraph([join(repo, 'src/index.ts')], { noCache: true });
+    const msgs = deadExportMessages(reports, join(repo, 'src/cache.ts'));
+    expect(msgs.filter((m) => m.includes('FileStateCache.'))).toEqual([]);
+  });
+
+  it('does not flag methods of a class exposed only via a singleton instance', () => {
+    // Real FP from AudioFacets: `python-manager.ts` declares
+    // `export class PythonManager ...` and `export const pythonManager = new
+    // PythonManager()`. Consumers import the instance, never the class by
+    // name. 18 methods got flagged before the new-expression fix.
+    repo = makeRepo('audiofacets-singleton');
+    write(
+      join(repo, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          target: 'ES2022',
+          module: 'ESNext',
+          moduleResolution: 'Bundler',
+          strict: true,
+          esModuleInterop: true,
+          skipLibCheck: true,
+        },
+        include: ['src/**/*'],
+      }),
+    );
+    write(join(repo, 'package.json'), JSON.stringify({ name: 'af-singleton', private: true }));
+    write(
+      join(repo, 'src/python-manager.ts'),
+      `export class PythonManager {
+  start(): void {}
+  stop(): void {}
+  getStatus(): string { return 'ok'; }
+}
+export const pythonManager = new PythonManager();
+`,
+    );
+    write(
+      join(repo, 'src/main.ts'),
+      `import { pythonManager } from './python-manager.js';
+export function run(): void {
+  pythonManager.start();
+}
+`,
+    );
+
+    const reports = reviewGraph([join(repo, 'src/main.ts')], { noCache: true });
+    const msgs = deadExportMessages(reports, join(repo, 'src/python-manager.ts'));
+    expect(msgs.filter((m) => m.includes('PythonManager.'))).toEqual([]);
+  });
+
+  it('does not flag methods of an imported (but not re-exported) class — AudioFacets shape', () => {
+    // Electron-app shape: no public-API barrel, no package.json exports.
+    // `PluginBridgeServer` class is imported by the bootstrap file and
+    // instantiated. Static call graph can't resolve `server.start()` calls,
+    // so every method looks dead unless we teach the rule that methods
+    // inherit liveness from the class's import.
+    repo = makeRepo('audiofacets-class');
+    write(
+      join(repo, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          target: 'ES2022',
+          module: 'ESNext',
+          moduleResolution: 'Bundler',
+          strict: true,
+          esModuleInterop: true,
+          skipLibCheck: true,
+        },
+        include: ['src/**/*'],
+      }),
+    );
+    write(join(repo, 'package.json'), JSON.stringify({ name: 'audiofacets-electron', private: true }));
+    write(
+      join(repo, 'src/plugin-bridge.ts'),
+      `export class PluginBridgeServer {
+  start(): void {}
+  stop(): void {}
+  getStatus(): string { return 'ok'; }
+}
+`,
+    );
+    // Bootstrap imports the class and uses it via property access — no
+    // named import of methods ever exists in any codebase.
+    write(
+      join(repo, 'src/main.ts'),
+      `import { PluginBridgeServer } from './plugin-bridge.js';
+const server = new PluginBridgeServer();
+export function run(): void {
+  server.start();
+}
+`,
+    );
+
+    const reports = reviewGraph([join(repo, 'src/main.ts')], { noCache: true });
+    const msgs = deadExportMessages(reports, join(repo, 'src/plugin-bridge.ts'));
+    expect(msgs.filter((m) => m.includes('PluginBridgeServer.'))).toEqual([]);
+  });
+
   it('still flags truly-internal dead exports inside the same package', () => {
     repo = makeRepo('agon-core-dead');
     write(

@@ -243,7 +243,12 @@ function emptyCatch(ctx: RuleContext): ReviewFinding[] {
     const stmts = block.getStatements();
     if (stmts.length === 0) {
       const blockText = block.getText();
-      if (/\/[/*]\s*(Intentional|Expected|@suppress|eslint-disable)/.test(blockText)) continue;
+      // Any non-empty comment inside an empty catch body counts as author
+      // intent — mirrors the same relaxation in mappers/ts-concepts.ts so
+      // `empty-catch` and `ignored-error` agree. Real-world FP pattern:
+      // `catch { /* non-fatal */ }`, `catch { // invalid URL — fall through }`.
+      if (/\/\/[^\n]*\S/.test(blockText)) continue;
+      if (/\/\*[\s\S]*?\S[\s\S]*?\*\//.test(blockText)) continue;
       const line = stmt.getStartLineNumber();
       // Build autofix: insert console.error into empty catch block
       const catchParam = stmt.getVariableDeclaration()?.getName() || 'error';

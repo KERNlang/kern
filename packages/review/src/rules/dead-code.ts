@@ -32,6 +32,17 @@ export function deadExportRule(callGraph: CallGraph, filePath: string, publicApi
     // appear in the analyzed graph, so their imports can't be observed.
     if (publicApi && isPublicApi(publicApi, fn.filePath, fn.name)) continue;
 
+    // Class methods inherit public-API status from their enclosing class. The
+    // call graph tracks `Class.method` as a separate exported symbol whose
+    // only cross-file callers are opaque `obj.method()` property accesses
+    // (unresolvable by static analysis). If the class itself is public,
+    // every method is reachable via the class — flagging them individually
+    // produces a wave of FPs on any package that ships a class.
+    if (publicApi && fn.name.includes('.')) {
+      const className = fn.name.split('.')[0];
+      if (isPublicApi(publicApi, fn.filePath, className)) continue;
+    }
+
     // Confidence depends on how many calls in the graph were unresolved
     // If lots of calls are unresolved, the dead export might actually be used via a dynamic path
     const totalCalls = [...callGraph.functions.values()].reduce((sum, f) => sum + f.calls.length, 0);

@@ -707,12 +707,44 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
     }
   }
 
+  // Collect every class name instantiated somewhere in the graph. A file
+  // can export a singleton (`export const foo = new Foo()`) while no file
+  // imports the class by name — all consumers use the instance. Without
+  // this, every method of a singleton-exported class reads as dead.
+  const instantiatedClasses = new Set<string>();
+  for (const gf of graph.files) {
+    const sf = project.getSourceFile(gf.path);
+    if (!sf) continue;
+    sf.forEachDescendant((node) => {
+      if (node.getKind() !== SyntaxKind.NewExpression) return;
+      const newExpr = node as import('ts-morph').NewExpression;
+      const callee = newExpr.getExpression();
+      if (callee.getKindName() === 'Identifier') {
+        instantiatedClasses.add(callee.getText());
+      }
+    });
+  }
+
   // Phase 4: Identify dead exports and orphan functions
   const deadExports: string[] = [];
   const orphanFunctions: string[] = [];
 
   for (const [key, fn] of allFunctions) {
     if (fn.isExported && fn.calledBy.length === 0 && !importedExportKeys.has(key)) {
+      // Class methods inherit liveness from the class. `FileStateCache.get`
+      // is never imported by name — consumers import `FileStateCache` and
+      // invoke `.get()` via property access (unresolvable statically). If
+      // the class itself is imported anywhere, flagging each method as
+      // dead is a false positive on every class-shipping package.
+      if (fn.name.includes('.')) {
+        const className = fn.name.split('.')[0];
+        if (importedExportKeys.has(`${fn.filePath}#${className}`)) continue;
+        // Class is never imported by name but is instantiated somewhere in
+        // the graph (singleton / factory pattern). Methods reachable via
+        // the instance aren't visible to static analysis, so trust the
+        // `new`-site as proof of liveness.
+        if (instantiatedClasses.has(className)) continue;
+      }
       deadExports.push(key);
     }
     if (!fn.isExported && fn.calledBy.length === 0) {

@@ -198,13 +198,14 @@ function classifyDisposition(
   errorVar?: string,
   block?: import('ts-morph').Block,
 ): { type: ErrorHandlePayload['disposition']; confidence: number } {
-  // Empty catch — check for intentional suppression comments
+  // Empty catch — trust author intent comments. Real-world generated code
+  // (AudioFacets, Agon) routinely uses short explanations like
+  // `/* non-fatal */`, `/* already gone */`, `// process likely exited`.
+  // If the author wrote a comment, they thought about it; the lint job is
+  // to flag CARE-less code, not to override documented decisions.
   if (stmts.length === 0) {
-    if (block) {
-      const blockText = block.getText();
-      if (/\/[/*]\s*(Intentional|Expected|@suppress|eslint-disable)/.test(blockText)) {
-        return { type: 'wrapped', confidence: 0.3 };
-      }
+    if (block && hasIntentComment(block.getText())) {
+      return { type: 'wrapped', confidence: 0.4 };
     }
     return { type: 'ignored', confidence: 1.0 };
   }
@@ -238,6 +239,29 @@ function classifyDisposition(
 
   // Has statements but we can't classify precisely
   return { type: 'wrapped', confidence: 0.5 };
+}
+
+/**
+ * Does the text of an empty catch block carry ANY non-trivial comment?
+ * A comment with at least one non-whitespace character beyond the marker
+ * counts — we don't judge whether the reasoning is right, only that the
+ * author documented their choice.
+ *
+ * Matches:
+ *   //·ignore                        (single-line, any content)
+ *   /* non-fatal * /                 (block, any content)
+ *   /* already gone — ok * /         (block with unicode + spaces)
+ *
+ * Rejects:
+ *   //                               (empty line comment)
+ *   /* * /                           (empty block comment)
+ */
+function hasIntentComment(text: string): boolean {
+  // Single-line `// content` with at least one non-whitespace char after the slashes.
+  if (/\/\/[^\n]*\S/.test(text)) return true;
+  // Block `/* content */` with at least one non-whitespace char inside.
+  if (/\/\*[\s\S]*?\S[\s\S]*?\*\//.test(text)) return true;
+  return false;
 }
 
 // ── effect ───────────────────────────────────────────────────────────────
