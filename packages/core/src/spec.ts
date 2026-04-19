@@ -184,6 +184,8 @@ export const NODE_TYPES = [
   'layout-stack',
   'spacer',
   'screen-embed',
+  'alternate-screen',
+  'scroll-box',
   // Backend data layer
   'model',
   'column',
