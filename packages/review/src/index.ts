@@ -26,6 +26,7 @@ import { flattenIR, lintKernIR } from './kern-lint.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { mineNorms } from './norm-miner.js';
 import { synthesizeObligations } from './obligations.js';
+import { buildPublicApiMap } from './public-api.js';
 import { runQualityRules } from './quality-rules.js';
 import { assignDefaultConfidence, calculateStats, sortAndDedup, sortFindings } from './reporter.js';
 import { debugDetail, ReviewHealthBuilder } from './review-health.js';
@@ -98,6 +99,14 @@ export type { NormViolation } from './norm-miner.js';
 export { mineNorms } from './norm-miner.js';
 export type { ObligationType, ProofObligation } from './obligations.js';
 export { obligationsFromNorms, obligationsFromStructure, synthesizeObligations } from './obligations.js';
+export type { PublicApiMap, PublicApiOverrides } from './public-api.js';
+export {
+  buildPublicApiMap,
+  EMPTY_PUBLIC_API,
+  isPublicApi,
+  resolvePackageEntryFiles,
+  resolveSpecifierToSrc,
+} from './public-api.js';
 export { runQualityRules } from './quality-rules.js';
 export {
   assignDefaultConfidence,
@@ -1005,8 +1014,14 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
 
     const callGraph = buildCallGraph(graph, cgProject);
 
+    // Build the public-API map once per run — package.json walk is the heavy bit.
+    const publicApi = buildPublicApiMap(
+      graph.files.map((gf) => gf.path),
+      config?.publicApi,
+    );
+
     for (const report of reports) {
-      const deadExportFindings = deadExportRule(callGraph, report.filePath);
+      const deadExportFindings = deadExportRule(callGraph, report.filePath, publicApi);
       report.findings.push(...deadExportFindings);
 
       const asyncFindings = crossFileAsyncRule(callGraph, report.filePath);

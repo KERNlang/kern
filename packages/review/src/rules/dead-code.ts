@@ -6,6 +6,7 @@
  */
 
 import type { CallGraph } from '../call-graph.js';
+import { isPublicApi, type PublicApiMap } from '../public-api.js';
 import type { ReviewFinding, SourceSpan } from '../types.js';
 import { createFingerprint } from '../types.js';
 
@@ -16,17 +17,20 @@ function span(file: string, line: number, col = 1): SourceSpan {
 // ── Rule: dead-export ───────────────────────────────────────────────────
 // Exported function/variable that is never imported by any file in the graph.
 
-export function deadExportRule(callGraph: CallGraph, filePath: string): ReviewFinding[] {
+export function deadExportRule(callGraph: CallGraph, filePath: string, publicApi?: PublicApiMap): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
 
   for (const key of callGraph.deadExports) {
     const fn = callGraph.functions.get(key);
     if (!fn || fn.filePath !== filePath) continue;
 
-    // Skip entry point files — their exports are consumed externally
-    // (we can't know if something is used outside the analyzed graph)
     // Skip test files
     if (fn.filePath.includes('.test.') || fn.filePath.includes('.spec.')) continue;
+
+    // Skip intentional public API — package.json entries, curated barrels, config overrides.
+    // External consumers (other packages, dynamic loaders, platform entry points) won't
+    // appear in the analyzed graph, so their imports can't be observed.
+    if (publicApi && isPublicApi(publicApi, fn.filePath, fn.name)) continue;
 
     // Confidence depends on how many calls in the graph were unresolved
     // If lots of calls are unresolved, the dead export might actually be used via a dynamic path

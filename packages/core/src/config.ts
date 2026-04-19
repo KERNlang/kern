@@ -104,6 +104,13 @@ export interface KernConfig {
     maxComplexity?: number;
     /** Rule IDs to disable project-wide */
     disabledRules?: string[];
+    /** Declare intentional public API so dead-export doesn't flag symbols consumed externally. */
+    publicApi?: {
+      /** Paths (project-relative or absolute) whose exports are all public. */
+      files?: string[];
+      /** Per-symbol overrides in `path#name` form. */
+      symbols?: string[];
+    };
   };
 }
 
@@ -154,6 +161,10 @@ export interface ResolvedKernConfig {
     minConfidence: number;
     maxComplexity: number;
     disabledRules: string[];
+    publicApi: {
+      files: string[];
+      symbols: string[];
+    };
   };
 }
 
@@ -196,6 +207,10 @@ export const DEFAULT_CONFIG: ResolvedKernConfig = {
     minConfidence: 0,
     maxComplexity: 15,
     disabledRules: [],
+    publicApi: {
+      files: [],
+      symbols: [],
+    },
   },
 };
 
@@ -271,6 +286,10 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
       minConfidence: user.review?.minConfidence ?? DEFAULT_CONFIG.review.minConfidence,
       maxComplexity: user.review?.maxComplexity ?? DEFAULT_CONFIG.review.maxComplexity,
       disabledRules: user.review?.disabledRules ?? DEFAULT_CONFIG.review.disabledRules,
+      publicApi: {
+        files: user.review?.publicApi?.files ?? DEFAULT_CONFIG.review.publicApi.files,
+        symbols: user.review?.publicApi?.symbols ?? DEFAULT_CONFIG.review.publicApi.symbols,
+      },
     },
   };
 }
