@@ -16,9 +16,10 @@
  */
 
 import { type GapCategory, isInlineSafeExpression, isInlineSafeLiteral } from '@kernlang/core';
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { extname, join, relative, resolve } from 'path';
-import { hasFlag, parseFlagOrNext } from '../shared.js';
+import { hasFlag, loadConfig, loadTemplates, parseFlagOrNext, transpileAndWrite } from '../shared.js';
 
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -393,8 +394,106 @@ function formatHuman(report: MigrateReport, rootDir: string): string {
   return `${lines.join('\n')}\n`;
 }
 
+// ── --verify helpers ──────────────────────────────────────────────────────
+// Bake the whole "compile pre, apply migration, compile post, diff, revert
+// on drift" operator dance into a single flag. Without this, users ship
+// class-body / literal-const changes and have to stage a git worktree,
+// recompile twice, and pray the byte-clean check is empty. Now they
+// just run `kern migrate <name> --write --verify`.
+
+/** Compile every `.kern` file under rootDir into outDir, matching how the
+ * standard `kern compile` command invokes transpile. `--no-gaps` suppresses
+ * writes to `.kern-gaps/` so a verify run doesn't pollute the user's state.
+ */
+function compileAllKernInto(rootDir: string, files: string[], outDir: string): { failures: string[] } {
+  // Force target='auto' so each file picks its own target from AST content.
+  // Verification needs to be stable and deterministic — `nextjs` default
+  // from plain `loadConfig()` emits a `page.tsx` wrapper even for pure
+  // const-only files, which doesn't match what `kern compile <file>`
+  // produces in normal CLI use.
+  const cfg = { ...loadConfig(), target: 'auto' as const };
+  // Load any configured templates the user's `kern compile` would register —
+  // without this, verify compile fails with "No template registered..." on
+  // projects that use template nodes even though their normal build works.
+  try {
+    loadTemplates(cfg);
+  } catch {
+    // Template loading failures are surfaced during normal compile as well;
+    // don't hard-stop verify here — per-file transpile will report them.
+  }
+  const failures: string[] = [];
+  for (const file of files) {
+    try {
+      transpileAndWrite(file, cfg, ['--no-gaps'], outDir, rootDir);
+    } catch (err) {
+      failures.push(`${file}: ${(err as Error).message}`);
+    }
+  }
+  return { failures };
+}
+
+interface DriftEntry {
+  file: string;
+  reason: 'missing-in-after' | 'missing-in-before' | 'content';
+}
+
+/** Recursively walk `dir`, returning paths relative to `dir`. */
+function listRel(dir: string, base = dir, out: string[] = []): string[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    const full = join(dir, entry);
+    let s: ReturnType<typeof statSync>;
+    try {
+      s = statSync(full);
+    } catch {
+      continue;
+    }
+    if (s.isDirectory()) listRel(full, base, out);
+    else if (s.isFile()) out.push(relative(base, full));
+  }
+  return out;
+}
+
+function collectDriftBetween(beforeDir: string, afterDir: string): DriftEntry[] {
+  const beforeFiles = new Set(listRel(beforeDir));
+  const afterFiles = new Set(listRel(afterDir));
+  const drift: DriftEntry[] = [];
+
+  for (const rel of beforeFiles) {
+    if (!afterFiles.has(rel)) {
+      drift.push({ file: rel, reason: 'missing-in-after' });
+      continue;
+    }
+    try {
+      const a = readFileSync(join(beforeDir, rel), 'utf-8');
+      const b = readFileSync(join(afterDir, rel), 'utf-8');
+      if (a !== b) drift.push({ file: rel, reason: 'content' });
+    } catch {
+      drift.push({ file: rel, reason: 'content' });
+    }
+  }
+  for (const rel of afterFiles) {
+    if (!beforeFiles.has(rel)) drift.push({ file: rel, reason: 'missing-in-before' });
+  }
+  return drift;
+}
+
+function cleanupTmp(dir: string | undefined): void {
+  if (!dir) return;
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // Best-effort cleanup — ignore
+  }
+}
+
 function printUsage(): void {
-  process.stderr.write('Usage: kern migrate <migration|list> [dir] [--write] [--json]\n');
+  process.stderr.write('Usage: kern migrate <migration|list> [dir] [--write] [--verify] [--json]\n');
   process.stderr.write('Migrations:\n');
   const padTo = migrationList().reduce((m, d) => Math.max(m, d.name.length), 0);
   for (const def of migrationList()) {
@@ -444,13 +543,43 @@ export function runMigrate(args: string[]): void {
   const rootArg = args.slice(2).find((a) => !a.startsWith('--'));
   const rootDir = resolve(parseFlagOrNext(args, '--root') ?? rootArg ?? process.cwd());
   const write = hasFlag(args, '--write');
+  const verify = hasFlag(args, '--verify');
+
+  // --verify implies --write (no point verifying a dry-run).
+  const effectiveWrite = write || verify;
 
   const files: string[] = [];
   walkKern(rootDir, files);
 
+  // Verify pre-compile: snapshot originals + emit BEFORE build against the
+  // current (pre-migration) .kern sources. Runs before we touch anything on
+  // disk so rollback is guaranteed.
+  const snapshot = new Map<string, string>();
+  let beforeDir: string | undefined;
+  let compileFailed = false;
+  if (verify) {
+    for (const file of files) {
+      try {
+        snapshot.set(file, readFileSync(file, 'utf-8'));
+      } catch {
+        // Best-effort — files we can't read we won't migrate either.
+      }
+    }
+    beforeDir = mkdtempSync(join(tmpdir(), 'kern-verify-before-'));
+    const { failures } = compileAllKernInto(rootDir, files, beforeDir);
+    if (failures.length > 0) {
+      process.stderr.write(`✗ ${sub}: pre-migration compile failed on ${failures.length} file(s):\n`);
+      for (const f of failures.slice(0, 3)) process.stderr.write(`  ${f}\n`);
+      cleanupTmp(beforeDir);
+      compileFailed = true;
+      process.exit(1);
+    }
+  }
+
   const fileReports: FileReport[] = [];
   let totalHits = 0;
   let changedFiles = 0;
+  const touchedFiles: string[] = [];
 
   for (const file of files) {
     let source: string;
@@ -469,9 +598,47 @@ export function runMigrate(args: string[]): void {
     if (result.hits.length > 0) {
       totalHits += result.hits.length;
       changedFiles++;
-      if (write && result.output !== source) {
+      if (effectiveWrite && result.output !== source) {
         writeFileSync(file, result.output);
+        touchedFiles.push(file);
       }
+    }
+  }
+
+  // Verify post-compile: emit AFTER build against migrated sources, diff
+  // tree-wise, roll back on drift.
+  if (verify && !compileFailed) {
+    const afterDir = mkdtempSync(join(tmpdir(), 'kern-verify-after-'));
+    const { failures } = compileAllKernInto(rootDir, files, afterDir);
+    if (failures.length > 0) {
+      process.stderr.write(`✗ ${sub}: post-migration compile failed — rolling back\n`);
+      for (const [file, original] of snapshot) writeFileSync(file, original);
+      cleanupTmp(beforeDir);
+      cleanupTmp(afterDir);
+      process.exit(1);
+    }
+
+    const drift = collectDriftBetween(beforeDir!, afterDir);
+    cleanupTmp(beforeDir);
+    cleanupTmp(afterDir);
+
+    if (drift.length === 0) {
+      // stderr so `kern migrate ... --verify --json` still emits parseable
+      // JSON on stdout (the banner is status output, not report output).
+      process.stderr.write(
+        `✓ ${sub}: verified byte-clean (${files.length} .kern files compiled pre/post, ${touchedFiles.length} rewritten, 0 TS drift)\n`,
+      );
+    } else {
+      process.stderr.write(`✗ ${sub}: ${drift.length} file(s) drifted in compiled TS — rolling back migration.\n`);
+      const preview = drift
+        .slice(0, 5)
+        .map((d) => `  ${d.file} (${d.reason})`)
+        .join('\n');
+      process.stderr.write(`${preview}\n`);
+      if (drift.length > 5) process.stderr.write(`  ...and ${drift.length - 5} more\n`);
+      for (const [file, original] of snapshot) writeFileSync(file, original);
+      process.stderr.write(`Restored ${snapshot.size} .kern file(s) to pre-migration state.\n`);
+      process.exit(1);
     }
   }
 
@@ -482,7 +649,7 @@ export function runMigrate(args: string[]): void {
     changedFiles,
     totalHits,
     files: fileReports,
-    mode: write ? 'write' : 'dry-run',
+    mode: effectiveWrite ? 'write' : 'dry-run',
   };
 
   if (json) {

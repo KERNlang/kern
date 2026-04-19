@@ -286,8 +286,10 @@ describe('kern migrate command', () => {
 
   describe('registry + list subcommand', () => {
     test('MIGRATIONS exposes every migration with name/category/summary', () => {
-      const keys = Object.keys(MIGRATIONS).sort();
-      expect(keys).toEqual(['fn-expr', 'literal-const']);
+      const keys = Object.keys(MIGRATIONS);
+      // Phase 3 + later additions — pin the core entries but don't break when
+      // new migrations land (class-body, etc.). Each entry must be complete.
+      expect(keys).toEqual(expect.arrayContaining(['fn-expr', 'literal-const']));
       for (const key of keys) {
         const def = MIGRATIONS[key];
         expect(def.name).toBe(key);
@@ -310,7 +312,9 @@ describe('kern migrate command', () => {
       runMigrate(['migrate', 'list', '--json']);
       const parsed = JSON.parse(out());
       expect(Array.isArray(parsed)).toBe(true);
-      expect(parsed).toHaveLength(2);
+      expect(parsed.length).toBeGreaterThanOrEqual(2);
+      const names = parsed.map((e: { name: string }) => e.name);
+      expect(names).toEqual(expect.arrayContaining(['fn-expr', 'literal-const']));
       for (const entry of parsed) {
         expect(entry.category).toBe('migratable');
         expect(typeof entry.name).toBe('string');
