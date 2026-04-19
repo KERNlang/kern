@@ -7,6 +7,7 @@ import { routeEvolve } from './commands/evolve/index.js';
 import { runGaps } from './commands/gaps.js';
 import { runImport } from './commands/import.js';
 import { runInit } from './commands/init.js';
+import { runMigrate } from './commands/migrate.js';
 import { runReview } from './commands/review.js';
 import { runInitTemplates, runScan } from './commands/scan.js';
 import { runSchema } from './commands/schema.js';
@@ -27,6 +28,7 @@ const COMMANDS: Record<string, (args: string[]) => void | Promise<void>> = {
   gaps: runGaps,
   'init-templates': runInitTemplates,
   import: runImport,
+  migrate: runMigrate,
   review: runReview,
   apply: runApply,
   confidence: runConfidence,

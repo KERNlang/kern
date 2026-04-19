@@ -294,6 +294,7 @@ export function printHelp(): void {
     '  gaps [--root=<dir>|--git=<repo|github-url>] [options]  Report explicit KERN-GAP comments + coverage gaps',
   );
   console.log('  import <file.ts|dir> [options]                Convert TypeScript source into starter .kern files');
+  console.log('  migrate <name> [dir] [--write]                In-place .kern migrations (e.g. literal-const)');
   console.log(
     '  review <file.ts|dir> [--git=<repo|github-url>] [options]  Static analysis, Cognitive Complexity & CI Gate',
   );
