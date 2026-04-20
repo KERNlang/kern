@@ -154,4 +154,70 @@ describe('untyped-api-response', () => {
     );
     expect(untypedApiResponse(ctx)).toEqual([]);
   });
+
+  it('does not fire on the split fetch + typed .json() pattern (codex regression on 550a57ec)', () => {
+    // Before the mapper fix, this emitted responseAsserted=false on the
+    // raw Response variable because `const res` has no annotation. That is
+    // a false positive: the payload IS typed, just on the next line.
+    const client = `
+      interface User { id: string }
+      async function loadUsers() {
+        const res = await fetch('/api/users');
+        const data: User[] = await res.json();
+        return data;
+      }
+    `;
+    const server = `app.get('/api/users', (req, res) => res.json([]));`;
+    const ctx = ctxFrom(
+      [
+        { path: 'src/client.ts', source: client },
+        { path: 'src/server.ts', source: server },
+      ],
+      'src/client.ts',
+    );
+    expect(untypedApiResponse(ctx)).toEqual([]);
+  });
+
+  it('still stays silent on split fetch + untyped .json() (responseAsserted undefined, rule suppressed)', () => {
+    // Related to the split-pattern fix above: without cross-variable
+    // dataflow the mapper returns `undefined` for the Response's eventual
+    // consumption. The rule treats undefined as "can't tell" and stays
+    // quiet rather than fire a questionable finding.
+    const client = `
+      async function loadUsers() {
+        const res = await fetch('/api/users');
+        const data = await res.json();
+        return data;
+      }
+    `;
+    const server = `app.get('/api/users', (req, res) => res.json([]));`;
+    const ctx = ctxFrom(
+      [
+        { path: 'src/client.ts', source: client },
+        { path: 'src/server.ts', source: server },
+      ],
+      'src/client.ts',
+    );
+    expect(untypedApiResponse(ctx)).toEqual([]);
+  });
+
+  it('treats .then callbacks that do not call .json() as non-payload consumers', () => {
+    // A `.then(r => r.status)` chain doesn't parse JSON, so the mapper
+    // must NOT mark the outer Promise<number> consumer as untyped-JSON.
+    const client = `
+      async function getStatus() {
+        const code = await fetch('/api/users').then(r => r.status);
+        return code;
+      }
+    `;
+    const server = `app.get('/api/users', (req, res) => res.json([]));`;
+    const ctx = ctxFrom(
+      [
+        { path: 'src/client.ts', source: client },
+        { path: 'src/server.ts', source: server },
+      ],
+      'src/client.ts',
+    );
+    expect(untypedApiResponse(ctx)).toEqual([]);
+  });
 });

@@ -1100,10 +1100,16 @@ function extractTarget(call: import('ts-morph').CallExpression): string | undefi
  * conservative — false positives here poison the pitch.
  */
 function isResponseAsserted(call: import('ts-morph').CallExpression): boolean | undefined {
-  // Walk outward looking for the `.json()` resolution and then check the
-  // expression it lands in.
+  // Walk outward from the network call looking for JSON consumption. Only
+  // after we've seen `.json()` (or a `.then(r => r.json())` callback) does
+  // it make sense to rule the *payload* typed vs untyped — a raw Response
+  // assigned to a variable like `const res = await fetch(...)` tells us
+  // nothing about how the caller will later parse it. Codex review on
+  // 550a57ec caught the false positive for the split pattern
+  // `const res = await fetch(url); const data: User[] = await res.json();`
+  // where the raw Response variable has no annotation.
   let cursor: import('ts-morph').Node = call;
-  // Skip through chained `.then()` / `await` / paren wrappers.
+  let sawJsonConsumption = false;
   for (let depth = 0; depth < 8; depth++) {
     const parent = cursor.getParent();
     if (!parent) return undefined;
@@ -1113,32 +1119,39 @@ function isResponseAsserted(call: import('ts-morph').CallExpression): boolean | 
       continue;
     }
 
-    // `.then(r => r.json())` / `.then(async r => r.json())`
     if (parent.getKind() === SyntaxKind.PropertyAccessExpression) {
       const pa = parent as import('ts-morph').PropertyAccessExpression;
       const parentCall = pa.getParent();
       if (pa.getName() === 'then' && parentCall?.getKind() === SyntaxKind.CallExpression) {
+        // Count this as JSON consumption only if the `.then` callback
+        // clearly parses JSON. A `.then(r => r.status)` chain doesn't.
+        if (callbackCallsJson(parentCall as import('ts-morph').CallExpression)) {
+          sawJsonConsumption = true;
+        }
         cursor = parentCall;
         continue;
       }
       if (pa.getName() === 'json' && parentCall?.getKind() === SyntaxKind.CallExpression) {
-        // `(...).json()` — keep climbing from the json call.
+        // `(…).json()` — we've now reached the JSON payload.
+        sawJsonConsumption = true;
         cursor = parentCall;
         continue;
       }
       return undefined;
     }
 
-    // Landed in a const/let/var decl → check for a type annotation.
+    // From here on, every branch is about classifying the payload.
+    // If we haven't actually reached the payload yet, we're looking at a
+    // raw Response and can't honestly say whether it's typed — bail with
+    // `undefined` instead of misclassifying it as untyped.
+    if (!sawJsonConsumption) return undefined;
+
     if (parent.getKind() === SyntaxKind.VariableDeclaration) {
       const decl = parent as import('ts-morph').VariableDeclaration;
-      // An explicit type node (`const x: User = …`) or an initializer wrapped
-      // in `as T` / `satisfies T` both count as an assertion.
       if (decl.getTypeNode()) return true;
       return containsAssertion(decl.getInitializer());
     }
 
-    // Return / arrow body / assignment → look at the expression for assertions.
     if (
       parent.getKind() === SyntaxKind.ReturnStatement ||
       parent.getKind() === SyntaxKind.ArrowFunction ||
@@ -1147,7 +1160,6 @@ function isResponseAsserted(call: import('ts-morph').CallExpression): boolean | 
       return containsAssertion(cursor);
     }
 
-    // `as T` / `<T>…` / `satisfies T` wrapping the fetch chain directly.
     if (
       parent.getKind() === SyntaxKind.AsExpression ||
       parent.getKind() === SyntaxKind.TypeAssertionExpression ||
@@ -1156,10 +1168,28 @@ function isResponseAsserted(call: import('ts-morph').CallExpression): boolean | 
       return true;
     }
 
-    // Unknown parent shape — bail rather than over-report.
     return undefined;
   }
   return undefined;
+}
+
+/**
+ * Peek into a `.then(...)` call's first argument and return true when the
+ * callback body contains a `.json()` call. Used to tell whether a
+ * `.then(r => r.json())` chain actually resolves to JSON — as opposed to
+ * `.then(r => r.status)` which resolves to a number and should not be
+ * treated as JSON consumption.
+ */
+function callbackCallsJson(thenCall: import('ts-morph').CallExpression): boolean {
+  const callback = thenCall.getArguments()[0];
+  if (!callback) return false;
+  const k = callback.getKind();
+  if (k !== SyntaxKind.ArrowFunction && k !== SyntaxKind.FunctionExpression) return false;
+  const callbackText = callback.getText();
+  // Text-based check is sufficient here: the callback bodies we care about
+  // are short and the helper is advisory. The rule treats `undefined` as
+  // "unknown" and stays silent, so a miss here is never a false positive.
+  return /\.json\s*\(\s*\)/.test(callbackText);
 }
 
 function containsAssertion(node: import('ts-morph').Node | undefined): boolean {
