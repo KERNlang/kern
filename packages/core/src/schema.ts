@@ -425,12 +425,14 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   each: {
-    description: 'Iteration — renders children for each item in a collection (target-agnostic loop)',
-    example: 'each name=item in=items index=i',
+    description:
+      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`.',
+    example: 'each name=item in=items index=i key="item.id"',
     props: {
       name: { required: true, kind: 'identifier' },
       in: { required: true, kind: 'rawExpr' },
       index: { kind: 'identifier' },
+      key: { kind: 'rawExpr' },
     },
   },
   collect: {
@@ -1143,10 +1145,11 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   render: {
-    description: 'Render function — JSX output block for a component or hook',
-    example: 'render\n  handler <<<\n    return <div>{children}</div>\n  >>>',
+    description:
+      'Render function — JSX output block for a component or hook. Accepts a raw `handler` block OR declarative KERN children (e.g. `each`) that compose into a JSX fragment.',
+    example: 'render\n  each name=f in=files key="f.path"\n    handler <<<\n      <Text>{f.path}</Text>\n    >>>',
     props: {},
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'each'],
   },
   template: {
     description: 'Reusable template with named slots — defines a composable layout pattern',

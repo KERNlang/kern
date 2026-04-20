@@ -244,8 +244,11 @@ export function generateModule(node: IRNode): string[] {
 }
 
 // ── Each (ground-layer, calls generateCoreNode) ─────────────────────────
-// each name=stem in="track.stems"
-//   derive name=normalized expr={{normalize(stem.amplitude)}}
+// Statement form: emits for...of. JSX-expression form lives in
+// codegen/screens.ts::generateEachJSX and is invoked when `each` is a direct
+// child of a `render` node (see emitRenderComposed).
+//   each name=stem in="track.stems"
+//     derive name=normalized expr={{normalize(stem.amplitude)}}
 
 export function generateEach(node: IRNode): string[] {
   const annotations = emitReasonAnnotations(node);

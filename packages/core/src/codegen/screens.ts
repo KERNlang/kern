@@ -26,7 +26,8 @@
  *   }
  */
 
-import type { IRNode } from '../types.js';
+import { KernCodegenError } from '../errors.js';
+import type { ExprObject, IRNode } from '../types.js';
 import { emitIdentifier } from './emitters.js';
 import { exportPrefix, getChildren, getFirstChild, getProps } from './helpers.js';
 
@@ -221,11 +222,24 @@ function emitInputHandlers(nodes: IRNode[], lines: string[]): void {
   }
 }
 
+// JSX-composable child types inside a `render` block. Only these trigger the
+// declarative-composition path. Metadata-only children (doc, reason, needs, ...)
+// must NOT force composition — their sibling handler owns the render body and
+// should continue through the raw-handler passthrough below.
+const RENDER_JSX_CHILD_TYPES = new Set<string>(['each']);
+
 function emitRender(renderNode: IRNode | undefined, lines: string[]): void {
   if (!renderNode) {
     lines.push(`  return null;`);
     return;
   }
+
+  const hasJsxChild = getChildren(renderNode).some((c) => RENDER_JSX_CHILD_TYPES.has(c.type));
+  if (hasJsxChild) {
+    emitRenderComposed(renderNode, lines);
+    return;
+  }
+
   const body = handlerContent(renderNode);
   const trimmed = body.trim();
   if (trimmed.includes('return ') || trimmed.includes('return(')) {
@@ -235,4 +249,91 @@ function emitRender(renderNode: IRNode | undefined, lines: string[]): void {
     for (const line of body.split('\n')) lines.push(`    ${line}`);
     lines.push(`  );`);
   }
+}
+
+/**
+ * Compose a render block from declarative KERN children (each, and later conditional).
+ * Handler blocks inside render are treated as literal JSX fragments.
+ * Emits `return (<>...</>);` containing each child's JSX.
+ */
+function emitRenderComposed(renderNode: IRNode, lines: string[]): void {
+  const pieces: string[][] = [];
+  for (const child of getChildren(renderNode)) {
+    if (child.type === 'each') {
+      pieces.push(generateEachJSX(child));
+    } else if (child.type === 'handler') {
+      // In composed mode the handler contributes a JSX fragment, not a
+      // `return`-wrapped expression. Strip a leading `return (...);` so authors
+      // can reuse the same handler shape as non-composed renders.
+      const raw = (propsOf(child).code as string) || '';
+      pieces.push(stripReturnWrapper(raw).split('\n'));
+    }
+    // Other declarative/metadata children (doc, reason, needs, ...) are skipped.
+  }
+
+  lines.push(`  return (`);
+  lines.push(`    <>`);
+  for (const piece of pieces) {
+    for (const line of piece) lines.push(`      ${line}`);
+  }
+  lines.push(`    </>`);
+  lines.push(`  );`);
+}
+
+/**
+ * If a handler body is shaped like `return (<...>);` or `return <...>;`, return
+ * just the inner JSX so it can be embedded inside a fragment. Otherwise return
+ * the body unchanged.
+ */
+function stripReturnWrapper(code: string): string {
+  const trimmed = code.trim();
+  const parenReturn = trimmed.match(/^return\s*\(([\s\S]*)\)\s*;?\s*$/m);
+  if (parenReturn) return parenReturn[1].trim();
+  const bareReturn = trimmed.match(/^return\s+([\s\S]*?)\s*;?\s*$/m);
+  if (bareReturn && !trimmed.includes('\n')) return bareReturn[1].trim();
+  return code;
+}
+
+/**
+ * JSX-expression form of `each` — emits `(coll).map((name, i) => <React.Fragment key={...}>...</React.Fragment>)`.
+ * Requires a `handler <<<...>>>` child containing the per-item JSX (raw JSX fragment, not `return`-wrapped).
+ * Auto-key falls back through `<name>.id ?? <name>.key ?? <index>` if the user didn't supply `key=`.
+ */
+function generateEachJSX(node: IRNode): string[] {
+  const props = propsOf(node);
+  const name = (props.name as string) || 'item';
+  const rawCollection = props.in;
+  const collection =
+    rawCollection && typeof rawCollection === 'object' && (rawCollection as ExprObject).__expr
+      ? (rawCollection as ExprObject).code
+      : (rawCollection as string);
+  if (!collection) throw new KernCodegenError("each node requires an 'in' prop", node);
+
+  const index = (props.index as string) || '__i';
+  const rawKey = props.key;
+  const keyExpr =
+    rawKey && typeof rawKey === 'object' && (rawKey as ExprObject).__expr
+      ? (rawKey as ExprObject).code
+      : typeof rawKey === 'string'
+        ? rawKey
+        : '';
+  const effectiveKey = keyExpr || `${name}.id ?? ${name}.key ?? ${index}`;
+
+  const handler = getFirstChild(node, 'handler');
+  if (!handler) {
+    throw new KernCodegenError(
+      'each inside a render block requires a `handler <<<>>>` child with the per-item JSX',
+      node,
+    );
+  }
+  const body = (propsOf(handler).code as string) || '';
+  const bodyLines = body.split('\n');
+
+  const lines: string[] = [];
+  lines.push(`{(${collection}).map((${name}, ${index}) => (`);
+  lines.push(`  <React.Fragment key={${effectiveKey}}>`);
+  for (const line of bodyLines) lines.push(`    ${line}`);
+  lines.push(`  </React.Fragment>`);
+  lines.push(`))}`);
+  return lines;
 }
