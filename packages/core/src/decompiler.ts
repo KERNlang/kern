@@ -27,6 +27,15 @@ export function decompile(root: IRNode): DecompileResult {
       return;
     }
     const props = node.props || {};
+
+    // Canonical-grammar cases — emit re-parseable KERN. Other node types
+    // still fall through to the debug-shape serializer below; make them
+    // canonical in a follow-up PR.
+    if (node.type === 'each') {
+      renderEach(node, indent);
+      return;
+    }
+
     const name = (props.name as string) || '';
     const type = node.type.charAt(0).toUpperCase() + node.type.slice(1);
 
@@ -56,6 +65,35 @@ export function decompile(root: IRNode): DecompileResult {
     if (themeRefs?.length) desc += ` inherits ${themeRefs.map((r) => `$${r}`).join(', ')}`;
 
     lines.push(desc);
+
+    if (node.children) {
+      for (const child of node.children) {
+        render(child, `${indent}  `);
+      }
+    }
+  }
+
+  function renderEach(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const name = (props.name as string) || 'item';
+    const rawIn = props.in;
+    const inExpr =
+      rawIn && typeof rawIn === 'object' && (rawIn as { __expr?: boolean; code?: string }).__expr
+        ? (rawIn as { code: string }).code
+        : (rawIn as string) || '';
+    const index = (props.index as string) || '';
+    const rawKey = props.key;
+    const keyExpr =
+      rawKey && typeof rawKey === 'object' && (rawKey as { __expr?: boolean; code?: string }).__expr
+        ? (rawKey as { code: string }).code
+        : typeof rawKey === 'string'
+          ? rawKey
+          : '';
+
+    const parts: string[] = [`each name=${name}`, `in=${JSON.stringify(inExpr)}`];
+    if (index) parts.push(`index=${index}`);
+    if (keyExpr) parts.push(`key=${JSON.stringify(keyExpr)}`);
+    lines.push(`${indent}${parts.join(' ')}`);
 
     if (node.children) {
       for (const child of node.children) {
