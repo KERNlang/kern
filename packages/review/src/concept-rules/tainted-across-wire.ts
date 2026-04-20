@@ -36,7 +36,7 @@ import {
   API_PATH_RE,
   CROSS_STACK_HEURISTIC_CONFIDENCE,
   collectRoutes,
-  hasMatchingRoute,
+  findMatchingRoute,
   normalizeClientUrl,
   type ServerRoute,
 } from './cross-stack-utils.js';
@@ -73,7 +73,7 @@ export function taintedAcrossWire(ctx: ConceptRuleContext): ReviewFinding[] {
     const normalized = normalizeClientUrl(target);
     if (!normalized || !API_PATH_RE.test(normalized)) continue;
     const matchedRoute = findMatchingRoute(normalized, serverRoutes);
-    if (!matchedRoute) continue;
+    if (!matchedRoute) continue; // contract-drift owns the "wrong URL" class.
     const routeFile = matchedRoute.node?.primarySpan.file;
     if (routeFile && validatedFiles.has(routeFile)) continue;
 
@@ -103,12 +103,4 @@ function collectValidatedFiles(allConcepts: Map<string, ConceptMap>): Set<string
     }
   }
   return set;
-}
-
-/** Same matching logic as `hasMatchingRoute` but returns the route (for its containerId). */
-function findMatchingRoute(clientPath: string, routes: readonly ServerRoute[]): ServerRoute | undefined {
-  for (const route of routes) {
-    if (hasMatchingRoute(clientPath, [route])) return route;
-  }
-  return undefined;
 }

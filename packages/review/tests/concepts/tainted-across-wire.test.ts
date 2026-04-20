@@ -151,6 +151,47 @@ describe('tainted-across-wire', () => {
     expect(taintedAcrossWire({ concepts, filePath: 'src/client.ts' })).toEqual([]);
   });
 
+  it('fires on shorthand fetch body property `{ method, body }` (codex regression on d8f95d49)', () => {
+    // RequestInit shorthand — `body` is a variable reference, not a literal.
+    // Before the fix, the mapper returned undefined and the rule stayed silent.
+    const client = `
+      async function submit(body: string) {
+        await fetch('/api/signup', { method: 'POST', body });
+      }
+    `;
+    const server = `app.post('/api/signup', (req, res) => res.json({}));`;
+    const ctx = ctxFrom(
+      [
+        { path: 'src/client.ts', source: client },
+        { path: 'src/server.ts', source: server },
+      ],
+      'src/client.ts',
+    );
+    expect(taintedAcrossWire(ctx).length).toBe(1);
+  });
+
+  it('fires on axios-style calls where the 2nd arg IS the body (gemini regression on d8f95d49)', () => {
+    // Before the fix, the mapper treated `axios.post(url, obj)` as a
+    // fetch-style call and looked for `obj.body` (which doesn't exist),
+    // returning bodyKind='none' and silencing the finding.
+    const client = `
+      async function submit(formData: { name: string }) {
+        await axios.post('/api/signup', formData);
+      }
+    `;
+    const server = `app.post('/api/signup', (req, res) => res.json({}));`;
+    const ctx = ctxFrom(
+      [
+        { path: 'src/client.ts', source: client },
+        { path: 'src/server.ts', source: server },
+      ],
+      'src/client.ts',
+    );
+    const findings = taintedAcrossWire(ctx);
+    expect(findings.length).toBe(1);
+    expect(findings[0].message).toContain('/api/signup');
+  });
+
   it('fires on FastAPI-style {id} routes when client body is dynamic and no validator is in scope', () => {
     const client = `
       async function updateUser(id: string, payload: { name: string }) {

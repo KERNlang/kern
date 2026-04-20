@@ -300,7 +300,7 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
           async: isAsync,
           target: extractTarget(call),
           responseAsserted: isResponseAsserted(call),
-          bodyKind: extractBodyKind(call),
+          bodyKind: extractBodyKind(call, funcName),
         },
       });
       continue;
@@ -1193,30 +1193,51 @@ function isResponseAsserted(call: import('ts-morph').CallExpression): boolean | 
  * when unsure we return `undefined` (fallthrough) so the rule stays silent
  * instead of over-reporting.
  */
-function extractBodyKind(call: import('ts-morph').CallExpression): 'none' | 'static' | 'dynamic' | undefined {
-  const args = call.getArguments();
-  // fetch(url, options) — body lives in the 2nd arg's `body` property.
-  // axios.post(url, body, config) — body is the 2nd arg directly.
-  // Handle both by looking for either an options object with `body:` OR a
-  // literal body arg in position 1.
-  if (args.length < 2) {
-    // fetch(url) with no options → definitely no body on the wire.
-    return 'none';
-  }
-  const optionsOrBody = args[1];
-  const k = optionsOrBody.getKind();
+/**
+ * Network libraries split into two call-site conventions:
+ *   fetch-style — `fetch(url, options)` where `options.body` carries the
+ *     payload. `ky` and generic `request()` follow this shape.
+ *   axios-style — `axios.post(url, data, config)` where the second arg IS
+ *     the payload directly. `got.post`, `superagent.post`, and most axios
+ *     method calls (post/put/patch) match this.
+ * Gemini review on d8f95d49 caught that the flat "object literal at arg1?
+ * look for .body" logic returned `none` for legitimate axios payloads like
+ * `axios.post('/api', { name: 'foo' })` — the whole object IS the body.
+ */
+const AXIOS_STYLE_METHODS = new Set(['post', 'put', 'patch']);
 
-  if (k === SyntaxKind.ObjectLiteralExpression) {
-    const obj = optionsOrBody as import('ts-morph').ObjectLiteralExpression;
+function extractBodyKind(
+  call: import('ts-morph').CallExpression,
+  funcName: string,
+): 'none' | 'static' | 'dynamic' | undefined {
+  const args = call.getArguments();
+  if (args.length < 2) return 'none';
+  const arg = args[1];
+
+  // Axios-style: the 2nd arg *is* the body.
+  if (AXIOS_STYLE_METHODS.has(funcName)) {
+    return classifyBodyExpression(arg);
+  }
+
+  // Fetch-style: the 2nd arg is an options object; body lives in `.body`.
+  if (arg.getKind() === SyntaxKind.ObjectLiteralExpression) {
+    const obj = arg as import('ts-morph').ObjectLiteralExpression;
     const bodyProp = obj.getProperty('body');
     if (!bodyProp) return 'none';
+    // Shorthand `{ method: 'POST', body }` — the body is a variable reference
+    // by definition, so it's dynamic. Codex flagged the earlier branch that
+    // returned `undefined` here as a false negative: a shorthand in a
+    // fetch options object is a common RequestInit pattern, not an
+    // unclassifiable construct.
+    if (bodyProp.getKind() === SyntaxKind.ShorthandPropertyAssignment) return 'dynamic';
     if (bodyProp.getKind() !== SyntaxKind.PropertyAssignment) return undefined;
     const initializer = (bodyProp as import('ts-morph').PropertyAssignment).getInitializer();
     return classifyBodyExpression(initializer);
   }
 
-  // Direct body-arg form (axios.post(url, body, ...)) — classify the arg.
-  return classifyBodyExpression(optionsOrBody);
+  // Options is passed as a variable (common pattern: `fetch(url, opts)`) —
+  // we don't have enough info to tell without type checker dataflow.
+  return undefined;
 }
 
 function classifyBodyExpression(expr: import('ts-morph').Node | undefined): 'none' | 'static' | 'dynamic' | undefined {

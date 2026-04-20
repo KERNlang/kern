@@ -66,11 +66,13 @@ export function normalizeClientUrl(raw: string): string | undefined {
 
 /**
  * Match a client-side concrete path against server-side route templates.
- * Server templates may contain params — Express/Koa `:id`, FastAPI `{id}` —
- * which match any single segment. Trailing slashes are normalised on both
- * sides. Case-sensitive (matches Express/FastAPI default behaviour).
+ * Returns the first matching route (so callers can cite it in findings) or
+ * `undefined`. Server templates may contain params — Express/Koa `:id`,
+ * FastAPI `{id}` — which match any single segment. Trailing slashes are
+ * normalised on both sides. Case-sensitive (matches Express/FastAPI default
+ * behaviour).
  */
-export function hasMatchingRoute(clientPath: string, routes: readonly ServerRoute[]): boolean {
+export function findMatchingRoute(clientPath: string, routes: readonly ServerRoute[]): ServerRoute | undefined {
   const clientSegments = trimTrailing(clientPath).split('/');
   for (const route of routes) {
     const routeSegments = trimTrailing(route.path).split('/');
@@ -85,9 +87,14 @@ export function hasMatchingRoute(clientPath: string, routes: readonly ServerRout
         break;
       }
     }
-    if (matched) return true;
+    if (matched) return route;
   }
-  return false;
+  return undefined;
+}
+
+/** Boolean-returning thin wrapper preserved for callers that just need a yes/no. */
+export function hasMatchingRoute(clientPath: string, routes: readonly ServerRoute[]): boolean {
+  return findMatchingRoute(clientPath, routes) !== undefined;
 }
 
 function trimTrailing(path: string): string {
