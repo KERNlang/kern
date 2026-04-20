@@ -28,7 +28,7 @@
 
 import { KernCodegenError } from '../errors.js';
 import type { ExprObject, IRNode } from '../types.js';
-import { emitIdentifier } from './emitters.js';
+import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { exportPrefix, getChildren, getFirstChild, getProps } from './helpers.js';
 
 type ScreenProps = {
@@ -369,12 +369,14 @@ function generateEachJSX(node: IRNode): string[] {
 }
 
 /**
- * Render a single `let` node as a `const name[: type] = expr;` line, stripping
- * nothing — the expression is raw code by design (rawExpr).
+ * Render a single `let` node as a `const name[: type] = expr;` line. Name and
+ * type are routed through the schema emitters so invalid identifiers or type
+ * annotations raise KernCodegenError instead of producing broken TSX like
+ * `const is-selected = …;`. The expression is raw by design (rawExpr).
  */
 function renderLetBinding(node: IRNode): string {
   const lp = propsOf(node);
-  const lname = (lp.name as string) || 'binding';
+  const lname = emitIdentifier(lp.name as string, 'binding', node);
   const rawExpr = lp.expr;
   const expr =
     rawExpr && typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
@@ -384,6 +386,6 @@ function renderLetBinding(node: IRNode): string {
     throw new KernCodegenError("let node requires an 'expr' prop", node);
   }
   const t = lp.type as string | undefined;
-  const typeAnn = t ? `: ${t}` : '';
+  const typeAnn = t ? `: ${emitTypeAnnotation(t, 'unknown', node)}` : '';
   return `const ${lname}${typeAnn} = ${expr};`;
 }

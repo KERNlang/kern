@@ -89,6 +89,33 @@ describe('each inside render — `let` iteration-scoped bindings', () => {
   });
 });
 
+describe('statement-position `each` with `let` children (for...of form)', () => {
+  // Gemini PR 2 review finding: without special handling in generateEach,
+  // `let` children were silently dropped when `each` was used outside a
+  // render block (statement context). Iteration-scoped semantics apply to
+  // both JSX `.map` and `for...of` — codegen now emits `const` lines at the
+  // top of the loop body in both cases.
+  it('emits `let` bindings as `const` at the top of the for...of body', () => {
+    const node = mk('each', { name: 'f', in: 'files' }, [
+      mk('let', { name: 'stem', expr: "f.path.split('/').pop()" }),
+      mk('let', { name: 'size', expr: 'f.size ?? 0', type: 'number' }),
+    ]);
+    const code = generateCoreNode(node).join('\n');
+    expect(code).toContain('for (const f of files)');
+    expect(code).toContain("const stem = f.path.split('/').pop();");
+    expect(code).toContain('const size: number = f.size ?? 0;');
+    // Declaration order preserved
+    expect(code.indexOf('const stem')).toBeLessThan(code.indexOf('const size'));
+  });
+
+  it('still emits `let` as `const` when using index form', () => {
+    const node = mk('each', { name: 'item', in: 'xs', index: 'i' }, [mk('let', { name: 'doubled', expr: 'item * 2' })]);
+    const code = generateCoreNode(node).join('\n');
+    expect(code).toContain('for (const [i, item] of (xs).entries())');
+    expect(code).toContain('const doubled = item * 2;');
+  });
+});
+
 describe('semantic-validator — `let` must be a direct child of `each`', () => {
   it('flags `let` at render scope (not inside each)', () => {
     const screen = mk('screen', { name: 'Bad', target: 'ink' }, [
@@ -109,6 +136,28 @@ describe('semantic-validator — `let` must be a direct child of `each`', () => 
     const screen = screenWithLet([mk('let', { name: 'x', expr: '1' })], '<Text/>');
     const violations = validateSemantics(screen);
     expect(violations.filter((v) => v.rule === 'let-must-be-inside-each')).toHaveLength(0);
+  });
+});
+
+describe('identifier/type validation — codex review finding', () => {
+  // Codex PR 2 review: without going through emitIdentifier, `let name=is-selected`
+  // would have spliced as `const is-selected = ...;` (invalid JS). Name and type
+  // now route through emitIdentifier / emitTypeAnnotation which throw loudly on
+  // invalid inputs.
+  it('rejects invalid `let.name` in the JSX path (KernCodegenError)', () => {
+    const screen = screenWithLet([mk('let', { name: 'is-selected', expr: 'true' })], '<Text>{isSelected}</Text>');
+    expect(() => generateCoreNode(screen)).toThrow(/Invalid identifier/);
+  });
+
+  it('rejects invalid `let.name` in the statement path (KernCodegenError)', () => {
+    const node = mk('each', { name: 'f', in: 'xs' }, [mk('let', { name: 'is-selected', expr: 'true' })]);
+    expect(() => generateCoreNode(node)).toThrow(/Invalid identifier/);
+  });
+
+  it('accepts a valid camelCase `let.name`', () => {
+    const screen = screenWithLet([mk('let', { name: 'isSelected', expr: 'true' })], '<Text>{isSelected}</Text>');
+    const code = generateCoreNode(screen).join('\n');
+    expect(code).toContain('const isSelected = true;');
   });
 });
 

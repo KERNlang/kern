@@ -435,7 +435,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       index: { kind: 'identifier' },
       key: { kind: 'rawExpr' },
     },
-    allowedChildren: ['let', 'handler'],
+    // Intentionally unrestricted — statement-form `each` composes with `derive`,
+    // `transform`, etc. in fn/handler contexts. The `let` node is constrained
+    // separately via the `let-must-be-inside-each` semantic rule.
   },
   let: {
     description:
