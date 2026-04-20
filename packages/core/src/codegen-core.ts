@@ -44,6 +44,7 @@ export {
   generateCollect,
   generateDerive,
   generateExpect,
+  generateFmt,
   generateGuard,
   generateInvariant,
   generatePattern,
@@ -104,6 +105,7 @@ import {
   generateCollect,
   generateDerive,
   generateExpect,
+  generateFmt,
   generateGuard,
   generateInvariant,
   generatePattern,
@@ -434,6 +436,7 @@ export const CORE_NODE_TYPES = new Set([
   'cleanup',
   // Ground layer
   'derive',
+  'fmt',
   'transform',
   'action',
   'actionRegistry',
@@ -541,6 +544,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
     // Ground layer
     case 'derive':
       return generateDerive(node);
+    case 'fmt':
+      return generateFmt(node);
     case 'transform':
       return generateTransform(node);
     case 'action':

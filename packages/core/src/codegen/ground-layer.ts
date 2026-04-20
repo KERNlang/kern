@@ -46,6 +46,42 @@ export function generateDerive(node: IRNode): string[] {
   return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = ${expr};`];
 }
 
+// ── Ground Layer: fmt ────────────────────────────────────────────────────
+// `fmt name=label template="${count} files"` →
+//   const label = `${count} files`;
+//
+// Why a dedicated node: string interpolation is ~15-20% of handler-block
+// volume in agon (2026-04-20 scan). Expressing it as a named primitive keeps
+// the IR declarative and lets tooling (reviewers, decompiler, codegen)
+// recognise "this is a formatted string" without parsing a handler body.
+//
+// The template body is spliced verbatim into a JS template literal, so
+// `${expr}` placeholders work exactly as in JS. Raw backticks in the author
+// input are escaped to `\`` so the emitted template literal cannot be closed
+// accidentally — `${...}` is the contract, arbitrary JS injection is not.
+
+export function generateFmt(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'fmt'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'formatted', node);
+  const template = props.template;
+  if (template === undefined || template === null) {
+    throw new KernCodegenError("fmt node requires a 'template' prop", node);
+  }
+  const constType = props.type;
+  const exp = exportPrefix(node);
+
+  // Escape backticks so the emitted template literal can't be closed
+  // prematurely. `${...}` is intentionally passed through untouched — that's
+  // the whole reason fmt exists.
+  const escapedTemplate = String(template).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = \`${escapedTemplate}\`;`];
+}
+
 // ── Ground Layer: transform ──────────────────────────────────────────────
 
 export function generateTransform(node: IRNode): string[] {

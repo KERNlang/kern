@@ -330,6 +330,17 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       export: { kind: 'boolean' },
     },
   },
+  fmt: {
+    description:
+      'Formatted string binding — declarative template literal. The `template` body is emitted verbatim between backticks, so `${expr}` placeholders interpolate normally. Use this instead of dropping into a handler just to build an interpolated string.',
+    example: 'fmt name=label template="${count} files over ${totalMb.toFixed(1)} MB"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      template: { required: true, kind: 'string' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
   transform: {
     description: 'Data transformation pipeline — maps target through a via function or handler',
     example: 'transform name=normalized target=rawData via=normalize type=NormalizedData',
@@ -746,6 +757,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'error',
       'guard',
       'derive',
+      'fmt',
       'branch',
       'each',
       'collect',

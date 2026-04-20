@@ -128,6 +128,11 @@ export interface DeriveProps extends BaseProps {
   type?: string;
 }
 
+export interface FmtProps extends BaseProps {
+  template?: string;
+  type?: string;
+}
+
 export interface TransformProps extends BaseProps {
   target?: string;
   via?: string;
@@ -316,6 +321,7 @@ export interface NodePropsMap {
   on: OnProps;
   websocket: WebSocketProps;
   derive: DeriveProps;
+  fmt: FmtProps;
   transform: TransformProps;
   action: ActionProps;
   actionRegistry: ActionRegistryProps;
