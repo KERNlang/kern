@@ -8,9 +8,12 @@
 import type { ConceptMap } from '@kernlang/core';
 import type { ReviewFinding } from '../types.js';
 import { boundaryMutation } from './boundary-mutation.js';
+import { contractDrift } from './contract-drift.js';
 import { ignoredError } from './ignored-error.js';
+import { taintedAcrossWire } from './tainted-across-wire.js';
 import { unguardedEffect } from './unguarded-effect.js';
 import { unrecoveredEffect } from './unrecovered-effect.js';
+import { untypedApiResponse } from './untyped-api-response.js';
 
 export interface ConceptRuleContext {
   concepts: ConceptMap;
@@ -23,7 +26,15 @@ export interface ConceptRuleContext {
 
 export type ConceptRule = (ctx: ConceptRuleContext) => ReviewFinding[];
 
-export const conceptRules: ConceptRule[] = [boundaryMutation, ignoredError, unguardedEffect, unrecoveredEffect];
+export const conceptRules: ConceptRule[] = [
+  boundaryMutation,
+  contractDrift,
+  ignoredError,
+  taintedAcrossWire,
+  unguardedEffect,
+  unrecoveredEffect,
+  untypedApiResponse,
+];
 
 export function runConceptRules(
   concepts: ConceptMap,

@@ -226,7 +226,7 @@ function emitInputHandlers(nodes: IRNode[], lines: string[]): void {
 // declarative-composition path. Metadata-only children (doc, reason, needs, ...)
 // must NOT force composition — their sibling handler owns the render body and
 // should continue through the raw-handler passthrough below.
-const RENDER_JSX_CHILD_TYPES = new Set<string>(['each']);
+const RENDER_JSX_CHILD_TYPES = new Set<string>(['each', 'conditional']);
 
 function emitRender(renderNode: IRNode | undefined, lines: string[]): void {
   if (!renderNode) {
@@ -261,6 +261,8 @@ function emitRenderComposed(renderNode: IRNode, lines: string[]): void {
   for (const child of getChildren(renderNode)) {
     if (child.type === 'each') {
       pieces.push(generateEachJSX(child));
+    } else if (child.type === 'conditional') {
+      pieces.push(generateConditionalJSX(child));
     } else if (child.type === 'handler') {
       // In composed mode the handler contributes a JSX fragment, not a
       // `return`-wrapped expression. Strip a leading `return (...);` so authors
@@ -365,6 +367,100 @@ function generateEachJSX(node: IRNode): string[] {
   lines.push(`    </React.Fragment>`);
   lines.push(`  );`);
   lines.push(`})}`);
+  return lines;
+}
+
+/**
+ * JSX-expression form of `conditional` inside a render block.
+ *
+ *   conditional if="loading"          → `{loading && (<Spinner />)}`
+ *     handler <<< <Spinner /> >>>
+ *
+ *   conditional if="loading"          → `{loading ? (<Spinner />) : (<Content />)}`
+ *     handler <<< <Spinner /> >>>
+ *     else
+ *       handler <<< <Content /> >>>
+ *
+ *   conditional if="loading"          → `{loading ? (<Spinner />) : error ? (<Err />) : (<Content />)}`
+ *     handler <<< <Spinner /> >>>
+ *     elseif expr="error"
+ *       handler <<< <Err /> >>>
+ *     else
+ *       handler <<< <Content /> >>>
+ *
+ * Each branch must carry its JSX in a `handler <<<>>>` child. `elseif` / `else`
+ * children appear in source order and chain into nested ternaries.
+ */
+function generateConditionalJSX(node: IRNode): string[] {
+  const props = propsOf(node);
+  const rawCondition = props.if;
+  const condition =
+    rawCondition && typeof rawCondition === 'object' && (rawCondition as ExprObject).__expr
+      ? (rawCondition as ExprObject).code
+      : (rawCondition as string);
+  if (!condition) throw new KernCodegenError("conditional node requires an 'if' prop", node);
+
+  const thenHandler = getFirstChild(node, 'handler');
+  if (!thenHandler) {
+    throw new KernCodegenError(
+      'conditional inside a render block requires a `handler <<<>>>` child with the `then` JSX',
+      node,
+    );
+  }
+  const thenLines = stripReturnWrapper((propsOf(thenHandler).code as string) || '').split('\n');
+
+  const elseIfNodes = getChildren(node, 'elseif');
+  const elseNode = getFirstChild(node, 'else');
+
+  // Simple `{cond && (...)}` — no alternatives.
+  if (elseIfNodes.length === 0 && !elseNode) {
+    const lines: string[] = [`{${condition} && (`];
+    for (const line of thenLines) lines.push(`  ${line}`);
+    lines.push(`)}`);
+    return lines;
+  }
+
+  // Ternary chain: then → [elseif → ...] → (else | null).
+  const lines: string[] = [`{${condition} ? (`];
+  for (const line of thenLines) lines.push(`  ${line}`);
+
+  for (const elseIf of elseIfNodes) {
+    const ep = propsOf(elseIf);
+    const rawExpr = ep.expr;
+    const elseIfExpr =
+      rawExpr && typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
+        ? (rawExpr as ExprObject).code
+        : (rawExpr as string);
+    if (!elseIfExpr) {
+      throw new KernCodegenError("elseif node requires an 'expr' prop", elseIf);
+    }
+    const elseIfHandler = getFirstChild(elseIf, 'handler');
+    if (!elseIfHandler) {
+      throw new KernCodegenError(
+        'elseif inside a render block requires a `handler <<<>>>` child with the branch JSX',
+        elseIf,
+      );
+    }
+    const body = stripReturnWrapper((propsOf(elseIfHandler).code as string) || '').split('\n');
+    lines.push(`) : ${elseIfExpr} ? (`);
+    for (const line of body) lines.push(`  ${line}`);
+  }
+
+  if (elseNode) {
+    const elseHandler = getFirstChild(elseNode, 'handler');
+    if (!elseHandler) {
+      throw new KernCodegenError(
+        'else inside a render block requires a `handler <<<>>>` child with the fallback JSX',
+        elseNode,
+      );
+    }
+    const body = stripReturnWrapper((propsOf(elseHandler).code as string) || '').split('\n');
+    lines.push(`) : (`);
+    for (const line of body) lines.push(`  ${line}`);
+    lines.push(`)}`);
+  } else {
+    lines.push(`) : null}`);
+  }
   return lines;
 }
 

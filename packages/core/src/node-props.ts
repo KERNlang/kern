@@ -128,6 +128,17 @@ export interface DeriveProps extends BaseProps {
   type?: string;
 }
 
+export interface FmtProps extends BaseProps {
+  template?: string;
+  type?: string;
+}
+
+export interface SetProps extends BaseProps {
+  to?: string | ExprObject;
+}
+
+export interface AsyncProps extends BaseProps {}
+
 export interface TransformProps extends BaseProps {
   target?: string;
   via?: string;
@@ -198,6 +209,12 @@ export interface PatternProps extends BaseProps {
 export interface ConditionalProps extends BaseProps {
   if?: string | ExprObject;
 }
+
+export interface ElseIfProps extends BaseProps {
+  expr?: string | ExprObject;
+}
+
+export interface ElseProps extends BaseProps {}
 
 export interface SelectProps extends BaseProps {
   value?: string;
@@ -310,6 +327,9 @@ export interface NodePropsMap {
   on: OnProps;
   websocket: WebSocketProps;
   derive: DeriveProps;
+  fmt: FmtProps;
+  set: SetProps;
+  async: AsyncProps;
   transform: TransformProps;
   action: ActionProps;
   actionRegistry: ActionRegistryProps;
@@ -324,6 +344,8 @@ export interface NodePropsMap {
   recover: RecoverProps;
   pattern: PatternProps;
   conditional: ConditionalProps;
+  elseif: ElseIfProps;
+  else: ElseProps;
   select: SelectProps;
   module: ModuleProps;
   import: ImportProps;

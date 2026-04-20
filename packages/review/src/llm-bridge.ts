@@ -377,6 +377,13 @@ async function reviewBatch(
   const systemPrompt = buildSystemPrompt(anySourceIncluded);
   const userPrompt = parts.join('\n\n');
 
+  // Track the HTTP attempt up front so timeouts / non-2xx / fetch errors are
+  // still reported in LLMUsage. Without this, a failing batch returns
+  // requestCount=0 and downstream observability (cost/latency dashboards)
+  // under-reports outages — the exact class of failure callers most need
+  // to see.
+  const attemptStartedAt = Date.now();
+  let attemptRecorded = false;
   try {
     const response = await callLLM(
       [
@@ -387,6 +394,7 @@ async function reviewBatch(
     );
 
     mergeUsage(usage, response);
+    attemptRecorded = true;
     const findings = parseLLMResponse(response.content, allInferred);
 
     // Tag all findings as LLM-sourced
@@ -406,6 +414,12 @@ async function reviewBatch(
       primarySpan: { file: inputs[0]?.filePath || '', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
       fingerprint: 'llm-error-0',
     });
+  } finally {
+    if (!attemptRecorded) {
+      // callLLM never merged (timeout / non-2xx / network error). Record a
+      // durationMs-only attempt so requestCount and timing are accurate.
+      mergeUsage(usage, { content: '', durationMs: Date.now() - attemptStartedAt });
+    }
   }
 
   return allFindings;

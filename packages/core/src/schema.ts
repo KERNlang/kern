@@ -307,7 +307,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       key: { kind: 'string' },
       async: { kind: 'boolean' },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'set'],
   },
   websocket: {
     description: 'WebSocket server endpoint with event handlers',
@@ -329,6 +329,36 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       type: { kind: 'typeAnnotation' },
       export: { kind: 'boolean' },
     },
+  },
+  fmt: {
+    description:
+      'Formatted string binding — declarative template literal. The `template` body is emitted verbatim between backticks, so `${expr}` placeholders interpolate normally. Use this instead of dropping into a handler just to build an interpolated string.',
+    example: 'fmt name=label template="${count} files over ${totalMb.toFixed(1)} MB"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      template: { required: true, kind: 'string' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  set: {
+    description:
+      'Declarative state update — inside an `on` event block, `set name=count to="count + 1"` lowers to `setCount(count + 1);`. The setter name follows React useState convention (`set` + capitalized state name). Lets authors skip a handler block when all they need is to mutate a piece of state.',
+    example: 'on event=click\n  set name=count to="count + 1"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      to: { required: true, kind: 'rawExpr' },
+    },
+  },
+  async: {
+    description:
+      'Declarative async block — a named async unit that runs its `handler` body once, optionally wrapped by a `recover` child that delegates to the existing `recover`/`strategy` machinery. Reuses `generateRecover` verbatim, so fallback/retry semantics match the rest of the ground layer. The emitted code is a statement (IIFE when no recover, wrapped call when recover is present) so it can be spliced inside any statement context.',
+    example:
+      'async name=loadUser\n  handler <<<\n    const res = await fetch(`/api/users/${id}`);\n    setUser(await res.json());\n  >>>\n  recover\n    strategy name=fallback\n      handler <<<\n        setUser(null);\n      >>>',
+    props: {
+      name: { kind: 'identifier' },
+    },
+    allowedChildren: ['handler', 'recover'],
   },
   transform: {
     description: 'Data transformation pipeline — maps target through a via function or handler',
@@ -691,11 +721,29 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   conditional: {
-    description: 'Conditional rendering — shows children when if-expression is truthy',
-    example: 'conditional if="user !== null"',
+    description:
+      'Conditional rendering — shows the `then` branch when if-expression is truthy. Inside a `render` block the branch JSX goes in a `handler <<<>>>` child; optional `elseif` / `else` children provide alternative branches.',
+    example:
+      'conditional if="loading"\n  handler <<<\n    <Spinner />\n  >>>\n  elseif expr="error"\n    handler <<<\n      <Error msg={error} />\n    >>>\n  else\n    handler <<<\n      <Content />\n    >>>',
     props: {
       if: { required: true, kind: 'rawExpr' },
     },
+    // No allowedChildren: conditional must remain permissive because
+    // `generateConditional` also wraps arbitrary core nodes when used outside
+    // a render block (e.g. `conditional if=isAdmin` with `type`/`config` kids).
+  },
+  elseif: {
+    description:
+      'Alternative branch inside a `conditional` — matched when the preceding branches are falsy and `expr` is truthy.',
+    example: 'elseif expr="error"\n  handler <<<\n    <Error msg={error} />\n  >>>',
+    props: {
+      expr: { required: true, kind: 'rawExpr' },
+    },
+  },
+  else: {
+    description: 'Fallback branch inside a `conditional` — rendered when no preceding branch matched.',
+    example: 'else\n  handler <<<\n    <Content />\n  >>>',
+    props: {},
   },
 
   // ── Express / Backend nodes ───────────────────────────────────────────
@@ -728,6 +776,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'error',
       'guard',
       'derive',
+      'fmt',
       'branch',
       'each',
       'collect',
@@ -1163,10 +1212,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   render: {
     description:
-      'Render function — JSX output block for a component or hook. Accepts a raw `handler` block OR declarative KERN children (e.g. `each`) that compose into a JSX fragment.',
+      'Render function — JSX output block for a component or hook. Accepts a raw `handler` block OR declarative KERN children (e.g. `each`, `conditional`) that compose into a JSX fragment.',
     example: 'render\n  each name=f in=files key="f.path"\n    handler <<<\n      <Text>{f.path}</Text>\n    >>>',
     props: {},
-    allowedChildren: ['handler', 'each'],
+    allowedChildren: ['handler', 'each', 'conditional'],
   },
   template: {
     description: 'Reusable template with named slots — defines a composable layout pattern',

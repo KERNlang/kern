@@ -294,7 +294,14 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
         confidence: NETWORK_CALLS.has(funcName) ? 1.0 : 0.8,
         language: 'ts',
         containerId: getContainerId(call, filePath),
-        payload: { kind: 'effect', subtype: 'network', async: isAsync, target: extractTarget(call) },
+        payload: {
+          kind: 'effect',
+          subtype: 'network',
+          async: isAsync,
+          target: extractTarget(call),
+          responseAsserted: isResponseAsserted(call),
+          bodyKind: extractBodyKind(call, funcName),
+        },
       });
       continue;
     }
@@ -1078,4 +1085,259 @@ function extractTarget(call: import('ts-morph').CallExpression): string | undefi
     return first.getText().substring(0, 80);
   }
   return undefined;
+}
+
+/**
+ * Given a network call (fetch/axios/…), decide whether the eventual JSON
+ * payload is consumed with a type annotation, `as T` cast, or `satisfies T`
+ * clause. Returns:
+ *   - `true` — the call-site is typed; the consumer enforces a shape.
+ *   - `false` — the call-site is awaited/.then()'d but no assertion appears.
+ *   - `undefined` — no `.json()` consumption in scope, or the pattern is
+ *     too complex to analyze.
+ *
+ * Powers the `untyped-api-response` cross-stack rule (the frontend treats
+ * the server's declared response shape as `any`). Kept intentionally
+ * conservative — false positives here poison the pitch.
+ */
+function isResponseAsserted(call: import('ts-morph').CallExpression): boolean | undefined {
+  // Walk outward from the network call looking for JSON consumption. Only
+  // after we've seen `.json()` (or a `.then(r => r.json())` callback) does
+  // it make sense to rule the *payload* typed vs untyped — a raw Response
+  // assigned to a variable like `const res = await fetch(...)` tells us
+  // nothing about how the caller will later parse it. Codex review on
+  // 550a57ec caught the false positive for the split pattern
+  // `const res = await fetch(url); const data: User[] = await res.json();`
+  // where the raw Response variable has no annotation.
+  let cursor: import('ts-morph').Node = call;
+  let sawJsonConsumption = false;
+  for (let depth = 0; depth < 8; depth++) {
+    const parent = cursor.getParent();
+    if (!parent) return undefined;
+
+    if (parent.getKind() === SyntaxKind.AwaitExpression || parent.getKind() === SyntaxKind.ParenthesizedExpression) {
+      cursor = parent;
+      continue;
+    }
+
+    if (parent.getKind() === SyntaxKind.PropertyAccessExpression) {
+      const pa = parent as import('ts-morph').PropertyAccessExpression;
+      const parentCall = pa.getParent();
+      if (pa.getName() === 'then' && parentCall?.getKind() === SyntaxKind.CallExpression) {
+        // Count this as JSON consumption only if the `.then` callback
+        // clearly parses JSON. A `.then(r => r.status)` chain doesn't.
+        if (callbackCallsJson(parentCall as import('ts-morph').CallExpression)) {
+          sawJsonConsumption = true;
+        }
+        cursor = parentCall;
+        continue;
+      }
+      if (pa.getName() === 'json' && parentCall?.getKind() === SyntaxKind.CallExpression) {
+        // `(…).json()` — we've now reached the JSON payload.
+        sawJsonConsumption = true;
+        cursor = parentCall;
+        continue;
+      }
+      return undefined;
+    }
+
+    // From here on, every branch is about classifying the payload.
+    // If we haven't actually reached the payload yet, we're looking at a
+    // raw Response and can't honestly say whether it's typed — bail with
+    // `undefined` instead of misclassifying it as untyped.
+    if (!sawJsonConsumption) return undefined;
+
+    if (parent.getKind() === SyntaxKind.VariableDeclaration) {
+      const decl = parent as import('ts-morph').VariableDeclaration;
+      if (decl.getTypeNode()) return true;
+      return containsAssertion(decl.getInitializer());
+    }
+
+    if (
+      parent.getKind() === SyntaxKind.ReturnStatement ||
+      parent.getKind() === SyntaxKind.ArrowFunction ||
+      parent.getKind() === SyntaxKind.BinaryExpression
+    ) {
+      return containsAssertion(cursor);
+    }
+
+    if (
+      parent.getKind() === SyntaxKind.AsExpression ||
+      parent.getKind() === SyntaxKind.TypeAssertionExpression ||
+      parent.getKind() === SyntaxKind.SatisfiesExpression
+    ) {
+      return true;
+    }
+
+    return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Peek into a `.then(...)` call's first argument and return true when the
+ * callback body contains a `.json()` call. Used to tell whether a
+ * `.then(r => r.json())` chain actually resolves to JSON — as opposed to
+ * `.then(r => r.status)` which resolves to a number and should not be
+ * treated as JSON consumption.
+ */
+/**
+ * Classify the body payload of a network call (fetch/axios/…):
+ *   - `'none'` — no options arg, or no body property found.
+ *   - `'static'` — body is a literal (string/object/array) with no dynamic
+ *     interpolation.
+ *   - `'dynamic'` — body reads from a variable, uses a template literal
+ *     containing `${…}`, or calls `JSON.stringify(x)` on a non-literal `x`.
+ *
+ * Feeds the `tainted-across-wire` cross-stack rule. Conservative by design:
+ * when unsure we return `undefined` (fallthrough) so the rule stays silent
+ * instead of over-reporting.
+ */
+/**
+ * Network libraries split into two call-site conventions:
+ *   fetch-style — `fetch(url, options)` where `options.body` carries the
+ *     payload. `ky` and generic `request()` follow this shape.
+ *   axios-style — `axios.post(url, data, config)` where the second arg IS
+ *     the payload directly. `got.post`, `superagent.post`, and most axios
+ *     method calls (post/put/patch) match this.
+ * Gemini review on d8f95d49 caught that the flat "object literal at arg1?
+ * look for .body" logic returned `none` for legitimate axios payloads like
+ * `axios.post('/api', { name: 'foo' })` — the whole object IS the body.
+ */
+const AXIOS_STYLE_METHODS = new Set(['post', 'put', 'patch']);
+
+function extractBodyKind(
+  call: import('ts-morph').CallExpression,
+  funcName: string,
+): 'none' | 'static' | 'dynamic' | undefined {
+  const args = call.getArguments();
+  if (args.length < 2) return 'none';
+  const arg = args[1];
+
+  // Axios-style: the 2nd arg *is* the body.
+  if (AXIOS_STYLE_METHODS.has(funcName)) {
+    return classifyBodyExpression(arg);
+  }
+
+  // Fetch-style: the 2nd arg is an options object; body lives in `.body`.
+  if (arg.getKind() === SyntaxKind.ObjectLiteralExpression) {
+    const obj = arg as import('ts-morph').ObjectLiteralExpression;
+    const bodyProp = obj.getProperty('body');
+    if (!bodyProp) return 'none';
+    // Shorthand `{ method: 'POST', body }` — the body is a variable reference
+    // by definition, so it's dynamic. Codex flagged the earlier branch that
+    // returned `undefined` here as a false negative: a shorthand in a
+    // fetch options object is a common RequestInit pattern, not an
+    // unclassifiable construct.
+    if (bodyProp.getKind() === SyntaxKind.ShorthandPropertyAssignment) return 'dynamic';
+    if (bodyProp.getKind() !== SyntaxKind.PropertyAssignment) return undefined;
+    const initializer = (bodyProp as import('ts-morph').PropertyAssignment).getInitializer();
+    return classifyBodyExpression(initializer);
+  }
+
+  // Options is passed as a variable (common pattern: `fetch(url, opts)`) —
+  // we don't have enough info to tell without type checker dataflow.
+  return undefined;
+}
+
+function classifyBodyExpression(expr: import('ts-morph').Node | undefined): 'none' | 'static' | 'dynamic' | undefined {
+  if (!expr) return undefined;
+  const k = expr.getKind();
+
+  if (k === SyntaxKind.StringLiteral || k === SyntaxKind.NoSubstitutionTemplateLiteral) return 'static';
+  if (k === SyntaxKind.NumericLiteral || k === SyntaxKind.TrueKeyword || k === SyntaxKind.FalseKeyword) return 'static';
+  if (k === SyntaxKind.NullKeyword || k === SyntaxKind.UndefinedKeyword) return 'none';
+
+  // Template literal with ${…} → dynamic. Template without substitutions is
+  // handled above as NoSubstitutionTemplateLiteral.
+  if (k === SyntaxKind.TemplateExpression) return 'dynamic';
+
+  // Plain object/array literal — dynamic iff any value inside is non-literal.
+  if (k === SyntaxKind.ObjectLiteralExpression || k === SyntaxKind.ArrayLiteralExpression) {
+    return objectOrArrayIsDynamic(expr) ? 'dynamic' : 'static';
+  }
+
+  // `JSON.stringify(x)` — dynamic when x is non-literal, static otherwise.
+  if (k === SyntaxKind.CallExpression) {
+    const call = expr as import('ts-morph').CallExpression;
+    const calleeText = call.getExpression().getText();
+    if (calleeText === 'JSON.stringify') {
+      const arg = call.getArguments()[0];
+      return classifyBodyExpression(arg);
+    }
+    return 'dynamic';
+  }
+
+  // Identifier, property access, element access, binary expression, etc. —
+  // something that reads a variable or constructs a value at runtime.
+  if (
+    k === SyntaxKind.Identifier ||
+    k === SyntaxKind.PropertyAccessExpression ||
+    k === SyntaxKind.ElementAccessExpression ||
+    k === SyntaxKind.BinaryExpression ||
+    k === SyntaxKind.ConditionalExpression ||
+    k === SyntaxKind.SpreadElement
+  ) {
+    return 'dynamic';
+  }
+
+  return undefined;
+}
+
+function objectOrArrayIsDynamic(expr: import('ts-morph').Node): boolean {
+  // Walk top-level values; recurse into nested objects/arrays.
+  if (expr.getKind() === SyntaxKind.ObjectLiteralExpression) {
+    const obj = expr as import('ts-morph').ObjectLiteralExpression;
+    for (const prop of obj.getProperties()) {
+      if (prop.getKind() === SyntaxKind.ShorthandPropertyAssignment) return true;
+      if (prop.getKind() === SyntaxKind.SpreadAssignment) return true;
+      if (prop.getKind() !== SyntaxKind.PropertyAssignment) return true;
+      const init = (prop as import('ts-morph').PropertyAssignment).getInitializer();
+      const kind = classifyBodyExpression(init);
+      if (kind !== 'static' && kind !== 'none') return true;
+    }
+    return false;
+  }
+  if (expr.getKind() === SyntaxKind.ArrayLiteralExpression) {
+    const arr = expr as import('ts-morph').ArrayLiteralExpression;
+    for (const el of arr.getElements()) {
+      const kind = classifyBodyExpression(el);
+      if (kind !== 'static' && kind !== 'none') return true;
+    }
+    return false;
+  }
+  return true;
+}
+
+function callbackCallsJson(thenCall: import('ts-morph').CallExpression): boolean {
+  const callback = thenCall.getArguments()[0];
+  if (!callback) return false;
+  const k = callback.getKind();
+  if (k !== SyntaxKind.ArrowFunction && k !== SyntaxKind.FunctionExpression) return false;
+  const callbackText = callback.getText();
+  // Text-based check is sufficient here: the callback bodies we care about
+  // are short and the helper is advisory. The rule treats `undefined` as
+  // "unknown" and stays silent, so a miss here is never a false positive.
+  return /\.json\s*\(\s*\)/.test(callbackText);
+}
+
+function containsAssertion(node: import('ts-morph').Node | undefined): boolean {
+  if (!node) return false;
+  const k = node.getKind();
+  if (
+    k === SyntaxKind.AsExpression ||
+    k === SyntaxKind.TypeAssertionExpression ||
+    k === SyntaxKind.SatisfiesExpression
+  ) {
+    return true;
+  }
+  // A single-level unwrap of `await` / `(...)` is enough for the common
+  // `const x = (await fetch(...).then(r => r.json())) as User` shape.
+  if (k === SyntaxKind.AwaitExpression || k === SyntaxKind.ParenthesizedExpression) {
+    const child = (
+      node as import('ts-morph').AwaitExpression | import('ts-morph').ParenthesizedExpression
+    ).getExpression();
+    return containsAssertion(child);
+  }
+  return false;
 }

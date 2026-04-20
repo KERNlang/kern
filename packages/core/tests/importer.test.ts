@@ -106,9 +106,96 @@ export function DashboardPage(): JSX.Element {
     expect(result.kern).toContain('row {fd:column, p:4}');
     expect(result.kern).toContain('button');
     expect(result.kern).toContain('on event=click');
-    expect(result.kern).toContain('conditional expr="count > 0"');
+    expect(result.kern).toContain('conditional if="count > 0"');
     expect(result.stats.components).toBe(1);
     expect(() => parse(result.kern)).not.toThrow();
+  });
+
+  // ── PR 7: extraction lifts for PR 3/4 primitives ─────────────────────────
+
+  describe('lift: template literal → fmt', () => {
+    test('const bound to a template literal becomes a `fmt` node', () => {
+      const source = 'const label = `${count} files over ${totalMb} MB`;';
+      const result = importTypeScript(source, 'label.ts');
+      expect(result.kern).toContain('fmt name=label template="${count} files over ${totalMb} MB"');
+      expect(() => parse(result.kern)).not.toThrow();
+    });
+
+    test('const bound to a no-substitution template literal also becomes fmt', () => {
+      const source = 'const greeting = `hello world`;';
+      const result = importTypeScript(source, 'greeting.ts');
+      expect(result.kern).toContain('fmt name=greeting template="hello world"');
+    });
+
+    test('preserves explicit type annotation on fmt', () => {
+      const source = 'const label: string = `${n} items`;';
+      const result = importTypeScript(source, 'label.ts');
+      expect(result.kern).toContain('fmt name=label type=string template="${n} items"');
+    });
+
+    test('propagates export=true', () => {
+      const source = 'export const label = `${n} files`;';
+      const result = importTypeScript(source, 'label.ts');
+      expect(result.kern).toMatch(/fmt name=label template="\$\{n\} files".*export=true/);
+    });
+
+    test('multi-line templates fall through to raw-handler path (no fmt)', () => {
+      const source = 'const label = `first line\nsecond line`;';
+      const result = importTypeScript(source, 'label.ts');
+      // Multi-line can't fit in a quoted KERN attribute — fmt is not emitted.
+      expect(result.kern).not.toContain('fmt name=label');
+      // Falls back to the complex-initializer path.
+      expect(result.kern).toContain('const name=label');
+    });
+
+    test('round-trips through parse without error for an interpolated fmt', () => {
+      const source = 'const msg = `count is ${count}`;';
+      const result = importTypeScript(source, 'msg.ts');
+      expect(result.kern).toContain('fmt name=msg template="count is ${count}"');
+      expect(() => parse(result.kern)).not.toThrow();
+    });
+  });
+
+  describe('lift: JSX ternary / short-circuit → conditional', () => {
+    test('{cond && <X/>} becomes `conditional if=... handler <<<>>>`', () => {
+      const source = `
+import React from 'react';
+export function Gate({ show }: { show: boolean }) {
+  return (
+    <div>
+      {show && <span>visible</span>}
+    </div>
+  );
+}
+`;
+      const result = importTypeScript(source, 'gate.tsx');
+      expect(result.kern).toContain('conditional if="show"');
+      expect(result.kern).toContain('handler <<<');
+      expect(result.kern).toContain('<span>visible</span>');
+      expect(() => parse(result.kern)).not.toThrow();
+    });
+
+    test('{cond ? <A/> : <B/>} becomes `conditional if=... + else handler`', () => {
+      const source = `
+import React from 'react';
+export function Gate({ loading }: { loading: boolean }) {
+  return (
+    <div>
+      {loading ? <Spinner /> : <Content />}
+    </div>
+  );
+}
+`;
+      const result = importTypeScript(source, 'gate.tsx');
+      expect(result.kern).toContain('conditional if="loading"');
+      expect(result.kern).toContain('<Spinner />');
+      expect(result.kern).toContain('else');
+      expect(result.kern).toContain('<Content />');
+      // No more old branch/path shape.
+      expect(result.kern).not.toContain('branch name=cond');
+      expect(result.kern).not.toContain('path value=true');
+      expect(() => parse(result.kern)).not.toThrow();
+    });
   });
 
   test('tracks unmapped constructs instead of dropping them silently', () => {

@@ -201,6 +201,8 @@ export const NODE_TYPES = [
   'invalidate',
   // UI controls
   'conditional',
+  'else',
+  'elseif',
   'component',
   'select',
   'option',
@@ -213,6 +215,9 @@ export const NODE_TYPES = [
   'body',
   // Ground layer — semantic reasoning
   'derive',
+  'fmt',
+  'set',
+  'async',
   'transform',
   'action',
   'actionRegistry',

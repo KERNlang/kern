@@ -47,6 +47,25 @@ export interface EffectPayload {
   subtype: 'network' | 'db' | 'fs' | 'process' | 'time' | 'random';
   target?: string;
   async: boolean;
+  /**
+   * For `network` subtype only. `true` when the call's eventual JSON value is
+   * consumed with a type annotation, `as T` cast, or `satisfies T` clause;
+   * `false` when `.json()` is awaited without any assertion; `undefined` when
+   * the mapper can't tell (no `.json()` in scope, or the shape is too
+   * complex to analyze statically). Feeds the `untyped-api-response` rule.
+   */
+  responseAsserted?: boolean;
+  /**
+   * For `network` subtype only. Classifies what the call sends on the wire:
+   *   - `'none'` — no body (GET, or no options arg at all).
+   *   - `'static'` — body is a string literal or literal object without any
+   *     dynamic interpolation.
+   *   - `'dynamic'` — body is built from variables, template literals with
+   *     `${…}`, or `JSON.stringify(x)` for some non-literal `x`.
+   * Feeds the `tainted-across-wire` rule so it can fire only on the class
+   * of calls that actually carry user-controlled data.
+   */
+  bodyKind?: 'none' | 'static' | 'dynamic';
 }
 
 export interface StateMutationPayload {
