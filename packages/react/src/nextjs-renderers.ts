@@ -192,14 +192,18 @@ function renderPage(node: IRNode, ctx: Ctx, indent: string): void {
   if (p.client === 'true' || p.client === true) ctx.isClient = true;
   if (p.async === 'true' || p.async === true) ctx.isAsync = true;
 
-  // GAP-008: a `render <<<jsx>>>` child on a page emits its handler body
-  // verbatim as the return JSX, bypassing the default `<div>` wrapper.
-  // Sibling children (fetch/state/import/logic) still run first so they
-  // populate the surrounding context.
+  // GAP-008: a `render` child on a page emits its body verbatim as the
+  // return JSX, bypassing the default `<div>` wrapper. Two shapes are
+  // accepted: the raw `render <<<jsx>>>` form (parser stores code on the
+  // render node itself) and the structured `render / handler <<<jsx>>>`
+  // form (code lives on a `handler` child). Sibling children on the page
+  // (fetch/state/import/logic) still run first so they populate ctx.
   const children = node.children || [];
   const renderChild = children.find((c) => c.type === 'render');
+  const renderInlineCode = renderChild?.props?.code ? String(renderChild.props.code) : undefined;
   const renderHandler = renderChild?.children?.find((c) => c.type === 'handler');
-  const renderCode = renderHandler?.props?.code ? String(renderHandler.props.code) : undefined;
+  const renderHandlerCode = renderHandler?.props?.code ? String(renderHandler.props.code) : undefined;
+  const renderCode = renderInlineCode ?? renderHandlerCode;
 
   if (renderCode) {
     for (const child of children) {

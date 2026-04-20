@@ -32,7 +32,7 @@ export interface ParserHintsConfig {
 export class KernRuntime {
   // Parser state
   readonly parserHints = new Map<string, ParserHintsConfig>();
-  readonly multilineBlockTypes = new Set(['logic', 'handler', 'cleanup', 'body', 'doc']);
+  readonly multilineBlockTypes = new Set(['logic', 'handler', 'cleanup', 'body', 'doc', 'render']);
   lastParseDiagnostics: ParseDiagnostic[] = [];
 
   // Spec state
