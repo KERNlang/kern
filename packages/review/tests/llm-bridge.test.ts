@@ -226,3 +226,66 @@ describe('graph-aware source budgeting', () => {
     expect(findings.some((f) => f.ruleId === 'llm-skipped')).toBe(true);
   });
 });
+
+describe('runLLMReview — usage/timing reporting (GAP-010)', () => {
+  it('aggregates provider token counts and per-request durations on success', async () => {
+    const { createServer } = await import('node:http');
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          choices: [{ message: { content: '[]' } }],
+          usage: { prompt_tokens: 123, completion_tokens: 45 },
+        }),
+      );
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const port = (server.address() as { port: number }).port;
+
+    try {
+      const { usage, findings } = await runLLMReview(
+        [{ filePath: 'a.ts', inferred: [], templateMatches: [] }],
+        {
+          apiKey: 'fake-key',
+          model: 'mock-model',
+          baseUrl: `http://127.0.0.1:${port}`,
+          timeout: 2000,
+        },
+      );
+
+      expect(findings).toEqual([]);
+      expect(usage.requestCount).toBe(1);
+      expect(usage.requestDurationsMs).toHaveLength(1);
+      expect(usage.requestDurationsMs[0]).toBeGreaterThanOrEqual(0);
+      expect(usage.promptTokens).toBe(123);
+      expect(usage.completionTokens).toBe(45);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it('counts a failed HTTP attempt in usage even when callLLM throws (codex follow-up)', async () => {
+    // baseUrl points at a closed port so fetch rejects immediately.
+    const { usage, findings } = await runLLMReview(
+      [{ filePath: 'a.ts', inferred: [], templateMatches: [] }],
+      {
+        apiKey: 'fake-key',
+        model: 'mock-model',
+        baseUrl: 'http://127.0.0.1:1',
+        timeout: 1000,
+      },
+    );
+
+    // Pipeline still degrades gracefully with an llm-error finding.
+    expect(findings.length).toBe(1);
+    expect(findings[0].ruleId).toBe('llm-error');
+    // AND the failed attempt is reflected in usage — otherwise cost/latency
+    // dashboards under-report outages (the exact scenario callers most need).
+    expect(usage.requestCount).toBe(1);
+    expect(usage.requestDurationsMs).toHaveLength(1);
+    expect(usage.requestDurationsMs[0]).toBeGreaterThanOrEqual(0);
+    // No tokens were returned by the provider so counts stay undefined.
+    expect(usage.promptTokens).toBeUndefined();
+    expect(usage.completionTokens).toBeUndefined();
+  });
+});
