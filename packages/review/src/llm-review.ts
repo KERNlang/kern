@@ -185,8 +185,10 @@ export function parseLLMResponse(response: string, inferred: InferResult[]): Rev
 
   const validAliases = new Set(aliasMap.keys());
 
-  // Extract JSON array from response (might be wrapped in markdown code blocks)
+  // Extract JSON array from response (might be wrapped in markdown code blocks or reasoning tags)
   let jsonStr = response.trim();
+  // Strip chain-of-thought <think>...</think> blocks (emitted by reasoning models e.g. minimax)
+  jsonStr = jsonStr.replace(/^<think>[\s\S]*?<\/think>\s*/i, '').trim();
   // Strip markdown code fences
   if (jsonStr.startsWith('```')) {
     jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
@@ -196,15 +198,17 @@ export function parseLLMResponse(response: string, inferred: InferResult[]): Rev
   try {
     parsed = JSON.parse(jsonStr);
   } catch {
+    // Infrastructure failure — LLM returned malformed output.
+    // Emit info-level notice (not error/bug) so it's visible but never blocks CI.
     return [
       {
         source: 'llm',
-        ruleId: 'parse-error',
-        severity: 'error',
-        category: 'bug',
-        message: `Failed to parse LLM response as JSON: ${jsonStr.substring(0, 100)}...`,
+        ruleId: 'llm-error',
+        severity: 'info',
+        category: 'structure',
+        message: `LLM review returned unparseable output (${jsonStr.substring(0, 60).replace(/\n/g, ' ')}…)`,
         primarySpan: { file: '', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
-        fingerprint: createFingerprint('parse-error', 0, 0),
+        fingerprint: createFingerprint('llm-error', 0, 0),
       },
     ];
   }
@@ -213,12 +217,12 @@ export function parseLLMResponse(response: string, inferred: InferResult[]): Rev
     return [
       {
         source: 'llm',
-        ruleId: 'parse-error',
-        severity: 'error',
-        category: 'bug',
-        message: 'LLM response is not a JSON array',
+        ruleId: 'llm-error',
+        severity: 'info',
+        category: 'structure',
+        message: 'LLM review returned non-array JSON',
         primarySpan: { file: '', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
-        fingerprint: createFingerprint('parse-error', 0, 1),
+        fingerprint: createFingerprint('llm-error', 0, 1),
       },
     ];
   }

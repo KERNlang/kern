@@ -36,6 +36,7 @@ interface SnippetAnalysis {
 
 const SCOPE_NODE_TYPES = new Set([
   'screen',
+  'surface',
   'hook',
   'provider',
   'fn',
@@ -80,6 +81,7 @@ const DIRECT_BINDING_NODE_TYPES = new Set([
   'method',
   'arg',
   'flag',
+  'prop',
   // Top-level declaration types (visible to all handlers in the file)
   'screen',
   'type',

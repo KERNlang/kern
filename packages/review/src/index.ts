@@ -366,9 +366,26 @@ export function reviewFile(filePath: string, config?: ReviewConfig): ReviewRepor
     report = reviewKernSource(source, filePath, effectiveConfig);
   } else if (filePath.endsWith('.py')) {
     report = reviewPythonSource(source, filePath, effectiveConfig);
-  } else {
+  } else if (/\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/.test(filePath)) {
     // Use filesystem-backed project for real files (enables TypeChecker)
     report = reviewSourceWithProject(source, filePath, effectiveConfig);
+  } else {
+    // Non-source file (markdown, JSON, patch, yaml, etc.) — skip review entirely
+    return {
+      filePath,
+      inferred: [],
+      templateMatches: [],
+      findings: [],
+      stats: {
+        totalLines: source.split('\n').length,
+        coveredLines: 0,
+        coveragePct: 0,
+        totalTsTokens: 0,
+        totalKernTokens: 0,
+        reductionPct: 0,
+        constructCount: 0,
+      },
+    };
   }
 
   if (isGeneratedFile(filePath, source)) {
@@ -484,7 +501,10 @@ function reviewSourceInternal(
   const templateMatches = safePhase('templates', () => detectTemplates(sourceFile, config), []);
 
   // Phase 4: Structural diff → unified findings
-  allFindings.push(...safePhase('diff', () => structuralDiff(source, inferred, filePath), []));
+  // Skip for test files: test code is intentionally non-KERN, extra-code/style-difference is noise.
+  if (fileRole !== 'test') {
+    allFindings.push(...safePhase('diff', () => structuralDiff(source, inferred, filePath), []));
+  }
 
   // Phase 5: Quality rules → unified findings (receives fileRole)
   allFindings.push(
