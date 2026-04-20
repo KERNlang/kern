@@ -1175,7 +1175,9 @@ function containsAssertion(node: import('ts-morph').Node | undefined): boolean {
   // A single-level unwrap of `await` / `(...)` is enough for the common
   // `const x = (await fetch(...).then(r => r.json())) as User` shape.
   if (k === SyntaxKind.AwaitExpression || k === SyntaxKind.ParenthesizedExpression) {
-    const child = (node as import('ts-morph').AwaitExpression | import('ts-morph').ParenthesizedExpression).getExpression();
+    const child = (
+      node as import('ts-morph').AwaitExpression | import('ts-morph').ParenthesizedExpression
+    ).getExpression();
     return containsAssertion(child);
   }
   return false;
