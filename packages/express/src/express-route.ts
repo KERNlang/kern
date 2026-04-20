@@ -21,6 +21,8 @@ export function buildRouteArtifact(
   middlewareArtifacts: Map<string, MiddlewareArtifactRef>,
   sourceMap: SourceMapEntry[],
   securityLevel: 'strict' | 'relaxed',
+  /** Rendered `import ... from '...'` lines propagated from the enclosing `server` block. */
+  propagatedImports: readonly string[] = [],
 ): RouteArtifactRef {
   const props = getProps(routeNode);
   const method = String(props.method || 'get').toLowerCase();
@@ -165,6 +167,9 @@ export function buildRouteArtifact(
   }
   for (const routeImport of [...routeImports].sort()) {
     lines.push(routeImport);
+  }
+  for (const propagated of propagatedImports) {
+    lines.push(propagated);
   }
   lines.push('');
   lines.push(`type RouteParams = ${paramsType};`);

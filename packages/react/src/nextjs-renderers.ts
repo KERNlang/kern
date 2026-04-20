@@ -191,6 +191,26 @@ function renderPage(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   if (p.client === 'true' || p.client === true) ctx.isClient = true;
   if (p.async === 'true' || p.async === true) ctx.isAsync = true;
+
+  // GAP-008: a `render <<<jsx>>>` child on a page emits its handler body
+  // verbatim as the return JSX, bypassing the default `<div>` wrapper.
+  // Sibling children (fetch/state/import/logic) still run first so they
+  // populate the surrounding context.
+  const children = node.children || [];
+  const renderChild = children.find((c) => c.type === 'render');
+  const renderHandler = renderChild?.children?.find((c) => c.type === 'handler');
+  const renderCode = renderHandler?.props?.code ? String(renderHandler.props.code) : undefined;
+
+  if (renderCode) {
+    for (const child of children) {
+      if (child.type !== 'render') renderNode(child, ctx, `${indent}  `);
+    }
+    for (const line of renderCode.split('\n')) {
+      ctx.lines.push(`${indent}${line}`);
+    }
+    return;
+  }
+
   ctx.lines.push(`${indent}<div${twClasses(node, ctx)}>`);
   renderChildren(node, ctx, indent);
   ctx.lines.push(`${indent}</div>`);
@@ -647,5 +667,7 @@ function renderFetchNode(node: IRNode, ctx: Ctx): void {
   const name = (p.name as string) || 'data';
   const url = (p.url as string) || '/api/data';
   const options = p.options as string;
-  ctx.fetchCalls.push({ name, url, options });
+  const handlerChild = (node.children || []).find((c) => c.type === 'handler');
+  const handlerCode = handlerChild?.props?.code ? String(handlerChild.props.code) : undefined;
+  ctx.fetchCalls.push({ name, url, options, handlerCode });
 }

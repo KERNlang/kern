@@ -1024,9 +1024,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example: 'fetch name=posts url="/api/posts" options="{ next: { revalidate: 60 } }"',
     props: {
       name: { required: true, kind: 'identifier' },
-      url: { required: true, kind: 'rawExpr' },
+      // When a `handler <<<>>>` child is provided the handler body is the loader,
+      // so `url` becomes irrelevant and is no longer required.
+      url: { kind: 'rawExpr' },
       options: { kind: 'rawExpr' },
     },
+    allowedChildren: ['handler'],
   },
   generateMetadata: {
     description: 'Next.js generateMetadata export — async function for dynamic page metadata',

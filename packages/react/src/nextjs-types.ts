@@ -19,6 +19,13 @@ export interface FetchCall {
   name: string;
   url: string;
   options?: string;
+  /**
+   * Body of a `handler <<<>>>` child on the `fetch` node. When present the
+   * codegen emits this body as the data-loader for `name` instead of the
+   * default `await fetch(url).then(r => r.json())` so pages can call their
+   * own DB/service layer directly.
+   */
+  handlerCode?: string;
 }
 
 export interface GenerateMetadataInfo {
