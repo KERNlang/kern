@@ -102,7 +102,7 @@ fn name=heavy params="input:string" returns=string
     const finding = report.findings.find((f) => f.ruleId === 'handler-heavy');
 
     expect(finding).toBeDefined();
-    expect(finding?.severity).toBe('warning');
+    expect(finding?.severity).toBe('info');
     expect(finding?.message).toContain('file tokens');
   });
 

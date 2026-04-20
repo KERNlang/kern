@@ -108,16 +108,29 @@ export function getUser(id: string): User { return {} as User; }
       expect(findings.length).toBe(1);
     });
 
-    it('returns parse error for invalid JSON', () => {
+    it('returns info-level llm-error for invalid JSON (not a blocking code finding)', () => {
       const findings = parseLLMResponse('not json at all', inferred);
       expect(findings.length).toBe(1);
-      expect(findings[0].ruleId).toBe('parse-error');
+      expect(findings[0].ruleId).toBe('llm-error');
+      expect(findings[0].severity).toBe('info');
+      expect(findings[0].category).toBe('structure');
     });
 
-    it('returns parse error for non-array JSON', () => {
+    it('returns info-level llm-error for non-array JSON', () => {
       const findings = parseLLMResponse('{"not": "array"}', inferred);
       expect(findings.length).toBe(1);
-      expect(findings[0].ruleId).toBe('parse-error');
+      expect(findings[0].ruleId).toBe('llm-error');
+      expect(findings[0].severity).toBe('info');
+    });
+
+    it('strips <think> reasoning blocks before parsing JSON', () => {
+      const alias = inferred.find((r) => r.node.type !== 'import')!.promptAlias;
+      const jsonPayload = JSON.stringify([
+        { nodeAlias: alias, severity: 'warning', category: 'bug', message: 'Issue' },
+      ]);
+      const response = `<think>\nLet me analyze the code carefully.\n</think>\n${jsonPayload}`;
+      const findings = parseLLMResponse(response, inferred);
+      expect(findings.length).toBe(1);
     });
 
     it('skips findings with invalid severity', () => {

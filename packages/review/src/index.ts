@@ -407,9 +407,26 @@ export function reviewFile(filePath: string, config?: ReviewConfig): ReviewRepor
     report = reviewKernSource(source, filePath, effectiveConfig);
   } else if (filePath.endsWith('.py')) {
     report = reviewPythonSource(source, filePath, effectiveConfig);
-  } else {
+  } else if (/\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/.test(filePath)) {
     // Use filesystem-backed project for real files (enables TypeChecker)
     report = reviewSourceWithProject(source, filePath, effectiveConfig);
+  } else {
+    // Non-source file (markdown, JSON, patch, yaml, etc.) — skip review entirely
+    return {
+      filePath,
+      inferred: [],
+      templateMatches: [],
+      findings: [],
+      stats: {
+        totalLines: source.split('\n').length,
+        coveredLines: 0,
+        coveragePct: 0,
+        totalTsTokens: 0,
+        totalKernTokens: 0,
+        reductionPct: 0,
+        constructCount: 0,
+      },
+    };
   }
 
   if (isGeneratedFile(filePath, source)) {

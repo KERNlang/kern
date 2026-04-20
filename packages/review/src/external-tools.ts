@@ -121,10 +121,23 @@ function categorizeESLintRule(ruleId: string): ReviewFinding['category'] {
 
 export interface RunTSCDiagnosticsOptions {
   /**
-   * When true, suppress TS6059/TS6307 project-loading diagnostics. Set this only for callers that
-   * inject ad-hoc files into a Project that carries a host tsconfig — those two codes then fire as
-   * infrastructure noise, not user bugs. The --lint path must leave this false so a real tsconfig
-   * misconfiguration still surfaces as an error.
+   * When true, suppress TS diagnostics that fire as kern-review infrastructure noise when we inject
+   * ad-hoc files into a Project that carries a host tsconfig. Suppressed codes fall into two classes:
+   *
+   *   Project membership (in-memory Project vs host rootDir):
+   *   - TS6059  — "File is not listed within the file list of project"
+   *   - TS6307  — "File is not under 'rootDir'"
+   *
+   *   Environmental (in-memory Project doesn't mirror host compilerOptions — moduleResolution, jsx, lib):
+   *   - TS2792  — "Cannot find module X. Did you mean to set 'moduleResolution' to 'nodenext'?"
+   *   - TS17004 — "Cannot use JSX unless the '--jsx' flag is provided"
+   *   - TS2580 / TS2591 — "Cannot find name 'process'/'require'/'module'" (@types/node missing)
+   *
+   * The dev already sees the environmental class in their IDE / local `tsc --noEmit` when real.
+   * Set this only for the standard review path. The --lint path must leave it false so real
+   * tsconfig misconfigurations still surface as errors.
+   *
+   * The name is kept for backward compatibility; scope broadened deliberately.
    */
   downgradeProjectLoadingErrors?: boolean;
 }
@@ -185,8 +198,19 @@ export function runTSCDiagnostics(
       // them as info still pollutes every barrel/re-export report in composite monorepos.
       //   ts6059 — "File is not listed within the file list of project"
       //   ts6307 — "File is not under 'rootDir'"
+      // The following codes are environmental: they reflect ts-morph's in-memory Project not
+      // perfectly mirroring the host's compilerOptions (moduleResolution, jsx, lib). The dev
+      // already sees them in their IDE / local `tsc --noEmit` if real; the review's value-add
+      // is KERN-relevant findings, not duplicating compiler output. A sweep of the agon repo
+      // (451 files) emitted 1869 of these as errors — pure noise drowning real findings.
+      //   ts2792  — "Cannot find module X. Did you mean to set 'moduleResolution' to 'nodenext'?"
+      //   ts17004 — "Cannot use JSX unless the '--jsx' flag is provided"
+      //   ts2580 / ts2591 — "Cannot find name 'process'/'require'/'module'. Install @types/node?"
+      //     (TS emits 2580 when the name resolves via global lib shims, 2591 when it doesn't —
+      //     both point at the same user-side remedy, both are environmental from review's POV.)
       const isLoadingNoise = code === 6059 || code === 6307;
-      if (isLoadingNoise && options.downgradeProjectLoadingErrors) {
+      const isEnvironmentalNoise = code === 2792 || code === 17004 || code === 2580 || code === 2591;
+      if ((isLoadingNoise || isEnvironmentalNoise) && options.downgradeProjectLoadingErrors) {
         continue;
       }
 
