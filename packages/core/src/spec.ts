@@ -216,6 +216,7 @@ export const NODE_TYPES = [
   // Ground layer — semantic reasoning
   'derive',
   'fmt',
+  'set',
   'transform',
   'action',
   'actionRegistry',

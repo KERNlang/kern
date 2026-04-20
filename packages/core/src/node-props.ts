@@ -133,6 +133,10 @@ export interface FmtProps extends BaseProps {
   type?: string;
 }
 
+export interface SetProps extends BaseProps {
+  to?: string | ExprObject;
+}
+
 export interface TransformProps extends BaseProps {
   target?: string;
   via?: string;
@@ -322,6 +326,7 @@ export interface NodePropsMap {
   websocket: WebSocketProps;
   derive: DeriveProps;
   fmt: FmtProps;
+  set: SetProps;
   transform: TransformProps;
   action: ActionProps;
   actionRegistry: ActionRegistryProps;

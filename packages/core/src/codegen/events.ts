@@ -4,8 +4,9 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
+import { KernCodegenError } from '../errors.js';
 import { propsOf } from '../node-props.js';
-import type { IRNode } from '../types.js';
+import type { ExprObject, IRNode } from '../types.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
 import { capitalize, emitDocComment, exportPrefix, getChildren, getProps, handlerCode } from './helpers.js';
 
@@ -103,15 +104,60 @@ export function generateOn(node: IRNode): string[] {
   // Key filter guard
   const keyGuard = key ? `  if (key !== '${key}') return;\n` : '';
 
+  // Splice declarative `set` children into the callback body in source order,
+  // then append the handler block (if any). Lets authors write
+  //   on event=click
+  //     set name=count to="count + 1"
+  // instead of dropping into a handler just to call the setter.
+  const bodyLines = buildOnBodyLines(node, code);
+
   lines.push(`${exp}${asyncKw}function ${fnName}(${paramType}) {`);
   if (keyGuard) lines.push(keyGuard.trimEnd());
-  if (code) {
-    for (const line of code.split('\n')) {
-      lines.push(`  ${line}`);
-    }
-  }
+  for (const line of bodyLines) lines.push(`  ${line}`);
   lines.push('}');
   return lines;
+}
+
+/**
+ * Walk the `on` node's children in source order, emitting `setX(expr);` for
+ * each `set` child and inlining the `handler` block's code after. The setter
+ * name mirrors the React useState convention used by `emitStateDecls` —
+ * `set` + capitalized state name — so a sibling `state name=count` + a
+ * `set name=count to="..."` always match.
+ */
+function buildOnBodyLines(node: IRNode, fallbackCode: string): string[] {
+  const children = node.children || [];
+  const hasSet = children.some((c) => c.type === 'set');
+
+  // Back-compat: no `set` children → keep the old single-handler path verbatim.
+  if (!hasSet) {
+    return fallbackCode ? fallbackCode.split('\n') : [];
+  }
+
+  const out: string[] = [];
+  for (const child of children) {
+    if (child.type === 'set') {
+      out.push(emitSetStatement(child));
+    } else if (child.type === 'handler') {
+      const code = ((child.props || {}).code as string) || ((child.props || {}).body as string) || '';
+      if (code) out.push(...code.split('\n'));
+    }
+    // Other children (reason, evidence, needs, doc, ...) contribute nothing to the callback body.
+  }
+  return out;
+}
+
+function emitSetStatement(node: IRNode): string {
+  const props = propsOf<'set'>(node);
+  const name = emitIdentifier(props.name as string, 'state', node);
+  const rawTo = props.to;
+  const to =
+    rawTo && typeof rawTo === 'object' && (rawTo as ExprObject).__expr ? (rawTo as ExprObject).code : (rawTo as string);
+  if (to === undefined || to === null || to === '') {
+    throw new KernCodegenError("set node requires a 'to' prop", node);
+  }
+  const setter = `set${capitalize(name)}`;
+  return `${setter}(${to});`;
 }
 
 // ── WebSocket — bidirectional communication ──────────────────────────────

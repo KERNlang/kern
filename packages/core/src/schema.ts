@@ -307,7 +307,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       key: { kind: 'string' },
       async: { kind: 'boolean' },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'set'],
   },
   websocket: {
     description: 'WebSocket server endpoint with event handlers',
@@ -339,6 +339,15 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       template: { required: true, kind: 'string' },
       type: { kind: 'typeAnnotation' },
       export: { kind: 'boolean' },
+    },
+  },
+  set: {
+    description:
+      'Declarative state update — inside an `on` event block, `set name=count to="count + 1"` lowers to `setCount(count + 1);`. The setter name follows React useState convention (`set` + capitalized state name). Lets authors skip a handler block when all they need is to mutate a piece of state.',
+    example: 'on event=click\n  set name=count to="count + 1"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      to: { required: true, kind: 'rawExpr' },
     },
   },
   transform: {

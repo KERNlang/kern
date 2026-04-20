@@ -437,6 +437,7 @@ export const CORE_NODE_TYPES = new Set([
   // Ground layer
   'derive',
   'fmt',
+  'set',
   'transform',
   'action',
   'actionRegistry',
