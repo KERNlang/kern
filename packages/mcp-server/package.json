@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/mcp-server",
-  "version": "3.3.4",
+  "version": "3.3.5",
   "description": "KERN MCP server — compile, review, and analyze .kern files via MCP",
   "type": "module",
   "main": "./dist/index.js",
