@@ -191,6 +191,30 @@ function renderPage(node: IRNode, ctx: Ctx, indent: string): void {
   const p = getProps(node);
   if (p.client === 'true' || p.client === true) ctx.isClient = true;
   if (p.async === 'true' || p.async === true) ctx.isAsync = true;
+
+  // GAP-008: a `render` child on a page emits its body verbatim as the
+  // return JSX, bypassing the default `<div>` wrapper. Two shapes are
+  // accepted: the raw `render <<<jsx>>>` form (parser stores code on the
+  // render node itself) and the structured `render / handler <<<jsx>>>`
+  // form (code lives on a `handler` child). Sibling children on the page
+  // (fetch/state/import/logic) still run first so they populate ctx.
+  const children = node.children || [];
+  const renderChild = children.find((c) => c.type === 'render');
+  const renderInlineCode = renderChild?.props?.code ? String(renderChild.props.code) : undefined;
+  const renderHandler = renderChild?.children?.find((c) => c.type === 'handler');
+  const renderHandlerCode = renderHandler?.props?.code ? String(renderHandler.props.code) : undefined;
+  const renderCode = renderInlineCode ?? renderHandlerCode;
+
+  if (renderCode) {
+    for (const child of children) {
+      if (child.type !== 'render') renderNode(child, ctx, `${indent}  `);
+    }
+    for (const line of renderCode.split('\n')) {
+      ctx.lines.push(`${indent}${line}`);
+    }
+    return;
+  }
+
   ctx.lines.push(`${indent}<div${twClasses(node, ctx)}>`);
   renderChildren(node, ctx, indent);
   ctx.lines.push(`${indent}</div>`);
@@ -647,5 +671,7 @@ function renderFetchNode(node: IRNode, ctx: Ctx): void {
   const name = (p.name as string) || 'data';
   const url = (p.url as string) || '/api/data';
   const options = p.options as string;
-  ctx.fetchCalls.push({ name, url, options });
+  const handlerChild = (node.children || []).find((c) => c.type === 'handler');
+  const handlerCode = handlerChild?.props?.code ? String(handlerChild.props.code) : undefined;
+  ctx.fetchCalls.push({ name, url, options, handlerCode });
 }

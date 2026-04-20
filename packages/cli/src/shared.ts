@@ -9,6 +9,7 @@ import type {
 } from '@kernlang/core';
 import {
   analyzeShadow,
+  COMMON_TEMPLATES,
   clearTemplates,
   collectCoverageGaps,
   detectTarget,
@@ -619,8 +620,28 @@ export function loadConfig(): ResolvedKernConfig {
   return resolveConfig(autoDetected ? { target: autoDetected } : {});
 }
 
+/**
+ * Register the framework-agnostic templates (arrow-fn, window-event) that kern
+ * ships as built-ins. They expand identically under every target, so projects
+ * don't need to run `kern init-templates` just to use a lambda export.
+ */
+function registerBuiltInTemplates(): void {
+  for (const [filename, source] of Object.entries(COMMON_TEMPLATES)) {
+    try {
+      const ast = parseAndSurface(source);
+      const nodes = ast.type === 'template' ? [ast] : (ast.children || []).filter((n) => n.type === 'template');
+      for (const node of nodes) {
+        registerTemplate(node, `<builtin:${filename}>`);
+      }
+    } catch (err) {
+      console.error(`  Warning: Failed to load built-in template ${filename}: ${(err as Error).message}`);
+    }
+  }
+}
+
 export function loadTemplates(cfg: ResolvedKernConfig): void {
   clearTemplates();
+  registerBuiltInTemplates();
   if (!cfg.templates || cfg.templates.length === 0) return;
 
   for (const templatePath of cfg.templates) {

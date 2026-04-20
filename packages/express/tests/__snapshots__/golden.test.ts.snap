@@ -5,6 +5,7 @@ exports[`Golden Snapshot Tests Express output for ai-buddies-api.kern 1`] = `
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
+import { getReviewPersona, saveConfig } from './config.js';
 import { registerPostApiReviewRoute } from './routes/post-api-review.js';
 import { registerPostApiProvidersToggleRoute } from './routes/post-api-providers-toggle.js';
 import { registerPostApiProvidersTestRoute } from './routes/post-api-providers-test.js';
@@ -61,6 +62,8 @@ exports[`Golden Snapshot Tests Express output for api-routes.kern 1`] = `
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
+import { analyzeTrack } from './services/analyzer.js';
+import { db } from './services/db.js';
 import { verifyToken } from './middleware/auth.js';
 import { registerGetApiTracksRoute } from './routes/get-api-tracks.js';
 import { registerPostApiTracksAnalyzeRoute } from './routes/post-api-tracks-analyze.js';
@@ -137,6 +140,8 @@ export function requireowner(req: Request, res: Response, next: NextFunction): v
 exports[`Golden Snapshot Tests Express output for api-routes.kern: artifact: routes/delete-api-tracks-id.ts 1`] = `
 "import { type Express, type NextFunction, type Request, type Response } from 'express';
 import { requireowner } from '../middleware/requireowner.js';
+import { db } from '../services/db.js';
+import { analyzeTrack } from '../services/analyzer.js';
 
 type RouteParams = { id: string };
 type RequestQuery = Record<string, never>;
@@ -178,6 +183,8 @@ export function registerDeleteApiTracksIdRoute(app: Express): void {
 
 exports[`Golden Snapshot Tests Express output for api-routes.kern: artifact: routes/get-api-tracks.ts 1`] = `
 "import { type Express, type NextFunction, type Request, type Response } from 'express';
+import { db } from '../services/db.js';
+import { analyzeTrack } from '../services/analyzer.js';
 
 type RouteParams = Record<string, never>;
 type RequestQuery = Record<string, never>;
@@ -198,6 +205,8 @@ export function registerGetApiTracksRoute(app: Express): void {
 
 exports[`Golden Snapshot Tests Express output for api-routes.kern: artifact: routes/get-api-tracks-id.ts 1`] = `
 "import { type Express, type NextFunction, type Request, type Response } from 'express';
+import { db } from '../services/db.js';
+import { analyzeTrack } from '../services/analyzer.js';
 
 type RouteParams = { id: string };
 type RequestQuery = Record<string, never>;
@@ -240,6 +249,8 @@ export function registerGetApiTracksIdRoute(app: Express): void {
 
 exports[`Golden Snapshot Tests Express output for api-routes.kern: artifact: routes/post-api-tracks-analyze.ts 1`] = `
 "import { type Express, type NextFunction, type Request, type Response } from 'express';
+import { db } from '../services/db.js';
+import { analyzeTrack } from '../services/analyzer.js';
 
 type RouteParams = Record<string, never>;
 type RequestQuery = Record<string, never>;

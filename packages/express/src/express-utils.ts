@@ -144,6 +144,74 @@ export function buildPathParamsType(path: string): string | undefined {
   return `{ ${params.map((param) => `${param}: string`).join('; ')} }`;
 }
 
+/**
+ * Rewrite a relative import path so that it still resolves from a file one
+ * directory deeper than the server output (i.e. a route file in `./routes/`).
+ * Non-relative specifiers (package names, `node:` imports) are returned
+ * unchanged because they don't move when the containing file moves.
+ */
+export function rewriteRelativeImportForRoute(importPath: string): string {
+  if (importPath.startsWith('./')) return `.${importPath}`;
+  if (importPath.startsWith('../')) return `../${importPath}`;
+  if (importPath === '.') return '..';
+  if (importPath === '..') return '../..';
+  return importPath;
+}
+
+/**
+ * Render a KERN `import` IRNode into a TS import statement. Supports both
+ * verbose (`names="a,b" default="X"`) and shorthand (`import default X`,
+ * `import X from=./x`) parser output shapes. When `pathRewrite` is provided
+ * the `from=` value is transformed before emission (used for propagating
+ * server-level imports into nested route files).
+ */
+export function renderImportNode(node: IRNode, pathRewrite?: (from: string) => string): string | undefined {
+  const props = getProps(node);
+  const from = typeof props.from === 'string' ? props.from : undefined;
+  if (!from) return undefined;
+
+  // Parser shapes:
+  //   `import { a, b } from=./x`                → { names: 'a,b' }
+  //   `import Foo from=./x`                     → { name: 'Foo' }                (shorthand, default)
+  //   `import default Foo from=./x`             → { default: true, name: 'Foo' } (explicit default)
+  //   `import default="Foo" names="a" from=./x` → { default: 'Foo', names: 'a' } (verbose)
+  const namesRaw = typeof props.names === 'string' ? props.names : undefined;
+  const nameShorthand = typeof props.name === 'string' ? props.name : undefined;
+  const rawDefault = props.default;
+  // `default="Foo"` carries the identifier directly; `default=true` is a flag
+  // that tells us to treat `props.name` as the default binding.
+  const defaultImport =
+    typeof rawDefault === 'string'
+      ? rawDefault
+      : rawDefault === true || rawDefault === 'true'
+        ? nameShorthand
+        : undefined;
+  // When `default` is absent a bare `name` shorthand means a default import
+  // (matches how Node/ES module shorthand reads).
+  const impliedDefault = defaultImport ?? (!namesRaw && nameShorthand ? nameShorthand : undefined);
+  const isTypeOnly = props.types === 'true' || props.types === true;
+  const rewrittenFrom = pathRewrite ? pathRewrite(from) : from;
+  const typeKw = isTypeOnly ? 'type ' : '';
+  const namedList = namesRaw
+    ? namesRaw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .join(', ')
+    : '';
+
+  if (impliedDefault && namedList) {
+    return `import ${typeKw}${impliedDefault}, { ${namedList} } from '${escapeSingleQuotes(rewrittenFrom)}';`;
+  }
+  if (impliedDefault) {
+    return `import ${typeKw}${impliedDefault} from '${escapeSingleQuotes(rewrittenFrom)}';`;
+  }
+  if (namedList) {
+    return `import ${typeKw}{ ${namedList} } from '${escapeSingleQuotes(rewrittenFrom)}';`;
+  }
+  return `import '${escapeSingleQuotes(rewrittenFrom)}';`;
+}
+
 export function findServerNode(root: IRNode): IRNode | undefined {
   if (root.type === 'server') return root;
   for (const child of root.children || []) {

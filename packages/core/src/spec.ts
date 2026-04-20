@@ -116,6 +116,7 @@ export const NODE_TYPES = [
   'dispatch',
   'then',
   'each',
+  'let',
   // Next.js App Router
   'layout',
   'loading',

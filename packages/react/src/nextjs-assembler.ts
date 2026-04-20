@@ -196,7 +196,17 @@ export function assembleComponentCode(ctx: Ctx, opts: AssembleOptions): string {
 
   // Emit fetch calls (inside async function body, before return)
   for (const fc of ctx.fetchCalls) {
-    if (fc.options) {
+    if (fc.handlerCode) {
+      // GAP-009: author-provided loader body. Wrap in an async IIFE so the
+      // handler can contain its own statements (imports, try/catch, const
+      // bindings) and still bind a single value to the fetch `name` that
+      // the render block references.
+      code.push(`  const ${fc.name} = await (async () => {`);
+      for (const line of fc.handlerCode.split('\n')) {
+        code.push(`    ${line}`);
+      }
+      code.push(`  })();`);
+    } else if (fc.options) {
       code.push(`  const ${fc.name} = await fetch('${fc.url}', ${fc.options}).then(r => r.json());`);
     } else {
       code.push(`  const ${fc.name} = await fetch('${fc.url}').then(r => r.json());`);

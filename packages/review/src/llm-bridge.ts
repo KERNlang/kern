@@ -95,18 +95,34 @@ interface ChatMessage {
   content: string;
 }
 
+interface ChatResponseUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+}
+
 interface ChatResponse {
   choices: Array<{
     message: { content: string };
   }>;
+  usage?: ChatResponseUsage;
 }
 
-async function callLLM(messages: ChatMessage[], config: Required<LLMBridgeConfig>): Promise<string> {
+export interface LLMCallResult {
+  content: string;
+  /** Tokens consumed by this HTTP request, as reported by the provider. */
+  promptTokens?: number;
+  completionTokens?: number;
+  /** Wall-clock time spent in the fetch, in milliseconds. */
+  durationMs: number;
+}
+
+async function callLLM(messages: ChatMessage[], config: Required<LLMBridgeConfig>): Promise<LLMCallResult> {
   if (!config.model) {
     throw new Error('KERN_LLM_MODEL not set. Set it to your preferred model (e.g. gpt-4o, claude-sonnet-4-20250514).');
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeout);
+  const startedAt = Date.now();
 
   try {
     const response = await fetch(`${config.baseUrl}/chat/completions`, {
@@ -130,7 +146,12 @@ async function callLLM(messages: ChatMessage[], config: Required<LLMBridgeConfig
     }
 
     const data = (await response.json()) as ChatResponse;
-    return data.choices?.[0]?.message?.content || '';
+    return {
+      content: data.choices?.[0]?.message?.content || '',
+      promptTokens: data.usage?.prompt_tokens,
+      completionTokens: data.usage?.completion_tokens,
+      durationMs: Date.now() - startedAt,
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -202,12 +223,47 @@ const MAX_BATCH_TOKENS = 60_000;
 /** Max tokens for a single file. Files above this are skipped with a warning finding. */
 const MAX_SINGLE_FILE_TOKENS = 100_000;
 
+/**
+ * Per-run usage/timing summary. Token counts are populated only when the
+ * upstream provider returns them (OpenAI-compatible APIs do; some self-hosted
+ * proxies do not). `requestDurationsMs` records wall-clock per HTTP call so
+ * downstream tools can compute honest latencies without inflating with queue
+ * time.
+ */
+export interface LLMUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  requestCount: number;
+  requestDurationsMs: number[];
+}
+
+export interface LLMReviewResult {
+  findings: ReviewFinding[];
+  usage: LLMUsage;
+}
+
+function emptyUsage(): LLMUsage {
+  return { requestCount: 0, requestDurationsMs: [] };
+}
+
+function mergeUsage(into: LLMUsage, call: LLMCallResult): void {
+  into.requestCount += 1;
+  into.requestDurationsMs.push(call.durationMs);
+  if (call.promptTokens !== undefined) {
+    into.promptTokens = (into.promptTokens ?? 0) + call.promptTokens;
+  }
+  if (call.completionTokens !== undefined) {
+    into.completionTokens = (into.completionTokens ?? 0) + call.completionTokens;
+  }
+}
+
 export async function runLLMReview(
   inputs: LLMReviewInput[],
   configOverride?: LLMBridgeConfig,
-): Promise<ReviewFinding[]> {
+): Promise<LLMReviewResult> {
   const config = resolveConfig(configOverride);
-  if (!config.available) return [];
+  const usage = emptyUsage();
+  if (!config.available) return { findings: [], usage };
 
   const allFindings: ReviewFinding[] = [];
 
@@ -253,7 +309,7 @@ export async function runLLMReview(
   // Process batches — errors in one batch don't discard findings from others
   for (const batch of batches) {
     try {
-      const findings = await reviewBatch(batch, config, irCache);
+      const findings = await reviewBatch(batch, config, irCache, usage);
       allFindings.push(...findings);
     } catch (err) {
       allFindings.push({
@@ -268,13 +324,14 @@ export async function runLLMReview(
     }
   }
 
-  return allFindings;
+  return { findings: allFindings, usage };
 }
 
 async function reviewBatch(
   inputs: LLMReviewInput[],
   config: Required<LLMBridgeConfig>,
-  _irCache?: Map<LLMReviewInput, string>,
+  _irCache: Map<LLMReviewInput, string> | undefined,
+  usage: LLMUsage,
 ): Promise<ReviewFinding[]> {
   const allFindings: ReviewFinding[] = [];
 
@@ -329,7 +386,8 @@ async function reviewBatch(
       config,
     );
 
-    const findings = parseLLMResponse(response, allInferred);
+    mergeUsage(usage, response);
+    const findings = parseLLMResponse(response.content, allInferred);
 
     // Tag all findings as LLM-sourced
     for (const f of findings) {

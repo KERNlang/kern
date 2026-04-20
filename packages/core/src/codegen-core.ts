@@ -93,7 +93,7 @@ import {
   generateStore,
 } from './codegen/data-layer.js';
 // ── Imports for local use within this file ──────────────────────────────
-import { emitIdentifier, emitImportSpecifier, emitTemplateSafe } from './codegen/emitters.js';
+import { emitIdentifier, emitImportSpecifier, emitTemplateSafe, emitTypeAnnotation } from './codegen/emitters.js';
 import { generateEvent, generateOn, generateWebSocket } from './codegen/events.js';
 import { generateError, generateFunction } from './codegen/functions.js';
 import {
@@ -267,6 +267,25 @@ export function generateEach(node: IRNode): string[] {
   }
 
   for (const child of kids(node)) {
+    // `let` is iteration-scoped — emit as plain `const` at the top of the loop
+    // body. Otherwise generateCoreNode returns `[]` for `let` (the JSX path
+    // consumes them in codegen/screens.ts) and the binding is silently dropped.
+    if (child.type === 'let') {
+      const lp = getProps(child);
+      const lname = emitIdentifier(lp.name as string, 'binding', child);
+      const rawExpr = lp.expr;
+      const expr =
+        rawExpr && typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
+          ? (rawExpr as ExprObject).code
+          : (rawExpr as string) || '';
+      if (!expr) {
+        throw new KernCodegenError("let node requires an 'expr' prop", child);
+      }
+      const t = lp.type as string | undefined;
+      const typeAnn = t ? `: ${emitTypeAnnotation(t, 'unknown', child)}` : '';
+      lines.push(`  const ${lname}${typeAnn} = ${expr};`);
+      continue;
+    }
     const childLines = generateCoreNode(child);
     for (const line of childLines) {
       lines.push(`  ${line}`);
@@ -422,6 +441,7 @@ export const CORE_NODE_TYPES = new Set([
   'assume',
   'invariant',
   'each',
+  'let',
   'collect',
   'branch',
   'path',
@@ -535,6 +555,11 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateInvariant(node);
     case 'each':
       return generateEach(node);
+    case 'let':
+      // Consumed by the parent `each` when inside a render block (see
+      // codegen/screens.ts::generateEachJSX). Outside of that context
+      // `let` produces no standalone output — the validator rejects it.
+      return [];
     case 'collect':
       return generateCollect(node);
     case 'branch':

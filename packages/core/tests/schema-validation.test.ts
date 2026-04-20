@@ -243,9 +243,9 @@ describe('Schema Validation', () => {
       expect(v.some((v) => v.message.includes("'fetch' requires prop 'name'"))).toBe(true);
     });
 
-    it('flags fetch missing url', () => {
-      const v = validate('fetch name=data');
-      expect(v.some((v) => v.message.includes("'fetch' requires prop 'url'"))).toBe(true);
+    it('allows fetch without url when a handler body supplies the loader (GAP-009)', () => {
+      const v = validate('fetch name=data\n  handler <<<return await loadRows()>>>');
+      expect(v.some((violation) => violation.message.includes("'fetch' requires prop 'url'"))).toBe(false);
     });
 
     it('passes valid memo', () => {

@@ -36,7 +36,7 @@ describe('runLLMReview — no API key', () => {
     const orig = process.env.KERN_LLM_API_KEY;
     delete process.env.KERN_LLM_API_KEY;
 
-    const findings = await runLLMReview([
+    const { findings } = await runLLMReview([
       {
         filePath: 'test.ts',
         inferred: [],
@@ -52,7 +52,7 @@ describe('runLLMReview — no API key', () => {
 
 describe('runLLMReview — missing model', () => {
   it('returns error finding when API key set but model missing', async () => {
-    const findings = await runLLMReview(
+    const { findings } = await runLLMReview(
       [
         {
           filePath: 'test.ts',
@@ -75,7 +75,7 @@ describe('runLLMReview — missing model', () => {
 
 describe('runLLMReview — API failure', () => {
   it('returns info finding on API error, does not crash', async () => {
-    const findings = await runLLMReview(
+    const { findings } = await runLLMReview(
       [
         {
           filePath: 'test.ts',
@@ -176,7 +176,7 @@ describe('graph-aware source budgeting', () => {
     const hugeSource = 'x'.repeat(500_000);
     const graphContext = { fileDistances: new Map([['context.ts', 2]]) };
 
-    const findings = await runLLMReview(
+    const { findings } = await runLLMReview(
       [
         {
           filePath: 'context.ts',
@@ -204,7 +204,7 @@ describe('graph-aware source budgeting', () => {
     const hugeSource = 'x'.repeat(500_000);
     const graphContext = { fileDistances: new Map([['changed.ts', 0]]) };
 
-    const findings = await runLLMReview(
+    const { findings } = await runLLMReview(
       [
         {
           filePath: 'changed.ts',

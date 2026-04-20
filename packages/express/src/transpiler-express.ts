@@ -12,7 +12,12 @@ import { resolveMiddlewareUsage } from './express-middleware.js';
 import { buildCoreArtifact, buildPrismaArtifact, TOP_LEVEL_CORE } from './express-prisma.js';
 import { buildRouteArtifact } from './express-route.js';
 import type { MiddlewareArtifactRef } from './express-types.js';
-import { escapeSingleQuotes, findServerNode } from './express-utils.js';
+import {
+  escapeSingleQuotes,
+  findServerNode,
+  renderImportNode,
+  rewriteRelativeImportForRoute,
+} from './express-utils.js';
 
 // Re-export buildPrismaArtifact for external consumers
 export { buildPrismaArtifact } from './express-prisma.js';
@@ -31,6 +36,8 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   for (const mw of serverMiddlewares) accountNode(accounted, mw, 'consumed', 'server middleware', true);
   const routeNodes = getChildren(serverNode, 'route');
   for (const rn of routeNodes) accountNode(accounted, rn, 'consumed', 'route artifact', true);
+  const serverImportNodes = getChildren(serverNode, 'import');
+  for (const imp of serverImportNodes) accountNode(accounted, imp, 'consumed', 'server-level import', true);
 
   const isStrict = !_config || _config.express.security === 'strict';
   const hasJsonMiddleware = serverMiddlewares.some((m) => String(getProps(m).name || '') === 'json');
@@ -38,6 +45,17 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   const serverImports = new Set<string>();
   const serverMiddlewareInvocations: string[] = [];
   const dependencyComments: string[] = [];
+
+  // Server-level `import` nodes flow into both the main server file and every
+  // route file (with relative paths rewritten for the routes/ subdirectory),
+  // so handlers can reference shared modules without a per-handler dynamic import.
+  const propagatedRouteImports: string[] = [];
+  for (const imp of serverImportNodes) {
+    const serverLine = renderImportNode(imp);
+    const routeLine = renderImportNode(imp, rewriteRelativeImportForRoute);
+    if (serverLine) serverImports.add(serverLine);
+    if (routeLine) propagatedRouteImports.push(routeLine);
+  }
 
   for (const middlewareNode of serverMiddlewares) {
     const usage = resolveMiddlewareUsage(middlewareNode, middlewareArtifacts, './', isStrict ? 'strict' : 'relaxed');
@@ -75,7 +93,14 @@ export function transpileExpress(root: IRNode, _config?: ResolvedKernConfig): Tr
   const websocketNodes = getChildren(serverNode, 'websocket');
   for (const ws of websocketNodes) accountNode(accounted, ws, 'consumed', 'websocket handler', true);
   const routeArtifacts = routeNodes.map((routeNode, index) =>
-    buildRouteArtifact(routeNode, index, middlewareArtifacts, sourceMap, isStrict ? 'strict' : 'relaxed'),
+    buildRouteArtifact(
+      routeNode,
+      index,
+      middlewareArtifacts,
+      sourceMap,
+      isStrict ? 'strict' : 'relaxed',
+      propagatedRouteImports,
+    ),
   );
   const hasHealthRoute = routeNodes.some((routeNode) => {
     const props = getProps(routeNode);

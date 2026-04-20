@@ -1,5 +1,5 @@
 import { STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
-import type { DecompileResult, IRNode } from './types.js';
+import type { DecompileResult, ExprObject, IRNode } from './types.js';
 
 function expandKey(key: string): string {
   return STYLE_SHORTHANDS[key] || key;
@@ -33,6 +33,10 @@ export function decompile(root: IRNode): DecompileResult {
     // canonical in a follow-up PR.
     if (node.type === 'each') {
       renderEach(node, indent);
+      return;
+    }
+    if (node.type === 'let') {
+      renderLet(node, indent);
       return;
     }
 
@@ -73,19 +77,39 @@ export function decompile(root: IRNode): DecompileResult {
     }
   }
 
+  function renderLet(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const name = (props.name as string) || 'binding';
+    const rawExpr = props.expr;
+    const expr =
+      rawExpr && typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
+        ? (rawExpr as ExprObject).code
+        : (rawExpr as string) || '';
+    const t = props.type as string | undefined;
+    const parts: string[] = [`let name=${name}`, `expr=${JSON.stringify(expr)}`];
+    if (t) parts.push(`type=${t}`);
+    lines.push(`${indent}${parts.join(' ')}`);
+    // `let` has no children in normal use, but preserve generic recursion.
+    if (node.children) {
+      for (const child of node.children) {
+        render(child, `${indent}  `);
+      }
+    }
+  }
+
   function renderEach(node: IRNode, indent: string): void {
     const props = node.props || {};
     const name = (props.name as string) || 'item';
     const rawIn = props.in;
     const inExpr =
-      rawIn && typeof rawIn === 'object' && (rawIn as { __expr?: boolean; code?: string }).__expr
-        ? (rawIn as { code: string }).code
+      rawIn && typeof rawIn === 'object' && (rawIn as ExprObject).__expr
+        ? (rawIn as ExprObject).code
         : (rawIn as string) || '';
     const index = (props.index as string) || '';
     const rawKey = props.key;
     const keyExpr =
-      rawKey && typeof rawKey === 'object' && (rawKey as { __expr?: boolean; code?: string }).__expr
-        ? (rawKey as { code: string }).code
+      rawKey && typeof rawKey === 'object' && (rawKey as ExprObject).__expr
+        ? (rawKey as ExprObject).code
         : typeof rawKey === 'string'
           ? rawKey
           : '';

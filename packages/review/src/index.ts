@@ -88,7 +88,14 @@ export { findTsConfig, inferFromFile, inferFromSource } from './inferrer.js';
 export type { KernLintRule } from './kern-lint.js';
 // KERN-IR lint pipeline (ground layer)
 export { flattenIR, lintKernIR } from './kern-lint.js';
-export type { LLMBridgeConfig, LLMReviewInput, ReviewInstructionOptions } from './llm-bridge.js';
+export type {
+  LLMBridgeConfig,
+  LLMCallResult,
+  LLMReviewInput,
+  LLMReviewResult,
+  LLMUsage,
+  ReviewInstructionOptions,
+} from './llm-bridge.js';
 // LLM bridge (Phase 3)
 export { buildReviewInstructions, isLLMAvailable, runLLMReview } from './llm-bridge.js';
 export type { LLMGraphContext } from './llm-review.js';
