@@ -290,10 +290,18 @@ const AMBIENT_NAMES = new Set([
   'isValidating',
 ]);
 
+// Specific external services / IO entry points. Generic words like 'client',
+// 'api', 'provider', 'http' previously matched every codebase identifier and
+// drove missing-confidence to 96% saturation — those are removed. Coverage
+// for awaited service calls (e.g. `await client.query(...)`, `await ctx.api.get(...)`)
+// is preserved via the awaited-method-call pattern, which requires an actual
+// `.method(` invocation rather than a bare identifier substring.
 const EXTERNAL_SIGNAL_RE =
-  /\b(fetch|axios|db|redis|stripe|openai|supabase|client|api|provider|registry|http|https)\b|await\s+[A-Za-z_$]/;
-const UNCERTAIN_SIGNAL_RE =
-  /\b(guess|heuristic|fallback|bestEffort|approx|uncertain|unknown|maybe)\b|Math\.random|Date\.now/;
+  /\b(fetch|axios|db|redis|stripe|openai|anthropic|supabase|XMLHttpRequest)\b|\bawait\s+[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+\s*\(/;
+// Date.now is a deterministic clock read used in routine time formatting and is
+// not an uncertainty signal. Dropped to eliminate false positives on utilities
+// like formatRelativeTime.
+const UNCERTAIN_SIGNAL_RE = /\b(guess|heuristic|fallback|bestEffort|approx|uncertain|unknown|maybe)\b|Math\.random/;
 
 function props(node: IRNode): Record<string, unknown> {
   return node.props || {};
@@ -622,8 +630,27 @@ function collectVisibleBindings(
 
 function createSnippetAnalysis(project: Project, code: string, key: string, mode: 'block' | 'expr'): SnippetAnalysis {
   const filePath = `__kern_${key.replace(/[^A-Za-z0-9_]/g, '_')}_${Math.random().toString(36).slice(2)}.tsx`;
+  // Auto-detect object-literal-only handler bodies. TS parses `{ a: 1, b: 2 }`
+  // inside a function body as a Block containing LabeledStatement + comma
+  // expressions, which makes `b` etc. look like undefined identifier references
+  // even though they're property keys. Reparsing as expression preserves the
+  // object literal meaning.
+  let effectiveMode = mode;
+  if (mode === 'block') {
+    const trimmed = code.trim();
+    if (
+      trimmed.startsWith('{') &&
+      trimmed.endsWith('}') &&
+      trimmed.includes(':') &&
+      !/[;]|^\s*(return|const|let|var|if|for|while|throw|try)\b/m.test(trimmed.slice(1, -1))
+    ) {
+      effectiveMode = 'expr';
+    }
+  }
   const wrapped =
-    mode === 'expr' ? `async function __kern__() { return (${code}); }\n` : `async function __kern__() {\n${code}\n}\n`;
+    effectiveMode === 'expr'
+      ? `async function __kern__() { return (${code}); }\n`
+      : `async function __kern__() {\n${code}\n}\n`;
   const sourceFile = project.createSourceFile(filePath, wrapped, { overwrite: true });
 
   const localBindings = collectLocalBindings(sourceFile);
@@ -1066,7 +1093,7 @@ export const handlerHeavy: KernSourceRule = (nodes: IRNode[], filePath: string):
   return [
     finding(
       'handler-heavy',
-      'warning',
+      'info',
       'structure',
       `Embedded handler code accounts for ${(ratio * 100).toFixed(0)}% of file tokens (${handlerTokens}/${totalTokens}); this file is mostly inline JS with a thin KERN wrapper`,
       filePath,
@@ -1094,8 +1121,10 @@ export const missingConfidence: KernSourceRule = (nodes: IRNode[], filePath: str
     if (candidates.size >= 3) break;
   }
 
+  if (candidates.size === 0) return [];
+
   const anchor = nodes[0];
-  const suffix = candidates.size > 0 ? ` Candidate nodes: ${[...candidates].join(', ')}.` : '';
+  const suffix = ` Candidate nodes: ${[...candidates].join(', ')}.`;
 
   return [
     finding(

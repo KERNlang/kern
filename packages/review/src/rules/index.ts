@@ -898,7 +898,7 @@ const REGISTRY: RuleInfo[] = [
   {
     id: 'handler-heavy',
     layer: 'kern-source',
-    severity: 'warning',
+    severity: 'info',
     description: 'Inline handler JS dominates the .kern file',
   },
   {
