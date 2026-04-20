@@ -243,15 +243,12 @@ describe('runLLMReview — usage/timing reporting (GAP-010)', () => {
     const port = (server.address() as { port: number }).port;
 
     try {
-      const { usage, findings } = await runLLMReview(
-        [{ filePath: 'a.ts', inferred: [], templateMatches: [] }],
-        {
-          apiKey: 'fake-key',
-          model: 'mock-model',
-          baseUrl: `http://127.0.0.1:${port}`,
-          timeout: 2000,
-        },
-      );
+      const { usage, findings } = await runLLMReview([{ filePath: 'a.ts', inferred: [], templateMatches: [] }], {
+        apiKey: 'fake-key',
+        model: 'mock-model',
+        baseUrl: `http://127.0.0.1:${port}`,
+        timeout: 2000,
+      });
 
       expect(findings).toEqual([]);
       expect(usage.requestCount).toBe(1);
@@ -266,15 +263,12 @@ describe('runLLMReview — usage/timing reporting (GAP-010)', () => {
 
   it('counts a failed HTTP attempt in usage even when callLLM throws (codex follow-up)', async () => {
     // baseUrl points at a closed port so fetch rejects immediately.
-    const { usage, findings } = await runLLMReview(
-      [{ filePath: 'a.ts', inferred: [], templateMatches: [] }],
-      {
-        apiKey: 'fake-key',
-        model: 'mock-model',
-        baseUrl: 'http://127.0.0.1:1',
-        timeout: 1000,
-      },
-    );
+    const { usage, findings } = await runLLMReview([{ filePath: 'a.ts', inferred: [], templateMatches: [] }], {
+      apiKey: 'fake-key',
+      model: 'mock-model',
+      baseUrl: 'http://127.0.0.1:1',
+      timeout: 1000,
+    });
 
     // Pipeline still degrades gracefully with an llm-error finding.
     expect(findings.length).toBe(1);
