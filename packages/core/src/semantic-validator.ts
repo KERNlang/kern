@@ -107,6 +107,24 @@ function validateNode(node: IRNode, violations: SemanticViolation[], ancestry: s
     }
   }
 
+  // ── let must be a direct child of each ─────────────────────────────
+  // `let` is an iteration-scoped binding (plain `const` inside the `.map`
+  // callback). Outside of `each` it has no codegen target and is silently
+  // dropped — fail loudly instead.
+  if (node.type === 'let') {
+    const parent = ancestry[ancestry.length - 1];
+    if (parent !== 'each') {
+      violations.push({
+        rule: 'let-must-be-inside-each',
+        nodeType: 'let',
+        message:
+          '`let` must be a direct child of `each`. Use `derive` for component-scoped bindings, or `const` at file scope.',
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+
   // Recurse
   if (node.children) {
     const nextAncestry = node.type ? [...ancestry, node.type] : ancestry;

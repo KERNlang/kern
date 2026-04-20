@@ -422,6 +422,7 @@ export const CORE_NODE_TYPES = new Set([
   'assume',
   'invariant',
   'each',
+  'let',
   'collect',
   'branch',
   'path',
@@ -535,6 +536,11 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateInvariant(node);
     case 'each':
       return generateEach(node);
+    case 'let':
+      // Consumed by the parent `each` when inside a render block (see
+      // codegen/screens.ts::generateEachJSX). Outside of that context
+      // `let` produces no standalone output — the validator rejects it.
+      return [];
     case 'collect':
       return generateCollect(node);
     case 'branch':

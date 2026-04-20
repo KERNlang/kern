@@ -295,9 +295,19 @@ function stripReturnWrapper(code: string): string {
 }
 
 /**
- * JSX-expression form of `each` — emits `(coll).map((name, i) => <React.Fragment key={...}>...</React.Fragment>)`.
- * Requires a `handler <<<...>>>` child containing the per-item JSX (raw JSX fragment, not `return`-wrapped).
- * Auto-key falls back through `<name>.id ?? <name>.key ?? <index>` if the user didn't supply `key=`.
+ * JSX-expression form of `each`.
+ *
+ * - With no `let` children: emits the expression-arrow form
+ *     `(coll).map((name, i) => <React.Fragment key={...}>...</React.Fragment>)`.
+ * - With `let` children: emits a block-arrow form that threads each `let` as a
+ *   plain `const` inside the callback, then returns the fragment:
+ *     `(coll).map((name, i) => { const x = ...; const y = ...; return (<React.Fragment key={...}>...</React.Fragment>); })`.
+ *
+ * Authors choose: put iteration-scoped bindings as `let` children (declarative,
+ * toolable), or inline them inside the handler (still works for simple shapes
+ * but not recommended for multi-statement callbacks).
+ *
+ * Auto-key: `<name>.id ?? <name>.key ?? <index>` when `key=` is not supplied.
  */
 function generateEachJSX(node: IRNode): string[] {
   const props = propsOf(node);
@@ -327,13 +337,53 @@ function generateEachJSX(node: IRNode): string[] {
     );
   }
   const body = (propsOf(handler).code as string) || '';
-  const bodyLines = body.split('\n');
+  // Handler body is embedded inside the React.Fragment. If the author wrote a
+  // full `return (...);` wrapper, strip it so it composes cleanly.
+  const bodyLines = stripReturnWrapper(body).split('\n');
+
+  const letChildren = getChildren(node, 'let');
 
   const lines: string[] = [];
-  lines.push(`{(${collection}).map((${name}, ${index}) => (`);
-  lines.push(`  <React.Fragment key={${effectiveKey}}>`);
-  for (const line of bodyLines) lines.push(`    ${line}`);
-  lines.push(`  </React.Fragment>`);
-  lines.push(`))}`);
+  if (letChildren.length === 0) {
+    // Expression-arrow form.
+    lines.push(`{(${collection}).map((${name}, ${index}) => (`);
+    lines.push(`  <React.Fragment key={${effectiveKey}}>`);
+    for (const line of bodyLines) lines.push(`    ${line}`);
+    lines.push(`  </React.Fragment>`);
+    lines.push(`))}`);
+    return lines;
+  }
+
+  // Block-arrow form — emit let bindings as consts, then return the fragment.
+  lines.push(`{(${collection}).map((${name}, ${index}) => {`);
+  for (const letNode of letChildren) {
+    lines.push(`  ${renderLetBinding(letNode)}`);
+  }
+  lines.push(`  return (`);
+  lines.push(`    <React.Fragment key={${effectiveKey}}>`);
+  for (const line of bodyLines) lines.push(`      ${line}`);
+  lines.push(`    </React.Fragment>`);
+  lines.push(`  );`);
+  lines.push(`})}`);
   return lines;
+}
+
+/**
+ * Render a single `let` node as a `const name[: type] = expr;` line, stripping
+ * nothing — the expression is raw code by design (rawExpr).
+ */
+function renderLetBinding(node: IRNode): string {
+  const lp = propsOf(node);
+  const lname = (lp.name as string) || 'binding';
+  const rawExpr = lp.expr;
+  const expr =
+    rawExpr && typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
+      ? (rawExpr as ExprObject).code
+      : (rawExpr as string) || '';
+  if (!expr) {
+    throw new KernCodegenError("let node requires an 'expr' prop", node);
+  }
+  const t = lp.type as string | undefined;
+  const typeAnn = t ? `: ${t}` : '';
+  return `const ${lname}${typeAnn} = ${expr};`;
 }

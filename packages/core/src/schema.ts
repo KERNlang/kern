@@ -426,13 +426,25 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   each: {
     description:
-      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`.',
-    example: 'each name=item in=items index=i key="item.id"',
+      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`. `let` children become iteration-scoped `const` bindings inside the callback (hook-safe, unlike `derive`).',
+    example:
+      'each name=f in=files index=i key="f.path"\n  let name=isSel expr="focused && i === selIdx"\n  handler <<<\n    <Text bold={isSel}>{f.path}</Text>\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       in: { required: true, kind: 'rawExpr' },
       index: { kind: 'identifier' },
       key: { kind: 'rawExpr' },
+    },
+    allowedChildren: ['let', 'handler'],
+  },
+  let: {
+    description:
+      'Iteration-scoped binding — emits a plain `const` inside the containing `each` callback. Use for values that depend on the iteration variable or index. Unlike `derive` (which compiles to `useMemo` and violates Rules of Hooks inside `.map`), `let` is hook-safe by construction.',
+    example: 'let name=idx expr="start + i"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      expr: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
     },
   },
   collect: {

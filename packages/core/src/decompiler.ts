@@ -35,6 +35,10 @@ export function decompile(root: IRNode): DecompileResult {
       renderEach(node, indent);
       return;
     }
+    if (node.type === 'let') {
+      renderLet(node, indent);
+      return;
+    }
 
     const name = (props.name as string) || '';
     const type = node.type.charAt(0).toUpperCase() + node.type.slice(1);
@@ -66,6 +70,26 @@ export function decompile(root: IRNode): DecompileResult {
 
     lines.push(desc);
 
+    if (node.children) {
+      for (const child of node.children) {
+        render(child, `${indent}  `);
+      }
+    }
+  }
+
+  function renderLet(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const name = (props.name as string) || 'binding';
+    const rawExpr = props.expr;
+    const expr =
+      rawExpr && typeof rawExpr === 'object' && (rawExpr as { __expr?: boolean; code?: string }).__expr
+        ? (rawExpr as { code: string }).code
+        : (rawExpr as string) || '';
+    const t = props.type as string | undefined;
+    const parts: string[] = [`let name=${name}`, `expr=${JSON.stringify(expr)}`];
+    if (t) parts.push(`type=${t}`);
+    lines.push(`${indent}${parts.join(' ')}`);
+    // `let` has no children in normal use, but preserve generic recursion.
     if (node.children) {
       for (const child of node.children) {
         render(child, `${indent}  `);
