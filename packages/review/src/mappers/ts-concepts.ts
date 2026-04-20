@@ -294,7 +294,13 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
         confidence: NETWORK_CALLS.has(funcName) ? 1.0 : 0.8,
         language: 'ts',
         containerId: getContainerId(call, filePath),
-        payload: { kind: 'effect', subtype: 'network', async: isAsync, target: extractTarget(call) },
+        payload: {
+          kind: 'effect',
+          subtype: 'network',
+          async: isAsync,
+          target: extractTarget(call),
+          responseAsserted: isResponseAsserted(call),
+        },
       });
       continue;
     }
@@ -1078,4 +1084,99 @@ function extractTarget(call: import('ts-morph').CallExpression): string | undefi
     return first.getText().substring(0, 80);
   }
   return undefined;
+}
+
+/**
+ * Given a network call (fetch/axios/…), decide whether the eventual JSON
+ * payload is consumed with a type annotation, `as T` cast, or `satisfies T`
+ * clause. Returns:
+ *   - `true` — the call-site is typed; the consumer enforces a shape.
+ *   - `false` — the call-site is awaited/.then()'d but no assertion appears.
+ *   - `undefined` — no `.json()` consumption in scope, or the pattern is
+ *     too complex to analyze.
+ *
+ * Powers the `untyped-api-response` cross-stack rule (the frontend treats
+ * the server's declared response shape as `any`). Kept intentionally
+ * conservative — false positives here poison the pitch.
+ */
+function isResponseAsserted(call: import('ts-morph').CallExpression): boolean | undefined {
+  // Walk outward looking for the `.json()` resolution and then check the
+  // expression it lands in.
+  let cursor: import('ts-morph').Node = call;
+  // Skip through chained `.then()` / `await` / paren wrappers.
+  for (let depth = 0; depth < 8; depth++) {
+    const parent = cursor.getParent();
+    if (!parent) return undefined;
+
+    if (parent.getKind() === SyntaxKind.AwaitExpression || parent.getKind() === SyntaxKind.ParenthesizedExpression) {
+      cursor = parent;
+      continue;
+    }
+
+    // `.then(r => r.json())` / `.then(async r => r.json())`
+    if (parent.getKind() === SyntaxKind.PropertyAccessExpression) {
+      const pa = parent as import('ts-morph').PropertyAccessExpression;
+      const parentCall = pa.getParent();
+      if (pa.getName() === 'then' && parentCall?.getKind() === SyntaxKind.CallExpression) {
+        cursor = parentCall;
+        continue;
+      }
+      if (pa.getName() === 'json' && parentCall?.getKind() === SyntaxKind.CallExpression) {
+        // `(...).json()` — keep climbing from the json call.
+        cursor = parentCall;
+        continue;
+      }
+      return undefined;
+    }
+
+    // Landed in a const/let/var decl → check for a type annotation.
+    if (parent.getKind() === SyntaxKind.VariableDeclaration) {
+      const decl = parent as import('ts-morph').VariableDeclaration;
+      // An explicit type node (`const x: User = …`) or an initializer wrapped
+      // in `as T` / `satisfies T` both count as an assertion.
+      if (decl.getTypeNode()) return true;
+      return containsAssertion(decl.getInitializer());
+    }
+
+    // Return / arrow body / assignment → look at the expression for assertions.
+    if (
+      parent.getKind() === SyntaxKind.ReturnStatement ||
+      parent.getKind() === SyntaxKind.ArrowFunction ||
+      parent.getKind() === SyntaxKind.BinaryExpression
+    ) {
+      return containsAssertion(cursor);
+    }
+
+    // `as T` / `<T>…` / `satisfies T` wrapping the fetch chain directly.
+    if (
+      parent.getKind() === SyntaxKind.AsExpression ||
+      parent.getKind() === SyntaxKind.TypeAssertionExpression ||
+      parent.getKind() === SyntaxKind.SatisfiesExpression
+    ) {
+      return true;
+    }
+
+    // Unknown parent shape — bail rather than over-report.
+    return undefined;
+  }
+  return undefined;
+}
+
+function containsAssertion(node: import('ts-morph').Node | undefined): boolean {
+  if (!node) return false;
+  const k = node.getKind();
+  if (
+    k === SyntaxKind.AsExpression ||
+    k === SyntaxKind.TypeAssertionExpression ||
+    k === SyntaxKind.SatisfiesExpression
+  ) {
+    return true;
+  }
+  // A single-level unwrap of `await` / `(...)` is enough for the common
+  // `const x = (await fetch(...).then(r => r.json())) as User` shape.
+  if (k === SyntaxKind.AwaitExpression || k === SyntaxKind.ParenthesizedExpression) {
+    const child = (node as import('ts-morph').AwaitExpression | import('ts-morph').ParenthesizedExpression).getExpression();
+    return containsAssertion(child);
+  }
+  return false;
 }

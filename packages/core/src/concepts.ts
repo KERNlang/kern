@@ -47,6 +47,14 @@ export interface EffectPayload {
   subtype: 'network' | 'db' | 'fs' | 'process' | 'time' | 'random';
   target?: string;
   async: boolean;
+  /**
+   * For `network` subtype only. `true` when the call's eventual JSON value is
+   * consumed with a type annotation, `as T` cast, or `satisfies T` clause;
+   * `false` when `.json()` is awaited without any assertion; `undefined` when
+   * the mapper can't tell (no `.json()` in scope, or the shape is too
+   * complex to analyze statically). Feeds the `untyped-api-response` rule.
+   */
+  responseAsserted?: boolean;
 }
 
 export interface StateMutationPayload {

@@ -12,6 +12,7 @@ import { contractDrift } from './contract-drift.js';
 import { ignoredError } from './ignored-error.js';
 import { unguardedEffect } from './unguarded-effect.js';
 import { unrecoveredEffect } from './unrecovered-effect.js';
+import { untypedApiResponse } from './untyped-api-response.js';
 
 export interface ConceptRuleContext {
   concepts: ConceptMap;
@@ -30,6 +31,7 @@ export const conceptRules: ConceptRule[] = [
   ignoredError,
   unguardedEffect,
   unrecoveredEffect,
+  untypedApiResponse,
 ];
 
 export function runConceptRules(
