@@ -9,9 +9,9 @@ import type {
 } from '@kernlang/core';
 import {
   analyzeShadow,
+  COMMON_TEMPLATES,
   clearTemplates,
   collectCoverageGaps,
-  COMMON_TEMPLATES,
   detectTarget,
   expandTemplateNode,
   generateCoreNode,
