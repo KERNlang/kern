@@ -234,7 +234,7 @@ async function runReviewPipeline(
     });
 
     try {
-      const llmFindings = await runLLMReview(llmInputs);
+      const { findings: llmFindings } = await runLLMReview(llmInputs);
       if (llmFindings.length > 0) {
         if (!jsonOutput && !sarifOutput) {
           console.log(`  LLM review (auto): ${llmFindings.length} finding(s) from AI`);
@@ -449,7 +449,7 @@ async function runReviewPipeline(
       });
 
       try {
-        const llmFindings = await runLLMReview(llmInputs);
+        const { findings: llmFindings } = await runLLMReview(llmInputs);
         console.log(`  LLM review: ${llmFindings.length} findings from AI`);
 
         for (const f of llmFindings) {
