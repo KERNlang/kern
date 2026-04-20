@@ -185,8 +185,17 @@ export function runTSCDiagnostics(
       // them as info still pollutes every barrel/re-export report in composite monorepos.
       //   ts6059 — "File is not listed within the file list of project"
       //   ts6307 — "File is not under 'rootDir'"
+      // The following codes are environmental: they reflect ts-morph's in-memory Project not
+      // perfectly mirroring the host's compilerOptions (moduleResolution, jsx, lib). The dev
+      // already sees them in their IDE / local `tsc --noEmit` if real; the review's value-add
+      // is KERN-relevant findings, not duplicating compiler output. A sweep of the agon repo
+      // (451 files) emitted 1869 of these as errors — pure noise drowning real findings.
+      //   ts2792  — "Cannot find module X. Did you mean to set 'moduleResolution' to 'nodenext'?"
+      //   ts17004 — "Cannot use JSX unless the '--jsx' flag is provided"
+      //   ts2580  — "Cannot find name 'process'/'require'/'module'. Do you need to install @types/node?"
       const isLoadingNoise = code === 6059 || code === 6307;
-      if (isLoadingNoise && options.downgradeProjectLoadingErrors) {
+      const isEnvironmentalNoise = code === 2792 || code === 17004 || code === 2580;
+      if ((isLoadingNoise || isEnvironmentalNoise) && options.downgradeProjectLoadingErrors) {
         continue;
       }
 

@@ -26,6 +26,22 @@ screen name=Lookup
     expect(finding?.primarySpan.file).toBe('lookup.kern');
   });
 
+  it('treats prop declarations inside a screen as bindings visible to handlers', () => {
+    const source = `
+screen name=Card
+  prop name=title type=string
+  prop name=count type=number optional=true
+  fn name=render returns=string
+    handler <<<
+      return \`\${title} (\${count})\`;
+    >>>
+`;
+    const report = reviewKernSource(source, 'card.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef.some((f) => f.message.includes('title'))).toBe(false);
+    expect(undef.some((f) => f.message.includes('count'))).toBe(false);
+  });
+
   it('reports literal-union values used like objects but allows string methods', () => {
     const badSource = `
 type name=Article values="news|blog"
@@ -214,7 +230,7 @@ fn name=render returns=string
     expect(mismatch[0].message).toContain('Article');
   });
 
-  it('reports missing confidence when none is present and suppresses it when confidence exists', () => {
+  it('reports missing confidence under requireConfidenceAnnotations and suppresses it when confidence exists', () => {
     const source = `
 fn name=loadUser params="id:string" returns=unknown
   handler <<<
@@ -222,7 +238,10 @@ fn name=loadUser params="id:string" returns=unknown
     return response.json();
   >>>
 `;
-    const report = reviewKernSource(source, 'confidence-missing.kern');
+    const report = reviewKernSource(source, 'confidence-missing.kern', {
+      requireConfidenceAnnotations: true,
+      noCache: true,
+    });
     const finding = report.findings.find((f) => f.ruleId === 'missing-confidence');
 
     expect(finding).toBeDefined();
@@ -237,7 +256,10 @@ fn name=loadUser confidence=0.7 params="id:string" returns=unknown
     return response.json();
   >>>
 `;
-    const annotatedReport = reviewKernSource(annotatedSource, 'confidence-present.kern');
+    const annotatedReport = reviewKernSource(annotatedSource, 'confidence-present.kern', {
+      requireConfidenceAnnotations: true,
+      noCache: true,
+    });
     expect(annotatedReport.findings.some((f) => f.ruleId === 'missing-confidence')).toBe(false);
   });
 
@@ -279,5 +301,20 @@ fn name=loadUser returns=string
     expect(aFinding?.relatedSpans?.some((span) => span.file === bFile)).toBe(true);
     expect(bFinding).toBeDefined();
     expect(bFinding?.relatedSpans?.some((span) => span.file === aFile)).toBe(true);
+  });
+
+  it('missing-confidence is opt-in: silent by default, fires with requireConfidenceAnnotations', () => {
+    const source = `
+screen name=External
+  fn name=fetchUser params="id:string" returns=User
+    handler <<<
+      return fetch(\`/api/users/\${id}\`).then(r => r.json());
+    >>>
+`;
+    const defaultReport = reviewKernSource(source, 'api.kern', { noCache: true });
+    expect(defaultReport.findings.some((f) => f.ruleId === 'missing-confidence')).toBe(false);
+
+    const requiredReport = reviewKernSource(source, 'api.kern', { requireConfidenceAnnotations: true, noCache: true });
+    expect(requiredReport.findings.some((f) => f.ruleId === 'missing-confidence')).toBe(true);
   });
 });

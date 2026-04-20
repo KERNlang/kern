@@ -185,13 +185,29 @@ export function parseLLMResponse(response: string, inferred: InferResult[]): Rev
 
   const validAliases = new Set(aliasMap.keys());
 
-  // Extract JSON array from response (might be wrapped in markdown code blocks or reasoning tags)
+  // Extract JSON array from response.
   let jsonStr = response.trim();
-  // Strip chain-of-thought <think>...</think> blocks (emitted by reasoning models e.g. minimax)
-  jsonStr = jsonStr.replace(/^<think>[\s\S]*?<\/think>\s*/i, '').trim();
+
+  // Reasoning models (MiniMax-M2.7, DeepSeek-R1, Qwen-QwQ) wrap the
+  // actual answer in <think>...</think>. Strip those blocks before
+  // looking for JSON. Non-reasoning responses are unaffected.
+  jsonStr = jsonStr.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  // Some models leave an unterminated <think>...<think> when truncated.
+  // Drop everything before the last </think> if one survived.
+  const lastThinkEnd = jsonStr.lastIndexOf('</think>');
+  if (lastThinkEnd >= 0) jsonStr = jsonStr.slice(lastThinkEnd + '</think>'.length).trim();
+
   // Strip markdown code fences
   if (jsonStr.startsWith('```')) {
     jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+  }
+
+  // Some reasoning models still emit prose before the JSON array.
+  // Find the first '[' and take from there to the matching last ']'.
+  const firstBracket = jsonStr.indexOf('[');
+  const lastBracket = jsonStr.lastIndexOf(']');
+  if (firstBracket > 0 && lastBracket > firstBracket) {
+    jsonStr = jsonStr.slice(firstBracket, lastBracket + 1);
   }
 
   let parsed: LLMFinding[];
