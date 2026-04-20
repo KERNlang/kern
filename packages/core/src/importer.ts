@@ -480,6 +480,15 @@ function convertVariableStatement(node: ts.VariableStatement, source: ts.SourceF
 
       if (isSimple) {
         lines.push(`const name=${name}${typeStr} value=${initText}${exp}`);
+      } else if (
+        (ts.isNoSubstitutionTemplateLiteral(decl.initializer) || ts.isTemplateExpression(decl.initializer)) &&
+        !decl.initializer.getText(source).slice(1, -1).includes('\n')
+      ) {
+        // `const label = `${count} files`;` → `fmt name=label template="${count} files"`
+        // Multi-line templates fall through to the raw-handler path — KERN's
+        // quoted-string attribute doesn't express embedded newlines.
+        const body = decl.initializer.getText(source).slice(1, -1);
+        lines.push(`fmt name=${name}${typeStr} template="${escapeKernString(body)}"${exp}`);
       } else if (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer)) {
         // Arrow function or function expression → fn
         const func = decl.initializer;
@@ -690,14 +699,19 @@ function convertJsxElement(node: ts.Node, source: ts.SourceFile, depth: number):
         ts.isBinaryExpression(node.expression) &&
         node.expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
       ) {
-        // {show && <Component>} → conditional
+        // {show && <Component>} → `conditional if=<show>` with a `handler`
+        // child holding the raw JSX. Matches render-composition semantics
+        // introduced in PR 3 (see packages/core/src/codegen/screens.ts).
         const condition = node.expression.left.getText(source);
-        lines.push(`${prefix}conditional expr="${escapeKernString(condition)}"`);
         const right = node.expression.right;
-        if (ts.isJsxElement(right) || ts.isJsxSelfClosingElement(right) || ts.isParenthesizedExpression(right)) {
-          const inner = ts.isParenthesizedExpression(right) ? right.expression : right;
-          lines.push(...convertJsxElement(inner, source, depth + 1));
+        const branch = ts.isParenthesizedExpression(right) ? right.expression : right;
+        const branchText = dedentBlock(branch.getText(source));
+        lines.push(`${prefix}conditional if="${escapeKernString(condition)}"`);
+        lines.push(`${prefix}  handler <<<`);
+        for (const bodyLine of branchText.split('\n')) {
+          lines.push(`${prefix}    ${bodyLine}`);
         }
+        lines.push(`${prefix}  >>>`);
       } else if (ts.isCallExpression(node.expression)) {
         // Check for .map() pattern → each
         const callText = node.expression.getText(source);
@@ -737,19 +751,31 @@ function convertJsxElement(node: ts.Node, source: ts.SourceFile, depth: number):
           lines.push(`${prefix}// {${callText.slice(0, 60)}}`);
         }
       } else if (ts.isConditionalExpression(node.expression)) {
-        // {cond ? <A> : <B>} → branch
+        // {cond ? <A> : <B>} → `conditional if=<cond>` + `else` with handler
+        // children holding the raw JSX branches. PR 3 semantics — see
+        // packages/core/src/codegen/screens.ts:generateConditionalJSX.
         const condition = node.expression.condition.getText(source);
-        lines.push(`${prefix}branch name=cond on="${escapeKernString(condition)}"`);
-        lines.push(`${prefix}  path value=true`);
         const whenTrue = ts.isParenthesizedExpression(node.expression.whenTrue)
           ? node.expression.whenTrue.expression
           : node.expression.whenTrue;
-        lines.push(...convertJsxElement(whenTrue, source, depth + 2));
-        lines.push(`${prefix}  path value=false`);
         const whenFalse = ts.isParenthesizedExpression(node.expression.whenFalse)
           ? node.expression.whenFalse.expression
           : node.expression.whenFalse;
-        lines.push(...convertJsxElement(whenFalse, source, depth + 2));
+        const thenText = dedentBlock(whenTrue.getText(source));
+        const elseText = dedentBlock(whenFalse.getText(source));
+
+        lines.push(`${prefix}conditional if="${escapeKernString(condition)}"`);
+        lines.push(`${prefix}  handler <<<`);
+        for (const bodyLine of thenText.split('\n')) {
+          lines.push(`${prefix}    ${bodyLine}`);
+        }
+        lines.push(`${prefix}  >>>`);
+        lines.push(`${prefix}  else`);
+        lines.push(`${prefix}    handler <<<`);
+        for (const bodyLine of elseText.split('\n')) {
+          lines.push(`${prefix}      ${bodyLine}`);
+        }
+        lines.push(`${prefix}    >>>`);
       } else {
         // Simple expression: {variable} or {expr}
         const expr = node.expression.getText(source);
