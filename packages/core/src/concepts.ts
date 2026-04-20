@@ -55,6 +55,17 @@ export interface EffectPayload {
    * complex to analyze statically). Feeds the `untyped-api-response` rule.
    */
   responseAsserted?: boolean;
+  /**
+   * For `network` subtype only. Classifies what the call sends on the wire:
+   *   - `'none'` — no body (GET, or no options arg at all).
+   *   - `'static'` — body is a string literal or literal object without any
+   *     dynamic interpolation.
+   *   - `'dynamic'` — body is built from variables, template literals with
+   *     `${…}`, or `JSON.stringify(x)` for some non-literal `x`.
+   * Feeds the `tainted-across-wire` rule so it can fire only on the class
+   * of calls that actually carry user-controlled data.
+   */
+  bodyKind?: 'none' | 'static' | 'dynamic';
 }
 
 export interface StateMutationPayload {

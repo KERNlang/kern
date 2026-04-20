@@ -300,6 +300,7 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
           async: isAsync,
           target: extractTarget(call),
           responseAsserted: isResponseAsserted(call),
+          bodyKind: extractBodyKind(call),
         },
       });
       continue;
@@ -1180,6 +1181,113 @@ function isResponseAsserted(call: import('ts-morph').CallExpression): boolean | 
  * `.then(r => r.status)` which resolves to a number and should not be
  * treated as JSON consumption.
  */
+/**
+ * Classify the body payload of a network call (fetch/axios/…):
+ *   - `'none'` — no options arg, or no body property found.
+ *   - `'static'` — body is a literal (string/object/array) with no dynamic
+ *     interpolation.
+ *   - `'dynamic'` — body reads from a variable, uses a template literal
+ *     containing `${…}`, or calls `JSON.stringify(x)` on a non-literal `x`.
+ *
+ * Feeds the `tainted-across-wire` cross-stack rule. Conservative by design:
+ * when unsure we return `undefined` (fallthrough) so the rule stays silent
+ * instead of over-reporting.
+ */
+function extractBodyKind(call: import('ts-morph').CallExpression): 'none' | 'static' | 'dynamic' | undefined {
+  const args = call.getArguments();
+  // fetch(url, options) — body lives in the 2nd arg's `body` property.
+  // axios.post(url, body, config) — body is the 2nd arg directly.
+  // Handle both by looking for either an options object with `body:` OR a
+  // literal body arg in position 1.
+  if (args.length < 2) {
+    // fetch(url) with no options → definitely no body on the wire.
+    return 'none';
+  }
+  const optionsOrBody = args[1];
+  const k = optionsOrBody.getKind();
+
+  if (k === SyntaxKind.ObjectLiteralExpression) {
+    const obj = optionsOrBody as import('ts-morph').ObjectLiteralExpression;
+    const bodyProp = obj.getProperty('body');
+    if (!bodyProp) return 'none';
+    if (bodyProp.getKind() !== SyntaxKind.PropertyAssignment) return undefined;
+    const initializer = (bodyProp as import('ts-morph').PropertyAssignment).getInitializer();
+    return classifyBodyExpression(initializer);
+  }
+
+  // Direct body-arg form (axios.post(url, body, ...)) — classify the arg.
+  return classifyBodyExpression(optionsOrBody);
+}
+
+function classifyBodyExpression(expr: import('ts-morph').Node | undefined): 'none' | 'static' | 'dynamic' | undefined {
+  if (!expr) return undefined;
+  const k = expr.getKind();
+
+  if (k === SyntaxKind.StringLiteral || k === SyntaxKind.NoSubstitutionTemplateLiteral) return 'static';
+  if (k === SyntaxKind.NumericLiteral || k === SyntaxKind.TrueKeyword || k === SyntaxKind.FalseKeyword) return 'static';
+  if (k === SyntaxKind.NullKeyword || k === SyntaxKind.UndefinedKeyword) return 'none';
+
+  // Template literal with ${…} → dynamic. Template without substitutions is
+  // handled above as NoSubstitutionTemplateLiteral.
+  if (k === SyntaxKind.TemplateExpression) return 'dynamic';
+
+  // Plain object/array literal — dynamic iff any value inside is non-literal.
+  if (k === SyntaxKind.ObjectLiteralExpression || k === SyntaxKind.ArrayLiteralExpression) {
+    return objectOrArrayIsDynamic(expr) ? 'dynamic' : 'static';
+  }
+
+  // `JSON.stringify(x)` — dynamic when x is non-literal, static otherwise.
+  if (k === SyntaxKind.CallExpression) {
+    const call = expr as import('ts-morph').CallExpression;
+    const calleeText = call.getExpression().getText();
+    if (calleeText === 'JSON.stringify') {
+      const arg = call.getArguments()[0];
+      return classifyBodyExpression(arg);
+    }
+    return 'dynamic';
+  }
+
+  // Identifier, property access, element access, binary expression, etc. —
+  // something that reads a variable or constructs a value at runtime.
+  if (
+    k === SyntaxKind.Identifier ||
+    k === SyntaxKind.PropertyAccessExpression ||
+    k === SyntaxKind.ElementAccessExpression ||
+    k === SyntaxKind.BinaryExpression ||
+    k === SyntaxKind.ConditionalExpression ||
+    k === SyntaxKind.SpreadElement
+  ) {
+    return 'dynamic';
+  }
+
+  return undefined;
+}
+
+function objectOrArrayIsDynamic(expr: import('ts-morph').Node): boolean {
+  // Walk top-level values; recurse into nested objects/arrays.
+  if (expr.getKind() === SyntaxKind.ObjectLiteralExpression) {
+    const obj = expr as import('ts-morph').ObjectLiteralExpression;
+    for (const prop of obj.getProperties()) {
+      if (prop.getKind() === SyntaxKind.ShorthandPropertyAssignment) return true;
+      if (prop.getKind() === SyntaxKind.SpreadAssignment) return true;
+      if (prop.getKind() !== SyntaxKind.PropertyAssignment) return true;
+      const init = (prop as import('ts-morph').PropertyAssignment).getInitializer();
+      const kind = classifyBodyExpression(init);
+      if (kind !== 'static' && kind !== 'none') return true;
+    }
+    return false;
+  }
+  if (expr.getKind() === SyntaxKind.ArrayLiteralExpression) {
+    const arr = expr as import('ts-morph').ArrayLiteralExpression;
+    for (const el of arr.getElements()) {
+      const kind = classifyBodyExpression(el);
+      if (kind !== 'static' && kind !== 'none') return true;
+    }
+    return false;
+  }
+  return true;
+}
+
 function callbackCallsJson(thenCall: import('ts-morph').CallExpression): boolean {
   const callback = thenCall.getArguments()[0];
   if (!callback) return false;
