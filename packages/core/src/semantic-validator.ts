@@ -7,6 +7,9 @@
  *   3. `derive` cannot be a direct child of `each` when that `each` is inside
  *      a `render` block — `derive` compiles to `useMemo`, which violates React's
  *      Rules of Hooks when called inside a `.map()` callback.
+ *   4. `set name=X` must have a matching `state name=X` declared in an ancestor
+ *      screen/component. Otherwise codegen emits `setX(...)` with no bound
+ *      setter, which fails at React runtime with no compile-time signal.
  */
 
 import type { IRNode } from './types.js';
@@ -25,11 +28,16 @@ export interface SemanticViolation {
  */
 export function validateSemantics(root: IRNode): SemanticViolation[] {
   const violations: SemanticViolation[] = [];
-  validateNode(root, violations, []);
+  validateNode(root, violations, [], []);
   return violations;
 }
 
-function validateNode(node: IRNode, violations: SemanticViolation[], ancestry: string[]): void {
+function validateNode(
+  node: IRNode,
+  violations: SemanticViolation[],
+  ancestry: string[],
+  ancestorNodes: IRNode[],
+): void {
   // ── Machine transition cross-ref ───────────────────────────────────
   if (node.type === 'machine' && node.children) {
     const stateNames = new Set<string>();
@@ -125,11 +133,64 @@ function validateNode(node: IRNode, violations: SemanticViolation[], ancestry: s
     }
   }
 
+  // ── set must match a state declaration ─────────────────────────────
+  // `set name=X` lowers to `setX(...)` using the React useState convention.
+  // If no ancestor declares `state name=X`, the emitted setter is unbound
+  // and fails at React runtime with no compile-time signal.
+  if (node.type === 'set') {
+    const targetName = node.props?.name as string | undefined;
+    if (targetName && !hasMatchingState(targetName, ancestorNodes)) {
+      const declared = collectDeclaredStateNames(ancestorNodes);
+      const hint =
+        declared.length > 0
+          ? ` Available in scope: ${declared.join(', ')}.`
+          : ' No `state` declarations found in scope.';
+      violations.push({
+        rule: 'set-requires-matching-state',
+        nodeType: 'set',
+        message: `\`set name=${targetName}\` has no matching \`state name=${targetName}\` in scope — the emitted \`set${capitalize(targetName)}(...)\` will be unbound at runtime.${hint}`,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+
   // Recurse
   if (node.children) {
     const nextAncestry = node.type ? [...ancestry, node.type] : ancestry;
+    const nextAncestorNodes = node.type ? [...ancestorNodes, node] : ancestorNodes;
     for (const child of node.children) {
-      validateNode(child, violations, nextAncestry);
+      validateNode(child, violations, nextAncestry, nextAncestorNodes);
     }
   }
+}
+
+function hasMatchingState(name: string, ancestors: IRNode[]): boolean {
+  for (const ancestor of ancestors) {
+    if (!ancestor.children) continue;
+    for (const child of ancestor.children) {
+      if (child.type === 'state' && (child.props?.name as string | undefined) === name) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function collectDeclaredStateNames(ancestors: IRNode[]): string[] {
+  const names: string[] = [];
+  for (const ancestor of ancestors) {
+    if (!ancestor.children) continue;
+    for (const child of ancestor.children) {
+      if (child.type === 'state') {
+        const n = child.props?.name as string | undefined;
+        if (n) names.push(n);
+      }
+    }
+  }
+  return names;
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
