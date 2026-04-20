@@ -201,6 +201,8 @@ export const NODE_TYPES = [
   'invalidate',
   // UI controls
   'conditional',
+  'else',
+  'elseif',
   'component',
   'select',
   'option',

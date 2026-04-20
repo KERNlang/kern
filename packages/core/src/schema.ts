@@ -691,11 +691,29 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   conditional: {
-    description: 'Conditional rendering — shows children when if-expression is truthy',
-    example: 'conditional if="user !== null"',
+    description:
+      'Conditional rendering — shows the `then` branch when if-expression is truthy. Inside a `render` block the branch JSX goes in a `handler <<<>>>` child; optional `elseif` / `else` children provide alternative branches.',
+    example:
+      'conditional if="loading"\n  handler <<<\n    <Spinner />\n  >>>\n  elseif expr="error"\n    handler <<<\n      <Error msg={error} />\n    >>>\n  else\n    handler <<<\n      <Content />\n    >>>',
     props: {
       if: { required: true, kind: 'rawExpr' },
     },
+    // No allowedChildren: conditional must remain permissive because
+    // `generateConditional` also wraps arbitrary core nodes when used outside
+    // a render block (e.g. `conditional if=isAdmin` with `type`/`config` kids).
+  },
+  elseif: {
+    description:
+      'Alternative branch inside a `conditional` — matched when the preceding branches are falsy and `expr` is truthy.',
+    example: 'elseif expr="error"\n  handler <<<\n    <Error msg={error} />\n  >>>',
+    props: {
+      expr: { required: true, kind: 'rawExpr' },
+    },
+  },
+  else: {
+    description: 'Fallback branch inside a `conditional` — rendered when no preceding branch matched.',
+    example: 'else\n  handler <<<\n    <Content />\n  >>>',
+    props: {},
   },
 
   // ── Express / Backend nodes ───────────────────────────────────────────
@@ -1163,10 +1181,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   render: {
     description:
-      'Render function — JSX output block for a component or hook. Accepts a raw `handler` block OR declarative KERN children (e.g. `each`) that compose into a JSX fragment.',
+      'Render function — JSX output block for a component or hook. Accepts a raw `handler` block OR declarative KERN children (e.g. `each`, `conditional`) that compose into a JSX fragment.',
     example: 'render\n  each name=f in=files key="f.path"\n    handler <<<\n      <Text>{f.path}</Text>\n    >>>',
     props: {},
-    allowedChildren: ['handler', 'each'],
+    allowedChildren: ['handler', 'each', 'conditional'],
   },
   template: {
     description: 'Reusable template with named slots — defines a composable layout pattern',

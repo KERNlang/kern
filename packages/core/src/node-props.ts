@@ -199,6 +199,12 @@ export interface ConditionalProps extends BaseProps {
   if?: string | ExprObject;
 }
 
+export interface ElseIfProps extends BaseProps {
+  expr?: string | ExprObject;
+}
+
+export interface ElseProps extends BaseProps {}
+
 export interface SelectProps extends BaseProps {
   value?: string;
   placeholder?: string;
@@ -324,6 +330,8 @@ export interface NodePropsMap {
   recover: RecoverProps;
   pattern: PatternProps;
   conditional: ConditionalProps;
+  elseif: ElseIfProps;
+  else: ElseProps;
   select: SelectProps;
   module: ModuleProps;
   import: ImportProps;
