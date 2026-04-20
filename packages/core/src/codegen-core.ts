@@ -41,6 +41,7 @@ export {
   generateActionRegistry,
   generateApply,
   generateAssume,
+  generateAsync,
   generateCollect,
   generateDerive,
   generateExpect,
@@ -102,6 +103,7 @@ import {
   generateActionRegistry,
   generateApply,
   generateAssume,
+  generateAsync,
   generateCollect,
   generateDerive,
   generateExpect,
@@ -438,6 +440,7 @@ export const CORE_NODE_TYPES = new Set([
   'derive',
   'fmt',
   'set',
+  'async',
   'transform',
   'action',
   'actionRegistry',
@@ -547,6 +550,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateDerive(node);
     case 'fmt':
       return generateFmt(node);
+    case 'async':
+      return generateAsync(node);
     case 'transform':
       return generateTransform(node);
     case 'action':

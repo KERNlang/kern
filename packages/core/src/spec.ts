@@ -217,6 +217,7 @@ export const NODE_TYPES = [
   'derive',
   'fmt',
   'set',
+  'async',
   'transform',
   'action',
   'actionRegistry',

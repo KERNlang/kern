@@ -137,6 +137,8 @@ export interface SetProps extends BaseProps {
   to?: string | ExprObject;
 }
 
+export interface AsyncProps extends BaseProps {}
+
 export interface TransformProps extends BaseProps {
   target?: string;
   via?: string;
@@ -327,6 +329,7 @@ export interface NodePropsMap {
   derive: DeriveProps;
   fmt: FmtProps;
   set: SetProps;
+  async: AsyncProps;
   transform: TransformProps;
   action: ActionProps;
   actionRegistry: ActionRegistryProps;

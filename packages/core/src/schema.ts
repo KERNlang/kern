@@ -350,6 +350,16 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       to: { required: true, kind: 'rawExpr' },
     },
   },
+  async: {
+    description:
+      'Declarative async block — a named async unit that runs its `handler` body once, optionally wrapped by a `recover` child that delegates to the existing `recover`/`strategy` machinery. Reuses `generateRecover` verbatim, so fallback/retry semantics match the rest of the ground layer. The emitted code is a statement (IIFE when no recover, wrapped call when recover is present) so it can be spliced inside any statement context.',
+    example:
+      'async name=loadUser\n  handler <<<\n    const res = await fetch(`/api/users/${id}`);\n    setUser(await res.json());\n  >>>\n  recover\n    strategy name=fallback\n      handler <<<\n        setUser(null);\n      >>>',
+    props: {
+      name: { kind: 'identifier' },
+    },
+    allowedChildren: ['handler', 'recover'],
+  },
   transform: {
     description: 'Data transformation pipeline — maps target through a via function or handler',
     example: 'transform name=normalized target=rawData via=normalize type=NormalizedData',

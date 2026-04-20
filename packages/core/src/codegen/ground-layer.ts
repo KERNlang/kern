@@ -378,6 +378,66 @@ export function generateExpect(node: IRNode): string[] {
   return lines;
 }
 
+// ── Ground Layer: async ──────────────────────────────────────────────────
+// `async name=loadUser` with a `handler` child runs its body inside an IIFE.
+// With an optional trailing `recover` child, delegates recovery to the
+// existing `recover`/`strategy` machinery (see `generateRecover` below) —
+// the emitted `<name>WithRecovery<T>` wrapper is invoked with the body as
+// its Promise-returning `fn`.
+//
+// Design: the `async` primitive reuses existing recover/strategy semantics
+// rather than inventing a new error-handling path. `derive` and `set` are
+// intentionally NOT made awaitable — their identity as direct bindings /
+// state updates stays pure.
+
+export function generateAsync(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'async'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'asyncBlock', node);
+
+  const handler = firstChild(node, 'handler');
+  if (!handler) {
+    throw new KernCodegenError('async block requires a `handler <<<>>>` child with the body', node);
+  }
+  // handlerCode() takes the PARENT that has a handler child — pass `node`, not `handler`.
+  const body = handlerCode(node);
+
+  const recover = firstChild(node, 'recover');
+
+  const lines: string[] = [...todo, ...annotations];
+
+  if (!recover) {
+    // Bare IIFE — fire-and-forget. Parent context decides whether to await it.
+    lines.push(`(async () => {`);
+    if (body) {
+      for (const line of body.split('\n')) {
+        lines.push(`  ${line}`);
+      }
+    }
+    lines.push(`})();`);
+    return lines;
+  }
+
+  // With recovery: emit the reusable wrapper, then invoke it. The recover
+  // node inherits the async block's name so generateRecover emits
+  // `<name>WithRecovery<T>(...)` — one symbol that ties the two together.
+  const namedRecover: IRNode = {
+    ...recover,
+    props: { ...(recover.props || {}), name },
+  };
+  lines.push(...generateRecover(namedRecover));
+  lines.push(`${name}WithRecovery(async () => {`);
+  if (body) {
+    for (const line of body.split('\n')) {
+      lines.push(`  ${line}`);
+    }
+  }
+  lines.push(`});`);
+  return lines;
+}
+
 // ── Ground Layer: recover / strategy ─────────────────────────────────────
 
 export function generateRecover(node: IRNode): string[] {
