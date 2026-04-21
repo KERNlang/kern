@@ -268,6 +268,8 @@ export interface MethodProps extends BaseProps {
 export interface TransitionProps extends BaseProps {
   from?: string;
   to?: string;
+  params?: string;
+  guard?: string | ExprObject;
 }
 
 export interface StateProps extends BaseProps {
