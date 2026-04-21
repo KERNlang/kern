@@ -74,7 +74,9 @@ describe('suggest-kern-primitive rule', () => {
 
   it('suggests `includes` / `indexOf` / `lastIndexOf` with value= prop', () => {
     const inc = kernSuggestions('const has = items.includes(target);');
-    expect(inc[0].suggestion).toBe('includes name=<name> in=items value="target"');
+    // `target` is a non-literal identifier → wrap in `{{ … }}` so KERN
+    //  parses it as a raw expression (not as a string literal).
+    expect(inc[0].suggestion).toBe('includes name=<name> in=items value={{ target }}');
 
     const idx = kernSuggestions('const pos = items.indexOf("fatal", 5);');
     expect(idx[0].suggestion).toBe('indexOf name=<name> in=items value="\\"fatal\\"" from=5');
@@ -82,7 +84,9 @@ describe('suggest-kern-primitive rule', () => {
 
   it('suggests `concat` with raw `with=` args', () => {
     const f = kernSuggestions('const all = items.concat(a, b, c);');
-    expect(f[0].suggestion).toBe('concat name=<name> in=items with="a, b, c"');
+    // Concat args are spread raw — wrapped in `{{ … }}` so the parser
+    // doesn't truncate at the first space.
+    expect(f[0].suggestion).toBe('concat name=<name> in=items with={{ a, b, c }}');
   });
 
   it('flags `.sort()` and `.reverse()` with an immutability note', () => {
@@ -141,6 +145,41 @@ describe('suggest-kern-primitive rule', () => {
     const suggestions = f.map((x) => x.suggestion ?? '');
     expect(suggestions.some((s) => s.startsWith('compact name='))).toBe(true);
     expect(suggestions.some((s) => s.startsWith('pluck name='))).toBe(true);
+  });
+
+  // ── Post-review edge cases ──────────────────────────────────────────
+
+  it('skips .map/.filter arrows that use the index parameter', () => {
+    // `(x, i) => i === 0` references `i`, which KERN's predicate/expr
+    // primitives do not bind. Skip to avoid emitting a migration that
+    // drops the index reference.
+    const f = kernSuggestions('const firstOnly = items.filter((x, i) => i === 0);');
+    expect(f).toHaveLength(0);
+
+    const g = kernSuggestions('const withIndex = items.map((x, i) => i);');
+    expect(g).toHaveLength(0);
+  });
+
+  it('skips pluck when the property access is optional-chained', () => {
+    // `u.profile?.name` would route to `pluck prop=profile.name`, which
+    // emits `item.profile.name` — throws on null profile. Fall back to
+    // plain `map` with the full expression preserved.
+    const f = kernSuggestions('const cityNames = users.map((u) => u.profile?.name);');
+    expect(f).toHaveLength(1);
+    expect(f[0].suggestion?.startsWith('map name=')).toBe(true);
+    expect(f[0].suggestion).toContain('expr="u.profile?.name"');
+  });
+
+  it('routes non-literal join separators through the raw-expression form', () => {
+    const f = kernSuggestions('const out = fields.join(delim);');
+    expect(f[0].suggestion).toBe('join name=<name> in=fields separator={{ delim }}');
+  });
+
+  it('wraps complex receivers in raw-expression form for `in=`', () => {
+    const f = kernSuggestions('const out = users.filter((u) => u.active).filter((u) => u.admin);');
+    // At least one finding should reference the chained receiver via `{{ … }}`.
+    const hasWrappedIn = f.some((x) => /in=\{\{ .*\}\}/.test(x.suggestion ?? ''));
+    expect(hasWrappedIn).toBe(true);
   });
 
   it('skips multi-statement arrow bodies (block form needs a handler child)', () => {

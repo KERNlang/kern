@@ -560,11 +560,13 @@ describe('Ground Layer: unique', () => {
 });
 
 describe('PR E: uniqueBy', () => {
-  it('emits Map-based dedup keyed by selector', () => {
+  it('emits Set+filter (first-wins, lodash uniqBy parity)', () => {
     const node = mk('uniqueBy', { name: 'distinct', in: 'users', by: 'item.id' });
-    expect(generateUniqueBy(node).join('\n')).toBe(
-      'export const distinct = [...new Map((users).map((item) => [item.id, item])).values()];',
-    );
+    const code = generateUniqueBy(node).join('\n');
+    expect(code).toContain('new Set()');
+    expect(code).toContain('const __k = item.id;');
+    expect(code).toContain('if (__seen.has(__k)) return false;');
+    expect(code).toContain('__seen.add(__k);');
   });
   it('throws on missing in or by', () => {
     expect(() => generateUniqueBy(mk('uniqueBy', { name: 'x', by: 'item.id' }))).toThrow(/uniqueBy .* 'in' prop/);
@@ -573,11 +575,14 @@ describe('PR E: uniqueBy', () => {
 });
 
 describe('PR E: groupBy', () => {
-  it('emits Object.groupBy', () => {
+  it('emits reduce with Object.create(null) accumulator (ES2022-compatible, proto-pollution safe)', () => {
     const node = mk('groupBy', { name: 'byType', in: 'items', by: 'item.type' });
-    expect(generateGroupBy(node).join('\n')).toBe(
-      'export const byType = Object.groupBy((items), (item) => item.type);',
-    );
+    const code = generateGroupBy(node).join('\n');
+    expect(code).toContain('const byType: Record<string, unknown[]> = (items).reduce((acc, item) =>');
+    expect(code).toContain('const __k = item.type;');
+    expect(code).toContain('(acc[__k] ??= []).push(item);');
+    expect(code).toContain('Object.create(null) as Record<string, unknown[]>');
+    expect(code).not.toContain('Object.groupBy');
   });
   it('throws on missing in or by', () => {
     expect(() => generateGroupBy(mk('groupBy', { name: 'x', by: 'item.type' }))).toThrow(/groupBy .* 'in' prop/);
@@ -586,11 +591,24 @@ describe('PR E: groupBy', () => {
 });
 
 describe('PR E: partition', () => {
-  it('emits destructured dual-filter', () => {
+  it('emits destructured single-pass reduce (no double-eval of predicate)', () => {
     const node = mk('partition', { pass: 'active', fail: 'inactive', in: 'users', where: 'item.active' });
-    expect(generatePartition(node).join('\n')).toBe(
-      'export const [active, inactive] = [(users).filter((item) => item.active), (users).filter((item) => !(item.active))];',
-    );
+    const code = generatePartition(node).join('\n');
+    expect(code).toContain('const [active, inactive] = (users).reduce<[unknown[], unknown[]]>((acc, item) =>');
+    expect(code).toContain('(item.active ? acc[0] : acc[1]).push(item);');
+    expect(code).toContain('}, [[], []]);');
+  });
+  it('applies the provided element type to both tuple slots', () => {
+    const node = mk('partition', {
+      pass: 'active',
+      fail: 'inactive',
+      in: 'users',
+      where: 'item.active',
+      type: 'User',
+    });
+    const code = generatePartition(node).join('\n');
+    expect(code).toContain('const [active, inactive]: [User[], User[]] =');
+    expect(code).toContain('reduce<[User[], User[]]>');
   });
   it('throws on missing in or where', () => {
     expect(() => generatePartition(mk('partition', { pass: 'a', fail: 'b', where: 'x' }))).toThrow(
@@ -612,23 +630,26 @@ describe('PR E: indexBy', () => {
 });
 
 describe('PR E: countBy', () => {
-  it('emits multi-line reduce with Record<string, number> default type', () => {
+  it('uses Object.create(null) accumulator to avoid prototype pollution', () => {
     const node = mk('countBy', { name: 'counts', in: 'items', by: 'item.type' });
     const code = generateCountBy(node).join('\n');
     expect(code).toContain('const counts: Record<string, number> =');
     expect(code).toContain('const __k = item.type;');
     expect(code).toContain('acc[__k] = (acc[__k] ?? 0) + 1;');
     expect(code).toContain('return acc;');
-    expect(code).toContain('{} as Record<string, number>');
+    expect(code).toContain('Object.create(null) as Record<string, number>');
+    expect(code).not.toContain('{} as Record<string, number>');
   });
 });
 
 describe('PR E: chunk', () => {
-  it('emits Array.from with Math.ceil length', () => {
+  it('binds collection and size once via IIFE (no side-effect re-eval)', () => {
     const node = mk('chunk', { name: 'batches', in: 'items', size: '10' });
-    expect(generateChunk(node).join('\n')).toBe(
-      'export const batches = Array.from({ length: Math.ceil((items).length / (10)) }, (_, i) => (items).slice(i * (10), (i + 1) * (10)));',
-    );
+    const code = generateChunk(node).join('\n');
+    expect(code).toContain('((__src, __n) => Array.from');
+    expect(code).toContain('Math.ceil(__src.length / __n)');
+    expect(code).toContain('__src.slice(i * __n, (i + 1) * __n)');
+    expect(code).toContain(')((items), (10));');
   });
   it('throws on missing size', () => {
     expect(() => generateChunk(mk('chunk', { name: 'x', in: 'xs' }))).toThrow(/chunk .* 'size' prop/);
@@ -636,9 +657,10 @@ describe('PR E: chunk', () => {
 });
 
 describe('PR E: zip', () => {
-  it('emits .map with indexed access on right', () => {
+  it('binds `with` collection once via IIFE (no re-eval per element)', () => {
     const node = mk('zip', { name: 'pairs', in: 'items', with: 'other' });
-    expect(generateZip(node).join('\n')).toBe('export const pairs = (items).map((item, __i) => [item, (other)[__i]]);');
+    const code = generateZip(node).join('\n');
+    expect(code).toContain('((__r) => (items).map((item, __i) => [item, __r[__i]]))((other));');
   });
 });
 
@@ -671,27 +693,37 @@ describe('PR E: take / drop', () => {
 });
 
 describe('PR E: min / max / minBy / maxBy', () => {
-  it('min emits Math.min spread', () => {
-    expect(generateMin(mk('min', { name: 'lowest', in: 'values' })).join('\n')).toBe(
-      'export const lowest = Math.min(...(values));',
-    );
+  it('min emits reduce-based form with empty guard (no Math.min spread)', () => {
+    const code = generateMin(mk('min', { name: 'lowest', in: 'values' })).join('\n');
+    expect(code).toContain('__src.length === 0 ? undefined');
+    expect(code).toContain('__src.reduce((__a: number, __b: number) => __b < __a ? __b : __a)');
+    expect(code).not.toContain('Math.min');
   });
-  it('max emits Math.max spread', () => {
-    expect(generateMax(mk('max', { name: 'highest', in: 'values' })).join('\n')).toBe(
-      'export const highest = Math.max(...(values));',
-    );
+  it('max emits reduce-based form with > operator', () => {
+    const code = generateMax(mk('max', { name: 'highest', in: 'values' })).join('\n');
+    expect(code).toContain('__src.reduce((__a: number, __b: number) => __b > __a ? __b : __a)');
+    expect(code).not.toContain('Math.max');
   });
-  it('minBy emits reducer with length guard and item->__b substitution', () => {
+  it('minBy emits closure-based reducer (no regex substitution over `by` expression)', () => {
     const node = mk('minBy', { name: 'youngest', in: 'users', by: 'item.age' });
-    expect(generateMinBy(node).join('\n')).toBe(
-      'export const youngest = (users).length > 0 ? (users).reduce((__b, item) => (item.age) < (__b.age) ? item : __b) : undefined;',
-    );
+    const code = generateMinBy(node).join('\n');
+    expect(code).toContain('const __key = (item: typeof __src[number]) => item.age;');
+    expect(code).toContain('__key(__cur) < __key(__best) ? __cur : __best');
+    expect(code).toContain('((__src) => {');
+    expect(code).toContain('if (__src.length === 0) return undefined;');
   });
-  it('maxBy uses > operator', () => {
+  it('minBy does NOT corrupt string literals inside the `by` expression', () => {
+    // Regression test for the original regex-substitution bug where
+    // `by="item.tags.includes('item')"` would wrongly replace the literal.
+    const node = mk('minBy', { name: 'x', in: 'xs', by: "item.tags.includes('item')" });
+    const code = generateMinBy(node).join('\n');
+    expect(code).toContain("(item: typeof __src[number]) => item.tags.includes('item')");
+  });
+  it('maxBy uses > operator and the same closure shape', () => {
     const node = mk('maxBy', { name: 'oldest', in: 'users', by: 'item.age' });
-    expect(generateMaxBy(node).join('\n')).toBe(
-      'export const oldest = (users).length > 0 ? (users).reduce((__b, item) => (item.age) > (__b.age) ? item : __b) : undefined;',
-    );
+    const code = generateMaxBy(node).join('\n');
+    expect(code).toContain('const __key = (item: typeof __src[number]) => item.age;');
+    expect(code).toContain('__key(__cur) > __key(__best) ? __cur : __best');
   });
 });
 
@@ -707,18 +739,21 @@ describe('PR E: sum / sumBy / avg', () => {
       'export const totalCost: number = (items).reduce((acc, item) => acc + (item.price * item.qty), 0);',
     );
   });
-  it('avg guards against empty', () => {
+  it('avg returns NaN on empty (Lodash parity)', () => {
     const node = mk('avg', { name: 'mean', in: 'prices' });
-    expect(generateAvg(node).join('\n')).toBe(
-      'export const mean: number = (prices).length === 0 ? 0 : (prices).reduce((acc, n) => acc + n, 0) / (prices).length;',
-    );
+    const code = generateAvg(node).join('\n');
+    expect(code).toContain('__src.length === 0 ? Number.NaN');
+    expect(code).toContain('__src.reduce((acc, n) => acc + n, 0) / __src.length');
+    expect(code).toContain(')((prices));');
   });
 });
 
 describe('PR E: intersect', () => {
-  it('emits filter + includes', () => {
+  it('emits Set-based O(N+M) form with `with` bound once', () => {
     const node = mk('intersect', { name: 'shared', in: 'a', with: 'b' });
-    expect(generateIntersect(node).join('\n')).toBe('export const shared = (a).filter((item) => (b).includes(item));');
+    const code = generateIntersect(node).join('\n');
+    expect(code).toContain('((__r) => (a).filter((item) => __r.has(item)))(new Set((b)));');
+    expect(code).not.toContain('.includes(item)');
   });
 });
 

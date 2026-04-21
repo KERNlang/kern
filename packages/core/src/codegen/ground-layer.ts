@@ -916,10 +916,17 @@ export function generateUniqueBy(node: IRNode): string[] {
   const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
   const exp = exportPrefix(node);
 
+  // First-wins semantics to match Lodash `uniqBy`. Uses Set+filter rather
+  // than Map-constructor (which would keep the last occurrence).
   return [
     ...todo,
     ...annotations,
-    `${exp}const ${name}${typeAnnotation} = [...new Map((${collection}).map((${item}) => [${by}, ${item}])).values()];`,
+    `${exp}const ${name}${typeAnnotation} = ((__seen) => (${collection}).filter((${item}) => {`,
+    `  const __k = ${by};`,
+    `  if (__seen.has(__k)) return false;`,
+    `  __seen.add(__k);`,
+    `  return true;`,
+    `}))(new Set());`,
   ];
 }
 
@@ -941,14 +948,18 @@ export function generateGroupBy(node: IRNode): string[] {
   const by = unwrapExpr(props.by);
   if (!by) throw new KernCodegenError("groupBy node requires a 'by' prop", node);
 
-  const constType = props.type as string | undefined;
-  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const constType = (props.type as string | undefined) || 'Record<string, unknown[]>';
+  const typeAnn = emitTypeAnnotation(constType, 'Record<string, unknown[]>', node);
   const exp = exportPrefix(node);
 
   return [
     ...todo,
     ...annotations,
-    `${exp}const ${name}${typeAnnotation} = Object.groupBy((${collection}), (${item}) => ${by});`,
+    `${exp}const ${name}: ${typeAnn} = (${collection}).reduce((acc, ${item}) => {`,
+    `  const __k = ${by};`,
+    `  (acc[__k] ??= []).push(${item});`,
+    `  return acc;`,
+    `}, Object.create(null) as ${typeAnn});`,
   ];
 }
 
@@ -971,15 +982,19 @@ export function generatePartition(node: IRNode): string[] {
   if (!predicate) throw new KernCodegenError("partition node requires a 'where' prop", node);
 
   const constType = props.type as string | undefined;
-  const typeAnnotation = constType
-    ? `: [${emitTypeAnnotation(constType, 'unknown', node)}, ${emitTypeAnnotation(constType, 'unknown', node)}]`
-    : '';
+  const elemType = constType ? emitTypeAnnotation(constType, 'unknown', node) : 'unknown';
+  const typeAnnotation = constType ? `: [${elemType}[], ${elemType}[]]` : '';
   const exp = exportPrefix(node);
 
+  // Single-pass reduce so the collection and predicate each evaluate once
+  // per item — avoids double side effects from the dual-filter shape.
   return [
     ...todo,
     ...annotations,
-    `${exp}const [${passName}, ${failName}]${typeAnnotation} = [(${collection}).filter((${item}) => ${predicate}), (${collection}).filter((${item}) => !(${predicate}))];`,
+    `${exp}const [${passName}, ${failName}]${typeAnnotation} = (${collection}).reduce<[${elemType}[], ${elemType}[]]>((acc, ${item}) => {`,
+    `  (${predicate} ? acc[0] : acc[1]).push(${item});`,
+    `  return acc;`,
+    `}, [[], []]);`,
   ];
 }
 
@@ -1038,7 +1053,7 @@ export function generateCountBy(node: IRNode): string[] {
     `  const __k = ${by};`,
     `  acc[__k] = (acc[__k] ?? 0) + 1;`,
     `  return acc;`,
-    `}, {} as ${typeAnn});`,
+    `}, Object.create(null) as ${typeAnn});`,
   ];
 }
 
@@ -1061,10 +1076,12 @@ export function generateChunk(node: IRNode): string[] {
   const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
   const exp = exportPrefix(node);
 
+  // IIFE so the collection and size expressions are evaluated once each —
+  // important if either is expensive or has side effects.
   return [
     ...todo,
     ...annotations,
-    `${exp}const ${name}${typeAnnotation} = Array.from({ length: Math.ceil((${collection}).length / (${size})) }, (_, i) => (${collection}).slice(i * (${size}), (i + 1) * (${size})));`,
+    `${exp}const ${name}${typeAnnotation} = ((__src, __n) => Array.from({ length: Math.ceil(__src.length / __n) }, (_, i) => __src.slice(i * __n, (i + 1) * __n)))((${collection}), (${size}));`,
   ];
 }
 
@@ -1088,10 +1105,12 @@ export function generateZip(node: IRNode): string[] {
   const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
   const exp = exportPrefix(node);
 
+  // Bind the right collection once via IIFE — without this, `with=getOther()`
+  // would call getOther() once per element inside the map callback.
   return [
     ...todo,
     ...annotations,
-    `${exp}const ${name}${typeAnnotation} = (${left}).map((${item}, ${indexName}) => [${item}, (${right})[${indexName}]]);`,
+    `${exp}const ${name}${typeAnnotation} = ((__r) => (${left}).map((${item}, ${indexName}) => [${item}, __r[${indexName}]]))((${right}));`,
   ];
 }
 
@@ -1152,6 +1171,11 @@ export function generateDrop(node: IRNode): string[] {
 
 // ── Ground Layer: min / max ──────────────────────────────────────────────
 
+// Reduce-based (not `Math.min(...arr)` / `Math.max(...arr)`) to avoid:
+//   1. Stack overflow on huge arrays (spread blows the arg count limit).
+//   2. `Math.min()` returning `Infinity` and `Math.max()` returning
+//      `-Infinity` on empty arrays — we return `undefined` instead.
+
 function generateMathAgg(node: IRNode, which: 'min' | 'max'): string[] {
   const annotations = emitReasonAnnotations(node);
   const props = propsOf<typeof which>(node);
@@ -1164,10 +1188,15 @@ function generateMathAgg(node: IRNode, which: 'min' | 'max'): string[] {
   if (!collection) throw new KernCodegenError(`${which} node requires an 'in' prop`, node);
 
   const constType = props.type as string | undefined;
-  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'number', node)}` : '';
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'number', node)} | undefined` : '';
   const exp = exportPrefix(node);
+  const op = which === 'min' ? '<' : '>';
 
-  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = Math.${which}(...(${collection}));`];
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = ((__src) => __src.length === 0 ? undefined : __src.reduce((__a: number, __b: number) => __b ${op} __a ? __b : __a))((${collection}));`,
+  ];
 }
 
 export function generateMin(node: IRNode): string[] {
@@ -1179,11 +1208,15 @@ export function generateMax(node: IRNode): string[] {
 }
 
 // ── Ground Layer: minBy / maxBy ──────────────────────────────────────────
-// Substitutes `item` identifier with `__b` for comparison side.
+// Emits a closure `__key = (item) => by` so the author's `by` expression is
+// evaluated as an arrow body — no fragile regex over the raw expression
+// text that would corrupt string literals like `by="item.tags.includes('item')"`.
+// The collection is bound once, so expensive or side-effecting `in=` only
+// runs one time. Returns `undefined` for empty collections.
 
 function generateByReducer(node: IRNode, which: 'min' | 'max'): string[] {
   const annotations = emitReasonAnnotations(node);
-  const props = propsOf<'minBy'>(node);
+  const props = propsOf<'minBy' | 'maxBy'>(node);
   const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
   const fallback = which === 'min' ? 'youngest' : 'oldest';
@@ -1198,14 +1231,16 @@ function generateByReducer(node: IRNode, which: 'min' | 'max'): string[] {
   const constType = props.type as string | undefined;
   const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)} | undefined` : '';
   const exp = exportPrefix(node);
-
-  const byForBest = by.replace(new RegExp(`\\b${item}\\b`, 'g'), '__b');
   const op = which === 'min' ? '<' : '>';
 
   return [
     ...todo,
     ...annotations,
-    `${exp}const ${name}${typeAnnotation} = (${collection}).length > 0 ? (${collection}).reduce((__b, ${item}) => (${by}) ${op} (${byForBest}) ? ${item} : __b) : undefined;`,
+    `${exp}const ${name}${typeAnnotation} = ((__src) => {`,
+    `  if (__src.length === 0) return undefined;`,
+    `  const __key = (${item}: typeof __src[number]) => ${by};`,
+    `  return __src.reduce((__best, __cur) => __key(__cur) ${op} __key(__best) ? __cur : __best);`,
+    `})((${collection}));`,
   ];
 }
 
@@ -1254,10 +1289,13 @@ export function generateAvg(node: IRNode): string[] {
   const typeAnnotation = `: ${emitTypeAnnotation(constType, 'number', node)}`;
   const exp = exportPrefix(node);
 
+  // Returns `NaN` on empty input (matches Lodash `_.mean([])` and math
+  // convention — "no data" signal rather than a fake 0). Bound via IIFE so
+  // the `in=` expression is evaluated exactly once.
   return [
     ...todo,
     ...annotations,
-    `${exp}const ${name}${typeAnnotation} = (${collection}).length === 0 ? 0 : (${collection}).reduce((acc, n) => acc + n, 0) / (${collection}).length;`,
+    `${exp}const ${name}${typeAnnotation} = ((__src) => __src.length === 0 ? Number.NaN : __src.reduce((acc, n) => acc + n, 0) / __src.length)((${collection}));`,
   ];
 }
 
@@ -1286,6 +1324,9 @@ export function generateSumBy(node: IRNode): string[] {
 }
 
 // ── Ground Layer: intersect ──────────────────────────────────────────────
+// Uses `new Set(right)` for O(N+M) lookup instead of the naive O(N×M)
+// `.filter(...includes...)` pair. The right collection is bound once so
+// expensive `with=` expressions don't re-run per element.
 
 export function generateIntersect(node: IRNode): string[] {
   const annotations = emitReasonAnnotations(node);
@@ -1307,7 +1348,7 @@ export function generateIntersect(node: IRNode): string[] {
   return [
     ...todo,
     ...annotations,
-    `${exp}const ${name}${typeAnnotation} = (${left}).filter((${item}) => (${right}).includes(${item}));`,
+    `${exp}const ${name}${typeAnnotation} = ((__r) => (${left}).filter((${item}) => __r.has(${item})))(new Set((${right})));`,
   ];
 }
 

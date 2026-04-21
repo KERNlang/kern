@@ -641,6 +641,250 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       export: { kind: 'boolean' },
     },
   },
+  uniqueBy: {
+    description:
+      'Key-based dedup (first-wins, matches Lodash uniqBy) — `uniqueBy name=distinct in=users by="item.id"` emits a Set+filter form.',
+    example: 'uniqueBy name=distinct in=users by="item.id"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      by: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  groupBy: {
+    description:
+      'Partition an array into buckets by a key selector. Emits a reduce-based form (compatible with ES2022) — does not depend on `Object.groupBy` (ES2024).',
+    example: 'groupBy name=byType in=items by="item.type"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      by: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  partition: {
+    description:
+      'Split an array into two by a predicate — single-pass reduce. Emits `const [pass, fail] = ...`. Both `pass` and `fail` prop names are required.',
+    example: 'partition pass=active fail=inactive in=users where="item.active"',
+    props: {
+      name: { kind: 'identifier' },
+      pass: { required: true, kind: 'identifier' },
+      fail: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      where: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  indexBy: {
+    description:
+      'Array → keyed record via selector. `indexBy name=byId in=users by="item.id"` lowers to `Object.fromEntries(users.map(...))`. Collisions are last-write-wins.',
+    example: 'indexBy name=byId in=users by="item.id"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      by: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  countBy: {
+    description:
+      'Count occurrences by key. `countBy name=counts in=items by="item.type"` lowers to a reduce with `Object.create(null)` accumulator (prototype-pollution safe).',
+    example: 'countBy name=counts in=items by="item.type"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      by: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  chunk: {
+    description: 'Split into fixed-size chunks. `chunk name=batches in=items size=10`.',
+    example: 'chunk name=batches in=items size=10',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      size: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  zip: {
+    description:
+      'Pair two arrays element-wise. `zip name=pairs in=items with=other`. Short-side wins — extra right-hand elements are dropped.',
+    example: 'zip name=pairs in=items with=other',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      with: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      index: { kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  range: {
+    description:
+      'Generate a numeric range. `range name=nums end=10` → `[0..9]`. `range name=nums start=5 end=10` → `[5..9]`. No `step` in v1.',
+    example: 'range name=nums end=10',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      start: { kind: 'rawExpr' },
+      end: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  take: {
+    description: 'First N elements. Alias for `slice(0, n)` but named for intent clarity.',
+    example: 'take name=first5 in=items n=5',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      n: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  drop: {
+    description: 'Drop first N elements. Alias for `slice(n)` but named for intent clarity.',
+    example: 'drop name=tail in=items n=5',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      n: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  min: {
+    description:
+      'Scalar min on a number array. Returns `undefined` on empty. Reduce-based — no stack-overflow risk on huge arrays.',
+    example: 'min name=lowest in=values',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  max: {
+    description:
+      'Scalar max on a number array. Returns `undefined` on empty. Reduce-based — no stack-overflow risk on huge arrays.',
+    example: 'max name=highest in=values',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  minBy: {
+    description:
+      'Find the element with the minimum key. `minBy name=youngest in=users by="item.age"`. Returns `undefined` on empty.',
+    example: 'minBy name=youngest in=users by="item.age"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      by: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  maxBy: {
+    description:
+      'Find the element with the maximum key. `maxBy name=oldest in=users by="item.age"`. Returns `undefined` on empty.',
+    example: 'maxBy name=oldest in=users by="item.age"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      by: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  sum: {
+    description: 'Sum of a number array. Returns `0` on empty (additive identity).',
+    example: 'sum name=total in=prices',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  sumBy: {
+    description: 'Sum via key selector. `sumBy name=totalCost in=items by="item.price * item.qty"`.',
+    example: 'sumBy name=totalCost in=items by="item.price * item.qty"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      by: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  avg: {
+    description: 'Mean of a number array. Returns `NaN` on empty (Lodash parity — preserves the "no data" signal).',
+    example: 'avg name=mean in=prices',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  intersect: {
+    description: 'Set intersection of two arrays. `intersect name=shared in=a with=b`. O(N+M) via a Set.',
+    example: 'intersect name=shared in=a with=b',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      with: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  findLast: {
+    description:
+      'ES2023 counterpart to `find` — iterate from the end. `findLast name=lastActive in=users where="item.active"`.',
+    example: 'findLast name=lastActive in=users where="item.active"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      where: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  findLastIndex: {
+    description:
+      'ES2023 counterpart to `findIndex` — iterate from the end. `findLastIndex name=pos in=users where="item.active"`.',
+    example: 'findLastIndex name=pos in=users where="item.active"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      where: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
   transform: {
     description: 'Data transformation pipeline — maps target through a via function or handler',
     example: 'transform name=normalized target=rawData via=normalize type=NormalizedData',
