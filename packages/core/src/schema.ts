@@ -606,6 +606,41 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: ['handler'],
   },
+  compact: {
+    description:
+      'Declarative `.filter(Boolean)` binding — `compact name=truthy in=items` lowers to `const truthy = items.filter(Boolean);`. Named primitive for the common "drop falsy values" pattern (36 sites in agon).',
+    example: 'compact name=truthy in=items',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  pluck: {
+    description:
+      'Declarative property-extraction map — `pluck name=names in=users prop=name` lowers to `const names = users.map(item => item.name);`. `prop=` is a raw identifier path (e.g. `prop=user.profile.name` emits `item.user.profile.name`). Use `map` when the projection is not a property access.',
+    example: 'pluck name=names in=users prop=name',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      prop: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  unique: {
+    description:
+      'Declarative dedupe — `unique name=distinct in=items` lowers to `const distinct = [...new Set(items)];`. Uses JS `Set` identity (triple-equals on primitives, reference equality on objects). For key-based dedup of object arrays, use `uniqueBy`.',
+    example: 'unique name=distinct in=items',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
   transform: {
     description: 'Data transformation pipeline — maps target through a via function or handler',
     example: 'transform name=normalized target=rawData via=normalize type=NormalizedData',

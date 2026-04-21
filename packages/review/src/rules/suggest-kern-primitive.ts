@@ -5,14 +5,18 @@
  * Fires as `info` / precision=`experimental` so kern-sight hides it by default.
  * Opt in with `--rule suggest-kern-primitive` for a one-shot migration scan.
  *
- * Covers the 19 shipped array primitives (post PR #93 + #103):
+ * Covers the 22 shipped array primitives (post PR #93 + #103 + PR C):
  *   filter, find, some, every, findIndex, reduce, map, flatMap, flat, slice,
- *   at, sort, reverse, join, includes, indexOf, lastIndexOf, concat, forEach.
+ *   at, sort, reverse, join, includes, indexOf, lastIndexOf, concat, forEach,
+ *   compact, pluck, unique.
  *
- * Not covered (deferred to later PRs):
- *   - `.filter(Boolean)` → will route to `compact` once PR E ships.
- *   - `.map(x => x.prop)` → will route to `pluck` once PR E ships.
- *   - `[...new Set(arr)]` → will route to `unique` once PR E ships.
+ * Special-cased shapes (route to the narrower primitive rather than the generic one):
+ *   - `.filter(Boolean)`              → `compact`
+ *   - `.map(x => x.prop[.chain])`     → `pluck`
+ *   - `[...new Set(coll)]`            → `unique`
+ *
+ * Not yet covered (deferred):
+ *   - `.filter(Boolean).map(x => x.y)` pipelines stack as two findings (compact + pluck).
  *   - Template literals → needs a dedicated `fmt` rule.
  *   - Ternary JSX → needs a dedicated `conditional` rule.
  *   - async IIFE + try/catch → needs a dedicated `async` rule.
@@ -106,6 +110,32 @@ function paramName(arrow: ArrowFunction | FunctionExpression, idx: number): stri
   // Destructured or rest parameters — skip, they don't round-trip into a bare identifier binding.
   if (name.startsWith('{') || name.startsWith('[') || name.startsWith('...')) return null;
   return name;
+}
+
+/**
+ * If the arrow body is a property-access chain rooted at `item` (the first
+ * parameter), return the dot-path without the item prefix. Returns null for
+ * anything else — computed access, method calls, nested expressions, etc.
+ *
+ *   item => item.name                 → "name"
+ *   u    => u.profile.address.city    → "profile.address.city"
+ *   x    => x.toUpperCase()           → null  (method call, not property chain)
+ *   x    => x[0]                      → null  (computed, index access)
+ *   x    => x                         → null  (just the parameter, no projection)
+ */
+function propertyAccessChainFromItem(arrow: ArrowFunction | FunctionExpression, itemName: string): string | null {
+  const body = arrow.getBody();
+  if (Node.isBlock(body)) return null;
+  if (!Node.isPropertyAccessExpression(body)) return null;
+
+  const segments: string[] = [];
+  let cur: TsNode = body;
+  while (Node.isPropertyAccessExpression(cur)) {
+    segments.unshift(cur.getName());
+    cur = cur.getExpression();
+  }
+  if (!Node.isIdentifier(cur) || cur.getText() !== itemName) return null;
+  return segments.join('.');
 }
 
 /**
@@ -221,6 +251,32 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
   if (shouldSkipFile(ctx)) return [];
   const findings: ReviewFinding[] = [];
 
+  // `[...new Set(coll)]` → route to the dedicated `unique` primitive.
+  for (const arr of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ArrayLiteralExpression)) {
+    const elements = arr.getElements();
+    if (elements.length !== 1) continue;
+    const first = elements[0];
+    if (!Node.isSpreadElement(first)) continue;
+    const spread = first.getExpression();
+    if (!Node.isNewExpression(spread)) continue;
+    if (spread.getExpression().getText() !== 'Set') continue;
+    const args = spread.getArguments();
+    if (args.length !== 1) continue;
+    const source = args[0].getText();
+    findings.push(
+      finding(
+        'suggest-kern-primitive',
+        'info',
+        'pattern',
+        'JS [...new Set(...)] could migrate to KERN `unique` — named primitive for dedup',
+        ctx.filePath,
+        arr.getStartLineNumber(),
+        1,
+        { suggestion: `unique name=<name> in=${source}` },
+      ),
+    );
+  }
+
   for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const callee = call.getExpression();
     if (!Node.isPropertyAccessExpression(callee)) continue;
@@ -229,14 +285,59 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     const spec = ARRAY_METHODS[methodName];
     if (!spec) continue;
 
-    // Reserve .filter(Boolean) for a future `compact` primitive — don't
-    // emit a noisy `filter where="Boolean(item)"` suggestion in the meantime.
+    const collection = callee.getExpression().getText();
+
+    // `.filter(Boolean)` → route to the dedicated `compact` primitive.
     if (methodName === 'filter' && call.getArguments().length === 1) {
       const arg = call.getArguments()[0];
-      if (Node.isIdentifier(arg) && arg.getText() === 'Boolean') continue;
+      if (Node.isIdentifier(arg) && arg.getText() === 'Boolean') {
+        findings.push(
+          finding(
+            'suggest-kern-primitive',
+            'info',
+            'pattern',
+            'JS .filter(Boolean) could migrate to KERN `compact` — named primitive for drop-falsy',
+            ctx.filePath,
+            call.getStartLineNumber(),
+            1,
+            { suggestion: `compact name=<name> in=${collection}` },
+          ),
+        );
+        continue;
+      }
     }
 
-    const collection = callee.getExpression().getText();
+    // `.map(x => x.prop[.chain])` → route to the dedicated `pluck` primitive.
+    if (methodName === 'map' && call.getArguments().length === 1) {
+      const arg = call.getArguments()[0];
+      if (isArrowLike(arg)) {
+        const item = paramName(arg, 0);
+        if (item) {
+          const path = propertyAccessChainFromItem(arg, item);
+          if (path) {
+            findings.push(
+              finding(
+                'suggest-kern-primitive',
+                'info',
+                'pattern',
+                'JS .map(x => x.<prop>) could migrate to KERN `pluck` — named primitive for property extraction',
+                ctx.filePath,
+                call.getStartLineNumber(),
+                1,
+                {
+                  suggestion:
+                    item === 'item'
+                      ? `pluck name=<name> in=${collection} prop=${path}`
+                      : `pluck name=<name> in=${collection} item=${item} prop=${path}`,
+                },
+              ),
+            );
+            continue;
+          }
+        }
+      }
+    }
+
     const suggestion = buildSuggestion(spec, collection, call);
     if (!suggestion) continue;
 
