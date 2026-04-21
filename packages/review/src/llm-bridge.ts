@@ -220,8 +220,62 @@ export function isHighValueFinding(f: ReviewFinding): boolean {
 /** Max input tokens per batch. Conservative — leaves room for output + overhead. */
 const MAX_BATCH_TOKENS = 60_000;
 
-/** Max tokens for a single file. Files above this are skipped with a warning finding. */
+/** Max tokens for a single file sent in one API call. Above this we chunk. */
 const MAX_SINGLE_FILE_TOKENS = 100_000;
+
+/** Safety margin subtracted when computing the per-chunk source budget. */
+const CHUNK_HEADROOM_TOKENS = 1_000;
+
+/** Line overlap between consecutive source chunks so a declaration split
+ *  across a boundary still appears whole in at least one chunk. */
+const CHUNK_OVERLAP_LINES = 20;
+
+/**
+ * Split a single oversized LLMReviewInput into N smaller inputs that each
+ * fit inside MAX_BATCH_TOKENS. IR, taint, staticFindings and obligations
+ * are replicated on every chunk — they are small relative to source and
+ * every chunk needs the full structural context to reason correctly.
+ *
+ * Returns the original input as a 1-element array if it already fits, or
+ * an empty array if the input is genuinely unchunkable (non-source inputs
+ * whose IR alone exceeds the budget, or files where a single line is
+ * larger than the per-chunk source budget — minified bundles).
+ */
+export function chunkLargeInput(input: LLMReviewInput, cachedIR: string): LLMReviewInput[] {
+  const totalTokens = estimateInputTokens(input, cachedIR);
+  if (totalTokens <= MAX_SINGLE_FILE_TOKENS) return [input];
+
+  // Only CHANGED files include source in the token count, so only those
+  // can be chunked. If a CONTEXT file somehow crossed the threshold it's
+  // IR-bound and chunking wouldn't help.
+  if (!input.source || !isChangedFile(input)) return [];
+
+  const sourceTokens = estimateTokens(input.source);
+  const nonSourceTokens = totalTokens - sourceTokens;
+  const sourceBudget = MAX_BATCH_TOKENS - nonSourceTokens - CHUNK_HEADROOM_TOKENS;
+  if (sourceBudget <= 0) return []; // IR + context alone too large — unchunkable
+
+  const numChunks = Math.ceil(sourceTokens / sourceBudget);
+  const lines = input.source.split('\n');
+  const linesPerChunk = Math.ceil(lines.length / numChunks);
+
+  // Minified / single-line files: one line exceeds the per-chunk budget.
+  // Byte-slicing a line would break syntax; safer to skip than mangle.
+  const longestLineTokens = Math.ceil(Math.max(...lines.map((l) => l.length)) / 4);
+  if (longestLineTokens > sourceBudget) return [];
+
+  const chunks: LLMReviewInput[] = [];
+  for (let i = 0; i < numChunks; i++) {
+    const start = Math.max(0, i * linesPerChunk - CHUNK_OVERLAP_LINES);
+    const end = Math.min(lines.length, (i + 1) * linesPerChunk + CHUNK_OVERLAP_LINES);
+    const header =
+      `// kern-chunk ${i + 1}/${numChunks} of ${input.filePath} — lines ${start + 1}-${end} of ${lines.length}.\n` +
+      `// The source file exceeded the single-call token budget. The KERN IR below is complete; this source slice is partial.\n` +
+      `// Do not report findings that would require context outside this line range.\n`;
+    chunks.push({ ...input, source: header + lines.slice(start, end).join('\n') });
+  }
+  return chunks;
+}
 
 /**
  * Per-run usage/timing summary. Token counts are populated only when the
@@ -278,22 +332,42 @@ export async function runLLMReview(
   let currentBatch: LLMReviewInput[] = [];
   let currentTokens = 0;
 
+  // Expand oversized inputs into chunk arrays up front, then batch uniformly.
+  // A chunk produced here carries the full IR + taint + findings + obligations
+  // and only a slice of source — so the IR cache key is the same for every
+  // chunk of the same original input, which is why we re-use the cached
+  // string for the batch token estimate below.
+  const expanded: Array<{ input: LLMReviewInput; originalIR: string }> = [];
   for (const input of inputs) {
-    const inputTokens = estimateInputTokens(input, irCache.get(input)!);
+    const ir = irCache.get(input)!;
+    const chunks = chunkLargeInput(input, ir);
 
-    // Skip files that are too large for any single API call
-    if (inputTokens > MAX_SINGLE_FILE_TOKENS) {
+    if (chunks.length === 0) {
+      // Unchunkable (IR alone too large, or minified single-line file).
+      const inputTokens = estimateInputTokens(input, ir);
       allFindings.push({
         source: 'llm',
         ruleId: 'llm-skipped',
         severity: 'info',
         category: 'structure',
-        message: `File too large for LLM review (~${Math.round(inputTokens / 1000)}K tokens). Consider splitting.`,
+        message: `File too large for LLM review (~${Math.round(inputTokens / 1000)}K tokens) and not chunkable (IR-bound or single-line).`,
         primarySpan: { file: input.filePath, startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
         fingerprint: `llm-skipped-${input.filePath}`,
       });
       continue;
     }
+
+    for (const chunk of chunks) {
+      expanded.push({ input: chunk, originalIR: ir });
+      // Make the IR lookup work for chunks too — reviewBatch rebuilds the
+      // prompt from the chunk's inferred array, but estimateInputTokens
+      // consults irCache by input identity.
+      if (chunk !== input) irCache.set(chunk, ir);
+    }
+  }
+
+  for (const { input, originalIR } of expanded) {
+    const inputTokens = estimateInputTokens(input, originalIR);
 
     // Start new batch if adding this input would exceed budget
     if (currentBatch.length > 0 && currentTokens + inputTokens > MAX_BATCH_TOKENS) {
@@ -324,7 +398,24 @@ export async function runLLMReview(
     }
   }
 
-  return { findings: allFindings, usage };
+  return { findings: dedupeByFingerprint(allFindings), usage };
+}
+
+/**
+ * Drop findings whose (file, fingerprint) pair has already been seen.
+ * Needed because chunked files overlap: a finding landing in the overlap
+ * zone of two chunks is reported twice with identical fingerprints.
+ */
+function dedupeByFingerprint(findings: ReviewFinding[]): ReviewFinding[] {
+  const seen = new Set<string>();
+  const out: ReviewFinding[] = [];
+  for (const f of findings) {
+    const key = `${f.primarySpan.file}::${f.fingerprint}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(f);
+  }
+  return out;
 }
 
 async function reviewBatch(
