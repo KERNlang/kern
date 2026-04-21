@@ -31,20 +31,16 @@ import { createFingerprint } from '../types.js';
 import {
   API_PATH_RE,
   CROSS_STACK_HEURISTIC_CONFIDENCE,
-  collectRoutes,
+  collectRoutesAcrossGraph,
   hasMatchingRoute,
   normalizeClientUrl,
-  type ServerRoute,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
 
 export function untypedApiResponse(ctx: ConceptRuleContext): ReviewFinding[] {
   if (!ctx.allConcepts || ctx.allConcepts.size === 0) return [];
 
-  const serverRoutes: ServerRoute[] = [];
-  for (const [, conceptMap] of ctx.allConcepts) {
-    collectRoutes(conceptMap, serverRoutes);
-  }
+  const serverRoutes = collectRoutesAcrossGraph(ctx.allConcepts);
   if (serverRoutes.length === 0) return [];
 
   const findings: ReviewFinding[] = [];

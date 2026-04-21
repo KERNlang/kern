@@ -33,6 +33,15 @@ export interface ServerRoute {
 /**
  * Pull every server-side route out of a concept map. Callers typically fold
  * this across `ctx.allConcepts` to collect routes for the whole project.
+ *
+ * Per-file use (legacy signature): just emits the decorator path as-is.
+ *
+ * Cross-project use (preferred): call `collectRoutesAcrossGraph` instead,
+ * which joins route-mount concepts (FastAPI `app.include_router(prefix=…)`)
+ * with the per-file route decorators so `@router.get("/current")` mounted
+ * under `prefix="/api/nutrition-goals"` surfaces as `/api/nutrition-goals/current`.
+ * Without that join the wedge rules silently find nothing on every FastAPI
+ * app that follows the standard APIRouter pattern.
  */
 export function collectRoutes(map: ConceptMap, routes: ServerRoute[]): void {
   for (const node of map.nodes) {
@@ -41,6 +50,100 @@ export function collectRoutes(map: ConceptMap, routes: ServerRoute[]): void {
     if (typeof path !== 'string' || !path.startsWith('/')) continue;
     routes.push({ path, method: node.payload.httpMethod, node });
   }
+}
+
+/**
+ * Graph-wide route collection with FastAPI router-prefix expansion.
+ *
+ * Walks every concept map twice:
+ *   1. Collect `route-mount` concepts (FastAPI `app.include_router(<router>,
+ *      prefix=…)` calls). Each mount carries `prefix`, `routerName`, and —
+ *      when the router was imported from another module — `sourceModule`
+ *      like `app.api.nutrition_goals`.
+ *   2. For each per-file `route` concept, look up a matching mount by
+ *      `sourceModule` ↔ file path suffix (Python `app.api.nutrition_goals`
+ *      resolves to any file path ending in `app/api/nutrition_goals.py`),
+ *      falling back to a project-wide `routerName` match when the mount
+ *      is in the same file as the routes.
+ *
+ * Per-file routes with no mount are still emitted with their declared path
+ * — Flask / Express routes and FastAPI apps that decorate directly on
+ * `@app.get(...)` already carry the full path.
+ */
+export function collectRoutesAcrossGraph(allConcepts: ReadonlyMap<string, ConceptMap>): ServerRoute[] {
+  const routes: ServerRoute[] = [];
+  // Build the mount index first so each route can look up its prefix.
+  const mountsByModule = new Map<string, string[]>();
+  const mountsByRouter = new Map<string, Array<{ prefix: string; mountFile: string }>>();
+  for (const [mountFile, map] of allConcepts) {
+    for (const node of map.nodes) {
+      if (node.kind !== 'entrypoint' || node.payload.kind !== 'entrypoint') continue;
+      if (node.payload.subtype !== 'route-mount') continue;
+      const prefix = node.payload.name;
+      const routerName = node.payload.routerName;
+      const sourceModule = node.payload.sourceModule;
+      if (sourceModule) {
+        const list = mountsByModule.get(sourceModule) ?? [];
+        list.push(prefix);
+        mountsByModule.set(sourceModule, list);
+      }
+      if (routerName) {
+        const list = mountsByRouter.get(routerName) ?? [];
+        list.push({ prefix, mountFile });
+        mountsByRouter.set(routerName, list);
+      }
+    }
+  }
+
+  for (const [routeFile, map] of allConcepts) {
+    for (const node of map.nodes) {
+      if (node.kind !== 'entrypoint' || node.payload.kind !== 'entrypoint') continue;
+      if (node.payload.subtype !== 'route') continue;
+      const path = node.payload.name;
+      if (typeof path !== 'string' || !path.startsWith('/')) continue;
+
+      const prefix = resolveMountPrefix(routeFile, node.payload.routerName, mountsByModule, mountsByRouter);
+      const fullPath = prefix ? joinPaths(prefix, path) : path;
+      routes.push({ path: fullPath, method: node.payload.httpMethod, node });
+    }
+  }
+  return routes;
+}
+
+function resolveMountPrefix(
+  routeFile: string,
+  routerName: string | undefined,
+  mountsByModule: ReadonlyMap<string, string[]>,
+  mountsByRouter: ReadonlyMap<string, Array<{ prefix: string; mountFile: string }>>,
+): string | undefined {
+  // Module-based match: the mount's `sourceModule` like `app.api.nutrition_goals`
+  // should correspond to a file path ending in `app/api/nutrition_goals.py`.
+  // Accept the match both when the route file is itself the module (relative
+  // path `app/api/nutrition_goals.py`) and when it's a deeper absolute path
+  // (`/repo/root/app/api/nutrition_goals.py`) — a leading-slash-or-start
+  // boundary check prevents `blog/api.py` from false-matching module `api`.
+  for (const [sourceModule, prefixes] of mountsByModule) {
+    if (prefixes.length === 0) continue;
+    const relTail = `${sourceModule.replace(/\./g, '/')}.py`;
+    if (routeFile === relTail || routeFile.endsWith(`/${relTail}`)) return prefixes[0];
+  }
+  // Same-file match: `router = APIRouter(); app.include_router(router, prefix=…)`.
+  // The mount has no `sourceModule` but shares the file with the routes.
+  if (routerName) {
+    const entries = mountsByRouter.get(routerName);
+    if (entries) {
+      const sameFile = entries.find((e) => e.mountFile === routeFile);
+      if (sameFile) return sameFile.prefix;
+    }
+  }
+  return undefined;
+}
+
+function joinPaths(prefix: string, path: string): string {
+  const trimmedPrefix = prefix.endsWith('/') ? prefix.slice(0, -1) : prefix;
+  const trimmedPath = path.startsWith('/') ? path : `/${path}`;
+  if (trimmedPath === '/') return trimmedPrefix || '/';
+  return `${trimmedPrefix}${trimmedPath}`;
 }
 
 /**

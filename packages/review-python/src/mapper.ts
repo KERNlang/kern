@@ -295,8 +295,15 @@ function extractEffects(root: Parser.SyntaxNode, source: string, filePath: strin
 // ── entrypoint ──────────────────────────────────────────────────────────
 
 function extractEntrypoints(root: Parser.SyntaxNode, source: string, filePath: string, nodes: ConceptNode[]): void {
-  // 1. Route decorators: @app.route, @app.get, @router.post, etc.
-  // tree-sitter Python wraps decorated functions in 'decorated_definition'
+  // FastAPI / Flask route decorators.
+  //
+  // The route *path* (e.g. `/current`) is what cross-stack rules need to
+  // match against — not the Python function name. Prior to 2026-04-21 this
+  // emitted the function name, which `collectRoutes` then silently dropped
+  // (it filters on paths starting with `/`). The FastAPI router-prefix join
+  // in `cross-stack-utils.collectRoutes` also needs `routerName` so it can
+  // pair per-file routes with the `include_router(prefix=…)` call that
+  // mounts them.
   walkNodes(root, 'decorated_definition', (node) => {
     const fnDef = node.children.find((c) => c.type === 'function_definition');
     if (!fnDef) return;
@@ -305,33 +312,88 @@ function extractEntrypoints(root: Parser.SyntaxNode, source: string, filePath: s
       if (child.type !== 'decorator') continue;
       const decText = source.substring(child.startIndex, child.endIndex);
 
-      const routeMatch = decText.match(/@(app|router|bp)\.(route|get|post|put|delete|patch)\s*\(/);
-      if (routeMatch) {
-        const method = routeMatch[2].toUpperCase();
-        const nameNode = fnDef.childForFieldName('name');
-        // Try to extract path from decorator args
-        const pathMatch = decText.match(/['"]([^'"]+)['"]/);
+      const routeMatch = decText.match(/@(\w+)\.(route|get|post|put|delete|patch)\s*\(/);
+      if (!routeMatch) continue;
 
-        nodes.push({
-          id: conceptId(filePath, 'entrypoint', child.startIndex),
+      const routerName = routeMatch[1];
+      const method = routeMatch[2].toUpperCase();
+      const pathMatch = decText.match(/['"]([^'"]+)['"]/);
+      const routePath = pathMatch?.[1];
+      // Only surface the decorator as a route when we could extract a URL
+      // path literal. Mystery decorators with only kwargs (e.g. `@app.get`
+      // stub) are noise — skip them instead of filling `name` with the
+      // function name, which cross-stack routes treat as invalid.
+      if (!routePath || !routePath.startsWith('/')) continue;
+
+      nodes.push({
+        id: conceptId(filePath, 'entrypoint', child.startIndex),
+        kind: 'entrypoint',
+        primarySpan: nodeSpan(filePath, child),
+        evidence: nodeText(source, child, 100),
+        confidence: 1.0,
+        language: 'py',
+        containerId: getContainerId(node, filePath),
+        payload: {
           kind: 'entrypoint',
-          primarySpan: nodeSpan(filePath, child),
-          evidence: nodeText(source, child, 100),
-          confidence: 1.0,
-          language: 'py',
-          containerId: getContainerId(node, filePath),
-          payload: {
-            kind: 'entrypoint',
-            subtype: 'route',
-            name: nameNode ? nameNode.text : pathMatch?.[1] || 'anonymous',
-            httpMethod: method === 'ROUTE' ? undefined : method,
-          },
-        });
-      }
+          subtype: 'route',
+          name: routePath,
+          httpMethod: method === 'ROUTE' ? undefined : method,
+          routerName,
+        },
+      });
     }
   });
 
-  // 2. if __name__ == '__main__':
+  // FastAPI `app.include_router(<module>.<router>, prefix="/api/x")`.
+  //
+  // Emitted as a route-mount concept so `collectRoutes` can join it with
+  // the per-file route nodes: a route declared on `router` in
+  // `app/api/nutrition_goals.py` and mounted in `main.py` with
+  // `app.include_router(nutrition_goals.router, prefix="/api/nutrition-goals")`
+  // should resolve to the full URL `/api/nutrition-goals/<path>`.
+  walkNodes(root, 'call', (node) => {
+    const fn = node.childForFieldName('function');
+    if (!fn) return;
+    const fnText = source.substring(fn.startIndex, fn.endIndex);
+    if (!/\.include_router$/.test(fnText)) return;
+    const argsNode = node.childForFieldName('arguments');
+    if (!argsNode) return;
+    const argsText = source.substring(argsNode.startIndex, argsNode.endIndex);
+
+    // First positional arg is the router. Common shapes:
+    //   include_router(router)                  — local identifier
+    //   include_router(nutrition_goals.router)  — imported-module attribute
+    //   include_router(auth_router)             — aliased local identifier
+    const posMatch = argsText.match(/^\(\s*([A-Za-z_][\w.]*)/);
+    if (!posMatch) return;
+    const routerRef = posMatch[1];
+    const dot = routerRef.lastIndexOf('.');
+    const sourceModule = dot === -1 ? undefined : routerRef.slice(0, dot);
+    const routerName = dot === -1 ? routerRef : routerRef.slice(dot + 1);
+
+    const prefixMatch = argsText.match(/prefix\s*=\s*['"]([^'"]*)['"]/);
+    // Prefix defaults to '' when omitted — still valid (the route keeps its
+    // declared path as-is), so emit the mount either way.
+    const prefix = prefixMatch?.[1] ?? '';
+
+    nodes.push({
+      id: conceptId(filePath, 'entrypoint', node.startIndex),
+      kind: 'entrypoint',
+      primarySpan: nodeSpan(filePath, node),
+      evidence: nodeText(source, node, 120),
+      confidence: 0.95,
+      language: 'py',
+      payload: {
+        kind: 'entrypoint',
+        subtype: 'route-mount',
+        name: prefix,
+        routerName,
+        sourceModule,
+      },
+    });
+  });
+
+  // `if __name__ == '__main__':`
   walkNodes(root, 'if_statement', (node) => {
     const condition = node.childForFieldName('condition');
     if (condition?.text.includes('__name__') && condition.text.includes('__main__')) {

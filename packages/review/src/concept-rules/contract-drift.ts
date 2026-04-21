@@ -23,10 +23,9 @@ import { createFingerprint } from '../types.js';
 import {
   API_PATH_RE,
   CROSS_STACK_HEURISTIC_CONFIDENCE,
-  collectRoutes,
+  collectRoutesAcrossGraph,
   hasMatchingRoute,
   normalizeClientUrl,
-  type ServerRoute,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
 
@@ -40,11 +39,10 @@ export function contractDrift(ctx: ConceptRuleContext): ReviewFinding[] {
   // Graph mode only — URL correlation is useless within a single file.
   if (!ctx.allConcepts || ctx.allConcepts.size === 0) return [];
 
-  const serverRoutes: ServerRoute[] = [];
+  const serverRoutes = collectRoutesAcrossGraph(ctx.allConcepts);
   const clientCalls: ClientCall[] = [];
 
   for (const [, conceptMap] of ctx.allConcepts) {
-    collectRoutes(conceptMap, serverRoutes);
     for (const node of conceptMap.nodes) {
       if (node.kind !== 'effect' || node.payload.kind !== 'effect' || node.payload.subtype !== 'network') continue;
       const target = node.payload.target;

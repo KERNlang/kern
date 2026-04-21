@@ -35,20 +35,16 @@ import { createFingerprint } from '../types.js';
 import {
   API_PATH_RE,
   CROSS_STACK_HEURISTIC_CONFIDENCE,
-  collectRoutes,
+  collectRoutesAcrossGraph,
   findMatchingRoute,
   normalizeClientUrl,
-  type ServerRoute,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
 
 export function taintedAcrossWire(ctx: ConceptRuleContext): ReviewFinding[] {
   if (!ctx.allConcepts || ctx.allConcepts.size === 0) return [];
 
-  const serverRoutes: ServerRoute[] = [];
-  for (const [, conceptMap] of ctx.allConcepts) {
-    collectRoutes(conceptMap, serverRoutes);
-  }
+  const serverRoutes = collectRoutesAcrossGraph(ctx.allConcepts);
   if (serverRoutes.length === 0) return [];
 
   // Build the set of files that contain at least one validation guard.
