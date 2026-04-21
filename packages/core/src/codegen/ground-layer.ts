@@ -379,19 +379,23 @@ export function generateExpect(node: IRNode): string[] {
 }
 
 // ── Ground Layer: array methods ──────────────────────────────────────────
-// Seven declarative array-method primitives:
-//   filter / find / some / every → predicate-over-collection (share helper)
-//   reduce  → accumulation with two bindings (acc + item)
-//   flatMap → projection + flatten
-//   slice   → range copy, no per-item binding
+// Declarative array-method primitives — each is its own named node type:
+//   filter / find / some / every / findIndex → predicate-over-collection
+//   map / flatMap                             → projection (arrow body)
+//   reduce                                    → accumulation (acc + item)
+//   sort                                      → optional compare function (immutable via spread)
+//   reverse / flat / slice / at               → shape-preserving or range ops
+//   join / includes / indexOf / lastIndexOf   → value-returning lookups
+//   concat                                    → array concatenation
+//   forEach                                   → side-effect loop (statement, no binding)
 //
-// Why seven distinct names instead of one generic: KERN is an LLM-authored
+// Why distinct names instead of one generic: KERN is an LLM-authored
 // language. Giving each method a named structural anchor lets tooling
 // (decompiler, review, codegen) recognise author intent without grepping
-// a method name out of a string. `.map` already has `each` and so is not
-// repeated here. The `where` / `expr` prop split mirrors the semantic
-// distinction: `where` = boolean predicate, `expr` = arrow body returning
-// a value.
+// a method name out of a string. The `where` / `expr` prop split mirrors
+// the semantic distinction: `where` = boolean predicate, `expr` = arrow
+// body returning a value. `each` remains the render-block JSX iteration
+// primitive; `map` is its expression-form sibling for data-transformation.
 
 /** Unwrap an `{ __expr: true, code }` shape or pass through a plain string. */
 function unwrapExpr(raw: unknown): string | undefined {
@@ -537,6 +541,282 @@ export function generateSome(node: IRNode): string[] {
 
 export function generateEvery(node: IRNode): string[] {
   return generateArrayMethod(node, 'every');
+}
+
+// ── Ground Layer: map ────────────────────────────────────────────────────
+// `map name=names in=users expr="item.name"`
+//   → const names = (users).map((item) => item.name);
+// Sibling to `each` (JSX form). Shape mirrors flatMap exactly — expr is the
+// arrow body, not a predicate.
+
+export function generateMap(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'map'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'mapped', node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("map node requires an 'in' prop", node);
+  const body = unwrapExpr(props.expr);
+  if (!body) throw new KernCodegenError("map node requires an 'expr' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = (${collection}).map((${item}) => ${body});`];
+}
+
+// ── Ground Layer: findIndex ──────────────────────────────────────────────
+// `findIndex name=i in=users where="item.active"`
+//   → const i = (users).findIndex((item) => item.active);
+// Predicate-shaped like find, but returns a number. Defaults the binding
+// type suggestion to `number` in comments; author-supplied `type=` wins.
+
+export function generateFindIndex(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'findIndex'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'index', node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("findIndex node requires an 'in' prop", node);
+  const predicate = unwrapExpr(props.where);
+  if (!predicate) throw new KernCodegenError("findIndex node requires a 'where' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = (${collection}).findIndex((${item}) => ${predicate});`,
+  ];
+}
+
+// ── Ground Layer: sort ───────────────────────────────────────────────────
+// `sort name=sorted in=items compare="a.age - b.age"`
+//   → const sorted = [...(items)].sort((a, b) => a.age - b.age);
+// With no `compare`, emits `[...(items)].sort()` — JS lexicographic default.
+// Immutable via spread so the source collection is not mutated.
+
+export function generateSort(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'sort'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'sorted', node);
+  const a = emitIdentifier((props.a as string) || 'a', 'a', node);
+  const b = emitIdentifier((props.b as string) || 'b', 'b', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("sort node requires an 'in' prop", node);
+  const compare = unwrapExpr(props.compare);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  const call = compare ? `sort((${a}, ${b}) => ${compare})` : 'sort()';
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = [...(${collection})].${call};`];
+}
+
+// ── Ground Layer: reverse ────────────────────────────────────────────────
+// `reverse name=reversed in=items` → const reversed = [...(items)].reverse();
+// Immutable via spread; matches sort's shape for consistency.
+
+export function generateReverse(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'reverse'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'reversed', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("reverse node requires an 'in' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = [...(${collection})].reverse();`];
+}
+
+// ── Ground Layer: flat ───────────────────────────────────────────────────
+// `flat name=flattened in=nested depth=2` → const flattened = (nested).flat(2);
+// `depth` omitted → bare `.flat()` (default depth 1).
+
+export function generateFlat(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'flat'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'flattened', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("flat node requires an 'in' prop", node);
+  const depth = unwrapExpr(props.depth);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  const call = depth !== undefined ? `flat(${depth})` : 'flat()';
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = (${collection}).${call};`];
+}
+
+// ── Ground Layer: at ─────────────────────────────────────────────────────
+// `at name=first in=items index=0` → const first = (items).at(0);
+
+export function generateAt(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'at'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'element', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("at node requires an 'in' prop", node);
+  const index = unwrapExpr(props.index);
+  if (index === undefined) throw new KernCodegenError("at node requires an 'index' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = (${collection}).at(${index});`];
+}
+
+// ── Ground Layer: join ───────────────────────────────────────────────────
+// `join name=csv in=fields separator=","` → const csv = (fields).join(',');
+// `separator` omitted → bare `.join()` (default "," per JS).
+// The separator is emitted as a quoted string literal when plain, or as a
+// raw expression when wrapped as `{{ expr }}`.
+
+export function generateJoin(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'join'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'joined', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("join node requires an 'in' prop", node);
+
+  const sepRaw = props.separator;
+  let sepArg = '';
+  if (sepRaw !== undefined && sepRaw !== null) {
+    if (typeof sepRaw === 'object' && (sepRaw as ExprObject).__expr) {
+      sepArg = (sepRaw as ExprObject).code;
+    } else {
+      const s = String(sepRaw);
+      sepArg = `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+    }
+  }
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = (${collection}).join(${sepArg});`];
+}
+
+// ── Ground Layer: includes / indexOf / lastIndexOf ───────────────────────
+// All three share shape: `<method> name=X in=Y value="..." [from=N]`.
+// `value` is always a raw expression (no implicit quoting — authors write
+// `value="'fatal'"` for a string literal, `value=target` for a variable).
+
+function generateValueLookup(node: IRNode, method: 'includes' | 'indexOf' | 'lastIndexOf'): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<typeof method>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const fallback = method === 'includes' ? 'has' : 'idx';
+  const name = emitIdentifier(props.name, fallback, node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError(`${method} node requires an 'in' prop`, node);
+  const value = unwrapExpr(props.value);
+  if (value === undefined) throw new KernCodegenError(`${method} node requires a 'value' prop`, node);
+  const from = unwrapExpr(props.from);
+
+  const args = from !== undefined ? `${value}, ${from}` : value;
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = (${collection}).${method}(${args});`];
+}
+
+export function generateIncludes(node: IRNode): string[] {
+  return generateValueLookup(node, 'includes');
+}
+
+export function generateIndexOf(node: IRNode): string[] {
+  return generateValueLookup(node, 'indexOf');
+}
+
+export function generateLastIndexOf(node: IRNode): string[] {
+  return generateValueLookup(node, 'lastIndexOf');
+}
+
+// ── Ground Layer: concat ─────────────────────────────────────────────────
+// `concat name=all in=items with="a, b"` → const all = (items).concat(a, b);
+// `with` is a raw expression injected directly — supports one arg or
+// comma-separated spread. For a single array arg, write `with="other"`.
+
+export function generateConcat(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'concat'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'combined', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("concat node requires an 'in' prop", node);
+  const withArg = unwrapExpr(props.with);
+  if (!withArg) throw new KernCodegenError("concat node requires a 'with' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = (${collection}).concat(${withArg});`];
+}
+
+// ── Ground Layer: forEach ────────────────────────────────────────────────
+// Statement primitive — no `name`, no `const` binding. Takes a handler child
+// and emits `(in).forEach((item[, index]) => { handlerBody });`.
+// Distinct from `each` (JSX composition) and `map` (value binding).
+
+export function generateForEach(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'forEach'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+  const indexName = props.index ? emitIdentifier(props.index as string, 'index', node) : undefined;
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("forEach node requires an 'in' prop", node);
+
+  const handler = firstChild(node, 'handler');
+  if (!handler) {
+    throw new KernCodegenError('forEach node requires a `handler <<<>>>` child with the loop body', node);
+  }
+  const body = handlerCode(node);
+
+  const params = indexName ? `(${item}, ${indexName})` : `(${item})`;
+  const lines: string[] = [...todo, ...annotations];
+  lines.push(`(${collection}).forEach(${params} => {`);
+  for (const line of body.split('\n')) lines.push(`  ${line}`);
+  lines.push('});');
+  return lines;
 }
 
 // ── Ground Layer: async ──────────────────────────────────────────────────

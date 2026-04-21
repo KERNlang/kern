@@ -11,14 +11,26 @@
  */
 
 import {
+  generateAt,
+  generateConcat,
   generateCoreNode,
   generateEvery,
   generateFilter,
   generateFind,
+  generateFindIndex,
+  generateFlat,
   generateFlatMap,
+  generateForEach,
+  generateIncludes,
+  generateIndexOf,
+  generateJoin,
+  generateLastIndexOf,
+  generateMap,
   generateReduce,
+  generateReverse,
   generateSlice,
   generateSome,
+  generateSort,
   isCoreNode,
 } from '../src/codegen-core.js';
 import { KernCodegenError } from '../src/errors.js';
@@ -106,14 +118,30 @@ describe('Integration: generateCoreNode dispatches array methods', () => {
     expect(code).toContain('(xs).filter((item) => item.ok)');
   });
 
-  it('registers all seven as core node types', () => {
-    expect(isCoreNode('filter')).toBe(true);
-    expect(isCoreNode('find')).toBe(true);
-    expect(isCoreNode('some')).toBe(true);
-    expect(isCoreNode('every')).toBe(true);
-    expect(isCoreNode('reduce')).toBe(true);
-    expect(isCoreNode('flatMap')).toBe(true);
-    expect(isCoreNode('slice')).toBe(true);
+  it('registers all nineteen array primitives as core node types', () => {
+    for (const t of [
+      'filter',
+      'find',
+      'some',
+      'every',
+      'findIndex',
+      'reduce',
+      'map',
+      'flatMap',
+      'flat',
+      'slice',
+      'at',
+      'sort',
+      'reverse',
+      'join',
+      'includes',
+      'indexOf',
+      'lastIndexOf',
+      'concat',
+      'forEach',
+    ]) {
+      expect(isCoreNode(t)).toBe(true);
+    }
   });
 });
 
@@ -223,5 +251,233 @@ describe('Array methods — full parse pipeline', () => {
     expect(findNode).toBeDefined();
     expect((filterNode as IRNode).props?.name).toBe('active');
     expect((findNode as IRNode).props?.name).toBe('admin');
+  });
+});
+
+describe('Ground Layer: map', () => {
+  it('emits `.map(...)` with default item binding', () => {
+    const node = mk('map', { name: 'names', in: 'users', expr: 'item.name' });
+    expect(generateMap(node).join('\n')).toBe('export const names = (users).map((item) => item.name);');
+  });
+
+  it('honours explicit item= and type annotation', () => {
+    const node = mk('map', { name: 'names', in: 'users', item: 'u', expr: 'u.name', type: 'string[]' });
+    expect(generateMap(node).join('\n')).toBe('export const names: string[] = (users).map((u) => u.name);');
+  });
+
+  it('respects export=false', () => {
+    const node = mk('map', { name: 'names', in: 'users', expr: 'item.name', export: 'false' });
+    expect(generateMap(node).join('\n')).toBe('const names = (users).map((item) => item.name);');
+  });
+
+  it('throws on missing in or expr', () => {
+    expect(() => generateMap(mk('map', { name: 'x', expr: 'item' }))).toThrow(/map .* 'in' prop/);
+    expect(() => generateMap(mk('map', { name: 'x', in: 'xs' }))).toThrow(/map .* 'expr' prop/);
+  });
+});
+
+describe('Ground Layer: findIndex', () => {
+  it('emits `.findIndex(...)` with default item binding', () => {
+    const node = mk('findIndex', { name: 'pos', in: 'users', where: 'item.active' });
+    expect(generateFindIndex(node).join('\n')).toBe('export const pos = (users).findIndex((item) => item.active);');
+  });
+
+  it('supports type=number', () => {
+    const node = mk('findIndex', { name: 'pos', in: 'users', where: 'item.id === target', type: 'number' });
+    expect(generateFindIndex(node).join('\n')).toBe(
+      'export const pos: number = (users).findIndex((item) => item.id === target);',
+    );
+  });
+
+  it('throws on missing in or where', () => {
+    expect(() => generateFindIndex(mk('findIndex', { name: 'x', where: 'item.ok' }))).toThrow(/findIndex .* 'in' prop/);
+    expect(() => generateFindIndex(mk('findIndex', { name: 'x', in: 'xs' }))).toThrow(/findIndex .* 'where' prop/);
+  });
+});
+
+describe('Ground Layer: sort', () => {
+  it('bare sort emits `[...coll].sort()`', () => {
+    const node = mk('sort', { name: 'sorted', in: 'items' });
+    expect(generateSort(node).join('\n')).toBe('export const sorted = [...(items)].sort();');
+  });
+
+  it('with compare emits `[...coll].sort((a, b) => body)`', () => {
+    const node = mk('sort', { name: 'sorted', in: 'items', compare: 'a.age - b.age' });
+    expect(generateSort(node).join('\n')).toBe('export const sorted = [...(items)].sort((a, b) => a.age - b.age);');
+  });
+
+  it('honours a=/b= binding renames', () => {
+    const node = mk('sort', { name: 'sorted', in: 'items', a: 'x', b: 'y', compare: 'x.n - y.n' });
+    expect(generateSort(node).join('\n')).toBe('export const sorted = [...(items)].sort((x, y) => x.n - y.n);');
+  });
+
+  it('never mutates — always spreads the source collection', () => {
+    const node = mk('sort', { name: 'sorted', in: 'original', compare: 'a - b' });
+    const code = generateSort(node).join('\n');
+    expect(code).toContain('[...(original)]');
+    expect(code).not.toContain('(original).sort');
+  });
+
+  it('throws on missing in', () => {
+    expect(() => generateSort(mk('sort', { name: 'x' }))).toThrow(/sort .* 'in' prop/);
+  });
+});
+
+describe('Ground Layer: reverse', () => {
+  it('emits `[...coll].reverse()` (immutable)', () => {
+    const node = mk('reverse', { name: 'reversed', in: 'items' });
+    expect(generateReverse(node).join('\n')).toBe('export const reversed = [...(items)].reverse();');
+  });
+
+  it('applies type annotation', () => {
+    const node = mk('reverse', { name: 'reversed', in: 'items', type: 'number[]' });
+    expect(generateReverse(node).join('\n')).toBe('export const reversed: number[] = [...(items)].reverse();');
+  });
+
+  it('throws on missing in', () => {
+    expect(() => generateReverse(mk('reverse', { name: 'x' }))).toThrow(/reverse .* 'in' prop/);
+  });
+});
+
+describe('Ground Layer: flat', () => {
+  it('emits `.flat()` with no depth', () => {
+    const node = mk('flat', { name: 'flattened', in: 'nested' });
+    expect(generateFlat(node).join('\n')).toBe('export const flattened = (nested).flat();');
+  });
+
+  it('emits `.flat(depth)` when depth is supplied', () => {
+    const node = mk('flat', { name: 'flattened', in: 'nested', depth: '2' });
+    expect(generateFlat(node).join('\n')).toBe('export const flattened = (nested).flat(2);');
+  });
+
+  it('throws on missing in', () => {
+    expect(() => generateFlat(mk('flat', { name: 'x' }))).toThrow(/flat .* 'in' prop/);
+  });
+});
+
+describe('Ground Layer: at', () => {
+  it('emits `.at(index)` for positive indices', () => {
+    const node = mk('at', { name: 'first', in: 'items', index: '0' });
+    expect(generateAt(node).join('\n')).toBe('export const first = (items).at(0);');
+  });
+
+  it('supports negative indices for tail access', () => {
+    const node = mk('at', { name: 'last', in: 'items', index: '-1' });
+    expect(generateAt(node).join('\n')).toBe('export const last = (items).at(-1);');
+  });
+
+  it('throws on missing in or index', () => {
+    expect(() => generateAt(mk('at', { name: 'x', index: '0' }))).toThrow(/at .* 'in' prop/);
+    expect(() => generateAt(mk('at', { name: 'x', in: 'xs' }))).toThrow(/at .* 'index' prop/);
+  });
+});
+
+describe('Ground Layer: join', () => {
+  it('emits bare `.join()` when no separator is supplied', () => {
+    const node = mk('join', { name: 'joined', in: 'fields' });
+    expect(generateJoin(node).join('\n')).toBe('export const joined = (fields).join();');
+  });
+
+  it('emits `.join(",")` with a quoted string separator', () => {
+    const node = mk('join', { name: 'csv', in: 'fields', separator: ',' });
+    expect(generateJoin(node).join('\n')).toBe("export const csv = (fields).join(',');");
+  });
+
+  it('emits `.join("")` for an empty-string separator', () => {
+    const node = mk('join', { name: 'concat', in: 'parts', separator: '' });
+    expect(generateJoin(node).join('\n')).toBe("export const concat = (parts).join('');");
+  });
+
+  it('accepts an expression separator via __expr wrapping', () => {
+    const node = mk('join', {
+      name: 'csv',
+      in: 'fields',
+      separator: { __expr: true, code: 'delim' },
+    });
+    expect(generateJoin(node).join('\n')).toBe('export const csv = (fields).join(delim);');
+  });
+
+  it('escapes single quotes inside a plain-string separator', () => {
+    const node = mk('join', { name: 'csv', in: 'parts', separator: "a'b" });
+    expect(generateJoin(node).join('\n')).toBe("export const csv = (parts).join('a\\'b');");
+  });
+
+  it('throws on missing in', () => {
+    expect(() => generateJoin(mk('join', { name: 'x' }))).toThrow(/join .* 'in' prop/);
+  });
+});
+
+describe('Ground Layer: includes / indexOf / lastIndexOf', () => {
+  it('includes emits .includes(value)', () => {
+    const node = mk('includes', { name: 'hasFatal', in: 'errors', value: "'fatal'" });
+    expect(generateIncludes(node).join('\n')).toBe("export const hasFatal = (errors).includes('fatal');");
+  });
+
+  it('indexOf emits .indexOf(value)', () => {
+    const node = mk('indexOf', { name: 'pos', in: 'items', value: 'target' });
+    expect(generateIndexOf(node).join('\n')).toBe('export const pos = (items).indexOf(target);');
+  });
+
+  it('lastIndexOf emits .lastIndexOf(value)', () => {
+    const node = mk('lastIndexOf', { name: 'pos', in: 'items', value: 'target' });
+    expect(generateLastIndexOf(node).join('\n')).toBe('export const pos = (items).lastIndexOf(target);');
+  });
+
+  it('passes `from` as a second arg when supplied', () => {
+    const node = mk('indexOf', { name: 'pos', in: 'items', value: 'target', from: '5' });
+    expect(generateIndexOf(node).join('\n')).toBe('export const pos = (items).indexOf(target, 5);');
+  });
+
+  it('each of the three throws on missing in / value', () => {
+    expect(() => generateIncludes(mk('includes', { name: 'x', value: '0' }))).toThrow(/includes .* 'in' prop/);
+    expect(() => generateIndexOf(mk('indexOf', { name: 'x', in: 'xs' }))).toThrow(/indexOf .* 'value' prop/);
+    expect(() => generateLastIndexOf(mk('lastIndexOf', { name: 'x' }))).toThrow(/lastIndexOf .* 'in' prop/);
+  });
+});
+
+describe('Ground Layer: concat', () => {
+  it('emits `.concat(other)` with a single-arg with=', () => {
+    const node = mk('concat', { name: 'all', in: 'items', with: 'other' });
+    expect(generateConcat(node).join('\n')).toBe('export const all = (items).concat(other);');
+  });
+
+  it('emits `.concat(a, b)` when with= is a comma-separated spread', () => {
+    const node = mk('concat', { name: 'all', in: 'items', with: 'a, b' });
+    expect(generateConcat(node).join('\n')).toBe('export const all = (items).concat(a, b);');
+  });
+
+  it('throws on missing in or with', () => {
+    expect(() => generateConcat(mk('concat', { name: 'x', with: 'other' }))).toThrow(/concat .* 'in' prop/);
+    expect(() => generateConcat(mk('concat', { name: 'x', in: 'xs' }))).toThrow(/concat .* 'with' prop/);
+  });
+});
+
+describe('Ground Layer: forEach', () => {
+  it('emits `.forEach((item) => { body });` as a statement', () => {
+    const node = mk('forEach', { in: 'items' }, [mk('handler', { code: 'doSomething(item);' })]);
+    const code = generateForEach(node).join('\n');
+    expect(code).toBe(['(items).forEach((item) => {', '  doSomething(item);', '});'].join('\n'));
+  });
+
+  it('emits no `const` binding and no `name`', () => {
+    const node = mk('forEach', { in: 'items' }, [mk('handler', { code: 'log(item);' })]);
+    const code = generateForEach(node).join('\n');
+    expect(code).not.toContain('const ');
+    expect(code).not.toContain('export');
+  });
+
+  it('honours item= and index= parameter renames', () => {
+    const node = mk('forEach', { in: 'items', item: 'row', index: 'i' }, [mk('handler', { code: 'log(row, i);' })]);
+    const code = generateForEach(node).join('\n');
+    expect(code).toContain('(items).forEach((row, i) => {');
+    expect(code).toContain('log(row, i);');
+  });
+
+  it('throws when the handler child is missing', () => {
+    expect(() => generateForEach(mk('forEach', { in: 'items' }))).toThrow(/forEach .* `handler <<<>>>` child/);
+  });
+
+  it('throws on missing in', () => {
+    expect(() => generateForEach(mk('forEach', {}, [mk('handler', { code: 'x' })]))).toThrow(/forEach .* 'in' prop/);
   });
 });
