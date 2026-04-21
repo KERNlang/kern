@@ -146,6 +146,29 @@ export interface ArrayMethodProps extends BaseProps {
   type?: string;
 }
 
+export interface ReduceProps extends BaseProps {
+  in?: string | ExprObject;
+  acc?: string;
+  item?: string;
+  initial?: string | ExprObject;
+  expr?: string | ExprObject;
+  type?: string;
+}
+
+export interface FlatMapProps extends BaseProps {
+  in?: string | ExprObject;
+  item?: string;
+  expr?: string | ExprObject;
+  type?: string;
+}
+
+export interface SliceProps extends BaseProps {
+  in?: string | ExprObject;
+  start?: string | ExprObject;
+  end?: string | ExprObject;
+  type?: string;
+}
+
 export interface TransformProps extends BaseProps {
   target?: string;
   via?: string;
@@ -341,6 +364,9 @@ export interface NodePropsMap {
   find: ArrayMethodProps;
   some: ArrayMethodProps;
   every: ArrayMethodProps;
+  reduce: ReduceProps;
+  flatMap: FlatMapProps;
+  slice: SliceProps;
   transform: TransformProps;
   action: ActionProps;
   actionRegistry: ActionRegistryProps;

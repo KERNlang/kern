@@ -15,6 +15,9 @@ import {
   generateEvery,
   generateFilter,
   generateFind,
+  generateFlatMap,
+  generateReduce,
+  generateSlice,
   generateSome,
   isCoreNode,
 } from '../src/codegen-core.js';
@@ -103,11 +106,98 @@ describe('Integration: generateCoreNode dispatches array methods', () => {
     expect(code).toContain('(xs).filter((item) => item.ok)');
   });
 
-  it('registers all four as core node types', () => {
+  it('registers all seven as core node types', () => {
     expect(isCoreNode('filter')).toBe(true);
     expect(isCoreNode('find')).toBe(true);
     expect(isCoreNode('some')).toBe(true);
     expect(isCoreNode('every')).toBe(true);
+    expect(isCoreNode('reduce')).toBe(true);
+    expect(isCoreNode('flatMap')).toBe(true);
+    expect(isCoreNode('slice')).toBe(true);
+  });
+});
+
+describe('Ground Layer: reduce', () => {
+  it('defaults acc to `acc` and item to `item` and emits the .reduce(...) shape', () => {
+    const node = mk('reduce', { name: 'total', in: 'items', initial: '0', expr: 'acc + item.value' });
+    const code = generateReduce(node).join('\n');
+    expect(code).toBe('export const total = (items).reduce((acc, item) => acc + item.value, 0);');
+  });
+
+  it('honours explicit acc= and item= renames', () => {
+    const node = mk('reduce', { name: 'total', in: 'items', acc: 'sum', item: 'x', initial: '0', expr: 'sum + x.v' });
+    const code = generateReduce(node).join('\n');
+    expect(code).toBe('export const total = (items).reduce((sum, x) => sum + x.v, 0);');
+  });
+
+  it('applies type annotation and respects export=false', () => {
+    const node = mk('reduce', {
+      name: 'total',
+      in: 'items',
+      initial: '0',
+      expr: 'acc + item.v',
+      type: 'number',
+      export: 'false',
+    });
+    const code = generateReduce(node).join('\n');
+    expect(code).toBe('const total: number = (items).reduce((acc, item) => acc + item.v, 0);');
+  });
+
+  it('throws on missing in, initial, or expr', () => {
+    expect(() => generateReduce(mk('reduce', { name: 'x', initial: '0', expr: 'acc' }))).toThrow(/reduce .* 'in' prop/);
+    expect(() => generateReduce(mk('reduce', { name: 'x', in: 'xs', expr: 'acc' }))).toThrow(
+      /reduce .* 'initial' prop/,
+    );
+    expect(() => generateReduce(mk('reduce', { name: 'x', in: 'xs', initial: '0' }))).toThrow(/reduce .* 'expr' prop/);
+  });
+});
+
+describe('Ground Layer: flatMap', () => {
+  it('emits `.flatMap(...)` with default item binding', () => {
+    const node = mk('flatMap', { name: 'tags', in: 'posts', expr: 'item.tags' });
+    const code = generateFlatMap(node).join('\n');
+    expect(code).toBe('export const tags = (posts).flatMap((item) => item.tags);');
+  });
+
+  it('honours explicit item= and type annotation', () => {
+    const node = mk('flatMap', { name: 'tags', in: 'posts', item: 'p', expr: 'p.tags', type: 'string[]' });
+    const code = generateFlatMap(node).join('\n');
+    expect(code).toBe('export const tags: string[] = (posts).flatMap((p) => p.tags);');
+  });
+
+  it('throws on missing in or expr', () => {
+    expect(() => generateFlatMap(mk('flatMap', { name: 'x', expr: 'item' }))).toThrow(/flatMap .* 'in' prop/);
+    expect(() => generateFlatMap(mk('flatMap', { name: 'x', in: 'xs' }))).toThrow(/flatMap .* 'expr' prop/);
+  });
+});
+
+describe('Ground Layer: slice', () => {
+  it('emits `.slice(start, end)` when both indices are supplied', () => {
+    const node = mk('slice', { name: 'first5', in: 'items', start: '0', end: '5' });
+    const code = generateSlice(node).join('\n');
+    expect(code).toBe('export const first5 = (items).slice(0, 5);');
+  });
+
+  it('emits `.slice(start)` when only start is supplied', () => {
+    const node = mk('slice', { name: 'tail', in: 'items', start: '2' });
+    const code = generateSlice(node).join('\n');
+    expect(code).toBe('export const tail = (items).slice(2);');
+  });
+
+  it('emits `.slice(0, end)` when only end is supplied (start defaults to 0)', () => {
+    const node = mk('slice', { name: 'head', in: 'items', end: '3' });
+    const code = generateSlice(node).join('\n');
+    expect(code).toBe('export const head = (items).slice(0, 3);');
+  });
+
+  it('emits `.slice()` when neither start nor end is supplied (full copy)', () => {
+    const node = mk('slice', { name: 'copy', in: 'items' });
+    const code = generateSlice(node).join('\n');
+    expect(code).toBe('export const copy = (items).slice();');
+  });
+
+  it('throws on missing in', () => {
+    expect(() => generateSlice(mk('slice', { name: 'x' }))).toThrow(/slice .* 'in' prop/);
   });
 });
 

@@ -423,8 +423,112 @@ function generateArrayMethod(node: IRNode, method: 'filter' | 'find' | 'some' | 
   ];
 }
 
+function unwrapExpr(raw: unknown): string | undefined {
+  if (raw == null) return undefined;
+  if (typeof raw === 'object' && (raw as ExprObject).__expr) {
+    return (raw as ExprObject).code;
+  }
+  return typeof raw === 'string' ? raw : String(raw);
+}
+
 export function generateFilter(node: IRNode): string[] {
   return generateArrayMethod(node, 'filter');
+}
+
+// ── Ground Layer: reduce ─────────────────────────────────────────────────
+// `reduce name=total in=items initial="0" expr="acc + item.value"`
+//   → const total = items.reduce((acc, item) => acc + item.value, 0);
+// Two bound names (acc, item) default to those identifiers; override with
+// `acc=` / `item=`. Body (`expr`) and seed (`initial`) are both required.
+
+export function generateReduce(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'reduce'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'reduced', node);
+  const acc = emitIdentifier((props.acc as string) || 'acc', 'acc', node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("reduce node requires an 'in' prop", node);
+  const initial = unwrapExpr(props.initial);
+  if (!initial) throw new KernCodegenError("reduce node requires an 'initial' prop", node);
+  const body = unwrapExpr(props.expr);
+  if (!body) throw new KernCodegenError("reduce node requires an 'expr' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = (${collection}).reduce((${acc}, ${item}) => ${body}, ${initial});`,
+  ];
+}
+
+// ── Ground Layer: flatMap ────────────────────────────────────────────────
+// `flatMap name=tags in=posts expr="item.tags"`
+//   → const tags = posts.flatMap((item) => item.tags);
+// `expr` is the arrow body (array/iterable), not a predicate. Use the same
+// shape as `filter` etc., but with `expr` instead of `where`.
+
+export function generateFlatMap(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'flatMap'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'flatMapped', node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("flatMap node requires an 'in' prop", node);
+  const body = unwrapExpr(props.expr);
+  if (!body) throw new KernCodegenError("flatMap node requires an 'expr' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = (${collection}).flatMap((${item}) => ${body});`,
+  ];
+}
+
+// ── Ground Layer: slice ──────────────────────────────────────────────────
+// `slice name=first5 in=items start=0 end=5`
+//   → const first5 = items.slice(0, 5);
+// Both indices are optional — `.slice()` with no args copies the whole
+// array, `.slice(2)` copies from index 2 onward. Emit exactly what was
+// supplied, in that order.
+
+export function generateSlice(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'slice'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'sliced', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("slice node requires an 'in' prop", node);
+  const start = unwrapExpr(props.start);
+  const end = unwrapExpr(props.end);
+
+  const args: string[] = [];
+  if (start !== undefined) args.push(start);
+  if (end !== undefined) {
+    if (start === undefined) args.push('0');
+    args.push(end);
+  }
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = (${collection}).slice(${args.join(', ')});`];
 }
 
 export function generateFind(node: IRNode): string[] {

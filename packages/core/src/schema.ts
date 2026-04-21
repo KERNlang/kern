@@ -412,6 +412,47 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       export: { kind: 'boolean' },
     },
   },
+  reduce: {
+    description:
+      'Declarative `.reduce` binding — two bound names (accumulator + item). `reduce name=total in=items initial="0" expr="acc + item.value"` lowers to `const total = items.reduce((acc, item) => acc + item.value, 0);`. Override the binding names with `acc=` and `item=`.',
+    example: 'reduce name=total in=items initial="0" expr="acc + item.value"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      acc: { kind: 'identifier' },
+      item: { kind: 'identifier' },
+      initial: { required: true, kind: 'rawExpr' },
+      expr: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  flatMap: {
+    description:
+      'Declarative `.flatMap` binding — `flatMap name=tags in=posts expr="item.tags"` lowers to `const tags = posts.flatMap(item => item.tags);`. Use `item=` to rename the per-item binding. `expr` is the arrow body (an array or iterable), not a predicate.',
+    example: 'flatMap name=tags in=posts expr="item.tags"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      expr: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  slice: {
+    description:
+      'Declarative `.slice` binding — `slice name=first5 in=items start=0 end=5` lowers to `const first5 = items.slice(0, 5);`. `start` and `end` default to undefined (JS semantics: a bare `.slice()` copies the whole array).',
+    example: 'slice name=first5 in=items start=0 end=5',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      start: { kind: 'rawExpr' },
+      end: { kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
   transform: {
     description: 'Data transformation pipeline — maps target through a via function or handler',
     example: 'transform name=normalized target=rawData via=normalize type=NormalizedData',
