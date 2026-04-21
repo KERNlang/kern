@@ -819,6 +819,82 @@ export function generateForEach(node: IRNode): string[] {
   return lines;
 }
 
+// ── Ground Layer: compact ────────────────────────────────────────────────
+// `compact name=truthy in=items` → `const truthy = (items).filter(Boolean);`
+// Lodash-style named primitive for the very common `.filter(Boolean)` pattern.
+// Agon scan: 36 call sites. Zero runtime cost vs the raw form; pure naming win.
+
+export function generateCompact(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'compact'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'compacted', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("compact node requires an 'in' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = (${collection}).filter(Boolean);`];
+}
+
+// ── Ground Layer: pluck ──────────────────────────────────────────────────
+// `pluck name=names in=users prop=name`
+//   → const names = (users).map((item) => item.name);
+// `prop` is a raw identifier path — `prop=user.profile.name` emits
+// `item.user.profile.name`. Distinct from `map` because the author's intent is
+// just "lift one field out of each item" and the shape is fixed.
+
+export function generatePluck(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'pluck'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'plucked', node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("pluck node requires an 'in' prop", node);
+  const prop = unwrapExpr(props.prop);
+  if (!prop) throw new KernCodegenError("pluck node requires a 'prop' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = (${collection}).map((${item}) => ${item}.${prop});`,
+  ];
+}
+
+// ── Ground Layer: unique ─────────────────────────────────────────────────
+// `unique name=distinct in=items` → `const distinct = [...new Set(items)];`
+// Deduplicates by JS `Set` identity (triple-equals on primitives, reference
+// equality on objects). For object arrays with a key selector, use
+// `uniqueBy` (ships in the arrays-complete-pt2 PR).
+
+export function generateUnique(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'unique'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'distinct', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("unique node requires an 'in' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = [...new Set(${collection})];`];
+}
+
 // ── Ground Layer: async ──────────────────────────────────────────────────
 // `async name=loadUser` with a `handler` child runs its body inside an IIFE.
 // With an optional trailing `recover` child, delegates recovery to the

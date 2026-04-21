@@ -36,6 +36,7 @@ import { securityV2Rules } from './security-v2.js';
 import { securityV3Rules } from './security-v3.js';
 import { securityV4Rules } from './security-v4.js';
 import { securityV5Rules } from './security-v5.js';
+import { suggestKernPrimitiveRules } from './suggest-kern-primitive.js';
 import { terminalRules } from './terminal.js';
 import { vueRules } from './vue.js';
 
@@ -59,6 +60,7 @@ export function getActiveRules(target?: string): ReviewRule[] {
     ...deadLogicRules,
     ...nullSafetyRules,
     ...asyncRules,
+    ...suggestKernPrimitiveRules,
   ];
 
   // Backend targets never load frontend-specific rules
@@ -912,6 +914,14 @@ const REGISTRY: RuleInfo[] = [
     layer: 'kern-source',
     severity: 'error',
     description: 'Top-level named KERN declaration defined in multiple files',
+  },
+  {
+    id: 'suggest-kern-primitive',
+    layer: 'kern-source',
+    severity: 'info',
+    description:
+      'JS array-method call (.filter/.map/.reduce/...) could migrate to a declarative KERN primitive — one-shot migration scan',
+    precision: 'experimental',
   },
 
   // Next.js App Router (Wave 1)

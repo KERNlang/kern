@@ -231,6 +231,23 @@ export interface ForEachProps extends BaseProps {
   index?: string;
 }
 
+export interface CompactProps extends BaseProps {
+  in?: string | ExprObject;
+  type?: string;
+}
+
+export interface PluckProps extends BaseProps {
+  in?: string | ExprObject;
+  item?: string;
+  prop?: string | ExprObject;
+  type?: string;
+}
+
+export interface UniqueProps extends BaseProps {
+  in?: string | ExprObject;
+  type?: string;
+}
+
 export interface TransformProps extends BaseProps {
   target?: string;
   via?: string;
@@ -444,6 +461,9 @@ export interface NodePropsMap {
   lastIndexOf: ValueLookupProps;
   concat: ConcatProps;
   forEach: ForEachProps;
+  compact: CompactProps;
+  pluck: PluckProps;
+  unique: UniqueProps;
   transform: TransformProps;
   action: ActionProps;
   actionRegistry: ActionRegistryProps;

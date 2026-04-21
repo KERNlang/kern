@@ -44,6 +44,7 @@ export {
   generateAsync,
   generateAt,
   generateCollect,
+  generateCompact,
   generateConcat,
   generateDerive,
   generateEvery,
@@ -63,6 +64,7 @@ export {
   generateLastIndexOf,
   generateMap,
   generatePattern,
+  generatePluck,
   generateRecover,
   generateReduce,
   generateResolve,
@@ -71,6 +73,7 @@ export {
   generateSome,
   generateSort,
   generateTransform,
+  generateUnique,
 } from './codegen/ground-layer.js';
 export {
   capitalize,
@@ -125,6 +128,7 @@ import {
   generateAsync,
   generateAt,
   generateCollect,
+  generateCompact,
   generateConcat,
   generateDerive,
   generateEvery,
@@ -144,6 +148,7 @@ import {
   generateLastIndexOf,
   generateMap,
   generatePattern,
+  generatePluck,
   generateRecover,
   generateReduce,
   generateResolve,
@@ -152,6 +157,7 @@ import {
   generateSome,
   generateSort,
   generateTransform,
+  generateUnique,
 } from './codegen/ground-layer.js';
 import {
   emitLowConfidenceTodo,
@@ -498,6 +504,9 @@ export const CORE_NODE_TYPES = new Set([
   'lastIndexOf',
   'concat',
   'forEach',
+  'compact',
+  'pluck',
+  'unique',
   'transform',
   'action',
   'actionRegistry',
@@ -647,6 +656,12 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateConcat(node);
     case 'forEach':
       return generateForEach(node);
+    case 'compact':
+      return generateCompact(node);
+    case 'pluck':
+      return generatePluck(node);
+    case 'unique':
+      return generateUnique(node);
     case 'transform':
       return generateTransform(node);
     case 'action':

@@ -12,6 +12,7 @@
 
 import {
   generateAt,
+  generateCompact,
   generateConcat,
   generateCoreNode,
   generateEvery,
@@ -26,11 +27,13 @@ import {
   generateJoin,
   generateLastIndexOf,
   generateMap,
+  generatePluck,
   generateReduce,
   generateReverse,
   generateSlice,
   generateSome,
   generateSort,
+  generateUnique,
   isCoreNode,
 } from '../src/codegen-core.js';
 import { KernCodegenError } from '../src/errors.js';
@@ -118,7 +121,7 @@ describe('Integration: generateCoreNode dispatches array methods', () => {
     expect(code).toContain('(xs).filter((item) => item.ok)');
   });
 
-  it('registers all nineteen array primitives as core node types', () => {
+  it('registers all twenty-two array primitives as core node types', () => {
     for (const t of [
       'filter',
       'find',
@@ -139,6 +142,9 @@ describe('Integration: generateCoreNode dispatches array methods', () => {
       'lastIndexOf',
       'concat',
       'forEach',
+      'compact',
+      'pluck',
+      'unique',
     ]) {
       expect(isCoreNode(t)).toBe(true);
     }
@@ -449,6 +455,67 @@ describe('Ground Layer: concat', () => {
   it('throws on missing in or with', () => {
     expect(() => generateConcat(mk('concat', { name: 'x', with: 'other' }))).toThrow(/concat .* 'in' prop/);
     expect(() => generateConcat(mk('concat', { name: 'x', in: 'xs' }))).toThrow(/concat .* 'with' prop/);
+  });
+});
+
+describe('Ground Layer: compact', () => {
+  it('emits `(coll).filter(Boolean)`', () => {
+    const node = mk('compact', { name: 'truthy', in: 'items' });
+    expect(generateCompact(node).join('\n')).toBe('export const truthy = (items).filter(Boolean);');
+  });
+
+  it('respects type and export=false', () => {
+    const node = mk('compact', { name: 'truthy', in: 'items', type: 'User[]', export: 'false' });
+    expect(generateCompact(node).join('\n')).toBe('const truthy: User[] = (items).filter(Boolean);');
+  });
+
+  it('throws on missing in', () => {
+    expect(() => generateCompact(mk('compact', { name: 'x' }))).toThrow(/compact .* 'in' prop/);
+  });
+});
+
+describe('Ground Layer: pluck', () => {
+  it('emits `(coll).map(item => item.<prop>)` with a single prop', () => {
+    const node = mk('pluck', { name: 'names', in: 'users', prop: 'name' });
+    expect(generatePluck(node).join('\n')).toBe('export const names = (users).map((item) => item.name);');
+  });
+
+  it('supports nested dot-path props', () => {
+    const node = mk('pluck', { name: 'cityNames', in: 'users', prop: 'profile.address.city' });
+    expect(generatePluck(node).join('\n')).toBe(
+      'export const cityNames = (users).map((item) => item.profile.address.city);',
+    );
+  });
+
+  it('honours an explicit item= rename', () => {
+    const node = mk('pluck', { name: 'names', in: 'users', item: 'u', prop: 'name' });
+    expect(generatePluck(node).join('\n')).toBe('export const names = (users).map((u) => u.name);');
+  });
+
+  it('applies type annotation', () => {
+    const node = mk('pluck', { name: 'names', in: 'users', prop: 'name', type: 'string[]' });
+    expect(generatePluck(node).join('\n')).toBe('export const names: string[] = (users).map((item) => item.name);');
+  });
+
+  it('throws on missing in or prop', () => {
+    expect(() => generatePluck(mk('pluck', { name: 'x', prop: 'y' }))).toThrow(/pluck .* 'in' prop/);
+    expect(() => generatePluck(mk('pluck', { name: 'x', in: 'xs' }))).toThrow(/pluck .* 'prop' prop/);
+  });
+});
+
+describe('Ground Layer: unique', () => {
+  it('emits `[...new Set(coll)]`', () => {
+    const node = mk('unique', { name: 'distinct', in: 'items' });
+    expect(generateUnique(node).join('\n')).toBe('export const distinct = [...new Set(items)];');
+  });
+
+  it('respects type and export=false', () => {
+    const node = mk('unique', { name: 'distinct', in: 'items', type: 'string[]', export: 'false' });
+    expect(generateUnique(node).join('\n')).toBe('const distinct: string[] = [...new Set(items)];');
+  });
+
+  it('throws on missing in', () => {
+    expect(() => generateUnique(mk('unique', { name: 'x' }))).toThrow(/unique .* 'in' prop/);
   });
 });
 
