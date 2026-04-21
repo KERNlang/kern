@@ -169,6 +169,95 @@ describe('Core Language Codegen', () => {
       // Should NOT contain the default return
       expect(code).not.toContain("return { ...entity, state: 'running' as PlanState };");
     });
+
+    // ── PR 10: transition params + guards (agon cesar agent-state) ──
+
+    describe('transition params', () => {
+      it('threads params into the emitted transition function signature', () => {
+        const code = gen(
+          [
+            'machine name=Agent',
+            '  state name=idle',
+            '  state name=thinking',
+            '  transition name=userPrompt from=idle to=thinking params="prompt:string,chatId:string"',
+          ].join('\n'),
+        );
+        expect(code).toContain(
+          'export function userPromptAgent<T extends { state: AgentState }>(entity: T, prompt: string, chatId: string): T {',
+        );
+      });
+
+      it('keeps the default signature when params is omitted', () => {
+        const code = gen(
+          [
+            'machine name=Agent',
+            '  state name=idle',
+            '  state name=thinking',
+            '  transition name=go from=idle to=thinking',
+          ].join('\n'),
+        );
+        expect(code).toContain('export function goAgent<T extends { state: AgentState }>(entity: T): T {');
+      });
+
+      it('supports default values in params (routes through parseParamList)', () => {
+        const code = gen(
+          [
+            'machine name=Agent',
+            '  state name=idle',
+            '  state name=thinking',
+            '  transition name=go from=idle to=thinking params="budget:number=5"',
+          ].join('\n'),
+        );
+        expect(code).toContain('(entity: T, budget: number = 5): T');
+      });
+    });
+
+    describe('transition guards', () => {
+      it('emits a guard check AFTER the from-state check and a <Machine>GuardError class', () => {
+        const code = gen(
+          [
+            'machine name=Agent',
+            '  state name=ready',
+            '  state name=sending',
+            '  transition name=submit from=ready to=sending guard="entity.turnsLeft > 0"',
+          ].join('\n'),
+        );
+        expect(code).toContain('export class AgentGuardError extends Error {');
+        expect(code).toContain("super(`Agent transition '${transition}' guard failed in state '${state}'`);");
+        expect(code).toContain('if (!(entity.turnsLeft > 0)) {');
+        expect(code).toContain("throw new AgentGuardError('submit', entity.state);");
+        // The from-state check still runs first.
+        const fromCheck = code.indexOf("if (entity.state !== 'ready')");
+        const guardCheck = code.indexOf('if (!(entity.turnsLeft > 0))');
+        expect(fromCheck).toBeGreaterThan(-1);
+        expect(guardCheck).toBeGreaterThan(fromCheck);
+      });
+
+      it('does not emit the GuardError class when no transition has a guard', () => {
+        const code = gen(
+          [
+            'machine name=Agent',
+            '  state name=idle',
+            '  state name=thinking',
+            '  transition name=go from=idle to=thinking',
+          ].join('\n'),
+        );
+        expect(code).not.toContain('AgentGuardError');
+      });
+
+      it('combines params + guard — guard can reference both entity and params', () => {
+        const code = gen(
+          [
+            'machine name=Agent',
+            '  state name=ready',
+            '  state name=sending',
+            '  transition name=submit from=ready to=sending params="prompt:string" guard="entity.turnsLeft > 0 && prompt.length > 0"',
+          ].join('\n'),
+        );
+        expect(code).toContain('(entity: T, prompt: string): T');
+        expect(code).toContain('if (!(entity.turnsLeft > 0 && prompt.length > 0)) {');
+      });
+    });
   });
 
   // ── error ──

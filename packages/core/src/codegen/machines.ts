@@ -6,9 +6,9 @@
  */
 
 import { propsOf } from '../node-props.js';
-import type { IRNode } from '../types.js';
+import type { ExprObject, IRNode } from '../types.js';
 import { emitIdentifier, emitTemplateSafe } from './emitters.js';
-import { exportPrefix, getChildren, getProps, handlerCode } from './helpers.js';
+import { exportPrefix, getChildren, getProps, handlerCode, parseParamList } from './helpers.js';
 
 const _p = getProps;
 const kids = getChildren;
@@ -33,7 +33,7 @@ export function generateMachine(node: IRNode): string[] {
   lines.push(`${exp}type ${stateType} = ${stateNames.map((s) => `'${emitTemplateSafe(s)}'`).join(' | ')};`);
   lines.push('');
 
-  // Error class
+  // Error classes
   const errorName = `${name}StateError`;
   lines.push(`${exp}class ${errorName} extends Error {`);
   lines.push(`  constructor(`);
@@ -47,6 +47,23 @@ export function generateMachine(node: IRNode): string[] {
   lines.push('}');
   lines.push('');
 
+  // Guard error class — emitted only when at least one transition has a guard.
+  // Keeps the codegen output minimal when no transitions use guards.
+  const hasAnyGuard = kids(node, 'transition').some((t) => !!propsOf<'transition'>(t).guard);
+  const guardErrorName = `${name}GuardError`;
+  if (hasAnyGuard) {
+    lines.push(`${exp}class ${guardErrorName} extends Error {`);
+    lines.push(`  constructor(`);
+    lines.push(`    public readonly transition: string,`);
+    lines.push(`    public readonly state: string,`);
+    lines.push(`  ) {`);
+    lines.push(`    super(\`${name} transition '\${transition}' guard failed in state '\${state}'\`);`);
+    lines.push(`    this.name = '${guardErrorName}';`);
+    lines.push(`  }`);
+    lines.push('}');
+    lines.push('');
+  }
+
   // Transition functions
   const transitions = kids(node, 'transition');
   for (const t of transitions) {
@@ -54,14 +71,25 @@ export function generateMachine(node: IRNode): string[] {
     const tname = emitIdentifier(tp.name, 'transition', t);
     const from = tp.from || '';
     const to = tp.to || '';
+    const paramsStr = tp.params;
+    const rawGuard = tp.guard;
+    const guardExpr =
+      rawGuard && typeof rawGuard === 'object' && (rawGuard as ExprObject).__expr
+        ? (rawGuard as ExprObject).code
+        : (rawGuard as string | undefined);
 
     const fromStates = from.split('|').map((s) => s.trim());
     const isMultiFrom = fromStates.length > 1;
     const fnName = `${tname}${name}`;
     const code = handlerCode(t);
 
+    // Parse params the same way `fn` / `action` do — routes through the
+    // shared validator so malformed param lists fail at codegen.
+    const paramList = paramsStr ? parseParamList(paramsStr) : '';
+    const signatureParams = paramList ? `entity: T, ${paramList}` : 'entity: T';
+
     lines.push(`/** ${from} → ${to} */`);
-    lines.push(`${exp}function ${fnName}<T extends { state: ${stateType} }>(entity: T): T {`);
+    lines.push(`${exp}function ${fnName}<T extends { state: ${stateType} }>(${signatureParams}): T {`);
 
     if (isMultiFrom) {
       lines.push(`  const validStates: ${stateType}[] = [${fromStates.map((s) => `'${s}'`).join(', ')}];`);
@@ -71,6 +99,14 @@ export function generateMachine(node: IRNode): string[] {
     } else {
       lines.push(`  if (entity.state !== '${fromStates[0]}') {`);
       lines.push(`    throw new ${errorName}('${fromStates[0]}', entity.state);`);
+      lines.push(`  }`);
+    }
+
+    // Guard check runs AFTER the from-state check so authors can reference
+    // `entity.state` inside the guard without worrying about invalid input.
+    if (guardExpr) {
+      lines.push(`  if (!(${guardExpr})) {`);
+      lines.push(`    throw new ${guardErrorName}('${tname}', entity.state);`);
       lines.push(`  }`);
     }
 

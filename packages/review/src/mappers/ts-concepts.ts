@@ -17,6 +17,28 @@ const NETWORK_CALLS = new Set(['fetch', 'axios', 'got', 'request', 'superagent',
 
 const NETWORK_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'request']);
 
+// ── Wrapped HTTP-client detection ────────────────────────────────────────
+// ~75% of production React/Next/Expo apps route through a wrapper (custom
+// ApiClient class, axios.create instance, tRPC-generated client). The fixed
+// NETWORK_CALLS set misses those, so the cross-stack wedge rules
+// (contract-drift, untyped-api-response, tainted-across-wire) silently
+// find nothing on real repos. collectClientIdentifiers() scans the file
+// for wrapper patterns and returns the local identifiers that behave like
+// HTTP clients; extractEffects() then treats `<name>.get/post/…` calls on
+// those identifiers as network effects.
+
+const CLIENT_HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete']);
+
+// Names considered client-shaped for imported identifiers. Kept narrow on
+// purpose — false positives here cascade into the wedge rules and poison
+// the pitch. Matches: api, http, client, apiClient, httpClient, fetcher,
+// requester, ApiClient, HttpClient, MyApiClient, etc.
+const CLIENT_NAME_PATTERN = /^(api|http|client|apiClient|httpClient|fetcher|requester)$|Client$/;
+
+// Wrapper factories — if a variable is initialized with one of these calls,
+// the variable is a client instance (axios.create, ky.create, got.extend).
+const CLIENT_FACTORY_CALLS = new Set(['axios.create', 'ky.create', 'ky.extend', 'got.extend']);
+
 const DB_CALLS = new Set([
   'query',
   'execute',
@@ -267,6 +289,8 @@ function hasIntentComment(text: string): boolean {
 // ── effect ───────────────────────────────────────────────────────────────
 
 function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
+  const clientIdents = collectClientIdentifiers(sf);
+
   for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const callee = call.getExpression();
     let funcName = '';
@@ -281,17 +305,18 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
     }
 
     // Network effects
-    if (
-      NETWORK_CALLS.has(funcName) ||
-      (NETWORK_METHODS.has(funcName) && /axios|got|ky|http|request|superagent/i.test(objName))
-    ) {
+    const isDirectNetwork = NETWORK_CALLS.has(funcName);
+    const isKnownLibraryMethod = NETWORK_METHODS.has(funcName) && /axios|got|ky|http|request|superagent/i.test(objName);
+    const isWrappedClientCall = CLIENT_HTTP_METHODS.has(funcName) && clientIdents.has(objName);
+
+    if (isDirectNetwork || isKnownLibraryMethod || isWrappedClientCall) {
       const isAsync = isInAsyncContext(call);
       nodes.push({
         id: conceptId(filePath, 'effect', call.getStart()),
         kind: 'effect',
         primarySpan: span(filePath, call),
         evidence: call.getText().substring(0, 120),
-        confidence: NETWORK_CALLS.has(funcName) ? 1.0 : 0.8,
+        confidence: isDirectNetwork ? 1.0 : isWrappedClientCall ? 0.75 : 0.8,
         language: 'ts',
         containerId: getContainerId(call, filePath),
         payload: {
@@ -299,7 +324,7 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
           subtype: 'network',
           async: isAsync,
           target: extractTarget(call),
-          responseAsserted: isResponseAsserted(call),
+          responseAsserted: isResponseAsserted(call, isWrappedClientCall),
           bodyKind: extractBodyKind(call, funcName),
         },
       });
@@ -1100,7 +1125,14 @@ function extractTarget(call: import('ts-morph').CallExpression): string | undefi
  * the server's declared response shape as `any`). Kept intentionally
  * conservative — false positives here poison the pitch.
  */
-function isResponseAsserted(call: import('ts-morph').CallExpression): boolean | undefined {
+function isResponseAsserted(call: import('ts-morph').CallExpression, isWrappedClientCall = false): boolean | undefined {
+  // Generic type argument on the call itself, e.g. `apiClient.get<User>(url)`.
+  // Wrapped clients (~75% of prod apps) almost always rely on this — the
+  // wrapper pre-parses JSON and returns a typed payload, so the caller never
+  // sees a `.json()` call. Treating the generic as the assertion is the only
+  // way the `untyped-api-response` rule can fire on wrapped-client codebases.
+  if (call.getTypeArguments().length > 0) return true;
+
   // Walk outward from the network call looking for JSON consumption. Only
   // after we've seen `.json()` (or a `.then(r => r.json())` callback) does
   // it make sense to rule the *payload* typed vs untyped — a raw Response
@@ -1109,8 +1141,14 @@ function isResponseAsserted(call: import('ts-morph').CallExpression): boolean | 
   // 550a57ec caught the false positive for the split pattern
   // `const res = await fetch(url); const data: User[] = await res.json();`
   // where the raw Response variable has no annotation.
+  //
+  // Wrapped clients pre-parse JSON inside the wrapper, so there's no
+  // `.json()` call to observe at the call-site. For those we treat the
+  // wrapped call itself as if JSON consumption had already happened — the
+  // payload is whatever `apiClient.get(...)` returns, and we classify the
+  // enclosing binding's type annotation directly.
   let cursor: import('ts-morph').Node = call;
-  let sawJsonConsumption = false;
+  let sawJsonConsumption = isWrappedClientCall;
   for (let depth = 0; depth < 8; depth++) {
     const parent = cursor.getParent();
     if (!parent) return undefined;
@@ -1338,6 +1376,97 @@ function containsAssertion(node: import('ts-morph').Node | undefined): boolean {
       node as import('ts-morph').AwaitExpression | import('ts-morph').ParenthesizedExpression
     ).getExpression();
     return containsAssertion(child);
+  }
+  return false;
+}
+
+/**
+ * Scan `sf` for identifiers that behave like HTTP client wrappers, so that
+ * `extractEffects` can emit `effect.network` for `<name>.get/post/…` calls
+ * that would otherwise slip through the fixed NETWORK_CALLS/library-method
+ * filter.
+ *
+ * Three evidence sources (all single-file, no cross-file graph resolution):
+ *   1. Local class declarations whose bodies call a known network primitive
+ *      somewhere — that class IS a client wrapper. The class name is used
+ *      in pass 2 to mark `new <ClassName>()` instances.
+ *   2. Local variable initializers that match a client factory
+ *      (`axios.create(...)`, `ky.create(...)`, `got.extend(...)`) or
+ *      `new <ClientClass>(...)` where <ClientClass> was found in pass 1.
+ *   3. Imported identifiers from a relative / alias path whose local name
+ *      matches CLIENT_NAME_PATTERN. Third-party imports are skipped —
+ *      library HTTP clients are already covered by NETWORK_CALLS.
+ *
+ * False-positive surface is narrow on purpose: a match only translates into
+ * a network effect when the identifier is later called with `.get/post/put/
+ * patch/delete`, so a name match alone never produces a finding.
+ */
+function collectClientIdentifiers(sf: SourceFile): Set<string> {
+  const clients = new Set<string>();
+
+  // Pass 1 — wrapper classes defined in this file.
+  const clientClassNames = new Set<string>();
+  for (const cls of sf.getDescendantsOfKind(SyntaxKind.ClassDeclaration)) {
+    if (classCallsNetwork(cls)) {
+      const name = cls.getName();
+      if (name) clientClassNames.add(name);
+    }
+  }
+
+  // Pass 2 — local instances: `const api = axios.create(...)`, `new ApiClient()`.
+  for (const decl of sf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const nameNode = decl.getNameNode();
+    if (nameNode.getKind() !== SyntaxKind.Identifier) continue;
+    const init = decl.getInitializer();
+    if (!init) continue;
+    const identName = nameNode.getText();
+
+    if (init.getKind() === SyntaxKind.NewExpression) {
+      const className = (init as import('ts-morph').NewExpression).getExpression().getText();
+      if (clientClassNames.has(className)) clients.add(identName);
+      continue;
+    }
+
+    if (init.getKind() === SyntaxKind.CallExpression) {
+      const calleeText = (init as import('ts-morph').CallExpression).getExpression().getText();
+      if (CLIENT_FACTORY_CALLS.has(calleeText)) clients.add(identName);
+    }
+  }
+
+  // Pass 3 — imported clients with client-shaped names from local paths.
+  for (const imp of sf.getImportDeclarations()) {
+    const spec = imp.getModuleSpecifierValue();
+    if (!spec) continue;
+    const isLocal =
+      spec.startsWith('.') || spec.startsWith('@/') || spec.startsWith('~/') || spec.startsWith('@shared/');
+    if (!isLocal) continue;
+    for (const named of imp.getNamedImports()) {
+      const local = named.getAliasNode()?.getText() ?? named.getNameNode().getText();
+      if (CLIENT_NAME_PATTERN.test(local)) clients.add(local);
+    }
+    const def = imp.getDefaultImport();
+    if (def && CLIENT_NAME_PATTERN.test(def.getText())) clients.add(def.getText());
+  }
+
+  return clients;
+}
+
+function classCallsNetwork(cls: import('ts-morph').ClassDeclaration): boolean {
+  for (const call of cls.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    const k = callee.getKind();
+    if (k === SyntaxKind.Identifier) {
+      if (NETWORK_CALLS.has(callee.getText())) return true;
+      continue;
+    }
+    if (k === SyntaxKind.PropertyAccessExpression) {
+      const pa = callee as import('ts-morph').PropertyAccessExpression;
+      const methodName = pa.getName();
+      const objText = pa.getExpression().getText();
+      if (NETWORK_METHODS.has(methodName) && /^(axios|got|ky|superagent|request|http)$/.test(objText)) {
+        return true;
+      }
+    }
   }
   return false;
 }

@@ -44,13 +44,20 @@ export {
   generateAsync,
   generateCollect,
   generateDerive,
+  generateEvery,
   generateExpect,
+  generateFilter,
+  generateFind,
+  generateFlatMap,
   generateFmt,
   generateGuard,
   generateInvariant,
   generatePattern,
   generateRecover,
+  generateReduce,
   generateResolve,
+  generateSlice,
+  generateSome,
   generateTransform,
 } from './codegen/ground-layer.js';
 export {
@@ -106,13 +113,20 @@ import {
   generateAsync,
   generateCollect,
   generateDerive,
+  generateEvery,
   generateExpect,
+  generateFilter,
+  generateFind,
+  generateFlatMap,
   generateFmt,
   generateGuard,
   generateInvariant,
   generatePattern,
   generateRecover,
+  generateReduce,
   generateResolve,
+  generateSlice,
+  generateSome,
   generateTransform,
 } from './codegen/ground-layer.js';
 import {
@@ -441,6 +455,13 @@ export const CORE_NODE_TYPES = new Set([
   'fmt',
   'set',
   'async',
+  'filter',
+  'find',
+  'some',
+  'every',
+  'reduce',
+  'flatMap',
+  'slice',
   'transform',
   'action',
   'actionRegistry',
@@ -552,6 +573,20 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateFmt(node);
     case 'async':
       return generateAsync(node);
+    case 'filter':
+      return generateFilter(node);
+    case 'find':
+      return generateFind(node);
+    case 'some':
+      return generateSome(node);
+    case 'every':
+      return generateEvery(node);
+    case 'reduce':
+      return generateReduce(node);
+    case 'flatMap':
+      return generateFlatMap(node);
+    case 'slice':
+      return generateSlice(node);
     case 'transform':
       return generateTransform(node);
     case 'action':

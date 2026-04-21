@@ -218,12 +218,16 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   transition: {
-    description: 'A guarded transition between machine states, with optional handler',
-    example: 'transition name=confirm from=pending to=confirmed\n  handler <<<\n    await notifyUser()\n  >>>',
+    description:
+      'A guarded transition between machine states, with optional typed payload and/or guard predicate. `params` uses the same comma-separated typed list shape as `fn` (e.g. "prompt:string,chatId:string") — those parameters enter the emitted transition function signature and are in scope inside the handler and the guard. `guard` is a raw JS boolean expression evaluated AFTER the from-state check; when falsy the transition throws `<Machine>GuardError(\'<transition>\', entity.state)`.',
+    example:
+      'transition name=submit from=idle to=running params="prompt:string,chatId:string" guard="entity.turnsLeft > 0"\n  handler <<<\n    await notifyUser(prompt)\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       from: { required: true, kind: 'string' },
       to: { required: true, kind: 'identifier' },
+      params: { kind: 'string' },
+      guard: { kind: 'rawExpr' },
     },
     allowedChildren: ['handler'],
   },
@@ -359,6 +363,99 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       name: { kind: 'identifier' },
     },
     allowedChildren: ['handler', 'recover'],
+  },
+  filter: {
+    description:
+      'Declarative `.filter` binding — `filter name=active in=items where="item.active"` lowers to `const active = items.filter(item => item.active);`. Use `item=x` to rename the per-item binding.',
+    example: 'filter name=active in=items where="item.active"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      where: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  find: {
+    description:
+      "Declarative `.find` binding — `find name=admin in=users where=\"item.role === 'admin'\"` lowers to `const admin = users.find(item => item.role === 'admin');`. Use `item=x` to rename the per-item binding.",
+    example: 'find name=admin in=users item=u where="u.role === \'admin\'"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      where: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  some: {
+    description:
+      'Declarative `.some` binding — `some name=hasError in=results where="!item.ok"` lowers to `const hasError = results.some(item => !item.ok);`.',
+    example: 'some name=hasError in=results where="!item.ok"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      where: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  every: {
+    description:
+      'Declarative `.every` binding — `every name=allDone in=tasks where="item.done"` lowers to `const allDone = tasks.every(item => item.done);`.',
+    example: 'every name=allDone in=tasks where="item.done"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      where: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  reduce: {
+    description:
+      'Declarative `.reduce` binding — two bound names (accumulator + item). `reduce name=total in=items initial="0" expr="acc + item.value"` lowers to `const total = items.reduce((acc, item) => acc + item.value, 0);`. Override the binding names with `acc=` and `item=`.',
+    example: 'reduce name=total in=items initial="0" expr="acc + item.value"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      acc: { kind: 'identifier' },
+      item: { kind: 'identifier' },
+      initial: { required: true, kind: 'rawExpr' },
+      expr: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  flatMap: {
+    description:
+      'Declarative `.flatMap` binding — `flatMap name=tags in=posts expr="item.tags"` lowers to `const tags = posts.flatMap(item => item.tags);`. Use `item=` to rename the per-item binding. `expr` is the arrow body (an array or iterable), not a predicate.',
+    example: 'flatMap name=tags in=posts expr="item.tags"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      expr: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  slice: {
+    description:
+      'Declarative `.slice` binding — `slice name=first5 in=items start=0 end=5` lowers to `const first5 = items.slice(0, 5);`. `start` and `end` default to undefined (JS semantics: a bare `.slice()` copies the whole array).',
+    example: 'slice name=first5 in=items start=0 end=5',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      start: { kind: 'rawExpr' },
+      end: { kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
   },
   transform: {
     description: 'Data transformation pipeline — maps target through a via function or handler',

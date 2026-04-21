@@ -9,11 +9,21 @@
  * v2: Unified ReviewFinding pipeline. All findings merged into single array.
  */
 
+import { createRequire } from 'node:module';
 import type { IRNode, ParseDiagnostic } from '@kernlang/core';
 import { countTokens, parseWithDiagnostics, serializeIR } from '@kernlang/core';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { dirname, join, relative } from 'path';
 import { Project } from 'ts-morph';
+
+// This module compiles to ESM (`type: "module"`), so the runtime has no `require`.
+// `@kernlang/review-python` is an optional peer — we load it on demand with a
+// createRequire shim. Without this shim the dynamic load throws
+// `ReferenceError: require is not defined`, the catch swallows the error, and
+// every Python file falls into the "missing-python-support" info fallback —
+// silently disabling the fullstack wedge rules on any cross-stack repo.
+const moduleRequire = createRequire(import.meta.url);
+
 import { buildCallGraph } from './call-graph.js';
 import { runConceptRules } from './concept-rules/index.js';
 import { structuralDiff } from './differ.js';
@@ -820,7 +830,7 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
   let conceptFindings: ReviewFinding[] = [];
   try {
     // Dynamic import — @kernlang/review-python is optional
-    const { extractPythonConcepts } = require('@kernlang/review-python');
+    const { extractPythonConcepts } = moduleRequire('@kernlang/review-python');
     const concepts = extractPythonConcepts(source, filePath);
     conceptFindings = runConceptRules(concepts, filePath);
     if (config?.target === 'fastapi') {
@@ -836,7 +846,8 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
     if (rulesToRunPy.length > 0) {
       conceptFindings.push(...lintKernIR([], rulesToRunPy, concepts));
     }
-  } catch (_err) {
+  } catch (err) {
+    if (process.env.KERN_DEBUG) console.error(`python mapper load failed: ${(err as Error).message}`);
     // @kernlang/review-python not installed — skip concept extraction
     conceptFindings = [
       {
@@ -1004,6 +1015,9 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
   // Cross-file concept analysis — re-run concept rules with full graph context
   // This fixes false positives where guards are in middleware files and effects in handlers
   const allConcepts = new Map<string, import('@kernlang/core').ConceptMap>();
+  // Cache the optional Python mapper: require() it once per graph run instead
+  // of per-file, and remember if it's absent so we don't pay the throw cost.
+  let extractPythonConcepts: ((src: string, fp: string) => import('@kernlang/core').ConceptMap) | null | undefined;
   for (const report of reports) {
     const filePath = report.filePath;
     try {
@@ -1012,6 +1026,21 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
         const project = createInMemoryProject();
         const sf = project.createSourceFile(filePath, source);
         allConcepts.set(filePath, extractTsConcepts(sf, filePath));
+      } else if (filePath.endsWith('.py')) {
+        // Python concept seeding is what powers the fullstack wedge rules
+        // (contract-drift, untyped-api-response, tainted-across-wire) in graph
+        // mode. Without this branch, `allConcepts` only contained TS entries
+        // and the rules silently found nothing on cross-stack repos.
+        if (extractPythonConcepts === undefined) {
+          try {
+            extractPythonConcepts = moduleRequire('@kernlang/review-python').extractPythonConcepts;
+          } catch {
+            extractPythonConcepts = null;
+          }
+        }
+        if (extractPythonConcepts) {
+          allConcepts.set(filePath, extractPythonConcepts(source, filePath));
+        }
       }
     } catch (err) {
       // Per-file failure — record once at graph level (builder dedupes), then move on.
