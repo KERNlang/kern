@@ -1,6 +1,6 @@
 /**
- * suggest-kern-primitive — migration rule that flags JS array-method call sites
- * where an equivalent KERN primitive exists.
+ * suggest-kern-primitive — migration rule that flags JS patterns where an
+ * equivalent KERN primitive exists (array methods + fmt + conditional + async).
  *
  * Fires as `info` / precision=`experimental` so kern-sight hides it by default.
  * Opt in with `--rule suggest-kern-primitive` for a one-shot migration scan.
@@ -10,16 +10,15 @@
  *   at, sort, reverse, join, includes, indexOf, lastIndexOf, concat, forEach,
  *   compact, pluck, unique.
  *
+ * Plus three structural primitives:
+ *   - Template literal in `const` → `fmt name=x template="…"`
+ *   - JSX ternary in `{…}`       → `conditional if="…"` + handler/else
+ *   - async fn with try/catch    → `async name=X` + `recover`/`strategy`
+ *
  * Special-cased shapes (route to the narrower primitive rather than the generic one):
  *   - `.filter(Boolean)`              → `compact`
  *   - `.map(x => x.prop[.chain])`     → `pluck`
  *   - `[...new Set(coll)]`            → `unique`
- *
- * Not yet covered (deferred):
- *   - `.filter(Boolean).map(x => x.y)` pipelines stack as two findings (compact + pluck).
- *   - Template literals → needs a dedicated `fmt` rule.
- *   - Ternary JSX → needs a dedicated `conditional` rule.
- *   - async IIFE + try/catch → needs a dedicated `async` rule.
  *
  * Immutability note: TS `.sort()` and `.reverse()` mutate; KERN emits the
  * immutable `[...coll].sort(...)` / `[...coll].reverse()` shape. Suggestions
@@ -27,7 +26,7 @@
  * migrating.
  */
 
-import type { ArrowFunction, CallExpression, FunctionExpression, Node as TsNode } from 'ts-morph';
+import type { ArrowFunction, CallExpression, FunctionDeclaration, FunctionExpression, Node as TsNode } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 import type { ReviewFinding, ReviewRule, RuleContext } from '../types.js';
 import { finding } from './utils.js';
@@ -101,6 +100,20 @@ function extractSingleExprBody(arrow: ArrowFunction | FunctionExpression): strin
 
 function escapeKernString(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Template-content escape: preserve whitespace (template body is significant)
+ * but neutralise characters that would break out of a double-quoted `template=`
+ * prop. `${…}` placeholders pass through untouched — that's the whole reason
+ * `fmt` exists.
+ */
+function escapeKernTemplate(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function isJsxLike(n: TsNode): boolean {
+  return Node.isJsxElement(n) || Node.isJsxFragment(n) || Node.isJsxSelfClosingElement(n);
 }
 
 function paramName(arrow: ArrowFunction | FunctionExpression, idx: number): string | null {
@@ -402,6 +415,153 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
         ctx.filePath,
         call.getStartLineNumber(),
         call.getStart() - call.getSourceFile().getFullText().lastIndexOf('\n', call.getStart()),
+        { suggestion },
+      ),
+    );
+  }
+
+  // ── fmt detector ───────────────────────────────────────────────────────
+  // `const label = ``${count} files``;` → `fmt name=label template="${count} files"`.
+  // Only fires on TemplateExpression (has substitutions); plain backtick
+  // strings are NoSubstitutionTemplateLiteral and don't need fmt.
+  // Only fires when the template is the initializer of a const binding —
+  // that's where we have a clean `name=` target. Single-line only (multiline
+  // templates have meaningful whitespace that's awkward in a one-line hint).
+  for (const tpl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.TemplateExpression)) {
+    const parent = tpl.getParent();
+    if (!parent || !Node.isVariableDeclaration(parent)) continue;
+    if (parent.getInitializer() !== tpl) continue;
+
+    const nameNode = parent.getNameNode();
+    if (!Node.isIdentifier(nameNode)) continue; // skip destructured bindings
+    const name = nameNode.getText();
+
+    const fullText = tpl.getText();
+    if (!fullText.startsWith('`') || !fullText.endsWith('`') || fullText.length < 2) continue;
+    const body = fullText.slice(1, -1);
+    if (body.includes('\n')) continue;
+
+    findings.push(
+      finding(
+        'suggest-kern-primitive',
+        'info',
+        'pattern',
+        'JS template literal could migrate to KERN `fmt` — named primitive for string interpolation',
+        ctx.filePath,
+        tpl.getStartLineNumber(),
+        1,
+        { suggestion: `fmt name=${name} template="${escapeKernTemplate(body)}"` },
+      ),
+    );
+  }
+
+  // ── conditional JSX detector ───────────────────────────────────────────
+  // `{cond ? <A /> : <B />}` inside JSX → `conditional if="cond"` + two
+  // handler children. Only fires when BOTH branches are JSX (skips the
+  // `cond ? <A /> : null` case — that's a then-only `{cond && <A />}` shape).
+  // Only fires when the ternary sits inside a JsxExpression container — a
+  // top-level `return cond ? <A /> : <B />` doesn't cleanly map to a
+  // conditional node (the whole return would need rewrapping).
+  for (const cond of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ConditionalExpression)) {
+    const whenTrue = cond.getWhenTrue();
+    const whenFalse = cond.getWhenFalse();
+    if (!isJsxLike(whenTrue) || !isJsxLike(whenFalse)) continue;
+
+    const parent = cond.getParent();
+    if (!parent || !Node.isJsxExpression(parent)) continue;
+
+    const condText = cond.getCondition().getText();
+    const suggestion =
+      `conditional if="${escapeKernString(condText)}"\n` +
+      `  handler <<<\n    ${whenTrue.getText()}\n  >>>\n` +
+      `  else\n    handler <<<\n      ${whenFalse.getText()}\n    >>>`;
+
+    findings.push(
+      finding(
+        'suggest-kern-primitive',
+        'info',
+        'pattern',
+        'JSX ternary could migrate to KERN `conditional` — declarative if/else render branch',
+        ctx.filePath,
+        cond.getStartLineNumber(),
+        1,
+        { suggestion },
+      ),
+    );
+  }
+
+  // ── async try/catch detector ───────────────────────────────────────────
+  // `async function f() { try { await … } catch (e) { … } }` → `async name=f`
+  // with a handler child for the try body and a `recover`/`strategy` pair for
+  // the catch body.
+  //
+  // Only fires when:
+  //   - the function is `async`
+  //   - its body is a single TryStatement (so the full body maps to the async node)
+  //   - the try block contains at least one `await` (else there's no async shape)
+  //   - a catch clause is present (else there's no recovery to migrate)
+  const asyncFns: Array<FunctionDeclaration | FunctionExpression | ArrowFunction> = [
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.FunctionExpression),
+    ...ctx.sourceFile.getDescendantsOfKind(SyntaxKind.ArrowFunction),
+  ];
+  for (const fn of asyncFns) {
+    if (!fn.isAsync()) continue;
+
+    const body = fn.getBody();
+    if (!body || !Node.isBlock(body)) continue;
+
+    const stmts = body.getStatements();
+    if (stmts.length !== 1) continue;
+    const tryStmt = stmts[0];
+    if (!Node.isTryStatement(tryStmt)) continue;
+
+    const tryBlock = tryStmt.getTryBlock();
+    const catchClause = tryStmt.getCatchClause();
+    if (!catchClause) continue;
+    if (tryBlock.getDescendantsOfKind(SyntaxKind.AwaitExpression).length === 0) continue;
+
+    let name = '<name>';
+    if (Node.isFunctionDeclaration(fn)) {
+      name = fn.getName() ?? '<name>';
+    } else {
+      const p = fn.getParent();
+      if (p && Node.isVariableDeclaration(p)) {
+        const n = p.getNameNode();
+        if (Node.isIdentifier(n)) name = n.getText();
+      }
+    }
+
+    const indent = (text: string, spaces: number): string =>
+      text
+        .split('\n')
+        .map((line) => ' '.repeat(spaces) + line)
+        .join('\n');
+
+    const tryText = tryBlock
+      .getStatements()
+      .map((s) => s.getText())
+      .join('\n');
+    const catchText = catchClause
+      .getBlock()
+      .getStatements()
+      .map((s) => s.getText())
+      .join('\n');
+
+    const suggestion =
+      `async name=${name}\n` +
+      `  handler <<<\n${indent(tryText, 4)}\n  >>>\n` +
+      `  recover\n    strategy <<<\n${indent(catchText, 6)}\n    >>>`;
+
+    findings.push(
+      finding(
+        'suggest-kern-primitive',
+        'info',
+        'pattern',
+        'async try/catch could migrate to KERN `async` — named primitive with `recover`/`strategy` child',
+        ctx.filePath,
+        fn.getStartLineNumber(),
+        1,
         { suggestion },
       ),
     );
