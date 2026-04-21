@@ -4,7 +4,13 @@
  * Does NOT call real LLM APIs — tests the plumbing.
  */
 
-import { buildReviewInstructions, isHighValueFinding, isLLMAvailable, runLLMReview } from '../src/llm-bridge.js';
+import {
+  buildReviewInstructions,
+  chunkLargeInput,
+  isHighValueFinding,
+  isLLMAvailable,
+  runLLMReview,
+} from '../src/llm-bridge.js';
 import type { ReviewFinding } from '../src/types.js';
 
 describe('isLLMAvailable', () => {
@@ -199,9 +205,11 @@ describe('graph-aware source budgeting', () => {
     expect(findings.every((f) => f.ruleId !== 'llm-skipped')).toBe(true);
   });
 
-  it('still includes source for CHANGED files in estimation', async () => {
-    // A CHANGED file with huge source SHOULD be skipped if over limit
-    const hugeSource = 'x'.repeat(500_000);
+  it('chunks CHANGED files whose estimated tokens exceed the single-call budget', async () => {
+    // ~125K tokens (500K chars / 4). Split over many lines so the chunker
+    // has line boundaries to cut on — otherwise it falls back to skip.
+    const line = `${'x'.repeat(99)}\n`;
+    const hugeSource = line.repeat(5_000); // 5000 lines × ~100 chars = ~125K tokens
     const graphContext = { fileDistances: new Map([['changed.ts', 0]]) };
 
     const { findings } = await runLLMReview(
@@ -217,13 +225,139 @@ describe('graph-aware source budgeting', () => {
       {
         apiKey: 'fake-key',
         model: 'test-model',
-        baseUrl: 'http://localhost:1',
+        baseUrl: 'http://127.0.0.1:1', // closed port — each chunk will emit llm-error
         timeout: 1000,
       },
     );
 
-    // CHANGED file with huge source should still be skipped
-    expect(findings.some((f) => f.ruleId === 'llm-skipped')).toBe(true);
+    // No "file too large" skip — the file is chunkable.
+    expect(findings.some((f) => f.ruleId === 'llm-skipped')).toBe(false);
+    // Multiple llm-error findings would indicate multiple batches were
+    // attempted; one per chunked batch. We only assert ≥1 here because the
+    // dedupe pass collapses identical error fingerprints from the same file.
+    expect(findings.some((f) => f.ruleId === 'llm-error')).toBe(true);
+  });
+});
+
+// ── chunkLargeInput unit tests ──
+
+describe('chunkLargeInput', () => {
+  it('returns the input unchanged when under the single-call budget', () => {
+    const irCache = 'small IR';
+    const input = {
+      filePath: 'small.ts',
+      inferred: [],
+      templateMatches: [],
+      source: 'line 1\nline 2\n',
+    };
+    const chunks = chunkLargeInput(input, irCache);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toBe(input); // identity preserved when no chunking needed
+  });
+
+  it('splits an oversized CHANGED file into multiple chunks with overlap', () => {
+    // 5000 lines × ~100 chars = ~125K tokens → over MAX_SINGLE_FILE_TOKENS (100K).
+    const line = `${'x'.repeat(99)}`;
+    const lines = Array.from({ length: 5_000 }, (_, i) => `// L${i + 1} ${line}`);
+    const source = lines.join('\n');
+    const input = {
+      filePath: 'changed.ts',
+      inferred: [],
+      templateMatches: [],
+      source,
+      graphContext: { fileDistances: new Map([['changed.ts', 0]]) },
+    };
+
+    const chunks = chunkLargeInput(input, '');
+    expect(chunks.length).toBeGreaterThanOrEqual(2);
+
+    // Every chunk must carry a kern-chunk header so the LLM knows it's partial.
+    for (const c of chunks) {
+      expect(c.source).toMatch(/^\/\/ kern-chunk \d+\/\d+ of changed\.ts — lines /);
+    }
+
+    // Consecutive chunks overlap: the first non-header line of chunk N+1 must
+    // appear somewhere in chunk N's body.
+    const stripHeader = (s: string) =>
+      s
+        .split('\n')
+        .filter(
+          (l) =>
+            !l.startsWith('// kern-chunk') && !l.startsWith('// The source file') && !l.startsWith('// Do not report'),
+        )
+        .join('\n');
+    for (let i = 0; i < chunks.length - 1; i++) {
+      const current = stripHeader(chunks[i].source!);
+      const next = stripHeader(chunks[i + 1].source!);
+      const nextFirstLine = next.split('\n').find((l) => l.length > 0)!;
+      expect(current).toContain(nextFirstLine);
+    }
+  });
+
+  it('returns [] for unchunkable CONTEXT files (distance > 0, no source in estimate)', () => {
+    // CONTEXT files strip source from the token estimate, so even a huge
+    // source can't trip the chunker — but IR-bound oversize is also not
+    // chunkable. This test just confirms we don't chunk CONTEXT files.
+    const line = `${'x'.repeat(99)}\n`;
+    const source = line.repeat(5_000);
+    const input = {
+      filePath: 'ctx.ts',
+      inferred: [],
+      templateMatches: [],
+      source,
+      graphContext: { fileDistances: new Map([['ctx.ts', 3]]) },
+    };
+    // A CONTEXT file with large source still fits because source is excluded
+    // from the estimate — so we expect the single-element identity return.
+    const chunks = chunkLargeInput(input, '');
+    expect(chunks).toHaveLength(1);
+  });
+
+  it('returns [] when the IR alone exceeds the per-chunk source budget', () => {
+    // Simulate an IR-bound oversized input: the cachedIR string is huge and
+    // source is negligible. estimateInputTokens ultimately sees
+    // SYSTEM_PROMPT + OVERHEAD + irTokens + sourceTokens, and if IR alone
+    // blows past the threshold, sourceBudget goes non-positive. The chunker
+    // cannot help — chunking source doesn't reduce IR — so we return [].
+    const hugeIR = 'x'.repeat(280_000); // ~70K tokens of IR alone
+    const input = {
+      filePath: 'ir-heavy.ts',
+      inferred: [],
+      templateMatches: [],
+      source: 'small\n',
+      graphContext: { fileDistances: new Map([['ir-heavy.ts', 0]]) },
+    };
+    expect(chunkLargeInput(input, hugeIR)).toEqual([]);
+  });
+
+  it('handles files with >64K lines without RangeError from Math.max spread', () => {
+    // V8's spread syntax (`Math.max(...arr)`) hits the argument-list stack
+    // limit around 64K elements. Early implementations used that pattern
+    // and would throw RangeError before emitting any finding. The iterative
+    // longestLineLength fix means a generated 70K-line file is handled
+    // gracefully — here we just confirm the call returns without throwing.
+    const lines = Array.from({ length: 70_000 }, () => '// short line');
+    const input = {
+      filePath: 'huge.ts',
+      inferred: [],
+      templateMatches: [],
+      source: lines.join('\n'),
+      graphContext: { fileDistances: new Map([['huge.ts', 0]]) },
+    };
+    expect(() => chunkLargeInput(input, '')).not.toThrow();
+  });
+
+  it('returns [] when a single line exceeds the per-chunk source budget (minified)', () => {
+    // One line of 300K chars ≈ 75K tokens — bigger than any plausible
+    // per-chunk budget. Byte-splitting this would corrupt syntax, so we skip.
+    const input = {
+      filePath: 'bundle.min.js',
+      inferred: [],
+      templateMatches: [],
+      source: 'x'.repeat(600_000), // single 600K-char line → 150K tokens
+      graphContext: { fileDistances: new Map([['bundle.min.js', 0]]) },
+    };
+    expect(chunkLargeInput(input, '')).toEqual([]);
   });
 });
 

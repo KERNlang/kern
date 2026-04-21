@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/codemod",
-  "version": "3.3.4",
+  "version": "3.3.5",
   "description": "Kern Codemod — apply kern-review TemplateMatch results to rewrite TS into KERN-template-backed TS",
   "type": "module",
   "main": "./dist/index.js",

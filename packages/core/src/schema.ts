@@ -218,12 +218,16 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   transition: {
-    description: 'A guarded transition between machine states, with optional handler',
-    example: 'transition name=confirm from=pending to=confirmed\n  handler <<<\n    await notifyUser()\n  >>>',
+    description:
+      'A guarded transition between machine states, with optional typed payload and/or guard predicate. `params` uses the same comma-separated typed list shape as `fn` (e.g. "prompt:string,chatId:string") — those parameters enter the emitted transition function signature and are in scope inside the handler and the guard. `guard` is a raw JS boolean expression evaluated AFTER the from-state check; when falsy the transition throws `<Machine>GuardError(\'<transition>\', entity.state)`.',
+    example:
+      'transition name=submit from=idle to=running params="prompt:string,chatId:string" guard="entity.turnsLeft > 0"\n  handler <<<\n    await notifyUser(prompt)\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       from: { required: true, kind: 'string' },
       to: { required: true, kind: 'identifier' },
+      params: { kind: 'string' },
+      guard: { kind: 'rawExpr' },
     },
     allowedChildren: ['handler'],
   },
@@ -566,6 +570,17 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     description:
       'Iteration-scoped binding — emits a plain `const` inside the containing `each` callback. Use for values that depend on the iteration variable or index. Unlike `derive` (which compiles to `useMemo` and violates Rules of Hooks inside `.map`), `let` is hook-safe by construction.',
     example: 'let name=idx expr="start + i"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      expr: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+    },
+  },
+  local: {
+    description:
+      'Render-scope binding — emits `const name = expr;` at the top of the enclosing screen function, before its JSX return. Use for shared pre-compute that multiple sibling `each`/`conditional`/`handler` nodes inside the same `render` block read. Expression-only (no handler body) — drop to an explicit `derive` / `memo` above the render if a hook or imperative body is needed. Direct child of `render` only.',
+    example:
+      'render wrapper="<Box paddingX={1}>"\n  local name=visible expr="items.slice(start, start + pageSize)"\n  each name=item in=visible\n    handler <<< <Text>{item.label}</Text> >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       expr: { required: true, kind: 'rawExpr' },
@@ -1305,10 +1320,13 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   render: {
     description:
-      'Render function — JSX output block for a component or hook. Accepts a raw `handler` block OR declarative KERN children (e.g. `each`, `conditional`) that compose into a JSX fragment.',
-    example: 'render\n  each name=f in=files key="f.path"\n    handler <<<\n      <Text>{f.path}</Text>\n    >>>',
-    props: {},
-    allowedChildren: ['handler', 'each', 'conditional'],
+      'Render function — JSX output block for a component or hook. Accepts a raw `handler` block OR declarative KERN children (`each`, `conditional`, `local`) that compose into a JSX tree. Optional `wrapper="<Tag attrs>"` prop emits that tag as the outer element around the composed children (replaces the default `<>...</>` Fragment). `local` children emit `const name = expr;` bindings at the enclosing screen-function scope before the return — use them for shared pre-compute that multiple sibling `each`/`conditional`/`handler` nodes read.',
+    example:
+      'render wrapper="<Box paddingX={1}>"\n  local name=visible expr="items.slice(start, start + pageSize)"\n  each name=item in=visible\n    handler <<< <Text>{item.label}</Text> >>>',
+    props: {
+      wrapper: { kind: 'string' },
+    },
+    allowedChildren: ['handler', 'each', 'conditional', 'local'],
   },
   template: {
     description: 'Reusable template with named slots — defines a composable layout pattern',

@@ -139,6 +139,11 @@ export interface SetProps extends BaseProps {
 
 export interface AsyncProps extends BaseProps {}
 
+export interface LocalProps extends BaseProps {
+  expr?: string | ExprObject;
+  type?: string;
+}
+
 export interface ArrayMethodProps extends BaseProps {
   in?: string | ExprObject;
   item?: string;
@@ -298,6 +303,8 @@ export interface MethodProps extends BaseProps {
 export interface TransitionProps extends BaseProps {
   from?: string;
   to?: string;
+  params?: string;
+  guard?: string | ExprObject;
 }
 
 export interface StateProps extends BaseProps {
@@ -360,6 +367,7 @@ export interface NodePropsMap {
   fmt: FmtProps;
   set: SetProps;
   async: AsyncProps;
+  local: LocalProps;
   filter: ArrayMethodProps;
   find: ArrayMethodProps;
   some: ArrayMethodProps;
