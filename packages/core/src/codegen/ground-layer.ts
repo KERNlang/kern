@@ -379,18 +379,28 @@ export function generateExpect(node: IRNode): string[] {
 }
 
 // ── Ground Layer: array methods ──────────────────────────────────────────
-// Four predicate-over-collection primitives share the exact same shape:
-//   <method> name=<out> in=<coll> [item=<bind>] where=<predicate>
-// and lower to:
-//   const <out>[: type] = (<coll>).<method>(<bind> => <predicate>);
+// Seven declarative array-method primitives:
+//   filter / find / some / every → predicate-over-collection (share helper)
+//   reduce  → accumulation with two bindings (acc + item)
+//   flatMap → projection + flatten
+//   slice   → range copy, no per-item binding
 //
-// Why four names instead of one generic: KERN is an LLM-authored language.
-// Giving `filter` / `find` / `some` / `every` distinct structural anchors
-// lets tooling (decompiler, review, codegen) reason about the author's
-// intent without grepping the method name out of a string. `.map` already
-// has `each` and so is not repeated here. `.reduce` / `.flatMap` / `.slice`
-// are intentionally deferred — reduce has two bound names (accumulator +
-// item) and benefits from its own shape once a real caller asks for it.
+// Why seven distinct names instead of one generic: KERN is an LLM-authored
+// language. Giving each method a named structural anchor lets tooling
+// (decompiler, review, codegen) recognise author intent without grepping
+// a method name out of a string. `.map` already has `each` and so is not
+// repeated here. The `where` / `expr` prop split mirrors the semantic
+// distinction: `where` = boolean predicate, `expr` = arrow body returning
+// a value.
+
+/** Unwrap an `{ __expr: true, code }` shape or pass through a plain string. */
+function unwrapExpr(raw: unknown): string | undefined {
+  if (raw == null) return undefined;
+  if (typeof raw === 'object' && (raw as ExprObject).__expr) {
+    return (raw as ExprObject).code;
+  }
+  return typeof raw === 'string' ? raw : String(raw);
+}
 
 function generateArrayMethod(node: IRNode, method: 'filter' | 'find' | 'some' | 'every'): string[] {
   const annotations = emitReasonAnnotations(node);
@@ -400,16 +410,10 @@ function generateArrayMethod(node: IRNode, method: 'filter' | 'find' | 'some' | 
   const name = emitIdentifier(props.name, method, node);
   const item = emitIdentifier((props.item as string) || 'item', 'item', node);
 
-  const rawIn = props.in;
-  const collection =
-    rawIn && typeof rawIn === 'object' && (rawIn as ExprObject).__expr ? (rawIn as ExprObject).code : (rawIn as string);
+  const collection = unwrapExpr(props.in);
   if (!collection) throw new KernCodegenError(`${method} node requires an 'in' prop`, node);
 
-  const rawWhere = props.where;
-  const predicate =
-    rawWhere && typeof rawWhere === 'object' && (rawWhere as ExprObject).__expr
-      ? (rawWhere as ExprObject).code
-      : (rawWhere as string);
+  const predicate = unwrapExpr(props.where);
   if (!predicate) throw new KernCodegenError(`${method} node requires a 'where' prop`, node);
 
   const constType = props.type as string | undefined;
@@ -421,14 +425,6 @@ function generateArrayMethod(node: IRNode, method: 'filter' | 'find' | 'some' | 
     ...annotations,
     `${exp}const ${name}${typeAnnotation} = (${collection}).${method}((${item}) => ${predicate});`,
   ];
-}
-
-function unwrapExpr(raw: unknown): string | undefined {
-  if (raw == null) return undefined;
-  if (typeof raw === 'object' && (raw as ExprObject).__expr) {
-    return (raw as ExprObject).code;
-  }
-  return typeof raw === 'string' ? raw : String(raw);
 }
 
 export function generateFilter(node: IRNode): string[] {
