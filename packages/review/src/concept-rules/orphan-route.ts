@@ -35,22 +35,36 @@ export function orphanRoute(ctx: ConceptRuleContext): ReviewFinding[] {
 
   // Collect every client-call path in the graph once so each route checks
   // against a shared set rather than re-walking allConcepts.
+  //
+  // Codex review: if ANY network effect has an unresolved target (imported
+  // constant, URL builder, variable expression), the rule MUST abstain —
+  // the unresolved call could be hitting any of the "orphan" routes and
+  // we'd fire a false positive. Only run the rule when every client call
+  // is statically resolvable.
   const clientPaths = new Set<string>();
+  let hasUnresolvedTarget = false;
   for (const [, conceptMap] of ctx.allConcepts) {
     for (const node of conceptMap.nodes) {
       if (node.kind !== 'effect' || node.payload.kind !== 'effect' || node.payload.subtype !== 'network') continue;
       const target = node.payload.target;
-      if (typeof target !== 'string') continue;
+      if (typeof target !== 'string') {
+        hasUnresolvedTarget = true;
+        continue;
+      }
       const normalized = normalizeClientUrl(target);
-      if (!normalized || !API_PATH_RE.test(normalized)) continue;
+      if (!normalized) {
+        hasUnresolvedTarget = true;
+        continue;
+      }
+      if (!API_PATH_RE.test(normalized)) continue;
       clientPaths.add(normalized);
     }
   }
 
-  // Gate: if there are ZERO client calls in the graph, this is a
-  // backend-only project. Firing "every route is orphaned" would be pure
-  // noise — stay silent.
+  // Gate: backend-only project (no client calls) — silent.
+  // Gate: any unresolved client targets — silent (Codex P2).
   if (clientPaths.size === 0) return [];
+  if (hasUnresolvedTarget) return [];
 
   const findings: ReviewFinding[] = [];
   const seenFingerprints = new Set<string>();

@@ -114,6 +114,44 @@ describe('auth-drift', () => {
     expect(authDrift(ctx)).toEqual([]);
   });
 
+  it('stays silent for cookie auth (credentials: "include")', () => {
+    // Codex review: same-origin / session-cookie auth doesn't need an
+    // Authorization header. `extractHasAuthHeader` returns undefined when
+    // credentials flag is present, so auth-drift stays silent.
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/client.ts',
+          source: `await fetch('/api/me', { credentials: 'include' });`,
+        },
+        { path: 'src/server.ts', source: AUTH_PROTECTED_SERVER },
+      ],
+      'src/client.ts',
+    );
+    expect(authDrift(ctx)).toEqual([]);
+  });
+
+  it('stays silent on mixed files (one guarded + one public route)', () => {
+    // Codex review: file-level guard presence was too coarse. A file with
+    // both `/api/me` (guarded) and `/api/public` (not) should not fire
+    // auth-drift on the public endpoint's unauthenticated caller.
+    const mixedServer = `
+      app.get('/api/me', (req, res) => {
+        if (!req.user) return res.status(401).json({});
+        res.json({});
+      });
+      app.get('/api/public', (req, res) => res.json({ ok: true }));
+    `;
+    const ctx = ctxFrom(
+      [
+        { path: 'src/client.ts', source: `await fetch('/api/public');` },
+        { path: 'src/server.ts', source: mixedServer },
+      ],
+      'src/client.ts',
+    );
+    expect(authDrift(ctx)).toEqual([]);
+  });
+
   it('returns no findings in single-file (non-graph) mode', () => {
     const concepts = conceptsOf(`await fetch('/api/me');`, 'src/client.ts');
     expect(authDrift({ concepts, filePath: 'src/client.ts' })).toEqual([]);

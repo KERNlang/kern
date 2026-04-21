@@ -96,7 +96,14 @@ function methodMatches(routeMethod: string | undefined, clientMethod: string): b
   if (!routeMethod) return true;
   const r = routeMethod.toUpperCase();
   if (WILDCARD_METHODS.has(r)) return true;
-  return r === clientMethod.toUpperCase();
+  const c = clientMethod.toUpperCase();
+  if (r === c) return true;
+  // Express and Starlette/FastAPI both auto-respond to HEAD on GET routes
+  // (returning headers, no body). Firing method-drift on `HEAD /api/x`
+  // against `app.get('/api/x')` is a false positive — the server DOES
+  // satisfy the request. Codex review called this out.
+  if (c === 'HEAD' && r === 'GET') return true;
+  return false;
 }
 
 function collectKnownMethods(routes: readonly { method: string | undefined }[]): string[] {
