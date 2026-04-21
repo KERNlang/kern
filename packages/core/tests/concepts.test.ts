@@ -75,11 +75,20 @@ describe('conceptSpan', () => {
 
 describe('ConceptNode construction', () => {
   it('builds entrypoint node', () => {
-    const payload: EntrypointPayload = { kind: 'entrypoint', subtype: 'route', name: '/api/users', httpMethod: 'GET' };
+    const payload: EntrypointPayload = {
+      kind: 'entrypoint',
+      subtype: 'route',
+      name: '/api/users',
+      httpMethod: 'GET',
+      responseModel: 'UserOut',
+      isAsync: true,
+    };
     const node = makeNode('entrypoint', payload);
     expect(node.kind).toBe('entrypoint');
     expect(node.payload.kind).toBe('entrypoint');
     expect((node.payload as EntrypointPayload).subtype).toBe('route');
+    expect((node.payload as EntrypointPayload).responseModel).toBe('UserOut');
+    expect((node.payload as EntrypointPayload).isAsync).toBe(true);
   });
 
   it('builds effect node', () => {

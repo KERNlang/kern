@@ -46,6 +46,17 @@ export interface EntrypointPayload {
   name: string;
   httpMethod?: string;
   /**
+   * For Python/FastAPI-style route decorators, the declared response shape
+   * from `response_model=...`. Omitted when the mapper cannot prove one is
+   * present.
+   */
+  responseModel?: string;
+  /**
+   * For route entrypoints whose mapper can inspect the backing handler.
+   * Omitted when the route abstraction does not expose handler async-ness.
+   */
+  isAsync?: boolean;
+  /**
    * For `'route'` and `'route-mount'` only — the variable name the
    * decorator was applied to (`router`, `app`) or the target of
    * `include_router(<name>, ...)`. Used by `collectRoutes` to join per-file

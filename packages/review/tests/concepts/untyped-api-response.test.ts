@@ -17,6 +17,46 @@ function ctxFrom(files: Array<{ path: string; source: string }>, primary: string
   return { concepts, filePath: primary, allConcepts };
 }
 
+function ctxFromMaps(files: ConceptMap[], primary: string) {
+  const allConcepts = new Map<string, ConceptMap>();
+  for (const map of files) allConcepts.set(map.filePath, map);
+  const concepts = allConcepts.get(primary);
+  if (!concepts) throw new Error(`primary file ${primary} not in allConcepts`);
+  return { concepts, filePath: primary, allConcepts };
+}
+
+function fastApiRoute(path: string, responseModel?: string): ConceptMap {
+  return {
+    filePath: 'app/api/users.py',
+    language: 'py',
+    extractorVersion: 'test',
+    nodes: [
+      {
+        id: 'app/api/users.py#entrypoint@1',
+        kind: 'entrypoint',
+        primarySpan: { file: 'app/api/users.py', startLine: 4, startCol: 1, endLine: 4, endCol: 30 },
+        evidence: `@router.get("${path}")`,
+        confidence: 1,
+        language: 'py',
+        payload: { kind: 'entrypoint', subtype: 'route', name: path, httpMethod: 'GET', responseModel },
+      },
+    ],
+    edges: [
+      {
+        id: 'app/api/users.py#dep@1',
+        kind: 'dependency',
+        sourceId: 'app/api/users.py',
+        targetId: 'fastapi',
+        primarySpan: { file: 'app/api/users.py', startLine: 1, startCol: 1, endLine: 1, endCol: 30 },
+        evidence: 'from fastapi import APIRouter',
+        confidence: 1,
+        language: 'py',
+        payload: { kind: 'dependency', subtype: 'external', specifier: 'fastapi' },
+      },
+    ],
+  };
+}
+
 describe('untyped-api-response', () => {
   it('fires when an /api/ response is consumed with no type annotation and the server has the route', () => {
     const client = `
@@ -90,6 +130,35 @@ describe('untyped-api-response', () => {
       'src/client.ts',
     );
     expect(untypedApiResponse(ctx)).toEqual([]);
+  });
+
+  it('is silent when the matching FastAPI route has no response_model', () => {
+    const client = conceptsOf(
+      `
+      async function loadUsers() {
+        const data = await fetch('/api/users').then(r => r.json());
+        return data;
+      }
+    `,
+      'src/client.ts',
+    );
+
+    expect(untypedApiResponse(ctxFromMaps([client, fastApiRoute('/api/users')], 'src/client.ts'))).toEqual([]);
+  });
+
+  it('fires when the matching FastAPI route declares response_model', () => {
+    const client = conceptsOf(
+      `
+      async function loadUsers() {
+        const data = await fetch('/api/users').then(r => r.json());
+        return data;
+      }
+    `,
+      'src/client.ts',
+    );
+
+    const findings = untypedApiResponse(ctxFromMaps([client, fastApiRoute('/api/users', 'UserOut')], 'src/client.ts'));
+    expect(findings).toHaveLength(1);
   });
 
   it('is silent when the URL is external (not /api/)', () => {

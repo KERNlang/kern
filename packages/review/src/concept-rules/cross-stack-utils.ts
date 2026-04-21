@@ -39,6 +39,22 @@ export interface ServerRoute {
   node?: ConceptNode;
 }
 
+export function hasFastApiEvidence(map: ConceptMap): boolean {
+  if (map.language !== 'py') return false;
+  return map.edges.some((edge) => {
+    if (edge.kind !== 'dependency' || edge.payload.kind !== 'dependency') return false;
+    return edge.payload.specifier === 'fastapi' || edge.payload.specifier.startsWith('fastapi.');
+  });
+}
+
+export function isFastApiRouteMissingResponseModel(node: ConceptNode, map?: ConceptMap): boolean {
+  if (node.language !== 'py') return false;
+  if (node.kind !== 'entrypoint' || node.payload.kind !== 'entrypoint') return false;
+  if (node.payload.subtype !== 'route') return false;
+  if (node.payload.responseModel) return false;
+  return map ? hasFastApiEvidence(map) : false;
+}
+
 /**
  * Pull every server-side route out of a concept map. Callers typically fold
  * this across `ctx.allConcepts` to collect routes for the whole project.
