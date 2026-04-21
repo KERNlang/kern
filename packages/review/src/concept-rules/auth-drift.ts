@@ -67,7 +67,7 @@ export function authDrift(ctx: ConceptRuleContext): ReviewFinding[] {
       if (!normalized || !API_PATH_RE.test(normalized)) continue;
 
       const route = findMatchingRoute(normalized, serverRoutes);
-      if (!route || !route.node) continue;
+      if (!route?.node) continue;
 
       const serverFile = route.node.primarySpan.file;
       const fileGuards = authGuardContainers.get(serverFile);
