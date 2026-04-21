@@ -7,11 +7,15 @@
 
 import type { ConceptMap } from '@kernlang/core';
 import type { ReviewFinding } from '../types.js';
+import { authDrift } from './auth-drift.js';
 import { boundaryMutation } from './boundary-mutation.js';
 import { contractDrift } from './contract-drift.js';
+import { contractMethodDrift } from './contract-method-drift.js';
+import { duplicateRoute } from './duplicate-route.js';
 import { ignoredError } from './ignored-error.js';
 import { missingResponseModel } from './missing-response-model.js';
 import { syncHandlerDoesIo } from './sync-handler-does-io.js';
+import { orphanRoute } from './orphan-route.js';
 import { taintedAcrossWire } from './tainted-across-wire.js';
 import { unguardedEffect } from './unguarded-effect.js';
 import { unrecoveredEffect } from './unrecovered-effect.js';
@@ -30,11 +34,15 @@ export interface ConceptRuleContext {
 export type ConceptRule = (ctx: ConceptRuleContext) => ReviewFinding[];
 
 export const conceptRules: ConceptRule[] = [
+  authDrift,
   boundaryMutation,
   contractDrift,
+  contractMethodDrift,
+  duplicateRoute,
   ignoredError,
   missingResponseModel,
   syncHandlerDoesIo,
+  orphanRoute,
   taintedAcrossWire,
   unguardedEffect,
   unrecoveredEffect,

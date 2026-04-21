@@ -98,6 +98,23 @@ export interface EffectPayload {
    * of calls that actually carry user-controlled data.
    */
   bodyKind?: 'none' | 'static' | 'dynamic';
+  /**
+   * For `network` subtype only. Uppercase HTTP method (`GET`, `POST`, …) when
+   * the mapper can derive it confidently: axios-style `axios.post(…)`, wrapped
+   * `apiClient.get(…)`, or raw `fetch(url, { method: 'POST' })`. Undefined
+   * when the call is a generic `axios(config)` whose method lives in a runtime
+   * variable — we'd rather stay silent than guess. Feeds the
+   * `contract-method-drift` rule.
+   */
+  method?: string;
+  /**
+   * For `network` subtype only. `true` when the call's options literal carries
+   * an `Authorization` header (any value — we don't inspect the token). `false`
+   * when the options literal is present but no Authorization header exists.
+   * `undefined` when the options arg is a variable, spread, or missing. Feeds
+   * the `auth-drift` cross-stack rule.
+   */
+  hasAuthHeader?: boolean;
 }
 
 export interface StateMutationPayload {
