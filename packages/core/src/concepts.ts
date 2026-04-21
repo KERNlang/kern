@@ -37,9 +37,30 @@ export type ConceptEdgeKind = 'call' | 'dependency';
 
 export interface EntrypointPayload {
   readonly kind: 'entrypoint';
-  subtype: 'route' | 'handler' | 'main' | 'export' | 'event-listener';
+  subtype: 'route' | 'handler' | 'main' | 'export' | 'event-listener' | 'route-mount';
+  /**
+   * - `'route'`: the route path (e.g. `/current`, `/api/users/{id}`).
+   * - `'route-mount'`: the URL prefix applied by the mount (e.g. `/api/nutrition-goals`).
+   * - Others: the function/handler name.
+   */
   name: string;
   httpMethod?: string;
+  /**
+   * For `'route'` and `'route-mount'` only — the variable name the
+   * decorator was applied to (`router`, `app`) or the target of
+   * `include_router(<name>, ...)`. Used by `collectRoutes` to join per-file
+   * route decorators with the `include_router(prefix=…)` call that mounts
+   * them under a URL prefix.
+   */
+  routerName?: string;
+  /**
+   * For `'route-mount'` only — the imported module specifier hosting the
+   * router. FastAPI example: `from app.api import nutrition_goals;
+   * app.include_router(nutrition_goals.router, prefix="/api/nutrition-goals")`
+   * → `sourceModule: 'app.api.nutrition_goals'`. The cross-stack collector
+   * resolves this against route file paths to attach the prefix.
+   */
+  sourceModule?: string;
 }
 
 export interface EffectPayload {
