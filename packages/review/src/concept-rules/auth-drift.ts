@@ -84,8 +84,7 @@ export function authDrift(ctx: ConceptRuleContext): ReviewFinding[] {
       // Mixed multi-route files with no container match fall through to
       // silent — Codex review called out this false-positive class.
       const routeContainer = route.node.containerId;
-      const routeIsGuardedByContainer =
-        routeContainer !== undefined && fileGuards.routeContainers.has(routeContainer);
+      const routeIsGuardedByContainer = routeContainer !== undefined && fileGuards.routeContainers.has(routeContainer);
       const routeIsGuardedBySingleRouteFile = fileGuards.totalRoutesInFile === 1;
       if (!routeIsGuardedByContainer && !routeIsGuardedBySingleRouteFile) continue;
 
