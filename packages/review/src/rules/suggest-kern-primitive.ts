@@ -115,10 +115,13 @@ function paramName(arrow: ArrowFunction | FunctionExpression, idx: number): stri
 /**
  * If the arrow body is a property-access chain rooted at `item` (the first
  * parameter), return the dot-path without the item prefix. Returns null for
- * anything else — computed access, method calls, nested expressions, etc.
+ * anything else — computed access, method calls, nested expressions, or
+ * optional-chain segments (since `pluck` emits plain dot-access that would
+ * throw if an intermediate is nullish).
  *
  *   item => item.name                 → "name"
  *   u    => u.profile.address.city    → "profile.address.city"
+ *   u    => u.profile?.name           → null  (optional chain; kern `pluck` emits plain `.`)
  *   x    => x.toUpperCase()           → null  (method call, not property chain)
  *   x    => x[0]                      → null  (computed, index access)
  *   x    => x                         → null  (just the parameter, no projection)
@@ -131,11 +134,33 @@ function propertyAccessChainFromItem(arrow: ArrowFunction | FunctionExpression, 
   const segments: string[] = [];
   let cur: TsNode = body;
   while (Node.isPropertyAccessExpression(cur)) {
+    // Optional-chain segments would require KERN to emit `item.a?.b`, which
+    // the current `pluck` lowering does not support. Fall back to `map`.
+    if (cur.hasQuestionDotToken()) return null;
     segments.unshift(cur.getName());
     cur = cur.getExpression();
   }
   if (!Node.isIdentifier(cur) || cur.getText() !== itemName) return null;
   return segments.join('.');
+}
+
+/**
+ * Is the TS text safe to inject into a KERN bare prop value (after `prop=`)?
+ * KERN's bare-prop parser stops at whitespace, `{`, and `$`. Anything else
+ * must be wrapped in a raw-expression form `{{ … }}` so the receiver survives
+ * parsing intact.
+ */
+function isBareKernValue(s: string): boolean {
+  return /^[A-Za-z_$][\w.$[\]]*$/.test(s);
+}
+
+/**
+ * Wrap a TS expression text for use as a KERN bare prop value. Identifiers
+ * and simple property paths pass through; anything else becomes a raw-
+ * expression block so whitespace/operators/calls don't break parsing.
+ */
+function toKernInValue(s: string): string {
+  return isBareKernValue(s) ? s : `{{ ${s} }}`;
 }
 
 /**
@@ -146,31 +171,40 @@ function propertyAccessChainFromItem(arrow: ArrowFunction | FunctionExpression, 
 function buildSuggestion(spec: MethodSpec, collection: string, call: CallExpression): string | null {
   const args = call.getArguments();
   const name = '<name>';
+  // Wrap non-bare receivers (chained calls, parenthesized, whitespace) so
+  // KERN bare-prop parsing doesn't truncate at the first space.
+  const inVal = toKernInValue(collection);
 
   switch (spec.shape) {
     case 'predicate': {
+      // Skip arrows whose body references the second (index) parameter —
+      // KERN's predicate-form primitives don't bind an index, so migrating
+      // `(x, i) => i === 0` would silently drop `i`.
       if (args.length !== 1 || !isArrowLike(args[0])) return null;
       const arrow = args[0];
+      if (arrow.getParameters().length > 1) return null;
       const item = paramName(arrow, 0);
       if (!item) return null;
       const body = extractSingleExprBody(arrow);
       if (body === null) return null;
       const itemProp = item === 'item' ? '' : ` item=${item}`;
-      return `${spec.kernNode} name=${name} in=${collection}${itemProp} where="${escapeKernString(body)}"`;
+      return `${spec.kernNode} name=${name} in=${inVal}${itemProp} where="${escapeKernString(body)}"`;
     }
     case 'expr': {
       if (args.length !== 1 || !isArrowLike(args[0])) return null;
       const arrow = args[0];
+      if (arrow.getParameters().length > 1) return null;
       const item = paramName(arrow, 0);
       if (!item) return null;
       const body = extractSingleExprBody(arrow);
       if (body === null) return null;
       const itemProp = item === 'item' ? '' : ` item=${item}`;
-      return `${spec.kernNode} name=${name} in=${collection}${itemProp} expr="${escapeKernString(body)}"`;
+      return `${spec.kernNode} name=${name} in=${inVal}${itemProp} expr="${escapeKernString(body)}"`;
     }
     case 'reduce': {
       if (args.length < 1 || !isArrowLike(args[0])) return null;
       const arrow = args[0];
+      if (arrow.getParameters().length > 2) return null;
       const acc = paramName(arrow, 0);
       const item = paramName(arrow, 1);
       if (!acc || !item) return null;
@@ -180,10 +214,10 @@ function buildSuggestion(spec: MethodSpec, collection: string, call: CallExpress
       if (!initial) return null;
       const accProp = acc === 'acc' ? '' : ` acc=${acc}`;
       const itemProp = item === 'item' ? '' : ` item=${item}`;
-      return `reduce name=${name} in=${collection}${accProp}${itemProp} initial="${escapeKernString(initial)}" expr="${escapeKernString(body)}"`;
+      return `reduce name=${name} in=${inVal}${accProp}${itemProp} initial="${escapeKernString(initial)}" expr="${escapeKernString(body)}"`;
     }
     case 'slice': {
-      const parts: string[] = [`slice name=${name} in=${collection}`];
+      const parts: string[] = [`slice name=${name} in=${inVal}`];
       const start = args[0]?.getText();
       const end = args[1]?.getText();
       if (start) parts.push(`start=${start}`);
@@ -193,27 +227,42 @@ function buildSuggestion(spec: MethodSpec, collection: string, call: CallExpress
     case 'at': {
       const index = args[0]?.getText();
       if (!index) return null;
-      return `at name=${name} in=${collection} index=${index}`;
+      return `at name=${name} in=${inVal} index=${index}`;
     }
     case 'flat': {
       const depth = args[0]?.getText();
-      return depth ? `flat name=${name} in=${collection} depth=${depth}` : `flat name=${name} in=${collection}`;
+      return depth ? `flat name=${name} in=${inVal} depth=${depth}` : `flat name=${name} in=${inVal}`;
     }
     case 'join': {
-      const sep = args[0]?.getText();
-      return sep ? `join name=${name} in=${collection} separator=${sep}` : `join name=${name} in=${collection}`;
+      const arg = args[0];
+      if (!arg) return `join name=${name} in=${inVal}`;
+      // Only string literals are safe as bare `separator=` props. Non-
+      // literal separators need the raw-expression form; skip everything
+      // else so the suggestion never changes runtime behavior.
+      if (Node.isStringLiteral(arg) || Node.isNoSubstitutionTemplateLiteral(arg)) {
+        return `join name=${name} in=${inVal} separator=${arg.getText()}`;
+      }
+      return `join name=${name} in=${inVal} separator={{ ${arg.getText()} }}`;
     }
     case 'value': {
-      const value = args[0]?.getText();
-      if (!value) return null;
+      const arg = args[0];
+      if (!arg) return null;
+      const value = arg.getText();
+      // String literals can safely ride inside the double-quoted `value=`
+      // prop (with escaping). Non-literal values need the raw-expression
+      // form so the parser doesn't treat an identifier as a literal string.
+      const valueProp =
+        Node.isStringLiteral(arg) || Node.isNoSubstitutionTemplateLiteral(arg)
+          ? `value="${escapeKernString(value)}"`
+          : `value={{ ${value} }}`;
       const from = args[1]?.getText();
       const fromProp = from ? ` from=${from}` : '';
-      return `${spec.kernNode} name=${name} in=${collection} value="${escapeKernString(value)}"${fromProp}`;
+      return `${spec.kernNode} name=${name} in=${inVal} ${valueProp}${fromProp}`;
     }
     case 'concat': {
       if (args.length < 1) return null;
       const withArg = args.map((a) => a.getText()).join(', ');
-      return `concat name=${name} in=${collection} with="${escapeKernString(withArg)}"`;
+      return `concat name=${name} in=${inVal} with={{ ${withArg} }}`;
     }
     case 'forEach': {
       if (args.length !== 1 || !isArrowLike(args[0])) return null;
@@ -223,11 +272,11 @@ function buildSuggestion(spec: MethodSpec, collection: string, call: CallExpress
       const idx = paramName(arrow, 1);
       const idxProp = idx ? ` index=${idx}` : '';
       const itemProp = item === 'item' ? '' : ` item=${item}`;
-      return `forEach in=${collection}${itemProp}${idxProp}\n  handler <<<\n    ...\n  >>>`;
+      return `forEach in=${inVal}${itemProp}${idxProp}\n  handler <<<\n    ...\n  >>>`;
     }
     case 'sort': {
       if (args.length === 0) {
-        return `sort name=${name} in=${collection}  # NOTE: kern sort is immutable (spread source); TS .sort() mutates in place`;
+        return `sort name=${name} in=${inVal}  # NOTE: kern sort is immutable (spread source); TS .sort() mutates in place`;
       }
       if (!isArrowLike(args[0])) return null;
       const arrow = args[0];
@@ -238,11 +287,11 @@ function buildSuggestion(spec: MethodSpec, collection: string, call: CallExpress
       if (body === null) return null;
       const aProp = a === 'a' ? '' : ` a=${a}`;
       const bProp = b === 'b' ? '' : ` b=${b}`;
-      return `sort name=${name} in=${collection}${aProp}${bProp} compare="${escapeKernString(body)}"  # NOTE: kern sort is immutable`;
+      return `sort name=${name} in=${inVal}${aProp}${bProp} compare="${escapeKernString(body)}"  # NOTE: kern sort is immutable`;
     }
     case 'reverse': {
       if (args.length !== 0) return null;
-      return `reverse name=${name} in=${collection}  # NOTE: kern reverse is immutable`;
+      return `reverse name=${name} in=${inVal}  # NOTE: kern reverse is immutable`;
     }
   }
 }
@@ -272,7 +321,7 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
         ctx.filePath,
         arr.getStartLineNumber(),
         1,
-        { suggestion: `unique name=<name> in=${source}` },
+        { suggestion: `unique name=<name> in=${toKernInValue(source)}` },
       ),
     );
   }
@@ -286,6 +335,7 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     if (!spec) continue;
 
     const collection = callee.getExpression().getText();
+    const collectionIn = toKernInValue(collection);
 
     // `.filter(Boolean)` → route to the dedicated `compact` primitive.
     if (methodName === 'filter' && call.getArguments().length === 1) {
@@ -300,7 +350,7 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
             ctx.filePath,
             call.getStartLineNumber(),
             1,
-            { suggestion: `compact name=<name> in=${collection}` },
+            { suggestion: `compact name=<name> in=${collectionIn}` },
           ),
         );
         continue;
@@ -308,9 +358,11 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     }
 
     // `.map(x => x.prop[.chain])` → route to the dedicated `pluck` primitive.
+    // Only fires on single-param arrows (to skip `(x, i) => ...` which KERN
+    // can't represent) and non-optional property chains.
     if (methodName === 'map' && call.getArguments().length === 1) {
       const arg = call.getArguments()[0];
-      if (isArrowLike(arg)) {
+      if (isArrowLike(arg) && arg.getParameters().length === 1) {
         const item = paramName(arg, 0);
         if (item) {
           const path = propertyAccessChainFromItem(arg, item);
@@ -327,8 +379,8 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
                 {
                   suggestion:
                     item === 'item'
-                      ? `pluck name=<name> in=${collection} prop=${path}`
-                      : `pluck name=<name> in=${collection} item=${item} prop=${path}`,
+                      ? `pluck name=<name> in=${collectionIn} prop=${path}`
+                      : `pluck name=<name> in=${collectionIn} item=${item} prop=${path}`,
                 },
               ),
             );

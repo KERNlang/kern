@@ -895,6 +895,498 @@ export function generateUnique(node: IRNode): string[] {
   return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = [...new Set(${collection})];`];
 }
 
+// ── Ground Layer: uniqueBy ───────────────────────────────────────────────
+// `uniqueBy name=distinct in=users by="item.id"`
+//   → const distinct = [...new Map((users).map((item) => [item.id, item])).values()];
+
+export function generateUniqueBy(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'uniqueBy'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'distinct', node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("uniqueBy node requires an 'in' prop", node);
+  const by = unwrapExpr(props.by);
+  if (!by) throw new KernCodegenError("uniqueBy node requires a 'by' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  // First-wins semantics to match Lodash `uniqBy`. Uses Set+filter rather
+  // than Map-constructor (which would keep the last occurrence).
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = ((__seen) => (${collection}).filter((${item}) => {`,
+    `  const __k = ${by};`,
+    `  if (__seen.has(__k)) return false;`,
+    `  __seen.add(__k);`,
+    `  return true;`,
+    `}))(new Set());`,
+  ];
+}
+
+// ── Ground Layer: groupBy ────────────────────────────────────────────────
+// `groupBy name=byType in=items by="item.type"`
+//   → const byType = Object.groupBy(items, (item) => item.type);
+// ES2024 Object.groupBy. Returns `Partial<Record<K, T[]>>`.
+
+export function generateGroupBy(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'groupBy'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'grouped', node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("groupBy node requires an 'in' prop", node);
+  const by = unwrapExpr(props.by);
+  if (!by) throw new KernCodegenError("groupBy node requires a 'by' prop", node);
+
+  const constType = (props.type as string | undefined) || 'Record<string, unknown[]>';
+  const typeAnn = emitTypeAnnotation(constType, 'Record<string, unknown[]>', node);
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}: ${typeAnn} = (${collection}).reduce((acc, ${item}) => {`,
+    `  const __k = ${by};`,
+    `  (acc[__k] ??= []).push(${item});`,
+    `  return acc;`,
+    `}, Object.create(null) as ${typeAnn});`,
+  ];
+}
+
+// ── Ground Layer: partition ──────────────────────────────────────────────
+// Two-output primitive: emits a destructured const. Dual-filter shape for
+// clarity (two passes but readable).
+
+export function generatePartition(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'partition'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const passName = emitIdentifier(props.pass as string | undefined, 'pass', node);
+  const failName = emitIdentifier(props.fail as string | undefined, 'fail', node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("partition node requires an 'in' prop", node);
+  const predicate = unwrapExpr(props.where);
+  if (!predicate) throw new KernCodegenError("partition node requires a 'where' prop", node);
+
+  const constType = props.type as string | undefined;
+  const elemType = constType ? emitTypeAnnotation(constType, 'unknown', node) : 'unknown';
+  const typeAnnotation = constType ? `: [${elemType}[], ${elemType}[]]` : '';
+  const exp = exportPrefix(node);
+
+  // Single-pass reduce so the collection and predicate each evaluate once
+  // per item — avoids double side effects from the dual-filter shape.
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const [${passName}, ${failName}]${typeAnnotation} = (${collection}).reduce<[${elemType}[], ${elemType}[]]>((acc, ${item}) => {`,
+    `  (${predicate} ? acc[0] : acc[1]).push(${item});`,
+    `  return acc;`,
+    `}, [[], []]);`,
+  ];
+}
+
+// ── Ground Layer: indexBy ────────────────────────────────────────────────
+// `indexBy name=byId in=users by="item.id"`
+//   → const byId = Object.fromEntries((users).map((item) => [item.id, item]));
+
+export function generateIndexBy(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'indexBy'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'indexed', node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("indexBy node requires an 'in' prop", node);
+  const by = unwrapExpr(props.by);
+  if (!by) throw new KernCodegenError("indexBy node requires a 'by' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = Object.fromEntries((${collection}).map((${item}) => [${by}, ${item}]));`,
+  ];
+}
+
+// ── Ground Layer: countBy ────────────────────────────────────────────────
+// Multi-line reduce — `Record<string, number>` default type.
+
+export function generateCountBy(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'countBy'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'counts', node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("countBy node requires an 'in' prop", node);
+  const by = unwrapExpr(props.by);
+  if (!by) throw new KernCodegenError("countBy node requires a 'by' prop", node);
+
+  const constType = (props.type as string | undefined) || 'Record<string, number>';
+  const typeAnn = emitTypeAnnotation(constType, 'Record<string, number>', node);
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}: ${typeAnn} = (${collection}).reduce((acc, ${item}) => {`,
+    `  const __k = ${by};`,
+    `  acc[__k] = (acc[__k] ?? 0) + 1;`,
+    `  return acc;`,
+    `}, Object.create(null) as ${typeAnn});`,
+  ];
+}
+
+// ── Ground Layer: chunk ──────────────────────────────────────────────────
+// Fixed-size splitting.
+
+export function generateChunk(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'chunk'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'chunks', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("chunk node requires an 'in' prop", node);
+  const size = unwrapExpr(props.size);
+  if (!size) throw new KernCodegenError("chunk node requires a 'size' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  // IIFE so the collection and size expressions are evaluated once each —
+  // important if either is expensive or has side effects.
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = ((__src, __n) => Array.from({ length: Math.ceil(__src.length / __n) }, (_, i) => __src.slice(i * __n, (i + 1) * __n)))((${collection}), (${size}));`,
+  ];
+}
+
+// ── Ground Layer: zip ────────────────────────────────────────────────────
+
+export function generateZip(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'zip'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'pairs', node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+  const indexName = emitIdentifier((props.index as string) || '__i', '__i', node);
+
+  const left = unwrapExpr(props.in);
+  if (!left) throw new KernCodegenError("zip node requires an 'in' prop", node);
+  const right = unwrapExpr(props.with);
+  if (!right) throw new KernCodegenError("zip node requires a 'with' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  // Bind the right collection once via IIFE — without this, `with=getOther()`
+  // would call getOther() once per element inside the map callback.
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = ((__r) => (${left}).map((${item}, ${indexName}) => [${item}, __r[${indexName}]]))((${right}));`,
+  ];
+}
+
+// ── Ground Layer: range ──────────────────────────────────────────────────
+
+export function generateRange(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'range'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'range', node);
+
+  const end = unwrapExpr(props.end);
+  if (!end) throw new KernCodegenError("range node requires an 'end' prop", node);
+  const start = unwrapExpr(props.start) ?? '0';
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'number[]', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = Array.from({ length: (${end}) - (${start}) }, (_, i) => i + (${start}));`,
+  ];
+}
+
+// ── Ground Layer: take / drop ────────────────────────────────────────────
+
+function generateTakeOrDrop(node: IRNode, which: 'take' | 'drop'): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<typeof which>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const fallback = which === 'take' ? 'taken' : 'dropped';
+  const name = emitIdentifier(props.name, fallback, node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError(`${which} node requires an 'in' prop`, node);
+  const n = unwrapExpr(props.n);
+  if (!n) throw new KernCodegenError(`${which} node requires an 'n' prop`, node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+  const call = which === 'take' ? `slice(0, ${n})` : `slice(${n})`;
+
+  return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = (${collection}).${call};`];
+}
+
+export function generateTake(node: IRNode): string[] {
+  return generateTakeOrDrop(node, 'take');
+}
+
+export function generateDrop(node: IRNode): string[] {
+  return generateTakeOrDrop(node, 'drop');
+}
+
+// ── Ground Layer: min / max ──────────────────────────────────────────────
+
+// Reduce-based (not `Math.min(...arr)` / `Math.max(...arr)`) to avoid:
+//   1. Stack overflow on huge arrays (spread blows the arg count limit).
+//   2. `Math.min()` returning `Infinity` and `Math.max()` returning
+//      `-Infinity` on empty arrays — we return `undefined` instead.
+
+function generateMathAgg(node: IRNode, which: 'min' | 'max'): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<typeof which>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const fallback = which === 'min' ? 'lowest' : 'highest';
+  const name = emitIdentifier(props.name, fallback, node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError(`${which} node requires an 'in' prop`, node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'number', node)} | undefined` : '';
+  const exp = exportPrefix(node);
+  const op = which === 'min' ? '<' : '>';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = ((__src) => __src.length === 0 ? undefined : __src.reduce((__a: number, __b: number) => __b ${op} __a ? __b : __a))((${collection}));`,
+  ];
+}
+
+export function generateMin(node: IRNode): string[] {
+  return generateMathAgg(node, 'min');
+}
+
+export function generateMax(node: IRNode): string[] {
+  return generateMathAgg(node, 'max');
+}
+
+// ── Ground Layer: minBy / maxBy ──────────────────────────────────────────
+// Emits a closure `__key = (item) => by` so the author's `by` expression is
+// evaluated as an arrow body — no fragile regex over the raw expression
+// text that would corrupt string literals like `by="item.tags.includes('item')"`.
+// The collection is bound once, so expensive or side-effecting `in=` only
+// runs one time. Returns `undefined` for empty collections.
+
+function generateByReducer(node: IRNode, which: 'min' | 'max'): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'minBy' | 'maxBy'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const fallback = which === 'min' ? 'youngest' : 'oldest';
+  const name = emitIdentifier(props.name, fallback, node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError(`${which}By node requires an 'in' prop`, node);
+  const by = unwrapExpr(props.by);
+  if (!by) throw new KernCodegenError(`${which}By node requires a 'by' prop`, node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)} | undefined` : '';
+  const exp = exportPrefix(node);
+  const op = which === 'min' ? '<' : '>';
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = ((__src) => {`,
+    `  if (__src.length === 0) return undefined;`,
+    `  const __key = (${item}: typeof __src[number]) => ${by};`,
+    `  return __src.reduce((__best, __cur) => __key(__cur) ${op} __key(__best) ? __cur : __best);`,
+    `})((${collection}));`,
+  ];
+}
+
+export function generateMinBy(node: IRNode): string[] {
+  return generateByReducer(node, 'min');
+}
+
+export function generateMaxBy(node: IRNode): string[] {
+  return generateByReducer(node, 'max');
+}
+
+// ── Ground Layer: sum / avg / sumBy ──────────────────────────────────────
+
+export function generateSum(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'sum'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'total', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("sum node requires an 'in' prop", node);
+
+  const constType = (props.type as string | undefined) || 'number';
+  const typeAnnotation = `: ${emitTypeAnnotation(constType, 'number', node)}`;
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = (${collection}).reduce((acc, n) => acc + n, 0);`,
+  ];
+}
+
+export function generateAvg(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'avg'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'mean', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("avg node requires an 'in' prop", node);
+
+  const constType = (props.type as string | undefined) || 'number';
+  const typeAnnotation = `: ${emitTypeAnnotation(constType, 'number', node)}`;
+  const exp = exportPrefix(node);
+
+  // Returns `NaN` on empty input (matches Lodash `_.mean([])` and math
+  // convention — "no data" signal rather than a fake 0). Bound via IIFE so
+  // the `in=` expression is evaluated exactly once.
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = ((__src) => __src.length === 0 ? Number.NaN : __src.reduce((acc, n) => acc + n, 0) / __src.length)((${collection}));`,
+  ];
+}
+
+export function generateSumBy(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'sumBy'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'total', node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError("sumBy node requires an 'in' prop", node);
+  const by = unwrapExpr(props.by);
+  if (!by) throw new KernCodegenError("sumBy node requires a 'by' prop", node);
+
+  const constType = (props.type as string | undefined) || 'number';
+  const typeAnnotation = `: ${emitTypeAnnotation(constType, 'number', node)}`;
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = (${collection}).reduce((acc, ${item}) => acc + (${by}), 0);`,
+  ];
+}
+
+// ── Ground Layer: intersect ──────────────────────────────────────────────
+// Uses `new Set(right)` for O(N+M) lookup instead of the naive O(N×M)
+// `.filter(...includes...)` pair. The right collection is bound once so
+// expensive `with=` expressions don't re-run per element.
+
+export function generateIntersect(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'intersect'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, 'shared', node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const left = unwrapExpr(props.in);
+  if (!left) throw new KernCodegenError("intersect node requires an 'in' prop", node);
+  const right = unwrapExpr(props.with);
+  if (!right) throw new KernCodegenError("intersect node requires a 'with' prop", node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = ((__r) => (${left}).filter((${item}) => __r.has(${item})))(new Set((${right})));`,
+  ];
+}
+
+// ── Ground Layer: findLast / findLastIndex (ES2023) ──────────────────────
+
+function generateFindLastPair(node: IRNode, which: 'findLast' | 'findLastIndex'): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<typeof which>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const fallback = which === 'findLast' ? 'lastMatch' : 'lastIndex';
+  const name = emitIdentifier(props.name, fallback, node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const collection = unwrapExpr(props.in);
+  if (!collection) throw new KernCodegenError(`${which} node requires an 'in' prop`, node);
+  const predicate = unwrapExpr(props.where);
+  if (!predicate) throw new KernCodegenError(`${which} node requires a 'where' prop`, node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = (${collection}).${which}((${item}) => ${predicate});`,
+  ];
+}
+
+export function generateFindLast(node: IRNode): string[] {
+  return generateFindLastPair(node, 'findLast');
+}
+
+export function generateFindLastIndex(node: IRNode): string[] {
+  return generateFindLastPair(node, 'findLastIndex');
+}
+
 // ── Ground Layer: async ──────────────────────────────────────────────────
 // `async name=loadUser` with a `handler` child runs its body inside an IIFE.
 // With an optional trailing `recover` child, delegates recovery to the
