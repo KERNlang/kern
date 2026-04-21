@@ -235,7 +235,12 @@ function emitRender(renderNode: IRNode | undefined, lines: string[]): void {
   }
 
   const hasJsxChild = getChildren(renderNode).some((c) => RENDER_JSX_CHILD_TYPES.has(c.type));
-  if (hasJsxChild) {
+  const hasWrapper = !!propsOf(renderNode).wrapper;
+  // A `local` child alone implies the author wants composed mode even if no
+  // each/conditional is present — the locals need to hoist as statements and
+  // the JSX return needs to be constructed, not passed through as raw handler.
+  const hasLocal = getChildren(renderNode, 'local').length > 0;
+  if (hasJsxChild || hasWrapper || hasLocal) {
     emitRenderComposed(renderNode, lines);
     return;
   }
@@ -252,11 +257,40 @@ function emitRender(renderNode: IRNode | undefined, lines: string[]): void {
 }
 
 /**
- * Compose a render block from declarative KERN children (each, and later conditional).
- * Handler blocks inside render are treated as literal JSX fragments.
- * Emits `return (<>...</>);` containing each child's JSX.
+ * Extract the tag name from a wrapper string like `<Box paddingX={1}>` → `Box`.
+ * Returns undefined if the input isn't a recognizable opening tag.
+ */
+function extractWrapperTag(wrapper: string): string | undefined {
+  const match = wrapper.trim().match(/^<([A-Za-z_][A-Za-z0-9_.]*)/);
+  return match?.[1];
+}
+
+/**
+ * Compose a render block from declarative KERN children (each, conditional,
+ * local, handler). Emits:
+ *
+ *   [local bindings at screen-function scope]
+ *   return (
+ *     [wrapper open OR <>]
+ *       [each / conditional / handler pieces]
+ *     [wrapper close OR </>]
+ *   );
+ *
+ * When a `wrapper="<Tag attrs>"` prop is present the wrapper tag replaces the
+ * default Fragment; the tag name is extracted from the string so `</Tag>` can
+ * be emitted correctly. When `local` children are present their `const name =
+ * expr;` bindings hoist ABOVE the return so sibling JSX can close over them.
  */
 function emitRenderComposed(renderNode: IRNode, lines: string[]): void {
+  // Step 1: emit local bindings at screen-function scope, before the return.
+  // Locals are expression-only; a handler-bodied "local" would be ambiguous
+  // (too close to derive/memo) and is rejected by the validator.
+  const localNodes = getChildren(renderNode, 'local');
+  for (const localNode of localNodes) {
+    lines.push(`  ${renderLocalBinding(localNode)}`);
+  }
+
+  // Step 2: collect JSX pieces from non-local children in source order.
   const pieces: string[][] = [];
   for (const child of getChildren(renderNode)) {
     if (child.type === 'each') {
@@ -270,16 +304,45 @@ function emitRenderComposed(renderNode: IRNode, lines: string[]): void {
       const raw = (propsOf(child).code as string) || '';
       pieces.push(stripReturnWrapper(raw).split('\n'));
     }
-    // Other declarative/metadata children (doc, reason, needs, ...) are skipped.
+    // Local children handled in step 1; metadata children skipped.
   }
 
+  // Step 3: decide between wrapper tag and Fragment.
+  const wrapper = propsOf(renderNode).wrapper as string | undefined;
+  const openTag = wrapper?.trim();
+  const tagName = openTag ? extractWrapperTag(openTag) : undefined;
+  const closeTag = tagName ? `</${tagName}>` : '</>';
+  const openEmit = openTag ?? '<>';
+
   lines.push(`  return (`);
-  lines.push(`    <>`);
+  lines.push(`    ${openEmit}`);
   for (const piece of pieces) {
     for (const line of piece) lines.push(`      ${line}`);
   }
-  lines.push(`    </>`);
+  lines.push(`    ${closeTag}`);
   lines.push(`  );`);
+}
+
+/**
+ * Emit a `local` node as a `const name[: type] = expr;` line at screen scope.
+ * Mirrors the `let` iteration binding but at render scope rather than inside
+ * the `each` callback. Expression-only by design — for hook-driven values use
+ * `memo` / `callback` above the render.
+ */
+function renderLocalBinding(node: IRNode): string {
+  const lp = propsOf(node);
+  const lname = emitIdentifier(lp.name as string, 'binding', node);
+  const rawExpr = lp.expr;
+  const expr =
+    rawExpr && typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
+      ? (rawExpr as ExprObject).code
+      : (rawExpr as string) || '';
+  if (!expr) {
+    throw new KernCodegenError("local node requires an 'expr' prop", node);
+  }
+  const t = lp.type as string | undefined;
+  const typeAnn = t ? `: ${emitTypeAnnotation(t, 'unknown', node)}` : '';
+  return `const ${lname}${typeAnn} = ${expr};`;
 }
 
 /**

@@ -117,6 +117,7 @@ export const NODE_TYPES = [
   'then',
   'each',
   'let',
+  'local',
   // Next.js App Router
   'layout',
   'loading',

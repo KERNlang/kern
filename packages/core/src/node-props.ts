@@ -139,6 +139,11 @@ export interface SetProps extends BaseProps {
 
 export interface AsyncProps extends BaseProps {}
 
+export interface LocalProps extends BaseProps {
+  expr?: string | ExprObject;
+  type?: string;
+}
+
 export interface TransformProps extends BaseProps {
   target?: string;
   via?: string;
@@ -330,6 +335,7 @@ export interface NodePropsMap {
   fmt: FmtProps;
   set: SetProps;
   async: AsyncProps;
+  local: LocalProps;
   transform: TransformProps;
   action: ActionProps;
   actionRegistry: ActionRegistryProps;
