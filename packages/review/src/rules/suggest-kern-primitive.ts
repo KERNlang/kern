@@ -126,6 +126,43 @@ function paramName(arrow: ArrowFunction | FunctionExpression, idx: number): stri
 }
 
 /**
+ * Is the arrow a Boolean-coercion shape `x => !!x` or `x => Boolean(x)` where
+ * the coerced expression is just the first parameter? These are the two
+ * common handwritten equivalents of `.filter(Boolean)` and route to `compact`.
+ *
+ * Only matches when the arrow's body references the parameter directly — not
+ * a property access or a computed expression — so we don't silently rewrite
+ * `x => !!x.active` (which is `filter where="x.active"`, not `compact`).
+ */
+function isBooleanCoercionOfFirstParam(arrow: ArrowFunction | FunctionExpression): boolean {
+  if (arrow.getParameters().length !== 1) return false;
+  const param = paramName(arrow, 0);
+  if (!param) return false;
+  const body = arrow.getBody();
+  if (Node.isBlock(body)) return false;
+
+  // `!!x` — PrefixUnaryExpression(!, PrefixUnaryExpression(!, <Identifier param>))
+  if (Node.isPrefixUnaryExpression(body) && body.getOperatorToken() === SyntaxKind.ExclamationToken) {
+    const inner = body.getOperand();
+    if (Node.isPrefixUnaryExpression(inner) && inner.getOperatorToken() === SyntaxKind.ExclamationToken) {
+      const innermost = inner.getOperand();
+      if (Node.isIdentifier(innermost) && innermost.getText() === param) return true;
+    }
+  }
+
+  // `Boolean(x)` — CallExpression where callee is Identifier "Boolean" and sole arg is the param.
+  if (Node.isCallExpression(body)) {
+    const callee = body.getExpression();
+    if (Node.isIdentifier(callee) && callee.getText() === 'Boolean') {
+      const args = body.getArguments();
+      if (args.length === 1 && Node.isIdentifier(args[0]) && args[0].getText() === param) return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * If the arrow body is a property-access chain rooted at `item` (the first
  * parameter), return the dot-path without the item prefix. Returns null for
  * anything else — computed access, method calls, nested expressions, or
@@ -350,16 +387,20 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     const collection = callee.getExpression().getText();
     const collectionIn = toKernInValue(collection);
 
-    // `.filter(Boolean)` → route to the dedicated `compact` primitive.
+    // `.filter(Boolean)`, `.filter(x => !!x)`, `.filter(x => Boolean(x))` →
+    // route to the dedicated `compact` primitive. The three shapes are all
+    // equivalent drop-falsy idioms; KERN prefers the named primitive.
     if (methodName === 'filter' && call.getArguments().length === 1) {
       const arg = call.getArguments()[0];
-      if (Node.isIdentifier(arg) && arg.getText() === 'Boolean') {
+      const isBooleanRef = Node.isIdentifier(arg) && arg.getText() === 'Boolean';
+      const isCoercionArrow = isArrowLike(arg) && isBooleanCoercionOfFirstParam(arg);
+      if (isBooleanRef || isCoercionArrow) {
         findings.push(
           finding(
             'suggest-kern-primitive',
             'info',
             'pattern',
-            'JS .filter(Boolean) could migrate to KERN `compact` — named primitive for drop-falsy',
+            'JS drop-falsy filter could migrate to KERN `compact` — named primitive for drop-falsy',
             ctx.filePath,
             call.getStartLineNumber(),
             1,
