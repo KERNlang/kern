@@ -218,12 +218,16 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   transition: {
-    description: 'A guarded transition between machine states, with optional handler',
-    example: 'transition name=confirm from=pending to=confirmed\n  handler <<<\n    await notifyUser()\n  >>>',
+    description:
+      'A guarded transition between machine states, with optional typed payload and/or guard predicate. `params` uses the same comma-separated typed list shape as `fn` (e.g. "prompt:string,chatId:string") — those parameters enter the emitted transition function signature and are in scope inside the handler and the guard. `guard` is a raw JS boolean expression evaluated AFTER the from-state check; when falsy the transition throws `<Machine>GuardError(\'<transition>\', entity.state)`.',
+    example:
+      'transition name=submit from=idle to=running params="prompt:string,chatId:string" guard="entity.turnsLeft > 0"\n  handler <<<\n    await notifyUser(prompt)\n  >>>',
     props: {
       name: { required: true, kind: 'identifier' },
       from: { required: true, kind: 'string' },
       to: { required: true, kind: 'identifier' },
+      params: { kind: 'string' },
+      guard: { kind: 'rawExpr' },
     },
     allowedChildren: ['handler'],
   },
