@@ -141,15 +141,16 @@ function resolveMountPrefix(
   mountsByModule: ReadonlyMap<string, string[]>,
   mountsByRouter: ReadonlyMap<string, Array<{ prefix: string; mountFile: string }>>,
 ): string | undefined {
-  // Module-based match: the mount's `sourceModule` like `app.api.nutrition_goals`
-  // should correspond to a file path ending in `app/api/nutrition_goals.py`.
-  // Accept the match both when the route file is itself the module (relative
-  // path `app/api/nutrition_goals.py`) and when it's a deeper absolute path
-  // (`/repo/root/app/api/nutrition_goals.py`) — a leading-slash-or-start
-  // boundary check prevents `blog/api.py` from false-matching module `api`.
+  // Module-based match. TS mounts emit a `sourceModule` that already carries a
+  // code extension (e.g. `routes/review.ts`) — use it as a path suffix directly.
+  // Python mounts emit a dotted module name (`app.api.nutrition_goals`) — translate
+  // to `app/api/nutrition_goals.py` first. The leading-slash boundary check in
+  // both branches prevents `blog/api.py` from false-matching module `api`.
   for (const [sourceModule, prefixes] of mountsByModule) {
     if (prefixes.length === 0) continue;
-    const relTail = `${sourceModule.replace(/\./g, '/')}.py`;
+    const relTail = /\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(sourceModule)
+      ? sourceModule
+      : `${sourceModule.replace(/\./g, '/')}.py`;
     if (routeFile === relTail || routeFile.endsWith(`/${relTail}`)) return prefixes[0];
   }
   // Same-file match: `router = APIRouter(); app.include_router(router, prefix=…)`.
