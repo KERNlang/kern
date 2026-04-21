@@ -462,38 +462,63 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
   }
 
   // ── fmt detector ───────────────────────────────────────────────────────
-  // `const label = ``${count} files``;` → `fmt name=label template="${count} files"`.
+  // Two call sites map cleanly to KERN's `fmt` primitive:
+  //
+  //   const label = `${count} files`;         → fmt name=label template="…"
+  //   return `${msg} (${code})`;               → fmt name=<result> template="…"; return <result>
+  //
   // Only fires on TemplateExpression (has substitutions); plain backtick
   // strings are NoSubstitutionTemplateLiteral and don't need fmt.
-  // Only fires when the template is the initializer of a const binding —
-  // that's where we have a clean `name=` target. Single-line only (multiline
-  // templates have meaningful whitespace that's awkward in a one-line hint).
+  // Single-line only — multiline templates have meaningful whitespace that's
+  // awkward to round-trip through a one-line suggestion.
   for (const tpl of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.TemplateExpression)) {
     const parent = tpl.getParent();
-    if (!parent || !Node.isVariableDeclaration(parent)) continue;
-    if (parent.getInitializer() !== tpl) continue;
-
-    const nameNode = parent.getNameNode();
-    if (!Node.isIdentifier(nameNode)) continue; // skip destructured bindings
-    const name = nameNode.getText();
+    if (!parent) continue;
 
     const fullText = tpl.getText();
     if (!fullText.startsWith('`') || !fullText.endsWith('`') || fullText.length < 2) continue;
     const body = fullText.slice(1, -1);
     if (body.includes('\n')) continue;
 
-    findings.push(
-      finding(
-        'suggest-kern-primitive',
-        'info',
-        'pattern',
-        'JS template literal could migrate to KERN `fmt` — named primitive for string interpolation',
-        ctx.filePath,
-        tpl.getStartLineNumber(),
-        1,
-        { suggestion: `fmt name=${name} template="${escapeKernTemplate(body)}"` },
-      ),
-    );
+    // Shape A — const initializer: `const x = \`…\`;`
+    if (Node.isVariableDeclaration(parent) && parent.getInitializer() === tpl) {
+      const nameNode = parent.getNameNode();
+      if (!Node.isIdentifier(nameNode)) continue; // skip destructured bindings
+      const name = nameNode.getText();
+      findings.push(
+        finding(
+          'suggest-kern-primitive',
+          'info',
+          'pattern',
+          'JS template literal could migrate to KERN `fmt` — named primitive for string interpolation',
+          ctx.filePath,
+          tpl.getStartLineNumber(),
+          1,
+          { suggestion: `fmt name=${name} template="${escapeKernTemplate(body)}"` },
+        ),
+      );
+      continue;
+    }
+
+    // Shape B — return value: `return \`…\`;`
+    // Migration is a two-step: bind the formatted string to a named `fmt`
+    // node first, then `return` that name. The suggestion shows both lines
+    // so authors can paste directly.
+    if (Node.isReturnStatement(parent) && parent.getExpression() === tpl) {
+      findings.push(
+        finding(
+          'suggest-kern-primitive',
+          'info',
+          'pattern',
+          'JS template literal in return position could migrate to KERN `fmt` — bind to a name, then return it',
+          ctx.filePath,
+          tpl.getStartLineNumber(),
+          1,
+          { suggestion: `fmt name=<result> template="${escapeKernTemplate(body)}"\nreturn <result>` },
+        ),
+      );
+      continue;
+    }
   }
 
   // ── conditional JSX detector ───────────────────────────────────────────
