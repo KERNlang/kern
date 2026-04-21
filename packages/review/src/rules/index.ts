@@ -923,6 +923,14 @@ const REGISTRY: RuleInfo[] = [
       'JS array-method call (.filter/.map/.reduce/...) could migrate to a declarative KERN primitive — one-shot migration scan',
     precision: 'experimental',
   },
+  {
+    id: 'set-setter-name-collision',
+    layer: 'kern-source',
+    severity: 'warning',
+    description:
+      'Same name bound as both a class `setter` and a screen `state` in one file — two emitted shapes (`set X(v)` vs `setX(v)`) readers will confuse',
+    precision: 'high',
+  },
 
   // Next.js App Router (Wave 1)
   {
