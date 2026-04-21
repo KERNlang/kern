@@ -11,7 +11,7 @@
 import { KernCodegenError } from '../errors.js';
 import { propsOf } from '../node-props.js';
 import { expandTemplateNode, isTemplateNode } from '../template-engine.js';
-import type { IRNode } from '../types.js';
+import type { ExprObject, IRNode } from '../types.js';
 import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import {
   capitalize,
@@ -376,6 +376,67 @@ export function generateExpect(node: IRNode): string[] {
 
   lines.push('}');
   return lines;
+}
+
+// ── Ground Layer: array methods ──────────────────────────────────────────
+// Four predicate-over-collection primitives share the exact same shape:
+//   <method> name=<out> in=<coll> [item=<bind>] where=<predicate>
+// and lower to:
+//   const <out>[: type] = (<coll>).<method>(<bind> => <predicate>);
+//
+// Why four names instead of one generic: KERN is an LLM-authored language.
+// Giving `filter` / `find` / `some` / `every` distinct structural anchors
+// lets tooling (decompiler, review, codegen) reason about the author's
+// intent without grepping the method name out of a string. `.map` already
+// has `each` and so is not repeated here. `.reduce` / `.flatMap` / `.slice`
+// are intentionally deferred — reduce has two bound names (accumulator +
+// item) and benefits from its own shape once a real caller asks for it.
+
+function generateArrayMethod(node: IRNode, method: 'filter' | 'find' | 'some' | 'every'): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<typeof method>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+  const name = emitIdentifier(props.name, method, node);
+  const item = emitIdentifier((props.item as string) || 'item', 'item', node);
+
+  const rawIn = props.in;
+  const collection =
+    rawIn && typeof rawIn === 'object' && (rawIn as ExprObject).__expr ? (rawIn as ExprObject).code : (rawIn as string);
+  if (!collection) throw new KernCodegenError(`${method} node requires an 'in' prop`, node);
+
+  const rawWhere = props.where;
+  const predicate =
+    rawWhere && typeof rawWhere === 'object' && (rawWhere as ExprObject).__expr
+      ? (rawWhere as ExprObject).code
+      : (rawWhere as string);
+  if (!predicate) throw new KernCodegenError(`${method} node requires a 'where' prop`, node);
+
+  const constType = props.type as string | undefined;
+  const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
+  const exp = exportPrefix(node);
+
+  return [
+    ...todo,
+    ...annotations,
+    `${exp}const ${name}${typeAnnotation} = (${collection}).${method}((${item}) => ${predicate});`,
+  ];
+}
+
+export function generateFilter(node: IRNode): string[] {
+  return generateArrayMethod(node, 'filter');
+}
+
+export function generateFind(node: IRNode): string[] {
+  return generateArrayMethod(node, 'find');
+}
+
+export function generateSome(node: IRNode): string[] {
+  return generateArrayMethod(node, 'some');
+}
+
+export function generateEvery(node: IRNode): string[] {
+  return generateArrayMethod(node, 'every');
 }
 
 // ── Ground Layer: async ──────────────────────────────────────────────────

@@ -360,6 +360,58 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: ['handler', 'recover'],
   },
+  filter: {
+    description:
+      'Declarative `.filter` binding — `filter name=active in=items where="item.active"` lowers to `const active = items.filter(item => item.active);`. Use `item=x` to rename the per-item binding.',
+    example: 'filter name=active in=items where="item.active"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      where: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  find: {
+    description:
+      "Declarative `.find` binding — `find name=admin in=users where=\"item.role === 'admin'\"` lowers to `const admin = users.find(item => item.role === 'admin');`. Use `item=x` to rename the per-item binding.",
+    example: 'find name=admin in=users item=u where="u.role === \'admin\'"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      where: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  some: {
+    description:
+      'Declarative `.some` binding — `some name=hasError in=results where="!item.ok"` lowers to `const hasError = results.some(item => !item.ok);`.',
+    example: 'some name=hasError in=results where="!item.ok"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      where: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  every: {
+    description:
+      'Declarative `.every` binding — `every name=allDone in=tasks where="item.done"` lowers to `const allDone = tasks.every(item => item.done);`.',
+    example: 'every name=allDone in=tasks where="item.done"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      where: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
   transform: {
     description: 'Data transformation pipeline — maps target through a via function or handler',
     example: 'transform name=normalized target=rawData via=normalize type=NormalizedData',
