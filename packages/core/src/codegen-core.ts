@@ -43,28 +43,43 @@ export {
   generateAssume,
   generateAsync,
   generateAt,
+  generateAvg,
+  generateChunk,
   generateCollect,
   generateCompact,
   generateConcat,
+  generateCountBy,
   generateDerive,
+  generateDrop,
   generateEvery,
   generateExpect,
   generateFilter,
   generateFind,
   generateFindIndex,
+  generateFindLast,
+  generateFindLastIndex,
   generateFlat,
   generateFlatMap,
   generateFmt,
   generateForEach,
+  generateGroupBy,
   generateGuard,
   generateIncludes,
+  generateIndexBy,
   generateIndexOf,
+  generateIntersect,
   generateInvariant,
   generateJoin,
   generateLastIndexOf,
   generateMap,
+  generateMax,
+  generateMaxBy,
+  generateMin,
+  generateMinBy,
+  generatePartition,
   generatePattern,
   generatePluck,
+  generateRange,
   generateRecover,
   generateReduce,
   generateResolve,
@@ -72,8 +87,13 @@ export {
   generateSlice,
   generateSome,
   generateSort,
+  generateSum,
+  generateSumBy,
+  generateTake,
   generateTransform,
   generateUnique,
+  generateUniqueBy,
+  generateZip,
 } from './codegen/ground-layer.js';
 export {
   capitalize,
@@ -127,28 +147,43 @@ import {
   generateAssume,
   generateAsync,
   generateAt,
+  generateAvg,
+  generateChunk,
   generateCollect,
   generateCompact,
   generateConcat,
+  generateCountBy,
   generateDerive,
+  generateDrop,
   generateEvery,
   generateExpect,
   generateFilter,
   generateFind,
   generateFindIndex,
+  generateFindLast,
+  generateFindLastIndex,
   generateFlat,
   generateFlatMap,
   generateFmt,
   generateForEach,
+  generateGroupBy,
   generateGuard,
   generateIncludes,
+  generateIndexBy,
   generateIndexOf,
+  generateIntersect,
   generateInvariant,
   generateJoin,
   generateLastIndexOf,
   generateMap,
+  generateMax,
+  generateMaxBy,
+  generateMin,
+  generateMinBy,
+  generatePartition,
   generatePattern,
   generatePluck,
+  generateRange,
   generateRecover,
   generateReduce,
   generateResolve,
@@ -156,8 +191,13 @@ import {
   generateSlice,
   generateSome,
   generateSort,
+  generateSum,
+  generateSumBy,
+  generateTake,
   generateTransform,
   generateUnique,
+  generateUniqueBy,
+  generateZip,
 } from './codegen/ground-layer.js';
 import {
   emitLowConfidenceTodo,
@@ -507,6 +547,26 @@ export const CORE_NODE_TYPES = new Set([
   'compact',
   'pluck',
   'unique',
+  'uniqueBy',
+  'groupBy',
+  'partition',
+  'indexBy',
+  'countBy',
+  'chunk',
+  'zip',
+  'range',
+  'take',
+  'drop',
+  'min',
+  'max',
+  'minBy',
+  'maxBy',
+  'sum',
+  'sumBy',
+  'avg',
+  'intersect',
+  'findLast',
+  'findLastIndex',
   'transform',
   'action',
   'actionRegistry',
@@ -662,6 +722,46 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generatePluck(node);
     case 'unique':
       return generateUnique(node);
+    case 'uniqueBy':
+      return generateUniqueBy(node);
+    case 'groupBy':
+      return generateGroupBy(node);
+    case 'partition':
+      return generatePartition(node);
+    case 'indexBy':
+      return generateIndexBy(node);
+    case 'countBy':
+      return generateCountBy(node);
+    case 'chunk':
+      return generateChunk(node);
+    case 'zip':
+      return generateZip(node);
+    case 'range':
+      return generateRange(node);
+    case 'take':
+      return generateTake(node);
+    case 'drop':
+      return generateDrop(node);
+    case 'min':
+      return generateMin(node);
+    case 'max':
+      return generateMax(node);
+    case 'minBy':
+      return generateMinBy(node);
+    case 'maxBy':
+      return generateMaxBy(node);
+    case 'sum':
+      return generateSum(node);
+    case 'sumBy':
+      return generateSumBy(node);
+    case 'avg':
+      return generateAvg(node);
+    case 'intersect':
+      return generateIntersect(node);
+    case 'findLast':
+      return generateFindLast(node);
+    case 'findLastIndex':
+      return generateFindLastIndex(node);
     case 'transform':
       return generateTransform(node);
     case 'action':

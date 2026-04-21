@@ -12,28 +12,48 @@
 
 import {
   generateAt,
+  generateAvg,
+  generateChunk,
   generateCompact,
   generateConcat,
   generateCoreNode,
+  generateCountBy,
+  generateDrop,
   generateEvery,
   generateFilter,
   generateFind,
   generateFindIndex,
+  generateFindLast,
+  generateFindLastIndex,
   generateFlat,
   generateFlatMap,
   generateForEach,
+  generateGroupBy,
   generateIncludes,
+  generateIndexBy,
   generateIndexOf,
+  generateIntersect,
   generateJoin,
   generateLastIndexOf,
   generateMap,
+  generateMax,
+  generateMaxBy,
+  generateMin,
+  generateMinBy,
+  generatePartition,
   generatePluck,
+  generateRange,
   generateReduce,
   generateReverse,
   generateSlice,
   generateSome,
   generateSort,
+  generateSum,
+  generateSumBy,
+  generateTake,
   generateUnique,
+  generateUniqueBy,
+  generateZip,
   isCoreNode,
 } from '../src/codegen-core.js';
 import { KernCodegenError } from '../src/errors.js';
@@ -121,7 +141,7 @@ describe('Integration: generateCoreNode dispatches array methods', () => {
     expect(code).toContain('(xs).filter((item) => item.ok)');
   });
 
-  it('registers all twenty-two array primitives as core node types', () => {
+  it('registers all forty-two array primitives as core node types', () => {
     for (const t of [
       'filter',
       'find',
@@ -145,6 +165,26 @@ describe('Integration: generateCoreNode dispatches array methods', () => {
       'compact',
       'pluck',
       'unique',
+      'uniqueBy',
+      'groupBy',
+      'partition',
+      'indexBy',
+      'countBy',
+      'chunk',
+      'zip',
+      'range',
+      'take',
+      'drop',
+      'min',
+      'max',
+      'minBy',
+      'maxBy',
+      'sum',
+      'sumBy',
+      'avg',
+      'intersect',
+      'findLast',
+      'findLastIndex',
     ]) {
       expect(isCoreNode(t)).toBe(true);
     }
@@ -516,6 +556,184 @@ describe('Ground Layer: unique', () => {
 
   it('throws on missing in', () => {
     expect(() => generateUnique(mk('unique', { name: 'x' }))).toThrow(/unique .* 'in' prop/);
+  });
+});
+
+describe('PR E: uniqueBy', () => {
+  it('emits Map-based dedup keyed by selector', () => {
+    const node = mk('uniqueBy', { name: 'distinct', in: 'users', by: 'item.id' });
+    expect(generateUniqueBy(node).join('\n')).toBe(
+      'export const distinct = [...new Map((users).map((item) => [item.id, item])).values()];',
+    );
+  });
+  it('throws on missing in or by', () => {
+    expect(() => generateUniqueBy(mk('uniqueBy', { name: 'x', by: 'item.id' }))).toThrow(/uniqueBy .* 'in' prop/);
+    expect(() => generateUniqueBy(mk('uniqueBy', { name: 'x', in: 'xs' }))).toThrow(/uniqueBy .* 'by' prop/);
+  });
+});
+
+describe('PR E: groupBy', () => {
+  it('emits Object.groupBy', () => {
+    const node = mk('groupBy', { name: 'byType', in: 'items', by: 'item.type' });
+    expect(generateGroupBy(node).join('\n')).toBe(
+      'export const byType = Object.groupBy((items), (item) => item.type);',
+    );
+  });
+  it('throws on missing in or by', () => {
+    expect(() => generateGroupBy(mk('groupBy', { name: 'x', by: 'item.type' }))).toThrow(/groupBy .* 'in' prop/);
+    expect(() => generateGroupBy(mk('groupBy', { name: 'x', in: 'xs' }))).toThrow(/groupBy .* 'by' prop/);
+  });
+});
+
+describe('PR E: partition', () => {
+  it('emits destructured dual-filter', () => {
+    const node = mk('partition', { pass: 'active', fail: 'inactive', in: 'users', where: 'item.active' });
+    expect(generatePartition(node).join('\n')).toBe(
+      'export const [active, inactive] = [(users).filter((item) => item.active), (users).filter((item) => !(item.active))];',
+    );
+  });
+  it('throws on missing in or where', () => {
+    expect(() => generatePartition(mk('partition', { pass: 'a', fail: 'b', where: 'x' }))).toThrow(
+      /partition .* 'in' prop/,
+    );
+    expect(() => generatePartition(mk('partition', { pass: 'a', fail: 'b', in: 'xs' }))).toThrow(
+      /partition .* 'where' prop/,
+    );
+  });
+});
+
+describe('PR E: indexBy', () => {
+  it('emits Object.fromEntries map', () => {
+    const node = mk('indexBy', { name: 'byId', in: 'users', by: 'item.id' });
+    expect(generateIndexBy(node).join('\n')).toBe(
+      'export const byId = Object.fromEntries((users).map((item) => [item.id, item]));',
+    );
+  });
+});
+
+describe('PR E: countBy', () => {
+  it('emits multi-line reduce with Record<string, number> default type', () => {
+    const node = mk('countBy', { name: 'counts', in: 'items', by: 'item.type' });
+    const code = generateCountBy(node).join('\n');
+    expect(code).toContain('const counts: Record<string, number> =');
+    expect(code).toContain('const __k = item.type;');
+    expect(code).toContain('acc[__k] = (acc[__k] ?? 0) + 1;');
+    expect(code).toContain('return acc;');
+    expect(code).toContain('{} as Record<string, number>');
+  });
+});
+
+describe('PR E: chunk', () => {
+  it('emits Array.from with Math.ceil length', () => {
+    const node = mk('chunk', { name: 'batches', in: 'items', size: '10' });
+    expect(generateChunk(node).join('\n')).toBe(
+      'export const batches = Array.from({ length: Math.ceil((items).length / (10)) }, (_, i) => (items).slice(i * (10), (i + 1) * (10)));',
+    );
+  });
+  it('throws on missing size', () => {
+    expect(() => generateChunk(mk('chunk', { name: 'x', in: 'xs' }))).toThrow(/chunk .* 'size' prop/);
+  });
+});
+
+describe('PR E: zip', () => {
+  it('emits .map with indexed access on right', () => {
+    const node = mk('zip', { name: 'pairs', in: 'items', with: 'other' });
+    expect(generateZip(node).join('\n')).toBe('export const pairs = (items).map((item, __i) => [item, (other)[__i]]);');
+  });
+});
+
+describe('PR E: range', () => {
+  it('emits Array.from with start+end', () => {
+    const node = mk('range', { name: 'nums', end: '10' });
+    expect(generateRange(node).join('\n')).toBe(
+      'export const nums = Array.from({ length: (10) - (0) }, (_, i) => i + (0));',
+    );
+  });
+  it('honours explicit start', () => {
+    const node = mk('range', { name: 'nums', start: '5', end: '10' });
+    expect(generateRange(node).join('\n')).toBe(
+      'export const nums = Array.from({ length: (10) - (5) }, (_, i) => i + (5));',
+    );
+  });
+});
+
+describe('PR E: take / drop', () => {
+  it('take emits slice(0, n)', () => {
+    expect(generateTake(mk('take', { name: 'first5', in: 'items', n: '5' })).join('\n')).toBe(
+      'export const first5 = (items).slice(0, 5);',
+    );
+  });
+  it('drop emits slice(n)', () => {
+    expect(generateDrop(mk('drop', { name: 'tail', in: 'items', n: '5' })).join('\n')).toBe(
+      'export const tail = (items).slice(5);',
+    );
+  });
+});
+
+describe('PR E: min / max / minBy / maxBy', () => {
+  it('min emits Math.min spread', () => {
+    expect(generateMin(mk('min', { name: 'lowest', in: 'values' })).join('\n')).toBe(
+      'export const lowest = Math.min(...(values));',
+    );
+  });
+  it('max emits Math.max spread', () => {
+    expect(generateMax(mk('max', { name: 'highest', in: 'values' })).join('\n')).toBe(
+      'export const highest = Math.max(...(values));',
+    );
+  });
+  it('minBy emits reducer with length guard and item->__b substitution', () => {
+    const node = mk('minBy', { name: 'youngest', in: 'users', by: 'item.age' });
+    expect(generateMinBy(node).join('\n')).toBe(
+      'export const youngest = (users).length > 0 ? (users).reduce((__b, item) => (item.age) < (__b.age) ? item : __b) : undefined;',
+    );
+  });
+  it('maxBy uses > operator', () => {
+    const node = mk('maxBy', { name: 'oldest', in: 'users', by: 'item.age' });
+    expect(generateMaxBy(node).join('\n')).toBe(
+      'export const oldest = (users).length > 0 ? (users).reduce((__b, item) => (item.age) > (__b.age) ? item : __b) : undefined;',
+    );
+  });
+});
+
+describe('PR E: sum / sumBy / avg', () => {
+  it('sum emits reduce + 0', () => {
+    expect(generateSum(mk('sum', { name: 'total', in: 'prices' })).join('\n')).toBe(
+      'export const total: number = (prices).reduce((acc, n) => acc + n, 0);',
+    );
+  });
+  it('sumBy emits reduce with by expr', () => {
+    const node = mk('sumBy', { name: 'totalCost', in: 'items', by: 'item.price * item.qty' });
+    expect(generateSumBy(node).join('\n')).toBe(
+      'export const totalCost: number = (items).reduce((acc, item) => acc + (item.price * item.qty), 0);',
+    );
+  });
+  it('avg guards against empty', () => {
+    const node = mk('avg', { name: 'mean', in: 'prices' });
+    expect(generateAvg(node).join('\n')).toBe(
+      'export const mean: number = (prices).length === 0 ? 0 : (prices).reduce((acc, n) => acc + n, 0) / (prices).length;',
+    );
+  });
+});
+
+describe('PR E: intersect', () => {
+  it('emits filter + includes', () => {
+    const node = mk('intersect', { name: 'shared', in: 'a', with: 'b' });
+    expect(generateIntersect(node).join('\n')).toBe('export const shared = (a).filter((item) => (b).includes(item));');
+  });
+});
+
+describe('PR E: findLast / findLastIndex (ES2023)', () => {
+  it('findLast mirrors find with predicate', () => {
+    const node = mk('findLast', { name: 'lastActive', in: 'users', where: 'item.active' });
+    expect(generateFindLast(node).join('\n')).toBe(
+      'export const lastActive = (users).findLast((item) => item.active);',
+    );
+  });
+  it('findLastIndex returns index', () => {
+    const node = mk('findLastIndex', { name: 'pos', in: 'users', where: 'item.active' });
+    expect(generateFindLastIndex(node).join('\n')).toBe(
+      'export const pos = (users).findLastIndex((item) => item.active);',
+    );
   });
 });
 
