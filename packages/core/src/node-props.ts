@@ -248,6 +248,113 @@ export interface UniqueProps extends BaseProps {
   type?: string;
 }
 
+// ── PR E array primitives ────────────────────────────────────────────────
+
+export interface UniqueByProps extends BaseProps {
+  in?: string | ExprObject;
+  item?: string;
+  by?: string | ExprObject;
+  type?: string;
+}
+
+export interface GroupByProps extends BaseProps {
+  in?: string | ExprObject;
+  item?: string;
+  by?: string | ExprObject;
+  type?: string;
+}
+
+export interface PartitionProps extends BaseProps {
+  pass?: string;
+  fail?: string;
+  in?: string | ExprObject;
+  item?: string;
+  where?: string | ExprObject;
+  type?: string;
+}
+
+export interface IndexByProps extends BaseProps {
+  in?: string | ExprObject;
+  item?: string;
+  by?: string | ExprObject;
+  type?: string;
+}
+
+export interface CountByProps extends BaseProps {
+  in?: string | ExprObject;
+  item?: string;
+  by?: string | ExprObject;
+  type?: string;
+}
+
+export interface ChunkProps extends BaseProps {
+  in?: string | ExprObject;
+  size?: string | ExprObject;
+  type?: string;
+}
+
+export interface ZipProps extends BaseProps {
+  in?: string | ExprObject;
+  with?: string | ExprObject;
+  item?: string;
+  index?: string;
+  type?: string;
+}
+
+export interface RangeProps extends BaseProps {
+  start?: string | ExprObject;
+  end?: string | ExprObject;
+  type?: string;
+}
+
+export interface TakeProps extends BaseProps {
+  in?: string | ExprObject;
+  n?: string | ExprObject;
+  type?: string;
+}
+
+export interface DropProps extends BaseProps {
+  in?: string | ExprObject;
+  n?: string | ExprObject;
+  type?: string;
+}
+
+export interface MinMaxProps extends BaseProps {
+  in?: string | ExprObject;
+  type?: string;
+}
+
+export interface MinMaxByProps extends BaseProps {
+  in?: string | ExprObject;
+  item?: string;
+  by?: string | ExprObject;
+  type?: string;
+}
+
+export interface SumProps extends BaseProps {
+  in?: string | ExprObject;
+  type?: string;
+}
+
+export interface SumByProps extends BaseProps {
+  in?: string | ExprObject;
+  item?: string;
+  by?: string | ExprObject;
+  type?: string;
+}
+
+export interface AvgProps extends BaseProps {
+  in?: string | ExprObject;
+  type?: string;
+}
+
+export interface IntersectProps extends BaseProps {
+  in?: string | ExprObject;
+  with?: string | ExprObject;
+  item?: string;
+  type?: string;
+}
+
 export interface TransformProps extends BaseProps {
   target?: string;
   via?: string;
@@ -464,6 +571,26 @@ export interface NodePropsMap {
   compact: CompactProps;
   pluck: PluckProps;
   unique: UniqueProps;
+  uniqueBy: UniqueByProps;
+  groupBy: GroupByProps;
+  partition: PartitionProps;
+  indexBy: IndexByProps;
+  countBy: CountByProps;
+  chunk: ChunkProps;
+  zip: ZipProps;
+  range: RangeProps;
+  take: TakeProps;
+  drop: DropProps;
+  min: MinMaxProps;
+  max: MinMaxProps;
+  minBy: MinMaxByProps;
+  maxBy: MinMaxByProps;
+  sum: SumProps;
+  sumBy: SumByProps;
+  avg: AvgProps;
+  intersect: IntersectProps;
+  findLast: ArrayMethodProps;
+  findLastIndex: ArrayMethodProps;
   transform: TransformProps;
   action: ActionProps;
   actionRegistry: ActionRegistryProps;
