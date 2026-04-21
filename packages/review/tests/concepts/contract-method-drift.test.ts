@@ -185,6 +185,20 @@ describe('contract-method-drift', () => {
     expect(contractMethodDrift(ctx)).toEqual([]);
   });
 
+  it('treats HEAD as matching a GET route (framework auto-response semantics)', () => {
+    // Codex review: Express and Starlette/FastAPI respond to HEAD requests
+    // on GET-registered routes. Firing method-drift here would be a false
+    // positive.
+    const ctx = ctxFrom(
+      [
+        { path: 'src/client.ts', source: `await fetch('/api/users/42', { method: 'HEAD' });` },
+        { path: 'src/server.ts', source: `app.get('/api/users/:id', (req, res) => res.json({}));` },
+      ],
+      'src/client.ts',
+    );
+    expect(contractMethodDrift(ctx)).toEqual([]);
+  });
+
   it('fingerprint encodes rule id so it cannot collide with contract-drift', () => {
     const ctx = ctxFrom(
       [

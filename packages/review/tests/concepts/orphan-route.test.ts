@@ -94,6 +94,33 @@ describe('orphan-route', () => {
     expect(findings[0].primarySpan.file).toBe('src/server-a.ts');
   });
 
+  it('stays silent when any client call has an unresolved target (imported URL, variable)', () => {
+    // Codex review: a `fetch(USERS_URL)` could hit any server route, so the
+    // rule must abstain rather than flag routes as orphaned based only on
+    // the literal-URL subset.
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/client.ts',
+          source: `
+            import { USERS_URL } from './constants';
+            await fetch(USERS_URL);
+            await fetch('/api/users/42');
+          `,
+        },
+        {
+          path: 'src/server.ts',
+          source: `
+            app.get('/api/users/:id', (req, res) => res.json({}));
+            app.get('/api/lookslike-orphan', (req, res) => res.json({}));
+          `,
+        },
+      ],
+      'src/server.ts',
+    );
+    expect(orphanRoute(ctx)).toEqual([]);
+  });
+
   it('returns no findings in single-file (non-graph) mode', () => {
     const concepts = conceptsOf(`app.get('/api/users/:id', (req, res) => res.json({}));`, 'src/server.ts');
     expect(orphanRoute({ concepts, filePath: 'src/server.ts' })).toEqual([]);

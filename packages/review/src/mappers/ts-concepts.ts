@@ -1350,6 +1350,28 @@ function extractHasAuthHeader(call: import('ts-morph').CallExpression, funcName:
   if (opts.getKind() !== SyntaxKind.ObjectLiteralExpression) return undefined;
   const obj = opts as import('ts-morph').ObjectLiteralExpression;
   if (obj.getProperties().some((p) => p.getKind() === SyntaxKind.SpreadAssignment)) return undefined;
+
+  // Cookie / session auth: `fetch(url, { credentials: 'include' })` or
+  // `'same-origin'` sends session cookies without an Authorization header.
+  // We can't tell from the call alone whether the server accepts that auth
+  // channel, so downgrade to `undefined` and let auth-drift stay silent.
+  // Codex review: without this, cookie-based apps fire auth-drift on every
+  // protected route even though they're authenticated.
+  const credentialsProp = obj.getProperty('credentials');
+  if (credentialsProp && credentialsProp.getKind() === SyntaxKind.PropertyAssignment) {
+    const init = (credentialsProp as import('ts-morph').PropertyAssignment).getInitializer();
+    if (init) {
+      const k = init.getKind();
+      if (k === SyntaxKind.StringLiteral || k === SyntaxKind.NoSubstitutionTemplateLiteral) {
+        const v = (init as import('ts-morph').StringLiteral).getLiteralValue();
+        if (v === 'include' || v === 'same-origin') return undefined;
+      } else {
+        // Runtime-computed credentials flag — can't tell.
+        return undefined;
+      }
+    }
+  }
+
   const headersProp = obj.getProperty('headers');
   if (!headersProp) return false;
   if (headersProp.getKind() !== SyntaxKind.PropertyAssignment) return undefined;

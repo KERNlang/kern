@@ -79,6 +79,28 @@ describe('duplicate-route', () => {
     expect(duplicateRoute(ctxA)).toEqual([]);
   });
 
+  it('fires on wildcard vs specific-verb shadowing (app.all + app.get on same path)', () => {
+    // Codex review: `app.all('/x')` + `app.get('/x')` shadow each other
+    // depending on registration order. Keying only on exact method missed
+    // this collision class.
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/server.ts',
+          source: `
+            app.all('/api/users', (req, res, next) => next());
+            app.get('/api/users', (req, res) => res.json({}));
+          `,
+        },
+      ],
+      'src/server.ts',
+    );
+    const findings = duplicateRoute(ctx);
+    expect(findings.length).toBe(1);
+    expect(findings[0].message).toContain('shadowed by wildcard');
+    expect(findings[0].message).toContain('GET /api/users');
+  });
+
   it('returns no findings in single-file (non-graph) mode', () => {
     const concepts = conceptsOf(
       `app.get('/api/users', (req, res) => res.json({})); app.get('/api/users', (req, res) => res.json({}));`,
