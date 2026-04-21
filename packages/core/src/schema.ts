@@ -576,6 +576,17 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       type: { kind: 'typeAnnotation' },
     },
   },
+  local: {
+    description:
+      'Render-scope binding — emits `const name = expr;` at the top of the enclosing screen function, before its JSX return. Use for shared pre-compute that multiple sibling `each`/`conditional`/`handler` nodes inside the same `render` block read. Expression-only (no handler body) — drop to an explicit `derive` / `memo` above the render if a hook or imperative body is needed. Direct child of `render` only.',
+    example:
+      'render wrapper="<Box paddingX={1}>"\n  local name=visible expr="items.slice(start, start + pageSize)"\n  each name=item in=visible\n    handler <<< <Text>{item.label}</Text> >>>',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      expr: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+    },
+  },
   collect: {
     description: 'Query/collect from a data source with optional filter, sort, and limit',
     example: 'collect name=activeUsers from=users where="u => u.active" order="u => u.name" limit=10',
@@ -1309,10 +1320,13 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   render: {
     description:
-      'Render function — JSX output block for a component or hook. Accepts a raw `handler` block OR declarative KERN children (e.g. `each`, `conditional`) that compose into a JSX fragment.',
-    example: 'render\n  each name=f in=files key="f.path"\n    handler <<<\n      <Text>{f.path}</Text>\n    >>>',
-    props: {},
-    allowedChildren: ['handler', 'each', 'conditional'],
+      'Render function — JSX output block for a component or hook. Accepts a raw `handler` block OR declarative KERN children (`each`, `conditional`, `local`) that compose into a JSX tree. Optional `wrapper="<Tag attrs>"` prop emits that tag as the outer element around the composed children (replaces the default `<>...</>` Fragment). `local` children emit `const name = expr;` bindings at the enclosing screen-function scope before the return — use them for shared pre-compute that multiple sibling `each`/`conditional`/`handler` nodes read.',
+    example:
+      'render wrapper="<Box paddingX={1}>"\n  local name=visible expr="items.slice(start, start + pageSize)"\n  each name=item in=visible\n    handler <<< <Text>{item.label}</Text> >>>',
+    props: {
+      wrapper: { kind: 'string' },
+    },
+    allowedChildren: ['handler', 'each', 'conditional', 'local'],
   },
   template: {
     description: 'Reusable template with named slots — defines a composable layout pattern',
