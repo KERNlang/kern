@@ -326,6 +326,8 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
           target: extractTarget(call),
           responseAsserted: isResponseAsserted(call, isWrappedClientCall),
           bodyKind: extractBodyKind(call, funcName),
+          method: extractHttpMethod(call, funcName, isDirectNetwork, isKnownLibraryMethod, isWrappedClientCall),
+          hasAuthHeader: extractHasAuthHeader(call, funcName),
         },
       });
       continue;
@@ -1276,6 +1278,93 @@ function extractBodyKind(
   // Options is passed as a variable (common pattern: `fetch(url, opts)`) —
   // we don't have enough info to tell without type checker dataflow.
   return undefined;
+}
+
+/**
+ * Derive the HTTP method of a network call. Returns uppercase method string
+ * (`GET`, `POST`, …) when confident, `undefined` when the method lives in a
+ * runtime variable we can't read statically (e.g. `axios({ method: verb })`).
+ * Feeds the `contract-method-drift` cross-stack rule.
+ *
+ * Resolution rules (in order):
+ *   1. Wrapped client (`apiClient.post(…)`) or library method (`axios.get(…)`)
+ *      → `funcName.toUpperCase()`. `funcName === 'request'` is intentionally
+ *      skipped — for `axios.request({ method })` we'd need to read the config.
+ *   2. Raw `fetch(url, { method: 'POST' })` — read the string literal. Any
+ *      spread (`{ method: 'GET', ...opts }`) downgrades to `undefined` since
+ *      we can't tell if opts overrides method at runtime.
+ *   3. Raw `fetch(url)` / `axios(url)` with no options arg → `GET` (WHATWG +
+ *      axios spec default).
+ *   4. Raw call with variable options arg → `undefined` (requires dataflow).
+ */
+function extractHttpMethod(
+  call: import('ts-morph').CallExpression,
+  funcName: string,
+  isDirectNetwork: boolean,
+  isKnownLibraryMethod: boolean,
+  isWrappedClientCall: boolean,
+): string | undefined {
+  if (isKnownLibraryMethod || isWrappedClientCall) {
+    if (funcName === 'request') return undefined;
+    return funcName.toUpperCase();
+  }
+  if (!isDirectNetwork) return undefined;
+
+  const args = call.getArguments();
+  if (args.length < 2) return 'GET';
+
+  const opts = args[1];
+  if (opts.getKind() === SyntaxKind.ObjectLiteralExpression) {
+    const obj = opts as import('ts-morph').ObjectLiteralExpression;
+    const hasSpread = obj.getProperties().some((p) => p.getKind() === SyntaxKind.SpreadAssignment);
+    if (hasSpread) return undefined;
+    const methodProp = obj.getProperty('method');
+    if (!methodProp) return 'GET';
+    if (methodProp.getKind() !== SyntaxKind.PropertyAssignment) return undefined;
+    const initializer = (methodProp as import('ts-morph').PropertyAssignment).getInitializer();
+    if (!initializer) return undefined;
+    const iKind = initializer.getKind();
+    if (iKind === SyntaxKind.StringLiteral) {
+      return (initializer as import('ts-morph').StringLiteral).getLiteralValue().toUpperCase();
+    }
+    if (iKind === SyntaxKind.NoSubstitutionTemplateLiteral) {
+      return (initializer as import('ts-morph').NoSubstitutionTemplateLiteral).getLiteralValue().toUpperCase();
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Detect whether a network call's options literal carries an `Authorization`
+ * header. Returns `true`/`false` when the options object is inspectable,
+ * `undefined` when it's a variable, spread, or missing. Only looks at raw
+ * `fetch(…)` — wrapped clients typically inject auth inside the wrapper.
+ * Feeds the `auth-drift` rule, which only fires when the mapper is confident.
+ */
+function extractHasAuthHeader(call: import('ts-morph').CallExpression, funcName: string): boolean | undefined {
+  if (funcName !== 'fetch') return undefined;
+  const args = call.getArguments();
+  if (args.length < 2) return false;
+  const opts = args[1];
+  if (opts.getKind() !== SyntaxKind.ObjectLiteralExpression) return undefined;
+  const obj = opts as import('ts-morph').ObjectLiteralExpression;
+  if (obj.getProperties().some((p) => p.getKind() === SyntaxKind.SpreadAssignment)) return undefined;
+  const headersProp = obj.getProperty('headers');
+  if (!headersProp) return false;
+  if (headersProp.getKind() !== SyntaxKind.PropertyAssignment) return undefined;
+  const headersInit = (headersProp as import('ts-morph').PropertyAssignment).getInitializer();
+  if (!headersInit) return undefined;
+  if (headersInit.getKind() !== SyntaxKind.ObjectLiteralExpression) return undefined;
+  const headersObj = headersInit as import('ts-morph').ObjectLiteralExpression;
+  if (headersObj.getProperties().some((p) => p.getKind() === SyntaxKind.SpreadAssignment)) return undefined;
+  for (const prop of headersObj.getProperties()) {
+    if (prop.getKind() === SyntaxKind.PropertyAssignment) {
+      const pa = prop as import('ts-morph').PropertyAssignment;
+      if (/^['"]?authorization['"]?$/i.test(pa.getName())) return true;
+    }
+  }
+  return false;
 }
 
 function classifyBodyExpression(expr: import('ts-morph').Node | undefined): 'none' | 'static' | 'dynamic' | undefined {
