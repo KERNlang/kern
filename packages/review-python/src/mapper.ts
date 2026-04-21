@@ -323,7 +323,10 @@ function extractEntrypoints(root: Parser.SyntaxNode, source: string, filePath: s
       // path literal. Mystery decorators with only kwargs (e.g. `@app.get`
       // stub) are noise — skip them instead of filling `name` with the
       // function name, which cross-stack routes treat as invalid.
-      if (!routePath || !routePath.startsWith('/')) continue;
+      if (!routePath?.startsWith('/')) continue;
+
+      const responseModel = extractResponseModel(decText);
+      const routeContainerId = getSelfContainerId(fnDef, filePath);
 
       nodes.push({
         id: conceptId(filePath, 'entrypoint', child.startIndex),
@@ -332,12 +335,14 @@ function extractEntrypoints(root: Parser.SyntaxNode, source: string, filePath: s
         evidence: nodeText(source, child, 100),
         confidence: 1.0,
         language: 'py',
-        containerId: getContainerId(node, filePath),
+        containerId: routeContainerId,
         payload: {
           kind: 'entrypoint',
           subtype: 'route',
           name: routePath,
           httpMethod: method === 'ROUTE' ? undefined : method,
+          responseModel,
+          isAsync: isAsyncFunction(fnDef),
           routerName,
         },
       });
@@ -649,6 +654,62 @@ function getContainerId(node: Parser.SyntaxNode, filePath: string): string | und
   return undefined;
 }
 
+function getSelfContainerId(node: Parser.SyntaxNode, filePath: string): string | undefined {
+  if (node.type !== 'function_definition' && node.type !== 'class_definition') return undefined;
+  const nameNode = node.childForFieldName('name');
+  const name = nameNode ? nameNode.text : 'anonymous';
+  return `${filePath}#fn:${name}@${node.startIndex}`;
+}
+
+function extractResponseModel(decoratorText: string): string | undefined {
+  const match = decoratorText.match(/\bresponse_model\s*=/);
+  if (!match || match.index === undefined) return undefined;
+
+  let index = match.index + match[0].length;
+  while (/\s/.test(decoratorText[index] ?? '')) index++;
+
+  const start = index;
+  let squareDepth = 0;
+  let parenDepth = 0;
+  let braceDepth = 0;
+  let quote: string | undefined;
+
+  while (index < decoratorText.length) {
+    const char = decoratorText[index];
+    const prev = decoratorText[index - 1];
+
+    if (quote) {
+      if (char === quote && prev !== '\\') quote = undefined;
+      index++;
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      index++;
+      continue;
+    }
+
+    if (char === '[') squareDepth++;
+    else if (char === ']') squareDepth = Math.max(0, squareDepth - 1);
+    else if (char === '(') parenDepth++;
+    else if (char === ')') {
+      if (squareDepth === 0 && parenDepth === 0 && braceDepth === 0) break;
+      parenDepth = Math.max(0, parenDepth - 1);
+    } else if (char === '{') braceDepth++;
+    else if (char === '}') braceDepth = Math.max(0, braceDepth - 1);
+    else if (char === ',' && squareDepth === 0 && parenDepth === 0 && braceDepth === 0) {
+      break;
+    }
+
+    index++;
+  }
+
+  const model = decoratorText.slice(start, index).trim();
+  if (!model || model === 'None') return undefined;
+  return model;
+}
+
 function extractRaiseType(node: Parser.SyntaxNode): string | undefined {
   // raise ValueError("...") → "ValueError"
   const callNode = node.namedChildren.find((c) => c.type === 'call');
@@ -681,10 +742,13 @@ function isInAsyncDef(node: Parser.SyntaxNode): boolean {
   let parent = node.parent;
   while (parent) {
     if (parent.type === 'function_definition') {
-      // Check for 'async' keyword before 'def'
-      return parent.children.some((c) => c.type === 'async');
+      return isAsyncFunction(parent);
     }
     parent = parent.parent;
   }
   return false;
+}
+
+function isAsyncFunction(node: Parser.SyntaxNode): boolean {
+  return node.children.some((c) => c.type === 'async');
 }

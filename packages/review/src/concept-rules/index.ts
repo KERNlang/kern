@@ -10,10 +10,13 @@ import type { ReviewFinding } from '../types.js';
 import { boundaryMutation } from './boundary-mutation.js';
 import { contractDrift } from './contract-drift.js';
 import { ignoredError } from './ignored-error.js';
+import { missingResponseModel } from './missing-response-model.js';
+import { syncHandlerDoesIo } from './sync-handler-does-io.js';
 import { taintedAcrossWire } from './tainted-across-wire.js';
 import { unguardedEffect } from './unguarded-effect.js';
 import { unrecoveredEffect } from './unrecovered-effect.js';
 import { untypedApiResponse } from './untyped-api-response.js';
+import { untypedBothEndsResponse } from './untyped-both-ends-response.js';
 
 export interface ConceptRuleContext {
   concepts: ConceptMap;
@@ -30,10 +33,13 @@ export const conceptRules: ConceptRule[] = [
   boundaryMutation,
   contractDrift,
   ignoredError,
+  missingResponseModel,
+  syncHandlerDoesIo,
   taintedAcrossWire,
   unguardedEffect,
   unrecoveredEffect,
   untypedApiResponse,
+  untypedBothEndsResponse,
 ];
 
 export function runConceptRules(

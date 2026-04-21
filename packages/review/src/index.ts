@@ -1056,7 +1056,14 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
 
   if (allConcepts.size > 0) {
     // Concept rule IDs to replace (remove per-file findings, add cross-file ones)
-    const CONCEPT_RULE_IDS = new Set(['boundary-mutation', 'ignored-error', 'unguarded-effect', 'unrecovered-effect']);
+    const CONCEPT_RULE_IDS = new Set([
+      'boundary-mutation',
+      'ignored-error',
+      'missing-response-model',
+      'sync-handler-does-io',
+      'unguarded-effect',
+      'unrecovered-effect',
+    ]);
 
     for (const report of reports) {
       const concepts = allConcepts.get(report.filePath);
