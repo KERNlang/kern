@@ -18,16 +18,14 @@ describe('suggest-kern-primitive rule', () => {
     expect(f[0].suggestion).toBe('filter name=<name> in=users where="item.active"');
   });
 
-  it('suggests `map` with expr= (not where=)', () => {
-    const f = kernSuggestions('const names = users.map((u) => u.profile.name);');
-    expect(f[0].suggestion).toContain('map name=<name> in=users item=u expr="u.profile.name"');
+  it('suggests `map` with expr= when the arrow body is a computed expression (not a property chain)', () => {
+    const f = kernSuggestions('const tags = users.map((u) => u.name + u.title);');
+    expect(f[0].suggestion).toContain('map name=<name> in=users item=u expr="u.name + u.title"');
   });
 
   it('suggests `reduce` with acc/item/initial/expr props', () => {
     const f = kernSuggestions('const total = items.reduce((acc, item) => acc + item.value, 0);');
-    expect(f[0].suggestion).toBe(
-      'reduce name=<name> in=items initial="0" expr="acc + item.value"',
-    );
+    expect(f[0].suggestion).toBe('reduce name=<name> in=items initial="0" expr="acc + item.value"');
   });
 
   it('suggests `find` / `some` / `every` / `findIndex` with predicate shape', () => {
@@ -104,9 +102,45 @@ describe('suggest-kern-primitive rule', () => {
     expect(f[0].suggestion).not.toContain('name=');
   });
 
-  it('skips `.filter(Boolean)` — reserved for the future `compact` primitive', () => {
+  it('routes `.filter(Boolean)` to the `compact` primitive', () => {
     const f = kernSuggestions('const truthy = items.filter(Boolean);');
-    expect(f).toHaveLength(0);
+    expect(f).toHaveLength(1);
+    expect(f[0].suggestion).toBe('compact name=<name> in=items');
+    expect(f[0].message).toContain('compact');
+  });
+
+  it('routes `.map(x => x.prop)` to the `pluck` primitive (single prop)', () => {
+    const f = kernSuggestions('const names = users.map((u) => u.name);');
+    expect(f).toHaveLength(1);
+    expect(f[0].suggestion).toBe('pluck name=<name> in=users item=u prop=name');
+    expect(f[0].message).toContain('pluck');
+  });
+
+  it('routes `.map(x => x.a.b.c)` to `pluck` with dot-path', () => {
+    const f = kernSuggestions('const cities = users.map((item) => item.profile.address.city);');
+    expect(f).toHaveLength(1);
+    expect(f[0].suggestion).toBe('pluck name=<name> in=users prop=profile.address.city');
+  });
+
+  it('does NOT route `.map(x => x.method())` to pluck (method call, not property chain)', () => {
+    const f = kernSuggestions('const upper = names.map((n) => n.toUpperCase());');
+    expect(f).toHaveLength(1);
+    expect(f[0].suggestion?.startsWith('map ')).toBe(true);
+    expect(f[0].suggestion).not.toContain('pluck');
+  });
+
+  it('routes `[...new Set(coll)]` to the `unique` primitive', () => {
+    const f = kernSuggestions('const distinct = [...new Set(items)];');
+    const uniqueFindings = f.filter((x) => x.suggestion?.startsWith('unique '));
+    expect(uniqueFindings).toHaveLength(1);
+    expect(uniqueFindings[0].suggestion).toBe('unique name=<name> in=items');
+  });
+
+  it('stacks compact + pluck for `.filter(Boolean).map(x => x.name)`', () => {
+    const f = kernSuggestions('const names = items.filter(Boolean).map((i) => i.name);');
+    const suggestions = f.map((x) => x.suggestion ?? '');
+    expect(suggestions.some((s) => s.startsWith('compact name='))).toBe(true);
+    expect(suggestions.some((s) => s.startsWith('pluck name='))).toBe(true);
   });
 
   it('skips multi-statement arrow bodies (block form needs a handler child)', () => {
@@ -127,7 +161,9 @@ describe('suggest-kern-primitive rule', () => {
   });
 
   it('emits multiple findings for a chained pipeline', () => {
-    const f = kernSuggestions('const out = users.filter((u) => u.active).map((u) => u.name);');
+    // `.map((u) => u.name + u.tag)` is a computed expression, not a property chain,
+    // so it routes to `map`, not `pluck` — paired with the `filter` predicate.
+    const f = kernSuggestions('const out = users.filter((u) => u.active).map((u) => u.name + u.tag);');
     expect(f.length).toBeGreaterThanOrEqual(2);
     expect(f.some((x) => x.suggestion?.startsWith('filter '))).toBe(true);
     expect(f.some((x) => x.suggestion?.startsWith('map '))).toBe(true);
