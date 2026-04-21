@@ -10,7 +10,7 @@
 
   <br>
 
-  **Built for humans and AI.** 192-line spec. 13 compile targets. 149 review rules.<br>
+  **Built for humans and AI.** 192-line spec. 13 compile targets. 150 review rules.<br>
   <sub>LLMs write .kern in up to 85% fewer tokens. 7 LLMs verified.</sub>
 
   <br>
@@ -30,7 +30,7 @@ npm install -g @kernlang/cli
 
 ```bash
 kern compile src/ --target=nextjs --watch --facades --index   # One command — compile, watch, facades, barrel
-kern review src/ --recursive                                  # Static analysis (149 rules, taint tracking)
+kern review src/ --recursive                                  # Static analysis (150 rules, taint tracking)
 kern init --template=fullstack my-app                          # Scaffold fullstack app (Next.js + Express + MCP)
 kern init --mcp                                               # Scaffold an MCP server with security guards
 kern import src/ --outdir=kern/                               # TypeScript → .kern
@@ -43,7 +43,7 @@ kern schema --json                                            # Full schema for 
 
 **KERN is a structural language with five capabilities: Compile, Review, Evolve, Infer, and MCP Security.**
 
-Write `.kern` once, compile to 13 targets. Or skip `.kern` entirely and use `kern review` to scan your existing TypeScript and Python for security bugs, unguarded effects, and prompt injection — 149 AST-based rules that catch what ESLint misses.
+Write `.kern` once, compile to 13 targets. Or skip `.kern` entirely and use `kern review` to scan your existing TypeScript and Python for security bugs, unguarded effects, and prompt injection — 150 AST-based rules that catch what ESLint misses.
 
 ### Compilation Targets
 
@@ -114,7 +114,7 @@ kern review src/ --lint                 # KERN + ESLint + tsc unified
 kern review src/ --llm                  # AI review (see below)
 ```
 
-**149 rules** across base, security, framework, performance, null-safety, dead-logic, concept, and taint-aware analysis layers.
+**150 rules** across base, security, framework, performance, null-safety, dead-logic, concept, and taint-aware analysis layers.
 
 ### AI-Assisted Review (`--llm`)
 
