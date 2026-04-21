@@ -278,7 +278,14 @@ describe('chunkLargeInput', () => {
 
     // Consecutive chunks overlap: the first non-header line of chunk N+1 must
     // appear somewhere in chunk N's body.
-    const stripHeader = (s: string) => s.split('\n').filter((l) => !l.startsWith('// kern-chunk') && !l.startsWith('// The source file') && !l.startsWith('// Do not report')).join('\n');
+    const stripHeader = (s: string) =>
+      s
+        .split('\n')
+        .filter(
+          (l) =>
+            !l.startsWith('// kern-chunk') && !l.startsWith('// The source file') && !l.startsWith('// Do not report'),
+        )
+        .join('\n');
     for (let i = 0; i < chunks.length - 1; i++) {
       const current = stripHeader(chunks[i].source!);
       const next = stripHeader(chunks[i + 1].source!);
@@ -304,6 +311,40 @@ describe('chunkLargeInput', () => {
     // from the estimate — so we expect the single-element identity return.
     const chunks = chunkLargeInput(input, '');
     expect(chunks).toHaveLength(1);
+  });
+
+  it('returns [] when the IR alone exceeds the per-chunk source budget', () => {
+    // Simulate an IR-bound oversized input: the cachedIR string is huge and
+    // source is negligible. estimateInputTokens ultimately sees
+    // SYSTEM_PROMPT + OVERHEAD + irTokens + sourceTokens, and if IR alone
+    // blows past the threshold, sourceBudget goes non-positive. The chunker
+    // cannot help — chunking source doesn't reduce IR — so we return [].
+    const hugeIR = 'x'.repeat(280_000); // ~70K tokens of IR alone
+    const input = {
+      filePath: 'ir-heavy.ts',
+      inferred: [],
+      templateMatches: [],
+      source: 'small\n',
+      graphContext: { fileDistances: new Map([['ir-heavy.ts', 0]]) },
+    };
+    expect(chunkLargeInput(input, hugeIR)).toEqual([]);
+  });
+
+  it('handles files with >64K lines without RangeError from Math.max spread', () => {
+    // V8's spread syntax (`Math.max(...arr)`) hits the argument-list stack
+    // limit around 64K elements. Early implementations used that pattern
+    // and would throw RangeError before emitting any finding. The iterative
+    // longestLineLength fix means a generated 70K-line file is handled
+    // gracefully — here we just confirm the call returns without throwing.
+    const lines = Array.from({ length: 70_000 }, () => '// short line');
+    const input = {
+      filePath: 'huge.ts',
+      inferred: [],
+      templateMatches: [],
+      source: lines.join('\n'),
+      graphContext: { fileDistances: new Map([['huge.ts', 0]]) },
+    };
+    expect(() => chunkLargeInput(input, '')).not.toThrow();
   });
 
   it('returns [] when a single line exceeds the per-chunk source budget (minified)', () => {

@@ -220,15 +220,28 @@ export function isHighValueFinding(f: ReviewFinding): boolean {
 /** Max input tokens per batch. Conservative — leaves room for output + overhead. */
 const MAX_BATCH_TOKENS = 60_000;
 
-/** Max tokens for a single file sent in one API call. Above this we chunk. */
-const MAX_SINGLE_FILE_TOKENS = 100_000;
+/** Safety margin subtracted when computing the per-chunk source budget. Also
+ *  the gap between a solo input's estimated tokens and MAX_BATCH_TOKENS at
+ *  which we trigger chunking. Keeps a single oversized input from being put
+ *  into a batch that would silently exceed the per-call limit. */
+const CHUNK_HEADROOM_TOKENS = 2_000;
 
-/** Safety margin subtracted when computing the per-chunk source budget. */
-const CHUNK_HEADROOM_TOKENS = 1_000;
+/** A file whose estimated prompt exceeds this is chunked. Derived from the
+ *  batch budget so an un-chunked input that passes through never produces
+ *  a batch over the per-call limit. */
+const CHUNK_TRIGGER_TOKENS = MAX_BATCH_TOKENS - CHUNK_HEADROOM_TOKENS;
 
 /** Line overlap between consecutive source chunks so a declaration split
  *  across a boundary still appears whole in at least one chunk. */
 const CHUNK_OVERLAP_LINES = 20;
+
+/** Longest-line probe that avoids V8's spread-argument stack limit (~64K
+ *  arguments in practice). A simple reduce handles arbitrary line counts. */
+function longestLineLength(lines: readonly string[]): number {
+  let max = 0;
+  for (const l of lines) if (l.length > max) max = l.length;
+  return max;
+}
 
 /**
  * Split a single oversized LLMReviewInput into N smaller inputs that each
@@ -243,7 +256,7 @@ const CHUNK_OVERLAP_LINES = 20;
  */
 export function chunkLargeInput(input: LLMReviewInput, cachedIR: string): LLMReviewInput[] {
   const totalTokens = estimateInputTokens(input, cachedIR);
-  if (totalTokens <= MAX_SINGLE_FILE_TOKENS) return [input];
+  if (totalTokens <= CHUNK_TRIGGER_TOKENS) return [input];
 
   // Only CHANGED files include source in the token count, so only those
   // can be chunked. If a CONTEXT file somehow crossed the threshold it's
@@ -255,26 +268,50 @@ export function chunkLargeInput(input: LLMReviewInput, cachedIR: string): LLMRev
   const sourceBudget = MAX_BATCH_TOKENS - nonSourceTokens - CHUNK_HEADROOM_TOKENS;
   if (sourceBudget <= 0) return []; // IR + context alone too large — unchunkable
 
-  const numChunks = Math.ceil(sourceTokens / sourceBudget);
   const lines = input.source.split('\n');
-  const linesPerChunk = Math.ceil(lines.length / numChunks);
-
   // Minified / single-line files: one line exceeds the per-chunk budget.
   // Byte-slicing a line would break syntax; safer to skip than mangle.
-  const longestLineTokens = Math.ceil(Math.max(...lines.map((l) => l.length)) / 4);
+  const longestLineTokens = Math.ceil(longestLineLength(lines) / 4);
   if (longestLineTokens > sourceBudget) return [];
 
-  const chunks: LLMReviewInput[] = [];
-  for (let i = 0; i < numChunks; i++) {
-    const start = Math.max(0, i * linesPerChunk - CHUNK_OVERLAP_LINES);
-    const end = Math.min(lines.length, (i + 1) * linesPerChunk + CHUNK_OVERLAP_LINES);
-    const header =
-      `// kern-chunk ${i + 1}/${numChunks} of ${input.filePath} — lines ${start + 1}-${end} of ${lines.length}.\n` +
-      `// The source file exceeded the single-call token budget. The KERN IR below is complete; this source slice is partial.\n` +
-      `// Do not report findings that would require context outside this line range.\n`;
-    chunks.push({ ...input, source: header + lines.slice(start, end).join('\n') });
+  // Initial split by average tokens/line. We then verify each chunk's
+  // estimated tokens fits under sourceBudget; if any chunk is still over
+  // (long lines clumped in one section), we increase numChunks and retry.
+  let numChunks = Math.ceil(sourceTokens / sourceBudget);
+  let chunks: LLMReviewInput[] = [];
+  for (let attempt = 0; attempt < 8; attempt++) {
+    chunks = [];
+    const linesPerChunk = Math.ceil(lines.length / numChunks);
+    // Clamp overlap so a chunk can never be < 2× its non-overlapped width —
+    // otherwise on a very many-chunks split we'd blow the budget with
+    // overlap alone.
+    const overlap = Math.min(CHUNK_OVERLAP_LINES, Math.floor(linesPerChunk / 2));
+
+    let overflow = false;
+    for (let i = 0; i < numChunks; i++) {
+      const start = Math.max(0, i * linesPerChunk - overlap);
+      const end = Math.min(lines.length, (i + 1) * linesPerChunk + overlap);
+      const body = lines.slice(start, end).join('\n');
+      const chunkTokens = estimateTokens(body);
+      if (chunkTokens > sourceBudget) {
+        overflow = true;
+        break;
+      }
+      const header =
+        `// kern-chunk ${i + 1}/${numChunks} of ${input.filePath} — lines ${start + 1}-${end} of ${lines.length}.\n` +
+        `// The source file exceeded the single-call token budget. The KERN IR below is complete; this source slice is partial.\n` +
+        `// Do not report findings that would require context outside this line range.\n`;
+      chunks.push({ ...input, source: header + body });
+    }
+    if (!overflow) return chunks;
+    // Re-split at finer granularity. Doubling converges quickly even on
+    // highly skewed distributions (a handful of very long lines in one
+    // hotspot).
+    numChunks *= 2;
   }
-  return chunks;
+  // Pathological input where even very fine-grained line splits can't get
+  // below the budget — treat as unchunkable and let caller emit llm-skipped.
+  return [];
 }
 
 /**
