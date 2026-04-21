@@ -113,6 +113,33 @@ describe('suggest-kern-primitive rule', () => {
     expect(f[0].message).toContain('compact');
   });
 
+  it('routes `.filter(x => !!x)` to the `compact` primitive', () => {
+    const f = kernSuggestions('const truthy = items.filter((x) => !!x);');
+    expect(f).toHaveLength(1);
+    expect(f[0].suggestion).toBe('compact name=<name> in=items');
+  });
+
+  it('routes `.filter(x => Boolean(x))` to the `compact` primitive', () => {
+    const f = kernSuggestions('const truthy = items.filter((x) => Boolean(x));');
+    expect(f).toHaveLength(1);
+    expect(f[0].suggestion).toBe('compact name=<name> in=items');
+  });
+
+  it('does NOT route `.filter(x => !!x.prop)` to compact — that is a property-predicate filter', () => {
+    const f = kernSuggestions('const activeOnly = users.filter((x) => !!x.active);');
+    expect(f).toHaveLength(1);
+    // `!!x.active` is predicate-over-prop; should route to `filter`, not `compact`.
+    expect(f[0].suggestion?.startsWith('filter ')).toBe(true);
+    expect(f[0].suggestion).not.toContain('compact');
+  });
+
+  it('does NOT route `.filter(x => !x)` to compact — single-negation is keep-falsy, the inverse', () => {
+    const f = kernSuggestions('const falsy = items.filter((x) => !x);');
+    // Single `!` keeps falsy values — opposite semantics from compact.
+    const compacts = f.filter((x) => x.suggestion?.startsWith('compact'));
+    expect(compacts).toHaveLength(0);
+  });
+
   it('routes `.map(x => x.prop)` to the `pluck` primitive (single prop)', () => {
     const f = kernSuggestions('const names = users.map((u) => u.name);');
     expect(f).toHaveLength(1);
