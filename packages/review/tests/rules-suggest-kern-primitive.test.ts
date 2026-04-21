@@ -1,7 +1,7 @@
 import { reviewSource } from '../src/index.js';
 
-function kernSuggestions(ts: string) {
-  const report = reviewSource(ts, 'input.ts');
+function kernSuggestions(ts: string, filePath = 'input.ts') {
+  const report = reviewSource(ts, filePath);
   return report.findings.filter((f) => f.ruleId === 'suggest-kern-primitive');
 }
 
@@ -206,5 +206,186 @@ describe('suggest-kern-primitive rule', () => {
     expect(f.length).toBeGreaterThanOrEqual(2);
     expect(f.some((x) => x.suggestion?.startsWith('filter '))).toBe(true);
     expect(f.some((x) => x.suggestion?.startsWith('map '))).toBe(true);
+  });
+
+  // ── fmt detector ────────────────────────────────────────────────────
+
+  describe('fmt detector', () => {
+    it('suggests `fmt` for a template literal initializer', () => {
+      const f = kernSuggestions('const label = `${count} files`;');
+      const fmt = f.filter((x) => x.suggestion?.startsWith('fmt '));
+      expect(fmt).toHaveLength(1);
+      expect(fmt[0].suggestion).toBe('fmt name=label template="${count} files"');
+    });
+
+    it('preserves multiple ${…} placeholders and surrounding text verbatim', () => {
+      const f = kernSuggestions('const greet = `Hello, ${first} ${last}!`;');
+      const fmt = f.filter((x) => x.suggestion?.startsWith('fmt '));
+      expect(fmt[0].suggestion).toBe('fmt name=greet template="Hello, ${first} ${last}!"');
+    });
+
+    it('escapes embedded double-quotes in the template body', () => {
+      const f = kernSuggestions('const q = `said "${who}" loudly`;');
+      const fmt = f.filter((x) => x.suggestion?.startsWith('fmt '));
+      expect(fmt[0].suggestion).toBe('fmt name=q template="said \\"${who}\\" loudly"');
+    });
+
+    it('does NOT fire on plain (no-substitution) template strings', () => {
+      const f = kernSuggestions('const s = `no placeholders`;');
+      const fmt = f.filter((x) => x.suggestion?.startsWith('fmt '));
+      expect(fmt).toHaveLength(0);
+    });
+
+    it('does NOT fire when the template is not a variable initializer', () => {
+      const f = kernSuggestions('log(`${x} items`);');
+      const fmt = f.filter((x) => x.suggestion?.startsWith('fmt '));
+      expect(fmt).toHaveLength(0);
+    });
+
+    it('skips destructured bindings (no single name= target)', () => {
+      // Not a realistic shape, but guards the guard.
+      const f = kernSuggestions('const [a] = [`${x}`];');
+      const fmt = f.filter((x) => x.suggestion?.startsWith('fmt '));
+      expect(fmt).toHaveLength(0);
+    });
+  });
+
+  // ── conditional JSX detector ────────────────────────────────────────
+
+  describe('conditional JSX detector', () => {
+    it('suggests `conditional` for a JSX ternary inside a JSX expression', () => {
+      const src = 'const X = () => (<div>{loading ? <Spinner /> : <Content />}</div>);';
+      const f = kernSuggestions(src, 'input.tsx');
+      const cond = f.filter((x) => x.suggestion?.startsWith('conditional '));
+      expect(cond).toHaveLength(1);
+      expect(cond[0].suggestion).toContain('conditional if="loading"');
+      expect(cond[0].suggestion).toContain('handler <<<');
+      expect(cond[0].suggestion).toContain('<Spinner />');
+      expect(cond[0].suggestion).toContain('else');
+      expect(cond[0].suggestion).toContain('<Content />');
+    });
+
+    it('does NOT fire when either branch is non-JSX (e.g. null)', () => {
+      const src = 'const X = () => (<div>{show ? <A /> : null}</div>);';
+      const f = kernSuggestions(src, 'input.tsx');
+      const cond = f.filter((x) => x.suggestion?.startsWith('conditional '));
+      expect(cond).toHaveLength(0);
+    });
+
+    it('does NOT fire on a value-level ternary outside JSX', () => {
+      const src = 'const view = flag ? "<A />" : "<B />";';
+      const f = kernSuggestions(src, 'input.tsx');
+      const cond = f.filter((x) => x.suggestion?.startsWith('conditional '));
+      expect(cond).toHaveLength(0);
+    });
+
+    it('escapes quotes in the condition expression', () => {
+      const src = 'const X = () => (<div>{tag === "admin" ? <A /> : <B />}</div>);';
+      const f = kernSuggestions(src, 'input.tsx');
+      const cond = f.filter((x) => x.suggestion?.startsWith('conditional '));
+      expect(cond[0].suggestion).toContain('if="tag === \\"admin\\""');
+    });
+  });
+
+  // ── async try/catch detector ────────────────────────────────────────
+
+  describe('async try/catch detector', () => {
+    it('suggests `async` + `recover/strategy` for an async fn whose body is try/catch', () => {
+      const src = `
+        async function loadUser(id) {
+          try {
+            const u = await fetch(id);
+            return u;
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      `;
+      const f = kernSuggestions(src);
+      const async = f.filter((x) => x.suggestion?.startsWith('async '));
+      expect(async).toHaveLength(1);
+      expect(async[0].suggestion).toContain('async name=loadUser');
+      expect(async[0].suggestion).toContain('handler <<<');
+      expect(async[0].suggestion).toContain('await fetch(id)');
+      expect(async[0].suggestion).toContain('recover');
+      expect(async[0].suggestion).toContain('strategy <<<');
+      expect(async[0].suggestion).toContain('console.error(e)');
+    });
+
+    it('picks up the variable name for an async arrow initializer', () => {
+      const src = `
+        const loadPosts = async () => {
+          try {
+            await fetch('/posts');
+          } catch (e) {
+            throw e;
+          }
+        };
+      `;
+      const f = kernSuggestions(src);
+      const async = f.filter((x) => x.suggestion?.startsWith('async '));
+      expect(async[0].suggestion).toContain('async name=loadPosts');
+    });
+
+    it('does NOT fire when the try body has no await', () => {
+      const src = `
+        async function noAwait() {
+          try {
+            return 1;
+          } catch (e) {
+            return 0;
+          }
+        }
+      `;
+      const f = kernSuggestions(src);
+      const async = f.filter((x) => x.suggestion?.startsWith('async '));
+      expect(async).toHaveLength(0);
+    });
+
+    it('does NOT fire on a non-async function with try/catch', () => {
+      const src = `
+        function sync() {
+          try {
+            return 1;
+          } catch (e) {
+            return 0;
+          }
+        }
+      `;
+      const f = kernSuggestions(src);
+      const async = f.filter((x) => x.suggestion?.startsWith('async '));
+      expect(async).toHaveLength(0);
+    });
+
+    it('does NOT fire when the body mixes statements around the try', () => {
+      const src = `
+        async function mixed() {
+          const pre = 1;
+          try {
+            await fetch('/x');
+          } catch (e) {
+            return pre;
+          }
+        }
+      `;
+      const f = kernSuggestions(src);
+      const async = f.filter((x) => x.suggestion?.startsWith('async '));
+      expect(async).toHaveLength(0);
+    });
+
+    it('does NOT fire when there is no catch clause', () => {
+      const src = `
+        async function finallyOnly() {
+          try {
+            await fetch('/x');
+          } finally {
+            done();
+          }
+        }
+      `;
+      const f = kernSuggestions(src);
+      const async = f.filter((x) => x.suggestion?.startsWith('async '));
+      expect(async).toHaveLength(0);
+    });
   });
 });
