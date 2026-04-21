@@ -42,22 +42,34 @@ export {
   generateApply,
   generateAssume,
   generateAsync,
+  generateAt,
   generateCollect,
+  generateConcat,
   generateDerive,
   generateEvery,
   generateExpect,
   generateFilter,
   generateFind,
+  generateFindIndex,
+  generateFlat,
   generateFlatMap,
   generateFmt,
+  generateForEach,
   generateGuard,
+  generateIncludes,
+  generateIndexOf,
   generateInvariant,
+  generateJoin,
+  generateLastIndexOf,
+  generateMap,
   generatePattern,
   generateRecover,
   generateReduce,
   generateResolve,
+  generateReverse,
   generateSlice,
   generateSome,
+  generateSort,
   generateTransform,
 } from './codegen/ground-layer.js';
 export {
@@ -111,22 +123,34 @@ import {
   generateApply,
   generateAssume,
   generateAsync,
+  generateAt,
   generateCollect,
+  generateConcat,
   generateDerive,
   generateEvery,
   generateExpect,
   generateFilter,
   generateFind,
+  generateFindIndex,
+  generateFlat,
   generateFlatMap,
   generateFmt,
+  generateForEach,
   generateGuard,
+  generateIncludes,
+  generateIndexOf,
   generateInvariant,
+  generateJoin,
+  generateLastIndexOf,
+  generateMap,
   generatePattern,
   generateRecover,
   generateReduce,
   generateResolve,
+  generateReverse,
   generateSlice,
   generateSome,
+  generateSort,
   generateTransform,
 } from './codegen/ground-layer.js';
 import {
@@ -459,9 +483,21 @@ export const CORE_NODE_TYPES = new Set([
   'find',
   'some',
   'every',
+  'findIndex',
   'reduce',
+  'map',
   'flatMap',
+  'flat',
   'slice',
+  'at',
+  'sort',
+  'reverse',
+  'join',
+  'includes',
+  'indexOf',
+  'lastIndexOf',
+  'concat',
+  'forEach',
   'transform',
   'action',
   'actionRegistry',
@@ -581,12 +617,36 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateSome(node);
     case 'every':
       return generateEvery(node);
+    case 'findIndex':
+      return generateFindIndex(node);
     case 'reduce':
       return generateReduce(node);
+    case 'map':
+      return generateMap(node);
     case 'flatMap':
       return generateFlatMap(node);
+    case 'flat':
+      return generateFlat(node);
     case 'slice':
       return generateSlice(node);
+    case 'at':
+      return generateAt(node);
+    case 'sort':
+      return generateSort(node);
+    case 'reverse':
+      return generateReverse(node);
+    case 'join':
+      return generateJoin(node);
+    case 'includes':
+      return generateIncludes(node);
+    case 'indexOf':
+      return generateIndexOf(node);
+    case 'lastIndexOf':
+      return generateLastIndexOf(node);
+    case 'concat':
+      return generateConcat(node);
+    case 'forEach':
+      return generateForEach(node);
     case 'transform':
       return generateTransform(node);
     case 'action':

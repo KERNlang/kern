@@ -174,6 +174,63 @@ export interface SliceProps extends BaseProps {
   type?: string;
 }
 
+export interface MapProps extends BaseProps {
+  in?: string | ExprObject;
+  item?: string;
+  expr?: string | ExprObject;
+  type?: string;
+}
+
+export interface SortProps extends BaseProps {
+  in?: string | ExprObject;
+  a?: string;
+  b?: string;
+  compare?: string | ExprObject;
+  type?: string;
+}
+
+export interface ReverseProps extends BaseProps {
+  in?: string | ExprObject;
+  type?: string;
+}
+
+export interface FlatProps extends BaseProps {
+  in?: string | ExprObject;
+  depth?: string | ExprObject;
+  type?: string;
+}
+
+export interface AtProps extends BaseProps {
+  in?: string | ExprObject;
+  index?: string | ExprObject;
+  type?: string;
+}
+
+export interface JoinProps extends BaseProps {
+  in?: string | ExprObject;
+  separator?: string | ExprObject;
+  type?: string;
+}
+
+export interface ValueLookupProps extends BaseProps {
+  in?: string | ExprObject;
+  value?: string | ExprObject;
+  from?: string | ExprObject;
+  type?: string;
+}
+
+export interface ConcatProps extends BaseProps {
+  in?: string | ExprObject;
+  with?: string | ExprObject;
+  type?: string;
+}
+
+export interface ForEachProps extends BaseProps {
+  in?: string | ExprObject;
+  item?: string;
+  index?: string;
+}
+
 export interface TransformProps extends BaseProps {
   target?: string;
   via?: string;
@@ -372,9 +429,21 @@ export interface NodePropsMap {
   find: ArrayMethodProps;
   some: ArrayMethodProps;
   every: ArrayMethodProps;
+  findIndex: ArrayMethodProps;
   reduce: ReduceProps;
+  map: MapProps;
   flatMap: FlatMapProps;
+  flat: FlatProps;
   slice: SliceProps;
+  at: AtProps;
+  sort: SortProps;
+  reverse: ReverseProps;
+  join: JoinProps;
+  includes: ValueLookupProps;
+  indexOf: ValueLookupProps;
+  lastIndexOf: ValueLookupProps;
+  concat: ConcatProps;
+  forEach: ForEachProps;
   transform: TransformProps;
   action: ActionProps;
   actionRegistry: ActionRegistryProps;
