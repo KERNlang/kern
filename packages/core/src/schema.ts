@@ -457,6 +457,155 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       export: { kind: 'boolean' },
     },
   },
+  map: {
+    description:
+      'Declarative `.map` binding — `map name=names in=users expr="item.name"` lowers to `const names = users.map(item => item.name);`. Sibling to `each` (JSX iteration form); use `map` for data-transformation bindings. `expr` is the arrow body.',
+    example: 'map name=names in=users expr="item.name"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      expr: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  findIndex: {
+    description:
+      'Declarative `.findIndex` binding — `findIndex name=pos in=users where="item.active"` lowers to `const pos = users.findIndex(item => item.active);`. Returns a number; add `type=number` when the binding is exported.',
+    example: 'findIndex name=pos in=users where="item.active"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      where: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  flat: {
+    description:
+      'Declarative `.flat` binding — `flat name=flattened in=nested depth=2` lowers to `const flattened = nested.flat(2);`. Omit `depth` for the default depth of 1.',
+    example: 'flat name=flattened in=nested depth=2',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      depth: { kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  at: {
+    description:
+      'Declarative `.at` binding — `at name=last in=items index=-1` lowers to `const last = items.at(-1);`. Supports negative indices for tail access.',
+    example: 'at name=last in=items index=-1',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      index: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  sort: {
+    description:
+      'Declarative immutable sort — `sort name=sorted in=items compare="a.age - b.age"` lowers to `const sorted = [...items].sort((a, b) => a.age - b.age);`. Source collection is never mutated. Omit `compare` for lexicographic sort. Rename bindings with `a=` / `b=`.',
+    example: 'sort name=sorted in=items compare="a.age - b.age"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      a: { kind: 'identifier' },
+      b: { kind: 'identifier' },
+      compare: { kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  reverse: {
+    description:
+      'Declarative immutable reverse — `reverse name=reversed in=items` lowers to `const reversed = [...items].reverse();`. Source collection is never mutated.',
+    example: 'reverse name=reversed in=items',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  join: {
+    description:
+      'Declarative `.join` binding — `join name=csv in=fields separator=","` lowers to `const csv = fields.join(\',\');`. Omit `separator` for the default (`,`). The separator is emitted as a quoted string literal unless wrapped as `{{ expr }}`.',
+    example: 'join name=csv in=fields separator=","',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      separator: { kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  includes: {
+    description:
+      "Declarative `.includes` binding — `includes name=hasError in=errors value=\"'fatal'\"` lowers to `const hasError = errors.includes('fatal');`. `value` is a raw expression — quote string literals inside it.",
+    example: 'includes name=hasError in=errors value="\'fatal\'"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      value: { required: true, kind: 'rawExpr' },
+      from: { kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  indexOf: {
+    description:
+      'Declarative `.indexOf` binding — `indexOf name=pos in=items value=target` lowers to `const pos = items.indexOf(target);`. `value` is a raw expression.',
+    example: 'indexOf name=pos in=items value=target',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      value: { required: true, kind: 'rawExpr' },
+      from: { kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  lastIndexOf: {
+    description:
+      'Declarative `.lastIndexOf` binding — `lastIndexOf name=pos in=items value=target` lowers to `const pos = items.lastIndexOf(target);`. `value` is a raw expression.',
+    example: 'lastIndexOf name=pos in=items value=target',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      value: { required: true, kind: 'rawExpr' },
+      from: { kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  concat: {
+    description:
+      'Declarative `.concat` binding — `concat name=all in=items with="a, b"` lowers to `const all = items.concat(a, b);`. `with` is a raw expression injected directly — supports a single arg or comma-separated spread.',
+    example: 'concat name=all in=items with=other',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      in: { required: true, kind: 'rawExpr' },
+      with: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+    },
+  },
+  forEach: {
+    description:
+      'Declarative `.forEach` statement — `forEach in=items` with a `handler <<<>>>` child lowers to `items.forEach((item) => { handler-body });`. No binding (no `name`, no `const`). Distinct from `each` (JSX composition) and `map` (value binding). Use `item=` / `index=` to rename the parameters.',
+    example: 'forEach in=items\n  handler <<<\n    doSomething(item);\n  >>>',
+    props: {
+      in: { required: true, kind: 'rawExpr' },
+      item: { kind: 'identifier' },
+      index: { kind: 'identifier' },
+    },
+    allowedChildren: ['handler'],
+  },
   transform: {
     description: 'Data transformation pipeline — maps target through a via function or handler',
     example: 'transform name=normalized target=rawData via=normalize type=NormalizedData',
