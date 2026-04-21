@@ -20,6 +20,15 @@ import type { ConceptMap, ConceptNode } from '@kernlang/core';
  */
 export const CROSS_STACK_HEURISTIC_CONFIDENCE = 0.7;
 
+/**
+ * Multiplier for rules where the correlation is unambiguous: the path matches
+ * exactly AND a second dimension (HTTP method, auth header, …) disagrees.
+ * `contract-method-drift`, `duplicate-route`, and `auth-drift` use this —
+ * once the path matches, a verb mismatch, duplicate declaration, or missing
+ * Authorization header is a real bug, not a heuristic.
+ */
+export const CROSS_STACK_EXACT_CONFIDENCE = 0.9;
+
 /** Client URLs we consider "internal" to the reviewed project. */
 export const API_PATH_RE = /^\/api\//;
 
@@ -198,6 +207,34 @@ export function findMatchingRoute(clientPath: string, routes: readonly ServerRou
 /** Boolean-returning thin wrapper preserved for callers that just need a yes/no. */
 export function hasMatchingRoute(clientPath: string, routes: readonly ServerRoute[]): boolean {
   return findMatchingRoute(clientPath, routes) !== undefined;
+}
+
+/**
+ * Return every server route whose path template matches the client path,
+ * regardless of HTTP method. Used by `contract-method-drift` and
+ * `orphan-route` to distinguish "no server exists here" (contract-drift
+ * territory) from "server exists but only responds to a different verb /
+ * no one calls it" (method-drift / orphan-route territory).
+ */
+export function findRoutesAtPath(clientPath: string, routes: readonly ServerRoute[]): ServerRoute[] {
+  const clientSegments = trimTrailing(clientPath).split('/');
+  const matches: ServerRoute[] = [];
+  for (const route of routes) {
+    const routeSegments = trimTrailing(route.path).split('/');
+    if (routeSegments.length !== clientSegments.length) continue;
+    let matched = true;
+    for (let i = 0; i < routeSegments.length; i++) {
+      const rs = routeSegments[i];
+      const cs = clientSegments[i];
+      if (isParamSegment(rs)) continue;
+      if (rs !== cs) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) matches.push(route);
+  }
+  return matches;
 }
 
 function trimTrailing(path: string): string {
