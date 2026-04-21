@@ -263,15 +263,36 @@ describe('suggest-kern-primitive rule', () => {
       expect(fmt).toHaveLength(0);
     });
 
-    it('does NOT fire when the template is not a variable initializer', () => {
-      const f = kernSuggestions('log(`${x} items`);');
+    it('skips destructured bindings (no single name= target)', () => {
+      // Not a realistic shape, but guards the guard.
+      const f = kernSuggestions('const [a] = [`${x}`];');
       const fmt = f.filter((x) => x.suggestion?.startsWith('fmt '));
       expect(fmt).toHaveLength(0);
     });
 
-    it('skips destructured bindings (no single name= target)', () => {
-      // Not a realistic shape, but guards the guard.
-      const f = kernSuggestions('const [a] = [`${x}`];');
+    it('suggests `fmt` + `return` for a template in return position', () => {
+      const src = `
+        function label(count) {
+          return \`\${count} files\`;
+        }
+      `;
+      const f = kernSuggestions(src);
+      const fmt = f.filter((x) => x.suggestion?.startsWith('fmt name=<result>'));
+      expect(fmt).toHaveLength(1);
+      expect(fmt[0].suggestion).toBe('fmt name=<result> template="${count} files"\nreturn <result>');
+      expect(fmt[0].message).toContain('return position');
+    });
+
+    it('suggests `fmt` + `return` for an arrow that directly returns a template', () => {
+      // `(x) => \`\${x}!\`` — the template is the arrow body (no return statement)
+      // so this is skipped; only explicit `return \`…\`` fires the return-position hint.
+      const f = kernSuggestions('const g = (x) => `${x}!`;');
+      const fmt = f.filter((x) => x.suggestion?.startsWith('fmt name=<result>'));
+      expect(fmt).toHaveLength(0);
+    });
+
+    it('does NOT fire when a template is passed as a call argument', () => {
+      const f = kernSuggestions('log(`${x} items`);');
       const fmt = f.filter((x) => x.suggestion?.startsWith('fmt '));
       expect(fmt).toHaveLength(0);
     });
