@@ -114,7 +114,7 @@ export {
 } from './codegen/helpers.js';
 export { generateMachine, generateMachineReducer } from './codegen/machines.js';
 export { generateImport } from './codegen/modules.js';
-export { generateScreen } from './codegen/screens.js';
+export { emitRender, generateScreen } from './codegen/screens.js';
 export type { SemanticTypeMapping } from './codegen/semantic-types.js';
 export { mapSemanticType, SEMANTIC_TYPE_MAP } from './codegen/semantic-types.js';
 export { generateTest } from './codegen/test-gen.js';

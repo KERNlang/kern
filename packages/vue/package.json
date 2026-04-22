@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/vue",
-  "version": "3.3.5",
+  "version": "3.3.6",
   "description": "Kern Vue/Nuxt transpilers — Vue 3 SFC + Nuxt 3 output",
   "type": "module",
   "main": "./dist/index.js",
