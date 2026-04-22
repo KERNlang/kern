@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/metrics",
-  "version": "3.3.6",
+  "version": "3.3.7",
   "description": "Kern language metrics and project context export",
   "type": "module",
   "main": "./dist/index.js",

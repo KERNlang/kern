@@ -1,6 +1,6 @@
 {
   "name": "kern-lang",
-  "version": "3.3.6",
+  "version": "3.3.7",
   "description": "The language LLMs think in. Write one .kern file, ship 7 targets. 70% fewer tokens.",
   "type": "module",
   "main": "./dist/index.js",

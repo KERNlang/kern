@@ -382,7 +382,13 @@ function stripReturnWrapper(code: string): string {
  * toolable), or inline them inside the handler (still works for simple shapes
  * but not recommended for multi-statement callbacks).
  *
- * Auto-key: `<name>.id ?? <name>.key ?? <index>` when `key=` is not supplied.
+ * Auto-key: when `key=` is not supplied, emits a fallback chain
+ * `((<name> as { id?: React.Key; key?: React.Key }).id ?? (<name> as { id?:
+ * React.Key; key?: React.Key }).key ?? <index>)`. The inline cast makes the
+ * auto-key tolerant of typed element arrays whose declared type omits one or
+ * both of `id` / `key` — without the cast, TypeScript would raise TS2339 on
+ * the missing field. Authors who want a cleaner emit can always pass an
+ * explicit `key=` prop, which bypasses the fallback entirely.
  */
 function generateEachJSX(node: IRNode): string[] {
   const props = propsOf(node);
@@ -402,7 +408,8 @@ function generateEachJSX(node: IRNode): string[] {
       : typeof rawKey === 'string'
         ? rawKey
         : '';
-  const effectiveKey = keyExpr || `${name}.id ?? ${name}.key ?? ${index}`;
+  const autoKeyCast = `(${name} as { id?: React.Key; key?: React.Key })`;
+  const effectiveKey = keyExpr || `${autoKeyCast}.id ?? ${autoKeyCast}.key ?? ${index}`;
 
   const handler = getFirstChild(node, 'handler');
   if (!handler) {

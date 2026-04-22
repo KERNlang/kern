@@ -50,10 +50,15 @@ export function generateDerive(node: IRNode): string[] {
 // `fmt name=label template="${count} files"` →
 //   const label = `${count} files`;
 //
+// `fmt return=true template="${ms}ms"` (inside a fn body) →
+//   return `${ms}ms`;
+//
 // Why a dedicated node: string interpolation is ~15-20% of handler-block
 // volume in agon (2026-04-20 scan). Expressing it as a named primitive keeps
 // the IR declarative and lets tooling (reviewers, decompiler, codegen)
-// recognise "this is a formatted string" without parsing a handler body.
+// recognise "this is a formatted string" without parsing a handler body. The
+// return-position form (gap #6) covers the ~50% of template-literal sites
+// that appear as the `return` expression of small formatter fns.
 //
 // The template body is spliced verbatim into a JS template literal, so
 // `${expr}` placeholders work exactly as in JS. Raw backticks in the author
@@ -65,19 +70,30 @@ export function generateFmt(node: IRNode): string[] {
   const props = propsOf<'fmt'>(node);
   const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
-  const name = emitIdentifier(props.name, 'formatted', node);
   const template = props.template;
   if (template === undefined || template === null) {
     throw new KernCodegenError("fmt node requires a 'template' prop", node);
   }
-  const constType = props.type;
-  const exp = exportPrefix(node);
 
   // Escape backticks so the emitted template literal can't be closed
   // prematurely. `${...}` is intentionally passed through untouched — that's
   // the whole reason fmt exists.
   const escapedTemplate = String(template).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
 
+  const returnMode = props.return === true || props.return === 'true';
+  if (returnMode) {
+    if (props.name !== undefined) {
+      throw new KernCodegenError(
+        "fmt with return=true must not carry a 'name' prop — return-position emits `return `...``;`",
+        node,
+      );
+    }
+    return [...todo, ...annotations, `return \`${escapedTemplate}\`;`];
+  }
+
+  const name = emitIdentifier(props.name, 'formatted', node);
+  const constType = props.type;
+  const exp = exportPrefix(node);
   const typeAnnotation = constType ? `: ${emitTypeAnnotation(constType, 'unknown', node)}` : '';
   return [...todo, ...annotations, `${exp}const ${name}${typeAnnotation} = \`${escapedTemplate}\`;`];
 }

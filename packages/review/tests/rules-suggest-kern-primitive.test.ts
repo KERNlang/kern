@@ -270,24 +270,24 @@ describe('suggest-kern-primitive rule', () => {
       expect(fmt).toHaveLength(0);
     });
 
-    it('suggests `fmt` + `return` for a template in return position', () => {
+    it('suggests `fmt return=true` for a template in return position', () => {
       const src = `
         function label(count) {
           return \`\${count} files\`;
         }
       `;
       const f = kernSuggestions(src);
-      const fmt = f.filter((x) => x.suggestion?.startsWith('fmt name=<result>'));
+      const fmt = f.filter((x) => x.suggestion?.startsWith('fmt return=true'));
       expect(fmt).toHaveLength(1);
-      expect(fmt[0].suggestion).toBe('fmt name=<result> template="${count} files"\nreturn <result>');
-      expect(fmt[0].message).toContain('return position');
+      expect(fmt[0].suggestion).toBe('fmt return=true template="${count} files"');
+      expect(fmt[0].message).toContain('fmt return=true');
     });
 
-    it('suggests `fmt` + `return` for an arrow that directly returns a template', () => {
+    it('does NOT fire on an arrow that directly returns a template', () => {
       // `(x) => \`\${x}!\`` — the template is the arrow body (no return statement)
       // so this is skipped; only explicit `return \`…\`` fires the return-position hint.
       const f = kernSuggestions('const g = (x) => `${x}!`;');
-      const fmt = f.filter((x) => x.suggestion?.startsWith('fmt name=<result>'));
+      const fmt = f.filter((x) => x.suggestion?.startsWith('fmt return=true'));
       expect(fmt).toHaveLength(0);
     });
 
