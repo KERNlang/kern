@@ -390,6 +390,10 @@ export function isReviewableFile(filePath: string): boolean {
  */
 export function extractConceptsForGraph(filePaths: string[]): Map<string, import('@kernlang/core').ConceptMap> {
   const out = new Map<string, import('@kernlang/core').ConceptMap>();
+  // One ts-morph project reused across all TS files. Project creation
+  // is not cheap; on a whole-repo cache-prime (hundreds of files) the
+  // per-file alloc adds real latency we don't want on a push webhook.
+  let tsProject: ReturnType<typeof createInMemoryProject> | null = null;
   let extractPythonConcepts: ((src: string, fp: string) => import('@kernlang/core').ConceptMap) | null | undefined;
   for (const filePath of filePaths) {
     try {
@@ -400,8 +404,8 @@ export function extractConceptsForGraph(filePaths: string[]): Map<string, import
         filePath.endsWith('.mts') ||
         filePath.endsWith('.cts')
       ) {
-        const project = createInMemoryProject();
-        const sf = project.createSourceFile(filePath, source);
+        if (!tsProject) tsProject = createInMemoryProject();
+        const sf = tsProject.createSourceFile(filePath, source);
         out.set(filePath, extractTsConcepts(sf, filePath));
       } else if (filePath.endsWith('.py')) {
         if (extractPythonConcepts === undefined) {
@@ -1105,7 +1109,23 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
   // not physically present in this graph run. External keys never
   // overwrite on-disk entries: if the caller accidentally namespaces a
   // key that collides with a real graph file, the real file wins.
+  //
+  // Size cap defends the worker against a runaway caller that tries to
+  // feed an unbounded partner graph: cross-file rules scan allConcepts
+  // in O(n) for every report, so a 100k-entry external map turns a
+  // normal review into minutes of CPU. 50k entries covers any realistic
+  // partner repo; anything larger is almost certainly a bug upstream.
+  // Note: `graphImports` is built from the on-disk graph only; rules
+  // that consult it will see `undefined` for external keys. None of the
+  // current cross-stack rules depend on it, but a future rule author
+  // must treat `graphImports.get(externalKey)` as optional.
+  const MAX_EXTERNAL_CONCEPTS = 50_000;
   if (config?.externalConcepts) {
+    if (config.externalConcepts.size > MAX_EXTERNAL_CONCEPTS) {
+      throw new Error(
+        `reviewGraph: externalConcepts size ${config.externalConcepts.size} exceeds cap ${MAX_EXTERNAL_CONCEPTS}`,
+      );
+    }
     for (const [path, cm] of config.externalConcepts) {
       if (!allConcepts.has(path)) allConcepts.set(path, cm);
     }
