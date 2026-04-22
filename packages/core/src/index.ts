@@ -16,6 +16,10 @@ export {
   emitLowConfidenceTodo,
   emitPath,
   emitReasonAnnotations,
+  // Render body emitter — exported so target transpilers (Ink, Vue, …) can
+  // delegate composed-mode (wrapper / each / conditional / local) emission
+  // to a single source of truth instead of re-implementing it per target.
+  emitRender,
   emitStringLiteral,
   emitTemplateSafe,
   emitTypeAnnotation,

@@ -228,7 +228,17 @@ function emitInputHandlers(nodes: IRNode[], lines: string[]): void {
 // should continue through the raw-handler passthrough below.
 const RENDER_JSX_CHILD_TYPES = new Set<string>(['each', 'conditional']);
 
-function emitRender(renderNode: IRNode | undefined, lines: string[]): void {
+/**
+ * Emit the render body — return-statement + JSX — into `lines`. Exported so
+ * target-specific transpilers (Ink, Vue, etc.) can delegate the composed-mode
+ * walk (wrapper / each / conditional / local) to a single source of truth
+ * rather than re-implementing it per target.
+ *
+ * Terminal target uses this for screens where the author supplied either
+ * `render wrapper="..."` or a JSX-composable child (each, conditional) or
+ * a `local` binding — all three trigger composed mode.
+ */
+export function emitRender(renderNode: IRNode | undefined, lines: string[]): void {
   if (!renderNode) {
     lines.push(`  return null;`);
     return;

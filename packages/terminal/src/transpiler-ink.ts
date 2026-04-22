@@ -4,6 +4,7 @@ import {
   buildDiagnostics,
   countTokens,
   dedent,
+  emitRender,
   generateCoreNode,
   generateMachineReducer,
   getChildren,
@@ -1635,26 +1636,42 @@ function compileScreenBody(
 
   // JSX return — auto-insert return when handler body is a bare JSX expression
   if (renderNode) {
-    const handlerChild = (renderNode.children || []).find((c: IRNode) => c.type === 'handler');
-    const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
-    if (code.trim()) {
-      const dedented = dedent(code);
-      const trimmed = dedented.trim();
-      if (trimmed.includes('return ') || trimmed.includes('return(')) {
-        // User wrote explicit return — emit as-is
-        for (const line of dedented.split('\n')) {
-          bodyLines.push(`  ${line}`);
+    // Composed-mode trigger: any of (a) `render wrapper="<Tag>"` prop, (b) an
+    // `each` or `conditional` child, (c) a `local` child. Delegate to core's
+    // `emitRender` so the Ink target never drifts from the React target's
+    // composition semantics. The prior code here read only the first handler
+    // child and dropped wrapper + sibling each/conditional/local — that's how
+    // `screen target=ink` with `render wrapper=... + each` was silently
+    // emitting the wrong component body.
+    const renderChildren = renderNode.children || [];
+    const hasWrapper = !!(getProps(renderNode).wrapper as string | undefined);
+    const hasJsxChild = renderChildren.some((c: IRNode) => c.type === 'each' || c.type === 'conditional');
+    const hasLocal = renderChildren.some((c: IRNode) => c.type === 'local');
+
+    if (hasWrapper || hasJsxChild || hasLocal) {
+      emitRender(renderNode, bodyLines);
+    } else {
+      const handlerChild = renderChildren.find((c: IRNode) => c.type === 'handler');
+      const code = handlerChild ? (getProps(handlerChild).code as string) || '' : '';
+      if (code.trim()) {
+        const dedented = dedent(code);
+        const trimmed = dedented.trim();
+        if (trimmed.includes('return ') || trimmed.includes('return(')) {
+          // User wrote explicit return — emit as-is
+          for (const line of dedented.split('\n')) {
+            bodyLines.push(`  ${line}`);
+          }
+        } else {
+          // Bare expression (likely JSX) — wrap in return()
+          bodyLines.push('  return (');
+          for (const line of dedented.split('\n')) {
+            bodyLines.push(`    ${line}`);
+          }
+          bodyLines.push('  );');
         }
       } else {
-        // Bare expression (likely JSX) — wrap in return()
-        bodyLines.push('  return (');
-        for (const line of dedented.split('\n')) {
-          bodyLines.push(`    ${line}`);
-        }
-        bodyLines.push('  );');
+        bodyLines.push('  return null;');
       }
-    } else {
-      bodyLines.push('  return null;');
     }
   } else {
     imports.addInk('Box');
@@ -1682,6 +1699,19 @@ function compileScreenBody(
     'useLayoutEffect',
   ]) {
     if (bodyText.includes(hook)) imports.addReact(hook);
+  }
+
+  // Auto-detect Ink components in the emitted render body. Composed-mode
+  // delegation via core's emitRender writes `<Box ...>` / `<Text ...>` text
+  // verbatim from the wrapper prop and handler-child JSX; core doesn't know
+  // about the Ink import tracker, so we scan here and register any Ink
+  // component that shows up. Matches JSX opening tags like `<Box ` or `<Box>`
+  // or `<Box/>` and self-closers — but not arbitrary uppercased identifiers,
+  // so the list stays conservative (user-defined components have their own
+  // handling paths elsewhere in this file).
+  for (const component of ['Box', 'Text', 'Newline', 'Spacer', 'Static']) {
+    const re = new RegExp(`<${component}[\\s/>]`);
+    if (re.test(bodyText)) imports.addInk(component);
   }
 
   return { bodyLines, stateCtx };
