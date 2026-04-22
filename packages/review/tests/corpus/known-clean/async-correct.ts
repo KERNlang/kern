@@ -1,6 +1,7 @@
 // CLEAN: all async calls properly awaited and error-handled
 export async function fetchData(): Promise<string[]> {
   const res = await fetch('/api/data');
+  if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
   return res.json();
 }
 

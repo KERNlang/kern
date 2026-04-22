@@ -46,6 +46,125 @@ export function f() {
     });
   });
 
+  describe('unchecked-fetch-response', () => {
+    it('flags res.json() without res.ok / res.status check', () => {
+      const src = `
+export async function f() {
+  const res = await fetch('/a');
+  const data = await res.json();
+  return data;
+}
+`;
+      const r = reviewSource(src, 'f.ts', cfg);
+      expect(r.findings.find((x) => x.ruleId === 'unchecked-fetch-response')).toBeDefined();
+    });
+
+    it('is silent when res.ok is checked before the body read', () => {
+      const src = `
+export async function f() {
+  const res = await fetch('/a');
+  if (!res.ok) throw new Error('fetch failed');
+  return await res.json();
+}
+`;
+      const r = reviewSource(src, 'f.ts', cfg);
+      expect(r.findings.find((x) => x.ruleId === 'unchecked-fetch-response')).toBeUndefined();
+    });
+
+    it('is silent when res.status is inspected', () => {
+      const src = `
+export async function f() {
+  const res = await fetch('/a');
+  if (res.status === 404) return null;
+  return await res.json();
+}
+`;
+      const r = reviewSource(src, 'f.ts', cfg);
+      expect(r.findings.find((x) => x.ruleId === 'unchecked-fetch-response')).toBeUndefined();
+    });
+
+    it('flags the anonymous form (await (await fetch(...)).json())', () => {
+      const src = `
+export async function f() {
+  const data = await (await fetch('/a')).json();
+  return data;
+}
+`;
+      const r = reviewSource(src, 'f.ts', cfg);
+      expect(r.findings.find((x) => x.ruleId === 'unchecked-fetch-response')).toBeDefined();
+    });
+
+    it('flags res.text() as well', () => {
+      const src = `
+export async function f() {
+  const res = await fetch('/a');
+  return await res.text();
+}
+`;
+      const r = reviewSource(src, 'f.ts', cfg);
+      expect(r.findings.find((x) => x.ruleId === 'unchecked-fetch-response')).toBeDefined();
+    });
+
+    it('is silent when fetch + body read sit in a try/catch', () => {
+      // Rationale: .json() on an HTML error body throws a JSON parse error,
+      // so the catch still surfaces the failure.
+      const src = `
+export async function f() {
+  try {
+    const res = await fetch('/a');
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
+}
+`;
+      const r = reviewSource(src, 'f.ts', cfg);
+      expect(r.findings.find((x) => x.ruleId === 'unchecked-fetch-response')).toBeUndefined();
+    });
+
+    it('flags an unchecked fetch INSIDE a catch clause (the try-exemption must not leak)', () => {
+      const src = `
+export async function f() {
+  try {
+    throw new Error();
+  } catch (e) {
+    const res = await fetch('/fallback');
+    return await res.json();
+  }
+}
+`;
+      const r = reviewSource(src, 'f.ts', cfg);
+      expect(r.findings.find((x) => x.ruleId === 'unchecked-fetch-response')).toBeDefined();
+    });
+
+    it('flags an unchecked fetch INSIDE a finally block (no safety net)', () => {
+      const src = `
+export async function f() {
+  try {
+    // main path
+  } finally {
+    const res = await fetch('/telemetry');
+    await res.json();
+  }
+}
+`;
+      const r = reviewSource(src, 'f.ts', cfg);
+      expect(r.findings.find((x) => x.ruleId === 'unchecked-fetch-response')).toBeDefined();
+    });
+
+    it('is silent when the variable came from axios, not fetch', () => {
+      const src = `
+import axios from 'axios';
+export async function f() {
+  const res = await axios.get('/a');
+  return res.data;
+}
+`;
+      const r = reviewSource(src, 'f.ts', cfg);
+      expect(r.findings.find((x) => x.ruleId === 'unchecked-fetch-response')).toBeUndefined();
+    });
+  });
+
   describe('abortcontroller-leak', () => {
     it('flags AbortController in useEffect without abort in cleanup', () => {
       const src = `
