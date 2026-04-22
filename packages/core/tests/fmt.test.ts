@@ -64,6 +64,38 @@ describe('Ground Layer: fmt', () => {
   });
 });
 
+describe('Ground Layer: fmt with return=true (return-position form)', () => {
+  it('emits `return `...`;` when return=true and no name', () => {
+    const node = makeNode('fmt', { template: '${ms}ms', return: 'true' });
+    const code = generateFmt(node).join('\n');
+    expect(code).toBe('return `${ms}ms`;');
+  });
+
+  it('accepts boolean-true return prop (as opposed to string "true")', () => {
+    const node = makeNode('fmt', { template: 'hi', return: true });
+    const code = generateFmt(node).join('\n');
+    expect(code).toBe('return `hi`;');
+  });
+
+  it('treats return="false" as binding form (requires name)', () => {
+    const node = makeNode('fmt', { name: 'msg', template: 'x', return: 'false' });
+    const code = generateFmt(node).join('\n');
+    expect(code).toBe('export const msg = `x`;');
+  });
+
+  it('escapes backticks in return-position form just like binding form', () => {
+    const node = makeNode('fmt', { template: 'he said `boo`', return: 'true' });
+    const code = generateFmt(node).join('\n');
+    expect(code).toBe('return `he said \\`boo\\``;');
+  });
+
+  it('throws when return=true is combined with a name prop', () => {
+    const node = makeNode('fmt', { name: 'label', template: 'x', return: 'true' });
+    expect(() => generateFmt(node)).toThrow(KernCodegenError);
+    expect(() => generateFmt(node)).toThrow(/return=true/);
+  });
+});
+
 describe('Integration: generateCoreNode dispatches fmt', () => {
   it('dispatches fmt through the core dispatcher', () => {
     const code = generateCoreNode(makeNode('fmt', { name: 'x', template: '${a}' })).join('\n');

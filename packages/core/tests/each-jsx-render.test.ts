@@ -4,7 +4,7 @@
  * Statement-position `each` (for...of) is tested in ground-layer.test.ts.
  * This suite covers the JSX-context behaviour added for PR 1:
  *   - `each` as a child of `render` emits `.map()` with <React.Fragment key=...>
- *   - auto-key falls back through `name.id ?? name.key ?? index`
+ *   - auto-key falls back through `(name as {id?; key?}).id ?? .key ?? index` (typed-array safe)
  *   - explicit `key=` prop is honoured
  *   - `derive` child of render-nested `each` triggers a semantic-validator diagnostic
  *   - decompiler round-trips `each` with canonical grammar
@@ -33,7 +33,9 @@ describe('each inside render — JSX-expression codegen', () => {
     const code = generateCoreNode(screen).join('\n');
 
     expect(code).toContain('(items).map((f, __i) =>');
-    expect(code).toContain('<React.Fragment key={f.id ?? f.key ?? __i}>');
+    expect(code).toContain(
+      '<React.Fragment key={(f as { id?: React.Key; key?: React.Key }).id ?? (f as { id?: React.Key; key?: React.Key }).key ?? __i}>',
+    );
     expect(code).toContain('<Text>{f.path}</Text>');
     expect(code).toContain('</React.Fragment>');
     // Still wrapped in a return (<> ... </>) from emitRenderComposed.
@@ -51,7 +53,9 @@ describe('each inside render — JSX-expression codegen', () => {
     const screen = screenWithRenderEach({ name: 'f', in: 'items', index: 'idx' }, '<Text>{f.path}</Text>');
     const code = generateCoreNode(screen).join('\n');
     expect(code).toContain('(items).map((f, idx) =>');
-    expect(code).toContain('<React.Fragment key={f.id ?? f.key ?? idx}>');
+    expect(code).toContain(
+      '<React.Fragment key={(f as { id?: React.Key; key?: React.Key }).id ?? (f as { id?: React.Key; key?: React.Key }).key ?? idx}>',
+    );
   });
 
   it('leaves statement-position `each` untouched (still emits for...of)', () => {
