@@ -226,7 +226,7 @@ function emitInputHandlers(nodes: IRNode[], lines: string[]): void {
 // declarative-composition path. Metadata-only children (doc, reason, needs, ...)
 // must NOT force composition — their sibling handler owns the render body and
 // should continue through the raw-handler passthrough below.
-const RENDER_JSX_CHILD_TYPES = new Set<string>(['each', 'conditional']);
+const RENDER_JSX_CHILD_TYPES = new Set<string>(['each', 'conditional', 'group']);
 
 /**
  * Emit the render body — return-statement + JSX — into `lines`. Exported so
@@ -301,21 +301,7 @@ function emitRenderComposed(renderNode: IRNode, lines: string[]): void {
   }
 
   // Step 2: collect JSX pieces from non-local children in source order.
-  const pieces: string[][] = [];
-  for (const child of getChildren(renderNode)) {
-    if (child.type === 'each') {
-      pieces.push(generateEachJSX(child));
-    } else if (child.type === 'conditional') {
-      pieces.push(generateConditionalJSX(child));
-    } else if (child.type === 'handler') {
-      // In composed mode the handler contributes a JSX fragment, not a
-      // `return`-wrapped expression. Strip a leading `return (...);` so authors
-      // can reuse the same handler shape as non-composed renders.
-      const raw = (propsOf(child).code as string) || '';
-      pieces.push(stripReturnWrapper(raw).split('\n'));
-    }
-    // Local children handled in step 1; metadata children skipped.
-  }
+  const pieces = collectComposedPieces(renderNode);
 
   // Step 3: decide between wrapper tag and Fragment.
   const wrapper = propsOf(renderNode).wrapper as string | undefined;
@@ -331,6 +317,83 @@ function emitRenderComposed(renderNode: IRNode, lines: string[]): void {
   }
   lines.push(`    ${closeTag}`);
   lines.push(`  );`);
+}
+
+/**
+ * Walk the JSX-composable children of a `render` or `group` node in source
+ * order and return each child's rendered JSX lines. Shared by the render-root
+ * composer and the recursive `group` composer so nesting works uniformly.
+ *
+ * Skips `local` and metadata children — locals hoist at render scope (handled
+ * before the return by `emitRenderComposed`), and metadata doesn't produce
+ * JSX. `group` children recurse through `generateGroupJSX`.
+ */
+function collectComposedPieces(parent: IRNode): string[][] {
+  const pieces: string[][] = [];
+  for (const child of getChildren(parent)) {
+    if (child.type === 'each') {
+      pieces.push(generateEachJSX(child));
+    } else if (child.type === 'conditional') {
+      pieces.push(generateConditionalJSX(child));
+    } else if (child.type === 'group') {
+      pieces.push(generateGroupJSX(child));
+    } else if (child.type === 'handler') {
+      // In composed mode the handler contributes a JSX fragment, not a
+      // `return`-wrapped expression. Strip a leading `return (...);` so authors
+      // can reuse the same handler shape as non-composed renders.
+      const raw = (propsOf(child).code as string) || '';
+      pieces.push(stripReturnWrapper(raw).split('\n'));
+    }
+    // local + metadata children skipped here.
+  }
+  return pieces;
+}
+
+/**
+ * Emit a `group wrapper="<Tag attrs>"` node as nested JSX inside a composed
+ * render. Unlike `render`, `group` has no locals to hoist — its only job is
+ * to wrap a subset of sibling JSX pieces in an inner tag. Recurses through
+ * `collectComposedPieces` so `group` inside `group` composes arbitrarily
+ * deep.
+ *
+ *   group wrapper="<Box paddingLeft={2}>"
+ *     handler <<< <Header /> >>>
+ *     each name=item in=items
+ *       handler <<< <Row item={item} /> >>>
+ *
+ *   →
+ *
+ *   <Box paddingLeft={2}>
+ *     <Header />
+ *     {(items).map((item, __i) => (
+ *       <React.Fragment key={...}>
+ *         <Row item={item} />
+ *       </React.Fragment>
+ *     ))}
+ *   </Box>
+ */
+function generateGroupJSX(node: IRNode): string[] {
+  const wrapper = propsOf(node).wrapper as string | undefined;
+  const openTag = wrapper?.trim();
+  if (!openTag) {
+    throw new KernCodegenError("group node requires a 'wrapper' prop", node);
+  }
+  const tagName = extractWrapperTag(openTag);
+  if (!tagName) {
+    throw new KernCodegenError(
+      `group wrapper="${openTag}" is not a recognizable opening tag (expected "<Tag …>")`,
+      node,
+    );
+  }
+  const closeTag = `</${tagName}>`;
+
+  const pieces = collectComposedPieces(node);
+  const lines: string[] = [openTag];
+  for (const piece of pieces) {
+    for (const line of piece) lines.push(`  ${line}`);
+  }
+  lines.push(closeTag);
+  return lines;
 }
 
 /**

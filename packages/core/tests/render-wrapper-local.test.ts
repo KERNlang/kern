@@ -6,7 +6,7 @@
  * Scope contract (from agon spec):
  *   - Only `render` gets the `wrapper=` prop.
  *   - `local` is expression-only; no handler-bodied derives at render scope.
- *   - One wrapper per render — no nested wrappers.
+ *   - Nested wrappers use the `group` node (see render-group.test.ts).
  */
 
 import { generateCoreNode } from '../src/codegen-core.js';
