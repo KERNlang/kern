@@ -175,6 +175,155 @@ function abortControllerLeak(ctx: RuleContext): ReviewFinding[] {
   return findings;
 }
 
+// ── Rule: unchecked-fetch-response ───────────────────────────────────────
+// `fetch()` resolves even on 4xx/5xx — only network-level failures throw.
+// Calling `.json()` / `.text()` without first checking `.ok` / `.status`
+// means the frontend silently consumes an error payload as data, masking
+// the real failure. Fires on:
+//
+//   const res = await fetch(url);
+//   const data = await res.json();   // ← no ok/status check anywhere
+//
+// and on the anonymous form:
+//
+//   const data = await (await fetch(url)).json();
+//
+// Stays silent when the code reads `res.ok`, `res.status`, or
+// `res.statusText` anywhere in the same function, or when the fetch lives
+// in a `try` whose `catch` rethrows or returns early. Scoped to `fetch()`
+// only; `axios`/`ky`/`got` throw on non-2xx by default.
+
+const RESPONSE_BODY_METHODS = new Set(['json', 'text', 'blob', 'arrayBuffer', 'formData']);
+const RESPONSE_STATUS_PROPS = new Set(['ok', 'status', 'statusText']);
+
+function unboundBodyMethodOnAnonymousFetch(ctx: RuleContext): ReviewFinding[] {
+  const findings: ReviewFinding[] = [];
+
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee)) continue;
+    if (!RESPONSE_BODY_METHODS.has(callee.getName())) continue;
+
+    // Anonymous form: `(await fetch(...)).json()`
+    const target = callee.getExpression();
+    let awaited: Node | undefined;
+    if (Node.isParenthesizedExpression(target)) {
+      const inner = target.getExpression();
+      if (Node.isAwaitExpression(inner)) awaited = inner;
+    } else if (Node.isAwaitExpression(target)) {
+      awaited = target;
+    }
+    if (!awaited || !Node.isAwaitExpression(awaited)) continue;
+
+    const awaited2 = awaited as import('ts-morph').AwaitExpression;
+    const awaitedExpr = awaited2.getExpression();
+    if (!isFetchCall(awaitedExpr)) continue;
+
+    findings.push(
+      finding(
+        'unchecked-fetch-response',
+        'warning',
+        'bug',
+        '`fetch()` response body is consumed without a status check — non-2xx responses (4xx/5xx) will be read as valid data because `fetch()` only rejects on network errors.',
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion:
+            'Bind the response to a variable and check `response.ok` or `response.status` before calling `.json()`/`.text()`.',
+        },
+      ),
+    );
+  }
+
+  // Named form: `const res = await fetch(...)` then `res.json()` with no
+  // `res.ok` / `res.status` / `res.statusText` reference anywhere in the
+  // containing function body.
+  for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee)) continue;
+    if (!RESPONSE_BODY_METHODS.has(callee.getName())) continue;
+    const obj = callee.getExpression();
+    if (!Node.isIdentifier(obj)) continue;
+
+    const declared = findFetchAssignment(obj.getText(), call);
+    if (!declared) continue;
+
+    const fnBody = getEnclosingFunctionBody(call);
+    if (!fnBody) continue;
+
+    if (hasStatusCheck(fnBody, obj.getText())) continue;
+
+    findings.push(
+      finding(
+        'unchecked-fetch-response',
+        'warning',
+        'bug',
+        `\`${obj.getText()}.${callee.getName()}()\` is called without checking \`${obj.getText()}.ok\` or \`${obj.getText()}.status\` — non-2xx responses will be parsed as valid data because \`fetch()\` only rejects on network errors.`,
+        ctx.filePath,
+        call.getStartLineNumber(),
+        1,
+        {
+          suggestion: `Add \`if (!${obj.getText()}.ok) throw new Error(...)\` between the \`fetch()\` and \`.${callee.getName()}()\`.`,
+        },
+      ),
+    );
+  }
+
+  return findings;
+}
+
+function isFetchCall(node: Node): boolean {
+  if (!Node.isCallExpression(node)) return false;
+  const expr = node.getExpression();
+  return Node.isIdentifier(expr) && expr.getText() === 'fetch';
+}
+
+// Find the variable declaration that initialises `name` with `await fetch(...)`.
+// Traverse up from the usage site so we pick the closest binding in scope.
+function findFetchAssignment(name: string, usage: Node): import('ts-morph').VariableDeclaration | undefined {
+  let cur: Node | undefined = usage;
+  while (cur) {
+    const block: Node | undefined = cur.getFirstAncestor(
+      (n: Node) =>
+        Node.isBlock(n) ||
+        Node.isSourceFile(n) ||
+        Node.isArrowFunction(n) ||
+        Node.isFunctionDeclaration(n) ||
+        Node.isFunctionExpression(n) ||
+        Node.isMethodDeclaration(n),
+    );
+    if (!block) return undefined;
+    for (const decl of block.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+      if (decl.getName() !== name) continue;
+      const init = decl.getInitializer();
+      if (!init || !Node.isAwaitExpression(init)) continue;
+      if (isFetchCall(init.getExpression())) return decl;
+    }
+    cur = block.getParent();
+  }
+  return undefined;
+}
+
+function getEnclosingFunctionBody(node: Node): Node | undefined {
+  return node.getFirstAncestor(
+    (n) =>
+      Node.isFunctionDeclaration(n) ||
+      Node.isArrowFunction(n) ||
+      Node.isFunctionExpression(n) ||
+      Node.isMethodDeclaration(n),
+  );
+}
+
+function hasStatusCheck(fnBody: Node, name: string): boolean {
+  for (const pa of fnBody.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
+    const obj = pa.getExpression();
+    if (!Node.isIdentifier(obj) || obj.getText() !== name) continue;
+    if (RESPONSE_STATUS_PROPS.has(pa.getName())) return true;
+  }
+  return false;
+}
+
 // ── Exported Async Rules ─────────────────────────────────────────────────
 
-export const asyncRules = [promiseAllErrorSwallow, abortControllerLeak];
+export const asyncRules = [promiseAllErrorSwallow, abortControllerLeak, unboundBodyMethodOnAnonymousFetch];
