@@ -366,7 +366,7 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
 
 // ── entrypoint ───────────────────────────────────────────────────────────
 
-const ROUTE_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'all', 'use']);
+const ROUTE_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'all']);
 
 function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
   // Express/Fastify route handlers: app.get('/path', handler)
@@ -375,13 +375,20 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
     if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) continue;
     const pa = callee as import('ts-morph').PropertyAccessExpression;
     const methodName = pa.getName();
-    if (!ROUTE_METHODS.has(methodName)) continue;
 
     const objText = pa.getExpression().getText();
     if (!/app|router|server/i.test(objText)) continue;
 
     const args = call.getArguments();
     if (args.length < 2) continue;
+
+    if (methodName === 'use') {
+      const mount = extractRouteMount(call, filePath);
+      if (mount) nodes.push(mount);
+      continue;
+    }
+
+    if (!ROUTE_METHODS.has(methodName)) continue;
 
     // First arg is the route path
     let routePath: string | undefined;
@@ -401,7 +408,7 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
         kind: 'entrypoint',
         subtype: 'route',
         name: routePath || methodName,
-        httpMethod: methodName === 'use' ? undefined : methodName.toUpperCase(),
+        httpMethod: methodName.toUpperCase(),
       },
     });
   }
@@ -436,6 +443,114 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
       }
     }
   }
+}
+
+// Express `app.use('/api/prefix', ...middlewares, subRouter)`: emit a
+// route-mount concept so `collectRoutesAcrossGraph` can join the sub-router's
+// bare paths (`router.get('/foo')`) with the mount prefix (`/api/prefix/foo`).
+// Mirrors the FastAPI `app.include_router()` emission in review-python.
+// Caller must have already filtered to `.use()` calls whose object matches
+// `app|router|server`.
+function extractRouteMount(call: import('ts-morph').CallExpression, mountFile: string): ConceptNode | undefined {
+  const args = call.getArguments();
+  if (args.length < 2) return undefined;
+  if (args[0].getKind() !== SyntaxKind.StringLiteral) return undefined;
+  const prefix = (args[0] as import('ts-morph').StringLiteral).getLiteralValue();
+  if (!prefix.startsWith('/')) return undefined;
+
+  // The sub-router is the LAST arg; intermediate args are middlewares.
+  const last = args[args.length - 1];
+  if (last.getKind() !== SyntaxKind.Identifier) return undefined;
+  const ident = last as import('ts-morph').Identifier;
+  const routerName = ident.getText();
+
+  const sourceModule = resolveImportedFileSuffix(ident, mountFile);
+  // Emit even when resolution fails — the same-file fallback in
+  // resolveMountPrefix can still match if the router is declared locally.
+  return {
+    id: conceptId(mountFile, 'entrypoint', call.getStart()),
+    kind: 'entrypoint',
+    primarySpan: span(mountFile, call),
+    evidence: call.getText().substring(0, 120),
+    confidence: 0.9,
+    language: 'ts',
+    containerId: getContainerId(call, mountFile),
+    payload: {
+      kind: 'entrypoint',
+      subtype: 'route-mount',
+      name: prefix,
+      routerName,
+      sourceModule,
+    },
+  };
+}
+
+// Given an identifier used in a mount call, resolve it back to the file it
+// was imported from, and return a trailing path suffix (relative to the mount
+// file's directory, with extension) usable by `cross-stack-utils`'s
+// `routeFile.endsWith('/' + sourceModule)` matcher.
+//
+// Returns `undefined` when the identifier is declared locally (no import),
+// when the import cannot be resolved to a source file, or when the import
+// is external (node_modules).
+function resolveImportedFileSuffix(ident: import('ts-morph').Identifier, mountFile: string): string | undefined {
+  const symbol = ident.getSymbol();
+  if (!symbol) return undefined;
+  for (const decl of symbol.getDeclarations()) {
+    const kind = decl.getKind();
+    if (kind !== SyntaxKind.ImportClause && kind !== SyntaxKind.ImportSpecifier) continue;
+    const importDecl = decl.getFirstAncestorByKind(SyntaxKind.ImportDeclaration);
+    if (!importDecl) continue;
+    const resolved = importDecl.getModuleSpecifierSourceFile();
+    if (resolved) {
+      return pathSuffixBetween(mountFile, resolved.getFilePath());
+    }
+    // ts-morph couldn't resolve (no project config) — fall back to parsing the
+    // specifier string and swapping common JS→TS extensions.
+    const specifier = importDecl.getModuleSpecifierValue();
+    const guess = guessResolvedSuffix(specifier, mountFile);
+    if (guess) return guess;
+  }
+  return undefined;
+}
+
+function pathSuffixBetween(mountFile: string, targetFile: string): string {
+  // Return targetFile relative to the mount file's directory when possible.
+  // Fallback: the last 2-3 path components of the target. This just needs to
+  // be a unique trailing suffix for `routeFile.endsWith('/' + suffix)` to match.
+  const parts = targetFile.split('/');
+  const mountParts = mountFile.split('/');
+  // Find longest common prefix
+  let commonLen = 0;
+  while (
+    commonLen < parts.length - 1 &&
+    commonLen < mountParts.length - 1 &&
+    parts[commonLen] === mountParts[commonLen]
+  ) {
+    commonLen++;
+  }
+  const tail = parts.slice(commonLen).join('/');
+  return tail || parts.slice(-2).join('/');
+}
+
+function guessResolvedSuffix(specifier: string, mountFile: string): string | undefined {
+  if (!specifier.startsWith('.')) return undefined;
+  const mountDir = mountFile.split('/').slice(0, -1).join('/');
+  const segments: string[] = [];
+  for (const seg of specifier.split('/')) {
+    if (seg === '' || seg === '.') continue;
+    if (seg === '..') {
+      if (mountDir.length === 0) continue;
+      segments.pop();
+    } else {
+      segments.push(seg);
+    }
+  }
+  if (segments.length === 0) return undefined;
+  const base = segments[segments.length - 1];
+  const swapped = base.replace(/\.(js|mjs|cjs)$/i, '.ts');
+  segments[segments.length - 1] = /\.(ts|tsx)$/i.test(swapped) ? swapped : `${swapped}.ts`;
+  return segments.join('/');
 }
 
 // ── Next.js handlers & server actions ────────────────────────────────────
@@ -1105,13 +1220,44 @@ function extractTarget(call: import('ts-morph').CallExpression): string | undefi
   if (first.getKind() === SyntaxKind.StringLiteral) {
     return (first as import('ts-morph').StringLiteral).getLiteralValue();
   }
-  if (
-    first.getKind() === SyntaxKind.TemplateExpression ||
-    first.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral
-  ) {
-    return first.getText().substring(0, 80);
+  if (first.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral) {
+    return (first as import('ts-morph').NoSubstitutionTemplateLiteral).getLiteralValue();
+  }
+  if (first.getKind() === SyntaxKind.TemplateExpression) {
+    return extractTemplateUrl(first as import('ts-morph').TemplateExpression);
   }
   return undefined;
+}
+
+// Convert a template literal like `${API_BASE}/api/review/${slug}` into a
+// server-route-shaped path like `/api/review/:slug` so cross-stack rules can
+// correlate it against backend routes. Without this every `fetch(` \`${BASE}/…\` `)`
+// call is silently dropped by `normalizeClientUrl` (which rejects targets that
+// start with \`$ instead of \`/).
+function extractTemplateUrl(tmpl: import('ts-morph').TemplateExpression): string | undefined {
+  const head = tmpl.getHead();
+  let out = head.getLiteralText();
+  const spans = tmpl.getTemplateSpans();
+  for (let i = 0; i < spans.length; i++) {
+    const span = spans[i];
+    const expr = span.getExpression();
+    const exprText = expr.getText();
+    const isBareIdent = expr.getKind() === SyntaxKind.Identifier;
+    if (i === 0 && out === '' && isBareIdent && looksLikeBaseUrlName(exprText)) {
+      // Drop a leading `${BASE_URL}` interpolation so the path starts with `/`.
+    } else {
+      out += `:${isBareIdent ? exprText : 'param'}`;
+    }
+    out += span.getLiteral().getLiteralText();
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+function looksLikeBaseUrlName(name: string): boolean {
+  return (
+    /(^|_)(base|url|host|origin|endpoint|api|server)(_|$)/i.test(name) ||
+    /(Base|Url|Host|Origin|Endpoint|Api|Server)$/.test(name)
+  );
 }
 
 /**

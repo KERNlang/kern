@@ -13,11 +13,14 @@ import { contractDrift } from './contract-drift.js';
 import { contractMethodDrift } from './contract-method-drift.js';
 import { duplicateRoute } from './duplicate-route.js';
 import { ignoredError } from './ignored-error.js';
+import { missingResponseModel } from './missing-response-model.js';
 import { orphanRoute } from './orphan-route.js';
+import { syncHandlerDoesIo } from './sync-handler-does-io.js';
 import { taintedAcrossWire } from './tainted-across-wire.js';
 import { unguardedEffect } from './unguarded-effect.js';
 import { unrecoveredEffect } from './unrecovered-effect.js';
 import { untypedApiResponse } from './untyped-api-response.js';
+import { untypedBothEndsResponse } from './untyped-both-ends-response.js';
 
 export interface ConceptRuleContext {
   concepts: ConceptMap;
@@ -37,11 +40,14 @@ export const conceptRules: ConceptRule[] = [
   contractMethodDrift,
   duplicateRoute,
   ignoredError,
+  missingResponseModel,
+  syncHandlerDoesIo,
   orphanRoute,
   taintedAcrossWire,
   unguardedEffect,
   unrecoveredEffect,
   untypedApiResponse,
+  untypedBothEndsResponse,
 ];
 
 export function runConceptRules(

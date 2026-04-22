@@ -32,7 +32,8 @@ import {
   API_PATH_RE,
   CROSS_STACK_HEURISTIC_CONFIDENCE,
   collectRoutesAcrossGraph,
-  hasMatchingRoute,
+  findMatchingRoute,
+  isFastApiRouteMissingResponseModel,
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
@@ -53,7 +54,14 @@ export function untypedApiResponse(ctx: ConceptRuleContext): ReviewFinding[] {
     if (typeof target !== 'string') continue;
     const normalized = normalizeClientUrl(target);
     if (!normalized || !API_PATH_RE.test(normalized)) continue;
-    if (!hasMatchingRoute(normalized, serverRoutes)) continue;
+    const matchedRoute = findMatchingRoute(normalized, serverRoutes);
+    if (!matchedRoute) continue;
+    if (
+      matchedRoute.node &&
+      isFastApiRouteMissingResponseModel(matchedRoute.node, ctx.allConcepts.get(matchedRoute.node.primarySpan.file))
+    ) {
+      continue;
+    }
 
     findings.push({
       source: 'kern',
