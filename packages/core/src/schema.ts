@@ -1749,13 +1749,23 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   render: {
     description:
-      'Render function — JSX output block for a component or hook. Accepts a raw `handler` block OR declarative KERN children (`each`, `conditional`, `local`) that compose into a JSX tree. Optional `wrapper="<Tag attrs>"` prop emits that tag as the outer element around the composed children (replaces the default `<>...</>` Fragment). `local` children emit `const name = expr;` bindings at the enclosing screen-function scope before the return — use them for shared pre-compute that multiple sibling `each`/`conditional`/`handler` nodes read.',
+      'Render function — JSX output block for a component or hook. Accepts a raw `handler` block OR declarative KERN children (`each`, `conditional`, `local`, `group`) that compose into a JSX tree. Optional `wrapper="<Tag attrs>"` prop emits that tag as the outer element around the composed children (replaces the default `<>...</>` Fragment). `local` children emit `const name = expr;` bindings at the enclosing screen-function scope before the return — use them for shared pre-compute that multiple sibling `each`/`conditional`/`handler` nodes read. Use `group wrapper="<Tag>"` children to wrap a subset of JSX pieces in an inner tag (nested structural composition).',
     example:
       'render wrapper="<Box paddingX={1}>"\n  local name=visible expr="items.slice(start, start + pageSize)"\n  each name=item in=visible\n    handler <<< <Text>{item.label}</Text> >>>',
     props: {
       wrapper: { kind: 'string' },
     },
-    allowedChildren: ['handler', 'each', 'conditional', 'local'],
+    allowedChildren: ['handler', 'each', 'conditional', 'local', 'group'],
+  },
+  group: {
+    description:
+      'Nested JSX wrapper — emits an inner tag around a subset of a `render` block\'s children. `group` carries its own `wrapper="<Tag attrs>"` prop (required) and may hold `each`, `conditional`, `handler`, or further nested `group` children. Use it to build multi-level JSX trees (e.g. `<Box><Header /><Box paddingLeft>…</Box></Box>`) without dropping into a raw handler. Must appear as a direct or transitive child of `render`.',
+    example:
+      'render wrapper="<Box flexDirection=\\"column\\">"\n  handler <<< <Header /> >>>\n  group wrapper="<Box paddingLeft={2}>"\n    each name=item in=items\n      handler <<< <Text>{item.label}</Text> >>>',
+    props: {
+      wrapper: { required: true, kind: 'string' },
+    },
+    allowedChildren: ['handler', 'each', 'conditional', 'group'],
   },
   template: {
     description: 'Reusable template with named slots — defines a composable layout pattern',

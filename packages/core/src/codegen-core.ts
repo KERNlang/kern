@@ -605,6 +605,7 @@ export const CORE_NODE_TYPES = new Set([
   'conditional',
   'select',
   'option',
+  'group',
   // Screen (React/Ink component)
   'screen',
   // Meta
@@ -830,6 +831,11 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateConditional(node);
     case 'select':
       return generateSelect(node);
+    case 'group':
+      // Consumed by the parent `render` or `group` when composing a JSX tree
+      // (see codegen/screens.ts::collectComposedPieces). Outside of that
+      // context `group` has no standalone meaning — the validator rejects it.
+      return [];
     // Structural children consumed by parents
     case 'variant':
       return [];

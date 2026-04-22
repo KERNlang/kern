@@ -133,6 +133,24 @@ function validateNode(
     }
   }
 
+  // ── group must be inside a render (possibly nested via other groups) ─
+  // `group wrapper=...` is consumed by the composed-render emitter. Outside
+  // of a `render` ancestor it has no codegen target and silently vanishes —
+  // fail loudly instead so misuse surfaces at validation time.
+  if (node.type === 'group') {
+    const hasRenderAncestor = ancestry.includes('render');
+    if (!hasRenderAncestor) {
+      violations.push({
+        rule: 'group-must-be-inside-render',
+        nodeType: 'group',
+        message:
+          '`group` must be a descendant of a `render` block. It wraps sibling JSX pieces in an inner tag and only makes sense inside the composed render walk.',
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+
   // ── set must match a state declaration ─────────────────────────────
   // `set name=X` lowers to `setX(...)` using the React useState convention.
   // If no ancestor declares `state name=X`, the emitted setter is unbound
