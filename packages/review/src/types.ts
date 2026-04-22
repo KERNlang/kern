@@ -329,6 +329,25 @@ export interface ReviewConfig {
     /** Root for resolving relative `files`/`symbols`. Defaults to process.cwd(). */
     projectRoot?: string;
   };
+  /**
+   * Pre-extracted concept maps from files outside the current entry set.
+   * Merged into `allConcepts` so cross-file / cross-stack rules
+   * (contract-drift, untyped-api-response, tainted-across-wire, ...) can
+   * correlate against them, but never produce their own ReviewReport in
+   * the output since they aren't in `reports` to begin with.
+   *
+   * Intended for consumers like kern-guard that review a PR against a
+   * partner repo whose IR is cached elsewhere: serialize the partner's
+   * concepts once on push, feed them here per PR review, and cross-stack
+   * rules fire with both sides present without the partner files
+   * contributing single-file findings.
+   *
+   * Paths are caller-namespaced — kern-guard uses
+   * `"<installationId>::<relPath>"` so two partner repos that share file
+   * names (`src/routes.ts`) never collide. Rules that consult
+   * `ctx.allConcepts` treat the keys opaquely.
+   */
+  externalConcepts?: Map<string, import('@kernlang/core').ConceptMap>;
 }
 
 // ── File Context (import chain awareness) ───────────────────────────────

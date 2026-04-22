@@ -15,6 +15,7 @@ import { duplicateRoute } from './duplicate-route.js';
 import { ignoredError } from './ignored-error.js';
 import { missingResponseModel } from './missing-response-model.js';
 import { orphanRoute } from './orphan-route.js';
+import { paramNameSwap } from './param-name-swap.js';
 import { syncHandlerDoesIo } from './sync-handler-does-io.js';
 import { taintedAcrossWire } from './tainted-across-wire.js';
 import { unguardedEffect } from './unguarded-effect.js';
@@ -41,8 +42,9 @@ export const conceptRules: ConceptRule[] = [
   duplicateRoute,
   ignoredError,
   missingResponseModel,
-  syncHandlerDoesIo,
   orphanRoute,
+  paramNameSwap,
+  syncHandlerDoesIo,
   taintedAcrossWire,
   unguardedEffect,
   unrecoveredEffect,
