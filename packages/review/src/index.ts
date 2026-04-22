@@ -1054,6 +1054,18 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     }
   }
 
+  // Pre-extracted concepts from external (non-entry) files — typically
+  // a partner repo whose IR has been cached by the caller. Merged so
+  // cross-stack rules see both sides even when the partner's files are
+  // not physically present in this graph run. External keys never
+  // overwrite on-disk entries: if the caller accidentally namespaces a
+  // key that collides with a real graph file, the real file wins.
+  if (config?.externalConcepts) {
+    for (const [path, cm] of config.externalConcepts) {
+      if (!allConcepts.has(path)) allConcepts.set(path, cm);
+    }
+  }
+
   if (allConcepts.size > 0) {
     // Concept rule IDs to replace (remove per-file findings, add cross-file ones)
     const CONCEPT_RULE_IDS = new Set([
