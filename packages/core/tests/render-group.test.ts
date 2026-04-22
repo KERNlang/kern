@@ -15,6 +15,7 @@
 
 import { generateCoreNode } from '../src/codegen-core.js';
 import { KernCodegenError } from '../src/errors.js';
+import { parse } from '../src/parser.js';
 import { validateSemantics } from '../src/semantic-validator.js';
 import type { IRNode } from '../src/types.js';
 
@@ -147,5 +148,63 @@ describe('group node — semantic validation', () => {
     ]);
     const violations = validateSemantics(s);
     expect(violations.some((v) => v.rule === 'group-must-be-inside-render')).toBe(false);
+  });
+
+  it('flags a group inside an each (render > each > group silently drops at codegen)', () => {
+    // Codex-review catch: `ancestry.includes("render")` alone would accept
+    // this shape, but `generateEachJSX` does not recurse into group children
+    // — the wrapper would vanish at codegen. Require render/group as the
+    // direct parent so this fails validation instead.
+    const s = screenWithRender({}, [
+      mk('each', { name: 'x', in: 'xs' }, [
+        mk('handler', { code: '<X />' }),
+        mk('group', { wrapper: '<Row>' }, [mk('handler', { code: '<Cell />' })]),
+      ]),
+    ]);
+    const violations = validateSemantics(s);
+    expect(violations.some((v) => v.rule === 'group-must-be-inside-render')).toBe(true);
+  });
+
+  it('flags a group inside a conditional branch (same silent-drop reason)', () => {
+    const s = screenWithRender({}, [
+      mk('conditional', { if: 'cond' }, [
+        mk('handler', { code: '<X />' }),
+        mk('group', { wrapper: '<Row>' }, [mk('handler', { code: '<Cell />' })]),
+      ]),
+    ]);
+    const violations = validateSemantics(s);
+    expect(violations.some((v) => v.rule === 'group-must-be-inside-render')).toBe(true);
+  });
+});
+
+describe('group node — edge cases', () => {
+  it('handles an empty group (no JSX children) without throwing', () => {
+    const s = screenWithRender({}, [mk('group', { wrapper: '<Box>' }, [])]);
+    const code = generateCoreNode(s).join('\n');
+    expect(code).toContain('<Box>');
+    expect(code).toContain('</Box>');
+  });
+});
+
+describe('group node — parser recognition', () => {
+  it('parses `group` from .kern source without UNKNOWN_NODE_TYPE diagnostics', () => {
+    // Codex-review catch: `group` must be listed in `spec.ts::NODE_TYPES`
+    // or the parser emits an unknown-node warning on any real source file.
+    const source = [
+      'screen name=Demo target=ink',
+      '  render wrapper="<Box>"',
+      '    group wrapper="<Inner>"',
+      '      handler <<<',
+      '        <Text>hi</Text>',
+      '      >>>',
+      '',
+    ].join('\n');
+    const ast = parse(source);
+    const node = ast.type === 'screen' ? ast : (ast.children?.find((c) => c.type === 'screen') as IRNode);
+    const render = node.children?.find((c) => c.type === 'render') as IRNode;
+    const group = render.children?.find((c) => c.type === 'group') as IRNode;
+    expect(group).toBeDefined();
+    expect(group.type).toBe('group');
+    expect(group.props?.wrapper).toBe('<Inner>');
   });
 });

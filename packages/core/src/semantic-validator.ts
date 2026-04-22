@@ -133,18 +133,22 @@ function validateNode(
     }
   }
 
-  // ── group must be inside a render (possibly nested via other groups) ─
-  // `group wrapper=...` is consumed by the composed-render emitter. Outside
-  // of a `render` ancestor it has no codegen target and silently vanishes —
-  // fail loudly instead so misuse surfaces at validation time.
+  // ── group must be a direct child of render or another group ─────────
+  // `group wrapper=...` is consumed by the composed-render walk in
+  // `collectComposedPieces`, which only visits direct `render`/`group`
+  // children. Placements like `render > each > group` or
+  // `render > conditional > group` pass the schema but get silently dropped
+  // at codegen because `generateEachJSX` / `generateConditionalJSX` don't
+  // compose groups. Require a direct `render`/`group` parent so that silent
+  // failure is caught as a validation error.
   if (node.type === 'group') {
-    const hasRenderAncestor = ancestry.includes('render');
-    if (!hasRenderAncestor) {
+    const parent = ancestry[ancestry.length - 1];
+    if (parent !== 'render' && parent !== 'group') {
       violations.push({
         rule: 'group-must-be-inside-render',
         nodeType: 'group',
         message:
-          '`group` must be a descendant of a `render` block. It wraps sibling JSX pieces in an inner tag and only makes sense inside the composed render walk.',
+          '`group` must be a direct child of `render` or another `group`. Placing it inside `each`, `conditional`, or any other parent silently drops the wrapper at codegen.',
         line: node.loc?.line,
         col: node.loc?.col,
       });

@@ -207,6 +207,7 @@ export const NODE_TYPES = [
   'component',
   'select',
   'option',
+  'group',
   // Graphics
   'icon',
   'svg',
