@@ -465,7 +465,7 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
   // Two call sites map cleanly to KERN's `fmt` primitive:
   //
   //   const label = `${count} files`;         → fmt name=label template="…"
-  //   return `${msg} (${code})`;               → fmt name=<result> template="…"; return <result>
+  //   return `${msg} (${code})`;               → fmt return=true template="…"
   //
   // Only fires on TemplateExpression (has substitutions); plain backtick
   // strings are NoSubstitutionTemplateLiteral and don't need fmt.
@@ -501,20 +501,20 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
     }
 
     // Shape B — return value: `return \`…\`;`
-    // Migration is a two-step: bind the formatted string to a named `fmt`
-    // node first, then `return` that name. The suggestion shows both lines
-    // so authors can paste directly.
+    // Use the return-position `fmt` form (`return=true`) which lowers to a
+    // single `return \`…\`;` in generated TSX — one-liner replacement, no
+    // intermediate binding needed.
     if (Node.isReturnStatement(parent) && parent.getExpression() === tpl) {
       findings.push(
         finding(
           'suggest-kern-primitive',
           'info',
           'pattern',
-          'JS template literal in return position could migrate to KERN `fmt` — bind to a name, then return it',
+          'JS template literal in return position could migrate to KERN `fmt return=true`',
           ctx.filePath,
           tpl.getStartLineNumber(),
           1,
-          { suggestion: `fmt name=<result> template="${escapeKernTemplate(body)}"\nreturn <result>` },
+          { suggestion: `fmt return=true template="${escapeKernTemplate(body)}"` },
         ),
       );
       continue;

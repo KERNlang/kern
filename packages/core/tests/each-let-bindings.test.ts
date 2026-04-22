@@ -38,7 +38,9 @@ describe('each inside render — `let` iteration-scoped bindings', () => {
     expect(code).toContain('(items).map((f, __i) => {');
     expect(code).toContain('const idx = start + __i;');
     expect(code).toContain('return (');
-    expect(code).toContain('<React.Fragment key={f.id ?? f.key ?? __i}>');
+    expect(code).toContain(
+      '<React.Fragment key={(f as { id?: React.Key; key?: React.Key }).id ?? (f as { id?: React.Key; key?: React.Key }).key ?? __i}>',
+    );
     expect(code).toContain('<Text>{idx}</Text>');
     expect(code).toContain('</React.Fragment>');
     // Block-arrow end: `})}`

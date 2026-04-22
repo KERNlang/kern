@@ -336,13 +336,14 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   fmt: {
     description:
-      'Formatted string binding — declarative template literal. The `template` body is emitted verbatim between backticks, so `${expr}` placeholders interpolate normally. Use this instead of dropping into a handler just to build an interpolated string.',
+      'Formatted string binding — declarative template literal. The `template` body is emitted verbatim between backticks, so `${expr}` placeholders interpolate normally. Use this instead of dropping into a handler just to build an interpolated string. Set `return=true` to emit `return \\`...\\`;` inside a `fn` body (in which case `name` must be omitted).',
     example: 'fmt name=label template="${count} files over ${totalMb.toFixed(1)} MB"',
     props: {
-      name: { required: true, kind: 'identifier' },
+      name: { required: false, kind: 'identifier' },
       template: { required: true, kind: 'string' },
       type: { kind: 'typeAnnotation' },
       export: { kind: 'boolean' },
+      return: { kind: 'boolean' },
     },
   },
   set: {
@@ -2245,6 +2246,29 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       col: node.loc?.col,
     });
   }
+  if (node.type === 'fmt') {
+    const returnMode = isTruthyProp(props.return);
+    if (returnMode && 'name' in props) {
+      violations.push({
+        nodeType: 'fmt',
+        message: "'fmt' with return=true must not carry a 'name' prop (return-position emits `return \\`...\\`;`)",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (!returnMode && !('name' in props)) {
+      violations.push({
+        nodeType: 'fmt',
+        message: "'fmt' requires a 'name' prop for binding form, or 'return=true' for return-position form",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+}
+
+function isTruthyProp(raw: unknown): boolean {
+  return raw === true || raw === 'true';
 }
 
 function checkAllowedChildren(node: IRNode, schema: NodeSchema, violations: SchemaViolation[]): void {

@@ -131,6 +131,7 @@ export interface DeriveProps extends BaseProps {
 export interface FmtProps extends BaseProps {
   template?: string;
   type?: string;
+  return?: string | boolean;
 }
 
 export interface SetProps extends BaseProps {

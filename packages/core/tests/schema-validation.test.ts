@@ -82,6 +82,26 @@ describe('Schema Validation', () => {
       expect(v.some((v) => v.message.includes("'guard' requires either"))).toBe(true);
     });
 
+    it('passes fmt binding form (name + template)', () => {
+      const v = validate('fmt name=label template="${x}"');
+      expect(v).toHaveLength(0);
+    });
+
+    it('passes fmt return form (return=true + template, no name)', () => {
+      const v = validate('fmt return=true template="${ms}ms"');
+      expect(v).toHaveLength(0);
+    });
+
+    it('flags fmt missing both name and return=true', () => {
+      const v = validate('fmt template="${x}"');
+      expect(v.some((v) => v.message.includes("'fmt' requires a 'name' prop"))).toBe(true);
+    });
+
+    it('flags fmt with return=true AND a name prop', () => {
+      const v = validate('fmt name=label return=true template="${x}"');
+      expect(v.some((v) => v.message.includes("must not carry a 'name' prop"))).toBe(true);
+    });
+
     it('flags derive missing expr', () => {
       const v = validate('derive name=total');
       expect(v.some((v) => v.message.includes("requires prop 'expr'"))).toBe(true);
