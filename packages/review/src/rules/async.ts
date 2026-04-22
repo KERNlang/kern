@@ -328,14 +328,25 @@ function hasStatusCheck(fnBody: Node, name: string): boolean {
   return false;
 }
 
-// Exempt the call when it sits inside a `try` block: `.json()` on an HTML
-// error body throws a JSON parse error, so the catch still surfaces the
-// failure (it just doesn't distinguish 404 from 500). Walking stops at the
-// enclosing function because a `try` in a *caller* can't shield this call.
+// Exempt the call when it sits inside the TRY BLOCK (not catch or finally):
+// `.json()` on an HTML error body throws a JSON parse error, so the catch
+// still surfaces the failure (it just doesn't distinguish 404 from 500).
+// Intentionally narrow — a `.json()` in a catch clause or finally block has
+// no outer handler to catch the parse error, so the rule must fire there.
+// Walking stops at the enclosing function because a `try` in a *caller*
+// can't shield this call.
 function isExemptFromFetchCheck(call: Node): boolean {
+  let prev: Node | undefined = call;
   let cur: Node | undefined = call.getParent();
   while (cur) {
-    if (Node.isTryStatement(cur)) return true;
+    // Hitting a catch clause on the way up means the call lives in the
+    // error-handler body — no safety net for unchecked fetch here.
+    if (Node.isCatchClause(cur)) return false;
+    if (Node.isTryStatement(cur)) {
+      // Exempt only when we descended from the try-block itself, not the
+      // finally block. (Catch-body was already handled above.)
+      return prev === cur.getTryBlock();
+    }
     if (
       Node.isFunctionDeclaration(cur) ||
       Node.isFunctionExpression(cur) ||
@@ -344,6 +355,7 @@ function isExemptFromFetchCheck(call: Node): boolean {
     ) {
       return false;
     }
+    prev = cur;
     cur = cur.getParent();
   }
   return false;
