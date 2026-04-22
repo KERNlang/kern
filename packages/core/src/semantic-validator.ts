@@ -133,6 +133,28 @@ function validateNode(
     }
   }
 
+  // ── group must be a direct child of render or another group ─────────
+  // `group wrapper=...` is consumed by the composed-render walk in
+  // `collectComposedPieces`, which only visits direct `render`/`group`
+  // children. Placements like `render > each > group` or
+  // `render > conditional > group` pass the schema but get silently dropped
+  // at codegen because `generateEachJSX` / `generateConditionalJSX` don't
+  // compose groups. Require a direct `render`/`group` parent so that silent
+  // failure is caught as a validation error.
+  if (node.type === 'group') {
+    const parent = ancestry[ancestry.length - 1];
+    if (parent !== 'render' && parent !== 'group') {
+      violations.push({
+        rule: 'group-must-be-inside-render',
+        nodeType: 'group',
+        message:
+          '`group` must be a direct child of `render` or another `group`. Placing it inside `each`, `conditional`, or any other parent silently drops the wrapper at codegen.',
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+
   // ── set must match a state declaration ─────────────────────────────
   // `set name=X` lowers to `setX(...)` using the React useState convention.
   // If no ancestor declares `state name=X`, the emitted setter is unbound
