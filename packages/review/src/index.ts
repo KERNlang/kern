@@ -377,6 +377,51 @@ export function isReviewableFile(filePath: string): boolean {
   return REVIEWABLE_EXTENSIONS.has(ext);
 }
 
+/**
+ * Extract concept maps from a set of files without running any review
+ * rules. Returns one entry per file that was parsed successfully;
+ * unparseable or unknown-extension files are skipped silently.
+ *
+ * Intended for consumers (kern-guard) that want to cache a repo's IR
+ * once on push and replay it into later `reviewGraph` calls via
+ * `ReviewConfig.externalConcepts`. Much cheaper than running the full
+ * review pipeline — no rule evaluation, no import-graph resolution, no
+ * health aggregation.
+ */
+export function extractConceptsForGraph(filePaths: string[]): Map<string, import('@kernlang/core').ConceptMap> {
+  const out = new Map<string, import('@kernlang/core').ConceptMap>();
+  let extractPythonConcepts: ((src: string, fp: string) => import('@kernlang/core').ConceptMap) | null | undefined;
+  for (const filePath of filePaths) {
+    try {
+      const source = readFileSync(filePath, 'utf-8');
+      if (
+        filePath.endsWith('.ts') ||
+        filePath.endsWith('.tsx') ||
+        filePath.endsWith('.mts') ||
+        filePath.endsWith('.cts')
+      ) {
+        const project = createInMemoryProject();
+        const sf = project.createSourceFile(filePath, source);
+        out.set(filePath, extractTsConcepts(sf, filePath));
+      } else if (filePath.endsWith('.py')) {
+        if (extractPythonConcepts === undefined) {
+          try {
+            extractPythonConcepts = moduleRequire('@kernlang/review-python').extractPythonConcepts;
+          } catch {
+            extractPythonConcepts = null;
+          }
+        }
+        if (extractPythonConcepts) {
+          out.set(filePath, extractPythonConcepts(source, filePath));
+        }
+      }
+    } catch {
+      // Best-effort — caller sees which files made it into the map.
+    }
+  }
+  return out;
+}
+
 function emptyReport(filePath: string): ReviewReport {
   return {
     filePath,
