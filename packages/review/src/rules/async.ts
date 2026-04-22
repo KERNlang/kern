@@ -188,10 +188,11 @@ function abortControllerLeak(ctx: RuleContext): ReviewFinding[] {
 //
 //   const data = await (await fetch(url)).json();
 //
-// Stays silent when the code reads `res.ok`, `res.status`, or
-// `res.statusText` anywhere in the same function, or when the fetch lives
-// in a `try` whose `catch` rethrows or returns early. Scoped to `fetch()`
-// only; `axios`/`ky`/`got` throw on non-2xx by default.
+// Stays silent in these cases (error still surfaces):
+//   - any `res.ok`/`res.status`/`res.statusText` reference in the same fn;
+//   - call lives inside a `try` block — `.json()` on an HTML error page
+//     throws a JSON parse error that the catch still picks up.
+// Scoped to `fetch()` only; `axios`/`ky`/`got` throw on non-2xx by default.
 
 const RESPONSE_BODY_METHODS = new Set(['json', 'text', 'blob', 'arrayBuffer', 'formData']);
 const RESPONSE_STATUS_PROPS = new Set(['ok', 'status', 'statusText']);
@@ -218,6 +219,8 @@ function unboundBodyMethodOnAnonymousFetch(ctx: RuleContext): ReviewFinding[] {
     const awaited2 = awaited as import('ts-morph').AwaitExpression;
     const awaitedExpr = awaited2.getExpression();
     if (!isFetchCall(awaitedExpr)) continue;
+
+    if (isExemptFromFetchCheck(call)) continue;
 
     findings.push(
       finding(
@@ -253,6 +256,7 @@ function unboundBodyMethodOnAnonymousFetch(ctx: RuleContext): ReviewFinding[] {
     if (!fnBody) continue;
 
     if (hasStatusCheck(fnBody, obj.getText())) continue;
+    if (isExemptFromFetchCheck(call)) continue;
 
     findings.push(
       finding(
@@ -320,6 +324,27 @@ function hasStatusCheck(fnBody: Node, name: string): boolean {
     const obj = pa.getExpression();
     if (!Node.isIdentifier(obj) || obj.getText() !== name) continue;
     if (RESPONSE_STATUS_PROPS.has(pa.getName())) return true;
+  }
+  return false;
+}
+
+// Exempt the call when it sits inside a `try` block: `.json()` on an HTML
+// error body throws a JSON parse error, so the catch still surfaces the
+// failure (it just doesn't distinguish 404 from 500). Walking stops at the
+// enclosing function because a `try` in a *caller* can't shield this call.
+function isExemptFromFetchCheck(call: Node): boolean {
+  let cur: Node | undefined = call.getParent();
+  while (cur) {
+    if (Node.isTryStatement(cur)) return true;
+    if (
+      Node.isFunctionDeclaration(cur) ||
+      Node.isFunctionExpression(cur) ||
+      Node.isMethodDeclaration(cur) ||
+      Node.isArrowFunction(cur)
+    ) {
+      return false;
+    }
+    cur = cur.getParent();
   }
   return false;
 }
