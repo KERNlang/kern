@@ -396,6 +396,20 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
       routePath = (args[0] as import('ts-morph').StringLiteral).getLiteralValue();
     }
 
+    // Inline handler? The id we compute here must match the one
+    // `extractExpressCallbacks` will emit for the same function, so downstream
+    // rules can dereference `handlerConceptId` into the function_declaration
+    // concept. We pick the LAST arrow/function arg (middlewares precede it).
+    let handlerConceptId: string | undefined;
+    for (let i = args.length - 1; i >= 1; i--) {
+      const arg = args[i];
+      const k = arg.getKind();
+      if (k === SyntaxKind.ArrowFunction || k === SyntaxKind.FunctionExpression) {
+        handlerConceptId = conceptId(filePath, 'function_declaration', arg.getStart());
+        break;
+      }
+    }
+
     nodes.push({
       id: conceptId(filePath, 'entrypoint', call.getStart()),
       kind: 'entrypoint',
@@ -409,6 +423,7 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
         subtype: 'route',
         name: routePath || methodName,
         httpMethod: methodName.toUpperCase(),
+        handlerConceptId,
       },
     });
   }

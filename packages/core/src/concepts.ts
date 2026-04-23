@@ -72,6 +72,18 @@ export interface EntrypointPayload {
    * resolves this against route file paths to attach the prefix.
    */
   sourceModule?: string;
+  /**
+   * For `'route'` only, and only when the handler is an INLINE arrow /
+   * function expression on the same call (e.g. `app.get('/x', (req, res) => {})`).
+   * Holds the concept id of the handler's `function_declaration` concept.
+   * Undefined when the handler is an imported identifier or not resolvable.
+   *
+   * Rules that reason about the handler body (what fields it reads from
+   * `req.body`, whether it calls `res.status()` etc.) resolve this id back
+   * to the `function_declaration` concept in the same file, then walk the
+   * primary span.
+   */
+  handlerConceptId?: string;
 }
 
 export interface EffectPayload {

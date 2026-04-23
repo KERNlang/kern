@@ -258,6 +258,24 @@ function trimTrailing(path: string): string {
   return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
 }
 
+/**
+ * Resolve an inline Express handler's concept from a route node. Only
+ * meaningful for `route` entrypoints whose mapper set `handlerConceptId`
+ * (inline arrow/function handlers — not imported identifiers). Returns
+ * undefined when the route has no inline handler or the expected concept
+ * is absent from the map (e.g., stripped during serialisation).
+ *
+ * Rules that reason about handler body contents — body-shape drift, auth
+ * checks, response envelope detection — use this as the single lookup
+ * point so callers don't re-implement span-or-id matching in each rule.
+ */
+export function findHandlerConcept(map: ConceptMap, route: ConceptNode): ConceptNode | undefined {
+  if (route.kind !== 'entrypoint' || route.payload.kind !== 'entrypoint') return undefined;
+  const handlerId = route.payload.handlerConceptId;
+  if (!handlerId) return undefined;
+  return map.nodes.find((n) => n.id === handlerId);
+}
+
 function isParamSegment(seg: string): boolean {
   return seg.startsWith(':') || (seg.startsWith('{') && seg.endsWith('}'));
 }
