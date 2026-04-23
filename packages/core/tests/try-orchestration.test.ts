@@ -158,6 +158,30 @@ describe('try — semantic validation', () => {
     const v = validateSemantics(parent);
     expect(v.some((x) => x.rule === 'step-must-be-inside-try')).toBe(true);
   });
+
+  it('flags multiple catch children on a single try (JS has no multi-catch)', () => {
+    // Gemini review finding: `generateTry` uses firstChild(catch), so a
+    // second catch sibling was silently dropped. Now surfaces as
+    // `try-single-catch-only` so authors don't assume a second clause
+    // handles a different error class.
+    const node = mk('try', {}, [
+      mk('step', { name: 'x', await: 'f()' }),
+      mk('catch', { name: 'a' }, [mk('handler', { code: '// first' })]),
+      mk('catch', { name: 'b' }, [mk('handler', { code: '// second — silently ignored' })]),
+    ]);
+    const v = validateSemantics(node);
+    const hits = v.filter((x) => x.rule === 'try-single-catch-only');
+    expect(hits.length).toBe(1); // only the extra catch is flagged
+  });
+
+  it('does not flag a single catch', () => {
+    const node = mk('try', {}, [
+      mk('step', { name: 'x', await: 'f()' }),
+      mk('catch', {}, [mk('handler', { code: '// one' })]),
+    ]);
+    const v = validateSemantics(node);
+    expect(v.some((x) => x.rule === 'try-single-catch-only')).toBe(false);
+  });
 });
 
 describe('try — integration', () => {
