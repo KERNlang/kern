@@ -91,6 +91,7 @@ export {
   generateSumBy,
   generateTake,
   generateTransform,
+  generateTry,
   generateUnique,
   generateUniqueBy,
   generateZip,
@@ -195,6 +196,7 @@ import {
   generateSumBy,
   generateTake,
   generateTransform,
+  generateTry,
   generateUnique,
   generateUniqueBy,
   generateZip,
@@ -525,6 +527,9 @@ export const CORE_NODE_TYPES = new Set([
   'fmt',
   'set',
   'async',
+  'try',
+  'step',
+  'catch',
   'filter',
   'find',
   'some',
@@ -679,6 +684,18 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateFmt(node);
     case 'async':
       return generateAsync(node);
+    case 'try':
+      return generateTry(node);
+    case 'step':
+    case 'catch':
+      // `step` and `catch` are consumed by the parent `try` walk in
+      // codegen/ground-layer.ts::generateTry. Reaching this dispatcher
+      // means the node was placed outside a `try`, so no consumer will
+      // read it — the semantic validator flags this with clearer messages.
+      throw new KernCodegenError(
+        `\`${node.type}\` reached statement-level codegen — it must be a direct child of \`try\`.`,
+        node,
+      );
     case 'filter':
       return generateFilter(node);
     case 'find':

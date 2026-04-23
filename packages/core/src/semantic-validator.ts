@@ -133,6 +133,23 @@ function validateNode(
     }
   }
 
+  // ── step / catch must be direct children of try ──────────────────────
+  // Both are consumed by `generateTry`'s walk — placed elsewhere they hit
+  // the defensive throw in the core dispatcher. Flagging semantically
+  // surfaces the error with a line number during validation.
+  if (node.type === 'step' || node.type === 'catch') {
+    const parent = ancestry[ancestry.length - 1];
+    if (parent !== 'try') {
+      violations.push({
+        rule: `${node.type}-must-be-inside-try`,
+        nodeType: node.type,
+        message: `\`${node.type}\` must be a direct child of \`try\`. Placing it elsewhere has no codegen target.`,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+
   // ── group must be a direct child of render or another group ─────────
   // `group wrapper=...` is consumed by the composed-render walk in
   // `collectComposedPieces`, which only visits direct `render`/`group`
