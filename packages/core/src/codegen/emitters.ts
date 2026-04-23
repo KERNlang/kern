@@ -56,6 +56,17 @@ export function emitTemplateSafe(value: string): string {
 }
 
 /**
+ * Escape a `fmt` template body for a generated JS template literal. Unlike
+ * `emitTemplateSafe`, this preserves `${…}` — that's the whole point of the
+ * `fmt` node: author-supplied placeholders interpolate as they would in a
+ * hand-written template literal. Only backslashes and raw backticks are
+ * escaped so the literal can't be terminated prematurely.
+ */
+export function emitFmtTemplate(value: string): string {
+  return String(value).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+}
+
+/**
  * Validate and emit a safe TypeScript type annotation for generated code.
  * Handles generics, arrays, unions, intersections, tuples, function types.
  * Rejects semicolons, backticks, template literals, dynamic imports, comments.

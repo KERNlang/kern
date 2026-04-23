@@ -28,7 +28,7 @@
 
 import { KernCodegenError } from '../errors.js';
 import type { ExprObject, IRNode } from '../types.js';
-import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
+import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { exportPrefix, getChildren, getFirstChild, getProps } from './helpers.js';
 
 type ScreenProps = {
@@ -244,9 +244,11 @@ export function emitRender(renderNode: IRNode | undefined, lines: string[]): voi
     return;
   }
 
-  const hasJsxChild = getChildren(renderNode).some(
-    (c) => RENDER_JSX_CHILD_TYPES.has(c.type) || (c.type === 'fmt' && isFmtInlineForm(c)),
-  );
+  // Any `fmt` child triggers composed mode so the inline/non-inline
+  // distinction is resolved at piece-collection time. A binding-form `fmt`
+  // here is invalid — `collectComposedPieces` throws with a clear message
+  // instead of sliding through to the raw-handler path where it'd vanish.
+  const hasJsxChild = getChildren(renderNode).some((c) => RENDER_JSX_CHILD_TYPES.has(c.type) || c.type === 'fmt');
   const hasWrapper = !!propsOf(renderNode).wrapper;
   // A `local` child alone implies the author wants composed mode even if no
   // each/conditional is present — the locals need to hoist as statements and
@@ -342,7 +344,17 @@ function collectComposedPieces(parent: IRNode): string[][] {
       pieces.push(generateConditionalJSX(child));
     } else if (child.type === 'group') {
       pieces.push(generateGroupJSX(child));
-    } else if (child.type === 'fmt' && isFmtInlineForm(child)) {
+    } else if (child.type === 'fmt') {
+      if (!isFmtInlineForm(child)) {
+        // Binding or return form inside composed-JSX walk has no consumer —
+        // binding-form `fmt name=X` emits `const X = …;` which is a
+        // statement, and return-form emits `return …;` which must live in
+        // a `fn` body. Both forms would be silently dropped here otherwise.
+        throw new KernCodegenError(
+          '`fmt` child of `render`/`group` must be the inline-JSX form (no `name`, no `return=true`). Move binding-form `fmt name=X` to `local`/screen scope, or use a nameless `fmt template="…"` here.',
+          child,
+        );
+      }
       pieces.push([generateFmtInline(child)]);
     } else if (child.type === 'handler') {
       // In composed mode the handler contributes a JSX fragment, not a
@@ -380,8 +392,7 @@ function generateFmtInline(node: IRNode): string {
   if (template === undefined || template === null) {
     throw new KernCodegenError("fmt node requires a 'template' prop", node);
   }
-  const escaped = String(template).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
-  return `{\`${escaped}\`}`;
+  return `{\`${emitFmtTemplate(String(template))}\`}`;
 }
 
 /**
