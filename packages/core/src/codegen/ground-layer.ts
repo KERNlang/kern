@@ -1474,6 +1474,84 @@ export function generateAsync(node: IRNode): string[] {
   return lines;
 }
 
+// ── Ground Layer: try / step / catch ─────────────────────────────────────
+// `try name=loadUser` orchestrates a sequential try/catch. Each child is
+// emitted in source order:
+//
+//   try name=loadUser
+//     step name=res  await="fetch(url)"       →  const res = await (fetch(url));
+//     step name=body await="res.json()"        →  const body = await (res.json());
+//     handler <<< setUser(body); >>>           →  setUser(body);
+//     catch name=err                           →  } catch (err) {
+//       handler <<< setUser(null); >>>         →    setUser(null);
+//                                              →  }
+//
+// Step names are in scope for later steps, the optional `handler` body, and
+// the optional `catch` block's error binding. A `try` without `catch`
+// surrounds its steps + handler but lets rejections propagate (useful when
+// the caller owns the failure path).
+//
+// Why a dedicated node: agon scan (2026-04-23) counts 445 `await` +
+// `try/catch` combos inside handlers — the dominant async-orchestration
+// shape. `async` covers fire-and-forget; `try` covers the sequential
+// fetch-parse-store pipeline that wraps most real error paths.
+
+export function generateTry(node: IRNode): string[] {
+  const annotations = emitReasonAnnotations(node);
+  const props = propsOf<'try'>(node);
+  const conf = props.confidence;
+  const todo = emitLowConfidenceTodo(node, conf);
+
+  const steps = kids(node, 'step');
+  const handler = firstChild(node, 'handler');
+  const catchNode = firstChild(node, 'catch');
+
+  if (steps.length === 0 && !handler) {
+    throw new KernCodegenError(
+      '`try` block needs at least one `step` or a `handler` child — an empty try has no effect.',
+      node,
+    );
+  }
+
+  const lines: string[] = [...todo, ...annotations];
+  lines.push('try {');
+
+  for (const step of steps) {
+    const sp = step.props || {};
+    const stepName = emitIdentifier(sp.name as string, 'step', step);
+    const rawAwait = sp.await;
+    if (rawAwait === undefined || rawAwait === null) {
+      throw new KernCodegenError(`\`step name=${stepName}\` requires an 'await' prop`, step);
+    }
+    const awaitExpr =
+      rawAwait && typeof rawAwait === 'object' && (rawAwait as ExprObject).__expr
+        ? (rawAwait as ExprObject).code
+        : (rawAwait as string);
+    const stepType = sp.type;
+    const typeAnn = stepType ? `: ${emitTypeAnnotation(stepType as string, 'unknown', step)}` : '';
+    lines.push(`  const ${stepName}${typeAnn} = await (${awaitExpr});`);
+  }
+
+  if (handler) {
+    const body = handlerCode(node);
+    for (const line of body.split('\n')) {
+      if (line.length > 0) lines.push(`  ${line}`);
+    }
+  }
+
+  if (catchNode) {
+    const catchName = emitIdentifier((catchNode.props || {}).name as string, 'e', catchNode);
+    lines.push(`} catch (${catchName}) {`);
+    const body = handlerCode(catchNode);
+    for (const line of body.split('\n')) {
+      if (line.length > 0) lines.push(`  ${line}`);
+    }
+  }
+
+  lines.push('}');
+  return lines;
+}
+
 // ── Ground Layer: recover / strategy ─────────────────────────────────────
 
 export function generateRecover(node: IRNode): string[] {

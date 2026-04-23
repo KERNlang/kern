@@ -365,6 +365,35 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: ['handler', 'recover'],
   },
+  try: {
+    description:
+      'Declarative async orchestration — a sequential try/catch where each `step name=X await="expr"` child lowers to `const X = await (expr);`. Step bindings are in scope for later steps, the optional `handler` body (post-steps), and the optional `catch` block. Use this instead of a raw handler to express the "fetch → parse → store, fall back on error" shape declaratively.',
+    example:
+      'try name=loadUser\n  step name=res await="fetch(`/api/users/${id}`)"\n  step name=body await="res.json()"\n  handler <<<\n    setUser(body);\n  >>>\n  catch name=err\n    handler <<<\n      setUser(null);\n    >>>',
+    props: {
+      name: { kind: 'identifier' },
+    },
+    allowedChildren: ['step', 'handler', 'catch'],
+  },
+  step: {
+    description:
+      'Sequential awaited step inside a `try` block — `step name=X await="expr"` emits `const X = await (expr);` in order with its siblings. Must be a direct child of `try`. Earlier step names are in scope for later ones.',
+    example: 'step name=res await="fetch(url)"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      await: { required: true, kind: 'rawExpr' },
+      type: { kind: 'typeAnnotation' },
+    },
+  },
+  catch: {
+    description:
+      'Catch clause of a `try` block — binds the thrown value to `name` (default `e`) and runs its `handler` body. Must be a direct child of `try`. Without a `catch`, a `try` still surrounds its steps + handler but any rejection propagates unchanged.',
+    example: 'catch name=err\n  handler <<<\n    setError(err);\n  >>>',
+    props: {
+      name: { kind: 'identifier' },
+    },
+    allowedChildren: ['handler'],
+  },
   filter: {
     description:
       'Declarative `.filter` binding — `filter name=active in=items where="item.active"` lowers to `const active = items.filter(item => item.active);`. Use `item=x` to rename the per-item binding.',
