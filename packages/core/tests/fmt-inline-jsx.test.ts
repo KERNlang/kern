@@ -86,6 +86,37 @@ describe('fmt inline-JSX form — codegen', () => {
     expect(() => generateFmt(node)).toThrow(KernCodegenError);
     expect(() => generateFmt(node)).toThrow(/inline-JSX form/);
   });
+
+  it('throws when a non-inline fmt (binding form) is a direct child of render', () => {
+    // Binding-form fmt inside a composed-JSX walk has no consumer. Previously
+    // silently dropped; now a clear error (OpenCode review finding).
+    const s = screenWithRender({}, [mk('fmt', { name: 'label', template: '${x}' })]);
+    expect(() => generateCoreNode(s)).toThrow(KernCodegenError);
+    expect(() => generateCoreNode(s)).toThrow(/inline-JSX form/);
+  });
+
+  it('throws when a non-inline fmt (return form) is a direct child of group', () => {
+    const s = screenWithRender({}, [
+      mk('group', { wrapper: '<Text>' }, [mk('fmt', { template: '${x}', return: 'true' })]),
+    ]);
+    expect(() => generateCoreNode(s)).toThrow(KernCodegenError);
+    expect(() => generateCoreNode(s)).toThrow(/inline-JSX form/);
+  });
+
+  it('composes an inline fmt deep inside nested groups (render > group > group > fmt)', () => {
+    const s = screenWithRender({ wrapper: '<Box>' }, [
+      mk('group', { wrapper: '<Section>' }, [
+        mk('group', { wrapper: '<Text>' }, [mk('fmt', { template: '${label}' })]),
+      ]),
+    ]);
+    const code = generateCoreNode(s).join('\n');
+    expect(code).toContain('<Box>');
+    expect(code).toContain('<Section>');
+    expect(code).toContain('<Text>');
+    expect(code).toContain('{`${label}`}');
+    expect(code.indexOf('</Text>')).toBeLessThan(code.indexOf('</Section>'));
+    expect(code.indexOf('</Section>')).toBeLessThan(code.indexOf('</Box>'));
+  });
 });
 
 describe('fmt inline-JSX form — existing forms still work', () => {
