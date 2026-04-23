@@ -91,6 +91,17 @@ export function generateFmt(node: IRNode): string[] {
     return [...todo, ...annotations, `return \`${escapedTemplate}\`;`];
   }
 
+  // Inline-JSX form (no `name`, no `return=true`) is consumed by the parent
+  // `render`/`group` walk in codegen/screens.ts. If it reaches this
+  // statement-level dispatcher, it was placed where no consumer can read
+  // it — fail loudly instead of emitting a surprise `const formatted = …;`.
+  if (props.name === undefined) {
+    throw new KernCodegenError(
+      'fmt without `name` or `return=true` is the inline-JSX form — it must be a direct child of `render` or `group`.',
+      node,
+    );
+  }
+
   const name = emitIdentifier(props.name, 'formatted', node);
   const constType = props.type;
   const exp = exportPrefix(node);

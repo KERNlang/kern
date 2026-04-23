@@ -92,9 +92,11 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
 
-    it('flags fmt missing both name and return=true', () => {
+    it('accepts fmt without name/return=true (inline-JSX form — positional check is semantic)', () => {
+      // Schema passes; `fmt-inline-must-be-inside-render` fires from the
+      // semantic validator when the node is placed outside `render`/`group`.
       const v = validate('fmt template="${x}"');
-      expect(v.some((v) => v.message.includes("'fmt' requires a 'name' prop"))).toBe(true);
+      expect(v.some((v) => v.message.includes("'fmt' requires"))).toBe(false);
     });
 
     it('flags fmt with return=true AND a name prop', () => {
