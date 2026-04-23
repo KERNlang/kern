@@ -155,6 +155,31 @@ function validateNode(
     }
   }
 
+  // ── fmt inline-JSX form must sit inside render/group ─────────────────
+  // `fmt template="..."` with no `name` and no `return=true` is the
+  // inline-JSX form — it emits `{\`...\`}` as a JSX piece via
+  // `collectComposedPieces`. Anywhere else (top-level, inside `fn`, inside
+  // `each`/`conditional`, etc.) the codegen dispatcher throws. Flag the
+  // misplacement semantically so authors get a line number.
+  if (node.type === 'fmt') {
+    const p = node.props || {};
+    const returnMode = p.return === true || p.return === 'true';
+    const isInline = !returnMode && !('name' in p);
+    if (isInline) {
+      const parent = ancestry[ancestry.length - 1];
+      if (parent !== 'render' && parent !== 'group') {
+        violations.push({
+          rule: 'fmt-inline-must-be-inside-render',
+          nodeType: 'fmt',
+          message:
+            '`fmt template="..."` without `name` or `return=true` is the inline-JSX form — it must be a direct child of `render` or `group`. Use `fmt name=X` for a binding or `fmt return=true` inside a `fn` body.',
+          line: node.loc?.line,
+          col: node.loc?.col,
+        });
+      }
+    }
+  }
+
   // ── set must match a state declaration ─────────────────────────────
   // `set name=X` lowers to `setX(...)` using the React useState convention.
   // If no ancestor declares `state name=X`, the emitted setter is unbound
