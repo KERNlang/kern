@@ -568,9 +568,10 @@ function pathSuffixBetween(mountFile: string, targetFile: string): string {
 // field as optional and are excluded from the required set. A rest element
 // (`{ ...rest }`) or a dynamic key (`req.body[var]`) poisons the resolution
 // because the handler may need arbitrary fields we can't see.
-function extractHandlerBodyFields(
-  fn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
-): { fields: readonly string[] | undefined; resolved: boolean } {
+function extractHandlerBodyFields(fn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression): {
+  fields: readonly string[] | undefined;
+  resolved: boolean;
+} {
   const body = fn.getBody();
   if (!body) return { fields: undefined, resolved: false };
 
@@ -1348,9 +1349,10 @@ function extractSentFields(
 // Spread (`...x`) or computed keys (`[x]: ...`) poison the resolution —
 // we mark unresolved rather than return a partial field list that would
 // produce false positives downstream.
-function extractLiteralObjectFields(
-  obj: import('ts-morph').ObjectLiteralExpression,
-): { fields: readonly string[] | undefined; resolved: boolean } {
+function extractLiteralObjectFields(obj: import('ts-morph').ObjectLiteralExpression): {
+  fields: readonly string[] | undefined;
+  resolved: boolean;
+} {
   const fields: string[] = [];
   for (const prop of obj.getProperties()) {
     const kind = prop.getKind();
