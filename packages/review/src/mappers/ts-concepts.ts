@@ -311,6 +311,7 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
 
     if (isDirectNetwork || isKnownLibraryMethod || isWrappedClientCall) {
       const isAsync = isInAsyncContext(call);
+      const sentFieldsInfo = extractSentFields(call, funcName);
       nodes.push({
         id: conceptId(filePath, 'effect', call.getStart()),
         kind: 'effect',
@@ -328,6 +329,8 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
           bodyKind: extractBodyKind(call, funcName),
           method: extractHttpMethod(call, funcName, isDirectNetwork, isKnownLibraryMethod, isWrappedClientCall),
           hasAuthHeader: extractHasAuthHeader(call, funcName),
+          sentFields: sentFieldsInfo.fields,
+          sentFieldsResolved: sentFieldsInfo.resolved,
         },
       });
       continue;
@@ -401,14 +404,20 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
     // rules can dereference `handlerConceptId` into the function_declaration
     // concept. We pick the LAST arrow/function arg (middlewares precede it).
     let handlerConceptId: string | undefined;
+    let handlerFn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | undefined;
     for (let i = args.length - 1; i >= 1; i--) {
       const arg = args[i];
       const k = arg.getKind();
       if (k === SyntaxKind.ArrowFunction || k === SyntaxKind.FunctionExpression) {
         handlerConceptId = conceptId(filePath, 'function_declaration', arg.getStart());
+        handlerFn = arg as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression;
         break;
       }
     }
+
+    const bodyFieldsInfo = handlerFn
+      ? extractHandlerBodyFields(handlerFn)
+      : { fields: undefined as readonly string[] | undefined, resolved: false };
 
     nodes.push({
       id: conceptId(filePath, 'entrypoint', call.getStart()),
@@ -424,6 +433,8 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
         name: routePath || methodName,
         httpMethod: methodName.toUpperCase(),
         handlerConceptId,
+        bodyFields: bodyFieldsInfo.fields,
+        bodyFieldsResolved: bodyFieldsInfo.resolved,
       },
     });
   }
@@ -546,6 +557,81 @@ function pathSuffixBetween(mountFile: string, targetFile: string): string {
   }
   const tail = parts.slice(commonLen).join('/');
   return tail || parts.slice(-2).join('/');
+}
+
+// Walk an Express handler body and collect the REQUIRED body field names it
+// reads. Combines two evidence sources:
+//   1. Destructuring:  `const { name, email } = req.body;`
+//   2. Property access: `req.body.name`, `req.body['email']`
+//
+// Default-assignments in destructuring (`{ status = 'active' }`) mark the
+// field as optional and are excluded from the required set. A rest element
+// (`{ ...rest }`) or a dynamic key (`req.body[var]`) poisons the resolution
+// because the handler may need arbitrary fields we can't see.
+function extractHandlerBodyFields(fn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression): {
+  fields: readonly string[] | undefined;
+  resolved: boolean;
+} {
+  const body = fn.getBody();
+  if (!body) return { fields: undefined, resolved: false };
+
+  const required = new Set<string>();
+  let poisoned = false;
+
+  // 1. Destructuring: walk VariableDeclarations whose initializer is `req.body`
+  //    or a reference that aliases it. V1 matches only direct `req.body`.
+  for (const decl of body.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const init = decl.getInitializer();
+    if (!init || init.getText() !== 'req.body') continue;
+    const name = decl.getNameNode();
+    if (name.getKind() !== SyntaxKind.ObjectBindingPattern) {
+      // `const body = req.body` whole-body alias — handler may read anything
+      // off `body.X` downstream. Poison the resolution for safety.
+      poisoned = true;
+      continue;
+    }
+    for (const el of (name as import('ts-morph').ObjectBindingPattern).getElements()) {
+      if (el.getDotDotDotToken()) {
+        // `{ ...rest } = req.body` — unknowable set of fields.
+        poisoned = true;
+        continue;
+      }
+      if (el.getInitializer()) {
+        // `{ status = 'active' }` — optional, skip (don't add to required).
+        continue;
+      }
+      const elName = el.getNameNode();
+      if (elName.getKind() === SyntaxKind.Identifier) {
+        // `{ name }` or `{ name: alias }` — the property name lives on
+        // `propertyNameNode` when aliased, `nameNode` otherwise.
+        const propName = el.getPropertyNameNode()?.getText() ?? elName.getText();
+        required.add(propName);
+      } else {
+        // Nested destructuring or other exotic shape — give up for v1.
+        poisoned = true;
+      }
+    }
+  }
+
+  // 2. Property access: `req.body.name` / `req.body['name']`.
+  for (const pa of body.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
+    if (pa.getExpression().getText() !== 'req.body') continue;
+    required.add(pa.getName());
+  }
+  for (const el of body.getDescendantsOfKind(SyntaxKind.ElementAccessExpression)) {
+    if (el.getExpression().getText() !== 'req.body') continue;
+    const arg = el.getArgumentExpression();
+    if (arg && arg.getKind() === SyntaxKind.StringLiteral) {
+      required.add((arg as import('ts-morph').StringLiteral).getLiteralValue());
+    } else {
+      // `req.body[key]` dynamic — unknowable.
+      poisoned = true;
+    }
+  }
+
+  if (poisoned) return { fields: undefined, resolved: false };
+  if (required.size === 0) return { fields: undefined, resolved: false };
+  return { fields: Array.from(required), resolved: true };
 }
 
 function guessResolvedSuffix(specifier: string, mountFile: string): string | undefined {
@@ -1226,6 +1312,68 @@ function isInAsyncContext(node: import('ts-morph').Node): boolean {
     parent = parent.getParent();
   }
   return false;
+}
+
+// Extract the field names a `fetch(url, { body: JSON.stringify({ a, b }) })`
+// sends on the wire. V1 scope: raw `fetch` only, body must be
+// `JSON.stringify({ ... })` with a literal object that has only identifier
+// keys and no spread. Everything else returns `{ fields: undefined, resolved: false }`
+// so body-shape-drift stays silent on opaque shapes rather than guessing.
+function extractSentFields(
+  call: import('ts-morph').CallExpression,
+  funcName: string,
+): { fields: readonly string[] | undefined; resolved: boolean } {
+  if (funcName !== 'fetch') return { fields: undefined, resolved: false };
+  const args = call.getArguments();
+  if (args.length < 2) return { fields: undefined, resolved: false };
+  const opts = args[1];
+  if (opts.getKind() !== SyntaxKind.ObjectLiteralExpression) return { fields: undefined, resolved: false };
+  const optsObj = opts as import('ts-morph').ObjectLiteralExpression;
+  const bodyProp = optsObj.getProperty('body');
+  if (!bodyProp) return { fields: undefined, resolved: false };
+  if (bodyProp.getKind() !== SyntaxKind.PropertyAssignment) {
+    return { fields: undefined, resolved: false };
+  }
+  const init = (bodyProp as import('ts-morph').PropertyAssignment).getInitializer();
+  if (!init || init.getKind() !== SyntaxKind.CallExpression) return { fields: undefined, resolved: false };
+  const bodyCall = init as import('ts-morph').CallExpression;
+  if (bodyCall.getExpression().getText() !== 'JSON.stringify') return { fields: undefined, resolved: false };
+  const stringifyArgs = bodyCall.getArguments();
+  if (stringifyArgs.length === 0) return { fields: undefined, resolved: false };
+  const payload = stringifyArgs[0];
+  if (payload.getKind() !== SyntaxKind.ObjectLiteralExpression) return { fields: undefined, resolved: false };
+  return extractLiteralObjectFields(payload as import('ts-morph').ObjectLiteralExpression);
+}
+
+// Walk an object literal and return its identifier-keyed property names.
+// Spread (`...x`) or computed keys (`[x]: ...`) poison the resolution —
+// we mark unresolved rather than return a partial field list that would
+// produce false positives downstream.
+function extractLiteralObjectFields(obj: import('ts-morph').ObjectLiteralExpression): {
+  fields: readonly string[] | undefined;
+  resolved: boolean;
+} {
+  const fields: string[] = [];
+  for (const prop of obj.getProperties()) {
+    const kind = prop.getKind();
+    if (kind === SyntaxKind.SpreadAssignment) return { fields: undefined, resolved: false };
+    if (kind === SyntaxKind.PropertyAssignment) {
+      const name = (prop as import('ts-morph').PropertyAssignment).getNameNode();
+      if (name.getKind() === SyntaxKind.ComputedPropertyName) return { fields: undefined, resolved: false };
+      if (name.getKind() === SyntaxKind.Identifier || name.getKind() === SyntaxKind.StringLiteral) {
+        fields.push((name as import('ts-morph').Identifier).getText().replace(/['"]/g, ''));
+      } else {
+        return { fields: undefined, resolved: false };
+      }
+    } else if (kind === SyntaxKind.ShorthandPropertyAssignment) {
+      fields.push((prop as import('ts-morph').ShorthandPropertyAssignment).getName());
+    } else {
+      // Method definitions, getters, setters — unusual in a fetch body,
+      // treat as unresolved.
+      return { fields: undefined, resolved: false };
+    }
+  }
+  return { fields, resolved: true };
 }
 
 function extractTarget(call: import('ts-morph').CallExpression): string | undefined {

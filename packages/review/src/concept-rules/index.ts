@@ -8,6 +8,7 @@
 import type { ConceptMap } from '@kernlang/core';
 import type { ReviewFinding } from '../types.js';
 import { authDrift } from './auth-drift.js';
+import { bodyShapeDrift } from './body-shape-drift.js';
 import { boundaryMutation } from './boundary-mutation.js';
 import { contractDrift } from './contract-drift.js';
 import { contractMethodDrift } from './contract-method-drift.js';
@@ -36,6 +37,7 @@ export type ConceptRule = (ctx: ConceptRuleContext) => ReviewFinding[];
 
 export const conceptRules: ConceptRule[] = [
   authDrift,
+  bodyShapeDrift,
   boundaryMutation,
   contractDrift,
   contractMethodDrift,
