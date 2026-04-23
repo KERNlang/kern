@@ -12,7 +12,7 @@ import { KernCodegenError } from '../errors.js';
 import { propsOf } from '../node-props.js';
 import { expandTemplateNode, isTemplateNode } from '../template-engine.js';
 import type { ExprObject, IRNode } from '../types.js';
-import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
+import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import {
   capitalize,
   emitLowConfidenceTodo,
@@ -75,10 +75,10 @@ export function generateFmt(node: IRNode): string[] {
     throw new KernCodegenError("fmt node requires a 'template' prop", node);
   }
 
-  // Escape backticks so the emitted template literal can't be closed
-  // prematurely. `${...}` is intentionally passed through untouched — that's
-  // the whole reason fmt exists.
-  const escapedTemplate = String(template).replace(/\\/g, '\\\\').replace(/`/g, '\\`');
+  // `${...}` is intentionally passed through untouched — that's the whole
+  // reason fmt exists. `emitFmtTemplate` escapes backslashes and raw
+  // backticks so the literal can't be closed prematurely.
+  const escapedTemplate = emitFmtTemplate(String(template));
 
   const returnMode = props.return === true || props.return === 'true';
   if (returnMode) {
@@ -89,6 +89,17 @@ export function generateFmt(node: IRNode): string[] {
       );
     }
     return [...todo, ...annotations, `return \`${escapedTemplate}\`;`];
+  }
+
+  // Inline-JSX form (no `name`, no `return=true`) is consumed by the parent
+  // `render`/`group` walk in codegen/screens.ts. If it reaches this
+  // statement-level dispatcher, it was placed where no consumer can read
+  // it — fail loudly instead of emitting a surprise `const formatted = …;`.
+  if (props.name === undefined) {
+    throw new KernCodegenError(
+      'fmt without `name` or `return=true` is the inline-JSX form — it must be a direct child of `render` or `group`.',
+      node,
+    );
   }
 
   const name = emitIdentifier(props.name, 'formatted', node);

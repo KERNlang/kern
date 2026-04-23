@@ -136,6 +136,15 @@ describe('group node — semantic validation', () => {
     expect(violations.some((v) => v.rule === 'group-must-be-inside-render')).toBe(true);
   });
 
+  it('throws at codegen if a group is dispatched at statement scope (validator bypass)', () => {
+    // OpenCode review finding: previously `case 'group'` returned [] silently,
+    // so a misplaced group in a tree that skipped semantic validation would
+    // vanish at codegen. Now it raises `KernCodegenError`.
+    const orphan = mk('group', { wrapper: '<Box>' }, [mk('handler', { code: '<X />' })]);
+    expect(() => generateCoreNode(orphan)).toThrow(KernCodegenError);
+    expect(() => generateCoreNode(orphan)).toThrow(/must be a direct child of `render`/);
+  });
+
   it('accepts a group as a child of render', () => {
     const s = screenWithRender({}, [mk('group', { wrapper: '<Box>' }, [mk('handler', { code: '<X />' })])]);
     const violations = validateSemantics(s);

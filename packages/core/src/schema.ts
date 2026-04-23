@@ -336,7 +336,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   fmt: {
     description:
-      'Formatted string binding — declarative template literal. The `template` body is emitted verbatim between backticks, so `${expr}` placeholders interpolate normally. Use this instead of dropping into a handler just to build an interpolated string. Set `return=true` to emit `return \\`...\\`;` inside a `fn` body (in which case `name` must be omitted).',
+      'Formatted string — declarative template literal. The `template` body is emitted verbatim between backticks, so `${expr}` placeholders interpolate normally. Three positional modes: (1) binding form `fmt name=X template=...` emits `const X = \\`...\\`;` at the current scope; (2) return form `fmt return=true template=...` emits `return \\`...\\`;` inside a `fn` body (name must be omitted); (3) inline-JSX form `fmt template=...` (no name, no return=true) appears as a direct child of `render`/`group` and emits `{\\`...\\`}` as a JSX expression — use this to replace handler-wrapped `{\\`${x} files\\`}` text inside composed renders.',
     example: 'fmt name=label template="${count} files over ${totalMb.toFixed(1)} MB"',
     props: {
       name: { required: false, kind: 'identifier' },
@@ -1755,7 +1755,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       wrapper: { kind: 'string' },
     },
-    allowedChildren: ['handler', 'each', 'conditional', 'local', 'group'],
+    allowedChildren: ['handler', 'each', 'conditional', 'local', 'group', 'fmt'],
   },
   group: {
     description:
@@ -1765,7 +1765,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       wrapper: { required: true, kind: 'string' },
     },
-    allowedChildren: ['handler', 'each', 'conditional', 'group'],
+    allowedChildren: ['handler', 'each', 'conditional', 'group', 'fmt'],
   },
   template: {
     description: 'Reusable template with named slots — defines a composable layout pattern',
@@ -2266,14 +2266,9 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
         col: node.loc?.col,
       });
     }
-    if (!returnMode && !('name' in props)) {
-      violations.push({
-        nodeType: 'fmt',
-        message: "'fmt' requires a 'name' prop for binding form, or 'return=true' for return-position form",
-        line: node.loc?.line,
-        col: node.loc?.col,
-      });
-    }
+    // Neither `name` nor `return=true` selects the inline-JSX form; that form
+    // is only valid inside `render`/`group` — the positional check lives in
+    // the semantic validator, which has ancestry context.
   }
 }
 

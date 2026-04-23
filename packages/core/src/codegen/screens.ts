@@ -28,7 +28,7 @@
 
 import { KernCodegenError } from '../errors.js';
 import type { ExprObject, IRNode } from '../types.js';
-import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
+import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { exportPrefix, getChildren, getFirstChild, getProps } from './helpers.js';
 
 type ScreenProps = {
@@ -244,7 +244,11 @@ export function emitRender(renderNode: IRNode | undefined, lines: string[]): voi
     return;
   }
 
-  const hasJsxChild = getChildren(renderNode).some((c) => RENDER_JSX_CHILD_TYPES.has(c.type));
+  // Any `fmt` child triggers composed mode so the inline/non-inline
+  // distinction is resolved at piece-collection time. A binding-form `fmt`
+  // here is invalid — `collectComposedPieces` throws with a clear message
+  // instead of sliding through to the raw-handler path where it'd vanish.
+  const hasJsxChild = getChildren(renderNode).some((c) => RENDER_JSX_CHILD_TYPES.has(c.type) || c.type === 'fmt');
   const hasWrapper = !!propsOf(renderNode).wrapper;
   // A `local` child alone implies the author wants composed mode even if no
   // each/conditional is present — the locals need to hoist as statements and
@@ -326,7 +330,10 @@ function emitRenderComposed(renderNode: IRNode, lines: string[]): void {
  *
  * Skips `local` and metadata children — locals hoist at render scope (handled
  * before the return by `emitRenderComposed`), and metadata doesn't produce
- * JSX. `group` children recurse through `generateGroupJSX`.
+ * JSX. `group` children recurse through `generateGroupJSX`. A `fmt` child
+ * with no `name` and no `return=true` is the inline-JSX form: it emits as
+ * `{\`${template}\`}` and stands in for a handler-wrapped interpolated
+ * text node.
  */
 function collectComposedPieces(parent: IRNode): string[][] {
   const pieces: string[][] = [];
@@ -337,6 +344,18 @@ function collectComposedPieces(parent: IRNode): string[][] {
       pieces.push(generateConditionalJSX(child));
     } else if (child.type === 'group') {
       pieces.push(generateGroupJSX(child));
+    } else if (child.type === 'fmt') {
+      if (!isFmtInlineForm(child)) {
+        // Binding or return form inside composed-JSX walk has no consumer —
+        // binding-form `fmt name=X` emits `const X = …;` which is a
+        // statement, and return-form emits `return …;` which must live in
+        // a `fn` body. Both forms would be silently dropped here otherwise.
+        throw new KernCodegenError(
+          '`fmt` child of `render`/`group` must be the inline-JSX form (no `name`, no `return=true`). Move binding-form `fmt name=X` to `local`/screen scope, or use a nameless `fmt template="…"` here.',
+          child,
+        );
+      }
+      pieces.push([generateFmtInline(child)]);
     } else if (child.type === 'handler') {
       // In composed mode the handler contributes a JSX fragment, not a
       // `return`-wrapped expression. Strip a leading `return (...);` so authors
@@ -344,9 +363,36 @@ function collectComposedPieces(parent: IRNode): string[][] {
       const raw = (propsOf(child).code as string) || '';
       pieces.push(stripReturnWrapper(raw).split('\n'));
     }
-    // local + metadata children skipped here.
+    // local + metadata children skipped here. A `fmt` child with `name=` or
+    // `return=true` also falls through here — those are statement-form and
+    // get dispatched by the core codegen when they appear at the right scope,
+    // not inside a composed-JSX walk.
   }
   return pieces;
+}
+
+/**
+ * True when a `fmt` node is in its inline-JSX form — no `name`, no
+ * `return=true`. That form only makes sense as a direct child of
+ * `render`/`group` where it emits `{\`${template}\`}` as a JSX expression.
+ */
+function isFmtInlineForm(node: IRNode): boolean {
+  const p = propsOf(node);
+  const returnMode = p.return === true || p.return === 'true';
+  return !returnMode && p.name === undefined;
+}
+
+/**
+ * Emit an inline-JSX `fmt` as a single line: `{\`${template}\`}`. Reuses the
+ * same backtick-escape rule as the statement-form `generateFmt` so a raw
+ * backtick in the template can't close the literal.
+ */
+function generateFmtInline(node: IRNode): string {
+  const template = propsOf(node).template;
+  if (template === undefined || template === null) {
+    throw new KernCodegenError("fmt node requires a 'template' prop", node);
+  }
+  return `{\`${emitFmtTemplate(String(template))}\`}`;
 }
 
 /**
