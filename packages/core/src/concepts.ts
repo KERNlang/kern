@@ -84,6 +84,22 @@ export interface EntrypointPayload {
    * primary span.
    */
   handlerConceptId?: string;
+  /**
+   * For `'route'` only — the REQUIRED body field names the handler reads
+   * from `req.body`, either via property access (`req.body.name`) or
+   * destructuring (`const { name } = req.body`). Defaults in destructuring
+   * (`const { status = 'active' } = req.body`) are treated as optional and
+   * excluded. Present only when `bodyFieldsResolved === true`.
+   */
+  bodyFields?: readonly string[];
+  /**
+   * True when the mapper is confident it saw every field the handler reads.
+   * False / undefined when evidence was ambiguous (spread rest, dynamic key
+   * access, whole-body forwarding, imported handler). Cross-stack rules
+   * like body-shape-drift only fire when this is true to avoid noisy
+   * warnings on opaque handlers.
+   */
+  bodyFieldsResolved?: boolean;
 }
 
 export interface EffectPayload {
@@ -127,6 +143,21 @@ export interface EffectPayload {
    * the `auth-drift` cross-stack rule.
    */
   hasAuthHeader?: boolean;
+  /**
+   * For `network` subtype only — names of body fields the call sends.
+   * Populated when the body is a literal object, directly or wrapped in
+   * `JSON.stringify({ ... })`, with only identifier keys (no spread, no
+   * computed `[x]` keys). Present only when `sentFieldsResolved === true`.
+   */
+  sentFields?: readonly string[];
+  /**
+   * True when the mapper is confident the extracted `sentFields` list is
+   * complete. False / undefined when the body uses spread, variable
+   * references, dynamic keys, or non-object shapes (FormData, Blob, raw
+   * strings). The `body-shape-drift` rule fires only when BOTH this and
+   * the server-side `bodyFieldsResolved` are true.
+   */
+  sentFieldsResolved?: boolean;
 }
 
 export interface StateMutationPayload {
