@@ -140,6 +140,15 @@ export interface SetProps extends BaseProps {
 
 export interface AsyncProps extends BaseProps {}
 
+export interface TryProps extends BaseProps {}
+
+export interface StepProps extends BaseProps {
+  await?: string | ExprObject;
+  type?: string;
+}
+
+export interface CatchProps extends BaseProps {}
+
 export interface LocalProps extends BaseProps {
   expr?: string | ExprObject;
   type?: string;
@@ -549,6 +558,9 @@ export interface NodePropsMap {
   fmt: FmtProps;
   set: SetProps;
   async: AsyncProps;
+  try: TryProps;
+  step: StepProps;
+  catch: CatchProps;
   local: LocalProps;
   filter: ArrayMethodProps;
   find: ArrayMethodProps;
