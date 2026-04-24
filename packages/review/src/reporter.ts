@@ -505,6 +505,10 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
         },
       ],
     };
+    const relatedLocations = toSARIFRelatedLocations(finding);
+    if (relatedLocations.length > 0) {
+      result.relatedLocations = relatedLocations;
+    }
 
     // SARIF result.rank is 0.0–100.0 per spec; kern/confidence stays 0–1
     if (finding.confidence !== undefined) {
@@ -556,6 +560,21 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
   }
 
   return JSON.stringify(sarif, null, 2);
+}
+
+function toSARIFRelatedLocations(finding: ReviewFinding): Array<Record<string, unknown>> {
+  return (finding.relatedSpans ?? []).map((span, index) => ({
+    id: index + 1,
+    physicalLocation: {
+      artifactLocation: { uri: span.file },
+      region: {
+        startLine: span.startLine,
+        startColumn: span.startCol,
+        endLine: span.endLine,
+        endColumn: span.endCol,
+      },
+    },
+  }));
 }
 
 function toSARIFFix(finding: ReviewFinding): Record<string, unknown> | undefined {

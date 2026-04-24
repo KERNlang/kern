@@ -296,6 +296,20 @@ describe('Reporter: SARIF rank', () => {
     expect(fix.artifactChanges[0].replacements[0].insertedContent.text).toBe('run().catch(console.error);');
   });
 
+  it('exports related locations in SARIF output', () => {
+    const report = makeReport([
+      makeFinding({
+        ruleId: 'unhandled-api-error-shape',
+        relatedSpans: [{ file: 'src/server.ts', startLine: 7, startCol: 1, endLine: 9, endCol: 2 }],
+      }),
+    ]);
+    const sarif = JSON.parse(formatSARIF([report]));
+    const related = sarif.runs[0].results[0].relatedLocations[0];
+    expect(related.id).toBe(1);
+    expect(related.physicalLocation.artifactLocation.uri).toBe('src/server.ts');
+    expect(related.physicalLocation.region.startLine).toBe(7);
+  });
+
   it('marks baseline findings and suppresses existing ones in SARIF metadata', () => {
     const report = makeReport([
       makeFinding({ ruleId: 'existing-rule', fingerprint: 'existing-fp', message: 'existing message' }),
