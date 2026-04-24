@@ -517,6 +517,10 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
     if (Object.keys(properties).length > 0) {
       result.properties = properties;
     }
+    const sarifFix = toSARIFFix(finding);
+    if (sarifFix) {
+      result.fixes = [sarifFix];
+    }
 
     const suppressions: Array<{ kind: string; justification: string }> = [];
     if (overrides.isSuppressedInSource || suppressedSet.has(`${finding.primarySpan.file}:${finding.fingerprint}`)) {
@@ -552,6 +556,31 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
   }
 
   return JSON.stringify(sarif, null, 2);
+}
+
+function toSARIFFix(finding: ReviewFinding): Record<string, unknown> | undefined {
+  const fix = finding.autofix;
+  if (!fix || fix.type === 'wrap') return undefined;
+
+  return {
+    description: { text: fix.description },
+    artifactChanges: [
+      {
+        artifactLocation: { uri: fix.span.file || finding.primarySpan.file },
+        replacements: [
+          {
+            deletedRegion: {
+              startLine: fix.span.startLine,
+              startColumn: fix.span.startCol,
+              endLine: fix.span.endLine,
+              endColumn: fix.span.endCol,
+            },
+            insertedContent: { text: fix.type === 'remove' ? '' : fix.replacement },
+          },
+        ],
+      },
+    ],
+  };
 }
 
 /**

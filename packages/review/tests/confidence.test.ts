@@ -277,6 +277,25 @@ describe('Reporter: SARIF rank', () => {
     expect(result.rank).toBeUndefined();
   });
 
+  it('exports structured autofixes in SARIF output', () => {
+    const report = makeReport([
+      makeFinding({
+        ruleId: 'floating-promise',
+        autofix: {
+          type: 'replace',
+          span: { file: 'scripts/run.mjs', startLine: 5, startCol: 1, endLine: 5, endCol: 16 },
+          replacement: 'run().catch(console.error);',
+          description: 'Handle top-level rejection',
+        },
+      }),
+    ]);
+    const sarif = JSON.parse(formatSARIF([report]));
+    const fix = sarif.runs[0].results[0].fixes[0];
+    expect(fix.description.text).toBe('Handle top-level rejection');
+    expect(fix.artifactChanges[0].artifactLocation.uri).toBe('scripts/run.mjs');
+    expect(fix.artifactChanges[0].replacements[0].insertedContent.text).toBe('run().catch(console.error);');
+  });
+
   it('marks baseline findings and suppresses existing ones in SARIF metadata', () => {
     const report = makeReport([
       makeFinding({ ruleId: 'existing-rule', fingerprint: 'existing-fp', message: 'existing message' }),
