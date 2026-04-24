@@ -17,10 +17,10 @@ function tsConceptsOf(source: string, filePath: string): ConceptMap {
   return extractTsConcepts(project.createSourceFile(filePath, source), filePath);
 }
 
-function findingsFor(files: ConceptMap[]) {
+function findingsFor(files: ConceptMap[], crossStackMode: 'guard' | 'audit' = 'guard') {
   const allConcepts = new Map<string, ConceptMap>();
   for (const map of files) allConcepts.set(map.filePath, map);
-  return files.flatMap((map) => runConceptRules(map, map.filePath, allConcepts));
+  return files.flatMap((map) => runConceptRules(map, map.filePath, allConcepts, undefined, { crossStackMode }));
 }
 
 function newRuleIds(findings: Array<{ ruleId: string }>): string[] {
@@ -165,5 +165,29 @@ def create_order(payload: OrderCreate):
     const ruleIds = findingsFor([client, server]).map((finding) => finding.ruleId);
     expect(ruleIds).toContain('auth-drift');
     expect(ruleIds).not.toContain('unhandled-api-error-shape');
+  });
+
+  it('keeps overlapping findings in audit mode for deeper local investigation', () => {
+    const client = tsConceptsOf(
+      `
+        export async function loadMe() {
+          return fetch('/api/me').then((response) => response.json());
+        }
+      `,
+      'src/client.ts',
+    );
+    const server = tsConceptsOf(
+      `
+        app.get('/api/me', (req, res) => {
+          if (!req.user) return res.status(401).json({ error: 'unauthorized' });
+          res.json({ id: req.user.id });
+        });
+      `,
+      'src/server.ts',
+    );
+
+    const ruleIds = findingsFor([client, server], 'audit').map((finding) => finding.ruleId);
+    expect(ruleIds).toContain('auth-drift');
+    expect(ruleIds).toContain('unhandled-api-error-shape');
   });
 });

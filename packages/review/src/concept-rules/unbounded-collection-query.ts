@@ -12,6 +12,7 @@ import {
   CROSS_STACK_HEURISTIC_CONFIDENCE,
   collectRoutesAcrossGraph,
   findHighConfidenceRouteForMethod,
+  findMatchingRouteForMethod,
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
@@ -36,7 +37,10 @@ export function unboundedCollectionQuery(ctx: ConceptRuleContext): ReviewFinding
     const normalized = normalizeClientUrl(target);
     if (!normalized) continue;
 
-    const route = findHighConfidenceRouteForMethod(normalized, node.payload.method, serverRoutes);
+    const route =
+      ctx.crossStackMode === 'audit'
+        ? findMatchingRouteForMethod(normalized, node.payload.method, serverRoutes)
+        : findHighConfidenceRouteForMethod(normalized, node.payload.method, serverRoutes);
     if (route?.node?.payload.kind !== 'entrypoint') continue;
     if (route.node.payload.hasUnboundedCollectionQuery !== true) continue;
 

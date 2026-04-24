@@ -12,6 +12,7 @@ import {
   CROSS_STACK_EXACT_CONFIDENCE,
   collectRoutesAcrossGraph,
   findHighConfidenceRouteForMethod,
+  findMatchingRouteForMethod,
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
@@ -36,7 +37,10 @@ export function unhandledApiErrorShape(ctx: ConceptRuleContext): ReviewFinding[]
     if (!normalized) continue;
     if (!isRawFetchEffect(node.evidence)) continue;
 
-    const route = findHighConfidenceRouteForMethod(normalized, node.payload.method, serverRoutes);
+    const route =
+      ctx.crossStackMode === 'audit'
+        ? findMatchingRouteForMethod(normalized, node.payload.method, serverRoutes)
+        : findHighConfidenceRouteForMethod(normalized, node.payload.method, serverRoutes);
     const statusCodes = route?.node?.payload.kind === 'entrypoint' ? route.node.payload.errorStatusCodes : undefined;
     const relevantCodes = (statusCodes ?? []).filter((code) => ERROR_STATUS_CODES.has(code));
     if (relevantCodes.length === 0) continue;

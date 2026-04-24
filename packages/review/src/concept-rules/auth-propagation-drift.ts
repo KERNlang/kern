@@ -13,6 +13,7 @@ import {
   CROSS_STACK_EXACT_CONFIDENCE,
   collectRoutesAcrossGraph,
   findHighConfidenceRouteForMethod,
+  findMatchingRouteForMethod,
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
@@ -40,7 +41,10 @@ export function authPropagationDrift(ctx: ConceptRuleContext): ReviewFinding[] {
     const normalized = normalizeClientUrl(target);
     if (!normalized) continue;
 
-    const route = findHighConfidenceRouteForMethod(normalized, node.payload.method, serverRoutes);
+    const route =
+      ctx.crossStackMode === 'audit'
+        ? findMatchingRouteForMethod(normalized, node.payload.method, serverRoutes)
+        : findHighConfidenceRouteForMethod(normalized, node.payload.method, serverRoutes);
     if (!route?.node) continue;
     const fileGuards = authGuardContainers.get(route.node.primarySpan.file);
     if (!fileGuards) continue;

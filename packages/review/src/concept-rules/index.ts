@@ -6,7 +6,7 @@
  */
 
 import type { ConceptMap } from '@kernlang/core';
-import type { ReviewFinding } from '../types.js';
+import type { ReviewConfig, ReviewFinding } from '../types.js';
 import { authDrift } from './auth-drift.js';
 import { authPropagationDrift } from './auth-propagation-drift.js';
 import { bodyShapeDrift } from './body-shape-drift.js';
@@ -36,6 +36,8 @@ export interface ConceptRuleContext {
   allConcepts?: Map<string, ConceptMap>;
   /** Resolved import graph — filePath → imported file paths */
   graphImports?: Map<string, string[]>;
+  /** Cross-stack precision mode. Defaults to guard. */
+  crossStackMode?: 'guard' | 'audit';
 }
 
 export type ConceptRule = (ctx: ConceptRuleContext) => ReviewFinding[];
@@ -69,12 +71,20 @@ export function runConceptRules(
   filePath: string,
   allConcepts?: Map<string, ConceptMap>,
   graphImports?: Map<string, string[]>,
+  config?: Pick<ReviewConfig, 'crossStackMode'>,
 ): ReviewFinding[] {
-  const ctx: ConceptRuleContext = { concepts, filePath, allConcepts, graphImports };
+  const ctx: ConceptRuleContext = {
+    concepts,
+    filePath,
+    allConcepts,
+    graphImports,
+    crossStackMode: config?.crossStackMode,
+  };
   const findings: ReviewFinding[] = [];
   for (const rule of conceptRules) {
     findings.push(...rule(ctx));
   }
+  if (ctx.crossStackMode === 'audit') return findings;
   return suppressOverlappingNewRuleFindings(findings);
 }
 
