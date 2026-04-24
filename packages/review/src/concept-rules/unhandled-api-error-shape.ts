@@ -9,10 +9,9 @@
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
 import {
-  API_PATH_RE,
   CROSS_STACK_EXACT_CONFIDENCE,
   collectRoutesAcrossGraph,
-  findMatchingRouteForMethod,
+  findHighConfidenceRouteForMethod,
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
@@ -34,9 +33,10 @@ export function unhandledApiErrorShape(ctx: ConceptRuleContext): ReviewFinding[]
     const target = node.payload.target;
     if (typeof target !== 'string') continue;
     const normalized = normalizeClientUrl(target);
-    if (!normalized || !API_PATH_RE.test(normalized)) continue;
+    if (!normalized) continue;
+    if (!isRawFetchEffect(node.evidence)) continue;
 
-    const route = findMatchingRouteForMethod(normalized, node.payload.method, serverRoutes);
+    const route = findHighConfidenceRouteForMethod(normalized, node.payload.method, serverRoutes);
     const statusCodes = route?.node?.payload.kind === 'entrypoint' ? route.node.payload.errorStatusCodes : undefined;
     const relevantCodes = (statusCodes ?? []).filter((code) => ERROR_STATUS_CODES.has(code));
     if (relevantCodes.length === 0) continue;
@@ -59,4 +59,8 @@ export function unhandledApiErrorShape(ctx: ConceptRuleContext): ReviewFinding[]
   }
 
   return findings;
+}
+
+function isRawFetchEffect(evidence: string): boolean {
+  return /^\s*(?:await\s+)?fetch\s*\(/.test(evidence);
 }

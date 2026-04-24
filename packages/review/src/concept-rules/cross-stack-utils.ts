@@ -222,6 +222,36 @@ export function findMatchingRouteForMethod(
   return undefined;
 }
 
+/**
+ * Noise-gated route match for newer cross-stack rules.
+ *
+ * The older matcher intentionally returns the first path-shaped match so
+ * legacy rules retain broad coverage. Newer rules that can feel speculative
+ * should use this helper instead: it requires a known client method, exactly
+ * one matching server route for that method, a concrete internal API path, and
+ * no catch-all/wildcard route shapes.
+ */
+export function findHighConfidenceRouteForMethod(
+  clientPath: string,
+  clientMethod: string | undefined,
+  routes: readonly ServerRoute[],
+): ServerRoute | undefined {
+  if (!isHighConfidenceClientPath(clientPath)) return undefined;
+  if (!clientMethod) return undefined;
+
+  const matches = findRoutesAtPath(clientPath, routes).filter((route) => {
+    if (!route.node) return false;
+    if (route.node.confidence < 0.75) return false;
+    if (!route.method) return false;
+    if (WILDCARD_METHODS.has(route.method.toUpperCase())) return false;
+    if (!routeMethodMatches(route.method, clientMethod)) return false;
+    if (!isHighConfidenceServerPath(route.path)) return false;
+    return true;
+  });
+
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 /** Boolean-returning thin wrapper preserved for callers that just need a yes/no. */
 export function hasMatchingRoute(clientPath: string, routes: readonly ServerRoute[]): boolean {
   return findMatchingRoute(clientPath, routes) !== undefined;
@@ -257,6 +287,33 @@ function routePathMatchesSegments(routePath: string, clientSegments: readonly st
     if (rs !== cs) return false;
   }
   return true;
+}
+
+function isHighConfidenceClientPath(path: string): boolean {
+  if (!API_PATH_RE.test(path)) return false;
+  if (hasCatchAllOrWildcardSegment(path)) return false;
+  const segments = trimTrailing(path).split('/').filter(Boolean);
+  return segments.every((segment) => {
+    if (!segment.includes('${')) return true;
+    return /^\$\{[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?\}$/.test(segment);
+  });
+}
+
+function isHighConfidenceServerPath(path: string): boolean {
+  if (!API_PATH_RE.test(path)) return false;
+  return !hasCatchAllOrWildcardSegment(path);
+}
+
+function hasCatchAllOrWildcardSegment(path: string): boolean {
+  return trimTrailing(path)
+    .split('/')
+    .some((segment) => {
+      if (!segment) return false;
+      if (segment === '*' || segment.includes('...')) return true;
+      if (segment.startsWith('*')) return true;
+      if (/^\{[^}:]+:path\}$/.test(segment)) return true;
+      return false;
+    });
 }
 
 // Verbs emitted by route declarations that intentionally accept any method.

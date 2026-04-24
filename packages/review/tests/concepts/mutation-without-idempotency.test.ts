@@ -40,4 +40,18 @@ describe('mutation-without-idempotency', () => {
 
     expect(mutationWithoutIdempotency({ concepts, filePath: 'src/server.ts' })).toEqual([]);
   });
+
+  it('is silent for PATCH routes in the low-noise release gate', () => {
+    const concepts = conceptsOf(
+      `
+        app.patch('/api/orders/:id', async (req, res) => {
+          const order = await prisma.order.update({ where: { id: req.params.id }, data: req.body });
+          res.json(order);
+        });
+      `,
+      'src/server.ts',
+    );
+
+    expect(mutationWithoutIdempotency({ concepts, filePath: 'src/server.ts' })).toEqual([]);
+  });
 });

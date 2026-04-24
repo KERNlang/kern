@@ -8,9 +8,10 @@
 
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
+import { API_PATH_RE } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
 
-const MUTATING_METHODS = new Set(['POST', 'PATCH', 'DELETE']);
+const MUTATING_METHODS = new Set(['POST']);
 
 export function mutationWithoutIdempotency(ctx: ConceptRuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -19,6 +20,8 @@ export function mutationWithoutIdempotency(ctx: ConceptRuleContext): ReviewFindi
     if (node.kind !== 'entrypoint' || node.payload.kind !== 'entrypoint' || node.payload.subtype !== 'route') continue;
     const method = node.payload.httpMethod?.toUpperCase();
     if (!method || !MUTATING_METHODS.has(method)) continue;
+    if (!API_PATH_RE.test(node.payload.name)) continue;
+    if (routeHasPathParam(node.payload.name)) continue;
     if (node.payload.hasDbWrite !== true) continue;
     if (node.payload.hasIdempotencyProtection === true) continue;
 
@@ -39,4 +42,10 @@ export function mutationWithoutIdempotency(ctx: ConceptRuleContext): ReviewFindi
   }
 
   return findings;
+}
+
+function routeHasPathParam(path: string): boolean {
+  return path
+    .split('/')
+    .some((segment) => segment.startsWith(':') || (segment.startsWith('{') && segment.endsWith('}')));
 }

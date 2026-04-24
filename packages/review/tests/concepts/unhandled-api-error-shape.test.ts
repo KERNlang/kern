@@ -127,4 +127,68 @@ describe('unhandled-api-error-shape', () => {
     expect(findings).toHaveLength(1);
     expect(findings[0].message).toContain('404');
   });
+
+  it('is silent for axios calls because axios rejects non-2xx responses upstream', () => {
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/client.ts',
+          source: `
+            import axios from 'axios';
+            export async function loadMe() {
+              return axios.get('/api/me');
+            }
+          `,
+        },
+        {
+          path: 'src/server.ts',
+          source: `
+            app.get('/api/me', (req, res) => {
+              if (!req.user) return res.status(401).json({ error: 'unauthorized' });
+              res.json({ id: req.user.id });
+            });
+          `,
+        },
+      ],
+      'src/client.ts',
+    );
+
+    expect(unhandledApiErrorShape(ctx)).toEqual([]);
+  });
+
+  it('is silent when the graph has duplicate matching backend routes', () => {
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/client.ts',
+          source: `
+            async function loadMe() {
+              return fetch('/api/me').then((r) => r.json());
+            }
+          `,
+        },
+        {
+          path: 'src/server-a.ts',
+          source: `
+            app.get('/api/me', (req, res) => {
+              if (!req.user) return res.status(401).json({ error: 'unauthorized' });
+              res.json({ id: req.user.id });
+            });
+          `,
+        },
+        {
+          path: 'src/server-b.ts',
+          source: `
+            app.get('/api/me', (req, res) => {
+              if (!req.user) return res.status(403).json({ error: 'forbidden' });
+              res.json({ id: req.user.id });
+            });
+          `,
+        },
+      ],
+      'src/client.ts',
+    );
+
+    expect(unhandledApiErrorShape(ctx)).toEqual([]);
+  });
 });
