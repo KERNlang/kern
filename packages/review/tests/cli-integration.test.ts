@@ -203,6 +203,29 @@ export function add(a: number, b: number): number { return a + b; }
     }
   });
 
+  it('runTSCDiagnostics suppresses guard-mode generated facade module misses', () => {
+    const project = createInMemoryProject();
+    project.createSourceFile(
+      'packages/cli/src/commands/doctor.ts',
+      "export { doctor } from '../generated/commands/doctor.js';\n",
+    );
+
+    expect(runTSCDiagnostics(project).some((f) => f.ruleId === 'ts2307')).toBe(true);
+    expect(runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true }).some((f) => f.ruleId === 'ts2307')).toBe(
+      false,
+    );
+  });
+
+  it('runTSCDiagnostics suppresses guard-mode bare dependency module misses', () => {
+    const project = createInMemoryProject();
+    project.createSourceFile('tests/unit/doctor-command.test.ts', "import { describe, it } from 'vitest';\n");
+
+    expect(runTSCDiagnostics(project).some((f) => f.ruleId === 'ts2307')).toBe(true);
+    expect(runTSCDiagnostics(project, { downgradeProjectLoadingErrors: true }).some((f) => f.ruleId === 'ts2307')).toBe(
+      false,
+    );
+  });
+
   it('runESLint returns empty when ESLint not installed (CI safe)', async () => {
     // This tests graceful degradation — should return [] not throw
     const findings = await runESLint([], process.cwd());

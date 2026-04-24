@@ -7,6 +7,8 @@
  * Phase 3 of the review pipeline.
  */
 
+import { existsSync } from 'fs';
+import { dirname, resolve } from 'path';
 import type { Project } from 'ts-morph';
 import { createProject } from './inferrer.js';
 import { debugDetail, type ReviewHealthBuilder } from './review-health.js';
@@ -218,7 +220,10 @@ export function runTSCDiagnostics(
       //     both point at the same user-side remedy, both are environmental from review's POV.)
       const isLoadingNoise = code === 6059 || code === 6307;
       const isEnvironmentalNoise = code === 2792 || code === 17004 || code === 2580 || code === 2591;
-      if ((isLoadingNoise || isEnvironmentalNoise) && options.downgradeProjectLoadingErrors) {
+      if (
+        options.downgradeProjectLoadingErrors &&
+        (isLoadingNoise || isEnvironmentalNoise || isReviewModeModuleResolutionNoise(code, messageStr, filePath))
+      ) {
         continue;
       }
 
@@ -245,6 +250,51 @@ export function runTSCDiagnostics(
   }
 
   return findings;
+}
+
+function isReviewModeModuleResolutionNoise(code: number, message: string, importerFilePath: string): boolean {
+  if (code !== 2307) return false;
+
+  const specifier = extractMissingModuleSpecifier(message);
+  if (!specifier) return false;
+
+  // KERN-generated facades are commonly imported as `.js` from TS source and
+  // materialized by `kern compile`. In guard mode, a missing generated facade is
+  // pipeline ordering noise unless the explicit lint/typecheck phase says
+  // otherwise.
+  if (isGeneratedModuleSpecifier(specifier)) return true;
+
+  // Bare package misses (`vitest`, `ai`, etc.) are dependency-install or workspace
+  // context failures in review mode. The explicit `--lint` tsc path still reports
+  // them as real compiler errors.
+  if (isBareModuleSpecifier(specifier)) return true;
+
+  // TS ESM commonly imports `./foo.js` while the source file is `foo.ts`. If the
+  // corresponding TS source exists, this is a moduleResolution mismatch in
+  // review's ad-hoc Project, not a code bug.
+  return isTsBackedJsSpecifier(specifier, importerFilePath);
+}
+
+function extractMissingModuleSpecifier(message: string): string | undefined {
+  const match = message.match(/Cannot find module ['"]([^'"]+)['"]/);
+  return match?.[1];
+}
+
+function isGeneratedModuleSpecifier(specifier: string): boolean {
+  const normalized = specifier.replace(/\\/g, '/');
+  return /(?:^|\/)generated\//.test(normalized) || /(?:^|\/)__generated__\//.test(normalized);
+}
+
+function isBareModuleSpecifier(specifier: string): boolean {
+  return !specifier.startsWith('.') && !specifier.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(specifier);
+}
+
+function isTsBackedJsSpecifier(specifier: string, importerFilePath: string): boolean {
+  if (!specifier.startsWith('.') || !/\.(?:mjs|cjs|js|jsx)$/.test(specifier)) return false;
+
+  const resolved = resolve(dirname(importerFilePath), specifier);
+  const withoutJsExt = resolved.replace(/\.(?:mjs|cjs|js|jsx)$/, '');
+  return ['.ts', '.tsx', '.mts', '.cts', '.d.ts'].some((ext) => existsSync(`${withoutJsExt}${ext}`));
 }
 
 // ── tsc Diagnostics from file paths ───────────────────────────────────

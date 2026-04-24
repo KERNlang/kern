@@ -14,6 +14,7 @@ import {
   findAssignedIdentifier,
   finding,
   getTopLevelCleanupExpressions,
+  nodeSpan,
   span,
 } from './utils.js';
 
@@ -95,7 +96,7 @@ function floatingPromise(ctx: RuleContext): ReviewFinding[] {
             1,
             {
               ...nodeRef,
-              autofix: {
+              autofix: topLevelCliRunnerCatchAutofix(ctx, exprStmt, callExpr) ?? {
                 type: 'insert-before',
                 span: span(ctx.filePath, asyncLine, asyncCol),
                 replacement: 'await ',
@@ -128,7 +129,7 @@ function floatingPromise(ctx: RuleContext): ReviewFinding[] {
               promiseLine,
               1,
               {
-                autofix: {
+                autofix: topLevelCliRunnerCatchAutofix(ctx, exprStmt, callExpr) ?? {
                   type: 'insert-before',
                   span: span(ctx.filePath, promiseLine, promiseCol),
                   replacement: 'await ',
@@ -145,6 +146,31 @@ function floatingPromise(ctx: RuleContext): ReviewFinding[] {
   }
 
   return findings;
+}
+
+function topLevelCliRunnerCatchAutofix(
+  ctx: RuleContext,
+  exprStmt: import('ts-morph').ExpressionStatement,
+  callExpr: import('ts-morph').CallExpression,
+): ReviewFinding['autofix'] | undefined {
+  if (!isNodeScriptPath(ctx.filePath)) return undefined;
+  if (exprStmt.getParent().getKind() !== SyntaxKind.SourceFile) return undefined;
+
+  return {
+    type: 'replace',
+    span: nodeSpan(exprStmt, ctx.filePath),
+    replacement: `${callExpr.getText()}.catch((err) => {\n  console.error(err);\n  process.exit(1);\n});`,
+    description: 'Attach a top-level rejection handler for CLI/script entrypoints',
+  };
+}
+
+function isNodeScriptPath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/');
+  return (
+    /\.(?:mjs|cjs)$/.test(normalized) ||
+    /(?:^|\/)(?:scripts?|bin|cli|tools?|guard)\//i.test(normalized) ||
+    /(?:^|\/)(?:cli|guard)[^/]*\.[cm]?[jt]s$/i.test(normalized)
+  );
 }
 
 // ── Rule 2: state-mutation ───────────────────────────────────────────────

@@ -277,6 +277,25 @@ describe('Reporter: SARIF rank', () => {
     expect(result.rank).toBeUndefined();
   });
 
+  it('exports structured autofixes in SARIF output', () => {
+    const report = makeReport([
+      makeFinding({
+        ruleId: 'floating-promise',
+        autofix: {
+          type: 'replace',
+          span: { file: 'scripts/run.mjs', startLine: 5, startCol: 1, endLine: 5, endCol: 16 },
+          replacement: 'run().catch(console.error);',
+          description: 'Handle top-level rejection',
+        },
+      }),
+    ]);
+    const sarif = JSON.parse(formatSARIF([report]));
+    const fix = sarif.runs[0].results[0].fixes[0];
+    expect(fix.description.text).toBe('Handle top-level rejection');
+    expect(fix.artifactChanges[0].artifactLocation.uri).toBe('scripts/run.mjs');
+    expect(fix.artifactChanges[0].replacements[0].insertedContent.text).toBe('run().catch(console.error);');
+  });
+
   it('marks baseline findings and suppresses existing ones in SARIF metadata', () => {
     const report = makeReport([
       makeFinding({ ruleId: 'existing-rule', fingerprint: 'existing-fp', message: 'existing message' }),
@@ -341,6 +360,20 @@ describe('Reporter: enforcement with minConfidence', () => {
     const config: ReviewConfig = { minConfidence: 0, maxErrors: 0 };
     const result = checkEnforcement(report, config);
     expect(result.errors.actual).toBe(1);
+  });
+
+  it('does not enforce advisory cognitive-complexity findings', () => {
+    const report = makeReport([
+      makeFinding({
+        ruleId: 'cognitive-complexity',
+        severity: 'info',
+        message: "Function 'complex' has cognitive complexity of 18 (threshold: 15)",
+      }),
+    ]);
+    const config: ReviewConfig = { maxComplexity: 15 };
+    const result = checkEnforcement(report, config);
+    expect(result.complexity.actual).toBe(0);
+    expect(result.passed).toBe(true);
   });
 });
 

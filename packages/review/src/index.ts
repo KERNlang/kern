@@ -83,6 +83,24 @@ type PythonConceptExtractor = (source: string, filePath: string) => ConceptMap;
 
 const TYPESCRIPT_CONCEPT_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
 
+const GUARD_ADVISORY_RULES = new Set([
+  'dead-export',
+  'sync-in-async',
+  'cognitive-complexity',
+  'handler-size',
+  'unhandled-async',
+]);
+
+function applyGuardModeCalibration(findings: ReviewFinding[], config?: ReviewConfig): void {
+  if (config?.crossStackMode === 'audit') return;
+
+  for (const finding of findings) {
+    if (!GUARD_ADVISORY_RULES.has(finding.ruleId)) continue;
+    if (finding.severity === 'error') continue;
+    finding.severity = 'info';
+  }
+}
+
 let cachedPythonExtractor:
   | { extractor: PythonConceptExtractor; usingFallback: boolean; failureDetail?: string }
   | undefined;
@@ -782,6 +800,7 @@ function reviewSourceInternal(
 
   // Assign calibrated confidence scores to all findings
   assignDefaultConfidence(dedupedFindings);
+  applyGuardModeCalibration(dedupedFindings, config);
 
   // Apply suppression (inline comments + config disabledRules)
   const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
@@ -938,6 +957,7 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
 
   const dedupedFindings = sortAndDedup(allFindings);
   assignDefaultConfidence(dedupedFindings);
+  applyGuardModeCalibration(dedupedFindings, _config);
   const suppression = applySuppression(dedupedFindings, source, filePath, _config, _config?.strict ?? false);
   const findings = sortAndDedup(suppression.findings);
   const kernTokens = countTokens(source);
@@ -1014,6 +1034,7 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
 
   const dedupedFindings = sortAndDedup(conceptFindings);
   assignDefaultConfidence(dedupedFindings);
+  applyGuardModeCalibration(dedupedFindings, config);
   const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
   const findings = sortAndDedup(suppression.findings);
   const reviewHealth = health.build();
@@ -1331,6 +1352,8 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     try {
       const source = readFileSync(report.filePath, 'utf-8');
       const unsuppressedCandidates = [...report.findings, ...(report.suppressedFindings ?? [])];
+      assignDefaultConfidence(unsuppressedCandidates);
+      applyGuardModeCalibration(unsuppressedCandidates, config);
       const suppression = applySuppression(
         sortAndDedup(unsuppressedCandidates),
         source,

@@ -215,6 +215,22 @@ export async function main() {
     expect(finding!.autofix!.replacement).toBe('await ');
   });
 
+  it('floating-promise suggests a top-level catch handler for Node CLI scripts', () => {
+    const source = `
+async function runWithRetry() {
+  await doWork();
+}
+runWithRetry();
+`;
+    const report = reviewSource(source, 'scripts/guard/forge-retry.mjs');
+    const finding = report.findings.find((f) => f.ruleId === 'floating-promise');
+    expect(finding).toBeDefined();
+    expect(finding!.autofix).toBeDefined();
+    expect(finding!.autofix!.type).toBe('replace');
+    expect(finding!.autofix!.replacement).toContain('runWithRetry().catch');
+    expect(finding!.autofix!.replacement).toContain('process.exit(1)');
+  });
+
   it('missing-use-client produces insert-before autofix at line 1', () => {
     const source = `
 import React from 'react';

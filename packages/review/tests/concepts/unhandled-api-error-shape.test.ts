@@ -9,8 +9,13 @@ function conceptsOf(source: string, filePath: string): ConceptMap {
 }
 
 function ctxFrom(files: Array<{ path: string; source: string }>, primary: string) {
+  const project = new Project({ useInMemoryFileSystem: true, compilerOptions: { strict: true } });
   const allConcepts = new Map<string, ConceptMap>();
-  for (const file of files) allConcepts.set(file.path, conceptsOf(file.source, file.path));
+  for (const file of files) project.createSourceFile(file.path, file.source);
+  for (const file of files) {
+    const sf = project.getSourceFileOrThrow(file.path);
+    allConcepts.set(file.path, extractTsConcepts(sf, file.path));
+  }
   const concepts = allConcepts.get(primary);
   if (!concepts) throw new Error(`missing ${primary}`);
   return { concepts, filePath: primary, allConcepts };
@@ -70,6 +75,73 @@ describe('unhandled-api-error-shape', () => {
               if (!req.user) return res.status(401).json({ error: 'unauthorized' });
               res.json({ id: req.user.id });
             });
+          `,
+        },
+      ],
+      'src/client.ts',
+    );
+
+    const findings = unhandledApiErrorShape(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toContain('401');
+    expect(findings[0].relatedSpans).toHaveLength(1);
+  });
+
+  it('fires when the Express route uses a same-file named handler', () => {
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/client.ts',
+          source: `
+            async function loadMe() {
+              return fetch('/api/me').then((r) => r.json());
+            }
+          `,
+        },
+        {
+          path: 'src/server.ts',
+          source: `
+            function getMe(req, res) {
+              if (!req.user) return res.status(401).json({ error: 'unauthorized' });
+              res.json({ id: req.user.id });
+            }
+            app.get('/api/me', getMe);
+          `,
+        },
+      ],
+      'src/client.ts',
+    );
+
+    const findings = unhandledApiErrorShape(ctx);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].relatedSpans?.[0].file).toBe('src/server.ts');
+  });
+
+  it('fires when the Express route uses an imported named handler with visible status evidence', () => {
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/client.ts',
+          source: `
+            async function loadMe() {
+              return fetch('/api/me').then((r) => r.json());
+            }
+          `,
+        },
+        {
+          path: 'src/server.ts',
+          source: `
+            import { getMe } from './handlers.js';
+            app.get('/api/me', getMe);
+          `,
+        },
+        {
+          path: 'src/handlers.ts',
+          source: `
+            export function getMe(req, res) {
+              if (!req.user) return res.status(401).json({ error: 'unauthorized' });
+              res.json({ id: req.user.id });
+            }
           `,
         },
       ],
