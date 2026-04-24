@@ -310,6 +310,48 @@ describe('Reporter: SARIF rank', () => {
     expect(related.physicalLocation.region.startLine).toBe(7);
   });
 
+  it('exports a machine-readable KERN run summary in SARIF output', () => {
+    const report = makeReport(
+      [
+        makeFinding({
+          severity: 'error',
+          autofix: {
+            type: 'replace',
+            span: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 10 },
+            replacement: 'fixed();',
+            description: 'Fix it',
+          },
+        }),
+        makeFinding({
+          severity: 'warning',
+          fingerprint: 'related-fp',
+          relatedSpans: [{ file: 'server.ts', startLine: 3, startCol: 1, endLine: 3, endCol: 10 }],
+        }),
+        makeFinding({ severity: 'info', fingerprint: 'info-fp' }),
+      ],
+      {
+        suppressedFindings: [makeFinding({ fingerprint: 'inline-suppressed' })],
+        health: {
+          status: 'partial',
+          entries: [
+            { subsystem: 'tsc', kind: 'error', message: 'tsc failed' },
+            { subsystem: 'eslint', kind: 'skipped', message: 'eslint skipped' },
+          ],
+        },
+      },
+    );
+    const externalSuppressed = makeFinding({ fingerprint: 'external-suppressed' });
+    const sarif = JSON.parse(formatSARIFWithMetadata([report], { suppressedFindings: [externalSuppressed] }));
+    const summary = sarif.runs[0].properties['kern/summary'];
+
+    expect(summary.files).toBe(1);
+    expect(summary.findings).toEqual({ total: 3, errors: 1, warnings: 1, notes: 1 });
+    expect(summary.suppressed.total).toBe(2);
+    expect(summary.fixable).toBe(1);
+    expect(summary.relatedEvidence).toBe(1);
+    expect(summary.health).toEqual({ status: 'partial', errors: 1, fallbacks: 0, skipped: 1 });
+  });
+
   it('marks baseline findings and suppresses existing ones in SARIF metadata', () => {
     const report = makeReport([
       makeFinding({ ruleId: 'existing-rule', fingerprint: 'existing-fp', message: 'existing message' }),
