@@ -51,6 +51,7 @@ export function unboundedCollectionQuery(ctx: ConceptRuleContext): ReviewFinding
       category: 'bug',
       message: `Client calls list endpoint \`${target}\` without page/cursor/limit parameters, and the matching server route appears to return an unbounded DB collection. Add pagination on both sides before this endpoint grows.`,
       primarySpan: node.primarySpan,
+      relatedSpans: [route.node.primarySpan],
       fingerprint: createFingerprint(
         'unbounded-collection-query',
         node.primarySpan.startLine,

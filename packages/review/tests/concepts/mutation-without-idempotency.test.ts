@@ -8,6 +8,12 @@ function conceptsOf(source: string, filePath: string): ConceptMap {
   return extractTsConcepts(project.createSourceFile(filePath, source), filePath);
 }
 
+function conceptsFromProject(files: Array<{ path: string; source: string }>, primary: string): ConceptMap {
+  const project = new Project({ useInMemoryFileSystem: true, compilerOptions: { strict: true } });
+  for (const file of files) project.createSourceFile(file.path, file.source);
+  return extractTsConcepts(project.getSourceFileOrThrow(primary), primary);
+}
+
 describe('mutation-without-idempotency', () => {
   it('fires when a POST route writes to the DB without duplicate protection evidence', () => {
     const concepts = conceptsOf(
@@ -39,6 +45,49 @@ describe('mutation-without-idempotency', () => {
     );
 
     expect(mutationWithoutIdempotency({ concepts, filePath: 'src/server.ts' })).toEqual([]);
+  });
+
+  it('fires when a POST route uses a same-file named handler that writes to the DB', () => {
+    const concepts = conceptsOf(
+      `
+        async function createOrder(req, res) {
+          const order = await prisma.order.create({ data: req.body });
+          res.json(order);
+        }
+        app.post('/api/orders', createOrder);
+      `,
+      'src/server.ts',
+    );
+
+    const findings = mutationWithoutIdempotency({ concepts, filePath: 'src/server.ts' });
+    expect(findings).toHaveLength(1);
+  });
+
+  it('fires when a POST route uses an imported named handler that writes to the DB', () => {
+    const concepts = conceptsFromProject(
+      [
+        {
+          path: 'src/server.ts',
+          source: `
+            import { createOrder } from './handlers.js';
+            app.post('/api/orders', createOrder);
+          `,
+        },
+        {
+          path: 'src/handlers.ts',
+          source: `
+            export async function createOrder(req, res) {
+              const order = await prisma.order.create({ data: req.body });
+              res.json(order);
+            }
+          `,
+        },
+      ],
+      'src/server.ts',
+    );
+
+    const findings = mutationWithoutIdempotency({ concepts, filePath: 'src/server.ts' });
+    expect(findings).toHaveLength(1);
   });
 
   it('is silent for PATCH routes in the low-noise release gate', () => {

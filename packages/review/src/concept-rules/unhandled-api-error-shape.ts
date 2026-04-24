@@ -53,6 +53,7 @@ export function unhandledApiErrorShape(ctx: ConceptRuleContext): ReviewFinding[]
       category: 'bug',
       message: `Client calls \`${target}\` with only the success path handled, but the matching server route can return ${codeList}. Add a \`response.ok\`/status branch, catch path, or error UI for the API error shape.`,
       primarySpan: node.primarySpan,
+      relatedSpans: route?.node ? [route.node.primarySpan] : undefined,
       fingerprint: createFingerprint(
         'unhandled-api-error-shape',
         node.primarySpan.startLine,

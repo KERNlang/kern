@@ -61,6 +61,7 @@ export function authPropagationDrift(ctx: ConceptRuleContext): ReviewFinding[] {
       category: 'bug',
       message: `Client calls authenticated route \`${target}\` without visible auth/session propagation. Add an Authorization/Cookie/session credential path or route this call through an authenticated client wrapper.`,
       primarySpan: node.primarySpan,
+      relatedSpans: [route.node.primarySpan],
       fingerprint: createFingerprint('auth-propagation-drift', node.primarySpan.startLine, node.primarySpan.startCol),
       confidence: node.confidence * CROSS_STACK_EXACT_CONFIDENCE,
     });
