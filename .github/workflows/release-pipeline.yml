@@ -163,5 +163,9 @@ jobs:
           mv "$tmp" "$spec"
 
           git add package.json packages/*/package.json packages/core/src/spec.ts
+          if git diff --cached --quiet; then
+            echo "Versions already synced to v${RELEASE_VERSION}; nothing to commit."
+            exit 0
+          fi
           git commit -m "chore: sync versions to v${RELEASE_VERSION} [skip ci]"
           git push origin dev
