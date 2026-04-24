@@ -36,6 +36,10 @@ export interface Detection {
 
 // ── Main Entry ───────────────────────────────────────────────────────────
 
+function resolveProjectPath(cwd: string, ...segments: string[]): string {
+  return resolve(/* turbopackIgnore: true */ cwd, ...segments);
+}
+
 export function scanProject(cwd: string): ScanResult {
   const config: Partial<KernConfig> = {};
   const info: ScanInfo = {
@@ -65,7 +69,7 @@ function detectFromPackageJson(
   info: ScanInfo,
   detections: Detection[],
 ): void {
-  const pkgPath = resolve(cwd, 'package.json');
+  const pkgPath = resolveProjectPath(cwd, 'package.json');
   if (!existsSync(pkgPath)) return;
 
   let pkg: Record<string, unknown>;
@@ -144,7 +148,7 @@ function detectFromPackageJson(
   }
 
   // ── UI library detection ──
-  if (allDeps['@shadcn/ui'] || pkg.name === 'shadcn' || existsSync(resolve(cwd, 'components.json'))) {
+  if (allDeps['@shadcn/ui'] || pkg.name === 'shadcn' || existsSync(resolveProjectPath(cwd, 'components.json'))) {
     config.components = { ...config.components, uiLibrary: '@/components/ui' };
     detections.push({
       source: 'package.json',
@@ -218,7 +222,7 @@ function detectFromPythonProject(cwd: string, config: Partial<KernConfig>, detec
   if (config.target) return;
 
   // Check pyproject.toml first
-  const pyprojectPath = resolve(cwd, 'pyproject.toml');
+  const pyprojectPath = resolveProjectPath(cwd, 'pyproject.toml');
   if (existsSync(pyprojectPath)) {
     try {
       const raw = readFileSync(pyprojectPath, 'utf-8');
@@ -233,7 +237,7 @@ function detectFromPythonProject(cwd: string, config: Partial<KernConfig>, detec
   }
 
   // Fall back to requirements.txt
-  const reqPath = resolve(cwd, 'requirements.txt');
+  const reqPath = resolveProjectPath(cwd, 'requirements.txt');
   if (existsSync(reqPath)) {
     try {
       const raw = readFileSync(reqPath, 'utf-8');
@@ -251,7 +255,7 @@ function detectFromPythonProject(cwd: string, config: Partial<KernConfig>, detec
 // ── Detector: tsconfig.json ──────────────────────────────────────────────
 
 function detectFromTsconfig(cwd: string, config: Partial<KernConfig>, info: ScanInfo, detections: Detection[]): void {
-  const tsconfigPath = resolve(cwd, 'tsconfig.json');
+  const tsconfigPath = resolveProjectPath(cwd, 'tsconfig.json');
   if (!existsSync(tsconfigPath)) return;
 
   let tsconfig: Record<string, unknown>;
@@ -266,7 +270,7 @@ function detectFromTsconfig(cwd: string, config: Partial<KernConfig>, info: Scan
   const extendsPath = tsconfig.extends as string | undefined;
   if (extendsPath) {
     try {
-      const resolvedExtends = resolve(cwd, extendsPath);
+      const resolvedExtends = resolveProjectPath(cwd, extendsPath);
       if (existsSync(resolvedExtends)) {
         baseConfig = parseJsonWithComments(readFileSync(resolvedExtends, 'utf-8'));
       }
@@ -318,7 +322,7 @@ function detectFromPrettierrc(cwd: string, info: ScanInfo, detections: Detection
   let source = '';
 
   for (const name of candidates) {
-    const p = resolve(cwd, name);
+    const p = resolveProjectPath(cwd, name);
     if (existsSync(p)) {
       try {
         raw = readFileSync(p, 'utf-8');
@@ -357,7 +361,7 @@ function detectFromPrettierrc(cwd: string, info: ScanInfo, detections: Detection
 // ── Detector: .editorconfig ──────────────────────────────────────────────
 
 function detectFromEditorConfig(cwd: string, info: ScanInfo, detections: Detection[]): void {
-  const ecPath = resolve(cwd, '.editorconfig');
+  const ecPath = resolveProjectPath(cwd, '.editorconfig');
   if (!existsSync(ecPath)) return;
 
   let raw: string;
@@ -407,7 +411,7 @@ function detectPackageManager(cwd: string, info: ScanInfo, detections: Detection
   ];
 
   for (const [file, manager] of lockfiles) {
-    if (existsSync(resolve(cwd, file))) {
+    if (existsSync(resolveProjectPath(cwd, file))) {
       info.packageManager = manager;
       detections.push({ source: file, field: 'info.packageManager', value: manager!, confidence: 'high' });
       return;

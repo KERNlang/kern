@@ -25,6 +25,18 @@ import { Project } from 'ts-morph';
 // that do not ship @kernlang/review-python.
 const moduleRequire = createRequire(import.meta.url);
 
+function optionalPackageSpecifier(scope: string, name: string): string {
+  return `${scope}/${name}`;
+}
+
+function optionalLocalSpecifier(...parts: string[]): string {
+  return parts.join('/');
+}
+
+function requireOptionalModule(specifier: string): unknown {
+  return moduleRequire(specifier);
+}
+
 import { buildCallGraph } from './call-graph.js';
 import { runConceptRules } from './concept-rules/index.js';
 import { structuralDiff } from './differ.js';
@@ -83,10 +95,13 @@ function loadPythonConceptExtractor(): {
   if (cachedPythonExtractor) return cachedPythonExtractor;
 
   const failures: string[] = [];
-  const candidates = ['@kernlang/review-python', '../../review-python/dist/index.js'];
+  const candidates = [
+    optionalPackageSpecifier('@kernlang', 'review-python'),
+    optionalLocalSpecifier('..', '..', 'review-python', 'dist', 'index.js'),
+  ];
   for (const candidate of candidates) {
     try {
-      const mod = moduleRequire(candidate) as { extractPythonConcepts?: PythonConceptExtractor };
+      const mod = requireOptionalModule(candidate) as { extractPythonConcepts?: PythonConceptExtractor };
       if (typeof mod.extractPythonConcepts === 'function') {
         cachedPythonExtractor = { extractor: mod.extractPythonConcepts, usingFallback: false };
         return cachedPythonExtractor;
