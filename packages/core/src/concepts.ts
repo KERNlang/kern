@@ -72,6 +72,65 @@ export interface EntrypointPayload {
    * resolves this against route file paths to attach the prefix.
    */
   sourceModule?: string;
+  /**
+   * For `'route'` only, and only when the handler is an INLINE arrow /
+   * function expression on the same call (e.g. `app.get('/x', (req, res) => {})`).
+   * Holds the concept id of the handler's `function_declaration` concept.
+   * Undefined when the handler is an imported identifier or not resolvable.
+   *
+   * Rules that reason about the handler body (what fields it reads from
+   * `req.body`, whether it calls `res.status()` etc.) resolve this id back
+   * to the `function_declaration` concept in the same file, then walk the
+   * primary span.
+   */
+  handlerConceptId?: string;
+  /**
+   * For `'route'` only — the REQUIRED body field names the handler reads
+   * from `req.body`, either via property access (`req.body.name`) or
+   * destructuring (`const { name } = req.body`). Defaults in destructuring
+   * (`const { status = 'active' } = req.body`) are treated as optional and
+   * excluded. Present only when `bodyFieldsResolved === true`.
+   */
+  bodyFields?: readonly string[];
+  /**
+   * True when the mapper is confident it saw every field the handler reads.
+   * False / undefined when evidence was ambiguous (spread rest, dynamic key
+   * access, whole-body forwarding, imported handler). Cross-stack rules
+   * like body-shape-drift only fire when this is true to avoid noisy
+   * warnings on opaque handlers.
+   */
+  bodyFieldsResolved?: boolean;
+  /**
+   * For server route entrypoints only — HTTP error status codes the handler can
+   * explicitly return/raise. Mappers only populate high-signal statuses such as
+   * 401/403/404/422/500 from constructs like Express `res.status(404)` or
+   * FastAPI `HTTPException(status_code=404)`.
+   */
+  errorStatusCodes?: readonly number[];
+  /**
+   * True when the route appears to return a DB-backed collection without a
+   * limit/page/cursor/offset bound. Used with client query evidence by
+   * `unbounded-collection-query`.
+   */
+  hasUnboundedCollectionQuery?: boolean;
+  /** True when the route performs a DB write. */
+  hasDbWrite?: boolean;
+  /**
+   * True when the mapper sees idempotency/duplicate-protection evidence such as
+   * an idempotency key, transaction, upsert, unique guard, or conflict clause.
+   */
+  hasIdempotencyProtection?: boolean;
+  /** True when the route validates request body data before use. */
+  hasBodyValidation?: boolean;
+  /**
+   * Body fields accepted by a resolved validation schema/model. Present only
+   * when `bodyValidationResolved === true`.
+   */
+  validatedBodyFields?: readonly string[];
+  /**
+   * True when the mapper is confident the validation field list is complete.
+   */
+  bodyValidationResolved?: boolean;
 }
 
 export interface EffectPayload {
@@ -115,6 +174,43 @@ export interface EffectPayload {
    * the `auth-drift` cross-stack rule.
    */
   hasAuthHeader?: boolean;
+  /**
+   * For `network` subtype only — names of body fields the call sends.
+   * Populated when the body is a literal object, directly or wrapped in
+   * `JSON.stringify({ ... })`, with only identifier keys (no spread, no
+   * computed `[x]` keys). Present only when `sentFieldsResolved === true`.
+   */
+  sentFields?: readonly string[];
+  /**
+   * True when the mapper is confident the extracted `sentFields` list is
+   * complete. False / undefined when the body uses spread, variable
+   * references, dynamic keys, or non-object shapes (FormData, Blob, raw
+   * strings). The `body-shape-drift` rule fires only when BOTH this and
+   * the server-side `bodyFieldsResolved` are true.
+   */
+  sentFieldsResolved?: boolean;
+  /**
+   * For `network` subtype only. `true` when the call-site has a local error
+   * path (try/catch, `.catch`, `response.ok`/status check, or known error UI);
+   * `false` when a raw inspectable call has no such path; `undefined` when a
+   * wrapper or dynamic call prevents a confident answer.
+   */
+  handlesApiErrors?: boolean;
+  /**
+   * For `network` subtype only. Whether the call-site visibly propagates auth
+   * (Authorization/Cookie/session credentials or known authenticated wrapper),
+   * visibly does not, or is opaque.
+   */
+  authPropagation?: 'present' | 'absent' | 'unknown';
+  /**
+   * Query string parameter names from a literal/template URL target. Present
+   * when `queryParamsResolved === true`.
+   */
+  queryParams?: readonly string[];
+  /**
+   * True when the mapper could fully inspect query parameters on the target URL.
+   */
+  queryParamsResolved?: boolean;
 }
 
 export interface StateMutationPayload {

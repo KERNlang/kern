@@ -1,5 +1,7 @@
 import type { IRNode, KernTarget, ResolvedKernConfig, TranspileResult } from '@kernlang/core';
-import { parse, resolveConfig, serializeIR } from '@kernlang/core';
+import { resolveConfig } from '@kernlang/core/config';
+import { parse } from '@kernlang/core/parser';
+import { serializeIR } from '@kernlang/core/utils';
 import { transpileExpress } from '@kernlang/express';
 import { transpileFastAPI } from '@kernlang/fastapi';
 import { transpile as transpileNative } from '@kernlang/native';

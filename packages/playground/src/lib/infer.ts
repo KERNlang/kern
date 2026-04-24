@@ -1,4 +1,4 @@
-import { countTokens as coreCountTokens, serializeIR as coreSerializeIR } from '@kernlang/core';
+import { countTokens as coreCountTokens, serializeIR as coreSerializeIR } from '@kernlang/core/utils';
 import type { ReviewFinding } from '@kernlang/review';
 import { inferFromSource as inferTS, reviewSource as reviewTS } from '@kernlang/review';
 

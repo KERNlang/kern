@@ -72,6 +72,9 @@ jobs:
           }' "$spec" > "$tmp"
           mv "$tmp" "$spec"
 
+      - name: Check repo consistency
+        run: npm run check:repo
+
       - name: Build
         run: pnpm build
 

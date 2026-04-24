@@ -1,7 +1,7 @@
 import type { KernTarget } from '@kernlang/core';
-import { VALID_TARGETS } from '@kernlang/core';
 import { NextResponse } from 'next/server';
 import { compile } from '@/lib/compile';
+import { PLAYGROUND_TARGETS, type PlaygroundTarget } from '@/lib/targets';
 
 export async function POST(request: Request) {
   try {
@@ -21,10 +21,10 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!target || !VALID_TARGETS.includes(target as KernTarget)) {
+    if (!target || !PLAYGROUND_TARGETS.includes(target as PlaygroundTarget)) {
       return NextResponse.json(
         {
-          error: { message: `Invalid target. Valid: ${VALID_TARGETS.join(', ')}`, line: 0, col: 0, codeFrame: '' },
+          error: { message: `Invalid target. Valid: ${PLAYGROUND_TARGETS.join(', ')}`, line: 0, col: 0, codeFrame: '' },
           ir: null,
           output: null,
           artifacts: [],

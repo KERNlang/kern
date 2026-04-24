@@ -68,6 +68,45 @@ describe('kern review command', () => {
     expect(output).toContain('screen.kern');
   });
 
+  it('includes changed Python files in --diff review', async () => {
+    process.chdir(tmpDir);
+
+    execFileSync('git', ['init'], { cwd: tmpDir });
+    execFileSync('git', ['config', 'user.email', 'kern@example.com'], { cwd: tmpDir });
+    execFileSync('git', ['config', 'user.name', 'KERN Test'], { cwd: tmpDir });
+
+    const file = join(tmpDir, 'main.py');
+    writeFileSync(file, 'from fastapi import FastAPI\n\napp = FastAPI()\n');
+    execFileSync('git', ['add', 'main.py'], { cwd: tmpDir });
+    execFileSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+
+    writeFileSync(
+      file,
+      `from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True)
+`,
+    );
+
+    let exitCode: number | undefined;
+    process.exit = ((code?: number) => {
+      exitCode = code;
+      throw new Error(`EXIT:${code ?? 0}`);
+    }) as never;
+
+    await expect(runReview(['review', '--diff=HEAD', '--target=fastapi', '--json', '--no-cache'])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(exitCode).toBe(0);
+
+    const output = logs.join('\n');
+    expect(output).toContain('"filePath"');
+    expect(output).toContain('main.py');
+    expect(output).toContain('fastapi-broad-cors');
+  });
+
   it('does not collect .kern directories as reviewable files', () => {
     mkdirSync(join(tmpDir, 'packages', 'app', '.kern'), { recursive: true });
     writeFileSync(join(tmpDir, 'packages', 'app', 'index.ts'), 'export const ok = true;\n');
@@ -76,6 +115,39 @@ describe('kern review command', () => {
 
     expect(files).toContain(join(tmpDir, 'packages', 'app', 'index.ts'));
     expect(files).not.toContain(join(tmpDir, 'packages', 'app', '.kern'));
+  });
+
+  it('honors --target for actual review scans', async () => {
+    process.chdir(tmpDir);
+    writeFileSync(
+      join(tmpDir, 'package.json'),
+      JSON.stringify({ dependencies: { next: '15.0.0' }, devDependencies: {} }, null, 2),
+    );
+
+    const file = join(tmpDir, 'server.ts');
+    writeFileSync(
+      file,
+      `
+import express from 'express';
+
+const app = express();
+app.post('/users', (req, res) => {
+  res.json({ name: req.body.name });
+});
+`,
+    );
+
+    let exitCode: number | undefined;
+    process.exit = ((code?: number) => {
+      exitCode = code;
+      throw new Error(`EXIT:${code ?? 0}`);
+    }) as never;
+
+    await expect(runReview(['review', file, '--target=express', '--json', '--no-cache'])).rejects.toThrow('EXIT:0');
+    expect(exitCode).toBe(0);
+
+    const report = JSON.parse(logs.join('\n'));
+    expect(report.findings.some((f: { ruleId: string }) => f.ruleId === 'unvalidated-input')).toBe(true);
   });
 
   it('filters known findings with --baseline and --new-only', async () => {

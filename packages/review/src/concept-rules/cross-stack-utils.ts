@@ -204,21 +204,52 @@ export function normalizeClientUrl(raw: string): string | undefined {
 export function findMatchingRoute(clientPath: string, routes: readonly ServerRoute[]): ServerRoute | undefined {
   const clientSegments = trimTrailing(clientPath).split('/');
   for (const route of routes) {
-    const routeSegments = trimTrailing(route.path).split('/');
-    if (routeSegments.length !== clientSegments.length) continue;
-    let matched = true;
-    for (let i = 0; i < routeSegments.length; i++) {
-      const rs = routeSegments[i];
-      const cs = clientSegments[i];
-      if (isParamSegment(rs)) continue;
-      if (rs !== cs) {
-        matched = false;
-        break;
-      }
-    }
-    if (matched) return route;
+    if (routePathMatchesSegments(route.path, clientSegments)) return route;
   }
   return undefined;
+}
+
+export function findMatchingRouteForMethod(
+  clientPath: string,
+  clientMethod: string | undefined,
+  routes: readonly ServerRoute[],
+): ServerRoute | undefined {
+  const clientSegments = trimTrailing(clientPath).split('/');
+  for (const route of routes) {
+    if (!routePathMatchesSegments(route.path, clientSegments)) continue;
+    if (!clientMethod || routeMethodMatches(route.method, clientMethod)) return route;
+  }
+  return undefined;
+}
+
+/**
+ * Noise-gated route match for newer cross-stack rules.
+ *
+ * The older matcher intentionally returns the first path-shaped match so
+ * legacy rules retain broad coverage. Newer rules that can feel speculative
+ * should use this helper instead: it requires a known client method, exactly
+ * one matching server route for that method, a concrete internal API path, and
+ * no catch-all/wildcard route shapes.
+ */
+export function findHighConfidenceRouteForMethod(
+  clientPath: string,
+  clientMethod: string | undefined,
+  routes: readonly ServerRoute[],
+): ServerRoute | undefined {
+  if (!isHighConfidenceClientPath(clientPath)) return undefined;
+  if (!clientMethod) return undefined;
+
+  const matches = findRoutesAtPath(clientPath, routes).filter((route) => {
+    if (!route.node) return false;
+    if (route.node.confidence < 0.75) return false;
+    if (!route.method) return false;
+    if (WILDCARD_METHODS.has(route.method.toUpperCase())) return false;
+    if (!routeMethodMatches(route.method, clientMethod)) return false;
+    if (!isHighConfidenceServerPath(route.path)) return false;
+    return true;
+  });
+
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 /** Boolean-returning thin wrapper preserved for callers that just need a yes/no. */
@@ -237,25 +268,84 @@ export function findRoutesAtPath(clientPath: string, routes: readonly ServerRout
   const clientSegments = trimTrailing(clientPath).split('/');
   const matches: ServerRoute[] = [];
   for (const route of routes) {
-    const routeSegments = trimTrailing(route.path).split('/');
-    if (routeSegments.length !== clientSegments.length) continue;
-    let matched = true;
-    for (let i = 0; i < routeSegments.length; i++) {
-      const rs = routeSegments[i];
-      const cs = clientSegments[i];
-      if (isParamSegment(rs)) continue;
-      if (rs !== cs) {
-        matched = false;
-        break;
-      }
-    }
-    if (matched) matches.push(route);
+    if (routePathMatchesSegments(route.path, clientSegments)) matches.push(route);
   }
   return matches;
 }
 
 function trimTrailing(path: string): string {
   return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+}
+
+function routePathMatchesSegments(routePath: string, clientSegments: readonly string[]): boolean {
+  const routeSegments = trimTrailing(routePath).split('/');
+  if (routeSegments.length !== clientSegments.length) return false;
+  for (let i = 0; i < routeSegments.length; i++) {
+    const rs = routeSegments[i];
+    const cs = clientSegments[i];
+    if (isParamSegment(rs)) continue;
+    if (rs !== cs) return false;
+  }
+  return true;
+}
+
+function isHighConfidenceClientPath(path: string): boolean {
+  if (!API_PATH_RE.test(path)) return false;
+  if (hasCatchAllOrWildcardSegment(path)) return false;
+  const segments = trimTrailing(path).split('/').filter(Boolean);
+  return segments.every((segment) => {
+    if (!segment.includes('${')) return true;
+    return /^\$\{[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?\}$/.test(segment);
+  });
+}
+
+function isHighConfidenceServerPath(path: string): boolean {
+  if (!API_PATH_RE.test(path)) return false;
+  return !hasCatchAllOrWildcardSegment(path);
+}
+
+function hasCatchAllOrWildcardSegment(path: string): boolean {
+  return trimTrailing(path)
+    .split('/')
+    .some((segment) => {
+      if (!segment) return false;
+      if (segment === '*' || segment.includes('...')) return true;
+      if (segment.startsWith('*')) return true;
+      if (/^\{[^}:]+:path\}$/.test(segment)) return true;
+      return false;
+    });
+}
+
+// Verbs emitted by route declarations that intentionally accept any method.
+const WILDCARD_METHODS = new Set(['ALL', 'ANY']);
+
+export function routeMethodMatches(routeMethod: string | undefined, clientMethod: string): boolean {
+  if (!routeMethod) return true;
+  const r = routeMethod.toUpperCase();
+  if (WILDCARD_METHODS.has(r)) return true;
+  const c = clientMethod.toUpperCase();
+  if (r === c) return true;
+  // Express and Starlette/FastAPI both auto-respond to HEAD on GET routes.
+  if (c === 'HEAD' && r === 'GET') return true;
+  return false;
+}
+
+/**
+ * Resolve an inline Express handler's concept from a route node. Only
+ * meaningful for `route` entrypoints whose mapper set `handlerConceptId`
+ * (inline arrow/function handlers — not imported identifiers). Returns
+ * undefined when the route has no inline handler or the expected concept
+ * is absent from the map (e.g., stripped during serialisation).
+ *
+ * Rules that reason about handler body contents — body-shape drift, auth
+ * checks, response envelope detection — use this as the single lookup
+ * point so callers don't re-implement span-or-id matching in each rule.
+ */
+export function findHandlerConcept(map: ConceptMap, route: ConceptNode): ConceptNode | undefined {
+  if (route.kind !== 'entrypoint' || route.payload.kind !== 'entrypoint') return undefined;
+  const handlerId = route.payload.handlerConceptId;
+  if (!handlerId) return undefined;
+  return map.nodes.find((n) => n.id === handlerId);
 }
 
 function isParamSegment(seg: string): boolean {

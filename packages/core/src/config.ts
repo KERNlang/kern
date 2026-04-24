@@ -98,6 +98,8 @@ export interface KernConfig {
   review?: {
     /** Show confidence scores in review output (default: false) */
     showConfidence?: boolean;
+    /** Cross-stack review precision mode: guard is high precision, audit is broader. */
+    crossStackMode?: 'guard' | 'audit';
     /** Minimum confidence for findings to count in enforcement (default: 0) */
     minConfidence?: number;
     /** Maximum cognitive complexity allowed (default: 15) */
@@ -164,6 +166,7 @@ export interface ResolvedKernConfig {
 
   review: {
     showConfidence: boolean;
+    crossStackMode: 'guard' | 'audit';
     minConfidence: number;
     maxComplexity: number;
     disabledRules: string[];
@@ -211,6 +214,7 @@ export const DEFAULT_CONFIG: ResolvedKernConfig = {
   },
   review: {
     showConfidence: false,
+    crossStackMode: 'guard',
     minConfidence: 0,
     maxComplexity: 15,
     disabledRules: [],
@@ -291,6 +295,7 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
     },
     review: {
       showConfidence: user.review?.showConfidence ?? DEFAULT_CONFIG.review.showConfidence,
+      crossStackMode: user.review?.crossStackMode ?? DEFAULT_CONFIG.review.crossStackMode,
       minConfidence: user.review?.minConfidence ?? DEFAULT_CONFIG.review.minConfidence,
       maxComplexity: user.review?.maxComplexity ?? DEFAULT_CONFIG.review.maxComplexity,
       disabledRules: user.review?.disabledRules ?? DEFAULT_CONFIG.review.disabledRules,
