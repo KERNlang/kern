@@ -150,6 +150,27 @@ function validateNode(
     }
   }
 
+  // ── try may have at most one catch ───────────────────────────────────
+  // JS only supports a single catch clause, so `generateTry` uses
+  // `firstChild(node, 'catch')` — a second or third `catch` sibling would
+  // be silently ignored. Flag it during validation so authors don't
+  // assume a second catch handles a different error class.
+  if (node.type === 'try' && node.children) {
+    const catches = node.children.filter((c) => c.type === 'catch');
+    if (catches.length > 1) {
+      for (const extra of catches.slice(1)) {
+        violations.push({
+          rule: 'try-single-catch-only',
+          nodeType: 'catch',
+          message:
+            '`try` supports at most one `catch` child — JavaScript has no multi-catch. Merge the error-handling logic or switch on `err instanceof …` inside a single catch.',
+          line: extra.loc?.line,
+          col: extra.loc?.col,
+        });
+      }
+    }
+  }
+
   // ── group must be a direct child of render or another group ─────────
   // `group wrapper=...` is consumed by the composed-render walk in
   // `collectComposedPieces`, which only visits direct `render`/`group`

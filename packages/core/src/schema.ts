@@ -367,7 +367,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   try: {
     description:
-      'Declarative async orchestration — a sequential try/catch where each `step name=X await="expr"` child lowers to `const X = await (expr);`. Step bindings are in scope for later steps, the optional `handler` body (post-steps), and the optional `catch` block. Use this instead of a raw handler to express the "fetch → parse → store, fall back on error" shape declaratively.',
+      'Declarative async orchestration — a sequential try/catch where each `step name=X await="expr"` child lowers to `const X = await (expr);`. Step bindings are in scope for later steps and the optional `handler` body (post-steps), but NOT inside the `catch` block — JS `const` declared inside a `try` block is not visible to `catch` (use closure-scoped `derive`/`local` if the catch needs to reference earlier values). Use this instead of a raw handler to express the "fetch → parse → store, fall back on error" shape declaratively.',
     example:
       'try name=loadUser\n  step name=res await="fetch(`/api/users/${id}`)"\n  step name=body await="res.json()"\n  handler <<<\n    setUser(body);\n  >>>\n  catch name=err\n    handler <<<\n      setUser(null);\n    >>>',
     props: {
