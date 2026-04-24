@@ -61,6 +61,34 @@ const DB_CALLS = new Set([
   'countDocuments',
 ]);
 
+const DB_COLLECTION_READ_CALLS = new Set([
+  'findMany',
+  'find',
+  'select',
+  'query',
+  'aggregate',
+  'toArray',
+  'all',
+  'fetchAll',
+]);
+
+const DB_WRITE_CALLS = new Set([
+  'create',
+  'createMany',
+  'insert',
+  'insertOne',
+  'insertMany',
+  'update',
+  'updateMany',
+  'updateOne',
+  'delete',
+  'deleteMany',
+  'deleteOne',
+  'remove',
+  'save',
+  'upsert',
+]);
+
 const FS_CALLS = new Set([
   'readFile',
   'readFileSync',
@@ -312,6 +340,8 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
     if (isDirectNetwork || isKnownLibraryMethod || isWrappedClientCall) {
       const isAsync = isInAsyncContext(call);
       const sentFieldsInfo = extractSentFields(call, funcName);
+      const queryParamsInfo = extractQueryParams(call);
+      const hasAuthHeader = extractHasAuthHeader(call, funcName);
       nodes.push({
         id: conceptId(filePath, 'effect', call.getStart()),
         kind: 'effect',
@@ -328,9 +358,13 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
           responseAsserted: isResponseAsserted(call, isWrappedClientCall),
           bodyKind: extractBodyKind(call, funcName),
           method: extractHttpMethod(call, funcName, isDirectNetwork, isKnownLibraryMethod, isWrappedClientCall),
-          hasAuthHeader: extractHasAuthHeader(call, funcName),
+          hasAuthHeader,
           sentFields: sentFieldsInfo.fields,
           sentFieldsResolved: sentFieldsInfo.resolved,
+          handlesApiErrors: extractHandlesApiErrors(call, isWrappedClientCall),
+          authPropagation: extractAuthPropagation(call, funcName, objName, isWrappedClientCall, hasAuthHeader),
+          queryParams: queryParamsInfo.params,
+          queryParamsResolved: queryParamsInfo.resolved,
         },
       });
       continue;
@@ -418,6 +452,9 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
     const bodyFieldsInfo = handlerFn
       ? extractHandlerBodyFields(handlerFn)
       : { fields: undefined as readonly string[] | undefined, resolved: false };
+    const routeAnalysis = handlerFn
+      ? analyzeExpressRouteHandler(handlerFn, args, methodName.toUpperCase(), routePath)
+      : EMPTY_ROUTE_ANALYSIS;
 
     nodes.push({
       id: conceptId(filePath, 'entrypoint', call.getStart()),
@@ -435,6 +472,13 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
         handlerConceptId,
         bodyFields: bodyFieldsInfo.fields,
         bodyFieldsResolved: bodyFieldsInfo.resolved,
+        errorStatusCodes: routeAnalysis.errorStatusCodes,
+        hasUnboundedCollectionQuery: routeAnalysis.hasUnboundedCollectionQuery,
+        hasDbWrite: routeAnalysis.hasDbWrite,
+        hasIdempotencyProtection: routeAnalysis.hasIdempotencyProtection,
+        hasBodyValidation: routeAnalysis.hasBodyValidation,
+        validatedBodyFields: routeAnalysis.validatedBodyFields,
+        bodyValidationResolved: routeAnalysis.bodyValidationResolved,
       },
     });
   }
@@ -469,6 +513,196 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
       }
     }
   }
+}
+
+interface RouteHandlerAnalysis {
+  errorStatusCodes?: readonly number[];
+  hasUnboundedCollectionQuery?: boolean;
+  hasDbWrite?: boolean;
+  hasIdempotencyProtection?: boolean;
+  hasBodyValidation?: boolean;
+  validatedBodyFields?: readonly string[];
+  bodyValidationResolved?: boolean;
+}
+
+const EMPTY_ROUTE_ANALYSIS: RouteHandlerAnalysis = {};
+const API_ERROR_STATUS_CODES = new Set([401, 403, 404, 422, 500]);
+const PAGINATION_RE = /\b(limit|take|offset|skip|cursor|page|pageSize|perPage)\b|\.limit\s*\(|\.take\s*\(/i;
+const IDEMPOTENCY_RE =
+  /\b(idempotency|Idempotency-Key|transaction|\$transaction|unique|upsert|findUnique|findOne|on\s+conflict|getOrCreate|createOrGet)\b/i;
+
+function analyzeExpressRouteHandler(
+  handlerFn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+  routeArgs: readonly import('ts-morph').Node[],
+  method: string,
+  routePath: string | undefined,
+): RouteHandlerAnalysis {
+  const text = handlerFn.getText();
+  const errorStatusCodes = extractExpressErrorStatusCodes(handlerFn);
+  const validation = extractExpressValidation(handlerFn, routeArgs);
+  return {
+    errorStatusCodes,
+    hasUnboundedCollectionQuery: hasUnboundedExpressCollectionQuery(handlerFn, method, routePath),
+    hasDbWrite: handlerHasDbWrite(handlerFn),
+    hasIdempotencyProtection: IDEMPOTENCY_RE.test(text),
+    hasBodyValidation: validation.has,
+    validatedBodyFields: validation.fields,
+    bodyValidationResolved: validation.resolved,
+  };
+}
+
+function extractExpressErrorStatusCodes(
+  handlerFn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+): readonly number[] | undefined {
+  const codes = new Set<number>();
+
+  for (const call of handlerFn.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (callee.getKind() === SyntaxKind.Identifier && callee.getText() === 'next' && call.getArguments().length > 0) {
+      codes.add(500);
+      continue;
+    }
+    if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) continue;
+    const pa = callee as import('ts-morph').PropertyAccessExpression;
+    const name = pa.getName();
+    if (name !== 'status' && name !== 'sendStatus') continue;
+    const receiver = pa.getExpression().getText();
+    if (!/\b(res|reply|response)\b/i.test(receiver)) continue;
+    const code = numericLiteralValue(call.getArguments()[0]);
+    if (code !== undefined && API_ERROR_STATUS_CODES.has(code)) codes.add(code);
+  }
+
+  for (const throwStmt of handlerFn.getDescendantsOfKind(SyntaxKind.ThrowStatement)) {
+    if (throwStmt.getExpression()) codes.add(500);
+  }
+
+  return codes.size > 0 ? Array.from(codes).sort((a, b) => a - b) : undefined;
+}
+
+function numericLiteralValue(node: import('ts-morph').Node | undefined): number | undefined {
+  if (!node || node.getKind() !== SyntaxKind.NumericLiteral) return undefined;
+  const value = Number(node.getText());
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function hasUnboundedExpressCollectionQuery(
+  handlerFn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+  method: string,
+  routePath: string | undefined,
+): boolean {
+  if (method !== 'GET') return false;
+  if (routePath && /[:{]/.test(routePath)) return false;
+  const text = handlerFn.getText();
+  if (PAGINATION_RE.test(text) || /\b(req|request)\.query\b/.test(text)) return false;
+  if (!handlerHasDbCollectionRead(handlerFn)) return false;
+  if (!/\.json\s*\(|send\s*\(/.test(text)) return false;
+
+  const lastSegment = routePath?.split('/').filter(Boolean).pop();
+  return Boolean(lastSegment?.endsWith('s')) || /\bfindMany\b|\.find\s*\(|\.toArray\s*\(/.test(text);
+}
+
+function handlerHasDbCollectionRead(
+  handlerFn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+): boolean {
+  return handlerFn.getDescendantsOfKind(SyntaxKind.CallExpression).some((call) => {
+    const callee = call.getExpression();
+    if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) return false;
+    const pa = callee as import('ts-morph').PropertyAccessExpression;
+    if (!DB_COLLECTION_READ_CALLS.has(pa.getName())) return false;
+    return isDbLikeReceiver(pa.getExpression().getText());
+  });
+}
+
+function handlerHasDbWrite(
+  handlerFn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+): boolean {
+  return handlerFn.getDescendantsOfKind(SyntaxKind.CallExpression).some((call) => {
+    const callee = call.getExpression();
+    if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) return false;
+    const pa = callee as import('ts-morph').PropertyAccessExpression;
+    if (!DB_WRITE_CALLS.has(pa.getName())) return false;
+    return isDbLikeReceiver(pa.getExpression().getText());
+  });
+}
+
+function isDbLikeReceiver(receiver: string): boolean {
+  return (
+    /\b(db|prisma|mongo|collection|repo|repository|model|client|knex|sequelize|typeorm|pool)\b/i.test(receiver) ||
+    /^[A-Z][A-Za-z0-9_]*(Model)?$/.test(receiver)
+  );
+}
+
+function extractExpressValidation(
+  handlerFn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+  routeArgs: readonly import('ts-morph').Node[],
+): { has: boolean; fields: readonly string[] | undefined; resolved: boolean } {
+  const fields = new Set<string>();
+  let hasValidation = false;
+  let resolved = false;
+
+  for (const arg of routeArgs) {
+    if (arg === handlerFn) continue;
+    if (arg.getStart() > handlerFn.getStart()) continue;
+    if (/\b(validate|validator|schema|zod|joi)\b/i.test(arg.getText())) hasValidation = true;
+    for (const field of extractExpressValidatorFields(arg)) {
+      fields.add(field);
+      hasValidation = true;
+      resolved = true;
+    }
+  }
+
+  const handlerText = handlerFn.getText();
+  if (/\.(parse|safeParse|validate)\s*\(\s*(req|request)\.body\b/.test(handlerText)) hasValidation = true;
+
+  for (const call of handlerFn.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    if (!isSchemaObjectCall(call)) continue;
+    if (!schemaCallValidatesRequestBody(call)) continue;
+    const arg = call.getArguments()[0];
+    if (!arg || arg.getKind() !== SyntaxKind.ObjectLiteralExpression) continue;
+    const extracted = extractLiteralObjectFields(arg as import('ts-morph').ObjectLiteralExpression);
+    if (!extracted.resolved || !extracted.fields) continue;
+    for (const field of extracted.fields) fields.add(field);
+    hasValidation = true;
+    resolved = true;
+  }
+
+  return {
+    has: hasValidation,
+    fields: fields.size > 0 ? Array.from(fields).sort() : undefined,
+    resolved,
+  };
+}
+
+function extractExpressValidatorFields(node: import('ts-morph').Node): string[] {
+  const fields: string[] = [];
+  const calls =
+    node.getKind() === SyntaxKind.CallExpression
+      ? [node as import('ts-morph').CallExpression, ...node.getDescendantsOfKind(SyntaxKind.CallExpression)]
+      : node.getDescendantsOfKind(SyntaxKind.CallExpression);
+  for (const call of calls) {
+    const callee = call.getExpression().getText();
+    if (!/^(body|check|param|query)$/.test(callee) && !/\.(body|check|param|query)$/.test(callee)) continue;
+    const first = call.getArguments()[0];
+    if (!first || first.getKind() !== SyntaxKind.StringLiteral) continue;
+    fields.push((first as import('ts-morph').StringLiteral).getLiteralValue());
+  }
+  return fields;
+}
+
+function isSchemaObjectCall(call: import('ts-morph').CallExpression): boolean {
+  const callee = call.getExpression().getText();
+  return callee === 'z.object' || callee === 'Joi.object' || callee.endsWith('.object');
+}
+
+function schemaCallValidatesRequestBody(call: import('ts-morph').CallExpression): boolean {
+  let cursor: import('ts-morph').Node | undefined = call;
+  for (let depth = 0; depth < 5; depth++) {
+    cursor = cursor.getParent();
+    if (!cursor) return false;
+    const text = cursor.getText();
+    if (/\.(parse|safeParse|validate)\s*\(\s*(req|request)\.body\b/.test(text)) return true;
+  }
+  return false;
 }
 
 // Express `app.use('/api/prefix', ...middlewares, subRouter)`: emit a
@@ -1392,6 +1626,27 @@ function extractTarget(call: import('ts-morph').CallExpression): string | undefi
   return undefined;
 }
 
+function extractQueryParams(call: import('ts-morph').CallExpression): {
+  params: readonly string[] | undefined;
+  resolved: boolean;
+} {
+  const target = extractTarget(call);
+  if (!target) return { params: undefined, resolved: false };
+  const q = target.indexOf('?');
+  if (q === -1) return { params: [], resolved: true };
+  const query = target.slice(q + 1).split('#')[0] ?? '';
+  if (query.length === 0) return { params: [], resolved: true };
+  const params: string[] = [];
+  for (const part of query.split('&')) {
+    if (!part) continue;
+    const [rawName] = part.split('=');
+    if (!rawName) continue;
+    const name = rawName.replace(/^:+/, '');
+    if (/^[A-Za-z_][\w-]*$/.test(name)) params.push(name);
+  }
+  return { params, resolved: true };
+}
+
 // Convert a template literal like `${API_BASE}/api/review/${slug}` into a
 // server-route-shaped path like `/api/review/:slug` so cross-stack rules can
 // correlate it against backend routes. Without this every `fetch(` \`${BASE}/…\` `)`
@@ -1696,6 +1951,195 @@ function extractHasAuthHeader(call: import('ts-morph').CallExpression, funcName:
     }
   }
   return false;
+}
+
+function extractHandlesApiErrors(
+  call: import('ts-morph').CallExpression,
+  isWrappedClientCall: boolean,
+): boolean | undefined {
+  if (isWrappedClientCall) return undefined;
+  if (isInsideTryWithCatch(call)) return true;
+  if (hasCatchInPromiseChain(call)) return true;
+  if (hasInlineStatusCheck(call)) return true;
+  if (hasAssignedResponseStatusCheck(call)) return true;
+  if (hasNearbyErrorUiPath(call)) return true;
+  return false;
+}
+
+function isInsideTryWithCatch(node: import('ts-morph').Node): boolean {
+  let parent = node.getParent();
+  while (parent) {
+    if (parent.getKind() === SyntaxKind.TryStatement) {
+      const tryStmt = parent as import('ts-morph').TryStatement;
+      return Boolean(tryStmt.getCatchClause());
+    }
+    parent = parent.getParent();
+  }
+  return false;
+}
+
+function hasCatchInPromiseChain(node: import('ts-morph').Node): boolean {
+  let cursor: import('ts-morph').Node = node;
+  for (let depth = 0; depth < 8; depth++) {
+    const parent = cursor.getParent();
+    if (!parent) return false;
+    if (parent.getKind() === SyntaxKind.PropertyAccessExpression) {
+      const pa = parent as import('ts-morph').PropertyAccessExpression;
+      if (pa.getName() === 'catch') return true;
+    }
+    cursor = parent;
+  }
+  return false;
+}
+
+function hasInlineStatusCheck(call: import('ts-morph').CallExpression): boolean {
+  let cursor: import('ts-morph').Node = call;
+  for (let depth = 0; depth < 8; depth++) {
+    const parent = cursor.getParent();
+    if (!parent) return false;
+    const text = parent.getText();
+    if (
+      /\b\w+\.(ok|status|statusCode)\b/.test(text) &&
+      /\b(if|throw|reject|setError|toast\.error|Alert\.alert)\b/.test(text)
+    ) {
+      return true;
+    }
+    if (parent.getKind() === SyntaxKind.ExpressionStatement || parent.getKind() === SyntaxKind.VariableDeclaration) {
+      return false;
+    }
+    cursor = parent;
+  }
+  return false;
+}
+
+function hasAssignedResponseStatusCheck(call: import('ts-morph').CallExpression): boolean {
+  const decl = enclosingVariableDeclaration(call);
+  if (!decl) return false;
+  const name = decl.getName();
+  if (!/^[A-Za-z_$][\w$]*$/.test(name)) return false;
+  const block = nearestBlock(decl);
+  if (!block) return false;
+  const escaped = escapeRegExp(name);
+  const text = block.getText();
+  return new RegExp(`\\b${escaped}\\.(ok|status|statusCode)\\b`).test(text);
+}
+
+function hasNearbyErrorUiPath(call: import('ts-morph').CallExpression): boolean {
+  const container = nearestFunctionLike(call);
+  if (!container) return false;
+  const text = container.getText();
+  return /\b(setError|setErrorMessage|showError|toast\.error|Alert\.alert|notifyError)\s*\(/.test(text);
+}
+
+function enclosingVariableDeclaration(
+  node: import('ts-morph').Node,
+): import('ts-morph').VariableDeclaration | undefined {
+  let cursor: import('ts-morph').Node = node;
+  for (let depth = 0; depth < 6; depth++) {
+    const parent = cursor.getParent();
+    if (!parent) return undefined;
+    if (parent.getKind() === SyntaxKind.VariableDeclaration) return parent as import('ts-morph').VariableDeclaration;
+    cursor = parent;
+  }
+  return undefined;
+}
+
+function nearestBlock(node: import('ts-morph').Node): import('ts-morph').Block | undefined {
+  let parent = node.getParent();
+  while (parent) {
+    if (parent.getKind() === SyntaxKind.Block) return parent as import('ts-morph').Block;
+    parent = parent.getParent();
+  }
+  return undefined;
+}
+
+function nearestFunctionLike(node: import('ts-morph').Node): import('ts-morph').Node | undefined {
+  let parent = node.getParent();
+  while (parent) {
+    const kind = parent.getKind();
+    if (
+      kind === SyntaxKind.FunctionDeclaration ||
+      kind === SyntaxKind.MethodDeclaration ||
+      kind === SyntaxKind.ArrowFunction ||
+      kind === SyntaxKind.FunctionExpression
+    ) {
+      return parent;
+    }
+    parent = parent.getParent();
+  }
+  return undefined;
+}
+
+function extractAuthPropagation(
+  call: import('ts-morph').CallExpression,
+  funcName: string,
+  objName: string,
+  isWrappedClientCall: boolean,
+  hasAuthHeader: boolean | undefined,
+): 'present' | 'absent' | 'unknown' {
+  if (hasAuthHeader === true) return 'present';
+  if (hasCookieOrSessionEvidence(call, funcName)) return 'present';
+  if (isWrappedClientCall) return /auth|session|private|secure/i.test(objName) ? 'present' : 'unknown';
+  if (funcName === 'fetch') return hasAuthHeader === false ? 'absent' : 'unknown';
+  const config = networkConfigArgument(call, funcName);
+  if (!config) return 'absent';
+  if (config.getKind() !== SyntaxKind.ObjectLiteralExpression) return 'unknown';
+  const obj = config as import('ts-morph').ObjectLiteralExpression;
+  if (obj.getProperties().some((p) => p.getKind() === SyntaxKind.SpreadAssignment)) return 'unknown';
+  return configObjectHasAuthEvidence(obj) ? 'present' : 'absent';
+}
+
+function hasCookieOrSessionEvidence(call: import('ts-morph').CallExpression, funcName: string): boolean {
+  const config = funcName === 'fetch' ? call.getArguments()[1] : networkConfigArgument(call, funcName);
+  if (!config || config.getKind() !== SyntaxKind.ObjectLiteralExpression) return false;
+  return configObjectHasAuthEvidence(config as import('ts-morph').ObjectLiteralExpression);
+}
+
+function networkConfigArgument(
+  call: import('ts-morph').CallExpression,
+  funcName: string,
+): import('ts-morph').Node | undefined {
+  const args = call.getArguments();
+  if (funcName === 'fetch') return args[1];
+  if (AXIOS_STYLE_METHODS.has(funcName)) return args[2];
+  return args[1];
+}
+
+function configObjectHasAuthEvidence(obj: import('ts-morph').ObjectLiteralExpression): boolean {
+  const credentialsProp = obj.getProperty('credentials');
+  if (credentialsProp?.getKind() === SyntaxKind.PropertyAssignment) {
+    const init = (credentialsProp as import('ts-morph').PropertyAssignment).getInitializer();
+    if (
+      init &&
+      (init.getKind() === SyntaxKind.StringLiteral || init.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral)
+    ) {
+      const value = (init as import('ts-morph').StringLiteral).getLiteralValue();
+      if (value === 'include' || value === 'same-origin') return true;
+    }
+  }
+
+  const withCredentialsProp = obj.getProperty('withCredentials');
+  if (withCredentialsProp?.getKind() === SyntaxKind.PropertyAssignment) {
+    const init = (withCredentialsProp as import('ts-morph').PropertyAssignment).getInitializer();
+    if (init?.getKind() === SyntaxKind.TrueKeyword) return true;
+  }
+
+  const headersProp = obj.getProperty('headers');
+  if (headersProp?.getKind() !== SyntaxKind.PropertyAssignment) return false;
+  const headersInit = (headersProp as import('ts-morph').PropertyAssignment).getInitializer();
+  if (!headersInit || headersInit.getKind() !== SyntaxKind.ObjectLiteralExpression) return false;
+  const headersObj = headersInit as import('ts-morph').ObjectLiteralExpression;
+  if (headersObj.getProperties().some((p) => p.getKind() === SyntaxKind.SpreadAssignment)) return false;
+  for (const prop of headersObj.getProperties()) {
+    if (prop.getKind() !== SyntaxKind.PropertyAssignment) continue;
+    const name = (prop as import('ts-morph').PropertyAssignment).getName().replace(/['"]/g, '').toLowerCase();
+    if (name === 'authorization' || name === 'cookie' || name === 'x-session' || name === 'x-csrf-token') return true;
+  }
+  return false;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function classifyBodyExpression(expr: import('ts-morph').Node | undefined): 'none' | 'static' | 'dynamic' | undefined {

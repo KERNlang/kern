@@ -407,7 +407,16 @@ export function collectTsFilesFlat(dirPath: string, recursive: boolean): string[
   for (const entry of readdirSync(dirPath)) {
     const full = resolve(dirPath, entry);
     const s = statSync(full);
-    if (s.isDirectory() && recursive && !entry.startsWith('.') && entry !== 'node_modules' && entry !== 'dist') {
+    if (
+      s.isDirectory() &&
+      recursive &&
+      !entry.startsWith('.') &&
+      entry !== 'node_modules' &&
+      entry !== 'dist' &&
+      entry !== 'out' &&
+      entry !== '__pycache__' &&
+      entry !== 'venv'
+    ) {
       files.push(...collectTsFilesFlat(full, true));
     } else if (
       s.isFile() &&

@@ -96,4 +96,23 @@ def list_users():
     expect(route?.containerId).toBeDefined();
     expect(route?.containerId).toBe(effect?.containerId);
   });
+
+  it('extracts Pydantic request model fields from annotated route parameters', () => {
+    const routes = routePayloads(`
+from pydantic import BaseModel
+
+class UserCreate(BaseModel):
+    email: str
+    name: str
+
+@router.post("/users")
+def create_user(payload: UserCreate):
+    return payload
+`);
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0].payload.hasBodyValidation).toBe(true);
+    expect(routes[0].payload.bodyValidationResolved).toBe(true);
+    expect(routes[0].payload.validatedBodyFields).toEqual(['email', 'name']);
+  });
 });

@@ -1,4 +1,8 @@
 import type { ConceptMap, ConceptNode, ConceptSpan } from '@kernlang/core';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { extractConceptsForGraph, reviewGraph, reviewPythonSource } from '../src/index.js';
 import { runFastapiConceptRules } from '../src/rules/fastapi.js';
 import { getActiveRules, getRuleRegistry } from '../src/rules/index.js';
 import type { ReviewFinding } from '../src/types.js';
@@ -89,6 +93,76 @@ describe('FastAPI Rules', () => {
       const rules = getActiveRules('fastapi');
       const fastapiSpecific = rules.filter((r) => (r as any).ruleId?.startsWith('fastapi'));
       expect(fastapiSpecific.length).toBe(0);
+    });
+  });
+
+  describe('public review pipeline', () => {
+    it('runs FastAPI rules through reviewPythonSource', () => {
+      const source = `
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True)
+`;
+      const report = reviewPythonSource(source, 'main.py', { target: 'fastapi', noCache: true });
+
+      expect(report.findings.some((f) => f.ruleId === 'missing-python-support')).toBe(false);
+      expect(report.findings.some((f) => f.ruleId === 'fastapi-broad-cors')).toBe(true);
+    });
+
+    it('includes Python files in graph review', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'kern-review-fastapi-'));
+      try {
+        mkdirSync(join(dir, 'routes'), { recursive: true });
+        const file = join(dir, 'routes', 'users.py');
+        writeFileSync(
+          file,
+          `
+from fastapi import APIRouter
+
+router = APIRouter()
+
+@router.get("/users")
+async def users():
+    return [{"id": "1"}]
+`,
+        );
+
+        const reports = reviewGraph([file], { target: 'fastapi', noCache: true });
+        const report = reports.find((r) => r.filePath === file);
+        expect(report).toBeDefined();
+        expect(report!.findings.some((f) => f.ruleId === 'missing-python-support')).toBe(false);
+        expect(report!.findings.some((f) => f.ruleId === 'fastapi-missing-response-model')).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('extracts Python concepts for cross-stack partner caches', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'kern-review-fastapi-concepts-'));
+      try {
+        const file = join(dir, 'main.py');
+        writeFileSync(
+          file,
+          `
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get("/health")
+async def health():
+    return {"ok": True}
+`,
+        );
+
+        const concepts = extractConceptsForGraph([file]);
+        const conceptMap = concepts.get(file);
+        expect(conceptMap).toBeDefined();
+        expect(conceptMap!.nodes.some((node) => node.kind === 'entrypoint')).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 

@@ -347,7 +347,7 @@ export interface ReviewConfig {
    * names (`src/routes.ts`) never collide. Rules that consult
    * `ctx.allConcepts` treat the keys opaquely.
    */
-  externalConcepts?: Map<string, import('@kernlang/core').ConceptMap>;
+  externalConcepts?: ReadonlyMap<string, unknown>;
 }
 
 // ── File Context (import chain awareness) ───────────────────────────────

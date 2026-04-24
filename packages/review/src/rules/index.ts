@@ -1144,6 +1144,46 @@ const REGISTRY: RuleInfo[] = [
     severity: 'warning',
     description: 'Network/DB effect without error recovery',
   },
+  {
+    id: 'unhandled-api-error-shape',
+    layer: 'concept',
+    severity: 'warning',
+    description: 'Client handles only API success path while backend returns explicit error statuses',
+    precision: 'high',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'auth-propagation-drift',
+    layer: 'concept',
+    severity: 'warning',
+    description: 'Authenticated backend route called without visible auth/session propagation',
+    precision: 'high',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'unbounded-collection-query',
+    layer: 'concept',
+    severity: 'warning',
+    description: 'Client and server both omit pagination bounds on a collection endpoint',
+    precision: 'medium',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'mutation-without-idempotency',
+    layer: 'concept',
+    severity: 'warning',
+    description: 'Mutating DB-backed route lacks visible idempotency or duplicate protection',
+    precision: 'medium',
+    rolloutPhase: 3,
+  },
+  {
+    id: 'request-validation-drift',
+    layer: 'concept',
+    severity: 'warning',
+    description: 'Request payload fields drift from backend validation or route body use is unvalidated',
+    precision: 'medium',
+    rolloutPhase: 3,
+  },
 ];
 
 /** Layer → target mapping for filtering */

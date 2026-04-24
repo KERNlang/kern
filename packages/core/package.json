@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/core",
-  "version": "3.3.8",
+  "version": "3.3.9",
   "description": "Kern core — parser, types, spec, config, style engines, codegen",
   "type": "module",
   "main": "./dist/index.js",
