@@ -415,6 +415,7 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
           },
         },
         results: [] as any[],
+        properties: buildSARIFRunProperties(reports, suppressedFindings),
         // SARIF spec 3.20: invocations describe tool-execution events. toolExecutionNotifications
         // carries messages FROM the tool (not findings ABOUT the code), which is exactly where
         // "ESLint skipped" / "call graph failed" belong. Without this, enterprise consumers of
@@ -505,6 +506,10 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
         },
       ],
     };
+    const relatedLocations = toSARIFRelatedLocations(finding);
+    if (relatedLocations.length > 0) {
+      result.relatedLocations = relatedLocations;
+    }
 
     // SARIF result.rank is 0.0–100.0 per spec; kern/confidence stays 0–1
     if (finding.confidence !== undefined) {
@@ -556,6 +561,60 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
   }
 
   return JSON.stringify(sarif, null, 2);
+}
+
+function buildSARIFRunProperties(
+  reports: ReviewReport[],
+  extraSuppressedFindings: ReviewFinding[] | undefined,
+): Record<string, unknown> {
+  const findings = reports.flatMap((report) => report.findings);
+  const suppressed = [
+    ...reports.flatMap((report) => report.suppressedFindings ?? []),
+    ...(extraSuppressedFindings ?? []),
+  ];
+  const healthEntries = reports.flatMap((report) => report.health?.entries ?? []);
+
+  return {
+    'kern/summary': {
+      files: reports.length,
+      findings: {
+        total: findings.length,
+        errors: findings.filter((finding) => finding.severity === 'error').length,
+        warnings: findings.filter((finding) => finding.severity === 'warning').length,
+        notes: findings.filter((finding) => finding.severity === 'info').length,
+      },
+      suppressed: {
+        total: suppressed.length,
+      },
+      fixable: findings.filter((finding) => finding.autofix).length,
+      relatedEvidence: findings.filter((finding) => (finding.relatedSpans?.length ?? 0) > 0).length,
+      health: {
+        status: healthEntries.some((entry) => entry.kind === 'error')
+          ? 'partial'
+          : healthEntries.length > 0
+            ? 'degraded'
+            : 'ok',
+        errors: healthEntries.filter((entry) => entry.kind === 'error').length,
+        fallbacks: healthEntries.filter((entry) => entry.kind === 'fallback').length,
+        skipped: healthEntries.filter((entry) => entry.kind === 'skipped').length,
+      },
+    },
+  };
+}
+
+function toSARIFRelatedLocations(finding: ReviewFinding): Array<Record<string, unknown>> {
+  return (finding.relatedSpans ?? []).map((span, index) => ({
+    id: index + 1,
+    physicalLocation: {
+      artifactLocation: { uri: span.file },
+      region: {
+        startLine: span.startLine,
+        startColumn: span.startCol,
+        endLine: span.endLine,
+        endColumn: span.endCol,
+      },
+    },
+  }));
 }
 
 function toSARIFFix(finding: ReviewFinding): Record<string, unknown> | undefined {
