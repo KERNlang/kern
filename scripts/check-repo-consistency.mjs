@@ -284,10 +284,31 @@ function checkKernVersion() {
   }
 }
 
+function checkPackageVersions() {
+  const rootPackageJson = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const rootVersion = rootPackageJson.version;
+  const packagesDir = path.join(root, 'packages');
+  const packageDirs = readdirSync(packagesDir).filter((entry) =>
+    existsSync(path.join(packagesDir, entry, 'package.json')),
+  );
+
+  for (const dir of packageDirs) {
+    const packageJsonPath = path.join(packagesDir, dir, 'package.json');
+    const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+    if (pkg.private === true) continue;
+    if (pkg.version !== rootVersion) {
+      fail(
+        `${packageJsonPath}: version (${pkg.version}) must equal root package.json version (${rootVersion}). Release publishes every @kernlang package together so npm consumers never lag behind internal workspace packages.`,
+      );
+    }
+  }
+}
+
 checkReadme();
 checkContributing();
 checkWorkflowContracts();
 checkPackages();
+checkPackageVersions();
 checkKernVersion();
 
 if (failures.length > 0) {

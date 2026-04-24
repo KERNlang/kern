@@ -13,6 +13,14 @@ import { debugDetail, type ReviewHealthBuilder } from './review-health.js';
 import type { InferResult, ReviewFinding, SourceSpan } from './types.js';
 import { createFingerprint } from './types.js';
 
+function optionalPackageName(...parts: string[]): string {
+  return parts.join('');
+}
+
+function importOptionalModule(specifier: string): Promise<unknown> {
+  return import(specifier);
+}
+
 /**
  * Node-style error check — used to distinguish "optional peer dep missing" (quietly skip)
  * from "the peer dep is installed but failed to load" (surface as degraded-mode health note).
@@ -44,10 +52,10 @@ export async function runESLint(
 ): Promise<ReviewFinding[]> {
   // Dynamic import — ESLint is an optional peer dep. MODULE_NOT_FOUND at this step means
   // "not installed" (quiet skip); anything else is a real load failure worth surfacing.
-  const eslintModuleName = 'eslint';
+  const eslintModuleName = optionalPackageName('es', 'lint');
   let ESLint: any;
   try {
-    const eslintModule = (await import(eslintModuleName)) as any;
+    const eslintModule = (await importOptionalModule(eslintModuleName)) as any;
     ESLint = eslintModule.ESLint || eslintModule.default?.ESLint;
   } catch (err) {
     if (isModuleNotFound(err)) {

@@ -204,19 +204,20 @@ export function normalizeClientUrl(raw: string): string | undefined {
 export function findMatchingRoute(clientPath: string, routes: readonly ServerRoute[]): ServerRoute | undefined {
   const clientSegments = trimTrailing(clientPath).split('/');
   for (const route of routes) {
-    const routeSegments = trimTrailing(route.path).split('/');
-    if (routeSegments.length !== clientSegments.length) continue;
-    let matched = true;
-    for (let i = 0; i < routeSegments.length; i++) {
-      const rs = routeSegments[i];
-      const cs = clientSegments[i];
-      if (isParamSegment(rs)) continue;
-      if (rs !== cs) {
-        matched = false;
-        break;
-      }
-    }
-    if (matched) return route;
+    if (routePathMatchesSegments(route.path, clientSegments)) return route;
+  }
+  return undefined;
+}
+
+export function findMatchingRouteForMethod(
+  clientPath: string,
+  clientMethod: string | undefined,
+  routes: readonly ServerRoute[],
+): ServerRoute | undefined {
+  const clientSegments = trimTrailing(clientPath).split('/');
+  for (const route of routes) {
+    if (!routePathMatchesSegments(route.path, clientSegments)) continue;
+    if (!clientMethod || routeMethodMatches(route.method, clientMethod)) return route;
   }
   return undefined;
 }
@@ -237,25 +238,39 @@ export function findRoutesAtPath(clientPath: string, routes: readonly ServerRout
   const clientSegments = trimTrailing(clientPath).split('/');
   const matches: ServerRoute[] = [];
   for (const route of routes) {
-    const routeSegments = trimTrailing(route.path).split('/');
-    if (routeSegments.length !== clientSegments.length) continue;
-    let matched = true;
-    for (let i = 0; i < routeSegments.length; i++) {
-      const rs = routeSegments[i];
-      const cs = clientSegments[i];
-      if (isParamSegment(rs)) continue;
-      if (rs !== cs) {
-        matched = false;
-        break;
-      }
-    }
-    if (matched) matches.push(route);
+    if (routePathMatchesSegments(route.path, clientSegments)) matches.push(route);
   }
   return matches;
 }
 
 function trimTrailing(path: string): string {
   return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+}
+
+function routePathMatchesSegments(routePath: string, clientSegments: readonly string[]): boolean {
+  const routeSegments = trimTrailing(routePath).split('/');
+  if (routeSegments.length !== clientSegments.length) return false;
+  for (let i = 0; i < routeSegments.length; i++) {
+    const rs = routeSegments[i];
+    const cs = clientSegments[i];
+    if (isParamSegment(rs)) continue;
+    if (rs !== cs) return false;
+  }
+  return true;
+}
+
+// Verbs emitted by route declarations that intentionally accept any method.
+const WILDCARD_METHODS = new Set(['ALL', 'ANY']);
+
+export function routeMethodMatches(routeMethod: string | undefined, clientMethod: string): boolean {
+  if (!routeMethod) return true;
+  const r = routeMethod.toUpperCase();
+  if (WILDCARD_METHODS.has(r)) return true;
+  const c = clientMethod.toUpperCase();
+  if (r === c) return true;
+  // Express and Starlette/FastAPI both auto-respond to HEAD on GET routes.
+  if (c === 'HEAD' && r === 'GET') return true;
+  return false;
 }
 
 /**

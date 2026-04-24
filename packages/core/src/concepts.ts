@@ -100,6 +100,37 @@ export interface EntrypointPayload {
    * warnings on opaque handlers.
    */
   bodyFieldsResolved?: boolean;
+  /**
+   * For server route entrypoints only — HTTP error status codes the handler can
+   * explicitly return/raise. Mappers only populate high-signal statuses such as
+   * 401/403/404/422/500 from constructs like Express `res.status(404)` or
+   * FastAPI `HTTPException(status_code=404)`.
+   */
+  errorStatusCodes?: readonly number[];
+  /**
+   * True when the route appears to return a DB-backed collection without a
+   * limit/page/cursor/offset bound. Used with client query evidence by
+   * `unbounded-collection-query`.
+   */
+  hasUnboundedCollectionQuery?: boolean;
+  /** True when the route performs a DB write. */
+  hasDbWrite?: boolean;
+  /**
+   * True when the mapper sees idempotency/duplicate-protection evidence such as
+   * an idempotency key, transaction, upsert, unique guard, or conflict clause.
+   */
+  hasIdempotencyProtection?: boolean;
+  /** True when the route validates request body data before use. */
+  hasBodyValidation?: boolean;
+  /**
+   * Body fields accepted by a resolved validation schema/model. Present only
+   * when `bodyValidationResolved === true`.
+   */
+  validatedBodyFields?: readonly string[];
+  /**
+   * True when the mapper is confident the validation field list is complete.
+   */
+  bodyValidationResolved?: boolean;
 }
 
 export interface EffectPayload {
@@ -158,6 +189,28 @@ export interface EffectPayload {
    * the server-side `bodyFieldsResolved` are true.
    */
   sentFieldsResolved?: boolean;
+  /**
+   * For `network` subtype only. `true` when the call-site has a local error
+   * path (try/catch, `.catch`, `response.ok`/status check, or known error UI);
+   * `false` when a raw inspectable call has no such path; `undefined` when a
+   * wrapper or dynamic call prevents a confident answer.
+   */
+  handlesApiErrors?: boolean;
+  /**
+   * For `network` subtype only. Whether the call-site visibly propagates auth
+   * (Authorization/Cookie/session credentials or known authenticated wrapper),
+   * visibly does not, or is opaque.
+   */
+  authPropagation?: 'present' | 'absent' | 'unknown';
+  /**
+   * Query string parameter names from a literal/template URL target. Present
+   * when `queryParamsResolved === true`.
+   */
+  queryParams?: readonly string[];
+  /**
+   * True when the mapper could fully inspect query parameters on the target URL.
+   */
+  queryParamsResolved?: boolean;
 }
 
 export interface StateMutationPayload {

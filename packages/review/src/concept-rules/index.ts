@@ -8,6 +8,7 @@
 import type { ConceptMap } from '@kernlang/core';
 import type { ReviewFinding } from '../types.js';
 import { authDrift } from './auth-drift.js';
+import { authPropagationDrift } from './auth-propagation-drift.js';
 import { bodyShapeDrift } from './body-shape-drift.js';
 import { boundaryMutation } from './boundary-mutation.js';
 import { contractDrift } from './contract-drift.js';
@@ -15,11 +16,15 @@ import { contractMethodDrift } from './contract-method-drift.js';
 import { duplicateRoute } from './duplicate-route.js';
 import { ignoredError } from './ignored-error.js';
 import { missingResponseModel } from './missing-response-model.js';
+import { mutationWithoutIdempotency } from './mutation-without-idempotency.js';
 import { orphanRoute } from './orphan-route.js';
 import { paramNameSwap } from './param-name-swap.js';
+import { requestValidationDrift } from './request-validation-drift.js';
 import { syncHandlerDoesIo } from './sync-handler-does-io.js';
 import { taintedAcrossWire } from './tainted-across-wire.js';
+import { unboundedCollectionQuery } from './unbounded-collection-query.js';
 import { unguardedEffect } from './unguarded-effect.js';
+import { unhandledApiErrorShape } from './unhandled-api-error-shape.js';
 import { unrecoveredEffect } from './unrecovered-effect.js';
 import { untypedApiResponse } from './untyped-api-response.js';
 import { untypedBothEndsResponse } from './untyped-both-ends-response.js';
@@ -37,6 +42,7 @@ export type ConceptRule = (ctx: ConceptRuleContext) => ReviewFinding[];
 
 export const conceptRules: ConceptRule[] = [
   authDrift,
+  authPropagationDrift,
   bodyShapeDrift,
   boundaryMutation,
   contractDrift,
@@ -44,11 +50,15 @@ export const conceptRules: ConceptRule[] = [
   duplicateRoute,
   ignoredError,
   missingResponseModel,
+  mutationWithoutIdempotency,
   orphanRoute,
   paramNameSwap,
+  requestValidationDrift,
   syncHandlerDoesIo,
   taintedAcrossWire,
+  unboundedCollectionQuery,
   unguardedEffect,
+  unhandledApiErrorShape,
   unrecoveredEffect,
   untypedApiResponse,
   untypedBothEndsResponse,

@@ -10,7 +10,7 @@
  */
 
 import { createRequire } from 'node:module';
-import type { IRNode, ParseDiagnostic } from '@kernlang/core';
+import type { ConceptMap, IRNode, ParseDiagnostic } from '@kernlang/core';
 import { countTokens, parseWithDiagnostics, serializeIR } from '@kernlang/core';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { dirname, join, relative } from 'path';
@@ -20,9 +20,22 @@ import { Project } from 'ts-morph';
 // `@kernlang/review-python` is an optional peer — we load it on demand with a
 // createRequire shim. Without this shim the dynamic load throws
 // `ReferenceError: require is not defined`, the catch swallows the error, and
-// every Python file falls into the "missing-python-support" info fallback —
-// silently disabling the fullstack wedge rules on any cross-stack repo.
+// Python files use a precise optional mapper when present, then degrade to the
+// built-in fallback extractor so fullstack wedge rules still run in npm installs
+// that do not ship @kernlang/review-python.
 const moduleRequire = createRequire(import.meta.url);
+
+function optionalPackageSpecifier(scope: string, name: string): string {
+  return `${scope}/${name}`;
+}
+
+function optionalLocalSpecifier(...parts: string[]): string {
+  return parts.join('/');
+}
+
+function requireOptionalModule(specifier: string): unknown {
+  return moduleRequire(specifier);
+}
 
 import { buildCallGraph } from './call-graph.js';
 import { runConceptRules } from './concept-rules/index.js';
@@ -37,6 +50,7 @@ import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { mineNorms } from './norm-miner.js';
 import { synthesizeObligations } from './obligations.js';
 import { buildPublicApiMap, expandPublicApiThroughReExports } from './public-api.js';
+import { extractPythonConceptsFallback } from './python-fallback.js';
 import { runQualityRules } from './quality-rules.js';
 import { assignDefaultConfidence, calculateStats, sortAndDedup, sortFindings } from './reporter.js';
 import { debugDetail, ReviewHealthBuilder } from './review-health.js';
@@ -64,6 +78,102 @@ import { applySuppression } from './suppression/index.js';
 import { analyzeTaint, analyzeTaintCrossFile, crossFileTaintToFindings, taintToFindings } from './taint.js';
 import type { InferResult, ReviewConfig, ReviewFinding, ReviewReport } from './types.js';
 import { createFingerprint } from './types.js';
+
+type PythonConceptExtractor = (source: string, filePath: string) => ConceptMap;
+
+const TYPESCRIPT_CONCEPT_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
+
+let cachedPythonExtractor:
+  | { extractor: PythonConceptExtractor; usingFallback: boolean; failureDetail?: string }
+  | undefined;
+
+function loadPythonConceptExtractor(): {
+  extractor: PythonConceptExtractor;
+  usingFallback: boolean;
+  failureDetail?: string;
+} {
+  if (cachedPythonExtractor) return cachedPythonExtractor;
+
+  const failures: string[] = [];
+  const candidates = [
+    optionalPackageSpecifier('@kernlang', 'review-python'),
+    optionalLocalSpecifier('..', '..', 'review-python', 'dist', 'index.js'),
+  ];
+  for (const candidate of candidates) {
+    try {
+      const mod = requireOptionalModule(candidate) as { extractPythonConcepts?: PythonConceptExtractor };
+      if (typeof mod.extractPythonConcepts === 'function') {
+        cachedPythonExtractor = { extractor: mod.extractPythonConcepts, usingFallback: false };
+        return cachedPythonExtractor;
+      }
+      failures.push(`${candidate}: extractPythonConcepts export missing`);
+    } catch (err) {
+      failures.push(`${candidate}: ${(err as Error).message}`);
+    }
+  }
+
+  cachedPythonExtractor = {
+    extractor: extractPythonConceptsFallback,
+    usingFallback: true,
+    failureDetail: failures.join('\n'),
+  };
+  return cachedPythonExtractor;
+}
+
+function extensionOf(filePath: string): string {
+  const dot = filePath.lastIndexOf('.');
+  return dot === -1 ? '' : filePath.slice(dot);
+}
+
+function isTypeScriptConceptFile(filePath: string): boolean {
+  return TYPESCRIPT_CONCEPT_EXTENSIONS.has(extensionOf(filePath));
+}
+
+function isConceptMap(value: unknown): value is ConceptMap {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<ConceptMap>;
+  return typeof candidate.filePath === 'string' && Array.isArray(candidate.nodes) && Array.isArray(candidate.edges);
+}
+
+function normalizeExternalConcepts(externalConcepts: ReviewConfig['externalConcepts']): Map<string, ConceptMap> {
+  const normalized = new Map<string, ConceptMap>();
+  if (!externalConcepts) return normalized;
+
+  for (const [key, value] of externalConcepts) {
+    if (!isConceptMap(value)) continue;
+    normalized.set(key, value);
+  }
+
+  return normalized;
+}
+
+function extractConceptsFromSource(
+  source: string,
+  filePath: string,
+  health?: ReviewHealthBuilder,
+  tsProject?: ReturnType<typeof createInMemoryProject>,
+): ConceptMap | undefined {
+  if (isTypeScriptConceptFile(filePath)) {
+    const project = tsProject ?? createInMemoryProject();
+    const sf = project.createSourceFile(filePath, source, { overwrite: true });
+    return extractTsConcepts(sf, filePath);
+  }
+
+  if (filePath.endsWith('.py')) {
+    const pythonExtractor = loadPythonConceptExtractor();
+    if (pythonExtractor.usingFallback) {
+      health?.noteKind(
+        'concept-extraction',
+        'fallback',
+        'Using built-in Python fallback extractor — install/fix @kernlang/review-python for tree-sitter precision',
+        debugDetail(pythonExtractor.failureDetail),
+      );
+    }
+    return pythonExtractor.extractor(source, filePath);
+  }
+
+  return undefined;
+}
 
 export type { CallGraph, CallSite, FunctionNode } from './call-graph.js';
 export { buildCallGraph } from './call-graph.js';
@@ -388,37 +498,19 @@ export function isReviewableFile(filePath: string): boolean {
  * review pipeline — no rule evaluation, no import-graph resolution, no
  * health aggregation.
  */
-export function extractConceptsForGraph(filePaths: string[]): Map<string, import('@kernlang/core').ConceptMap> {
-  const out = new Map<string, import('@kernlang/core').ConceptMap>();
+export function extractConceptsForGraph(filePaths: string[]): Map<string, ConceptMap> {
+  const out = new Map<string, ConceptMap>();
   // One ts-morph project reused across all TS files. Project creation
   // is not cheap; on a whole-repo cache-prime (hundreds of files) the
   // per-file alloc adds real latency we don't want on a push webhook.
   let tsProject: ReturnType<typeof createInMemoryProject> | null = null;
-  let extractPythonConcepts: ((src: string, fp: string) => import('@kernlang/core').ConceptMap) | null | undefined;
   for (const filePath of filePaths) {
+    if (!isReviewableFile(filePath) || !existsSync(filePath)) continue;
     try {
       const source = readFileSync(filePath, 'utf-8');
-      if (
-        filePath.endsWith('.ts') ||
-        filePath.endsWith('.tsx') ||
-        filePath.endsWith('.mts') ||
-        filePath.endsWith('.cts')
-      ) {
-        if (!tsProject) tsProject = createInMemoryProject();
-        const sf = tsProject.createSourceFile(filePath, source);
-        out.set(filePath, extractTsConcepts(sf, filePath));
-      } else if (filePath.endsWith('.py')) {
-        if (extractPythonConcepts === undefined) {
-          try {
-            extractPythonConcepts = moduleRequire('@kernlang/review-python').extractPythonConcepts;
-          } catch {
-            extractPythonConcepts = null;
-          }
-        }
-        if (extractPythonConcepts) {
-          out.set(filePath, extractPythonConcepts(source, filePath));
-        }
-      }
+      if (isTypeScriptConceptFile(filePath) && !tsProject) tsProject = createInMemoryProject();
+      const concepts = extractConceptsFromSource(source, filePath, undefined, tsProject ?? undefined);
+      if (concepts) out.set(filePath, concepts);
     } catch {
       // Best-effort — caller sees which files made it into the map.
     }
@@ -877,10 +969,18 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
 
   // Python: concept extraction + concept rules only
   let conceptFindings: ReviewFinding[] = [];
+  const health = new ReviewHealthBuilder();
   try {
-    // Dynamic import — @kernlang/review-python is optional
-    const { extractPythonConcepts } = moduleRequire('@kernlang/review-python');
-    const concepts = extractPythonConcepts(source, filePath);
+    const pythonExtractor = loadPythonConceptExtractor();
+    if (pythonExtractor.usingFallback) {
+      health.noteKind(
+        'concept-extraction',
+        'fallback',
+        'Using built-in Python fallback extractor — install/fix @kernlang/review-python for tree-sitter precision',
+        debugDetail(pythonExtractor.failureDetail),
+      );
+    }
+    const concepts = pythonExtractor.extractor(source, filePath);
     conceptFindings = runConceptRules(concepts, filePath);
     if (config?.target === 'fastapi') {
       conceptFindings.push(...runFastapiConceptRules(concepts, filePath, source));
@@ -896,17 +996,16 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
       conceptFindings.push(...lintKernIR([], rulesToRunPy, concepts));
     }
   } catch (err) {
-    if (process.env.KERN_DEBUG) console.error(`python mapper load failed: ${(err as Error).message}`);
-    // @kernlang/review-python not installed — skip concept extraction
+    if (process.env.KERN_DEBUG) console.error(`python concept extraction failed: ${(err as Error).message}`);
     conceptFindings = [
       {
         source: 'kern',
-        ruleId: 'missing-python-support',
+        ruleId: 'python-concept-extraction-failed',
         severity: 'info',
         category: 'structure' as const,
-        message: 'Install @kernlang/review-python for Python concept analysis',
+        message: 'Python concept extraction failed — Python findings may be incomplete',
         primarySpan: { file: filePath, startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
-        fingerprint: 'missing-python-0',
+        fingerprint: 'python-concept-extraction-failed-0',
       },
     ];
   }
@@ -915,6 +1014,7 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
   assignDefaultConfidence(dedupedFindings);
   const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
   const findings = sortAndDedup(suppression.findings);
+  const reviewHealth = health.build();
 
   return {
     filePath,
@@ -922,6 +1022,7 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
     templateMatches: [],
     findings,
     ...(suppression.suppressed.length > 0 ? { suppressedFindings: sortAndDedup(suppression.suppressed) } : {}),
+    ...(reviewHealth ? { health: reviewHealth } : {}),
     stats: {
       totalLines,
       coveredLines: 0,
@@ -1063,34 +1164,13 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
 
   // Cross-file concept analysis — re-run concept rules with full graph context
   // This fixes false positives where guards are in middleware files and effects in handlers
-  const allConcepts = new Map<string, import('@kernlang/core').ConceptMap>();
-  // Cache the optional Python mapper: require() it once per graph run instead
-  // of per-file, and remember if it's absent so we don't pay the throw cost.
-  let extractPythonConcepts: ((src: string, fp: string) => import('@kernlang/core').ConceptMap) | null | undefined;
+  const allConcepts = new Map<string, ConceptMap>();
   for (const report of reports) {
     const filePath = report.filePath;
     try {
       const source = readFileSync(filePath, 'utf-8');
-      if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) {
-        const project = createInMemoryProject();
-        const sf = project.createSourceFile(filePath, source);
-        allConcepts.set(filePath, extractTsConcepts(sf, filePath));
-      } else if (filePath.endsWith('.py')) {
-        // Python concept seeding is what powers the fullstack wedge rules
-        // (contract-drift, untyped-api-response, tainted-across-wire) in graph
-        // mode. Without this branch, `allConcepts` only contained TS entries
-        // and the rules silently found nothing on cross-stack repos.
-        if (extractPythonConcepts === undefined) {
-          try {
-            extractPythonConcepts = moduleRequire('@kernlang/review-python').extractPythonConcepts;
-          } catch {
-            extractPythonConcepts = null;
-          }
-        }
-        if (extractPythonConcepts) {
-          allConcepts.set(filePath, extractPythonConcepts(source, filePath));
-        }
-      }
+      const concepts = extractConceptsFromSource(source, filePath, graphHealth);
+      if (concepts) allConcepts.set(filePath, concepts);
     } catch (err) {
       // Per-file failure — record once at graph level (builder dedupes), then move on.
       graphHealth.noteKind(
@@ -1126,7 +1206,7 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
         `reviewGraph: externalConcepts size ${config.externalConcepts.size} exceeds cap ${MAX_EXTERNAL_CONCEPTS}`,
       );
     }
-    for (const [path, cm] of config.externalConcepts) {
+    for (const [path, cm] of normalizeExternalConcepts(config.externalConcepts)) {
       if (!allConcepts.has(path)) allConcepts.set(path, cm);
     }
   }
@@ -1135,10 +1215,15 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     // Concept rule IDs to replace (remove per-file findings, add cross-file ones)
     const CONCEPT_RULE_IDS = new Set([
       'boundary-mutation',
+      'auth-propagation-drift',
       'ignored-error',
       'missing-response-model',
+      'mutation-without-idempotency',
+      'request-validation-drift',
       'sync-handler-does-io',
+      'unbounded-collection-query',
       'unguarded-effect',
+      'unhandled-api-error-shape',
       'unrecovered-effect',
     ]);
 

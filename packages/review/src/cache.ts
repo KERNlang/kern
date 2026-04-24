@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'path';
 import type { ReviewConfig, ReviewReport } from './types.js';
 
 // Version stamp for cache invalidation — changes when rules/analyzers change
-const REVIEW_CACHE_VERSION = '3.2.3-review-cache-3';
+const REVIEW_CACHE_VERSION = '3.3.9-review-cache-1';
 const IMPORT_SPECIFIER_RE =
   /(?:import|export)\s+(?:[^'"`]*?\s+from\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
 const EXTENSION_FALLBACK: Record<string, string[]> = {

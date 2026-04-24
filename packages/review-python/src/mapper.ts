@@ -35,6 +35,23 @@ const DB_METHODS = new Set([
 
 const _FS_FUNCTIONS = new Set(['open', 'read', 'write', 'readlines', 'writelines']);
 
+interface PythonRouteAnalysis {
+  errorStatusCodes?: readonly number[];
+  hasUnboundedCollectionQuery?: boolean;
+  hasDbWrite?: boolean;
+  hasIdempotencyProtection?: boolean;
+  hasBodyValidation?: boolean;
+  validatedBodyFields?: readonly string[];
+  bodyValidationResolved?: boolean;
+}
+
+const PY_API_ERROR_STATUS_CODES = new Set([401, 403, 404, 422, 500]);
+const PY_PAGINATION_RE = /\b(limit|offset|skip|cursor|page|page_size|per_page)\b|\.limit\s*\(/i;
+const PY_DB_COLLECTION_RE = /\.(find|all|fetchall|to_list|scalars)\s*\(|\bselect\s*\(/i;
+const PY_DB_WRITE_RE =
+  /\.(insert_one|insert_many|update_one|update_many|delete_one|delete_many|add|create|save|commit)\s*\(/i;
+const PY_IDEMPOTENCY_RE = /\b(idempotency|Idempotency-Key|transaction|unique|upsert|get_or_create|on_conflict)\b/i;
+
 const STDLIB_MODULES = new Set([
   'os',
   'sys',
@@ -295,6 +312,8 @@ function extractEffects(root: Parser.SyntaxNode, source: string, filePath: strin
 // ── entrypoint ──────────────────────────────────────────────────────────
 
 function extractEntrypoints(root: Parser.SyntaxNode, source: string, filePath: string, nodes: ConceptNode[]): void {
+  const pydanticModels = collectPydanticModels(source);
+
   // FastAPI / Flask route decorators.
   //
   // The route *path* (e.g. `/current`) is what cross-stack rules need to
@@ -327,6 +346,7 @@ function extractEntrypoints(root: Parser.SyntaxNode, source: string, filePath: s
 
       const responseModel = extractResponseModel(decText);
       const routeContainerId = getSelfContainerId(fnDef, filePath);
+      const routeAnalysis = analyzePythonRoute(fnDef, source, method, routePath, responseModel, pydanticModels);
 
       nodes.push({
         id: conceptId(filePath, 'entrypoint', child.startIndex),
@@ -344,6 +364,13 @@ function extractEntrypoints(root: Parser.SyntaxNode, source: string, filePath: s
           responseModel,
           isAsync: isAsyncFunction(fnDef),
           routerName,
+          errorStatusCodes: routeAnalysis.errorStatusCodes,
+          hasUnboundedCollectionQuery: routeAnalysis.hasUnboundedCollectionQuery,
+          hasDbWrite: routeAnalysis.hasDbWrite,
+          hasIdempotencyProtection: routeAnalysis.hasIdempotencyProtection,
+          hasBodyValidation: routeAnalysis.hasBodyValidation,
+          validatedBodyFields: routeAnalysis.validatedBodyFields,
+          bodyValidationResolved: routeAnalysis.bodyValidationResolved,
         },
       });
     }
@@ -529,6 +556,103 @@ function classifyDependency(depName: string): 'auth' | 'validation' | 'rate-limi
   if (/^(verify_|validate_)/i.test(tail)) return 'validation';
   if (/rate_?limit/i.test(tail)) return 'rate-limit';
   return 'policy';
+}
+
+function analyzePythonRoute(
+  fnDef: Parser.SyntaxNode,
+  source: string,
+  method: string,
+  routePath: string,
+  responseModel: string | undefined,
+  pydanticModels: ReadonlyMap<string, readonly string[]>,
+): PythonRouteAnalysis {
+  const text = source.substring(fnDef.startIndex, fnDef.endIndex);
+  const validation = extractFastApiBodyValidation(fnDef, source, pydanticModels);
+  return {
+    errorStatusCodes: extractPythonHttpExceptionStatusCodes(text),
+    hasUnboundedCollectionQuery: hasUnboundedPythonCollectionQuery(text, method, routePath, responseModel),
+    hasDbWrite: PY_DB_WRITE_RE.test(text),
+    hasIdempotencyProtection: PY_IDEMPOTENCY_RE.test(text),
+    hasBodyValidation: validation.has,
+    validatedBodyFields: validation.fields,
+    bodyValidationResolved: validation.resolved,
+  };
+}
+
+function extractPythonHttpExceptionStatusCodes(text: string): readonly number[] | undefined {
+  const codes = new Set<number>();
+  const keywordRe = /HTTPException\s*\([^)]*status_code\s*=\s*(\d{3})/g;
+  for (const match of text.matchAll(keywordRe)) {
+    const code = Number(match[1]);
+    if (PY_API_ERROR_STATUS_CODES.has(code)) codes.add(code);
+  }
+  const positionalRe = /HTTPException\s*\(\s*(\d{3})/g;
+  for (const match of text.matchAll(positionalRe)) {
+    const code = Number(match[1]);
+    if (PY_API_ERROR_STATUS_CODES.has(code)) codes.add(code);
+  }
+  return codes.size > 0 ? Array.from(codes).sort((a, b) => a - b) : undefined;
+}
+
+function hasUnboundedPythonCollectionQuery(
+  text: string,
+  method: string,
+  routePath: string,
+  responseModel: string | undefined,
+): boolean {
+  if (method !== 'GET') return false;
+  if (/[{:]/.test(routePath)) return false;
+  if (PY_PAGINATION_RE.test(text)) return false;
+  const responseLooksList = responseModel ? /^(list|List|Sequence|Iterable)\s*\[/.test(responseModel) : false;
+  return (
+    PY_DB_COLLECTION_RE.test(text) &&
+    (responseLooksList || /\breturn\b[\s\S]*(\.all\s*\(|\.find\s*\(|\.fetchall\s*\()/.test(text))
+  );
+}
+
+function collectPydanticModels(source: string): Map<string, readonly string[]> {
+  const models = new Map<string, readonly string[]>();
+  const classRe = /^class\s+([A-Za-z_]\w*)\s*\([^)]*BaseModel[^)]*\)\s*:/gm;
+  for (const match of source.matchAll(classRe)) {
+    const name = match[1];
+    const start = (match.index ?? 0) + match[0].length;
+    const rest = source.slice(start);
+    const nextTopLevel = rest.search(/\n\S/);
+    const body = nextTopLevel === -1 ? rest : rest.slice(0, nextTopLevel);
+    const fields: string[] = [];
+    const fieldRe = /^\s+([A-Za-z_]\w*)\s*:/gm;
+    for (const fieldMatch of body.matchAll(fieldRe)) {
+      const field = fieldMatch[1];
+      if (field === 'model_config' || field === 'Config') continue;
+      fields.push(field);
+    }
+    if (fields.length > 0) models.set(name, fields.sort());
+  }
+  return models;
+}
+
+function extractFastApiBodyValidation(
+  fnDef: Parser.SyntaxNode,
+  source: string,
+  pydanticModels: ReadonlyMap<string, readonly string[]>,
+): { has: boolean; fields: readonly string[] | undefined; resolved: boolean } {
+  const body = fnDef.childForFieldName('body') ?? fnDef.namedChildren.find((child) => child.type === 'block');
+  const headerEnd = body ? body.startIndex : fnDef.endIndex;
+  const header = source.substring(fnDef.startIndex, headerEnd);
+  const fields = new Set<string>();
+  let has = false;
+  const annotationRe = /([A-Za-z_]\w*)\s*:\s*([A-Za-z_]\w*)/g;
+  for (const match of header.matchAll(annotationRe)) {
+    const modelFields = pydanticModels.get(match[2]);
+    if (!modelFields) continue;
+    has = true;
+    for (const field of modelFields) fields.add(field);
+  }
+  return {
+    has,
+    fields: fields.size > 0 ? Array.from(fields).sort() : undefined,
+    resolved: fields.size > 0,
+  };
 }
 
 // ── state_mutation ───────────────────────────────────────────────────────

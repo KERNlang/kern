@@ -932,6 +932,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
   const strictParse = hasFlag(args, '--strict-parse');
   const requireConfidenceAnnotations = hasFlag(args, '--require-confidence');
   const listRules = hasFlag(args, '--list-rules');
+  const targetArg = parseFlag(args, '--target');
   let diffBase = args.some((a) => a === '--diff' || a.startsWith('--diff'))
     ? parseFlagOrNext(args, '--diff') || 'origin/main'
     : undefined;
@@ -967,7 +968,6 @@ async function runReviewLocal(args: string[]): Promise<void> {
   // --list-rules
   if (listRules) {
     const reviewCfg = loadConfig();
-    const targetArg = parseFlag(args, '--target');
     const target = targetArg || reviewCfg.target;
     const rules = getRuleRegistry(target);
     const layers = new Map<string, typeof rules>();
@@ -1054,11 +1054,18 @@ async function runReviewLocal(args: string[]): Promise<void> {
       })
         .trim()
         .split('\n')
-        .filter((f) => f.endsWith('.ts') || f.endsWith('.tsx') || f.endsWith('.kern'))
-        .filter((f) => !f.endsWith('.d.ts') && !f.endsWith('.test.ts'));
+        .filter((f) => f.endsWith('.ts') || f.endsWith('.tsx') || f.endsWith('.py') || f.endsWith('.kern'))
+        .filter(
+          (f) =>
+            !f.endsWith('.d.ts') &&
+            !f.endsWith('.test.ts') &&
+            !f.endsWith('.test.tsx') &&
+            !basename(f).startsWith('test_') &&
+            !f.endsWith('_test.py'),
+        );
       const machineOutput = hasFlag(args, '--json') || hasFlag(args, '--sarif');
       if (diffFiles.length === 0) {
-        if (!machineOutput) console.log(`  No changed .ts/.tsx/.kern files since ${diffBase}`);
+        if (!machineOutput) console.log(`  No changed .ts/.tsx/.py/.kern files since ${diffBase}`);
         process.exit(0);
       }
       if (!machineOutput) {
@@ -1126,14 +1133,17 @@ async function runReviewLocal(args: string[]): Promise<void> {
   }
 
   const reviewCfg = loadConfig();
-  if (!VALID_TARGETS.includes(reviewCfg.target)) {
-    console.error(`Invalid target '${reviewCfg.target}' in config. Valid: ${VALID_TARGETS.join(', ')}`);
+  const effectiveTarget = targetArg || reviewCfg.target;
+  if (!(VALID_TARGETS as readonly string[]).includes(effectiveTarget)) {
+    console.error(`Invalid target '${effectiveTarget}' in config. Valid: ${VALID_TARGETS.join(', ')}`);
     process.exit(1);
   }
   if (!jsonOutput && !sarifOutput) {
     const configExists = existsSync(resolve(process.cwd(), 'kern.config.ts'));
-    if (!configExists) {
-      console.log(`  Target: ${reviewCfg.target} (auto-detected from package.json)`);
+    if (targetArg) {
+      console.log(`  Target: ${effectiveTarget} (from --target)`);
+    } else if (!configExists) {
+      console.log(`  Target: ${effectiveTarget} (auto-detected from package.json)`);
     }
   }
 
@@ -1148,7 +1158,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
     maxHandlerLines,
     maxErrors,
     maxWarnings,
-    target: reviewCfg.target,
+    target: effectiveTarget,
     showConfidence: showConfidence || reviewCfg.review.showConfidence,
     minConfidence: minConfidence ?? reviewCfg.review.minConfidence,
     disabledRules: mergedDisabledRules.length > 0 ? mergedDisabledRules : undefined,
