@@ -342,6 +342,20 @@ describe('Reporter: enforcement with minConfidence', () => {
     const result = checkEnforcement(report, config);
     expect(result.errors.actual).toBe(1);
   });
+
+  it('does not enforce advisory cognitive-complexity findings', () => {
+    const report = makeReport([
+      makeFinding({
+        ruleId: 'cognitive-complexity',
+        severity: 'info',
+        message: "Function 'complex' has cognitive complexity of 18 (threshold: 15)",
+      }),
+    ]);
+    const config: ReviewConfig = { maxComplexity: 15 };
+    const result = checkEnforcement(report, config);
+    expect(result.complexity.actual).toBe(0);
+    expect(result.passed).toBe(true);
+  });
 });
 
 describe('Confidence summary', () => {

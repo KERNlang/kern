@@ -191,7 +191,8 @@ export function checkEnforcement(report: ReviewReport, config: ReviewConfig): En
   const maxWarnings = config.maxWarnings ?? Number.MAX_SAFE_INTEGER;
 
   let maxComplexity = 0;
-  for (const f of report.findings) {
+  for (const f of countable) {
+    if (f.severity === 'info') continue;
     if (f.ruleId === 'cognitive-complexity') {
       const match = f.message.match(/complexity of (\d+)/);
       if (match) {

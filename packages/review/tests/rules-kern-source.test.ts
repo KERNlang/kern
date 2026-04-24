@@ -42,6 +42,20 @@ screen name=Card
     expect(undef.some((f) => f.message.includes('count'))).toBe(false);
   });
 
+  it('does not treat yield in generator-style handlers as an undefined reference', () => {
+    const source = `
+server name=StreamApi
+  const name=nextChunk value=1
+  fn name=stream returns=number
+    handler <<<
+      yield nextChunk;
+    >>>
+`;
+    const report = reviewKernSource(source, 'stream.kern');
+    const undef = report.findings.filter((f) => f.ruleId === 'undefined-reference');
+    expect(undef).toEqual([]);
+  });
+
   it('reports literal-union values used like objects but allows string methods', () => {
     const badSource = `
 type name=Article values="news|blog"
