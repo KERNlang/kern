@@ -50,7 +50,8 @@ const PY_PAGINATION_RE = /\b(limit|offset|skip|cursor|page|page_size|per_page)\b
 const PY_DB_COLLECTION_RE = /\.(find|all|fetchall|to_list|scalars)\s*\(|\bselect\s*\(/i;
 const PY_DB_WRITE_RE =
   /\.(insert_one|insert_many|update_one|update_many|delete_one|delete_many|add|create|save|commit)\s*\(/i;
-const PY_IDEMPOTENCY_RE = /\b(idempotency|Idempotency-Key|transaction|unique|upsert|get_or_create|on_conflict)\b/i;
+const PY_IDEMPOTENCY_RE =
+  /\b(idempotency(?:[_-]?key)?|Idempotency-Key|transaction|unique|upsert|get_or_create|on_conflict)\b/i;
 
 const STDLIB_MODULES = new Set([
   'os',
