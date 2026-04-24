@@ -905,6 +905,12 @@ async function runReviewLocal(args: string[]): Promise<void> {
   const maxWarningsArg = parseFlag(args, '--max-warnings');
   const maxWarnings = maxWarningsArg ? Number(maxWarningsArg) : undefined;
   const showConfidence = hasFlag(args, '--confidence');
+  const auditMode = hasFlag(args, '--audit');
+  const crossStackModeArg = parseFlag(args, '--cross-stack-mode');
+  if (crossStackModeArg && crossStackModeArg !== 'guard' && crossStackModeArg !== 'audit') {
+    console.error("--cross-stack-mode must be 'guard' or 'audit'");
+    process.exit(1);
+  }
   const minConfidenceArg = parseFlag(args, '--min-confidence');
   const minConfidence = minConfidenceArg ? Number(minConfidenceArg) : undefined;
   const disableRuleArgs = args.filter((a) => a.startsWith('--disable-rule=')).map((a) => a.split('=')[1]);
@@ -1003,6 +1009,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
     '--max-errors',
     '--max-warnings',
     '--min-confidence',
+    '--cross-stack-mode',
     '--baseline',
     '--write-baseline',
   ]);
@@ -1113,8 +1120,9 @@ async function runReviewLocal(args: string[]): Promise<void> {
       'Usage: kern review [file|dir] [--full] [--diff base] [--git=<url>] [--security] [--mcp] [--llm] [--spec file.kern] [--cloud] [--baseline=file.json] [--new-only]',
     );
     console.error(
-      '       [--write-baseline=file.json] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--fix] [--autofix] [--require-confidence] [--rules-dir <dir>] [--include-generated]',
+      '       [--write-baseline=file.json] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--audit] [--cross-stack-mode guard|audit]',
     );
+    console.error('       [--fix] [--autofix] [--require-confidence] [--rules-dir <dir>] [--include-generated]');
     console.error('');
     console.error('  Default (inside git): reviews changes vs origin/main. Use --full to scan the whole tree.');
     console.error(
@@ -1159,6 +1167,9 @@ async function runReviewLocal(args: string[]): Promise<void> {
     maxErrors,
     maxWarnings,
     target: effectiveTarget,
+    crossStackMode: auditMode
+      ? 'audit'
+      : ((crossStackModeArg as 'guard' | 'audit' | undefined) ?? reviewCfg.review.crossStackMode),
     showConfidence: showConfidence || reviewCfg.review.showConfidence,
     minConfidence: minConfidence ?? reviewCfg.review.minConfidence,
     disabledRules: mergedDisabledRules.length > 0 ? mergedDisabledRules : undefined,

@@ -721,7 +721,9 @@ function reviewSourceInternal(
   // Phase 6: Concept extraction + concept rules (universal, cross-language)
   const emptyConcepts = { filePath, language: 'typescript', nodes: [], edges: [], extractorVersion: '0' };
   const concepts = safePhase('concepts', () => extractTsConcepts(sourceFile, filePath), emptyConcepts);
-  allFindings.push(...safePhase('concept-rules', () => runConceptRules(concepts, filePath), []));
+  allFindings.push(
+    ...safePhase('concept-rules', () => runConceptRules(concepts, filePath, undefined, undefined, config), []),
+  );
 
   // Phase 7: KERN-IR lint (ground layer + confidence rules on inferred nodes)
   const irNodes = inferred.map((r) => r.node);
@@ -981,7 +983,7 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
       );
     }
     const concepts = pythonExtractor.extractor(source, filePath);
-    conceptFindings = runConceptRules(concepts, filePath);
+    conceptFindings = runConceptRules(concepts, filePath, undefined, undefined, config);
     if (config?.target === 'fastapi') {
       conceptFindings.push(...runFastapiConceptRules(concepts, filePath, source));
     }
@@ -1235,7 +1237,13 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
       report.findings = report.findings.filter((f) => !CONCEPT_RULE_IDS.has(f.ruleId));
 
       // Re-run concept rules with cross-file context
-      const crossFileConceptFindings = runConceptRules(concepts, report.filePath, allConcepts, graphImports);
+      const crossFileConceptFindings = runConceptRules(
+        concepts,
+        report.filePath,
+        allConcepts,
+        graphImports,
+        graphConfig,
+      );
       report.findings.push(...crossFileConceptFindings);
     }
   }

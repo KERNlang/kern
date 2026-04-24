@@ -77,4 +77,25 @@ describe('auth-propagation-drift', () => {
 
     expect(authPropagationDrift(ctx)).toEqual([]);
   });
+
+  it('is silent when duplicate graph routes make the backend partner ambiguous', () => {
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/client.ts',
+          source: `
+            import axios from 'axios';
+            export async function loadMe() {
+              return axios.get('/api/me');
+            }
+          `,
+        },
+        { path: 'src/server-a.ts', source: AUTH_SERVER },
+        { path: 'src/server-b.ts', source: AUTH_SERVER },
+      ],
+      'src/client.ts',
+    );
+
+    expect(authPropagationDrift(ctx)).toEqual([]);
+  });
 });

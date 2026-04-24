@@ -77,4 +77,17 @@ describe('unbounded-collection-query', () => {
 
     expect(unboundedCollectionQuery(ctx)).toEqual([]);
   });
+
+  it('is silent when duplicate graph routes make the backend partner ambiguous', () => {
+    const ctx = ctxFrom(
+      [
+        { path: 'src/client.ts', source: `await fetch('/api/users').then((r) => r.json());` },
+        { path: 'src/server-a.ts', source: UNBOUNDED_SERVER },
+        { path: 'src/server-b.ts', source: UNBOUNDED_SERVER },
+      ],
+      'src/client.ts',
+    );
+
+    expect(unboundedCollectionQuery(ctx)).toEqual([]);
+  });
 });

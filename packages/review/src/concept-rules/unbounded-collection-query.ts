@@ -9,9 +9,9 @@
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
 import {
-  API_PATH_RE,
   CROSS_STACK_HEURISTIC_CONFIDENCE,
   collectRoutesAcrossGraph,
+  findHighConfidenceRouteForMethod,
   findMatchingRouteForMethod,
   normalizeClientUrl,
 } from './cross-stack-utils.js';
@@ -35,9 +35,12 @@ export function unboundedCollectionQuery(ctx: ConceptRuleContext): ReviewFinding
     const target = node.payload.target;
     if (typeof target !== 'string') continue;
     const normalized = normalizeClientUrl(target);
-    if (!normalized || !API_PATH_RE.test(normalized)) continue;
+    if (!normalized) continue;
 
-    const route = findMatchingRouteForMethod(normalized, node.payload.method, serverRoutes);
+    const route =
+      ctx.crossStackMode === 'audit'
+        ? findMatchingRouteForMethod(normalized, node.payload.method, serverRoutes)
+        : findHighConfidenceRouteForMethod(normalized, node.payload.method, serverRoutes);
     if (route?.node?.payload.kind !== 'entrypoint') continue;
     if (route.node.payload.hasUnboundedCollectionQuery !== true) continue;
 

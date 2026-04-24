@@ -1962,6 +1962,7 @@ function extractHandlesApiErrors(
   if (hasCatchInPromiseChain(call)) return true;
   if (hasInlineStatusCheck(call)) return true;
   if (hasAssignedResponseStatusCheck(call)) return true;
+  if (isPassedToApiResponseHelper(call)) return true;
   if (hasNearbyErrorUiPath(call)) return true;
   return false;
 }
@@ -2022,6 +2023,23 @@ function hasAssignedResponseStatusCheck(call: import('ts-morph').CallExpression)
   const escaped = escapeRegExp(name);
   const text = block.getText();
   return new RegExp(`\\b${escaped}\\.(ok|status|statusCode)\\b`).test(text);
+}
+
+function isPassedToApiResponseHelper(call: import('ts-morph').CallExpression): boolean {
+  let cursor: import('ts-morph').Node = call;
+  for (let depth = 0; depth < 4; depth++) {
+    const parent = cursor.getParent();
+    if (!parent) return false;
+    const kind = parent.getKind();
+    if (kind === SyntaxKind.AwaitExpression || kind === SyntaxKind.ParenthesizedExpression) {
+      cursor = parent;
+      continue;
+    }
+    if (kind !== SyntaxKind.CallExpression) return false;
+    const helperName = (parent as import('ts-morph').CallExpression).getExpression().getText();
+    return /^(parse|handle|check|ensure|assert|unwrap)[A-Za-z0-9_$]*(Api|Response|Result)$/i.test(helperName);
+  }
+  return false;
 }
 
 function hasNearbyErrorUiPath(call: import('ts-morph').CallExpression): boolean {

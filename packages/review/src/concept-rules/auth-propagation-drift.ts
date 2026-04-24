@@ -10,9 +10,9 @@ import type { ConceptMap } from '@kernlang/core';
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
 import {
-  API_PATH_RE,
   CROSS_STACK_EXACT_CONFIDENCE,
   collectRoutesAcrossGraph,
+  findHighConfidenceRouteForMethod,
   findMatchingRouteForMethod,
   normalizeClientUrl,
 } from './cross-stack-utils.js';
@@ -39,9 +39,12 @@ export function authPropagationDrift(ctx: ConceptRuleContext): ReviewFinding[] {
     const target = node.payload.target;
     if (typeof target !== 'string') continue;
     const normalized = normalizeClientUrl(target);
-    if (!normalized || !API_PATH_RE.test(normalized)) continue;
+    if (!normalized) continue;
 
-    const route = findMatchingRouteForMethod(normalized, node.payload.method, serverRoutes);
+    const route =
+      ctx.crossStackMode === 'audit'
+        ? findMatchingRouteForMethod(normalized, node.payload.method, serverRoutes)
+        : findHighConfidenceRouteForMethod(normalized, node.payload.method, serverRoutes);
     if (!route?.node) continue;
     const fileGuards = authGuardContainers.get(route.node.primarySpan.file);
     if (!fileGuards) continue;

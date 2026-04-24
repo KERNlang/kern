@@ -135,4 +135,43 @@ def create_user(payload: UserCreate):
     expect(findings).toHaveLength(1);
     expect(findings[0].message).toContain('role');
   });
+
+  it('is silent when duplicate graph routes make the backend partner ambiguous', () => {
+    const ctx = ctxFrom(
+      [
+        {
+          path: 'src/client.ts',
+          source: `
+            async function createUser(email: string, role: string) {
+              await fetch('/api/users', {
+                method: 'POST',
+                body: JSON.stringify({ email, role }),
+              });
+            }
+          `,
+        },
+        {
+          path: 'src/server-a.ts',
+          source: `
+            app.post('/api/users', body('email').isEmail(), async (req, res) => {
+              const user = await prisma.user.create({ data: { email: req.body.email } });
+              res.json(user);
+            });
+          `,
+        },
+        {
+          path: 'src/server-b.ts',
+          source: `
+            app.post('/api/users', body('email').isEmail(), async (req, res) => {
+              const user = await prisma.user.create({ data: { email: req.body.email } });
+              res.json(user);
+            });
+          `,
+        },
+      ],
+      'src/client.ts',
+    );
+
+    expect(requestValidationDrift(ctx)).toEqual([]);
+  });
 });

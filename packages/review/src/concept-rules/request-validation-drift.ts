@@ -13,12 +13,14 @@ import {
   API_PATH_RE,
   CROSS_STACK_HEURISTIC_CONFIDENCE,
   collectRoutesAcrossGraph,
+  findHighConfidenceRouteForMethod,
   findMatchingRouteForMethod,
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
 
-const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
+const GUARD_BODY_METHODS = new Set(['POST']);
+const AUDIT_BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
 
 export function requestValidationDrift(ctx: ConceptRuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
@@ -33,7 +35,9 @@ function backendUnvalidatedBodyFindings(ctx: ConceptRuleContext): ReviewFinding[
   for (const node of ctx.concepts.nodes) {
     if (node.kind !== 'entrypoint' || node.payload.kind !== 'entrypoint' || node.payload.subtype !== 'route') continue;
     const method = node.payload.httpMethod?.toUpperCase();
-    if (!method || !BODY_METHODS.has(method)) continue;
+    const bodyMethods = ctx.crossStackMode === 'audit' ? AUDIT_BODY_METHODS : GUARD_BODY_METHODS;
+    if (!method || !bodyMethods.has(method)) continue;
+    if (!API_PATH_RE.test(node.payload.name)) continue;
     if (node.payload.hasDbWrite !== true) continue;
     if (node.payload.bodyFieldsResolved !== true || !node.payload.bodyFields || node.payload.bodyFields.length === 0) {
       continue;
@@ -71,9 +75,12 @@ function clientExtraFieldFindings(ctx: ConceptRuleContext): ReviewFinding[] {
     const target = node.payload.target;
     if (typeof target !== 'string') continue;
     const normalized = normalizeClientUrl(target);
-    if (!normalized || !API_PATH_RE.test(normalized)) continue;
+    if (!normalized) continue;
 
-    const route = findMatchingRouteForMethod(normalized, node.payload.method, serverRoutes);
+    const route =
+      ctx.crossStackMode === 'audit'
+        ? findMatchingRouteForMethod(normalized, node.payload.method, serverRoutes)
+        : findHighConfidenceRouteForMethod(normalized, node.payload.method, serverRoutes);
     if (route?.node?.payload.kind !== 'entrypoint') continue;
     if (route.node.payload.bodyValidationResolved !== true || !route.node.payload.validatedBodyFields) continue;
 

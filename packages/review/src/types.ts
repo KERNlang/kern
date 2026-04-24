@@ -298,6 +298,12 @@ export interface ReviewConfig {
   format?: 'text' | 'json' | 'sarif';
   /** Build target — activates framework-specific rules */
   target?: string;
+  /**
+   * Cross-stack review precision mode.
+   *   guard — default, high precision / low noise for KERN Guard and CI.
+   *   audit — broader exploratory findings for local investigations.
+   */
+  crossStackMode?: 'guard' | 'audit';
   /** Minimum confidence for findings to count in enforcement (default: 0) */
   minConfidence?: number;
   /** Show confidence scores in output */
