@@ -88,6 +88,15 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       readonly: { kind: 'boolean' },
     },
   },
+  overload: {
+    description:
+      'Function overload signature — declared as a child of fn. Each overload emits a TS overload declaration before the implementation signature.',
+    example: 'overload params="a:number,b:number" returns=number',
+    props: {
+      params: { kind: 'string' },
+      returns: { kind: 'typeAnnotation' },
+    },
+  },
   union: {
     description: 'Discriminated union type with variants, each having their own fields',
     example: 'union name=Shape discriminant=kind\n  variant name=circle\n    field name=radius type=number',
@@ -215,7 +224,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       export: { kind: 'boolean' },
       expr: { kind: 'rawExpr' },
     },
-    allowedChildren: ['handler', 'signal', 'cleanup'],
+    allowedChildren: ['handler', 'signal', 'cleanup', 'overload'],
   },
   machine: {
     description:

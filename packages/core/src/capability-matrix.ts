@@ -51,6 +51,9 @@ const TS_NUMERIC_LITERALS: CapabilityEntry[] = [
   // `this is T`). Already supported today via fn.returns + emitTypeAnnotation
   // passthrough; formalised with regression tests in slice 2d.
   { feature: 'type-guard', position: 'top-level', support: 'native' },
+  // Slice 2e — function overloads via `overload` child node. Each overload
+  // emits a `function name(params): R;` line before the implementation.
+  { feature: 'function-overloads', position: 'top-level', support: 'native' },
 ];
 
 const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
@@ -123,6 +126,14 @@ const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
     position: 'top-level',
     support: 'unsupported',
     note: 'mapTsTypeToPython has no predicate-return-type branch (TypeGuard/TypeIs)',
+  },
+  // Slice 2e — Python has @overload from typing, but the FastAPI generator
+  // does not yet emit @overload-decorated stubs from `overload` children.
+  {
+    feature: 'function-overloads',
+    position: 'top-level',
+    support: 'unsupported',
+    note: 'FastAPI codegen does not yet emit @typing.overload stubs',
   },
 ];
 

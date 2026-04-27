@@ -498,6 +498,7 @@ export const CORE_NODE_TYPES = new Set([
   'enum',
   'member',
   'indexer',
+  'overload',
   'service',
   'class',
   'method',
@@ -872,6 +873,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
     case 'member':
       return [];
     case 'indexer':
+      return [];
+    case 'overload':
       return [];
     case 'method':
       return [];

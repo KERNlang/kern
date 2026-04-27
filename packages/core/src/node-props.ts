@@ -55,6 +55,11 @@ export interface IndexerProps extends BaseProps {
   readonly?: string | boolean;
 }
 
+export interface OverloadProps extends BaseProps {
+  params?: string;
+  returns?: string;
+}
+
 export interface ServiceProps extends BaseProps {
   implements?: string;
 }
@@ -558,6 +563,7 @@ export interface NodePropsMap {
   enum: EnumProps;
   member: MemberProps;
   indexer: IndexerProps;
+  overload: OverloadProps;
   service: ServiceProps;
   class: ClassProps;
   const: ConstProps;

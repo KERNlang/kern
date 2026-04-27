@@ -138,6 +138,7 @@ export const NODE_TYPES = [
   'union',
   'variant',
   'indexer',
+  'overload',
   'service',
   'class',
   'method',

@@ -35,6 +35,18 @@ export function generateFunction(node: IRNode): string[] {
   const exp = exportPrefix(node);
   const lines: string[] = [...emitDocComment(node)];
 
+  // Slice 2e — overload signatures emitted before the implementation. Each
+  // produces a `function name(...): R;` line; the implementation that follows
+  // is the actual body. TS dispatch matches against overload signatures and
+  // ignores the implementation signature for callers.
+  const overloadChildren = kids(node, 'overload');
+  for (const ov of overloadChildren) {
+    const op = propsOf<'overload'>(ov);
+    const oParams = op.params ? parseParamList(op.params) : '';
+    const oRet = op.returns ? `: ${emitTypeAnnotation(op.returns, 'unknown', ov)}` : '';
+    lines.push(`${exp}function ${name}(${oParams})${oRet};`);
+  }
+
   // Parse params: "action:PlanAction,ws:WorkspaceSnapshot,spread:number=8"
   // → "action: PlanAction, ws: WorkspaceSnapshot, spread: number = 8"
   const paramList = params ? parseParamList(params) : '';
