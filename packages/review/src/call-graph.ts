@@ -83,6 +83,12 @@ function buildImportBindings(sourceFile: SourceFile, graphFiles: Map<string, Gra
   const bindings = new Map<string, ImportBinding>();
 
   for (const decl of sourceFile.getImportDeclarations()) {
+    // Type-only imports are erased at compile time. Recording them as
+    // bindings would let `obj.method()` style calls land on the type-only
+    // target during call resolution and mark a runtime export reachable
+    // even though no runtime reference exists.
+    if (decl.isTypeOnly()) continue;
+
     const resolvedSf = resolveImportSourceFile(sourceFile, decl, graphFiles);
     if (!resolvedSf) continue;
     const resolvedPath = resolvedSf.getFilePath();
@@ -90,6 +96,8 @@ function buildImportBindings(sourceFile: SourceFile, graphFiles: Map<string, Gra
 
     // Named imports: import { foo, bar as baz } from './mod'
     for (const named of decl.getNamedImports()) {
+      // Mixed form: `import { foo, type Bar } from './m'` — Bar is erased.
+      if (named.isTypeOnly()) continue;
       const importedName = named.getName();
       const localName = named.getAliasNode()?.getText() ?? importedName;
       const target = resolveExportBinding(resolvedSf, importedName, graphFiles) ?? {

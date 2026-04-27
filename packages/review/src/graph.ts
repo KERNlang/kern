@@ -212,6 +212,12 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
 
   for (const decl of sourceFile.getImportDeclarations()) {
     try {
+      // `import type { X } from './m'` and `import type Foo from './m'` are
+      // erased at compile time. They MUST NOT contribute caller edges,
+      // otherwise dead-export reachability counts type-only references as
+      // proof a runtime symbol is alive — a category of FP red-team flagged.
+      if (decl.isTypeOnly()) continue;
+
       const specifier = decl.getModuleSpecifierValue();
       const resolved = decl.getModuleSpecifierSourceFile();
       let recorded = false;
@@ -229,6 +235,8 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
       }
 
       for (const named of decl.getNamedImports()) {
+        // Mixed form: `import { Foo, type Bar } from './m'` — Bar is erased.
+        if (named.isTypeOnly()) continue;
         refs.push({
           specifier,
           resolved,
@@ -299,6 +307,11 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
   }
 
   for (const decl of sourceFile.getExportDeclarations()) {
+    // `export type { X } from './m'` is erased at compile time and must not
+    // contribute a re-export edge. Same reasoning as the import side: a
+    // type-only re-export is not evidence the runtime symbol is alive.
+    if (decl.isTypeOnly()) continue;
+
     let specifier: string | undefined;
     let resolved: SourceFile | undefined;
     try {
@@ -316,6 +329,8 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
     }
 
     for (const named of namedExports) {
+      // Mixed form: `export { foo, type Bar } from './m'`.
+      if (named.isTypeOnly()) continue;
       refs.push({
         specifier,
         resolved,

@@ -249,6 +249,64 @@ describe('resolveImportGraph', () => {
   });
 });
 
+// Phase 4 step 4 — type-only imports/exports are erased at compile time and
+// must not contribute caller edges. Without this, `import type { AuthService }`
+// or `export type { Foo } from './m'` would mark runtime symbols alive even
+// though no runtime reference survives compilation.
+describe('Phase 4 type-only import/export skip', () => {
+  it("does not emit any edge for `import type { X } from './m'`", () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/consumer.ts',
+      `import type { AuthService } from './auth.js';\nexport const x = 1;\n`,
+    );
+    project.createSourceFile('/src/auth.ts', `export interface AuthService { login(): void }\n`);
+
+    const result = resolveImportGraph(['/src/consumer.ts'], { project });
+    const consumer = result.files.find((f) => f.path === '/src/consumer.ts');
+    const edgesToAuth = (consumer?.importEdges ?? []).filter((e) => e.to === '/src/auth.ts');
+    expect(edgesToAuth).toEqual([]);
+  });
+
+  it("skips type-only specifiers in mixed `import { foo, type Bar } from './m'`", () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/mixed.ts',
+      `import { runtime, type CompileType } from './m.js';\nexport const out = runtime();\n`,
+    );
+    project.createSourceFile('/src/m.ts', `export function runtime() {}\nexport interface CompileType {}\n`);
+
+    const result = resolveImportGraph(['/src/mixed.ts'], { project });
+    const mixed = result.files.find((f) => f.path === '/src/mixed.ts');
+    const namedImports = (mixed?.importEdges ?? []).filter((e) => e.kind === 'named-import');
+    expect(namedImports.map((e) => e.importedName)).toEqual(['runtime']);
+  });
+
+  it("does not emit a re-export edge for `export type { X } from './m'`", () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/barrel.ts', `export type { Shape } from './shape.js';\n`);
+    project.createSourceFile('/src/shape.ts', `export interface Shape { x: number }\n`);
+
+    const result = resolveImportGraph(['/src/barrel.ts'], { project });
+    const barrel = result.files.find((f) => f.path === '/src/barrel.ts');
+    const reexports = (barrel?.importEdges ?? []).filter((e) => e.kind === 'named-reexport' || e.kind === 'export-all');
+    expect(reexports).toEqual([]);
+  });
+
+  it("skips type-only specifiers in mixed `export { foo, type Bar } from './m'`", () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/barrel2.ts', `export { runtime, type Shape } from './m.js';\n`);
+    project.createSourceFile('/src/m.ts', `export function runtime() {}\nexport interface Shape {}\n`);
+
+    const result = resolveImportGraph(['/src/barrel2.ts'], { project });
+    const barrel = result.files.find((f) => f.path === '/src/barrel2.ts');
+    const reexportNames = (barrel?.importEdges ?? [])
+      .filter((e) => e.kind === 'named-reexport')
+      .map((e) => e.importedName);
+    expect(reexportNames).toEqual(['runtime']);
+  });
+});
+
 // Phase 4 step 3 — literal dynamic-import tracing. Without this, lazy routes
 // like `await import('./routes/users')` are invisible to the graph and the
 // target's exports get flagged dead. Red-team #5: ts-morph models the call
