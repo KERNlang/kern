@@ -47,6 +47,10 @@ const TS_NUMERIC_LITERALS: CapabilityEntry[] = [
   // Slice 2c — `indexer` child node on interface, emits `[key: K]: V` index
   // signature with optional `readonly` modifier.
   { feature: 'index-signature', position: 'top-level', support: 'native' },
+  // Slice 2d — type guards (predicate return types: `value is T`, `asserts x is T`,
+  // `this is T`). Already supported today via fn.returns + emitTypeAnnotation
+  // passthrough; formalised with regression tests in slice 2d.
+  { feature: 'type-guard', position: 'top-level', support: 'native' },
 ];
 
 const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
@@ -110,6 +114,15 @@ const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
     position: 'top-level',
     support: 'unsupported',
     note: 'FastAPI codegen does not yet handle indexer; would produce no output',
+  },
+  // Slice 2d — Python has `TypeGuard[T]` and `TypeIs[T]` (3.13+) from typing,
+  // but mapTsTypeToPython has no `value is T` / `asserts x is T` translation.
+  // Passthrough would emit invalid Python.
+  {
+    feature: 'type-guard',
+    position: 'top-level',
+    support: 'unsupported',
+    note: 'mapTsTypeToPython has no predicate-return-type branch (TypeGuard/TypeIs)',
   },
 ];
 
