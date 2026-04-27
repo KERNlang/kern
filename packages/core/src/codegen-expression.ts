@@ -2,7 +2,11 @@
 
 import type { ValueIR } from './value-ir.js';
 
-const LOGICAL_OPS = new Set(['&&', '||', '??']);
+const PREC: Record<string, number> = {
+  '??': 1,
+  '||': 2,
+  '&&': 3,
+};
 
 export function emitExpression(node: ValueIR): string {
   switch (node.kind) {
@@ -10,7 +14,12 @@ export function emitExpression(node: ValueIR): string {
       return node.raw;
     case 'strLit': {
       const q = node.quote;
-      const escaped = node.value.replace(/\\/g, '\\\\').replace(new RegExp(q, 'g'), `\\${q}`);
+      const escaped = node.value
+        .replace(/\\/g, '\\\\')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t')
+        .replace(new RegExp(q, 'g'), `\\${q}`);
       return `${q}${escaped}${q}`;
     }
     case 'boolLit':
@@ -32,19 +41,22 @@ export function emitExpression(node: ValueIR): string {
     }
     case 'ident':
       return node.name;
-    case 'member':
-      return `${emitExpression(node.object)}${node.optional ? '?.' : '.'}${node.property}`;
+    case 'member': {
+      const obj = emitExpression(node.object);
+      const wrapped = needsReceiverParens(node.object) ? `(${obj})` : obj;
+      return `${wrapped}${node.optional ? '?.' : '.'}${node.property}`;
+    }
     case 'call': {
-      const args = node.args.map(emitExpression).join(', ');
       const callee = emitExpression(node.callee);
-      return node.optional ? `${callee}?.(${args})` : `${callee}(${args})`;
+      const wrapped = needsReceiverParens(node.callee) ? `(${callee})` : callee;
+      const args = node.args.map(emitExpression).join(', ');
+      return node.optional ? `${wrapped}?.(${args})` : `${wrapped}(${args})`;
     }
     case 'binary': {
       const left = emitExpression(node.left);
       const right = emitExpression(node.right);
-      // Parenthesize mixed && / || / ?? to keep TS-required disambiguation
-      const lp = needsParens(node.left, node.op) ? `(${left})` : left;
-      const rp = needsParens(node.right, node.op) ? `(${right})` : right;
+      const lp = needsParens(node.left, node.op, 'left') ? `(${left})` : left;
+      const rp = needsParens(node.right, node.op, 'right') ? `(${right})` : right;
       return `${lp} ${node.op} ${rp}`;
     }
     case 'unary':
@@ -54,12 +66,22 @@ export function emitExpression(node: ValueIR): string {
   }
 }
 
-function needsParens(child: ValueIR, parentOp: string): boolean {
+function needsParens(child: ValueIR, parentOp: string, side: 'left' | 'right'): boolean {
   if (child.kind !== 'binary') return false;
-  if (!LOGICAL_OPS.has(parentOp) || !LOGICAL_OPS.has(child.op)) return false;
-  // TS forbids ?? mixed with || or && without parens in either direction.
-  if (parentOp !== child.op && (parentOp === '??' || child.op === '??')) return true;
+  // TS forbids ?? mixed with || or && without parens (either direction)
+  if (parentOp === '??' && (child.op === '||' || child.op === '&&')) return true;
+  if ((parentOp === '||' || parentOp === '&&') && child.op === '??') return true;
+  const cp = PREC[child.op];
+  const pp = PREC[parentOp];
+  if (cp === undefined || pp === undefined) return false;
+  if (cp < pp) return true;
+  // Same precedence, left-associative: right child needs parens to preserve grouping
+  if (cp === pp && side === 'right') return true;
   return false;
+}
+
+function needsReceiverParens(child: ValueIR): boolean {
+  return child.kind === 'binary' || child.kind === 'unary' || child.kind === 'spread';
 }
 
 function escapeTemplateQuasi(s: string): string {

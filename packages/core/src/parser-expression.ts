@@ -59,39 +59,58 @@ function isHexDigit(ch: string): boolean {
   return isDigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
 }
 
+function consumeDigitsStrict(input: string, start: number, isValid: (c: string) => boolean): number {
+  let i = start;
+  let started = false;
+  let lastWasUnderscore = false;
+  while (i < input.length) {
+    const c = input[i];
+    if (isValid(c)) {
+      lastWasUnderscore = false;
+      started = true;
+      i++;
+    } else if (c === '_' && started && !lastWasUnderscore && i + 1 < input.length && isValid(input[i + 1])) {
+      lastWasUnderscore = true;
+      i++;
+    } else {
+      break;
+    }
+  }
+  return i;
+}
+
 function consumeNumber(input: string, start: number): number {
   let i = start;
   const ch = input[i];
   if (ch === '0' && i + 1 < input.length) {
     const next = input[i + 1];
-    if (next === 'x' || next === 'X') {
-      i += 2;
-      while (i < input.length && (isHexDigit(input[i]) || input[i] === '_')) i++;
-      if (i < input.length && input[i] === 'n') i++;
-      return i;
-    }
-    if (next === 'b' || next === 'B') {
-      i += 2;
-      while (i < input.length && (input[i] === '0' || input[i] === '1' || input[i] === '_')) i++;
-      if (i < input.length && input[i] === 'n') i++;
-      return i;
-    }
-    if (next === 'o' || next === 'O') {
-      i += 2;
-      while (i < input.length && ((input[i] >= '0' && input[i] <= '7') || input[i] === '_')) i++;
+    let validator: ((c: string) => boolean) | null = null;
+    if (next === 'x' || next === 'X') validator = isHexDigit;
+    else if (next === 'b' || next === 'B') validator = (c) => c === '0' || c === '1';
+    else if (next === 'o' || next === 'O') validator = (c) => c >= '0' && c <= '7';
+    if (validator) {
+      const after = consumeDigitsStrict(input, i + 2, validator);
+      if (after === i + 2) return start;
+      i = after;
       if (i < input.length && input[i] === 'n') i++;
       return i;
     }
   }
-  while (i < input.length && (isDigit(input[i]) || input[i] === '_')) i++;
-  let hadDot = false;
-  if (i < input.length && input[i] === '.' && i + 1 < input.length && isDigit(input[i + 1])) {
-    hadDot = true;
-    i++;
-    while (i < input.length && (isDigit(input[i]) || input[i] === '_')) i++;
+  const hasInt = isDigit(ch);
+  let j = hasInt ? consumeDigitsStrict(input, i, isDigit) : i;
+  let hasFrac = false;
+  if (j < input.length && input[j] === '.' && j + 1 < input.length && isDigit(input[j + 1])) {
+    j++;
+    j = consumeDigitsStrict(input, j, isDigit);
+    hasFrac = true;
   }
-  if (!hadDot && i < input.length && input[i] === 'n') i++;
-  return i;
+  if (!hasInt && !hasFrac) return start;
+  if (!hasFrac && j < input.length && input[j] === 'n') {
+    j++;
+  } else if (hasFrac && j < input.length && input[j] === 'n') {
+    throw new Error(`BigInt literal cannot have a fractional part at column ${start + 1}`);
+  }
+  return j;
 }
 
 function consumeString(input: string, start: number): { end: number; value: string } {
@@ -170,6 +189,15 @@ export function tokenizeExpression(input: string): ExprToken[] {
       i += 3;
       continue;
     }
+    // Number must be checked BEFORE bare-dot so leading-dot floats (.5) lex as num
+    if (isDigit(ch) || (ch === '.' && i + 1 < input.length && isDigit(input[i + 1]))) {
+      const end = consumeNumber(input, i);
+      if (end > i) {
+        tokens.push({ kind: 'num', value: input.slice(i, end), pos: i });
+        i = end;
+        continue;
+      }
+    }
     if (ch === '.') {
       tokens.push({ kind: 'dot', value: '.', pos: i });
       i++;
@@ -196,13 +224,6 @@ export function tokenizeExpression(input: string): ExprToken[] {
       tokens.push({ kind: 'str', value, pos: i });
       // Preserve raw form for codegen quote-style preservation
       (tokens[tokens.length - 1] as ExprToken & { quote?: string }).quote = ch;
-      i = end;
-      continue;
-    }
-
-    if (isDigit(ch) || (ch === '.' && isDigit(input[i + 1]))) {
-      const end = consumeNumber(input, i);
-      tokens.push({ kind: 'num', value: input.slice(i, end), pos: i });
       i = end;
       continue;
     }
@@ -248,7 +269,7 @@ class Parser {
   }
 
   parse(): ValueIR {
-    const result = this.parseLogical();
+    const result = this.parseNullish();
     if (this.peek().kind !== 'eof') {
       const t = this.peek();
       throw new Error(`Unexpected token ${t.kind} ('${t.value}') at column ${t.pos + 1}`);
@@ -256,13 +277,32 @@ class Parser {
     return result;
   }
 
-  private parseLogical(): ValueIR {
+  private parseNullish(): ValueIR {
+    let left = this.parseOr();
+    while (this.peek().kind === 'nullish') {
+      this.advance();
+      const right = this.parseOr();
+      left = { kind: 'binary', op: '??', left, right };
+    }
+    return left;
+  }
+
+  private parseOr(): ValueIR {
+    let left = this.parseAnd();
+    while (this.peek().kind === 'or') {
+      this.advance();
+      const right = this.parseAnd();
+      left = { kind: 'binary', op: '||', left, right };
+    }
+    return left;
+  }
+
+  private parseAnd(): ValueIR {
     let left = this.parseUnary();
-    while (this.peek().kind === 'nullish' || this.peek().kind === 'or' || this.peek().kind === 'and') {
-      const op = this.advance();
+    while (this.peek().kind === 'and') {
+      this.advance();
       const right = this.parseUnary();
-      const opStr = op.kind === 'nullish' ? '??' : op.kind === 'or' ? '||' : '&&';
-      left = { kind: 'binary', op: opStr, left, right };
+      left = { kind: 'binary', op: '&&', left, right };
     }
     return left;
   }
@@ -310,10 +350,10 @@ class Parser {
   private parseArgs(): ValueIR[] {
     const args: ValueIR[] = [];
     if (this.peek().kind === 'rparen') return args;
-    args.push(this.parseLogical());
+    args.push(this.parseNullish());
     while (this.peek().kind === 'comma') {
       this.advance();
-      args.push(this.parseLogical());
+      args.push(this.parseNullish());
     }
     return args;
   }
@@ -351,7 +391,7 @@ class Parser {
         return { kind: 'undefLit' };
       case 'lparen': {
         this.advance();
-        const inner = this.parseLogical();
+        const inner = this.parseNullish();
         this.expect('rparen');
         return inner;
       }
@@ -463,9 +503,8 @@ function findMatchingBrace(input: string, start: number): number {
       depth--;
       if (depth === 0) return i;
     } else if (ch === '`') {
-      const close = input.indexOf('`', i + 1);
-      if (close === -1) break;
-      i = close;
+      i = scanTemplateEnd(input, i + 1);
+      continue;
     } else if (ch === '"' || ch === "'") {
       let j = i + 1;
       while (j < input.length && input[j] !== ch) {

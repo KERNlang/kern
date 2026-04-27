@@ -26,6 +26,7 @@ interface ParsedLine {
 
 function stripInlineComment(content: string): string {
   let inQuote = false;
+  let quoteChar: '"' | "'" | null = null;
   let styleDepth = 0;
   let exprDepth = 0;
 
@@ -38,8 +39,14 @@ function stripInlineComment(content: string): string {
       i++;
       continue;
     }
-    if (ch === '"') {
-      inQuote = !inQuote;
+    if ((ch === '"' || ch === "'") && (!inQuote || ch === quoteChar)) {
+      if (inQuote) {
+        inQuote = false;
+        quoteChar = null;
+      } else {
+        inQuote = true;
+        quoteChar = ch as '"' | "'";
+      }
       continue;
     }
     if (inQuote) continue;
