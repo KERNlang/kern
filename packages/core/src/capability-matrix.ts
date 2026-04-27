@@ -41,6 +41,9 @@ const TS_NUMERIC_LITERALS: CapabilityEntry[] = [
   // including optional, rest, labeled, nested, and empty forms. Routed through
   // emitTypeAnnotation's bracket-balance pass; no new node type required.
   { feature: 'tuple-type', position: 'top-level', support: 'native' },
+  // Slice 2b — `enum` node for numeric (values=A|B|C) and string-valued
+  // (member name=X value="..." children) enums; `const enum` form supported.
+  { feature: 'enum-type', position: 'top-level', support: 'native' },
 ];
 
 const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
@@ -86,6 +89,16 @@ const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
     position: 'top-level',
     support: 'unsupported',
     note: 'mapTsTypeToPython has no tuple branch; alias passthrough emits raw TS form',
+  },
+  // Slice 2b — Python has Enum class via `from enum import Enum`, but the
+  // FastAPI generator does not yet emit class-based enums for the `enum` node.
+  // Mark unsupported until that path lands; flipping to `lowered` requires a
+  // dedicated Python generator (would emit `class Status(str, Enum): ...`).
+  {
+    feature: 'enum-type',
+    position: 'top-level',
+    support: 'unsupported',
+    note: 'FastAPI codegen does not yet handle the enum node; would produce no output',
   },
 ];
 

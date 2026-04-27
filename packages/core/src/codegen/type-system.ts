@@ -299,6 +299,65 @@ function emitClassBody(node: IRNode, lines: string[]): void {
   }
 }
 
+// ── Enum ────────────────────────────────────────────────────────────────
+// enum name=Status values="Pending|Active|Done"
+// → export enum Status { Pending, Active, Done }
+//
+// enum name=Direction
+//   member name=Up value="UP"
+//   member name=Down value="DOWN"
+// → export enum Direction { Up = "UP", Down = "DOWN" }
+//
+// enum name=Flag const=true values="On|Off"
+// → export const enum Flag { On, Off }
+
+export function generateEnum(node: IRNode): string[] {
+  const props = propsOf<'enum'>(node);
+  const name = emitIdentifier(props.name, 'UnknownEnum', node);
+  const exp = exportPrefix(node);
+  const isConst = props.const === 'true' || props.const === true;
+  const constKw = isConst ? 'const ' : '';
+  const docs = emitDocComment(node);
+
+  // Member children take precedence over `values=`. If both are provided, members win
+  // (and `values=` is silently ignored — the user picked the more expressive form).
+  const memberChildren = kids(node, 'member');
+  if (memberChildren.length > 0) {
+    const lines: string[] = [...docs, `${exp}${constKw}enum ${name} {`];
+    for (const m of memberChildren) {
+      const mp = propsOf<'member'>(m);
+      const mname = emitIdentifier(mp.name, 'unknownMember', m);
+      const rawVal = mp.value;
+      // Quoted strings keep their string form; bare values pass through as-is.
+      // (Slice 1i/1j contract: __quotedProps tracks origin; here we honour it.)
+      let valueStr: string;
+      if (rawVal === undefined || rawVal === '') {
+        valueStr = '';
+      } else if (typeof rawVal === 'object' && (rawVal as { __expr?: unknown }).__expr === true) {
+        valueStr = ` = ${(rawVal as { code: string }).code}`;
+      } else if (typeof rawVal === 'string') {
+        const isQuoted = m.__quotedProps?.includes('value');
+        valueStr = ` = ${isQuoted ? JSON.stringify(rawVal) : rawVal}`;
+      } else {
+        valueStr = ` = ${String(rawVal)}`;
+      }
+      lines.push(`  ${mname}${valueStr},`);
+    }
+    lines.push('}');
+    return lines;
+  }
+
+  if (props.values) {
+    const members = props.values
+      .split('|')
+      .map((v) => emitIdentifier(v.trim(), 'unknownMember', node))
+      .join(', ');
+    return [...docs, `${exp}${constKw}enum ${name} { ${members} }`];
+  }
+
+  return [...docs, `${exp}${constKw}enum ${name} {}`];
+}
+
 // ── Const ───────────────────────────────────────────────────────────────
 
 export function generateConst(node: IRNode): string[] {

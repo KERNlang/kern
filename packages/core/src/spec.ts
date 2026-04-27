@@ -133,6 +133,8 @@ export const NODE_TYPES = [
   'field',
   'fn',
   'const',
+  'enum',
+  'member',
   'union',
   'variant',
   'service',
@@ -339,7 +341,6 @@ export function clearEvolvedTypes(): void {
 /** Names reserved for built-ins that are not yet implemented as NODE_TYPES.
  *  Held to prevent evolved-node conflicts before native support lands. */
 export const RESERVED_FUTURE_NAMES: readonly string[] = [
-  'enum',
   'tuple',
   'indexer',
   'use',

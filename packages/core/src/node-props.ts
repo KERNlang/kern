@@ -39,6 +39,15 @@ export interface UnionProps extends BaseProps {
   discriminant?: string;
 }
 
+export interface EnumProps extends BaseProps {
+  values?: string;
+  const?: string | boolean;
+}
+
+export interface MemberProps extends BaseProps {
+  value?: string | ExprObject;
+}
+
 export interface ServiceProps extends BaseProps {
   implements?: string;
 }
@@ -539,6 +548,8 @@ export interface NodePropsMap {
   type: TypeProps;
   interface: InterfaceProps;
   union: UnionProps;
+  enum: EnumProps;
+  member: MemberProps;
   service: ServiceProps;
   class: ClassProps;
   const: ConstProps;

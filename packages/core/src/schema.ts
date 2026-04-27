@@ -88,6 +88,26 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: ['variant'],
   },
+  enum: {
+    description:
+      'TypeScript enum — numeric (auto-incremented) via values="A|B|C", or string-valued via member children',
+    example: 'enum name=Status values="Pending|Active|Done"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      values: { kind: 'string' },
+      const: { kind: 'boolean' },
+      export: { kind: 'boolean' },
+    },
+    allowedChildren: ['member'],
+  },
+  member: {
+    description: 'Enum member with explicit value (for string-valued or computed enums)',
+    example: 'member name=Up value="UP"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      value: { kind: 'expression' },
+    },
+  },
   variant: {
     description:
       'A case within a discriminated union. Use name= for inline variants with fields, or type= to reference an existing interface.',

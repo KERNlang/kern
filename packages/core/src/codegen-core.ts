@@ -123,6 +123,7 @@ export { generateTest } from './codegen/test-gen.js';
 export {
   generateClass,
   generateConst,
+  generateEnum,
   generateInterface,
   generateService,
   generateType,
@@ -215,6 +216,7 @@ import { generateTest } from './codegen/test-gen.js';
 import {
   generateClass,
   generateConst,
+  generateEnum,
   generateInterface,
   generateService,
   generateType,
@@ -493,6 +495,8 @@ export const CORE_NODE_TYPES = new Set([
   'fn',
   'union',
   'variant',
+  'enum',
+  'member',
   'service',
   'class',
   'method',
@@ -645,6 +649,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateInterface(node);
     case 'union':
       return generateUnion(node);
+    case 'enum':
+      return generateEnum(node);
     case 'service':
       return generateService(node);
     case 'class':
@@ -861,6 +867,8 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       );
     // Structural children consumed by parents
     case 'variant':
+      return [];
+    case 'member':
       return [];
     case 'method':
       return [];
