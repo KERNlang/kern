@@ -137,6 +137,7 @@ export const NODE_TYPES = [
   'member',
   'union',
   'variant',
+  'indexer',
   'service',
   'class',
   'method',
@@ -342,7 +343,6 @@ export function clearEvolvedTypes(): void {
  *  Held to prevent evolved-node conflicts before native support lands. */
 export const RESERVED_FUTURE_NAMES: readonly string[] = [
   'tuple',
-  'indexer',
   'use',
   'from',
   'Result',

@@ -44,6 +44,9 @@ const TS_NUMERIC_LITERALS: CapabilityEntry[] = [
   // Slice 2b — `enum` node for numeric (values=A|B|C) and string-valued
   // (member name=X value="..." children) enums; `const enum` form supported.
   { feature: 'enum-type', position: 'top-level', support: 'native' },
+  // Slice 2c — `indexer` child node on interface, emits `[key: K]: V` index
+  // signature with optional `readonly` modifier.
+  { feature: 'index-signature', position: 'top-level', support: 'native' },
 ];
 
 const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
@@ -99,6 +102,14 @@ const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
     position: 'top-level',
     support: 'unsupported',
     note: 'FastAPI codegen does not yet handle the enum node; would produce no output',
+  },
+  // Slice 2c — Python has dict[K, V] / TypedDict but the FastAPI generator
+  // does not yet emit either form from an `indexer` child. Mark unsupported.
+  {
+    feature: 'index-signature',
+    position: 'top-level',
+    support: 'unsupported',
+    note: 'FastAPI codegen does not yet handle indexer; would produce no output',
   },
 ];
 

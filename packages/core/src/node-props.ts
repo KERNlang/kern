@@ -48,6 +48,13 @@ export interface MemberProps extends BaseProps {
   value?: string | ExprObject;
 }
 
+export interface IndexerProps extends BaseProps {
+  keyName?: string;
+  keyType?: string;
+  type?: string;
+  readonly?: string | boolean;
+}
+
 export interface ServiceProps extends BaseProps {
   implements?: string;
 }
@@ -550,6 +557,7 @@ export interface NodePropsMap {
   union: UnionProps;
   enum: EnumProps;
   member: MemberProps;
+  indexer: IndexerProps;
   service: ServiceProps;
   class: ClassProps;
   const: ConstProps;

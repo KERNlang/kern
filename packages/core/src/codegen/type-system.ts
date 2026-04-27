@@ -72,6 +72,14 @@ export function generateInterface(node: IRNode): string[] {
     const opt = fp.optional === 'true' || fp.optional === true ? '?' : '';
     lines.push(`  ${fieldName}${opt}: ${emitTypeAnnotation(fp.type, 'unknown', field)};`);
   }
+  for (const idx of kids(node, 'indexer')) {
+    const ip = propsOf<'indexer'>(idx);
+    const keyName = emitIdentifier(ip.keyName ?? 'key', 'key', idx);
+    const keyType = emitTypeAnnotation(ip.keyType, 'string', idx);
+    const valType = emitTypeAnnotation(ip.type, 'unknown', idx);
+    const ro = ip.readonly === 'true' || ip.readonly === true ? 'readonly ' : '';
+    lines.push(`  ${ro}[${keyName}: ${keyType}]: ${valType};`);
+  }
   lines.push('}');
   return lines;
 }

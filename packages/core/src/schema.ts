@@ -76,7 +76,17 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       extends: { kind: 'typeAnnotation' },
       export: { kind: 'boolean' },
     },
-    allowedChildren: ['field'],
+    allowedChildren: ['field', 'indexer'],
+  },
+  indexer: {
+    description: 'Index signature for an interface — [keyName: keyType]: type',
+    example: 'indexer keyName=key keyType=string type=Value',
+    props: {
+      keyName: { kind: 'identifier' },
+      keyType: { required: true, kind: 'typeAnnotation' },
+      type: { required: true, kind: 'typeAnnotation' },
+      readonly: { kind: 'boolean' },
+    },
   },
   union: {
     description: 'Discriminated union type with variants, each having their own fields',
