@@ -299,7 +299,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { required: true, kind: 'identifier' },
       type: { kind: 'typeAnnotation' },
-      value: { kind: 'rawExpr' },
+      value: { kind: 'expression' },
       export: { kind: 'boolean' },
     },
     allowedChildren: ['handler'],

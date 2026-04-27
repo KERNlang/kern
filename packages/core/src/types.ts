@@ -128,7 +128,8 @@ export type ParseErrorCode =
   | 'INDENT_JUMP'
   | 'DUPLICATE_PROP'
   | 'DROPPED_LINE'
-  | 'INVALID_BIGINT';
+  | 'INVALID_BIGINT'
+  | 'INVALID_EXPRESSION';
 
 export type ParseDiagnosticSeverity = 'error' | 'warning' | 'info';
 
