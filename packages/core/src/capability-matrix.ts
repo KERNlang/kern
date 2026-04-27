@@ -127,8 +127,9 @@ const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
     support: 'unsupported',
     note: 'mapTsTypeToPython has no predicate-return-type branch (TypeGuard/TypeIs)',
   },
-  // Slice 2e — Python has @overload from typing, but the FastAPI generator
-  // does not yet emit @overload-decorated stubs from `overload` children.
+  // Slice 2e — Python has `@typing.overload` decorators, but the FastAPI
+  // generator does not yet emit @overload-decorated stubs from `overload`
+  // children.
   {
     feature: 'function-overloads',
     position: 'top-level',

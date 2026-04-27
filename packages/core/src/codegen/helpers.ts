@@ -96,7 +96,7 @@ export function capitalize(s: string): string {
 // ── Param Parsing ───────────────────────────────────────────────────────
 
 /** Parse "name:Type,name2:Type2,spread:number=8" → "name: Type, name2: Type2, spread: number = 8" */
-export function parseParamList(params: string): string {
+export function parseParamList(params: string, options?: { stripDefaults?: boolean }): string {
   if (!params) return '';
   return splitParamsRespectingDepth(params)
     .map((s) => {
@@ -108,6 +108,9 @@ export function parseParamList(params: string): string {
       const eqIdx = findDefaultSeparator(rest);
       if (eqIdx === -1) return `${pname}: ${rest}`;
       const ptype = rest.slice(0, eqIdx).trim();
+      // TS forbids parameter initializers in overload signatures — only the
+      // implementation may carry defaults. Slice 2e callers must strip them.
+      if (options?.stripDefaults) return `${pname}: ${ptype}`;
       const pdefault = rest.slice(eqIdx + 1).trim();
       return `${pname}: ${ptype} = ${pdefault}`;
     })

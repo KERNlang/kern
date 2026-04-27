@@ -219,14 +219,28 @@ export function extractExportsFromLines(lines: string[]): { name: string; typeOn
   // for `export const enum Flag { ... }` (slice 2b regression caught by Codex).
   const re = /^export\s+(?:async\s+)?(?:function\*?|class|const\s+enum|const|enum|abstract\s+class)\s+(\w+)/;
   const typeRe = /^export\s+(?:interface|type)\s+(\w+)/;
+  // Slice 2e — function overloads + impl share the same `export function name`
+  // prefix; without dedup the barrel emits `export { add, add, add }` (TS error).
+  // Dedupe by (name, typeOnly) — TS allows a value and a type with the same
+  // name (namespace merging) but not two values.
+  const seen = new Set<string>();
+  const key = (name: string, typeOnly: boolean) => `${typeOnly ? 't' : 'v'}:${name}`;
   for (const line of lines) {
     const m = line.match(re);
     if (m) {
+      const k = key(m[1], false);
+      if (seen.has(k)) continue;
+      seen.add(k);
       exports.push({ name: m[1], typeOnly: false });
       continue;
     }
     const tm = line.match(typeRe);
-    if (tm) exports.push({ name: tm[1], typeOnly: true });
+    if (tm) {
+      const k = key(tm[1], true);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      exports.push({ name: tm[1], typeOnly: true });
+    }
   }
   return exports;
 }

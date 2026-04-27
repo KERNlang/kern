@@ -39,10 +39,13 @@ export function generateFunction(node: IRNode): string[] {
   // produces a `function name(...): R;` line; the implementation that follows
   // is the actual body. TS dispatch matches against overload signatures and
   // ignores the implementation signature for callers.
+  // TS rules: overload signatures must NOT carry the `async` keyword, the `*`
+  // generator marker, or parameter default values — those belong to the
+  // implementation only. We only emit `${exp}function name(...): R;` here.
   const overloadChildren = kids(node, 'overload');
   for (const ov of overloadChildren) {
     const op = propsOf<'overload'>(ov);
-    const oParams = op.params ? parseParamList(op.params) : '';
+    const oParams = op.params ? parseParamList(op.params, { stripDefaults: true }) : '';
     const oRet = op.returns ? `: ${emitTypeAnnotation(op.returns, 'unknown', ov)}` : '';
     lines.push(`${exp}function ${name}(${oParams})${oRet};`);
   }

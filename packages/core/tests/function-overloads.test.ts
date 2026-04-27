@@ -6,6 +6,7 @@
 
 import { capabilitySupport } from '../src/capability-matrix.js';
 import { generateCoreNode, isCoreNode } from '../src/codegen-core.js';
+import { importTypeScript } from '../src/importer.js';
 import { parse } from '../src/parser.js';
 import { isKnownNodeType, RESERVED_FUTURE_NAMES } from '../src/spec.js';
 
@@ -93,6 +94,74 @@ describe('Function overloads (Slice 2e)', () => {
       const out = gen(src);
       expect(out).toMatch(/^function internal\(x: number\): number;/m);
       expect(out).not.toContain('export function internal');
+    });
+  });
+
+  describe('default-param defense (Codex + Gemini)', () => {
+    // TS forbids parameter initializers in overload signatures. parseParamList
+    // must strip them when called with stripDefaults — otherwise overload
+    // signatures emit invalid TS like `function f(x: number = 1);`.
+
+    test('overload signatures strip default values', () => {
+      const src =
+        'fn name=add params="a:number,b:number" returns=number\n' +
+        '  overload params="a:number=0,b:number=0" returns=number\n' +
+        '  handler <<<\n' +
+        '    return a + b;\n' +
+        '  >>>';
+      const out = gen(src);
+      expect(out).toContain('function add(a: number, b: number): number;');
+      // No defaults on the overload signature.
+      expect(out).not.toMatch(/function add\(a: number = 0/);
+    });
+
+    test('implementation signature retains defaults', () => {
+      const src =
+        'fn name=add params="a:number=0,b:number=0" returns=number\n' +
+        '  overload params="a:number,b:number" returns=number\n' +
+        '  handler <<<\n' +
+        '    return a + b;\n' +
+        '  >>>';
+      const out = gen(src);
+      expect(out).toContain('function add(a: number = 0, b: number = 0): number {');
+    });
+  });
+
+  describe('TS importer round-trip (Gemini)', () => {
+    // convertFunction processed each TS FunctionDeclaration in isolation.
+    // For overloaded TS functions, that produced N separate `fn` nodes — broken.
+    // The fix groups consecutive same-named function declarations into a single
+    // `fn` with `overload` children.
+
+    test('groups TS overloads into one fn with overload children', () => {
+      const ts = [
+        'export function add(a: number, b: number): number;',
+        'export function add(a: string, b: string): string;',
+        'export function add(a: any, b: any): any {',
+        '  return a + b;',
+        '}',
+      ].join('\n');
+      const result = importTypeScript(ts, 'add.ts');
+      // One fn header (impl), two overload children.
+      const fnHeaderCount = (result.kern.match(/^fn name=add /gm) || []).length;
+      expect(fnHeaderCount).toBe(1);
+      expect(result.kern).toContain('overload params="a:number,b:number" returns=number');
+      expect(result.kern).toContain('overload params="a:string,b:string" returns=string');
+    });
+
+    test('full TS → KERN → TS round-trip preserves overloads', () => {
+      const tsIn = [
+        'export function add(a: number, b: number): number;',
+        'export function add(a: string, b: string): string;',
+        'export function add(a: any, b: any): any {',
+        '  return a + b;',
+        '}',
+      ].join('\n');
+      const kern = importTypeScript(tsIn, 'add.ts').kern;
+      const tsOut = generateCoreNode(parse(kern)).join('\n');
+      expect(tsOut).toContain('export function add(a: number, b: number): number;');
+      expect(tsOut).toContain('export function add(a: string, b: string): string;');
+      expect(tsOut).toContain('export function add(a: any, b: any): any {');
     });
   });
 

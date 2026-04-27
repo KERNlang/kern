@@ -61,4 +61,28 @@ describe('extractExportsFromLines', () => {
       { name: 'x', typeOnly: false },
     ]);
   });
+
+  // Slice 2e — function overloads share the same `export function name`
+  // prefix line for each signature + the implementation. Without dedup the
+  // generated barrel would emit `export { add, add, add }` (TS error).
+  test('deduplicates same-name overload + implementation', () => {
+    expect(
+      extractExportsFromLines([
+        'export function add(a: number, b: number): number;',
+        'export function add(a: string, b: string): string;',
+        'export function add(a: any, b: any): any {',
+        '  return a + b;',
+        '}',
+      ]),
+    ).toEqual([{ name: 'add', typeOnly: false }]);
+  });
+
+  test('value and type with same name (TS namespace merging) coexist', () => {
+    // TS allows `export type X` and `export const X` simultaneously (different namespaces).
+    const lines = ['export const Color = { red: "#f00" } as const;', 'export type Color = "red" | "blue";'];
+    expect(extractExportsFromLines(lines)).toEqual([
+      { name: 'Color', typeOnly: false },
+      { name: 'Color', typeOnly: true },
+    ]);
+  });
 });

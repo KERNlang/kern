@@ -312,6 +312,42 @@ function convertFunction(node: ts.FunctionDeclaration, source: ts.SourceFile): s
   return lines;
 }
 
+/** Slice 2e — convert a TS overload group (N signatures + 1 implementation)
+ *  to a single KERN `fn` node with `overload` children. The implementation is
+ *  the declaration that has a body; if none has a body (rare — ambient module
+ *  declarations), we treat the LAST as implementation for round-trip safety. */
+function convertFunctionGroup(
+  group: ts.FunctionDeclaration[],
+  source: ts.SourceFile,
+  stats: ImportResult['stats'],
+): string[] {
+  // Find the implementation (the one with a body). If none, fall back to last.
+  const implIdx = group.findIndex((fn) => fn.body != null);
+  const impl = group[implIdx >= 0 ? implIdx : group.length - 1];
+  const overloads = group.filter((fn) => fn !== impl);
+  // Convert the implementation as a normal function (fn). Then append overload children.
+  stats.functions++;
+  const implLines = convertFunction(impl, source);
+  // Insert overload child lines BEFORE the handler block (which lives under
+  // the `fn name=...` header line). We slice at the index of the handler open.
+  const overloadLines: string[] = [];
+  for (const ov of overloads) {
+    const params = formatParams(ov.parameters, source);
+    const returns = typeToString(ov.type, source);
+    const paramsStr = params ? ` params="${params}"` : '';
+    const returnsStr = returns ? ` returns=${returns}` : '';
+    overloadLines.push(`  overload${paramsStr}${returnsStr}`);
+  }
+  // Splice overload lines after the `fn name=...` (and its leading doc, if any)
+  // and before the `  handler <<<` block. We find the first line that starts
+  // with `  handler` (handler is the first child of fn) — overloads go before it.
+  const handlerIdx = implLines.findIndex((l) => l.startsWith('  handler'));
+  if (handlerIdx === -1) {
+    return [...implLines, ...overloadLines];
+  }
+  return [...implLines.slice(0, handlerIdx), ...overloadLines, ...implLines.slice(handlerIdx)];
+}
+
 function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[] {
   const lines: string[] = [];
   const name = node.name?.getText(source) ?? 'AnonymousClass';
@@ -1226,7 +1262,36 @@ export function importTypeScript(tsSource: string, fileName = 'input.ts'): Impor
     components: 0,
   };
 
-  for (const statement of sourceFile.statements) {
+  // Slice 2e — TS overloaded functions are a sequence of FunctionDeclaration
+  // nodes sharing a name, where the LAST one has a body and the earlier ones
+  // are signature-only. Group them so the importer emits a single `fn` with
+  // `overload` children rather than N separate fn nodes.
+  const statements = sourceFile.statements;
+  for (let i = 0; i < statements.length; i++) {
+    const statement = statements[i];
+    if (ts.isFunctionDeclaration(statement) && statement.name) {
+      const fnName = statement.name.getText(sourceFile);
+      // Look ahead to collect consecutive same-named function declarations.
+      const group: ts.FunctionDeclaration[] = [statement];
+      while (i + 1 < statements.length) {
+        const next = statements[i + 1];
+        if (ts.isFunctionDeclaration(next) && next.name && next.name.getText(sourceFile) === fnName) {
+          group.push(next);
+          i++;
+        } else {
+          break;
+        }
+      }
+      if (group.length > 1) {
+        const converted = convertFunctionGroup(group, sourceFile, stats);
+        if (converted.length > 0) {
+          kernLines.push(...converted);
+          kernLines.push('');
+        }
+        continue;
+      }
+      // Single declaration — fall through to ordinary path.
+    }
     const converted = convertStatement(statement, sourceFile, unmapped, stats);
     if (converted.length > 0) {
       kernLines.push(...converted);
