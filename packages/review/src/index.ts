@@ -360,6 +360,7 @@ export {
 export { detectTemplates } from './template-detector.js';
 export type {
   AnalysisContext,
+  CalibrationStage,
   Confidence,
   EnforceResult,
   FileContext,

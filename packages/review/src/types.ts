@@ -110,6 +110,36 @@ export interface ReviewFinding {
   provenance?: ProvenanceChain;
   /** Semantic grouping key for cross-rule/root-cause ownership. */
   rootCause?: RootCause;
+  /**
+   * Per-stage calibration record. Populated by applyRuleQualityCalibration when a
+   * factor actually changes severity or confidence. Lets audit policy show why a
+   * finding was demoted/dropped without recomputing the chain.
+   */
+  calibrationTrail?: CalibrationStage[];
+  /**
+   * Set true after applyRuleQualityCalibration runs over this finding so that
+   * subsequent calls (e.g. graph-mode rerun after cross-file injection) skip it.
+   * Prevents compounding multipliers when Phase 1 role/overlap factors land.
+   */
+  calibrated?: boolean;
+}
+
+/** One step of calibration applied to a finding. */
+export interface CalibrationStage {
+  /** Identifier for the stage that ran (e.g. 'rule-quality:demote-advisory'). */
+  stage: string;
+  /** Multiplicative factor applied to confidence (1.0 = no change). */
+  factor: number;
+  /** Why this stage acted on this finding. */
+  reason: string;
+  /** Confidence before this stage (undefined if confidence was unset). */
+  beforeConfidence?: number;
+  /** Confidence after this stage. */
+  afterConfidence?: number;
+  /** Severity before this stage, if changed. */
+  beforeSeverity?: ReviewFinding['severity'];
+  /** Severity after this stage, if changed. */
+  afterSeverity?: ReviewFinding['severity'];
 }
 
 // ── Confidence ───────────────────────────────────────────────────────────

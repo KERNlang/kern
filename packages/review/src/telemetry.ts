@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { inferReviewPolicy } from './policy.js';
 import { getRuleQualityProfile } from './rule-quality.js';
-import type { ReviewFinding, ReviewPolicy, ReviewReport } from './types.js';
+import type { CalibrationStage, ReviewFinding, ReviewPolicy, ReviewReport } from './types.js';
 
 export interface ReviewTelemetryRule {
   ruleId: string;
@@ -23,6 +23,8 @@ export interface ReviewTelemetryFinding {
   severity: ReviewFinding['severity'];
   confidence?: number;
   rootCauseKey?: string;
+  /** Calibration chain — emitted only under `audit` policy. */
+  calibrationTrail?: CalibrationStage[];
 }
 
 export interface ReviewTelemetrySnapshot {
@@ -146,7 +148,9 @@ export function buildReviewTelemetry(
     },
     rules,
     ...(options.durationMs !== undefined ? { performance: { durationMs: options.durationMs } } : {}),
-    ...(options.includeFindings ? { findingRows: findings.map(toFindingRow) } : {}),
+    ...(options.includeFindings
+      ? { findingRows: findings.map((f) => toFindingRow(f, options.policy ?? inferReviewPolicy())) }
+      : {}),
   };
 }
 
@@ -372,13 +376,16 @@ function makeRuleTelemetry(ruleId: string): ReviewTelemetryRule & { rootCauseKey
   };
 }
 
-function toFindingRow(finding: ReviewFinding): ReviewTelemetryFinding {
+function toFindingRow(finding: ReviewFinding, policy: ReviewPolicy): ReviewTelemetryFinding {
   return {
     file: finding.primarySpan.file,
     ruleId: finding.ruleId,
     severity: finding.severity,
     ...(finding.confidence !== undefined ? { confidence: finding.confidence } : {}),
     ...(finding.rootCause?.key ? { rootCauseKey: finding.rootCause.key } : {}),
+    ...(policy === 'audit' && finding.calibrationTrail && finding.calibrationTrail.length > 0
+      ? { calibrationTrail: finding.calibrationTrail }
+      : {}),
   };
 }
 

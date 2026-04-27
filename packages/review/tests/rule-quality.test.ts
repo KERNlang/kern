@@ -110,6 +110,96 @@ describe('rule quality calibration', () => {
 
     expect(findings[0].severity).toBe('error');
   });
+
+  it('is idempotent — second call does not re-demote or re-cap', () => {
+    const findings = [
+      finding({
+        ruleId: 'large-list-no-virtualization',
+        severity: 'warning',
+        confidence: 0.85,
+      }),
+    ];
+
+    applyRuleQualityCalibration(findings);
+    const afterFirst = { ...findings[0] };
+
+    applyRuleQualityCalibration(findings);
+
+    expect(findings[0].severity).toBe(afterFirst.severity);
+    expect(findings[0].confidence).toBe(afterFirst.confidence);
+    expect(findings[0].calibrationTrail?.length).toBe(afterFirst.calibrationTrail?.length);
+    expect(findings[0].calibrated).toBe(true);
+  });
+
+  it('records calibration trail when severity is demoted', () => {
+    const findings = [finding({ ruleId: 'dead-export', severity: 'warning' })];
+
+    applyRuleQualityCalibration(findings);
+
+    expect(findings[0].calibrationTrail).toEqual([
+      expect.objectContaining({
+        stage: 'rule-quality:demote-advisory',
+        beforeSeverity: 'warning',
+        afterSeverity: 'info',
+      }),
+    ]);
+  });
+
+  it('records calibration trail when experimental confidence is capped', () => {
+    const findings = [
+      finding({
+        ruleId: 'large-list-no-virtualization',
+        severity: 'warning',
+        confidence: 0.85,
+      }),
+    ];
+
+    applyRuleQualityCalibration(findings);
+
+    const stages = findings[0].calibrationTrail ?? [];
+    expect(stages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stage: 'rule-quality:experimental-cap',
+          beforeConfidence: 0.85,
+          afterConfidence: 0.6,
+        }),
+      ]),
+    );
+  });
+
+  it('does not record trail or set calibrated flag in audit mode', () => {
+    const findings = [finding({ ruleId: 'dead-export', severity: 'warning' })];
+
+    applyRuleQualityCalibration(findings, { crossStackMode: 'audit' });
+
+    expect(findings[0].calibrationTrail).toBeUndefined();
+    expect(findings[0].calibrated).toBeUndefined();
+  });
+
+  it('protects graph-mode union: pre-calibrated finding is left alone when re-run', () => {
+    // Simulates the index.ts site D path: per-file calibration runs, then graph
+    // mode unions findings + suppressedFindings and runs calibration again. The
+    // pre-calibrated entry must not be touched a second time.
+    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 0.85 })];
+    applyRuleQualityCalibration(findings);
+    const preCalibrated = findings[0];
+
+    const newCrossFileFinding = finding({
+      ruleId: 'dead-export',
+      severity: 'warning',
+      confidence: 0.85,
+      primarySpan: { file: 'other.ts', startLine: 5, startCol: 1, endLine: 5, endCol: 1 },
+      fingerprint: 'dead-export:other:5:1',
+    });
+
+    const union = [preCalibrated, newCrossFileFinding];
+    applyRuleQualityCalibration(union);
+
+    expect(preCalibrated.calibrationTrail?.length).toBe(1);
+    expect(newCrossFileFinding.calibrationTrail?.length).toBe(1);
+    expect(newCrossFileFinding.calibrated).toBe(true);
+  });
 });
 
 describe('rule supersession', () => {

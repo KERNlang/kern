@@ -1,5 +1,5 @@
 import { getRuleRegistry, type RuleInfo } from './rules/index.js';
-import type { ReviewConfig, ReviewFinding } from './types.js';
+import type { CalibrationStage, ReviewConfig, ReviewFinding } from './types.js';
 
 export type RulePrecision = NonNullable<RuleInfo['precision']>;
 export type RuleLifecycle = NonNullable<RuleInfo['lifecycle']>;
@@ -72,6 +72,13 @@ export function isRulePromotedForCi(ruleId: string): boolean {
  * but softens advisory and experimental findings to info so they do not compete
  * with correctness/security findings. Audit mode preserves original severities for
  * local investigations.
+ *
+ * Idempotent: each finding is calibrated at most once per process lifetime. The
+ * `calibrated` flag prevents compounding multipliers when graph-mode rerun unions
+ * already-calibrated per-file findings with newly-injected cross-file findings.
+ *
+ * Records each acting stage on `finding.calibrationTrail` so audit policy can
+ * surface the calibration chain without recomputing it.
  */
 export function applyRuleQualityCalibration(
   findings: ReviewFinding[],
@@ -80,6 +87,8 @@ export function applyRuleQualityCalibration(
   if (config?.crossStackMode === 'audit') return;
 
   for (const finding of findings) {
+    if (finding.calibrated) continue;
+
     const profile = getRuleQualityProfile(finding.ruleId);
     const shouldDemote =
       GUARD_ADVISORY_RULES.has(finding.ruleId) ||
@@ -88,16 +97,43 @@ export function applyRuleQualityCalibration(
       profile?.lifecycle === 'experimental';
 
     if (shouldDemote && finding.severity !== 'error') {
+      const before = finding.severity;
       finding.severity = 'info';
+      recordCalibration(finding, {
+        stage: 'rule-quality:demote-advisory',
+        factor: 1,
+        reason: GUARD_ADVISORY_RULES.has(finding.ruleId)
+          ? 'rule on guard-advisory list'
+          : `rule lifecycle=${profile?.lifecycle ?? 'unknown'} precision=${profile?.precision ?? 'unknown'}`,
+        beforeSeverity: before,
+        afterSeverity: 'info',
+      });
     }
 
     if (
       (profile?.precision === 'experimental' || profile?.lifecycle === 'experimental') &&
-      finding.confidence !== undefined
+      finding.confidence !== undefined &&
+      finding.confidence > 0.6
     ) {
-      finding.confidence = Math.min(finding.confidence, 0.6);
+      const before = finding.confidence;
+      finding.confidence = 0.6;
+      recordCalibration(finding, {
+        stage: 'rule-quality:experimental-cap',
+        factor: 0.6 / before,
+        reason: 'experimental rule capped at 0.6',
+        beforeConfidence: before,
+        afterConfidence: 0.6,
+      });
     }
+
+    finding.calibrated = true;
   }
+}
+
+/** Append a calibration stage to a finding's trail. */
+export function recordCalibration(finding: ReviewFinding, stage: CalibrationStage): void {
+  if (!finding.calibrationTrail) finding.calibrationTrail = [];
+  finding.calibrationTrail.push(stage);
 }
 
 export function applyRuleSupersession(
