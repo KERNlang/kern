@@ -122,6 +122,13 @@ export interface ReviewFinding {
    * Prevents compounding multipliers when Phase 1 role/overlap factors land.
    */
   calibrated?: boolean;
+  /**
+   * If this finding was suppressed by a `// kern-ignore [reason: …]` directive,
+   * the closed-enum reason is propagated here so telemetry can compute per-rule
+   * FP/intent rates without scanning source again. Closed-enum: any free text
+   * is rejected at parse time.
+   */
+  suppressionReason?: import('./suppression/types.js').SuppressionReason;
 }
 
 /** One step of calibration applied to a finding. */

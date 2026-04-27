@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { inferReviewPolicy } from './policy.js';
@@ -15,6 +16,20 @@ export interface ReviewTelemetryRule {
   precision?: string;
   lifecycle?: string;
   ciDefault?: string;
+  /** Suppressions tagged `[reason: false-positive]`. */
+  suppressedAsFalsePositive?: number;
+  /** Suppressions tagged `[reason: wont-fix]`. */
+  suppressedAsWontFix?: number;
+  /** Suppressions tagged `[reason: intentional]`. */
+  suppressedAsIntentional?: number;
+  /** Suppressions tagged `[reason: not-applicable]`. */
+  suppressedAsNotApplicable?: number;
+  /**
+   * FP rate estimate: suppressedAsFalsePositive / (findings + suppressedAsFalsePositive).
+   * Trustworthy only when the directive corpus is honest — Phase 3 audit-policy
+   * spike alert is the safety mechanism against mass-poison campaigns.
+   */
+  fpRateEstimate?: number;
 }
 
 export interface ReviewTelemetryFinding {
@@ -60,6 +75,13 @@ export interface ReviewTelemetryOptions {
   generatedAt?: string;
   durationMs?: number;
   includeFindings?: boolean;
+  /**
+   * When true, replace `file` paths in findingRows with a stable SHA-256 hash
+   * (first 16 hex chars). Set this on emission to a hosted telemetry sink so
+   * private package names and `/Users/<name>/...` paths do not leak across
+   * tenancy boundaries (Phase 1 red-team finding).
+   */
+  redactPaths?: boolean;
 }
 
 export interface WriteReviewTelemetryOptions extends ReviewTelemetryOptions {
@@ -149,7 +171,11 @@ export function buildReviewTelemetry(
     rules,
     ...(options.durationMs !== undefined ? { performance: { durationMs: options.durationMs } } : {}),
     ...(options.includeFindings
-      ? { findingRows: findings.map((f) => toFindingRow(f, options.policy ?? inferReviewPolicy())) }
+      ? {
+          findingRows: findings.map((f) =>
+            toFindingRow(f, options.policy ?? inferReviewPolicy(), options.redactPaths ?? false),
+          ),
+        }
       : {}),
   };
 }
@@ -340,6 +366,20 @@ function buildRuleTelemetry(
     const isSuppressed = suppressedKeys.has(`${finding.ruleId}:${finding.fingerprint}`);
     if (isSuppressed) {
       existing.suppressed++;
+      switch (finding.suppressionReason) {
+        case 'false-positive':
+          existing.suppressedAsFalsePositive = (existing.suppressedAsFalsePositive ?? 0) + 1;
+          break;
+        case 'wont-fix':
+          existing.suppressedAsWontFix = (existing.suppressedAsWontFix ?? 0) + 1;
+          break;
+        case 'intentional':
+          existing.suppressedAsIntentional = (existing.suppressedAsIntentional ?? 0) + 1;
+          break;
+        case 'not-applicable':
+          existing.suppressedAsNotApplicable = (existing.suppressedAsNotApplicable ?? 0) + 1;
+          break;
+      }
     } else {
       existing.findings++;
       if (finding.severity === 'error') existing.errors++;
@@ -351,7 +391,16 @@ function buildRuleTelemetry(
   }
 
   return Array.from(byRule.values())
-    .map(({ rootCauseKeys, ...rule }) => ({ ...rule, rootCauses: rootCauseKeys.size }))
+    .map(({ rootCauseKeys, ...rule }) => {
+      const fp = rule.suppressedAsFalsePositive ?? 0;
+      const denom = rule.findings + fp;
+      const fpRateEstimate = denom > 0 && fp > 0 ? fp / denom : undefined;
+      return {
+        ...rule,
+        rootCauses: rootCauseKeys.size,
+        ...(fpRateEstimate !== undefined ? { fpRateEstimate } : {}),
+      };
+    })
     .sort((a, b) => b.findings - a.findings || a.ruleId.localeCompare(b.ruleId));
 }
 
@@ -376,9 +425,9 @@ function makeRuleTelemetry(ruleId: string): ReviewTelemetryRule & { rootCauseKey
   };
 }
 
-function toFindingRow(finding: ReviewFinding, policy: ReviewPolicy): ReviewTelemetryFinding {
+function toFindingRow(finding: ReviewFinding, policy: ReviewPolicy, redactPaths: boolean): ReviewTelemetryFinding {
   return {
-    file: finding.primarySpan.file,
+    file: redactPaths ? hashPath(finding.primarySpan.file) : finding.primarySpan.file,
     ruleId: finding.ruleId,
     severity: finding.severity,
     ...(finding.confidence !== undefined ? { confidence: finding.confidence } : {}),
@@ -387,6 +436,15 @@ function toFindingRow(finding: ReviewFinding, policy: ReviewPolicy): ReviewTelem
       ? { calibrationTrail: finding.calibrationTrail }
       : {}),
   };
+}
+
+/**
+ * Stable, prefix-truncated hash of a file path. 16 hex chars = 64 bits of
+ * entropy — collision-resistant within any single project, while opaque to
+ * a multi-tenant telemetry consumer.
+ */
+function hashPath(p: string): string {
+  return `path:${createHash('sha256').update(p).digest('hex').slice(0, 16)}`;
 }
 
 function isTelemetrySnapshot(value: unknown): value is ReviewTelemetrySnapshot {

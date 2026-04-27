@@ -130,4 +130,66 @@ describe('review telemetry', () => {
     expect(summary.noisyRules.map((rule) => rule.ruleId)).toContain('auth-drift');
     expect(formatReviewTelemetrySummary(summary)).toContain('Noisy Rules');
   });
+
+  it('counts suppressions by reason and computes fpRateEstimate', () => {
+    const snapshot = buildReviewTelemetry(
+      [
+        report(
+          [finding(), finding({ fingerprint: 'auth-drift:2:1' })],
+          [
+            finding({ fingerprint: 'sup-1', suppressionReason: 'false-positive' }),
+            finding({ fingerprint: 'sup-2', suppressionReason: 'false-positive' }),
+            finding({ fingerprint: 'sup-3', suppressionReason: 'wont-fix' }),
+            finding({ fingerprint: 'sup-4', suppressionReason: 'intentional' }),
+            finding({ fingerprint: 'sup-5', suppressionReason: 'not-applicable' }),
+          ],
+        ),
+      ],
+      { generatedAt: '2026-04-27T00:00:00.000Z' },
+    );
+
+    const rule = snapshot.rules.find((r) => r.ruleId === 'auth-drift');
+    expect(rule).toMatchObject({
+      findings: 2,
+      suppressed: 5,
+      suppressedAsFalsePositive: 2,
+      suppressedAsWontFix: 1,
+      suppressedAsIntentional: 1,
+      suppressedAsNotApplicable: 1,
+      // 2 fp / (2 findings + 2 fp) = 0.5
+      fpRateEstimate: 0.5,
+    });
+  });
+
+  it('redacts file paths when redactPaths=true (telemetry leakage guard)', () => {
+    const snapshot = buildReviewTelemetry(
+      [
+        report([
+          finding({
+            primarySpan: { file: '/Users/jdoe/secret/auth.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 },
+          }),
+        ]),
+      ],
+      { generatedAt: '2026-04-27T00:00:00.000Z', includeFindings: true, redactPaths: true },
+    );
+
+    expect(snapshot.findingRows).toHaveLength(1);
+    const row = snapshot.findingRows![0];
+    expect(row.file).toMatch(/^path:[a-f0-9]{16}$/);
+    expect(row.file).not.toContain('jdoe');
+    expect(row.file).not.toContain('secret');
+  });
+
+  it('preserves file paths when redactPaths is not set (default off)', () => {
+    const snapshot = buildReviewTelemetry(
+      [
+        report([
+          finding({ primarySpan: { file: '/Users/jdoe/auth.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 1 } }),
+        ]),
+      ],
+      { generatedAt: '2026-04-27T00:00:00.000Z', includeFindings: true },
+    );
+
+    expect(snapshot.findingRows![0].file).toBe('/Users/jdoe/auth.ts');
+  });
 });

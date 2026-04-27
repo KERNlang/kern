@@ -88,6 +88,60 @@ describe('parseDirectives', () => {
     expect(directives).toHaveLength(1);
     expect(directives[0].line).toBe(4); // skipped 2 blank lines
   });
+
+  it('parses [reason: false-positive] suffix and stores it on the directive', () => {
+    const source = `// kern-ignore dead-export [reason: false-positive]\nexport const x = 1;`;
+    const { directives, warnings } = parseDirectives(source, 'test.ts');
+    expect(directives).toHaveLength(1);
+    expect(directives[0].reason).toBe('false-positive');
+    expect(warnings).toEqual([]);
+  });
+
+  it('parses each closed-enum reason value', () => {
+    for (const reason of ['false-positive', 'wont-fix', 'intentional', 'not-applicable']) {
+      const source = `// kern-ignore dead-export [reason: ${reason}]\nexport const x = 1;`;
+      const { directives, warnings } = parseDirectives(source, 'test.ts');
+      expect(directives[0].reason).toBe(reason);
+      expect(warnings).toEqual([]);
+    }
+  });
+
+  it('SECURITY: rejects free-text reason and warns (no JSON/SARIF injection)', () => {
+    const source = `// kern-ignore dead-export [reason: my-custom-reason]\nexport const x = 1;`;
+    const { directives, warnings } = parseDirectives(source, 'test.ts');
+    expect(directives).toHaveLength(1);
+    expect(directives[0].reason).toBeUndefined(); // rejected
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].ruleId).toBe('kern-ignore-reason');
+    expect(warnings[0].message).toContain('my-custom-reason');
+  });
+
+  it('reason works with file-level directive', () => {
+    const source = `// kern-ignore-file dead-export [reason: intentional]\nexport const x = 1;`;
+    const { directives } = parseDirectives(source, 'test.ts');
+    expect(directives[0].type).toBe('file');
+    expect(directives[0].reason).toBe('intentional');
+  });
+
+  it('reason works with Python directive', () => {
+    const source = `# kern-ignore floating-promise [reason: wont-fix]\nawait fetch('/x')`;
+    const { directives } = parseDirectives(source, 'test.py');
+    expect(directives[0].reason).toBe('wont-fix');
+  });
+
+  it('SECURITY: skips comment lines longer than 4096 chars (ReDoS guard)', () => {
+    const long = `// kern-ignore dead-export ${'a'.repeat(5000)}`;
+    const source = `${long}\nexport const x = 1;`;
+    const { directives } = parseDirectives(source, 'test.ts');
+    expect(directives).toEqual([]); // entire line skipped
+  });
+
+  it('directive without reason still works (backward compatible)', () => {
+    const source = `// kern-ignore dead-export\nexport const x = 1;`;
+    const { directives } = parseDirectives(source, 'test.ts');
+    expect(directives).toHaveLength(1);
+    expect(directives[0].reason).toBeUndefined();
+  });
 });
 
 // ── configDirectives ─────────────────────────────────────────────────────
