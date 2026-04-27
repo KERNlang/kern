@@ -72,7 +72,7 @@ describe('route → handler concept ownership', () => {
     }
   });
 
-  it('leaves handlerConceptId undefined for an imported-identifier handler (v1 non-goal)', () => {
+  it('leaves handlerConceptId undefined for an imported-identifier handler', () => {
     const p = project();
     const src = `
       import express from 'express';

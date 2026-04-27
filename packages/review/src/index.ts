@@ -55,6 +55,7 @@ import { runQualityRules } from './quality-rules.js';
 import { assignDefaultConfidence, calculateStats, sortAndDedup, sortFindings } from './reporter.js';
 import { debugDetail, ReviewHealthBuilder } from './review-health.js';
 import { loadBuiltinNativeRules, loadNativeRules } from './rule-loader.js';
+import { applyRuleQualityCalibration } from './rule-quality.js';
 import { lintConfidenceGraph, lintMultiFileConfidenceGraph } from './rules/confidence.js';
 import { crossFileAsyncRule, deadExportRule } from './rules/dead-code.js';
 import { runFastapiConceptRules } from './rules/fastapi.js';
@@ -200,6 +201,20 @@ export {
   serializeGraph,
 } from './confidence.js';
 export { structuralDiff } from './differ.js';
+export {
+  evaluateReviewReports,
+  formatReviewEvalSummary,
+  normalizeReviewEvalManifest,
+  type ReviewEvalCase,
+  type ReviewEvalCaseConfig,
+  type ReviewEvalCaseResult,
+  type ReviewEvalExpectations,
+  type ReviewEvalFindingExpectation,
+  type ReviewEvalManifest,
+  type ReviewEvalRunMetadata,
+  type ReviewEvalSummary,
+  summarizeReviewEvalResults,
+} from './eval.js';
 export { linkToNodes, runESLint, runTSCDiagnostics, runTSCDiagnosticsFromPaths } from './external-tools.js';
 export { buildFileContextMap, clearFileContextCache } from './file-context.js';
 export { classifyFileRole } from './file-role.js';
@@ -226,6 +241,13 @@ export type { NormViolation } from './norm-miner.js';
 export { mineNorms } from './norm-miner.js';
 export type { ObligationType, ProofObligation } from './obligations.js';
 export { obligationsFromNorms, obligationsFromStructure, synthesizeObligations } from './obligations.js';
+export {
+  applyReviewPolicyDefaults,
+  getReviewPolicyProfile,
+  inferReviewPolicy,
+  type ReviewPolicyExplicitOptions,
+  type ReviewPolicyProfile,
+} from './policy.js';
 export type { PublicApiMap, PublicApiOverrides } from './public-api.js';
 export {
   buildPublicApiMap,
@@ -252,6 +274,18 @@ export {
   sortFindings,
 } from './reporter.js';
 export { debugDetail, ReviewHealthBuilder } from './review-health.js';
+export {
+  applyRuleQualityCalibration,
+  applyRuleSupersession,
+  getRuleQualityProfile,
+  isRulePromotedForCi,
+  type RuleCiDefault,
+  type RuleLifecycle,
+  type RulePrecision,
+  type RuleQualityIssue,
+  type RuleQualityProfile,
+  validateRuleQualityRegistry,
+} from './rule-quality.js';
 export { CONFIDENCE_RULES, lintConfidenceGraph, lintMultiFileConfidenceGraph } from './rules/confidence.js';
 export {
   actionMissingIdempotent,
@@ -307,6 +341,22 @@ export {
   isSanitizerSufficient,
   taintToFindings,
 } from './taint.js';
+export {
+  buildReviewTelemetry,
+  formatReviewTelemetrySummary,
+  parseReviewTelemetryJsonl,
+  type ReviewTelemetryFinding,
+  type ReviewTelemetryOptions,
+  type ReviewTelemetryRule,
+  type ReviewTelemetryRuleSummary,
+  type ReviewTelemetrySnapshot,
+  type ReviewTelemetrySummary,
+  readReviewTelemetrySnapshots,
+  summarizeReviewTelemetry,
+  type WriteReviewTelemetryOptions,
+  type WriteReviewTelemetryResult,
+  writeReviewTelemetrySnapshot,
+} from './telemetry.js';
 export { detectTemplates } from './template-detector.js';
 export type {
   AnalysisContext,
@@ -326,9 +376,12 @@ export type {
   ReviewHealthEntry,
   ReviewHealthKind,
   ReviewHealthSubsystem,
+  ReviewPolicy,
   ReviewReport,
   ReviewRule,
   ReviewStats,
+  ReviewTelemetryConfig,
+  RootCause,
   RuleContext,
   RuntimeBoundary,
   SourceSpan,
@@ -782,6 +835,7 @@ function reviewSourceInternal(
 
   // Assign calibrated confidence scores to all findings
   assignDefaultConfidence(dedupedFindings);
+  applyRuleQualityCalibration(dedupedFindings, config);
 
   // Apply suppression (inline comments + config disabledRules)
   const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
@@ -938,6 +992,7 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
 
   const dedupedFindings = sortAndDedup(allFindings);
   assignDefaultConfidence(dedupedFindings);
+  applyRuleQualityCalibration(dedupedFindings, _config);
   const suppression = applySuppression(dedupedFindings, source, filePath, _config, _config?.strict ?? false);
   const findings = sortAndDedup(suppression.findings);
   const kernTokens = countTokens(source);
@@ -1014,6 +1069,7 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
 
   const dedupedFindings = sortAndDedup(conceptFindings);
   assignDefaultConfidence(dedupedFindings);
+  applyRuleQualityCalibration(dedupedFindings, config);
   const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
   const findings = sortAndDedup(suppression.findings);
   const reviewHealth = health.build();
@@ -1060,7 +1116,7 @@ export function reviewDirectory(dirPath: string, recursive = false, config?: Rev
  * Entry files get normal findings, upstream dependencies get origin='upstream'.
  */
 export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOptions?: GraphOptions): ReviewReport[] {
-  const graph = resolveImportGraph(entryFiles, graphOptions);
+  const graph = graphOptions?.precomputedGraph ?? resolveImportGraph(entryFiles, graphOptions);
   const entrySet = new Set(graph.entryFiles);
   const reports: ReviewReport[] = [];
   // Graph-wide subsystem status — one entry per (subsystem, kind) across the whole run.
@@ -1331,6 +1387,8 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     try {
       const source = readFileSync(report.filePath, 'utf-8');
       const unsuppressedCandidates = [...report.findings, ...(report.suppressedFindings ?? [])];
+      assignDefaultConfidence(unsuppressedCandidates);
+      applyRuleQualityCalibration(unsuppressedCandidates, config);
       const suppression = applySuppression(
         sortAndDedup(unsuppressedCandidates),
         source,

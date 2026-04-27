@@ -433,21 +433,18 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
       routePath = (args[0] as import('ts-morph').StringLiteral).getLiteralValue();
     }
 
-    // Inline handler? The id we compute here must match the one
-    // `extractExpressCallbacks` will emit for the same function, so downstream
-    // rules can dereference `handlerConceptId` into the function_declaration
-    // concept. We pick the LAST arrow/function arg (middlewares precede it).
-    let handlerConceptId: string | undefined;
-    let handlerFn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression | undefined;
-    for (let i = args.length - 1; i >= 1; i--) {
-      const arg = args[i];
-      const k = arg.getKind();
-      if (k === SyntaxKind.ArrowFunction || k === SyntaxKind.FunctionExpression) {
-        handlerConceptId = conceptId(filePath, 'function_declaration', arg.getStart());
-        handlerFn = arg as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression;
-        break;
-      }
-    }
+    // Inline, same-file named, or statically imported handler. The id we
+    // compute for same-file handlers must match the function_declaration
+    // concept emitted for the same function, so downstream rules can
+    // dereference `handlerConceptId`. Imported handlers are still analyzed
+    // when TypeScript can resolve their body, but are not linked into this
+    // file's concept map.
+    const resolvedHandler = resolveExpressRouteHandler(args, filePath);
+    const handlerFn = resolvedHandler?.fn;
+    const handlerConceptId =
+      resolvedHandler && isSameConceptSourceFile(resolvedHandler.conceptFilePath, filePath)
+        ? conceptId(filePath, 'function_declaration', resolvedHandler.conceptStart)
+        : undefined;
 
     const bodyFieldsInfo = handlerFn
       ? extractHandlerBodyFields(handlerFn)
@@ -525,6 +522,17 @@ interface RouteHandlerAnalysis {
   bodyValidationResolved?: boolean;
 }
 
+type ExpressRouteHandlerFn =
+  | import('ts-morph').ArrowFunction
+  | import('ts-morph').FunctionExpression
+  | import('ts-morph').FunctionDeclaration;
+
+interface ExpressRouteHandlerResolution {
+  fn: ExpressRouteHandlerFn;
+  conceptStart: number;
+  conceptFilePath: string;
+}
+
 const EMPTY_ROUTE_ANALYSIS: RouteHandlerAnalysis = {};
 const API_ERROR_STATUS_CODES = new Set([401, 403, 404, 422, 500]);
 const PAGINATION_RE = /\b(limit|take|offset|skip|cursor|page|pageSize|perPage)\b|\.limit\s*\(|\.take\s*\(/i;
@@ -532,7 +540,7 @@ const IDEMPOTENCY_RE =
   /\b(idempotency|Idempotency-Key|transaction|\$transaction|unique|upsert|findUnique|findOne|on\s+conflict|getOrCreate|createOrGet)\b/i;
 
 function analyzeExpressRouteHandler(
-  handlerFn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+  handlerFn: ExpressRouteHandlerFn,
   routeArgs: readonly import('ts-morph').Node[],
   method: string,
   routePath: string | undefined,
@@ -551,9 +559,73 @@ function analyzeExpressRouteHandler(
   };
 }
 
-function extractExpressErrorStatusCodes(
-  handlerFn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
-): readonly number[] | undefined {
+function resolveExpressRouteHandler(
+  routeArgs: readonly import('ts-morph').Node[],
+  filePath: string,
+): ExpressRouteHandlerResolution | undefined {
+  for (let i = routeArgs.length - 1; i >= 1; i--) {
+    const arg = routeArgs[i];
+    const kind = arg.getKind();
+    if (kind === SyntaxKind.ArrowFunction || kind === SyntaxKind.FunctionExpression) {
+      return {
+        fn: arg as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+        conceptStart: arg.getStart(),
+        conceptFilePath: filePath,
+      };
+    }
+    if (kind !== SyntaxKind.Identifier) continue;
+    const resolved = resolveHandlerIdentifier(arg as import('ts-morph').Identifier);
+    if (resolved) return resolved;
+  }
+  return undefined;
+}
+
+function resolveHandlerIdentifier(ident: import('ts-morph').Identifier): ExpressRouteHandlerResolution | undefined {
+  const symbol = ident.getSymbol();
+  if (!symbol) return undefined;
+
+  for (const candidate of expandIdentifierSymbols(symbol)) {
+    for (const decl of candidate.getDeclarations()) {
+      const conceptFilePath = decl.getSourceFile().getFilePath();
+      if (isExternalSourcePath(conceptFilePath)) continue;
+      if (decl.getKind() === SyntaxKind.FunctionDeclaration) {
+        const fn = decl as import('ts-morph').FunctionDeclaration;
+        return { fn, conceptStart: fn.getStart(), conceptFilePath };
+      }
+      if (decl.getKind() !== SyntaxKind.VariableDeclaration) continue;
+      const varDecl = decl as import('ts-morph').VariableDeclaration;
+      const init = varDecl.getInitializer();
+      if (!init) continue;
+      const initKind = init.getKind();
+      if (initKind !== SyntaxKind.ArrowFunction && initKind !== SyntaxKind.FunctionExpression) continue;
+      return {
+        fn: init as import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+        conceptStart: varDecl.getStart(),
+        conceptFilePath,
+      };
+    }
+  }
+
+  return undefined;
+}
+
+function expandIdentifierSymbols(symbol: import('ts-morph').Symbol): readonly import('ts-morph').Symbol[] {
+  const aliased = symbol.getAliasedSymbol();
+  return aliased ? [aliased, symbol] : [symbol];
+}
+
+function isSameConceptSourceFile(actualFilePath: string, conceptFilePath: string): boolean {
+  const actual = actualFilePath.replace(/\\/g, '/').replace(/^\/+/, '');
+  const expected = conceptFilePath.replace(/\\/g, '/').replace(/^\/+/, '');
+  return actual === expected || actual.endsWith(`/${expected}`) || expected.endsWith(`/${actual}`);
+}
+
+function isExternalSourcePath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/');
+  return normalized.includes('/node_modules/') || normalized.includes('/.pnpm/');
+}
+
+function extractExpressErrorStatusCodes(handlerFn: ExpressRouteHandlerFn): readonly number[] | undefined {
   const codes = new Set<number>();
 
   for (const call of handlerFn.getDescendantsOfKind(SyntaxKind.CallExpression)) {
@@ -586,7 +658,7 @@ function numericLiteralValue(node: import('ts-morph').Node | undefined): number 
 }
 
 function hasUnboundedExpressCollectionQuery(
-  handlerFn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+  handlerFn: ExpressRouteHandlerFn,
   method: string,
   routePath: string | undefined,
 ): boolean {
@@ -601,9 +673,7 @@ function hasUnboundedExpressCollectionQuery(
   return Boolean(lastSegment?.endsWith('s')) || /\bfindMany\b|\.find\s*\(|\.toArray\s*\(/.test(text);
 }
 
-function handlerHasDbCollectionRead(
-  handlerFn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
-): boolean {
+function handlerHasDbCollectionRead(handlerFn: ExpressRouteHandlerFn): boolean {
   return handlerFn.getDescendantsOfKind(SyntaxKind.CallExpression).some((call) => {
     const callee = call.getExpression();
     if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) return false;
@@ -613,9 +683,7 @@ function handlerHasDbCollectionRead(
   });
 }
 
-function handlerHasDbWrite(
-  handlerFn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
-): boolean {
+function handlerHasDbWrite(handlerFn: ExpressRouteHandlerFn): boolean {
   return handlerFn.getDescendantsOfKind(SyntaxKind.CallExpression).some((call) => {
     const callee = call.getExpression();
     if (callee.getKind() !== SyntaxKind.PropertyAccessExpression) return false;
@@ -633,7 +701,7 @@ function isDbLikeReceiver(receiver: string): boolean {
 }
 
 function extractExpressValidation(
-  handlerFn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+  handlerFn: ExpressRouteHandlerFn,
   routeArgs: readonly import('ts-morph').Node[],
 ): { has: boolean; fields: readonly string[] | undefined; resolved: boolean } {
   const fields = new Set<string>();
@@ -802,7 +870,7 @@ function pathSuffixBetween(mountFile: string, targetFile: string): string {
 // field as optional and are excluded from the required set. A rest element
 // (`{ ...rest }`) or a dynamic key (`req.body[var]`) poisons the resolution
 // because the handler may need arbitrary fields we can't see.
-function extractHandlerBodyFields(fn: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression): {
+function extractHandlerBodyFields(fn: ExpressRouteHandlerFn): {
   fields: readonly string[] | undefined;
   resolved: boolean;
 } {
@@ -1548,35 +1616,112 @@ function isInAsyncContext(node: import('ts-morph').Node): boolean {
   return false;
 }
 
-// Extract the field names a `fetch(url, { body: JSON.stringify({ a, b }) })`
-// sends on the wire. V1 scope: raw `fetch` only, body must be
-// `JSON.stringify({ ... })` with a literal object that has only identifier
-// keys and no spread. Everything else returns `{ fields: undefined, resolved: false }`
-// so body-shape-drift stays silent on opaque shapes rather than guessing.
+// Extract the field names a network call sends on the wire. High-confidence
+// sources:
+//   - literal objects: `JSON.stringify({ a, b })`, `axios.post(url, { a, b })`
+//   - typed payload variables: `JSON.stringify(input)` where `input: CreateUser`
+// Everything else returns `{ fields: undefined, resolved: false }` so
+// body-shape-drift stays silent on opaque shapes rather than guessing.
 function extractSentFields(
   call: import('ts-morph').CallExpression,
   funcName: string,
 ): { fields: readonly string[] | undefined; resolved: boolean } {
-  if (funcName !== 'fetch') return { fields: undefined, resolved: false };
+  const payload = extractNetworkPayloadExpression(call, funcName);
+  if (!payload) return { fields: undefined, resolved: false };
+  return extractPayloadFields(payload);
+}
+
+function extractNetworkPayloadExpression(
+  call: import('ts-morph').CallExpression,
+  funcName: string,
+): import('ts-morph').Node | undefined {
   const args = call.getArguments();
-  if (args.length < 2) return { fields: undefined, resolved: false };
+  if (args.length < 2) return undefined;
+
+  if (AXIOS_STYLE_METHODS.has(funcName)) {
+    return args[1];
+  }
+
+  if (funcName !== 'fetch') return undefined;
   const opts = args[1];
-  if (opts.getKind() !== SyntaxKind.ObjectLiteralExpression) return { fields: undefined, resolved: false };
+  if (opts.getKind() !== SyntaxKind.ObjectLiteralExpression) return undefined;
   const optsObj = opts as import('ts-morph').ObjectLiteralExpression;
   const bodyProp = optsObj.getProperty('body');
-  if (!bodyProp) return { fields: undefined, resolved: false };
+  if (!bodyProp) return undefined;
   if (bodyProp.getKind() !== SyntaxKind.PropertyAssignment) {
-    return { fields: undefined, resolved: false };
+    return undefined;
   }
   const init = (bodyProp as import('ts-morph').PropertyAssignment).getInitializer();
-  if (!init || init.getKind() !== SyntaxKind.CallExpression) return { fields: undefined, resolved: false };
-  const bodyCall = init as import('ts-morph').CallExpression;
-  if (bodyCall.getExpression().getText() !== 'JSON.stringify') return { fields: undefined, resolved: false };
-  const stringifyArgs = bodyCall.getArguments();
-  if (stringifyArgs.length === 0) return { fields: undefined, resolved: false };
-  const payload = stringifyArgs[0];
-  if (payload.getKind() !== SyntaxKind.ObjectLiteralExpression) return { fields: undefined, resolved: false };
-  return extractLiteralObjectFields(payload as import('ts-morph').ObjectLiteralExpression);
+  return init;
+}
+
+function extractPayloadFields(node: import('ts-morph').Node): {
+  fields: readonly string[] | undefined;
+  resolved: boolean;
+} {
+  const payload = unwrapPayloadExpression(node);
+  if (payload.getKind() === SyntaxKind.CallExpression) {
+    const bodyCall = payload as import('ts-morph').CallExpression;
+    if (bodyCall.getExpression().getText() !== 'JSON.stringify') return { fields: undefined, resolved: false };
+    const stringifyArg = bodyCall.getArguments()[0];
+    return stringifyArg ? extractPayloadFields(stringifyArg) : { fields: undefined, resolved: false };
+  }
+  if (payload.getKind() === SyntaxKind.ObjectLiteralExpression) {
+    return extractLiteralObjectFields(payload as import('ts-morph').ObjectLiteralExpression);
+  }
+  if (payload.getKind() === SyntaxKind.Identifier || payload.getKind() === SyntaxKind.PropertyAccessExpression) {
+    return extractObjectFieldsFromType(payload);
+  }
+  return { fields: undefined, resolved: false };
+}
+
+function unwrapPayloadExpression(node: import('ts-morph').Node): import('ts-morph').Node {
+  let current = node;
+  while (true) {
+    const kind = current.getKind();
+    if (kind === SyntaxKind.ParenthesizedExpression) {
+      current = (current as import('ts-morph').ParenthesizedExpression).getExpression();
+    } else if (kind === SyntaxKind.AsExpression) {
+      current = (current as import('ts-morph').AsExpression).getExpression();
+    } else if (kind === SyntaxKind.TypeAssertionExpression) {
+      current = (current as import('ts-morph').TypeAssertion).getExpression();
+    } else if (kind === SyntaxKind.NonNullExpression) {
+      current = (current as import('ts-morph').NonNullExpression).getExpression();
+    } else if (kind === SyntaxKind.SatisfiesExpression) {
+      current = (current as import('ts-morph').SatisfiesExpression).getExpression();
+    } else {
+      return current;
+    }
+  }
+}
+
+function extractObjectFieldsFromType(node: import('ts-morph').Node): {
+  fields: readonly string[] | undefined;
+  resolved: boolean;
+} {
+  const type = node.getType();
+  if (type.isAny() || type.isUnknown() || type.isUnion()) return { fields: undefined, resolved: false };
+  if (type.getStringIndexType() || type.getNumberIndexType()) return { fields: undefined, resolved: false };
+
+  const fields = new Set<string>();
+  for (const prop of type.getProperties()) {
+    const declarations = prop.getDeclarations();
+    if (declarations.length === 0) return { fields: undefined, resolved: false };
+    if (declarations.some((decl) => isExternalSourcePath(decl.getSourceFile().getFilePath()))) {
+      return { fields: undefined, resolved: false };
+    }
+    if (declarations.some((decl) => declarationIsOptional(decl))) continue;
+    const name = prop.getName();
+    if (!/^[A-Za-z_$][\w$-]*$/.test(name)) return { fields: undefined, resolved: false };
+    fields.add(name);
+  }
+
+  return fields.size > 0 ? { fields: Array.from(fields).sort(), resolved: true } : { fields: [], resolved: true };
+}
+
+function declarationIsOptional(decl: import('ts-morph').Node): boolean {
+  const maybeOptional = decl as import('ts-morph').Node & { hasQuestionToken?: () => boolean };
+  return maybeOptional.hasQuestionToken?.() === true;
 }
 
 // Walk an object literal and return its identifier-keyed property names.

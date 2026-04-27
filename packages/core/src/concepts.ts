@@ -176,9 +176,9 @@ export interface EffectPayload {
   hasAuthHeader?: boolean;
   /**
    * For `network` subtype only — names of body fields the call sends.
-   * Populated when the body is a literal object, directly or wrapped in
-   * `JSON.stringify({ ... })`, with only identifier keys (no spread, no
-   * computed `[x]` keys). Present only when `sentFieldsResolved === true`.
+   * Populated when the body is a literal object, or when the mapper can derive
+   * a complete field set from a local payload type/interface. Present only
+   * when `sentFieldsResolved === true`.
    */
   sentFields?: readonly string[];
   /**

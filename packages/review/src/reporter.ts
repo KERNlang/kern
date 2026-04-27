@@ -6,6 +6,7 @@
  */
 
 import { buildLLMPrompt, exportKernIR } from './llm-review.js';
+import { getRuleQualityProfile } from './rule-quality.js';
 import type {
   EnforceResult,
   InferResult,
@@ -191,7 +192,8 @@ export function checkEnforcement(report: ReviewReport, config: ReviewConfig): En
   const maxWarnings = config.maxWarnings ?? Number.MAX_SAFE_INTEGER;
 
   let maxComplexity = 0;
-  for (const f of report.findings) {
+  for (const f of countable) {
+    if (f.severity === 'info') continue;
     if (f.ruleId === 'cognitive-complexity') {
       const match = f.message.match(/complexity of (\d+)/);
       if (match) {
@@ -414,6 +416,7 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
           },
         },
         results: [] as any[],
+        properties: buildSARIFRunProperties(reports, suppressedFindings),
         // SARIF spec 3.20: invocations describe tool-execution events. toolExecutionNotifications
         // carries messages FROM the tool (not findings ABOUT the code), which is exactly where
         // "ESLint skipped" / "call graph failed" belong. Without this, enterprise consumers of
@@ -475,10 +478,23 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
   ): void {
     if (!rules.has(finding.ruleId)) {
       rules.add(finding.ruleId);
+      const profile = getRuleQualityProfile(finding.ruleId);
       sarif.runs[0].tool.driver.rules.push({
         id: finding.ruleId,
         shortDescription: { text: finding.ruleId },
         helpUri: `https://github.com/kern-lang/kern-lang/blob/main/docs/rules.md#${finding.ruleId}`,
+        properties: {
+          ...(profile
+            ? {
+                'kern/precision': profile.precision,
+                'kern/lifecycle': profile.lifecycle,
+                'kern/ciDefault': profile.ciDefault,
+                ...(profile.requires ? { 'kern/requires': profile.requires } : {}),
+                ...(profile.supersedes ? { 'kern/supersedes': profile.supersedes } : {}),
+                ...(profile.rolloutPhase !== undefined ? { 'kern/rolloutPhase': profile.rolloutPhase } : {}),
+              }
+            : {}),
+        },
       });
     }
 
@@ -504,17 +520,32 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
         },
       ],
     };
+    const relatedLocations = toSARIFRelatedLocations(finding);
+    if (relatedLocations.length > 0) {
+      result.relatedLocations = relatedLocations;
+    }
 
     // SARIF result.rank is 0.0–100.0 per spec; kern/confidence stays 0–1
     if (finding.confidence !== undefined) {
       result.rank = finding.confidence * 100;
       properties['kern/confidence'] = finding.confidence;
     }
+    if (finding.rootCause) {
+      properties['kern/rootCause'] = {
+        key: finding.rootCause.key,
+        kind: finding.rootCause.kind,
+        ...(finding.rootCause.facets ? { facets: finding.rootCause.facets } : {}),
+      };
+    }
     if (baselineStatus) {
       properties['kern/baselineStatus'] = baselineStatus;
     }
     if (Object.keys(properties).length > 0) {
       result.properties = properties;
+    }
+    const sarifFix = toSARIFFix(finding);
+    if (sarifFix) {
+      result.fixes = [sarifFix];
     }
 
     const suppressions: Array<{ kind: string; justification: string }> = [];
@@ -551,6 +582,86 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
   }
 
   return JSON.stringify(sarif, null, 2);
+}
+
+function buildSARIFRunProperties(
+  reports: ReviewReport[],
+  extraSuppressedFindings: ReviewFinding[] | undefined,
+): Record<string, unknown> {
+  const findings = reports.flatMap((report) => report.findings);
+  const suppressed = [
+    ...reports.flatMap((report) => report.suppressedFindings ?? []),
+    ...(extraSuppressedFindings ?? []),
+  ];
+  const healthEntries = reports.flatMap((report) => report.health?.entries ?? []);
+
+  return {
+    'kern/summary': {
+      files: reports.length,
+      findings: {
+        total: findings.length,
+        errors: findings.filter((finding) => finding.severity === 'error').length,
+        warnings: findings.filter((finding) => finding.severity === 'warning').length,
+        notes: findings.filter((finding) => finding.severity === 'info').length,
+      },
+      suppressed: {
+        total: suppressed.length,
+      },
+      fixable: findings.filter((finding) => finding.autofix).length,
+      relatedEvidence: findings.filter((finding) => (finding.relatedSpans?.length ?? 0) > 0).length,
+      rootCauses: new Set(findings.map((finding) => finding.rootCause?.key).filter(Boolean)).size,
+      health: {
+        status: healthEntries.some((entry) => entry.kind === 'error')
+          ? 'partial'
+          : healthEntries.length > 0
+            ? 'degraded'
+            : 'ok',
+        errors: healthEntries.filter((entry) => entry.kind === 'error').length,
+        fallbacks: healthEntries.filter((entry) => entry.kind === 'fallback').length,
+        skipped: healthEntries.filter((entry) => entry.kind === 'skipped').length,
+      },
+    },
+  };
+}
+
+function toSARIFRelatedLocations(finding: ReviewFinding): Array<Record<string, unknown>> {
+  return (finding.relatedSpans ?? []).map((span, index) => ({
+    id: index + 1,
+    physicalLocation: {
+      artifactLocation: { uri: span.file },
+      region: {
+        startLine: span.startLine,
+        startColumn: span.startCol,
+        endLine: span.endLine,
+        endColumn: span.endCol,
+      },
+    },
+  }));
+}
+
+function toSARIFFix(finding: ReviewFinding): Record<string, unknown> | undefined {
+  const fix = finding.autofix;
+  if (!fix || fix.type === 'wrap') return undefined;
+
+  return {
+    description: { text: fix.description },
+    artifactChanges: [
+      {
+        artifactLocation: { uri: fix.span.file || finding.primarySpan.file },
+        replacements: [
+          {
+            deletedRegion: {
+              startLine: fix.span.startLine,
+              startColumn: fix.span.startCol,
+              endLine: fix.span.endLine,
+              endColumn: fix.span.endCol,
+            },
+            insertedContent: { text: fix.type === 'remove' ? '' : fix.replacement },
+          },
+        ],
+      },
+    ],
+  };
 }
 
 /**

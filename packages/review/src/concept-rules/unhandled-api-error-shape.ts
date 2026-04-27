@@ -16,6 +16,7 @@ import {
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
+import { apiCallRootCause } from './root-cause.js';
 
 const ERROR_STATUS_CODES = new Set([401, 403, 404, 422, 500]);
 
@@ -53,12 +54,14 @@ export function unhandledApiErrorShape(ctx: ConceptRuleContext): ReviewFinding[]
       category: 'bug',
       message: `Client calls \`${target}\` with only the success path handled, but the matching server route can return ${codeList}. Add a \`response.ok\`/status branch, catch path, or error UI for the API error shape.`,
       primarySpan: node.primarySpan,
+      relatedSpans: route?.node ? [route.node.primarySpan] : undefined,
       fingerprint: createFingerprint(
         'unhandled-api-error-shape',
         node.primarySpan.startLine,
         node.primarySpan.startCol,
       ),
       confidence: node.confidence * CROSS_STACK_EXACT_CONFIDENCE,
+      rootCause: apiCallRootCause(node, normalized, node.payload.method, route?.node),
     });
   }
 

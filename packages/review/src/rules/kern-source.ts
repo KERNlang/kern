@@ -220,6 +220,7 @@ const AMBIENT_NAMES = new Set([
   'decodeURI',
   'decodeURIComponent',
   'eval',
+  'yield',
   // TypedArrays and other constructors
   'Uint8Array',
   'Int8Array',

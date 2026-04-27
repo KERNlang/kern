@@ -1,24 +1,31 @@
 import type { IRNode } from '@kernlang/core';
 import { clearTemplates, registerTemplate, VALID_TARGETS } from '@kernlang/core';
-import type { LLMReviewInput, ReviewConfig, ReviewFinding, ReviewReport } from '@kernlang/review';
+import type { LLMReviewInput, ReviewConfig, ReviewEvalCaseResult, ReviewFinding, ReviewReport } from '@kernlang/review';
 import {
   analyzeTaint,
+  applyReviewPolicyDefaults,
   buildLLMPrompt,
   buildReviewInstructions,
   checkEnforcement,
   checkSpecFiles,
   clearReviewCache,
   dedup,
+  evaluateReviewReports,
   exportKernIR,
   formatEnforcement,
   formatReport,
+  formatReviewEvalSummary,
+  formatReviewTelemetrySummary,
   formatSARIF,
   formatSARIFWithMetadata,
   formatSummary,
+  getRuleQualityProfile,
   getRuleRegistry,
   isLLMAvailable,
   linkToNodes,
+  normalizeReviewEvalManifest,
   ReviewHealthBuilder,
+  readReviewTelemetrySnapshots,
   resolveImportGraph,
   reviewFile,
   reviewGraph,
@@ -26,6 +33,9 @@ import {
   runLLMReview,
   runTSCDiagnosticsFromPaths,
   specViolationsToFindings,
+  summarizeReviewEvalResults,
+  summarizeReviewTelemetry,
+  writeReviewTelemetrySnapshot,
 } from '@kernlang/review';
 import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
@@ -81,6 +91,14 @@ export function detectAutoDiffBase(cwd: string = process.cwd()): string | undefi
   return undefined;
 }
 
+function parseOptionalFlagOrNext(args: string[], flag: string, fallback: string): string {
+  const eqArg = args.find((a) => a.startsWith(`${flag}=`));
+  if (eqArg) return eqArg.slice(flag.length + 1);
+  const idx = args.indexOf(flag);
+  if (idx !== -1 && args[idx + 1] && !args[idx + 1].startsWith('--')) return args[idx + 1];
+  return fallback;
+}
+
 // ── Review pipeline ──────────────────────────────────────────────────────
 
 async function runReviewPipeline(
@@ -117,6 +135,7 @@ async function runReviewPipeline(
     newOnly: boolean;
   },
 ): Promise<{ reports: ReviewReport[]; exitCode: number }> {
+  const startedAt = Date.now();
   const {
     graphMode,
     batchMode,
@@ -152,7 +171,7 @@ async function runReviewPipeline(
     const graphOpts = { maxDepth, tsConfigFilePath: tsconfigPath };
     const graph = resolveImportGraph(entryFilePaths, graphOpts);
     console.log(`  Graph: ${graph.totalFiles} files resolved (${graph.skipped} skipped, depth ${maxDepth})`);
-    reports = reviewGraph(entryFilePaths, reviewConfig, graphOpts);
+    reports = reviewGraph(entryFilePaths, reviewConfig, { ...graphOpts, precomputedGraph: graph });
   } else if (batchMode && entryFilePaths.length > batchSize) {
     const totalBatches = Math.ceil(entryFilePaths.length / batchSize);
     for (let i = 0; i < entryFilePaths.length; i += batchSize) {
@@ -763,6 +782,19 @@ async function runReviewPipeline(
     }
   }
 
+  if (reviewConfig.telemetry?.enabled) {
+    const written = writeReviewTelemetrySnapshot(reports, {
+      policy: reviewConfig.policy,
+      outputPath: reviewConfig.telemetry.outputPath,
+      append: reviewConfig.telemetry.append,
+      includeFindings: reviewConfig.telemetry.includeFindings,
+      durationMs: Date.now() - startedAt,
+    });
+    if (!jsonOutput && !sarifOutput) {
+      console.log(`  Telemetry written: ${relative(process.cwd(), written.outputPath)}`);
+    }
+  }
+
   // Output
   if (jsonOutput) {
     const enriched = reportsForOutput.map((report) => {
@@ -840,11 +872,68 @@ async function runReviewPipeline(
   return { reports, exitCode: 0 };
 }
 
+function runReviewEvalManifest(manifestPath: string, baseConfig: ReviewConfig) {
+  const resolvedManifestPath = resolve(manifestPath);
+  const raw = JSON.parse(readFileSync(resolvedManifestPath, 'utf-8'));
+  const manifest = normalizeReviewEvalManifest(raw);
+  const manifestDir = dirname(resolvedManifestPath);
+  const results: ReviewEvalCaseResult[] = [];
+
+  for (const testCase of manifest.cases) {
+    const files = testCase.files.map((file) => resolve(manifestDir, file));
+    const caseConfig: ReviewConfig = {
+      ...baseConfig,
+      ...(testCase.config ?? {}),
+      target: testCase.config?.target ?? baseConfig.target,
+    };
+    const startedAt = Date.now();
+
+    try {
+      const reports = testCase.graph
+        ? reviewGraph(files, caseConfig, {
+            maxDepth: testCase.maxDepth,
+            tsConfigFilePath: caseConfig.tsConfigFilePath,
+          })
+        : files.map((file) => reviewFile(file, caseConfig));
+      results.push(evaluateReviewReports({ ...testCase, files }, reports, { durationMs: Date.now() - startedAt }));
+    } catch (err) {
+      results.push({
+        name: testCase.name,
+        passed: false,
+        files,
+        findings: 0,
+        errors: 0,
+        warnings: 0,
+        notes: 0,
+        durationMs: Date.now() - startedAt,
+        failures: [`review failed: ${(err as Error).message}`],
+      });
+    }
+  }
+
+  return summarizeReviewEvalResults(results);
+}
+
 // ── Review command entry point ───────────────────────────────────────────
 
 async function runReviewLocal(args: string[]): Promise<void> {
   const jsonOutput = hasFlag(args, '--json');
   const sarifOutput = hasFlag(args, '--sarif', '--format=sarif');
+  const telemetryReportMode = args.some((arg) => arg === '--telemetry-report' || arg.startsWith('--telemetry-report='));
+  const telemetryReportPath = parseOptionalFlagOrNext(args, '--telemetry-report', '.kern/cache/review-telemetry.jsonl');
+  if (telemetryReportMode) {
+    let summary: ReturnType<typeof summarizeReviewTelemetry>;
+    try {
+      const snapshots = readReviewTelemetrySnapshots(resolve(telemetryReportPath));
+      summary = summarizeReviewTelemetry(snapshots);
+    } catch (err) {
+      console.error(`Failed to read telemetry report: ${(err as Error).message}`);
+      process.exit(1);
+    }
+    console.log(jsonOutput ? JSON.stringify(summary, null, 2) : formatReviewTelemetrySummary(summary));
+    process.exit(0);
+  }
+
   const recursive = hasFlag(args, '--recursive', '-r');
   const enforce = hasFlag(args, '--enforce');
   const exportKern = hasFlag(args, '--export-kern');
@@ -913,9 +1002,23 @@ async function runReviewLocal(args: string[]): Promise<void> {
   }
   const minConfidenceArg = parseFlag(args, '--min-confidence');
   const minConfidence = minConfidenceArg ? Number(minConfidenceArg) : undefined;
+  const policyArg = parseFlagOrNext(args, '--policy');
+  if (policyArg && policyArg !== 'guard' && policyArg !== 'ci' && policyArg !== 'audit') {
+    console.error("--policy must be 'guard', 'ci', or 'audit'");
+    process.exit(1);
+  }
+  if (auditMode && policyArg && policyArg !== 'audit') {
+    console.error('--audit cannot be combined with --policy other than audit');
+    process.exit(1);
+  }
+  const telemetryOutputPath = parseFlagOrNext(args, '--telemetry-out');
+  const telemetryEnabled = hasFlag(args, '--telemetry') || telemetryOutputPath !== undefined;
+  const telemetryIncludeFindings = hasFlag(args, '--telemetry-findings');
+  const telemetryReplace = hasFlag(args, '--telemetry-replace');
   const disableRuleArgs = args.filter((a) => a.startsWith('--disable-rule=')).map((a) => a.split('=')[1]);
   const baselinePath = parseFlagOrNext(args, '--baseline');
   const writeBaselinePath = parseFlagOrNext(args, '--write-baseline');
+  const evalManifestPath = parseFlagOrNext(args, '--eval-manifest');
   const newOnly = hasFlag(args, '--new-only');
   if (newOnly && !baselinePath) {
     console.error('--new-only requires --baseline=<file.json>');
@@ -982,11 +1085,17 @@ async function runReviewLocal(args: string[]): Promise<void> {
       layers.get(r.layer)!.push(r);
     }
     console.log(`\n  KERN Review Rules (target: ${target}) — ${rules.length} rules active\n`);
+    console.log('  Columns: SEV PRECISION LIFECYCLE CI RULE');
+    console.log('');
     for (const [layer, layerRules] of layers) {
       console.log(`  [${layer}] (${layerRules.length} rules)`);
       for (const r of layerRules) {
         const sev = r.severity === 'error' ? 'ERR' : r.severity === 'warning' ? 'WRN' : 'INF';
-        console.log(`    ${sev}  ${r.id.padEnd(30)} ${r.description}`);
+        const profile = getRuleQualityProfile(r.id);
+        const precision = (profile?.precision ?? 'medium').toUpperCase().padEnd(12);
+        const lifecycle = (profile?.lifecycle ?? 'stable').toUpperCase().padEnd(11);
+        const ciDefault = (profile?.ciDefault ?? 'guarded').toUpperCase().padEnd(7);
+        console.log(`    ${sev}  ${precision}${lifecycle}${ciDefault}${r.id.padEnd(30)} ${r.description}`);
       }
       console.log();
     }
@@ -1010,6 +1119,9 @@ async function runReviewLocal(args: string[]): Promise<void> {
     '--max-warnings',
     '--min-confidence',
     '--cross-stack-mode',
+    '--policy',
+    '--telemetry-out',
+    '--eval-manifest',
     '--baseline',
     '--write-baseline',
   ]);
@@ -1025,6 +1137,9 @@ async function runReviewLocal(args: string[]): Promise<void> {
     reviewInputs.push(arg);
   }
   let reviewInput = reviewInputs[0];
+  if (!reviewInput && evalManifestPath) {
+    reviewInput = '__eval__';
+  }
   const remoteUrl = parseFlagOrNext(args, '--git');
   if (remoteUrl && !reviewInput && !diffBase) {
     reviewInput = '.';
@@ -1122,6 +1237,9 @@ async function runReviewLocal(args: string[]): Promise<void> {
     console.error(
       '       [--write-baseline=file.json] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--audit] [--cross-stack-mode guard|audit]',
     );
+    console.error(
+      '       [--policy guard|ci|audit] [--telemetry] [--telemetry-out file] [--telemetry-report file] [--eval-manifest file]',
+    );
     console.error('       [--fix] [--autofix] [--require-confidence] [--rules-dir <dir>] [--include-generated]');
     console.error('');
     console.error('  Default (inside git): reviews changes vs origin/main. Use --full to scan the whole tree.');
@@ -1131,7 +1249,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  if (reviewInput !== '__diff__') {
+  if (reviewInput !== '__diff__' && reviewInput !== '__eval__') {
     const reviewPath = resolve(reviewInput);
     const stat = existsSync(reviewPath) ? statSync(reviewPath) : null;
     if (!stat) {
@@ -1158,7 +1276,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
   const cfgDisabledRules: string[] = reviewCfg.review.disabledRules ?? [];
   const mergedDisabledRules = [...new Set([...cfgDisabledRules, ...disableRuleArgs])];
 
-  const reviewConfig: ReviewConfig = {
+  let reviewConfig: ReviewConfig = {
     registeredTemplates: [],
     minCoverage: minCoverage ?? 0,
     enforceTemplates: enforce,
@@ -1170,12 +1288,22 @@ async function runReviewLocal(args: string[]): Promise<void> {
     crossStackMode: auditMode
       ? 'audit'
       : ((crossStackModeArg as 'guard' | 'audit' | undefined) ?? reviewCfg.review.crossStackMode),
+    policy: (policyArg as ReviewConfig['policy']) ?? reviewCfg.review.policy ?? (auditMode ? 'audit' : undefined),
     showConfidence: showConfidence || reviewCfg.review.showConfidence,
     minConfidence: minConfidence ?? reviewCfg.review.minConfidence,
     disabledRules: mergedDisabledRules.length > 0 ? mergedDisabledRules : undefined,
     rulesDirs: rulesDirs.length > 0 ? rulesDirs : undefined,
     strict,
     strictParse,
+    telemetry:
+      telemetryEnabled || reviewCfg.review.telemetry.enabled
+        ? {
+            enabled: true,
+            outputPath: telemetryOutputPath ? resolve(telemetryOutputPath) : reviewCfg.review.telemetry.outputPath,
+            append: telemetryReplace ? false : reviewCfg.review.telemetry.append,
+            includeFindings: telemetryIncludeFindings || reviewCfg.review.telemetry.includeFindings,
+          }
+        : undefined,
     requireConfidenceAnnotations: requireConfidenceAnnotations || reviewCfg.review.requireConfidenceAnnotations,
     tsConfigFilePath: tsconfigPath,
     publicApi:
@@ -1187,6 +1315,17 @@ async function runReviewLocal(args: string[]): Promise<void> {
           }
         : undefined,
   };
+  const explicitPolicy = Boolean(policyArg || reviewCfg.review.policy || auditMode);
+  if (explicitPolicy) {
+    reviewConfig = applyReviewPolicyDefaults(reviewConfig, {
+      crossStackMode: Boolean(crossStackModeArg || auditMode),
+      minConfidence: minConfidenceArg !== undefined || reviewCfg.review.minConfidence !== 0,
+      maxErrors: maxErrorsArg !== undefined,
+      maxWarnings: maxWarningsArg !== undefined,
+      strict: strictArg !== undefined,
+      strictParse,
+    });
+  }
 
   // Load templates for review
   if (reviewCfg.templates && reviewCfg.templates.length > 0) {
@@ -1224,6 +1363,12 @@ async function runReviewLocal(args: string[]): Promise<void> {
     }
   }
 
+  if (evalManifestPath) {
+    const summary = runReviewEvalManifest(evalManifestPath, reviewConfig);
+    console.log(jsonOutput ? JSON.stringify(summary, null, 2) : formatReviewEvalSummary(summary));
+    process.exit(summary.passed ? 0 : 1);
+  }
+
   // Collect entry file paths
   let entryFilePaths: string[] = [];
 
@@ -1257,10 +1402,10 @@ async function runReviewLocal(args: string[]): Promise<void> {
     lintMode,
     skipGenerated,
     exportKern,
-    enforce,
+    enforce: enforce || reviewConfig.policy === 'ci',
     jsonOutput,
     sarifOutput,
-    strictParse,
+    strictParse: Boolean(reviewConfig.strictParse),
     maxDepth,
     batchSize,
     tsconfigPath,

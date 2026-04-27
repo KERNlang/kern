@@ -16,6 +16,7 @@ import {
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
+import { apiCallRootCause } from './root-cause.js';
 
 const PAGINATION_QUERY_PARAMS = new Set(['limit', 'take', 'page', 'pageSize', 'perPage', 'cursor', 'offset', 'skip']);
 
@@ -51,12 +52,14 @@ export function unboundedCollectionQuery(ctx: ConceptRuleContext): ReviewFinding
       category: 'bug',
       message: `Client calls list endpoint \`${target}\` without page/cursor/limit parameters, and the matching server route appears to return an unbounded DB collection. Add pagination on both sides before this endpoint grows.`,
       primarySpan: node.primarySpan,
+      relatedSpans: [route.node.primarySpan],
       fingerprint: createFingerprint(
         'unbounded-collection-query',
         node.primarySpan.startLine,
         node.primarySpan.startCol,
       ),
       confidence: node.confidence * CROSS_STACK_HEURISTIC_CONFIDENCE,
+      rootCause: apiCallRootCause(node, normalized, node.payload.method, route.node),
     });
   }
 

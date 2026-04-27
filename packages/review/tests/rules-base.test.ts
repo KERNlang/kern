@@ -120,7 +120,7 @@ export async function fetchData(url: string): Promise<any> {
       const report = reviewSource(source, 'api.ts');
       const finding = report.findings.find((f) => f.ruleId === 'unhandled-async');
       expect(finding).toBeDefined();
-      expect(finding!.severity).toBe('warning');
+      expect(finding!.severity).toBe('info');
     });
 
     it('does not flag async with try/catch', () => {
@@ -240,8 +240,39 @@ function complex(a: number, b: string, c: boolean) {
       const report = reviewSource(source, 'complex.ts');
       const cc = report.findings.find((f) => f.ruleId === 'cognitive-complexity');
       expect(cc).toBeDefined();
-      expect(cc!.severity).toBe('warning');
+      expect(cc!.severity).toBe('info');
       expect(cc!.message).toContain('cognitive complexity');
+    });
+
+    it('keeps cognitive complexity as warning in audit mode', () => {
+      const source = `
+function complex(a: number, b: string, c: boolean) {
+  if (a > 0) {
+    if (b === 'x') {
+      for (let i = 0; i < a; i++) {
+        if (c) {
+          while (i > 0) {
+            if (a && b) {
+              const x = c ? 1 : 2;
+            }
+          }
+        }
+      }
+    } else if (b === 'y') {
+      switch (a) {
+        case 1: break;
+        case 2: break;
+      }
+    } else {
+      try { foo(); } catch (e) { bar(); }
+    }
+  }
+}
+`;
+      const report = reviewSource(source, 'complex.ts', { crossStackMode: 'audit' });
+      const cc = report.findings.find((f) => f.ruleId === 'cognitive-complexity');
+      expect(cc).toBeDefined();
+      expect(cc!.severity).toBe('warning');
     });
 
     it('passes simple functions', () => {
@@ -390,6 +421,7 @@ export async function loadConfig() {
       const report = reviewSource(source, 'config.ts');
       const f = report.findings.find((f) => f.ruleId === 'sync-in-async');
       expect(f).toBeDefined();
+      expect(f!.severity).toBe('info');
       expect(f!.message).toContain('readFileSync');
     });
 

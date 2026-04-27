@@ -26,7 +26,8 @@
   "license": "AGPL-3.0",
   "scripts": {
     "build": "tsc -b",
-    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
+    "test": "node --disable-warning=ExperimentalWarning --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js",
+    "test:handles": "node --disable-warning=ExperimentalWarning --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js --detectOpenHandles --runInBand"
   },
   "dependencies": {
     "@kernlang/core": "workspace:*",

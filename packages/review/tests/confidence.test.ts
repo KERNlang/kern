@@ -277,6 +277,108 @@ describe('Reporter: SARIF rank', () => {
     expect(result.rank).toBeUndefined();
   });
 
+  it('exports structured autofixes in SARIF output', () => {
+    const report = makeReport([
+      makeFinding({
+        ruleId: 'floating-promise',
+        autofix: {
+          type: 'replace',
+          span: { file: 'scripts/run.mjs', startLine: 5, startCol: 1, endLine: 5, endCol: 16 },
+          replacement: 'run().catch(console.error);',
+          description: 'Handle top-level rejection',
+        },
+      }),
+    ]);
+    const sarif = JSON.parse(formatSARIF([report]));
+    const fix = sarif.runs[0].results[0].fixes[0];
+    expect(fix.description.text).toBe('Handle top-level rejection');
+    expect(fix.artifactChanges[0].artifactLocation.uri).toBe('scripts/run.mjs');
+    expect(fix.artifactChanges[0].replacements[0].insertedContent.text).toBe('run().catch(console.error);');
+  });
+
+  it('exports related locations in SARIF output', () => {
+    const report = makeReport([
+      makeFinding({
+        ruleId: 'unhandled-api-error-shape',
+        relatedSpans: [{ file: 'src/server.ts', startLine: 7, startCol: 1, endLine: 9, endCol: 2 }],
+      }),
+    ]);
+    const sarif = JSON.parse(formatSARIF([report]));
+    const related = sarif.runs[0].results[0].relatedLocations[0];
+    expect(related.id).toBe(1);
+    expect(related.physicalLocation.artifactLocation.uri).toBe('src/server.ts');
+    expect(related.physicalLocation.region.startLine).toBe(7);
+  });
+
+  it('exports rule quality and root-cause metadata in SARIF output', () => {
+    const report = makeReport([
+      makeFinding({
+        ruleId: 'auth-drift',
+        rootCause: {
+          kind: 'api-call',
+          key: 'api-call client=c1 method=GET path=/api/me',
+          facets: { method: 'GET', path: '/api/me' },
+        },
+      }),
+    ]);
+    const sarif = JSON.parse(formatSARIF([report]));
+    const result = sarif.runs[0].results[0];
+    const rule = sarif.runs[0].tool.driver.rules.find((entry: any) => entry.id === 'auth-drift');
+
+    expect(result.properties['kern/rootCause']).toEqual({
+      key: 'api-call client=c1 method=GET path=/api/me',
+      kind: 'api-call',
+      facets: { method: 'GET', path: '/api/me' },
+    });
+    expect(rule.properties['kern/precision']).toBe('high');
+    expect(rule.properties['kern/supersedes']).toEqual(
+      expect.arrayContaining(['auth-propagation-drift', 'unhandled-api-error-shape']),
+    );
+  });
+
+  it('exports a machine-readable KERN run summary in SARIF output', () => {
+    const report = makeReport(
+      [
+        makeFinding({
+          severity: 'error',
+          autofix: {
+            type: 'replace',
+            span: { file: 'test.ts', startLine: 1, startCol: 1, endLine: 1, endCol: 10 },
+            replacement: 'fixed();',
+            description: 'Fix it',
+          },
+        }),
+        makeFinding({
+          severity: 'warning',
+          fingerprint: 'related-fp',
+          relatedSpans: [{ file: 'server.ts', startLine: 3, startCol: 1, endLine: 3, endCol: 10 }],
+        }),
+        makeFinding({ severity: 'info', fingerprint: 'info-fp' }),
+      ],
+      {
+        suppressedFindings: [makeFinding({ fingerprint: 'inline-suppressed' })],
+        health: {
+          status: 'partial',
+          entries: [
+            { subsystem: 'tsc', kind: 'error', message: 'tsc failed' },
+            { subsystem: 'eslint', kind: 'skipped', message: 'eslint skipped' },
+          ],
+        },
+      },
+    );
+    const externalSuppressed = makeFinding({ fingerprint: 'external-suppressed' });
+    const sarif = JSON.parse(formatSARIFWithMetadata([report], { suppressedFindings: [externalSuppressed] }));
+    const summary = sarif.runs[0].properties['kern/summary'];
+
+    expect(summary.files).toBe(1);
+    expect(summary.findings).toEqual({ total: 3, errors: 1, warnings: 1, notes: 1 });
+    expect(summary.suppressed.total).toBe(2);
+    expect(summary.fixable).toBe(1);
+    expect(summary.relatedEvidence).toBe(1);
+    expect(summary.rootCauses).toBe(0);
+    expect(summary.health).toEqual({ status: 'partial', errors: 1, fallbacks: 0, skipped: 1 });
+  });
+
   it('marks baseline findings and suppresses existing ones in SARIF metadata', () => {
     const report = makeReport([
       makeFinding({ ruleId: 'existing-rule', fingerprint: 'existing-fp', message: 'existing message' }),
@@ -341,6 +443,20 @@ describe('Reporter: enforcement with minConfidence', () => {
     const config: ReviewConfig = { minConfidence: 0, maxErrors: 0 };
     const result = checkEnforcement(report, config);
     expect(result.errors.actual).toBe(1);
+  });
+
+  it('does not enforce advisory cognitive-complexity findings', () => {
+    const report = makeReport([
+      makeFinding({
+        ruleId: 'cognitive-complexity',
+        severity: 'info',
+        message: "Function 'complex' has cognitive complexity of 18 (threshold: 15)",
+      }),
+    ]);
+    const config: ReviewConfig = { maxComplexity: 15 };
+    const result = checkEnforcement(report, config);
+    expect(result.complexity.actual).toBe(0);
+    expect(result.passed).toBe(true);
   });
 });
 
