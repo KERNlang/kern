@@ -380,6 +380,38 @@ describe('Core Language Codegen', () => {
         'export const INIT: any = { current: null };',
       );
     });
+
+    // Slice 1j — native expression / quoted-string codegen via ValueIR
+    it('emits a quoted string value as a TS string literal (closes Slice 1i regression)', () => {
+      // value="a:b" used to emit `= a:b;` (broken TS). With __quotedProps codegen, it now emits as JSON.stringify.
+      expect(gen('const name=label type=string value="a:b"')).toContain('export const label: string = "a:b";');
+    });
+
+    it('emits a quoted string with embedded space as a string literal', () => {
+      expect(gen('const name=greeting type=string value="hello world"')).toContain(
+        'export const greeting: string = "hello world";',
+      );
+    });
+
+    it('escapes special characters in quoted string codegen', () => {
+      // JSON.stringify handles escaping of quotes, backslashes, control chars.
+      expect(gen('const name=path type=string value="a\\"b"')).toContain('export const path: string = "a\\"b";');
+    });
+
+    it('canonicalizes a bare expression value through ValueIR', () => {
+      // value=user?.name parses as MemberExpression with optional chain. emitExpression round-trips it.
+      expect(gen('const name=greeting value=user?.name')).toContain('export const greeting = user?.name;');
+    });
+
+    it('canonicalizes a bare numeric value through ValueIR (no behavior change for simple lits)', () => {
+      expect(gen('const name=TTL type=number value=3')).toContain('export const TTL: number = 3;');
+    });
+
+    it('falls back to raw string when bare value fails ValueIR parse', () => {
+      // value=1.5n (BigInt with fractional part) is invalid as expression. Validator emits
+      // INVALID_EXPRESSION; codegen ships raw so partial compilation still produces output.
+      expect(gen('const name=bad value=1.5n')).toContain('export const bad = 1.5n;');
+    });
   });
 
   // ── agon-plan.kern integration ──

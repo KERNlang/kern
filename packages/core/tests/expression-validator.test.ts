@@ -160,19 +160,17 @@ describe('Quote-origin tracking (Slice 1i)', () => {
   });
 });
 
-describe('Slice 1j guardrail (codegen contract for __quotedProps)', () => {
-  // Codex review of slice 1i flagged that for invalid-as-expression quoted strings
-  // (e.g. `value="a:b"`), validation correctly skips (string literal is fine), but
-  // codegen still emits the raw value, producing invalid TS like `const s = a:b;`.
-  // Slice 1j must consume node.__quotedProps in generateConst and emit JSON.stringify
-  // for these props so generated TS stays valid.
+describe('Slice 1j contract (codegen consumes __quotedProps)', () => {
+  // Slice 1i tracked quote origin; Slice 1j threads it through generateConst so
+  // quoted strings emit as JSON-quoted TS literals (vs. raw — which produced
+  // invalid TS like `const s = a:b;` for unparseable strings).
 
-  test('quoted string with colon: parse passes, but __quotedProps marks for codegen', () => {
+  test('quoted string with colon parses cleanly and IR is shaped for codegen', () => {
     const root = rootOf('const name=s value="a:b"\n');
     const node = findNode(root, 'const');
     expect(node?.props?.value).toBe('a:b');
     expect(node?.__quotedProps).toEqual(['value']);
-    // Slice 1j contract: codegen must wrap this as JSON.stringify('a:b') to produce valid TS.
-    // Until Slice 1j lands, generated output for this input is intentionally raw.
+    // The full codegen contract is enforced in tests/codegen-core.test.ts
+    // ('emits a quoted string value as a TS string literal').
   });
 });

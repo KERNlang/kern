@@ -34,6 +34,9 @@ const TS_NUMERIC_LITERALS: CapabilityEntry[] = [
   { feature: 'nullish-coalesce', position: 'expression', support: 'native' },
   { feature: 'spread', position: 'expression', support: 'native' },
   { feature: 'template-literal', position: 'expression', support: 'native' },
+  // Slice 1j — const.value is emitted via ValueIR expression codegen on TS targets.
+  // Quoted strings round-trip through JSON.stringify; bare expressions canonicalize via emitExpression.
+  { feature: 'const-value-as-expression', position: 'top-level', support: 'native' },
 ];
 
 const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
@@ -63,6 +66,13 @@ const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
   },
   { feature: 'spread', position: 'expression', support: 'lowered', note: 'lowered to *iter / **mapping' },
   { feature: 'template-literal', position: 'expression', support: 'lowered', note: 'lowered to f-string' },
+  // Slice 1j — Python codegen has its own const path (FastAPI generator); ValueIR consumption is deferred.
+  {
+    feature: 'const-value-as-expression',
+    position: 'top-level',
+    support: 'unsupported',
+    note: 'Python const codegen has not yet been wired to ValueIR; bare values emit raw',
+  },
 ];
 
 export const CAPABILITY_MATRIX: CapabilityMatrix = {

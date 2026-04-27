@@ -4,7 +4,9 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
+import { emitExpression } from '../codegen-expression.js';
 import { propsOf } from '../node-props.js';
+import { parseExpression } from '../parser-expression.js';
 import type { ExprObject, IRNode } from '../types.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
 import {
@@ -314,10 +316,26 @@ export function generateConst(node: IRNode): string[] {
     return [...docs, `${exp}const ${name}${typeAnnotation} = ${code.trim()};`];
   }
   if (rawValue !== undefined && rawValue !== '') {
-    // `value={{ expr }}` is parsed as ExprObject; emit the raw code. Bare
-    // literal values (`value=42`) come through as strings.
-    const value = isExprObject(rawValue) ? rawValue.code : rawValue;
+    const value = emitConstValue(node, rawValue);
     return [...docs, `${exp}const ${name}${typeAnnotation} = ${value};`];
   }
   return [...docs, `${exp}const ${name}${typeAnnotation};`];
+}
+
+/** Emit the right-hand side of `const name = ...` from raw IR value.
+ *
+ *  - `value={{ expr }}` (ExprObject) — emit `.code` raw (escape hatch for arbitrary TS).
+ *  - `value="literal"` (quoted, tracked in __quotedProps) — emit as JSON-quoted string
+ *    so output is valid TS even when the literal contains expression-illegal characters.
+ *  - bare `value=...` — try ValueIR parse + emit for canonicalization. Fall back to raw
+ *    string on parse failure (validator emits INVALID_EXPRESSION but codegen still ships). */
+function emitConstValue(node: IRNode, rawValue: unknown): string {
+  if (isExprObject(rawValue)) return rawValue.code;
+  if (typeof rawValue !== 'string') return String(rawValue);
+  if (node.__quotedProps?.includes('value')) return JSON.stringify(rawValue);
+  try {
+    return emitExpression(parseExpression(rawValue));
+  } catch {
+    return rawValue;
+  }
 }
