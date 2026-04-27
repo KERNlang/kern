@@ -105,6 +105,94 @@ describe('KNOWN_FRAMEWORK_SEEDS — non-matches', () => {
   });
 });
 
+// Phase 4 step 7b — edge-case Next.js conventions. These were the gaps
+// Codex+Gemini flagged in the plan-review pass: parallel routes, metadata
+// image files, instrumentation, mdx-components, and the v16 middleware →
+// proxy rename. Every seed is symbol-scoped — same invariant as 7a.
+describe('KNOWN_FRAMEWORK_SEEDS — parallel routes (step 7b)', () => {
+  it('matches app/@slot/default.tsx to default-only seed', () => {
+    const seed = getFrameworkSeed('/repo/src/app/@modal/default.tsx');
+    expect(seed?.why).toBe('Next.js App Router parallel-route default');
+    expect(seed?.symbols).toEqual(['default']);
+  });
+
+  it('matches a nested default.tsx anywhere under app/', () => {
+    const seed = getFrameworkSeed('/repo/src/app/(group)/users/@side/default.tsx');
+    expect(seed?.why).toBe('Next.js App Router parallel-route default');
+  });
+});
+
+describe('KNOWN_FRAMEWORK_SEEDS — auth-flow special files (step 7b)', () => {
+  it.each([
+    ['forbidden.tsx', 'Next.js App Router forbidden'],
+    ['unauthorized.tsx', 'Next.js App Router unauthorized'],
+    ['global-not-found.tsx', 'Next.js App Router global-not-found'],
+  ])('matches `%s` to a default-only seed', (filename, why) => {
+    const seed = getFrameworkSeed(`/repo/src/app/${filename}`);
+    expect(seed?.why).toBe(why);
+    expect(seed?.symbols).toEqual(['default']);
+  });
+});
+
+describe('KNOWN_FRAMEWORK_SEEDS — metadata route handlers (step 7b)', () => {
+  it('matches sitemap.ts to default + generateSitemaps', () => {
+    const seed = getFrameworkSeed('/repo/src/app/sitemap.ts');
+    expect(seed?.why).toBe('Next.js App Router sitemap');
+    expect(seed?.symbols).toEqual(['default', 'generateSitemaps']);
+  });
+
+  it('matches robots.ts to default-only', () => {
+    const seed = getFrameworkSeed('/repo/src/app/robots.ts');
+    expect(seed?.why).toBe('Next.js App Router robots');
+    expect(seed?.symbols).toEqual(['default']);
+  });
+
+  it('matches manifest.ts to default-only', () => {
+    expect(getFrameworkSeed('/repo/src/app/manifest.ts')?.symbols).toEqual(['default']);
+  });
+});
+
+describe('KNOWN_FRAMEWORK_SEEDS — image metadata files (step 7b)', () => {
+  it.each([
+    ['icon.tsx', 'Next.js App Router icon'],
+    ['apple-icon.tsx', 'Next.js App Router apple-icon'],
+    ['opengraph-image.tsx', 'Next.js App Router opengraph-image'],
+    ['twitter-image.tsx', 'Next.js App Router twitter-image'],
+  ])('matches `%s` with default + image metadata exports', (filename, why) => {
+    const seed = getFrameworkSeed(`/repo/src/app/${filename}`);
+    expect(seed?.why).toBe(why);
+    expect(seed?.symbols).toEqual(['default', 'generateImageMetadata', 'alt', 'size', 'contentType']);
+  });
+});
+
+describe('KNOWN_FRAMEWORK_SEEDS — instrumentation + mdx-components (step 7b)', () => {
+  it('matches root instrumentation.ts to register + onRequestError', () => {
+    const seed = getFrameworkSeed('/repo/instrumentation.ts');
+    expect(seed?.why).toBe('Next.js instrumentation');
+    expect(seed?.symbols).toEqual(['register', 'onRequestError']);
+  });
+
+  it('matches instrumentation-client.ts to onRouterTransitionStart', () => {
+    const seed = getFrameworkSeed('/repo/src/instrumentation-client.ts');
+    expect(seed?.why).toBe('Next.js instrumentation-client');
+    expect(seed?.symbols).toEqual(['onRouterTransitionStart']);
+  });
+
+  it('matches mdx-components.tsx to useMDXComponents only', () => {
+    const seed = getFrameworkSeed('/repo/mdx-components.tsx');
+    expect(seed?.why).toBe('Next.js mdx-components');
+    expect(seed?.symbols).toEqual(['useMDXComponents']);
+  });
+});
+
+describe('KNOWN_FRAMEWORK_SEEDS — proxy forward-compat (step 7b)', () => {
+  it('matches root proxy.ts to default + proxy + config (Next 16+ middleware rename)', () => {
+    const seed = getFrameworkSeed('/repo/proxy.ts');
+    expect(seed?.why).toBe('Next.js proxy (v16 middleware rename)');
+    expect(seed?.symbols).toEqual(['default', 'proxy', 'config']);
+  });
+});
+
 describe('KNOWN_FRAMEWORK_SEEDS — invariants', () => {
   it('every seed lists at least one symbol (no whole-file or empty seeds)', () => {
     for (const seed of KNOWN_FRAMEWORK_SEEDS) {

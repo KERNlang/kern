@@ -65,6 +65,16 @@ const SCRIPT_EXTS = ['ts', 'js'];
 const PAGES_EXTS = ['tsx', 'ts', 'jsx', 'js'];
 
 /**
+ * Symbol surface for app/ metadata image files (icon, apple-icon,
+ * opengraph-image, twitter-image). The dynamic forms (`.ts(x)`/`.js(x)`)
+ * export `default` (the image-generation function) plus optional
+ * `generateImageMetadata`, `alt`, `size`, `contentType`. Static forms
+ * (`.png`, `.svg`, etc.) have no JS exports so we skip those extensions.
+ * Source: Next.js metadata-files docs.
+ */
+const IMAGE_METADATA_SYMBOLS = ['default', 'generateImageMetadata', 'alt', 'size', 'contentType'];
+
+/**
  * STABLE Next.js conventions (step 7a). Edge-case shapes (parallel routes,
  * metadata files like icon/opengraph-image, instrumentation, proxy) live
  * in step 7b — each commit stays a clean change set.
@@ -140,6 +150,87 @@ export const KNOWN_FRAMEWORK_SEEDS: readonly FrameworkSeed[] = [
       why: 'Next.js middleware',
     },
   ]),
+
+  // ── Step 7b — edge-case Next.js conventions ────────────────────────────
+
+  // Parallel-route slot fallback. `app/@slot/default.tsx` (and any nested
+  // `default.{ext}` under `app/`) is rendered when an unmatched parallel
+  // segment has no other match. Always exports `default` only.
+  ...APP_EXTS.map((ext) => ({
+    pattern: `**/app/**/default.${ext}`,
+    symbols: ['default'] as readonly string[],
+    why: 'Next.js App Router parallel-route default',
+  })),
+
+  // Auth-flow special files (Next 15+): forbidden() and unauthorized()
+  // navigations resolve to dedicated UI files. Symmetric with not-found.
+  ...APP_EXTS.flatMap((ext) =>
+    ['forbidden', 'unauthorized', 'global-not-found'].map((kind) => ({
+      pattern: `**/app/**/${kind}.${ext}`,
+      symbols: ['default'] as readonly string[],
+      why: `Next.js App Router ${kind}`,
+    })),
+  ),
+
+  // Metadata route handlers — sitemap, robots, manifest. Always at the
+  // app/ root or under a route group; export `default` (the generator).
+  // sitemap.{ext} also supports `generateSitemaps` for paginated sitemaps.
+  ...SCRIPT_EXTS.map((ext) => ({
+    pattern: `**/app/**/sitemap.${ext}`,
+    symbols: ['default', 'generateSitemaps'] as readonly string[],
+    why: 'Next.js App Router sitemap',
+  })),
+  ...SCRIPT_EXTS.flatMap((ext) =>
+    ['robots', 'manifest'].map((kind) => ({
+      pattern: `**/app/**/${kind}.${ext}`,
+      symbols: ['default'] as readonly string[],
+      why: `Next.js App Router ${kind}`,
+    })),
+  ),
+
+  // Image metadata files — dynamic generation forms only. Static images
+  // (`.png`, `.svg`, …) have no JS exports so we don't pattern those.
+  ...APP_EXTS.flatMap((ext) =>
+    ['icon', 'apple-icon', 'opengraph-image', 'twitter-image'].map((kind) => ({
+      pattern: `**/app/**/${kind}.${ext}`,
+      symbols: IMAGE_METADATA_SYMBOLS,
+      why: `Next.js App Router ${kind}`,
+    })),
+  ),
+
+  // instrumentation.{ts,js} — root-level (or src/-level) hooks. `register`
+  // runs at server start; `onRequestError` reports per-request errors.
+  ...SCRIPT_EXTS.map((ext) => ({
+    pattern: `**/instrumentation.${ext}`,
+    symbols: ['register', 'onRequestError'] as readonly string[],
+    why: 'Next.js instrumentation',
+  })),
+
+  // instrumentation-client.{ts,js} — Next 15+ client-side companion.
+  // `onRouterTransitionStart` fires on route changes.
+  ...SCRIPT_EXTS.map((ext) => ({
+    pattern: `**/instrumentation-client.${ext}`,
+    symbols: ['onRouterTransitionStart'] as readonly string[],
+    why: 'Next.js instrumentation-client',
+  })),
+
+  // mdx-components.{ts,tsx,js,jsx} — required at the project root for MDX
+  // pages to resolve component overrides via useMDXComponents.
+  ...APP_EXTS.map((ext) => ({
+    pattern: `**/mdx-components.${ext}`,
+    symbols: ['useMDXComponents'] as readonly string[],
+    why: 'Next.js mdx-components',
+  })),
+
+  // Forward-compat: Next 16 renames `middleware` to `proxy`. Adding the
+  // pattern now means upgrading projects keep their seeds working without
+  // a kern-lang release. If Next walks back the rename, removing this
+  // pattern is a no-op for projects still on `middleware.{ts,js}`.
+  ...SCRIPT_EXTS.map((ext) => ({
+    pattern: `**/proxy.${ext}`,
+    symbols: ['default', 'proxy', 'config'] as readonly string[],
+    why: 'Next.js proxy (v16 middleware rename)',
+  })),
 ];
 
 /**
