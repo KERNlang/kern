@@ -249,6 +249,77 @@ describe('resolveImportGraph', () => {
   });
 });
 
+// Phase 4 step 3 — literal dynamic-import tracing. Without this, lazy routes
+// like `await import('./routes/users')` are invisible to the graph and the
+// target's exports get flagged dead. Red-team #5: ts-morph models the call
+// expression as SyntaxKind.ImportKeyword, NOT as an Identifier with text
+// "import" — getting this wrong silently skips every dynamic import.
+describe('Phase 4 dynamic-import edge emission', () => {
+  it("emits a 'dynamic-import' edge when import('./mod') has a string-literal specifier", () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/router.ts', `async function go() { await import('./users.js'); }\n`);
+    project.createSourceFile('/src/users.ts', `export function getUser() { return null; }\n`);
+
+    const result = resolveImportGraph(['/src/router.ts'], { project });
+    const router = result.files.find((f) => f.path === '/src/router.ts');
+    expect(router?.importEdges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'dynamic-import',
+          specifier: './users.js',
+          to: '/src/users.ts',
+        }),
+      ]),
+    );
+  });
+
+  it('also recognizes NoSubstitutionTemplateLiteral specifiers (`import(`./mod`)`)', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/loader.ts', 'async function load() { await import(`./feature`); }\n');
+    project.createSourceFile('/src/feature.ts', 'export const FEATURE_ID = "x";\n');
+
+    const result = resolveImportGraph(['/src/loader.ts'], { project });
+    const loader = result.files.find((f) => f.path === '/src/loader.ts');
+    expect(loader?.importEdges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'dynamic-import',
+          to: '/src/feature.ts',
+        }),
+      ]),
+    );
+  });
+
+  it('does NOT emit an edge when the specifier is non-literal (deferred to step 9b blocker)', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/router2.ts',
+      `const ROUTES: Record<string, string> = { a: './a' };\nasync function go(role: string) { await import(ROUTES[role]); }\n`,
+    );
+    project.createSourceFile('/src/a.ts', `export function aHandler() {}\n`);
+
+    const result = resolveImportGraph(['/src/router2.ts'], { project });
+    const router = result.files.find((f) => f.path === '/src/router2.ts');
+    const dynEdges = router?.importEdges.filter((e) => e.kind === 'dynamic-import') ?? [];
+    expect(dynEdges).toEqual([]);
+  });
+
+  it('static-import and dynamic-import to the same target coexist as separate edges', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/dual.ts',
+      `import { eager } from './target.js';\nasync function lazy() { await import('./target.js'); }\nexport const e = eager;\n`,
+    );
+    project.createSourceFile('/src/target.ts', `export function eager() {}\n`);
+
+    const result = resolveImportGraph(['/src/dual.ts'], { project });
+    const dual = result.files.find((f) => f.path === '/src/dual.ts');
+    const kindsToTarget = (dual?.importEdges ?? []).filter((e) => e.to === '/src/target.ts').map((e) => e.kind);
+    expect(kindsToTarget).toContain('named-import');
+    expect(kindsToTarget).toContain('dynamic-import');
+  });
+});
+
 // Phase 4 step 2 — type-shape contract tests. These are compile-time-asserted
 // by tsc, but a runtime check guards against accidental breaking changes
 // landing in types.ts that wouldn't surface until step 3 (graph.ts emit) or
