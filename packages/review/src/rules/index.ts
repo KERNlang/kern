@@ -125,6 +125,28 @@ export interface RuleInfo {
    */
   precision?: 'high' | 'medium' | 'experimental';
   /**
+   * Lifecycle controls how aggressively a rule should participate in default
+   * guard/CI runs. Omitted entries are inferred from precision and rolloutPhase.
+   */
+  lifecycle?: 'stable' | 'candidate' | 'experimental';
+  /**
+   * Default CI posture:
+   * - on: participates at declared severity
+   * - guarded: can be softened in high-signal guard runs
+   * - off: emitted as informational unless audit mode is enabled
+   */
+  ciDefault?: 'on' | 'guarded' | 'off';
+  /**
+   * Analysis substrates required for high precision. This is intentionally
+   * declarative so new rules have to state their dependency on graph/type/evidence
+   * rather than hiding it in implementation comments.
+   */
+  requires?: Array<'graph' | 'type-info' | 'concepts' | 'taint' | 'external-tool'>;
+  /** Rule IDs that this rule makes redundant when both fire on the same root cause. */
+  supersedes?: string[];
+  /** True when findings from this rule can safely carry structured autofix actions. */
+  fixable?: boolean;
+  /**
    * Wave number in the rollout plan. Used by kern-sight to group new rules
    * visually and by `--list-rules` to surface what just landed. Wave 0 = substrate.
    */
@@ -1143,6 +1165,38 @@ const REGISTRY: RuleInfo[] = [
     layer: 'concept',
     severity: 'warning',
     description: 'Network/DB effect without error recovery',
+  },
+  {
+    id: 'auth-drift',
+    layer: 'concept',
+    severity: 'warning',
+    description: 'Authenticated backend route called by raw client request without visible auth propagation',
+    precision: 'high',
+    supersedes: ['auth-propagation-drift', 'unhandled-api-error-shape'],
+  },
+  {
+    id: 'contract-drift',
+    layer: 'concept',
+    severity: 'warning',
+    description: 'Client network call has no matching server route contract',
+    precision: 'high',
+    supersedes: ['unhandled-api-error-shape', 'unbounded-collection-query', 'request-validation-drift'],
+  },
+  {
+    id: 'contract-method-drift',
+    layer: 'concept',
+    severity: 'warning',
+    description: 'Client network method does not match the server route method for the same path',
+    precision: 'high',
+    supersedes: ['unhandled-api-error-shape', 'unbounded-collection-query', 'request-validation-drift'],
+  },
+  {
+    id: 'body-shape-drift',
+    layer: 'concept',
+    severity: 'warning',
+    description: 'Client request body fields differ from backend route body usage',
+    precision: 'high',
+    supersedes: ['request-validation-drift'],
   },
   {
     id: 'unhandled-api-error-shape',

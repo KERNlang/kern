@@ -6,6 +6,7 @@
  */
 
 import { buildLLMPrompt, exportKernIR } from './llm-review.js';
+import { getRuleQualityProfile } from './rule-quality.js';
 import type {
   EnforceResult,
   InferResult,
@@ -477,10 +478,23 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
   ): void {
     if (!rules.has(finding.ruleId)) {
       rules.add(finding.ruleId);
+      const profile = getRuleQualityProfile(finding.ruleId);
       sarif.runs[0].tool.driver.rules.push({
         id: finding.ruleId,
         shortDescription: { text: finding.ruleId },
         helpUri: `https://github.com/kern-lang/kern-lang/blob/main/docs/rules.md#${finding.ruleId}`,
+        properties: {
+          ...(profile
+            ? {
+                'kern/precision': profile.precision,
+                'kern/lifecycle': profile.lifecycle,
+                'kern/ciDefault': profile.ciDefault,
+                ...(profile.requires ? { 'kern/requires': profile.requires } : {}),
+                ...(profile.supersedes ? { 'kern/supersedes': profile.supersedes } : {}),
+                ...(profile.rolloutPhase !== undefined ? { 'kern/rolloutPhase': profile.rolloutPhase } : {}),
+              }
+            : {}),
+        },
       });
     }
 
@@ -515,6 +529,13 @@ export function formatSARIFWithMetadata(reports: ReviewReport[], options: SARIFM
     if (finding.confidence !== undefined) {
       result.rank = finding.confidence * 100;
       properties['kern/confidence'] = finding.confidence;
+    }
+    if (finding.rootCause) {
+      properties['kern/rootCause'] = {
+        key: finding.rootCause.key,
+        kind: finding.rootCause.kind,
+        ...(finding.rootCause.facets ? { facets: finding.rootCause.facets } : {}),
+      };
     }
     if (baselineStatus) {
       properties['kern/baselineStatus'] = baselineStatus;
@@ -588,6 +609,7 @@ function buildSARIFRunProperties(
       },
       fixable: findings.filter((finding) => finding.autofix).length,
       relatedEvidence: findings.filter((finding) => (finding.relatedSpans?.length ?? 0) > 0).length,
+      rootCauses: new Set(findings.map((finding) => finding.rootCause?.key).filter(Boolean)).size,
       health: {
         status: healthEntries.some((entry) => entry.kind === 'error')
           ? 'partial'

@@ -112,7 +112,13 @@ async function compileDefaultSingle(
   let hasReactNodes = false;
 
   function processNode(node: IRNode): void {
-    if (isCoreNode(node.type)) {
+    if (isReactNode(node.type)) {
+      const sc = sourceComment(node, basename(file, '.kern'));
+      if (sc) lines.push(sc);
+      lines.push(...generateReactNode(node));
+      lines.push('');
+      hasReactNodes = true;
+    } else if (isCoreNode(node.type)) {
       const sc = sourceComment(node, basename(file, '.kern'));
       if (sc) lines.push(sc);
       lines.push(...generateCoreNode(node));
@@ -123,12 +129,6 @@ async function compileDefaultSingle(
       if (sc) lines.push(sc);
       lines.push(...expandTemplateNode(node));
       lines.push('');
-    } else if (isReactNode(node.type)) {
-      const sc = sourceComment(node, basename(file, '.kern'));
-      if (sc) lines.push(sc);
-      lines.push(...generateReactNode(node));
-      lines.push('');
-      hasReactNodes = true;
     }
   }
 

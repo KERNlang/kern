@@ -16,6 +16,7 @@ import {
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
+import { apiCallRootCause } from './root-cause.js';
 
 const PAGINATION_QUERY_PARAMS = new Set(['limit', 'take', 'page', 'pageSize', 'perPage', 'cursor', 'offset', 'skip']);
 
@@ -58,6 +59,7 @@ export function unboundedCollectionQuery(ctx: ConceptRuleContext): ReviewFinding
         node.primarySpan.startCol,
       ),
       confidence: node.confidence * CROSS_STACK_HEURISTIC_CONFIDENCE,
+      rootCause: apiCallRootCause(node, normalized, node.payload.method, route.node),
     });
   }
 

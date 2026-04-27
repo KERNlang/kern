@@ -6,9 +6,10 @@
  * under parallel test contention.
  */
 
-import { readFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import { join } from 'path';
-import { reviewFile, reviewSource } from '../src/index.js';
+import { reviewFile, reviewGraph, reviewSource } from '../src/index.js';
 
 const SRC_DIR = join(import.meta.dirname, '..', 'src');
 
@@ -16,6 +17,7 @@ const SRC_DIR = join(import.meta.dirname, '..', 'src');
 // Real perf tracking should use a dedicated benchmark, not CI tests.
 const SINGLE_FILE_BUDGET = 20_000;
 const BATCH_BUDGET = 60_000;
+const GRAPH_BUDGET = 60_000;
 
 describe('Performance Budget', () => {
   // Warmup: load ts-morph, JIT compile review rules — first run is always slow
@@ -50,5 +52,42 @@ describe('Performance Budget', () => {
     const elapsed = Date.now() - start;
     console.log(`  5-file batch: ${elapsed}ms (${(elapsed / files.length).toFixed(0)}ms/file)`);
     expect(elapsed).toBeLessThan(BATCH_BUDGET);
+  });
+
+  it('small graph review completes within budget', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kern-review-graph-budget-'));
+    try {
+      const client = join(dir, 'client.ts');
+      const server = join(dir, 'server.ts');
+      writeFileSync(
+        client,
+        `
+export async function loadMe() {
+  return fetch('/api/me').then((response) => response.json());
+}
+`,
+      );
+      writeFileSync(
+        server,
+        `
+const app = {
+  get(_path: string, _handler: unknown) {}
+};
+
+app.get('/api/me', (req: any, res: any) => {
+  if (!req.user) return res.status(401).json({ error: 'unauthorized' });
+  res.json({ id: req.user.id });
+});
+`,
+      );
+
+      const start = Date.now();
+      reviewGraph([client, server], { noCache: true }, { maxDepth: 0 });
+      const elapsed = Date.now() - start;
+      console.log(`  2-file graph: ${elapsed}ms`);
+      expect(elapsed).toBeLessThan(GRAPH_BUDGET);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

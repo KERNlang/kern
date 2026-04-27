@@ -100,6 +100,8 @@ export interface KernConfig {
     showConfidence?: boolean;
     /** Cross-stack review precision mode: guard is high precision, audit is broader. */
     crossStackMode?: 'guard' | 'audit';
+    /** Named review posture. `ci` tightens defaults when selected by the CLI. */
+    policy?: 'guard' | 'ci' | 'audit';
     /** Minimum confidence for findings to count in enforcement (default: 0) */
     minConfidence?: number;
     /** Maximum cognitive complexity allowed (default: 15) */
@@ -118,6 +120,13 @@ export interface KernConfig {
       files?: string[];
       /** Per-symbol overrides in `path#name` form. */
       symbols?: string[];
+    };
+    /** Persist machine-readable review telemetry when enabled. */
+    telemetry?: {
+      enabled?: boolean;
+      outputPath?: string;
+      append?: boolean;
+      includeFindings?: boolean;
     };
   };
 }
@@ -167,6 +176,7 @@ export interface ResolvedKernConfig {
   review: {
     showConfidence: boolean;
     crossStackMode: 'guard' | 'audit';
+    policy?: 'guard' | 'ci' | 'audit';
     minConfidence: number;
     maxComplexity: number;
     disabledRules: string[];
@@ -174,6 +184,12 @@ export interface ResolvedKernConfig {
     publicApi: {
       files: string[];
       symbols: string[];
+    };
+    telemetry: {
+      enabled: boolean;
+      outputPath?: string;
+      append: boolean;
+      includeFindings: boolean;
     };
   };
 }
@@ -215,6 +231,7 @@ export const DEFAULT_CONFIG: ResolvedKernConfig = {
   review: {
     showConfidence: false,
     crossStackMode: 'guard',
+    policy: undefined,
     minConfidence: 0,
     maxComplexity: 15,
     disabledRules: [],
@@ -222,6 +239,11 @@ export const DEFAULT_CONFIG: ResolvedKernConfig = {
     publicApi: {
       files: [],
       symbols: [],
+    },
+    telemetry: {
+      enabled: false,
+      append: true,
+      includeFindings: false,
     },
   },
 };
@@ -296,6 +318,7 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
     review: {
       showConfidence: user.review?.showConfidence ?? DEFAULT_CONFIG.review.showConfidence,
       crossStackMode: user.review?.crossStackMode ?? DEFAULT_CONFIG.review.crossStackMode,
+      policy: user.review?.policy ?? DEFAULT_CONFIG.review.policy,
       minConfidence: user.review?.minConfidence ?? DEFAULT_CONFIG.review.minConfidence,
       maxComplexity: user.review?.maxComplexity ?? DEFAULT_CONFIG.review.maxComplexity,
       disabledRules: user.review?.disabledRules ?? DEFAULT_CONFIG.review.disabledRules,
@@ -304,6 +327,12 @@ export function resolveConfig(user?: Partial<KernConfig>): ResolvedKernConfig {
       publicApi: {
         files: user.review?.publicApi?.files ?? DEFAULT_CONFIG.review.publicApi.files,
         symbols: user.review?.publicApi?.symbols ?? DEFAULT_CONFIG.review.publicApi.symbols,
+      },
+      telemetry: {
+        enabled: user.review?.telemetry?.enabled ?? DEFAULT_CONFIG.review.telemetry.enabled,
+        outputPath: user.review?.telemetry?.outputPath ?? DEFAULT_CONFIG.review.telemetry.outputPath,
+        append: user.review?.telemetry?.append ?? DEFAULT_CONFIG.review.telemetry.append,
+        includeFindings: user.review?.telemetry?.includeFindings ?? DEFAULT_CONFIG.review.telemetry.includeFindings,
       },
     },
   };

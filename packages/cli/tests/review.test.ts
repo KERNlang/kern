@@ -1,6 +1,6 @@
 import { reviewFile } from '@kernlang/review';
 import { execFileSync } from 'child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { runReview } from '../src/commands/review.js';
@@ -38,6 +38,144 @@ describe('kern review command', () => {
     process.exit = origExit;
     process.chdir(cwd);
     rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('lists rule quality metadata with --list-rules', async () => {
+    process.chdir(tmpDir);
+
+    let exitCode: number | undefined;
+    process.exit = ((code?: number) => {
+      exitCode = code;
+      throw new Error(`EXIT:${code ?? 0}`);
+    }) as never;
+
+    await expect(runReview(['review', '--list-rules', '--target=nextjs'])).rejects.toThrow('EXIT:0');
+    expect(exitCode).toBe(0);
+
+    const output = logs.join('\n');
+    expect(output).toContain('Columns: SEV PRECISION LIFECYCLE CI RULE');
+    expect(output).toContain('xss-href-javascript');
+    expect(output).toContain('HIGH');
+    expect(output).toContain('CANDIDATE');
+    expect(output).toContain('GUARDED');
+  });
+
+  it('writes telemetry snapshots and records explicit CI policy', async () => {
+    process.chdir(tmpDir);
+    const file = join(tmpDir, 'screen.kern');
+    const telemetryPath = join(tmpDir, 'review-telemetry.jsonl');
+    writeFileSync(file, `screen name=Home\n  text value="hello"\n`);
+
+    let exitCode: number | undefined;
+    process.exit = ((code?: number) => {
+      exitCode = code;
+      throw new Error(`EXIT:${code ?? 0}`);
+    }) as never;
+
+    await expect(
+      runReview(['review', file, '--policy=ci', `--telemetry-out=${telemetryPath}`, '--json']),
+    ).rejects.toThrow('EXIT:0');
+    expect(exitCode).toBe(0);
+
+    const snapshot = JSON.parse(readFileSync(telemetryPath, 'utf-8').trim());
+    expect(snapshot.policy).toBe('ci');
+    expect(snapshot.schemaVersion).toBe(1);
+    expect(snapshot.files).toBe(1);
+  });
+
+  it('renders a telemetry dashboard from JSONL snapshots', async () => {
+    process.chdir(tmpDir);
+    const telemetryPath = join(tmpDir, 'review-telemetry.jsonl');
+    writeFileSync(
+      telemetryPath,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        generatedAt: '2026-04-27T00:00:00.000Z',
+        policy: 'guard',
+        files: 1,
+        findings: { total: 1, errors: 0, warnings: 1, notes: 0 },
+        suppressed: { total: 0 },
+        rootCauses: 0,
+        health: { status: 'ok', errors: 0, fallbacks: 0, skipped: 0 },
+        rules: [
+          {
+            ruleId: 'floating-promise',
+            findings: 1,
+            suppressed: 0,
+            errors: 0,
+            warnings: 1,
+            notes: 0,
+            rootCauses: 0,
+          },
+        ],
+      })}\n`,
+    );
+
+    let exitCode: number | undefined;
+    process.exit = ((code?: number) => {
+      exitCode = code;
+      throw new Error(`EXIT:${code ?? 0}`);
+    }) as never;
+
+    await expect(runReview(['review', `--telemetry-report=${telemetryPath}`, '--json'])).rejects.toThrow('EXIT:0');
+    expect(exitCode).toBe(0);
+
+    const summary = JSON.parse(logs.join('\n'));
+    expect(summary.runs).toBe(1);
+    expect(summary.rules[0].ruleId).toBe('floating-promise');
+  });
+
+  it('runs a review eval manifest without a positional input', async () => {
+    process.chdir(tmpDir);
+    const file = join(tmpDir, 'floating.ts');
+    writeFileSync(
+      file,
+      `
+export async function fetchData(): Promise<string[]> {
+  return ['a', 'b'];
+}
+
+export async function main() {
+  fetchData();
+}
+`,
+    );
+    const manifestPath = join(tmpDir, 'kern-review-eval.json');
+    writeFileSync(
+      manifestPath,
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          cases: [
+            {
+              name: 'floating promise',
+              files: ['floating.ts'],
+              expect: {
+                present: ['floating-promise'],
+                absent: ['hardcoded-secret'],
+              },
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    let exitCode: number | undefined;
+    process.exit = ((code?: number) => {
+      exitCode = code;
+      throw new Error(`EXIT:${code ?? 0}`);
+    }) as never;
+
+    await expect(runReview(['review', `--eval-manifest=${manifestPath}`, '--json', '--no-cache'])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(exitCode).toBe(0);
+
+    const summary = JSON.parse(logs.join('\n'));
+    expect(summary.passed).toBe(true);
+    expect(summary.results[0].name).toBe('floating promise');
   });
 
   it('includes changed .kern files in --diff review', async () => {

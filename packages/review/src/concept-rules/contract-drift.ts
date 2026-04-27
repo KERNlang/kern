@@ -28,10 +28,12 @@ import {
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
+import { apiCallRootCause } from './root-cause.js';
 
 interface ClientCall {
   target: string;
   normalizedPath: string;
+  method?: string;
   node: ConceptNode;
 }
 
@@ -49,7 +51,7 @@ export function contractDrift(ctx: ConceptRuleContext): ReviewFinding[] {
       if (typeof target !== 'string') continue;
       const normalized = normalizeClientUrl(target);
       if (!normalized || !API_PATH_RE.test(normalized)) continue;
-      clientCalls.push({ target, normalizedPath: normalized, node });
+      clientCalls.push({ target, normalizedPath: normalized, method: node.payload.method, node });
     }
   }
 
@@ -74,6 +76,7 @@ export function contractDrift(ctx: ConceptRuleContext): ReviewFinding[] {
       primarySpan: call.node.primarySpan,
       fingerprint: createFingerprint('contract-drift', call.node.primarySpan.startLine, call.node.primarySpan.startCol),
       confidence: call.node.confidence * CROSS_STACK_HEURISTIC_CONFIDENCE,
+      rootCause: apiCallRootCause(call.node, call.normalizedPath, call.method),
     });
   }
 

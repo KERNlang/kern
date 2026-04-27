@@ -66,6 +66,16 @@ export interface ProvenanceChain {
   summary?: string;
 }
 
+/** Semantic root cause used to group findings that describe the same underlying issue. */
+export interface RootCause {
+  /** Stable grouping key. Prefer graph/concept IDs over raw line numbers. */
+  key: string;
+  /** Coarse class of the underlying issue source. */
+  kind: 'api-call' | 'route' | 'data-flow' | 'symbol' | 'file' | 'unknown';
+  /** Optional structured facets for dashboards and future explainers. */
+  facets?: Record<string, string>;
+}
+
 /** Unified finding from any review layer */
 export interface ReviewFinding {
   /** Which layer produced this finding */
@@ -98,6 +108,8 @@ export interface ReviewFinding {
   distance?: number;
   /** Evidence chain explaining WHY the finding fired (taint path, boundary walk, etc.) */
   provenance?: ProvenanceChain;
+  /** Semantic grouping key for cross-rule/root-cause ownership. */
+  rootCause?: RootCause;
 }
 
 // ── Confidence ───────────────────────────────────────────────────────────
@@ -260,6 +272,20 @@ export interface ReviewStats {
 
 // ── Enforcement ──────────────────────────────────────────────────────────
 
+/** Named review posture. Guard is low-noise default, CI is strict, audit is broad. */
+export type ReviewPolicy = 'guard' | 'ci' | 'audit';
+
+export interface ReviewTelemetryConfig {
+  /** When true, persist a machine-readable telemetry snapshot for this review run. */
+  enabled?: boolean;
+  /** Output file. Defaults to .kern/cache/review-telemetry.jsonl when telemetry is enabled. */
+  outputPath?: string;
+  /** Append JSONL snapshots instead of replacing the file. Defaults to true. */
+  append?: boolean;
+  /** Include per-finding rows in addition to aggregate counts. Defaults to false. */
+  includeFindings?: boolean;
+}
+
 /** Enforcement result for CI */
 export interface EnforceResult {
   /** Whether enforcement passed */
@@ -304,6 +330,10 @@ export interface ReviewConfig {
    *   audit — broader exploratory findings for local investigations.
    */
   crossStackMode?: 'guard' | 'audit';
+  /** Explicit review policy. Used by CLI/defaulting/telemetry to distinguish CI, guard, and audit runs. */
+  policy?: ReviewPolicy;
+  /** Optional persistent telemetry for rule/noise calibration. */
+  telemetry?: ReviewTelemetryConfig;
   /** Minimum confidence for findings to count in enforcement (default: 0) */
   minConfidence?: number;
   /** Show confidence scores in output */
@@ -450,6 +480,8 @@ export interface GraphOptions {
   maxDepth?: number;
   tsConfigFilePath?: string;
   project?: import('ts-morph').Project;
+  /** Optional graph already resolved by the caller, used to avoid duplicate resolution in CLI/watch flows. */
+  precomputedGraph?: GraphResult;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────

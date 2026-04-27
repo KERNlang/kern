@@ -441,14 +441,14 @@ function transpileLib(ast: IRNode, _cfg: ResolvedKernConfig): import('@kernlang/
   const lines: string[] = [];
 
   function processNode(node: IRNode): void {
-    if (isCoreNode(node.type)) {
+    if (isReactNode(node.type)) {
+      lines.push(...generateReactNode(node));
+      lines.push('');
+    } else if (isCoreNode(node.type)) {
       lines.push(...generateCoreNode(node));
       lines.push('');
     } else if (isTemplateNode(node.type)) {
       lines.push(...expandTemplateNode(node));
-      lines.push('');
-    } else if (isReactNode(node.type)) {
-      lines.push(...generateReactNode(node));
       lines.push('');
     }
   }
