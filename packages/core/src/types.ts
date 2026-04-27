@@ -24,6 +24,10 @@ export interface IRNode {
   children?: IRNode[];
   /** Node-specific properties */
   props?: Record<string, unknown>;
+  /** Names of props whose values originated from a quoted token (e.g. value="hello world").
+   *  Used by the post-parse validator to skip expression validation on string literals.
+   *  Stored as string[] (not Set) so it survives JSON serialization in decompile/sourcemap flows. */
+  __quotedProps?: string[];
 }
 
 /** Source location tracking */

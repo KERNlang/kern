@@ -19,6 +19,8 @@ interface ParsedLine {
   rawLength: number;
   type: string;
   props: Record<string, unknown>;
+  /** Prop names whose value came from a quoted token. Empty/undefined = none. */
+  quotedProps?: string[];
   styles: Record<string, string>;
   pseudoStyles: Record<string, Record<string, string>>;
   themeRefs: string[];
@@ -100,6 +102,7 @@ function parseProp(
   state: ParseState,
   s: TokenStream,
   props: Record<string, unknown>,
+  quotedProps: string[],
   lineNum?: number,
   col?: number,
 ): boolean {
@@ -129,7 +132,9 @@ function parseProp(
 
   // key={{expr}} or key="quoted"
   if (valTok.kind === 'expr' || valTok.kind === 'quoted') {
-    props[key] = tokenValue(s.next()!);
+    const consumed = s.next()!;
+    props[key] = tokenValue(consumed);
+    if (consumed.kind === 'quoted') quotedProps.push(key);
     return true;
   }
 
@@ -225,6 +230,7 @@ function parseLine(
   }
 
   const props: Record<string, unknown> = {};
+  const quotedProps: string[] = [];
   const styles: Record<string, string> = {};
   const pseudoStyles: Record<string, Record<string, string>> = {};
   const themeRefs: string[] = [];
@@ -273,7 +279,7 @@ function parseLine(
     }
 
     // Key=value prop (extracted helper from Codex)
-    if (parseProp(state, s, props, lineNum, col)) continue;
+    if (parseProp(state, s, props, quotedProps, lineNum, col)) continue;
 
     // Unknown token — skip with warning
     const skipped = s.next()!;
@@ -296,6 +302,7 @@ function parseLine(
     rawLength: content.length,
     type,
     props,
+    ...(quotedProps.length > 0 ? { quotedProps } : {}),
     styles,
     pseudoStyles,
     themeRefs,
@@ -543,6 +550,7 @@ function toNode(p: ParsedLine): IRNode {
   if (Object.keys(p.styles).length > 0) node.props!.styles = p.styles;
   if (Object.keys(p.pseudoStyles).length > 0) node.props!.pseudoStyles = p.pseudoStyles;
   if (p.themeRefs.length > 0) node.props!.themeRefs = p.themeRefs;
+  if (p.quotedProps && p.quotedProps.length > 0) node.__quotedProps = p.quotedProps;
   return node;
 }
 
