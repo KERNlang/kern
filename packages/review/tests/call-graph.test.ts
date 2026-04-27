@@ -529,3 +529,70 @@ export async function fetchData() { return []; }
     expect(findings.length).toBe(0);
   });
 });
+
+// Phase 4 step 5 — test files are NOT production consumers. A helper called
+// only by *.test.ts must still be flagged dead so the user can clean up
+// stale code; otherwise tests anchor unused production exports forever.
+// Red-team #3 specifically called out this loophole: tests imported and
+// called the helper, so calledBy was non-empty AND importedExportKeys
+// contained the symbol — both checks the dead-export rule depends on.
+describe('Phase 4 test files excluded from caller closure', () => {
+  it('flags a production helper that is only called by a *.test.ts file', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/helpers.ts',
+      `export function prodHelper() { return 42; }\nexport function liveHelper() { return 1; }\n`,
+    );
+    // Production caller of liveHelper — it stays alive.
+    project.createSourceFile(
+      '/src/main.ts',
+      `import { liveHelper } from './helpers.js';\nexport function run() { return liveHelper(); }\n`,
+    );
+    // Only this test file references prodHelper. Without the step-5 filter
+    // the test would call prodHelper() and pin it as alive forever.
+    project.createSourceFile(
+      '/src/helpers.test.ts',
+      `import { prodHelper } from './helpers.js';\nexport function spec() { return prodHelper(); }\n`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts', '/src/helpers.test.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    expect(callGraph.deadExports).toContain('/src/helpers.ts#prodHelper');
+    expect(callGraph.deadExports).not.toContain('/src/helpers.ts#liveHelper');
+  });
+
+  it('also filters when the test only IMPORTS the helper (no call yet)', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/helpers.ts', `export function imported() { return 1; }\n`);
+    // Test imports but doesn't call. Without the importedExportKeys filter
+    // for test files, just the import would silence dead-export.
+    project.createSourceFile(
+      '/src/helpers.test.ts',
+      `import { imported } from './helpers.js';\nexport function spec() { /* TODO */ void imported; }\n`,
+    );
+
+    const graph = resolveImportGraph(['/src/helpers.test.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    expect(callGraph.deadExports).toContain('/src/helpers.ts#imported');
+  });
+
+  it('does NOT misfire on a helper used by both production and tests', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/helpers.ts', `export function shared() { return 1; }\n`);
+    project.createSourceFile(
+      '/src/main.ts',
+      `import { shared } from './helpers.js';\nexport function run() { return shared(); }\n`,
+    );
+    project.createSourceFile(
+      '/src/helpers.test.ts',
+      `import { shared } from './helpers.js';\nexport function spec() { return shared(); }\n`,
+    );
+
+    const graph = resolveImportGraph(['/src/main.ts', '/src/helpers.test.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    expect(callGraph.deadExports).not.toContain('/src/helpers.ts#shared');
+  });
+});

@@ -24,6 +24,7 @@
  */
 
 import { type Node, type Project, type SourceFile, SyntaxKind } from 'ts-morph';
+import { classifyFileRoleByPath } from './file-role.js';
 import type { GraphFile, GraphResult } from './types.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -694,7 +695,14 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
     const fns = fileFunctions.get(gf.path) || [];
     const localFnNames = new Set(fns.map((f) => f.name));
     const importBindings = buildImportBindings(sf, graphFiles);
-    addImportedExportKeys(importedExportKeys, importBindings);
+    // Test files are NOT production consumers. Their imports of a helper
+    // (e.g. `import { bar } from './prod-helpers'`) shouldn't make `bar`
+    // count as "imported in the analyzed codebase" for dead-export purposes.
+    // Without this skip, a helper used only by *.test.ts is silently
+    // considered alive — exactly the FP red-team #3 flagged.
+    if (classifyFileRoleByPath(gf.path) !== 'test') {
+      addImportedExportKeys(importedExportKeys, importBindings);
+    }
     const localAliases = buildLocalAliases(sf, localFnNames, importBindings);
 
     for (const fn of fns) {
@@ -705,6 +713,12 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
 
   // Phase 3: Link calledBy edges (cross-file)
   for (const fn of allFunctions.values()) {
+    // Skip callers that live in test files. The intent: a production helper
+    // whose only callers are *.test.ts should still be flagged dead so the
+    // user can spot stale code. Tests still get their own call graph
+    // (orphan/dead-logic rules fire on them); they just don't count as
+    // evidence that production exports are reachable.
+    if (classifyFileRoleByPath(fn.filePath) === 'test') continue;
     for (const call of fn.calls) {
       if (!call.resolved || !call.targetFile) continue;
       const targetKey = `${call.targetFile}#${call.targetName}`;
