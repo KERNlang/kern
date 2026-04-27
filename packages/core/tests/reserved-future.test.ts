@@ -1,11 +1,6 @@
+import { CAPABILITY_MATRIX, capabilitySupport } from '../src/capability-matrix.js';
 import { tokenizeLine } from '../src/parser.js';
-import {
-  KERN_RESERVED,
-  RESERVED_FUTURE_NAMES,
-  registerEvolvedType,
-  unregisterEvolvedType,
-} from '../src/spec.js';
-import { capabilitySupport, CAPABILITY_MATRIX } from '../src/capability-matrix.js';
+import { KERN_RESERVED, RESERVED_FUTURE_NAMES, registerEvolvedType, unregisterEvolvedType } from '../src/spec.js';
 
 describe('RESERVED_FUTURE_NAMES', () => {
   test('all future names are present in KERN_RESERVED', () => {

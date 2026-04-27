@@ -30,6 +30,10 @@ const TS_NUMERIC_LITERALS: CapabilityEntry[] = [
     support: 'lowered',
     note: 'normalized to double-quote on output',
   },
+  { feature: 'optional-chain', position: 'expression', support: 'native' },
+  { feature: 'nullish-coalesce', position: 'expression', support: 'native' },
+  { feature: 'spread', position: 'expression', support: 'native' },
+  { feature: 'template-literal', position: 'expression', support: 'native' },
 ];
 
 const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
@@ -45,6 +49,20 @@ const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
   { feature: 'literal-binary', position: 'expression', support: 'native' },
   { feature: 'literal-octal', position: 'expression', support: 'native' },
   { feature: 'literal-string-single-quote', position: 'expression', support: 'native' },
+  {
+    feature: 'optional-chain',
+    position: 'expression',
+    support: 'lowered',
+    note: 'lowered to (x if x is not None else None).y pattern',
+  },
+  {
+    feature: 'nullish-coalesce',
+    position: 'expression',
+    support: 'lowered',
+    note: 'lowered to x if x is not None else y',
+  },
+  { feature: 'spread', position: 'expression', support: 'lowered', note: 'lowered to *iter / **mapping' },
+  { feature: 'template-literal', position: 'expression', support: 'lowered', note: 'lowered to f-string' },
 ];
 
 export const CAPABILITY_MATRIX: CapabilityMatrix = {
