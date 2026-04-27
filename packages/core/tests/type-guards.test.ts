@@ -38,10 +38,23 @@ describe('Type guards (Slice 2d)', () => {
       expect(gen(src)).toContain('export function assertDefined(x: unknown): asserts x {');
     });
 
-    test('`this is T` predicate (for method-style guards)', () => {
+    test('`this is T` passes through codegen even at top-level fn', () => {
+      // NOTE: `this is T` is only semantically valid inside a class method;
+      // a top-level fn emitting it would be a TS error. KERN does NOT validate
+      // this — test pins the passthrough so a future review rule can catch it.
       const src =
         'fn name=isAdmin returns="this is AdminUser"\n  handler <<<\n    return this.role === "admin";\n  >>>';
-      expect(gen(src)).toContain('export function isAdmin(): this is AdminUser {');
+      expect(gen(src)).toContain('isAdmin(): this is AdminUser {');
+    });
+
+    test('`this is T` on a class method (the correct usage)', () => {
+      // Gemini review of slice 2d: confirm method-in-class path also preserves
+      // predicate return types via emitClassBody's emitTypeAnnotation route.
+      const src =
+        'class name=User\n  method name=isAdmin returns="this is AdminUser"\n    handler <<<\n      return this.role === "admin";\n    >>>';
+      const out = gen(src);
+      expect(out).toContain('export class User {');
+      expect(out).toContain('isAdmin(): this is AdminUser {');
     });
 
     test('predicate with generic target type', () => {
