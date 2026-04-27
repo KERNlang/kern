@@ -88,6 +88,35 @@ describe('Generics (Slice 2f)', () => {
       const out = gen(src);
       expect(out).toContain('class Repo<T extends Entity> extends BaseRepo<T> implements Iterable<T> {');
     });
+
+    test('generic method in class', () => {
+      const src = 'class name=Foo\n  method name=bar generics="<T>" params="x:T" returns=T';
+      const out = gen(src);
+      expect(out).toContain('bar<T>(x: T): T {');
+    });
+
+    test('generic constructor in class', () => {
+      const src = 'class name=Foo\n  constructor generics="<T>" params="x:T"';
+      const out = gen(src);
+      expect(out).toContain('constructor<T>(x: T) {');
+    });
+  });
+
+  describe('Variance and Complex Generics', () => {
+    test('variance markers (in/out)', () => {
+      const src = 'type name=Producer generics="<out T>" alias="() => T"';
+      expect(gen(src)).toBe('export type Producer<out T> = () => T;');
+    });
+
+    test('complex default with arrow function', () => {
+      const src = 'type name=Handler generics="<T = (x: any) => void>" alias="{ handle: T }"';
+      expect(gen(src)).toBe('export type Handler<T = (x: any) => void> = { handle: T };');
+    });
+
+    test('constrained by other parameter', () => {
+      const src = 'fn name=getProp generics="<T, K extends keyof T>" params="obj:T,key:K" returns="T[K]"';
+      expect(gen(src)).toContain('function getProp<T, K extends keyof T>(obj: T, key: K): T[K] {');
+    });
   });
 
   describe('TS importer round-trip', () => {
@@ -111,12 +140,35 @@ describe('Generics (Slice 2f)', () => {
       expect(result.kern).toContain('generics="<T>"');
     });
 
+    test('imports generic methods', () => {
+      const result = importTypeScript('class Foo { bar<T>(x: T): T { return x; } }', 'foo.ts');
+      expect(result.kern).toContain('method name=bar');
+      expect(result.kern).toContain('generics="<T>"');
+    });
+
+    test('imports interface with generic method', () => {
+      const result = importTypeScript('interface I { m<T>(x: T): T; }', 'i.ts');
+      expect(result.kern).toContain('field name=m type="<T>(x:T) => T"');
+    });
+
     test('full round-trip for generic function', () => {
       const tsIn = 'export function identity<T>(x: T): T { return x; }';
       const kern = importTypeScript(tsIn, 'id.ts').kern;
       const tsOut = generateCoreNode(parse(kern)).join('\n');
       expect(tsOut).toContain('export function identity<T>(x: T): T {');
       expect(tsOut).toContain('return x;');
+    });
+
+    test('overload signatures preserve their own generics (Codex review)', () => {
+      // Codex flagged: when overload signature is generic but impl isn't,
+      // round-trip drops the generic block and produces invalid TS.
+      const tsIn = 'export function id<T>(x: T): T;\nexport function id(x: any): any {\n  return x;\n}';
+      const kern = importTypeScript(tsIn, 'id.ts').kern;
+      // Each overload child must carry its own generics="<T>"
+      expect(kern).toMatch(/overload[^\n]*generics="<T>"/);
+      const tsOut = generateCoreNode(parse(kern)).join('\n');
+      expect(tsOut).toContain('export function id<T>(x: T): T;');
+      expect(tsOut).toContain('export function id(x: any): any {');
     });
   });
 

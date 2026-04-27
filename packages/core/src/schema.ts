@@ -97,6 +97,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       params: { kind: 'string' },
       returns: { kind: 'typeAnnotation' },
+      generics: { kind: 'rawExpr' },
     },
   },
   union: {
@@ -159,6 +160,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { required: true, kind: 'identifier' },
       implements: { kind: 'typeAnnotation' },
+      generics: { kind: 'rawExpr' },
       export: { kind: 'boolean' },
     },
     allowedChildren: ['field', 'method', 'constructor', 'singleton', 'getter', 'setter'],
@@ -189,6 +191,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       stream: { kind: 'boolean' },
       private: { kind: 'boolean' },
       static: { kind: 'boolean' },
+      generics: { kind: 'rawExpr' },
     },
     allowedChildren: ['handler'],
   },
@@ -2151,7 +2154,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   constructor: {
     description: 'Constructor for a service — runs on instantiation',
     example: 'constructor params="size:number"\n  handler <<<\n    this.data = new Map();\n  >>>',
-    props: { params: { kind: 'string' as PropKind } },
+    props: {
+      params: { kind: 'string' as PropKind },
+      generics: { kind: 'rawExpr' as PropKind },
+    },
     allowedChildren: ['handler'],
   },
   cleanup: {

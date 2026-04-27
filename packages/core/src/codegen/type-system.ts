@@ -159,11 +159,13 @@ function emitClassHeader(
     : '';
   const abstractKw = props.abstract === 'true' || props.abstract === true ? 'abstract ' : '';
 
+  const classKw = node.type === 'service' ? 'class ' : `${abstractKw}class `;
+
   return {
     exp,
     name,
     docs,
-    header: `${exp}${abstractKw}class ${name}${generics}${extendsClause}${implementsClause} {`,
+    header: `${exp}${classKw}${name}${generics}${extendsClause}${implementsClause} {`,
   };
 }
 
@@ -220,11 +222,12 @@ function emitClassBody(node: IRNode, lines: string[]): void {
   // Constructor (if any constructor child exists)
   const ctorNode = firstChild(node, 'constructor');
   if (ctorNode) {
-    const ctorProps = p(ctorNode);
-    const ctorParams = ctorProps.params ? parseParamList(ctorProps.params as string) : '';
+    const ctorProps = propsOf<'constructor'>(ctorNode);
+    const ctorParams = ctorProps.params ? parseParamList(ctorProps.params) : '';
+    const generics = ctorProps.generics ? emitTypeAnnotation(ctorProps.generics, '', ctorNode) : '';
     const ctorCode = handlerCode(ctorNode);
     lines.push('');
-    lines.push(`  constructor(${ctorParams}) {`);
+    lines.push(`  constructor${generics}(${ctorParams}) {`);
     if (ctorCode) {
       for (const line of ctorCode.split('\n')) {
         lines.push(`    ${line}`);
@@ -238,17 +241,12 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const mp = propsOf<'method'>(method);
     const mname = emitIdentifier(mp.name, 'method', method);
     const mparams = mp.params ? parseParamList(mp.params) : '';
-    const isAsync = (mp as Record<string, unknown>).async === 'true' || (mp as Record<string, unknown>).async === true;
-    const isStream =
-      (mp as Record<string, unknown>).stream === 'true' || (mp as Record<string, unknown>).stream === true;
-    const isGenerator =
-      (mp as Record<string, unknown>).generator === 'true' || (mp as Record<string, unknown>).generator === true;
-    const isStatic =
-      (mp as Record<string, unknown>).static === 'true' || (mp as Record<string, unknown>).static === true;
-    const vis =
-      (mp as Record<string, unknown>).private === 'true' || (mp as Record<string, unknown>).private === true
-        ? 'private '
-        : '';
+    const generics = mp.generics ? emitTypeAnnotation(mp.generics, '', method) : '';
+    const isAsync = mp.async === 'true' || mp.async === true;
+    const isStream = mp.stream === 'true' || mp.stream === true;
+    const isGenerator = mp.generator === 'true' || mp.generator === true;
+    const isStatic = mp.static === 'true' || mp.static === true;
+    const vis = mp.private === 'true' || mp.private === true ? 'private ' : '';
     const staticKw = isStatic ? 'static ' : '';
     const star = isStream || isGenerator ? '*' : '';
     const asyncKw = isAsync || isStream ? 'async ' : '';
@@ -271,7 +269,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
           : '';
 
     lines.push('');
-    lines.push(`  ${vis}${staticKw}${asyncKw}${star}${mname}(${mparams})${mreturns} {`);
+    lines.push(`  ${vis}${staticKw}${asyncKw}${star}${mname}${generics}(${mparams})${mreturns} {`);
     if (mcode) {
       for (const line of mcode.split('\n')) {
         lines.push(`    ${line}`);

@@ -52,7 +52,10 @@ export function generateFunction(node: IRNode): string[] {
     const op = propsOf<'overload'>(ov);
     const oParams = op.params ? parseParamList(op.params, { stripDefaults: true }) : '';
     const oRet = op.returns ? `: ${emitTypeAnnotation(op.returns, 'unknown', ov)}` : '';
-    lines.push(`${exp}function ${name}${generics}(${oParams})${oRet};`);
+    // Slice 2f — overloads may declare their own generics independent of the impl.
+    // Fall back to the parent fn's generics if the overload doesn't specify its own.
+    const oGenerics = op.generics ? emitTypeAnnotation(op.generics, '', ov) : generics;
+    lines.push(`${exp}function ${name}${oGenerics}(${oParams})${oRet};`);
   }
 
   // Parse params: "action:PlanAction,ws:WorkspaceSnapshot,spread:number=8"

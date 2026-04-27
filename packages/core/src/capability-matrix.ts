@@ -17,7 +17,7 @@ export interface CapabilityEntry {
 
 export type CapabilityMatrix = Record<KernTarget, CapabilityEntry[]>;
 
-const TS_NUMERIC_LITERALS: CapabilityEntry[] = [
+const TS_CORE_CAPABILITIES: CapabilityEntry[] = [
   { feature: 'literal-float', position: 'expression', support: 'native' },
   { feature: 'literal-numeric-separator', position: 'expression', support: 'native' },
   { feature: 'literal-bigint', position: 'expression', support: 'native' },
@@ -60,7 +60,7 @@ const TS_NUMERIC_LITERALS: CapabilityEntry[] = [
   { feature: 'generics', position: 'top-level', support: 'native' },
 ];
 
-const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
+const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
   { feature: 'literal-float', position: 'expression', support: 'native' },
   { feature: 'literal-numeric-separator', position: 'expression', support: 'native' },
   {
@@ -151,20 +151,20 @@ const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
 ];
 
 export const CAPABILITY_MATRIX: CapabilityMatrix = {
-  auto: TS_NUMERIC_LITERALS,
-  lib: TS_NUMERIC_LITERALS,
-  nextjs: TS_NUMERIC_LITERALS,
-  tailwind: TS_NUMERIC_LITERALS,
-  web: TS_NUMERIC_LITERALS,
-  native: TS_NUMERIC_LITERALS,
-  express: TS_NUMERIC_LITERALS,
-  cli: TS_NUMERIC_LITERALS,
-  terminal: TS_NUMERIC_LITERALS,
-  ink: TS_NUMERIC_LITERALS,
-  vue: TS_NUMERIC_LITERALS,
-  nuxt: TS_NUMERIC_LITERALS,
-  fastapi: PY_NUMERIC_LITERALS,
-  mcp: TS_NUMERIC_LITERALS,
+  auto: TS_CORE_CAPABILITIES,
+  lib: TS_CORE_CAPABILITIES,
+  nextjs: TS_CORE_CAPABILITIES,
+  tailwind: TS_CORE_CAPABILITIES,
+  web: TS_CORE_CAPABILITIES,
+  native: TS_CORE_CAPABILITIES,
+  express: TS_CORE_CAPABILITIES,
+  cli: TS_CORE_CAPABILITIES,
+  terminal: TS_CORE_CAPABILITIES,
+  ink: TS_CORE_CAPABILITIES,
+  vue: TS_CORE_CAPABILITIES,
+  nuxt: TS_CORE_CAPABILITIES,
+  fastapi: PY_CORE_CAPABILITIES,
+  mcp: TS_CORE_CAPABILITIES,
 };
 
 export function capabilitySupport(target: KernTarget, feature: string, position: FeaturePosition): Support {

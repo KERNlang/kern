@@ -60,10 +60,12 @@ export interface IndexerProps extends BaseProps {
 export interface OverloadProps extends BaseProps {
   params?: string;
   returns?: string;
+  generics?: string;
 }
 
 export interface ServiceProps extends BaseProps {
   implements?: string;
+  generics?: string;
 }
 
 export interface ClassProps extends BaseProps {
@@ -87,6 +89,22 @@ export interface FnProps extends BaseProps {
   stream?: string | boolean;
   generator?: string | boolean;
   expr?: string | ExprObject;
+  generics?: string;
+}
+
+export interface MethodProps extends BaseProps {
+  params?: string;
+  returns?: string;
+  async?: string | boolean;
+  stream?: string | boolean;
+  generator?: string | boolean;
+  static?: string | boolean;
+  private?: string | boolean;
+  generics?: string;
+}
+
+export interface ConstructorProps extends BaseProps {
+  params?: string;
   generics?: string;
 }
 
@@ -514,6 +532,17 @@ export interface VariantProps extends BaseProps {
 export interface MethodProps extends BaseProps {
   params?: string;
   returns?: string;
+  async?: string | boolean;
+  stream?: string | boolean;
+  generator?: string | boolean;
+  static?: string | boolean;
+  private?: string | boolean;
+  generics?: string;
+}
+
+export interface ConstructorProps extends BaseProps {
+  params?: string;
+  generics?: string;
 }
 
 export interface TransitionProps extends BaseProps {
@@ -657,6 +686,7 @@ export interface NodePropsMap {
   setter: SetterProps;
   variant: VariantProps;
   method: MethodProps;
+  constructor: ConstructorProps;
   transition: TransitionProps;
   state: StateProps;
   column: ColumnProps;

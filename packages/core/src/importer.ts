@@ -81,7 +81,7 @@ function genericsAttr(
   if (!typeParameters || typeParameters.length === 0) return '';
   const parts = typeParameters.map((tp) => tp.getText(source));
   const block = `<${parts.join(', ')}>`;
-  return ` generics="${block.replace(/"/g, '\\"')}"`;
+  return ` generics="${escapeKernString(block)}"`;
 }
 
 function getJSDoc(node: ts.Node, source: ts.SourceFile): string | undefined {
@@ -251,7 +251,11 @@ function convertInterface(node: ts.InterfaceDeclaration, source: ts.SourceFile):
       const methodName = member.name.getText(source);
       const params = member.parameters ? formatParams(member.parameters, source) : '';
       const returns = typeToString(member.type, source) || 'void';
-      const funcType = `(${params}) => ${returns}`;
+      // Slice 2f — preserve method-level generics by prepending <T,...> to the function-type
+      // string when the method has typeParameters. Format: `<T>(params) => R`.
+      const tp = member.typeParameters;
+      const genericsBlock = tp && tp.length > 0 ? `<${tp.map((t) => t.getText(source)).join(', ')}>` : '';
+      const funcType = `${genericsBlock}(${params}) => ${returns}`;
       const optional = member.questionToken ? ' optional=true' : '';
       lines.push(`  field name=${methodName} type="${escapeKernString(funcType)}"${optional}`);
     } else if (ts.isIndexSignatureDeclaration(member)) {
@@ -352,7 +356,11 @@ function convertFunctionGroup(
     const returns = typeToString(ov.type, source);
     const paramsStr = params ? ` params="${params}"` : '';
     const returnsStr = returns ? ` returns=${returns}` : '';
-    overloadLines.push(`  overload${paramsStr}${returnsStr}`);
+    // Slice 2f — overload signatures can declare their own type parameters
+    // (e.g. `function id<T>(x: T): T;` paired with non-generic impl).
+    // Without this, the overload would round-trip to invalid TS where T is undefined.
+    const generics = genericsAttr(ov.typeParameters, source);
+    overloadLines.push(`  overload${paramsStr}${returnsStr}${generics}`);
   }
   // Splice overload lines after the `fn name=...` (and its leading doc, if any)
   // and before the `  handler <<<` block. We find the first line that starts
@@ -410,7 +418,8 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
     } else if (ts.isConstructorDeclaration(member)) {
       const ctorParams = formatParams(member.parameters, source);
       const ctorParamsStr = ctorParams ? ` params="${ctorParams}"` : '';
-      lines.push(`  constructor${ctorParamsStr}`);
+      const generics = genericsAttr(member.typeParameters, source);
+      lines.push(`  constructor${ctorParamsStr}${generics}`);
       const body = getBodyText(member.body, source);
       if (body) {
         lines.push('    handler <<<');
@@ -423,6 +432,7 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
       const methodName = member.name.getText(source);
       const params = formatParams(member.parameters, source);
       const returns = typeToString(member.type, source);
+      const generics = genericsAttr(member.typeParameters, source);
       const asyncStr = isAsync(member) ? ' async=true' : '';
       const staticStr = isStatic(member) ? ' static=true' : '';
       const privStr = isPrivate(member) ? ' private=true' : '';
@@ -430,7 +440,7 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
       const returnsStr = returns ? ` returns=${returns}` : '';
       const memberDoc = getJSDoc(member, source);
       if (memberDoc) lines.push(`  doc text="${escapeKernString(memberDoc)}"`);
-      lines.push(`  method name=${methodName}${paramsStr}${returnsStr}${asyncStr}${staticStr}${privStr}`);
+      lines.push(`  method name=${methodName}${paramsStr}${returnsStr}${asyncStr}${staticStr}${privStr}${generics}`);
       const body = getBodyText(member.body, source);
       if (body) {
         lines.push('    handler <<<');
@@ -559,13 +569,14 @@ function convertVariableStatement(node: ts.VariableStatement, source: ts.SourceF
         const asyncStr = isAsync(func as any) ? ' async=true' : '';
         const params = formatParams(func.parameters, source);
         const returns = typeToString(func.type, source);
+        const generics = genericsAttr(func.typeParameters, source);
         const paramsStr = params ? ` params="${params}"` : '';
         const returnsStr = returns ? ` returns=${returns}` : '';
         const isGen = ts.isFunctionExpression(func) && func.asteriskToken != null;
         const genStr = isGen ? (isAsync(func as any) ? ' stream=true' : ' generator=true') : '';
         const asyncFinal = isGen && isAsync(func as any) ? '' : asyncStr;
 
-        lines.push(`fn name=${name}${paramsStr}${returnsStr}${asyncFinal}${genStr}${exp}`);
+        lines.push(`fn name=${name}${paramsStr}${returnsStr}${asyncFinal}${genStr}${generics}${exp}`);
         const body = ts.isArrowFunction(func)
           ? getBodyText(func.body as ts.Block | ts.Expression, source)
           : getBodyText(func.body, source);
