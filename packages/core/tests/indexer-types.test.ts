@@ -2,6 +2,7 @@
 
 import { capabilitySupport } from '../src/capability-matrix.js';
 import { generateCoreNode, isCoreNode } from '../src/codegen-core.js';
+import { importTypeScript } from '../src/importer.js';
 import { parse } from '../src/parser.js';
 import { isKnownNodeType, RESERVED_FUTURE_NAMES } from '../src/spec.js';
 
@@ -61,6 +62,40 @@ describe('Indexer node (Slice 2c)', () => {
     test('complex value type', () => {
       const src = 'interface name=ListMap\n  indexer keyType=string type="number[]"';
       expect(gen(src)).toContain('[key: string]: number[];');
+    });
+  });
+
+  describe('TS importer (round-trip)', () => {
+    // Codex review of slice 2c flagged that convertInterface only handled
+    // PropertySignature/MethodSignature, dropping IndexSignatureDeclaration
+    // silently. Without an importer branch, importing a TS interface with
+    // an index signature would lose data on round-trip.
+
+    test('imports `[key: string]: number` as an indexer node', () => {
+      const ts = 'export interface Bag { [key: string]: number; }';
+      const result = importTypeScript(ts, 'bag.ts');
+      expect(result.kern).toContain('interface name=Bag export=true');
+      expect(result.kern).toContain('indexer keyName=key keyType=string type=number');
+    });
+
+    test('imports `readonly [key: string]: T` and preserves readonly', () => {
+      const ts = 'export interface Frozen { readonly [k: string]: unknown; }';
+      const result = importTypeScript(ts, 'frozen.ts');
+      expect(result.kern).toContain('indexer keyName=k keyType=string type=unknown readonly=true');
+    });
+
+    test('imports number-keyed indexer', () => {
+      const ts = 'export interface Arr { [i: number]: string; }';
+      const result = importTypeScript(ts, 'arr.ts');
+      expect(result.kern).toContain('indexer keyName=i keyType=number type=string');
+    });
+
+    test('imported indexer round-trips back to TS', () => {
+      const ts = 'export interface Bag { [key: string]: number; }';
+      const result = importTypeScript(ts, 'bag.ts');
+      const out = generateCoreNode(parse(result.kern)).join('\n');
+      expect(out).toContain('export interface Bag {');
+      expect(out).toContain('[key: string]: number;');
     });
   });
 

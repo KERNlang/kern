@@ -239,6 +239,17 @@ function convertInterface(node: ts.InterfaceDeclaration, source: ts.SourceFile):
       const funcType = `(${params}) => ${returns}`;
       const optional = member.questionToken ? ' optional=true' : '';
       lines.push(`  field name=${methodName} type="${escapeKernString(funcType)}"${optional}`);
+    } else if (ts.isIndexSignatureDeclaration(member)) {
+      // [keyName: keyType]: type   →   indexer keyName=... keyType=... type=...
+      const param = member.parameters[0];
+      if (param) {
+        const keyName = param.name.getText(source);
+        const keyType = typeToString(param.type, source) || 'string';
+        const valueType = typeToString(member.type, source) || 'unknown';
+        const isReadonly = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword);
+        const ro = isReadonly ? ' readonly=true' : '';
+        lines.push(`  indexer keyName=${keyName} keyType=${keyType} type=${valueType}${ro}`);
+      }
     }
   }
 
