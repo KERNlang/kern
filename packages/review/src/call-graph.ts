@@ -24,6 +24,7 @@
  */
 
 import { type Node, type Project, type SourceFile, SyntaxKind } from 'ts-morph';
+import { resolveDefaultExportName } from './default-export.js';
 import { classifyFileRoleByPath } from './file-role.js';
 import type { GraphFile, GraphResult } from './types.js';
 
@@ -65,6 +66,16 @@ export interface CallGraph {
   orphanFunctions: string[];
   /** How many calls couldn't be resolved */
   unresolvedCallCount: number;
+  /**
+   * Per-file default-export aliasing — Map<filePath, internalName> where
+   * internalName is the call-graph-stored name of the file's `export default`
+   * (e.g. 'Page' for `export default function Page`). Lets dead-export
+   * accept a seed of `(filePath, 'default')` as proof that `(filePath,
+   * internalName)` is public, even though the call graph stores the
+   * function under its declaration name. Files with anonymous defaults
+   * or no default export are not present.
+   */
+  defaultExportNames: Map<string, string>;
 }
 
 // ── Import Resolution ───────────────────────────────────────────────────
@@ -673,6 +684,7 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
   const allFunctions = new Map<string, FunctionNode>();
   const fileFunctions = new Map<string, FunctionNode[]>();
   const importedExportKeys = new Set<string>();
+  const defaultExportNames = new Map<string, string>();
 
   // Phase 1: Collect all functions from all files
   for (const gf of graph.files) {
@@ -684,6 +696,12 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
     for (const fn of fns) {
       allFunctions.set(`${fn.filePath}#${fn.name}`, fn);
     }
+
+    // Step 9b: pre-resolve the file's default-export internal name so
+    // dead-export can alias `(filePath, 'default')` seeds against the
+    // call-graph-stored name (e.g. 'Page' for `export default function Page`).
+    const defaultName = resolveDefaultExportName(sf);
+    if (defaultName) defaultExportNames.set(gf.path, defaultName);
   }
 
   // Phase 2: Extract call sites for each function
@@ -787,5 +805,6 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
     deadExports,
     orphanFunctions,
     unresolvedCallCount: unresolvedCount,
+    defaultExportNames,
   };
 }

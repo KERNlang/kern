@@ -596,3 +596,131 @@ describe('Phase 4 test files excluded from caller closure', () => {
     expect(callGraph.deadExports).not.toContain('/src/helpers.ts#shared');
   });
 });
+
+// Phase 4 step 9b — symbol-scoped reachability blockers and the default-export
+// alias. Two FP shapes Codex flagged HIGH-severity in the plan-review pass:
+//   1. Seed says (path, 'default') but call graph stores 'Page' → mismatch.
+//   2. Hard suppression lost recall AND broke fpRateEstimate; the cap+trail
+//      preserves both.
+describe('Phase 4 default-alias + reachability blocker (step 9b)', () => {
+  function createTestProject(): Project {
+    return new Project({
+      compilerOptions: { strict: true, target: 99, module: 99, moduleResolution: 100 },
+      useInMemoryFileSystem: true,
+      skipAddingFilesFromTsConfig: true,
+    });
+  }
+
+  it('populates callGraph.defaultExportNames from `export default function Page()`', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/page.tsx', `export default function Page() { return null; }\n`);
+    project.createSourceFile('/src/dummy.ts', `export const x = 1;\n`);
+
+    const graph = resolveImportGraph(['/src/page.tsx', '/src/dummy.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    expect(callGraph.defaultExportNames.get('/src/page.tsx')).toBe('Page');
+  });
+
+  it("treats a `(path, 'default')` seed as proof `(path, 'Page')` is public — default-alias", () => {
+    const project = createTestProject();
+    // Page has no caller in the graph — but the framework seed says
+    // pagePath#default is public, and Page IS the default. No FP.
+    project.createSourceFile('/src/app/page.tsx', `export default function Page() { return null; }\n`);
+
+    const graph = resolveImportGraph(['/src/app/page.tsx'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const publicApi = {
+      entryFiles: new Set<string>(),
+      explicitSymbols: new Set(['/src/app/page.tsx#default']),
+    };
+    const findings = deadExportRule(callGraph, '/src/app/page.tsx', publicApi);
+    expect(findings).toEqual([]);
+  });
+
+  it('caps confidence at 0.4 and demotes severity to info when a blocker matches the symbol', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/handlers.ts', `export function handlerA() {}\nexport function handlerB() {}\n`);
+    project.createSourceFile(
+      '/src/registry.ts',
+      `import { handlerA } from './handlers.js';\nexport function used() { handlerA(); }\n`,
+    );
+
+    const graph = resolveImportGraph(['/src/registry.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    // Pretend the graph couldn't prove handlerB unreachable (e.g. a
+    // non-literal `import(routes[id])` somewhere targeted it). The
+    // blocker carries the exact (file, name).
+    const blockers = [
+      {
+        reason: 'non-literal-dynamic-import' as const,
+        filePath: '/src/handlers.ts',
+        exportName: 'handlerB',
+        site: { file: '/src/registry.ts', line: 1 },
+      },
+    ];
+    const findings = deadExportRule(callGraph, '/src/handlers.ts', undefined, blockers);
+
+    const blocked = findings.find((f) => f.message.includes('handlerB'));
+    expect(blocked).toBeDefined();
+    expect(blocked?.severity).toBe('info');
+    expect(blocked?.confidence).toBeLessThanOrEqual(0.4);
+    expect(blocked?.calibrationTrail).toBeDefined();
+    expect(blocked?.calibrationTrail?.[0]?.stage).toBe('reachability:blocker');
+    expect(blocked?.calibrationTrail?.[0]?.reason).toBe('non-literal-dynamic-import');
+    // afterConfidence equals the cap (or the original if it was lower).
+    expect(blocked?.calibrationTrail?.[0]?.afterConfidence).toBe(blocked?.confidence);
+  });
+
+  it('does NOT silence unrelated exports in the same file (red-team CRITICAL #1)', () => {
+    const project = createTestProject();
+    // Two independent exports. Only handlerB has a blocker.
+    project.createSourceFile('/src/handlers.ts', `export function handlerA() {}\nexport function handlerB() {}\n`);
+    project.createSourceFile('/src/registry.ts', `// nothing imported\nexport function noop() {}\n`);
+
+    const graph = resolveImportGraph(['/src/registry.ts', '/src/handlers.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const blockers = [
+      {
+        reason: 'non-literal-dynamic-import' as const,
+        filePath: '/src/handlers.ts',
+        exportName: 'handlerB',
+        site: { file: '/src/registry.ts', line: 1 },
+      },
+    ];
+    const findings = deadExportRule(callGraph, '/src/handlers.ts', undefined, blockers);
+
+    // handlerA stays at warning severity — the blocker on handlerB does
+    // not cross-contaminate. This is the symbol-scope invariant.
+    const a = findings.find((f) => f.message.includes('handlerA'));
+    const b = findings.find((f) => f.message.includes('handlerB'));
+    expect(a?.severity).toBe('warning');
+    expect(a?.calibrationTrail).toBeUndefined();
+    expect(b?.severity).toBe('info');
+  });
+
+  it('blocker cap matches via default-alias when the seed says default but the call graph stored Page', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/app/page.tsx', `export default function Page() { return null; }\n`);
+
+    const graph = resolveImportGraph(['/src/app/page.tsx'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const blockers = [
+      {
+        reason: 'unresolved-re-export' as const,
+        filePath: '/src/app/page.tsx',
+        exportName: 'default',
+        site: { file: '/src/app/page.tsx', line: 1 },
+      },
+    ];
+    const findings = deadExportRule(callGraph, '/src/app/page.tsx', undefined, blockers);
+
+    const blocked = findings.find((f) => f.message.includes('Page'));
+    expect(blocked?.severity).toBe('info');
+    expect(blocked?.confidence).toBeLessThanOrEqual(0.4);
+  });
+});
