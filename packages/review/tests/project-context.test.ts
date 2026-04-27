@@ -22,7 +22,7 @@ describe('project-context', () => {
   });
 
   it('returns an empty context for a non-existent root', () => {
-    const ctx = getProjectContext(join(tmpdir(), 'this-does-not-exist-' + Date.now()));
+    const ctx = getProjectContext(join(tmpdir(), `this-does-not-exist-${Date.now()}`));
     expect(ctx.gitignore.rootPatterns).toEqual([]);
     expect(ctx.packageJson).toBeUndefined();
     expect(ctx.tsconfig).toBeUndefined();
@@ -113,8 +113,8 @@ describe('project-context', () => {
 
   it('SECURITY: discards .gitignore patterns longer than 256 chars (ReDoS guard)', () => {
     const root = tmpRoot();
-    const huge = '*'.repeat(300) + '!.ts';
-    writeFileSync(join(root, '.gitignore'), huge + '\nshort.log');
+    const huge = `${'*'.repeat(300)}!.ts`;
+    writeFileSync(join(root, '.gitignore'), `${huge}\nshort.log`);
     const ctx = getProjectContext(root);
     expect(ctx.gitignore.rootPatterns.map((p) => p.raw)).toEqual(['short.log']);
     rmSync(root, { recursive: true });

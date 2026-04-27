@@ -1540,7 +1540,7 @@ export function generateTry(node: IRNode): string[] {
   }
 
   if (catchNode) {
-    const catchName = emitIdentifier((catchNode.props || {}).name as string, 'e', catchNode);
+    const catchName = emitIdentifier(catchNode.props?.name as string, 'e', catchNode);
     lines.push(`} catch (${catchName}) {`);
     const body = handlerCode(catchNode);
     for (const line of body.split('\n')) {
