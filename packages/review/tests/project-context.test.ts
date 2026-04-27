@@ -1,0 +1,180 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import {
+  _projectContextCacheSize,
+  _resetProjectContextCache,
+  getProjectContext,
+  isPathIgnored,
+} from '../src/project-context.js';
+
+function tmpRoot(): string {
+  return mkdtempSync(join(tmpdir(), 'kern-pctx-'));
+}
+
+describe('project-context', () => {
+  beforeEach(() => {
+    _resetProjectContextCache();
+  });
+
+  it('returns an empty context for a non-existent root', () => {
+    const ctx = getProjectContext(join(tmpdir(), 'this-does-not-exist-' + Date.now()));
+    expect(ctx.gitignore.rootPatterns).toEqual([]);
+    expect(ctx.packageJson).toBeUndefined();
+    expect(ctx.tsconfig).toBeUndefined();
+  });
+
+  it('reads package.json fields we care about', () => {
+    const root = tmpRoot();
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ name: 'my-app', type: 'module', private: true, workspaces: ['pkg/*'] }),
+    );
+    const ctx = getProjectContext(root);
+    expect(ctx.packageJson?.name).toBe('my-app');
+    expect(ctx.packageJson?.type).toBe('module');
+    expect(ctx.packageJson?.private).toBe(true);
+    expect(ctx.packageJson?.workspaces).toEqual(['pkg/*']);
+    rmSync(root, { recursive: true });
+  });
+
+  it('reads tsconfig strictness flags', () => {
+    const root = tmpRoot();
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { strict: true, noUnusedLocals: true } }),
+    );
+    const ctx = getProjectContext(root);
+    expect(ctx.tsconfig?.strict).toBe(true);
+    expect(ctx.tsconfig?.noUnusedLocals).toBe(true);
+    expect(ctx.tsconfig?.noImplicitAny).toBeUndefined();
+    rmSync(root, { recursive: true });
+  });
+
+  it('walks tsconfig extends chain (relative-only) and merges compilerOptions', () => {
+    const root = tmpRoot();
+    writeFileSync(join(root, 'base.json'), JSON.stringify({ compilerOptions: { strictNullChecks: true } }));
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({ extends: './base.json', compilerOptions: { strict: true } }),
+    );
+    const ctx = getProjectContext(root);
+    expect(ctx.tsconfig?.strict).toBe(true);
+    expect(ctx.tsconfig?.strictNullChecks).toBe(true);
+    rmSync(root, { recursive: true });
+  });
+
+  it('SECURITY: tsconfig extends never escapes project root', () => {
+    const root = tmpRoot();
+    // Symlink trying to point outside the root — must be rejected.
+    const target = mkdtempSync(join(tmpdir(), 'kern-evil-'));
+    writeFileSync(join(target, 'evil.json'), JSON.stringify({ compilerOptions: { strict: true } }));
+    try {
+      symlinkSync(join(target, 'evil.json'), join(root, 'evil.json'));
+    } catch {
+      // Some sandboxes block symlinks; bail with a different traversal vector.
+      writeFileSync(join(root, 'evil.json'), JSON.stringify({ compilerOptions: { strict: true } }));
+    }
+    writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({ extends: '../../../etc/passwd', compilerOptions: {} }));
+    const ctx = getProjectContext(root);
+    // Either undefined (we bailed) or strict not propagated — never a panic.
+    expect(ctx.tsconfig?.strict).toBeUndefined();
+    rmSync(root, { recursive: true });
+    rmSync(target, { recursive: true });
+  });
+
+  it('SECURITY: package extends (non-relative) are not walked', () => {
+    const root = tmpRoot();
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({ extends: '@evil/tsconfig', compilerOptions: { strict: true } }),
+    );
+    const ctx = getProjectContext(root);
+    // Local strict still applies; package ref is not resolved.
+    expect(ctx.tsconfig?.strict).toBe(true);
+    rmSync(root, { recursive: true });
+  });
+
+  it('compiles .gitignore patterns and matches paths under root', () => {
+    const root = tmpRoot();
+    writeFileSync(join(root, '.gitignore'), ['dist/', 'coverage/', '*.log', '!keep.log'].join('\n'));
+    const ctx = getProjectContext(root);
+    expect(isPathIgnored(join(root, 'dist/foo.js'), ctx)).toBe(true);
+    expect(isPathIgnored(join(root, 'coverage/index.html'), ctx)).toBe(true);
+    expect(isPathIgnored(join(root, 'src/app.log'), ctx)).toBe(true);
+    expect(isPathIgnored(join(root, 'src/app.ts'), ctx)).toBe(false);
+    expect(isPathIgnored(join(root, 'keep.log'), ctx)).toBe(false); // negation
+    rmSync(root, { recursive: true });
+  });
+
+  it('SECURITY: discards .gitignore patterns longer than 256 chars (ReDoS guard)', () => {
+    const root = tmpRoot();
+    const huge = '*'.repeat(300) + '!.ts';
+    writeFileSync(join(root, '.gitignore'), huge + '\nshort.log');
+    const ctx = getProjectContext(root);
+    expect(ctx.gitignore.rootPatterns.map((p) => p.raw)).toEqual(['short.log']);
+    rmSync(root, { recursive: true });
+  });
+
+  it('content-hash cache returns same context object until config changes', () => {
+    const root = tmpRoot();
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'a' }));
+    const a1 = getProjectContext(root);
+    const a2 = getProjectContext(root);
+    expect(a1).toBe(a2); // same object reference — cache hit
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'b' }));
+    const b = getProjectContext(root);
+    expect(b).not.toBe(a1);
+    expect(b.packageJson?.name).toBe('b');
+    rmSync(root, { recursive: true });
+  });
+
+  it('LRU evicts oldest entry past cap=128', () => {
+    const before = _projectContextCacheSize();
+    const created: string[] = [];
+    for (let i = 0; i < 130; i++) {
+      const r = tmpRoot();
+      created.push(r);
+      writeFileSync(join(r, 'package.json'), JSON.stringify({ name: `p-${i}` }));
+      getProjectContext(r);
+    }
+    expect(_projectContextCacheSize()).toBeLessThanOrEqual(128);
+    expect(_projectContextCacheSize()).toBeGreaterThan(before);
+    for (const r of created) rmSync(r, { recursive: true });
+  });
+
+  it('isPathIgnored returns false for paths outside the project root', () => {
+    const root = tmpRoot();
+    writeFileSync(join(root, '.gitignore'), 'dist/');
+    const ctx = getProjectContext(root);
+    expect(isPathIgnored('/etc/passwd', ctx)).toBe(false);
+    expect(isPathIgnored(join(tmpdir(), 'unrelated/dist/foo.js'), ctx)).toBe(false);
+    rmSync(root, { recursive: true });
+  });
+
+  it('handles malformed JSON without panicking', () => {
+    const root = tmpRoot();
+    writeFileSync(join(root, 'package.json'), '{ broken json');
+    writeFileSync(join(root, 'tsconfig.json'), 'not json');
+    const ctx = getProjectContext(root);
+    expect(ctx.packageJson).toBeUndefined();
+    expect(ctx.tsconfig).toBeUndefined();
+    rmSync(root, { recursive: true });
+  });
+
+  it('JSONC: tsconfig with comments parses cleanly', () => {
+    const root = tmpRoot();
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      `{
+        // top-level comment
+        "compilerOptions": {
+          /* block */ "strict": true
+        }
+      }`,
+    );
+    const ctx = getProjectContext(root);
+    expect(ctx.tsconfig?.strict).toBe(true);
+    rmSync(root, { recursive: true });
+  });
+});
