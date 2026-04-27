@@ -49,14 +49,20 @@ import { flattenIR, lintKernIR } from './kern-lint.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { mineNorms } from './norm-miner.js';
 import { synthesizeObligations } from './obligations.js';
-import { getProjectContext, isPathIgnored, isReviewable, type ProjectContext } from './project-context.js';
+import {
+  findProjectRoot,
+  getProjectContext,
+  isPathIgnored,
+  isReviewable,
+  type ProjectContext,
+} from './project-context.js';
 import { buildPublicApiMap, expandPublicApiThroughReExports } from './public-api.js';
 import { extractPythonConceptsFallback } from './python-fallback.js';
 import { runQualityRules } from './quality-rules.js';
 import { assignDefaultConfidence, calculateStats, sortAndDedup, sortFindings } from './reporter.js';
 import { debugDetail, ReviewHealthBuilder } from './review-health.js';
 import { loadBuiltinNativeRules, loadNativeRules } from './rule-loader.js';
-import { applyRoleAwareConfidence, applyRuleQualityCalibration } from './rule-quality.js';
+import { applyOverlapCalibration, applyRoleAwareConfidence, applyRuleQualityCalibration } from './rule-quality.js';
 import { lintConfidenceGraph, lintMultiFileConfidenceGraph } from './rules/confidence.js';
 import { crossFileAsyncRule, deadExportRule } from './rules/dead-code.js';
 import { runFastapiConceptRules } from './rules/fastapi.js';
@@ -836,11 +842,16 @@ function reviewSourceInternal(
   const dedupedFindings = sortAndDedup(allFindings);
 
   // Assign calibrated confidence scores to all findings.
-  // Order matters: assign-defaults → role-aware → rule-quality. The rule-quality
-  // pass flips the per-finding `calibrated` flag last so that graph-mode rerun on
-  // a union of findings does not compound multipliers.
+  // Order matters: assign-defaults → role-aware → overlap → rule-quality. The
+  // rule-quality pass flips the per-finding `calibrated` flag last so that
+  // graph-mode rerun on a union of findings does not compound multipliers.
   assignDefaultConfidence(dedupedFindings);
   applyRoleAwareConfidence(dedupedFindings, fileRole, config);
+  const projectRoot = findProjectRoot(dirname(filePath));
+  if (projectRoot) {
+    const projectCtx = getProjectContext(projectRoot);
+    applyOverlapCalibration(dedupedFindings, projectCtx.external, config);
+  }
   applyRuleQualityCalibration(dedupedFindings, config);
 
   // Apply suppression (inline comments + config disabledRules)

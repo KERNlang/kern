@@ -1,4 +1,6 @@
+import type { ExternalLinterConfig } from '../src/project-context.js';
 import {
+  applyOverlapCalibration,
   applyRoleAwareConfidence,
   applyRuleQualityCalibration,
   applyRuleSupersession,
@@ -8,6 +10,13 @@ import {
   validateRuleQualityRegistry,
 } from '../src/rule-quality.js';
 import type { ReviewFinding } from '../src/types.js';
+
+function externalConfig(eslint: string[] = [], biome: string[] = []): ExternalLinterConfig {
+  return {
+    eslintEnabledRules: new Set(eslint),
+    biomeEnabledRules: new Set(biome),
+  };
+}
 
 function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
@@ -288,6 +297,87 @@ describe('role-aware confidence multipliers', () => {
     expect(findings[0].severity).toBe('info'); // rule-quality demoted advisory
     expect(findings[0].calibrationTrail?.length).toBe(2);
     expect(findings[0].calibrated).toBe(true);
+  });
+});
+
+describe('overlap calibration with external linters', () => {
+  it('demotes dead-export when eslint:no-unused-vars is enabled', () => {
+    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 0.85 })];
+
+    applyOverlapCalibration(findings, externalConfig(['no-unused-vars']));
+
+    expect(findings[0].severity).toBe('info');
+    expect(findings[0].confidence).toBe(0.425);
+    expect(findings[0].calibrationTrail?.[0]).toMatchObject({
+      stage: 'overlap:external-linter',
+      reason: expect.stringContaining('no-unused-vars'),
+    });
+  });
+
+  it('demotes dead-export when biome:noUnusedVariables is enabled', () => {
+    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 0.85 })];
+
+    applyOverlapCalibration(findings, externalConfig([], ['noUnusedVariables']));
+
+    expect(findings[0].severity).toBe('info');
+    expect(findings[0].calibrationTrail?.[0]?.reason).toContain('noUnusedVariables');
+  });
+
+  it('does not touch findings when no external rule overlap configured', () => {
+    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 0.85 })];
+
+    applyOverlapCalibration(findings, externalConfig([], []));
+
+    expect(findings[0].severity).toBe('warning');
+    expect(findings[0].confidence).toBe(0.85);
+    expect(findings[0].calibrationTrail).toBeUndefined();
+  });
+
+  it('does not touch unmapped kern rules even when external is rich', () => {
+    const findings = [finding({ ruleId: 'memory-leak', severity: 'warning', confidence: 0.85 })];
+
+    applyOverlapCalibration(findings, externalConfig(['no-unused-vars'], ['noUnusedVariables']));
+
+    expect(findings[0].severity).toBe('warning');
+    expect(findings[0].calibrationTrail).toBeUndefined();
+  });
+
+  it('SECURITY: never demotes a security-layer rule, even if mapped externally', () => {
+    // Even if a future edit lists 'hardcoded-secret' in KERN_TO_EXTERNAL,
+    // overlapTargetsFor() short-circuits via isProtectedRule.
+    const findings = [finding({ ruleId: 'hardcoded-secret', severity: 'error', confidence: 0.95 })];
+
+    applyOverlapCalibration(findings, externalConfig(['no-unused-vars'], ['noUnusedVariables']));
+
+    expect(findings[0].severity).toBe('error');
+    expect(findings[0].confidence).toBe(0.95);
+  });
+
+  it('preserves errors at error severity (only demotes warning to info)', () => {
+    const findings = [finding({ ruleId: 'dead-export', severity: 'error', confidence: 0.95 })];
+
+    applyOverlapCalibration(findings, externalConfig(['no-unused-vars']));
+
+    expect(findings[0].severity).toBe('error');
+    expect(findings[0].confidence).toBe(0.475);
+  });
+
+  it('preserves findings in audit mode', () => {
+    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 0.85 })];
+
+    applyOverlapCalibration(findings, externalConfig(['no-unused-vars']), { crossStackMode: 'audit' });
+
+    expect(findings[0].severity).toBe('warning');
+    expect(findings[0].calibrationTrail).toBeUndefined();
+  });
+
+  it('skips already-calibrated findings (graph-mode union safety)', () => {
+    const findings = [finding({ ruleId: 'dead-export', severity: 'warning', confidence: 0.85, calibrated: true })];
+
+    applyOverlapCalibration(findings, externalConfig(['no-unused-vars']));
+
+    expect(findings[0].severity).toBe('warning');
+    expect(findings[0].calibrationTrail).toBeUndefined();
   });
 });
 

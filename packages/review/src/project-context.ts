@@ -38,6 +38,15 @@ export interface ProjectContext {
   /** Compiled .gitignore matchers, in walk order (root first, deeper later). */
   gitignore: GitignoreMatchers;
   /**
+   * External linter configurations — used to demote kern findings that overlap
+   * with rules the project already enforces. Phase 2 is intentionally limited
+   * to JSON-only readers: `.eslintrc.json`, `package.json` `eslintConfig`, and
+   * `biome.json`. `eslint.config.js` is **never** evaluated (RCE risk surfaced
+   * by Phase 1 red-team). Per-file `overrides` resolution requires the async
+   * ESLint API and is left to callers via a future pre-warm path.
+   */
+  external: ExternalLinterConfig;
+  /**
    * Set of POSIX-relative paths that `git ls-files` reports as tracked. A file
    * being tracked overrides .gitignore for skip-list purposes — published
    * artifacts (e.g. packages/sdk/dist/client.gen.ts) get reviewed even when
@@ -71,6 +80,14 @@ export interface ProjectTsconfig {
   noUnusedParameters?: boolean;
 }
 
+/** External linter rule IDs that are enabled at error/warn. */
+export interface ExternalLinterConfig {
+  /** Rule IDs from `.eslintrc.json` / `package.json` eslintConfig that are at error or warn. */
+  eslintEnabledRules: Set<string>;
+  /** Rule IDs from `biome.json` linter.rules that are at error or warn. */
+  biomeEnabledRules: Set<string>;
+}
+
 /** Compiled gitignore matchers. Use `isPathIgnored` to query. */
 export interface GitignoreMatchers {
   /** Patterns from the project root's .gitignore, in declaration order. */
@@ -96,6 +113,22 @@ const CONTEXT_CACHE_CAP = 128;
 
 /** Map iteration order is insertion order; deletes + re-inserts give LRU. */
 const contextCache = new Map<string, { hash: string; context: ProjectContext }>();
+
+/**
+ * Walk up from a starting directory looking for the nearest `package.json`.
+ * Returns undefined if none is found before the filesystem root. Used by
+ * per-file review entry points that need a project context but only have a
+ * file path.
+ */
+export function findProjectRoot(startDir: string): string | undefined {
+  let cur = resolve(startDir);
+  while (true) {
+    if (existsSync(resolve(cur, 'package.json'))) return cur;
+    const parent = dirname(cur);
+    if (parent === cur) return undefined;
+    cur = parent;
+  }
+}
 
 /**
  * Get the project context for a project root. Cached by content hash —
@@ -157,6 +190,25 @@ export function isPathIgnored(filePath: string, ctx: ProjectContext): boolean {
 }
 
 /**
+ * Per-flag tsconfig strictness — phase 2.3 from the red-team. The composite
+ * `strict: true` is shorthand for several flags; users frequently enable
+ * `strictNullChecks` alone without the umbrella. Rules should query the
+ * specific flag they depend on, not `strict`, so that `strict:false` does
+ * not over-debuff a finding whose underlying guarantee is in fact present.
+ */
+export function isStrictFlagEffective(flag: keyof Required<ProjectTsconfig>, ctx: ProjectContext): boolean {
+  const ts = ctx.tsconfig;
+  if (!ts) return false;
+  if (ts[flag] === true) return true;
+  // The umbrella `strict: true` enables strictNullChecks, noImplicitAny, and
+  // a handful of others. Treat it as setting them when not explicitly false.
+  if (ts.strict === true && (flag === 'strictNullChecks' || flag === 'noImplicitAny') && ts[flag] !== false) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * The full skip-list predicate. A file is reviewable iff it is NOT
  * (gitignored AND not git-tracked).
  *
@@ -175,12 +227,14 @@ export function isReviewable(filePath: string, ctx: ProjectContext): boolean {
 // ── Implementation ─────────────────────────────────────────────────────────
 
 function buildContext(root: string, contentHash: string): ProjectContext {
+  const packageJson = readJson<ProjectPackageJson & { eslintConfig?: unknown }>(root, 'package.json');
   return {
     root,
-    packageJson: readJson<ProjectPackageJson>(root, 'package.json'),
+    packageJson,
     tsconfig: readTsconfig(root),
     gitignore: readGitignore(root),
     gitTrackedFiles: readGitTrackedFiles(root),
+    external: readExternalLinterConfig(root, packageJson),
     contentHash,
   };
 }
@@ -190,8 +244,128 @@ function emptyContext(projectRoot: string): ProjectContext {
     root: resolve(projectRoot),
     gitignore: { rootPatterns: [] },
     gitTrackedFiles: new Set(),
+    external: { eslintEnabledRules: new Set(), biomeEnabledRules: new Set() },
     contentHash: '',
   };
+}
+
+/**
+ * Read project-level external linter configs. JSON-only and bounded:
+ *
+ *  - **No eslint.config.js eval.** Phase 1 red-team flagged require() of an
+ *    attacker-controlled config file as straight RCE. We read `.eslintrc.json`,
+ *    `.eslintrc` (assumed JSON), and `package.json` `eslintConfig` only. If the
+ *    project uses flat config (eslint.config.js), this reader returns empty;
+ *    overlap calibration just doesn't fire — fail-safe.
+ *  - **Relative-only extends.** Same containment rule as tsconfig: a string
+ *    starting with `.` is followed if it resolves under the project root.
+ *    Package refs (`eslint:recommended`, `@scope/eslint-config`) are NOT
+ *    resolved — we don't reach into node_modules.
+ *  - **Single tier of overrides ignored.** Only the top-level `rules` block is
+ *    consumed. Per-file `overrides` requires the async ESLint API; reading them
+ *    out of context here would be incorrect (different files would see the
+ *    same merged set), so we skip entirely.
+ */
+function readExternalLinterConfig(
+  root: string,
+  packageJson: { eslintConfig?: unknown } | undefined,
+): ExternalLinterConfig {
+  const eslintEnabledRules = new Set<string>();
+  const biomeEnabledRules = new Set<string>();
+
+  // ── ESLint ──
+  // Priority: .eslintrc.json → .eslintrc → package.json#eslintConfig.
+  const eslintRoots: unknown[] = [];
+  for (const name of ['.eslintrc.json', '.eslintrc']) {
+    const data = readJson<unknown>(root, name);
+    if (data) {
+      eslintRoots.push(data);
+      break;
+    }
+  }
+  if (packageJson?.eslintConfig) eslintRoots.push(packageJson.eslintConfig);
+  for (const r of eslintRoots) {
+    collectEslintRules(root, r, eslintEnabledRules, new Set(), 0);
+  }
+
+  // ── Biome ──
+  const biome = readJson<unknown>(root, 'biome.json');
+  if (biome) collectBiomeRules(root, biome, biomeEnabledRules, new Set(), 0);
+
+  return { eslintEnabledRules, biomeEnabledRules };
+}
+
+function collectEslintRules(root: string, config: unknown, out: Set<string>, seen: Set<string>, depth: number): void {
+  if (depth > 10) return;
+  if (!config || typeof config !== 'object') return;
+  const cfg = config as Record<string, unknown>;
+  // Walk relative `extends`. Package refs are skipped (see header doc).
+  const extendsList = Array.isArray(cfg.extends) ? cfg.extends : typeof cfg.extends === 'string' ? [cfg.extends] : [];
+  for (const ext of extendsList) {
+    if (typeof ext !== 'string' || !ext.startsWith('.')) continue;
+    const candidate = resolve(root, ext);
+    const real = safeRealpath(candidate);
+    if (!real || !isWithin(root, real) || seen.has(real)) continue;
+    seen.add(real);
+    if (!existsSync(real)) continue;
+    let extData: unknown;
+    try {
+      extData = JSON.parse(readFileSync(real, 'utf-8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''));
+    } catch {
+      continue;
+    }
+    collectEslintRules(root, extData, out, seen, depth + 1);
+  }
+  // Pull rule levels from this config.
+  const rules = cfg.rules;
+  if (rules && typeof rules === 'object') {
+    for (const [ruleId, raw] of Object.entries(rules)) {
+      if (isEnabledLevel(raw)) out.add(ruleId);
+    }
+  }
+}
+
+function collectBiomeRules(root: string, config: unknown, out: Set<string>, seen: Set<string>, depth: number): void {
+  if (depth > 10) return;
+  if (!config || typeof config !== 'object') return;
+  const cfg = config as Record<string, unknown>;
+  const extendsList = Array.isArray(cfg.extends) ? cfg.extends : typeof cfg.extends === 'string' ? [cfg.extends] : [];
+  for (const ext of extendsList) {
+    if (typeof ext !== 'string' || !ext.startsWith('.')) continue;
+    const candidate = resolve(root, ext);
+    const real = safeRealpath(candidate);
+    if (!real || !isWithin(root, real) || seen.has(real)) continue;
+    seen.add(real);
+    if (!existsSync(real)) continue;
+    let extData: unknown;
+    try {
+      extData = JSON.parse(readFileSync(real, 'utf-8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''));
+    } catch {
+      continue;
+    }
+    collectBiomeRules(root, extData, out, seen, depth + 1);
+  }
+  // biome.json shape: linter.rules.<group>.<ruleName>: 'error' | 'warn' | 'off' | { level, options }
+  const linter = cfg.linter as { rules?: Record<string, unknown> } | undefined;
+  const groups = linter?.rules;
+  if (!groups || typeof groups !== 'object') return;
+  for (const [groupName, group] of Object.entries(groups)) {
+    if (!group || typeof group !== 'object') continue;
+    if (groupName === 'recommended' || groupName === 'all') continue;
+    for (const [ruleName, raw] of Object.entries(group as Record<string, unknown>)) {
+      if (isEnabledLevel(raw)) out.add(ruleName);
+    }
+  }
+}
+
+function isEnabledLevel(raw: unknown): boolean {
+  if (raw === 'error' || raw === 'warn' || raw === 1 || raw === 2) return true;
+  if (Array.isArray(raw) && raw.length > 0) return isEnabledLevel(raw[0]);
+  if (raw && typeof raw === 'object') {
+    const lvl = (raw as { level?: unknown }).level;
+    return isEnabledLevel(lvl);
+  }
+  return false;
 }
 
 /**
@@ -275,7 +449,7 @@ function basenameOf(p: string): string {
 
 function computeContentHash(root: string): string {
   const hash = createHash('sha256');
-  for (const file of ['package.json', 'tsconfig.json', '.gitignore']) {
+  for (const file of ['package.json', 'tsconfig.json', '.gitignore', '.eslintrc.json', '.eslintrc', 'biome.json']) {
     const abs = resolve(root, file);
     hash.update(file);
     if (existsSync(abs)) {

@@ -5,9 +5,11 @@ import { join } from 'path';
 import {
   _projectContextCacheSize,
   _resetProjectContextCache,
+  findProjectRoot,
   getProjectContext,
   isPathIgnored,
   isReviewable,
+  isStrictFlagEffective,
 } from '../src/project-context.js';
 
 function tmpRoot(): string {
@@ -191,6 +193,120 @@ describe('project-context', () => {
     expect(isPathIgnored(untrackedArtifact, ctx)).toBe(true);
     expect(isReviewable(trackedArtifact, ctx)).toBe(true); // tracked → reviewable
     expect(isReviewable(untrackedArtifact, ctx)).toBe(false); // untracked + ignored → skipped
+    rmSync(root, { recursive: true });
+  });
+
+  it('reads .eslintrc.json rules (error/warn/level array shapes)', () => {
+    const root = tmpRoot();
+    writeFileSync(
+      join(root, '.eslintrc.json'),
+      JSON.stringify({
+        rules: {
+          'no-unused-vars': 'error',
+          'no-misused-promises': ['warn', { checksConditionals: true }],
+          'no-debugger': 'off',
+          '@typescript-eslint/no-floating-promises': 2,
+        },
+      }),
+    );
+    const ctx = getProjectContext(root);
+    expect(ctx.external.eslintEnabledRules.has('no-unused-vars')).toBe(true);
+    expect(ctx.external.eslintEnabledRules.has('no-misused-promises')).toBe(true);
+    expect(ctx.external.eslintEnabledRules.has('@typescript-eslint/no-floating-promises')).toBe(true);
+    expect(ctx.external.eslintEnabledRules.has('no-debugger')).toBe(false);
+    rmSync(root, { recursive: true });
+  });
+
+  it('walks .eslintrc.json relative extends', () => {
+    const root = tmpRoot();
+    writeFileSync(join(root, 'base.json'), JSON.stringify({ rules: { 'no-unused-vars': 'error' } }));
+    writeFileSync(
+      join(root, '.eslintrc.json'),
+      JSON.stringify({ extends: ['./base.json'], rules: { 'no-debugger': 'warn' } }),
+    );
+    const ctx = getProjectContext(root);
+    expect(ctx.external.eslintEnabledRules.has('no-unused-vars')).toBe(true);
+    expect(ctx.external.eslintEnabledRules.has('no-debugger')).toBe(true);
+    rmSync(root, { recursive: true });
+  });
+
+  it('SECURITY: package extends like "eslint:recommended" are not resolved', () => {
+    const root = tmpRoot();
+    writeFileSync(
+      join(root, '.eslintrc.json'),
+      JSON.stringify({ extends: ['eslint:recommended', '@scope/eslint-config'], rules: {} }),
+    );
+    const ctx = getProjectContext(root);
+    // Empty: only relative extends are walked, package refs are ignored.
+    expect(ctx.external.eslintEnabledRules.size).toBe(0);
+    rmSync(root, { recursive: true });
+  });
+
+  it('reads package.json eslintConfig field', () => {
+    const root = tmpRoot();
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ eslintConfig: { rules: { 'no-unused-vars': 'error' } } }),
+    );
+    const ctx = getProjectContext(root);
+    expect(ctx.external.eslintEnabledRules.has('no-unused-vars')).toBe(true);
+    rmSync(root, { recursive: true });
+  });
+
+  it('reads biome.json linter.rules (group-keyed shape)', () => {
+    const root = tmpRoot();
+    writeFileSync(
+      join(root, 'biome.json'),
+      JSON.stringify({
+        linter: {
+          rules: {
+            recommended: true, // ignored — not a rule group
+            correctness: {
+              noUnusedVariables: 'error',
+              noUnusedImports: { level: 'warn' },
+            },
+            style: {
+              useConst: 'off',
+            },
+          },
+        },
+      }),
+    );
+    const ctx = getProjectContext(root);
+    expect(ctx.external.biomeEnabledRules.has('noUnusedVariables')).toBe(true);
+    expect(ctx.external.biomeEnabledRules.has('noUnusedImports')).toBe(true);
+    expect(ctx.external.biomeEnabledRules.has('useConst')).toBe(false);
+    rmSync(root, { recursive: true });
+  });
+
+  it('isStrictFlagEffective: composite strict implies strictNullChecks', () => {
+    const root = tmpRoot();
+    writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { strict: true } }));
+    const ctx = getProjectContext(root);
+    expect(isStrictFlagEffective('strictNullChecks', ctx)).toBe(true);
+    expect(isStrictFlagEffective('noImplicitAny', ctx)).toBe(true);
+    expect(isStrictFlagEffective('noUnusedLocals', ctx)).toBe(false); // not part of composite
+    rmSync(root, { recursive: true });
+  });
+
+  it('isStrictFlagEffective: per-flag overrides composite (strictNullChecks alone)', () => {
+    const root = tmpRoot();
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { strict: false, strictNullChecks: true } }),
+    );
+    const ctx = getProjectContext(root);
+    expect(isStrictFlagEffective('strictNullChecks', ctx)).toBe(true);
+    expect(isStrictFlagEffective('noImplicitAny', ctx)).toBe(false);
+    rmSync(root, { recursive: true });
+  });
+
+  it('findProjectRoot: walks up to nearest package.json', () => {
+    const root = tmpRoot();
+    mkdirSync(join(root, 'src/deep/nested'), { recursive: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'p' }));
+    expect(findProjectRoot(join(root, 'src/deep/nested'))).toBe(root);
+    expect(findProjectRoot(root)).toBe(root);
     rmSync(root, { recursive: true });
   });
 

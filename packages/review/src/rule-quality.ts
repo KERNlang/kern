@@ -1,3 +1,4 @@
+import type { ExternalLinterConfig } from './project-context.js';
 import { getRuleRegistry, type RuleInfo } from './rules/index.js';
 import type { CalibrationStage, FileRole, ReviewConfig, ReviewFinding } from './types.js';
 
@@ -200,6 +201,91 @@ export function roleMultiplierFor(role: FileRole, ruleId: string): number {
   const fromTable = ROLE_MULTIPLIER[role]?.[ruleId];
   if (typeof fromTable !== 'number' || !Number.isFinite(fromTable)) return 1;
   return Math.max(0, Math.min(1, fromTable));
+}
+
+/**
+ * Maps a kern rule to the external linter rules that already cover the same
+ * concern. If the user has any of these enabled at error/warn, kern's finding
+ * is duplicate noise and gets demoted to info.
+ *
+ * Phase 1 red-team explicitly cautioned against a static table — the right
+ * long-term answer is querying the live ESLint instance per-file, which honors
+ * `overrides`. That requires async pre-warm. As a sync first cut we use the
+ * project-level config; coverage is honest about its limits (no per-file
+ * overrides honored) but the common case (one .eslintrc.json at root) works.
+ *
+ * Security-layer rules are NOT listed here: even if eslint has a similar
+ * rule, kern's output is independently valuable (different detection model,
+ * audit-trail integrity).
+ */
+const KERN_TO_EXTERNAL: Record<string, { eslint?: string[]; biome?: string[] }> = {
+  'dead-export': {
+    eslint: ['no-unused-vars', '@typescript-eslint/no-unused-vars'],
+    biome: ['noUnusedVariables'],
+  },
+  'unused-import': {
+    eslint: ['no-unused-vars', '@typescript-eslint/no-unused-vars', 'unused-imports/no-unused-imports'],
+    biome: ['noUnusedImports'],
+  },
+  'sync-in-async': {
+    eslint: ['@typescript-eslint/no-misused-promises', 'no-misused-promises'],
+  },
+  'unhandled-async': {
+    eslint: ['@typescript-eslint/no-floating-promises', 'no-floating-promises'],
+  },
+};
+
+/** Look up overlap entry; isProtectedRule already shields the security layer. */
+function overlapTargetsFor(ruleId: string): { eslint?: string[]; biome?: string[] } | undefined {
+  if (isProtectedRule(ruleId)) return undefined;
+  return KERN_TO_EXTERNAL[ruleId];
+}
+
+/**
+ * Demote kern findings whose external counterpart is configured at error/warn
+ * in the project. Demotion (severity → info, confidence × 0.5) preserves the
+ * finding for telemetry while taking it out of the CI gate. Skipped in audit.
+ */
+export function applyOverlapCalibration(
+  findings: ReviewFinding[],
+  external: ExternalLinterConfig,
+  config?: Pick<ReviewConfig, 'crossStackMode'>,
+): void {
+  if (config?.crossStackMode === 'audit') return;
+  if (external.eslintEnabledRules.size === 0 && external.biomeEnabledRules.size === 0) return;
+
+  for (const finding of findings) {
+    if (finding.calibrated) continue;
+
+    const targets = overlapTargetsFor(finding.ruleId);
+    if (!targets) continue;
+
+    const matchedEslint = targets.eslint?.find((r) => external.eslintEnabledRules.has(r));
+    const matchedBiome = targets.biome?.find((r) => external.biomeEnabledRules.has(r));
+    if (!matchedEslint && !matchedBiome) continue;
+
+    const which = matchedEslint ? `eslint:${matchedEslint}` : matchedBiome ? `biome:${matchedBiome}` : 'unknown';
+
+    const beforeSeverity = finding.severity;
+    if (finding.severity !== 'error' && finding.severity !== 'info') {
+      finding.severity = 'info';
+    }
+    let beforeConfidence: number | undefined;
+    let afterConfidence: number | undefined;
+    if (finding.confidence !== undefined) {
+      beforeConfidence = finding.confidence;
+      afterConfidence = finding.confidence * 0.5;
+      finding.confidence = afterConfidence;
+    }
+    recordCalibration(finding, {
+      stage: 'overlap:external-linter',
+      factor: 0.5,
+      reason: `external linter already enforces ${which}`,
+      beforeConfidence,
+      afterConfidence,
+      ...(beforeSeverity !== finding.severity ? { beforeSeverity, afterSeverity: finding.severity } : {}),
+    });
+  }
 }
 
 /**
