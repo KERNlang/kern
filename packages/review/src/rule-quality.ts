@@ -1,5 +1,5 @@
 import { getRuleRegistry, type RuleInfo } from './rules/index.js';
-import type { CalibrationStage, ReviewConfig, ReviewFinding } from './types.js';
+import type { CalibrationStage, FileRole, ReviewConfig, ReviewFinding } from './types.js';
 
 export type RulePrecision = NonNullable<RuleInfo['precision']>;
 export type RuleLifecycle = NonNullable<RuleInfo['lifecycle']>;
@@ -134,6 +134,114 @@ export function applyRuleQualityCalibration(
 export function recordCalibration(finding: ReviewFinding, stage: CalibrationStage): void {
   if (!finding.calibrationTrail) finding.calibrationTrail = [];
   finding.calibrationTrail.push(stage);
+}
+
+/**
+ * Per-rule confidence multipliers per file role. Default factor is 1.0 (no change).
+ *
+ * Design constraints driven by the Phase 1 red-team:
+ *  - **No wildcards.** Every (role, ruleId) pair must be explicit. A `'*':0`
+ *    entry would silently nuke security findings on any file misclassified as
+ *    codegen — every entry is enumerated to avoid that.
+ *  - **Security-layer rules are excluded by construction** at lookup time
+ *    (see `roleMultiplierFor`). Even if a future edit accidentally lists a
+ *    security rule here, it is ignored.
+ *  - **NaN-safe.** Lookup returns 1 for any unmapped pair; we never let
+ *    `undefined * confidence` propagate.
+ */
+const ROLE_MULTIPLIER: Record<FileRole, Partial<Record<string, number>>> = {
+  barrel: {
+    'dead-export': 0,
+    'cognitive-complexity': 0,
+    'handler-size': 0,
+    'unhandled-async': 0.5,
+  },
+  codegen: {
+    'dead-export': 0,
+    'cognitive-complexity': 0,
+    'handler-size': 0,
+    'sync-in-async': 0,
+    'unhandled-async': 0,
+    'extra-code': 0,
+    'inconsistent-pattern': 0,
+    'style-difference': 0,
+    'missing-type': 0,
+  },
+  example: {
+    'dead-export': 0,
+    'public-api': 0,
+    'unhandled-async': 0.5,
+    'cognitive-complexity': 0.5,
+  },
+  test: {
+    'handler-size': 0.3,
+    'sync-in-async': 0,
+    'cognitive-complexity': 0.5,
+    'dead-export': 0,
+  },
+  'rule-definition': {
+    'cognitive-complexity': 0,
+  },
+  runtime: {},
+};
+
+/** Layer prefixes that are protected from any role multiplier. */
+const PROTECTED_LAYER_PREFIXES = ['security'];
+
+function isProtectedRule(ruleId: string): boolean {
+  const info = getRuleInfoMap().get(ruleId);
+  if (!info) return false;
+  return PROTECTED_LAYER_PREFIXES.some((prefix) => info.layer.startsWith(prefix));
+}
+
+/** Look up the role-aware multiplier for a finding. Always returns a finite number in [0, 1]. */
+export function roleMultiplierFor(role: FileRole, ruleId: string): number {
+  if (isProtectedRule(ruleId)) return 1;
+  const fromTable = ROLE_MULTIPLIER[role]?.[ruleId];
+  if (typeof fromTable !== 'number' || !Number.isFinite(fromTable)) return 1;
+  return Math.max(0, Math.min(1, fromTable));
+}
+
+/**
+ * Apply role-aware confidence multipliers. Runs alongside applyRuleQualityCalibration
+ * in guard/ci policies; skipped in audit policy.
+ *
+ * Idempotent via the same `calibrated` flag: once a finding has been through any
+ * calibration stage it will not be touched again, so graph-mode rerun on a union
+ * does not compound multipliers.
+ */
+export function applyRoleAwareConfidence(
+  findings: ReviewFinding[],
+  fileRole: FileRole,
+  config?: Pick<ReviewConfig, 'crossStackMode'>,
+): void {
+  if (config?.crossStackMode === 'audit') return;
+
+  for (const finding of findings) {
+    if (finding.calibrated) continue;
+
+    const factor = roleMultiplierFor(fileRole, finding.ruleId);
+    if (factor === 1) continue;
+
+    if (finding.confidence !== undefined) {
+      const before = finding.confidence;
+      const after = before * factor;
+      finding.confidence = after;
+      recordCalibration(finding, {
+        stage: 'role-aware:confidence-multiplier',
+        factor,
+        reason: `role=${fileRole} reduces confidence on rule '${finding.ruleId}'`,
+        beforeConfidence: before,
+        afterConfidence: after,
+      });
+    } else {
+      recordCalibration(finding, {
+        stage: 'role-aware:confidence-multiplier',
+        factor,
+        reason: `role=${fileRole} reduces confidence on rule '${finding.ruleId}' (no native confidence set)`,
+      });
+    }
+  }
 }
 
 export function applyRuleSupersession(

@@ -42,7 +42,7 @@ import { runConceptRules } from './concept-rules/index.js';
 import { structuralDiff } from './differ.js';
 import { runTSCDiagnostics } from './external-tools.js';
 import { buildFileContextMap } from './file-context.js';
-import { classifyFileRole } from './file-role.js';
+import { classifyFileRole, classifyFileRoleByPath } from './file-role.js';
 import { resolveImportGraph } from './graph.js';
 import { createInMemoryProject, findTsConfig, inferFromSourceFile } from './inferrer.js';
 import { flattenIR, lintKernIR } from './kern-lint.js';
@@ -55,7 +55,7 @@ import { runQualityRules } from './quality-rules.js';
 import { assignDefaultConfidence, calculateStats, sortAndDedup, sortFindings } from './reporter.js';
 import { debugDetail, ReviewHealthBuilder } from './review-health.js';
 import { loadBuiltinNativeRules, loadNativeRules } from './rule-loader.js';
-import { applyRuleQualityCalibration } from './rule-quality.js';
+import { applyRoleAwareConfidence, applyRuleQualityCalibration } from './rule-quality.js';
 import { lintConfidenceGraph, lintMultiFileConfidenceGraph } from './rules/confidence.js';
 import { crossFileAsyncRule, deadExportRule } from './rules/dead-code.js';
 import { runFastapiConceptRules } from './rules/fastapi.js';
@@ -217,7 +217,7 @@ export {
 } from './eval.js';
 export { linkToNodes, runESLint, runTSCDiagnostics, runTSCDiagnosticsFromPaths } from './external-tools.js';
 export { buildFileContextMap, clearFileContextCache } from './file-context.js';
-export { classifyFileRole } from './file-role.js';
+export { classifyFileRole, classifyFileRoleByPath } from './file-role.js';
 export { resolveImportGraph } from './graph.js';
 export { findTsConfig, inferFromFile, inferFromSource } from './inferrer.js';
 export type { KernLintRule } from './kern-lint.js';
@@ -834,8 +834,12 @@ function reviewSourceInternal(
   // Merge, dedup, sort — single shared utility
   const dedupedFindings = sortAndDedup(allFindings);
 
-  // Assign calibrated confidence scores to all findings
+  // Assign calibrated confidence scores to all findings.
+  // Order matters: assign-defaults → role-aware → rule-quality. The rule-quality
+  // pass flips the per-finding `calibrated` flag last so that graph-mode rerun on
+  // a union of findings does not compound multipliers.
   assignDefaultConfidence(dedupedFindings);
+  applyRoleAwareConfidence(dedupedFindings, fileRole, config);
   applyRuleQualityCalibration(dedupedFindings, config);
 
   // Apply suppression (inline comments + config disabledRules)
@@ -993,6 +997,7 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
 
   const dedupedFindings = sortAndDedup(allFindings);
   assignDefaultConfidence(dedupedFindings);
+  applyRoleAwareConfidence(dedupedFindings, classifyFileRoleByPath(filePath), _config);
   applyRuleQualityCalibration(dedupedFindings, _config);
   const suppression = applySuppression(dedupedFindings, source, filePath, _config, _config?.strict ?? false);
   const findings = sortAndDedup(suppression.findings);
@@ -1070,6 +1075,7 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
 
   const dedupedFindings = sortAndDedup(conceptFindings);
   assignDefaultConfidence(dedupedFindings);
+  applyRoleAwareConfidence(dedupedFindings, classifyFileRoleByPath(filePath), config);
   applyRuleQualityCalibration(dedupedFindings, config);
   const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
   const findings = sortAndDedup(suppression.findings);

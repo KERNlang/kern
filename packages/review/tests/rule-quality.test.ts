@@ -1,8 +1,10 @@
 import {
+  applyRoleAwareConfidence,
   applyRuleQualityCalibration,
   applyRuleSupersession,
   getRuleQualityProfile,
   isRulePromotedForCi,
+  roleMultiplierFor,
   validateRuleQualityRegistry,
 } from '../src/rule-quality.js';
 import type { ReviewFinding } from '../src/types.js';
@@ -199,6 +201,93 @@ describe('rule quality calibration', () => {
     expect(preCalibrated.calibrationTrail?.length).toBe(1);
     expect(newCrossFileFinding.calibrationTrail?.length).toBe(1);
     expect(newCrossFileFinding.calibrated).toBe(true);
+  });
+});
+
+describe('role-aware confidence multipliers', () => {
+  it('zeros confidence on dead-export inside a barrel file', () => {
+    const findings = [finding({ ruleId: 'dead-export', confidence: 0.85 })];
+
+    applyRoleAwareConfidence(findings, 'barrel');
+
+    expect(findings[0].confidence).toBe(0);
+    expect(findings[0].calibrationTrail?.[0]).toMatchObject({
+      stage: 'role-aware:confidence-multiplier',
+      factor: 0,
+      beforeConfidence: 0.85,
+      afterConfidence: 0,
+    });
+  });
+
+  it('halves cognitive-complexity inside a test file (factor 0.5)', () => {
+    const findings = [finding({ ruleId: 'cognitive-complexity', confidence: 0.8 })];
+
+    applyRoleAwareConfidence(findings, 'test');
+
+    expect(findings[0].confidence).toBeCloseTo(0.4, 5);
+  });
+
+  it('does not touch findings on runtime files (default factor=1)', () => {
+    const findings = [finding({ ruleId: 'dead-export', confidence: 0.85 })];
+
+    applyRoleAwareConfidence(findings, 'runtime');
+
+    expect(findings[0].confidence).toBe(0.85);
+    expect(findings[0].calibrationTrail).toBeUndefined();
+  });
+
+  it('SECURITY: never reduces confidence on a security-layer rule, regardless of role', () => {
+    // hardcoded-secret is layer='security' in rules/index.ts. Even if a future edit
+    // lists it in ROLE_MULTIPLIER, isProtectedRule() must short-circuit.
+    const findings = [finding({ ruleId: 'hardcoded-secret', confidence: 0.9 })];
+
+    applyRoleAwareConfidence(findings, 'codegen');
+
+    expect(findings[0].confidence).toBe(0.9);
+    expect(findings[0].calibrationTrail).toBeUndefined();
+  });
+
+  it('SECURITY: roleMultiplierFor returns 1 for any security-layer rule', () => {
+    expect(roleMultiplierFor('codegen', 'hardcoded-secret')).toBe(1);
+    expect(roleMultiplierFor('barrel', 'command-injection')).toBe(1);
+    expect(roleMultiplierFor('test', 'xss-unsafe-html')).toBe(1);
+  });
+
+  it('NaN-safe: unmapped role+rule pair returns factor 1', () => {
+    expect(roleMultiplierFor('runtime', 'this-rule-does-not-exist')).toBe(1);
+    expect(roleMultiplierFor('barrel', 'unknown-rule')).toBe(1);
+  });
+
+  it('preserves findings in audit mode', () => {
+    const findings = [finding({ ruleId: 'dead-export', confidence: 0.85 })];
+
+    applyRoleAwareConfidence(findings, 'barrel', { crossStackMode: 'audit' });
+
+    expect(findings[0].confidence).toBe(0.85);
+    expect(findings[0].calibrationTrail).toBeUndefined();
+  });
+
+  it('skips findings already calibrated (graph-mode union safety)', () => {
+    const findings = [finding({ ruleId: 'dead-export', confidence: 0.85, calibrated: true })];
+
+    applyRoleAwareConfidence(findings, 'barrel');
+
+    expect(findings[0].confidence).toBe(0.85);
+    expect(findings[0].calibrationTrail).toBeUndefined();
+  });
+
+  it('composes with rule-quality calibration: role first, then quality', () => {
+    // Order at the call sites: role-aware → rule-quality. Both record their own
+    // trail entries. rule-quality flips `calibrated=true` last.
+    const findings = [finding({ ruleId: 'dead-export', confidence: 0.85, severity: 'warning' })];
+
+    applyRoleAwareConfidence(findings, 'codegen');
+    applyRuleQualityCalibration(findings);
+
+    expect(findings[0].confidence).toBe(0); // role multiplier zeroed
+    expect(findings[0].severity).toBe('info'); // rule-quality demoted advisory
+    expect(findings[0].calibrationTrail?.length).toBe(2);
+    expect(findings[0].calibrated).toBe(true);
   });
 });
 
