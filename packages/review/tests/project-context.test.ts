@@ -1,3 +1,4 @@
+import { execFileSync } from 'child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -6,6 +7,7 @@ import {
   _resetProjectContextCache,
   getProjectContext,
   isPathIgnored,
+  isReviewable,
 } from '../src/project-context.js';
 
 function tmpRoot(): string {
@@ -159,6 +161,36 @@ describe('project-context', () => {
     const ctx = getProjectContext(root);
     expect(ctx.packageJson).toBeUndefined();
     expect(ctx.tsconfig).toBeUndefined();
+    rmSync(root, { recursive: true });
+  });
+
+  it('isReviewable: tracked-but-gitignored file remains reviewable (red-team #4)', () => {
+    const root = tmpRoot();
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: root, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root, stdio: 'ignore' });
+      execFileSync('git', ['config', 'user.name', 'test'], { cwd: root, stdio: 'ignore' });
+    } catch {
+      // git not available — skip the test
+      rmSync(root, { recursive: true });
+      return;
+    }
+    writeFileSync(join(root, '.gitignore'), 'dist/');
+    const distDir = join(root, 'dist');
+    mkdirSync(distDir);
+    const trackedArtifact = join(distDir, 'client.gen.ts');
+    const untrackedArtifact = join(distDir, 'unrelated.ts');
+    writeFileSync(trackedArtifact, '// generated client');
+    writeFileSync(untrackedArtifact, '// stray output');
+    // Force-add the tracked file despite .gitignore (the published-artifact case).
+    execFileSync('git', ['add', '-f', '.gitignore', 'dist/client.gen.ts'], { cwd: root, stdio: 'ignore' });
+    execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: root, stdio: 'ignore' });
+
+    const ctx = getProjectContext(root);
+    expect(isPathIgnored(trackedArtifact, ctx)).toBe(true); // .gitignore matches
+    expect(isPathIgnored(untrackedArtifact, ctx)).toBe(true);
+    expect(isReviewable(trackedArtifact, ctx)).toBe(true); // tracked → reviewable
+    expect(isReviewable(untrackedArtifact, ctx)).toBe(false); // untracked + ignored → skipped
     rmSync(root, { recursive: true });
   });
 

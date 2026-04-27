@@ -13,7 +13,7 @@ import { createRequire } from 'node:module';
 import type { ConceptMap, IRNode, ParseDiagnostic } from '@kernlang/core';
 import { countTokens, parseWithDiagnostics, serializeIR } from '@kernlang/core';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
-import { dirname, join, relative } from 'path';
+import { dirname, join, relative, sep } from 'path';
 import { Project } from 'ts-morph';
 
 // This module compiles to ESM (`type: "module"`), so the runtime has no `require`.
@@ -49,6 +49,7 @@ import { flattenIR, lintKernIR } from './kern-lint.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { mineNorms } from './norm-miner.js';
 import { synthesizeObligations } from './obligations.js';
+import { getProjectContext, isPathIgnored, isReviewable, type ProjectContext } from './project-context.js';
 import { buildPublicApiMap, expandPublicApiThroughReExports } from './public-api.js';
 import { extractPythonConceptsFallback } from './python-fallback.js';
 import { runQualityRules } from './quality-rules.js';
@@ -1102,10 +1103,15 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
 
 /**
  * Review all .ts/.tsx/.py files in a directory.
+ *
+ * Honors the project's .gitignore by skipping untracked-and-ignored files —
+ * tracked artifacts are always reviewed even when their directory matches
+ * .gitignore, so published `dist/*.gen.ts` and similar do not slip through.
  */
 export function reviewDirectory(dirPath: string, recursive = false, config?: ReviewConfig): ReviewReport[] {
   const reports: ReviewReport[] = [];
-  const files = collectReviewableFiles(dirPath, recursive);
+  const ctx = getProjectContext(dirPath);
+  const files = collectReviewableFiles(dirPath, recursive, ctx);
 
   for (const file of files) {
     try {
@@ -1423,35 +1429,47 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
   return reports;
 }
 
-function collectReviewableFiles(dirPath: string, recursive: boolean): string[] {
+function collectReviewableFiles(dirPath: string, recursive: boolean, ctx?: ProjectContext): string[] {
   const files: string[] = [];
+  // Hardcoded skips for directories that are never useful to descend into,
+  // even if a tracked file lives inside them. ProjectContext.isReviewable
+  // handles the gitignore-vs-tracked logic for files we DO descend into.
+  const HARD_SKIP_DIRS = new Set(['node_modules', '__pycache__', '.venv', 'venv']);
   for (const entry of readdirSync(dirPath)) {
     const full = join(dirPath, entry);
     const stat = statSync(full);
-    if (
-      stat.isDirectory() &&
-      recursive &&
-      !entry.startsWith('.') &&
-      entry !== 'node_modules' &&
-      entry !== 'dist' &&
-      entry !== '__pycache__' &&
-      entry !== '.venv' &&
-      entry !== 'venv'
-    ) {
-      files.push(...collectReviewableFiles(full, true));
-    } else if (
-      stat.isFile() &&
-      (entry.endsWith('.ts') || entry.endsWith('.tsx')) &&
-      !entry.endsWith('.d.ts') &&
-      !entry.endsWith('.test.ts') &&
-      !entry.endsWith('.test.tsx')
-    ) {
-      files.push(full);
-    } else if (stat.isFile() && entry.endsWith('.py') && !entry.startsWith('test_') && !entry.endsWith('_test.py')) {
-      files.push(full);
-    } else if (stat.isFile() && entry.endsWith('.kern')) {
-      files.push(full);
+    if (stat.isDirectory()) {
+      if (!recursive) continue;
+      if (entry.startsWith('.') || HARD_SKIP_DIRS.has(entry)) continue;
+      // Honor .gitignore at the directory level only if NO tracked file lives
+      // inside it (cheap check via path prefix on the tracked set).
+      if (ctx && isPathIgnored(full, ctx) && !directoryHasTrackedDescendant(full, ctx)) continue;
+      files.push(...collectReviewableFiles(full, true, ctx));
+      continue;
     }
+    if (!stat.isFile()) continue;
+    const isReviewableExt =
+      ((entry.endsWith('.ts') || entry.endsWith('.tsx')) &&
+        !entry.endsWith('.d.ts') &&
+        !entry.endsWith('.test.ts') &&
+        !entry.endsWith('.test.tsx')) ||
+      (entry.endsWith('.py') && !entry.startsWith('test_') && !entry.endsWith('_test.py')) ||
+      entry.endsWith('.kern');
+    if (!isReviewableExt) continue;
+    // Skip-list: gitignored AND not tracked. Tracked-but-gitignored files
+    // (e.g. checked-in dist/*.gen.ts) remain reviewable — Phase 1 red-team #4.
+    if (ctx && !isReviewable(full, ctx)) continue;
+    files.push(full);
   }
   return files;
+}
+
+function directoryHasTrackedDescendant(dirAbsPath: string, ctx: ProjectContext): boolean {
+  const rel = relative(ctx.root, dirAbsPath).split(sep).join('/');
+  if (!rel || rel.startsWith('..')) return false;
+  const prefix = rel.endsWith('/') ? rel : `${rel}/`;
+  for (const tracked of ctx.gitTrackedFiles) {
+    if (tracked.startsWith(prefix)) return true;
+  }
+  return false;
 }

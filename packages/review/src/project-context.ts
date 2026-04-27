@@ -22,6 +22,7 @@
  *    quantifier patterns from the red-team.
  */
 
+import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { existsSync, readFileSync, realpathSync } from 'fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'path';
@@ -36,6 +37,13 @@ export interface ProjectContext {
   tsconfig?: ProjectTsconfig;
   /** Compiled .gitignore matchers, in walk order (root first, deeper later). */
   gitignore: GitignoreMatchers;
+  /**
+   * Set of POSIX-relative paths that `git ls-files` reports as tracked. A file
+   * being tracked overrides .gitignore for skip-list purposes — published
+   * artifacts (e.g. packages/sdk/dist/client.gen.ts) get reviewed even when
+   * the directory matches `.gitignore`. Empty set if not a git repo.
+   */
+  gitTrackedFiles: Set<string>;
   /**
    * Stable hash of every config input that contributed to this context. Used as
    * the cache key; if any config file changes, the hash changes and the entry
@@ -132,8 +140,9 @@ export function _projectContextCacheSize(): number {
 }
 
 /**
- * Returns true iff the file is matched by the project's .gitignore. Caller is
- * responsible for the AND-NOT-tracked check (Phase 1.3 wiring).
+ * Returns true iff the file is matched by the project's .gitignore. Use
+ * `isReviewable` for the full skip-list semantics — this is the gitignore
+ * predicate alone.
  */
 export function isPathIgnored(filePath: string, ctx: ProjectContext): boolean {
   const rel = toRelative(ctx.root, filePath);
@@ -147,6 +156,22 @@ export function isPathIgnored(filePath: string, ctx: ProjectContext): boolean {
   return ignored;
 }
 
+/**
+ * The full skip-list predicate. A file is reviewable iff it is NOT
+ * (gitignored AND not git-tracked).
+ *
+ * This is the Phase 1 red-team's finding #4 fix: a tracked artifact that lives
+ * inside a gitignored directory (the classic `packages/sdk/dist/client.gen.ts`
+ * case) must remain reviewable. Suppression-by-skip-list is reserved for
+ * truly-untracked outputs.
+ */
+export function isReviewable(filePath: string, ctx: ProjectContext): boolean {
+  const rel = toRelative(ctx.root, filePath);
+  if (rel === undefined) return true; // Outside project root — caller decides.
+  if (ctx.gitTrackedFiles.has(rel)) return true;
+  return !isPathIgnored(filePath, ctx);
+}
+
 // ── Implementation ─────────────────────────────────────────────────────────
 
 function buildContext(root: string, contentHash: string): ProjectContext {
@@ -155,6 +180,7 @@ function buildContext(root: string, contentHash: string): ProjectContext {
     packageJson: readJson<ProjectPackageJson>(root, 'package.json'),
     tsconfig: readTsconfig(root),
     gitignore: readGitignore(root),
+    gitTrackedFiles: readGitTrackedFiles(root),
     contentHash,
   };
 }
@@ -163,8 +189,33 @@ function emptyContext(projectRoot: string): ProjectContext {
   return {
     root: resolve(projectRoot),
     gitignore: { rootPatterns: [] },
+    gitTrackedFiles: new Set(),
     contentHash: '',
   };
+}
+
+/**
+ * Shells out to `git ls-files -c -z` to get the set of tracked paths. Returns
+ * an empty set if not a git repo or if git is unavailable. Bounded execution
+ * (10s timeout, 100 MB buffer) so a misbehaving git can't wedge the review.
+ */
+function readGitTrackedFiles(root: string): Set<string> {
+  try {
+    const buf = execFileSync('git', ['ls-files', '-c', '-z'], {
+      cwd: root,
+      timeout: 10_000,
+      maxBuffer: 100 * 1024 * 1024,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const set = new Set<string>();
+    for (const path of buf.split('\0')) {
+      if (path) set.add(path);
+    }
+    return set;
+  } catch {
+    return new Set();
+  }
 }
 
 function safeRealpath(p: string): string | undefined {
