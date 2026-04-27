@@ -214,7 +214,10 @@ export function getOutputExtension(target: KernTarget): string {
 /** Extract exported symbol names from generated TypeScript lines, distinguishing type-only exports. */
 export function extractExportsFromLines(lines: string[]): { name: string; typeOnly: boolean }[] {
   const exports: { name: string; typeOnly: boolean }[] = [];
-  const re = /^export\s+(?:async\s+)?(?:function\*?|class|const|enum|abstract\s+class)\s+(\w+)/;
+  // `const\s+enum` must come BEFORE the bare `const` branch — otherwise the regex
+  // matches `export const` and captures `enum` as the identifier instead of `Flag`
+  // for `export const enum Flag { ... }` (slice 2b regression caught by Codex).
+  const re = /^export\s+(?:async\s+)?(?:function\*?|class|const\s+enum|const|enum|abstract\s+class)\s+(\w+)/;
   const typeRe = /^export\s+(?:interface|type)\s+(\w+)/;
   for (const line of lines) {
     const m = line.match(re);
