@@ -495,3 +495,68 @@ describe('dead-export + public-api integration', () => {
     expect(messages.some((m) => m.includes('trulyDead'))).toBe(true);
   });
 });
+
+// Phase 4 step 7a — Next.js stable conventions wired into buildPublicApiMap.
+// Each match contributes (filePath, exportName) tuples to explicitSymbols,
+// NEVER a whole-file flag in entryFiles. That's the symbol-scope invariant
+// that fixes red-team CRITICAL #2 (stale helper next to a Next.js page must
+// not inherit public-API status from the page).
+describe('buildPublicApiMap (Next.js framework seeds)', () => {
+  let tmp: string;
+  afterEach(() => {
+    if (tmp) rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('seeds an App Router page.tsx via explicitSymbols, NOT entryFiles', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const pagePath = join(tmp, 'src/app/page.tsx');
+    writeFile(pagePath, `export default function Page() {}\n`);
+
+    const map = buildPublicApiMap([pagePath]);
+
+    // The page is NOT a whole-file public seed.
+    expect(map.entryFiles.has(pagePath)).toBe(false);
+    // But each Next.js-recognized symbol IS public per the convention.
+    expect(map.explicitSymbols.has(`${pagePath}#default`)).toBe(true);
+    expect(map.explicitSymbols.has(`${pagePath}#metadata`)).toBe(true);
+    expect(map.explicitSymbols.has(`${pagePath}#generateStaticParams`)).toBe(true);
+    // Crucially, a hypothetical un-listed export (e.g. helper) is NOT
+    // treated as public. That's the symbol-scope invariant.
+    expect(map.explicitSymbols.has(`${pagePath}#someInternalHelper`)).toBe(false);
+  });
+
+  it('seeds an api route with `default` and `config` ONLY (not page-data symbols)', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const apiPath = join(tmp, 'pages/api/users.ts');
+    writeFile(apiPath, `export default function handler() {}\nexport const config = {};\n`);
+
+    const map = buildPublicApiMap([apiPath]);
+
+    expect(map.explicitSymbols.has(`${apiPath}#default`)).toBe(true);
+    expect(map.explicitSymbols.has(`${apiPath}#config`)).toBe(true);
+    // Pages-router data-fetching exports must NOT bleed onto api routes.
+    expect(map.explicitSymbols.has(`${apiPath}#getServerSideProps`)).toBe(false);
+    expect(map.explicitSymbols.has(`${apiPath}#getStaticProps`)).toBe(false);
+  });
+
+  it('flags a helper next to a page.tsx as NOT public (red-team CRITICAL #2)', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    // The page itself is matched by the framework seed.
+    const pagePath = join(tmp, 'src/app/posts/page.tsx');
+    writeFile(pagePath, `export default function Page() {}\n`);
+    // A "stale helper" alongside the page — emphatically NOT public.
+    const helperPath = join(tmp, 'src/app/posts/helpers.ts');
+    writeFile(helperPath, `export function staleHelper() {}\n`);
+
+    const map = buildPublicApiMap([pagePath, helperPath]);
+
+    // helpers.ts isn't in entryFiles and has no explicitSymbols.
+    expect(map.entryFiles.has(helperPath)).toBe(false);
+    expect(map.explicitSymbols.has(`${helperPath}#staleHelper`)).toBe(false);
+    // Sanity: the page IS seeded.
+    expect(map.explicitSymbols.has(`${pagePath}#default`)).toBe(true);
+  });
+});
