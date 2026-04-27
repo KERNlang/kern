@@ -50,6 +50,11 @@ describe('Tuple types (Slice 2a)', () => {
     test('empty tuple', () => {
       expect(gen('type name=Empty alias="[]"')).toBe('export type Empty = [];');
     });
+
+    test('readonly tuple', () => {
+      // emitTypeAnnotation passes prefixes through; readonly is just a leading keyword.
+      expect(gen('type name=RO alias="readonly [string, number]"')).toBe('export type RO = readonly [string, number];');
+    });
   });
 
   describe('via field.type', () => {
@@ -74,9 +79,10 @@ describe('Tuple types (Slice 2a)', () => {
       expect(capabilitySupport('terminal', 'tuple-type', 'top-level')).toBe('native');
     });
 
-    test('tuple-type is declared lowered on Python target (fastapi)', () => {
-      // Python has tuples, but the form differs from TS; flag for slice-by-slice attention.
-      expect(capabilitySupport('fastapi', 'tuple-type', 'top-level')).toBe('lowered');
+    test('tuple-type is declared unsupported on Python target until lowering ships', () => {
+      // mapTsTypeToPython has no tuple branch; passthrough would emit invalid Python.
+      // Flagged unsupported so feature gates do not permit broken output.
+      expect(capabilitySupport('fastapi', 'tuple-type', 'top-level')).toBe('unsupported');
     });
   });
 });

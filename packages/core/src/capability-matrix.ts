@@ -77,13 +77,15 @@ const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
     support: 'unsupported',
     note: 'Python const codegen has not yet been wired to ValueIR; bare values emit raw',
   },
-  // Slice 2a — Python has tuples but the syntax (parens / typing.Tuple) differs from TS.
-  // Mark lowered so the slice-by-slice Python codegen pass can opt in deliberately.
+  // Slice 2a — mapTsTypeToPython has no tuple branch yet, so a TS alias like
+  // `[string, number]` falls through unchanged and would emit invalid Python.
+  // Until lowering lands (`[T, U]` → `tuple[T, U]`), report unsupported so feature
+  // gates don't permit broken output.
   {
     feature: 'tuple-type',
     position: 'top-level',
-    support: 'lowered',
-    note: 'TS [T, U] form must be lowered to Tuple[T, U] / tuple[T, U] for Python',
+    support: 'unsupported',
+    note: 'mapTsTypeToPython has no tuple branch; alias passthrough emits raw TS form',
   },
 ];
 
