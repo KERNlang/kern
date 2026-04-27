@@ -8,6 +8,7 @@
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { reviewSource } from '../../src/index.js';
+import { isRulePromotedForCi } from '../../src/rule-quality.js';
 import type { ReviewConfig } from '../../src/types.js';
 
 /** Detect the right review config based on file content or name */
@@ -107,13 +108,21 @@ describe('Regression Corpus: Known Bugs (recall)', () => {
 
       if (expectedRules) {
         const matched = report.findings.some((f) => expectedRules.includes(f.ruleId));
+        const promotedExpectedRules = expectedRules.filter((ruleId) => isRulePromotedForCi(ruleId));
+        const promotedMatched =
+          promotedExpectedRules.length === 0 ||
+          report.findings.some((finding) => promotedExpectedRules.includes(finding.ruleId));
         if (!matched) {
           // Track as known gap — don't fail, but log it
           console.warn(
             `  [GAP] ${name}: expected ${expectedRules.join('|')}, got: ${report.findings.map((f) => f.ruleId).join(', ') || 'nothing'}`,
           );
         }
-        // Still pass — this is a regression corpus, not a hard requirement
+        if (!promotedMatched) {
+          throw new Error(
+            `${name}: promoted rule expectation failed (${promotedExpectedRules.join('|')}); got ${report.findings.map((f) => f.ruleId).join(', ') || 'nothing'}`,
+          );
+        }
       } else {
         // Generic: at least one error or warning
         const significant = report.findings.filter((f) => f.severity === 'error' || f.severity === 'warning');

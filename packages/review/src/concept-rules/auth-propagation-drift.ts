@@ -17,6 +17,7 @@ import {
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
+import { apiCallRootCause } from './root-cause.js';
 
 export function authPropagationDrift(ctx: ConceptRuleContext): ReviewFinding[] {
   if (!ctx.allConcepts || ctx.allConcepts.size === 0) return [];
@@ -64,6 +65,7 @@ export function authPropagationDrift(ctx: ConceptRuleContext): ReviewFinding[] {
       relatedSpans: [route.node.primarySpan],
       fingerprint: createFingerprint('auth-propagation-drift', node.primarySpan.startLine, node.primarySpan.startCol),
       confidence: node.confidence * CROSS_STACK_EXACT_CONFIDENCE,
+      rootCause: apiCallRootCause(node, normalized, node.payload.method, route.node),
     });
   }
 

@@ -260,6 +260,40 @@ export function List({ items }: { items: string[] }) {
       const finding = report.findings.find((f) => f.ruleId === 'unstable-key');
       expect(finding).toBeDefined();
     });
+
+    it('detects React.createElement key from index in .map()', () => {
+      const source = `
+import React from 'react';
+export function List({ items }: { items: { text: string }[] }) {
+  return React.createElement(
+    'ul',
+    null,
+    items.map((item, index) => React.createElement('li', { key: index }, item.text)),
+  );
+}
+`;
+      const report = reviewSource(source, 'list.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'unstable-key');
+      expect(finding).toBeDefined();
+      expect(finding!.message).toContain('array index');
+    });
+
+    it('detects missing key in React.createElement .map()', () => {
+      const source = `
+import React from 'react';
+export function List({ items }: { items: { text: string }[] }) {
+  return React.createElement(
+    'ul',
+    null,
+    items.map((item) => React.createElement('li', null, item.text)),
+  );
+}
+`;
+      const report = reviewSource(source, 'list.tsx', reactConfig);
+      const finding = report.findings.find((f) => f.ruleId === 'unstable-key');
+      expect(finding).toBeDefined();
+      expect(finding!.message).toContain('missing a key');
+    });
   });
 
   describe('mapped-fragment-key', () => {

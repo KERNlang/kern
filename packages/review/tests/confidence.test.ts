@@ -310,6 +310,32 @@ describe('Reporter: SARIF rank', () => {
     expect(related.physicalLocation.region.startLine).toBe(7);
   });
 
+  it('exports rule quality and root-cause metadata in SARIF output', () => {
+    const report = makeReport([
+      makeFinding({
+        ruleId: 'auth-drift',
+        rootCause: {
+          kind: 'api-call',
+          key: 'api-call client=c1 method=GET path=/api/me',
+          facets: { method: 'GET', path: '/api/me' },
+        },
+      }),
+    ]);
+    const sarif = JSON.parse(formatSARIF([report]));
+    const result = sarif.runs[0].results[0];
+    const rule = sarif.runs[0].tool.driver.rules.find((entry: any) => entry.id === 'auth-drift');
+
+    expect(result.properties['kern/rootCause']).toEqual({
+      key: 'api-call client=c1 method=GET path=/api/me',
+      kind: 'api-call',
+      facets: { method: 'GET', path: '/api/me' },
+    });
+    expect(rule.properties['kern/precision']).toBe('high');
+    expect(rule.properties['kern/supersedes']).toEqual(
+      expect.arrayContaining(['auth-propagation-drift', 'unhandled-api-error-shape']),
+    );
+  });
+
   it('exports a machine-readable KERN run summary in SARIF output', () => {
     const report = makeReport(
       [
@@ -349,6 +375,7 @@ describe('Reporter: SARIF rank', () => {
     expect(summary.suppressed.total).toBe(2);
     expect(summary.fixable).toBe(1);
     expect(summary.relatedEvidence).toBe(1);
+    expect(summary.rootCauses).toBe(0);
     expect(summary.health).toEqual({ status: 'partial', errors: 1, fallbacks: 0, skipped: 1 });
   });
 

@@ -29,6 +29,7 @@ import {
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
+import { apiCallRootCause } from './root-cause.js';
 
 interface ClientCall {
   target: string;
@@ -87,6 +88,7 @@ export function contractMethodDrift(ctx: ConceptRuleContext): ReviewFinding[] {
         call.node.primarySpan.startCol,
       ),
       confidence: call.node.confidence * CROSS_STACK_EXACT_CONFIDENCE,
+      rootCause: apiCallRootCause(call.node, call.normalizedPath, call.method, routesAtPath[0]?.node),
     });
   }
   return findings;

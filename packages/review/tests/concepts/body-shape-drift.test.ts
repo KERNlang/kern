@@ -74,6 +74,89 @@ describe('body-shape-drift', () => {
     expect(findings).toHaveLength(0);
   });
 
+  it('derives sent fields from a typed fetch payload variable', () => {
+    const p = project();
+    const clientSrc = `
+      interface CreateUserInput {
+        name: string;
+        email: string;
+      }
+      async function create(input: CreateUserInput) {
+        await fetch('/api/users', { method: 'POST', body: JSON.stringify(input) });
+      }
+    `;
+    const serverSrc = `
+      import express from 'express';
+      const app = express();
+      app.post('/api/users', (req: any, res: any) => {
+        const { name, email } = req.body;
+        res.json({ name, email });
+      });
+    `;
+    const cf = '/client/api.ts';
+    const sf = '/server/index.ts';
+    const cMap = extractTsConcepts(p.createSourceFile(cf, clientSrc), cf);
+    const sMap = extractTsConcepts(p.createSourceFile(sf, serverSrc), sf);
+    const findings = bodyShapeDrift({ concepts: cMap, filePath: cf, allConcepts: mergeMaps(cMap, sMap) });
+    expect(findings).toHaveLength(0);
+  });
+
+  it('treats optional typed payload fields as not guaranteed on the wire', () => {
+    const p = project();
+    const clientSrc = `
+      interface CreateUserInput {
+        name: string;
+        email?: string;
+      }
+      async function create(input: CreateUserInput) {
+        await fetch('/api/users', { method: 'POST', body: JSON.stringify(input) });
+      }
+    `;
+    const serverSrc = `
+      import express from 'express';
+      const app = express();
+      app.post('/api/users', (req: any, res: any) => {
+        const { name, email } = req.body;
+        res.json({ name, email });
+      });
+    `;
+    const cf = '/client/api.ts';
+    const sf = '/server/index.ts';
+    const cMap = extractTsConcepts(p.createSourceFile(cf, clientSrc), cf);
+    const sMap = extractTsConcepts(p.createSourceFile(sf, serverSrc), sf);
+    const findings = bodyShapeDrift({ concepts: cMap, filePath: cf, allConcepts: mergeMaps(cMap, sMap) });
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toMatch(/email/);
+  });
+
+  it('derives sent fields from axios-style typed payload arguments', () => {
+    const p = project();
+    const clientSrc = `
+      import axios from 'axios';
+      interface CreateUserInput {
+        name: string;
+      }
+      async function create(input: CreateUserInput) {
+        await axios.post('/api/users', input);
+      }
+    `;
+    const serverSrc = `
+      import express from 'express';
+      const app = express();
+      app.post('/api/users', (req: any, res: any) => {
+        const { name, email } = req.body;
+        res.json({ name, email });
+      });
+    `;
+    const cf = '/client/api.ts';
+    const sf = '/server/index.ts';
+    const cMap = extractTsConcepts(p.createSourceFile(cf, clientSrc), cf);
+    const sMap = extractTsConcepts(p.createSourceFile(sf, serverSrc), sf);
+    const findings = bodyShapeDrift({ concepts: cMap, filePath: cf, allConcepts: mergeMaps(cMap, sMap) });
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toMatch(/email/);
+  });
+
   it('fires on property-access reads (req.body.X) the same way as destructuring', () => {
     const p = project();
     const clientSrc = `

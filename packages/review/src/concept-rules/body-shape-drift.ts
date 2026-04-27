@@ -14,7 +14,7 @@
  * V1 is deliberately narrow per the red-team consensus on the body-shape
  * plan:
  *   - Express only (no Pydantic/FastAPI cross-file model resolution).
- *   - Raw `fetch` only on the client (no axios/ky/got/wrapper clients).
+ *   - Literal or locally typed JSON payloads on fetch/axios-style clients.
  *   - Inline handlers only (imported-identifier handlers stay silent).
  *   - Missing-fields direction only (client omits what server needs). The
  *     "extra" direction (client sends what server ignores) conflicts with
@@ -39,10 +39,12 @@ import {
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
+import { apiCallRootCause } from './root-cause.js';
 
 interface ClientCall {
   target: string;
   normalizedPath: string;
+  method?: string;
   sentFields: readonly string[];
   node: ConceptNode;
 }
@@ -64,7 +66,7 @@ export function bodyShapeDrift(ctx: ConceptRuleContext): ReviewFinding[] {
       if (typeof target !== 'string') continue;
       const normalized = normalizeClientUrl(target);
       if (!normalized || !API_PATH_RE.test(normalized)) continue;
-      clientCalls.push({ target, normalizedPath: normalized, sentFields: fields, node });
+      clientCalls.push({ target, normalizedPath: normalized, method: node.payload.method, sentFields: fields, node });
     }
   }
   if (clientCalls.length === 0) return [];
@@ -76,7 +78,7 @@ export function bodyShapeDrift(ctx: ConceptRuleContext): ReviewFinding[] {
     if (call.node.primarySpan.file !== ctx.filePath) continue;
 
     const route = findMatchingRoute(call.normalizedPath, serverRoutes);
-    if (!route || !route.node) continue;
+    if (!route?.node) continue;
     if (route.node.payload.kind !== 'entrypoint') continue;
     if (route.node.payload.bodyFieldsResolved !== true) continue;
     const serverFields = route.node.payload.bodyFields;
@@ -104,6 +106,7 @@ export function bodyShapeDrift(ctx: ConceptRuleContext): ReviewFinding[] {
       primarySpan: call.node.primarySpan,
       fingerprint,
       confidence: call.node.confidence * CROSS_STACK_HEURISTIC_CONFIDENCE,
+      rootCause: apiCallRootCause(call.node, call.normalizedPath, call.method, route.node),
     });
   }
 

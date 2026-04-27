@@ -16,6 +16,7 @@ import {
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
+import { apiCallRootCause } from './root-cause.js';
 
 const ERROR_STATUS_CODES = new Set([401, 403, 404, 422, 500]);
 
@@ -60,6 +61,7 @@ export function unhandledApiErrorShape(ctx: ConceptRuleContext): ReviewFinding[]
         node.primarySpan.startCol,
       ),
       confidence: node.confidence * CROSS_STACK_EXACT_CONFIDENCE,
+      rootCause: apiCallRootCause(node, normalized, node.payload.method, route?.node),
     });
   }
 

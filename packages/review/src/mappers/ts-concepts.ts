@@ -1616,35 +1616,112 @@ function isInAsyncContext(node: import('ts-morph').Node): boolean {
   return false;
 }
 
-// Extract the field names a `fetch(url, { body: JSON.stringify({ a, b }) })`
-// sends on the wire. V1 scope: raw `fetch` only, body must be
-// `JSON.stringify({ ... })` with a literal object that has only identifier
-// keys and no spread. Everything else returns `{ fields: undefined, resolved: false }`
-// so body-shape-drift stays silent on opaque shapes rather than guessing.
+// Extract the field names a network call sends on the wire. High-confidence
+// sources:
+//   - literal objects: `JSON.stringify({ a, b })`, `axios.post(url, { a, b })`
+//   - typed payload variables: `JSON.stringify(input)` where `input: CreateUser`
+// Everything else returns `{ fields: undefined, resolved: false }` so
+// body-shape-drift stays silent on opaque shapes rather than guessing.
 function extractSentFields(
   call: import('ts-morph').CallExpression,
   funcName: string,
 ): { fields: readonly string[] | undefined; resolved: boolean } {
-  if (funcName !== 'fetch') return { fields: undefined, resolved: false };
+  const payload = extractNetworkPayloadExpression(call, funcName);
+  if (!payload) return { fields: undefined, resolved: false };
+  return extractPayloadFields(payload);
+}
+
+function extractNetworkPayloadExpression(
+  call: import('ts-morph').CallExpression,
+  funcName: string,
+): import('ts-morph').Node | undefined {
   const args = call.getArguments();
-  if (args.length < 2) return { fields: undefined, resolved: false };
+  if (args.length < 2) return undefined;
+
+  if (AXIOS_STYLE_METHODS.has(funcName)) {
+    return args[1];
+  }
+
+  if (funcName !== 'fetch') return undefined;
   const opts = args[1];
-  if (opts.getKind() !== SyntaxKind.ObjectLiteralExpression) return { fields: undefined, resolved: false };
+  if (opts.getKind() !== SyntaxKind.ObjectLiteralExpression) return undefined;
   const optsObj = opts as import('ts-morph').ObjectLiteralExpression;
   const bodyProp = optsObj.getProperty('body');
-  if (!bodyProp) return { fields: undefined, resolved: false };
+  if (!bodyProp) return undefined;
   if (bodyProp.getKind() !== SyntaxKind.PropertyAssignment) {
-    return { fields: undefined, resolved: false };
+    return undefined;
   }
   const init = (bodyProp as import('ts-morph').PropertyAssignment).getInitializer();
-  if (!init || init.getKind() !== SyntaxKind.CallExpression) return { fields: undefined, resolved: false };
-  const bodyCall = init as import('ts-morph').CallExpression;
-  if (bodyCall.getExpression().getText() !== 'JSON.stringify') return { fields: undefined, resolved: false };
-  const stringifyArgs = bodyCall.getArguments();
-  if (stringifyArgs.length === 0) return { fields: undefined, resolved: false };
-  const payload = stringifyArgs[0];
-  if (payload.getKind() !== SyntaxKind.ObjectLiteralExpression) return { fields: undefined, resolved: false };
-  return extractLiteralObjectFields(payload as import('ts-morph').ObjectLiteralExpression);
+  return init;
+}
+
+function extractPayloadFields(node: import('ts-morph').Node): {
+  fields: readonly string[] | undefined;
+  resolved: boolean;
+} {
+  const payload = unwrapPayloadExpression(node);
+  if (payload.getKind() === SyntaxKind.CallExpression) {
+    const bodyCall = payload as import('ts-morph').CallExpression;
+    if (bodyCall.getExpression().getText() !== 'JSON.stringify') return { fields: undefined, resolved: false };
+    const stringifyArg = bodyCall.getArguments()[0];
+    return stringifyArg ? extractPayloadFields(stringifyArg) : { fields: undefined, resolved: false };
+  }
+  if (payload.getKind() === SyntaxKind.ObjectLiteralExpression) {
+    return extractLiteralObjectFields(payload as import('ts-morph').ObjectLiteralExpression);
+  }
+  if (payload.getKind() === SyntaxKind.Identifier || payload.getKind() === SyntaxKind.PropertyAccessExpression) {
+    return extractObjectFieldsFromType(payload);
+  }
+  return { fields: undefined, resolved: false };
+}
+
+function unwrapPayloadExpression(node: import('ts-morph').Node): import('ts-morph').Node {
+  let current = node;
+  while (true) {
+    const kind = current.getKind();
+    if (kind === SyntaxKind.ParenthesizedExpression) {
+      current = (current as import('ts-morph').ParenthesizedExpression).getExpression();
+    } else if (kind === SyntaxKind.AsExpression) {
+      current = (current as import('ts-morph').AsExpression).getExpression();
+    } else if (kind === SyntaxKind.TypeAssertionExpression) {
+      current = (current as import('ts-morph').TypeAssertion).getExpression();
+    } else if (kind === SyntaxKind.NonNullExpression) {
+      current = (current as import('ts-morph').NonNullExpression).getExpression();
+    } else if (kind === SyntaxKind.SatisfiesExpression) {
+      current = (current as import('ts-morph').SatisfiesExpression).getExpression();
+    } else {
+      return current;
+    }
+  }
+}
+
+function extractObjectFieldsFromType(node: import('ts-morph').Node): {
+  fields: readonly string[] | undefined;
+  resolved: boolean;
+} {
+  const type = node.getType();
+  if (type.isAny() || type.isUnknown() || type.isUnion()) return { fields: undefined, resolved: false };
+  if (type.getStringIndexType() || type.getNumberIndexType()) return { fields: undefined, resolved: false };
+
+  const fields = new Set<string>();
+  for (const prop of type.getProperties()) {
+    const declarations = prop.getDeclarations();
+    if (declarations.length === 0) return { fields: undefined, resolved: false };
+    if (declarations.some((decl) => isExternalSourcePath(decl.getSourceFile().getFilePath()))) {
+      return { fields: undefined, resolved: false };
+    }
+    if (declarations.some((decl) => declarationIsOptional(decl))) continue;
+    const name = prop.getName();
+    if (!/^[A-Za-z_$][\w$-]*$/.test(name)) return { fields: undefined, resolved: false };
+    fields.add(name);
+  }
+
+  return fields.size > 0 ? { fields: Array.from(fields).sort(), resolved: true } : { fields: [], resolved: true };
+}
+
+function declarationIsOptional(decl: import('ts-morph').Node): boolean {
+  const maybeOptional = decl as import('ts-morph').Node & { hasQuestionToken?: () => boolean };
+  return maybeOptional.hasQuestionToken?.() === true;
 }
 
 // Walk an object literal and return its identifier-keyed property names.

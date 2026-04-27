@@ -18,6 +18,7 @@ import {
   normalizeClientUrl,
 } from './cross-stack-utils.js';
 import type { ConceptRuleContext } from './index.js';
+import { apiCallRootCause, routeRootCause } from './root-cause.js';
 
 const GUARD_BODY_METHODS = new Set(['POST']);
 const AUDIT_BODY_METHODS = new Set(['POST', 'PUT', 'PATCH']);
@@ -54,6 +55,7 @@ function backendUnvalidatedBodyFindings(ctx: ConceptRuleContext): ReviewFinding[
       primarySpan: node.primarySpan,
       fingerprint: createFingerprint('request-validation-drift', node.primarySpan.startLine, node.primarySpan.startCol),
       confidence: node.confidence * 0.8,
+      rootCause: routeRootCause(node, method),
     });
   }
 
@@ -99,6 +101,7 @@ function clientExtraFieldFindings(ctx: ConceptRuleContext): ReviewFinding[] {
       relatedSpans: [route.node.primarySpan],
       fingerprint: createFingerprint('request-validation-drift', node.primarySpan.startLine, node.primarySpan.startCol),
       confidence: node.confidence * CROSS_STACK_HEURISTIC_CONFIDENCE,
+      rootCause: apiCallRootCause(node, normalized, node.payload.method, route.node),
     });
   }
 

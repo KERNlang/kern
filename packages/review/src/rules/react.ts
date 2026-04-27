@@ -78,6 +78,18 @@ function getMapCallbackRootJsx(
   return undefined;
 }
 
+function getMapCallbackReturnedExpression(
+  callback: import('ts-morph').ArrowFunction | import('ts-morph').FunctionExpression,
+): Node | undefined {
+  const body = callback.getBody();
+  if (Node.isBlock(body)) {
+    const returnStmt = body.getStatements().find((stmt) => Node.isReturnStatement(stmt));
+    const expr = returnStmt?.getExpression();
+    return expr ? unwrapJsxExpression(expr) : undefined;
+  }
+  return unwrapJsxExpression(body);
+}
+
 // ── Rule 11: async-effect ────────────────────────────────────────────────
 // useEffect(async () => ...) — React doesn't support async effect callbacks
 
@@ -259,10 +271,43 @@ function unstableKey(ctx: RuleContext): ReviewFinding[] {
         : (callback as import('ts-morph').FunctionExpression).getParameters();
     const indexParam = params.length >= 2 ? params[1].getName() : null;
 
-    const rootJsx = getMapCallbackRootJsx(callback);
-    if (!rootJsx) continue; // No JSX → skip (fixes non-JSX .map() FP)
-    if (Node.isJsxFragment(rootJsx)) continue; // handled by mapped-fragment-key
     const line = call.getStartLineNumber();
+    const rootJsx = getMapCallbackRootJsx(callback);
+    if (!rootJsx) {
+      const returned = getMapCallbackReturnedExpression(callback);
+      const createElementKey = returned ? getCreateElementKeyStatus(returned, indexParam) : undefined;
+      if (!createElementKey) continue; // No JSX/createElement root → skip (fixes non-React .map() FP)
+
+      if (createElementKey.usesIndexKey) {
+        findings.push(
+          finding(
+            'unstable-key',
+            'warning',
+            'bug',
+            `key={${indexParam}} uses array index — use a stable identifier instead`,
+            ctx.filePath,
+            line,
+            1,
+            { suggestion: 'Use a unique ID from the data (e.g., key={item.id})' },
+          ),
+        );
+      } else if (!createElementKey.hasKey) {
+        findings.push(
+          finding(
+            'unstable-key',
+            'warning',
+            'bug',
+            'React.createElement in .map() is missing a key prop',
+            ctx.filePath,
+            line,
+            1,
+            { suggestion: 'Add key: item.id to the props object passed to React.createElement' },
+          ),
+        );
+      }
+      continue;
+    }
+    if (Node.isJsxFragment(rootJsx)) continue; // handled by mapped-fragment-key
 
     // Get attributes from the first JSX element
     const attributes =
@@ -315,6 +360,37 @@ function unstableKey(ctx: RuleContext): ReviewFinding[] {
   }
 
   return findings;
+}
+
+function getCreateElementKeyStatus(
+  expr: Node,
+  indexParam: string | null,
+): { hasKey: boolean; usesIndexKey: boolean } | undefined {
+  if (!Node.isCallExpression(expr)) return undefined;
+  const callee = expr.getExpression().getText();
+  if (callee !== 'React.createElement' && callee !== 'createElement') return undefined;
+
+  const propsArg = expr.getArguments()[1];
+  if (!propsArg || propsArg.getKind() === SyntaxKind.NullKeyword) {
+    return { hasKey: false, usesIndexKey: false };
+  }
+  if (!Node.isObjectLiteralExpression(propsArg)) return undefined;
+
+  for (const prop of propsArg.getProperties()) {
+    if (!Node.isPropertyAssignment(prop)) continue;
+    const name = prop
+      .getNameNode()
+      .getText()
+      .replace(/^['"]|['"]$/g, '');
+    if (name !== 'key') continue;
+    const initializer = prop.getInitializer();
+    return {
+      hasKey: true,
+      usesIndexKey: indexParam !== null && initializer?.getText() === indexParam,
+    };
+  }
+
+  return { hasKey: false, usesIndexKey: false };
 }
 
 // ── Rule 14: stale-closure ───────────────────────────────────────────────
