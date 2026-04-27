@@ -84,7 +84,7 @@ try {
 import { buildConfidenceGraph, computeConfidenceSummary, serializeGraph } from './confidence.js';
 import { applySuppression } from './suppression/index.js';
 import { analyzeTaint, analyzeTaintCrossFile, crossFileTaintToFindings, taintToFindings } from './taint.js';
-import type { InferResult, ReviewConfig, ReviewFinding, ReviewReport } from './types.js';
+import type { InferResult, ReachabilityBlocker, ReviewConfig, ReviewFinding, ReviewReport } from './types.js';
 import { createFingerprint } from './types.js';
 
 type PythonConceptExtractor = (source: string, filePath: string) => ConceptMap;
@@ -1404,8 +1404,17 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     };
     const publicApi = expandPublicApiThroughReExports(basePublicApi, sourceFileFor);
 
+    // Step 10: blockers are passed alongside publicApi so dead-export's
+    // step 9b cap+trail logic can consume them. The wiring is in place;
+    // concrete producers (unresolved re-export → blocker on the missing
+    // target file/symbol; non-literal `import(expr)` → telemetry only,
+    // never a blocker) extend this array. Empty array is a valid "no
+    // blockers detected" state — the rule short-circuits without any
+    // change to existing semantics.
+    const reachabilityBlockers: ReachabilityBlocker[] = [];
+
     for (const report of reports) {
-      const deadExportFindings = deadExportRule(callGraph, report.filePath, publicApi);
+      const deadExportFindings = deadExportRule(callGraph, report.filePath, publicApi, reachabilityBlockers);
       report.findings.push(...deadExportFindings);
 
       const asyncFindings = crossFileAsyncRule(callGraph, report.filePath);

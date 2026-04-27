@@ -727,6 +727,21 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
       fn.calls = extractCallSites(fn, sf, localFnNames, importBindings, localAliases);
       unresolvedCount += fn.calls.filter((c) => !c.resolved).length;
     }
+
+    // Step 10 wiring: literal `import('./mod')` (recorded by graph.ts as
+    // a `dynamic-import` GraphEdge in step 3) means every export of the
+    // target is potentially used — we cannot prove which one. Mark them
+    // all as imported. Same test-file skip as the static-import case
+    // above so a test-only lazy import doesn't pin production exports.
+    if (classifyFileRoleByPath(gf.path) !== 'test') {
+      for (const edge of gf.importEdges) {
+        if (edge.kind !== 'dynamic-import') continue;
+        const targetFns = fileFunctions.get(edge.to) ?? [];
+        for (const fn of targetFns) {
+          if (fn.isExported) importedExportKeys.add(`${edge.to}#${fn.name}`);
+        }
+      }
+    }
   }
 
   // Phase 3: Link calledBy edges (cross-file)
