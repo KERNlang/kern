@@ -132,4 +132,47 @@ describe('Quote-origin tracking (Slice 1i)', () => {
     const node = findNode(rootOf('const name=raw value={{ JSON.stringify(x) }}\n'), 'const');
     expect(node?.__quotedProps).toBeUndefined();
   });
+
+  test('duplicate-prop overwrite: quoted then bare clears __quotedProps for that key', () => {
+    // last-write-wins on props: final value is bare → __quotedProps must NOT include it
+    const node = findNode(rootOf('const name=x value="ok" value=y\n'), 'const');
+    expect(node?.props?.value).toBe('y');
+    expect(node?.__quotedProps).toBeUndefined();
+  });
+
+  test('duplicate-prop overwrite: bare then quoted sets __quotedProps for that key', () => {
+    const node = findNode(rootOf('const name=x value=y value="ok"\n'), 'const');
+    expect(node?.props?.value).toBe('ok');
+    expect(node?.__quotedProps).toEqual(['value']);
+  });
+
+  test('duplicate-prop overwrite: quoted then expr clears __quotedProps for that key', () => {
+    const node = findNode(rootOf('const name=x value="ok" value={{ y }}\n'), 'const');
+    expect(node?.__quotedProps).toBeUndefined();
+  });
+
+  test('duplicate-prop overwrite: bare-then-bare invalid expression still raises INVALID_EXPRESSION', () => {
+    // Edge case Codex flagged: with the duplicate-prop fix, this case must still emit
+    // the validation error since the final value is bare (not __quotedProps-tracked).
+    const diags = diagnosticsFor('const name=x value="ok" value=1.5n\n');
+    const errs = diags.filter((d) => d.code === 'INVALID_EXPRESSION');
+    expect(errs.length).toBe(1);
+  });
+});
+
+describe('Slice 1j guardrail (codegen contract for __quotedProps)', () => {
+  // Codex review of slice 1i flagged that for invalid-as-expression quoted strings
+  // (e.g. `value="a:b"`), validation correctly skips (string literal is fine), but
+  // codegen still emits the raw value, producing invalid TS like `const s = a:b;`.
+  // Slice 1j must consume node.__quotedProps in generateConst and emit JSON.stringify
+  // for these props so generated TS stays valid.
+
+  test('quoted string with colon: parse passes, but __quotedProps marks for codegen', () => {
+    const root = rootOf('const name=s value="a:b"\n');
+    const node = findNode(root, 'const');
+    expect(node?.props?.value).toBe('a:b');
+    expect(node?.__quotedProps).toEqual(['value']);
+    // Slice 1j contract: codegen must wrap this as JSON.stringify('a:b') to produce valid TS.
+    // Until Slice 1j lands, generated output for this input is intentionally raw.
+  });
 });

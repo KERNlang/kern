@@ -102,7 +102,7 @@ function parseProp(
   state: ParseState,
   s: TokenStream,
   props: Record<string, unknown>,
-  quotedProps: string[],
+  quotedProps: Set<string>,
   lineNum?: number,
   col?: number,
 ): boolean {
@@ -127,6 +127,7 @@ function parseProp(
   const valTok = s.peek();
   if (!valTok || valTok.kind === 'whitespace') {
     props[key] = '';
+    quotedProps.delete(key); // last write wins on props; metadata must follow
     return true;
   }
 
@@ -134,7 +135,8 @@ function parseProp(
   if (valTok.kind === 'expr' || valTok.kind === 'quoted') {
     const consumed = s.next()!;
     props[key] = tokenValue(consumed);
-    if (consumed.kind === 'quoted') quotedProps.push(key);
+    if (consumed.kind === 'quoted') quotedProps.add(key);
+    else quotedProps.delete(key);
     return true;
   }
 
@@ -147,6 +149,7 @@ function parseProp(
     s.next();
   }
   props[key] = value;
+  quotedProps.delete(key); // last write wins on props; metadata must follow
   return true;
 }
 
@@ -230,7 +233,7 @@ function parseLine(
   }
 
   const props: Record<string, unknown> = {};
-  const quotedProps: string[] = [];
+  const quotedProps = new Set<string>();
   const styles: Record<string, string> = {};
   const pseudoStyles: Record<string, Record<string, string>> = {};
   const themeRefs: string[] = [];
@@ -302,7 +305,7 @@ function parseLine(
     rawLength: content.length,
     type,
     props,
-    ...(quotedProps.length > 0 ? { quotedProps } : {}),
+    ...(quotedProps.size > 0 ? { quotedProps: [...quotedProps] } : {}),
     styles,
     pseudoStyles,
     themeRefs,
