@@ -2372,7 +2372,18 @@ export function exportSchemaJSON(runtime?: KernRuntime): KernSchemaJSON {
     styleShorthands: { ...STYLE_SHORTHANDS },
     valueShorthands: { ...VALUE_SHORTHANDS },
     multilineBlockTypes: [...rt.multilineBlockTypes],
-    propKinds: ['identifier', 'typeAnnotation', 'importPath', 'rawExpr', 'rawBlock', 'string', 'boolean', 'number'],
+    propKinds: [
+      'identifier',
+      'typeAnnotation',
+      'importPath',
+      'rawExpr',
+      'rawBlock',
+      'string',
+      'boolean',
+      'number',
+      'expression',
+      'regex',
+    ],
     ...(evolvedTypes.length > 0 ? { evolvedTypes } : {}),
   };
 }

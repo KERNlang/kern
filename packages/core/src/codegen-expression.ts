@@ -19,6 +19,9 @@ export function emitExpression(node: ValueIR): string {
         .replace(/\n/g, '\\n')
         .replace(/\r/g, '\\r')
         .replace(/\t/g, '\\t')
+        .replace(/\x08/g, '\\b')
+        .replace(/\f/g, '\\f')
+        .replace(/\v/g, '\\v')
         .replace(new RegExp(q, 'g'), `\\${q}`);
       return `${q}${escaped}${q}`;
     }

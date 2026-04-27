@@ -324,4 +324,11 @@ describe('Bug fixes from cross-AI review', () => {
     // `outer ${ `inner` }` — simple nested template
     expect(() => parseExpression('`outer ${`inner`}`')).not.toThrow();
   });
+
+  test('strLit codegen escapes \\b \\f \\v', () => {
+    // String value containing literal backspace, form-feed, vertical-tab
+    const str = '\b\f\v';
+    const ir = { kind: 'strLit' as const, value: str, quote: '"' as const };
+    expect(emitExpression(ir)).toBe('"\\b\\f\\v"');
+  });
 });

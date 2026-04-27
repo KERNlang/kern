@@ -1,4 +1,5 @@
 import { parseDocumentWithDiagnostics } from '../src/parser.js';
+import { exportSchemaJSON } from '../src/schema.js';
 
 function diagnosticsFor(src: string) {
   return parseDocumentWithDiagnostics(src).diagnostics;
@@ -48,5 +49,16 @@ describe('Expression validator (post-parse)', () => {
     // text has no expression-kind props
     const diags = diagnosticsFor('text "hello"\n');
     expect(diags.filter((d) => d.code === 'INVALID_EXPRESSION')).toEqual([]);
+  });
+
+  test('exportSchemaJSON propKinds advertises expression and regex', () => {
+    const json = exportSchemaJSON();
+    expect(json.propKinds).toContain('expression');
+    expect(json.propKinds).toContain('regex');
+  });
+
+  test('exportSchemaJSON const.value kind is "expression"', () => {
+    const json = exportSchemaJSON();
+    expect(json.schemas.const.props.value.kind).toBe('expression');
   });
 });
