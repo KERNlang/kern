@@ -71,6 +71,19 @@ function typeToString(typeNode: ts.TypeNode | undefined, source: ts.SourceFile):
   return /\s/.test(raw) ? `"${raw.replace(/"/g, '\\"')}"` : raw;
 }
 
+/** Slice 2f — extract `<T, U extends Foo = Bar>` from any declaration that
+ *  carries typeParameters and return a `generics="..."` attribute fragment
+ *  ready to splice into a KERN line. Returns empty string when there are none. */
+function genericsAttr(
+  typeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined,
+  source: ts.SourceFile,
+): string {
+  if (!typeParameters || typeParameters.length === 0) return '';
+  const parts = typeParameters.map((tp) => tp.getText(source));
+  const block = `<${parts.join(', ')}>`;
+  return ` generics="${block.replace(/"/g, '\\"')}"`;
+}
+
 function getJSDoc(node: ts.Node, source: ts.SourceFile): string | undefined {
   const jsDocs = (node as any).jsDoc as ts.JSDoc[] | undefined;
   if (!jsDocs || jsDocs.length === 0) return undefined;
@@ -185,6 +198,7 @@ function convertTypeAlias(node: ts.TypeAliasDeclaration, source: ts.SourceFile):
   const lines: string[] = [];
   const name = node.name.getText(source);
   const exp = isExported(node) ? ' export=true' : '';
+  const generics = genericsAttr(node.typeParameters, source);
   const doc = getJSDoc(node, source);
 
   if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
@@ -197,14 +211,14 @@ function convertTypeAlias(node: ts.TypeAliasDeclaration, source: ts.SourceFile):
     );
     if (allStringLiterals) {
       const values = members.map((m) => ((m as ts.LiteralTypeNode).literal as ts.StringLiteral).text).join('|');
-      lines.push(`type name=${name} values="${values}"${exp}`);
+      lines.push(`type name=${name} values="${values}"${generics}${exp}`);
       return lines;
     }
   }
 
   // General type alias
   const typeText = typeToString(node.type, source);
-  lines.push(`type name=${name} alias="${escapeKernString(typeText)}"${exp}`);
+  lines.push(`type name=${name} alias="${escapeKernString(typeText)}"${generics}${exp}`);
   return lines;
 }
 
@@ -212,6 +226,7 @@ function convertInterface(node: ts.InterfaceDeclaration, source: ts.SourceFile):
   const lines: string[] = [];
   const name = node.name.getText(source);
   const exp = isExported(node) ? ' export=true' : '';
+  const generics = genericsAttr(node.typeParameters, source);
   const doc = getJSDoc(node, source);
 
   if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
@@ -221,7 +236,7 @@ function convertInterface(node: ts.InterfaceDeclaration, source: ts.SourceFile):
     .flatMap((h) => h.types.map((t) => t.getText(source)));
   const extendsStr = extends_ && extends_.length > 0 ? ` extends=${extends_.join(',')}` : '';
 
-  lines.push(`interface name=${name}${extendsStr}${exp}`);
+  lines.push(`interface name=${name}${generics}${extendsStr}${exp}`);
 
   for (const member of node.members) {
     if (ts.isPropertySignature(member)) {
@@ -283,6 +298,7 @@ function convertFunction(node: ts.FunctionDeclaration, source: ts.SourceFile): s
   const lines: string[] = [];
   const name = node.name?.getText(source) ?? 'anonymous';
   const exp = isExported(node) ? ' export=true' : '';
+  const generics = genericsAttr(node.typeParameters, source);
   const doc = getJSDoc(node, source);
   const asyncStr = isAsync(node) ? ' async=true' : '';
   const isGenerator = node.asteriskToken != null;
@@ -298,7 +314,7 @@ function convertFunction(node: ts.FunctionDeclaration, source: ts.SourceFile): s
   // For async generators, use stream=true instead of async=true + generator=true
   const asyncFinal = isGenerator && isAsync(node) ? '' : asyncStr;
 
-  lines.push(`fn name=${name}${paramsStr}${returnsStr}${asyncFinal}${generatorStr}${exp}`);
+  lines.push(`fn name=${name}${paramsStr}${returnsStr}${asyncFinal}${generatorStr}${generics}${exp}`);
 
   const body = getBodyText(node.body, source);
   if (body) {
@@ -352,6 +368,7 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
   const lines: string[] = [];
   const name = node.name?.getText(source) ?? 'AnonymousClass';
   const exp = isExported(node) ? ' export=true' : '';
+  const generics = genericsAttr(node.typeParameters, source);
   const doc = getJSDoc(node, source);
 
   // Check if it extends Error → error node
@@ -375,7 +392,7 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
     extendsClause && !isError ? ` extends=${extendsClause.types.map((t) => t.getText(source)).join(',')}` : '';
   const abstractStr = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword) ? ' abstract=true' : '';
 
-  lines.push(`class name=${name}${extendsStr}${implementsStr}${abstractStr}${exp}`);
+  lines.push(`class name=${name}${extendsStr}${implementsStr}${abstractStr}${generics}${exp}`);
 
   for (const member of node.members) {
     if (ts.isPropertyDeclaration(member)) {

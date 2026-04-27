@@ -33,6 +33,11 @@ export function generateFunction(node: IRNode): string[] {
   const isStream = props.stream === 'true' || props.stream === true;
   const isGenerator = props.generator === 'true' || props.generator === true;
   const exp = exportPrefix(node);
+  // Slice 2f — generics: `fn name=identity generics="<T>" params="x:T" returns=T`
+  // emits `function identity<T>(x: T): T { ... }`. emitTypeAnnotation handles
+  // brackets/whitespace; same prop also goes on overload signatures (TS overloads
+  // can declare their own type parameters when the impl is generic).
+  const generics = props.generics ? emitTypeAnnotation(props.generics, '', node) : '';
   const lines: string[] = [...emitDocComment(node)];
 
   // Slice 2e — overload signatures emitted before the implementation. Each
@@ -47,7 +52,7 @@ export function generateFunction(node: IRNode): string[] {
     const op = propsOf<'overload'>(ov);
     const oParams = op.params ? parseParamList(op.params, { stripDefaults: true }) : '';
     const oRet = op.returns ? `: ${emitTypeAnnotation(op.returns, 'unknown', ov)}` : '';
-    lines.push(`${exp}function ${name}(${oParams})${oRet};`);
+    lines.push(`${exp}function ${name}${generics}(${oParams})${oRet};`);
   }
 
   // Parse params: "action:PlanAction,ws:WorkspaceSnapshot,spread:number=8"
@@ -60,7 +65,7 @@ export function generateFunction(node: IRNode): string[] {
     // If user already declared AsyncGenerator<...>, use as-is to avoid double-wrapping
     const retClause = yieldType.startsWith('AsyncGenerator<') ? `: ${yieldType}` : `: AsyncGenerator<${yieldType}>`;
     const code = handlerCode(node);
-    lines.push(`${exp}async function* ${name}(${paramList})${retClause} {`);
+    lines.push(`${exp}async function* ${name}${generics}(${paramList})${retClause} {`);
     if (code) {
       for (const line of code.split('\n')) {
         lines.push(`  ${line}`);
@@ -91,7 +96,7 @@ export function generateFunction(node: IRNode): string[] {
   const hasCleanup = !!cleanupNode;
 
   const star = isGenerator ? '* ' : '';
-  lines.push(`${exp}${asyncKw}function${star ? '* ' : ' '}${name}(${paramList})${retClause} {`);
+  lines.push(`${exp}${asyncKw}function${star ? '* ' : ' '}${name}${generics}(${paramList})${retClause} {`);
 
   // Signal → AbortController setup
   if (hasSignal) {

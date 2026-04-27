@@ -29,10 +29,12 @@ export interface DocProps extends BaseProps {
 export interface TypeProps extends BaseProps {
   values?: string;
   alias?: string;
+  generics?: string;
 }
 
 export interface InterfaceProps extends BaseProps {
   extends?: string;
+  generics?: string;
 }
 
 export interface UnionProps extends BaseProps {
@@ -68,6 +70,7 @@ export interface ClassProps extends BaseProps {
   extends?: string;
   implements?: string;
   abstract?: string | boolean;
+  generics?: string;
 }
 
 export interface ConstProps extends BaseProps {
@@ -84,6 +87,7 @@ export interface FnProps extends BaseProps {
   stream?: string | boolean;
   generator?: string | boolean;
   expr?: string | ExprObject;
+  generics?: string;
 }
 
 export interface ErrorProps extends BaseProps {

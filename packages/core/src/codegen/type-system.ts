@@ -40,6 +40,7 @@ export function generateType(node: IRNode): string[] {
   const props = propsOf<'type'>(node);
   const name = emitIdentifier(props.name, 'UnknownType', node);
   const { values, alias } = props;
+  const generics = props.generics ? emitTypeAnnotation(props.generics, '', node) : '';
   const exp = exportPrefix(node);
   const docs = emitDocComment(node);
 
@@ -48,12 +49,12 @@ export function generateType(node: IRNode): string[] {
       .split('|')
       .map((v) => `'${emitTemplateSafe(v.trim())}'`)
       .join(' | ');
-    return [...docs, `${exp}type ${name} = ${members};`];
+    return [...docs, `${exp}type ${name}${generics} = ${members};`];
   }
   if (alias) {
-    return [...docs, `${exp}type ${name} = ${emitTypeAnnotation(alias, 'unknown', node)};`];
+    return [...docs, `${exp}type ${name}${generics} = ${emitTypeAnnotation(alias, 'unknown', node)};`];
   }
-  return [...docs, `${exp}type ${name} = unknown;`];
+  return [...docs, `${exp}type ${name}${generics} = unknown;`];
 }
 
 // ── Interface ────────────────────────────────────────────────────────────
@@ -61,11 +62,12 @@ export function generateType(node: IRNode): string[] {
 export function generateInterface(node: IRNode): string[] {
   const props = propsOf<'interface'>(node);
   const name = emitIdentifier(props.name, 'UnknownInterface', node);
+  const generics = props.generics ? emitTypeAnnotation(props.generics, '', node) : '';
   const ext = props.extends ? ` extends ${emitTypeAnnotation(props.extends, 'unknown', node)}` : '';
   const exp = exportPrefix(node);
   const lines: string[] = [...emitDocComment(node)];
 
-  lines.push(`${exp}interface ${name}${ext} {`);
+  lines.push(`${exp}interface ${name}${generics}${ext} {`);
   for (const field of kids(node, 'field')) {
     const fp = propsOf<'field'>(field);
     const fieldName = emitIdentifier(fp.name, 'field', field);
@@ -139,11 +141,18 @@ function emitClassHeader(
   node: IRNode,
   fallbackName: string,
 ): { exp: string; name: string; header: string; docs: string[] } {
-  const props = p(node) as { name?: string; extends?: string; implements?: string; abstract?: unknown };
+  const props = p(node) as {
+    name?: string;
+    extends?: string;
+    implements?: string;
+    abstract?: unknown;
+    generics?: string;
+  };
   const name = emitIdentifier(props.name, fallbackName, node);
   const exp = exportPrefix(node);
   const docs = emitDocComment(node);
 
+  const generics = props.generics ? emitTypeAnnotation(props.generics, '', node) : '';
   const extendsClause = props.extends ? ` extends ${emitTypeAnnotation(props.extends, 'unknown', node)}` : '';
   const implementsClause = props.implements
     ? ` implements ${emitTypeAnnotation(props.implements, 'unknown', node)}`
@@ -154,7 +163,7 @@ function emitClassHeader(
     exp,
     name,
     docs,
-    header: `${exp}${abstractKw}class ${name}${extendsClause}${implementsClause} {`,
+    header: `${exp}${abstractKw}class ${name}${generics}${extendsClause}${implementsClause} {`,
   };
 }
 

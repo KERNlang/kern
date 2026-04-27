@@ -54,6 +54,10 @@ const TS_NUMERIC_LITERALS: CapabilityEntry[] = [
   // Slice 2e — function overloads via `overload` child node. Each overload
   // emits a `function name(params): R;` line before the implementation.
   { feature: 'function-overloads', position: 'top-level', support: 'native' },
+  // Slice 2f — generics: `generics="<T>"` / `<T extends Base>` / `<T = Default>` /
+  // `<K, V>` on type, interface, fn, class. Routed through emitTypeAnnotation
+  // (whitespace + bracket-balance).
+  { feature: 'generics', position: 'top-level', support: 'native' },
 ];
 
 const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
@@ -135,6 +139,14 @@ const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
     position: 'top-level',
     support: 'unsupported',
     note: 'FastAPI codegen does not yet emit @typing.overload stubs',
+  },
+  // Slice 2f — Python has TypeVar / Generic[T] for parameterised types but
+  // the FastAPI generator does not yet emit `T = TypeVar("T")` / `class X(Generic[T])`.
+  {
+    feature: 'generics',
+    position: 'top-level',
+    support: 'unsupported',
+    note: 'FastAPI codegen does not yet emit TypeVar / Generic[T] declarations',
   },
 ];
 

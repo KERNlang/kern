@@ -59,21 +59,23 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   type: {
     description:
-      'TypeScript type alias — union of string literals, or alias to another type (including tuple types like [string, number])',
+      'TypeScript type alias — union of string literals, or alias to another type (including tuple types like [string, number]). Use generics="<T>" for parameterised aliases.',
     example: 'type name=Status values="active|inactive|banned"',
     props: {
       name: { required: true, kind: 'identifier' },
       values: { kind: 'string' },
       alias: { kind: 'rawExpr' },
+      generics: { kind: 'rawExpr' },
       export: { kind: 'boolean' },
     },
   },
   interface: {
-    description: 'TypeScript interface with typed fields',
+    description: 'TypeScript interface with typed fields. Use generics="<T>" for parameterised interfaces.',
     example: 'interface name=User export=true\n  field name=id type=string\n  field name=email type=string',
     props: {
       name: { required: true, kind: 'identifier' },
       extends: { kind: 'typeAnnotation' },
+      generics: { kind: 'rawExpr' },
       export: { kind: 'boolean' },
     },
     allowedChildren: ['field', 'indexer'],
@@ -170,6 +172,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       extends: { kind: 'typeAnnotation' },
       implements: { kind: 'typeAnnotation' },
       abstract: { kind: 'boolean' },
+      generics: { kind: 'rawExpr' },
       export: { kind: 'boolean' },
     },
     allowedChildren: ['field', 'method', 'constructor', 'singleton', 'getter', 'setter'],
@@ -223,6 +226,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       stream: { kind: 'boolean' },
       export: { kind: 'boolean' },
       expr: { kind: 'rawExpr' },
+      generics: { kind: 'rawExpr' },
     },
     allowedChildren: ['handler', 'signal', 'cleanup', 'overload'],
   },
