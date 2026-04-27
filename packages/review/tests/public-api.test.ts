@@ -115,6 +115,50 @@ describe('resolvePackageEntryFiles', () => {
     expect(files).toEqual(['/pkg/src/index.ts']);
   });
 
+  // Phase 4 step 6 — defensive coverage for shapes the dead-export blocker
+  // logic in step 9b will rely on. The recursive collectSpecifiers walker
+  // already handles these; this guards against regressions.
+  it('walks deeply-nested conditional exports (Node 18+ shape with platform branches)', () => {
+    const exists = (p: string) => p === '/pkg/src/index.ts';
+    const files = resolvePackageEntryFiles(
+      '/pkg',
+      {
+        exports: {
+          '.': {
+            node: {
+              import: { default: './dist/esm/index.js', types: './dist/esm/index.d.ts' },
+              require: './dist/cjs/index.js',
+            },
+            browser: './dist/browser/index.js',
+          },
+        },
+      },
+      exists,
+    );
+    // Every leaf string maps back to /pkg/src/index.ts via dist→src swap;
+    // result is a single deduplicated entry.
+    expect(files).toEqual(['/pkg/src/index.ts']);
+  });
+
+  it("ignores `null` values in conditional exports (Node's blocked-subpath sentinel)", () => {
+    const exists = (p: string) => p === '/pkg/src/index.ts';
+    const files = resolvePackageEntryFiles(
+      '/pkg',
+      {
+        exports: {
+          '.': './dist/index.js',
+          // `null` is how package authors declare a subpath as deliberately
+          // unreachable from outside. collectSpecifiers must not collect it
+          // (typeof null === 'object', falsy check needed) or
+          // resolveSpecifierToSrc will treat it as a string and crash.
+          './internal': null,
+        },
+      },
+      exists,
+    );
+    expect(files).toEqual(['/pkg/src/index.ts']);
+  });
+
   it('handles arrays of specifiers (conditional export fallbacks)', () => {
     const pkg = { exports: { '.': { default: ['./dist/a.js', './dist/b.js'] } } };
     const exists = (p: string) => p === '/pkg/src/a.ts' || p === '/pkg/src/b.ts';
