@@ -17,7 +17,13 @@ import { join } from 'path';
 import { Project } from 'ts-morph';
 import { buildCallGraph } from '../src/call-graph.js';
 import { resolveImportGraph } from '../src/graph.js';
-import { buildPublicApiMap, isPublicApi, resolvePackageEntryFiles, resolveSpecifierToSrc } from '../src/public-api.js';
+import {
+  buildPublicApiMap,
+  expandPublicApiThroughReExports,
+  isPublicApi,
+  resolvePackageEntryFiles,
+  resolveSpecifierToSrc,
+} from '../src/public-api.js';
 import { deadExportRule } from '../src/rules/dead-code.js';
 
 function makeTmp(): string {
@@ -558,5 +564,51 @@ describe('buildPublicApiMap (Next.js framework seeds)', () => {
     expect(map.explicitSymbols.has(`${helperPath}#staleHelper`)).toBe(false);
     // Sanity: the page IS seeded.
     expect(map.explicitSymbols.has(`${pagePath}#default`)).toBe(true);
+  });
+});
+
+// Phase 4 step 8 — re-export expansion must work for seeded files that live
+// outside the BFS-walked graph (e.g. lazy routes beyond maxDepth, or barrel
+// targets nothing eager imports). The fix is the on-demand
+// addSourceFileAtPath fallback in index.ts:sourceFileFor; this test
+// validates expandPublicApiThroughReExports works correctly when the
+// callback uses that pattern.
+describe('expandPublicApiThroughReExports (on-demand source-file load)', () => {
+  function createTestProject(): Project {
+    return new Project({
+      compilerOptions: { strict: true, target: 99, module: 99, moduleResolution: 100 },
+      useInMemoryFileSystem: true,
+      skipAddingFilesFromTsConfig: true,
+    });
+  }
+
+  it('captures upstream symbols when the seeded barrel is loaded on demand (not pre-added)', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/barrel.ts', `export { foo } from './worker.js';\n`);
+    project.createSourceFile('/src/worker.ts', `export function foo() {}\nexport function dead() {}\n`);
+
+    // Simulate the index.ts production callback: try getSourceFile first,
+    // then fall back to addSourceFileAtPath. Step 8 wired exactly this.
+    const sourceFileFor = (path: string) => {
+      const known = project.getSourceFile(path);
+      if (known) return known;
+      try {
+        return project.addSourceFileAtPath(path);
+      } catch {
+        return undefined;
+      }
+    };
+
+    const base: Parameters<typeof expandPublicApiThroughReExports>[0] = {
+      entryFiles: new Set(['/src/barrel.ts']),
+      explicitSymbols: new Set<string>(),
+    };
+    const expanded = expandPublicApiThroughReExports(base, sourceFileFor);
+
+    // The barrel re-exports `foo` from worker.ts, so foo is now public.
+    // (Even though `dead` is in the same file, it isn't re-exported, so
+    // it stays subject to dead-export — symbol-scope invariant.)
+    expect(expanded.explicitSymbols.has('/src/worker.ts#foo')).toBe(true);
+    expect(expanded.explicitSymbols.has('/src/worker.ts#dead')).toBe(false);
   });
 });

@@ -14,7 +14,7 @@ import type { ConceptMap, IRNode, ParseDiagnostic } from '@kernlang/core';
 import { countTokens, parseWithDiagnostics, serializeIR } from '@kernlang/core';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { dirname, join, relative, sep } from 'path';
-import { Project } from 'ts-morph';
+import { Project, type SourceFile } from 'ts-morph';
 
 // This module compiles to ESM (`type: "module"`), so the runtime has no `require`.
 // `@kernlang/review-python` is an optional peer — we load it on demand with a
@@ -1385,7 +1385,24 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
       graph.files.map((gf) => gf.path),
       config?.publicApi,
     );
-    const publicApi = expandPublicApiThroughReExports(basePublicApi, (path) => cgProject?.getSourceFile(path));
+    // Step 8: seeded files (Next.js conventions, package.json entries) may
+    // legitimately live outside the BFS-walked graph — for example a lazy
+    // route file beyond `maxDepth`, or a barrel re-exporting a helper that
+    // no eager import in the graph reaches. Without this on-demand load,
+    // expandPublicApiThroughReExports would silently drop those entries
+    // (sourceFileFor returns undefined → loop skips). Loading on demand
+    // costs only the seed entries we actually need, no extra graph work.
+    const sourceFileFor = (path: string): SourceFile | undefined => {
+      if (!cgProject) return undefined;
+      const known = cgProject.getSourceFile(path);
+      if (known) return known;
+      try {
+        return cgProject.addSourceFileAtPath(path);
+      } catch {
+        return undefined;
+      }
+    };
+    const publicApi = expandPublicApiThroughReExports(basePublicApi, sourceFileFor);
 
     for (const report of reports) {
       const deadExportFindings = deadExportRule(callGraph, report.filePath, publicApi);
