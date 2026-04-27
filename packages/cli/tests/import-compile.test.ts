@@ -352,4 +352,44 @@ export async function loadUser(id: string): Promise<User> {
     expect(runtime.stdout).toContain('Ready');
     expect(runtime.stdout).toContain('"event":"waitUntilExit"');
   });
+
+  it('compiles top-level React hook nodes through target auto/lib output', async () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'music-generation-quota.kern');
+    writeFileSync(
+      sourceFile,
+      [
+        'import from="@audiofacets/types" names="MusicGenerationQuota" types=true',
+        '',
+        'hook name=useMusicGenerationQuota params="enabled:boolean,onQuota:(quota:MusicGenerationQuota|null)=>void" returns="{ refreshQuota: () => void }"',
+        '  callback name=refreshQuota params="" deps="enabled,onQuota"',
+        '    handler <<<',
+        '      if (!enabled) {',
+        '        onQuota(null);',
+        '        return;',
+        '      }',
+        '      void window.api.musicGenerationQuota().then(onQuota).catch(() => onQuota(null));',
+        '    >>>',
+        '  effect deps=refreshQuota',
+        '    handler <<<',
+        '      refreshQuota();',
+        '    >>>',
+        '  returns names=refreshQuota',
+      ].join('\n'),
+    );
+
+    const generatedDir = join(tmpDir, 'generated');
+    const getExitCode = trapExit();
+    await expect(runCompile(['compile', sourceFile, '--target=auto', `--outdir=${generatedDir}`])).rejects.toThrow(
+      'EXIT:0',
+    );
+    expect(getExitCode()).toBe(0);
+
+    const compiled = readFileSync(join(generatedDir, 'music-generation-quota.ts'), 'utf-8');
+    expect(compiled).toContain('export function useMusicGenerationQuota');
+    expect(compiled).toContain('const refreshQuota = useCallback');
+    expect(compiled).toContain('useEffect(() =>');
+    expect(compiled).toContain('return { refreshQuota };');
+  });
 });
