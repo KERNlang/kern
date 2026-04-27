@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { Project } from 'ts-morph';
 import { resolveImportGraph } from '../src/graph.js';
+import type { GraphEdge, ReachabilityBlocker } from '../src/types.js';
 
 function createTestProject(): Project {
   return new Project({
@@ -245,5 +246,46 @@ describe('resolveImportGraph', () => {
         }),
       ]),
     );
+  });
+});
+
+// Phase 4 step 2 — type-shape contract tests. These are compile-time-asserted
+// by tsc, but a runtime check guards against accidental breaking changes
+// landing in types.ts that wouldn't surface until step 3 (graph.ts emit) or
+// step 9b (rules/dead-code.ts consumer) starts using them.
+describe('Phase 4 reachability types', () => {
+  it('GraphEdgeKind accepts the dynamic-import variant', () => {
+    const edge: GraphEdge = {
+      from: '/a.ts',
+      to: '/b.ts',
+      specifier: './b.js',
+      kind: 'dynamic-import',
+      via: 'ts-morph',
+    };
+    expect(edge.kind).toBe('dynamic-import');
+  });
+
+  it('ReachabilityBlocker carries symbol scope (filePath, exportName) and the reason', () => {
+    const blocker: ReachabilityBlocker = {
+      reason: 'non-literal-dynamic-import',
+      filePath: '/routes.ts',
+      exportName: 'getUser',
+      site: { file: '/router.ts', line: 42 },
+    };
+
+    // Symbol scope: the (filePath, exportName) tuple is the key red-team v3
+    // showed that a file-only blocker silenced 50 unrelated symbols.
+    expect(blocker.filePath).toBe('/routes.ts');
+    expect(blocker.exportName).toBe('getUser');
+    expect(blocker.site.line).toBe(42);
+  });
+
+  it('ReachabilityBlockerReason covers the three documented failure modes', () => {
+    const reasons: ReachabilityBlocker['reason'][] = [
+      'non-literal-dynamic-import',
+      'unresolved-re-export',
+      'unmapped-public-surface',
+    ];
+    expect(reasons).toHaveLength(3);
   });
 });

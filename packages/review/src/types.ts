@@ -476,7 +476,16 @@ export type GraphEdgeKind =
   | 'named-import'
   | 'namespace-import'
   | 'named-reexport'
-  | 'export-all';
+  | 'export-all'
+  /**
+   * Literal `import('./mod')` — emitted by the graph walker when the argument
+   * is a StringLiteral or NoSubstitutionTemplateLiteral. Distinct from the
+   * static-import variants so a strongest-path traversal can prefer a static
+   * (full-confidence) edge over a dynamic (capped) edge to the same target.
+   * Non-literal `import(expr)` does NOT produce an edge — it produces a
+   * `ReachabilityBlocker` instead (see step 9b).
+   */
+  | 'dynamic-import';
 
 export interface GraphEdge {
   from: string;
@@ -510,6 +519,42 @@ export interface GraphResult {
   /** ts-morph Project used to resolve the graph. Exposed so downstream
    *  analyses (call graph, cross-file taint) can reuse it without re-parsing. */
   project?: import('ts-morph').Project;
+}
+
+/**
+ * A reachability blocker — recorded when the call-graph cannot resolve an
+ * edge to a single concrete target (filePath, exportName) and so cannot
+ * prove a candidate dead export is unreachable.
+ *
+ * Blockers are SYMBOL-SCOPED. A non-literal dynamic import inside one
+ * function must NEVER suppress findings on unrelated exports in the same
+ * file — that was the killing red-team finding against Plan v3 ("one
+ * dynamic import silenced 50 unrelated symbols"). Each blocker carries the
+ * exact `(filePath, exportName)` it applies to. When the resolver cannot
+ * derive an exportName (e.g. fully non-literal `import(expr)`), it must
+ * NOT fall back to file scope; emit health/telemetry instead.
+ *
+ * Blockers do NOT hard-suppress. They cap finding confidence at 0.4 (see
+ * step 9b) and append a `CalibrationStage` to the finding's audit trail.
+ * Telemetry still sees the finding so `fpRateEstimate` stays honest.
+ */
+export type ReachabilityBlockerReason =
+  /** `import(expr)` where `expr` is not a string literal — target unknown. */
+  | 'non-literal-dynamic-import'
+  /** A re-export (`export * from`, `export { x } from`) whose target file
+   *  resolved but the symbol couldn't be tied to a concrete declaration. */
+  | 'unresolved-re-export'
+  /** A public-API seed (package.json `exports`, framework convention) that
+   *  pointed at a symbol the call graph never observed declaring. */
+  | 'unmapped-public-surface';
+
+export interface ReachabilityBlocker {
+  reason: ReachabilityBlockerReason;
+  /** The candidate export this blocker applies to. SYMBOL scope, not file. */
+  filePath: string;
+  exportName: string;
+  /** Where the blocker decision was made — for the audit trail. */
+  site: { file: string; line: number };
 }
 
 /** Options for resolveImportGraph */
