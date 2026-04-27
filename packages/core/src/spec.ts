@@ -309,6 +309,9 @@ import { defaultRuntime, type KernRuntime } from './runtime.js';
 
 /** Register an evolved node type (called at startup from .kern/evolved/). */
 export function registerEvolvedType(keyword: string): void {
+  if (KERN_RESERVED.has(keyword)) {
+    throw new Error(`Evolved keyword '${keyword}' conflicts with a reserved KERN type`);
+  }
   defaultRuntime.registerEvolvedType(keyword);
 }
 
@@ -333,8 +336,27 @@ export function clearEvolvedTypes(): void {
   defaultRuntime.clearEvolvedTypes();
 }
 
+/** Names reserved for built-ins that are not yet implemented as NODE_TYPES.
+ *  Held to prevent evolved-node conflicts before native support lands. */
+export const RESERVED_FUTURE_NAMES: readonly string[] = [
+  'enum',
+  'tuple',
+  'indexer',
+  'use',
+  'from',
+  'Result',
+  'Option',
+  'loop',
+  'match',
+  'pipe',
+  'generator',
+  'yield',
+] as const;
+
 /** Reserved keywords — evolved nodes cannot use these. */
-export const KERN_RESERVED: ReadonlySet<string> = Object.freeze(new Set(NODE_TYPES));
+export const KERN_RESERVED: ReadonlySet<string> = Object.freeze(
+  new Set<string>([...NODE_TYPES, ...RESERVED_FUTURE_NAMES]),
+);
 
 // ── Style Shorthands (FROZEN at v1.0 — 30 entries) ──────────────────────
 // Any CSS property not in this map uses the escape hatch: "property":"value"

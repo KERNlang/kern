@@ -127,7 +127,8 @@ export type ParseErrorCode =
   | 'UNKNOWN_NODE_TYPE'
   | 'INDENT_JUMP'
   | 'DUPLICATE_PROP'
-  | 'DROPPED_LINE';
+  | 'DROPPED_LINE'
+  | 'INVALID_BIGINT';
 
 export type ParseDiagnosticSeverity = 'error' | 'warning' | 'info';
 

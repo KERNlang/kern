@@ -29,7 +29,9 @@ export type PropKind =
   | 'rawBlock'
   | 'string'
   | 'boolean'
-  | 'number';
+  | 'number'
+  | 'expression'
+  | 'regex';
 
 export interface PropSchema {
   required?: boolean;

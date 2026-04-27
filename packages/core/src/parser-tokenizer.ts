@@ -2,6 +2,12 @@
 import type { ParseState } from './parser-diagnostics.js';
 import { emitDiagnostic } from './parser-diagnostics.js';
 
+// ── Lex modes ────────────────────────────────────────────────────────────
+// Contract for context-aware tokenizing. Dispatch lands in a follow-up slice;
+// 'line' is the only mode currently active.
+
+export type LexMode = 'line' | 'expression' | 'path' | 'regex';
+
 // ── Token types ──────────────────────────────────────────────────────────
 
 export type TokenKind =
@@ -37,8 +43,89 @@ function isDigit(ch: string): boolean {
   return ch >= '0' && ch <= '9';
 }
 
-/** @internal Character-by-character tokenizer for a single KERN line (after indent stripped). */
-export function tokenizeLineInternal(line: string, state?: ParseState): Token[] {
+function isHexDigit(ch: string): boolean {
+  return isDigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
+}
+
+function isBinDigit(ch: string): boolean {
+  return ch === '0' || ch === '1';
+}
+
+function isOctDigit(ch: string): boolean {
+  return ch >= '0' && ch <= '7';
+}
+
+/** Consume digits with optional underscore separators. Underscores cannot lead, trail, or repeat. */
+function consumeDigitsWithSep(line: string, start: number, isValid: (c: string) => boolean): number {
+  let i = start;
+  let started = false;
+  let lastWasUnderscore = false;
+  while (i < line.length) {
+    const c = line[i];
+    if (isValid(c)) {
+      lastWasUnderscore = false;
+      started = true;
+      i++;
+    } else if (c === '_' && started && !lastWasUnderscore && i + 1 < line.length && isValid(line[i + 1])) {
+      lastWasUnderscore = true;
+      i++;
+    } else {
+      break;
+    }
+  }
+  return i;
+}
+
+/** Try to consume a numeric literal. Returns end position, or null if not a number. */
+function tryConsumeNumber(line: string, start: number, state?: ParseState): number | null {
+  let i = start;
+  const ch = line[i];
+
+  if (ch === '0' && i + 1 < line.length) {
+    const next = line[i + 1];
+    let validator: ((c: string) => boolean) | null = null;
+    if (next === 'x' || next === 'X') validator = isHexDigit;
+    else if (next === 'b' || next === 'B') validator = isBinDigit;
+    else if (next === 'o' || next === 'O') validator = isOctDigit;
+    if (validator) {
+      const after = consumeDigitsWithSep(line, i + 2, validator);
+      if (after === i + 2) return null;
+      i = after;
+      if (i < line.length && line[i] === 'n') i++;
+      return i;
+    }
+  }
+
+  const hasIntPart = isDigit(ch);
+  let j = hasIntPart ? consumeDigitsWithSep(line, i, isDigit) : i;
+  let hasFracPart = false;
+
+  if (j < line.length && line[j] === '.' && j + 1 < line.length && isDigit(line[j + 1])) {
+    j++;
+    j = consumeDigitsWithSep(line, j, isDigit);
+    hasFracPart = true;
+  }
+
+  if (!hasIntPart && !hasFracPart) return null;
+
+  if (!hasFracPart && j < line.length && line[j] === 'n') {
+    j++;
+  } else if (hasFracPart && j < line.length && line[j] === 'n') {
+    if (state) {
+      emitDiagnostic(state, 'INVALID_BIGINT', 'error', 'BigInt literal cannot have a fractional part', 0, start + 1);
+    }
+    j++;
+  }
+
+  return j > start ? j : null;
+}
+
+/** @internal Character-by-character tokenizer for a single KERN line (after indent stripped).
+ *  `mode` selects the lex contract; only 'line' is implemented today. */
+export function tokenizeLineInternal(line: string, state?: ParseState, mode: LexMode = 'line'): Token[] {
+  if (mode !== 'line') {
+    throw new Error(`Lex mode '${mode}' not yet implemented`);
+  }
   const tokens: Token[] = [];
   let i = 0;
 
@@ -125,16 +212,17 @@ export function tokenizeLineInternal(line: string, state?: ParseState): Token[] 
       continue;
     }
 
-    // Quoted string "..." with \" escape support
-    if (ch === '"') {
+    // Quoted string "..." or '...' with \" / \' / \\ escape support
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
       const start = i;
       i++;
       let inner = '';
-      while (i < line.length && line[i] !== '"') {
+      while (i < line.length && line[i] !== quote) {
         if (line[i] === '\\' && i + 1 < line.length) {
           const next = line[i + 1];
-          if (next === '"') {
-            inner += '"';
+          if (next === quote) {
+            inner += quote;
             i += 2;
           } else if (next === '\\') {
             inner += '\\';
@@ -198,12 +286,14 @@ export function tokenizeLineInternal(line: string, state?: ParseState): Token[] 
       continue;
     }
 
-    // Number (pure digits)
-    if (isDigit(ch)) {
-      const start = i;
-      while (i < line.length && isDigit(line[i])) i++;
-      tokens.push({ kind: 'number', value: line.slice(start, i), pos: start });
-      continue;
+    // Number — int, float, hex (0x), binary (0b), octal (0o), with optional _ separators and bigint suffix (n)
+    if (isDigit(ch) || (ch === '.' && i + 1 < line.length && isDigit(line[i + 1]))) {
+      const end = tryConsumeNumber(line, i, state);
+      if (end !== null) {
+        tokens.push({ kind: 'number', value: line.slice(i, end), pos: i });
+        i = end;
+        continue;
+      }
     }
 
     // Identifier: [A-Za-z_][A-Za-z0-9_-]*
@@ -230,6 +320,6 @@ export function tokenizeLineInternal(line: string, state?: ParseState): Token[] 
   return tokens;
 }
 
-export function tokenizeLine(line: string): Token[] {
-  return tokenizeLineInternal(line);
+export function tokenizeLine(line: string, mode: LexMode = 'line'): Token[] {
+  return tokenizeLineInternal(line, undefined, mode);
 }
