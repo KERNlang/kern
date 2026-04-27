@@ -58,7 +58,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   type: {
-    description: 'TypeScript type alias — union of string literals or alias to another type',
+    description:
+      'TypeScript type alias — union of string literals, or alias to another type (including tuple types like [string, number])',
     example: 'type name=Status values="active|inactive|banned"',
     props: {
       name: { required: true, kind: 'identifier' },

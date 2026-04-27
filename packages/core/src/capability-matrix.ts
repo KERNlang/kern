@@ -37,6 +37,10 @@ const TS_NUMERIC_LITERALS: CapabilityEntry[] = [
   // Slice 1j — const.value is emitted via ValueIR expression codegen on TS targets.
   // Quoted strings round-trip through JSON.stringify; bare expressions canonicalize via emitExpression.
   { feature: 'const-value-as-expression', position: 'top-level', support: 'native' },
+  // Slice 2a — tuple types via type.alias / field.type / fn.returns / fn.params,
+  // including optional, rest, labeled, nested, and empty forms. Routed through
+  // emitTypeAnnotation's bracket-balance pass; no new node type required.
+  { feature: 'tuple-type', position: 'top-level', support: 'native' },
 ];
 
 const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
@@ -72,6 +76,14 @@ const PY_NUMERIC_LITERALS: CapabilityEntry[] = [
     position: 'top-level',
     support: 'unsupported',
     note: 'Python const codegen has not yet been wired to ValueIR; bare values emit raw',
+  },
+  // Slice 2a — Python has tuples but the syntax (parens / typing.Tuple) differs from TS.
+  // Mark lowered so the slice-by-slice Python codegen pass can opt in deliberately.
+  {
+    feature: 'tuple-type',
+    position: 'top-level',
+    support: 'lowered',
+    note: 'TS [T, U] form must be lowered to Tuple[T, U] / tuple[T, U] for Python',
   },
 ];
 
