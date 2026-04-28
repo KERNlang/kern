@@ -279,22 +279,37 @@ function convertEnum(node: ts.EnumDeclaration, source: ts.SourceFile): string[] 
   const lines: string[] = [];
   const name = node.name.getText(source);
   const exp = isExported(node) ? ' export=true' : '';
+  const isConst = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ConstKeyword);
+  const constStr = isConst ? ' const=true' : '';
   const doc = getJSDoc(node, source);
 
   if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
 
-  // Check if all members are string literals → type with values
-  const allString = node.members.every((m) => m.initializer && ts.isStringLiteral(m.initializer));
-
-  if (allString) {
-    const values = node.members.map((m) => (m.initializer as ts.StringLiteral).text).join('|');
-    lines.push(`type name=${name} values="${values}"${exp}`);
-  } else {
-    // Numeric or mixed enum → type alias
+  // Auto-increment numeric enum: no explicit initializers → compact `values="A|B|C"` form.
+  const allBare = node.members.length > 0 && node.members.every((m) => !m.initializer);
+  if (allBare) {
     const values = node.members.map((m) => m.name.getText(source)).join('|');
-    lines.push(`type name=${name} values="${values}"${exp}`);
+    lines.push(`enum name=${name} values="${values}"${constStr}${exp}`);
+    return lines;
   }
 
+  // Otherwise emit `member` children to preserve explicit values.
+  lines.push(`enum name=${name}${constStr}${exp}`);
+  for (const m of node.members) {
+    const mname = m.name.getText(source);
+    if (!m.initializer) {
+      lines.push(`  member name=${mname}`);
+    } else if (ts.isStringLiteral(m.initializer)) {
+      lines.push(`  member name=${mname} value="${escapeKernString(m.initializer.text)}"`);
+    } else if (ts.isNumericLiteral(m.initializer)) {
+      lines.push(`  member name=${mname} value=${m.initializer.text}`);
+    } else {
+      // Computed initializer (e.g., `1 << 2`, `OTHER | FLAG`) — emit via {{expr}} so the codegen
+      // can round-trip the raw expression rather than quoting it as a string literal.
+      const exprText = m.initializer.getText(source);
+      lines.push(`  member name=${mname} value={{${exprText}}}`);
+    }
+  }
   return lines;
 }
 

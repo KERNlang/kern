@@ -198,6 +198,69 @@ export function Gate({ loading }: { loading: boolean }) {
     });
   });
 
+  describe('enum import (slice 2b deferred fix)', () => {
+    test('numeric auto-increment enum uses compact values= form', () => {
+      const source = `
+export enum Direction { Up, Down, Left, Right }
+`;
+      const result = importTypeScript(source, 'direction.ts');
+      expect(result.kern).toContain('enum name=Direction values="Up|Down|Left|Right" export=true');
+      expect(result.kern).not.toContain('type name=Direction');
+      expect(() => parse(result.kern)).not.toThrow();
+    });
+
+    test('string-valued enum uses member children', () => {
+      const source = `
+export enum Status {
+  Pending = 'pending',
+  Active = 'active',
+}
+`;
+      const result = importTypeScript(source, 'status.ts');
+      expect(result.kern).toContain('enum name=Status export=true');
+      expect(result.kern).toContain('member name=Pending value="pending"');
+      expect(result.kern).toContain('member name=Active value="active"');
+      expect(() => parse(result.kern)).not.toThrow();
+    });
+
+    test('const enum carries const=true', () => {
+      const source = `
+export const enum Flag { On, Off }
+`;
+      const result = importTypeScript(source, 'flag.ts');
+      expect(result.kern).toContain('enum name=Flag values="On|Off" const=true export=true');
+      expect(() => parse(result.kern)).not.toThrow();
+    });
+
+    test('numeric enum with explicit initializer uses member children with bare value', () => {
+      const source = `
+export enum Code {
+  A = 1,
+  B = 2,
+}
+`;
+      const result = importTypeScript(source, 'code.ts');
+      expect(result.kern).toContain('enum name=Code export=true');
+      expect(result.kern).toContain('member name=A value=1');
+      expect(result.kern).toContain('member name=B value=2');
+      expect(() => parse(result.kern)).not.toThrow();
+    });
+
+    test('computed (bitwise) enum members use {{expr}} form', () => {
+      const source = `
+export enum Perm {
+  Read = 1 << 0,
+  Write = 1 << 1,
+}
+`;
+      const result = importTypeScript(source, 'perm.ts');
+      expect(result.kern).toContain('enum name=Perm export=true');
+      expect(result.kern).toContain('member name=Read value={{1 << 0}}');
+      expect(result.kern).toContain('member name=Write value={{1 << 1}}');
+      expect(() => parse(result.kern)).not.toThrow();
+    });
+  });
+
   test('tracks unmapped constructs instead of dropping them silently', () => {
     const source = `
 namespace Legacy {
