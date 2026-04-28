@@ -300,12 +300,21 @@ function convertEnum(node: ts.EnumDeclaration, source: ts.SourceFile): string[] 
     if (!m.initializer) {
       lines.push(`  member name=${mname}`);
     } else if (ts.isStringLiteral(m.initializer)) {
-      lines.push(`  member name=${mname} value="${escapeKernString(m.initializer.text)}"`);
+      const text = m.initializer.text;
+      if (text === '') {
+        // Empty string would be dropped by the codegen's "no value" guard
+        // (`if (rawVal === '') valueStr = ''`). Route via the expression
+        // form so it round-trips as the literal `""` instead of `Empty,`.
+        lines.push(`  member name=${mname} value={{""}}`);
+      } else {
+        lines.push(`  member name=${mname} value="${escapeKernString(text)}"`);
+      }
     } else if (ts.isNumericLiteral(m.initializer)) {
       lines.push(`  member name=${mname} value=${m.initializer.text}`);
     } else {
-      // Computed initializer (e.g., `1 << 2`, `OTHER | FLAG`) — emit via {{expr}} so the codegen
-      // can round-trip the raw expression rather than quoting it as a string literal.
+      // Any other initializer (computed `1 << 2`, identifier reference, prefix
+      // unary like `-1`, etc.) — emit via {{expr}} so the codegen round-trips
+      // the raw expression instead of fabricating a string-quoted version.
       const exprText = m.initializer.getText(source);
       lines.push(`  member name=${mname} value={{${exprText}}}`);
     }

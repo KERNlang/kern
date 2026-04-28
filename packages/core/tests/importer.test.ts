@@ -259,6 +259,36 @@ export enum Perm {
       expect(result.kern).toContain('member name=Write value={{1 << 1}}');
       expect(() => parse(result.kern)).not.toThrow();
     });
+
+    test('empty-string enum value uses {{""}} form (Codex hold)', () => {
+      // Without the {{""}} routing, codegen's "no value" guard would drop
+      // the empty string, so `enum E { Empty = "" }` would round-trip to
+      // `Empty,` instead of `Empty = ""`.
+      const source = `
+export enum E {
+  Empty = '',
+  Filled = 'x',
+}
+`;
+      const result = importTypeScript(source, 'e.ts');
+      expect(result.kern).toContain('enum name=E export=true');
+      expect(result.kern).toContain('member name=Empty value={{""}}');
+      expect(result.kern).toContain('member name=Filled value="x"');
+      expect(() => parse(result.kern)).not.toThrow();
+    });
+
+    test('negative-number enum value uses {{expr}} form (PrefixUnaryExpression)', () => {
+      // `A = -1` parses as a PrefixUnaryExpression (not a NumericLiteral), so
+      // it falls into the expression branch — verify it round-trips correctly.
+      const source = `
+export enum N { A = -1, B = 0 }
+`;
+      const result = importTypeScript(source, 'n.ts');
+      expect(result.kern).toContain('enum name=N export=true');
+      expect(result.kern).toContain('member name=A value={{-1}}');
+      expect(result.kern).toContain('member name=B value=0');
+      expect(() => parse(result.kern)).not.toThrow();
+    });
   });
 
   test('tracks unmapped constructs instead of dropping them silently', () => {
