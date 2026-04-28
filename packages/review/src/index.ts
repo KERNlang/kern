@@ -1405,13 +1405,13 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     const publicApi = expandPublicApiThroughReExports(basePublicApi, sourceFileFor);
 
     // Step 10: blockers are passed alongside publicApi so dead-export's
-    // step 9b cap+trail logic can consume them. The wiring is in place;
-    // concrete producers (unresolved re-export → blocker on the missing
-    // target file/symbol; non-literal `import(expr)` → telemetry only,
-    // never a blocker) extend this array. Empty array is a valid "no
-    // blockers detected" state — the rule short-circuits without any
-    // change to existing semantics.
-    const reachabilityBlockers: ReachabilityBlocker[] = [];
+    // step 9b cap+trail logic can consume them. Producer 1 (unresolved
+    // named re-export with relative specifier) is wired in graph.ts and
+    // rides on `graph.blockers`; Producer 2 (non-literal dynamic import)
+    // is telemetry-only and surfaces via the unmappedDynamicImports counter
+    // below. Empty list is a valid "no blockers detected" state — the rule
+    // short-circuits without any change to existing semantics.
+    const reachabilityBlockers: ReachabilityBlocker[] = graph.blockers ?? [];
 
     for (const report of reports) {
       const deadExportFindings = deadExportRule(callGraph, report.filePath, publicApi, reachabilityBlockers);
@@ -1419,6 +1419,32 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
 
       const asyncFindings = crossFileAsyncRule(callGraph, report.filePath);
       report.findings.push(...asyncFindings);
+    }
+
+    // Surface graph-traversal telemetry. Two independent failure modes feed
+    // a SINGLE health note here because ReviewHealthBuilder dedupes by
+    // `(subsystem, kind)` — emitting two `'call-graph' / 'fallback'` notes
+    // would silently drop the second one (Codex review caught this).
+    //   • Producer 2: non-literal `import(expr)` — dead-export findings on
+    //     those files may include FPs the cap mechanism cannot reach (no
+    //     target file/exportName to attach a blocker to).
+    //   • Malformed static imports — previously a silent catch swallowed
+    //     these; now counted and surfaced. KERN_DEBUG logs each.
+    const unmappedDyn = graph.unmappedDynamicImports ?? 0;
+    const malformed = graph.malformedImports ?? 0;
+    if (unmappedDyn > 0 || malformed > 0) {
+      const parts: string[] = [];
+      if (unmappedDyn > 0) {
+        parts.push(
+          `${unmappedDyn} non-literal dynamic import(s) could not be traced — dead-export findings in those files may include false positives that cannot be capped`,
+        );
+      }
+      if (malformed > 0) {
+        parts.push(
+          `${malformed} static import declaration(s) could not be read by ts-morph — set KERN_DEBUG to surface the underlying errors`,
+        );
+      }
+      graphHealth.noteKind('call-graph', 'fallback', `${parts.join('; ')}.`);
     }
   } catch (err) {
     // Call graph build failure must not crash the review pipeline — surface the failure on

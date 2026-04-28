@@ -11,7 +11,7 @@
 import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { type NoSubstitutionTemplateLiteral, Project, type SourceFile, type StringLiteral, SyntaxKind } from 'ts-morph';
-import type { GraphEdge, GraphEdgeKind, GraphFile, GraphOptions, GraphResult } from './types.js';
+import type { GraphEdge, GraphEdgeKind, GraphFile, GraphOptions, GraphResult, ReachabilityBlocker } from './types.js';
 
 /** Extension fallback map: .js→.ts, .jsx→.tsx (Codex idea) */
 const EXT_FALLBACK: Record<string, string[]> = {
@@ -27,6 +27,29 @@ interface ModuleEdgeRef {
   kind: GraphEdgeKind;
   importedName?: string;
   localName?: string;
+  /**
+   * Source line of the spec node. Currently populated only for re-export
+   * specifiers — Producer 1 needs it for the blocker's audit-trail `site`
+   * when ts-morph fails to resolve the target. Other ref kinds leave it
+   * undefined; nobody reads it for them.
+   */
+  line?: number;
+}
+
+interface ModuleRefScan {
+  refs: ModuleEdgeRef[];
+  /**
+   * Producer 2 (telemetry-only): non-literal `import(expr)` count. Aggregated
+   * onto GraphResult.unmappedDynamicImports across the BFS walk. NEVER
+   * promoted to a ReachabilityBlocker — would re-introduce red-team
+   * CRITICAL #1 (file-scope silencer).
+   */
+  unmappedDynamicImports: number;
+  /**
+   * Static import declarations whose ts-morph processing threw. Surfaced
+   * via review-health so silent catches don't hide failures from operators.
+   */
+  malformedImports: number;
 }
 
 export function resolveImportGraph(entryFiles: string[], options: GraphOptions = {}): GraphResult {
@@ -50,6 +73,12 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
   const visited = new Set<string>();
   const queue: Array<{ path: string; distance: number }> = [];
   let skipped = 0;
+  // Producer 1 (unresolved named re-export → blocker on importing file's
+  // localName) and Producer 2 (non-literal dynamic import → telemetry).
+  // Both accumulate across the BFS walk and ride out on GraphResult.
+  const blockers: ReachabilityBlocker[] = [];
+  let unmappedDynamicImports = 0;
+  let malformedImports = 0;
 
   // Seed BFS with entry files
   for (const entry of entryFiles) {
@@ -91,12 +120,34 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
     const current = fileMap.get(filePath)!;
 
     // Collect module references from imports and re-exports (barrel file support)
-    const refs = collectModuleEdgeRefs(sf);
+    const scan = collectModuleEdgeRefs(sf);
+    unmappedDynamicImports += scan.unmappedDynamicImports;
+    malformedImports += scan.malformedImports;
 
-    for (const ref of refs) {
+    for (const ref of scan.refs) {
       const { sourceFile: resolvedFile, via } = resolveModuleReference(project, sf, ref.specifier, ref.resolved);
 
       if (!resolvedFile) {
+        // Producer 1: a named re-export with a relative specifier that even
+        // the extension-fallback couldn't resolve becomes a symbol-scoped
+        // blocker on the IMPORTING file's localName. Symbol scope only —
+        // never file scope (see ReachabilityBlocker jsdoc and red-team v3).
+        // Bare specifiers (`react`, `lodash/get`) are intentionally excluded:
+        // unresolved bare specifiers mean a missing dep, not an unknowable
+        // target, and dead-export's package-public-API logic already shields
+        // those callers.
+        if (
+          ref.kind === 'named-reexport' &&
+          ref.localName &&
+          (ref.specifier.startsWith('.') || ref.specifier.startsWith('/'))
+        ) {
+          blockers.push({
+            reason: 'unresolved-re-export',
+            filePath,
+            exportName: ref.localName,
+            site: { file: filePath, line: ref.line ?? 0 },
+          });
+        }
         skipped++;
         continue;
       }
@@ -155,6 +206,9 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
     totalFiles: files.length,
     skipped,
     project,
+    blockers,
+    unmappedDynamicImports,
+    malformedImports,
   };
 }
 
@@ -207,8 +261,10 @@ function resolveModuleReference(
   return { sourceFile: undefined, via: 'ts-morph' };
 }
 
-function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
+function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleRefScan {
   const refs: ModuleEdgeRef[] = [];
+  let unmappedDynamicImports = 0;
+  let malformedImports = 0;
 
   for (const decl of sourceFile.getImportDeclarations()) {
     try {
@@ -262,8 +318,19 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
       if (!recorded) {
         refs.push({ specifier, resolved, kind: 'side-effect-import' });
       }
-    } catch {
-      /* skip dynamic imports with non-literal specifiers */
+    } catch (err) {
+      // ts-morph threw while reading this static-import declaration.
+      // Causes seen in the wild: malformed AST after a parse-error file,
+      // transient FS race during watch-mode, an internal ts-morph
+      // assertion. Swallowing silently was a bug — operators had no way
+      // to know analysis was incomplete. Now we count, surface via
+      // review-health, and log under KERN_DEBUG so the failure is
+      // recoverable AND observable.
+      malformedImports++;
+      if (process.env.KERN_DEBUG) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`graph: failed to read import declaration in ${sourceFile.getFilePath()}: ${msg}`);
+      }
     }
   }
 
@@ -288,6 +355,12 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
     if (!first) continue;
     const argKind = first.getKind();
     if (argKind !== SyntaxKind.StringLiteral && argKind !== SyntaxKind.NoSubstitutionTemplateLiteral) {
+      // Producer 2 (telemetry-only): the specifier isn't a literal so we can't
+      // derive a target file or export name. Step 9b's invariant #5 — NEVER
+      // produce a blocker here. The exportName cannot be inferred and falling
+      // back to file scope re-introduces red-team CRITICAL #1 (one dynamic
+      // import silenced 50 unrelated symbols). Counter only.
+      unmappedDynamicImports++;
       continue;
     }
 
@@ -337,11 +410,12 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
         kind: 'named-reexport',
         importedName: named.getName(),
         localName: named.getAliasNode()?.getText() ?? named.getName(),
+        line: named.getStartLineNumber(),
       });
     }
   }
 
-  return refs;
+  return { refs, unmappedDynamicImports, malformedImports };
 }
 
 /**
