@@ -24,7 +24,7 @@ describe('rewriteClassBodies', () => {
 
     expect(result.hits).toHaveLength(1);
     expect(result.output).toContain('class name=AudioRecorder export=true');
-    expect(result.output).toContain('field name=fd type="number | null" private=true default={{ null }}');
+    expect(result.output).toContain('field name=fd type="number | null" private=true value={{ null }}');
     expect(result.output).toContain('field name=filePath type=string private=true');
     expect(result.output).toContain('constructor params="sessionKey:string"');
     expect(result.output).toContain('method name=close returns=void');
@@ -170,7 +170,7 @@ describe('rewriteClassBodies', () => {
     const result = rewriteClassBodies(source);
 
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('field name=count private=true static=true default={{ 0 }}');
+    expect(result.output).toContain('field name=count private=true static=true value={{ 0 }}');
   });
 
   test('migrates classes with getter/setter members', () => {

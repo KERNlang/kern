@@ -525,7 +525,11 @@ export interface ImportProps extends BaseProps {
 export interface FieldProps extends BaseProps {
   type?: string;
   optional?: string | boolean;
-  default?: string;
+  // Slice 3b — `value` is the ValueIR-canonicalised native form;
+  // `default` is the rawExpr passthrough escape hatch. `value` takes
+  // precedence at codegen time when both are present.
+  value?: string | ExprObject;
+  default?: string | ExprObject;
   private?: string | boolean;
   readonly?: string | boolean;
   static?: string | boolean;

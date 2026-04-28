@@ -5,7 +5,7 @@
  */
 
 import { propsOf } from '../node-props.js';
-import type { IRNode } from '../types.js';
+import type { ExprObject, IRNode } from '../types.js';
 import { emitIdentifier, emitPath, emitStringLiteral, emitTypeAnnotation } from './emitters.js';
 import {
   emitDocComment,
@@ -17,6 +17,11 @@ import {
   parseParamList,
 } from './helpers.js';
 import { mapSemanticType } from './semantic-types.js';
+import { emitConstValue } from './type-system.js';
+
+function isExprObject(v: unknown): v is ExprObject {
+  return typeof v === 'object' && v !== null && (v as { __expr?: unknown }).__expr === true;
+}
 
 const p = getProps;
 const kids = getChildren;
@@ -36,7 +41,11 @@ export function generateConfig(node: IRNode): string[] {
   for (const field of fields) {
     const fp = propsOf<'field'>(field);
     const fieldName = emitIdentifier(fp.name, 'field', field);
-    const opt = fp.default !== undefined ? '?' : '';
+    // Slice 3b: either `value` or `default` marks the field as having an
+    // initializer, which makes it optional in the interface (the runtime
+    // DEFAULT_FOO object provides the fallback).
+    const hasInit = fp.value !== undefined || fp.default !== undefined;
+    const opt = hasInit ? '?' : '';
     lines.push(`  ${fieldName}${opt}: ${emitTypeAnnotation(fp.type, 'unknown', field)};`);
   }
   lines.push('}');
@@ -48,24 +57,45 @@ export function generateConfig(node: IRNode): string[] {
     const fp = propsOf<'field'>(field);
     const fieldName = emitIdentifier(fp.name, 'field', field);
     const ftype = emitTypeAnnotation(fp.type, 'unknown', field);
-    let def = fp.default;
 
-    if (def === undefined) {
-      if (ftype === 'number') def = '0';
-      else if (ftype === 'boolean') def = 'false';
-      else if (ftype.endsWith('[]')) def = '[]';
-      else if (ftype.startsWith('Record<') || ftype.startsWith('{')) def = '{} as any';
-      else def = "''";
-    } else if (
-      ftype === 'string' ||
-      (!['number', 'boolean'].includes(ftype) &&
-        !ftype.endsWith('[]') &&
-        !def.startsWith("'") &&
-        !def.startsWith('"') &&
-        !def.startsWith('{') &&
-        !def.startsWith('['))
-    ) {
-      def = emitStringLiteral(def);
+    // Slice 3b: prefer `value` (canonical) over `default` (rawExpr passthrough).
+    // `value` routes through emitConstValue, which honours __quotedProps for
+    // string literals and uses ValueIR for bare expressions. `default` keeps
+    // the legacy type-aware string-coercion heuristic so seeds with bare
+    // unquoted strings (`default=plan` for a string-typed field) still emit
+    // valid TS.
+    //
+    // Codex-hold guard: `value` presence is `=== undefined` only — quoted
+    // empty `value=""` is a legal explicit string literal that JSON.stringify
+    // emits as `""`.
+    const rawValue = fp.value;
+    let def: string;
+    if (rawValue !== undefined) {
+      def = emitConstValue(field, rawValue);
+    } else {
+      let rawDef = fp.default;
+      if (rawDef === undefined || rawDef === '') {
+        if (ftype === 'number') rawDef = '0';
+        else if (ftype === 'boolean') rawDef = 'false';
+        else if (ftype.endsWith('[]')) rawDef = '[]';
+        else if (ftype.startsWith('Record<') || ftype.startsWith('{')) rawDef = '{} as any';
+        else rawDef = "''";
+      } else if (isExprObject(rawDef)) {
+        // `default={{ expr }}` — emit raw code as-is.
+        rawDef = rawDef.code;
+      } else if (
+        typeof rawDef === 'string' &&
+        (ftype === 'string' ||
+          (!['number', 'boolean'].includes(ftype) &&
+            !ftype.endsWith('[]') &&
+            !rawDef.startsWith("'") &&
+            !rawDef.startsWith('"') &&
+            !rawDef.startsWith('{') &&
+            !rawDef.startsWith('[')))
+      ) {
+        rawDef = emitStringLiteral(rawDef);
+      }
+      def = rawDef as string;
     }
 
     lines.push(`  ${fieldName}: ${def},`);

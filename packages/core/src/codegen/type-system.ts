@@ -208,13 +208,26 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const staticKw = fp.static === 'true' || fp.static === true ? 'static ' : '';
     const readonly = fp.readonly === 'true' || fp.readonly === true ? 'readonly ' : '';
     const typeAnnotation = fp.type ? `: ${emitTypeAnnotation(fp.type, 'unknown', field)}` : '';
-    const defaultVal = (fp as { default?: unknown }).default;
-    // `default={{ expr }}` parses as an ExprObject; emit its raw code.
-    // Bare `default=0` arrives as a string. Either way it's by-design raw TS.
+    // Slice 3b: `value` (native ValueIR) takes precedence over `default`
+    // (rawExpr passthrough). `value` routes through emitConstValue for
+    // ValueIR canonicalisation + __quotedProps-aware string-literal handling;
+    // `default` keeps the original raw passthrough so existing seeds with
+    // bare-string defaults (e.g. `default=plan` for a string-typed field)
+    // continue to compile unchanged.
+    //
+    // Codex-hold guard from slice 3a: presence is `=== undefined` only —
+    // empty-string `value=""` is a legal explicit string literal when the
+    // source had it quoted (__quotedProps tracks it), and emitConstValue
+    // JSON.stringifies it to `""`.
+    const rawValue = (fp as { value?: unknown }).value;
+    const rawDefault = (fp as { default?: unknown }).default;
     const init = (() => {
-      if (defaultVal === undefined || defaultVal === '') return '';
-      if (isExprObject(defaultVal)) return ` = ${defaultVal.code}`;
-      return ` = ${defaultVal}`;
+      if (rawValue !== undefined) {
+        return ` = ${emitConstValue(field, rawValue)}`;
+      }
+      if (rawDefault === undefined || rawDefault === '') return '';
+      if (isExprObject(rawDefault)) return ` = ${rawDefault.code}`;
+      return ` = ${rawDefault}`;
     })();
     lines.push(`  ${vis}${staticKw}${readonly}${fieldName}${typeAnnotation}${init};`);
   }
