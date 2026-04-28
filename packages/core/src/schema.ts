@@ -147,6 +147,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       name: { required: true, kind: 'identifier' },
       type: { kind: 'typeAnnotation' },
       optional: { kind: 'boolean' },
+      // Slice 3b — `value` is the native ValueIR-canonicalised initializer;
+      // `default` remains as the rawExpr passthrough escape hatch. `value`
+      // takes precedence when both are set. Either marks the field as having
+      // an initializer (which makes the interface-side property optional in
+      // config emit).
+      value: { kind: 'expression' },
       default: { kind: 'rawExpr' },
       private: { kind: 'boolean' },
       readonly: { kind: 'boolean' },

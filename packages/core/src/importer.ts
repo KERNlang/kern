@@ -433,11 +433,15 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
       const priv = isPrivate(member) ? ' private=true' : '';
       const ro = isReadonly(member) ? ' readonly=true' : '';
       const staticStr = isStatic(member) ? ' static=true' : '';
-      const defaultVal = member.initializer ? ` default={{ ${member.initializer.getText(source)} }}` : '';
+      // Slice 3b: emit `value={{ <init> }}` (canonical), not `default={{ ... }}`.
+      // The `{{...}}` wrap stays — TS initializers can be arbitrary expressions
+      // (function calls, ternaries, etc.) that ValueIR may not parse, and the
+      // ExprObject form is the safe escape hatch through emitConstValue.
+      const valueAttr = member.initializer ? ` value={{ ${member.initializer.getText(source)} }}` : '';
       const memberDoc = getJSDoc(member, source);
       if (memberDoc) lines.push(`  doc text="${escapeKernString(memberDoc)}"`);
       lines.push(
-        `  field name=${fieldName}${fieldType ? ` type=${fieldType}` : ''}${priv}${staticStr}${ro}${defaultVal}`,
+        `  field name=${fieldName}${fieldType ? ` type=${fieldType}` : ''}${priv}${staticStr}${ro}${valueAttr}`,
       );
     } else if (ts.isConstructorDeclaration(member)) {
       const ctorParams = formatParams(member.parameters, source);

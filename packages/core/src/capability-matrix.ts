@@ -67,6 +67,12 @@ const TS_CORE_CAPABILITIES: CapabilityEntry[] = [
   // ValueIR-canonicalised native expression form (mirrors `const.value`
   // from slice 1j). `expr=` remains as the rawExpr passthrough fallback.
   { feature: 'let-native-value', position: 'top-level', support: 'native' },
+  // Slice 3b — `field.value` extends class/service/config field initializers
+  // to the ValueIR-canonicalised native form (mirrors slice 1j/3a). `default=`
+  // remains as the rawExpr passthrough fallback for back-compat with seeds
+  // that author bare-string defaults like `default=plan` for string-typed
+  // fields, where the legacy type-aware coercion still applies.
+  { feature: 'field-native-value', position: 'top-level', support: 'native' },
 ];
 
 const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
@@ -165,6 +171,15 @@ const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
     position: 'top-level',
     support: 'unsupported',
     note: 'FastAPI codegen does not yet translate `.kern` paths to Python `from x import y` syntax',
+  },
+  // Slice 3b — Python (FastAPI) field codegen reads `fp.default` directly
+  // and has no ValueIR pipeline yet, so `field.value` is unsupported until a
+  // dedicated Python emitter for canonicalised field initializers lands.
+  {
+    feature: 'field-native-value',
+    position: 'top-level',
+    support: 'unsupported',
+    note: 'FastAPI codegen has not been wired to ValueIR for field initializers; `value=` would emit raw',
   },
 ];
 

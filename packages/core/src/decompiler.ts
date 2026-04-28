@@ -39,6 +39,10 @@ export function decompile(root: IRNode): DecompileResult {
       renderLet(node, indent);
       return;
     }
+    if (node.type === 'field') {
+      renderField(node, indent);
+      return;
+    }
 
     const name = (props.name as string) || '';
     const type = node.type.charAt(0).toUpperCase() + node.type.slice(1);
@@ -103,6 +107,68 @@ export function decompile(root: IRNode): DecompileResult {
     if (t) parts.push(`type=${t}`);
     lines.push(`${indent}${parts.join(' ')}`);
     // `let` has no children in normal use, but preserve generic recursion.
+    if (node.children) {
+      for (const child of node.children) {
+        render(child, `${indent}  `);
+      }
+    }
+  }
+
+  function renderField(node: IRNode, indent: string): void {
+    // Slice 3b: emit `field` re-parseably so canonical `value={{...}}` forms
+    // survive the IR → text round-trip. Without this, the generic JSON.stringify
+    // path would emit `value={"__expr":true,"code":"foo()"}` for any class field
+    // imported from TS — un-re-parseable.
+    //
+    // String prop emission honours __quotedProps so a bare `value=42` (numeric
+    // literal) round-trips as bare and codegens to `42`, whereas a quoted
+    // `value="42"` round-trips quoted and codegens to `"42"` (string literal).
+    // Without this distinction, all bare values would gain spurious quotes on
+    // every decompile + re-parse cycle.
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const name = (props.name as string) || 'field';
+    const parts: string[] = [`field name=${name}`];
+
+    function renderStringProp(propName: string, raw: string | ExprObject): string {
+      if (typeof raw === 'object' && (raw as ExprObject).__expr) {
+        return `${propName}={{${(raw as ExprObject).code}}}`;
+      }
+      const s = raw as string;
+      // Bare-emit only when the source was unquoted AND the value matches a
+      // strict whitelist of identifier-shape characters (alphanumeric, `_`,
+      // `.`, `-`). Codex hold #2: a permissive blacklist (e.g. `/[\s=]/`)
+      // would emit values like `'draft'|'done'` or `{id:string}` bare, which
+      // the parser then truncates at the embedded quote or treats as a
+      // style block. The whitelist covers numeric literals, identifiers, and
+      // dotted member chains — the cases ValueIR canonicalises — and forces
+      // JSON.stringify on anything else (type unions, object shorthands,
+      // strings with punctuation, etc.).
+      const wasQuoted = quoted.includes(propName);
+      const safeBare = !wasQuoted && s !== '' && /^[\w.-]+$/.test(s);
+      return `${propName}=${safeBare ? s : JSON.stringify(s)}`;
+    }
+
+    const t = props.type as string | undefined;
+    if (t !== undefined) parts.push(renderStringProp('type', t));
+    const opt = props.optional;
+    if (opt === true || opt === 'true') parts.push('optional=true');
+    const priv = props.private;
+    if (priv === true || priv === 'true') parts.push('private=true');
+    const ro = props.readonly;
+    if (ro === true || ro === 'true') parts.push('readonly=true');
+    const stat = props.static;
+    if (stat === true || stat === 'true') parts.push('static=true');
+
+    const rawValue = props.value as string | ExprObject | undefined;
+    const rawDefault = props.default as string | ExprObject | undefined;
+    if (rawValue !== undefined) {
+      parts.push(renderStringProp('value', rawValue));
+    } else if (rawDefault !== undefined) {
+      parts.push(renderStringProp('default', rawDefault));
+    }
+
+    lines.push(`${indent}${parts.join(' ')}`);
     if (node.children) {
       for (const child of node.children) {
         render(child, `${indent}  `);

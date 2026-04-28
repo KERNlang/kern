@@ -17,7 +17,7 @@
  * and rewrites it to a proper:
  *
  *   class name=AudioRecorder [export=true] [extends=X] [implements=Y]
- *     field name=fd type=T private=true default={{ init }}
+ *     field name=fd type=T private=true value={{ init }}
  *     constructor params="..."
  *       handler <<< ... >>>
  *     method name=foo params="..." returns=T
@@ -249,7 +249,10 @@ function emitMember(
     const priv = hasModifier(member, ts.SyntaxKind.PrivateKeyword) ? ' private=true' : '';
     const readonly = hasModifier(member, ts.SyntaxKind.ReadonlyKeyword) ? ' readonly=true' : '';
     const staticStr = hasModifier(member, ts.SyntaxKind.StaticKeyword) ? ' static=true' : '';
-    const init = rawInit ? ` default={{ ${rawInit} }}` : '';
+    // Slice 3b: emit `value={{ <init> }}` (canonical) — see importer.ts for
+    // the same migration. The `{{...}}` wrap stays so arbitrary TS initializer
+    // expressions pass through ValueIR via emitConstValue's ExprObject branch.
+    const init = rawInit ? ` value={{ ${rawInit} }}` : '';
     return [`${indent}field name=${name}${type ? ` type=${type}` : ''}${priv}${staticStr}${readonly}${init}`];
   }
   if (ts.isConstructorDeclaration(member)) {
