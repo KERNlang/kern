@@ -397,14 +397,19 @@ export function generateConst(node: IRNode): string[] {
   return [...docs, `${exp}const ${name}${typeAnnotation};`];
 }
 
-/** Emit the right-hand side of `const name = ...` from raw IR value.
+/** Emit the right-hand side of an expression-typed prop (e.g. `const.value`,
+ *  `let.value`) from its raw IR form.
  *
- *  - `value={{ expr }}` (ExprObject) — emit `.code` raw (escape hatch for arbitrary TS).
- *  - `value="literal"` (quoted, tracked in __quotedProps) — emit as JSON-quoted string
+ *  - `<prop>={{ expr }}` (ExprObject) — emit `.code` raw (escape hatch for arbitrary TS).
+ *  - `<prop>="literal"` (quoted, tracked in __quotedProps) — emit as JSON-quoted string
  *    so output is valid TS even when the literal contains expression-illegal characters.
- *  - bare `value=...` — try ValueIR parse + emit for canonicalization. Fall back to raw
- *    string on parse failure (validator emits INVALID_EXPRESSION but codegen still ships). */
-function emitConstValue(node: IRNode, rawValue: unknown): string {
+ *  - bare `<prop>=...` — try ValueIR parse + emit for canonicalization. Fall back to raw
+ *    string on parse failure (validator emits INVALID_EXPRESSION but codegen still ships).
+ *
+ *  Currently the __quotedProps key is hardcoded to 'value' because every consumer
+ *  uses that prop name. If a future consumer needs a different name, accept it as
+ *  a parameter. */
+export function emitConstValue(node: IRNode, rawValue: unknown): string {
   if (isExprObject(rawValue)) return rawValue.code;
   if (typeof rawValue !== 'string') return String(rawValue);
   if (node.__quotedProps?.includes('value')) return JSON.stringify(rawValue);

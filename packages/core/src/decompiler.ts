@@ -80,13 +80,26 @@ export function decompile(root: IRNode): DecompileResult {
   function renderLet(node: IRNode, indent: string): void {
     const props = node.props || {};
     const name = (props.name as string) || 'binding';
+    // Codex hold #3: prefer `value=` if the let node carries one (slice 3a).
+    // Without this, a let authored with `value=42` would round-trip to
+    // `expr=""` and lose its assignment entirely.
+    const rawValue = props.value;
     const rawExpr = props.expr;
-    const expr =
-      rawExpr && typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
-        ? (rawExpr as ExprObject).code
-        : (rawExpr as string) || '';
     const t = props.type as string | undefined;
-    const parts: string[] = [`let name=${name}`, `expr=${JSON.stringify(expr)}`];
+    const parts: string[] = [`let name=${name}`];
+    if (rawValue !== undefined) {
+      const valueText =
+        typeof rawValue === 'object' && (rawValue as ExprObject).__expr
+          ? `{{${(rawValue as ExprObject).code}}}`
+          : JSON.stringify(rawValue as string);
+      parts.push(`value=${valueText}`);
+    } else {
+      const expr =
+        rawExpr && typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
+          ? (rawExpr as ExprObject).code
+          : (rawExpr as string) || '';
+      parts.push(`expr=${JSON.stringify(expr)}`);
+    }
     if (t) parts.push(`type=${t}`);
     lines.push(`${indent}${parts.join(' ')}`);
     // `let` has no children in normal use, but preserve generic recursion.
