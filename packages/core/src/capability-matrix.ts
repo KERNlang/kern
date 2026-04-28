@@ -63,6 +63,10 @@ const TS_CORE_CAPABILITIES: CapabilityEntry[] = [
   // `.js` in the emitted TS import; `export=true` produces an additional
   // `export { ... } from '...'` re-export line.
   { feature: 'cross-kern-import', position: 'top-level', support: 'native' },
+  // Slice 3a — `let.value` extends iteration-scoped bindings to use the
+  // ValueIR-canonicalised native expression form (mirrors `const.value`
+  // from slice 1j). `expr=` remains as the rawExpr passthrough fallback.
+  { feature: 'let-native-value', position: 'top-level', support: 'native' },
 ];
 
 const PY_CORE_CAPABILITIES: CapabilityEntry[] = [

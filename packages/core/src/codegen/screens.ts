@@ -30,6 +30,7 @@ import { KernCodegenError } from '../errors.js';
 import type { ExprObject, IRNode } from '../types.js';
 import { emitFmtTemplate, emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { exportPrefix, getChildren, getFirstChild, getProps } from './helpers.js';
+import { emitConstValue } from './type-system.js';
 
 type ScreenProps = {
   name?: string;
@@ -654,23 +655,36 @@ function generateConditionalJSX(node: IRNode): string[] {
 }
 
 /**
- * Render a single `let` node as a `const name[: type] = expr;` line. Name and
+ * Render a single `let` node as a `const name[: type] = <rhs>;` line. Name and
  * type are routed through the schema emitters so invalid identifiers or type
- * annotations raise KernCodegenError instead of producing broken TSX like
- * `const is-selected = …;`. The expression is raw by design (rawExpr).
+ * annotations raise KernCodegenError instead of producing broken TSX.
+ *
+ * RHS is sourced in this priority:
+ *   1. `value=` (slice 3a, native ValueIR-canonicalised — JSON-quoted for
+ *      quoted-string literals, parsed+re-emitted for bare expressions, raw
+ *      for `{{...}}` ExprObject escape hatch). Mirrors `const.value`.
+ *   2. `expr=` (raw passthrough — kept for back-compat).
+ * One of the two must be present.
  */
 function renderLetBinding(node: IRNode): string {
   const lp = propsOf(node);
   const lname = emitIdentifier(lp.name as string, 'binding', node);
+
+  let rhs: string;
+  const rawValue = lp.value;
   const rawExpr = lp.expr;
-  const expr =
-    rawExpr && typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
-      ? (rawExpr as ExprObject).code
-      : (rawExpr as string) || '';
-  if (!expr) {
-    throw new KernCodegenError("let node requires an 'expr' prop", node);
+  if (rawValue !== undefined && rawValue !== '') {
+    rhs = emitConstValue(node, rawValue);
+  } else if (rawExpr !== undefined && rawExpr !== '') {
+    rhs =
+      typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
+        ? (rawExpr as ExprObject).code
+        : (rawExpr as string);
+  } else {
+    throw new KernCodegenError("let node requires a 'value' or 'expr' prop", node);
   }
+
   const t = lp.type as string | undefined;
   const typeAnn = t ? `: ${emitTypeAnnotation(t, 'unknown', node)}` : '';
-  return `const ${lname}${typeAnn} = ${expr};`;
+  return `const ${lname}${typeAnn} = ${rhs};`;
 }
