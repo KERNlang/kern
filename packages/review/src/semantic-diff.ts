@@ -10,6 +10,7 @@
 
 import type { ConceptMap, ConceptNode, ConceptNodeKind } from '@kernlang/core';
 import { execFileSync } from 'child_process';
+import { withoutLocalGitEnv } from './git-env.js';
 import { createInMemoryProject, inferFromSource } from './inferrer.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
 import type { InferResult } from './types.js';
@@ -47,6 +48,7 @@ export interface SemanticChange {
 export function getOldFileContent(filePath: string, baseRef: string): string | null {
   try {
     return execFileSync('git', ['show', `${baseRef}:${filePath}`], {
+      env: withoutLocalGitEnv(),
       encoding: 'utf-8',
       maxBuffer: 10 * 1024 * 1024,
     });

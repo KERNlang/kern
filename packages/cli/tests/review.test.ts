@@ -1,11 +1,11 @@
 import { reviewFile } from '@kernlang/review';
-import { execFileSync } from 'child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { runReview } from '../src/commands/review.js';
 import { createReviewBaseline } from '../src/review-baseline.js';
 import { collectTsFilesFlat } from '../src/shared.js';
+import { git } from './git-test-env.js';
 
 describe('kern review command', () => {
   let cwd: string;
@@ -181,14 +181,14 @@ export async function main() {
   it('includes changed .kern files in --diff review', async () => {
     process.chdir(tmpDir);
 
-    execFileSync('git', ['init'], { cwd: tmpDir });
-    execFileSync('git', ['config', 'user.email', 'kern@example.com'], { cwd: tmpDir });
-    execFileSync('git', ['config', 'user.name', 'KERN Test'], { cwd: tmpDir });
+    git(['init'], tmpDir);
+    git(['config', 'user.email', 'kern@example.com'], tmpDir);
+    git(['config', 'user.name', 'KERN Test'], tmpDir);
 
     const file = join(tmpDir, 'screen.kern');
     writeFileSync(file, `screen name=Home\n  text value="hello"\n`);
-    execFileSync('git', ['add', 'screen.kern'], { cwd: tmpDir });
-    execFileSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+    git(['add', 'screen.kern'], tmpDir);
+    git(['commit', '-m', 'init'], tmpDir);
 
     writeFileSync(file, `screen name=Home\n  text value="hi"\n`);
 
@@ -209,14 +209,14 @@ export async function main() {
   it('includes changed Python files in --diff review', async () => {
     process.chdir(tmpDir);
 
-    execFileSync('git', ['init'], { cwd: tmpDir });
-    execFileSync('git', ['config', 'user.email', 'kern@example.com'], { cwd: tmpDir });
-    execFileSync('git', ['config', 'user.name', 'KERN Test'], { cwd: tmpDir });
+    git(['init'], tmpDir);
+    git(['config', 'user.email', 'kern@example.com'], tmpDir);
+    git(['config', 'user.name', 'KERN Test'], tmpDir);
 
     const file = join(tmpDir, 'main.py');
     writeFileSync(file, 'from fastapi import FastAPI\n\napp = FastAPI()\n');
-    execFileSync('git', ['add', 'main.py'], { cwd: tmpDir });
-    execFileSync('git', ['commit', '-m', 'init'], { cwd: tmpDir });
+    git(['add', 'main.py'], tmpDir);
+    git(['commit', '-m', 'init'], tmpDir);
 
     writeFileSync(
       file,
@@ -412,9 +412,9 @@ fetch('/api/data');
     process.chdir(tmpDir);
 
     const repoDir = join(tmpDir, 'remote-review');
-    execFileSync('git', ['init', repoDir]);
-    execFileSync('git', ['config', 'user.email', 'kern@example.com'], { cwd: repoDir });
-    execFileSync('git', ['config', 'user.name', 'KERN Test'], { cwd: repoDir });
+    git(['init', repoDir]);
+    git(['config', 'user.email', 'kern@example.com'], repoDir);
+    git(['config', 'user.name', 'KERN Test'], repoDir);
 
     const file = join(repoDir, 'confidence.kern');
     writeFileSync(
@@ -427,8 +427,8 @@ fn name=loadUser params="id:string" returns=unknown
   >>>
 `,
     );
-    execFileSync('git', ['add', 'confidence.kern'], { cwd: repoDir });
-    execFileSync('git', ['commit', '-m', 'init'], { cwd: repoDir });
+    git(['add', 'confidence.kern'], repoDir);
+    git(['commit', '-m', 'init'], repoDir);
 
     let exitCode: number | undefined;
     process.exit = ((code?: number) => {
@@ -448,18 +448,18 @@ fn name=loadUser params="id:string" returns=unknown
     process.chdir(tmpDir);
 
     const repoDir = join(tmpDir, 'remote-diff-review');
-    execFileSync('git', ['init', repoDir]);
-    execFileSync('git', ['config', 'user.email', 'kern@example.com'], { cwd: repoDir });
-    execFileSync('git', ['config', 'user.name', 'KERN Test'], { cwd: repoDir });
+    git(['init', repoDir]);
+    git(['config', 'user.email', 'kern@example.com'], repoDir);
+    git(['config', 'user.name', 'KERN Test'], repoDir);
 
     const file = join(repoDir, 'screen.kern');
     writeFileSync(file, 'screen name=Home\n  text value="hello"\n');
-    execFileSync('git', ['add', 'screen.kern'], { cwd: repoDir });
-    execFileSync('git', ['commit', '-m', 'init'], { cwd: repoDir });
+    git(['add', 'screen.kern'], repoDir);
+    git(['commit', '-m', 'init'], repoDir);
 
     writeFileSync(file, 'screen name=Home\n  text value="hi"\n');
-    execFileSync('git', ['add', 'screen.kern'], { cwd: repoDir });
-    execFileSync('git', ['commit', '-m', 'update'], { cwd: repoDir });
+    git(['add', 'screen.kern'], repoDir);
+    git(['commit', '-m', 'update'], repoDir);
 
     let exitCode: number | undefined;
     process.exit = ((code?: number) => {

@@ -2,6 +2,7 @@ import { execFileSync } from 'child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { withoutLocalGitEnv } from '../src/git-env.js';
 import {
   _projectContextCacheSize,
   _resetProjectContextCache,
@@ -14,6 +15,14 @@ import {
 
 function tmpRoot(): string {
   return mkdtempSync(join(tmpdir(), 'kern-pctx-'));
+}
+
+function git(args: string[], cwd: string): void {
+  execFileSync('git', args, {
+    cwd,
+    env: withoutLocalGitEnv(),
+    stdio: 'ignore',
+  });
 }
 
 describe('project-context', () => {
@@ -169,9 +178,9 @@ describe('project-context', () => {
   it('isReviewable: tracked-but-gitignored file remains reviewable (red-team #4)', () => {
     const root = tmpRoot();
     try {
-      execFileSync('git', ['init', '-q'], { cwd: root, stdio: 'ignore' });
-      execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root, stdio: 'ignore' });
-      execFileSync('git', ['config', 'user.name', 'test'], { cwd: root, stdio: 'ignore' });
+      git(['init', '-q'], root);
+      git(['config', 'user.email', 'test@example.com'], root);
+      git(['config', 'user.name', 'test'], root);
     } catch {
       // git not available — skip the test
       rmSync(root, { recursive: true });
@@ -185,8 +194,8 @@ describe('project-context', () => {
     writeFileSync(trackedArtifact, '// generated client');
     writeFileSync(untrackedArtifact, '// stray output');
     // Force-add the tracked file despite .gitignore (the published-artifact case).
-    execFileSync('git', ['add', '-f', '.gitignore', 'dist/client.gen.ts'], { cwd: root, stdio: 'ignore' });
-    execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: root, stdio: 'ignore' });
+    git(['add', '-f', '.gitignore', 'dist/client.gen.ts'], root);
+    git(['commit', '-q', '-m', 'init'], root);
 
     const ctx = getProjectContext(root);
     expect(isPathIgnored(trackedArtifact, ctx)).toBe(true); // .gitignore matches
