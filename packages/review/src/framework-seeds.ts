@@ -231,6 +231,38 @@ export const KNOWN_FRAMEWORK_SEEDS: readonly FrameworkSeed[] = [
     symbols: ['default', 'proxy', 'config'] as readonly string[],
     why: 'Next.js proxy (v16 middleware rename)',
   })),
+
+  // ── Nuxt 3+ conventions ────────────────────────────────────────────────
+  //
+  // SCOPE NOTE: only Nuxt-specific path shapes are seeded here. Generic
+  // top-level `middleware/`, `plugins/`, `modules/`, `composables/` dirs
+  // are NOT seeded because non-Nuxt projects with similarly-named dirs
+  // would get over-marked: a stale plugin in `plugins/legacy.ts` of an
+  // arbitrary project would inherit public-API status. The `**/server/**`
+  // patterns ARE Nuxt-specific (Nitro server routes), so seeding them is
+  // safe. `nuxt.config.{ts,js}` is uniquely identifying.
+  //
+  // SFC files (`.vue`) are not reviewed — symbols inside `<script setup>`
+  // never reach the dead-export rule — so Vue's `pages/**/*.vue`,
+  // `layouts/**/*.vue`, `components/**/*.vue` are intentionally absent.
+
+  // Nuxt server routes — defineEventHandler default-export the handler
+  // factory. Symbol-scoped to `default`; siblings stay subject to
+  // dead-export checks.
+  ...SCRIPT_EXTS.flatMap((ext) =>
+    ['api', 'middleware', 'plugins', 'routes'].map((kind) => ({
+      pattern: `**/server/${kind}/**/*.${ext}`,
+      symbols: ['default'] as readonly string[],
+      why: `Nuxt server/${kind} handler`,
+    })),
+  ),
+
+  // nuxt.config — defineNuxtConfig default export. Uniquely Nuxt-named.
+  ...SCRIPT_EXTS.map((ext) => ({
+    pattern: `**/nuxt.config.${ext}`,
+    symbols: ['default'] as readonly string[],
+    why: 'Nuxt config',
+  })),
 ];
 
 /**

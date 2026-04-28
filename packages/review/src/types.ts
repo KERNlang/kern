@@ -478,6 +478,14 @@ export type GraphEdgeKind =
   | 'named-reexport'
   | 'export-all'
   /**
+   * `export * as ns from './m'` — distinct from bare `export *` because the
+   * namespace alias gives us a concrete local name (`ns`) that Producer 1
+   * can attach a symbol-scoped blocker to when the target fails to resolve.
+   * Bare `export *` stays under `'export-all'` and produces no blocker
+   * (no symbol to pin).
+   */
+  | 'namespace-reexport'
+  /**
    * Literal `import('./mod')` — emitted by the graph walker when the argument
    * is a StringLiteral or NoSubstitutionTemplateLiteral. Distinct from the
    * static-import variants so a strongest-path traversal can prefer a static

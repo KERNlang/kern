@@ -40,6 +40,7 @@ import {
 import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { basename, dirname, relative, resolve } from 'path';
+import { withoutLocalGitEnv } from '../git-env.js';
 import { withOptionalRemoteRepo } from '../remote-repo.js';
 import {
   compareReportsToBaseline,
@@ -67,6 +68,7 @@ export function detectAutoDiffBase(cwd: string = process.cwd()): string | undefi
     try {
       execFileSync('git', ['rev-parse', '--verify', '--quiet', ref], {
         cwd,
+        env: withoutLocalGitEnv(),
         stdio: ['ignore', 'ignore', 'ignore'],
       });
       return true;
@@ -79,6 +81,7 @@ export function detectAutoDiffBase(cwd: string = process.cwd()): string | undefi
   try {
     execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
       cwd,
+      env: withoutLocalGitEnv(),
       stdio: ['ignore', 'ignore', 'ignore'],
     });
   } catch {
@@ -934,7 +937,16 @@ async function runReviewLocal(args: string[]): Promise<void> {
     process.exit(0);
   }
 
-  const recursive = hasFlag(args, '--recursive', '-r');
+  // `--full` is the user-facing "thorough" mode (opt out of diff-default,
+  // scan the whole project). It MUST imply `--recursive`: otherwise
+  // `kern review --full` from a repo root only scans top-level files,
+  // which is the opposite of what "full" suggests. This was a documented
+  // UX surprise (handoff item #4). The implication transitively activates
+  // `--graph` below (line: `graphMode = ... || recursive`), which is the
+  // thorough mode for cross-file dead-export / async rules — also what
+  // "full" should mean.
+  const fullMode = hasFlag(args, '--full');
+  const recursive = hasFlag(args, '--recursive', '-r') || fullMode;
   const enforce = hasFlag(args, '--enforce');
   const exportKern = hasFlag(args, '--export-kern');
   const llmMode = hasFlag(args, '--llm');
@@ -1045,7 +1057,6 @@ async function runReviewLocal(args: string[]): Promise<void> {
   let diffBase = args.some((a) => a === '--diff' || a.startsWith('--diff'))
     ? parseFlagOrNext(args, '--diff') || 'origin/main'
     : undefined;
-  const fullMode = hasFlag(args, '--full');
 
   if (fullMode && diffBase) {
     console.error('  --full and --diff are mutually exclusive.');
@@ -1173,6 +1184,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
       const sanitizedBase = diffBase.replace(/[^a-zA-Z0-9_./\-~]/g, '');
       const diffFiles = execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMR', sanitizedBase], {
         encoding: 'utf-8',
+        env: withoutLocalGitEnv(),
       })
         .trim()
         .split('\n')
@@ -1198,7 +1210,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
       try {
         const unifiedDiff = execFileSync('git', ['diff', '--unified=0', '--diff-filter=ACMR', sanitizedBase], {
           encoding: 'utf-8',
-          env: { ...process.env, LC_ALL: 'C' },
+          env: { ...withoutLocalGitEnv(), LC_ALL: 'C' },
         });
         let currentFile = '';
         for (const line of unifiedDiff.split('\n')) {

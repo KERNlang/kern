@@ -307,6 +307,32 @@ export function main() { helper(); decoyHelper; }
     const fnDecoy = callGraph.functions.get('/src/decoy.ts#helper');
     expect(fnDecoy!.calledBy.length).toBe(0);
   });
+
+  it('handles `as` alias rename in the middle of a re-export chain', () => {
+    // outer re-exports `foo` (no rename). middle re-exports `realFoo as foo`.
+    // The chain walker must use the OUTGOING name to match the consumer's
+    // import (`foo`) at outer, then switch to the UPSTREAM name (`realFoo`)
+    // when looking it up in worker. Swapping the alias direction would
+    // silently break, so this is a guard against that regression.
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import { foo } from './outer.js';
+export function main() { foo(); }
+`,
+    );
+    project.createSourceFile('/src/outer.ts', `export { foo } from './middle.js';`);
+    project.createSourceFile('/src/middle.ts', `export { realFoo as foo } from './worker.js';`);
+    project.createSourceFile('/src/worker.ts', `export function realFoo() { return 1; }`);
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const fnReal = callGraph.functions.get('/src/worker.ts#realFoo');
+    expect(fnReal!.calledBy.some((c) => c.callerFile === '/src/main.ts')).toBe(true);
+    expect(callGraph.deadExports).not.toContain('/src/worker.ts#realFoo');
+  });
 });
 
 describe('Call Graph: local alias tracking', () => {

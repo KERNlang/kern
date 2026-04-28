@@ -128,16 +128,21 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
       const { sourceFile: resolvedFile, via } = resolveModuleReference(project, sf, ref.specifier, ref.resolved);
 
       if (!resolvedFile) {
-        // Producer 1: a named re-export with a relative specifier that even
-        // the extension-fallback couldn't resolve becomes a symbol-scoped
+        // Producer 1: a re-export with a relative specifier that even the
+        // extension-fallback couldn't resolve becomes a symbol-scoped
         // blocker on the IMPORTING file's localName. Symbol scope only —
         // never file scope (see ReachabilityBlocker jsdoc and red-team v3).
-        // Bare specifiers (`react`, `lodash/get`) are intentionally excluded:
-        // unresolved bare specifiers mean a missing dep, not an unknowable
-        // target, and dead-export's package-public-API logic already shields
-        // those callers.
+        //
+        // Two re-export shapes carry a concrete local name and qualify:
+        //   - `named-reexport`     — `export { foo } from './x'`
+        //   - `namespace-reexport` — `export * as ns from './x'`
+        // Bare `export *` (kind `export-all`) is excluded because there is
+        // no symbol to pin. Bare specifiers (`react`, `lodash/get`) are
+        // also excluded: unresolved bare specifiers mean a missing dep,
+        // not an unknowable target, and dead-export's package-public-API
+        // logic already shields those callers.
         if (
-          ref.kind === 'named-reexport' &&
+          (ref.kind === 'named-reexport' || ref.kind === 'namespace-reexport') &&
           ref.localName &&
           (ref.specifier.startsWith('.') || ref.specifier.startsWith('/'))
         ) {
@@ -394,6 +399,24 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleRefScan {
     } catch {
       continue;
     }
+    // `export * as ns from './m'` — ts-morph models this distinctly from
+    // bare `export *` (which has no namespace export node). The namespace
+    // alias is a concrete local name we can scope a Producer 1 blocker
+    // against when the target is unresolved. Bare `export *` stays under
+    // `export-all` and never produces a blocker (no symbol to pin).
+    const namespaceExport = decl.getNamespaceExport();
+    if (namespaceExport) {
+      refs.push({
+        specifier,
+        resolved,
+        kind: 'namespace-reexport',
+        importedName: '*',
+        localName: namespaceExport.getName(),
+        line: namespaceExport.getStartLineNumber(),
+      });
+      continue;
+    }
+
     const namedExports = decl.getNamedExports();
 
     if (namedExports.length === 0) {

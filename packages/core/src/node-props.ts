@@ -50,6 +50,16 @@ export interface MemberProps extends BaseProps {
   value?: string | ExprObject;
 }
 
+export interface UseProps extends BaseProps {
+  // Required at the schema level; optional in the type so propsOf<'use'>()
+  // doesn't force every other prop intersection to provide it.
+  path?: string;
+}
+
+export interface FromProps extends BaseProps {
+  as?: string;
+}
+
 export interface IndexerProps extends BaseProps {
   keyName?: string;
   keyType?: string;
@@ -595,6 +605,8 @@ export interface NodePropsMap {
   union: UnionProps;
   enum: EnumProps;
   member: MemberProps;
+  use: UseProps;
+  from: FromProps;
   indexer: IndexerProps;
   overload: OverloadProps;
   service: ServiceProps;

@@ -340,6 +340,24 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       types: { kind: 'boolean' },
     },
   },
+  use: {
+    description:
+      'Cross-`.kern` symbol resolution. Parent of `from` children — one per imported binding. Compositional shape mirrors enum/member, class/method.',
+    example: 'use path="./helper.kern"\n  from name=foo\n  from name=bar as=baz',
+    props: {
+      path: { required: true, kind: 'importPath' },
+    },
+    allowedChildren: ['from'],
+  },
+  from: {
+    description: 'Single binding in a `use` block. `as=` aliases the local name; `export=true` re-exports.',
+    example: 'from name=foo as=bar export=true',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      as: { kind: 'identifier' },
+      export: { kind: 'boolean' },
+    },
+  },
   const: {
     description: 'Constant declaration with optional type and value or handler body',
     example: 'const name=MAX_RETRIES type=number value=3 export=true',
