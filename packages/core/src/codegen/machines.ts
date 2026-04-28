@@ -8,7 +8,8 @@
 import { propsOf } from '../node-props.js';
 import type { ExprObject, IRNode } from '../types.js';
 import { emitIdentifier, emitTemplateSafe } from './emitters.js';
-import { exportPrefix, getChildren, getProps, handlerCode, parseParamList } from './helpers.js';
+import { exportPrefix, getChildren, getProps, handlerCode } from './helpers.js';
+import { emitParamList } from './type-system.js';
 
 const _p = getProps;
 const kids = getChildren;
@@ -71,7 +72,6 @@ export function generateMachine(node: IRNode): string[] {
     const tname = emitIdentifier(tp.name, 'transition', t);
     const from = tp.from || '';
     const to = tp.to || '';
-    const paramsStr = tp.params;
     const rawGuard = tp.guard;
     const guardExpr =
       rawGuard && typeof rawGuard === 'object' && (rawGuard as ExprObject).__expr
@@ -85,7 +85,8 @@ export function generateMachine(node: IRNode): string[] {
 
     // Parse params the same way `fn` / `action` do — routes through the
     // shared validator so malformed param lists fail at codegen.
-    const paramList = paramsStr ? parseParamList(paramsStr) : '';
+    // Slice 3c: structured `param` child nodes win over legacy `params="..."`.
+    const paramList = emitParamList(t);
     const signatureParams = paramList ? `entity: T, ${paramList}` : 'entity: T';
 
     lines.push(`/** ${from} → ${to} */`);

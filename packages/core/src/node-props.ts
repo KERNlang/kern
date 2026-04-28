@@ -551,6 +551,25 @@ export interface VariantProps extends BaseProps {
   type?: string;
 }
 
+/**
+ * Slice 3c — `param` child node for fn/method/constructor/etc. parameter
+ * defaults via ValueIR. Same shape doubles as MCP tool/resource/prompt param
+ * (type widened from identifier → typeAnnotation in slice 3c).
+ *
+ * `value` is the ValueIR-canonicalised native form (mirrors slice 3b
+ * field.value); `default` is the rawExpr passthrough kept for back-compat
+ * and existing MCP usage. `value` wins when both present.
+ */
+export interface ParamProps extends BaseProps {
+  type?: string;
+  value?: string | ExprObject;
+  default?: string | ExprObject;
+  required?: string | boolean;
+  description?: string;
+  min?: string | number;
+  max?: string | number;
+}
+
 export interface MethodProps extends BaseProps {
   params?: string;
   returns?: string;
@@ -707,6 +726,7 @@ export interface NodePropsMap {
   module: ModuleProps;
   import: ImportProps;
   field: FieldProps;
+  param: ParamProps;
   getter: GetterProps;
   setter: SetterProps;
   variant: VariantProps;

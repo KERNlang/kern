@@ -7,16 +7,8 @@
 import { propsOf } from '../node-props.js';
 import type { ExprObject, IRNode } from '../types.js';
 import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
-import {
-  dedent,
-  emitDocComment,
-  exportPrefix,
-  getChildren,
-  getFirstChild,
-  getProps,
-  handlerCode,
-  parseParamList,
-} from './helpers.js';
+import { dedent, emitDocComment, exportPrefix, getChildren, getFirstChild, getProps, handlerCode } from './helpers.js';
+import { emitParamList } from './type-system.js';
 
 const p = getProps;
 const kids = getChildren;
@@ -27,7 +19,6 @@ const firstChild = getFirstChild;
 export function generateFunction(node: IRNode): string[] {
   const props = propsOf<'fn'>(node);
   const name = emitIdentifier(props.name, 'unknownFn', node);
-  const params = props.params || '';
   const returns = props.returns;
   const isAsync = props.async === 'true' || props.async === true;
   const isStream = props.stream === 'true' || props.stream === true;
@@ -50,7 +41,7 @@ export function generateFunction(node: IRNode): string[] {
   const overloadChildren = kids(node, 'overload');
   for (const ov of overloadChildren) {
     const op = propsOf<'overload'>(ov);
-    const oParams = op.params ? parseParamList(op.params, { stripDefaults: true }) : '';
+    const oParams = emitParamList(ov, { stripDefaults: true });
     const oRet = op.returns ? `: ${emitTypeAnnotation(op.returns, 'unknown', ov)}` : '';
     // Slice 2f — overloads may declare their own generics independent of the impl.
     // Fall back to the parent fn's generics if the overload doesn't specify its own.
@@ -60,7 +51,9 @@ export function generateFunction(node: IRNode): string[] {
 
   // Parse params: "action:PlanAction,ws:WorkspaceSnapshot,spread:number=8"
   // → "action: PlanAction, ws: WorkspaceSnapshot, spread: number = 8"
-  const paramList = params ? parseParamList(params) : '';
+  // Slice 3c: structured `param` child nodes win over the legacy `params="..."`
+  // string. Children flow through emitConstValue for ValueIR canonicalisation.
+  const paramList = emitParamList(node);
 
   // stream=true → async generator function
   if (isStream) {

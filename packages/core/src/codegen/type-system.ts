@@ -240,7 +240,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
   const ctorNode = firstChild(node, 'constructor');
   if (ctorNode) {
     const ctorProps = propsOf<'constructor'>(ctorNode);
-    const ctorParams = ctorProps.params ? parseParamList(ctorProps.params) : '';
+    const ctorParams = emitParamList(ctorNode);
     const generics = ctorProps.generics ? emitTypeAnnotation(ctorProps.generics, '', ctorNode) : '';
     const ctorCode = handlerCode(ctorNode);
     lines.push('');
@@ -257,7 +257,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
   for (const method of kids(node, 'method')) {
     const mp = propsOf<'method'>(method);
     const mname = emitIdentifier(mp.name, 'method', method);
-    const mparams = mp.params ? parseParamList(mp.params) : '';
+    const mparams = emitParamList(method);
     const generics = mp.generics ? emitTypeAnnotation(mp.generics, '', method) : '';
     const isAsync = mp.async === 'true' || mp.async === true;
     const isStream = mp.stream === 'true' || mp.stream === true;
@@ -319,7 +319,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const sname = emitIdentifier(sp.name, 'setter', setter);
     const svis = sp.private === 'true' || sp.private === true ? 'private ' : '';
     const sstatic = sp.static === 'true' || sp.static === true ? 'static ' : '';
-    const sparams = sp.params ? parseParamList(sp.params) : 'value: unknown';
+    const sparams = emitParamList(setter, { fallback: 'value: unknown' });
     const scode = handlerCode(setter);
     lines.push('');
     lines.push(`  ${svis}${sstatic}set ${sname}(${sparams}) {`);
@@ -435,4 +435,73 @@ export function emitConstValue(node: IRNode, rawValue: unknown): string {
   } catch {
     return rawValue;
   }
+}
+
+/**
+ * Slice 3c — produce a TS parameter-list string from `param` child IR nodes.
+ *
+ * Mirrors `parseParamList` (which parses the legacy `params="..."` string)
+ * but reads structured child nodes so each parameter's `value=` flows through
+ * `emitConstValue` for ValueIR canonicalisation. Identifier/type annotations
+ * are routed through the schema emitters so authored bad input raises
+ * KernCodegenError instead of producing broken TS.
+ *
+ * Per child:
+ *   - `value=` (slice 3c, ValueIR-canonicalised) — JSON-quoted for quoted
+ *     string literals, parsed+re-emitted for bare expressions, raw for
+ *     `{{...}}` ExprObject. Same routing as slice 3b field.value.
+ *   - `default=` (rawExpr passthrough) — kept for back-compat / MCP usage.
+ *   - When both set, `value` wins. The slice 3a/3b gate treats unquoted
+ *     empty `value=` as absent so it doesn't trigger the
+ *     `parseExpression('')` throw → empty fallback → `name: T = ;` bug.
+ *
+ * `options.stripDefaults`: TS forbids parameter initializers in overload
+ * signatures — the implementation alone may carry defaults. Same flag as
+ * the sibling `parseParamList`.
+ */
+export function parseParamListFromChildren(paramNodes: IRNode[], options?: { stripDefaults?: boolean }): string {
+  if (paramNodes.length === 0) return '';
+  return paramNodes
+    .map((paramNode) => {
+      const pp = propsOf<'param'>(paramNode);
+      const pname = emitIdentifier(pp.name, 'parameter', paramNode);
+      const typeAnn = pp.type ? `: ${emitTypeAnnotation(pp.type, 'unknown', paramNode)}` : '';
+
+      if (options?.stripDefaults) return `${pname}${typeAnn}`;
+
+      const rawValue = pp.value;
+      const rawDefault = pp.default;
+      const valuePresent =
+        rawValue !== undefined && (rawValue !== '' || paramNode.__quotedProps?.includes('value') === true);
+
+      if (valuePresent) {
+        return `${pname}${typeAnn} = ${emitConstValue(paramNode, rawValue)}`;
+      }
+      if (rawDefault === undefined || rawDefault === '') return `${pname}${typeAnn}`;
+      if (isExprObject(rawDefault)) return `${pname}${typeAnn} = ${rawDefault.code}`;
+      return `${pname}${typeAnn} = ${rawDefault}`;
+    })
+    .join(', ');
+}
+
+/**
+ * Slice 3c — unified TS parameter-list emitter for any callable IR node.
+ *
+ * Reads the node's `param` children first (canonical, ValueIR-routed). If
+ * none, falls back to the legacy `params="..."` string. If neither, returns
+ * the fallback (default empty).
+ *
+ * Children win when present. Mixed mode is intentionally unsupported — a
+ * signature is either fully-structured-children or fully-legacy-string.
+ * Producers (importer, migrate-class-body) emit children all-or-nothing
+ * per signature; consumers don't need to reconcile partial states.
+ */
+export function emitParamList(node: IRNode, options?: { stripDefaults?: boolean; fallback?: string }): string {
+  const paramChildren = kids(node, 'param');
+  if (paramChildren.length > 0) {
+    return parseParamListFromChildren(paramChildren, options);
+  }
+  const params = (p(node).params as string | undefined) ?? '';
+  if (params) return parseParamList(params, options);
+  return options?.fallback ?? '';
 }

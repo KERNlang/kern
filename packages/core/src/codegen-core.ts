@@ -121,6 +121,8 @@ export { mapSemanticType, SEMANTIC_TYPE_MAP } from './codegen/semantic-types.js'
 export { generateTest } from './codegen/test-gen.js';
 // ── Re-exports: domain generators (backward compatibility) ──────────────
 export {
+  emitConstValue,
+  emitParamList,
   generateClass,
   generateConst,
   generateEnum,
@@ -128,6 +130,7 @@ export {
   generateService,
   generateType,
   generateUnion,
+  parseParamListFromChildren,
 } from './codegen/type-system.js';
 
 import {

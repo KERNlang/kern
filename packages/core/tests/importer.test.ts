@@ -28,9 +28,13 @@ export async function loadUser(id: string, retries: number = 3): Promise<User> {
     const result = importTypeScript(source, 'load-user.ts');
 
     expect(result.kern).toContain('doc text="Load a user by id."');
-    expect(result.kern).toContain(
-      'fn name=loadUser params="id:string,retries:number=3" returns=Promise<User> async=true export=true',
-    );
+    // Slice 3c: structured `param` children (canonical), `value={{...}}` for
+    // ValueIR canonicalisation of the default. Replaces the legacy embedded
+    // `params="id:string,retries:number=3"` string. Mirrors slice 3b's
+    // field migration.
+    expect(result.kern).toContain('fn name=loadUser returns=Promise<User> async=true export=true');
+    expect(result.kern).toContain('param name=id type="string"');
+    expect(result.kern).toContain('param name=retries type="number" value={{ 3 }}');
     expect(result.kern).toContain("const response = await fetch('/api/users/' + id);");
     expect(result.kern).toContain('return response.json();');
     expect(result.stats.functions).toBe(1);
@@ -68,7 +72,9 @@ export class NotFoundError extends Error {
     expect(result.kern).toContain('field name=baseUrl type=string readonly=true value={{ "/api" }}');
     // Type strings with whitespace are quoted so the prop tokeniser preserves them.
     expect(result.kern).toContain('field name=cache type="Map<string, User>" private=true');
-    expect(result.kern).toContain('method name=fetchUser params="id:string" returns=Promise<User> async=true');
+    // Slice 3c: structured `param` children replace embedded `params="id:string"`.
+    expect(result.kern).toContain('method name=fetchUser returns=Promise<User> async=true');
+    expect(result.kern).toContain('param name=id type="string"');
     expect(result.kern).toContain('error name=NotFoundError extends=Error message="\\"Not found\\"" export=true');
     expect(result.kern).toContain('field name=resource type=string');
     expect(result.stats.classes).toBe(2);

@@ -14,6 +14,8 @@ export {
   emitIdentifier,
   emitImportSpecifier,
   emitLowConfidenceTodo,
+  // Slice 3c — structured `param` child nodes for fn parameter defaults via ValueIR
+  emitParamList,
   emitPath,
   emitReasonAnnotations,
   // Render body emitter — exported so target transpilers (Ink, Vue, …) can
@@ -38,6 +40,7 @@ export {
   isCoreNode,
   mapSemanticType,
   parseParamList,
+  parseParamListFromChildren,
   // Evolved generators — prefer KernRuntime for new code
   registerEvolvedGenerator,
   registerEvolvedTargetGenerator,

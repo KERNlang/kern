@@ -10,11 +10,11 @@ import {
   capitalize,
   dedent,
   emitIdentifier,
+  emitParamList,
   emitTypeAnnotation,
   exportPrefix,
   generateCoreNode,
   handlerCode,
-  parseParamList,
 } from '@kernlang/core';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -289,13 +289,13 @@ export function generateReactNode(node: IRNode): string[] {
 export function generateHook(node: IRNode): string[] {
   const props = p(node);
   const name = props.name as string;
-  const params = (props.params as string) || '';
   const returnsType = props.returns as string | undefined;
   const exp = exportPrefix(node);
   const lines: string[] = [];
   const reactImports = new Set<string>();
 
-  const paramList = parseParamList(params);
+  // Slice 3c: structured `param` child nodes win over legacy `params="..."`.
+  const paramList = emitParamList(node);
   const retClause = returnsType ? `: ${returnsType}` : '';
 
   lines.push(`${exp}function ${name}(${paramList})${retClause} {`);
@@ -357,10 +357,9 @@ export function generateHook(node: IRNode): string[] {
       case 'callback': {
         reactImports.add('useCallback');
         const cbname = cp.name as string;
-        const cbparams = (cp.params as string) || '';
         const cbdeps = (cp.deps as string) || '';
         const cbcode = handlerCode(child);
-        const cbParamList = parseParamList(cbparams);
+        const cbParamList = emitParamList(child);
         const cbDepsArr = cbdeps ? `[${cbdeps}]` : '[]';
         lines.push(`  const ${cbname} = useCallback((${cbParamList}) => {`);
         if (cbcode) {

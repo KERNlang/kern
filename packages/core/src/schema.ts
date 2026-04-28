@@ -99,6 +99,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       returns: { kind: 'typeAnnotation' },
       generics: { kind: 'rawExpr' },
     },
+    allowedChildren: ['param'],
   },
   union: {
     description: 'Discriminated union type with variants, each having their own fields',
@@ -199,7 +200,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       static: { kind: 'boolean' },
       generics: { kind: 'rawExpr' },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'param'],
   },
   getter: {
     description: 'A getter accessor within a class or service — emits `get name(): T { body }`.',
@@ -221,7 +222,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       private: { kind: 'boolean' },
       static: { kind: 'boolean' },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'param'],
   },
   fn: {
     description: 'Standalone function — the most common code unit in KERN',
@@ -237,7 +238,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       expr: { kind: 'rawExpr' },
       generics: { kind: 'rawExpr' },
     },
-    allowedChildren: ['handler', 'signal', 'cleanup', 'overload'],
+    allowedChildren: ['handler', 'signal', 'cleanup', 'overload', 'param'],
   },
   machine: {
     description:
@@ -284,7 +285,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       params: { kind: 'string' },
       guard: { kind: 'rawExpr' },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'param'],
   },
   error: {
     description: 'Custom error class extending a base error, with typed fields',
@@ -1014,7 +1015,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       reversible: { kind: 'boolean' },
       export: { kind: 'boolean' },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'param'],
   },
   actionRegistry: {
     description:
@@ -1210,7 +1211,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       params: { kind: 'string' },
       returns: { kind: 'typeAnnotation' },
     },
-    allowedChildren: ['handler', 'memo', 'callback', 'ref', 'effect'],
+    allowedChildren: ['handler', 'memo', 'callback', 'ref', 'effect', 'param'],
   },
   effect: {
     description: 'React useEffect — side effect with dependency tracking',
@@ -1517,11 +1518,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   param: {
     description:
-      'Parameter definition for a tool, resource, or prompt — name, type, required, default, and description',
+      'Parameter definition. Used in two contexts: (a) MCP tool/resource/prompt params (description/required/min/max apply); (b) fn/method/constructor/etc. parameter defaults via slice 3c — value flows through ValueIR canonicalisation (mirrors slice 1j const.value, 3a let.value, 3b field.value).',
     example: 'param name=query type=string required=true description="Search query"',
     props: {
       name: { required: true, kind: 'identifier' },
-      type: { kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      value: { kind: 'expression' },
       required: { kind: 'boolean' },
       default: { kind: 'rawExpr' },
       description: { kind: 'string' },
@@ -1812,7 +1814,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       deps: { kind: 'string' },
       async: { kind: 'boolean' },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'param'],
   },
   ref: {
     description: 'React useRef — mutable ref object that persists across renders',
@@ -2183,7 +2185,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       params: { kind: 'string' as PropKind },
       generics: { kind: 'rawExpr' as PropKind },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'param'],
   },
   cleanup: {
     description: 'Cleanup handler — runs on teardown (useEffect return, signal dispose)',
