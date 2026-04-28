@@ -2,6 +2,7 @@ import { execFileSync } from 'child_process';
 import { existsSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
+import { withoutLocalGitEnv } from './git-env.js';
 import { hasFlag, parseFlagOrNext } from './shared.js';
 
 export interface RemoteRepoContext {
@@ -46,6 +47,7 @@ function formatGitError(err: unknown): string {
 function runGit(args: string[], cwd?: string): void {
   execFileSync('git', args, {
     cwd,
+    env: withoutLocalGitEnv(),
     encoding: 'utf-8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });

@@ -26,6 +26,7 @@ import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { existsSync, readFileSync, realpathSync } from 'fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'path';
+import { withoutLocalGitEnv } from './git-env.js';
 
 /** What `getProjectContext` returns. Extended in later phases. */
 export interface ProjectContext {
@@ -377,6 +378,7 @@ function readGitTrackedFiles(root: string): Set<string> {
   try {
     const buf = execFileSync('git', ['ls-files', '-c', '-z'], {
       cwd: root,
+      env: withoutLocalGitEnv(),
       timeout: 10_000,
       maxBuffer: 100 * 1024 * 1024,
       encoding: 'utf-8',
