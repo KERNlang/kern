@@ -218,11 +218,15 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     // Codex-hold guard from slice 3a: presence is `=== undefined` only —
     // empty-string `value=""` is a legal explicit string literal when the
     // source had it quoted (__quotedProps tracks it), and emitConstValue
-    // JSON.stringifies it to `""`.
+    // JSON.stringifies it to `""`. Slice 3b Codex hold #1: an unquoted
+    // empty `value=` (no __quotedProps) must NOT be routed through
+    // emitConstValue — parseExpression('') throws and returns '', producing
+    // invalid TS like `x: string = ;`. Treat unquoted-empty as absent.
     const rawValue = (fp as { value?: unknown }).value;
     const rawDefault = (fp as { default?: unknown }).default;
+    const valuePresent = rawValue !== undefined && (rawValue !== '' || field.__quotedProps?.includes('value') === true);
     const init = (() => {
-      if (rawValue !== undefined) {
+      if (valuePresent) {
         return ` = ${emitConstValue(field, rawValue)}`;
       }
       if (rawDefault === undefined || rawDefault === '') return '';

@@ -43,8 +43,13 @@ export function generateConfig(node: IRNode): string[] {
     const fieldName = emitIdentifier(fp.name, 'field', field);
     // Slice 3b: either `value` or `default` marks the field as having an
     // initializer, which makes it optional in the interface (the runtime
-    // DEFAULT_FOO object provides the fallback).
-    const hasInit = fp.value !== undefined || fp.default !== undefined;
+    // DEFAULT_FOO object provides the fallback). Codex-hold guard from #1:
+    // an unquoted-empty `value=` is treated as absent (the same check used
+    // below to drive the DEFAULT_FOO branch), so the optional marker stays
+    // in lock-step with the runtime fallback path.
+    const valueExplicit =
+      fp.value !== undefined && (fp.value !== '' || field.__quotedProps?.includes('value') === true);
+    const hasInit = valueExplicit || fp.default !== undefined;
     const opt = hasInit ? '?' : '';
     lines.push(`  ${fieldName}${opt}: ${emitTypeAnnotation(fp.type, 'unknown', field)};`);
   }
@@ -67,10 +72,13 @@ export function generateConfig(node: IRNode): string[] {
     //
     // Codex-hold guard: `value` presence is `=== undefined` only — quoted
     // empty `value=""` is a legal explicit string literal that JSON.stringify
-    // emits as `""`.
+    // emits as `""`. Slice 3b Codex hold #1: unquoted empty `value=` is
+    // treated as absent (parseExpression('') would throw and produce
+    // `mode: ,` — invalid TS).
     const rawValue = fp.value;
+    const valuePresent = rawValue !== undefined && (rawValue !== '' || field.__quotedProps?.includes('value') === true);
     let def: string;
-    if (rawValue !== undefined) {
+    if (valuePresent) {
       def = emitConstValue(field, rawValue);
     } else {
       let rawDef = fp.default;

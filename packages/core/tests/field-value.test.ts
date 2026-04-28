@@ -133,7 +133,7 @@ describe('field.value — slice 3b (native ValueIR form)', () => {
     });
   });
 
-  describe('empty-string handling (Codex-hold-from-3a guard)', () => {
+  describe('empty-string handling (Codex-hold-from-3a + 3b guard)', () => {
     it('quoted `value=""` round-trips as the empty string literal (not absent)', () => {
       // Slice 3a Codex hold: `=== undefined` is the only "absent" marker.
       // A quoted empty string is a legal explicit value — JSON.stringify
@@ -157,6 +157,50 @@ describe('field.value — slice 3b (native ValueIR form)', () => {
     it('parsed `field value=""` emits `= ""`', () => {
       const code = gen('class name=Holder\n  field name=x type=string value=""');
       expect(code).toContain('x: string = "";');
+    });
+
+    it('Codex-hold #1 (slice 3b): unquoted empty `value` is treated as absent on a class field', () => {
+      // Without the guard, parseExpression('') throws and emitConstValue
+      // returns '' — producing the invalid TS line `x: string = ;`. The
+      // guard recognises that absence of __quotedProps means the user did
+      // not explicitly type an empty string literal.
+      const node: IRNode = {
+        type: 'class',
+        props: { name: 'Holder' },
+        children: [
+          {
+            type: 'field',
+            props: { name: 'x', type: 'string', value: '' },
+            children: [],
+            // Note: NO __quotedProps — this is the bug surface.
+          },
+        ],
+      };
+      const code = generateCoreNode(node).join('\n');
+      expect(code).toContain('x: string;');
+      expect(code).not.toContain('x: string = ;');
+      expect(code).not.toContain('= "";');
+    });
+
+    it('Codex-hold #1 (slice 3b): unquoted empty `value` on a config field falls back to type-aware default', () => {
+      // The DEFAULT_FOO object should produce a valid number default (`0`),
+      // not an invalid `mode: ,` line.
+      const node: IRNode = {
+        type: 'config',
+        props: { name: 'Cfg' },
+        children: [
+          {
+            type: 'field',
+            props: { name: 'timeout', type: 'number', value: '' },
+            children: [],
+            // No __quotedProps.
+          },
+        ],
+      };
+      const code = generateCoreNode(node).join('\n');
+      expect(code).toContain('timeout: 0,');
+      expect(code).not.toContain('timeout?: number;'); // unquoted-empty doesn't mark optional
+      expect(code).toContain('timeout: number;');
     });
   });
 
@@ -236,6 +280,52 @@ describe('field.value — slice 3b (native ValueIR form)', () => {
       };
       const text = decompile(node).code;
       expect(text).toContain('field name=cache type="Map<string, User>"');
+    });
+
+    it('Codex-hold #2: tokenizer-significant chars force quotes on round-trip', () => {
+      // A type union containing `'literal'|'literal'` has no whitespace and
+      // no `=`, but contains quote chars + `|`. The strict identifier
+      // whitelist forces JSON.stringify so the parser can read it back.
+      const node: IRNode = {
+        type: 'class',
+        props: { name: 'C' },
+        children: [
+          {
+            type: 'field',
+            props: { name: 'state', type: "'draft'|'done'" },
+            children: [],
+          },
+        ],
+      };
+      const text = decompile(node).code;
+      expect(text).toContain(`type=${JSON.stringify("'draft'|'done'")}`);
+      // Re-parse must succeed (would have truncated at the embedded quote).
+      const reCode = generateCoreNode(parse(`class name=Wrap\n  ${decompile(node.children?.[0] as IRNode).code}`)).join(
+        '\n',
+      );
+      expect(reCode).toContain("state: 'draft'|'done';");
+    });
+
+    it('Codex-hold #2: object-shape type values force quotes (not parsed as a style block)', () => {
+      const node: IRNode = {
+        type: 'class',
+        props: { name: 'C' },
+        children: [
+          {
+            type: 'field',
+            props: { name: 'meta', type: '{id:string}' },
+            children: [],
+          },
+        ],
+      };
+      const text = decompile(node.children?.[0] as IRNode).code;
+      expect(text).toContain(`type=${JSON.stringify('{id:string}')}`);
+      // Re-parse: the field's `type` should still be the object shape, not
+      // a style-block payload swallowed by the parser.
+      const wrapped = `class name=Wrap\n  ${text}`;
+      const ir = parse(wrapped);
+      const fieldChild = (ir.children ?? [])[0] as IRNode;
+      expect(fieldChild.props?.type).toBe('{id:string}');
     });
 
     it('quoted-source value re-emits quoted (preserves string-literal semantic)', () => {

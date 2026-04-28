@@ -135,10 +135,17 @@ export function decompile(root: IRNode): DecompileResult {
         return `${propName}={{${(raw as ExprObject).code}}}`;
       }
       const s = raw as string;
-      // Bare-emit when the source was unquoted AND the value contains no
-      // whitespace or `=` characters that would break attribute tokenisation.
+      // Bare-emit only when the source was unquoted AND the value matches a
+      // strict whitelist of identifier-shape characters (alphanumeric, `_`,
+      // `.`, `-`). Codex hold #2: a permissive blacklist (e.g. `/[\s=]/`)
+      // would emit values like `'draft'|'done'` or `{id:string}` bare, which
+      // the parser then truncates at the embedded quote or treats as a
+      // style block. The whitelist covers numeric literals, identifiers, and
+      // dotted member chains — the cases ValueIR canonicalises — and forces
+      // JSON.stringify on anything else (type unions, object shorthands,
+      // strings with punctuation, etc.).
       const wasQuoted = quoted.includes(propName);
-      const safeBare = !wasQuoted && s !== '' && !/[\s=]/.test(s);
+      const safeBare = !wasQuoted && s !== '' && /^[\w.-]+$/.test(s);
       return `${propName}=${safeBare ? s : JSON.stringify(s)}`;
     }
 
