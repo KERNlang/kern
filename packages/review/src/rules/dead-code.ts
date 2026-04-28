@@ -126,6 +126,15 @@ export function deadExportRule(
       confidence = Math.min(before, REACHABILITY_BLOCKER_CAP);
       // baseConfidence is one of the dead-export ladder values (0.6/0.7/0.85);
       // it can never be 0, so the division is safe without a guard.
+      //
+      // INVARIANT — fresh array, never append. The trail is recreated each
+      // time deadExportRule fires, so it can't accumulate stages across
+      // repeated calls. This pairs with applyRuleQualityCalibration's
+      // `calibrated` guard (rule-quality.ts:91) to keep the trail length
+      // bounded across the lifetime of any single ReviewFinding object.
+      // If a future change introduces persistent ReviewFinding objects
+      // reused across watch-mode runs, BOTH guarantees must be revisited
+      // — see the idempotence test in rule-quality.test.ts:125.
       calibrationTrail = [
         {
           stage: 'reachability:blocker',
