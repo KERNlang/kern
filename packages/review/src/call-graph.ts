@@ -230,7 +230,15 @@ function resolveViaReExportChain(
     }
     if (upstreamName === undefined) continue;
 
-    const targetSf = exportDecl.getModuleSpecifierSourceFile();
+    // ts-morph occasionally throws on getModuleSpecifierSourceFile() when the
+    // specifier resolves to a module outside the project (npm package, .d.ts
+    // shim, etc.). Match resolveImportSourceFile's defensive try/catch.
+    let targetSf: SourceFile | undefined;
+    try {
+      targetSf = exportDecl.getModuleSpecifierSourceFile() ?? undefined;
+    } catch {
+      continue;
+    }
     if (!targetSf) continue;
     if (!graphFiles.has(targetSf.getFilePath())) continue;
 
