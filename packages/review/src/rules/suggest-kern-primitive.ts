@@ -517,7 +517,6 @@ export function suggestKernPrimitive(ctx: RuleContext): ReviewFinding[] {
           { suggestion: `fmt return=true template="${escapeKernTemplate(body)}"` },
         ),
       );
-      continue;
     }
   }
 

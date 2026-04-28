@@ -19,6 +19,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { dirname, isAbsolute, join, resolve } from 'path';
 import { type Node, type SourceFile, SyntaxKind } from 'ts-morph';
+import { getFrameworkSeed } from './framework-seeds.js';
 
 export interface PublicApiMap {
   /** Absolute paths where every named export is considered public. */
@@ -76,7 +77,7 @@ function hasGlobChars(pattern: string): boolean {
  * runs are collapsed first to prevent catastrophic backtracking on patterns
  * like `**\/**\/**`.
  */
-function globToRegex(pattern: string): RegExp {
+export function globToRegex(pattern: string): RegExp {
   const squashed = pattern.replace(/\*{2,}/g, '**').replace(/(?:\*\*\/)+/g, '**/');
   let out = '';
   let i = 0;
@@ -121,7 +122,7 @@ function globToRegex(pattern: string): RegExp {
 }
 
 /** Normalize path separators so glob matching works on Windows. */
-function toPosix(p: string): string {
+export function toPosix(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
@@ -293,6 +294,20 @@ export function buildPublicApiMap(filePaths: string[], overrides?: PublicApiOver
       const name = spec.slice(idx + 1);
       const abs = isAbsolute(rawPath) ? rawPath : resolve(projectRoot, rawPath);
       explicitSymbols.add(`${abs}#${name}`);
+    }
+  }
+
+  // Per-symbol framework seeds — Next.js conventions, etc. Each match
+  // contributes (filePath, exportName) tuples to explicitSymbols, NEVER
+  // a whole-file flag in entryFiles. That's the fix for red-team CRITICAL
+  // #2: a stale helper sitting next to a Next.js page must not inherit
+  // public-API status from the page convention. Step 7a covers stable
+  // Next.js patterns; 7b adds metadata files / parallel routes / proxy.
+  for (const fp of filePaths) {
+    const seed = getFrameworkSeed(fp);
+    if (!seed) continue;
+    for (const symbol of seed.symbols) {
+      explicitSymbols.add(`${fp}#${symbol}`);
     }
   }
 

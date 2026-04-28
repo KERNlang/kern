@@ -4,7 +4,9 @@
  * Extracted from codegen-core.ts for modular codegen architecture.
  */
 
+import { emitExpression } from '../codegen-expression.js';
 import { propsOf } from '../node-props.js';
+import { parseExpression } from '../parser-expression.js';
 import type { ExprObject, IRNode } from '../types.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
 import {
@@ -38,6 +40,7 @@ export function generateType(node: IRNode): string[] {
   const props = propsOf<'type'>(node);
   const name = emitIdentifier(props.name, 'UnknownType', node);
   const { values, alias } = props;
+  const generics = props.generics ? emitTypeAnnotation(props.generics, '', node) : '';
   const exp = exportPrefix(node);
   const docs = emitDocComment(node);
 
@@ -46,12 +49,12 @@ export function generateType(node: IRNode): string[] {
       .split('|')
       .map((v) => `'${emitTemplateSafe(v.trim())}'`)
       .join(' | ');
-    return [...docs, `${exp}type ${name} = ${members};`];
+    return [...docs, `${exp}type ${name}${generics} = ${members};`];
   }
   if (alias) {
-    return [...docs, `${exp}type ${name} = ${emitTypeAnnotation(alias, 'unknown', node)};`];
+    return [...docs, `${exp}type ${name}${generics} = ${emitTypeAnnotation(alias, 'unknown', node)};`];
   }
-  return [...docs, `${exp}type ${name} = unknown;`];
+  return [...docs, `${exp}type ${name}${generics} = unknown;`];
 }
 
 // ── Interface ────────────────────────────────────────────────────────────
@@ -59,16 +62,26 @@ export function generateType(node: IRNode): string[] {
 export function generateInterface(node: IRNode): string[] {
   const props = propsOf<'interface'>(node);
   const name = emitIdentifier(props.name, 'UnknownInterface', node);
+  const generics = props.generics ? emitTypeAnnotation(props.generics, '', node) : '';
   const ext = props.extends ? ` extends ${emitTypeAnnotation(props.extends, 'unknown', node)}` : '';
   const exp = exportPrefix(node);
   const lines: string[] = [...emitDocComment(node)];
 
-  lines.push(`${exp}interface ${name}${ext} {`);
+  lines.push(`${exp}interface ${name}${generics}${ext} {`);
   for (const field of kids(node, 'field')) {
     const fp = propsOf<'field'>(field);
     const fieldName = emitIdentifier(fp.name, 'field', field);
     const opt = fp.optional === 'true' || fp.optional === true ? '?' : '';
     lines.push(`  ${fieldName}${opt}: ${emitTypeAnnotation(fp.type, 'unknown', field)};`);
+  }
+  for (const idx of kids(node, 'indexer')) {
+    const ip = propsOf<'indexer'>(idx);
+    // `||` (not `??`) so an empty-string keyName also falls back to 'key'.
+    const keyName = emitIdentifier(ip.keyName || 'key', 'key', idx);
+    const keyType = emitTypeAnnotation(ip.keyType, 'string', idx);
+    const valType = emitTypeAnnotation(ip.type, 'unknown', idx);
+    const ro = ip.readonly === 'true' || ip.readonly === true ? 'readonly ' : '';
+    lines.push(`  ${ro}[${keyName}: ${keyType}]: ${valType};`);
   }
   lines.push('}');
   return lines;
@@ -128,22 +141,31 @@ function emitClassHeader(
   node: IRNode,
   fallbackName: string,
 ): { exp: string; name: string; header: string; docs: string[] } {
-  const props = p(node) as { name?: string; extends?: string; implements?: string; abstract?: unknown };
+  const props = p(node) as {
+    name?: string;
+    extends?: string;
+    implements?: string;
+    abstract?: unknown;
+    generics?: string;
+  };
   const name = emitIdentifier(props.name, fallbackName, node);
   const exp = exportPrefix(node);
   const docs = emitDocComment(node);
 
+  const generics = props.generics ? emitTypeAnnotation(props.generics, '', node) : '';
   const extendsClause = props.extends ? ` extends ${emitTypeAnnotation(props.extends, 'unknown', node)}` : '';
   const implementsClause = props.implements
     ? ` implements ${emitTypeAnnotation(props.implements, 'unknown', node)}`
     : '';
   const abstractKw = props.abstract === 'true' || props.abstract === true ? 'abstract ' : '';
 
+  const classKw = node.type === 'service' ? 'class ' : `${abstractKw}class `;
+
   return {
     exp,
     name,
     docs,
-    header: `${exp}${abstractKw}class ${name}${extendsClause}${implementsClause} {`,
+    header: `${exp}${classKw}${name}${generics}${extendsClause}${implementsClause} {`,
   };
 }
 
@@ -200,11 +222,12 @@ function emitClassBody(node: IRNode, lines: string[]): void {
   // Constructor (if any constructor child exists)
   const ctorNode = firstChild(node, 'constructor');
   if (ctorNode) {
-    const ctorProps = p(ctorNode);
-    const ctorParams = ctorProps.params ? parseParamList(ctorProps.params as string) : '';
+    const ctorProps = propsOf<'constructor'>(ctorNode);
+    const ctorParams = ctorProps.params ? parseParamList(ctorProps.params) : '';
+    const generics = ctorProps.generics ? emitTypeAnnotation(ctorProps.generics, '', ctorNode) : '';
     const ctorCode = handlerCode(ctorNode);
     lines.push('');
-    lines.push(`  constructor(${ctorParams}) {`);
+    lines.push(`  constructor${generics}(${ctorParams}) {`);
     if (ctorCode) {
       for (const line of ctorCode.split('\n')) {
         lines.push(`    ${line}`);
@@ -218,17 +241,12 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const mp = propsOf<'method'>(method);
     const mname = emitIdentifier(mp.name, 'method', method);
     const mparams = mp.params ? parseParamList(mp.params) : '';
-    const isAsync = (mp as Record<string, unknown>).async === 'true' || (mp as Record<string, unknown>).async === true;
-    const isStream =
-      (mp as Record<string, unknown>).stream === 'true' || (mp as Record<string, unknown>).stream === true;
-    const isGenerator =
-      (mp as Record<string, unknown>).generator === 'true' || (mp as Record<string, unknown>).generator === true;
-    const isStatic =
-      (mp as Record<string, unknown>).static === 'true' || (mp as Record<string, unknown>).static === true;
-    const vis =
-      (mp as Record<string, unknown>).private === 'true' || (mp as Record<string, unknown>).private === true
-        ? 'private '
-        : '';
+    const generics = mp.generics ? emitTypeAnnotation(mp.generics, '', method) : '';
+    const isAsync = mp.async === 'true' || mp.async === true;
+    const isStream = mp.stream === 'true' || mp.stream === true;
+    const isGenerator = mp.generator === 'true' || mp.generator === true;
+    const isStatic = mp.static === 'true' || mp.static === true;
+    const vis = mp.private === 'true' || mp.private === true ? 'private ' : '';
     const staticKw = isStatic ? 'static ' : '';
     const star = isStream || isGenerator ? '*' : '';
     const asyncKw = isAsync || isStream ? 'async ' : '';
@@ -251,7 +269,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
           : '';
 
     lines.push('');
-    lines.push(`  ${vis}${staticKw}${asyncKw}${star}${mname}(${mparams})${mreturns} {`);
+    lines.push(`  ${vis}${staticKw}${asyncKw}${star}${mname}${generics}(${mparams})${mreturns} {`);
     if (mcode) {
       for (const line of mcode.split('\n')) {
         lines.push(`    ${line}`);
@@ -297,6 +315,65 @@ function emitClassBody(node: IRNode, lines: string[]): void {
   }
 }
 
+// ── Enum ────────────────────────────────────────────────────────────────
+// enum name=Status values="Pending|Active|Done"
+// → export enum Status { Pending, Active, Done }
+//
+// enum name=Direction
+//   member name=Up value="UP"
+//   member name=Down value="DOWN"
+// → export enum Direction { Up = "UP", Down = "DOWN" }
+//
+// enum name=Flag const=true values="On|Off"
+// → export const enum Flag { On, Off }
+
+export function generateEnum(node: IRNode): string[] {
+  const props = propsOf<'enum'>(node);
+  const name = emitIdentifier(props.name, 'UnknownEnum', node);
+  const exp = exportPrefix(node);
+  const isConst = props.const === 'true' || props.const === true;
+  const constKw = isConst ? 'const ' : '';
+  const docs = emitDocComment(node);
+
+  // Member children take precedence over `values=`. If both are provided, members win
+  // (and `values=` is silently ignored — the user picked the more expressive form).
+  const memberChildren = kids(node, 'member');
+  if (memberChildren.length > 0) {
+    const lines: string[] = [...docs, `${exp}${constKw}enum ${name} {`];
+    for (const m of memberChildren) {
+      const mp = propsOf<'member'>(m);
+      const mname = emitIdentifier(mp.name, 'unknownMember', m);
+      const rawVal = mp.value;
+      // Quoted strings keep their string form; bare values pass through as-is.
+      // (Slice 1i/1j contract: __quotedProps tracks origin; here we honour it.)
+      let valueStr: string;
+      if (rawVal === undefined || rawVal === '') {
+        valueStr = '';
+      } else if (typeof rawVal === 'object' && (rawVal as { __expr?: unknown }).__expr === true) {
+        valueStr = ` = ${(rawVal as { code: string }).code}`;
+      } else if (typeof rawVal === 'string') {
+        const isQuoted = m.__quotedProps?.includes('value');
+        valueStr = ` = ${isQuoted ? JSON.stringify(rawVal) : rawVal}`;
+      } else {
+        valueStr = ` = ${String(rawVal)}`;
+      }
+      lines.push(`  ${mname}${valueStr},`);
+    }
+    lines.push('}');
+    return lines;
+  }
+
+  if (props.values) {
+    const members = props.values
+      .split('|')
+      .map((v) => emitIdentifier(v.trim(), 'unknownMember', node))
+      .join(', ');
+    return [...docs, `${exp}${constKw}enum ${name} { ${members} }`];
+  }
+
+  return [...docs, `${exp}${constKw}enum ${name} {}`];
+}
+
 // ── Const ───────────────────────────────────────────────────────────────
 
 export function generateConst(node: IRNode): string[] {
@@ -314,10 +391,26 @@ export function generateConst(node: IRNode): string[] {
     return [...docs, `${exp}const ${name}${typeAnnotation} = ${code.trim()};`];
   }
   if (rawValue !== undefined && rawValue !== '') {
-    // `value={{ expr }}` is parsed as ExprObject; emit the raw code. Bare
-    // literal values (`value=42`) come through as strings.
-    const value = isExprObject(rawValue) ? rawValue.code : rawValue;
+    const value = emitConstValue(node, rawValue);
     return [...docs, `${exp}const ${name}${typeAnnotation} = ${value};`];
   }
   return [...docs, `${exp}const ${name}${typeAnnotation};`];
+}
+
+/** Emit the right-hand side of `const name = ...` from raw IR value.
+ *
+ *  - `value={{ expr }}` (ExprObject) — emit `.code` raw (escape hatch for arbitrary TS).
+ *  - `value="literal"` (quoted, tracked in __quotedProps) — emit as JSON-quoted string
+ *    so output is valid TS even when the literal contains expression-illegal characters.
+ *  - bare `value=...` — try ValueIR parse + emit for canonicalization. Fall back to raw
+ *    string on parse failure (validator emits INVALID_EXPRESSION but codegen still ships). */
+function emitConstValue(node: IRNode, rawValue: unknown): string {
+  if (isExprObject(rawValue)) return rawValue.code;
+  if (typeof rawValue !== 'string') return String(rawValue);
+  if (node.__quotedProps?.includes('value')) return JSON.stringify(rawValue);
+  try {
+    return emitExpression(parseExpression(rawValue));
+  } catch {
+    return rawValue;
+  }
 }

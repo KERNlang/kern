@@ -13,8 +13,8 @@ import { createRequire } from 'node:module';
 import type { ConceptMap, IRNode, ParseDiagnostic } from '@kernlang/core';
 import { countTokens, parseWithDiagnostics, serializeIR } from '@kernlang/core';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
-import { dirname, join, relative } from 'path';
-import { Project } from 'ts-morph';
+import { dirname, join, relative, sep } from 'path';
+import { Project, type SourceFile } from 'ts-morph';
 
 // This module compiles to ESM (`type: "module"`), so the runtime has no `require`.
 // `@kernlang/review-python` is an optional peer — we load it on demand with a
@@ -42,20 +42,27 @@ import { runConceptRules } from './concept-rules/index.js';
 import { structuralDiff } from './differ.js';
 import { runTSCDiagnostics } from './external-tools.js';
 import { buildFileContextMap } from './file-context.js';
-import { classifyFileRole } from './file-role.js';
+import { classifyFileRole, classifyFileRoleByPath } from './file-role.js';
 import { resolveImportGraph } from './graph.js';
 import { createInMemoryProject, findTsConfig, inferFromSourceFile } from './inferrer.js';
 import { flattenIR, lintKernIR } from './kern-lint.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { mineNorms } from './norm-miner.js';
 import { synthesizeObligations } from './obligations.js';
+import {
+  findProjectRoot,
+  getProjectContext,
+  isPathIgnored,
+  isReviewable,
+  type ProjectContext,
+} from './project-context.js';
 import { buildPublicApiMap, expandPublicApiThroughReExports } from './public-api.js';
 import { extractPythonConceptsFallback } from './python-fallback.js';
 import { runQualityRules } from './quality-rules.js';
 import { assignDefaultConfidence, calculateStats, sortAndDedup, sortFindings } from './reporter.js';
 import { debugDetail, ReviewHealthBuilder } from './review-health.js';
 import { loadBuiltinNativeRules, loadNativeRules } from './rule-loader.js';
-import { applyRuleQualityCalibration } from './rule-quality.js';
+import { applyOverlapCalibration, applyRoleAwareConfidence, applyRuleQualityCalibration } from './rule-quality.js';
 import { lintConfidenceGraph, lintMultiFileConfidenceGraph } from './rules/confidence.js';
 import { crossFileAsyncRule, deadExportRule } from './rules/dead-code.js';
 import { runFastapiConceptRules } from './rules/fastapi.js';
@@ -77,7 +84,7 @@ try {
 import { buildConfidenceGraph, computeConfidenceSummary, serializeGraph } from './confidence.js';
 import { applySuppression } from './suppression/index.js';
 import { analyzeTaint, analyzeTaintCrossFile, crossFileTaintToFindings, taintToFindings } from './taint.js';
-import type { InferResult, ReviewConfig, ReviewFinding, ReviewReport } from './types.js';
+import type { InferResult, ReachabilityBlocker, ReviewConfig, ReviewFinding, ReviewReport } from './types.js';
 import { createFingerprint } from './types.js';
 
 type PythonConceptExtractor = (source: string, filePath: string) => ConceptMap;
@@ -217,7 +224,7 @@ export {
 } from './eval.js';
 export { linkToNodes, runESLint, runTSCDiagnostics, runTSCDiagnosticsFromPaths } from './external-tools.js';
 export { buildFileContextMap, clearFileContextCache } from './file-context.js';
-export { classifyFileRole } from './file-role.js';
+export { classifyFileRole, classifyFileRoleByPath } from './file-role.js';
 export { resolveImportGraph } from './graph.js';
 export { findTsConfig, inferFromFile, inferFromSource } from './inferrer.js';
 export type { KernLintRule } from './kern-lint.js';
@@ -360,6 +367,7 @@ export {
 export { detectTemplates } from './template-detector.js';
 export type {
   AnalysisContext,
+  CalibrationStage,
   Confidence,
   EnforceResult,
   FileContext,
@@ -833,8 +841,17 @@ function reviewSourceInternal(
   // Merge, dedup, sort — single shared utility
   const dedupedFindings = sortAndDedup(allFindings);
 
-  // Assign calibrated confidence scores to all findings
+  // Assign calibrated confidence scores to all findings.
+  // Order matters: assign-defaults → role-aware → overlap → rule-quality. The
+  // rule-quality pass flips the per-finding `calibrated` flag last so that
+  // graph-mode rerun on a union of findings does not compound multipliers.
   assignDefaultConfidence(dedupedFindings);
+  applyRoleAwareConfidence(dedupedFindings, fileRole, config);
+  const projectRoot = findProjectRoot(dirname(filePath));
+  if (projectRoot) {
+    const projectCtx = getProjectContext(projectRoot);
+    applyOverlapCalibration(dedupedFindings, projectCtx.external, config);
+  }
   applyRuleQualityCalibration(dedupedFindings, config);
 
   // Apply suppression (inline comments + config disabledRules)
@@ -992,6 +1009,7 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
 
   const dedupedFindings = sortAndDedup(allFindings);
   assignDefaultConfidence(dedupedFindings);
+  applyRoleAwareConfidence(dedupedFindings, classifyFileRoleByPath(filePath), _config);
   applyRuleQualityCalibration(dedupedFindings, _config);
   const suppression = applySuppression(dedupedFindings, source, filePath, _config, _config?.strict ?? false);
   const findings = sortAndDedup(suppression.findings);
@@ -1069,6 +1087,7 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
 
   const dedupedFindings = sortAndDedup(conceptFindings);
   assignDefaultConfidence(dedupedFindings);
+  applyRoleAwareConfidence(dedupedFindings, classifyFileRoleByPath(filePath), config);
   applyRuleQualityCalibration(dedupedFindings, config);
   const suppression = applySuppression(dedupedFindings, source, filePath, config, config?.strict ?? false);
   const findings = sortAndDedup(suppression.findings);
@@ -1095,10 +1114,15 @@ export function reviewPythonSource(source: string, filePath = 'input.py', config
 
 /**
  * Review all .ts/.tsx/.py files in a directory.
+ *
+ * Honors the project's .gitignore by skipping untracked-and-ignored files —
+ * tracked artifacts are always reviewed even when their directory matches
+ * .gitignore, so published `dist/*.gen.ts` and similar do not slip through.
  */
 export function reviewDirectory(dirPath: string, recursive = false, config?: ReviewConfig): ReviewReport[] {
   const reports: ReviewReport[] = [];
-  const files = collectReviewableFiles(dirPath, recursive);
+  const ctx = getProjectContext(dirPath);
+  const files = collectReviewableFiles(dirPath, recursive, ctx);
 
   for (const file of files) {
     try {
@@ -1361,10 +1385,36 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
       graph.files.map((gf) => gf.path),
       config?.publicApi,
     );
-    const publicApi = expandPublicApiThroughReExports(basePublicApi, (path) => cgProject?.getSourceFile(path));
+    // Step 8: seeded files (Next.js conventions, package.json entries) may
+    // legitimately live outside the BFS-walked graph — for example a lazy
+    // route file beyond `maxDepth`, or a barrel re-exporting a helper that
+    // no eager import in the graph reaches. Without this on-demand load,
+    // expandPublicApiThroughReExports would silently drop those entries
+    // (sourceFileFor returns undefined → loop skips). Loading on demand
+    // costs only the seed entries we actually need, no extra graph work.
+    const sourceFileFor = (path: string): SourceFile | undefined => {
+      if (!cgProject) return undefined;
+      const known = cgProject.getSourceFile(path);
+      if (known) return known;
+      try {
+        return cgProject.addSourceFileAtPath(path);
+      } catch {
+        return undefined;
+      }
+    };
+    const publicApi = expandPublicApiThroughReExports(basePublicApi, sourceFileFor);
+
+    // Step 10: blockers are passed alongside publicApi so dead-export's
+    // step 9b cap+trail logic can consume them. The wiring is in place;
+    // concrete producers (unresolved re-export → blocker on the missing
+    // target file/symbol; non-literal `import(expr)` → telemetry only,
+    // never a blocker) extend this array. Empty array is a valid "no
+    // blockers detected" state — the rule short-circuits without any
+    // change to existing semantics.
+    const reachabilityBlockers: ReachabilityBlocker[] = [];
 
     for (const report of reports) {
-      const deadExportFindings = deadExportRule(callGraph, report.filePath, publicApi);
+      const deadExportFindings = deadExportRule(callGraph, report.filePath, publicApi, reachabilityBlockers);
       report.findings.push(...deadExportFindings);
 
       const asyncFindings = crossFileAsyncRule(callGraph, report.filePath);
@@ -1416,35 +1466,47 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
   return reports;
 }
 
-function collectReviewableFiles(dirPath: string, recursive: boolean): string[] {
+function collectReviewableFiles(dirPath: string, recursive: boolean, ctx?: ProjectContext): string[] {
   const files: string[] = [];
+  // Hardcoded skips for directories that are never useful to descend into,
+  // even if a tracked file lives inside them. ProjectContext.isReviewable
+  // handles the gitignore-vs-tracked logic for files we DO descend into.
+  const HARD_SKIP_DIRS = new Set(['node_modules', '__pycache__', '.venv', 'venv']);
   for (const entry of readdirSync(dirPath)) {
     const full = join(dirPath, entry);
     const stat = statSync(full);
-    if (
-      stat.isDirectory() &&
-      recursive &&
-      !entry.startsWith('.') &&
-      entry !== 'node_modules' &&
-      entry !== 'dist' &&
-      entry !== '__pycache__' &&
-      entry !== '.venv' &&
-      entry !== 'venv'
-    ) {
-      files.push(...collectReviewableFiles(full, true));
-    } else if (
-      stat.isFile() &&
-      (entry.endsWith('.ts') || entry.endsWith('.tsx')) &&
-      !entry.endsWith('.d.ts') &&
-      !entry.endsWith('.test.ts') &&
-      !entry.endsWith('.test.tsx')
-    ) {
-      files.push(full);
-    } else if (stat.isFile() && entry.endsWith('.py') && !entry.startsWith('test_') && !entry.endsWith('_test.py')) {
-      files.push(full);
-    } else if (stat.isFile() && entry.endsWith('.kern')) {
-      files.push(full);
+    if (stat.isDirectory()) {
+      if (!recursive) continue;
+      if (entry.startsWith('.') || HARD_SKIP_DIRS.has(entry)) continue;
+      // Honor .gitignore at the directory level only if NO tracked file lives
+      // inside it (cheap check via path prefix on the tracked set).
+      if (ctx && isPathIgnored(full, ctx) && !directoryHasTrackedDescendant(full, ctx)) continue;
+      files.push(...collectReviewableFiles(full, true, ctx));
+      continue;
     }
+    if (!stat.isFile()) continue;
+    const isReviewableExt =
+      ((entry.endsWith('.ts') || entry.endsWith('.tsx')) &&
+        !entry.endsWith('.d.ts') &&
+        !entry.endsWith('.test.ts') &&
+        !entry.endsWith('.test.tsx')) ||
+      (entry.endsWith('.py') && !entry.startsWith('test_') && !entry.endsWith('_test.py')) ||
+      entry.endsWith('.kern');
+    if (!isReviewableExt) continue;
+    // Skip-list: gitignored AND not tracked. Tracked-but-gitignored files
+    // (e.g. checked-in dist/*.gen.ts) remain reviewable — Phase 1 red-team #4.
+    if (ctx && !isReviewable(full, ctx)) continue;
+    files.push(full);
   }
   return files;
+}
+
+function directoryHasTrackedDescendant(dirAbsPath: string, ctx: ProjectContext): boolean {
+  const rel = relative(ctx.root, dirAbsPath).split(sep).join('/');
+  if (!rel || rel.startsWith('..')) return false;
+  const prefix = rel.endsWith('/') ? rel : `${rel}/`;
+  for (const tracked of ctx.gitTrackedFiles) {
+    if (tracked.startsWith(prefix)) return true;
+  }
+  return false;
 }

@@ -7,6 +7,7 @@ import { parseStyleBlock } from './parser-style.js';
 import { TokenStream } from './parser-token-stream.js';
 import type { Token } from './parser-tokenizer.js';
 import { tokenizeLineInternal } from './parser-tokenizer.js';
+import { validateExpressions } from './parser-validate-expressions.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
 import { isKnownNodeType } from './spec.js';
 import type { IRNode, IRSourceLocation, ParseResult } from './types.js';
@@ -18,6 +19,8 @@ interface ParsedLine {
   rawLength: number;
   type: string;
   props: Record<string, unknown>;
+  /** Prop names whose value came from a quoted token. Empty/undefined = none. */
+  quotedProps?: string[];
   styles: Record<string, string>;
   pseudoStyles: Record<string, Record<string, string>>;
   themeRefs: string[];
@@ -26,6 +29,7 @@ interface ParsedLine {
 
 function stripInlineComment(content: string): string {
   let inQuote = false;
+  let quoteChar: '"' | "'" | null = null;
   let styleDepth = 0;
   let exprDepth = 0;
 
@@ -38,8 +42,14 @@ function stripInlineComment(content: string): string {
       i++;
       continue;
     }
-    if (ch === '"') {
-      inQuote = !inQuote;
+    if ((ch === '"' || ch === "'") && (!inQuote || ch === quoteChar)) {
+      if (inQuote) {
+        inQuote = false;
+        quoteChar = null;
+      } else {
+        inQuote = true;
+        quoteChar = ch as '"' | "'";
+      }
       continue;
     }
     if (inQuote) continue;
@@ -92,6 +102,7 @@ function parseProp(
   state: ParseState,
   s: TokenStream,
   props: Record<string, unknown>,
+  quotedProps: Set<string>,
   lineNum?: number,
   col?: number,
 ): boolean {
@@ -116,12 +127,16 @@ function parseProp(
   const valTok = s.peek();
   if (!valTok || valTok.kind === 'whitespace') {
     props[key] = '';
+    quotedProps.delete(key); // last write wins on props; metadata must follow
     return true;
   }
 
   // key={{expr}} or key="quoted"
   if (valTok.kind === 'expr' || valTok.kind === 'quoted') {
-    props[key] = tokenValue(s.next()!);
+    const consumed = s.next()!;
+    props[key] = tokenValue(consumed);
+    if (consumed.kind === 'quoted') quotedProps.add(key);
+    else quotedProps.delete(key);
     return true;
   }
 
@@ -134,6 +149,7 @@ function parseProp(
     s.next();
   }
   props[key] = value;
+  quotedProps.delete(key); // last write wins on props; metadata must follow
   return true;
 }
 
@@ -217,6 +233,7 @@ function parseLine(
   }
 
   const props: Record<string, unknown> = {};
+  const quotedProps = new Set<string>();
   const styles: Record<string, string> = {};
   const pseudoStyles: Record<string, Record<string, string>> = {};
   const themeRefs: string[] = [];
@@ -265,7 +282,7 @@ function parseLine(
     }
 
     // Key=value prop (extracted helper from Codex)
-    if (parseProp(state, s, props, lineNum, col)) continue;
+    if (parseProp(state, s, props, quotedProps, lineNum, col)) continue;
 
     // Unknown token — skip with warning
     const skipped = s.next()!;
@@ -288,6 +305,7 @@ function parseLine(
     rawLength: content.length,
     type,
     props,
+    ...(quotedProps.size > 0 ? { quotedProps: [...quotedProps] } : {}),
     styles,
     pseudoStyles,
     themeRefs,
@@ -535,6 +553,7 @@ function toNode(p: ParsedLine): IRNode {
   if (Object.keys(p.styles).length > 0) node.props!.styles = p.styles;
   if (Object.keys(p.pseudoStyles).length > 0) node.props!.pseudoStyles = p.pseudoStyles;
   if (p.themeRefs.length > 0) node.props!.themeRefs = p.themeRefs;
+  if (p.quotedProps && p.quotedProps.length > 0) node.__quotedProps = p.quotedProps;
   return node;
 }
 
@@ -615,6 +634,7 @@ export function parseInternal(source: string, asDocument: boolean, runtime?: Ker
   }
 
   computeEndSpans(root);
+  validateExpressions(state, root);
   commitParseState(state, rt);
 
   // Count __error nodes for partial compilation support

@@ -43,6 +43,7 @@ export const TOP_LEVEL_CORE = new Set([
   'store',
   'event',
   'const',
+  'enum',
   // Data layer
   'model',
   'repository',

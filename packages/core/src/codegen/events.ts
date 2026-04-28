@@ -139,7 +139,7 @@ function buildOnBodyLines(node: IRNode, fallbackCode: string): string[] {
     if (child.type === 'set') {
       out.push(emitSetStatement(child));
     } else if (child.type === 'handler') {
-      const code = ((child.props || {}).code as string) || ((child.props || {}).body as string) || '';
+      const code = (child.props?.code as string) || (child.props?.body as string) || '';
       if (code) out.push(...code.split('\n'));
     }
     // Other children (reason, evidence, needs, doc, ...) contribute nothing to the callback body.

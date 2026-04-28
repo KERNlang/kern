@@ -61,6 +61,38 @@ export function classifyFileRole(sourceFile: SourceFile, filePath: string): File
   return 'runtime';
 }
 
+/**
+ * Path-only role classifier for languages where we don't have a ts-morph SourceFile
+ * (Python, .kern). Recognizes test/codegen/example/rule-definition by path; everything
+ * else falls back to 'runtime'. Barrel detection is unavailable without an AST.
+ */
+export function classifyFileRoleByPath(filePath: string): FileRole {
+  if (
+    /\.(test|spec)\.(tsx?|jsx?|py)$/.test(filePath) ||
+    /\/tests?\//.test(filePath) ||
+    /^test_/.test(filePath.split('/').pop() || '')
+  ) {
+    return 'test';
+  }
+  const lower = filePath.toLowerCase();
+  if (/\/(codegen|generated|__generated__|gen)\//i.test(lower) || /\/codegen-/.test(lower)) {
+    return 'codegen';
+  }
+  if (/\/rules?\//i.test(lower) && /\/review\//.test(lower)) {
+    return 'rule-definition';
+  }
+  const basename = lower.split('/').pop() || '';
+  if (
+    /\/examples?\//i.test(lower) ||
+    /\/fixtures?\//i.test(lower) ||
+    /\/preview-/.test(basename) ||
+    /(?:^|[-_.])examples?\.(tsx?|jsx?|py)$/.test(basename)
+  ) {
+    return 'example';
+  }
+  return 'runtime';
+}
+
 /** A barrel file has only import/export declarations and no executable statements. */
 function isBarrelFile(sourceFile: SourceFile): boolean {
   const statements = sourceFile.getStatements();

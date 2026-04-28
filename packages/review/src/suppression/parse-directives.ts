@@ -2,15 +2,26 @@
  * Parse kern-ignore directives from source text.
  *
  * Supported syntax:
- *   // kern-ignore <rule-id>[, <rule-id>...]       — suppress on same or next non-comment line
- *   // kern-ignore-file <rule-id>[, <rule-id>...]   — suppress for entire file (first 5 lines)
- *   # kern-ignore <rule-id>[, <rule-id>...]         — Python variant
- *   # kern-ignore-file <rule-id>[, <rule-id>...]    — Python variant
+ *   // kern-ignore <rule-id>[, <rule-id>...]                            — same or next non-comment line
+ *   // kern-ignore <rule-id>[, ...] [reason: false-positive]            — with closed-enum reason
+ *   // kern-ignore-file <rule-id>[, <rule-id>...] [reason: wont-fix]    — entire file (first 5 lines)
+ *   # kern-ignore <rule-id>[, <rule-id>...] [reason: intentional]       — Python variant
+ *
+ * Reasons: false-positive | wont-fix | intentional | not-applicable.
+ * Anything outside that closed set produces a warning and the directive
+ * still suppresses (without a reason). Free text is never honored —
+ * parser rejects it to defend against JSON/SARIF injection.
+ *
+ * Comment lines longer than MAX_DIRECTIVE_LINE_LEN are skipped entirely
+ * (ReDoS guard for the directive regex).
  */
 
 import type { ReviewFinding } from '../types.js';
 import { createFingerprint } from '../types.js';
-import type { SuppressionDirective } from './types.js';
+import { SUPPRESSION_REASONS, type SuppressionDirective, type SuppressionReason } from './types.js';
+
+/** ReDoS guard — discard absurdly long comment lines before regex matches them. */
+const MAX_DIRECTIVE_LINE_LEN = 4096;
 
 /** Known concept rule IDs — these only support file-level suppression */
 const CONCEPT_RULE_IDS = new Set([
@@ -21,10 +32,20 @@ const CONCEPT_RULE_IDS = new Set([
   'illegal-dependency',
 ]);
 
-/** Matches: // kern-ignore[-file] rule1, rule2 */
-const TS_DIRECTIVE = /\/\/\s*kern-ignore(?:-(file))?\s+([\w-][\w,-\s]*)/;
-/** Matches: # kern-ignore[-file] rule1, rule2 */
-const PY_DIRECTIVE = /#\s*kern-ignore(?:-(file))?\s+([\w-][\w,-\s]*)/;
+/**
+ * Matches the rule-list portion of a directive — bounded character classes
+ * keep the regex linear so a malformed directive can't DoS the parser.
+ *
+ * Group 1: 'file' if `-file`, else undefined.
+ * Group 2: rule IDs (comma-separated word list).
+ */
+const TS_DIRECTIVE = /\/\/\s*kern-ignore(?:-(file))?\s+([\w-][\w,\-\s]*)/;
+const PY_DIRECTIVE = /#\s*kern-ignore(?:-(file))?\s+([\w-][\w,\-\s]*)/;
+/**
+ * Matches an optional `[reason: <token>]` suffix on a directive line.
+ * Token is captured as-is and validated against the closed enum.
+ */
+const REASON_SUFFIX = /\[\s*reason\s*:\s*([\w-]+)\s*\]/;
 /** Matches bare: // kern-ignore (no rule IDs) */
 const TS_BARE = /\/\/\s*kern-ignore\s*$/;
 const PY_BARE = /#\s*kern-ignore\s*$/;
@@ -55,6 +76,9 @@ export function parseDirectives(
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lineNum = i + 1;
+
+    // ReDoS guard: skip absurdly long comment lines before regexes touch them.
+    if (line.length > MAX_DIRECTIVE_LINE_LEN) continue;
 
     // Check for bare kern-ignore (no rule ID) — emit warning
     if (barePattern.test(line)) {
@@ -117,6 +141,9 @@ export function parseDirectives(
       }
     }
 
+    // Parse optional `[reason: <enum>]` suffix once, used for either type.
+    const reason = parseReasonOrWarn(line, filePath, lineNum, warnings);
+
     if (isFileLevel) {
       directives.push({
         type: 'file',
@@ -124,6 +151,7 @@ export function parseDirectives(
         file: filePath,
         source: 'inline',
         commentLine: lineNum,
+        ...(reason ? { reason } : {}),
       });
     } else {
       // Same-line: check if the directive is on a line with actual code
@@ -156,11 +184,43 @@ export function parseDirectives(
         line: targetLine,
         source: 'inline',
         commentLine: lineNum,
+        ...(reason ? { reason } : {}),
       });
     }
   }
 
   return { directives, warnings };
+}
+
+/**
+ * Extract the closed-enum reason from a directive line. If a reason suffix is
+ * present but the value is not in SUPPRESSION_REASONS, push a warning and
+ * return undefined — the directive still suppresses, but no telemetry credit
+ * is awarded for an unknown reason. Defends against free-text values landing
+ * in JSON/SARIF output.
+ */
+function parseReasonOrWarn(
+  line: string,
+  filePath: string,
+  lineNum: number,
+  warnings: ReviewFinding[],
+): SuppressionReason | undefined {
+  const m = REASON_SUFFIX.exec(line);
+  if (!m) return undefined;
+  const candidate = m[1];
+  if ((SUPPRESSION_REASONS as readonly string[]).includes(candidate)) {
+    return candidate as SuppressionReason;
+  }
+  warnings.push({
+    source: 'kern',
+    ruleId: 'kern-ignore-reason',
+    severity: 'warning',
+    category: 'style',
+    message: `Unknown suppression reason '${candidate}' — must be one of ${SUPPRESSION_REASONS.join(', ')}`,
+    primarySpan: { file: filePath, startLine: lineNum, startCol: 1, endLine: lineNum, endCol: line.length },
+    fingerprint: createFingerprint('kern-ignore-reason', lineNum, 1),
+  });
+  return undefined;
 }
 
 /**

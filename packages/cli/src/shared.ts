@@ -214,16 +214,33 @@ export function getOutputExtension(target: KernTarget): string {
 /** Extract exported symbol names from generated TypeScript lines, distinguishing type-only exports. */
 export function extractExportsFromLines(lines: string[]): { name: string; typeOnly: boolean }[] {
   const exports: { name: string; typeOnly: boolean }[] = [];
-  const re = /^export\s+(?:async\s+)?(?:function\*?|class|const|enum|abstract\s+class)\s+(\w+)/;
+  // `const\s+enum` must come BEFORE the bare `const` branch — otherwise the regex
+  // matches `export const` and captures `enum` as the identifier instead of `Flag`
+  // for `export const enum Flag { ... }` (slice 2b regression caught by Codex).
+  const re = /^export\s+(?:async\s+)?(?:function\*?|class|const\s+enum|const|enum|abstract\s+class)\s+(\w+)/;
   const typeRe = /^export\s+(?:interface|type)\s+(\w+)/;
+  // Slice 2e — function overloads + impl share the same `export function name`
+  // prefix; without dedup the barrel emits `export { add, add, add }` (TS error).
+  // Dedupe by (name, typeOnly) — TS allows a value and a type with the same
+  // name (namespace merging) but not two values.
+  const seen = new Set<string>();
+  const key = (name: string, typeOnly: boolean) => `${typeOnly ? 't' : 'v'}:${name}`;
   for (const line of lines) {
     const m = line.match(re);
     if (m) {
+      const k = key(m[1], false);
+      if (seen.has(k)) continue;
+      seen.add(k);
       exports.push({ name: m[1], typeOnly: false });
       continue;
     }
     const tm = line.match(typeRe);
-    if (tm) exports.push({ name: tm[1], typeOnly: true });
+    if (tm) {
+      const k = key(tm[1], true);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      exports.push({ name: tm[1], typeOnly: true });
+    }
   }
   return exports;
 }

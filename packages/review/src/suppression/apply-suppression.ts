@@ -69,6 +69,7 @@ export function applySuppression(
     const matchingDirective = activeDirectives.find((d) => isSuppressed(finding, d));
     if (matchingDirective) {
       matchedDirectives.add(matchingDirective);
+      if (matchingDirective.reason) finding.suppressionReason = matchingDirective.reason;
       suppressed.push(finding);
     } else {
       passed.push(finding);

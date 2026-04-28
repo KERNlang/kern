@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { Project } from 'ts-morph';
 import { resolveImportGraph } from '../src/graph.js';
+import type { GraphEdge, ReachabilityBlocker } from '../src/types.js';
 
 function createTestProject(): Project {
   return new Project({
@@ -245,5 +246,175 @@ describe('resolveImportGraph', () => {
         }),
       ]),
     );
+  });
+});
+
+// Phase 4 step 4 — type-only imports/exports are erased at compile time and
+// must not contribute caller edges. Without this, `import type { AuthService }`
+// or `export type { Foo } from './m'` would mark runtime symbols alive even
+// though no runtime reference survives compilation.
+describe('Phase 4 type-only import/export skip', () => {
+  it("does not emit any edge for `import type { X } from './m'`", () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/consumer.ts',
+      `import type { AuthService } from './auth.js';\nexport const x = 1;\n`,
+    );
+    project.createSourceFile('/src/auth.ts', `export interface AuthService { login(): void }\n`);
+
+    const result = resolveImportGraph(['/src/consumer.ts'], { project });
+    const consumer = result.files.find((f) => f.path === '/src/consumer.ts');
+    const edgesToAuth = (consumer?.importEdges ?? []).filter((e) => e.to === '/src/auth.ts');
+    expect(edgesToAuth).toEqual([]);
+  });
+
+  it("skips type-only specifiers in mixed `import { foo, type Bar } from './m'`", () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/mixed.ts',
+      `import { runtime, type CompileType } from './m.js';\nexport const out = runtime();\n`,
+    );
+    project.createSourceFile('/src/m.ts', `export function runtime() {}\nexport interface CompileType {}\n`);
+
+    const result = resolveImportGraph(['/src/mixed.ts'], { project });
+    const mixed = result.files.find((f) => f.path === '/src/mixed.ts');
+    const namedImports = (mixed?.importEdges ?? []).filter((e) => e.kind === 'named-import');
+    expect(namedImports.map((e) => e.importedName)).toEqual(['runtime']);
+  });
+
+  it("does not emit a re-export edge for `export type { X } from './m'`", () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/barrel.ts', `export type { Shape } from './shape.js';\n`);
+    project.createSourceFile('/src/shape.ts', `export interface Shape { x: number }\n`);
+
+    const result = resolveImportGraph(['/src/barrel.ts'], { project });
+    const barrel = result.files.find((f) => f.path === '/src/barrel.ts');
+    const reexports = (barrel?.importEdges ?? []).filter((e) => e.kind === 'named-reexport' || e.kind === 'export-all');
+    expect(reexports).toEqual([]);
+  });
+
+  it("skips type-only specifiers in mixed `export { foo, type Bar } from './m'`", () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/barrel2.ts', `export { runtime, type Shape } from './m.js';\n`);
+    project.createSourceFile('/src/m.ts', `export function runtime() {}\nexport interface Shape {}\n`);
+
+    const result = resolveImportGraph(['/src/barrel2.ts'], { project });
+    const barrel = result.files.find((f) => f.path === '/src/barrel2.ts');
+    const reexportNames = (barrel?.importEdges ?? [])
+      .filter((e) => e.kind === 'named-reexport')
+      .map((e) => e.importedName);
+    expect(reexportNames).toEqual(['runtime']);
+  });
+});
+
+// Phase 4 step 3 — literal dynamic-import tracing. Without this, lazy routes
+// like `await import('./routes/users')` are invisible to the graph and the
+// target's exports get flagged dead. Red-team #5: ts-morph models the call
+// expression as SyntaxKind.ImportKeyword, NOT as an Identifier with text
+// "import" — getting this wrong silently skips every dynamic import.
+describe('Phase 4 dynamic-import edge emission', () => {
+  it("emits a 'dynamic-import' edge when import('./mod') has a string-literal specifier", () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/router.ts', `async function go() { await import('./users.js'); }\n`);
+    project.createSourceFile('/src/users.ts', `export function getUser() { return null; }\n`);
+
+    const result = resolveImportGraph(['/src/router.ts'], { project });
+    const router = result.files.find((f) => f.path === '/src/router.ts');
+    expect(router?.importEdges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'dynamic-import',
+          specifier: './users.js',
+          to: '/src/users.ts',
+        }),
+      ]),
+    );
+  });
+
+  it('also recognizes NoSubstitutionTemplateLiteral specifiers (`import(`./mod`)`)', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/loader.ts', 'async function load() { await import(`./feature`); }\n');
+    project.createSourceFile('/src/feature.ts', 'export const FEATURE_ID = "x";\n');
+
+    const result = resolveImportGraph(['/src/loader.ts'], { project });
+    const loader = result.files.find((f) => f.path === '/src/loader.ts');
+    expect(loader?.importEdges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'dynamic-import',
+          to: '/src/feature.ts',
+        }),
+      ]),
+    );
+  });
+
+  it('does NOT emit an edge when the specifier is non-literal (deferred to step 9b blocker)', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/router2.ts',
+      `const ROUTES: Record<string, string> = { a: './a' };\nasync function go(role: string) { await import(ROUTES[role]); }\n`,
+    );
+    project.createSourceFile('/src/a.ts', `export function aHandler() {}\n`);
+
+    const result = resolveImportGraph(['/src/router2.ts'], { project });
+    const router = result.files.find((f) => f.path === '/src/router2.ts');
+    const dynEdges = router?.importEdges.filter((e) => e.kind === 'dynamic-import') ?? [];
+    expect(dynEdges).toEqual([]);
+  });
+
+  it('static-import and dynamic-import to the same target coexist as separate edges', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/dual.ts',
+      `import { eager } from './target.js';\nasync function lazy() { await import('./target.js'); }\nexport const e = eager;\n`,
+    );
+    project.createSourceFile('/src/target.ts', `export function eager() {}\n`);
+
+    const result = resolveImportGraph(['/src/dual.ts'], { project });
+    const dual = result.files.find((f) => f.path === '/src/dual.ts');
+    const kindsToTarget = (dual?.importEdges ?? []).filter((e) => e.to === '/src/target.ts').map((e) => e.kind);
+    expect(kindsToTarget).toContain('named-import');
+    expect(kindsToTarget).toContain('dynamic-import');
+  });
+});
+
+// Phase 4 step 2 — type-shape contract tests. These are compile-time-asserted
+// by tsc, but a runtime check guards against accidental breaking changes
+// landing in types.ts that wouldn't surface until step 3 (graph.ts emit) or
+// step 9b (rules/dead-code.ts consumer) starts using them.
+describe('Phase 4 reachability types', () => {
+  it('GraphEdgeKind accepts the dynamic-import variant', () => {
+    const edge: GraphEdge = {
+      from: '/a.ts',
+      to: '/b.ts',
+      specifier: './b.js',
+      kind: 'dynamic-import',
+      via: 'ts-morph',
+    };
+    expect(edge.kind).toBe('dynamic-import');
+  });
+
+  it('ReachabilityBlocker carries symbol scope (filePath, exportName) and the reason', () => {
+    const blocker: ReachabilityBlocker = {
+      reason: 'non-literal-dynamic-import',
+      filePath: '/routes.ts',
+      exportName: 'getUser',
+      site: { file: '/router.ts', line: 42 },
+    };
+
+    // Symbol scope: the (filePath, exportName) tuple is the key red-team v3
+    // showed that a file-only blocker silenced 50 unrelated symbols.
+    expect(blocker.filePath).toBe('/routes.ts');
+    expect(blocker.exportName).toBe('getUser');
+    expect(blocker.site.line).toBe(42);
+  });
+
+  it('ReachabilityBlockerReason covers the three documented failure modes', () => {
+    const reasons: ReachabilityBlocker['reason'][] = [
+      'non-literal-dynamic-import',
+      'unresolved-re-export',
+      'unmapped-public-surface',
+    ];
+    expect(reasons).toHaveLength(3);
   });
 });
