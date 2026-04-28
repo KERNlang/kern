@@ -487,6 +487,30 @@ describe('Producer 1 — unresolved named re-export → blocker', () => {
     expect(result.blockers ?? []).toHaveLength(0);
   });
 
+  it('DOES emit a blocker for `export * as ns from` when the target is unresolved', () => {
+    const project = createTestProject();
+    // Namespace re-export has a concrete local name (`ns`) — Producer 1
+    // can pin a blocker on it. Distinct from bare `export *`, which has
+    // no local name and stays uncovered.
+    project.createSourceFile('/src/barrel.ts', `export * as ns from './missing.js';\n`);
+
+    const result = resolveImportGraph(['/src/barrel.ts'], { project });
+    expect(result.blockers).toHaveLength(1);
+    const b = result.blockers![0]!;
+    expect(b.reason).toBe('unresolved-re-export');
+    expect(b.filePath).toBe('/src/barrel.ts');
+    expect(b.exportName).toBe('ns');
+  });
+
+  it('does NOT emit a blocker for `export * as ns from` when the target resolves', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/barrel.ts', `export * as ns from './worker.js';\n`);
+    project.createSourceFile('/src/worker.ts', `export function foo() {}\n`);
+
+    const result = resolveImportGraph(['/src/barrel.ts'], { project });
+    expect(result.blockers ?? []).toHaveLength(0);
+  });
+
   it('emits one blocker per unresolved named re-export, symbol-scoped', () => {
     const project = createTestProject();
     project.createSourceFile(
