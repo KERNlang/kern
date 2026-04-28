@@ -214,6 +214,7 @@ import { generateImport, generateUse } from './codegen/modules.js';
 import { generateScreen } from './codegen/screens.js';
 import { generateTest } from './codegen/test-gen.js';
 import {
+  emitConstValue,
   generateClass,
   generateConst,
   generateEnum,
@@ -363,19 +364,27 @@ export function generateEach(node: IRNode): string[] {
     // body. Otherwise generateCoreNode returns `[]` for `let` (the JSX path
     // consumes them in codegen/screens.ts) and the binding is silently dropped.
     if (child.type === 'let') {
+      // Mirror screens.ts:renderLetBinding — slice 3a adds `value=` (ValueIR
+      // canonicalised) alongside the legacy `expr=` (rawExpr passthrough).
+      // Codex hold #2: this statement-position path was previously expr-only.
       const lp = getProps(child);
       const lname = emitIdentifier(lp.name as string, 'binding', child);
+      const rawValue = lp.value;
       const rawExpr = lp.expr;
-      const expr =
-        rawExpr && typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
-          ? (rawExpr as ExprObject).code
-          : (rawExpr as string) || '';
-      if (!expr) {
-        throw new KernCodegenError("let node requires an 'expr' prop", child);
+      let rhs: string;
+      if (rawValue !== undefined) {
+        rhs = emitConstValue(child, rawValue);
+      } else if (rawExpr !== undefined && rawExpr !== '') {
+        rhs =
+          typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
+            ? (rawExpr as ExprObject).code
+            : (rawExpr as string);
+      } else {
+        throw new KernCodegenError("let node requires a 'value' or 'expr' prop", child);
       }
       const t = lp.type as string | undefined;
       const typeAnn = t ? `: ${emitTypeAnnotation(t, 'unknown', child)}` : '';
-      lines.push(`  const ${lname}${typeAnn} = ${expr};`);
+      lines.push(`  const ${lname}${typeAnn} = ${rhs};`);
       continue;
     }
     const childLines = generateCoreNode(child);

@@ -673,7 +673,11 @@ function renderLetBinding(node: IRNode): string {
   let rhs: string;
   const rawValue = lp.value;
   const rawExpr = lp.expr;
-  if (rawValue !== undefined && rawValue !== '') {
+  // Codex hold #1: `value=""` (quoted empty string, __quotedProps tracks
+  // 'value') must NOT be treated as "value absent". emitConstValue routes
+  // quoted empties through JSON.stringify and emits `const x = "";`.
+  // Test for `undefined` only — empty string is a legal explicit value.
+  if (rawValue !== undefined) {
     rhs = emitConstValue(node, rawValue);
   } else if (rawExpr !== undefined && rawExpr !== '') {
     rhs =

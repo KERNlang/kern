@@ -11,6 +11,7 @@
 
 import { capabilitySupport } from '../src/capability-matrix.js';
 import { generateCoreNode } from '../src/codegen-core.js';
+import { decompile } from '../src/decompiler.js';
 import { parse } from '../src/parser.js';
 import type { IRNode } from '../src/types.js';
 
@@ -116,6 +117,79 @@ describe('let.value — slice 3a (native ValueIR form)', () => {
   describe('capability matrix', () => {
     it('let-native-value is native on TS targets', () => {
       expect(capabilitySupport('lib', 'let-native-value', 'top-level')).toBe('native');
+    });
+  });
+
+  describe('Codex hold #1: empty-string value=""', () => {
+    it('quoted empty-string value emits `const x = "";` (not absent)', () => {
+      const node: IRNode = {
+        type: 'let',
+        props: { name: 'empty', value: '' },
+        children: [],
+        __quotedProps: ['value'],
+      };
+      const screen = screenWithLet(node);
+      const code = generateCoreNode(screen).join('\n');
+      expect(code).toContain('const empty = "";');
+    });
+  });
+
+  describe('Codex hold #2: statement-position each (codegen-core path)', () => {
+    it('non-render `each` honours let.value via emitConstValue', () => {
+      // Top-level (non-render) each. generateCoreNode dispatches via the
+      // for-of loop emitter at codegen-core.ts:355, distinct from the JSX
+      // render path tested above. The fix in this commit threads the new
+      // value-then-expr precedence through that path too.
+      const node = mk('each', { name: 'i', in: 'items', index: 'idx' }, [mk('let', { name: 'doubled', value: '42' })]);
+      const code = generateCoreNode(node).join('\n');
+      expect(code).toContain('for (const [idx, i] of (items).entries()) {');
+      expect(code).toContain('const doubled = 42;');
+    });
+
+    it('non-render `each` throws on let with no value or expr', () => {
+      const node = mk('each', { name: 'i', in: 'items' }, [mk('let', { name: 'orphan' })]);
+      expect(() => generateCoreNode(node)).toThrow(/let node requires a 'value' or 'expr' prop/);
+    });
+
+    it('non-render `each` keeps expr= back-compat path working', () => {
+      const node = mk('each', { name: 'i', in: 'items' }, [mk('let', { name: 'idx', expr: 'i + 1' })]);
+      const code = generateCoreNode(node).join('\n');
+      expect(code).toContain('const idx = i + 1;');
+    });
+  });
+
+  describe('Codex hold #3: decompiler round-trip', () => {
+    it('decompiler emits value= for let nodes that carry it', () => {
+      const node: IRNode = {
+        type: 'let',
+        props: { name: 'idx', value: '7' },
+        children: [],
+      };
+      const { code } = decompile(node);
+      expect(code).toContain('let name=idx');
+      expect(code).toContain('value=');
+      expect(code).not.toContain('expr=""');
+    });
+
+    it('decompiler still emits expr= for legacy let nodes (back-compat)', () => {
+      const node: IRNode = {
+        type: 'let',
+        props: { name: 'idx', expr: 'start + i' },
+        children: [],
+      };
+      const { code } = decompile(node);
+      expect(code).toContain('expr=');
+      expect(code).not.toContain('value=');
+    });
+
+    it('decompiler emits {{...}} for ExprObject value (preserves escape hatch)', () => {
+      const node: IRNode = {
+        type: 'let',
+        props: { name: 'idx', value: { __expr: true, code: 'a > b ? 1 : 2' } },
+        children: [],
+      };
+      const { code } = decompile(node);
+      expect(code).toContain('value={{a > b ? 1 : 2}}');
     });
   });
 });
