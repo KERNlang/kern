@@ -69,7 +69,11 @@ export function generateUse(node: IRNode): string[] {
     return [`import '${safePath}';`];
   }
 
-  // Split bindings: regular imports vs re-export-marked bindings.
+  // Every `from` child creates a local binding. `export=true` is an
+  // ADDITIONAL re-export marker — it does not replace the local import.
+  // (TS `export { x } from '...'` is a forwarding re-export and does NOT
+  // create a local binding, so the two lines are independent: an import
+  // line for the local binding, plus an export-from line for forwarding.)
   const importBindings: string[] = [];
   const reExportBindings: string[] = [];
   for (const child of fromChildren) {
@@ -82,16 +86,11 @@ export function generateUse(node: IRNode): string[] {
     const isReExport = cp.export === 'true' || cp.export === true;
 
     const binding = safeAlias ? `${safeName} as ${safeAlias}` : safeName;
+    importBindings.push(binding);
     if (isReExport) {
-      // Re-exports use the OUTGOING name (alias if present, otherwise the
-      // original) on both sides — the export shape is `export { localName }`
-      // so a chain of `use foo as bar export=true` re-exports the local
-      // binding `bar`. To preserve the source-of-truth name when there is
-      // an alias, emit `export { foo as bar } from '...'` directly so the
-      // re-export and the local import agree.
+      // Mirror the same `name as alias` form so the re-exported name matches
+      // what consumers will see (`bar`, not `foo`) when an alias is set.
       reExportBindings.push(binding);
-    } else {
-      importBindings.push(binding);
     }
   }
 

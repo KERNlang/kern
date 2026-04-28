@@ -68,11 +68,16 @@ describe('Use/From node (Slice 2g)', () => {
 
   describe('codegen — re-exports (export=true)', () => {
     test('single re-export emits both import and export-from', () => {
+      // `export=true` is an ADDITIONAL re-export marker, not a replacement
+      // for the local import. Codex hold (slice 2g review): TS
+      // `export { x } from '...'` is a forwarding re-export and does NOT
+      // create a local binding, so a `from name=foo export=true` must emit
+      // both lines if the user wants both behaviours.
       const src = `use path="./helper.kern"
   from name=foo export=true`;
-      // Re-exports go on a separate `export { ... } from '...'` line; the
-      // `import { ... }` line is empty when there are no plain bindings.
-      expect(gen(src)).toBe(`export { foo } from './helper.js';`);
+      const out = gen(src);
+      expect(out).toContain(`import { foo } from './helper.js';`);
+      expect(out).toContain(`export { foo } from './helper.js';`);
     });
 
     test('mixed: one import + one re-export', () => {
@@ -80,14 +85,20 @@ describe('Use/From node (Slice 2g)', () => {
   from name=foo
   from name=bar export=true`;
       const out = gen(src);
-      expect(out).toContain(`import { foo } from './helper.js';`);
+      // Both bindings get a local import; only `bar` is re-exported.
+      expect(out).toContain(`import { foo, bar } from './helper.js';`);
       expect(out).toContain(`export { bar } from './helper.js';`);
     });
 
-    test('aliased re-export preserves both names', () => {
+    test('aliased re-export creates local binding AND forwards under alias', () => {
       const src = `use path="./helper.kern"
   from name=foo as=bar export=true`;
-      expect(gen(src)).toBe(`export { foo as bar } from './helper.js';`);
+      const out = gen(src);
+      // Local: `bar` is bound to the imported `foo`.
+      expect(out).toContain(`import { foo as bar } from './helper.js';`);
+      // Re-export: forward under the alias name `bar` (not `foo`) so consumers
+      // see `bar` exported, matching the local binding.
+      expect(out).toContain(`export { foo as bar } from './helper.js';`);
     });
   });
 
