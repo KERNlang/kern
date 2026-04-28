@@ -114,7 +114,7 @@ export {
   sourceComment,
 } from './codegen/helpers.js';
 export { generateMachine, generateMachineReducer } from './codegen/machines.js';
-export { generateImport } from './codegen/modules.js';
+export { generateImport, generateUse } from './codegen/modules.js';
 export { emitRender, generateScreen } from './codegen/screens.js';
 export type { SemanticTypeMapping } from './codegen/semantic-types.js';
 export { mapSemanticType, SEMANTIC_TYPE_MAP } from './codegen/semantic-types.js';
@@ -210,7 +210,7 @@ import {
   getProps,
 } from './codegen/helpers.js';
 import { generateMachine } from './codegen/machines.js';
-import { generateImport } from './codegen/modules.js';
+import { generateImport, generateUse } from './codegen/modules.js';
 import { generateScreen } from './codegen/screens.js';
 import { generateTest } from './codegen/test-gen.js';
 import {
@@ -518,6 +518,8 @@ export const CORE_NODE_TYPES = new Set([
   'it',
   'event',
   'import',
+  'use',
+  'from',
   'const',
   'hook',
   'on',
@@ -677,6 +679,10 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return generateEvent(node);
     case 'import':
       return generateImport(node);
+    case 'use':
+      return generateUse(node);
+    case 'from':
+      return []; // Children of `use` — handled by generateUse, not at top level
     case 'const':
       return generateConst(node);
     case 'hook':

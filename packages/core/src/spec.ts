@@ -153,6 +153,9 @@ export const NODE_TYPES = [
   'error',
   'module',
   'export',
+  // Slice 2g — cross-`.kern` symbol resolution
+  'use',
+  'from',
   'config',
   'store',
   'test',
@@ -344,8 +347,6 @@ export function clearEvolvedTypes(): void {
  *  Held to prevent evolved-node conflicts before native support lands. */
 export const RESERVED_FUTURE_NAMES: readonly string[] = [
   'tuple',
-  'use',
-  'from',
   'Result',
   'Option',
   'loop',
