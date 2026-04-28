@@ -7,24 +7,24 @@
  * single-commit trees.
  */
 
-import { execFileSync } from 'child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { detectAutoDiffBase } from '../src/commands/review.js';
+import { git } from './git-test-env.js';
 
 function initRepo(dir: string): void {
-  execFileSync('git', ['init', '-q'], { cwd: dir });
-  execFileSync('git', ['config', 'user.email', 'kern@example.com'], { cwd: dir });
-  execFileSync('git', ['config', 'user.name', 'KERN Test'], { cwd: dir });
+  git(['init', '-q'], dir);
+  git(['config', 'user.email', 'kern@example.com'], dir);
+  git(['config', 'user.name', 'KERN Test'], dir);
   // Silence hints about default branch name — harmless in test output but noisy.
-  execFileSync('git', ['config', 'advice.defaultBranchName', 'false'], { cwd: dir });
+  git(['config', 'advice.defaultBranchName', 'false'], dir);
 }
 
 function commit(dir: string, message: string, filename = 'README.md'): void {
   writeFileSync(join(dir, filename), `${message}\n`);
-  execFileSync('git', ['add', filename], { cwd: dir });
-  execFileSync('git', ['commit', '-q', '-m', message], { cwd: dir });
+  git(['add', filename], dir);
+  git(['commit', '-q', '-m', message], dir);
 }
 
 describe('detectAutoDiffBase', () => {
@@ -59,7 +59,7 @@ describe('detectAutoDiffBase', () => {
     commit(tmp, 'first');
     commit(tmp, 'second');
     // Fake an origin/main ref without actually needing a remote.
-    execFileSync('git', ['update-ref', 'refs/remotes/origin/main', 'HEAD'], { cwd: tmp });
+    git(['update-ref', 'refs/remotes/origin/main', 'HEAD'], tmp);
     expect(detectAutoDiffBase(tmp)).toBe('origin/main');
   });
 
@@ -68,7 +68,7 @@ describe('detectAutoDiffBase', () => {
     initRepo(tmp);
     commit(tmp, 'first');
     commit(tmp, 'second');
-    execFileSync('git', ['update-ref', 'refs/remotes/origin/master', 'HEAD'], { cwd: tmp });
+    git(['update-ref', 'refs/remotes/origin/master', 'HEAD'], tmp);
     expect(detectAutoDiffBase(tmp)).toBe('origin/master');
   });
 
@@ -77,8 +77,8 @@ describe('detectAutoDiffBase', () => {
     initRepo(tmp);
     commit(tmp, 'first');
     commit(tmp, 'second');
-    execFileSync('git', ['update-ref', 'refs/remotes/origin/main', 'HEAD'], { cwd: tmp });
-    execFileSync('git', ['update-ref', 'refs/remotes/origin/master', 'HEAD'], { cwd: tmp });
+    git(['update-ref', 'refs/remotes/origin/main', 'HEAD'], tmp);
+    git(['update-ref', 'refs/remotes/origin/master', 'HEAD'], tmp);
     expect(detectAutoDiffBase(tmp)).toBe('origin/main');
   });
 });

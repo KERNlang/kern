@@ -1,8 +1,8 @@
-import { execFileSync } from 'child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { runGaps } from '../src/commands/gaps.js';
+import { git } from './git-test-env.js';
 
 describe('kern gaps command', () => {
   let tmpDir: string;
@@ -178,12 +178,12 @@ describe('kern gaps command', () => {
   test('clones and scans a remote repo via --git', async () => {
     const repoDir = join(tmpDir, 'repo');
     mkdirSync(repoDir);
-    execFileSync('git', ['init'], { cwd: repoDir });
-    execFileSync('git', ['config', 'user.email', 'kern@example.com'], { cwd: repoDir });
-    execFileSync('git', ['config', 'user.name', 'KERN Test'], { cwd: repoDir });
+    git(['init'], repoDir);
+    git(['config', 'user.email', 'kern@example.com'], repoDir);
+    git(['config', 'user.name', 'KERN Test'], repoDir);
     writeFileSync(join(repoDir, 'remote.ts'), '// KERN-GAP: remote gap\n');
-    execFileSync('git', ['add', 'remote.ts'], { cwd: repoDir });
-    execFileSync('git', ['commit', '-m', 'init'], { cwd: repoDir });
+    git(['add', 'remote.ts'], repoDir);
+    git(['commit', '-m', 'init'], repoDir);
 
     await runGaps([`--git=${repoDir}`]);
     const text = out();
@@ -195,19 +195,19 @@ describe('kern gaps command', () => {
   test('checks out --ref for remote gap scans', async () => {
     const repoDir = join(tmpDir, 'repo-ref');
     mkdirSync(repoDir);
-    execFileSync('git', ['init'], { cwd: repoDir });
-    execFileSync('git', ['config', 'user.email', 'kern@example.com'], { cwd: repoDir });
-    execFileSync('git', ['config', 'user.name', 'KERN Test'], { cwd: repoDir });
+    git(['init'], repoDir);
+    git(['config', 'user.email', 'kern@example.com'], repoDir);
+    git(['config', 'user.name', 'KERN Test'], repoDir);
 
     const file = join(repoDir, 'history.ts');
     writeFileSync(file, '// KERN-GAP: old gap\n');
-    execFileSync('git', ['add', 'history.ts'], { cwd: repoDir });
-    execFileSync('git', ['commit', '-m', 'first'], { cwd: repoDir });
-    execFileSync('git', ['tag', 'v1'], { cwd: repoDir });
+    git(['add', 'history.ts'], repoDir);
+    git(['commit', '-m', 'first'], repoDir);
+    git(['tag', 'v1'], repoDir);
 
     writeFileSync(file, '// KERN-GAP: new gap\n');
-    execFileSync('git', ['add', 'history.ts'], { cwd: repoDir });
-    execFileSync('git', ['commit', '-m', 'second'], { cwd: repoDir });
+    git(['add', 'history.ts'], repoDir);
+    git(['commit', '-m', 'second'], repoDir);
 
     await runGaps([`--git=${repoDir}`, '--ref=v1']);
     const text = out();
