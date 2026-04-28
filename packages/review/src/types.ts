@@ -510,7 +510,26 @@ export interface GraphEdge {
 
 /** A file node in the import graph */
 export interface GraphFile {
+  /**
+   * Display path — caller-facing (whatever the user passed in for entry
+   * files; whatever ts-morph reports for BFS-reached files). Use this
+   * for `report.filePath`, finding `primarySpan.file`, and any UI
+   * surface. NEVER use this as a Map key for cross-file resolution —
+   * symlinks (pnpm, macOS /var → /private/var) cause the same physical
+   * file to have multiple display paths and would silently produce
+   * twin entries (red-team #9).
+   */
   path: string;
+  /**
+   * Internal identity key — `realpathSync(path)` with a graceful fallback
+   * for paths that don't exist on disk. ALL Map keys, ts-morph
+   * `addSourceFileAtPath` calls, and cross-file binding lookups MUST use
+   * this form so two display paths pointing at the same physical file
+   * collapse to a single entry. The two forms are equal for normal
+   * projects without symlinks, so this is a no-op there. See
+   * `path-canonical.ts` for the canonicaliser invariant.
+   */
+  canonicalPath: string;
   distance: number;
   imports: string[];
   importedBy: string[];

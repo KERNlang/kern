@@ -751,9 +751,14 @@ function isBuiltin(name: string): boolean {
  * Requires a ts-morph Project with all files loaded.
  */
 export function buildCallGraph(graph: GraphResult, project: Project): CallGraph {
+  // ALL internal keys here use gf.canonicalPath (red-team #9). cgProject is
+  // seeded with canonical, ts-morph's getFilePath returns canonical,
+  // GraphEdge.from/.to are canonical (graph.ts emits canonical) — keeping
+  // the call graph in the same key space prevents pnpm/symlink twin entries
+  // from silently dropping cross-file bindings. See path-canonical.ts.
   const graphFiles = new Map<string, GraphFile>();
   for (const gf of graph.files) {
-    graphFiles.set(gf.path, gf);
+    graphFiles.set(gf.canonicalPath, gf);
   }
 
   const allFunctions = new Map<string, FunctionNode>();
@@ -763,11 +768,11 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
 
   // Phase 1: Collect all functions from all files
   for (const gf of graph.files) {
-    const sf = project.getSourceFile(gf.path);
+    const sf = project.getSourceFile(gf.canonicalPath);
     if (!sf) continue;
 
-    const fns = collectFunctions(sf, gf.path);
-    fileFunctions.set(gf.path, fns);
+    const fns = collectFunctions(sf, gf.canonicalPath);
+    fileFunctions.set(gf.canonicalPath, fns);
     for (const fn of fns) {
       allFunctions.set(`${fn.filePath}#${fn.name}`, fn);
     }
@@ -776,16 +781,16 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
     // dead-export can alias `(filePath, 'default')` seeds against the
     // call-graph-stored name (e.g. 'Page' for `export default function Page`).
     const defaultName = resolveDefaultExportName(sf);
-    if (defaultName) defaultExportNames.set(gf.path, defaultName);
+    if (defaultName) defaultExportNames.set(gf.canonicalPath, defaultName);
   }
 
   // Phase 2: Extract call sites for each function
   let unresolvedCount = 0;
   for (const gf of graph.files) {
-    const sf = project.getSourceFile(gf.path);
+    const sf = project.getSourceFile(gf.canonicalPath);
     if (!sf) continue;
 
-    const fns = fileFunctions.get(gf.path) || [];
+    const fns = fileFunctions.get(gf.canonicalPath) || [];
     const localFnNames = new Set(fns.map((f) => f.name));
     const importBindings = buildImportBindings(sf, graphFiles);
     // Test files are NOT production consumers. Their imports of a helper
@@ -793,7 +798,7 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
     // count as "imported in the analyzed codebase" for dead-export purposes.
     // Without this skip, a helper used only by *.test.ts is silently
     // considered alive — exactly the FP red-team #3 flagged.
-    if (classifyFileRoleByPath(gf.path) !== 'test') {
+    if (classifyFileRoleByPath(gf.canonicalPath) !== 'test') {
       addImportedExportKeys(importedExportKeys, importBindings);
     }
     const localAliases = buildLocalAliases(sf, localFnNames, importBindings);
@@ -808,7 +813,7 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
     // target is potentially used — we cannot prove which one. Mark them
     // all as imported. Same test-file skip as the static-import case
     // above so a test-only lazy import doesn't pin production exports.
-    if (classifyFileRoleByPath(gf.path) !== 'test') {
+    if (classifyFileRoleByPath(gf.canonicalPath) !== 'test') {
       for (const edge of gf.importEdges) {
         if (edge.kind !== 'dynamic-import') continue;
         const targetFns = fileFunctions.get(edge.to) ?? [];
@@ -843,7 +848,7 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
   // this, every method of a singleton-exported class reads as dead.
   const instantiatedClasses = new Set<string>();
   for (const gf of graph.files) {
-    const sf = project.getSourceFile(gf.path);
+    const sf = project.getSourceFile(gf.canonicalPath);
     if (!sf) continue;
     sf.forEachDescendant((node) => {
       if (node.getKind() !== SyntaxKind.NewExpression) return;

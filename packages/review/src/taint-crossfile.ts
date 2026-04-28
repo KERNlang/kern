@@ -129,8 +129,9 @@ export function buildExportMapFromGraph(project: Project, graph: GraphResult): M
   const exportMap = new Map<string, ExportedFunction>();
 
   for (const gf of graph.files) {
-    if (!supportsTsMorphGraphFile(gf.path)) continue;
-    const sf = project.getSourceFile(gf.path);
+    if (!supportsTsMorphGraphFile(gf.canonicalPath)) continue;
+    // Use canonical for the ts-morph lookup — cgProject is keyed canonical.
+    const sf = project.getSourceFile(gf.canonicalPath);
     if (!sf) continue;
 
     for (const [exportName, decls] of sf.getExportedDeclarations()) {
@@ -153,9 +154,13 @@ export function buildExportMapFromGraph(project: Project, graph: GraphResult): M
           sinks.push(...findTaintedSinks(code, dummyTaint));
         }
 
-        const key = `${gf.path}::${exportName}`;
+        // Keys use canonicalPath so callers building keys from a callGraph
+        // function (which has fn.filePath = canonical) match. filePath on
+        // the value side stays canonical for the same reason; reporters
+        // map back to display via the canonicalToDisplay map in index.ts.
+        const key = `${gf.canonicalPath}::${exportName}`;
         exportMap.set(key, {
-          filePath: gf.path,
+          filePath: gf.canonicalPath,
           fnName: exportName,
           params,
           hasSink: sinks.length > 0,
@@ -179,8 +184,8 @@ export function buildImportMapFromGraph(project: Project, graph: GraphResult): M
   const importMap = new Map<string, string>();
 
   for (const gf of graph.files) {
-    if (!supportsTsMorphGraphFile(gf.path)) continue;
-    const sf = project.getSourceFile(gf.path);
+    if (!supportsTsMorphGraphFile(gf.canonicalPath)) continue;
+    const sf = project.getSourceFile(gf.canonicalPath);
     if (!sf) continue;
 
     for (const imp of sf.getImportDeclarations()) {
@@ -191,14 +196,16 @@ export function buildImportMapFromGraph(project: Project, graph: GraphResult): M
         continue;
       }
       if (!target) continue;
+      // ts-morph returns canonical here because cgProject was seeded
+      // canonical — no extra canonicalisation needed for symmetry.
       const targetPath = target.getFilePath();
 
       for (const named of imp.getNamedImports()) {
         const localName = named.getAliasNode()?.getText() ?? named.getName();
-        importMap.set(`${gf.path}::${localName}`, targetPath);
+        importMap.set(`${gf.canonicalPath}::${localName}`, targetPath);
       }
       const def = imp.getDefaultImport();
-      if (def) importMap.set(`${gf.path}::${def.getText()}`, targetPath);
+      if (def) importMap.set(`${gf.canonicalPath}::${def.getText()}`, targetPath);
     }
   }
 
