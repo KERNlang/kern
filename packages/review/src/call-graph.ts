@@ -112,10 +112,15 @@ function buildImportBindings(sourceFile: SourceFile, graphFiles: Map<string, Gra
       if (named.isTypeOnly()) continue;
       const importedName = named.getName();
       const localName = named.getAliasNode()?.getText() ?? importedName;
-      const target = resolveExportBinding(resolvedSf, importedName, graphFiles) ?? {
-        targetFile: resolvedPath,
-        targetName: importedName,
-      };
+      // Walk explicit re-export chains when ts-morph can't trace through. Without this,
+      // a curated barrel like `export { foo } from './worker'` yields a fallback
+      // {targetFile: barrel.ts, targetName: foo} → barrel.ts has no foo decl → call
+      // never reaches worker.ts#foo → worker.ts#foo reads as a dead-export FP.
+      const target = resolveExportBinding(resolvedSf, importedName, graphFiles) ??
+        resolveViaReExportChain(resolvedSf, importedName, graphFiles) ?? {
+          targetFile: resolvedPath,
+          targetName: importedName,
+        };
       bindings.set(localName, { kind: 'named', ...target });
     }
 
@@ -176,6 +181,68 @@ function resolveExportBinding(
   const decls = sourceFile.getExportedDeclarations().get(exportName);
   if (!decls || decls.length === 0) return undefined;
   return resolveBindingFromDeclarations(decls, exportName, graphFiles);
+}
+
+/**
+ * Walk explicit `export { x } from './y'` chains when ts-morph's
+ * `getExportedDeclarations()` (used by `resolveExportBinding`) returns nothing.
+ *
+ * Resolves only when the chain ends at exactly one concrete declaration in a
+ * graph-tracked file. Bare `export * from './y'` is not followed (cannot prove
+ * the specific symbol is among the re-exports without globally enumerating).
+ * Falls through to `undefined` on ambiguity so the caller's last-resort fallback
+ * still applies — but in the common curated-barrel case the chain succeeds and
+ * the binding points at the real declaration site.
+ *
+ * Visited set is keyed by `${filePath}#${exportName}` so a cycle through
+ * `(barrel, foo) → (worker, foo) → (barrel, foo)` terminates instead of looping.
+ */
+function resolveViaReExportChain(
+  sourceFile: SourceFile,
+  exportName: string,
+  graphFiles: Map<string, GraphFile>,
+  visited: Set<string> = new Set(),
+): ResolvedBinding | undefined {
+  const key = `${sourceFile.getFilePath()}#${exportName}`;
+  if (visited.has(key)) return undefined;
+  visited.add(key);
+
+  for (const exportDecl of sourceFile.getExportDeclarations()) {
+    if (exportDecl.isTypeOnly()) continue;
+    if (!exportDecl.hasModuleSpecifier()) continue;
+
+    const namedExports = exportDecl.getNamedExports();
+    // `export * from './y'` (no named exports) — cannot prove `exportName`
+    // specifically is among the re-exports. Skip rather than overgeneralise.
+    if (namedExports.length === 0) continue;
+
+    // Find the matching re-export, honouring `export { real as foo } from './y'`:
+    // the OUTGOING name is the alias (or the original if no alias). The
+    // UPSTREAM lookup must use the original (pre-alias) name.
+    let upstreamName: string | undefined;
+    for (const ne of namedExports) {
+      if (ne.isTypeOnly()) continue;
+      const aliasNode = ne.getAliasNode();
+      const outgoingName = aliasNode ? aliasNode.getText() : ne.getName();
+      if (outgoingName !== exportName) continue;
+      upstreamName = ne.getName();
+      break;
+    }
+    if (upstreamName === undefined) continue;
+
+    const targetSf = exportDecl.getModuleSpecifierSourceFile();
+    if (!targetSf) continue;
+    if (!graphFiles.has(targetSf.getFilePath())) continue;
+
+    // Try a direct resolution at the next hop first. If that also fails,
+    // recurse — the next file may itself be a barrel.
+    const direct = resolveExportBinding(targetSf, upstreamName, graphFiles);
+    if (direct) return direct;
+    const chained = resolveViaReExportChain(targetSf, upstreamName, graphFiles, visited);
+    if (chained) return chained;
+  }
+
+  return undefined;
 }
 
 function resolveDefaultExportBinding(
