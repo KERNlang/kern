@@ -17,7 +17,13 @@ import { join } from 'path';
 import { Project } from 'ts-morph';
 import { buildCallGraph } from '../src/call-graph.js';
 import { resolveImportGraph } from '../src/graph.js';
-import { buildPublicApiMap, isPublicApi, resolvePackageEntryFiles, resolveSpecifierToSrc } from '../src/public-api.js';
+import {
+  buildPublicApiMap,
+  expandPublicApiThroughReExports,
+  isPublicApi,
+  resolvePackageEntryFiles,
+  resolveSpecifierToSrc,
+} from '../src/public-api.js';
 import { deadExportRule } from '../src/rules/dead-code.js';
 
 function makeTmp(): string {
@@ -112,6 +118,50 @@ describe('resolvePackageEntryFiles', () => {
     const pkg = { exports: { '.': './dist/index.js', './sub': './dist/sub.js' } };
     const exists = (p: string) => p === '/pkg/src/index.ts';
     const files = resolvePackageEntryFiles('/pkg', pkg, exists);
+    expect(files).toEqual(['/pkg/src/index.ts']);
+  });
+
+  // Phase 4 step 6 — defensive coverage for shapes the dead-export blocker
+  // logic in step 9b will rely on. The recursive collectSpecifiers walker
+  // already handles these; this guards against regressions.
+  it('walks deeply-nested conditional exports (Node 18+ shape with platform branches)', () => {
+    const exists = (p: string) => p === '/pkg/src/index.ts';
+    const files = resolvePackageEntryFiles(
+      '/pkg',
+      {
+        exports: {
+          '.': {
+            node: {
+              import: { default: './dist/esm/index.js', types: './dist/esm/index.d.ts' },
+              require: './dist/cjs/index.js',
+            },
+            browser: './dist/browser/index.js',
+          },
+        },
+      },
+      exists,
+    );
+    // Every leaf string maps back to /pkg/src/index.ts via dist→src swap;
+    // result is a single deduplicated entry.
+    expect(files).toEqual(['/pkg/src/index.ts']);
+  });
+
+  it("ignores `null` values in conditional exports (Node's blocked-subpath sentinel)", () => {
+    const exists = (p: string) => p === '/pkg/src/index.ts';
+    const files = resolvePackageEntryFiles(
+      '/pkg',
+      {
+        exports: {
+          '.': './dist/index.js',
+          // `null` is how package authors declare a subpath as deliberately
+          // unreachable from outside. collectSpecifiers must not collect it
+          // (typeof null === 'object', falsy check needed) or
+          // resolveSpecifierToSrc will treat it as a string and crash.
+          './internal': null,
+        },
+      },
+      exists,
+    );
     expect(files).toEqual(['/pkg/src/index.ts']);
   });
 
@@ -449,5 +499,116 @@ describe('dead-export + public-api integration', () => {
     const messages = findings.map((f) => f.message);
     expect(messages.some((m) => m.includes('registerHandler'))).toBe(false);
     expect(messages.some((m) => m.includes('trulyDead'))).toBe(true);
+  });
+});
+
+// Phase 4 step 7a — Next.js stable conventions wired into buildPublicApiMap.
+// Each match contributes (filePath, exportName) tuples to explicitSymbols,
+// NEVER a whole-file flag in entryFiles. That's the symbol-scope invariant
+// that fixes red-team CRITICAL #2 (stale helper next to a Next.js page must
+// not inherit public-API status from the page).
+describe('buildPublicApiMap (Next.js framework seeds)', () => {
+  let tmp: string;
+  afterEach(() => {
+    if (tmp) rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('seeds an App Router page.tsx via explicitSymbols, NOT entryFiles', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const pagePath = join(tmp, 'src/app/page.tsx');
+    writeFile(pagePath, `export default function Page() {}\n`);
+
+    const map = buildPublicApiMap([pagePath]);
+
+    // The page is NOT a whole-file public seed.
+    expect(map.entryFiles.has(pagePath)).toBe(false);
+    // But each Next.js-recognized symbol IS public per the convention.
+    expect(map.explicitSymbols.has(`${pagePath}#default`)).toBe(true);
+    expect(map.explicitSymbols.has(`${pagePath}#metadata`)).toBe(true);
+    expect(map.explicitSymbols.has(`${pagePath}#generateStaticParams`)).toBe(true);
+    // Crucially, a hypothetical un-listed export (e.g. helper) is NOT
+    // treated as public. That's the symbol-scope invariant.
+    expect(map.explicitSymbols.has(`${pagePath}#someInternalHelper`)).toBe(false);
+  });
+
+  it('seeds an api route with `default` and `config` ONLY (not page-data symbols)', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    const apiPath = join(tmp, 'pages/api/users.ts');
+    writeFile(apiPath, `export default function handler() {}\nexport const config = {};\n`);
+
+    const map = buildPublicApiMap([apiPath]);
+
+    expect(map.explicitSymbols.has(`${apiPath}#default`)).toBe(true);
+    expect(map.explicitSymbols.has(`${apiPath}#config`)).toBe(true);
+    // Pages-router data-fetching exports must NOT bleed onto api routes.
+    expect(map.explicitSymbols.has(`${apiPath}#getServerSideProps`)).toBe(false);
+    expect(map.explicitSymbols.has(`${apiPath}#getStaticProps`)).toBe(false);
+  });
+
+  it('flags a helper next to a page.tsx as NOT public (red-team CRITICAL #2)', () => {
+    tmp = makeTmp();
+    writePkg(tmp, {});
+    // The page itself is matched by the framework seed.
+    const pagePath = join(tmp, 'src/app/posts/page.tsx');
+    writeFile(pagePath, `export default function Page() {}\n`);
+    // A "stale helper" alongside the page — emphatically NOT public.
+    const helperPath = join(tmp, 'src/app/posts/helpers.ts');
+    writeFile(helperPath, `export function staleHelper() {}\n`);
+
+    const map = buildPublicApiMap([pagePath, helperPath]);
+
+    // helpers.ts isn't in entryFiles and has no explicitSymbols.
+    expect(map.entryFiles.has(helperPath)).toBe(false);
+    expect(map.explicitSymbols.has(`${helperPath}#staleHelper`)).toBe(false);
+    // Sanity: the page IS seeded.
+    expect(map.explicitSymbols.has(`${pagePath}#default`)).toBe(true);
+  });
+});
+
+// Phase 4 step 8 — re-export expansion must work for seeded files that live
+// outside the BFS-walked graph (e.g. lazy routes beyond maxDepth, or barrel
+// targets nothing eager imports). The fix is the on-demand
+// addSourceFileAtPath fallback in index.ts:sourceFileFor; this test
+// validates expandPublicApiThroughReExports works correctly when the
+// callback uses that pattern.
+describe('expandPublicApiThroughReExports (on-demand source-file load)', () => {
+  function createTestProject(): Project {
+    return new Project({
+      compilerOptions: { strict: true, target: 99, module: 99, moduleResolution: 100 },
+      useInMemoryFileSystem: true,
+      skipAddingFilesFromTsConfig: true,
+    });
+  }
+
+  it('captures upstream symbols when the seeded barrel is loaded on demand (not pre-added)', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/barrel.ts', `export { foo } from './worker.js';\n`);
+    project.createSourceFile('/src/worker.ts', `export function foo() {}\nexport function dead() {}\n`);
+
+    // Simulate the index.ts production callback: try getSourceFile first,
+    // then fall back to addSourceFileAtPath. Step 8 wired exactly this.
+    const sourceFileFor = (path: string) => {
+      const known = project.getSourceFile(path);
+      if (known) return known;
+      try {
+        return project.addSourceFileAtPath(path);
+      } catch {
+        return undefined;
+      }
+    };
+
+    const base: Parameters<typeof expandPublicApiThroughReExports>[0] = {
+      entryFiles: new Set(['/src/barrel.ts']),
+      explicitSymbols: new Set<string>(),
+    };
+    const expanded = expandPublicApiThroughReExports(base, sourceFileFor);
+
+    // The barrel re-exports `foo` from worker.ts, so foo is now public.
+    // (Even though `dead` is in the same file, it isn't re-exported, so
+    // it stays subject to dead-export — symbol-scope invariant.)
+    expect(expanded.explicitSymbols.has('/src/worker.ts#foo')).toBe(true);
+    expect(expanded.explicitSymbols.has('/src/worker.ts#dead')).toBe(false);
   });
 });

@@ -10,7 +10,7 @@
 
 import { existsSync } from 'fs';
 import { resolve } from 'path';
-import { Project, type SourceFile } from 'ts-morph';
+import { type NoSubstitutionTemplateLiteral, Project, type SourceFile, type StringLiteral, SyntaxKind } from 'ts-morph';
 import type { GraphEdge, GraphEdgeKind, GraphFile, GraphOptions, GraphResult } from './types.js';
 
 /** Extension fallback map: .js→.ts, .jsx→.tsx (Codex idea) */
@@ -212,6 +212,12 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
 
   for (const decl of sourceFile.getImportDeclarations()) {
     try {
+      // `import type { X } from './m'` and `import type Foo from './m'` are
+      // erased at compile time. They MUST NOT contribute caller edges,
+      // otherwise dead-export reachability counts type-only references as
+      // proof a runtime symbol is alive — a category of FP red-team flagged.
+      if (decl.isTypeOnly()) continue;
+
       const specifier = decl.getModuleSpecifierValue();
       const resolved = decl.getModuleSpecifierSourceFile();
       let recorded = false;
@@ -229,6 +235,8 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
       }
 
       for (const named of decl.getNamedImports()) {
+        // Mixed form: `import { Foo, type Bar } from './m'` — Bar is erased.
+        if (named.isTypeOnly()) continue;
         refs.push({
           specifier,
           resolved,
@@ -259,7 +267,51 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
     }
   }
 
+  // Dynamic imports — `import('./mod')` / `await import('./mod')`. ts-morph
+  // models the call's expression as `SyntaxKind.ImportKeyword` (NOT an
+  // identifier whose text is "import"), so this is the correct discriminator
+  // — red-team #5 specifically called out the identifier-based check as a
+  // bug that would silently skip every dynamic import.
+  //
+  // Only LITERAL specifiers produce an edge here. A non-literal argument
+  // (e.g. `import(routes[role])`) is left untouched: step 9b will record a
+  // symbol-scoped ReachabilityBlocker for that case so the resulting
+  // dead-export confidence is capped — never silently suppressed.
+  for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    if (callee.getKind() !== SyntaxKind.ImportKeyword) continue;
+
+    const args = call.getArguments();
+    if (args.length === 0) continue;
+
+    const first = args[0];
+    if (!first) continue;
+    const argKind = first.getKind();
+    if (argKind !== SyntaxKind.StringLiteral && argKind !== SyntaxKind.NoSubstitutionTemplateLiteral) {
+      continue;
+    }
+
+    let specifier: string;
+    try {
+      specifier = (first as StringLiteral | NoSubstitutionTemplateLiteral).getLiteralValue();
+    } catch {
+      continue;
+    }
+
+    const resolved = resolveDynamicImportTarget(sourceFile, specifier);
+    refs.push({
+      specifier,
+      resolved,
+      kind: 'dynamic-import',
+    });
+  }
+
   for (const decl of sourceFile.getExportDeclarations()) {
+    // `export type { X } from './m'` is erased at compile time and must not
+    // contribute a re-export edge. Same reasoning as the import side: a
+    // type-only re-export is not evidence the runtime symbol is alive.
+    if (decl.isTypeOnly()) continue;
+
     let specifier: string | undefined;
     let resolved: SourceFile | undefined;
     try {
@@ -277,6 +329,8 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
     }
 
     for (const named of namedExports) {
+      // Mixed form: `export { foo, type Bar } from './m'`.
+      if (named.isTypeOnly()) continue;
       refs.push({
         specifier,
         resolved,
@@ -288,6 +342,62 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleEdgeRef[] {
   }
 
   return refs;
+}
+
+/**
+ * Resolve a literal dynamic-import specifier to a SourceFile in the project.
+ * ts-morph's CallExpression has no `getModuleSpecifierSourceFile()` analogue,
+ * so this mirrors the resolution shape that static imports get for free:
+ *
+ *   1. Direct hit on the joined absolute path (already a `.ts(x)` file).
+ *   2. Extension probe: append `.ts`, `.tsx`, `.js`, `.jsx`.
+ *   3. Directory probe: `<spec>/index.ts(x)`.
+ *
+ * Returns undefined for relative specifiers that don't land on any source
+ * file under the project — those become unresolved dynamic-import edges,
+ * which step 9b's blocker logic distinguishes from non-literal cases.
+ *
+ * Bare/package specifiers (e.g. `import('react')`) are intentionally NOT
+ * resolved; the import-graph already skips node_modules at the BFS level.
+ */
+function resolveDynamicImportTarget(fromFile: SourceFile, specifier: string): SourceFile | undefined {
+  if (!specifier.startsWith('.') && !specifier.startsWith('/')) return undefined;
+
+  const project = fromFile.getProject();
+  const fromDir = fromFile.getDirectoryPath();
+  const abs = resolve(fromDir, specifier);
+
+  const direct = project.getSourceFile(abs);
+  if (direct) return direct;
+
+  const extensionCandidates = ['.ts', '.tsx', '.js', '.jsx'];
+  for (const ext of extensionCandidates) {
+    const cand = abs + ext;
+    const known = project.getSourceFile(cand);
+    if (known) return known;
+    if (existsSync(cand)) {
+      try {
+        return project.addSourceFileAtPath(cand);
+      } catch {
+        /* unreadable candidate — fall through */
+      }
+    }
+  }
+
+  for (const ext of ['.ts', '.tsx']) {
+    const cand = resolve(abs, `index${ext}`);
+    const known = project.getSourceFile(cand);
+    if (known) return known;
+    if (existsSync(cand)) {
+      try {
+        return project.addSourceFileAtPath(cand);
+      } catch {
+        /* unreadable candidate — fall through */
+      }
+    }
+  }
+
+  return undefined;
 }
 
 function pushUniqueEdge(edges: GraphEdge[], edge: GraphEdge): void {

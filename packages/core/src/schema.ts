@@ -29,7 +29,9 @@ export type PropKind =
   | 'rawBlock'
   | 'string'
   | 'boolean'
-  | 'number';
+  | 'number'
+  | 'expression'
+  | 'regex';
 
 export interface PropSchema {
   required?: boolean;
@@ -56,24 +58,47 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   type: {
-    description: 'TypeScript type alias — union of string literals or alias to another type',
+    description:
+      'TypeScript type alias — union of string literals, or alias to another type (including tuple types like [string, number]). Use generics="<T>" for parameterised aliases.',
     example: 'type name=Status values="active|inactive|banned"',
     props: {
       name: { required: true, kind: 'identifier' },
       values: { kind: 'string' },
       alias: { kind: 'rawExpr' },
+      generics: { kind: 'rawExpr' },
       export: { kind: 'boolean' },
     },
   },
   interface: {
-    description: 'TypeScript interface with typed fields',
+    description: 'TypeScript interface with typed fields. Use generics="<T>" for parameterised interfaces.',
     example: 'interface name=User export=true\n  field name=id type=string\n  field name=email type=string',
     props: {
       name: { required: true, kind: 'identifier' },
       extends: { kind: 'typeAnnotation' },
+      generics: { kind: 'rawExpr' },
       export: { kind: 'boolean' },
     },
-    allowedChildren: ['field'],
+    allowedChildren: ['field', 'indexer'],
+  },
+  indexer: {
+    description: 'Index signature for an interface — [keyName: keyType]: type',
+    example: 'indexer keyName=key keyType=string type=Value',
+    props: {
+      keyName: { kind: 'identifier' },
+      keyType: { required: true, kind: 'typeAnnotation' },
+      type: { required: true, kind: 'typeAnnotation' },
+      readonly: { kind: 'boolean' },
+    },
+  },
+  overload: {
+    description:
+      'Function overload signature — declared as a child of fn. Each overload emits a TS overload declaration before the implementation signature.',
+    example: 'overload params="a:number,b:number" returns=number',
+    props: {
+      params: { kind: 'string' },
+      returns: { kind: 'typeAnnotation' },
+      generics: { kind: 'rawExpr' },
+    },
   },
   union: {
     description: 'Discriminated union type with variants, each having their own fields',
@@ -84,6 +109,26 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       export: { kind: 'boolean' },
     },
     allowedChildren: ['variant'],
+  },
+  enum: {
+    description:
+      'TypeScript enum — numeric (auto-incremented) via values="A|B|C", or string-valued via member children',
+    example: 'enum name=Status values="Pending|Active|Done"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      values: { kind: 'string' },
+      const: { kind: 'boolean' },
+      export: { kind: 'boolean' },
+    },
+    allowedChildren: ['member'],
+  },
+  member: {
+    description: 'Enum member with explicit value (for string-valued or computed enums)',
+    example: 'member name=Up value="UP"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      value: { kind: 'expression' },
+    },
   },
   variant: {
     description:
@@ -115,6 +160,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { required: true, kind: 'identifier' },
       implements: { kind: 'typeAnnotation' },
+      generics: { kind: 'rawExpr' },
       export: { kind: 'boolean' },
     },
     allowedChildren: ['field', 'method', 'constructor', 'singleton', 'getter', 'setter'],
@@ -128,6 +174,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       extends: { kind: 'typeAnnotation' },
       implements: { kind: 'typeAnnotation' },
       abstract: { kind: 'boolean' },
+      generics: { kind: 'rawExpr' },
       export: { kind: 'boolean' },
     },
     allowedChildren: ['field', 'method', 'constructor', 'singleton', 'getter', 'setter'],
@@ -144,6 +191,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       stream: { kind: 'boolean' },
       private: { kind: 'boolean' },
       static: { kind: 'boolean' },
+      generics: { kind: 'rawExpr' },
     },
     allowedChildren: ['handler'],
   },
@@ -181,8 +229,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       stream: { kind: 'boolean' },
       export: { kind: 'boolean' },
       expr: { kind: 'rawExpr' },
+      generics: { kind: 'rawExpr' },
     },
-    allowedChildren: ['handler', 'signal', 'cleanup'],
+    allowedChildren: ['handler', 'signal', 'cleanup', 'overload'],
   },
   machine: {
     description:
@@ -297,7 +346,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { required: true, kind: 'identifier' },
       type: { kind: 'typeAnnotation' },
-      value: { kind: 'rawExpr' },
+      value: { kind: 'expression' },
       export: { kind: 'boolean' },
     },
     allowedChildren: ['handler'],
@@ -2105,7 +2154,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   constructor: {
     description: 'Constructor for a service — runs on instantiation',
     example: 'constructor params="size:number"\n  handler <<<\n    this.data = new Map();\n  >>>',
-    props: { params: { kind: 'string' as PropKind } },
+    props: {
+      params: { kind: 'string' as PropKind },
+      generics: { kind: 'rawExpr' as PropKind },
+    },
     allowedChildren: ['handler'],
   },
   cleanup: {
@@ -2370,7 +2422,18 @@ export function exportSchemaJSON(runtime?: KernRuntime): KernSchemaJSON {
     styleShorthands: { ...STYLE_SHORTHANDS },
     valueShorthands: { ...VALUE_SHORTHANDS },
     multilineBlockTypes: [...rt.multilineBlockTypes],
-    propKinds: ['identifier', 'typeAnnotation', 'importPath', 'rawExpr', 'rawBlock', 'string', 'boolean', 'number'],
+    propKinds: [
+      'identifier',
+      'typeAnnotation',
+      'importPath',
+      'rawExpr',
+      'rawBlock',
+      'string',
+      'boolean',
+      'number',
+      'expression',
+      'regex',
+    ],
     ...(evolvedTypes.length > 0 ? { evolvedTypes } : {}),
   };
 }

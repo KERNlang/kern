@@ -71,6 +71,19 @@ function typeToString(typeNode: ts.TypeNode | undefined, source: ts.SourceFile):
   return /\s/.test(raw) ? `"${raw.replace(/"/g, '\\"')}"` : raw;
 }
 
+/** Slice 2f — extract `<T, U extends Foo = Bar>` from any declaration that
+ *  carries typeParameters and return a `generics="..."` attribute fragment
+ *  ready to splice into a KERN line. Returns empty string when there are none. */
+function genericsAttr(
+  typeParameters: ts.NodeArray<ts.TypeParameterDeclaration> | undefined,
+  source: ts.SourceFile,
+): string {
+  if (!typeParameters || typeParameters.length === 0) return '';
+  const parts = typeParameters.map((tp) => tp.getText(source));
+  const block = `<${parts.join(', ')}>`;
+  return ` generics="${escapeKernString(block)}"`;
+}
+
 function getJSDoc(node: ts.Node, source: ts.SourceFile): string | undefined {
   const jsDocs = (node as any).jsDoc as ts.JSDoc[] | undefined;
   if (!jsDocs || jsDocs.length === 0) return undefined;
@@ -185,6 +198,7 @@ function convertTypeAlias(node: ts.TypeAliasDeclaration, source: ts.SourceFile):
   const lines: string[] = [];
   const name = node.name.getText(source);
   const exp = isExported(node) ? ' export=true' : '';
+  const generics = genericsAttr(node.typeParameters, source);
   const doc = getJSDoc(node, source);
 
   if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
@@ -197,14 +211,14 @@ function convertTypeAlias(node: ts.TypeAliasDeclaration, source: ts.SourceFile):
     );
     if (allStringLiterals) {
       const values = members.map((m) => ((m as ts.LiteralTypeNode).literal as ts.StringLiteral).text).join('|');
-      lines.push(`type name=${name} values="${values}"${exp}`);
+      lines.push(`type name=${name} values="${values}"${generics}${exp}`);
       return lines;
     }
   }
 
   // General type alias
   const typeText = typeToString(node.type, source);
-  lines.push(`type name=${name} alias="${escapeKernString(typeText)}"${exp}`);
+  lines.push(`type name=${name} alias="${escapeKernString(typeText)}"${generics}${exp}`);
   return lines;
 }
 
@@ -212,6 +226,7 @@ function convertInterface(node: ts.InterfaceDeclaration, source: ts.SourceFile):
   const lines: string[] = [];
   const name = node.name.getText(source);
   const exp = isExported(node) ? ' export=true' : '';
+  const generics = genericsAttr(node.typeParameters, source);
   const doc = getJSDoc(node, source);
 
   if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
@@ -221,7 +236,7 @@ function convertInterface(node: ts.InterfaceDeclaration, source: ts.SourceFile):
     .flatMap((h) => h.types.map((t) => t.getText(source)));
   const extendsStr = extends_ && extends_.length > 0 ? ` extends=${extends_.join(',')}` : '';
 
-  lines.push(`interface name=${name}${extendsStr}${exp}`);
+  lines.push(`interface name=${name}${generics}${extendsStr}${exp}`);
 
   for (const member of node.members) {
     if (ts.isPropertySignature(member)) {
@@ -236,9 +251,24 @@ function convertInterface(node: ts.InterfaceDeclaration, source: ts.SourceFile):
       const methodName = member.name.getText(source);
       const params = member.parameters ? formatParams(member.parameters, source) : '';
       const returns = typeToString(member.type, source) || 'void';
-      const funcType = `(${params}) => ${returns}`;
+      // Slice 2f — preserve method-level generics by prepending <T,...> to the function-type
+      // string when the method has typeParameters. Format: `<T>(params) => R`.
+      const tp = member.typeParameters;
+      const genericsBlock = tp && tp.length > 0 ? `<${tp.map((t) => t.getText(source)).join(', ')}>` : '';
+      const funcType = `${genericsBlock}(${params}) => ${returns}`;
       const optional = member.questionToken ? ' optional=true' : '';
       lines.push(`  field name=${methodName} type="${escapeKernString(funcType)}"${optional}`);
+    } else if (ts.isIndexSignatureDeclaration(member)) {
+      // [keyName: keyType]: type   →   indexer keyName=... keyType=... type=...
+      const param = member.parameters[0];
+      if (param) {
+        const keyName = param.name.getText(source);
+        const keyType = typeToString(param.type, source) || 'string';
+        const valueType = typeToString(member.type, source) || 'unknown';
+        const isReadonly = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.ReadonlyKeyword);
+        const ro = isReadonly ? ' readonly=true' : '';
+        lines.push(`  indexer keyName=${keyName} keyType=${keyType} type=${valueType}${ro}`);
+      }
     }
   }
 
@@ -272,6 +302,7 @@ function convertFunction(node: ts.FunctionDeclaration, source: ts.SourceFile): s
   const lines: string[] = [];
   const name = node.name?.getText(source) ?? 'anonymous';
   const exp = isExported(node) ? ' export=true' : '';
+  const generics = genericsAttr(node.typeParameters, source);
   const doc = getJSDoc(node, source);
   const asyncStr = isAsync(node) ? ' async=true' : '';
   const isGenerator = node.asteriskToken != null;
@@ -287,7 +318,7 @@ function convertFunction(node: ts.FunctionDeclaration, source: ts.SourceFile): s
   // For async generators, use stream=true instead of async=true + generator=true
   const asyncFinal = isGenerator && isAsync(node) ? '' : asyncStr;
 
-  lines.push(`fn name=${name}${paramsStr}${returnsStr}${asyncFinal}${generatorStr}${exp}`);
+  lines.push(`fn name=${name}${paramsStr}${returnsStr}${asyncFinal}${generatorStr}${generics}${exp}`);
 
   const body = getBodyText(node.body, source);
   if (body) {
@@ -301,10 +332,51 @@ function convertFunction(node: ts.FunctionDeclaration, source: ts.SourceFile): s
   return lines;
 }
 
+/** Slice 2e — convert a TS overload group (N signatures + 1 implementation)
+ *  to a single KERN `fn` node with `overload` children. The implementation is
+ *  the declaration that has a body; if none has a body (rare — ambient module
+ *  declarations), we treat the LAST as implementation for round-trip safety. */
+function convertFunctionGroup(
+  group: ts.FunctionDeclaration[],
+  source: ts.SourceFile,
+  stats: ImportResult['stats'],
+): string[] {
+  // Find the implementation (the one with a body). If none, fall back to last.
+  const implIdx = group.findIndex((fn) => fn.body != null);
+  const impl = group[implIdx >= 0 ? implIdx : group.length - 1];
+  const overloads = group.filter((fn) => fn !== impl);
+  // Convert the implementation as a normal function (fn). Then append overload children.
+  stats.functions++;
+  const implLines = convertFunction(impl, source);
+  // Insert overload child lines BEFORE the handler block (which lives under
+  // the `fn name=...` header line). We slice at the index of the handler open.
+  const overloadLines: string[] = [];
+  for (const ov of overloads) {
+    const params = formatParams(ov.parameters, source);
+    const returns = typeToString(ov.type, source);
+    const paramsStr = params ? ` params="${params}"` : '';
+    const returnsStr = returns ? ` returns=${returns}` : '';
+    // Slice 2f — overload signatures can declare their own type parameters
+    // (e.g. `function id<T>(x: T): T;` paired with non-generic impl).
+    // Without this, the overload would round-trip to invalid TS where T is undefined.
+    const generics = genericsAttr(ov.typeParameters, source);
+    overloadLines.push(`  overload${paramsStr}${returnsStr}${generics}`);
+  }
+  // Splice overload lines after the `fn name=...` (and its leading doc, if any)
+  // and before the `  handler <<<` block. We find the first line that starts
+  // with `  handler` (handler is the first child of fn) — overloads go before it.
+  const handlerIdx = implLines.findIndex((l) => l.startsWith('  handler'));
+  if (handlerIdx === -1) {
+    return [...implLines, ...overloadLines];
+  }
+  return [...implLines.slice(0, handlerIdx), ...overloadLines, ...implLines.slice(handlerIdx)];
+}
+
 function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[] {
   const lines: string[] = [];
   const name = node.name?.getText(source) ?? 'AnonymousClass';
   const exp = isExported(node) ? ' export=true' : '';
+  const generics = genericsAttr(node.typeParameters, source);
   const doc = getJSDoc(node, source);
 
   // Check if it extends Error → error node
@@ -328,7 +400,7 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
     extendsClause && !isError ? ` extends=${extendsClause.types.map((t) => t.getText(source)).join(',')}` : '';
   const abstractStr = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.AbstractKeyword) ? ' abstract=true' : '';
 
-  lines.push(`class name=${name}${extendsStr}${implementsStr}${abstractStr}${exp}`);
+  lines.push(`class name=${name}${extendsStr}${implementsStr}${abstractStr}${generics}${exp}`);
 
   for (const member of node.members) {
     if (ts.isPropertyDeclaration(member)) {
@@ -346,7 +418,8 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
     } else if (ts.isConstructorDeclaration(member)) {
       const ctorParams = formatParams(member.parameters, source);
       const ctorParamsStr = ctorParams ? ` params="${ctorParams}"` : '';
-      lines.push(`  constructor${ctorParamsStr}`);
+      const generics = genericsAttr(member.typeParameters, source);
+      lines.push(`  constructor${ctorParamsStr}${generics}`);
       const body = getBodyText(member.body, source);
       if (body) {
         lines.push('    handler <<<');
@@ -359,6 +432,7 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
       const methodName = member.name.getText(source);
       const params = formatParams(member.parameters, source);
       const returns = typeToString(member.type, source);
+      const generics = genericsAttr(member.typeParameters, source);
       const asyncStr = isAsync(member) ? ' async=true' : '';
       const staticStr = isStatic(member) ? ' static=true' : '';
       const privStr = isPrivate(member) ? ' private=true' : '';
@@ -366,7 +440,7 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
       const returnsStr = returns ? ` returns=${returns}` : '';
       const memberDoc = getJSDoc(member, source);
       if (memberDoc) lines.push(`  doc text="${escapeKernString(memberDoc)}"`);
-      lines.push(`  method name=${methodName}${paramsStr}${returnsStr}${asyncStr}${staticStr}${privStr}`);
+      lines.push(`  method name=${methodName}${paramsStr}${returnsStr}${asyncStr}${staticStr}${privStr}${generics}`);
       const body = getBodyText(member.body, source);
       if (body) {
         lines.push('    handler <<<');
@@ -495,13 +569,14 @@ function convertVariableStatement(node: ts.VariableStatement, source: ts.SourceF
         const asyncStr = isAsync(func as any) ? ' async=true' : '';
         const params = formatParams(func.parameters, source);
         const returns = typeToString(func.type, source);
+        const generics = genericsAttr(func.typeParameters, source);
         const paramsStr = params ? ` params="${params}"` : '';
         const returnsStr = returns ? ` returns=${returns}` : '';
         const isGen = ts.isFunctionExpression(func) && func.asteriskToken != null;
         const genStr = isGen ? (isAsync(func as any) ? ' stream=true' : ' generator=true') : '';
         const asyncFinal = isGen && isAsync(func as any) ? '' : asyncStr;
 
-        lines.push(`fn name=${name}${paramsStr}${returnsStr}${asyncFinal}${genStr}${exp}`);
+        lines.push(`fn name=${name}${paramsStr}${returnsStr}${asyncFinal}${genStr}${generics}${exp}`);
         const body = ts.isArrowFunction(func)
           ? getBodyText(func.body as ts.Block | ts.Expression, source)
           : getBodyText(func.body, source);
@@ -1215,7 +1290,36 @@ export function importTypeScript(tsSource: string, fileName = 'input.ts'): Impor
     components: 0,
   };
 
-  for (const statement of sourceFile.statements) {
+  // Slice 2e — TS overloaded functions are a sequence of FunctionDeclaration
+  // nodes sharing a name, where the LAST one has a body and the earlier ones
+  // are signature-only. Group them so the importer emits a single `fn` with
+  // `overload` children rather than N separate fn nodes.
+  const statements = sourceFile.statements;
+  for (let i = 0; i < statements.length; i++) {
+    const statement = statements[i];
+    if (ts.isFunctionDeclaration(statement) && statement.name) {
+      const fnName = statement.name.getText(sourceFile);
+      // Look ahead to collect consecutive same-named function declarations.
+      const group: ts.FunctionDeclaration[] = [statement];
+      while (i + 1 < statements.length) {
+        const next = statements[i + 1];
+        if (ts.isFunctionDeclaration(next) && next.name && next.name.getText(sourceFile) === fnName) {
+          group.push(next);
+          i++;
+        } else {
+          break;
+        }
+      }
+      if (group.length > 1) {
+        const converted = convertFunctionGroup(group, sourceFile, stats);
+        if (converted.length > 0) {
+          kernLines.push(...converted);
+          kernLines.push('');
+        }
+        continue;
+      }
+      // Single declaration — fall through to ordinary path.
+    }
     const converted = convertStatement(statement, sourceFile, unmapped, stats);
     if (converted.length > 0) {
       kernLines.push(...converted);

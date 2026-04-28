@@ -24,6 +24,8 @@
  */
 
 import { type Node, type Project, type SourceFile, SyntaxKind } from 'ts-morph';
+import { resolveDefaultExportName } from './default-export.js';
+import { classifyFileRoleByPath } from './file-role.js';
 import type { GraphFile, GraphResult } from './types.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -64,6 +66,16 @@ export interface CallGraph {
   orphanFunctions: string[];
   /** How many calls couldn't be resolved */
   unresolvedCallCount: number;
+  /**
+   * Per-file default-export aliasing — Map<filePath, internalName> where
+   * internalName is the call-graph-stored name of the file's `export default`
+   * (e.g. 'Page' for `export default function Page`). Lets dead-export
+   * accept a seed of `(filePath, 'default')` as proof that `(filePath,
+   * internalName)` is public, even though the call graph stores the
+   * function under its declaration name. Files with anonymous defaults
+   * or no default export are not present.
+   */
+  defaultExportNames: Map<string, string>;
 }
 
 // ── Import Resolution ───────────────────────────────────────────────────
@@ -83,6 +95,12 @@ function buildImportBindings(sourceFile: SourceFile, graphFiles: Map<string, Gra
   const bindings = new Map<string, ImportBinding>();
 
   for (const decl of sourceFile.getImportDeclarations()) {
+    // Type-only imports are erased at compile time. Recording them as
+    // bindings would let `obj.method()` style calls land on the type-only
+    // target during call resolution and mark a runtime export reachable
+    // even though no runtime reference exists.
+    if (decl.isTypeOnly()) continue;
+
     const resolvedSf = resolveImportSourceFile(sourceFile, decl, graphFiles);
     if (!resolvedSf) continue;
     const resolvedPath = resolvedSf.getFilePath();
@@ -90,6 +108,8 @@ function buildImportBindings(sourceFile: SourceFile, graphFiles: Map<string, Gra
 
     // Named imports: import { foo, bar as baz } from './mod'
     for (const named of decl.getNamedImports()) {
+      // Mixed form: `import { foo, type Bar } from './m'` — Bar is erased.
+      if (named.isTypeOnly()) continue;
       const importedName = named.getName();
       const localName = named.getAliasNode()?.getText() ?? importedName;
       const target = resolveExportBinding(resolvedSf, importedName, graphFiles) ?? {
@@ -664,6 +684,7 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
   const allFunctions = new Map<string, FunctionNode>();
   const fileFunctions = new Map<string, FunctionNode[]>();
   const importedExportKeys = new Set<string>();
+  const defaultExportNames = new Map<string, string>();
 
   // Phase 1: Collect all functions from all files
   for (const gf of graph.files) {
@@ -675,6 +696,12 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
     for (const fn of fns) {
       allFunctions.set(`${fn.filePath}#${fn.name}`, fn);
     }
+
+    // Step 9b: pre-resolve the file's default-export internal name so
+    // dead-export can alias `(filePath, 'default')` seeds against the
+    // call-graph-stored name (e.g. 'Page' for `export default function Page`).
+    const defaultName = resolveDefaultExportName(sf);
+    if (defaultName) defaultExportNames.set(gf.path, defaultName);
   }
 
   // Phase 2: Extract call sites for each function
@@ -686,17 +713,45 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
     const fns = fileFunctions.get(gf.path) || [];
     const localFnNames = new Set(fns.map((f) => f.name));
     const importBindings = buildImportBindings(sf, graphFiles);
-    addImportedExportKeys(importedExportKeys, importBindings);
+    // Test files are NOT production consumers. Their imports of a helper
+    // (e.g. `import { bar } from './prod-helpers'`) shouldn't make `bar`
+    // count as "imported in the analyzed codebase" for dead-export purposes.
+    // Without this skip, a helper used only by *.test.ts is silently
+    // considered alive — exactly the FP red-team #3 flagged.
+    if (classifyFileRoleByPath(gf.path) !== 'test') {
+      addImportedExportKeys(importedExportKeys, importBindings);
+    }
     const localAliases = buildLocalAliases(sf, localFnNames, importBindings);
 
     for (const fn of fns) {
       fn.calls = extractCallSites(fn, sf, localFnNames, importBindings, localAliases);
       unresolvedCount += fn.calls.filter((c) => !c.resolved).length;
     }
+
+    // Step 10 wiring: literal `import('./mod')` (recorded by graph.ts as
+    // a `dynamic-import` GraphEdge in step 3) means every export of the
+    // target is potentially used — we cannot prove which one. Mark them
+    // all as imported. Same test-file skip as the static-import case
+    // above so a test-only lazy import doesn't pin production exports.
+    if (classifyFileRoleByPath(gf.path) !== 'test') {
+      for (const edge of gf.importEdges) {
+        if (edge.kind !== 'dynamic-import') continue;
+        const targetFns = fileFunctions.get(edge.to) ?? [];
+        for (const fn of targetFns) {
+          if (fn.isExported) importedExportKeys.add(`${edge.to}#${fn.name}`);
+        }
+      }
+    }
   }
 
   // Phase 3: Link calledBy edges (cross-file)
   for (const fn of allFunctions.values()) {
+    // Skip callers that live in test files. The intent: a production helper
+    // whose only callers are *.test.ts should still be flagged dead so the
+    // user can spot stale code. Tests still get their own call graph
+    // (orphan/dead-logic rules fire on them); they just don't count as
+    // evidence that production exports are reachable.
+    if (classifyFileRoleByPath(fn.filePath) === 'test') continue;
     for (const call of fn.calls) {
       if (!call.resolved || !call.targetFile) continue;
       const targetKey = `${call.targetFile}#${call.targetName}`;
@@ -765,5 +820,6 @@ export function buildCallGraph(graph: GraphResult, project: Project): CallGraph 
     deadExports,
     orphanFunctions,
     unresolvedCallCount: unresolvedCount,
+    defaultExportNames,
   };
 }

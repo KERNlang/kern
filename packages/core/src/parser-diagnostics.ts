@@ -23,6 +23,9 @@ const DIAGNOSTIC_SUGGESTIONS: Record<ParseErrorCode, string> = {
   INDENT_JUMP: 'Align this line with an existing indentation level so the parent-child structure is unambiguous.',
   DUPLICATE_PROP: 'Remove the duplicate property or merge the values into a single prop assignment.',
   DROPPED_LINE: 'Rewrite this line so it starts with a valid KERN node type and move stray symbols into props.',
+  INVALID_BIGINT: 'Remove the `n` suffix or drop the fractional part — BigInt literals must be whole integers.',
+  INVALID_EXPRESSION:
+    'The value could not be parsed as a KERN expression. Wrap it in `{{ ... }}` if it uses syntax not yet natively supported.',
 };
 
 export function createParseState(): ParseState {

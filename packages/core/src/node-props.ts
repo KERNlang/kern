@@ -29,24 +29,50 @@ export interface DocProps extends BaseProps {
 export interface TypeProps extends BaseProps {
   values?: string;
   alias?: string;
+  generics?: string;
 }
 
 export interface InterfaceProps extends BaseProps {
   extends?: string;
+  generics?: string;
 }
 
 export interface UnionProps extends BaseProps {
   discriminant?: string;
 }
 
+export interface EnumProps extends BaseProps {
+  values?: string;
+  const?: string | boolean;
+}
+
+export interface MemberProps extends BaseProps {
+  value?: string | ExprObject;
+}
+
+export interface IndexerProps extends BaseProps {
+  keyName?: string;
+  keyType?: string;
+  type?: string;
+  readonly?: string | boolean;
+}
+
+export interface OverloadProps extends BaseProps {
+  params?: string;
+  returns?: string;
+  generics?: string;
+}
+
 export interface ServiceProps extends BaseProps {
   implements?: string;
+  generics?: string;
 }
 
 export interface ClassProps extends BaseProps {
   extends?: string;
   implements?: string;
   abstract?: string | boolean;
+  generics?: string;
 }
 
 export interface ConstProps extends BaseProps {
@@ -63,6 +89,23 @@ export interface FnProps extends BaseProps {
   stream?: string | boolean;
   generator?: string | boolean;
   expr?: string | ExprObject;
+  generics?: string;
+}
+
+export interface MethodProps extends BaseProps {
+  params?: string;
+  returns?: string;
+  async?: string | boolean;
+  stream?: string | boolean;
+  generator?: string | boolean;
+  static?: string | boolean;
+  private?: string | boolean;
+  generics?: string;
+}
+
+export interface ConstructorProps extends BaseProps {
+  params?: string;
+  generics?: string;
 }
 
 export interface ErrorProps extends BaseProps {
@@ -489,6 +532,17 @@ export interface VariantProps extends BaseProps {
 export interface MethodProps extends BaseProps {
   params?: string;
   returns?: string;
+  async?: string | boolean;
+  stream?: string | boolean;
+  generator?: string | boolean;
+  static?: string | boolean;
+  private?: string | boolean;
+  generics?: string;
+}
+
+export interface ConstructorProps extends BaseProps {
+  params?: string;
+  generics?: string;
 }
 
 export interface TransitionProps extends BaseProps {
@@ -539,6 +593,10 @@ export interface NodePropsMap {
   type: TypeProps;
   interface: InterfaceProps;
   union: UnionProps;
+  enum: EnumProps;
+  member: MemberProps;
+  indexer: IndexerProps;
+  overload: OverloadProps;
   service: ServiceProps;
   class: ClassProps;
   const: ConstProps;
@@ -628,6 +686,7 @@ export interface NodePropsMap {
   setter: SetterProps;
   variant: VariantProps;
   method: MethodProps;
+  constructor: ConstructorProps;
   transition: TransitionProps;
   state: StateProps;
   column: ColumnProps;
