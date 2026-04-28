@@ -40,6 +40,7 @@ import {
 import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { basename, dirname, relative, resolve } from 'path';
+import { withoutLocalGitEnv } from '../git-env.js';
 import { withOptionalRemoteRepo } from '../remote-repo.js';
 import {
   compareReportsToBaseline,
@@ -67,6 +68,7 @@ export function detectAutoDiffBase(cwd: string = process.cwd()): string | undefi
     try {
       execFileSync('git', ['rev-parse', '--verify', '--quiet', ref], {
         cwd,
+        env: withoutLocalGitEnv(),
         stdio: ['ignore', 'ignore', 'ignore'],
       });
       return true;
@@ -79,6 +81,7 @@ export function detectAutoDiffBase(cwd: string = process.cwd()): string | undefi
   try {
     execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
       cwd,
+      env: withoutLocalGitEnv(),
       stdio: ['ignore', 'ignore', 'ignore'],
     });
   } catch {
@@ -1173,6 +1176,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
       const sanitizedBase = diffBase.replace(/[^a-zA-Z0-9_./\-~]/g, '');
       const diffFiles = execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMR', sanitizedBase], {
         encoding: 'utf-8',
+        env: withoutLocalGitEnv(),
       })
         .trim()
         .split('\n')
@@ -1198,7 +1202,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
       try {
         const unifiedDiff = execFileSync('git', ['diff', '--unified=0', '--diff-filter=ACMR', sanitizedBase], {
           encoding: 'utf-8',
-          env: { ...process.env, LC_ALL: 'C' },
+          env: { ...withoutLocalGitEnv(), LC_ALL: 'C' },
         });
         let currentFile = '';
         for (const line of unifiedDiff.split('\n')) {
