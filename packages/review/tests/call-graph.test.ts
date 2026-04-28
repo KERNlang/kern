@@ -251,6 +251,62 @@ export default function helper() { return 42; }
     expect(helperCall!.resolved).toBe(true);
     expect(helperCall!.targetName).toBe('helper');
   });
+
+  it('walks 3-hop curated barrel chain to the real declaration', () => {
+    // Outer barrel re-exports from inner barrel re-exports from worker. When
+    // ts-morph's `getExportedDeclarations()` traces this end-to-end the chain
+    // walk is unused; when it cannot (the empirically observed failure mode)
+    // the explicit walk lands the binding at worker.ts so dead-export does
+    // not flag worker.ts#helper as a false positive.
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import { helper } from './outer-barrel.js';
+export function main() { helper(); }
+`,
+    );
+    project.createSourceFile('/src/outer-barrel.ts', `export { helper } from './inner-barrel.js';`);
+    project.createSourceFile('/src/inner-barrel.ts', `export { helper } from './worker.js';`);
+    project.createSourceFile('/src/worker.ts', `export function helper() { return 1; }`);
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    expect(callGraph.deadExports).not.toContain('/src/worker.ts#helper');
+    const fnHelper = callGraph.functions.get('/src/worker.ts#helper');
+    expect(fnHelper!.calledBy.some((c) => c.callerFile === '/src/main.ts')).toBe(true);
+  });
+
+  it('does not overgeneralise: chain lands on the re-export target, not a same-named twin', () => {
+    // A different file that happens to export `helper` must NOT be wired up
+    // as the call target just because the names match — that is the file-scope
+    // trap from the three known-broken paths. The decoy is reachable in the
+    // import graph (main.ts imports it) so it lives in `callGraph.functions`,
+    // and we assert the call from main.ts lands on worker, not on decoy.
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/main.ts',
+      `
+import { helper } from './barrel.js';
+import { helper as decoyHelper } from './decoy.js';
+export function main() { helper(); decoyHelper; }
+`,
+    );
+    project.createSourceFile('/src/barrel.ts', `export { helper } from './worker.js';`);
+    project.createSourceFile('/src/worker.ts', `export function helper() { return 1; }`);
+    project.createSourceFile('/src/decoy.ts', `export function helper() { return 999; }`);
+
+    const graph = resolveImportGraph(['/src/main.ts'], { project });
+    const callGraph = buildCallGraph(graph, project);
+
+    const fnMain = callGraph.functions.get('/src/main.ts#main');
+    const helperCall = fnMain!.calls.find((c) => c.targetName === 'helper');
+    expect(helperCall!.targetFile).toBe('/src/worker.ts');
+
+    const fnDecoy = callGraph.functions.get('/src/decoy.ts#helper');
+    expect(fnDecoy!.calledBy.length).toBe(0);
+  });
 });
 
 describe('Call Graph: local alias tracking', () => {
