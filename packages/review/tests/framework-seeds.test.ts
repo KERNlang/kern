@@ -193,6 +193,61 @@ describe('KNOWN_FRAMEWORK_SEEDS — proxy forward-compat (step 7b)', () => {
   });
 });
 
+// Phase 4 follow-up — Nuxt 3+ conventions. SCOPE: only Nuxt-specific
+// path shapes are seeded. Generic top-level `middleware/`, `plugins/`,
+// `modules/`, `composables/` dirs are NOT seeded because non-Nuxt
+// projects with similarly-named dirs would over-mark stale code as
+// public-API. Vue SFCs (`.vue`) are not reviewed at all so
+// `pages/**/*.vue`, `layouts/**/*.vue`, `components/**/*.vue` are
+// intentionally absent.
+describe('KNOWN_FRAMEWORK_SEEDS — Nuxt server routes', () => {
+  it.each([
+    ['server/api/users.ts', 'Nuxt server/api handler'],
+    ['server/api/users/[id].ts', 'Nuxt server/api handler'],
+    ['server/middleware/auth.ts', 'Nuxt server/middleware handler'],
+    ['server/plugins/init.ts', 'Nuxt server/plugins handler'],
+    ['server/routes/sitemap.xml.ts', 'Nuxt server/routes handler'],
+  ])('matches `%s` to default-only seed (%s)', (relPath, why) => {
+    const seed = getFrameworkSeed(`/repo/${relPath}`);
+    expect(seed?.why).toBe(why);
+    expect(seed?.symbols).toEqual(['default']);
+  });
+
+  it('matches js variants of Nuxt server handlers', () => {
+    const seed = getFrameworkSeed('/repo/server/api/legacy.js');
+    expect(seed?.why).toBe('Nuxt server/api handler');
+  });
+});
+
+describe('KNOWN_FRAMEWORK_SEEDS — Nuxt config', () => {
+  it.each([
+    ['/repo/nuxt.config.ts', 'Nuxt config'],
+    ['/repo/nuxt.config.js', 'Nuxt config'],
+  ])('matches `%s` to default-only seed', (path, why) => {
+    const seed = getFrameworkSeed(path);
+    expect(seed?.why).toBe(why);
+    expect(seed?.symbols).toEqual(['default']);
+  });
+});
+
+describe('KNOWN_FRAMEWORK_SEEDS — Nuxt scope-narrowing', () => {
+  // Confirm we did NOT introduce broad seeds that would over-match
+  // non-Nuxt projects. A top-level `middleware/` dir in an arbitrary
+  // codebase must not inherit Nuxt's default-export public-API status
+  // — otherwise stale middlewares get silently silenced.
+  it('does NOT match a non-Nuxt top-level middleware/ file', () => {
+    expect(getFrameworkSeed('/repo/middleware/auth.ts')).toBeUndefined();
+  });
+
+  it('does NOT match a non-Nuxt top-level plugins/ file', () => {
+    expect(getFrameworkSeed('/repo/plugins/setup.ts')).toBeUndefined();
+  });
+
+  it('does NOT match a non-Nuxt top-level composables/ file', () => {
+    expect(getFrameworkSeed('/repo/composables/useFoo.ts')).toBeUndefined();
+  });
+});
+
 describe('KNOWN_FRAMEWORK_SEEDS — invariants', () => {
   it('every seed lists at least one symbol (no whole-file or empty seeds)', () => {
     for (const seed of KNOWN_FRAMEWORK_SEEDS) {

@@ -58,6 +58,11 @@ const TS_CORE_CAPABILITIES: CapabilityEntry[] = [
   // `<K, V>` on type, interface, fn, class. Routed through emitTypeAnnotation
   // (whitespace + bracket-balance).
   { feature: 'generics', position: 'top-level', support: 'native' },
+  // Slice 2g — cross-`.kern` symbol resolution via `use path="..."` parent
+  // with `from name=X as=Y export=true` children. `.kern` paths translate to
+  // `.js` in the emitted TS import; `export=true` produces an additional
+  // `export { ... } from '...'` re-export line.
+  { feature: 'cross-kern-import', position: 'top-level', support: 'native' },
 ];
 
 const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
@@ -147,6 +152,15 @@ const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
     position: 'top-level',
     support: 'unsupported',
     note: 'FastAPI codegen does not yet emit TypeVar / Generic[T] declarations',
+  },
+  // Slice 2g — Python could in principle map `.kern → .py` via `from <module>
+  // import <name> as <alias>`, but the FastAPI generator has no such branch
+  // yet. Default to unsupported until the path is wired explicitly.
+  {
+    feature: 'cross-kern-import',
+    position: 'top-level',
+    support: 'unsupported',
+    note: 'FastAPI codegen does not yet translate `.kern` paths to Python `from x import y` syntax',
   },
 ];
 

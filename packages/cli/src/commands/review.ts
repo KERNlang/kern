@@ -937,7 +937,16 @@ async function runReviewLocal(args: string[]): Promise<void> {
     process.exit(0);
   }
 
-  const recursive = hasFlag(args, '--recursive', '-r');
+  // `--full` is the user-facing "thorough" mode (opt out of diff-default,
+  // scan the whole project). It MUST imply `--recursive`: otherwise
+  // `kern review --full` from a repo root only scans top-level files,
+  // which is the opposite of what "full" suggests. This was a documented
+  // UX surprise (handoff item #4). The implication transitively activates
+  // `--graph` below (line: `graphMode = ... || recursive`), which is the
+  // thorough mode for cross-file dead-export / async rules — also what
+  // "full" should mean.
+  const fullMode = hasFlag(args, '--full');
+  const recursive = hasFlag(args, '--recursive', '-r') || fullMode;
   const enforce = hasFlag(args, '--enforce');
   const exportKern = hasFlag(args, '--export-kern');
   const llmMode = hasFlag(args, '--llm');
@@ -1048,7 +1057,6 @@ async function runReviewLocal(args: string[]): Promise<void> {
   let diffBase = args.some((a) => a === '--diff' || a.startsWith('--diff'))
     ? parseFlagOrNext(args, '--diff') || 'origin/main'
     : undefined;
-  const fullMode = hasFlag(args, '--full');
 
   if (fullMode && diffBase) {
     console.error('  --full and --diff are mutually exclusive.');
