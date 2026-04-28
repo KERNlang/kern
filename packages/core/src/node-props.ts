@@ -60,6 +60,14 @@ export interface FromProps extends BaseProps {
   as?: string;
 }
 
+export interface LetProps extends BaseProps {
+  // Slice 3a — `value` is the native ValueIR-canonicalised form; `expr` is
+  // the raw passthrough escape hatch. One of the two must be present.
+  value?: string | ExprObject;
+  expr?: string | ExprObject;
+  type?: string;
+}
+
 export interface IndexerProps extends BaseProps {
   keyName?: string;
   keyType?: string;
@@ -607,6 +615,7 @@ export interface NodePropsMap {
   member: MemberProps;
   use: UseProps;
   from: FromProps;
+  let: LetProps;
   indexer: IndexerProps;
   overload: OverloadProps;
   service: ServiceProps;

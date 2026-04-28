@@ -1093,11 +1093,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   let: {
     description:
-      'Iteration-scoped binding — emits a plain `const` inside the containing `each` callback. Use for values that depend on the iteration variable or index. Unlike `derive` (which compiles to `useMemo` and violates Rules of Hooks inside `.map`), `let` is hook-safe by construction.',
-    example: 'let name=idx expr="start + i"',
+      'Iteration-scoped binding — emits a plain `const` inside the containing `each` callback. Use for values that depend on the iteration variable or index. Unlike `derive` (which compiles to `useMemo` and violates Rules of Hooks inside `.map`), `let` is hook-safe by construction. Provide either `value=` (native expression form, ValueIR-canonicalised — slice 3a) or `expr=` (raw passthrough escape hatch).',
+    example: 'let name=idx value=i+1',
     props: {
       name: { required: true, kind: 'identifier' },
-      expr: { required: true, kind: 'rawExpr' },
+      value: { kind: 'expression' },
+      expr: { kind: 'rawExpr' },
       type: { kind: 'typeAnnotation' },
     },
   },
