@@ -418,3 +418,151 @@ describe('Phase 4 reachability types', () => {
     expect(reasons).toHaveLength(3);
   });
 });
+
+// Phase 4 follow-up — concrete blocker producers wired in graph.ts.
+//   Producer 1: named re-export with relative specifier whose target ts-morph
+//               cannot resolve (and extension fallback fails too) emits a
+//               symbol-scoped ReachabilityBlocker on the importing file's
+//               localName. Bare specifiers and resolved re-exports must NOT
+//               produce blockers — bare = missing dep / external dep, both
+//               handled elsewhere; resolved = no failure to record.
+//   Producer 2: non-literal `import(expr)` increments
+//               GraphResult.unmappedDynamicImports. NEVER produces a blocker
+//               (red-team CRITICAL #1 invariant). Edge stays absent (already
+//               covered by the "does NOT emit an edge" test above).
+describe('Producer 1 — unresolved named re-export → blocker', () => {
+  it('emits a blocker on the importing file localName when relative target does not resolve', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/barrel.ts', `export { foo } from './missing.js';\n`);
+
+    const result = resolveImportGraph(['/src/barrel.ts'], { project });
+
+    expect(result.blockers).toBeDefined();
+    expect(result.blockers).toHaveLength(1);
+    const b = result.blockers![0]!;
+    expect(b.reason).toBe('unresolved-re-export');
+    expect(b.filePath).toBe('/src/barrel.ts');
+    expect(b.exportName).toBe('foo');
+    expect(b.site.file).toBe('/src/barrel.ts');
+    expect(b.site.line).toBeGreaterThan(0);
+  });
+
+  it('uses the local alias when the re-export renames', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/barrel.ts', `export { foo as bar } from './missing.js';\n`);
+
+    const result = resolveImportGraph(['/src/barrel.ts'], { project });
+
+    expect(result.blockers).toHaveLength(1);
+    expect(result.blockers![0]!.exportName).toBe('bar');
+  });
+
+  it('does NOT emit a blocker when the re-export target resolves cleanly', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/barrel.ts', `export { foo } from './worker.js';\n`);
+    project.createSourceFile('/src/worker.ts', `export function foo() {}\n`);
+
+    const result = resolveImportGraph(['/src/barrel.ts'], { project });
+    expect(result.blockers ?? []).toHaveLength(0);
+  });
+
+  it('does NOT emit a blocker for unresolved bare specifiers (missing dep, not unknowable target)', () => {
+    const project = createTestProject();
+    // Bare specifier — the dead-export rule's package-public-API logic
+    // already handles symbols re-exported to external consumers. Producing
+    // a blocker here would double-cap and obscure missing-dep diagnostics.
+    project.createSourceFile('/src/barrel.ts', `export { foo } from 'some-missing-pkg';\n`);
+
+    const result = resolveImportGraph(['/src/barrel.ts'], { project });
+    expect(result.blockers ?? []).toHaveLength(0);
+  });
+
+  it('does NOT emit a blocker for `export * from` (cannot pin to a single export name)', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/barrel.ts', `export * from './missing.js';\n`);
+
+    const result = resolveImportGraph(['/src/barrel.ts'], { project });
+    // export-all has no localName to attach a symbol-scoped blocker to.
+    // Falling back to file scope would re-introduce red-team CRITICAL #1.
+    expect(result.blockers ?? []).toHaveLength(0);
+  });
+
+  it('emits one blocker per unresolved named re-export, symbol-scoped', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/barrel.ts',
+      `export { foo, bar } from './missing.js';\nexport { baz } from './also-missing.js';\n`,
+    );
+
+    const result = resolveImportGraph(['/src/barrel.ts'], { project });
+    expect(result.blockers).toHaveLength(3);
+    const names = (result.blockers ?? []).map((b) => b.exportName).sort();
+    expect(names).toEqual(['bar', 'baz', 'foo']);
+  });
+});
+
+describe('Producer 2 — non-literal dynamic import → telemetry counter', () => {
+  it('increments unmappedDynamicImports for `import(expr)` and emits NO blocker', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/router.ts',
+      `const ROUTES: Record<string, string> = { a: './a' };\nasync function go(role: string) { await import(ROUTES[role]); }\n`,
+    );
+    project.createSourceFile('/src/a.ts', `export function aHandler() {}\n`);
+
+    const result = resolveImportGraph(['/src/router.ts'], { project });
+
+    expect(result.unmappedDynamicImports).toBe(1);
+    // Symbol scope is unknowable — must NEVER produce a blocker.
+    expect(result.blockers ?? []).toHaveLength(0);
+  });
+
+  it('counts every non-literal call site, not just the first', () => {
+    const project = createTestProject();
+    project.createSourceFile(
+      '/src/router.ts',
+      `declare const a: string;\ndeclare const b: string;\nasync function go() { await import(a); await import(b); }\n`,
+    );
+
+    const result = resolveImportGraph(['/src/router.ts'], { project });
+    expect(result.unmappedDynamicImports).toBe(2);
+  });
+
+  it('literal dynamic imports do NOT count toward the telemetry counter', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/loader.ts', `async function go() { await import('./feature.js'); }\n`);
+    project.createSourceFile('/src/feature.ts', `export function featureHandler() {}\n`);
+
+    const result = resolveImportGraph(['/src/loader.ts'], { project });
+    expect(result.unmappedDynamicImports ?? 0).toBe(0);
+  });
+});
+
+// The previous static-import catch silently swallowed every ts-morph
+// error during decl processing — operators had no signal that analysis
+// degraded. Now we count + surface via review-health (and log under
+// KERN_DEBUG). The counter must be ZERO on healthy input so the health
+// surface only fires when something actually went wrong.
+describe('Malformed-import telemetry counter', () => {
+  it('counts zero for well-formed source', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/a.ts', `import { foo } from './b.js';\nexport const a = foo;\n`);
+    project.createSourceFile('/src/b.ts', `export const foo = 1;\n`);
+
+    const result = resolveImportGraph(['/src/a.ts'], { project });
+    expect(result.malformedImports ?? 0).toBe(0);
+  });
+
+  it('exposes a malformedImports field on GraphResult (shape contract)', () => {
+    const project = createTestProject();
+    project.createSourceFile('/src/empty.ts', '');
+
+    const result = resolveImportGraph(['/src/empty.ts'], { project });
+    // Field shape contract: the GraphResult API must expose the counter
+    // even when no failures occurred. Triggering an actual ts-morph throw
+    // from a synthetic in-memory fixture is unreliable (ts-morph's parser
+    // recovers from most malformations); the contract test guards against
+    // accidentally dropping the field from the public shape.
+    expect(typeof result.malformedImports).toBe('number');
+  });
+});

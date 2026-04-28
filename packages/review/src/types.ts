@@ -519,6 +519,32 @@ export interface GraphResult {
   /** ts-morph Project used to resolve the graph. Exposed so downstream
    *  analyses (call graph, cross-file taint) can reuse it without re-parsing. */
   project?: import('ts-morph').Project;
+  /**
+   * Symbol-scoped reachability blockers discovered during graph resolution.
+   * Currently fed by Producer 1 (named re-export with unresolved relative
+   * target). Consumed by deadExportRule to cap finding confidence at 0.4
+   * with severity=info instead of emitting at full strength. Empty when
+   * every re-export resolved cleanly. NEVER file-scope — see jsdoc on
+   * ReachabilityBlocker.
+   */
+  blockers?: ReachabilityBlocker[];
+  /**
+   * Telemetry-only counter: number of `import(expr)` call sites where the
+   * specifier is non-literal. Cannot derive a target file or export name
+   * from these, so they NEVER produce a blocker (would re-introduce the
+   * red-team CRITICAL #1 file-scope silencer). Reported via review-health
+   * so consumers know dead-export findings on files containing such
+   * dynamic dispatch may include FPs that the cap mechanism cannot reach.
+   */
+  unmappedDynamicImports?: number;
+  /**
+   * Telemetry-only counter: number of static import declarations that
+   * threw when ts-morph tried to read them (malformed AST, transient FS
+   * error, etc.). Surfaced via review-health so a silent catch never
+   * hides a category of failures from operators. Set KERN_DEBUG to also
+   * log the underlying error per occurrence.
+   */
+  malformedImports?: number;
 }
 
 /**
