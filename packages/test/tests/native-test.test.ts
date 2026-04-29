@@ -273,6 +273,99 @@ describe('native kern test runner', () => {
     expect(summary.results[0].message).toContain('Transition capture is not reachable');
   });
 
+  test('asserts machine transitions and constrained reachability paths', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=confirmed',
+        '  state name=paid',
+        '  state name=refunded',
+        '  state name=cancelled',
+        '  transition name=confirm from=pending to=confirmed',
+        '  transition name=capture from=confirmed to=paid guard="entity.confirmed === true"',
+        '  transition name=refund from=paid to=refunded',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order machine shape" target="./order.kern"',
+        '  it name="declares guarded capture transition"',
+        '    expect machine=Order transition=capture from=confirmed to=paid guarded=true',
+        '  it name="declares unguarded refund transition"',
+        '    expect machine=Order transition=refund from=paid to=refunded guarded=false',
+        '  it name="can start reachability from a non-initial state"',
+        '    expect machine=Order from=confirmed reaches=paid via=capture',
+        '  it name="happy path passes through paid without refund"',
+        '    expect machine=Order reaches=refunded via=confirm,capture,refund through=paid avoid=cancelled maxSteps=3',
+        '  it name="finds constrained path without explicit transitions"',
+        '    expect machine=Order from=confirmed reaches=refunded through=confirmed,paid avoids=cancelled maxSteps=2',
+        '  it name="allows zero-step reachability when start is target"',
+        '    expect machine=Order from=paid reaches=paid maxSteps=0',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(6);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'machine:transition',
+      'machine:transition',
+      'machine:reaches',
+      'machine:reaches',
+      'machine:reaches',
+      'machine:reaches',
+    ]);
+  });
+
+  test('fails constrained machine assertions with KERN-level messages', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=confirmed',
+        '  state name=paid',
+        '  transition name=confirm from=pending to=confirmed',
+        '  transition name=capture from=confirmed to=paid',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order machine shape" target="./order.kern"',
+        '  it name="catches transition drift"',
+        '    expect machine=Order transition=capture from=pending to=paid guarded=true',
+        '  it name="catches forbidden path states"',
+        '    expect machine=Order reaches=paid via=confirm,capture avoid=confirmed',
+        '  it name="catches too-long paths"',
+        '    expect machine=Order reaches=paid via=confirm,capture maxSteps=1',
+        '  it name="catches unknown start states"',
+        '    expect machine=Order from=missing reaches=paid',
+        '  it name="catches avoided start states"',
+        '    expect machine=Order from=confirmed reaches=paid avoid=confirmed',
+        '  it name="catches invalid max step values"',
+        '    expect machine=Order reaches=paid maxSteps=-1',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(6);
+    expect(summary.results[0].ruleId).toBe('machine:transition');
+    expect(summary.results[0].message).toContain('did not match constraints');
+    expect(summary.results[1].message).toContain('reaches avoided state confirmed');
+    expect(summary.results[2].message).toContain('above maxSteps=1');
+    expect(summary.results[3].message).toContain('State not found in machine Order: missing');
+    expect(summary.results[4].message).toContain('starts at avoided state confirmed');
+    expect(summary.results[5].message).toContain('maxSteps must be a non-negative integer');
+  });
+
   test('fails on derive cycles', () => {
     writeFileSync(
       join(tmpDir, 'derived.kern'),
@@ -351,6 +444,100 @@ describe('native kern test runner', () => {
     expect(summary.results[0].message).toContain('missing variants: paypal');
   });
 
+  test('scans target variant guards for exhaustiveness without per-guard expect assertions', () => {
+    writeFileSync(
+      join(tmpDir, 'payment.kern'),
+      [
+        'union name=Payment discriminant=kind',
+        '  variant name=card',
+        '  variant name=paypal',
+        '  variant name=wire',
+        'union name=Notification discriminant=kind',
+        '  variant name=email',
+        '  variant name=sms',
+        'guard name=ChargeCard kind=variant over=Payment covers=card,paypal',
+        'guard name=InferPayment kind=variant covers=card,paypal',
+        'guard name=VerifyPayment kind=variant over=Payment covers=card,paypal,wire',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'payment.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Payment guard surface" target="./payment.kern"',
+        '  it name="all variant guards stay exhaustive"',
+        '    expect no=nonExhaustiveGuards',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('no:nonexhaustiveguards');
+    expect(summary.results[0].message).toContain('guard ChargeCard');
+    expect(summary.results[0].message).toContain('guard InferPayment');
+    expect(summary.results[0].message).toContain('missing variants: wire');
+    expect(summary.results[0].message).not.toContain('VerifyPayment');
+  });
+
+  test('infers target union for single-union variant guards', () => {
+    writeFileSync(
+      join(tmpDir, 'payment.kern'),
+      [
+        'union name=Payment discriminant=kind',
+        '  variant name=card',
+        '  variant name=paypal',
+        'guard name=ChargeCard kind=variant covers=card',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'payment.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Payment guard surface" target="./payment.kern"',
+        '  it name="all variant guards stay exhaustive"',
+        '    expect no=nonExhaustiveGuards',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain('guard ChargeCard');
+    expect(summary.results[0].message).toContain('missing variants: paypal');
+  });
+
+  test('reports non-exhaustive guard union resolution failures', () => {
+    writeFileSync(
+      join(tmpDir, 'payment.kern'),
+      [
+        'union name=Payment discriminant=kind',
+        '  variant name=card',
+        '  variant name=paypal',
+        'union name=Notification discriminant=kind',
+        '  variant name=email',
+        '  variant name=sms',
+        'guard name=UnknownPayment kind=variant over=Missing covers=card',
+        'guard name=AmbiguousVariant kind=variant',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'payment.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Payment guard surface" target="./payment.kern"',
+        '  it name="all variant guards stay exhaustive"',
+        '    expect no=nonExhaustiveGuards',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain('references unknown union Missing');
+    expect(summary.results[0].message).toContain('cannot infer union');
+  });
+
   test('passes the broader safety invariant pack when guards and validation are present', () => {
     writeFileSync(
       join(tmpDir, 'api.kern'),
@@ -386,7 +573,7 @@ describe('native kern test runner', () => {
     expect(summary.passed).toBe(4);
   });
 
-  test('fails on duplicate routes, weak guards, unguarded effects, and raw handlers', () => {
+  test('fails on duplicate routes, empty routes, weak guards, unguarded effects, and raw handlers', () => {
     writeFileSync(
       join(tmpDir, 'api.kern'),
       [
@@ -396,6 +583,7 @@ describe('native kern test runner', () => {
         '      await db.create(input);',
         '    >>>',
         '  route method=post path=/orders',
+        '  route method=get path=/empty',
         '  route method=get path=/unsafe',
         '    guard name=hasUser expr={{user}}',
         '    handler <<<',
@@ -414,6 +602,8 @@ describe('native kern test runner', () => {
         'test name="API safety" target="./api.kern"',
         '  it name="routes stay unique"',
         '    expect no=duplicateRoutes',
+        '  it name="routes declare behavior"',
+        '    expect no=emptyRoutes',
         '  it name="mutating routes are guarded"',
         '    expect no=unvalidatedRoutes',
         '  it name="effects are guarded"',
@@ -427,12 +617,62 @@ describe('native kern test runner', () => {
 
     const summary = runNativeKernTests(testFile);
 
-    expect(summary.failed).toBe(5);
+    expect(summary.failed).toBe(6);
     expect(summary.results[0].message).toContain('POST /orders');
-    expect(summary.results[1].message).toContain('mutates without schema/validate/guard/auth');
-    expect(summary.results[2].message).toContain('performs database query without guard/auth/validate/permission');
-    expect(summary.results[3].message).toContain('has expr but no else/handler');
-    expect(summary.results[4].message).toContain('Found raw handler escapes');
+    expect(summary.results[1].message).toContain('POST /orders');
+    expect(summary.results[1].message).toContain('GET /empty');
+    expect(summary.results[2].message).toContain('mutates without schema/validate/guard/auth');
+    expect(summary.results[3].message).toContain('performs database query without guard/auth/validate/permission');
+    expect(summary.results[4].message).toContain('has expr but no else/handler');
+    expect(summary.results[5].message).toContain('Found raw handler escapes');
+  });
+
+  test('apiSafety preset includes empty route detection', () => {
+    writeFileSync(
+      join(tmpDir, 'api.kern'),
+      ['server name=Api', '  route method=get path=/empty'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'api.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="API preset safety" target="./api.kern"',
+        '  it name="routes are executable"',
+        '    expect preset=apiSafety',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.passed).toBe(4);
+    expect(summary.results[1].ruleId).toBe('no:emptyroutes');
+    expect(summary.results[1].message).toContain('GET /empty');
+  });
+
+  test('does not flag routes with portable behavior nodes as empty', () => {
+    writeFileSync(
+      join(tmpDir, 'api.kern'),
+      [
+        'server name=Api',
+        '  route method=get path=/orders',
+        '    derive orders expr={{await db.orders.list()}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'api.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="API behavior" target="./api.kern"',
+        '  it name="routes declare executable nodes"',
+        '    expect no=emptyRoutes',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(1);
   });
 
   test('fails on guard misconfigurations', () => {
@@ -814,11 +1054,12 @@ describe('native kern test runner', () => {
     const summary = runNativeKernTests(testFile);
 
     expect(summary.failed).toBe(0);
-    expect(summary.passed).toBe(5);
+    expect(summary.passed).toBe(6);
     expect(summary.results.map((result) => result.ruleId)).toEqual([
       'machine:reaches',
       'no:invalidguards',
       'no:weakguards',
+      'no:nonexhaustiveguards',
       'no:untestedtransitions',
       'no:untestedguards',
     ]);
@@ -855,6 +1096,72 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(1);
     expect(summary.results[1].ruleId).toBe('no:untestedtransitions');
     expect(summary.results[1].message).toContain('Order.refund');
+  });
+
+  test('does not count failed transition assertions as coverage', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=confirmed',
+        '  state name=paid',
+        '  transition name=confirm from=pending to=confirmed',
+        '  transition name=capture from=confirmed to=paid',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order coverage" target="./order.kern"',
+        '  it name="declares a broken capture contract"',
+        '    expect machine=Order transition=capture from=pending to=paid',
+        '  it name="all transitions have tests"',
+        '    expect machine=Order no=untestedTransitions',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(2);
+    expect(summary.results[0].ruleId).toBe('machine:transition');
+    expect(summary.results[1].ruleId).toBe('no:untestedtransitions');
+    expect(summary.results[1].message).toContain('Order.confirm');
+    expect(summary.results[1].message).toContain('Order.capture');
+  });
+
+  test('does not count failed reachability paths as coverage', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=confirmed',
+        '  state name=paid',
+        '  transition name=confirm from=pending to=confirmed',
+        '  transition name=capture from=confirmed to=paid',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order coverage" target="./order.kern"',
+        '  it name="declares a broken path"',
+        '    expect machine=Order reaches=paid via=capture',
+        '  it name="all transitions have tests"',
+        '    expect machine=Order no=untestedTransitions',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(2);
+    expect(summary.results[0].ruleId).toBe('machine:reaches');
+    expect(summary.results[1].ruleId).toBe('no:untestedtransitions');
+    expect(summary.results[1].message).toContain('Order.confirm');
+    expect(summary.results[1].message).toContain('Order.capture');
   });
 
   test('fails coverage when guards lack explicit or guard-wide assertions', () => {

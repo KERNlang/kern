@@ -497,6 +497,8 @@ export interface GuardProps extends BaseProps {
   when?: string;
   message?: string;
   covers?: string;
+  over?: string;
+  union?: string;
 }
 
 export interface AssumeProps extends BaseProps {
@@ -538,7 +540,15 @@ export interface ExpectProps extends BaseProps {
   node?: string;
   name?: string;
   machine?: string;
+  transition?: string;
+  from?: string;
+  to?: string;
+  guarded?: string | boolean;
   reaches?: string;
+  through?: string;
+  avoid?: string;
+  avoids?: string;
+  maxSteps?: string;
   via?: string;
   no?: string;
   guard?: string;

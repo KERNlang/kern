@@ -1120,6 +1120,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       kind: { kind: 'identifier' },
       type: { kind: 'identifier' },
       covers: { kind: 'string' },
+      over: { kind: 'identifier' },
+      union: { kind: 'identifier' },
       param: { kind: 'identifier' },
       field: { kind: 'identifier' },
       target: { kind: 'identifier' },
@@ -2361,7 +2363,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   expect: {
     description: 'Assertion — declare an expected runtime condition or KERN structural invariant',
     example:
-      'expect expr={{items.length > 0}} message="Items must not be empty"\nexpect machine=Order reaches=paid via=confirm,capture\nexpect node=interface name=User child=field count=3\nexpect no=deriveCycles',
+      'expect expr={{items.length > 0}} message="Items must not be empty"\nexpect machine=Order reaches=paid via=confirm,capture\nexpect machine=Order transition=capture from=confirmed to=paid\nexpect node=interface name=User child=field count=3\nexpect no=deriveCycles',
     props: {
       expr: { kind: 'rawExpr' },
       equals: { kind: 'rawExpr' },
@@ -2379,7 +2381,15 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       is: { kind: 'string' },
       count: { kind: 'number' },
       machine: { kind: 'identifier' },
+      transition: { kind: 'identifier' },
+      from: { kind: 'identifier' },
+      to: { kind: 'identifier' },
+      guarded: { kind: 'boolean' },
       reaches: { kind: 'identifier' },
+      through: { kind: 'string' },
+      avoid: { kind: 'string' },
+      avoids: { kind: 'string' },
+      maxSteps: { kind: 'number' },
       via: { kind: 'string' },
       no: { kind: 'identifier' },
       guard: { kind: 'identifier' },
@@ -2519,18 +2529,37 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
     const hasNodeShape = 'node' in props;
     const hasNegativeInvariant = 'no' in props;
     const hasGuardExhaustiveness = 'guard' in props;
-    const hasMachineReachability = 'reaches' in props || ('machine' in props && !hasNegativeInvariant);
+    const hasMachineTransition = 'transition' in props;
+    const hasMachineReachability =
+      'reaches' in props || ('machine' in props && !hasNegativeInvariant && !hasMachineTransition);
     if (
       !hasRuntimeAssertion &&
       !hasPreset &&
       !hasNodeShape &&
+      !hasMachineTransition &&
       !hasMachineReachability &&
       !hasNegativeInvariant &&
       !hasGuardExhaustiveness
     ) {
       violations.push({
         nodeType: 'expect',
-        message: "'expect' requires 'expr', 'preset', 'node', 'machine'/'reaches', 'no', or 'guard'",
+        message: "'expect' requires 'expr', 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasMachineTransition && !('machine' in props)) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' machine transition assertions require machine=<name>",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasMachineTransition && 'reaches' in props) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' cannot combine machine transition assertions with reaches=<state>",
         line: node.loc?.line,
         col: node.loc?.col,
       });

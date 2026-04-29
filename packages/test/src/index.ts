@@ -158,20 +158,22 @@ const DISCOVERY_SKIP_DIRS = new Set([
 ]);
 
 const NATIVE_TEST_PRESETS: Record<string, string[]> = {
-  apisafety: ['duplicateRoutes', 'unvalidatedRoutes', 'unguardedEffects', 'uncheckedRoutePathParams'],
+  apisafety: ['duplicateRoutes', 'emptyRoutes', 'unvalidatedRoutes', 'unguardedEffects', 'uncheckedRoutePathParams'],
   coverage: ['untestedTransitions', 'untestedGuards'],
   effects: ['unguardedEffects', 'sensitiveEffectsRequireAuth', 'effectWithoutCleanup', 'unrecoveredAsync'],
-  guard: ['invalidGuards', 'weakGuards'],
+  guard: ['invalidGuards', 'weakGuards', 'nonExhaustiveGuards'],
   machine: ['deadStates', 'duplicateTransitions'],
   mcpsafety: ['duplicateParams', 'invalidGuards', 'unguardedToolParams', 'missingPathGuards', 'ssrfRisks'],
   strict: [
     'duplicateNames',
     'duplicateRoutes',
+    'emptyRoutes',
     'duplicateTransitions',
     'deadStates',
     'deriveCycles',
     'codegenErrors',
     'invalidGuards',
+    'nonExhaustiveGuards',
     'unvalidatedRoutes',
     'unguardedEffects',
     'weakGuards',
@@ -192,6 +194,10 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
   {
     ruleId: 'machine:reaches',
     description: 'A machine can reach the requested state, optionally through an explicit transition path.',
+  },
+  {
+    ruleId: 'machine:transition',
+    description: 'A machine declares a named transition with optional from/to/guarded constraints.',
   },
   { ruleId: 'guard:exhaustive', description: 'A guard covers every variant of the referenced union type.' },
   {
@@ -229,6 +235,11 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
     presets: ['apiSafety', 'strict'],
   },
   {
+    ruleId: 'no:emptyroutes',
+    description: 'Routes declare executable behavior with handler/respond/redirect/stream/spawn.',
+    presets: ['apiSafety', 'strict'],
+  },
+  {
     ruleId: 'no:unvalidatedroutes',
     description: 'Mutating routes have schema, validation, guard, or auth coverage.',
     presets: ['apiSafety', 'strict'],
@@ -247,6 +258,11 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
   {
     ruleId: 'no:weakguards',
     description: 'Expression guards include an else branch, handler, or typed security kind.',
+    presets: ['guard', 'strict'],
+  },
+  {
+    ruleId: 'no:nonexhaustiveguards',
+    description: 'Variant guards that declare covered cases cover every variant of their union.',
     presets: ['guard', 'strict'],
   },
   {
@@ -679,6 +695,9 @@ function assertionLabel(node: IRNode): string {
   const childName = str(props.childName);
   const count = props.count === undefined ? '' : String(props.count);
   const machine = str(props.machine);
+  const transition = str(props.transition);
+  const from = str(props.from);
+  const to = str(props.to);
   const reaches = str(props.reaches);
   const no = str(props.no);
   const guard = str(props.guard);
@@ -698,7 +717,24 @@ function assertionLabel(node: IRNode): string {
   }
   if (no) return `${machine ? `machine ${machine} ` : ''}no ${no}`;
   if (guard) return `guard ${guard} exhaustive`;
-  if (machine || reaches) return `machine ${machine || '<missing>'} reaches ${reaches || '<missing>'}`;
+  if (machine && transition) {
+    return [
+      `machine ${machine} transition ${transition}`,
+      from ? `from ${from}` : '',
+      to ? `to ${to}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
+  if (machine || reaches) {
+    return [
+      `machine ${machine || '<missing>'}`,
+      from ? `from ${from}` : '',
+      `reaches ${reaches || '<missing>'}`,
+    ]
+      .filter(Boolean)
+      .join(' ');
+  }
   if (expr && equals) return `expr ${expr} equals ${equals}`;
   if (expr && matches) return `expr ${expr} matches ${matches}`;
   if (expr && throws) return `expr ${expr} throws ${throws}`;
@@ -835,6 +871,18 @@ function findDuplicateRoutes(root: IRNode): string[] {
     }
   }
   return failures;
+}
+
+function routeHasBehavior(route: IRNode): boolean {
+  return ['handler', 'respond', 'derive', 'fmt', 'branch', 'each', 'collect', 'effect'].some(
+    (childType) => getChildren(route, childType).length > 0,
+  );
+}
+
+function findEmptyRoutes(root: IRNode): string[] {
+  return collectNodes(root, 'route')
+    .filter((route) => !routeHasBehavior(route))
+    .map((route) => `${nodeLabel(route)} at line ${route.loc?.line ?? '?'} has no behavior node`);
 }
 
 function findDuplicateSiblingNames(root: IRNode): string[] {
@@ -1337,6 +1385,28 @@ function assertionCoversAnyInvariant(node: IRNode, invariants: Set<string>): boo
   return presetInvariantNames(node).some((invariant) => invariants.has(invariant));
 }
 
+function syntheticTarget(root: IRNode): LoadedKernDocument {
+  return { file: '<coverage>', root, diagnostics: [], schemaViolations: [], semanticViolations: [] };
+}
+
+function coveredTransitionsFromAssertion(root: IRNode, assertion: IRNode): { machineName: string; transitions: Set<string> } | undefined {
+  const props = getProps(assertion);
+  const machineName = str(props.machine);
+  if (!machineName || 'no' in props) return undefined;
+
+  const transitionName = str(props.transition);
+  if (transitionName) {
+    const evaluated = evaluateMachineTransitionAssertion(assertion, syntheticTarget(root));
+    return evaluated.passed ? { machineName, transitions: new Set([transitionName]) } : undefined;
+  }
+
+  const via = parseList(str(props.via));
+  if (!('reaches' in props) || via.length === 0) return undefined;
+
+  const evaluated = evaluateMachineReachability(assertion, syntheticTarget(root));
+  return evaluated.passed ? { machineName, transitions: new Set(via) } : undefined;
+}
+
 function findUntestedTransitions(
   root: IRNode,
   context: NativeKernAssertionContext | undefined,
@@ -1347,13 +1417,11 @@ function findUntestedTransitions(
 
   const coveredByMachine = new Map<string, Set<string>>();
   for (const assertion of context?.assertions || []) {
-    const props = getProps(assertion.node);
-    const assertedMachine = str(props.machine);
-    if (!assertedMachine || !('reaches' in props) || 'no' in props) continue;
-    if (machineName && assertedMachine !== machineName) continue;
-    const covered = coveredByMachine.get(assertedMachine) || new Set<string>();
-    for (const transitionName of parseList(str(props.via))) covered.add(transitionName);
-    coveredByMachine.set(assertedMachine, covered);
+    const coverage = coveredTransitionsFromAssertion(root, assertion.node);
+    if (!coverage || (machineName && coverage.machineName !== machineName)) continue;
+    const covered = coveredByMachine.get(coverage.machineName) || new Set<string>();
+    for (const transitionName of coverage.transitions) covered.add(transitionName);
+    coveredByMachine.set(coverage.machineName, covered);
   }
 
   const failures: string[] = [];
@@ -1370,7 +1438,14 @@ function findUntestedTransitions(
 }
 
 function findUntestedGuards(root: IRNode, context: NativeKernAssertionContext | undefined): string[] {
-  const guardCoverageInvariants = new Set(['invalidguards', 'guardmisconfigurations', 'weakguards']);
+  const guardCoverageInvariants = new Set([
+    'invalidguards',
+    'guardmisconfigurations',
+    'weakguards',
+    'nonexhaustiveguards',
+    'guardexhaustiveness',
+    'exhaustiveguards',
+  ]);
   const assertions = context?.assertions || [];
   if (assertions.some((assertion) => assertionCoversAnyInvariant(assertion.node, guardCoverageInvariants))) return [];
 
@@ -1437,12 +1512,11 @@ function machineTransitionCoverage(root: IRNode, assertions: CollectedAssertion[
   const coveredByMachine = new Map<string, Set<string>>();
 
   for (const assertion of assertions) {
-    const props = getProps(assertion.node);
-    const assertedMachine = str(props.machine);
-    if (!assertedMachine || !('reaches' in props) || 'no' in props) continue;
-    const covered = coveredByMachine.get(assertedMachine) || new Set<string>();
-    for (const transitionName of parseList(str(props.via))) covered.add(transitionName);
-    coveredByMachine.set(assertedMachine, covered);
+    const coverage = coveredTransitionsFromAssertion(root, assertion.node);
+    if (!coverage) continue;
+    const covered = coveredByMachine.get(coverage.machineName) || new Set<string>();
+    for (const transitionName of coverage.transitions) covered.add(transitionName);
+    coveredByMachine.set(coverage.machineName, covered);
   }
 
   let total = 0;
@@ -1464,7 +1538,14 @@ function machineTransitionCoverage(root: IRNode, assertions: CollectedAssertion[
 
 function guardCoverage(root: IRNode, assertions: CollectedAssertion[]): NativeKernTestCoverageMetric {
   const guards = collectNodes(root, 'guard');
-  const guardCoverageInvariants = new Set(['invalidguards', 'guardmisconfigurations', 'weakguards']);
+  const guardCoverageInvariants = new Set([
+    'invalidguards',
+    'guardmisconfigurations',
+    'weakguards',
+    'nonexhaustiveguards',
+    'guardexhaustiveness',
+    'exhaustiveguards',
+  ]);
   if (assertions.some((assertion) => assertionCoversAnyInvariant(assertion.node, guardCoverageInvariants))) {
     return coverageMetric(guards.length, []);
   }
@@ -1875,6 +1956,53 @@ function nodeSearchText(node: IRNode): string {
   return parts.filter(Boolean).join('\n');
 }
 
+function unionVariantNames(union: IRNode): string[] {
+  return getChildren(union, 'variant')
+    .map((variant) => str(getProps(variant).name) || str(getProps(variant).type))
+    .filter(Boolean);
+}
+
+function isVariantGuardCandidate(guard: IRNode): boolean {
+  const props = getProps(guard);
+  const kind = guardKind(guard);
+  return Boolean(str(props.over) || str(props.union) || str(props.covers) || kind === 'variant' || kind === 'exhaustive');
+}
+
+function resolveGuardUnion(root: IRNode | undefined, guard: IRNode, requestedUnion?: string): IRNode | undefined {
+  const unions = collectNodes(root, 'union');
+  const guardProps = getProps(guard);
+  const unionName = requestedUnion || str(guardProps.over) || str(guardProps.union);
+  if (unionName) return unions.find((candidate) => str(getProps(candidate).name) === unionName);
+
+  const covered = new Set(parseNameList(str(guardProps.covers)));
+  if (covered.size > 0) {
+    const candidates = unions.filter((union) => {
+      const variants = new Set(unionVariantNames(union));
+      return [...covered].every((variant) => variants.has(variant));
+    });
+    if (candidates.length === 1) return candidates[0];
+  }
+
+  return unions.length === 1 ? unions[0] : undefined;
+}
+
+function guardCoveredVariants(guard: IRNode, assertion?: IRNode): Set<string> {
+  return new Set([
+    ...(assertion ? parseNameList(str(getProps(assertion).covers)) : []),
+    ...parseNameList(str(getProps(guard).covers)),
+    ...parseNameList(str(getProps(guard).allow)),
+  ]);
+}
+
+function missingGuardVariants(guard: IRNode, union: IRNode, assertion?: IRNode): string[] {
+  const explicitCoverage = guardCoveredVariants(guard, assertion);
+  const searchable = nodeSearchText(guard);
+  return unionVariantNames(union).filter((variant) => {
+    if (explicitCoverage.has(variant)) return false;
+    return !new RegExp(`(?:^|[^A-Za-z0-9_$])${escapeRegExp(variant)}(?:$|[^A-Za-z0-9_$])`).test(searchable);
+  });
+}
+
 function evaluateGuardExhaustiveness(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -1889,12 +2017,7 @@ function evaluateGuardExhaustiveness(node: IRNode, target: LoadedKernDocument): 
   if (!guard) return { passed: false, message: `Guard not found: ${guardName}` };
 
   const unionName = str(props.over) || str(props.union);
-  const unions = collectNodes(target.root, 'union');
-  const union = unionName
-    ? unions.find((candidate) => str(getProps(candidate).name) === unionName)
-    : unions.length === 1
-      ? unions[0]
-      : undefined;
+  const union = resolveGuardUnion(target.root, guard, unionName);
 
   if (!union) {
     return {
@@ -1905,21 +2028,10 @@ function evaluateGuardExhaustiveness(node: IRNode, target: LoadedKernDocument): 
     };
   }
 
-  const variants = getChildren(union, 'variant')
-    .map((variant) => str(getProps(variant).name) || str(getProps(variant).type))
-    .filter(Boolean);
+  const variants = unionVariantNames(union);
   if (variants.length === 0) return { passed: false, message: `Union ${str(getProps(union).name)} has no variants` };
 
-  const explicitCoverage = new Set([
-    ...parseNameList(str(props.covers)),
-    ...parseNameList(str(getProps(guard).covers)),
-    ...parseNameList(str(getProps(guard).allow)),
-  ]);
-  const searchable = nodeSearchText(guard);
-  const missing = variants.filter((variant) => {
-    if (explicitCoverage.has(variant)) return false;
-    return !new RegExp(`(?:^|[^A-Za-z0-9_$])${escapeRegExp(variant)}(?:$|[^A-Za-z0-9_$])`).test(searchable);
-  });
+  const missing = missingGuardVariants(guard, union, node);
 
   return missing.length > 0
     ? {
@@ -1927,6 +2039,38 @@ function evaluateGuardExhaustiveness(node: IRNode, target: LoadedKernDocument): 
         message: `Guard ${guardName} is not exhaustive over ${str(getProps(union).name)}; missing variants: ${missing.join(', ')}`,
       }
     : { passed: true };
+}
+
+function findNonExhaustiveGuards(root: IRNode): string[] {
+  const failures: string[] = [];
+  for (const guard of collectNodes(root, 'guard')) {
+    if (!isVariantGuardCandidate(guard)) continue;
+
+    const props = getProps(guard);
+    const unionName = str(props.over) || str(props.union);
+    const union = resolveGuardUnion(root, guard, unionName);
+    const label = `${nodeLabel(guard)} at line ${guard.loc?.line ?? '?'}`;
+    if (!union) {
+      failures.push(
+        unionName
+          ? `${label} references unknown union ${unionName}`
+          : `${label} cannot infer union; add over=<UnionName> or union=<UnionName>`,
+      );
+      continue;
+    }
+
+    const variants = unionVariantNames(union);
+    if (variants.length === 0) {
+      failures.push(`${label} targets union ${str(getProps(union).name)} with no variants`);
+      continue;
+    }
+
+    const missing = missingGuardVariants(guard, union);
+    if (missing.length > 0) {
+      failures.push(`${label} is not exhaustive over ${str(getProps(union).name)}; missing variants: ${missing.join(', ')}`);
+    }
+  }
+  return failures;
 }
 
 interface NodeMatch {
@@ -2113,6 +2257,15 @@ function evaluateNoInvariant(
       : { passed: true };
   }
 
+  if (invariant === 'emptyroutes' || invariant === 'missingroutehandlers' || invariant === 'missingrouteresponses') {
+    const blocking = targetBlockingMessage(target);
+    if (blocking) return { passed: false, message: blocking };
+    const emptyRoutes = findEmptyRoutes(target.root!);
+    return emptyRoutes.length > 0
+      ? { passed: false, message: `Found empty routes: ${emptyRoutes.join('; ')}` }
+      : { passed: true };
+  }
+
   if (invariant === 'duplicatenames' || invariant === 'duplicatesiblingnames') {
     const blocking = targetBlockingMessage(target);
     if (blocking) return { passed: false, message: blocking };
@@ -2128,6 +2281,15 @@ function evaluateNoInvariant(
     const weakGuards = findWeakGuards(target.root!);
     return weakGuards.length > 0
       ? { passed: false, message: `Found weak guards: ${weakGuards.join('; ')}` }
+      : { passed: true };
+  }
+
+  if (invariant === 'nonexhaustiveguards' || invariant === 'guardexhaustiveness' || invariant === 'exhaustiveguards') {
+    const blocking = targetBlockingMessage(target);
+    if (blocking) return { passed: false, message: blocking };
+    const nonExhaustive = findNonExhaustiveGuards(target.root!);
+    return nonExhaustive.length > 0
+      ? { passed: false, message: `Found non-exhaustive guards: ${nonExhaustive.join('; ')}` }
       : { passed: true };
   }
 
@@ -2271,6 +2433,22 @@ function evaluateMachineReachability(node: IRNode, target: LoadedKernDocument): 
   const props = getProps(node);
   const machineName = str(props.machine);
   const targetState = str(props.reaches);
+  const fromState = str(props.from);
+  const throughStates = parseNameList(str(props.through));
+  const avoidedStates = new Set([...parseNameList(str(props.avoid)), ...parseNameList(str(props.avoids))]);
+  const maxSteps = props.maxSteps === undefined || props.maxSteps === '' ? undefined : Number(props.maxSteps);
+  if (!machineName) {
+    return { passed: false, message: 'Machine reachability assertion requires machine=<name>' };
+  }
+  if (!targetState) {
+    return { passed: false, message: 'Machine reachability assertion requires reaches=<state>' };
+  }
+  if (maxSteps !== undefined && (!Number.isInteger(maxSteps) || maxSteps < 0)) {
+    return {
+      passed: false,
+      message: `Machine reachability maxSteps must be a non-negative integer: ${String(props.maxSteps)}`,
+    };
+  }
   const machine = collectNodes(target.root, 'machine').find(
     (candidate) => str(getProps(candidate).name) === machineName,
   );
@@ -2289,13 +2467,26 @@ function evaluateMachineReachability(node: IRNode, target: LoadedKernDocument): 
   const initialState = states.find((state) => state.initial)?.name || states[0]?.name;
 
   if (!initialState) return { passed: false, message: `Machine ${machineName} has no states` };
+  const startState = fromState || initialState;
+  if (!states.some((state) => state.name === startState)) {
+    return { passed: false, message: `State not found in machine ${machineName}: ${startState}` };
+  }
   if (!states.some((state) => state.name === targetState)) {
     return { passed: false, message: `State not found in machine ${machineName}: ${targetState}` };
+  }
+  for (const through of throughStates) {
+    if (!states.some((state) => state.name === through)) {
+      return { passed: false, message: `State not found in machine ${machineName}: ${through}` };
+    }
+  }
+  if (avoidedStates.has(startState)) {
+    return { passed: false, message: `Path starts at avoided state ${startState} in machine ${machineName}` };
   }
 
   const via = parseList(str(props.via));
   if (via.length > 0) {
-    let current = initialState;
+    let current = startState;
+    const pathStates = [current];
     for (const transitionName of via) {
       const transition = transitions.find(
         (candidate) => candidate.name === transitionName && candidate.from.includes(current),
@@ -2307,17 +2498,41 @@ function evaluateMachineReachability(node: IRNode, target: LoadedKernDocument): 
         };
       }
       current = transition.to;
+      pathStates.push(current);
+      if (avoidedStates.has(current)) {
+        return {
+          passed: false,
+          message: `Path ${via.join(' -> ')} reaches avoided state ${current} in machine ${machineName}`,
+        };
+      }
+    }
+    if (maxSteps !== undefined && via.length > maxSteps) {
+      return {
+        passed: false,
+        message: `Path ${via.join(' -> ')} uses ${via.length} transitions, above maxSteps=${maxSteps}`,
+      };
+    }
+    const missingThrough = throughStates.filter((state) => !pathStates.includes(state));
+    if (missingThrough.length > 0) {
+      return {
+        passed: false,
+        message: `Path ${via.join(' -> ')} does not pass through required state(s): ${missingThrough.join(', ')}`,
+      };
     }
     return current === targetState
       ? { passed: true, message: `Path ${via.join(' -> ')} reaches ${targetState}` }
       : { passed: false, message: `Path ${via.join(' -> ')} ended at ${current}, not ${targetState}` };
   }
 
-  const queue: { state: string; path: string[] }[] = [{ state: initialState, path: [] }];
-  const visited = new Set<string>([initialState]);
+  const defaultMaxDepth = Math.max(transitions.length + states.length, states.length);
+  const maxDepth = maxSteps ?? defaultMaxDepth;
+  const queue: { state: string; path: string[]; states: string[] }[] = [{ state: startState, path: [], states: [startState] }];
+  const initialSatisfiedThrough = throughStates.filter((state) => state === startState).join(',');
+  const visited = new Set<string>([`${startState}:${initialSatisfiedThrough}`]);
   while (queue.length > 0) {
     const current = queue.shift()!;
-    if (current.state === targetState) {
+    const missingThrough = throughStates.filter((state) => !current.states.includes(state));
+    if (current.state === targetState && missingThrough.length === 0) {
       return {
         passed: true,
         message:
@@ -2326,16 +2541,68 @@ function evaluateMachineReachability(node: IRNode, target: LoadedKernDocument): 
             : 'Target is initial state',
       };
     }
+    if (current.path.length >= maxDepth) continue;
     for (const transition of transitions.filter((candidate) => candidate.from.includes(current.state))) {
-      if (visited.has(transition.to)) continue;
-      visited.add(transition.to);
-      queue.push({ state: transition.to, path: [...current.path, transition.name] });
+      if (avoidedStates.has(transition.to)) continue;
+      const nextStates = [...current.states, transition.to];
+      const satisfiedThrough = throughStates.filter((state) => nextStates.includes(state)).join(',');
+      const key = `${transition.to}:${satisfiedThrough}`;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      queue.push({ state: transition.to, path: [...current.path, transition.name], states: nextStates });
     }
   }
 
   return {
     passed: false,
-    message: `State ${targetState} is not reachable from ${initialState} in machine ${machineName}`,
+    message: `State ${targetState} is not reachable from ${startState} in machine ${machineName}`,
+  };
+}
+
+function evaluateMachineTransitionAssertion(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+
+  const props = getProps(node);
+  const machineName = str(props.machine);
+  const transitionName = str(props.transition);
+  if (!machineName) return { passed: false, message: 'Machine transition assertion requires machine=<name>' };
+  if (!transitionName) return { passed: false, message: 'Machine transition assertion requires transition=<name>' };
+
+  const machine = collectNodes(target.root, 'machine').find(
+    (candidate) => str(getProps(candidate).name) === machineName,
+  );
+  if (!machine) return { passed: false, message: `Machine not found: ${machineName}` };
+
+  const fromState = str(props.from);
+  const toState = str(props.to);
+  const guarded = props.guarded === undefined || props.guarded === '' ? undefined : isTruthy(props.guarded);
+  const transitions = getChildren(machine, 'transition').filter((transition) => {
+    const transitionProps = getProps(transition);
+    if (str(transitionProps.name) !== transitionName) return false;
+    if (fromState && !parseNameList(str(transitionProps.from)).includes(fromState)) return false;
+    if (toState && str(transitionProps.to) !== toState) return false;
+    if (guarded !== undefined) {
+      const hasGuard = transitionProps.guard !== undefined && transitionProps.guard !== '';
+      if (hasGuard !== guarded) return false;
+    }
+    return true;
+  });
+
+  if (transitions.length > 0) return { passed: true };
+
+  const declared = getChildren(machine, 'transition')
+    .filter((transition) => str(getProps(transition).name) === transitionName)
+    .map((transition) => {
+      const transitionProps = getProps(transition);
+      return `${str(transitionProps.name)} from=${str(transitionProps.from) || '<missing>'} to=${str(transitionProps.to) || '<missing>'}${transitionProps.guard !== undefined && transitionProps.guard !== '' ? ' guarded=true' : ' guarded=false'}`;
+    });
+  return {
+    passed: false,
+    message:
+      declared.length > 0
+        ? `Machine ${machineName} transition ${transitionName} did not match constraints from=${fromState || '<any>'} to=${toState || '<any>'}${guarded !== undefined ? ` guarded=${guarded}` : ''}; declared: ${declared.join('; ')}`
+        : `Machine ${machineName} transition not found: ${transitionName}`,
   };
 }
 
@@ -2416,6 +2683,18 @@ function evaluateNativeAssertion(
     return [
       {
         ruleId: 'guard:exhaustive',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('machine' in props && 'transition' in props) {
+    const evaluated = evaluateMachineTransitionAssertion(node, target);
+    return [
+      {
+        ruleId: 'machine:transition',
         assertion: assertionLabel(node),
         passed: evaluated.passed,
         ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),

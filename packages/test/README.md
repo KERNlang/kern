@@ -41,6 +41,8 @@ kern test path/to/tests --fail-on-warn
 test name="Order invariants" target="./order.kern"
   it name="reaches paid"
     expect machine=Order reaches=paid via=confirm,capture
+    expect machine=Order from=confirmed reaches=paid via=capture maxSteps=1
+    expect machine=Order transition=capture from=confirmed to=paid guarded=true
 
   it name="machine stays healthy"
     expect preset=machine
@@ -68,16 +70,20 @@ test name="Order invariants" target="./order.kern"
 Presets expand into granular checks:
 
 - `machine`: `deadStates`, `duplicateTransitions`
-- `guard`: `invalidGuards`, `weakGuards`
+- `guard`: `invalidGuards`, `weakGuards`, `nonExhaustiveGuards`
 - `coverage`: `untestedTransitions`, `untestedGuards`
-- `apiSafety`: `duplicateRoutes`, `unvalidatedRoutes`, `unguardedEffects`, `uncheckedRoutePathParams`
+- `apiSafety`: `duplicateRoutes`, `emptyRoutes`, `unvalidatedRoutes`, `unguardedEffects`, `uncheckedRoutePathParams`
 - `mcpSafety`: `duplicateParams`, `invalidGuards`, `unguardedToolParams`, `missingPathGuards`, `ssrfRisks`
 - `effects`: `unguardedEffects`, `sensitiveEffectsRequireAuth`, `effectWithoutCleanup`, `unrecoveredAsync`
 - `strict`: broad structural safety sweep
 
 Use `no=codegenErrors` as a smoke check when a suite should prove that valid KERN still reaches core code generation. It catches generator exceptions that parse/schema/semantic validation can miss.
 
+Use `expect machine=<Name> transition=<Transition>` for direct machine-edge assertions. Add `from=`, `to=`, and `guarded=true|false` when the transition contract matters independently from a full path. Reachability assertions can also start at a non-initial state with `from=`, require states with `through=`, forbid states with `avoid=`/`avoids=`, and cap path length with `maxSteps=`.
+
 Use `expect node=<type>` for KERN-native shape assertions over the target IR. Add `name=<name>` to narrow the node, `within=<ancestor-name-or-type>` to scope it under a parent declaration, `child=<type>` plus optional `childName=<name>` to assert direct children, `count=<n>` to assert cardinality, and `prop=<prop> is=<value>` to assert a KERN prop value. This is the preferred assertion when the invariant is about KERN declarations themselves, for example an interface field, machine state, class method, route param, or guard node.
+
+Use `no=nonExhaustiveGuards` to scan target-side variant guards that declare `covers=...`, `over=<Union>`, or `union=<Union>`. This is useful when Guard/Sight should catch a newly-added union variant before any backend compiler runs. Use `no=emptyRoutes` when route declarations must carry executable behavior through `handler`, `respond`, `derive`, `fmt`, `branch`, `each`, `collect`, or `effect`.
 
 Use `expect expr={{...}}` for small runtime assertions over referenced target-side `const`, `derive`, `let`, and simple pure `fn` bindings. A runtime `fn` must have a handler shaped as `return <expression>;`; multi-statement handlers remain structural only. Without a comparator, the expression must evaluate truthy. Add `equals=...` for deep equality, `matches="..."` for string/regex checks, or `throws=ErrorName` for expected exceptions. This MVP intentionally does not execute arbitrary application code; multi-statement expressions and unsafe globals such as `process`, `require`, `eval`, `Function`, `fetch`, timers, and `WebSocket` are rejected before execution.
 
