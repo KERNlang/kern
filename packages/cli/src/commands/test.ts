@@ -3,6 +3,7 @@ import {
   checkNativeKernTestBaseline,
   createNativeKernTestBaseline,
   explainNativeKernTestRule,
+  formatNativeKernTestCoverage,
   formatNativeKernTestRunSummary,
   formatNativeKernTestSummary,
   hasNativeKernTests,
@@ -21,6 +22,7 @@ export {
   checkNativeKernTestBaseline,
   createNativeKernTestBaseline,
   explainNativeKernTestRule,
+  formatNativeKernTestCoverage,
   formatNativeKernTestRunSummary,
   formatNativeKernTestSummary,
   listNativeKernTestRules,
@@ -312,13 +314,16 @@ export function runTest(args: string[]): void {
   const requestedFormat = requireValueFlag(args, '--format', '"default" or "compact"');
   const compact = hasFlag(args, '--compact') || requestedFormat === 'compact';
   const maxWarningsRaw = requireValueFlag(args, '--max-warnings', 'a non-negative integer');
+  const minCoverageRaw = requireValueFlag(args, '--min-coverage', 'a percentage from 0 to 100');
+  const coverage = hasFlag(args, '--coverage') || minCoverageRaw !== undefined;
   const baselinePath = requireValueFlag(args, '--baseline', 'a file path');
   const writeBaselinePath = requireValueFlag(args, '--write-baseline', 'a file path');
   const maxWarnings = maxWarningsRaw === undefined ? undefined : Number(maxWarningsRaw);
+  const minCoverage = minCoverageRaw === undefined ? undefined : Number(minCoverageRaw);
 
   if (!testInput) {
     console.error(
-      'Usage: kern test <file-or-dir> [--json] [--grep <pattern>] [--bail] [--fail-on-warn] [--max-warnings <n>] [--baseline <file>] [--write-baseline <file>] [--pass-with-no-tests] [--format compact] [--compact] [--list-rules] [--explain-rule <rule>] [--generate] [--outdir=<dir>] [--dry-run]',
+      'Usage: kern test <file-or-dir> [--json] [--grep <pattern>] [--bail] [--fail-on-warn] [--max-warnings <n>] [--coverage] [--min-coverage <pct>] [--baseline <file>] [--write-baseline <file>] [--pass-with-no-tests] [--format compact] [--compact] [--list-rules] [--explain-rule <rule>] [--generate] [--outdir=<dir>] [--dry-run]',
     );
     console.error('');
     console.error('Runs native KERN tests when the file contains test/describe/it nodes.');
@@ -336,6 +341,10 @@ export function runTest(args: string[]): void {
   }
   if (maxWarnings !== undefined && (!Number.isInteger(maxWarnings) || maxWarnings < 0)) {
     console.error('--max-warnings requires a non-negative integer.');
+    process.exit(2);
+  }
+  if (minCoverage !== undefined && (Number.isNaN(minCoverage) || minCoverage < 0 || minCoverage > 100)) {
+    console.error('--min-coverage requires a percentage from 0 to 100.');
     process.exit(2);
   }
   if (baselinePath && writeBaselinePath) {
@@ -362,10 +371,16 @@ export function runTest(args: string[]): void {
         ? `${JSON.stringify(summary, null, 2)}\n`
         : formatNativeKernTestRunSummary(summary, compact ? { format: 'compact' } : undefined),
     );
+    if (coverage && !json) process.stdout.write(formatNativeKernTestCoverage(summary.coverage));
     const baselineFailed = handleNativeBaseline(summary, { baselinePath, writeBaselinePath });
+    const coverageFailed = minCoverage !== undefined && summary.coverage.percent < minCoverage;
+    if (coverageFailed) {
+      console.error(`Native coverage ${summary.coverage.percent}% is below --min-coverage ${minCoverage}%.`);
+    }
     if (
       summary.failed > 0 ||
       baselineFailed ||
+      coverageFailed ||
       (failOnWarn && summary.warnings > 0) ||
       (maxWarnings !== undefined && summary.warnings > maxWarnings) ||
       (grep && summary.total === 0 && summary.files.length > 0 && !passWithNoTests)
@@ -383,10 +398,16 @@ export function runTest(args: string[]): void {
         ? `${JSON.stringify(summary, null, 2)}\n`
         : formatNativeKernTestSummary(summary, compact ? { format: 'compact' } : undefined),
     );
+    if (coverage && !json) process.stdout.write(formatNativeKernTestCoverage(summary.coverage));
     const baselineFailed = handleNativeBaseline(summary, { baselinePath, writeBaselinePath });
+    const coverageFailed = minCoverage !== undefined && summary.coverage.percent < minCoverage;
+    if (coverageFailed) {
+      console.error(`Native coverage ${summary.coverage.percent}% is below --min-coverage ${minCoverage}%.`);
+    }
     if (
       summary.failed > 0 ||
       baselineFailed ||
+      coverageFailed ||
       (failOnWarn && summary.warnings > 0) ||
       (maxWarnings !== undefined && summary.warnings > maxWarnings) ||
       (grep && summary.total === 0 && !passWithNoTests)

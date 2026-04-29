@@ -422,6 +422,59 @@ describe('kern test command', () => {
     expect(process.exitCode).toBeUndefined();
   });
 
+  test('prints and gates native coverage', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=confirmed',
+        '  state name=paid',
+        '  transition name=confirm from=pending to=confirmed',
+        '  transition name=capture from=confirmed to=paid',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order coverage" target="./order.kern"',
+        '  it name="covers confirm"',
+        '    expect machine=Order reaches=confirmed via=confirm',
+      ].join('\n'),
+    );
+
+    const chunks: string[] = [];
+    const errors: string[] = [];
+    const originalWrite = process.stdout.write;
+    const originalError = console.error;
+    process.stdout.write = ((chunk: string | Uint8Array): boolean => {
+      chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8'));
+      return true;
+    }) as typeof process.stdout.write;
+    console.error = (...values: unknown[]) => {
+      errors.push(values.map(String).join(' '));
+    };
+
+    try {
+      runTest(['test', testFile, '--coverage', '--min-coverage', '50']);
+      expect(chunks.join('')).toContain('coverage 1/2 (50%)');
+      expect(chunks.join('')).toContain('Order.capture');
+      expect(process.exitCode).toBeUndefined();
+
+      chunks.length = 0;
+      errors.length = 0;
+      process.exitCode = undefined;
+      runTest(['test', testFile, '--coverage', '--min-coverage', '100']);
+      expect(chunks.join('')).toContain('coverage 1/2 (50%)');
+      expect(errors.join('\n')).toContain('Native coverage 50% is below --min-coverage 100%.');
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.stdout.write = originalWrite;
+      console.error = originalError;
+    }
+  });
+
   test('writes and enforces native warning baselines', () => {
     writeFileSync(
       join(tmpDir, 'order.kern'),

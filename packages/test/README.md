@@ -19,6 +19,8 @@ kern test path/to/tests --json
 kern test path/to/tests --grep Order
 kern test path/to/tests --bail
 kern test path/to/tests --format compact
+kern test path/to/tests --coverage
+kern test path/to/tests --min-coverage 80
 kern test path/to/tests --max-warnings 4
 kern test path/to/tests --write-baseline kern-test-baseline.json
 kern test path/to/tests --baseline kern-test-baseline.json
@@ -64,6 +66,8 @@ Use `no=codegenErrors` as a smoke check when a suite should prove that valid KER
 
 Use `preset=coverage` when Guard/Sight need a native signal for untested KERN surface. Machine transition coverage is driven by explicit `via=...` reachability assertions. Guard coverage passes when guards have explicit `expect guard=<name> exhaustive=true` assertions or a guard-wide assertion such as `expect preset=guard`.
 
+Use `--coverage` to print native transition/guard coverage. Use `--min-coverage <pct>` to fail CI when combined machine-transition and guard coverage drops below the threshold. JSON summaries always include the same `coverage` object.
+
 Use `severity=warn` for known migration debt that should stay visible without failing local runs. CI can promote warnings to failures with `kern test <file-or-dir> --fail-on-warn`.
 
 Use `--grep <pattern>` to run only matching suites, cases, assertions, rule IDs, messages, or files. The CLI exits nonzero when a grep run matches zero assertions. Use `--bail` to stop after the first failed native assertion.
@@ -85,6 +89,7 @@ Use `--list-rules` and `--explain-rule <rule>` to inspect the native rule IDs th
 ```ts
 import {
   discoverNativeKernTestFiles,
+  formatNativeKernTestCoverage,
   formatNativeKernTestRunSummary,
   runNativeKernTestRun,
   runNativeKernTests,
@@ -93,6 +98,7 @@ import {
 const fileSummary = runNativeKernTests('order.test.kern', { grep: 'Order', bail: true });
 const runSummary = runNativeKernTestRun('examples/native-test', { grep: /coverage|guard/i });
 console.log(formatNativeKernTestRunSummary(runSummary));
+console.log(formatNativeKernTestCoverage(runSummary.coverage));
 ```
 
 Runtime `expect expr={{...}}` assertions are intentionally not executed here yet. This package currently owns structural KERN assertions; generated/runtime test execution remains separate.

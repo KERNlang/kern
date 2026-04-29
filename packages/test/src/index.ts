@@ -20,6 +20,28 @@ export interface NativeKernTestResult {
   col?: number;
 }
 
+export interface NativeKernTestCoverageMetric {
+  total: number;
+  covered: number;
+  percent: number;
+  uncovered: string[];
+}
+
+export interface NativeKernTestCoverageTarget {
+  file: string;
+  transitions: NativeKernTestCoverageMetric;
+  guards: NativeKernTestCoverageMetric;
+}
+
+export interface NativeKernTestCoverageSummary {
+  total: number;
+  covered: number;
+  percent: number;
+  transitions: NativeKernTestCoverageMetric;
+  guards: NativeKernTestCoverageMetric;
+  targets: NativeKernTestCoverageTarget[];
+}
+
 export interface NativeKernTestSummary {
   file: string;
   targetFiles: string[];
@@ -28,6 +50,7 @@ export interface NativeKernTestSummary {
   warnings: number;
   failed: number;
   results: NativeKernTestResult[];
+  coverage: NativeKernTestCoverageSummary;
 }
 
 export interface NativeKernTestRunSummary {
@@ -39,6 +62,7 @@ export interface NativeKernTestRunSummary {
   warnings: number;
   failed: number;
   files: NativeKernTestSummary[];
+  coverage: NativeKernTestCoverageSummary;
 }
 
 export interface NativeKernTestBaselineEntry {
@@ -1212,6 +1236,131 @@ function findUntestedGuards(root: IRNode, context: NativeKernAssertionContext | 
     });
 }
 
+function coverageMetric(total: number, uncovered: string[]): NativeKernTestCoverageMetric {
+  const covered = Math.max(0, total - uncovered.length);
+  return {
+    total,
+    covered,
+    percent: total === 0 ? 100 : Math.round((covered / total) * 10000) / 100,
+    uncovered,
+  };
+}
+
+function combineCoverageMetrics(metrics: NativeKernTestCoverageMetric[]): NativeKernTestCoverageMetric {
+  const total = metrics.reduce((sum, metric) => sum + metric.total, 0);
+  const uncovered = metrics.flatMap((metric) => metric.uncovered);
+  return coverageMetric(total, uncovered);
+}
+
+function emptyCoverageSummary(): NativeKernTestCoverageSummary {
+  const empty = coverageMetric(0, []);
+  return {
+    total: 0,
+    covered: 0,
+    percent: 100,
+    transitions: empty,
+    guards: empty,
+    targets: [],
+  };
+}
+
+function combineCoverageSummaries(summaries: NativeKernTestCoverageSummary[]): NativeKernTestCoverageSummary {
+  const transitions = combineCoverageMetrics(summaries.map((summary) => summary.transitions));
+  const guards = combineCoverageMetrics(summaries.map((summary) => summary.guards));
+  const total = transitions.total + guards.total;
+  const covered = transitions.covered + guards.covered;
+  return {
+    total,
+    covered,
+    percent: total === 0 ? 100 : Math.round((covered / total) * 10000) / 100,
+    transitions,
+    guards,
+    targets: summaries.flatMap((summary) => summary.targets),
+  };
+}
+
+function machineTransitionCoverage(root: IRNode, assertions: CollectedAssertion[]): NativeKernTestCoverageMetric {
+  const machines = selectedMachines(root);
+  const coveredByMachine = new Map<string, Set<string>>();
+
+  for (const assertion of assertions) {
+    const props = getProps(assertion.node);
+    const assertedMachine = str(props.machine);
+    if (!assertedMachine || !('reaches' in props) || 'no' in props) continue;
+    const covered = coveredByMachine.get(assertedMachine) || new Set<string>();
+    for (const transitionName of parseList(str(props.via))) covered.add(transitionName);
+    coveredByMachine.set(assertedMachine, covered);
+  }
+
+  let total = 0;
+  const uncovered: string[] = [];
+  for (const machine of machines) {
+    const name = str(getProps(machine).name) || '<unnamed>';
+    const covered = coveredByMachine.get(name) || new Set<string>();
+    for (const transition of getChildren(machine, 'transition')) {
+      const transitionName = str(getProps(transition).name);
+      if (!transitionName) continue;
+      total += 1;
+      if (!covered.has(transitionName)) {
+        uncovered.push(`${name}.${transitionName} at line ${transition.loc?.line ?? '?'}`);
+      }
+    }
+  }
+  return coverageMetric(total, uncovered);
+}
+
+function guardCoverage(root: IRNode, assertions: CollectedAssertion[]): NativeKernTestCoverageMetric {
+  const guards = collectNodes(root, 'guard');
+  const guardCoverageInvariants = new Set(['invalidguards', 'guardmisconfigurations', 'weakguards']);
+  if (assertions.some((assertion) => assertionCoversAnyInvariant(assertion.node, guardCoverageInvariants))) {
+    return coverageMetric(guards.length, []);
+  }
+
+  const explicitlyCovered = new Set(assertions.map((assertion) => str(getProps(assertion.node).guard)).filter(Boolean));
+  const uncovered = guards
+    .filter((guard) => {
+      const name = str(getProps(guard).name);
+      return !name || !explicitlyCovered.has(name);
+    })
+    .map((guard) => {
+      const name = str(getProps(guard).name);
+      return name
+        ? `guard ${name} at line ${guard.loc?.line ?? '?'}`
+        : `unnamed guard at line ${guard.loc?.line ?? '?'}`;
+    });
+  return coverageMetric(guards.length, uncovered);
+}
+
+function coverageForTarget(target: LoadedKernDocument, assertions: CollectedAssertion[]): NativeKernTestCoverageTarget {
+  if (!target.root) {
+    return {
+      file: target.file,
+      transitions: coverageMetric(0, []),
+      guards: coverageMetric(0, []),
+    };
+  }
+  return {
+    file: target.file,
+    transitions: machineTransitionCoverage(target.root, assertions),
+    guards: guardCoverage(target.root, assertions),
+  };
+}
+
+function createCoverageSummary(targets: NativeKernTestCoverageTarget[]): NativeKernTestCoverageSummary {
+  const transitions = combineCoverageMetrics(targets.map((target) => target.transitions));
+  const guards = combineCoverageMetrics(targets.map((target) => target.guards));
+  const total = transitions.total + guards.total;
+  const covered = transitions.covered + guards.covered;
+  return {
+    total,
+    covered,
+    percent: total === 0 ? 100 : Math.round((covered / total) * 10000) / 100,
+    transitions,
+    guards,
+    targets,
+  };
+}
+
 function codegenRoots(root: IRNode): IRNode[] {
   return root.type === 'document' ? root.children || [] : [root];
 }
@@ -1796,6 +1945,29 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
 
   const testNodes = collectNodes(testDoc.root, 'test');
   const targetCache = new Map<string, LoadedKernDocument>([[inputPath, testDoc]]);
+  const assertionsByTarget = new Map<string, CollectedAssertion[]>();
+
+  const summarize = () =>
+    summarizeNativeTestRun(
+      inputPath,
+      targetFiles,
+      results,
+      createCoverageSummary(
+        [...targetFiles].sort().map((targetFile) => {
+          const target = targetCache.get(targetFile);
+          return coverageForTarget(
+            target || {
+              file: targetFile,
+              diagnostics: [],
+              schemaViolations: [],
+              semanticViolations: [],
+              readError: `Target not loaded: ${targetFile}`,
+            },
+            assertionsByTarget.get(targetFile) || [],
+          );
+        }),
+      ),
+    );
 
   for (const testNode of testNodes) {
     const suite = str(getProps(testNode).name) || 'unnamed test';
@@ -1810,6 +1982,7 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
     }
 
     const assertions = collectAssertions(testNode);
+    assertionsByTarget.set(targetPath, [...(assertionsByTarget.get(targetPath) || []), ...assertions]);
     if (assertions.length === 0) {
       results.push({
         suite,
@@ -1847,13 +2020,13 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
         if (!grepMatches(options, result)) continue;
         results.push(result);
         if (options.bail && result.status === 'failed') {
-          return summarizeNativeTestRun(inputPath, targetFiles, results);
+          return summarize();
         }
       }
     }
   }
 
-  return summarizeNativeTestRun(inputPath, targetFiles, results);
+  return summarize();
 }
 
 export function runNativeKernTestRun(input: string, options: NativeKernTestOptions = {}): NativeKernTestRunSummary {
@@ -1874,6 +2047,7 @@ export function runNativeKernTestRun(input: string, options: NativeKernTestOptio
       warnings: 0,
       failed: options.passWithNoTests ? 0 : 1,
       files: [],
+      coverage: emptyCoverageSummary(),
     };
   }
 
@@ -1891,6 +2065,7 @@ export function runNativeKernTestRun(input: string, options: NativeKernTestOptio
     warnings: files.reduce((sum, file) => sum + file.warnings, 0),
     failed: files.reduce((sum, file) => sum + file.failed, 0),
     files,
+    coverage: combineCoverageSummaries(files.map((file) => file.coverage)),
   };
 }
 
@@ -1898,6 +2073,7 @@ function summarizeNativeTestRun(
   file: string,
   targetFiles: Set<string>,
   results: NativeKernTestResult[],
+  coverage: NativeKernTestCoverageSummary = emptyCoverageSummary(),
 ): NativeKernTestSummary {
   const passed = results.filter((result) => result.status === 'passed').length;
   const warnings = results.filter((result) => result.status === 'warning').length;
@@ -1910,6 +2086,7 @@ function summarizeNativeTestRun(
     warnings,
     failed,
     results,
+    coverage,
   };
 }
 
@@ -2003,6 +2180,29 @@ export function checkNativeKernTestBaseline(
 
 function nativeCountsLine(summary: Pick<NativeKernTestSummary, 'failed' | 'passed' | 'total' | 'warnings'>): string {
   return `${summary.passed} passed, ${summary.warnings} warnings, ${summary.failed} failed, ${summary.total} total`;
+}
+
+function coverageLine(name: string, metric: NativeKernTestCoverageMetric): string {
+  return `${name}: ${metric.covered}/${metric.total} (${metric.percent}%)`;
+}
+
+export function formatNativeKernTestCoverage(coverage: NativeKernTestCoverageSummary): string {
+  const lines = [
+    `coverage ${coverage.covered}/${coverage.total} (${coverage.percent}%)`,
+    coverageLine('transitions', coverage.transitions),
+    coverageLine('guards', coverage.guards),
+  ];
+  const uncoveredTransitions = coverage.transitions.uncovered;
+  const uncoveredGuards = coverage.guards.uncovered;
+  if (uncoveredTransitions.length > 0) {
+    lines.push('uncovered transitions:');
+    for (const item of uncoveredTransitions) lines.push(`  ${item}`);
+  }
+  if (uncoveredGuards.length > 0) {
+    lines.push('uncovered guards:');
+    for (const item of uncoveredGuards) lines.push(`  ${item}`);
+  }
+  return `${lines.join('\n')}\n`;
 }
 
 function formatNativeKernTestResult(result: NativeKernTestResult, summaryFile: string): string[] {

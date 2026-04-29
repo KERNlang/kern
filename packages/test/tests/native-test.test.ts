@@ -5,6 +5,7 @@ import {
   checkNativeKernTestBaseline,
   createNativeKernTestBaseline,
   discoverNativeKernTestFiles,
+  formatNativeKernTestCoverage,
   formatNativeKernTestRunSummary,
   formatNativeKernTestSummary,
   runNativeKernTestRun,
@@ -638,6 +639,53 @@ describe('native kern test runner', () => {
     expect(summary.results[1].ruleId).toBe('no:untestedguards');
     expect(summary.results[1].message).toContain('guard VerifyUser');
     expect(summary.results[1].message).toContain('expect preset=guard');
+  });
+
+  test('reports native coverage metrics for transitions and guards', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=confirmed',
+        '  state name=paid',
+        '  state name=refunded',
+        '  transition name=confirm from=pending to=confirmed',
+        '  transition name=capture from=confirmed to=paid',
+        '  transition name=refund from=paid to=refunded',
+        'union name=Payment discriminant=kind',
+        '  variant name=card',
+        '  variant name=paypal',
+        'guard name=ChargeCard kind=variant covers=card,paypal',
+        'guard name=VerifyUser kind=variant covers=card,paypal',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'coverage.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Coverage report" target="./order.kern"',
+        '  it name="covers happy path"',
+        '    expect machine=Order reaches=paid via=confirm,capture',
+        '  it name="charge guard is exhaustive"',
+        '    expect guard=ChargeCard exhaustive=true over=Payment',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+    const output = formatNativeKernTestCoverage(summary.coverage);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.coverage.total).toBe(5);
+    expect(summary.coverage.covered).toBe(3);
+    expect(summary.coverage.percent).toBe(60);
+    expect(summary.coverage.transitions.uncovered).toEqual(['Order.refund at line 8']);
+    expect(summary.coverage.guards.uncovered).toEqual(['guard VerifyUser at line 13']);
+    expect(output).toContain('coverage 3/5 (60%)');
+    expect(output).toContain('uncovered transitions:');
+    expect(output).toContain('Order.refund');
+    expect(output).toContain('uncovered guards:');
+    expect(output).toContain('guard VerifyUser');
   });
 
   test('passes language surface smoke for arrays classes and functions', () => {
