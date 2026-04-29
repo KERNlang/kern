@@ -1,0 +1,32 @@
+{
+  "name": "@kernlang/test",
+  "version": "3.3.9",
+  "description": "Native KERN structural test runner",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "kern",
+    "test",
+    "runner",
+    "guards",
+    "invariants"
+  ],
+  "license": "AGPL-3.0",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
+  },
+  "dependencies": {
+    "@kernlang/core": "workspace:*"
+  }
+}
