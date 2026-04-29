@@ -88,6 +88,15 @@ const TS_CORE_CAPABILITIES: CapabilityEntry[] = [
   // the raw TS statement verbatim. Codegen, importer, and decompiler all
   // round-trip simple patterns; complex patterns survive but stay opaque.
   { feature: 'destructure-native', position: 'top-level', support: 'native' },
+  // Slice 3e — `mapLit`/`setLit` add native top-level nodes for Map/Set
+  // declarations: `mapLit name=cache type="Map<string,number>"` with
+  // `mapEntry key=k value=v` children emits `new Map([[k, v]])`; same for
+  // `setLit`/`setItem`. Complex shapes (computed keys, spread, conditional
+  // entries) fall through to legacy `const` with handler block. Inline
+  // Map/Set literals inside expression-typed props still use the
+  // `value={{ new Map([...]) }}` escape hatch — slice 3e is statement-level
+  // sugar only, not a parser-grammar extension.
+  { feature: 'maplit-setlit-native', position: 'top-level', support: 'native' },
 ];
 
 const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
@@ -215,6 +224,16 @@ const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
     position: 'top-level',
     support: 'unsupported',
     note: 'FastAPI codegen has not been wired to lower `destructure` nodes; would need per-binding assignment lowering',
+  },
+  // Slice 3e — Python's `dict`/`set` literals are syntactically different
+  // from TS `Map`/`Set` and FastAPI codegen has not been wired to lower
+  // `mapLit`/`setLit` to either form. Marked unsupported per slice 3b/3c/3d
+  // precedent until a dedicated Python emitter exists.
+  {
+    feature: 'maplit-setlit-native',
+    position: 'top-level',
+    support: 'unsupported',
+    note: 'FastAPI codegen has not been wired to lower `mapLit`/`setLit` to Python `dict`/`set` literals',
   },
 ];
 

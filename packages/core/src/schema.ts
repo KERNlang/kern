@@ -407,6 +407,49 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       index: { kind: 'string' },
     },
   },
+  mapLit: {
+    description:
+      'Native Map<K,V> literal — emits `const name: Type = new Map([[k1, v1], [k2, v2]]);` from `mapEntry` children. For complex shapes (computed keys, conditional entries, spread), use the `expr={{...}}` escape hatch which carries the raw TS statement verbatim. Slice 3e.',
+    example: 'mapLit name=cache type="Map<string, number>"\n  mapEntry key="foo" value=1\n  mapEntry key="bar" value=2',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      kind: { kind: 'string' },
+      export: { kind: 'boolean' },
+      expr: { kind: 'rawExpr' },
+    },
+    allowedChildren: ['mapEntry'],
+  },
+  mapEntry: {
+    description:
+      'Map-literal entry inside a `mapLit` parent. `key` and `value` are both expression-typed and ValueIR-canonicalised. Slice 3e.',
+    example: 'mapEntry key="foo" value=1',
+    props: {
+      key: { required: true, kind: 'expression' },
+      value: { required: true, kind: 'expression' },
+    },
+  },
+  setLit: {
+    description:
+      'Native Set<T> literal — emits `const name: Type = new Set([v1, v2]);` from `setItem` children. For complex shapes (conditional members, spread), use the `expr={{...}}` escape hatch which carries the raw TS statement verbatim. Slice 3e.',
+    example: 'setLit name=allowed type="Set<string>"\n  setItem value="admin"\n  setItem value="user"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      kind: { kind: 'string' },
+      export: { kind: 'boolean' },
+      expr: { kind: 'rawExpr' },
+    },
+    allowedChildren: ['setItem'],
+  },
+  setItem: {
+    description:
+      'Set-literal item inside a `setLit` parent. `value` is expression-typed and ValueIR-canonicalised. Slice 3e.',
+    example: 'setItem value="admin"',
+    props: {
+      value: { required: true, kind: 'expression' },
+    },
+  },
   on: {
     description: 'Event listener — binds a handler to a named event',
     example: 'on event=click handler=handleClick',

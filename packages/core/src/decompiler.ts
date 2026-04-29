@@ -58,6 +58,20 @@ export function decompile(root: IRNode): DecompileResult {
       renderDestructureChild(node, indent);
       return;
     }
+    if (node.type === 'mapLit') {
+      renderMapLit(node, indent);
+      return;
+    }
+    if (node.type === 'setLit') {
+      renderSetLit(node, indent);
+      return;
+    }
+    if (node.type === 'mapEntry' || node.type === 'setItem') {
+      // Children of mapLit/setLit — handled inline by their parent renderer.
+      // Standalone render path covers the orphan case for completeness.
+      renderMapSetChild(node, indent);
+      return;
+    }
 
     const name = (props.name as string) || '';
     const type = node.type.charAt(0).toUpperCase() + node.type.slice(1);
@@ -319,6 +333,110 @@ export function decompile(root: IRNode): DecompileResult {
       return;
     }
     // Unknown — should never hit; fall through to generic render.
+    render(node, indent);
+  }
+
+  function renderMapLit(node: IRNode, indent: string): void {
+    // Slice 3e: emit `mapLit` re-parseably with `mapEntry` children inline.
+    // Mirrors renderDestructure escape-hatch + __quotedProps policy.
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const name = (props.name as string) || 'unknownMap';
+    const parts: string[] = [`mapLit name=${name}`];
+
+    // Escape-hatch path — raw statement carried verbatim. Other props ignored.
+    const rawExpr = props.expr as string | ExprObject | undefined;
+    if (rawExpr !== undefined) {
+      const exprText =
+        typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
+          ? `{{${(rawExpr as ExprObject).code}}}`
+          : JSON.stringify(rawExpr);
+      lines.push(`${indent}mapLit name=${name} expr=${exprText}`);
+      return;
+    }
+
+    const t = props.type as string | undefined;
+    if (t !== undefined) {
+      const wasQuoted = quoted.includes('type');
+      const safeBare = !wasQuoted && /^[\w.<>[\]|&,\s-]+$/.test(t) && !/\s/.test(t.trim());
+      parts.push(`type=${safeBare ? t : JSON.stringify(t)}`);
+    }
+    const kind = props.kind as string | undefined;
+    if (kind && kind !== 'const') parts.push(`kind=${kind}`);
+    if (props.export === true || props.export === 'true') parts.push('export=true');
+
+    lines.push(`${indent}${parts.join(' ')}`);
+    if (node.children) {
+      for (const child of node.children) {
+        renderMapSetChild(child, `${indent}  `);
+      }
+    }
+  }
+
+  function renderSetLit(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const name = (props.name as string) || 'unknownSet';
+    const parts: string[] = [`setLit name=${name}`];
+
+    const rawExpr = props.expr as string | ExprObject | undefined;
+    if (rawExpr !== undefined) {
+      const exprText =
+        typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr
+          ? `{{${(rawExpr as ExprObject).code}}}`
+          : JSON.stringify(rawExpr);
+      lines.push(`${indent}setLit name=${name} expr=${exprText}`);
+      return;
+    }
+
+    const t = props.type as string | undefined;
+    if (t !== undefined) {
+      const wasQuoted = quoted.includes('type');
+      const safeBare = !wasQuoted && /^[\w.<>[\]|&,\s-]+$/.test(t) && !/\s/.test(t.trim());
+      parts.push(`type=${safeBare ? t : JSON.stringify(t)}`);
+    }
+    const kind = props.kind as string | undefined;
+    if (kind && kind !== 'const') parts.push(`kind=${kind}`);
+    if (props.export === true || props.export === 'true') parts.push('export=true');
+
+    lines.push(`${indent}${parts.join(' ')}`);
+    if (node.children) {
+      for (const child of node.children) {
+        renderMapSetChild(child, `${indent}  `);
+      }
+    }
+  }
+
+  function renderMapSetChild(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+
+    function renderExprProp(propName: string, raw: unknown): string {
+      if (typeof raw === 'object' && raw !== null && (raw as ExprObject).__expr) {
+        return `${propName}={{${(raw as ExprObject).code}}}`;
+      }
+      const s = raw as string;
+      const wasQuoted = quoted.includes(propName);
+      const safeBare = !wasQuoted && typeof s === 'string' && s !== '' && /^[\w.-]+$/.test(s);
+      return `${propName}=${safeBare ? s : JSON.stringify(s)}`;
+    }
+
+    if (node.type === 'mapEntry') {
+      const key = props.key;
+      const val = props.value;
+      const parts: string[] = ['mapEntry'];
+      if (key !== undefined) parts.push(renderExprProp('key', key));
+      if (val !== undefined) parts.push(renderExprProp('value', val));
+      lines.push(`${indent}${parts.join(' ')}`);
+      return;
+    }
+    if (node.type === 'setItem') {
+      const val = props.value;
+      const parts: string[] = ['setItem'];
+      if (val !== undefined) parts.push(renderExprProp('value', val));
+      lines.push(`${indent}${parts.join(' ')}`);
+      return;
+    }
     render(node, indent);
   }
 

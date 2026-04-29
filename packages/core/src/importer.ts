@@ -717,6 +717,109 @@ function tryFormatDestructure(
   return lines;
 }
 
+/**
+ * Slice 3e — pick the right KERN attribute form for a TS expression node
+ * used as a key/value in a Map/Set literal entry.
+ *
+ *   - String literals → `prop="foo"` so the quoted source flows through
+ *     __quotedProps and codegen JSON-stringifies.
+ *   - Primitive literals (numeric, true, false, null) → `prop=42` bare so
+ *     they go through ValueIR canonicalisation per slice 3a-c precedent.
+ *   - Anything else → `prop={{ raw-ts }}` ExprObject escape hatch.
+ */
+function formatLitEntryAttr(propName: string, expr: ts.Expression, source: ts.SourceFile): string {
+  const text = expr.getText(source);
+  if (ts.isStringLiteral(expr)) return `${propName}=${text}`;
+  if (
+    ts.isNumericLiteral(expr) ||
+    expr.kind === ts.SyntaxKind.TrueKeyword ||
+    expr.kind === ts.SyntaxKind.FalseKeyword ||
+    expr.kind === ts.SyntaxKind.NullKeyword
+  ) {
+    return `${propName}=${text}`;
+  }
+  return `${propName}={{ ${text} }}`;
+}
+
+/**
+ * Slice 3e — try to format `const x = new Map([['k', v], ...])` as a
+ * structured `mapLit` IR node with `mapEntry` children. Returns null when
+ * the initializer is not a Map constructor call, or when the array argument
+ * contains non-canonical entries (spread, computed keys, non-tuple entries).
+ */
+function tryFormatMapLit(
+  decl: ts.VariableDeclaration,
+  kind: 'const' | 'let',
+  exported: boolean,
+  source: ts.SourceFile,
+): string[] | null {
+  if (!decl.initializer || !ts.isNewExpression(decl.initializer)) return null;
+  if (decl.initializer.expression.getText(source) !== 'Map') return null;
+  if (!ts.isIdentifier(decl.name)) return null;
+  // Empty `new Map()` or unusual form — pass through.
+  const args = decl.initializer.arguments;
+  if (!args || args.length === 0) return null;
+  const arg = args[0];
+  if (!ts.isArrayLiteralExpression(arg)) return null;
+
+  const entryLines: string[] = [];
+  for (const el of arg.elements) {
+    if (!ts.isArrayLiteralExpression(el)) return null; // non-tuple entry
+    if (el.elements.length !== 2) return null; // not [k, v]
+    if (el.elements.some((e) => ts.isSpreadElement(e))) return null;
+    const keyAttr = formatLitEntryAttr('key', el.elements[0], source);
+    const valAttr = formatLitEntryAttr('value', el.elements[1], source);
+    entryLines.push(`mapEntry ${keyAttr} ${valAttr}`);
+  }
+  if (entryLines.length === 0) return null; // empty array — pass through
+
+  const name = decl.name.getText(source);
+  const type = typeToString(decl.type, source);
+  const typeAttr = type ? ` type=${type}` : '';
+  const expAttr = exported ? ' export=true' : '';
+  const kindAttr = kind === 'let' ? ' kind=let' : '';
+  const lines: string[] = [`mapLit name=${name}${typeAttr}${kindAttr}${expAttr}`];
+  for (const l of entryLines) lines.push(`  ${l}`);
+  return lines;
+}
+
+/**
+ * Slice 3e — try to format `const x = new Set([v1, v2, ...])` as a
+ * structured `setLit` IR node with `setItem` children. Returns null when
+ * the initializer is not a Set constructor call, or when the array argument
+ * contains non-canonical members (spread).
+ */
+function tryFormatSetLit(
+  decl: ts.VariableDeclaration,
+  kind: 'const' | 'let',
+  exported: boolean,
+  source: ts.SourceFile,
+): string[] | null {
+  if (!decl.initializer || !ts.isNewExpression(decl.initializer)) return null;
+  if (decl.initializer.expression.getText(source) !== 'Set') return null;
+  if (!ts.isIdentifier(decl.name)) return null;
+  const args = decl.initializer.arguments;
+  if (!args || args.length === 0) return null;
+  const arg = args[0];
+  if (!ts.isArrayLiteralExpression(arg)) return null;
+
+  const itemLines: string[] = [];
+  for (const el of arg.elements) {
+    if (ts.isSpreadElement(el)) return null;
+    itemLines.push(`setItem ${formatLitEntryAttr('value', el as ts.Expression, source)}`);
+  }
+  if (itemLines.length === 0) return null;
+
+  const name = decl.name.getText(source);
+  const type = typeToString(decl.type, source);
+  const typeAttr = type ? ` type=${type}` : '';
+  const expAttr = exported ? ' export=true' : '';
+  const kindAttr = kind === 'let' ? ' kind=let' : '';
+  const lines: string[] = [`setLit name=${name}${typeAttr}${kindAttr}${expAttr}`];
+  for (const l of itemLines) lines.push(`  ${l}`);
+  return lines;
+}
+
 function convertVariableStatement(node: ts.VariableStatement, source: ts.SourceFile): string[] {
   const lines: string[] = [];
   const exp = isExported(node) ? ' export=true' : '';
@@ -743,6 +846,24 @@ function convertVariableStatement(node: ts.VariableStatement, source: ts.SourceF
       const result = tryFormatDestructure(decl, declKind, isExported(node), source, fullStmtText);
       if (result) {
         for (const l of result) lines.push(l);
+        continue;
+      }
+    }
+
+    // Slice 3e — Map/Set literal detection. Falls through to legacy const
+    // when the constructor argument shape isn't structurable (spread,
+    // computed keys, non-tuple entries, etc.).
+    {
+      const mapLines = tryFormatMapLit(decl, declKind, isExported(node), source);
+      if (mapLines) {
+        if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
+        for (const l of mapLines) lines.push(l);
+        continue;
+      }
+      const setLines = tryFormatSetLit(decl, declKind, isExported(node), source);
+      if (setLines) {
+        if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
+        for (const l of setLines) lines.push(l);
         continue;
       }
     }

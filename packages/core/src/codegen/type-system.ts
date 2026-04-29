@@ -509,6 +509,90 @@ export function generateDestructure(node: IRNode): string[] {
   return [...docs, `${exp}${kind} ${pattern}${typeAnn} = ${sourceCode};`];
 }
 
+// ── Map / Set literals (slice 3e) ───────────────────────────────────────
+
+/**
+ * Slice 3e — emit a TS Map literal from a `mapLit` node.
+ *
+ *   mapLit name=cache type="Map<string, number>"
+ *     mapEntry key="foo" value=1
+ *     mapEntry key="bar" value=2
+ *
+ * → `const cache: Map<string, number> = new Map([['foo', 1], ['bar', 2]]);`
+ *
+ * `expr={{...}}` escape hatch carries a raw TS statement verbatim — used
+ * by the importer fallback when a Map literal contains shapes the
+ * structured emitter can't represent (computed keys, conditional entries,
+ * spread). Mirrors slice 3d destructure escape-hatch policy.
+ */
+export function generateMapLit(node: IRNode): string[] {
+  const props = propsOf<'mapLit'>(node);
+  const docs = emitDocComment(node);
+  const exp = exportPrefix(node);
+
+  if (props.expr !== undefined) {
+    const raw = isExprObject(props.expr) ? props.expr.code : String(props.expr);
+    return [...docs, raw];
+  }
+
+  const name = emitIdentifier(props.name, 'unknownMap', node);
+  const kind = props.kind === 'let' ? 'let' : 'const';
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(props.type, 'Map<unknown, unknown>', node)}` : '';
+
+  const entries = (node.children || []).filter((c) => c.type === 'mapEntry');
+  const pairs = entries.map((child) => {
+    const cp = propsOf<'mapEntry'>(child);
+    if (cp.key === undefined) {
+      throw new Error('mapEntry requires a `key=` prop');
+    }
+    if (cp.value === undefined) {
+      throw new Error('mapEntry requires a `value=` prop');
+    }
+    const k = emitConstValue(child, cp.key, 'key');
+    const v = emitConstValue(child, cp.value, 'value');
+    return `[${k}, ${v}]`;
+  });
+
+  return [...docs, `${exp}${kind} ${name}${typeAnn} = new Map([${pairs.join(', ')}]);`];
+}
+
+/**
+ * Slice 3e — emit a TS Set literal from a `setLit` node.
+ *
+ *   setLit name=allowed type="Set<string>"
+ *     setItem value="admin"
+ *     setItem value="user"
+ *
+ * → `const allowed: Set<string> = new Set(['admin', 'user']);`
+ *
+ * Same `expr={{...}}` escape-hatch policy as `mapLit`/`destructure`.
+ */
+export function generateSetLit(node: IRNode): string[] {
+  const props = propsOf<'setLit'>(node);
+  const docs = emitDocComment(node);
+  const exp = exportPrefix(node);
+
+  if (props.expr !== undefined) {
+    const raw = isExprObject(props.expr) ? props.expr.code : String(props.expr);
+    return [...docs, raw];
+  }
+
+  const name = emitIdentifier(props.name, 'unknownSet', node);
+  const kind = props.kind === 'let' ? 'let' : 'const';
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(props.type, 'Set<unknown>', node)}` : '';
+
+  const items = (node.children || []).filter((c) => c.type === 'setItem');
+  const values = items.map((child) => {
+    const cp = propsOf<'setItem'>(child);
+    if (cp.value === undefined) {
+      throw new Error('setItem requires a `value=` prop');
+    }
+    return emitConstValue(child, cp.value, 'value');
+  });
+
+  return [...docs, `${exp}${kind} ${name}${typeAnn} = new Set([${values.join(', ')}]);`];
+}
+
 /** Emit the right-hand side of an expression-typed prop (e.g. `const.value`,
  *  `let.value`) from its raw IR form.
  *
@@ -518,13 +602,13 @@ export function generateDestructure(node: IRNode): string[] {
  *  - bare `<prop>=...` — try ValueIR parse + emit for canonicalization. Fall back to raw
  *    string on parse failure (validator emits INVALID_EXPRESSION but codegen still ships).
  *
- *  Currently the __quotedProps key is hardcoded to 'value' because every consumer
- *  uses that prop name. If a future consumer needs a different name, accept it as
- *  a parameter. */
-export function emitConstValue(node: IRNode, rawValue: unknown): string {
+ *  Slice 3e — `propName` parameter (default 'value') lets non-`value` props
+ *  participate in the same quoted-vs-bare distinction. `mapEntry.key` and
+ *  `mapEntry.value` both flow through this with their own __quotedProps key. */
+export function emitConstValue(node: IRNode, rawValue: unknown, propName = 'value'): string {
   if (isExprObject(rawValue)) return rawValue.code;
   if (typeof rawValue !== 'string') return String(rawValue);
-  if (node.__quotedProps?.includes('value')) return JSON.stringify(rawValue);
+  if (node.__quotedProps?.includes(propName)) return JSON.stringify(rawValue);
   try {
     return emitExpression(parseExpression(rawValue));
   } catch {
