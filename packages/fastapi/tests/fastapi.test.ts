@@ -109,6 +109,123 @@ describe('FastAPI Transpiler', () => {
       expect(output).toContain('return Track(title=title)');
     });
 
+    // ─── Slice 3c P2 follow-up: target-neutral param-list builder ──────────
+
+    test('reads structured param children (slice 3c canonical form)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'fn name=createTrack returns=Track async=true',
+          '  param name=title type=string',
+          '  param name=duration type=number value=120',
+          '  handler <<<',
+          '    return Track(title=title, duration=duration)',
+          '  >>>',
+        ].join('\n'),
+      );
+      const output = generatePythonCoreNode(ast).join('\n');
+      expect(output).toContain('async def create_track(title: str, duration: float = 120) -> Track:');
+    });
+
+    test('emits *args for variadic param children', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'fn name=concat returns=string',
+          '  param name=parts type="string[]" variadic=true',
+          '  handler <<<',
+          '    return ",".join(parts)',
+          '  >>>',
+        ].join('\n'),
+      );
+      const output = generatePythonCoreNode(ast).join('\n');
+      // Variadic strips trailing `[]` so the type is the element type, not the array.
+      expect(output).toContain('def concat(*parts: str) -> str:');
+    });
+
+    test('emits `T | None = None` for optional param children without defaults', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'fn name=greet returns=string',
+          '  param name=salutation type=string optional=true',
+          '  handler <<<',
+          '    return salutation or "hi"',
+          '  >>>',
+        ].join('\n'),
+      );
+      const output = generatePythonCoreNode(ast).join('\n');
+      // Codex review fix: PEP-604 union over `Optional[T]` to avoid
+      // requiring `from typing import Optional` (not auto-imported here).
+      expect(output).toContain('def greet(salutation: str | None = None) -> str:');
+    });
+
+    test('translates JS literal defaults (true/false/null) to Python equivalents', async () => {
+      // Codex review fix: bare `value=true` etc. used to emit `= true` raw,
+      // which fails Python's import-time evaluation (`NameError`). Now
+      // translated to `True`/`False`/`None`.
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'fn name=run returns=string',
+          '  param name=enabled type=boolean value=true',
+          '  param name=quiet type=boolean value=false',
+          '  param name=tag type=string value=null',
+          '  handler <<<',
+          '    return tag or "default"',
+          '  >>>',
+        ].join('\n'),
+      );
+      const output = generatePythonCoreNode(ast).join('\n');
+      expect(output).toContain('enabled: bool = True');
+      expect(output).toContain('quiet: bool = False');
+      expect(output).toContain('tag: str = None');
+      expect(output).not.toContain('= true');
+      expect(output).not.toContain('= false');
+      expect(output).not.toContain('= null');
+    });
+
+    test('skips destructured params (no Python equivalent)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'fn name=length returns=number',
+          '  param type="Point"',
+          '    binding name=x',
+          '    binding name=y',
+          '  handler <<<',
+          '    return math.hypot(x, y)',
+          '  >>>',
+        ].join('\n'),
+      );
+      const output = generatePythonCoreNode(ast).join('\n');
+      // Destructured param is skipped — function takes no positional args.
+      // Caller is expected to unpack inside the body; Python has no native
+      // destructured-param syntax.
+      expect(output).toContain('def length() -> float:');
+    });
+
+    test('legacy params="..." string still works (back-compat)', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        'fn name=add params="a:number,b:number" returns=number\n  handler <<<\n    return a + b\n  >>>',
+      );
+      const output = generatePythonCoreNode(ast).join('\n');
+      expect(output).toContain('def add(a: float, b: float) -> float:');
+    });
+
     test('generates Exception class for error node', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');

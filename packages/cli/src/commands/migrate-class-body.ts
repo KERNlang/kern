@@ -203,6 +203,10 @@ function tryFormatParamChildren(
     const type = p.type ? text(p.type) : '';
 
     if (isObj || isArr) {
+      // Codex review fix: rest+destructure (`...[first]: T[]`) is valid TS
+      // but the structured form has no slot for the outer `...`. Bail to
+      // legacy so the rest marker survives the round-trip. Mirrors importer.ts.
+      if (p.dotDotDotToken) return null;
       const childLines = tryFormatParamBindingPattern(p.name as ts.BindingPattern, text);
       if (childLines === null) return null;
       const parts: string[] = ['param'];

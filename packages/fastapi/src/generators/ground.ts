@@ -5,7 +5,14 @@
 
 import type { IRNode } from '@kernlang/core';
 import { handlerCode } from '@kernlang/core';
-import { emitPyLowConfidenceTodo, emitPyReasonAnnotations, firstChild, kids, p } from '../codegen-helpers.js';
+import {
+  buildPythonParamList,
+  emitPyLowConfidenceTodo,
+  emitPyReasonAnnotations,
+  firstChild,
+  kids,
+  p,
+} from '../codegen-helpers.js';
 import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
 
 /**
@@ -69,19 +76,12 @@ export function generateAction(node: IRNode): string[] {
   const { annotations, todo, props, name } = groundPreamble(node);
   const idempotent = props.idempotent === 'true' || props.idempotent === true;
   const reversible = props.reversible === 'true' || props.reversible === true;
-  const params = (props.params as string) || '';
   const returns = props.returns as string | undefined;
   const code = handlerCode(node);
 
-  const paramList = params
-    ? params
-        .split(',')
-        .map((s) => {
-          const [pname, ...ptype] = s.split(':').map((t) => t.trim());
-          return ptype.length > 0 ? `${toSnakeCase(pname)}: ${mapTsTypeToPython(ptype.join(':'))}` : toSnakeCase(pname);
-        })
-        .join(', ')
-    : '';
+  // Slice 3c P2 follow-up: target-neutral helper reads structured `param`
+  // children when present, falls back to legacy `params="..."` otherwise.
+  const paramList = buildPythonParamList(node);
 
   const retClause = returns ? ` -> ${mapTsTypeToPython(returns)}` : ' -> None';
   const lines: string[] = [...todo, ...annotations];
