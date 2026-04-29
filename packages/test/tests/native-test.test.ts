@@ -1012,6 +1012,74 @@ describe('native kern test runner', () => {
     ]);
   });
 
+  test('asserts KERN node shape directly', () => {
+    writeFileSync(
+      join(tmpDir, 'language.kern'),
+      [
+        'interface name=User',
+        '  field name=id type=string',
+        '  field name=email type=string',
+        'class name=UserDirectory',
+        '  field name=items type="User[]" private=true',
+        '  method name=list returns="User[]"',
+        '    handler <<<',
+        '      return this.items;',
+        '    >>>',
+        'fn name=selectActive returns="User[]"',
+        '  param name=items type="User[]"',
+        '  param name=limit type=number value=10',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'language.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="KERN shape" target="./language.kern"',
+        '  it name="declares expected shapes"',
+        '    expect node=interface name=User child=field count=2',
+        '    expect node=field name=email within=User prop=type is=string',
+        '    expect node=class name=UserDirectory child=method childName=list',
+        '    expect node=param name=limit within=selectActive prop=type is=number',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(4);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'kern:node',
+      'kern:node',
+      'kern:node',
+      'kern:node',
+    ]);
+  });
+
+  test('fails KERN node shape assertions with precise messages', () => {
+    writeFileSync(
+      join(tmpDir, 'language.kern'),
+      ['interface name=User', '  field name=id type=string', 'class name=UserDirectory'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'language.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="KERN shape" target="./language.kern"',
+        '  it name="catches shape drift"',
+        '    expect node=interface name=User child=field count=2',
+        '    expect node=field name=id within=User prop=type is=number',
+        '    expect node=class name=UserDirectory child=method childName=list',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(3);
+    expect(summary.results[0].message).toContain('expected 2 child field');
+    expect(summary.results[1].message).toContain('prop type expected number, found string');
+    expect(summary.results[2].message).toContain('missing child method name=list');
+  });
+
   test('fails on target codegen errors not caught by schema validation', () => {
     writeFileSync(
       join(tmpDir, 'broken.kern'),

@@ -51,6 +51,10 @@ test name="Order invariants" target="./order.kern"
   it name="target still reaches core codegen"
     expect no=codegenErrors
 
+  it name="KERN declaration shape stays stable"
+    expect node=interface name=Order child=field count=3
+    expect node=field name=status within=Order prop=type is=OrderState
+
   it name="computed constants stay sane"
     expect expr={{MAX_RETRIES > 0 && statuses.includes("paid")}}
     expect expr={{MAX_RETRIES}} equals=3
@@ -72,6 +76,8 @@ Presets expand into granular checks:
 - `strict`: broad structural safety sweep
 
 Use `no=codegenErrors` as a smoke check when a suite should prove that valid KERN still reaches core code generation. It catches generator exceptions that parse/schema/semantic validation can miss.
+
+Use `expect node=<type>` for KERN-native shape assertions over the target IR. Add `name=<name>` to narrow the node, `within=<ancestor-name-or-type>` to scope it under a parent declaration, `child=<type>` plus optional `childName=<name>` to assert direct children, `count=<n>` to assert cardinality, and `prop=<prop> is=<value>` to assert a KERN prop value. This is the preferred assertion when the invariant is about KERN declarations themselves, for example an interface field, machine state, class method, route param, or guard node.
 
 Use `expect expr={{...}}` for small runtime assertions over referenced target-side `const`, `derive`, `let`, and simple pure `fn` bindings. A runtime `fn` must have a handler shaped as `return <expression>;`; multi-statement handlers remain structural only. Without a comparator, the expression must evaluate truthy. Add `equals=...` for deep equality, `matches="..."` for string/regex checks, or `throws=ErrorName` for expected exceptions. This MVP intentionally does not execute arbitrary application code; multi-statement expressions and unsafe globals such as `process`, `require`, `eval`, `Function`, `fetch`, timers, and `WebSocket` are rejected before execution.
 

@@ -195,6 +195,10 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
   },
   { ruleId: 'guard:exhaustive', description: 'A guard covers every variant of the referenced union type.' },
   {
+    ruleId: 'kern:node',
+    description: 'A target KERN node exists and optionally matches child-count or prop-value constraints.',
+  },
+  {
     ruleId: 'expr',
     description:
       'Evaluate a constrained runtime expression against target const/derive bindings, with optional equals/matches/throws comparators.',
@@ -443,6 +447,8 @@ function isAssertionConfigurationFailure(message?: string): boolean {
     message.startsWith('Runtime expr assertion requires ') ||
     message.startsWith('Runtime expr assertion cannot execute ') ||
     message.startsWith('Runtime expr assertion has ') ||
+    message.startsWith('Node assertion requires ') ||
+    message.startsWith('Node assertion count ') ||
     message === 'Unsupported native expect assertion.' ||
     message.includes(' assertion requires ') ||
     message.includes(' needs over=') ||
@@ -665,6 +671,13 @@ function collectAssertions(testNode: IRNode): CollectedAssertion[] {
 function assertionLabel(node: IRNode): string {
   const props = getProps(node);
   const preset = str(props.preset);
+  const nodeType = str(props.node);
+  const name = str(props.name);
+  const prop = str(props.prop);
+  const isValue = props.is === undefined ? '' : exprToString(props.is) || String(props.is);
+  const child = str(props.child);
+  const childName = str(props.childName);
+  const count = props.count === undefined ? '' : String(props.count);
   const machine = str(props.machine);
   const reaches = str(props.reaches);
   const no = str(props.no);
@@ -675,6 +688,14 @@ function assertionLabel(node: IRNode): string {
   const throws = props.throws === undefined ? '' : String(props.throws || 'true');
 
   if (preset) return `preset ${preset}`;
+  if (nodeType) {
+    const parts = [`node ${nodeType}`];
+    if (name) parts.push(name);
+    if (child) parts.push(`has ${child}${childName ? ` ${childName}` : ''}`);
+    if (prop) parts.push(`prop ${prop}${isValue ? ` is ${isValue}` : ''}`);
+    if (count) parts.push(`count ${count}`);
+    return parts.join(' ');
+  }
   if (no) return `${machine ? `machine ${machine} ` : ''}no ${no}`;
   if (guard) return `guard ${guard} exhaustive`;
   if (machine || reaches) return `machine ${machine || '<missing>'} reaches ${reaches || '<missing>'}`;
@@ -1908,6 +1929,108 @@ function evaluateGuardExhaustiveness(node: IRNode, target: LoadedKernDocument): 
     : { passed: true };
 }
 
+interface NodeMatch {
+  node: IRNode;
+  ancestors: IRNode[];
+}
+
+function collectNodeMatches(
+  root: IRNode | undefined,
+  type: string,
+  matches: NodeMatch[] = [],
+  ancestors: IRNode[] = [],
+): NodeMatch[] {
+  if (!root) return matches;
+  if (root.type === type) matches.push({ node: root, ancestors });
+  for (const child of root.children || []) collectNodeMatches(child, type, matches, [...ancestors, root]);
+  return matches;
+}
+
+function ancestorMatches(ancestor: IRNode, expected: string): boolean {
+  return ancestor.type === expected || str(getProps(ancestor).name) === expected || nodeLabel(ancestor) === expected;
+}
+
+function propComparableValue(value: unknown): string {
+  if (value === undefined) return '<missing>';
+  const expr = exprToString(value);
+  return expr || String(value);
+}
+
+function evaluateNodeAssertion(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+
+  const props = getProps(node);
+  const type = str(props.node);
+  if (!type) return { passed: false, message: 'Node assertion requires node=<type>' };
+
+  const name = str(props.name);
+  const within = str(props.within);
+  const prop = str(props.prop);
+  const expectedProp = props.is === undefined ? undefined : propComparableValue(props.is);
+  const childType = str(props.child);
+  const childName = str(props.childName);
+  const expectedCount = props.count === undefined || props.count === '' ? undefined : Number(props.count);
+  if (expectedCount !== undefined && (!Number.isInteger(expectedCount) || expectedCount < 0)) {
+    return { passed: false, message: `Node assertion count must be a non-negative integer: ${String(props.count)}` };
+  }
+
+  const matches = collectNodeMatches(target.root, type)
+    .filter((match) => !name || str(getProps(match.node).name) === name)
+    .filter((match) => !within || match.ancestors.some((ancestor) => ancestorMatches(ancestor, within)));
+  if (matches.length === 0) {
+    return {
+      passed: false,
+      message: `KERN node not found: ${type}${name ? ` name=${name}` : ''}${within ? ` within=${within}` : ''}`,
+    };
+  }
+
+  if (prop) {
+    const propMatches = matches.filter((match) => {
+      const actual = propComparableValue(getProps(match.node)[prop]);
+      return expectedProp === undefined || actual === expectedProp;
+    });
+    if (propMatches.length === 0) {
+      const actuals = matches.map((match) => propComparableValue(getProps(match.node)[prop]));
+      return {
+        passed: false,
+        message:
+          expectedProp === undefined
+            ? `KERN node ${type}${name ? ` name=${name}` : ''} has no prop ${prop}`
+            : `KERN node ${type}${name ? ` name=${name}` : ''} prop ${prop} expected ${expectedProp}, found ${actuals.join(', ')}`,
+      };
+    }
+  }
+
+  if (childType) {
+    const childMatches = matches.flatMap((match) =>
+      getChildren(match.node, childType).filter((child) => !childName || str(getProps(child).name) === childName),
+    );
+    if (expectedCount !== undefined) {
+      return childMatches.length === expectedCount
+        ? { passed: true }
+        : {
+            passed: false,
+            message: `KERN node ${type}${name ? ` name=${name}` : ''} expected ${expectedCount} child ${childType}${childName ? ` name=${childName}` : ''}, found ${childMatches.length}`,
+          };
+    }
+    return childMatches.length > 0
+      ? { passed: true }
+      : {
+          passed: false,
+          message: `KERN node ${type}${name ? ` name=${name}` : ''} missing child ${childType}${childName ? ` name=${childName}` : ''}`,
+        };
+  }
+
+  if (expectedCount !== undefined) {
+    return matches.length === expectedCount
+      ? { passed: true }
+      : { passed: false, message: `Expected ${expectedCount} KERN node ${type} matches, found ${matches.length}` };
+  }
+
+  return { passed: true };
+}
+
 function evaluateNoInvariant(
   node: IRNode,
   target: LoadedKernDocument,
@@ -2264,6 +2387,18 @@ function evaluateNativeAssertion(
 ): EvaluatedAssertion[] {
   const props = getProps(node);
   if ('preset' in props) return evaluatePresetAssertion(node, target, context);
+  if ('node' in props) {
+    const evaluated = evaluateNodeAssertion(node, target);
+    return [
+      {
+        ruleId: 'kern:node',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
   if ('no' in props) {
     const evaluated = evaluateNoInvariant(node, target, context);
     return [
