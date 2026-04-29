@@ -1,16 +1,22 @@
-/** Slice 4 layer 2 — `transpileLib` integration test for the Result/Option preamble.
+/** Slice 4 layer 2 — `transpileForTarget` integration test for the Result/Option preamble.
  *
- *  Verifies the lib-target codegen prepends the type aliases when the source
- *  references `Result<>` / `Option<>` and stays silent when it doesn't.
+ *  Verifies the dispatcher-level post-pass prepends the type aliases for
+ *  TS-family targets when the source references `Result<>` / `Option<>` and
+ *  stays silent for FastAPI (Python) and when no usage is detected.
  *  Spec: docs/language/result-option-spec.md. */
 
+import type { KernTarget } from '@kernlang/core';
 import { parseDocument, resolveConfig } from '@kernlang/core';
 import { transpileForTarget } from '../src/shared.js';
 
-function compileLib(src: string): string {
+function compile(src: string, target: KernTarget = 'lib'): string {
   const ast = parseDocument(src);
-  const cfg = resolveConfig({ target: 'lib' });
+  const cfg = resolveConfig({ target });
   return transpileForTarget(ast, cfg).code;
+}
+
+function compileLib(src: string): string {
+  return compile(src, 'lib');
 }
 
 describe('transpileLib — slice 4 stdlib preamble', () => {
@@ -91,5 +97,41 @@ describe('transpileLib — slice 4 stdlib preamble', () => {
     const stdlibAlias = code.match(/type Result<T, E> = \{ kind: 'ok'; value: T \} \| \{ kind: 'err'; error: E \};/g);
     expect(userAlias?.length).toBe(1);
     expect(stdlibAlias?.length).toBe(1);
+  });
+});
+
+describe('transpileForTarget — slice 4 stdlib preamble dispatch', () => {
+  // Cross-target verification — the dispatcher-level post-pass should apply
+  // the preamble for TS-family targets and skip Python (FastAPI).
+
+  const SRC_WITH_RESULT = [
+    'fn name=parseUser params="raw:string" returns="Result<User, ParseError>" export=true',
+    '  handler <<<',
+    '    return { kind: "ok", value: { name: "alice" } };',
+    '  >>>',
+  ].join('\n');
+
+  test('FastAPI target does NOT get the TS preamble (Python output)', () => {
+    // FastAPI emits Python — the TS `type Result<T, E> = …` alias would be
+    // a syntax error in a .py file. The dispatcher-level guard must skip it.
+    const code = compile(SRC_WITH_RESULT, 'fastapi');
+    expect(code).not.toContain('type Result<T, E>');
+    expect(code).not.toContain('// ── KERN stdlib');
+  });
+
+  test('mcp target gets the preamble for TS-family targets', () => {
+    // MCP server emits TS — Result/Option aliases should land at the top.
+    // We use `target=mcp` plus a minimal kern doc that the MCP transpiler
+    // can process without error; we only assert on the preamble presence.
+    const src = [
+      'mcp name=TestServer version="1.0.0"',
+      '  tool name=parseUser',
+      '    param name=raw type=string',
+      '    handler <<<',
+      '      return { kind: "ok", value: { name: "alice" } } as Result<User, ParseError>;',
+      '    >>>',
+    ].join('\n');
+    const code = compile(src, 'mcp');
+    expect(code).toContain('type Result<T, E>');
   });
 });

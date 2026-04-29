@@ -3,7 +3,7 @@
  *  Spec: docs/language/result-option-spec.md.
  *  Utility: packages/core/src/codegen/stdlib-preamble.ts. */
 
-import { detectKernStdlibUsage, kernStdlibPreamble } from '../src/codegen/stdlib-preamble.js';
+import { detectKernStdlibUsage, injectKernStdlibPreamble, kernStdlibPreamble } from '../src/codegen/stdlib-preamble.js';
 import { parseDocument } from '../src/parser.js';
 
 describe('detectKernStdlibUsage', () => {
@@ -130,5 +130,71 @@ describe('kernStdlibPreamble', () => {
       "type Option<T> = { kind: 'some'; value: T } | { kind: 'none' };",
       '',
     ]);
+  });
+});
+
+describe('injectKernStdlibPreamble', () => {
+  const PREAMBLE = ['// PREAMBLE', 'type Result<T, E> = ...;'];
+
+  test('returns the original code when preamble is empty', () => {
+    expect(injectKernStdlibPreamble('export const x = 1;\n', [])).toBe('export const x = 1;\n');
+  });
+
+  test('returns just the preamble joined when code is empty', () => {
+    expect(injectKernStdlibPreamble('', PREAMBLE)).toBe('// PREAMBLE\ntype Result<T, E> = ...;');
+  });
+
+  test('prepends the preamble for plain TS code with no directive', () => {
+    const code = ["import { foo } from './bar';", '', 'export const x = 1;'].join('\n');
+    const out = injectKernStdlibPreamble(code, PREAMBLE);
+    expect(out.startsWith('// PREAMBLE\ntype Result<T, E> = ...;\n')).toBe(true);
+    expect(out).toContain("import { foo } from './bar';");
+  });
+
+  test("inserts after a leading 'use client' directive (React Server Components)", () => {
+    const code = [
+      "'use client';",
+      '',
+      "import React from 'react';",
+      '',
+      'export default function App() { return null; }',
+    ].join('\n');
+    const out = injectKernStdlibPreamble(code, PREAMBLE);
+    // Critical: 'use client' MUST stay at line 0 — anything else means React
+    // treats the module as a server component.
+    expect(out.split('\n')[0]).toBe("'use client';");
+    expect(out).toContain('// PREAMBLE');
+    expect(out.indexOf('// PREAMBLE')).toBeGreaterThan(out.indexOf("'use client';"));
+    expect(out.indexOf('// PREAMBLE')).toBeLessThan(out.indexOf('import React'));
+  });
+
+  test("inserts after a 'use server' directive", () => {
+    const code = ["'use server';", "import { db } from './db';"].join('\n');
+    const out = injectKernStdlibPreamble(code, PREAMBLE);
+    expect(out.split('\n')[0]).toBe("'use server';");
+    expect(out.indexOf('// PREAMBLE')).toBeLessThan(out.indexOf('import { db }'));
+  });
+
+  test('inserts after a directive with double-quoted string (parser tolerance)', () => {
+    const code = ['"use client";', "import React from 'react';"].join('\n');
+    const out = injectKernStdlibPreamble(code, PREAMBLE);
+    expect(out.split('\n')[0]).toBe('"use client";');
+  });
+
+  test('inserts after multiple leading directives', () => {
+    const code = ["'use strict';", "'use client';", "import React from 'react';"].join('\n');
+    const out = injectKernStdlibPreamble(code, PREAMBLE);
+    expect(out.split('\n').slice(0, 2)).toEqual(["'use strict';", "'use client';"]);
+  });
+
+  test('treats a leading line that LOOKS like a directive but is something else as code', () => {
+    // E.g. `'use client'` without a semicolon is a string-expression
+    // statement, but our directive regex tolerates the missing `;`. This
+    // test pins the tolerance — if a real production module ever emits a
+    // bare `'use client'` literal, we still treat it as a directive.
+    const code = ["'use client'", "import React from 'react';"].join('\n');
+    const out = injectKernStdlibPreamble(code, PREAMBLE);
+    expect(out.split('\n')[0]).toBe("'use client'");
+    expect(out.indexOf('// PREAMBLE')).toBeGreaterThan(out.indexOf("'use client'"));
   });
 });

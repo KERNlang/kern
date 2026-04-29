@@ -4,7 +4,11 @@
 
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 // Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)
-export { detectKernStdlibUsage, kernStdlibPreamble } from './codegen/stdlib-preamble.js';
+export {
+  detectKernStdlibUsage,
+  injectKernStdlibPreamble,
+  kernStdlibPreamble,
+} from './codegen/stdlib-preamble.js';
 export type { SemanticTypeMapping } from './codegen-core.js';
 // Codegen — public entry points
 export {

@@ -97,3 +97,42 @@ export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
   lines.push('');
   return lines;
 }
+
+/** Smart-insert the preamble into a finished TS module string. Skips the
+ *  leading directive block (`'use client';`, `'use server';`, `'use strict';`)
+ *  so React's directive detection isn't broken, then injects before any
+ *  imports / declarations.
+ *
+ *  Why not just prepend? React/Next.js parse `'use client';` only when it's
+ *  the literal first non-comment statement in the file. Putting `type
+ *  Result<…>` ahead of it silently drops the directive and the bundler
+ *  treats the module as a server component — invisible breakage. Past the
+ *  directive block, TS doesn't care about ordering, so injecting before
+ *  imports is safe and keeps the preamble visually grouped with the file
+ *  prologue. */
+const DIRECTIVE_RE = /^\s*['"]use [a-z]+['"];?\s*$/;
+
+export function injectKernStdlibPreamble(code: string, preamble: string[]): string {
+  if (preamble.length === 0) return code;
+  if (code.length === 0) return preamble.join('\n');
+
+  const lines = code.split('\n');
+  // Find the index AFTER the directive block (directives + immediately
+  // adjacent blank/comment lines). Stop at the first import, declaration,
+  // or other statement.
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (trimmed === '' || trimmed.startsWith('//') || trimmed.startsWith('/*') || DIRECTIVE_RE.test(line)) {
+      i++;
+      continue;
+    }
+    break;
+  }
+
+  if (i === 0) {
+    return [...preamble, ...lines].join('\n');
+  }
+  return [...lines.slice(0, i), ...preamble, ...lines.slice(i)].join('\n');
+}
