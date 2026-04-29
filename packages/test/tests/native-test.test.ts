@@ -531,6 +531,113 @@ describe('native kern test runner', () => {
     expect(summary.results.every((result) => result.severity === 'warn')).toBe(true);
   });
 
+  test('passes coverage preset when transitions and guards have native assertions', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=confirmed',
+        '  state name=paid',
+        '  transition name=confirm from=pending to=confirmed',
+        '  transition name=capture from=confirmed to=paid',
+        'union name=Payment discriminant=kind',
+        '  variant name=card',
+        '  variant name=paypal',
+        'guard name=ChargeCard kind=variant covers=card,paypal',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order coverage" target="./order.kern"',
+        '  it name="covers checkout transitions"',
+        '    expect machine=Order reaches=paid via=confirm,capture',
+        '  it name="guards have structural checks"',
+        '    expect preset=guard',
+        '  it name="suite covers target surface"',
+        '    expect preset=coverage',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(5);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'machine:reaches',
+      'no:invalidguards',
+      'no:weakguards',
+      'no:untestedtransitions',
+      'no:untestedguards',
+    ]);
+  });
+
+  test('fails coverage when machine transitions are not exercised via explicit paths', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=confirmed',
+        '  state name=paid',
+        '  state name=refunded',
+        '  transition name=confirm from=pending to=confirmed',
+        '  transition name=capture from=confirmed to=paid',
+        '  transition name=refund from=paid to=refunded',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order coverage" target="./order.kern"',
+        '  it name="covers happy path"',
+        '    expect machine=Order reaches=paid via=confirm,capture',
+        '  it name="all transitions have tests"',
+        '    expect machine=Order no=untestedTransitions',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[1].ruleId).toBe('no:untestedtransitions');
+    expect(summary.results[1].message).toContain('Order.refund');
+  });
+
+  test('fails coverage when guards lack explicit or guard-wide assertions', () => {
+    writeFileSync(
+      join(tmpDir, 'payment.kern'),
+      [
+        'union name=Payment discriminant=kind',
+        '  variant name=card',
+        '  variant name=paypal',
+        'guard name=ChargeCard kind=variant covers=card,paypal',
+        'guard name=VerifyUser kind=variant covers=card,paypal',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'payment.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Payment coverage" target="./payment.kern"',
+        '  it name="charge guard is exhaustive"',
+        '    expect guard=ChargeCard exhaustive=true over=Payment',
+        '  it name="guards all have tests"',
+        '    expect no=untestedGuards',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[1].ruleId).toBe('no:untestedguards');
+    expect(summary.results[1].message).toContain('guard VerifyUser');
+    expect(summary.results[1].message).toContain('expect preset=guard');
+  });
+
   test('passes language surface smoke for arrays classes and functions', () => {
     writeFileSync(
       join(tmpDir, 'language.kern'),

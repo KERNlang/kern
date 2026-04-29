@@ -36,18 +36,24 @@ test name="Order invariants" target="./order.kern"
 
   it name="target still reaches core codegen"
     expect no=codegenErrors
+
+  it name="suite covers target surface"
+    expect preset=coverage
 ```
 
 Presets expand into granular checks:
 
 - `machine`: `deadStates`, `duplicateTransitions`
 - `guard`: `invalidGuards`, `weakGuards`
+- `coverage`: `untestedTransitions`, `untestedGuards`
 - `apiSafety`: `duplicateRoutes`, `unvalidatedRoutes`, `unguardedEffects`, `uncheckedRoutePathParams`
 - `mcpSafety`: `duplicateParams`, `invalidGuards`, `unguardedToolParams`, `missingPathGuards`, `ssrfRisks`
 - `effects`: `unguardedEffects`, `sensitiveEffectsRequireAuth`, `effectWithoutCleanup`, `unrecoveredAsync`
 - `strict`: broad structural safety sweep
 
 Use `no=codegenErrors` as a smoke check when a suite should prove that valid KERN still reaches core code generation. It catches generator exceptions that parse/schema/semantic validation can miss.
+
+Use `preset=coverage` when Guard/Sight need a native signal for untested KERN surface. Machine transition coverage is driven by explicit `via=...` reachability assertions. Guard coverage passes when guards have explicit `expect guard=<name> exhaustive=true` assertions or a guard-wide assertion such as `expect preset=guard`.
 
 Use `severity=warn` for known migration debt that should stay visible without failing local runs. CI can promote warnings to failures with `kern test <file-or-dir> --fail-on-warn`.
 

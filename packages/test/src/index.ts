@@ -64,6 +64,10 @@ interface EvaluatedAssertion {
   message?: string;
 }
 
+interface NativeKernAssertionContext {
+  assertions: CollectedAssertion[];
+}
+
 const DISCOVERY_SKIP_DIRS = new Set([
   '.git',
   '.next',
@@ -77,6 +81,7 @@ const DISCOVERY_SKIP_DIRS = new Set([
 
 const NATIVE_TEST_PRESETS: Record<string, string[]> = {
   apisafety: ['duplicateRoutes', 'unvalidatedRoutes', 'unguardedEffects', 'uncheckedRoutePathParams'],
+  coverage: ['untestedTransitions', 'untestedGuards'],
   effects: ['unguardedEffects', 'sensitiveEffectsRequireAuth', 'effectWithoutCleanup', 'unrecoveredAsync'],
   guard: ['invalidGuards', 'weakGuards'],
   machine: ['deadStates', 'duplicateTransitions'],
@@ -926,6 +931,72 @@ function findUnrecoveredAsync(root: IRNode): string[] {
     .map((node) => `${nodeLabel(node)} at line ${node.loc?.line ?? '?'} has async handler without recover`);
 }
 
+function assertionNoInvariant(node: IRNode): string {
+  return normalizeInvariant(str(getProps(node).no));
+}
+
+function presetInvariantNames(node: IRNode): string[] {
+  return (presetInvariants(node) || []).map(normalizeInvariant);
+}
+
+function assertionCoversAnyInvariant(node: IRNode, invariants: Set<string>): boolean {
+  const no = assertionNoInvariant(node);
+  if (no && invariants.has(no)) return true;
+  return presetInvariantNames(node).some((invariant) => invariants.has(invariant));
+}
+
+function findUntestedTransitions(
+  root: IRNode,
+  context: NativeKernAssertionContext | undefined,
+  machineName?: string,
+): string[] {
+  const machines = selectedMachines(root, machineName);
+  if (machineName && machines.length === 0) return [`Machine not found: ${machineName}`];
+
+  const coveredByMachine = new Map<string, Set<string>>();
+  for (const assertion of context?.assertions || []) {
+    const props = getProps(assertion.node);
+    const assertedMachine = str(props.machine);
+    if (!assertedMachine || !('reaches' in props) || 'no' in props) continue;
+    if (machineName && assertedMachine !== machineName) continue;
+    const covered = coveredByMachine.get(assertedMachine) || new Set<string>();
+    for (const transitionName of parseList(str(props.via))) covered.add(transitionName);
+    coveredByMachine.set(assertedMachine, covered);
+  }
+
+  const failures: string[] = [];
+  for (const machine of machines) {
+    const name = str(getProps(machine).name) || '<unnamed>';
+    const covered = coveredByMachine.get(name) || new Set<string>();
+    for (const transition of getChildren(machine, 'transition')) {
+      const transitionName = str(getProps(transition).name);
+      if (!transitionName || covered.has(transitionName)) continue;
+      failures.push(`${name}.${transitionName} at line ${transition.loc?.line ?? '?'}`);
+    }
+  }
+  return failures;
+}
+
+function findUntestedGuards(root: IRNode, context: NativeKernAssertionContext | undefined): string[] {
+  const guardCoverageInvariants = new Set(['invalidguards', 'guardmisconfigurations', 'weakguards']);
+  const assertions = context?.assertions || [];
+  if (assertions.some((assertion) => assertionCoversAnyInvariant(assertion.node, guardCoverageInvariants))) return [];
+
+  const explicitlyCovered = new Set(assertions.map((assertion) => str(getProps(assertion.node).guard)).filter(Boolean));
+
+  return collectNodes(root, 'guard')
+    .filter((guard) => {
+      const name = str(getProps(guard).name);
+      return !name || !explicitlyCovered.has(name);
+    })
+    .map((guard) => {
+      const name = str(getProps(guard).name);
+      return name
+        ? `guard ${name} at line ${guard.loc?.line ?? '?'}`
+        : `unnamed guard at line ${guard.loc?.line ?? '?'}`;
+    });
+}
+
 function codegenRoots(root: IRNode): IRNode[] {
   return root.type === 'document' ? root.children || [] : [root];
 }
@@ -1017,7 +1088,11 @@ function evaluateGuardExhaustiveness(node: IRNode, target: LoadedKernDocument): 
     : { passed: true };
 }
 
-function evaluateNoInvariant(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+function evaluateNoInvariant(
+  node: IRNode,
+  target: LoadedKernDocument,
+  context?: NativeKernAssertionContext,
+): { passed: boolean; message?: string } {
   if (target.readError) return { passed: false, message: target.readError };
 
   const invariant = normalizeInvariant(str(getProps(node).no));
@@ -1222,6 +1297,27 @@ function evaluateNoInvariant(node: IRNode, target: LoadedKernDocument): { passed
       : { passed: true };
   }
 
+  if (invariant === 'untestedtransitions' || invariant === 'uncoveredtransitions') {
+    const blocking = targetBlockingMessage(target);
+    if (blocking) return { passed: false, message: blocking };
+    const untested = findUntestedTransitions(target.root!, context, machineName);
+    return untested.length > 0
+      ? { passed: false, message: `Found untested machine transitions: ${untested.join('; ')}` }
+      : { passed: true };
+  }
+
+  if (invariant === 'untestedguards' || invariant === 'uncoveredguards') {
+    const blocking = targetBlockingMessage(target);
+    if (blocking) return { passed: false, message: blocking };
+    const untested = findUntestedGuards(target.root!, context);
+    return untested.length > 0
+      ? {
+          passed: false,
+          message: `Found untested guards: ${untested.join('; ')}. Add expect guard=<name> exhaustive=true or a guard-wide assertion such as expect preset=guard.`,
+        }
+      : { passed: true };
+  }
+
   return { passed: false, message: `Unsupported native invariant: no=${str(getProps(node).no)}` };
 }
 
@@ -1310,7 +1406,11 @@ function presetInvariants(node: IRNode): string[] | undefined {
   return NATIVE_TEST_PRESETS[preset];
 }
 
-function evaluatePresetAssertion(node: IRNode, target: LoadedKernDocument): EvaluatedAssertion[] {
+function evaluatePresetAssertion(
+  node: IRNode,
+  target: LoadedKernDocument,
+  context?: NativeKernAssertionContext,
+): EvaluatedAssertion[] {
   const preset = str(getProps(node).preset);
   const invariants = presetInvariants(node);
   if (!invariants) {
@@ -1326,7 +1426,7 @@ function evaluatePresetAssertion(node: IRNode, target: LoadedKernDocument): Eval
   }
 
   return invariants.map((invariant) => {
-    const evaluated = evaluateNoInvariant(nodeWithProps(node, { ...getProps(node), no: invariant }), target);
+    const evaluated = evaluateNoInvariant(nodeWithProps(node, { ...getProps(node), no: invariant }), target, context);
     return {
       ruleId: invariantRuleId(invariant),
       assertion: `preset ${preset} / no ${invariant}`,
@@ -1337,11 +1437,15 @@ function evaluatePresetAssertion(node: IRNode, target: LoadedKernDocument): Eval
   });
 }
 
-function evaluateNativeAssertion(node: IRNode, target: LoadedKernDocument): EvaluatedAssertion[] {
+function evaluateNativeAssertion(
+  node: IRNode,
+  target: LoadedKernDocument,
+  context?: NativeKernAssertionContext,
+): EvaluatedAssertion[] {
   const props = getProps(node);
-  if ('preset' in props) return evaluatePresetAssertion(node, target);
+  if ('preset' in props) return evaluatePresetAssertion(node, target, context);
   if ('no' in props) {
-    const evaluated = evaluateNoInvariant(node, target);
+    const evaluated = evaluateNoInvariant(node, target, context);
     return [
       {
         ruleId: invariantRuleId(str(props.no)),
@@ -1508,9 +1612,10 @@ export function runNativeKernTests(file: string): NativeKernTestSummary {
       continue;
     }
 
+    const context: NativeKernAssertionContext = { assertions };
     for (const assertion of assertions) {
       const requestedSeverity = severityFromNode(assertion.node);
-      for (const evaluated of evaluateNativeAssertion(assertion.node, target)) {
+      for (const evaluated of evaluateNativeAssertion(assertion.node, target, context)) {
         const severity = effectiveSeverity(requestedSeverity, evaluated);
         results.push({
           suite: assertion.suite,
