@@ -134,6 +134,41 @@ describe('native kern test runner', () => {
     );
   });
 
+  test('executes simple pure fn handlers in runtime expr assertions', () => {
+    writeFileSync(
+      join(tmpDir, 'functions.kern'),
+      [
+        'const name=base value=10',
+        'fn name=add returns=number',
+        '  param name=a type=number',
+        '  param name=b type=number',
+        '  handler <<<',
+        '    return a + b;',
+        '  >>>',
+        'fn name=withBase params="value:number" returns=number',
+        '  handler <<<',
+        '    return add(value, base);',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'functions.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Function runtime" target="./functions.kern"',
+        '  it name="calls pure functions"',
+        '    expect expr={{add(2, 3)}} equals=5',
+        '    expect expr={{withBase(7)}} equals=17',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(2);
+    expect(summary.results.map((result) => result.assertion)).toContain('expr add(2, 3) equals 5');
+  });
+
   test('runtime expr reads quoted JS string literal defaults as literal source', () => {
     writeFileSync(
       join(tmpDir, 'runtime.kern'),
@@ -615,6 +650,41 @@ describe('native kern test runner', () => {
     expect(summary.results[5].message).toContain("path param 'id' is not declared, validated, or guarded");
     expect(summary.results[6].message).toContain('side-effect handler without cleanup');
     expect(summary.results[7].message).toContain('async handler without recover');
+  });
+
+  test('classifies effects reached through same-file helper functions', () => {
+    writeFileSync(
+      join(tmpDir, 'indirect-effect.kern'),
+      [
+        'fn name=readSecret params="filePath:string" returns=string',
+        '  handler <<<',
+        '    return readFileSync(filePath, "utf-8");',
+        '  >>>',
+        'server name=Api',
+        '  route method=get path=/secret',
+        '    handler <<<',
+        '      return readSecret(filePath);',
+        '    >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'indirect-effect.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Indirect effects" target="./indirect-effect.kern"',
+        '  it name="helper calls do not hide effects"',
+        '    expect no=unguardedEffects',
+        '    expect no=sensitiveEffectsRequireAuth',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(2);
+    expect(summary.results[0].message).toContain('fn readSecret');
+    expect(summary.results[0].message).toContain('route GET /secret');
+    expect(summary.results[1].message).toContain('fn readSecret');
+    expect(summary.results[1].message).toContain('route GET /secret');
   });
 
   test('expands native test presets into granular invariant results', () => {

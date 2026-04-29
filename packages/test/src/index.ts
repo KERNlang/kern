@@ -496,6 +496,38 @@ function handlerText(node: IRNode): string {
     .join('\n');
 }
 
+function collectNamedHandlerBodies(root: IRNode): Map<string, string> {
+  const bodies = new Map<string, string>();
+  for (const fn of collectNodes(root, 'fn')) {
+    const name = str(getProps(fn).name);
+    const code = handlerText(fn);
+    if (name && code) bodies.set(name, code);
+  }
+  return bodies;
+}
+
+function reachableHandlerText(root: IRNode, node: IRNode): string {
+  const helperBodies = collectNamedHandlerBodies(root);
+  const chunks: string[] = [];
+  const queue = [handlerText(node)];
+  const visited = new Set<string>();
+
+  while (queue.length > 0) {
+    const current = queue.shift() || '';
+    if (!current) continue;
+    chunks.push(current);
+
+    for (const [name, body] of helperBodies) {
+      if (visited.has(name)) continue;
+      if (!new RegExp(`\\b${escapeRegExp(name)}\\s*\\(`).test(current)) continue;
+      visited.add(name);
+      queue.push(body);
+    }
+  }
+
+  return chunks.join('\n');
+}
+
 function hasInlinePermissionGate(node: IRNode): boolean {
   const code = handlerText(node);
   if (!code) return false;
@@ -879,7 +911,7 @@ function findUnguardedEffects(root: IRNode): string[] {
 
   function visit(node: IRNode): void {
     if (checkedTypes.has(node.type)) {
-      const code = handlerText(node);
+      const code = reachableHandlerText(root, node);
       const effect = classifyEffect(code);
       if (effect && !hasGuardLikeChild(node)) {
         failures.push(
@@ -1206,7 +1238,7 @@ function findSsrfRisks(root: IRNode): string[] {
         }
       }
 
-      const code = handlerText(node);
+      const code = reachableHandlerText(root, node);
       if (classifyEffect(code)?.kind === 'network' && !hasUrlAllowlistGuard(node)) {
         failures.push(`${nodeLabel(node)} performs network effect without URL/host allowlist guard`);
       }
@@ -1224,7 +1256,7 @@ function findSensitiveEffectsWithoutAuth(root: IRNode): string[] {
 
   function visit(node: IRNode): void {
     if (checkedTypes.has(node.type)) {
-      const effect = classifyEffect(handlerText(node));
+      const effect = classifyEffect(reachableHandlerText(root, node));
       if (effect?.sensitive && !hasAuthorizationLikeGate(node)) {
         failures.push(`${nodeLabel(node)} performs ${effect.label} without auth/permission`);
       }
@@ -1258,7 +1290,9 @@ function findUncheckedRoutePathParams(root: IRNode): string[] {
 function findEffectsWithoutCleanup(root: IRNode): string[] {
   const needsCleanup = /\b(addEventListener|setInterval|setTimeout|subscribe|watch|fetch|AbortController|WebSocket)\b/;
   return collectNodes(root, 'effect')
-    .filter((effect) => needsCleanup.test(handlerText(effect)) && getChildren(effect, 'cleanup').length === 0)
+    .filter(
+      (effect) => needsCleanup.test(reachableHandlerText(root, effect)) && getChildren(effect, 'cleanup').length === 0,
+    )
     .map((effect) => `${nodeLabel(effect)} at line ${effect.loc?.line ?? '?'} has side-effect handler without cleanup`);
 }
 
@@ -1501,14 +1535,41 @@ function runtimeBindingExpr(node: IRNode): string {
   if (node.type === 'derive' || node.type === 'let') {
     return exprPropToRuntimeSource(node, 'value') || exprPropToRuntimeSource(node, 'expr');
   }
+  if (node.type === 'fn') return runtimeFunctionExpr(node);
   return '';
+}
+
+function runtimeParamNames(node: IRNode): string[] {
+  const names: string[] = [];
+  for (const param of getChildren(node, 'param')) {
+    const name = str(getProps(param).name);
+    if (name) names.push(name);
+  }
+  if (names.length > 0) return names;
+  return parseLegacyParamNames(str(getProps(node).params));
+}
+
+function simpleReturnExpression(code: string): string {
+  const match = code.trim().match(/^return\s+([\s\S]*?)\s*;?\s*$/);
+  return match ? match[1].trim() : '';
+}
+
+function runtimeFunctionExpr(node: IRNode): string {
+  const code = handlerText(node);
+  if (!code) return '';
+  const bodyExpr = simpleReturnExpression(code);
+  if (!bodyExpr) return '';
+
+  const params = runtimeParamNames(node);
+  if (!params.every(isRuntimeBindingName)) return '';
+  return `((${params.join(', ')}) => (${bodyExpr}))`;
 }
 
 function collectRuntimeBindings(root: IRNode): RuntimeBinding[] {
   const bindings: RuntimeBinding[] = [];
 
   function visit(node: IRNode): void {
-    if (node.type === 'const' || node.type === 'derive' || node.type === 'let') {
+    if (node.type === 'const' || node.type === 'derive' || node.type === 'let' || node.type === 'fn') {
       const name = str(getProps(node).name);
       const expr = runtimeBindingExpr(node);
       if (name && expr) {
