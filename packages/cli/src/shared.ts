@@ -12,12 +12,14 @@ import {
   COMMON_TEMPLATES,
   clearTemplates,
   collectCoverageGaps,
+  detectKernStdlibUsage,
   detectTarget,
   expandTemplateNode,
   generateCoreNode,
   isCoreNode,
   isTemplateNode,
   KERN_VERSION,
+  kernStdlibPreamble,
   parseWithDiagnostics,
   registerTemplate,
   resolveConfig,
@@ -569,6 +571,11 @@ export function collectTsFilesFlat(dirPath: string, recursive: boolean): string[
 /** Plain TypeScript output — no framework wrapper, no JSX, no scaffold. */
 function transpileLib(ast: IRNode, _cfg: ResolvedKernConfig): import('@kernlang/core').TranspileResult {
   const lines: string[] = [];
+
+  // Slice 4 layer 2 — emit the Result / Option type aliases at the top of the
+  // module if the source references them. Other TS-family transpilers will
+  // pick this up in follow-up commits with the same call pattern.
+  lines.push(...kernStdlibPreamble(detectKernStdlibUsage(ast)));
 
   function processNode(node: IRNode): void {
     if (isReactNode(node.type)) {
