@@ -137,10 +137,13 @@ function tryFormatParamChildren(
 ): string[] | null {
   if (parameters.length === 0) return [];
   for (const p of parameters) {
-    // Slice 3c-extension: optional `?` is now structurable via `optional=true`
-    // (gate dropped). Variadic `...` and destructure patterns still bail out.
-    if (p.dotDotDotToken) return null;
-    if (!ts.isIdentifier(p.name)) return null;
+    // Slice 3c-extension: optional `?`, variadic `...`, and destructured
+    // `{a,b}` / `[x,y]` are now structurable via `optional=true` /
+    // `variadic=true` / `binding`+`element` children (gates dropped).
+    // Anything else on the LHS still bails to legacy.
+    if (!ts.isIdentifier(p.name) && !ts.isObjectBindingPattern(p.name) && !ts.isArrayBindingPattern(p.name)) {
+      return null;
+    }
     // Multi-line types (inline object shapes spread across lines) can't be
     // round-tripped through a single-line `type="..."` quoted attribute —
     // KERN's tokeniser treats newlines as record separators. Leave the
@@ -149,7 +152,8 @@ function tryFormatParamChildren(
   }
   const lines: string[] = [];
   for (const p of parameters) {
-    const name = (p.name as ts.Identifier).getText(source);
+    const isObj = ts.isObjectBindingPattern(p.name);
+    const isArr = ts.isArrayBindingPattern(p.name);
     // Codex P1 fix: read the RAW type text here (not via `typeToString`,
     // which pre-quotes whitespace types like `"string | null"`). Structured
     // `param` children always wrap the type in quotes, so a pre-quoted
@@ -158,15 +162,80 @@ function tryFormatParamChildren(
     // type, not a union). Legacy `params="..."` callers still go through
     // `typeToString` and its space-aware pre-quoting.
     const type = p.type ? p.type.getText(source) : '';
+
+    if (isObj || isArr) {
+      // Slice 3c-extension #3: destructured param. Convert the binding pattern
+      // to `binding`/`element` child lines (slice 3d's nodes). Bail to legacy
+      // if the pattern uses rest/defaults/nesting, since slice 3d's structured
+      // form doesn't represent those — the whole signature falls back to
+      // `params="..."` so the parent can still emit valid TS.
+      const childLines = tryFormatParamBindingPattern(p.name as ts.BindingPattern, source);
+      if (childLines === null) return null;
+      // The destructured-param header line carries no `name=`. Type / optional
+      // / default still apply to the whole pattern: `({a,b}: T = {a:1,b:2})`.
+      const parts: string[] = ['param'];
+      if (type) parts.push(`type="${escapeKernString(type)}"`);
+      if (p.questionToken) parts.push('optional=true');
+      if (p.initializer) parts.push(`value={{ ${p.initializer.getText(source)} }}`);
+      lines.push(parts.join(' '));
+      for (const child of childLines) lines.push(`  ${child}`);
+      continue;
+    }
+
+    const name = (p.name as ts.Identifier).getText(source);
     const parts: string[] = [`param name=${name}`];
     if (type) parts.push(`type="${escapeKernString(type)}"`);
     if (p.questionToken) parts.push('optional=true');
+    if (p.dotDotDotToken) parts.push('variadic=true');
     if (p.initializer) {
       parts.push(`value={{ ${p.initializer.getText(source)} }}`);
     }
     lines.push(parts.join(' '));
   }
   return lines;
+}
+
+/**
+ * Slice 3c-extension #3 — convert a TS parameter `BindingPattern` (object or
+ * array) into structured `binding` / `element` KERN child lines (slice 3d's
+ * shape). Returns null when the pattern uses features the structured form
+ * can't represent: rest (`...rest`), defaults (`{a = 1}`), or nested patterns
+ * (`{a: {b}}`). Caller falls back to legacy `params="..."` when null.
+ *
+ * Mirrors `tryFormatDestructure`'s sub-branch for slice 3d, but tightened to
+ * just the LHS pattern (no source/kind/type — those live on the param node).
+ */
+function tryFormatParamBindingPattern(pattern: ts.BindingPattern, source: ts.SourceFile): string[] | null {
+  const childLines: string[] = [];
+  if (ts.isObjectBindingPattern(pattern)) {
+    for (const el of pattern.elements) {
+      if (el.dotDotDotToken) return null;
+      if (el.initializer) return null;
+      if (!ts.isIdentifier(el.name)) return null;
+      const localName = el.name.getText(source);
+      let line = `binding name=${localName}`;
+      if (el.propertyName) {
+        if (!ts.isIdentifier(el.propertyName)) return null;
+        line += ` key=${el.propertyName.getText(source)}`;
+      }
+      childLines.push(line);
+    }
+  } else {
+    let idx = 0;
+    for (const el of pattern.elements) {
+      if (ts.isOmittedExpression(el)) {
+        idx++;
+        continue;
+      }
+      if (el.dotDotDotToken) return null;
+      if (el.initializer) return null;
+      if (!ts.isIdentifier(el.name)) return null;
+      childLines.push(`element name=${el.name.getText(source)} index=${idx}`);
+      idx++;
+    }
+  }
+  if (childLines.length === 0) return null;
+  return childLines;
 }
 
 function getBodyText(body: ts.Block | ts.Expression | undefined, source: ts.SourceFile): string | undefined {

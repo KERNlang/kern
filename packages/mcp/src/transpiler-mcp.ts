@@ -111,6 +111,39 @@ function str(value: unknown): string | undefined {
   return String(value);
 }
 
+/**
+ * Slice 3c P2 follow-up — resolve a `param`'s default for MCP emission.
+ * Reads `value` first (slice 3c canonical, ValueIR-routed), falls back to
+ * `default` (legacy rawExpr passthrough). Mirrors core's `parseParamListFromChildren`
+ * priority: `value` wins when both are set.
+ *
+ * Returns the raw expression text suitable for embedding in Zod's `.default(...)`
+ * (which the caller wraps with type-aware coercion). ExprObject `{{...}}` form
+ * surfaces its `.code` verbatim — note that `{{Date.now()}}` produces
+ * `.default(Date.now())` which Zod evaluates ONCE at module load (use
+ * `{{() => Date.now()}}` for per-parse evaluation).
+ */
+function resolveParamDefault(paramNode: IRNode): string | undefined {
+  const props = paramNode.props || {};
+  const quoted = paramNode.__quotedProps ?? [];
+  const rawValue = props.value;
+  const valuePresent = rawValue !== undefined && (rawValue !== '' || quoted.includes('value'));
+  if (valuePresent) {
+    if (typeof rawValue === 'object' && rawValue !== null && (rawValue as { __expr?: unknown }).__expr === true) {
+      return (rawValue as { code: string }).code;
+    }
+    return String(rawValue);
+  }
+  const rawDefault = props.default;
+  if (rawDefault !== undefined && rawDefault !== '') {
+    if (typeof rawDefault === 'object' && rawDefault !== null && (rawDefault as { __expr?: unknown }).__expr === true) {
+      return (rawDefault as { code: string }).code;
+    }
+    return String(rawDefault);
+  }
+  return undefined;
+}
+
 function extractDescription(node: IRNode): string {
   const props = getProps(node);
   const descNode = getFirstChild(node, 'description');
@@ -342,11 +375,14 @@ function collectParams(node: IRNode, fallbackAllowlist: string[]): ParamDefiniti
       guards.push({ kind: 'pathContainment', target: name, allowlist: fallbackAllowlist });
     }
 
+    // Slice 3c P2 follow-up: read `value` (canonical) before `default` (legacy).
+    const defaultValue = resolveParamDefault(paramNode);
+
     return {
       name,
       type,
-      optional: str(props.required) === 'false' || props.default !== undefined,
-      defaultValue: str(props.default),
+      optional: str(props.required) === 'false' || defaultValue !== undefined,
+      defaultValue,
       description: str(props.description),
       guards,
       node: paramNode,

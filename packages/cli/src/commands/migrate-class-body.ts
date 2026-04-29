@@ -185,11 +185,11 @@ function tryFormatParamChildren(
 ): string[] | null {
   if (parameters.length === 0) return [];
   for (const p of parameters) {
-    // Slice 3c-extension: optional `?` is now structurable via `optional=true`
-    // (gate dropped, mirrors importer.ts). Variadic `...` and destructure
-    // patterns still bail out.
-    if (p.dotDotDotToken) return null;
-    if (!ts.isIdentifier(p.name)) return null;
+    // Slice 3c-extension: optional `?`, variadic `...`, and destructured
+    // `{a,b}` / `[x,y]` are structurable (gates dropped, mirrors importer.ts).
+    if (!ts.isIdentifier(p.name) && !ts.isObjectBindingPattern(p.name) && !ts.isArrayBindingPattern(p.name)) {
+      return null;
+    }
     // Multi-line types (inline object shapes spread across lines) cannot be
     // round-tripped through a single-line `type="..."` quoted attribute —
     // KERN's tokeniser treats newlines as record separators. Leave the
@@ -198,17 +198,75 @@ function tryFormatParamChildren(
   }
   const lines: string[] = [];
   for (const p of parameters) {
-    const name = text(p.name);
+    const isObj = ts.isObjectBindingPattern(p.name);
+    const isArr = ts.isArrayBindingPattern(p.name);
     const type = p.type ? text(p.type) : '';
+
+    if (isObj || isArr) {
+      const childLines = tryFormatParamBindingPattern(p.name as ts.BindingPattern, text);
+      if (childLines === null) return null;
+      const parts: string[] = ['param'];
+      if (type) parts.push(`type="${type.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+      if (p.questionToken) parts.push('optional=true');
+      if (p.initializer) parts.push(`value={{ ${text(p.initializer)} }}`);
+      lines.push(parts.join(' '));
+      for (const child of childLines) lines.push(`  ${child}`);
+      continue;
+    }
+
+    const name = text(p.name);
     const parts: string[] = [`param name=${name}`];
     if (type) parts.push(`type="${type.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
     if (p.questionToken) parts.push('optional=true');
+    if (p.dotDotDotToken) parts.push('variadic=true');
     if (p.initializer) {
       parts.push(`value={{ ${text(p.initializer)} }}`);
     }
     lines.push(parts.join(' '));
   }
   return lines;
+}
+
+/**
+ * Slice 3c-extension #3 — convert a TS `BindingPattern` (object or array) to
+ * structured `binding`/`element` lines. Returns null when the pattern uses
+ * rest, defaults, or nesting (caller falls back to legacy `params="..."`).
+ * Mirrors importer.ts `tryFormatParamBindingPattern`.
+ */
+function tryFormatParamBindingPattern(
+  pattern: ts.BindingPattern,
+  text: (n: ts.Node | undefined) => string,
+): string[] | null {
+  const childLines: string[] = [];
+  if (ts.isObjectBindingPattern(pattern)) {
+    for (const el of pattern.elements) {
+      if (el.dotDotDotToken) return null;
+      if (el.initializer) return null;
+      if (!ts.isIdentifier(el.name)) return null;
+      const localName = text(el.name);
+      let line = `binding name=${localName}`;
+      if (el.propertyName) {
+        if (!ts.isIdentifier(el.propertyName)) return null;
+        line += ` key=${text(el.propertyName)}`;
+      }
+      childLines.push(line);
+    }
+  } else {
+    let idx = 0;
+    for (const el of pattern.elements) {
+      if (ts.isOmittedExpression(el)) {
+        idx++;
+        continue;
+      }
+      if (el.dotDotDotToken) return null;
+      if (el.initializer) return null;
+      if (!ts.isIdentifier(el.name)) return null;
+      childLines.push(`element name=${text(el.name)} index=${idx}`);
+      idx++;
+    }
+  }
+  if (childLines.length === 0) return null;
+  return childLines;
 }
 
 function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {

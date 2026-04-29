@@ -1605,12 +1605,25 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       // `required`. When `optional=true`, codegen emits `name?: type` (with the
       // `?` inside the parameter list) so callers may omit the argument.
       optional: { kind: 'boolean' },
+      // Slice 3c-extension: TS-style variadic `...rest`. When `variadic=true`,
+      // codegen prepends `...` to the parameter name; the type should be an
+      // array (e.g. `string[]`). Variadic params can't have defaults — that's
+      // user error and TS will surface it at the call site.
+      variadic: { kind: 'boolean' },
       default: { kind: 'rawExpr' },
       description: { kind: 'string' },
       min: { kind: 'number' },
       max: { kind: 'number' },
     },
-    allowedChildren: ['guard', 'description'],
+    // Slice 3c-extension #3: TS-style destructured params via slice 3d's
+    // `binding` (object pattern) / `element` (array pattern) children. When
+    // present, codegen uses the pattern as the LHS instead of `name`, e.g.
+    //   param type="Point"
+    //     binding name=x
+    //     binding name=y
+    // → `{x, y}: Point`. Same node types as slice 3d destructure — no new
+    // node types needed. `name=` is omitted on destructured params.
+    allowedChildren: ['guard', 'description', 'binding', 'element'],
   },
   prompt: {
     description: 'MCP prompt template — a reusable system prompt exposed to AI agents',
