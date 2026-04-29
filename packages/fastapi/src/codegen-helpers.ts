@@ -112,25 +112,6 @@ function jsLiteralToPython(token: string): string {
   return token;
 }
 
-/**
- * Slice 3c P2 follow-up bug fix (Codex catch): KERN authors a target-neutral
- * `value=true|false|null|undefined` token; in TS this round-trips as JS
- * `true`/`false`/`null`/`undefined`, but Python defaults are evaluated at
- * module-import time and those names are undefined → `NameError`. Translate
- * the bare keyword to its Python equivalent before emitting.
- *
- * Numeric literals (`3`, `0.5`) and identifier references (`DEFAULT_GREETING`)
- * are left alone — numbers parse the same in both languages, and identifier
- * references either resolve to a Python binding or surface a clear
- * `NameError` at the same point a TS author would hit a ReferenceError.
- */
-function jsLiteralToPython(token: string): string {
-  if (token === 'true') return 'True';
-  if (token === 'false') return 'False';
-  if (token === 'null' || token === 'undefined') return 'None';
-  return token;
-}
-
 function formatPyDefault(paramNode: IRNode): string {
   const props = p(paramNode);
   const rawValue = props.value;
