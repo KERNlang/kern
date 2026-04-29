@@ -137,6 +137,48 @@ describe('transpileForTarget — slice 4 stdlib preamble dispatch', () => {
     expect(code).not.toContain('// ── KERN stdlib');
   });
 
+  test('layer 3 — Result.ok / Result.err / Result.map are usable end-to-end on lib', () => {
+    // The companion-object helpers only land if the type alias also lands.
+    // This test pins the full layer-3 emit AND checks that a handler body
+    // calling `Result.ok(...)` / `Result.map(...)` reads the helper from the
+    // auto-emitted preamble (rather than hitting an undefined identifier).
+    const code = compile(
+      [
+        'fn name=parseUser params="raw:string" returns="Result<User, ParseError>" export=true',
+        '  handler <<<',
+        '    if (!raw) return Result.err({ code: "EMPTY" });',
+        '    return Result.ok({ id: raw, name: "alice" });',
+        '  >>>',
+        'fn name=loudName params="r:Result<User, ParseError>" returns="Result<string, ParseError>" export=true',
+        '  handler <<<',
+        '    return Result.map((u) => u.name.toUpperCase(), r);',
+        '  >>>',
+      ].join('\n'),
+      'lib',
+    );
+    // Companion object emitted before the user fns
+    expect(code).toContain('const Result = Object.freeze({');
+    expect(code.indexOf('const Result = Object.freeze({')).toBeLessThan(code.indexOf('export function parseUser'));
+    // User code referencing the helpers stays verbatim
+    expect(code).toContain('return Result.err({ code: "EMPTY" });');
+    expect(code).toContain('return Result.ok({ id: raw, name: "alice" });');
+    expect(code).toContain('return Result.map((u) => u.name.toUpperCase(), r);');
+  });
+
+  test('layer 3 — Option helpers ride along when Option is used', () => {
+    const code = compile(
+      [
+        'fn name=findUser params="id:string" returns="Option<User>" export=true',
+        '  handler <<<',
+        '    return id ? Option.some({ id, name: "alice" }) : Option.none();',
+        '  >>>',
+      ].join('\n'),
+      'lib',
+    );
+    expect(code).toContain('const Option = Object.freeze({');
+    expect(code).toContain('return id ? Option.some({ id, name: "alice" }) : Option.none();');
+  });
+
   test('mcp target gets the preamble for TS-family targets', () => {
     // MCP server emits TS — Result/Option aliases should land at the top.
     // We use `target=mcp` plus a minimal kern doc that the MCP transpiler

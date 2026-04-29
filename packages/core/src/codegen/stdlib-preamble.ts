@@ -83,16 +83,58 @@ export function detectKernStdlibUsage(root: IRNode): KernStdlibUsage {
 /** Preamble lines for the TS-family targets. Inlined into each generated
  *  module — duplication across modules is fine (TS allows identical type
  *  aliases in separate scopes). When a vendored runtime file is added in a
- *  later slice this becomes an `import …` instead. */
+ *  later slice this becomes an `import …` instead.
+ *
+ *  Layer 3 emits the helper companion objects alongside each type. The
+ *  spec asks for "pure helper functions exported from a vendored module";
+ *  we ship them as a frozen `const Result = { ok, err, … }` companion to
+ *  the type alias instead. The companion-object pattern lets TS hold a
+ *  type AND a value of the same name in scope (chosen unanimously by the
+ *  Codex/Gemini synthesis brainstorm — see commit message). User calls
+ *  look like `Result.ok(value)` / `Option.map(f, o)`, eliminating the name
+ *  collisions a bare `function map(...)` would cause with array methods
+ *  and user code.
+ *
+ *  Slice 7's `?` / `!` propagation operators do NOT depend on these
+ *  helpers — they desugar directly against the discriminant
+ *  (`if (r.kind === 'err') return r;`), so the helper API can evolve
+ *  independently. */
+const RESULT_HELPERS = [
+  'const Result = Object.freeze({',
+  '  ok<T>(value: T): Result<T, never> { return { kind: "ok", value }; },',
+  '  err<E>(error: E): Result<never, E> { return { kind: "err", error }; },',
+  '  isOk<T, E>(r: Result<T, E>): r is { kind: "ok"; value: T } { return r.kind === "ok"; },',
+  '  isErr<T, E>(r: Result<T, E>): r is { kind: "err"; error: E } { return r.kind === "err"; },',
+  '  map<T, E, U>(f: (v: T) => U, r: Result<T, E>): Result<U, E> { return r.kind === "ok" ? { kind: "ok", value: f(r.value) } : r; },',
+  '  mapErr<T, E, F>(f: (e: E) => F, r: Result<T, E>): Result<T, F> { return r.kind === "err" ? { kind: "err", error: f(r.error) } : r; },',
+  '  andThen<T, E, U>(f: (v: T) => Result<U, E>, r: Result<T, E>): Result<U, E> { return r.kind === "ok" ? f(r.value) : r; },',
+  '  unwrapOr<T, E>(fallback: T, r: Result<T, E>): T { return r.kind === "ok" ? r.value : fallback; },',
+  '});',
+];
+
+const OPTION_HELPERS = [
+  'const Option = Object.freeze({',
+  '  some<T>(value: T): Option<T> { return { kind: "some", value }; },',
+  '  none<T = never>(): Option<T> { return { kind: "none" }; },',
+  '  isSome<T>(o: Option<T>): o is { kind: "some"; value: T } { return o.kind === "some"; },',
+  '  isNone<T>(o: Option<T>): o is { kind: "none" } { return o.kind === "none"; },',
+  '  map<T, U>(f: (v: T) => U, o: Option<T>): Option<U> { return o.kind === "some" ? { kind: "some", value: f(o.value) } : o; },',
+  '  andThen<T, U>(f: (v: T) => Option<U>, o: Option<T>): Option<U> { return o.kind === "some" ? f(o.value) : o; },',
+  '  unwrapOr<T>(fallback: T, o: Option<T>): T { return o.kind === "some" ? o.value : fallback; },',
+  '});',
+];
+
 export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
   if (!usage.result && !usage.option) return [];
 
   const lines: string[] = ['// ── KERN stdlib (auto-emitted) ──────────────────────────────────────'];
   if (usage.result) {
     lines.push("type Result<T, E> = { kind: 'ok'; value: T } | { kind: 'err'; error: E };");
+    lines.push(...RESULT_HELPERS);
   }
   if (usage.option) {
     lines.push("type Option<T> = { kind: 'some'; value: T } | { kind: 'none' };");
+    lines.push(...OPTION_HELPERS);
   }
   lines.push('');
   return lines;

@@ -120,16 +120,75 @@ describe('kernStdlibPreamble', () => {
     expect(out).toContain('type Option<T>');
   });
 
-  test('preamble shape matches the spec exactly', () => {
+  test('preamble emits the type alias AND the companion-object helpers', () => {
     // Slice 7's `?` / `!` operators rely on the exact discriminant key/value
     // shape. If this preamble drifts, the operator desugar breaks silently.
-    const out = kernStdlibPreamble({ result: true, option: true });
-    expect(out).toEqual([
-      '// ── KERN stdlib (auto-emitted) ──────────────────────────────────────',
-      "type Result<T, E> = { kind: 'ok'; value: T } | { kind: 'err'; error: E };",
-      "type Option<T> = { kind: 'some'; value: T } | { kind: 'none' };",
-      '',
-    ]);
+    // Layer 3 added the `Result` / `Option` companion objects (Codex/Gemini
+    // synthesis vote). The helpers must reference the same `kind: 'ok' / …`
+    // strings so user code that round-trips through them stays compatible
+    // with the propagation-operator lowering.
+    const out = kernStdlibPreamble({ result: true, option: true }).join('\n');
+    // Type aliases — load-bearing for slice 7
+    expect(out).toContain("type Result<T, E> = { kind: 'ok'; value: T } | { kind: 'err'; error: E };");
+    expect(out).toContain("type Option<T> = { kind: 'some'; value: T } | { kind: 'none' };");
+    // Companion objects — load-bearing for the value-level API
+    expect(out).toContain('const Result = Object.freeze({');
+    expect(out).toContain('const Option = Object.freeze({');
+    // All 8 Result helpers per spec
+    for (const helper of [
+      'ok<T>',
+      'err<E>',
+      'isOk<T, E>',
+      'isErr<T, E>',
+      'map<T, E, U>',
+      'mapErr<T, E, F>',
+      'andThen<T, E, U>',
+      'unwrapOr<T, E>',
+    ]) {
+      expect(out).toContain(helper);
+    }
+    // All 7 Option helpers (no mapErr — Option has no error side)
+    for (const helper of [
+      'some<T>',
+      'none<T = never>',
+      'isSome<T>',
+      'isNone<T>',
+      'map<T, U>',
+      'andThen<T, U>',
+      'unwrapOr<T>',
+    ]) {
+      expect(out).toContain(helper);
+    }
+  });
+
+  test('Result helpers are emitted ONLY when Result type is used', () => {
+    const out = kernStdlibPreamble({ result: true, option: false }).join('\n');
+    expect(out).toContain('const Result = Object.freeze({');
+    expect(out).not.toContain('const Option =');
+  });
+
+  test('Option helpers are emitted ONLY when Option type is used', () => {
+    const out = kernStdlibPreamble({ result: false, option: true }).join('\n');
+    expect(out).toContain('const Option = Object.freeze({');
+    expect(out).not.toContain('const Result =');
+  });
+
+  test('helpers reference the same `kind: "ok" / "err" / "some" / "none"` strings as the type alias', () => {
+    // Slice 7 invariant pinned: the propagation operators (`?` / `!`) work
+    // by checking `r.kind === 'err'` directly. If a future rewrite changes
+    // the helpers to use a different tag value, the operators silently
+    // diverge from the helpers. This test catches that drift.
+    const out = kernStdlibPreamble({ result: true, option: true }).join('\n');
+    // Result helpers
+    expect(out).toContain('return { kind: "ok", value };');
+    expect(out).toContain('return { kind: "err", error };');
+    expect(out).toContain('r.kind === "ok"');
+    expect(out).toContain('r.kind === "err"');
+    // Option helpers
+    expect(out).toContain('return { kind: "some", value };');
+    expect(out).toContain('return { kind: "none" };');
+    expect(out).toContain('o.kind === "some"');
+    expect(out).toContain('o.kind === "none"');
   });
 });
 
