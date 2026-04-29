@@ -1,18 +1,31 @@
 import type { IRNode } from '@kernlang/core';
 import {
+  checkNativeKernTestBaseline,
+  createNativeKernTestBaseline,
+  explainNativeKernTestRule,
+  formatNativeKernTestCoverage,
   formatNativeKernTestRunSummary,
   formatNativeKernTestSummary,
   hasNativeKernTests,
+  listNativeKernTestRules,
+  type NativeKernTestBaseline,
+  type NativeKernTestRunSummary,
+  type NativeKernTestSummary,
   runNativeKernTestRun,
   runNativeKernTests,
 } from '@kernlang/test';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { basename, resolve } from 'path';
-import { hasFlag, parseAndSurface, parseFlag, parseFlagOrNext } from '../shared.js';
+import { hasFlag, parseAndSurface, parseFlag } from '../shared.js';
 
 export {
+  checkNativeKernTestBaseline,
+  createNativeKernTestBaseline,
+  explainNativeKernTestRule,
+  formatNativeKernTestCoverage,
   formatNativeKernTestRunSummary,
   formatNativeKernTestSummary,
+  listNativeKernTestRules,
   runNativeKernTestRun,
   runNativeKernTests,
 } from '@kernlang/test';
@@ -33,6 +46,76 @@ function getChildren(node: IRNode, type: string): IRNode[] {
 
 function _getFirstChild(node: IRNode, type: string): IRNode | undefined {
   return (node.children || []).find((c) => c.type === type);
+}
+
+function hasValueFlag(args: string[], flag: string): boolean {
+  return args.includes(flag) || args.some((arg) => arg.startsWith(`${flag}=`));
+}
+
+function parseValueFlag(args: string[], flag: string): string | undefined {
+  const eqArg = args.find((arg) => arg.startsWith(`${flag}=`));
+  if (eqArg) return eqArg.slice(flag.length + 1);
+  const index = args.indexOf(flag);
+  if (index === -1) return undefined;
+  const next = args[index + 1];
+  if (!next || next.startsWith('--')) return '';
+  return next;
+}
+
+function requireValueFlag(args: string[], flag: string, description: string): string | undefined {
+  if (!hasValueFlag(args, flag)) return undefined;
+  const value = parseValueFlag(args, flag);
+  if (!value) {
+    console.error(`${flag} requires ${description}.`);
+    process.exit(2);
+  }
+  return value;
+}
+
+function loadNativeBaseline(path: string): NativeKernTestBaseline {
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf-8')) as NativeKernTestBaseline;
+    if (parsed.version !== 1 || !Array.isArray(parsed.warnings)) {
+      throw new Error('expected { "version": 1, "warnings": [...] }');
+    }
+    return parsed;
+  } catch (error) {
+    throw new Error(
+      `Failed to read native test baseline ${path}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function handleNativeBaseline(
+  summary: NativeKernTestSummary | NativeKernTestRunSummary,
+  opts: { baselinePath?: string; writeBaselinePath?: string },
+): boolean {
+  let failed = false;
+  try {
+    if (opts.writeBaselinePath) {
+      writeFileSync(opts.writeBaselinePath, `${JSON.stringify(createNativeKernTestBaseline(summary), null, 2)}\n`);
+    }
+    if (opts.baselinePath) {
+      const check = checkNativeKernTestBaseline(summary, loadNativeBaseline(opts.baselinePath));
+      if (!check.ok) {
+        failed = true;
+        for (const warning of check.newWarnings) {
+          console.error(
+            `New native warning: ${warning.suite} > ${warning.caseName}: ${warning.assertion} [${warning.ruleId}]${warning.message ? ` - ${warning.message}` : ''}`,
+          );
+        }
+        for (const warning of check.staleWarnings) {
+          console.error(
+            `Stale native warning baseline: ${warning.suite} > ${warning.caseName}: ${warning.assertion} [${warning.ruleId}]${warning.message ? ` - ${warning.message}` : ''}`,
+          );
+        }
+      }
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(2);
+  }
+  return failed;
 }
 
 // ── Guard violation payloads ────────────────────────────────────────────
@@ -196,13 +279,51 @@ export function runTest(args: string[]): void {
   const json = hasFlag(args, '--json');
   const generateOnly = hasFlag(args, '--generate');
   const failOnWarn = hasFlag(args, '--fail-on-warn');
-  const grepFlagPresent = args.includes('--grep') || args.some((arg) => arg.startsWith('--grep='));
-  const grep = parseFlagOrNext(args, '--grep');
   const bail = hasFlag(args, '--bail');
+  const passWithNoTests = hasFlag(args, '--pass-with-no-tests');
+  const listRules = hasFlag(args, '--list-rules');
+
+  if (listRules) {
+    const rules = listNativeKernTestRules();
+    process.stdout.write(
+      json
+        ? `${JSON.stringify(rules, null, 2)}\n`
+        : `${rules.map((rule) => `${rule.ruleId} - ${rule.description}`).join('\n')}\n`,
+    );
+    return;
+  }
+
+  const explainRule = requireValueFlag(args, '--explain-rule', 'a rule ID');
+  if (explainRule) {
+    const rule = explainNativeKernTestRule(explainRule);
+    if (!rule) {
+      console.error(`Unknown native test rule: ${explainRule}`);
+      process.exit(2);
+    }
+    process.stdout.write(
+      json
+        ? `${JSON.stringify(rule, null, 2)}\n`
+        : `${rule.ruleId}\n${rule.description}${rule.presets?.length ? `\nPresets: ${rule.presets.join(', ')}` : ''}\n`,
+    );
+    return;
+  }
+
+  const grepFlagPresent = hasValueFlag(args, '--grep');
+  const grep = requireValueFlag(args, '--grep', 'a pattern');
+  const formatFlagPresent = hasValueFlag(args, '--format');
+  const requestedFormat = requireValueFlag(args, '--format', '"default" or "compact"');
+  const compact = hasFlag(args, '--compact') || requestedFormat === 'compact';
+  const maxWarningsRaw = requireValueFlag(args, '--max-warnings', 'a non-negative integer');
+  const minCoverageRaw = requireValueFlag(args, '--min-coverage', 'a percentage from 0 to 100');
+  const coverage = hasFlag(args, '--coverage') || minCoverageRaw !== undefined;
+  const baselinePath = requireValueFlag(args, '--baseline', 'a file path');
+  const writeBaselinePath = requireValueFlag(args, '--write-baseline', 'a file path');
+  const maxWarnings = maxWarningsRaw === undefined ? undefined : Number(maxWarningsRaw);
+  const minCoverage = minCoverageRaw === undefined ? undefined : Number(minCoverageRaw);
 
   if (!testInput) {
     console.error(
-      'Usage: kern test <file-or-dir> [--json] [--grep <pattern>] [--bail] [--fail-on-warn] [--generate] [--outdir=<dir>] [--dry-run]',
+      'Usage: kern test <file-or-dir> [--json] [--grep <pattern>] [--bail] [--fail-on-warn] [--max-warnings <n>] [--coverage] [--min-coverage <pct>] [--baseline <file>] [--write-baseline <file>] [--pass-with-no-tests] [--format compact] [--compact] [--list-rules] [--explain-rule <rule>] [--generate] [--outdir=<dir>] [--dry-run]',
     );
     console.error('');
     console.error('Runs native KERN tests when the file contains test/describe/it nodes.');
@@ -212,6 +333,22 @@ export function runTest(args: string[]): void {
 
   if (grepFlagPresent && !grep) {
     console.error('--grep requires a pattern.');
+    process.exit(2);
+  }
+  if (formatFlagPresent && requestedFormat !== 'default' && requestedFormat !== 'compact') {
+    console.error('--format must be "default" or "compact".');
+    process.exit(2);
+  }
+  if (maxWarnings !== undefined && (!Number.isInteger(maxWarnings) || maxWarnings < 0)) {
+    console.error('--max-warnings requires a non-negative integer.');
+    process.exit(2);
+  }
+  if (minCoverage !== undefined && (Number.isNaN(minCoverage) || minCoverage < 0 || minCoverage > 100)) {
+    console.error('--min-coverage requires a percentage from 0 to 100.');
+    process.exit(2);
+  }
+  if (baselinePath && writeBaselinePath) {
+    console.error('--baseline and --write-baseline cannot be used together.');
     process.exit(2);
   }
 
@@ -228,9 +365,26 @@ export function runTest(args: string[]): void {
       process.exit(1);
     }
 
-    const summary = runNativeKernTestRun(inputPath, { grep, bail });
-    process.stdout.write(json ? `${JSON.stringify(summary, null, 2)}\n` : formatNativeKernTestRunSummary(summary));
-    if (summary.failed > 0 || (failOnWarn && summary.warnings > 0) || (grep && summary.total === 0)) {
+    const summary = runNativeKernTestRun(inputPath, { grep, bail, passWithNoTests });
+    process.stdout.write(
+      json
+        ? `${JSON.stringify(summary, null, 2)}\n`
+        : formatNativeKernTestRunSummary(summary, compact ? { format: 'compact' } : undefined),
+    );
+    if (coverage && !json) process.stdout.write(formatNativeKernTestCoverage(summary.coverage));
+    const baselineFailed = handleNativeBaseline(summary, { baselinePath, writeBaselinePath });
+    const coverageFailed = minCoverage !== undefined && summary.coverage.percent < minCoverage;
+    if (coverageFailed) {
+      console.error(`Native coverage ${summary.coverage.percent}% is below --min-coverage ${minCoverage}%.`);
+    }
+    if (
+      summary.failed > 0 ||
+      baselineFailed ||
+      coverageFailed ||
+      (failOnWarn && summary.warnings > 0) ||
+      (maxWarnings !== undefined && summary.warnings > maxWarnings) ||
+      (grep && summary.total === 0 && summary.files.length > 0 && !passWithNoTests)
+    ) {
       process.exitCode = 1;
     }
     return;
@@ -238,9 +392,26 @@ export function runTest(args: string[]): void {
 
   const source = readFileSync(inputPath, 'utf-8');
   if (!generateOnly && hasNativeKernTests(source)) {
-    const summary = runNativeKernTests(inputPath, { grep, bail });
-    process.stdout.write(json ? `${JSON.stringify(summary, null, 2)}\n` : formatNativeKernTestSummary(summary));
-    if (summary.failed > 0 || (failOnWarn && summary.warnings > 0) || (grep && summary.total === 0)) {
+    const summary = runNativeKernTests(inputPath, { grep, bail, passWithNoTests });
+    process.stdout.write(
+      json
+        ? `${JSON.stringify(summary, null, 2)}\n`
+        : formatNativeKernTestSummary(summary, compact ? { format: 'compact' } : undefined),
+    );
+    if (coverage && !json) process.stdout.write(formatNativeKernTestCoverage(summary.coverage));
+    const baselineFailed = handleNativeBaseline(summary, { baselinePath, writeBaselinePath });
+    const coverageFailed = minCoverage !== undefined && summary.coverage.percent < minCoverage;
+    if (coverageFailed) {
+      console.error(`Native coverage ${summary.coverage.percent}% is below --min-coverage ${minCoverage}%.`);
+    }
+    if (
+      summary.failed > 0 ||
+      baselineFailed ||
+      coverageFailed ||
+      (failOnWarn && summary.warnings > 0) ||
+      (maxWarnings !== undefined && summary.warnings > maxWarnings) ||
+      (grep && summary.total === 0 && !passWithNoTests)
+    ) {
       process.exitCode = 1;
     }
     return;

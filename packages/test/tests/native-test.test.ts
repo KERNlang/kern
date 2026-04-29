@@ -2,7 +2,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
+  checkNativeKernTestBaseline,
+  createNativeKernTestBaseline,
   discoverNativeKernTestFiles,
+  formatNativeKernTestCoverage,
   formatNativeKernTestRunSummary,
   formatNativeKernTestSummary,
   runNativeKernTestRun,
@@ -250,7 +253,7 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(5);
     expect(summary.results[0].message).toContain('POST /orders');
     expect(summary.results[1].message).toContain('mutates without schema/validate/guard/auth');
-    expect(summary.results[2].message).toContain('performs database effect without guard/auth/validate');
+    expect(summary.results[2].message).toContain('performs database query without guard/auth/validate');
     expect(summary.results[3].message).toContain('has expr but no else/handler');
     expect(summary.results[4].message).toContain('Found raw handler escapes');
   });
@@ -431,7 +434,7 @@ describe('native kern test runner', () => {
     expect(summary.results[1].message).toContain("requires param 'url' without a param-specific guard");
     expect(summary.results[2].message).toContain("path-like param 'filePath' lacks pathContainment guard");
     expect(summary.results[3].message).toContain('Found SSRF risks');
-    expect(summary.results[4].message).toContain('performs database effect without auth');
+    expect(summary.results[4].message).toContain('performs database query without auth');
     expect(summary.results[5].message).toContain("path param 'id' is not declared, validated, or guarded");
     expect(summary.results[6].message).toContain('side-effect handler without cleanup');
     expect(summary.results[7].message).toContain('async handler without recover');
@@ -638,6 +641,53 @@ describe('native kern test runner', () => {
     expect(summary.results[1].message).toContain('expect preset=guard');
   });
 
+  test('reports native coverage metrics for transitions and guards', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=confirmed',
+        '  state name=paid',
+        '  state name=refunded',
+        '  transition name=confirm from=pending to=confirmed',
+        '  transition name=capture from=confirmed to=paid',
+        '  transition name=refund from=paid to=refunded',
+        'union name=Payment discriminant=kind',
+        '  variant name=card',
+        '  variant name=paypal',
+        'guard name=ChargeCard kind=variant covers=card,paypal',
+        'guard name=VerifyUser kind=variant covers=card,paypal',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'coverage.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Coverage report" target="./order.kern"',
+        '  it name="covers happy path"',
+        '    expect machine=Order reaches=paid via=confirm,capture',
+        '  it name="charge guard is exhaustive"',
+        '    expect guard=ChargeCard exhaustive=true over=Payment',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+    const output = formatNativeKernTestCoverage(summary.coverage);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.coverage.total).toBe(5);
+    expect(summary.coverage.covered).toBe(3);
+    expect(summary.coverage.percent).toBe(60);
+    expect(summary.coverage.transitions.uncovered).toEqual(['Order.refund at line 8']);
+    expect(summary.coverage.guards.uncovered).toEqual(['guard VerifyUser at line 13']);
+    expect(output).toContain('coverage 3/5 (60%)');
+    expect(output).toContain('uncovered transitions:');
+    expect(output).toContain('Order.refund');
+    expect(output).toContain('uncovered guards:');
+    expect(output).toContain('guard VerifyUser');
+  });
+
   test('passes language surface smoke for arrays classes and functions', () => {
     writeFileSync(
       join(tmpDir, 'language.kern'),
@@ -770,6 +820,140 @@ describe('native kern test runner', () => {
     expect(formatNativeKernTestRunSummary(summary)).toContain('2 passed, 0 warnings, 0 failed, 2 total');
   });
 
+  test('runs repo-root smoke suites against nested package targets with compact output', () => {
+    const modelsDir = join(tmpDir, 'packages', 'core', 'src', 'kern', 'models');
+    const fsDir = join(tmpDir, 'packages', 'core', 'src', 'kern', 'forge');
+    mkdirSync(modelsDir, { recursive: true });
+    mkdirSync(fsDir, { recursive: true });
+    writeFileSync(
+      join(modelsDir, 'hash.kern'),
+      [
+        'fn name=hashInput params="input:string" returns=string export=true',
+        '  handler <<<',
+        "    return createHash('sha256').update(input).digest('hex');",
+        '  >>>',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(fsDir, 'snapshot.kern'),
+      [
+        'fn name=readSnapshot params="path:string" returns=string export=true',
+        '  handler <<<',
+        "    return readFileSync(path, 'utf-8');",
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'repo-smoke.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Repo model smoke" target="./packages/core/src/kern/models/hash.kern"',
+        '  it name="hash helper is not misclassified as database"',
+        '    expect no=schemaViolations',
+        '    expect no=codegenErrors',
+        '    expect no=unguardedEffects',
+        '    expect no=sensitiveEffectsRequireAuth',
+        '',
+        'test name="Repo filesystem smoke" target="./packages/core/src/kern/forge/snapshot.kern"',
+        '  it name="filesystem read is reported precisely"',
+        '    expect no=schemaViolations',
+        '    expect no=codegenErrors',
+        '    expect no=unguardedEffects severity=warn',
+        '    expect no=sensitiveEffectsRequireAuth severity=warn',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+    const compact = formatNativeKernTestSummary(summary, { format: 'compact' });
+    const baseline = createNativeKernTestBaseline(summary);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.warnings).toBe(2);
+    expect(summary.passed).toBe(6);
+    expect(summary.results.some((result) => result.message?.includes('database'))).toBe(false);
+    expect(summary.results.find((result) => result.status === 'warning')?.message).toContain('filesystem read');
+    expect(compact).toContain('6 passed, 2 warnings, 0 failed, 8 total');
+    expect(compact).toContain('WARN Repo filesystem smoke');
+    expect(compact).not.toContain('PASS Repo model smoke');
+    expect(baseline.warnings.some((warning) => warning.message?.includes('at line <line>'))).toBe(true);
+    expect(baseline.warnings.some((warning) => warning.message?.includes('at line 1'))).toBe(false);
+  });
+
+  test('classifies standalone database query helpers without broad update false positives', () => {
+    writeFileSync(
+      join(tmpDir, 'query.kern'),
+      [
+        'fn name=loadOrders params="tenantId:string" returns=any',
+        '  handler <<<',
+        '    return query(sql`select * from orders where tenant_id = ${tenantId}`);',
+        '  >>>',
+        'fn name=saveOrder params="input:any" returns=any',
+        '  handler <<<',
+        '    return update(input);',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'query.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Database safety" target="./query.kern"',
+        '  it name="query helpers are covered"',
+        '    expect no=unguardedEffects',
+        '    expect no=sensitiveEffectsRequireAuth',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(2);
+    expect(summary.results[0].message).toContain('performs database query without guard/auth/validate');
+    expect(summary.results[0].message).toContain('fn saveOrder');
+    expect(summary.results[1].message).toContain('performs database query without auth');
+    expect(summary.results[1].message).toContain('fn saveOrder');
+  });
+
+  test('compact directory summaries include failing files and elide passing files', () => {
+    writeFileSync(
+      join(tmpDir, 'pass.kern'),
+      [
+        'machine name=PassFlow',
+        '  state name=pending initial=true',
+        '  state name=paid',
+        '  transition name=capture from=pending to=paid',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(tmpDir, 'pass.test.kern'),
+      [
+        'test name="Passing smoke" target="./pass.kern"',
+        '  it name="reaches paid"',
+        '    expect machine=PassFlow reaches=paid',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(tmpDir, 'fail.kern'),
+      ['machine name=FailFlow', '  state name=pending initial=true', '  state name=paid'].join('\n'),
+    );
+    writeFileSync(
+      join(tmpDir, 'fail.test.kern'),
+      [
+        'test name="Failing smoke" target="./fail.kern"',
+        '  it name="reaches paid"',
+        '    expect machine=FailFlow reaches=paid',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTestRun(tmpDir);
+    const output = formatNativeKernTestRunSummary(summary, { format: 'compact' });
+
+    expect(summary.failed).toBe(1);
+    expect(output).toContain('1 passed, 0 warnings, 1 failed, 2 total');
+    expect(output).toContain('fail.test.kern');
+    expect(output).toContain('FAIL Failing smoke');
+    expect(output).not.toContain('Passing smoke');
+  });
+
   test('directory discovery skips generated and dependency folders', () => {
     mkdirSync(join(tmpDir, 'generated'));
     mkdirSync(join(tmpDir, 'node_modules'));
@@ -840,6 +1024,89 @@ describe('native kern test runner', () => {
     expect(summary.results[0].ruleId).toBe('no:deadstates');
     expect(output).toContain('WARN Order invariants > tracks dead states as debt');
     expect(output).toContain('[no:deadstates]');
+  });
+
+  test('creates and checks warning baselines without line-number churn', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=paid',
+        '  state name=orphaned',
+        '  transition name=capture from=pending to=paid',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order invariants" target="./order.kern"',
+        '  it name="tracks dead states as debt"',
+        '    expect machine=Order no=deadStates severity=warn',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+    const baseline = createNativeKernTestBaseline(summary);
+    const check = checkNativeKernTestBaseline(summary, baseline);
+
+    expect(baseline).toEqual({
+      version: 1,
+      warnings: [
+        expect.objectContaining({
+          suite: 'Order invariants',
+          caseName: 'tracks dead states as debt',
+          ruleId: 'no:deadstates',
+        }),
+      ],
+    });
+    expect(JSON.stringify(baseline)).not.toContain('"line"');
+    expect(check.ok).toBe(true);
+    expect(check.knownWarnings).toHaveLength(1);
+    expect(check.newWarnings).toHaveLength(0);
+    expect(check.staleWarnings).toHaveLength(0);
+  });
+
+  test('detects new and stale warning baseline entries', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=paid',
+        '  state name=orphaned',
+        '  transition name=capture from=pending to=paid',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order invariants" target="./order.kern"',
+        '  it name="tracks dead states as debt"',
+        '    expect machine=Order no=deadStates severity=warn',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+    const check = checkNativeKernTestBaseline(summary, {
+      version: 1,
+      warnings: [
+        {
+          suite: 'Old suite',
+          caseName: 'old case',
+          ruleId: 'no:old',
+          assertion: 'no old',
+          message: 'old warning',
+        },
+      ],
+    });
+
+    expect(check.ok).toBe(false);
+    expect(check.knownWarnings).toHaveLength(0);
+    expect(check.newWarnings).toHaveLength(1);
+    expect(check.staleWarnings).toHaveLength(1);
   });
 
   test('filters native assertion results with grep', () => {
@@ -942,5 +1209,17 @@ describe('native kern test runner', () => {
     expect(summary.passed).toBe(0);
     expect(summary.failed).toBe(1);
     expect(formatNativeKernTestRunSummary(summary)).toContain('No native KERN test files found.');
+  });
+
+  test('directory runner can pass when no native test files exist during adoption', () => {
+    writeFileSync(join(tmpDir, 'plain.kern'), 'const name=value value=1');
+
+    const summary = runNativeKernTestRun(tmpDir, { passWithNoTests: true });
+
+    expect(summary.testFiles).toEqual([]);
+    expect(summary.total).toBe(0);
+    expect(summary.passed).toBe(0);
+    expect(summary.failed).toBe(0);
+    expect(formatNativeKernTestRunSummary(summary)).toContain('0 passed, 0 warnings, 0 failed, 0 total');
   });
 });
