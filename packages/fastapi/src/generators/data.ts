@@ -5,7 +5,7 @@
 
 import type { IRNode } from '@kernlang/core';
 import { emitIdentifier, handlerCode, mapSemanticType, propsOf } from '@kernlang/core';
-import { firstChild, kids, p } from '../codegen-helpers.js';
+import { buildPythonParamList, firstChild, kids, p } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -141,23 +141,13 @@ export function generatePythonRepository(node: IRNode): string[] {
     const mname = toSnakeCase((mp.name as string) || 'method');
     const isAsync = mp.async === 'true' || mp.async === true;
     const asyncKw = isAsync ? 'async ' : '';
-    const rawParams = mp.params as string;
-    const params = rawParams
-      ? rawParams
-          .split(',')
-          .map((param) => {
-            const [pname, ptype] = param
-              .trim()
-              .split(':')
-              .map((s) => s.trim());
-            return `${toSnakeCase(pname)}: ${ptype ? mapTsTypeToPython(ptype) : 'Any'}`;
-          })
-          .join(', ')
-      : '';
+    // Slice 3c P2 follow-up: target-neutral helper reads structured `param`
+    // children when present, falls back to legacy `params="..."` otherwise.
+    const params = buildPythonParamList(method, { selfPrefix: true });
     const returns = mp.returns ? ` -> ${mapTsTypeToPython(mp.returns as string)}` : '';
     const code = handlerCode(method);
 
-    lines.push(`    ${asyncKw}def ${mname}(self${params ? `, ${params}` : ''})${returns}:`);
+    lines.push(`    ${asyncKw}def ${mname}(${params})${returns}:`);
     if (code) {
       for (const line of code.split('\n')) {
         lines.push(`        ${line}`);
@@ -332,23 +322,13 @@ export function generatePythonService(node: IRNode): string[] {
     const mname = toSnakeCase((mp.name as string) || 'method');
     const isAsync = mp.async === 'true' || mp.async === true;
     const asyncKw = isAsync ? 'async ' : '';
-    const rawParams = mp.params as string;
-    const params = rawParams
-      ? rawParams
-          .split(',')
-          .map((param) => {
-            const [pname, ptype] = param
-              .trim()
-              .split(':')
-              .map((s) => s.trim());
-            return `${toSnakeCase(pname)}: ${ptype ? mapTsTypeToPython(ptype) : 'Any'}`;
-          })
-          .join(', ')
-      : '';
+    // Slice 3c P2 follow-up: target-neutral helper reads structured `param`
+    // children when present, falls back to legacy `params="..."` otherwise.
+    const params = buildPythonParamList(method, { selfPrefix: true });
     const returns = mp.returns ? ` -> ${mapTsTypeToPython(mp.returns as string)}` : '';
     const code = handlerCode(method);
 
-    lines.push(`    ${asyncKw}def ${mname}(self${params ? `, ${params}` : ''})${returns}:`);
+    lines.push(`    ${asyncKw}def ${mname}(${params})${returns}:`);
     if (code) {
       for (const line of code.split('\n')) {
         lines.push(`        ${line}`);

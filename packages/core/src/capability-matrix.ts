@@ -205,15 +205,18 @@ const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
     support: 'unsupported',
     note: 'FastAPI codegen has not been wired to ValueIR for field initializers; `value=` would emit raw',
   },
-  // Slice 3c — FastAPI's 5 ad-hoc param parsers in
-  // packages/fastapi/src/generators/{core,ground,data}.ts have not been wired
-  // to read `param` child nodes; they only understand the legacy `params="..."`
-  // string. Slice 3c marks Python unsupported per the slice 3b precedent.
+  // Slice 3c P2 follow-up (shipped) — FastAPI's 4 ad-hoc param parsers were
+  // consolidated behind `buildPythonParamList` in packages/fastapi/src/codegen-helpers.ts,
+  // which reads structured `param` children first (slice 3c+ canonical form)
+  // and falls back to legacy `params="..."` for back-compat. Optional `?`
+  // emits `Optional[T] = None`, variadic `...` emits `*args: T`, destructured
+  // `{a,b}` patterns are skipped (Python has no equivalent — caller unpacks
+  // in body).
   {
     feature: 'param-native-value',
     position: 'top-level',
-    support: 'unsupported',
-    note: 'FastAPI codegen reads the legacy `params="..."` string only; `param` child nodes with `value=` are ignored',
+    support: 'native',
+    note: 'FastAPI codegen wired through `buildPythonParamList` (slice 3c P2 follow-up); reads structured param children with value=/default=/optional=/variadic=',
   },
   // Slice 3d — Python has no native syntactic equivalent of TS object/array
   // destructuring on `const`/`let`. FastAPI codegen would have to lower
