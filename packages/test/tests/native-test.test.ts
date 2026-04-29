@@ -69,6 +69,90 @@ describe('native kern test runner', () => {
     expect(formatNativeKernTestSummary(summary)).toContain('PASS Order invariants > reaches paid');
   });
 
+  test('executes runtime expr assertions against target const and derive bindings', () => {
+    writeFileSync(
+      join(tmpDir, 'runtime.kern'),
+      [
+        'const name=base value=2',
+        'const name=tax value=3',
+        'const name=status value="paid"',
+        'const name=states value={{["pending", "paid"]}}',
+        'derive name=total expr={{base + tax}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="evaluates pure expressions"',
+        '    expect expr={{total === 5 && status === "paid" && states.includes("paid")}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.total).toBe(1);
+    expect(summary.passed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('expr');
+  });
+
+  test('fails false runtime expr assertions with custom message', () => {
+    writeFileSync(join(tmpDir, 'runtime.kern'), ['const name=total value=5'].join('\n'));
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="detects mismatches"',
+        '    expect expr={{total === 6}} message="total must match"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain('total must match');
+  });
+
+  test('runtime expr assertions ignore unrelated duplicate bindings', () => {
+    writeFileSync(
+      join(tmpDir, 'runtime.kern'),
+      ['const name=answer value=42', 'const name=unused value=1', 'const name=unused value=2'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="only materializes referenced bindings"',
+        '    expect expr={{answer === 42}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.passed).toBe(1);
+  });
+
+  test('rejects unsafe runtime expr assertions before execution', () => {
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'const name=ok value=true',
+        'test name="Runtime assertions"',
+        '  it name="blocks process access"',
+        '    expect expr={{process.exit(1)}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain("unsupported token 'process'");
+  });
+
   test('fails when a declared transition path does not reach the target state', () => {
     writeFileSync(
       join(tmpDir, 'order.kern'),

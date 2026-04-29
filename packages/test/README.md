@@ -48,6 +48,9 @@ test name="Order invariants" target="./order.kern"
   it name="target still reaches core codegen"
     expect no=codegenErrors
 
+  it name="computed constants stay sane"
+    expect expr={{MAX_RETRIES > 0 && statuses.includes("paid")}}
+
   it name="suite covers target surface"
     expect preset=coverage
 ```
@@ -63,6 +66,8 @@ Presets expand into granular checks:
 - `strict`: broad structural safety sweep
 
 Use `no=codegenErrors` as a smoke check when a suite should prove that valid KERN still reaches core code generation. It catches generator exceptions that parse/schema/semantic validation can miss.
+
+Use `expect expr={{...}}` for small runtime assertions over referenced target-side `const`, `derive`, and `let` expression bindings. The expression must evaluate truthy. This MVP intentionally does not execute KERN handlers or application code; multi-statement expressions and unsafe globals such as `process`, `require`, `eval`, `Function`, `fetch`, timers, and `WebSocket` are rejected before execution.
 
 Use `preset=coverage` when Guard/Sight need a native signal for untested KERN surface. Machine transition coverage is driven by explicit `via=...` reachability assertions. Guard coverage passes when guards have explicit `expect guard=<name> exhaustive=true` assertions or a guard-wide assertion such as `expect preset=guard`.
 
@@ -100,5 +105,3 @@ const runSummary = runNativeKernTestRun('examples/native-test', { grep: /coverag
 console.log(formatNativeKernTestRunSummary(runSummary));
 console.log(formatNativeKernTestCoverage(runSummary.coverage));
 ```
-
-Runtime `expect expr={{...}}` assertions are intentionally not executed here yet. This package currently owns structural KERN assertions; generated/runtime test execution remains separate.
