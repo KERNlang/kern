@@ -122,6 +122,7 @@ export type {
   InterfaceProps,
   InvariantProps,
   MachineProps,
+  MemoProps,
   MethodProps,
   ModelProps,
   ModuleProps,

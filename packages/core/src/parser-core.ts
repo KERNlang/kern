@@ -7,6 +7,7 @@ import { parseStyleBlock } from './parser-style.js';
 import { TokenStream } from './parser-token-stream.js';
 import type { Token } from './parser-tokenizer.js';
 import { tokenizeLineInternal } from './parser-tokenizer.js';
+import { validateEffects } from './parser-validate-effects.js';
 import { validateExpressions } from './parser-validate-expressions.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
 import { isKnownNodeType } from './spec.js';
@@ -635,6 +636,7 @@ export function parseInternal(source: string, asDocument: boolean, runtime?: Ker
 
   computeEndSpans(root);
   validateExpressions(state, root);
+  validateEffects(state, root);
   commitParseState(state, rt);
 
   // Count __error nodes for partial compilation support

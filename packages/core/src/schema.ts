@@ -237,6 +237,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       export: { kind: 'boolean' },
       expr: { kind: 'rawExpr' },
       generics: { kind: 'rawExpr' },
+      // Slice 6 — effects=pure declares the body has no observable side effects.
+      // Validated by parser-validate-effects.ts; see docs/language/effects-pure-spec.md.
+      effects: { kind: 'string' },
     },
     allowedChildren: ['handler', 'signal', 'cleanup', 'overload', 'param'],
   },
@@ -481,6 +484,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       expr: { required: true, kind: 'rawExpr' },
       type: { kind: 'typeAnnotation' },
       export: { kind: 'boolean' },
+      // Slice 6 — see fn schema above.
+      effects: { kind: 'string' },
     },
   },
   fmt: {
@@ -1900,6 +1905,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { required: true, kind: 'identifier' },
       deps: { kind: 'string' },
+      // Slice 6 — see fn schema above.
+      effects: { kind: 'string' },
     },
     allowedChildren: ['handler'],
   },

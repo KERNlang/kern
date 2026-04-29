@@ -143,7 +143,8 @@ export type ParseErrorCode =
   | 'DUPLICATE_PROP'
   | 'DROPPED_LINE'
   | 'INVALID_BIGINT'
-  | 'INVALID_EXPRESSION';
+  | 'INVALID_EXPRESSION'
+  | 'INVALID_EFFECTS';
 
 export type ParseDiagnosticSeverity = 'error' | 'warning' | 'info';
 
