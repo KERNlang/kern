@@ -16,6 +16,7 @@ import {
   getChildren,
   getFirstChild,
   getProps,
+  isExprObject,
   serializeIR,
 } from '@kernlang/core';
 import { FILE_IO_PATTERN, NETWORK_PATTERN, SHELL_EXEC_PATTERN } from './effect-patterns.js';

@@ -7,3 +7,6 @@ test name="Order invariants" target="./order.kern"
 
   it name="derived values stay acyclic"
     expect no=deriveCycles
+
+  it name="suite covers target surface"
+    expect preset=coverage

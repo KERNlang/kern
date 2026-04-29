@@ -146,6 +146,8 @@ export interface FnProps extends BaseProps {
   generator?: string | boolean;
   expr?: string | ExprObject;
   generics?: string;
+  /** Slice 6 — declares no observable side effects. Only `pure` accepted in v1. */
+  effects?: string;
 }
 
 export interface MethodProps extends BaseProps {
@@ -225,6 +227,14 @@ export interface WebSocketProps extends BaseProps {
 export interface DeriveProps extends BaseProps {
   expr?: string;
   type?: string;
+  /** Slice 6 — see FnProps. */
+  effects?: string;
+}
+
+export interface MemoProps extends BaseProps {
+  deps?: string;
+  /** Slice 6 — see FnProps. */
+  effects?: string;
 }
 
 export interface FmtProps extends BaseProps {
@@ -525,6 +535,8 @@ export interface ExpectProps extends BaseProps {
   message?: string;
   preset?: string;
   severity?: string;
+  node?: string;
+  name?: string;
   machine?: string;
   reaches?: string;
   via?: string;
@@ -534,6 +546,11 @@ export interface ExpectProps extends BaseProps {
   over?: string;
   union?: string;
   covers?: string;
+  child?: string;
+  childName?: string;
+  prop?: string;
+  is?: string;
+  count?: string;
 }
 
 export interface RecoverProps extends BaseProps {}
@@ -718,6 +735,7 @@ export interface NodePropsMap {
   on: OnProps;
   websocket: WebSocketProps;
   derive: DeriveProps;
+  memo: MemoProps;
   fmt: FmtProps;
   set: SetProps;
   async: AsyncProps;

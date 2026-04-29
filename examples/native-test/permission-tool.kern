@@ -1,0 +1,14 @@
+fn name=createBashTool returns=ToolHandler
+  handler <<<
+    function checkPermission(input: Record<string, unknown>, ctx: ToolContext): PermissionDecision {
+      if (ctx.permissionMode === 'auto') return { behavior: 'allow' };
+      return { behavior: 'ask' };
+    }
+
+    async function execute(input: Record<string, unknown>) {
+      const { readFileSync } = await import('node:fs');
+      return readFileSync(String(input.path), 'utf-8');
+    }
+
+    return { definition: {}, validate: () => null, checkPermission, execute };
+  >>>
