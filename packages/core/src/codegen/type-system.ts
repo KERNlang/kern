@@ -643,7 +643,10 @@ export function parseParamListFromChildren(paramNodes: IRNode[], options?: { str
   return paramNodes
     .map((paramNode) => {
       const pp = propsOf<'param'>(paramNode);
-      const pname = emitIdentifier(pp.name, 'parameter', paramNode);
+      const rawName = emitIdentifier(pp.name, 'parameter', paramNode);
+      // Slice 3c-extension: TS-style variadic `...` prepended to name.
+      const variadic = pp.variadic === true || pp.variadic === 'true' ? '...' : '';
+      const pname = `${variadic}${rawName}`;
       // Slice 3c-extension: TS-style optional `?` between name and type.
       const optional = pp.optional === true || pp.optional === 'true' ? '?' : '';
       const typeAnn = pp.type ? `: ${emitTypeAnnotation(pp.type, 'unknown', paramNode)}` : '';

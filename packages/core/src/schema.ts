@@ -1605,6 +1605,11 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       // `required`. When `optional=true`, codegen emits `name?: type` (with the
       // `?` inside the parameter list) so callers may omit the argument.
       optional: { kind: 'boolean' },
+      // Slice 3c-extension: TS-style variadic `...rest`. When `variadic=true`,
+      // codegen prepends `...` to the parameter name; the type should be an
+      // array (e.g. `string[]`). Variadic params can't have defaults — that's
+      // user error and TS will surface it at the call site.
+      variadic: { kind: 'boolean' },
       default: { kind: 'rawExpr' },
       description: { kind: 'string' },
       min: { kind: 'number' },

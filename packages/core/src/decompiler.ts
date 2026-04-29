@@ -238,6 +238,9 @@ export function decompile(root: IRNode): DecompileResult {
     // Slice 3c-extension: TS-style optional `?` round-trips via `optional=true`.
     const optional = props.optional;
     if (optional === true || optional === 'true') parts.push('optional=true');
+    // Slice 3c-extension: TS-style variadic `...` round-trips via `variadic=true`.
+    const variadic = props.variadic;
+    if (variadic === true || variadic === 'true') parts.push('variadic=true');
 
     const rawValue = props.value as string | ExprObject | undefined;
     const rawDefault = props.default as string | ExprObject | undefined;
