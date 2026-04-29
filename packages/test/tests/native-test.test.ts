@@ -97,6 +97,64 @@ describe('native kern test runner', () => {
     expect(summary.results[0].ruleId).toBe('expr');
   });
 
+  test('supports runtime expr equals, matches, and throws comparators', () => {
+    writeFileSync(
+      join(tmpDir, 'runtime.kern'),
+      [
+        'const name=count value=3',
+        'const name=status value="paid"',
+        'const name=states value={{["pending", "paid"]}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="compares values"',
+        '    expect expr={{count + 2}} equals=5',
+        '    expect expr={{status}} equals="paid"',
+        '    expect expr={{states}} equals={{["pending", "paid"]}}',
+        '  it name="matches strings"',
+        '    expect expr={{status}} matches="^pa"',
+        '  it name="checks expected exceptions"',
+        '    expect expr={{JSON.parse("not-json")}} throws=SyntaxError',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.total).toBe(5);
+    expect(summary.passed).toBe(5);
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.assertion)).toContain('expr count + 2 equals 5');
+    expect(summary.results.map((result) => result.assertion)).toContain('expr status matches ^pa');
+    expect(summary.results.map((result) => result.assertion)).toContain(
+      'expr JSON.parse("not-json") throws SyntaxError',
+    );
+  });
+
+  test('runtime expr reads quoted JS string literal defaults as literal source', () => {
+    writeFileSync(
+      join(tmpDir, 'runtime.kern'),
+      ['const name=LOCAL_CONFIG_NAME type=string value="\'.agon.json\'"'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="checks AGON-style quoted literal source"',
+        '    expect expr={{LOCAL_CONFIG_NAME}} equals=".agon.json"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(1);
+  });
+
   test('fails false runtime expr assertions with custom message', () => {
     writeFileSync(join(tmpDir, 'runtime.kern'), ['const name=total value=5'].join('\n'));
     const testFile = join(tmpDir, 'runtime.test.kern');

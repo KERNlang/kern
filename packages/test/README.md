@@ -51,6 +51,9 @@ test name="Order invariants" target="./order.kern"
 
   it name="computed constants stay sane"
     expect expr={{MAX_RETRIES > 0 && statuses.includes("paid")}}
+    expect expr={{MAX_RETRIES}} equals=3
+    expect expr={{status}} matches="^paid$"
+    expect expr={{JSON.parse("not-json")}} throws=SyntaxError
 
   it name="suite covers target surface"
     expect preset=coverage
@@ -68,7 +71,7 @@ Presets expand into granular checks:
 
 Use `no=codegenErrors` as a smoke check when a suite should prove that valid KERN still reaches core code generation. It catches generator exceptions that parse/schema/semantic validation can miss.
 
-Use `expect expr={{...}}` for small runtime assertions over referenced target-side `const`, `derive`, and `let` expression bindings. The expression must evaluate truthy. This MVP intentionally does not execute KERN handlers or application code; multi-statement expressions and unsafe globals such as `process`, `require`, `eval`, `Function`, `fetch`, timers, and `WebSocket` are rejected before execution.
+Use `expect expr={{...}}` for small runtime assertions over referenced target-side `const`, `derive`, and `let` expression bindings. Without a comparator, the expression must evaluate truthy. Add `equals=...` for deep equality, `matches="..."` for string/regex checks, or `throws=ErrorName` for expected exceptions. This MVP intentionally does not execute KERN handlers or application code; multi-statement expressions and unsafe globals such as `process`, `require`, `eval`, `Function`, `fetch`, timers, and `WebSocket` are rejected before execution.
 
 Use `preset=coverage` when Guard/Sight need a native signal for untested KERN surface. Machine transition coverage is driven by explicit `via=...` reachability assertions. Guard coverage passes when guards have explicit `expect guard=<name> exhaustive=true` assertions or a guard-wide assertion such as `expect preset=guard`.
 

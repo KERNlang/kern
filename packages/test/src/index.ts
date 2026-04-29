@@ -3,6 +3,7 @@ import { generateCoreNode, parseDocumentWithDiagnostics, validateSchema, validat
 import type { Dirent } from 'fs';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { dirname, join, relative, resolve } from 'path';
+import { inspect, isDeepStrictEqual } from 'util';
 import { createContext, Script } from 'vm';
 
 export type NativeKernTestStatus = 'passed' | 'failed' | 'warning';
@@ -143,6 +144,8 @@ interface RuntimeBindingOrder {
   error?: string;
 }
 
+type RuntimeEvalResult = { ok: true; value: unknown } | { ok: false; error: unknown };
+
 const DISCOVERY_SKIP_DIRS = new Set([
   '.git',
   '.next',
@@ -193,7 +196,8 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
   { ruleId: 'guard:exhaustive', description: 'A guard covers every variant of the referenced union type.' },
   {
     ruleId: 'expr',
-    description: 'Evaluate a constrained runtime expression against target const/derive bindings.',
+    description:
+      'Evaluate a constrained runtime expression against target const/derive bindings, with optional equals/matches/throws comparators.',
   },
   { ruleId: 'expect:unsupported', description: 'The expect assertion shape is not supported by native kern test.' },
   { ruleId: 'preset:unknown', description: 'The requested preset name is unknown.' },
@@ -330,12 +334,55 @@ function isTruthy(value: unknown): boolean {
   return value === true || value === 'true';
 }
 
+function isJsStringLiteralSource(value: string): boolean {
+  return /^'(?:\\[\s\S]|[^'\\])*'$/.test(value) || /^"(?:\\[\s\S]|[^"\\])*"$/.test(value);
+}
+
 function exprPropToRuntimeSource(node: IRNode, propName: string): string {
   const props = getProps(node);
   const value = props[propName];
   if (value === undefined || value === '') return '';
-  if (node.__quotedProps?.includes(propName)) return JSON.stringify(value);
+  if (node.__quotedProps?.includes(propName)) {
+    const source = String(value);
+    return isJsStringLiteralSource(source) ? source : JSON.stringify(value);
+  }
   return exprToString(value);
+}
+
+function runtimeExpectedSource(node: IRNode, propName: string): string | undefined {
+  const props = getProps(node);
+  const value = props[propName];
+  if (value === undefined) return undefined;
+  if (value && typeof value === 'object' && '__expr' in value) return exprToString(value);
+
+  const source = String(value);
+  if (node.__quotedProps?.includes(propName)) {
+    return isJsStringLiteralSource(source) ? source : JSON.stringify(source);
+  }
+
+  const trimmed = source.trim();
+  if (/^(?:true|false|null)$/.test(trimmed)) return trimmed;
+  if (/^-?(?:\d+|\d*\.\d+)(?:e[+-]?\d+)?$/i.test(trimmed)) return trimmed;
+  return JSON.stringify(source);
+}
+
+function runtimePatternValue(node: IRNode, propName: string): string | undefined {
+  const props = getProps(node);
+  const value = props[propName];
+  if (value === undefined) return undefined;
+  const source = String(value);
+  if (node.__quotedProps?.includes(propName) && isJsStringLiteralSource(source)) {
+    try {
+      const script = new Script(`"use strict";\n(${source});`);
+      const evaluated = script.runInContext(createContext(runtimeContext()), {
+        timeout: RUNTIME_EXPR_TIMEOUT_MS,
+      });
+      return String(evaluated);
+    } catch {
+      return source;
+    }
+  }
+  return source;
 }
 
 function escapeRegExp(value: string): string {
@@ -395,6 +442,7 @@ function isAssertionConfigurationFailure(message?: string): boolean {
     message.startsWith('Runtime expr assertions ') ||
     message.startsWith('Runtime expr assertion requires ') ||
     message.startsWith('Runtime expr assertion cannot execute ') ||
+    message.startsWith('Runtime expr assertion has ') ||
     message === 'Unsupported native expect assertion.' ||
     message.includes(' assertion requires ') ||
     message.includes(' needs over=') ||
@@ -572,11 +620,17 @@ function assertionLabel(node: IRNode): string {
   const no = str(props.no);
   const guard = str(props.guard);
   const expr = exprToString(props.expr);
+  const equals = props.equals === undefined ? '' : exprToString(props.equals) || String(props.equals);
+  const matches = props.matches === undefined ? '' : String(props.matches);
+  const throws = props.throws === undefined ? '' : String(props.throws || 'true');
 
   if (preset) return `preset ${preset}`;
   if (no) return `${machine ? `machine ${machine} ` : ''}no ${no}`;
   if (guard) return `guard ${guard} exhaustive`;
   if (machine || reaches) return `machine ${machine || '<missing>'} reaches ${reaches || '<missing>'}`;
+  if (expr && equals) return `expr ${expr} equals ${equals}`;
+  if (expr && matches) return `expr ${expr} matches ${matches}`;
+  if (expr && throws) return `expr ${expr} throws ${throws}`;
   if (expr) return `expr ${expr}`;
   return 'expect';
 }
@@ -1528,6 +1582,109 @@ function runtimeContext(): Record<string, unknown> {
   };
 }
 
+function formatRuntimeValue(value: unknown): string {
+  return inspect(value, { breakLength: 80, depth: 4, sorted: true });
+}
+
+function runtimeValuesEqual(actual: unknown, expected: unknown): boolean {
+  if (Object.is(actual, expected)) return true;
+  if (isDeepStrictEqual(actual, expected)) return true;
+  try {
+    const normalizedActual = JSON.parse(JSON.stringify(actual));
+    const normalizedExpected = JSON.parse(JSON.stringify(expected));
+    return isDeepStrictEqual(normalizedActual, normalizedExpected);
+  } catch {
+    return false;
+  }
+}
+
+function formatThrownRuntimeError(error: unknown): string {
+  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  return String(error);
+}
+
+function thrownRuntimeErrorMatches(error: unknown, expected: string): boolean {
+  const normalized = expected.trim();
+  if (!normalized || normalized === 'true') return true;
+  if (error instanceof Error) {
+    return error.name === normalized || error.constructor.name === normalized || error.message.includes(normalized);
+  }
+  return String(error).includes(normalized);
+}
+
+function buildRuntimeDeclarations(
+  target: LoadedKernDocument,
+  entryExprs: string[],
+): { source: string; message?: undefined } | { source?: undefined; message: string } {
+  for (const entryExpr of entryExprs) {
+    const problem = unsafeRuntimeExpressionReason(entryExpr);
+    if (problem) {
+      return { message: `Runtime expr assertion cannot execute expression: ${problem}` };
+    }
+  }
+
+  const bindings = orderRuntimeBindings(collectRuntimeBindings(target.root!), entryExprs.join(' '));
+  if (bindings.error) {
+    return { message: `Runtime expr assertion cannot execute target bindings: ${bindings.error}` };
+  }
+
+  const declarations: string[] = [];
+  for (const binding of bindings.ordered) {
+    const bindingProblem = unsafeRuntimeExpressionReason(binding.expr);
+    if (bindingProblem) {
+      return {
+        message: `Runtime expr assertion cannot execute target binding '${binding.name}': ${bindingProblem}`,
+      };
+    }
+    declarations.push(`const ${binding.name} = (${binding.expr});`);
+  }
+
+  return { source: declarations.join('\n') };
+}
+
+function runRuntimeExpression(target: LoadedKernDocument, declarations: string, expr: string): RuntimeEvalResult {
+  try {
+    const script = new Script(`"use strict";\n${declarations}\n(${expr});`, {
+      filename: `native-kern-test:${target.file}`,
+    });
+    return {
+      ok: true,
+      value: script.runInContext(createContext(runtimeContext()), {
+        timeout: RUNTIME_EXPR_TIMEOUT_MS,
+      }),
+    };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
+function evaluateRuntimeThrows(
+  node: IRNode,
+  target: LoadedKernDocument,
+  declarations: string,
+  expr: string,
+): { passed: boolean; message?: string } {
+  const props = getProps(node);
+  const expectedRaw = props.throws === true || props.throws === '' ? 'true' : String(props.throws ?? 'true');
+  const actual = runRuntimeExpression(target, declarations, expr);
+  if (actual.ok) {
+    return {
+      passed: false,
+      message:
+        str(props.message) ||
+        `Runtime expr was expected to throw${expectedRaw && expectedRaw !== 'true' ? ` ${expectedRaw}` : ''}, but returned ${formatRuntimeValue(actual.value)}`,
+    };
+  }
+  if (!thrownRuntimeErrorMatches(actual.error, expectedRaw)) {
+    return {
+      passed: false,
+      message:
+        str(props.message) || `Runtime expr threw ${formatThrownRuntimeError(actual.error)}, expected ${expectedRaw}`,
+    };
+  }
+  return { passed: true };
+}
+
 function evaluateRuntimeExpression(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -1536,44 +1693,65 @@ function evaluateRuntimeExpression(node: IRNode, target: LoadedKernDocument): { 
   const expr = exprToString(props.expr).trim();
   if (!expr) return { passed: false, message: 'Runtime expr assertion requires expr={{...}}' };
 
-  const exprProblem = unsafeRuntimeExpressionReason(expr);
-  if (exprProblem) {
-    return { passed: false, message: `Runtime expr assertion cannot execute expression: ${exprProblem}` };
+  const expectedSource = runtimeExpectedSource(node, 'equals');
+  const expressionSources = expectedSource ? [expr, expectedSource] : [expr];
+  const declarations = buildRuntimeDeclarations(target, expressionSources);
+  if ('message' in declarations) return { passed: false, message: declarations.message };
+  const declarationSource = declarations.source;
+
+  if ('throws' in props) {
+    return evaluateRuntimeThrows(node, target, declarationSource, expr);
   }
 
-  const bindings = orderRuntimeBindings(collectRuntimeBindings(target.root!), expr);
-  if (bindings.error) {
-    return { passed: false, message: `Runtime expr assertion cannot execute target bindings: ${bindings.error}` };
-  }
-
-  const declarations: string[] = [];
-  for (const binding of bindings.ordered) {
-    const bindingProblem = unsafeRuntimeExpressionReason(binding.expr);
-    if (bindingProblem) {
-      return {
-        passed: false,
-        message: `Runtime expr assertion cannot execute target binding '${binding.name}': ${bindingProblem}`,
-      };
-    }
-    declarations.push(`const ${binding.name} = (${binding.expr});`);
-  }
-
-  const source = `"use strict";\n${declarations.join('\n')}\nBoolean(${expr});`;
-  try {
-    const script = new Script(source, { filename: `native-kern-test:${target.file}` });
-    const passed =
-      script.runInContext(createContext(runtimeContext()), {
-        timeout: RUNTIME_EXPR_TIMEOUT_MS,
-      }) === true;
-    return passed
-      ? { passed: true }
-      : { passed: false, message: str(props.message) || `Runtime expr evaluated false: ${expr}` };
-  } catch (error) {
+  const actual = runRuntimeExpression(target, declarationSource, expr);
+  if (!actual.ok) {
     return {
       passed: false,
-      message: `Runtime expr threw: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Runtime expr threw: ${actual.error instanceof Error ? actual.error.message : String(actual.error)}`,
     };
   }
+
+  if (expectedSource !== undefined) {
+    const expected = runRuntimeExpression(target, declarationSource, expectedSource);
+    if (!expected.ok) {
+      return {
+        passed: false,
+        message: `Runtime expr assertion cannot execute expected equals value: ${formatThrownRuntimeError(expected.error)}`,
+      };
+    }
+    return runtimeValuesEqual(actual.value, expected.value)
+      ? { passed: true }
+      : {
+          passed: false,
+          message:
+            str(props.message) ||
+            `Runtime expr expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(actual.value)}: ${expr}`,
+        };
+  }
+
+  if ('matches' in props) {
+    const pattern = runtimePatternValue(node, 'matches') || '';
+    try {
+      const regex = new RegExp(pattern);
+      return regex.test(String(actual.value))
+        ? { passed: true }
+        : {
+            passed: false,
+            message:
+              str(props.message) ||
+              `Runtime expr value ${formatRuntimeValue(actual.value)} does not match /${pattern}/: ${expr}`,
+          };
+    } catch (error) {
+      return {
+        passed: false,
+        message: `Runtime expr assertion has invalid matches regex: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  return actual.value
+    ? { passed: true }
+    : { passed: false, message: str(props.message) || `Runtime expr evaluated false: ${expr}` };
 }
 
 function nodeSearchText(node: IRNode): string {

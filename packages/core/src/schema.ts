@@ -2357,6 +2357,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'expect expr={{items.length > 0}} message="Items must not be empty"\nexpect machine=Order reaches=paid via=confirm,capture\nexpect no=deriveCycles',
     props: {
       expr: { kind: 'rawExpr' },
+      equals: { kind: 'rawExpr' },
+      matches: { kind: 'string' },
+      throws: { kind: 'string' },
       message: { kind: 'string' },
       preset: { kind: 'identifier' },
       severity: { kind: 'identifier' },
