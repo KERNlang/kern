@@ -162,6 +162,8 @@ describe('Schema Validation', () => {
           'test name="Order invariants" target="./order.kern"',
           '  it name="reaches paid"',
           '    expect machine=Order reaches=paid via=confirm,capture',
+          '  it name="declares capture transition"',
+          '    expect machine=Order transition=capture from=confirmed to=paid guarded=true',
           '  it name="derive graph"',
           '    expect no=deriveCycles',
           '  it name="machine states stay live"',
@@ -178,6 +180,28 @@ describe('Schema Validation', () => {
     it('flags empty expect assertions', () => {
       const v = validate(['test name="Empty"', '  it name="does nothing"', '    expect'].join('\n'));
       expect(v.some((violation) => violation.message.includes("'expect' requires"))).toBe(true);
+    });
+
+    it('flags machine transition expect assertions without machine', () => {
+      const v = validate(
+        [
+          'test name="Order"',
+          '  it name="declares capture"',
+          '    expect transition=capture from=confirmed to=paid',
+        ].join('\n'),
+      );
+      expect(v.some((violation) => violation.message.includes('require machine=<name>'))).toBe(true);
+    });
+
+    it('flags mixed transition and reachability expect assertions', () => {
+      const v = validate(
+        [
+          'test name="Order"',
+          '  it name="mixes transition and reachability"',
+          '    expect machine=Order transition=capture reaches=paid',
+        ].join('\n'),
+      );
+      expect(v.some((violation) => violation.message.includes('cannot combine machine transition'))).toBe(true);
     });
 
     it('allows helper core nodes in mcp', () => {

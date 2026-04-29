@@ -14,7 +14,6 @@ import {
   getChildren,
   getFirstChild,
   getProps,
-  isExprObject,
   serializeIR,
 } from '@kernlang/core';
 import { PY_FILE_IO_PATTERN, PY_NETWORK_PATTERN, PY_SHELL_EXEC_PATTERN } from './effect-patterns.js';
