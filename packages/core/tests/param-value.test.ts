@@ -508,4 +508,131 @@ describe('param.value — slice 3c (native ValueIR form)', () => {
       expect(paramNode?.props?.variadic).toBe('true');
     });
   });
+
+  // ─── Slice 3c-extension #3: destructured params ──────────────────────────
+
+  describe('destructured params (slice 3c-extension #3)', () => {
+    it('emits `{a, b}: T` from object-pattern binding children', () => {
+      const code = gen(
+        [
+          'fn name=length returns=number',
+          '  param type="Point"',
+          '    binding name=x',
+          '    binding name=y',
+          '  handler <<<',
+          '    return Math.hypot(x, y);',
+          '  >>>',
+        ].join('\n'),
+      );
+      expect(code).toContain('function length({ x, y }: Point): number {');
+    });
+
+    it('emits `[a, b]` from array-pattern element children', () => {
+      const code = gen(
+        [
+          'fn name=swap returns="[number, number]"',
+          '  param type="[number, number]"',
+          '    element name=a index=0',
+          '    element name=b index=1',
+          '  handler <<<',
+          '    return [b, a];',
+          '  >>>',
+        ].join('\n'),
+      );
+      expect(code).toContain('function swap([a, b]: [number, number]): [number, number] {');
+    });
+
+    it('honours `binding key=` for renames (`{key: alias}`)', () => {
+      const node: IRNode = {
+        type: 'fn',
+        props: { name: 'pluck', returns: 'string' },
+        children: [
+          mk('param', { type: 'User' }, [mk('binding', { name: 'first', key: 'firstName' })]),
+          mk('handler', { code: 'return first;' }),
+        ],
+      };
+      const result = generateCoreNode(node).join('\n');
+      expect(result).toContain('function pluck({ firstName: first }: User): string {');
+    });
+
+    it('combines destructured param with optional `?` and default', () => {
+      const node: IRNode = {
+        type: 'fn',
+        props: { name: 'point', returns: 'number' },
+        children: [
+          {
+            type: 'param',
+            props: { type: 'Point', value: { __expr: true, code: '{ x: 0, y: 0 }' } },
+            children: [mk('binding', { name: 'x' }), mk('binding', { name: 'y' })],
+          },
+          mk('handler', { code: 'return x + y;' }),
+        ],
+      };
+      const code = generateCoreNode(node).join('\n');
+      expect(code).toContain('function point({ x, y }: Point = { x: 0, y: 0 }): number {');
+    });
+
+    it('importer captures `({a,b}: T)` and emits structured destructure children', () => {
+      const ts = `function length({ x, y }: Point): number { return Math.hypot(x, y); }`;
+      const result = importTypeScript(ts, 'length.ts');
+      expect(result.kern).toContain('binding name=x');
+      expect(result.kern).toContain('binding name=y');
+      // Destructured-param header carries no `name=`.
+      expect(result.kern).not.toMatch(/param\s+name=\S+\s+type="Point"/);
+      // Verifies the BindingPattern gate dropped — fn now emits structured
+      // children instead of falling back to legacy params="...".
+      expect(result.kern).not.toMatch(/params=/);
+    });
+
+    it('importer captures `([a,b]: T)` and emits element children with indices', () => {
+      const ts = `function swap([a, b]: [number, number]): [number, number] { return [b, a]; }`;
+      const result = importTypeScript(ts, 'swap.ts');
+      expect(result.kern).toContain('element name=a index=0');
+      expect(result.kern).toContain('element name=b index=1');
+      expect(result.kern).not.toMatch(/params=/);
+    });
+
+    it('importer bails to legacy params= on rest/defaults inside the pattern', () => {
+      const tsRest = `function f({ a, ...rest }: T): void {}`;
+      const r1 = importTypeScript(tsRest, 'rest.ts');
+      // Falls back to legacy params="..." since `...rest` isn't structurable.
+      expect(r1.kern).toMatch(/params=/);
+
+      const tsDefault = `function f({ a = 1 }: T): void {}`;
+      const r2 = importTypeScript(tsDefault, 'def.ts');
+      expect(r2.kern).toMatch(/params=/);
+    });
+
+    it('decompiler round-trips destructured param without bogus name=', () => {
+      const node: IRNode = {
+        type: 'param',
+        props: { type: 'Point' },
+        children: [mk('binding', { name: 'x' }), mk('binding', { name: 'y' })],
+        __quotedProps: ['type'],
+      };
+      const { code } = decompile(node);
+      // No `name=` on the param header — the pattern is in the children.
+      expect(code).not.toMatch(/^param\s+name=/m);
+      expect(code).toContain('binding name=x');
+      expect(code).toContain('binding name=y');
+    });
+
+    it('parses generated destructured-param KERN back to binding children', () => {
+      const original = [
+        'fn name=length returns=number',
+        '  param type="Point"',
+        '    binding name=x',
+        '    binding name=y',
+        '  handler <<<',
+        '    return Math.hypot(x, y);',
+        '  >>>',
+      ].join('\n');
+      const parsed = parse(original);
+      const paramNode = parsed.children?.find((c) => c.type === 'param');
+      const bindings = paramNode?.children?.filter((c) => c.type === 'binding') ?? [];
+      expect(bindings).toHaveLength(2);
+      expect(bindings[0].props?.name).toBe('x');
+      expect(bindings[1].props?.name).toBe('y');
+    });
+  });
 });

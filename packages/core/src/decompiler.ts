@@ -216,8 +216,15 @@ export function decompile(root: IRNode): DecompileResult {
     // emitter so a node round-trips correctly regardless of parent context.
     const props = node.props || {};
     const quoted = node.__quotedProps ?? [];
-    const name = (props.name as string) || 'param';
-    const parts: string[] = [`param name=${name}`];
+    // Slice 3c-extension #3: destructured params omit `name=`; the LHS pattern
+    // is encoded in `binding`/`element` children. Detect by child presence so
+    // round-trips of importer-emitted destructured params don't gain a bogus
+    // `name=param` attribute that would re-parse to a `param name="param"`.
+    const hasDestructure = (node.children ?? []).some((c) => c.type === 'binding' || c.type === 'element');
+    const name = props.name as string | undefined;
+    const parts: string[] = ['param'];
+    if (!hasDestructure && name) parts[0] = `param name=${name}`;
+    else if (!hasDestructure) parts[0] = 'param name=param';
 
     function renderStringProp(propName: string, raw: string | ExprObject): string {
       if (typeof raw === 'object' && (raw as ExprObject).__expr) {
