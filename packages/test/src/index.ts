@@ -41,9 +41,43 @@ export interface NativeKernTestRunSummary {
   files: NativeKernTestSummary[];
 }
 
+export interface NativeKernTestBaselineEntry {
+  suite: string;
+  caseName: string;
+  ruleId: string;
+  assertion: string;
+  signature?: string;
+  message?: string;
+}
+
+export interface NativeKernTestBaseline {
+  version: 1;
+  warnings: NativeKernTestBaselineEntry[];
+}
+
+export interface NativeKernTestBaselineCheck {
+  ok: boolean;
+  knownWarnings: NativeKernTestBaselineEntry[];
+  newWarnings: NativeKernTestBaselineEntry[];
+  staleWarnings: NativeKernTestBaselineEntry[];
+}
+
 export interface NativeKernTestOptions {
   grep?: string | RegExp;
   bail?: boolean;
+  passWithNoTests?: boolean;
+}
+
+export type NativeKernTestFormat = 'default' | 'compact';
+
+export interface NativeKernTestFormatOptions {
+  format?: NativeKernTestFormat;
+}
+
+export interface NativeKernTestRule {
+  ruleId: string;
+  description: string;
+  presets?: string[];
 }
 
 interface LoadedKernDocument {
@@ -112,6 +146,128 @@ const NATIVE_TEST_PRESETS: Record<string, string[]> = {
     'unrecoveredAsync',
   ],
 };
+
+const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
+  { ruleId: 'file:validates', description: 'The native test file itself can be read, parsed, and schema validated.' },
+  { ruleId: 'suite:hasassertions', description: 'Every native test suite contains at least one expect assertion.' },
+  {
+    ruleId: 'machine:reaches',
+    description: 'A machine can reach the requested state, optionally through an explicit transition path.',
+  },
+  { ruleId: 'guard:exhaustive', description: 'A guard covers every variant of the referenced union type.' },
+  {
+    ruleId: 'expr',
+    description: 'Runtime expression assertion placeholder. Runtime execution is not implemented yet.',
+  },
+  { ruleId: 'expect:unsupported', description: 'The expect assertion shape is not supported by native kern test.' },
+  { ruleId: 'preset:unknown', description: 'The requested preset name is unknown.' },
+  { ruleId: 'no:schemaviolations', description: 'The target KERN file has no schema violations.' },
+  { ruleId: 'no:semanticviolations', description: 'The target KERN file has no semantic validation violations.' },
+  {
+    ruleId: 'no:codegenerrors',
+    description: 'The target KERN file can be passed through core code generation without generator errors.',
+  },
+  { ruleId: 'no:derivecycles', description: 'The target derive graph has no cycles.' },
+  { ruleId: 'no:deadstates', description: 'Machines have no unreachable states.', presets: ['machine'] },
+  {
+    ruleId: 'no:duplicatetransitions',
+    description: 'Machines do not declare duplicate transition names.',
+    presets: ['machine'],
+  },
+  {
+    ruleId: 'no:duplicatenames',
+    description: 'Sibling declarations do not reuse the same type/name pair.',
+    presets: ['strict'],
+  },
+  {
+    ruleId: 'no:duplicateroutes',
+    description: 'API/server routes do not duplicate method and path.',
+    presets: ['apiSafety', 'strict'],
+  },
+  {
+    ruleId: 'no:unvalidatedroutes',
+    description: 'Mutating routes have schema, validation, guard, or auth coverage.',
+    presets: ['apiSafety', 'strict'],
+  },
+  {
+    ruleId: 'no:uncheckedroutepathparams',
+    description: 'Route path params are declared, validated, or guarded.',
+    presets: ['apiSafety', 'strict'],
+  },
+  { ruleId: 'no:rawhandlers', description: 'Raw handler escapes are absent when a suite forbids them.' },
+  {
+    ruleId: 'no:invalidguards',
+    description: 'Guards reference valid params and have valid guard configuration.',
+    presets: ['guard', 'mcpSafety', 'strict'],
+  },
+  {
+    ruleId: 'no:weakguards',
+    description: 'Expression guards include an else branch, handler, or typed security kind.',
+    presets: ['guard', 'strict'],
+  },
+  {
+    ruleId: 'no:duplicateparams',
+    description: 'Parameter containers do not declare duplicate params.',
+    presets: ['mcpSafety', 'strict'],
+  },
+  {
+    ruleId: 'no:unguardedtoolparams',
+    description: 'Required tool params have param-specific guard coverage.',
+    presets: ['mcpSafety', 'strict'],
+  },
+  {
+    ruleId: 'no:missingpathguards',
+    description: 'Path-like params have path containment guards.',
+    presets: ['mcpSafety', 'strict'],
+  },
+  {
+    ruleId: 'no:ssrfrisks',
+    description: 'URL-like params and network effects have URL/host allowlist coverage.',
+    presets: ['mcpSafety', 'strict'],
+  },
+  {
+    ruleId: 'no:unguardedeffects',
+    description: 'Detected effects have guard, auth, or validation coverage.',
+    presets: ['apiSafety', 'effects', 'strict'],
+  },
+  {
+    ruleId: 'no:sensitiveeffectsrequireauth',
+    description: 'Sensitive detected effects have auth coverage.',
+    presets: ['effects', 'strict'],
+  },
+  {
+    ruleId: 'no:effectwithoutcleanup',
+    description: 'Effect blocks that need cleanup define cleanup handlers.',
+    presets: ['effects', 'strict'],
+  },
+  {
+    ruleId: 'no:unrecoveredasync',
+    description: 'Async blocks with handlers define recovery behavior.',
+    presets: ['effects', 'strict'],
+  },
+  {
+    ruleId: 'no:untestedtransitions',
+    description: 'Machine transitions are covered by native reachability assertions.',
+    presets: ['coverage'],
+  },
+  {
+    ruleId: 'no:untestedguards',
+    description: 'Guards are covered by exhaustive or guard-preset assertions.',
+    presets: ['coverage'],
+  },
+];
+
+export function listNativeKernTestRules(): NativeKernTestRule[] {
+  return NATIVE_KERN_TEST_RULES.map((rule) => ({
+    ...rule,
+    ...(rule.presets ? { presets: [...rule.presets] } : {}),
+  }));
+}
+
+export function explainNativeKernTestRule(ruleId: string): NativeKernTestRule | undefined {
+  const normalized = ruleId.includes(':') ? ruleId.toLowerCase() : invariantRuleId(ruleId);
+  return listNativeKernTestRules().find((rule) => rule.ruleId === normalized);
+}
 
 function getProps(node: IRNode): Record<string, unknown> {
   return node.props || {};
@@ -548,19 +704,55 @@ function findWeakGuards(root: IRNode): string[] {
     .map((guard) => `${nodeLabel(guard)} at line ${guard.loc?.line ?? '?'} has expr but no else/handler`);
 }
 
-const EFFECT_PATTERNS: { kind: string; re: RegExp }[] = [
-  { kind: 'network', re: /\b(fetch|axios|request|got)\s*\(/ },
-  { kind: 'shell', re: /\b(exec|execFile|spawn|spawnSync)\s*\(/ },
+interface EffectClassification {
+  kind: 'database' | 'email' | 'fs-read' | 'fs-write' | 'network' | 'shell';
+  label: string;
+  sensitive: boolean;
+}
+
+const EFFECT_PATTERNS: Array<EffectClassification & { re: RegExp }> = [
   {
-    kind: 'file',
-    re: /\b(readFile|writeFile|appendFile|unlink|rm|rename|mkdir|rmdir|createReadStream|createWriteStream)\s*\(/,
+    kind: 'shell',
+    label: 'shell command',
+    sensitive: true,
+    re: /\b(?:exec|execFile|execFileSync|execSync|spawn|spawnSync)\s*\(/,
   },
-  { kind: 'database', re: /\b(query|execute|findMany|findUnique|create|update|delete|upsert)\s*\(/ },
-  { kind: 'email', re: /\b(sendMail|sendEmail|mailer\.send|transporter\.send)\s*\(/ },
+  {
+    kind: 'network',
+    label: 'network request',
+    sensitive: true,
+    re: /\b(?:fetch|axios|got|request)\s*\(|\bnew\s+WebSocket\s*\(/,
+  },
+  {
+    kind: 'fs-write',
+    label: 'filesystem write',
+    sensitive: true,
+    re: /\b(?:appendFile|appendFileSync|createWriteStream|mkdir|mkdirSync|rename|renameSync|rm|rmSync|rmdir|rmdirSync|unlink|unlinkSync|writeFile|writeFileSync)\s*\(/,
+  },
+  {
+    kind: 'fs-read',
+    label: 'filesystem read',
+    sensitive: true,
+    re: /\b(?:access|accessSync|createReadStream|existsSync|lstat|lstatSync|readFile|readFileSync|readdir|readdirSync|stat|statSync)\s*\(/,
+  },
+  {
+    kind: 'database',
+    label: 'database query',
+    sensitive: true,
+    re: /\b(?:client|collection|connection|database|db|knex|pool|prisma|repo|repository)\s*\.(?:create|delete|execute|findFirst|findMany|findUnique|insert|query|select|update|upsert)\s*\(|(?:^|[^\w.])(?:create|delete|execute|findFirst|findMany|findUnique|query|update|upsert)\s*\(|\bsql\s*`/,
+  },
+  {
+    kind: 'email',
+    label: 'email send',
+    sensitive: true,
+    re: /\b(?:mailer\.send|sendEmail|sendMail|transporter\.send)\s*\(/,
+  },
 ];
 
-function classifyEffect(code: string): string | undefined {
-  return EFFECT_PATTERNS.find((pattern) => pattern.re.test(code))?.kind;
+function classifyEffect(code: string): EffectClassification | undefined {
+  const pattern = EFFECT_PATTERNS.find((candidate) => candidate.re.test(code));
+  if (!pattern) return undefined;
+  return { kind: pattern.kind, label: pattern.label, sensitive: pattern.sensitive };
 }
 
 function findUnguardedEffects(root: IRNode): string[] {
@@ -570,10 +762,10 @@ function findUnguardedEffects(root: IRNode): string[] {
   function visit(node: IRNode): void {
     if (checkedTypes.has(node.type)) {
       const code = handlerText(node);
-      const effectKind = classifyEffect(code);
-      if (effectKind && !hasGuardLikeChild(node)) {
+      const effect = classifyEffect(code);
+      if (effect && !hasGuardLikeChild(node)) {
         failures.push(
-          `${nodeLabel(node)} at line ${node.loc?.line ?? '?'} performs ${effectKind} effect without guard/auth/validate`,
+          `${nodeLabel(node)} at line ${node.loc?.line ?? '?'} performs ${effect.label} without guard/auth/validate`,
         );
       }
     }
@@ -893,7 +1085,7 @@ function findSsrfRisks(root: IRNode): string[] {
       }
 
       const code = handlerText(node);
-      if (classifyEffect(code) === 'network' && !hasUrlAllowlistGuard(node)) {
+      if (classifyEffect(code)?.kind === 'network' && !hasUrlAllowlistGuard(node)) {
         failures.push(`${nodeLabel(node)} performs network effect without URL/host allowlist guard`);
       }
     }
@@ -910,9 +1102,9 @@ function findSensitiveEffectsWithoutAuth(root: IRNode): string[] {
 
   function visit(node: IRNode): void {
     if (checkedTypes.has(node.type)) {
-      const effectKind = classifyEffect(handlerText(node));
-      if (effectKind && !hasAuthLikeChild(node)) {
-        failures.push(`${nodeLabel(node)} performs ${effectKind} effect without auth`);
+      const effect = classifyEffect(handlerText(node));
+      if (effect?.sensitive && !hasAuthLikeChild(node)) {
+        failures.push(`${nodeLabel(node)} performs ${effect.label} without auth`);
       }
     }
     for (const child of node.children || []) visit(child);
@@ -1677,10 +1869,10 @@ export function runNativeKernTestRun(input: string, options: NativeKernTestOptio
       input: inputPath,
       testFiles: [],
       targetFiles: [],
-      total: 1,
+      total: options.passWithNoTests ? 0 : 1,
       passed: 0,
       warnings: 0,
-      failed: 1,
+      failed: options.passWithNoTests ? 0 : 1,
       files: [],
     };
   }
@@ -1721,39 +1913,159 @@ function summarizeNativeTestRun(
   };
 }
 
-export function formatNativeKernTestSummary(summary: NativeKernTestSummary): string {
-  const lines = [`kern test ${relative(process.cwd(), summary.file) || summary.file}`];
-  for (const result of summary.results) {
-    const marker = result.status === 'passed' ? 'PASS' : result.status === 'warning' ? 'WARN' : 'FAIL';
-    const loc = result.line
-      ? ` (${relative(process.cwd(), result.file || summary.file)}:${result.line}:${result.col ?? 1})`
-      : '';
-    lines.push(`${marker} ${result.suite} > ${result.caseName}: ${result.assertion} [${result.ruleId}]${loc}`);
-    if (result.status !== 'passed' && result.message) lines.push(`  ${result.message}`);
-  }
-  lines.push(
-    `${summary.passed} passed, ${summary.warnings} warnings, ${summary.failed} failed, ${summary.total} total`,
+function normalizeBaselineMessage(message: string): string {
+  return message
+    .replace(/\bat line \d+\b/g, 'at line <line>')
+    .replace(/:\d+:\d+/g, ':<line>:<col>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function warningDetailMessages(message: string | undefined): string[] {
+  if (!message) return [];
+  const foundMatch = message.match(/^Found [^:]+:\s*(.+)$/);
+  const body = foundMatch?.[1] || message;
+  return body.split(/;\s+/).map(normalizeBaselineMessage).filter(Boolean);
+}
+
+function warningEntryKey(entry: NativeKernTestBaselineEntry): string {
+  return (
+    entry.signature ||
+    JSON.stringify([
+      entry.suite,
+      entry.caseName,
+      entry.ruleId,
+      entry.assertion,
+      entry.message ? normalizeBaselineMessage(entry.message) : '',
+    ])
   );
+}
+
+function warningResultToBaselineEntries(result: NativeKernTestResult): NativeKernTestBaselineEntry[] {
+  const details = warningDetailMessages(result.message);
+  if (details.length === 0) {
+    const signature = JSON.stringify([result.suite, result.caseName, result.ruleId, result.assertion, '']);
+    return [
+      {
+        suite: result.suite,
+        caseName: result.caseName,
+        ruleId: result.ruleId,
+        assertion: result.assertion,
+        signature,
+      },
+    ];
+  }
+  return details.map((detail) => ({
+    suite: result.suite,
+    caseName: result.caseName,
+    ruleId: result.ruleId,
+    assertion: result.assertion,
+    signature: JSON.stringify([result.suite, result.caseName, result.ruleId, result.assertion, detail]),
+    message: detail,
+  }));
+}
+
+export function createNativeKernTestBaseline(
+  summary: NativeKernTestSummary | NativeKernTestRunSummary,
+): NativeKernTestBaseline {
+  const results = 'results' in summary ? summary.results : summary.files.flatMap((fileSummary) => fileSummary.results);
+  const warnings = results.filter((result) => result.status === 'warning').flatMap(warningResultToBaselineEntries);
+  const seen = new Set<string>();
+  const uniqueWarnings: NativeKernTestBaselineEntry[] = [];
+  for (const warning of warnings) {
+    const key = warningEntryKey(warning);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueWarnings.push(warning);
+  }
+  uniqueWarnings.sort((a, b) => warningEntryKey(a).localeCompare(warningEntryKey(b)));
+  return { version: 1, warnings: uniqueWarnings };
+}
+
+export function checkNativeKernTestBaseline(
+  summary: NativeKernTestSummary | NativeKernTestRunSummary,
+  baseline: NativeKernTestBaseline,
+): NativeKernTestBaselineCheck {
+  const actual = createNativeKernTestBaseline(summary).warnings;
+  const expected = baseline.warnings || [];
+  const expectedByKey = new Map(expected.map((entry) => [warningEntryKey(entry), entry]));
+  const actualByKey = new Map(actual.map((entry) => [warningEntryKey(entry), entry]));
+  const knownWarnings = actual.filter((entry) => expectedByKey.has(warningEntryKey(entry)));
+  const newWarnings = actual.filter((entry) => !expectedByKey.has(warningEntryKey(entry)));
+  const staleWarnings = expected.filter((entry) => !actualByKey.has(warningEntryKey(entry)));
+  return {
+    ok: newWarnings.length === 0 && staleWarnings.length === 0,
+    knownWarnings,
+    newWarnings,
+    staleWarnings,
+  };
+}
+
+function nativeCountsLine(summary: Pick<NativeKernTestSummary, 'failed' | 'passed' | 'total' | 'warnings'>): string {
+  return `${summary.passed} passed, ${summary.warnings} warnings, ${summary.failed} failed, ${summary.total} total`;
+}
+
+function formatNativeKernTestResult(result: NativeKernTestResult, summaryFile: string): string[] {
+  const marker = result.status === 'passed' ? 'PASS' : result.status === 'warning' ? 'WARN' : 'FAIL';
+  const loc = result.line
+    ? ` (${relative(process.cwd(), result.file || summaryFile)}:${result.line}:${result.col ?? 1})`
+    : '';
+  const lines = [`${marker} ${result.suite} > ${result.caseName}: ${result.assertion} [${result.ruleId}]${loc}`];
+  if (result.status !== 'passed' && result.message) lines.push(`  ${result.message}`);
+  return lines;
+}
+
+export function formatNativeKernTestSummary(
+  summary: NativeKernTestSummary,
+  options: NativeKernTestFormatOptions = {},
+): string {
+  const lines = [
+    options.format === 'compact'
+      ? `kern test ${relative(process.cwd(), summary.file) || summary.file} - ${nativeCountsLine(summary)}`
+      : `kern test ${relative(process.cwd(), summary.file) || summary.file}`,
+  ];
+  const results =
+    options.format === 'compact' ? summary.results.filter((result) => result.status !== 'passed') : summary.results;
+  for (const result of results) {
+    lines.push(...formatNativeKernTestResult(result, summary.file));
+  }
+  if (options.format === 'compact' && results.length === 0) return `${lines.join('\n')}\n`;
+  if (options.format !== 'compact') lines.push(nativeCountsLine(summary));
   return `${lines.join('\n')}\n`;
 }
 
-export function formatNativeKernTestRunSummary(summary: NativeKernTestRunSummary): string {
-  const lines = [`kern test ${relative(process.cwd(), summary.input) || summary.input}`];
+export function formatNativeKernTestRunSummary(
+  summary: NativeKernTestRunSummary,
+  options: NativeKernTestFormatOptions = {},
+): string {
+  const lines = [
+    options.format === 'compact'
+      ? `kern test ${relative(process.cwd(), summary.input) || summary.input} - ${nativeCountsLine(summary)}`
+      : `kern test ${relative(process.cwd(), summary.input) || summary.input}`,
+  ];
   if (summary.files.length === 0) {
     lines.push('No native KERN test files found.');
-    lines.push(
-      `${summary.passed} passed, ${summary.warnings} warnings, ${summary.failed} failed, ${summary.total} total`,
-    );
+    if (options.format !== 'compact') lines.push(nativeCountsLine(summary));
     return `${lines.join('\n')}\n`;
   }
 
   for (const fileSummary of summary.files) {
-    lines.push('');
-    lines.push(formatNativeKernTestSummary(fileSummary).trimEnd());
+    if (options.format === 'compact') {
+      const relFile = relative(process.cwd(), fileSummary.file) || fileSummary.file;
+      if (fileSummary.failed > 0 || fileSummary.warnings > 0) {
+        lines.push(`${relFile} - ${nativeCountsLine(fileSummary)}`);
+        for (const result of fileSummary.results.filter((candidate) => candidate.status !== 'passed')) {
+          lines.push(...formatNativeKernTestResult(result, fileSummary.file));
+        }
+      }
+    } else {
+      lines.push('');
+      lines.push(formatNativeKernTestSummary(fileSummary).trimEnd());
+    }
   }
-  lines.push('');
-  lines.push(
-    `${summary.passed} passed, ${summary.warnings} warnings, ${summary.failed} failed, ${summary.total} total`,
-  );
+  if (options.format !== 'compact') {
+    lines.push('');
+    lines.push(nativeCountsLine(summary));
+  }
   return `${lines.join('\n')}\n`;
 }
