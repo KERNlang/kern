@@ -16,6 +16,8 @@ Use it for KERN-level invariants that should be checked before generated code ex
 kern test path/to/order.test.kern
 kern test path/to/tests
 kern test path/to/tests --json
+kern test path/to/tests --grep Order
+kern test path/to/tests --bail
 kern test path/to/tests --fail-on-warn
 ```
 
@@ -57,6 +59,8 @@ Use `preset=coverage` when Guard/Sight need a native signal for untested KERN su
 
 Use `severity=warn` for known migration debt that should stay visible without failing local runs. CI can promote warnings to failures with `kern test <file-or-dir> --fail-on-warn`.
 
+Use `--grep <pattern>` to run only matching suites, cases, assertions, rule IDs, messages, or files. The CLI exits nonzero when a grep run matches zero assertions. Use `--bail` to stop after the first failed native assertion.
+
 Text and JSON results include stable `ruleId` values such as `machine:reaches`, `guard:exhaustive`, and `no:deadstates`. Guard and Sight should key off those IDs instead of display messages.
 
 ## Library API
@@ -69,8 +73,8 @@ import {
   runNativeKernTests,
 } from '@kernlang/test';
 
-const fileSummary = runNativeKernTests('order.test.kern');
-const runSummary = runNativeKernTestRun('examples/native-test');
+const fileSummary = runNativeKernTests('order.test.kern', { grep: 'Order', bail: true });
+const runSummary = runNativeKernTestRun('examples/native-test', { grep: /coverage|guard/i });
 console.log(formatNativeKernTestRunSummary(runSummary));
 ```
 

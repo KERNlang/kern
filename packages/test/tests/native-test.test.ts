@@ -842,6 +842,97 @@ describe('native kern test runner', () => {
     expect(output).toContain('[no:deadstates]');
   });
 
+  test('filters native assertion results with grep', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=paid',
+        '  state name=orphaned',
+        '  transition name=capture from=pending to=paid',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order invariants" target="./order.kern"',
+        '  it name="has no dead states"',
+        '    expect machine=Order no=deadStates',
+        '  it name="has no duplicate transitions"',
+        '    expect machine=Order no=duplicateTransitions',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile, { grep: 'duplicatetransitions' });
+
+    expect(summary.total).toBe(1);
+    expect(summary.results[0].ruleId).toBe('no:duplicatetransitions');
+    expect(summary.failed).toBe(0);
+  });
+
+  test('bails after the first matching failed assertion', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=paid',
+        '  state name=orphaned',
+        '  transition name=capture from=pending to=paid',
+        '  transition name=capture from=pending to=paid',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order invariants" target="./order.kern"',
+        '  it name="has no dead states"',
+        '    expect machine=Order no=deadStates',
+        '  it name="has no duplicate transitions"',
+        '    expect machine=Order no=duplicateTransitions',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile, { bail: true });
+
+    expect(summary.total).toBe(1);
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('no:deadstates');
+  });
+
+  test('directory runner bails after the first failing file', () => {
+    writeFileSync(
+      join(tmpDir, 'bad.kern'),
+      ['machine name=Bad', '  state name=pending initial=true', '  state name=orphaned'].join('\n'),
+    );
+    writeFileSync(
+      join(tmpDir, 'bad.test.kern'),
+      [
+        'test name="Bad invariants" target="./bad.kern"',
+        '  it name="has no dead states"',
+        '    expect machine=Bad no=deadStates',
+      ].join('\n'),
+    );
+    writeFileSync(join(tmpDir, 'good.kern'), 'const name=value value=1');
+    writeFileSync(
+      join(tmpDir, 'good.test.kern'),
+      [
+        'test name="Good invariants" target="./good.kern"',
+        '  it name="stays valid"',
+        '    expect no=schemaViolations',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTestRun(tmpDir, { bail: true });
+
+    expect(summary.testFiles).toEqual([join(tmpDir, 'bad.test.kern')]);
+    expect(summary.total).toBe(1);
+    expect(summary.failed).toBe(1);
+  });
+
   test('directory runner fails clearly when no native test files exist', () => {
     writeFileSync(join(tmpDir, 'plain.kern'), 'const name=value value=1');
 

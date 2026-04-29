@@ -41,6 +41,11 @@ export interface NativeKernTestRunSummary {
   files: NativeKernTestSummary[];
 }
 
+export interface NativeKernTestOptions {
+  grep?: string | RegExp;
+  bail?: boolean;
+}
+
 interface LoadedKernDocument {
   file: string;
   root?: IRNode;
@@ -196,6 +201,24 @@ function isAssertionConfigurationFailure(message?: string): boolean {
     message.startsWith('Union not found') ||
     message.startsWith('State not found in machine ')
   );
+}
+
+function grepMatches(options: NativeKernTestOptions | undefined, result: NativeKernTestResult): boolean {
+  const grep = options?.grep;
+  if (!grep) return true;
+  const haystack = [
+    result.suite,
+    result.caseName,
+    result.ruleId,
+    result.assertion,
+    result.message || '',
+    result.file || '',
+  ].join('\n');
+  if (grep instanceof RegExp) {
+    grep.lastIndex = 0;
+    return grep.test(haystack);
+  }
+  return haystack.toLowerCase().includes(grep.toLowerCase());
 }
 
 function invariantRuleId(value: string): string {
@@ -1556,7 +1579,7 @@ export function discoverNativeKernTestFiles(input: string): string[] {
   return [];
 }
 
-export function runNativeKernTests(file: string): NativeKernTestSummary {
+export function runNativeKernTests(file: string, options: NativeKernTestOptions = {}): NativeKernTestSummary {
   const inputPath = resolve(file);
   const testDoc = loadKernDocument(inputPath);
   const results: NativeKernTestResult[] = [];
@@ -1617,7 +1640,7 @@ export function runNativeKernTests(file: string): NativeKernTestSummary {
       const requestedSeverity = severityFromNode(assertion.node);
       for (const evaluated of evaluateNativeAssertion(assertion.node, target, context)) {
         const severity = effectiveSeverity(requestedSeverity, evaluated);
-        results.push({
+        const result: NativeKernTestResult = {
           suite: assertion.suite,
           caseName: assertion.caseName,
           ruleId: evaluated.ruleId,
@@ -1628,7 +1651,12 @@ export function runNativeKernTests(file: string): NativeKernTestSummary {
           file: inputPath,
           line: assertion.node.loc?.line,
           col: assertion.node.loc?.col,
-        });
+        };
+        if (!grepMatches(options, result)) continue;
+        results.push(result);
+        if (options.bail && result.status === 'failed') {
+          return summarizeNativeTestRun(inputPath, targetFiles, results);
+        }
       }
     }
   }
@@ -1636,9 +1664,14 @@ export function runNativeKernTests(file: string): NativeKernTestSummary {
   return summarizeNativeTestRun(inputPath, targetFiles, results);
 }
 
-export function runNativeKernTestRun(input: string): NativeKernTestRunSummary {
+export function runNativeKernTestRun(input: string, options: NativeKernTestOptions = {}): NativeKernTestRunSummary {
   const inputPath = resolve(input);
-  const files = discoverNativeKernTestFiles(inputPath).map((file) => runNativeKernTests(file));
+  const files: NativeKernTestSummary[] = [];
+  for (const file of discoverNativeKernTestFiles(inputPath)) {
+    const summary = runNativeKernTests(file, options);
+    files.push(summary);
+    if (options.bail && summary.failed > 0) break;
+  }
   if (files.length === 0) {
     return {
       input: inputPath,
