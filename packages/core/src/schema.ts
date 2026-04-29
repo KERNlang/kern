@@ -1615,7 +1615,15 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       min: { kind: 'number' },
       max: { kind: 'number' },
     },
-    allowedChildren: ['guard', 'description'],
+    // Slice 3c-extension #3: TS-style destructured params via slice 3d's
+    // `binding` (object pattern) / `element` (array pattern) children. When
+    // present, codegen uses the pattern as the LHS instead of `name`, e.g.
+    //   param type="Point"
+    //     binding name=x
+    //     binding name=y
+    // → `{x, y}: Point`. Same node types as slice 3d destructure — no new
+    // node types needed. `name=` is omitted on destructured params.
+    allowedChildren: ['guard', 'description', 'binding', 'element'],
   },
   prompt: {
     description: 'MCP prompt template — a reusable system prompt exposed to AI agents',

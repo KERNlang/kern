@@ -456,20 +456,37 @@ export function generateDestructure(node: IRNode): string[] {
 
   const typeAnn = props.type ? `: ${emitTypeAnnotation(props.type, 'unknown', node)}` : '';
 
-  const children = node.children || [];
-  const bindings = children.filter((c) => c.type === 'binding');
-  const elements = children.filter((c) => c.type === 'element');
-
-  if (bindings.length === 0 && elements.length === 0) {
+  const pattern = formatBindingPatternFromChildren(node);
+  if (pattern === null) {
     throw new Error(
       'destructure node has no `binding` or `element` children — use `expr={{...}}` instead for empty patterns',
     );
   }
+
+  return [...docs, `${exp}${kind} ${pattern}${typeAnn} = ${sourceCode};`];
+}
+
+/**
+ * Slice 3c-extension #3 / shared with slice 3d destructure: format the LHS
+ * pattern (`{a, b: alias}` or `[x, , y]`) from a node's `binding` (object)
+ * or `element` (array) children. Returns null when neither is present (used
+ * by the destructure node validator); throws when the node mixes both.
+ *
+ * Used by:
+ *  - `generateDestructure` (slice 3d) — full statement: `const {a,b} = src;`
+ *  - `parseParamListFromChildren` (slice 3c-extension #3) — pattern-only LHS
+ *    of a destructured fn parameter: `{a, b}: Point` or `[x, y]`.
+ */
+export function formatBindingPatternFromChildren(node: IRNode): string | null {
+  const children = node.children || [];
+  const bindings = children.filter((c) => c.type === 'binding');
+  const elements = children.filter((c) => c.type === 'element');
+
+  if (bindings.length === 0 && elements.length === 0) return null;
   if (bindings.length > 0 && elements.length > 0) {
-    throw new Error('destructure node mixes `binding` (object) and `element` (array) children — use one or the other');
+    throw new Error(`${node.type} mixes \`binding\` (object) and \`element\` (array) children — use one or the other`);
   }
 
-  let pattern: string;
   if (bindings.length > 0) {
     // Object pattern: {a, b: rename, c}
     const parts = bindings.map((child) => {
@@ -481,32 +498,30 @@ export function generateDestructure(node: IRNode): string[] {
       }
       return name;
     });
-    pattern = `{ ${parts.join(', ')} }`;
-  } else {
-    // Array pattern: ordered by `index=`, gaps emit holes (`, ,`)
-    const indexed = elements.map((child) => {
-      const cp = propsOf<'element'>(child);
-      const idx = cp.index !== undefined ? Number.parseInt(cp.index, 10) : Number.NaN;
-      return { idx, child, props: cp };
-    });
-    if (indexed.some((e) => Number.isNaN(e.idx))) {
-      throw new Error('destructure `element` children require numeric `index=` props');
-    }
-    indexed.sort((a, b) => a.idx - b.idx);
-    const max = indexed[indexed.length - 1].idx;
-    const slots: string[] = [];
-    for (let i = 0; i <= max; i++) {
-      const match = indexed.find((e) => e.idx === i);
-      if (match) {
-        slots.push(emitIdentifier(match.props.name, 'unknownElement', match.child));
-      } else {
-        slots.push('');
-      }
-    }
-    pattern = `[${slots.join(', ')}]`;
+    return `{ ${parts.join(', ')} }`;
   }
 
-  return [...docs, `${exp}${kind} ${pattern}${typeAnn} = ${sourceCode};`];
+  // Array pattern: ordered by `index=`, gaps emit holes (`, ,`).
+  const indexed = elements.map((child) => {
+    const cp = propsOf<'element'>(child);
+    const idx = cp.index !== undefined ? Number.parseInt(cp.index, 10) : Number.NaN;
+    return { idx, child, props: cp };
+  });
+  if (indexed.some((e) => Number.isNaN(e.idx))) {
+    throw new Error(`${node.type} \`element\` children require numeric \`index=\` props`);
+  }
+  indexed.sort((a, b) => a.idx - b.idx);
+  const max = indexed[indexed.length - 1].idx;
+  const slots: string[] = [];
+  for (let i = 0; i <= max; i++) {
+    const match = indexed.find((e) => e.idx === i);
+    if (match) {
+      slots.push(emitIdentifier(match.props.name, 'unknownElement', match.child));
+    } else {
+      slots.push('');
+    }
+  }
+  return `[${slots.join(', ')}]`;
 }
 
 // ── Map / Set literals (slice 3e) ───────────────────────────────────────
@@ -643,7 +658,13 @@ export function parseParamListFromChildren(paramNodes: IRNode[], options?: { str
   return paramNodes
     .map((paramNode) => {
       const pp = propsOf<'param'>(paramNode);
-      const rawName = emitIdentifier(pp.name, 'parameter', paramNode);
+      // Slice 3c-extension #3: destructured params via `binding`/`element`
+      // children — the pattern (`{a, b}` / `[x, y]`) replaces the name in
+      // the LHS. Slice 3d shares the same children, so the same formatter
+      // serves both contexts. When a destructure pattern is present, `name=`
+      // is ignored (and the importer omits it).
+      const destructurePattern = formatBindingPatternFromChildren(paramNode);
+      const rawName = destructurePattern ?? emitIdentifier(pp.name, 'parameter', paramNode);
       // Slice 3c-extension: TS-style variadic `...` prepended to name.
       const variadic = pp.variadic === true || pp.variadic === 'true' ? '...' : '';
       const pname = `${variadic}${rawName}`;
