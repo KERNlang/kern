@@ -104,7 +104,7 @@ function _indent(lines: string[], depth: number): string[] {
   return lines.map((l) => `${prefix}${l}`);
 }
 
-function escapeKernString(s: string): string {
+export function escapeKernString(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 

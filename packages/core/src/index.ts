@@ -96,7 +96,7 @@ export type { CodegenErrorCode } from './errors.js';
 export { KernCodegenError, KernConfigError, KernParseError } from './errors.js';
 // TS → .kern importer
 export type { ImportResult } from './importer.js';
-export { importTypeScript } from './importer.js';
+export { escapeKernString, importTypeScript } from './importer.js';
 export type { GapCategory, GapClassification } from './migrate-literals.js';
 export { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } from './migrate-literals.js';
 export type {
@@ -122,6 +122,7 @@ export type {
   InterfaceProps,
   InvariantProps,
   MachineProps,
+  MemoProps,
   MethodProps,
   ModelProps,
   ModuleProps,
@@ -231,6 +232,8 @@ export type {
   TranspileDiagnostic,
   TranspileResult,
 } from './types.js';
+// Type guards (value exports — must be in a `export {}` block, not `export type {}`)
+export { isExprObject } from './types.js';
 export type { AccountedEntry } from './utils.js';
 // Utilities
 export {
