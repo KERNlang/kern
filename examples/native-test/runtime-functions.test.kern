@@ -1,0 +1,4 @@
+test name="Runtime functions" target="./runtime-functions.kern"
+  it name="pure functions execute inside runtime assertions"
+    expect expr={{add(2, 3)}} equals=5
+    expect expr={{withBase(7)}} equals=17

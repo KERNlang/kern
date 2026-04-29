@@ -7,7 +7,7 @@
 import { emitExpression } from '../codegen-expression.js';
 import { propsOf } from '../node-props.js';
 import { parseExpression } from '../parser-expression.js';
-import type { ExprObject, IRNode } from '../types.js';
+import { type IRNode, isExprObject } from '../types.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
 import {
   emitDocComment,
@@ -22,15 +22,6 @@ import {
 const p = getProps;
 const kids = getChildren;
 const firstChild = getFirstChild;
-
-function isExprObject(value: unknown): value is ExprObject {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    (value as { __expr?: unknown }).__expr === true &&
-    typeof (value as { code?: unknown }).code === 'string'
-  );
-}
 
 // ── Type Alias ───────────────────────────────────────────────────────────
 // type name=PlanState values="draft|approved|running|paused|completed|failed|cancelled"
@@ -366,8 +357,8 @@ export function generateEnum(node: IRNode): string[] {
       let valueStr: string;
       if (rawVal === undefined || rawVal === '') {
         valueStr = '';
-      } else if (typeof rawVal === 'object' && (rawVal as { __expr?: unknown }).__expr === true) {
-        valueStr = ` = ${(rawVal as { code: string }).code}`;
+      } else if (isExprObject(rawVal)) {
+        valueStr = ` = ${rawVal.code}`;
       } else if (typeof rawVal === 'string') {
         const isQuoted = m.__quotedProps?.includes('value');
         valueStr = ` = ${isQuoted ? JSON.stringify(rawVal) : rawVal}`;

@@ -8,5 +8,11 @@ test name="Language surface" target="./language-surface.kern"
   it name="language surface names stay unique"
     expect no=duplicateNames
 
+  it name="language surface keeps expected KERN shape"
+    expect node=interface name=User child=field count=4
+    expect node=field name=role within=User prop=type is=string
+    expect node=class name=UserDirectory child=method childName=list
+    expect node=fn name=selectActive child=param count=2
+
   it name="arrays classes and functions reach core codegen"
     expect no=codegenErrors

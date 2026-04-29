@@ -35,6 +35,7 @@
  * type of the const, because the const had no useful type to begin with.
  */
 
+import { escapeKernString } from '@kernlang/core';
 import ts from 'typescript';
 
 export interface ClassBodyHit {
@@ -203,10 +204,14 @@ function tryFormatParamChildren(
     const type = p.type ? text(p.type) : '';
 
     if (isObj || isArr) {
+      // Codex review fix: rest+destructure (`...[first]: T[]`) is valid TS
+      // but the structured form has no slot for the outer `...`. Bail to
+      // legacy so the rest marker survives the round-trip. Mirrors importer.ts.
+      if (p.dotDotDotToken) return null;
       const childLines = tryFormatParamBindingPattern(p.name as ts.BindingPattern, text);
       if (childLines === null) return null;
       const parts: string[] = ['param'];
-      if (type) parts.push(`type="${type.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+      if (type) parts.push(`type="${escapeKernString(type)}"`);
       if (p.questionToken) parts.push('optional=true');
       if (p.initializer) parts.push(`value={{ ${text(p.initializer)} }}`);
       lines.push(parts.join(' '));
@@ -216,7 +221,7 @@ function tryFormatParamChildren(
 
     const name = text(p.name);
     const parts: string[] = [`param name=${name}`];
-    if (type) parts.push(`type="${type.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+    if (type) parts.push(`type="${escapeKernString(type)}"`);
     if (p.questionToken) parts.push('optional=true');
     if (p.dotDotDotToken) parts.push('variadic=true');
     if (p.initializer) {

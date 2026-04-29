@@ -373,18 +373,35 @@ describe('transpileMCP', () => {
     expect(result.code).not.toContain('.default(3)');
   });
 
-  it('ExprObject value={{...}} surfaces as raw expression in Zod default', () => {
+  it('ExprObject value={{...}} bypasses type coercion and emits raw in Zod default', () => {
+    // Codex review fix: previously the resolver returned just the .code
+    // string, so the downstream numeric-coerce branch ran `Number('Date.now()')`
+    // → NaN → `.default(0)`, silently dropping the expression. The new
+    // `defaultIsExpr` flag bypasses coercion for ExprObject so the
+    // expression survives verbatim.
     const ast = node('mcp', { name: 'ExprServer' }, [
       node('tool', { name: 'stamp' }, [
         node('param', { name: 'ts', type: 'number', value: { __expr: true, code: 'Date.now()' } }),
       ]),
     ]);
     const result = transpileMCP(ast);
-    // ExprObject `.code` is emitted verbatim. Numeric `.default()` runs the
-    // numeric coerce branch — `Number('Date.now()')` is NaN so it falls back
-    // to `0`. That's expected: ExprObject defaults need a literal-shaped
-    // value to round-trip cleanly through Zod's numeric default.
-    expect(result.code).toContain('.default(0)');
+    expect(result.code).toContain('.default(Date.now())');
+    expect(result.code).not.toContain('.default(0)');
+  });
+
+  it('ExprObject identifier reference bypasses string-literal coercion', () => {
+    // Codex review case: `value={{DEFAULT_GREETING}}` (a const reference)
+    // used to be JSON-stringified to `.default("DEFAULT_GREETING")` (string
+    // literal). Now emits the bare identifier so Zod resolves the actual
+    // const at runtime.
+    const ast = node('mcp', { name: 'IdentExpr' }, [
+      node('tool', { name: 'greet' }, [
+        node('param', { name: 'msg', type: 'string', value: { __expr: true, code: 'DEFAULT_GREETING' } }),
+      ]),
+    ]);
+    const result = transpileMCP(ast);
+    expect(result.code).toContain('.default(DEFAULT_GREETING)');
+    expect(result.code).not.toContain('.default("DEFAULT_GREETING")');
   });
 
   it('quoted-string value emits as JSON-stringified default', () => {

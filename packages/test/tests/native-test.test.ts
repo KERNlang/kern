@@ -69,6 +69,183 @@ describe('native kern test runner', () => {
     expect(formatNativeKernTestSummary(summary)).toContain('PASS Order invariants > reaches paid');
   });
 
+  test('executes runtime expr assertions against target const and derive bindings', () => {
+    writeFileSync(
+      join(tmpDir, 'runtime.kern'),
+      [
+        'const name=base value=2',
+        'const name=tax value=3',
+        'const name=status value="paid"',
+        'const name=states value={{["pending", "paid"]}}',
+        'derive name=total expr={{base + tax}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="evaluates pure expressions"',
+        '    expect expr={{total === 5 && status === "paid" && states.includes("paid")}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.total).toBe(1);
+    expect(summary.passed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('expr');
+  });
+
+  test('supports runtime expr equals, matches, and throws comparators', () => {
+    writeFileSync(
+      join(tmpDir, 'runtime.kern'),
+      [
+        'const name=count value=3',
+        'const name=status value="paid"',
+        'const name=states value={{["pending", "paid"]}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="compares values"',
+        '    expect expr={{count + 2}} equals=5',
+        '    expect expr={{status}} equals="paid"',
+        '    expect expr={{states}} equals={{["pending", "paid"]}}',
+        '  it name="matches strings"',
+        '    expect expr={{status}} matches="^pa"',
+        '  it name="checks expected exceptions"',
+        '    expect expr={{JSON.parse("not-json")}} throws=SyntaxError',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.total).toBe(5);
+    expect(summary.passed).toBe(5);
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.assertion)).toContain('expr count + 2 equals 5');
+    expect(summary.results.map((result) => result.assertion)).toContain('expr status matches ^pa');
+    expect(summary.results.map((result) => result.assertion)).toContain(
+      'expr JSON.parse("not-json") throws SyntaxError',
+    );
+  });
+
+  test('executes simple pure fn handlers in runtime expr assertions', () => {
+    writeFileSync(
+      join(tmpDir, 'functions.kern'),
+      [
+        'const name=base value=10',
+        'fn name=add returns=number',
+        '  param name=a type=number',
+        '  param name=b type=number',
+        '  handler <<<',
+        '    return a + b;',
+        '  >>>',
+        'fn name=withBase params="value:number" returns=number',
+        '  handler <<<',
+        '    return add(value, base);',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'functions.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Function runtime" target="./functions.kern"',
+        '  it name="calls pure functions"',
+        '    expect expr={{add(2, 3)}} equals=5',
+        '    expect expr={{withBase(7)}} equals=17',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(2);
+    expect(summary.results.map((result) => result.assertion)).toContain('expr add(2, 3) equals 5');
+  });
+
+  test('runtime expr reads quoted JS string literal defaults as literal source', () => {
+    writeFileSync(
+      join(tmpDir, 'runtime.kern'),
+      ['const name=LOCAL_CONFIG_NAME type=string value="\'.agon.json\'"'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="checks AGON-style quoted literal source"',
+        '    expect expr={{LOCAL_CONFIG_NAME}} equals=".agon.json"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(1);
+  });
+
+  test('fails false runtime expr assertions with custom message', () => {
+    writeFileSync(join(tmpDir, 'runtime.kern'), ['const name=total value=5'].join('\n'));
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="detects mismatches"',
+        '    expect expr={{total === 6}} message="total must match"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain('total must match');
+  });
+
+  test('runtime expr assertions ignore unrelated duplicate bindings', () => {
+    writeFileSync(
+      join(tmpDir, 'runtime.kern'),
+      ['const name=answer value=42', 'const name=unused value=1', 'const name=unused value=2'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Runtime assertions" target="./runtime.kern"',
+        '  it name="only materializes referenced bindings"',
+        '    expect expr={{answer === 42}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.passed).toBe(1);
+  });
+
+  test('rejects unsafe runtime expr assertions before execution', () => {
+    const testFile = join(tmpDir, 'runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'const name=ok value=true',
+        'test name="Runtime assertions"',
+        '  it name="blocks process access"',
+        '    expect expr={{process.exit(1)}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain("unsupported token 'process'");
+  });
+
   test('fails when a declared transition path does not reach the target state', () => {
     writeFileSync(
       join(tmpDir, 'order.kern'),
@@ -253,7 +430,7 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(5);
     expect(summary.results[0].message).toContain('POST /orders');
     expect(summary.results[1].message).toContain('mutates without schema/validate/guard/auth');
-    expect(summary.results[2].message).toContain('performs database query without guard/auth/validate');
+    expect(summary.results[2].message).toContain('performs database query without guard/auth/validate/permission');
     expect(summary.results[3].message).toContain('has expr but no else/handler');
     expect(summary.results[4].message).toContain('Found raw handler escapes');
   });
@@ -363,6 +540,41 @@ describe('native kern test runner', () => {
     expect(summary.passed).toBe(8);
   });
 
+  test('treats inline permission gates as sensitive effect coverage', () => {
+    writeFileSync(
+      join(tmpDir, 'permission-tool.kern'),
+      [
+        'fn name=createBashTool returns=ToolHandler',
+        '  handler <<<',
+        '    function checkPermission(input: Record<string, unknown>, ctx: ToolContext): PermissionDecision {',
+        "      if (ctx.permissionMode === 'auto') return { behavior: 'allow' };",
+        "      return { behavior: 'ask' };",
+        '    }',
+        '    async function execute(input: Record<string, unknown>) {',
+        "      const { readFileSync } = await import('node:fs');",
+        "      return readFileSync(String(input.path), 'utf-8');",
+        '    }',
+        '    return { definition: {}, validate: () => null, checkPermission, execute };',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'permission-tool.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Permission gated tool" target="./permission-tool.kern"',
+        '  it name="sensitive effects are permission gated"',
+        '    expect no=unguardedEffects',
+        '    expect no=sensitiveEffectsRequireAuth',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(2);
+  });
+
   test('fails on extended guard and effect invariant regressions', () => {
     writeFileSync(
       join(tmpDir, 'bad.kern'),
@@ -434,10 +646,45 @@ describe('native kern test runner', () => {
     expect(summary.results[1].message).toContain("requires param 'url' without a param-specific guard");
     expect(summary.results[2].message).toContain("path-like param 'filePath' lacks pathContainment guard");
     expect(summary.results[3].message).toContain('Found SSRF risks');
-    expect(summary.results[4].message).toContain('performs database query without auth');
+    expect(summary.results[4].message).toContain('performs database query without auth/permission');
     expect(summary.results[5].message).toContain("path param 'id' is not declared, validated, or guarded");
     expect(summary.results[6].message).toContain('side-effect handler without cleanup');
     expect(summary.results[7].message).toContain('async handler without recover');
+  });
+
+  test('classifies effects reached through same-file helper functions', () => {
+    writeFileSync(
+      join(tmpDir, 'indirect-effect.kern'),
+      [
+        'fn name=readSecret params="filePath:string" returns=string',
+        '  handler <<<',
+        '    return readFileSync(filePath, "utf-8");',
+        '  >>>',
+        'server name=Api',
+        '  route method=get path=/secret',
+        '    handler <<<',
+        '      return readSecret(filePath);',
+        '    >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'indirect-effect.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Indirect effects" target="./indirect-effect.kern"',
+        '  it name="helper calls do not hide effects"',
+        '    expect no=unguardedEffects',
+        '    expect no=sensitiveEffectsRequireAuth',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(2);
+    expect(summary.results[0].message).toContain('fn readSecret');
+    expect(summary.results[0].message).toContain('route GET /secret');
+    expect(summary.results[1].message).toContain('fn readSecret');
+    expect(summary.results[1].message).toContain('route GET /secret');
   });
 
   test('expands native test presets into granular invariant results', () => {
@@ -765,6 +1012,74 @@ describe('native kern test runner', () => {
     ]);
   });
 
+  test('asserts KERN node shape directly', () => {
+    writeFileSync(
+      join(tmpDir, 'language.kern'),
+      [
+        'interface name=User',
+        '  field name=id type=string',
+        '  field name=email type=string',
+        'class name=UserDirectory',
+        '  field name=items type="User[]" private=true',
+        '  method name=list returns="User[]"',
+        '    handler <<<',
+        '      return this.items;',
+        '    >>>',
+        'fn name=selectActive returns="User[]"',
+        '  param name=items type="User[]"',
+        '  param name=limit type=number value=10',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'language.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="KERN shape" target="./language.kern"',
+        '  it name="declares expected shapes"',
+        '    expect node=interface name=User child=field count=2',
+        '    expect node=field name=email within=User prop=type is=string',
+        '    expect node=class name=UserDirectory child=method childName=list',
+        '    expect node=param name=limit within=selectActive prop=type is=number',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(4);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'kern:node',
+      'kern:node',
+      'kern:node',
+      'kern:node',
+    ]);
+  });
+
+  test('fails KERN node shape assertions with precise messages', () => {
+    writeFileSync(
+      join(tmpDir, 'language.kern'),
+      ['interface name=User', '  field name=id type=string', 'class name=UserDirectory'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'language.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="KERN shape" target="./language.kern"',
+        '  it name="catches shape drift"',
+        '    expect node=interface name=User child=field count=2',
+        '    expect node=field name=id within=User prop=type is=number',
+        '    expect node=class name=UserDirectory child=method childName=list',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(3);
+    expect(summary.results[0].message).toContain('expected 2 child field');
+    expect(summary.results[1].message).toContain('prop type expected number, found string');
+    expect(summary.results[2].message).toContain('missing child method name=list');
+  });
+
   test('fails on target codegen errors not caught by schema validation', () => {
     writeFileSync(
       join(tmpDir, 'broken.kern'),
@@ -907,9 +1222,9 @@ describe('native kern test runner', () => {
     const summary = runNativeKernTests(testFile);
 
     expect(summary.failed).toBe(2);
-    expect(summary.results[0].message).toContain('performs database query without guard/auth/validate');
+    expect(summary.results[0].message).toContain('performs database query without guard/auth/validate/permission');
     expect(summary.results[0].message).toContain('fn saveOrder');
-    expect(summary.results[1].message).toContain('performs database query without auth');
+    expect(summary.results[1].message).toContain('performs database query without auth/permission');
     expect(summary.results[1].message).toContain('fn saveOrder');
   });
 

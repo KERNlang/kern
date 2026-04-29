@@ -3,7 +3,7 @@
  * used across all Python code generators.
  */
 
-import type { ExprObject, IRNode } from '@kernlang/core';
+import { type IRNode, isExprObject } from '@kernlang/core';
 import { mapTsTypeToPython, toSnakeCase } from './type-map.js';
 
 // ── Micro-helpers ──────────────────────────────────────────────────────
@@ -92,13 +92,24 @@ export function emitPyLowConfidenceTodo(node: IRNode, confidence: string | undef
 //     in the function body.
 //
 // `selfPrefix=true` prepends `self` for method signatures.
-function isExprObject(value: unknown): value is ExprObject {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    (value as { __expr?: unknown }).__expr === true &&
-    typeof (value as { code?: unknown }).code === 'string'
-  );
+
+/**
+ * Slice 3c P2 follow-up bug fix (Codex catch): KERN authors a target-neutral
+ * `value=true|false|null|undefined` token; in TS this round-trips as JS
+ * `true`/`false`/`null`/`undefined`, but Python defaults are evaluated at
+ * module-import time and those names are undefined → `NameError`. Translate
+ * the bare keyword to its Python equivalent before emitting.
+ *
+ * Numeric literals (`3`, `0.5`) and identifier references (`DEFAULT_GREETING`)
+ * are left alone — numbers parse the same in both languages, and identifier
+ * references either resolve to a Python binding or surface a clear
+ * `NameError` at the same point a TS author would hit a ReferenceError.
+ */
+function jsLiteralToPython(token: string): string {
+  if (token === 'true') return 'True';
+  if (token === 'false') return 'False';
+  if (token === 'null' || token === 'undefined') return 'None';
+  return token;
 }
 
 function formatPyDefault(paramNode: IRNode): string {
@@ -112,11 +123,11 @@ function formatPyDefault(paramNode: IRNode): string {
   if (valuePresent) {
     if (isExprObject(rawValue)) return rawValue.code;
     const isQuoted = paramNode.__quotedProps?.includes('value') === true;
-    return isQuoted ? JSON.stringify(rawValue) : String(rawValue);
+    return isQuoted ? JSON.stringify(rawValue) : jsLiteralToPython(String(rawValue));
   }
   if (rawDefault !== undefined && rawDefault !== '') {
     if (isExprObject(rawDefault)) return rawDefault.code;
-    return String(rawDefault);
+    return jsLiteralToPython(String(rawDefault));
   }
   return '';
 }
@@ -140,8 +151,13 @@ function formatPyParamFromChild(paramNode: IRNode): string | null {
   const defaultStr = formatPyDefault(paramNode);
 
   if (optional && !defaultStr) {
-    // `name: Optional[T] = None` (or `name = None` when type is missing).
-    const optType = typeBase ? `: Optional[${mapTsTypeToPython(typeBase)}]` : '';
+    // Slice 3c P2 follow-up bug fix (Codex catch): use PEP-604 `T | None`
+    // rather than `Optional[T]`. The latter would require `from typing import
+    // Optional`, which the rest of the FastAPI emitter doesn't add — emitting
+    // `Optional[T]` produces a Python module that fails on import. The
+    // existing convention here (see `field: float | None = None` test) is
+    // `T | None`, which has no import dependency from Python 3.10+.
+    const optType = typeBase ? `: ${mapTsTypeToPython(typeBase)} | None` : '';
     return `${namePart}${optType} = None`;
   }
 

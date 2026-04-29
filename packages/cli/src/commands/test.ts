@@ -14,8 +14,10 @@ import {
   runNativeKernTestRun,
   runNativeKernTests,
 } from '@kernlang/test';
+import { watch } from 'chokidar';
+import type { Stats } from 'fs';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'fs';
-import { basename, resolve } from 'path';
+import { basename, relative, resolve } from 'path';
 import { hasFlag, parseAndSurface, parseFlag } from '../shared.js';
 
 export {
@@ -116,6 +118,153 @@ function handleNativeBaseline(
     process.exit(2);
   }
   return failed;
+}
+
+interface NativeTestCliOptions {
+  json: boolean;
+  compact: boolean;
+  coverage: boolean;
+  baselinePath?: string;
+  writeBaselinePath?: string;
+  minCoverage?: number;
+  failOnWarn: boolean;
+  maxWarnings?: number;
+  grep?: string;
+  bail: boolean;
+  passWithNoTests: boolean;
+}
+
+function isNativeRunSummary(
+  summary: NativeKernTestSummary | NativeKernTestRunSummary,
+): summary is NativeKernTestRunSummary {
+  return 'files' in summary;
+}
+
+function runNativeSummary(
+  inputPath: string,
+  stat: Stats,
+  options: NativeTestCliOptions,
+): NativeKernTestSummary | NativeKernTestRunSummary {
+  return stat.isDirectory()
+    ? runNativeKernTestRun(inputPath, {
+        grep: options.grep,
+        bail: options.bail,
+        passWithNoTests: options.passWithNoTests,
+      })
+    : runNativeKernTests(inputPath, {
+        grep: options.grep,
+        bail: options.bail,
+        passWithNoTests: options.passWithNoTests,
+      });
+}
+
+function reportNativeSummary(
+  summary: NativeKernTestSummary | NativeKernTestRunSummary,
+  options: NativeTestCliOptions,
+): number {
+  process.stdout.write(
+    options.json
+      ? `${JSON.stringify(summary, null, 2)}\n`
+      : isNativeRunSummary(summary)
+        ? formatNativeKernTestRunSummary(summary, options.compact ? { format: 'compact' } : undefined)
+        : formatNativeKernTestSummary(summary, options.compact ? { format: 'compact' } : undefined),
+  );
+  if (options.coverage && !options.json) process.stdout.write(formatNativeKernTestCoverage(summary.coverage));
+
+  const baselineFailed = handleNativeBaseline(summary, {
+    baselinePath: options.baselinePath,
+    writeBaselinePath: options.writeBaselinePath,
+  });
+  const coverageFailed = options.minCoverage !== undefined && summary.coverage.percent < options.minCoverage;
+  if (coverageFailed) {
+    console.error(`Native coverage ${summary.coverage.percent}% is below --min-coverage ${options.minCoverage}%.`);
+  }
+
+  const grepMatchedNothing =
+    Boolean(options.grep) &&
+    summary.total === 0 &&
+    !options.passWithNoTests &&
+    (!isNativeRunSummary(summary) || summary.files.length > 0);
+  const failed =
+    summary.failed > 0 ||
+    baselineFailed ||
+    coverageFailed ||
+    (options.failOnWarn && summary.warnings > 0) ||
+    (options.maxWarnings !== undefined && summary.warnings > options.maxWarnings) ||
+    grepMatchedNothing;
+
+  process.exitCode = failed ? 1 : undefined;
+  return failed ? 1 : 0;
+}
+
+function runAndReportNativeSummary(
+  inputPath: string,
+  stat: Stats,
+  options: NativeTestCliOptions,
+): NativeKernTestSummary | NativeKernTestRunSummary {
+  const summary = runNativeSummary(inputPath, stat, options);
+  reportNativeSummary(summary, options);
+  return summary;
+}
+
+function nativeWatchTargets(
+  inputPath: string,
+  stat: Stats,
+  summary: NativeKernTestSummary | NativeKernTestRunSummary,
+): string | string[] {
+  if (stat.isDirectory()) return resolve(inputPath, '**/*.kern');
+  return [inputPath, ...summary.targetFiles].map((file) => resolve(file));
+}
+
+function startNativeTestWatch(
+  inputPath: string,
+  stat: Stats,
+  options: NativeTestCliOptions,
+  initialSummary: NativeKernTestSummary | NativeKernTestRunSummary,
+): void {
+  console.log('\n  Watching native KERN tests... (Ctrl+C to stop)\n');
+
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let running = false;
+  let pending = false;
+
+  const watcher = watch(nativeWatchTargets(inputPath, stat, initialSummary), {
+    ignoreInitial: true,
+    persistent: true,
+    awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 },
+  });
+
+  const rerun = () => {
+    if (running) {
+      pending = true;
+      return;
+    }
+
+    running = true;
+    try {
+      console.log('\n  Change detected. Re-running native KERN tests...\n');
+      const summary = runAndReportNativeSummary(inputPath, stat, options);
+      watcher.add(nativeWatchTargets(inputPath, stat, summary));
+    } finally {
+      running = false;
+      if (pending) {
+        pending = false;
+        rerun();
+      }
+    }
+  };
+
+  watcher.on('all', (_event, filePath) => {
+    console.log(`  ${relative(process.cwd(), filePath)} changed`);
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(rerun, 150);
+  });
+  watcher.on('error', (error) => {
+    console.error(`kern test --watch watcher error: ${error instanceof Error ? error.message : String(error)}`);
+  });
+  process.once('SIGINT', () => {
+    void watcher.close().finally(() => process.exit(0));
+  });
 }
 
 // ── Guard violation payloads ────────────────────────────────────────────
@@ -280,6 +429,7 @@ export function runTest(args: string[]): void {
   const generateOnly = hasFlag(args, '--generate');
   const failOnWarn = hasFlag(args, '--fail-on-warn');
   const bail = hasFlag(args, '--bail');
+  const watchMode = hasFlag(args, '--watch', '-w');
   const passWithNoTests = hasFlag(args, '--pass-with-no-tests');
   const listRules = hasFlag(args, '--list-rules');
 
@@ -323,7 +473,7 @@ export function runTest(args: string[]): void {
 
   if (!testInput) {
     console.error(
-      'Usage: kern test <file-or-dir> [--json] [--grep <pattern>] [--bail] [--fail-on-warn] [--max-warnings <n>] [--coverage] [--min-coverage <pct>] [--baseline <file>] [--write-baseline <file>] [--pass-with-no-tests] [--format compact] [--compact] [--list-rules] [--explain-rule <rule>] [--generate] [--outdir=<dir>] [--dry-run]',
+      'Usage: kern test <file-or-dir> [--json] [--grep <pattern>] [--bail] [--watch] [--fail-on-warn] [--max-warnings <n>] [--coverage] [--min-coverage <pct>] [--baseline <file>] [--write-baseline <file>] [--pass-with-no-tests] [--format compact] [--compact] [--list-rules] [--explain-rule <rule>] [--generate] [--outdir=<dir>] [--dry-run]',
     );
     console.error('');
     console.error('Runs native KERN tests when the file contains test/describe/it nodes.');
@@ -351,6 +501,10 @@ export function runTest(args: string[]): void {
     console.error('--baseline and --write-baseline cannot be used together.');
     process.exit(2);
   }
+  if (watchMode && writeBaselinePath) {
+    console.error('--watch cannot be combined with --write-baseline.');
+    process.exit(2);
+  }
 
   const inputPath = resolve(testInput);
   if (!existsSync(inputPath)) {
@@ -359,62 +513,41 @@ export function runTest(args: string[]): void {
   }
 
   const stat = statSync(inputPath);
+  const nativeOptions: NativeTestCliOptions = {
+    json,
+    compact,
+    coverage,
+    baselinePath,
+    writeBaselinePath,
+    minCoverage,
+    failOnWarn,
+    maxWarnings,
+    grep,
+    bail,
+    passWithNoTests,
+  };
+
   if (stat.isDirectory()) {
     if (generateOnly) {
       console.error('--generate requires a .kern file input, not a directory.');
       process.exit(1);
     }
 
-    const summary = runNativeKernTestRun(inputPath, { grep, bail, passWithNoTests });
-    process.stdout.write(
-      json
-        ? `${JSON.stringify(summary, null, 2)}\n`
-        : formatNativeKernTestRunSummary(summary, compact ? { format: 'compact' } : undefined),
-    );
-    if (coverage && !json) process.stdout.write(formatNativeKernTestCoverage(summary.coverage));
-    const baselineFailed = handleNativeBaseline(summary, { baselinePath, writeBaselinePath });
-    const coverageFailed = minCoverage !== undefined && summary.coverage.percent < minCoverage;
-    if (coverageFailed) {
-      console.error(`Native coverage ${summary.coverage.percent}% is below --min-coverage ${minCoverage}%.`);
-    }
-    if (
-      summary.failed > 0 ||
-      baselineFailed ||
-      coverageFailed ||
-      (failOnWarn && summary.warnings > 0) ||
-      (maxWarnings !== undefined && summary.warnings > maxWarnings) ||
-      (grep && summary.total === 0 && summary.files.length > 0 && !passWithNoTests)
-    ) {
-      process.exitCode = 1;
-    }
+    const summary = runAndReportNativeSummary(inputPath, stat, nativeOptions);
+    if (watchMode) startNativeTestWatch(inputPath, stat, nativeOptions, summary);
     return;
   }
 
   const source = readFileSync(inputPath, 'utf-8');
   if (!generateOnly && hasNativeKernTests(source)) {
-    const summary = runNativeKernTests(inputPath, { grep, bail, passWithNoTests });
-    process.stdout.write(
-      json
-        ? `${JSON.stringify(summary, null, 2)}\n`
-        : formatNativeKernTestSummary(summary, compact ? { format: 'compact' } : undefined),
-    );
-    if (coverage && !json) process.stdout.write(formatNativeKernTestCoverage(summary.coverage));
-    const baselineFailed = handleNativeBaseline(summary, { baselinePath, writeBaselinePath });
-    const coverageFailed = minCoverage !== undefined && summary.coverage.percent < minCoverage;
-    if (coverageFailed) {
-      console.error(`Native coverage ${summary.coverage.percent}% is below --min-coverage ${minCoverage}%.`);
-    }
-    if (
-      summary.failed > 0 ||
-      baselineFailed ||
-      coverageFailed ||
-      (failOnWarn && summary.warnings > 0) ||
-      (maxWarnings !== undefined && summary.warnings > maxWarnings) ||
-      (grep && summary.total === 0 && !passWithNoTests)
-    ) {
-      process.exitCode = 1;
-    }
+    const summary = runAndReportNativeSummary(inputPath, stat, nativeOptions);
+    if (watchMode) startNativeTestWatch(inputPath, stat, nativeOptions, summary);
     return;
+  }
+
+  if (watchMode) {
+    console.error('kern test --watch requires native test/describe/it nodes or a directory input.');
+    process.exit(1);
   }
 
   const ast = parseAndSurface(source, inputPath);

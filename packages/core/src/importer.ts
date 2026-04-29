@@ -104,7 +104,7 @@ function _indent(lines: string[], depth: number): string[] {
   return lines.map((l) => `${prefix}${l}`);
 }
 
-function escapeKernString(s: string): string {
+export function escapeKernString(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
@@ -114,8 +114,13 @@ function formatParams(params: ts.NodeArray<ts.ParameterDeclaration>, source: ts.
       const name = p.name.getText(source);
       const type = typeToString(p.type, source);
       const optional = p.questionToken ? '?' : '';
+      // Codex review fix: variadic `...` was dropped by the legacy serializer.
+      // Without this, `function f(...[first]: T[])` and `function f(...args: T[])`
+      // both round-tripped without their rest marker, silently changing the
+      // call signature.
+      const dots = p.dotDotDotToken ? '...' : '';
       const defaultVal = p.initializer ? `=${p.initializer.getText(source)}` : '';
-      return type ? `${name}${optional}:${type}${defaultVal}` : `${name}${optional}${defaultVal}`;
+      return type ? `${dots}${name}${optional}:${type}${defaultVal}` : `${dots}${name}${optional}${defaultVal}`;
     })
     .join(',');
 }
@@ -169,6 +174,12 @@ function tryFormatParamChildren(
       // if the pattern uses rest/defaults/nesting, since slice 3d's structured
       // form doesn't represent those — the whole signature falls back to
       // `params="..."` so the parent can still emit valid TS.
+      //
+      // Codex review fix: `function f(...[first]: T[])` (variadic + array
+      // destructure) is valid TS but the structured form has no slot for the
+      // outer `...`. Bail to legacy so the rest marker is preserved verbatim
+      // in `params="..."` rather than silently dropped on round-trip.
+      if (p.dotDotDotToken) return null;
       const childLines = tryFormatParamBindingPattern(p.name as ts.BindingPattern, source);
       if (childLines === null) return null;
       // The destructured-param header line carries no `name=`. Type / optional

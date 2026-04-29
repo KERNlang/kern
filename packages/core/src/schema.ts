@@ -237,6 +237,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       export: { kind: 'boolean' },
       expr: { kind: 'rawExpr' },
       generics: { kind: 'rawExpr' },
+      // Slice 6 — effects=pure declares the body has no observable side effects.
+      // Validated by parser-validate-effects.ts; see docs/language/effects-pure-spec.md.
+      effects: { kind: 'string' },
     },
     allowedChildren: ['handler', 'signal', 'cleanup', 'overload', 'param'],
   },
@@ -481,6 +484,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       expr: { required: true, kind: 'rawExpr' },
       type: { kind: 'typeAnnotation' },
       export: { kind: 'boolean' },
+      // Slice 6 — see fn schema above.
+      effects: { kind: 'string' },
     },
   },
   fmt: {
@@ -1597,7 +1602,13 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'Parameter definition. Used in two contexts: (a) MCP tool/resource/prompt params (description/required/min/max apply); (b) fn/method/constructor/etc. parameter defaults via slice 3c — value flows through ValueIR canonicalisation (mirrors slice 1j const.value, 3a let.value, 3b field.value).',
     example: 'param name=query type=string required=true description="Search query"',
     props: {
-      name: { required: true, kind: 'identifier' },
+      // Slice 3c-extension #3: `name` is required UNLESS the param carries
+      // `binding`/`element` destructure children — destructured params encode
+      // the LHS pattern in the children, not in `name`. The required-OR-children
+      // invariant lives in `checkCrossProps` so `validateSchema` accepts both
+      // forms. Keeping the schema-level `required: true` here would reject the
+      // canonical destructured form emitted by the importer.
+      name: { kind: 'identifier' },
       type: { kind: 'typeAnnotation' },
       value: { kind: 'expression' },
       required: { kind: 'boolean' },
@@ -1894,6 +1905,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { required: true, kind: 'identifier' },
       deps: { kind: 'string' },
+      // Slice 6 — see fn schema above.
+      effects: { kind: 'string' },
     },
     allowedChildren: ['handler'],
   },
@@ -2348,12 +2361,23 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   expect: {
     description: 'Assertion — declare an expected runtime condition or KERN structural invariant',
     example:
-      'expect expr={{items.length > 0}} message="Items must not be empty"\nexpect machine=Order reaches=paid via=confirm,capture\nexpect no=deriveCycles',
+      'expect expr={{items.length > 0}} message="Items must not be empty"\nexpect machine=Order reaches=paid via=confirm,capture\nexpect node=interface name=User child=field count=3\nexpect no=deriveCycles',
     props: {
       expr: { kind: 'rawExpr' },
+      equals: { kind: 'rawExpr' },
+      matches: { kind: 'string' },
+      throws: { kind: 'string' },
       message: { kind: 'string' },
       preset: { kind: 'identifier' },
       severity: { kind: 'identifier' },
+      node: { kind: 'identifier' },
+      name: { kind: 'string' },
+      within: { kind: 'string' },
+      child: { kind: 'identifier' },
+      childName: { kind: 'string' },
+      prop: { kind: 'identifier' },
+      is: { kind: 'string' },
+      count: { kind: 'number' },
       machine: { kind: 'identifier' },
       reaches: { kind: 'identifier' },
       via: { kind: 'string' },
@@ -2472,22 +2496,41 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       col: node.loc?.col,
     });
   }
+  if (node.type === 'param') {
+    // Slice 3c-extension #3: `param` requires `name=` UNLESS it carries
+    // `binding`/`element` destructure children — destructured params encode
+    // the LHS pattern in the children. Replaces the old prop-level
+    // `required: true` constraint which rejected the canonical destructured
+    // form emitted by importer/decompiler.
+    const hasName = 'name' in props;
+    const hasDestructure = (node.children ?? []).some((c) => c.type === 'binding' || c.type === 'element');
+    if (!hasName && !hasDestructure) {
+      violations.push({
+        nodeType: 'param',
+        message: "'param' requires either 'name' or destructure children ('binding'/'element')",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
   if (node.type === 'expect') {
     const hasRuntimeAssertion = 'expr' in props;
     const hasPreset = 'preset' in props;
+    const hasNodeShape = 'node' in props;
     const hasNegativeInvariant = 'no' in props;
     const hasGuardExhaustiveness = 'guard' in props;
     const hasMachineReachability = 'reaches' in props || ('machine' in props && !hasNegativeInvariant);
     if (
       !hasRuntimeAssertion &&
       !hasPreset &&
+      !hasNodeShape &&
       !hasMachineReachability &&
       !hasNegativeInvariant &&
       !hasGuardExhaustiveness
     ) {
       violations.push({
         nodeType: 'expect',
-        message: "'expect' requires 'expr', 'preset', 'machine'/'reaches', 'no', or 'guard'",
+        message: "'expect' requires 'expr', 'preset', 'node', 'machine'/'reaches', 'no', or 'guard'",
         line: node.loc?.line,
         col: node.loc?.col,
       });

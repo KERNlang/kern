@@ -16,6 +16,7 @@ import {
   getChildren,
   getFirstChild,
   getProps,
+  isExprObject,
   serializeIR,
 } from '@kernlang/core';
 import { FILE_IO_PATTERN, NETWORK_PATTERN, SHELL_EXEC_PATTERN } from './effect-patterns.js';
@@ -60,6 +61,10 @@ interface ParamDefinition {
   type: string;
   optional: boolean;
   defaultValue?: string;
+  // Codex review fix: ExprObject defaults (`value={{Date.now()}}`) need to
+  // bypass `zodForParam`'s type-aware coercion. When `defaultIsExpr=true`,
+  // emit `defaultValue` verbatim instead of running through Number()/json().
+  defaultIsExpr?: boolean;
   description?: string;
   guards: GuardDefinition[];
   node: IRNode;
@@ -117,29 +122,31 @@ function str(value: unknown): string | undefined {
  * `default` (legacy rawExpr passthrough). Mirrors core's `parseParamListFromChildren`
  * priority: `value` wins when both are set.
  *
- * Returns the raw expression text suitable for embedding in Zod's `.default(...)`
- * (which the caller wraps with type-aware coercion). ExprObject `{{...}}` form
- * surfaces its `.code` verbatim — note that `{{Date.now()}}` produces
- * `.default(Date.now())` which Zod evaluates ONCE at module load (use
- * `{{() => Date.now()}}` for per-parse evaluation).
+ * Returns `{ value, isExpr }` where `isExpr=true` signals an ExprObject
+ * (`value={{...}}`) — the Zod / Python emitter must drop type-aware coercion
+ * and emit the `.code` verbatim, otherwise expressions like `Date.now()`
+ * collapse through `Number()` to `0` or get JSON-stringified into a string
+ * literal. Codex review fix: previously this returned a plain string and
+ * downstream `zodForParam` always re-coerced, silently corrupting expression
+ * defaults.
  */
-function resolveParamDefault(paramNode: IRNode): string | undefined {
+function resolveParamDefault(paramNode: IRNode): { value: string; isExpr: boolean } | undefined {
   const props = paramNode.props || {};
   const quoted = paramNode.__quotedProps ?? [];
   const rawValue = props.value;
   const valuePresent = rawValue !== undefined && (rawValue !== '' || quoted.includes('value'));
   if (valuePresent) {
     if (typeof rawValue === 'object' && rawValue !== null && (rawValue as { __expr?: unknown }).__expr === true) {
-      return (rawValue as { code: string }).code;
+      return { value: (rawValue as { code: string }).code, isExpr: true };
     }
-    return String(rawValue);
+    return { value: String(rawValue), isExpr: false };
   }
   const rawDefault = props.default;
   if (rawDefault !== undefined && rawDefault !== '') {
     if (typeof rawDefault === 'object' && rawDefault !== null && (rawDefault as { __expr?: unknown }).__expr === true) {
-      return (rawDefault as { code: string }).code;
+      return { value: (rawDefault as { code: string }).code, isExpr: true };
     }
-    return String(rawDefault);
+    return { value: String(rawDefault), isExpr: false };
   }
   return undefined;
 }
@@ -376,13 +383,14 @@ function collectParams(node: IRNode, fallbackAllowlist: string[]): ParamDefiniti
     }
 
     // Slice 3c P2 follow-up: read `value` (canonical) before `default` (legacy).
-    const defaultValue = resolveParamDefault(paramNode);
+    const resolved = resolveParamDefault(paramNode);
 
     return {
       name,
       type,
-      optional: str(props.required) === 'false' || defaultValue !== undefined,
-      defaultValue,
+      optional: str(props.required) === 'false' || resolved !== undefined,
+      defaultValue: resolved?.value,
+      defaultIsExpr: resolved?.isExpr,
       description: str(props.description),
       guards,
       node: paramNode,
@@ -467,17 +475,27 @@ function zodForParam(param: ParamDefinition): string {
   }
 
   if (param.defaultValue !== undefined) {
-    const t = param.type;
-    const isNumeric = t === 'number' || t === 'float' || t === 'int' || t === 'integer';
-    const dv = isNumeric
-      ? Number.isNaN(Number(param.defaultValue))
-        ? '0'
-        : param.defaultValue
-      : t === 'boolean' || t === 'bool'
-        ? param.defaultValue === 'true'
-          ? 'true'
-          : 'false'
-        : json(param.defaultValue);
+    // Codex review fix: ExprObject defaults (`value={{Date.now()}}` —
+    // marked via `defaultIsExpr`) bypass type coercion and emit verbatim.
+    // Without this, `Number('Date.now()')` is NaN → `.default(0)`, and string
+    // identifiers get JSON-stringified into `.default("DEFAULT_GREETING")`,
+    // collapsing both expression and reference defaults to literals.
+    let dv: string;
+    if (param.defaultIsExpr) {
+      dv = param.defaultValue;
+    } else {
+      const t = param.type;
+      const isNumeric = t === 'number' || t === 'float' || t === 'int' || t === 'integer';
+      dv = isNumeric
+        ? Number.isNaN(Number(param.defaultValue))
+          ? '0'
+          : param.defaultValue
+        : t === 'boolean' || t === 'bool'
+          ? param.defaultValue === 'true'
+            ? 'true'
+            : 'false'
+          : json(param.defaultValue);
+    }
     expr += `.default(${dv})`;
   } else if (param.optional) {
     expr += '.optional()';

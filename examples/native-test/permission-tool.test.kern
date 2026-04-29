@@ -1,0 +1,4 @@
+test name="Permission-gated tool safety" target="./permission-tool.kern"
+  it name="inline permission gate covers sensitive effects"
+    expect no=unguardedEffects
+    expect no=sensitiveEffectsRequireAuth

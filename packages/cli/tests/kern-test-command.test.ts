@@ -643,6 +643,10 @@ describe('kern test command', () => {
       ['test', tmpDir, '--baseline', join(tmpDir, 'current.json'), '--write-baseline', join(tmpDir, 'next.json')],
       '--baseline and --write-baseline cannot be used together.',
     );
+    expectUsageExit(
+      ['test', tmpDir, '--watch', '--write-baseline', join(tmpDir, 'baseline.json')],
+      '--watch cannot be combined with --write-baseline.',
+    );
   });
 
   test('passes grep through to native test runs', () => {

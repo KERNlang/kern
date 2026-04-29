@@ -3,6 +3,8 @@ import { generateCoreNode, parseDocumentWithDiagnostics, validateSchema, validat
 import type { Dirent } from 'fs';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { dirname, join, relative, resolve } from 'path';
+import { inspect, isDeepStrictEqual } from 'util';
+import { createContext, Script } from 'vm';
 
 export type NativeKernTestStatus = 'passed' | 'failed' | 'warning';
 export type NativeKernTestSeverity = 'error' | 'warn';
@@ -131,6 +133,19 @@ interface NativeKernAssertionContext {
   assertions: CollectedAssertion[];
 }
 
+interface RuntimeBinding {
+  name: string;
+  expr: string;
+  line?: number;
+}
+
+interface RuntimeBindingOrder {
+  ordered: RuntimeBinding[];
+  error?: string;
+}
+
+type RuntimeEvalResult = { ok: true; value: unknown } | { ok: false; error: unknown };
+
 const DISCOVERY_SKIP_DIRS = new Set([
   '.git',
   '.next',
@@ -180,8 +195,13 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
   },
   { ruleId: 'guard:exhaustive', description: 'A guard covers every variant of the referenced union type.' },
   {
+    ruleId: 'kern:node',
+    description: 'A target KERN node exists and optionally matches child-count or prop-value constraints.',
+  },
+  {
     ruleId: 'expr',
-    description: 'Runtime expression assertion placeholder. Runtime execution is not implemented yet.',
+    description:
+      'Evaluate a constrained runtime expression against target const/derive bindings, with optional equals/matches/throws comparators.',
   },
   { ruleId: 'expect:unsupported', description: 'The expect assertion shape is not supported by native kern test.' },
   { ruleId: 'preset:unknown', description: 'The requested preset name is unknown.' },
@@ -318,6 +338,57 @@ function isTruthy(value: unknown): boolean {
   return value === true || value === 'true';
 }
 
+function isJsStringLiteralSource(value: string): boolean {
+  return /^'(?:\\[\s\S]|[^'\\])*'$/.test(value) || /^"(?:\\[\s\S]|[^"\\])*"$/.test(value);
+}
+
+function exprPropToRuntimeSource(node: IRNode, propName: string): string {
+  const props = getProps(node);
+  const value = props[propName];
+  if (value === undefined || value === '') return '';
+  if (node.__quotedProps?.includes(propName)) {
+    const source = String(value);
+    return isJsStringLiteralSource(source) ? source : JSON.stringify(value);
+  }
+  return exprToString(value);
+}
+
+function runtimeExpectedSource(node: IRNode, propName: string): string | undefined {
+  const props = getProps(node);
+  const value = props[propName];
+  if (value === undefined) return undefined;
+  if (value && typeof value === 'object' && '__expr' in value) return exprToString(value);
+
+  const source = String(value);
+  if (node.__quotedProps?.includes(propName)) {
+    return isJsStringLiteralSource(source) ? source : JSON.stringify(source);
+  }
+
+  const trimmed = source.trim();
+  if (/^(?:true|false|null)$/.test(trimmed)) return trimmed;
+  if (/^-?(?:\d+|\d*\.\d+)(?:e[+-]?\d+)?$/i.test(trimmed)) return trimmed;
+  return JSON.stringify(source);
+}
+
+function runtimePatternValue(node: IRNode, propName: string): string | undefined {
+  const props = getProps(node);
+  const value = props[propName];
+  if (value === undefined) return undefined;
+  const source = String(value);
+  if (node.__quotedProps?.includes(propName) && isJsStringLiteralSource(source)) {
+    try {
+      const script = new Script(`"use strict";\n(${source});`);
+      const evaluated = script.runInContext(createContext(runtimeContext()), {
+        timeout: RUNTIME_EXPR_TIMEOUT_MS,
+      });
+      return String(evaluated);
+    } catch {
+      return source;
+    }
+  }
+  return source;
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -373,6 +444,11 @@ function isAssertionConfigurationFailure(message?: string): boolean {
   return (
     message.startsWith('Unsupported native ') ||
     message.startsWith('Runtime expr assertions ') ||
+    message.startsWith('Runtime expr assertion requires ') ||
+    message.startsWith('Runtime expr assertion cannot execute ') ||
+    message.startsWith('Runtime expr assertion has ') ||
+    message.startsWith('Node assertion requires ') ||
+    message.startsWith('Node assertion count ') ||
     message === 'Unsupported native expect assertion.' ||
     message.includes(' assertion requires ') ||
     message.includes(' needs over=') ||
@@ -426,8 +502,58 @@ function handlerText(node: IRNode): string {
     .join('\n');
 }
 
+function collectNamedHandlerBodies(root: IRNode): Map<string, string> {
+  const bodies = new Map<string, string>();
+  for (const fn of collectNodes(root, 'fn')) {
+    const name = str(getProps(fn).name);
+    const code = handlerText(fn);
+    if (name && code) bodies.set(name, code);
+  }
+  return bodies;
+}
+
+function reachableHandlerText(root: IRNode, node: IRNode): string {
+  const helperBodies = collectNamedHandlerBodies(root);
+  const chunks: string[] = [];
+  const queue = [handlerText(node)];
+  const visited = new Set<string>();
+
+  while (queue.length > 0) {
+    const current = queue.shift() || '';
+    if (!current) continue;
+    chunks.push(current);
+
+    for (const [name, body] of helperBodies) {
+      if (visited.has(name)) continue;
+      if (!new RegExp(`\\b${escapeRegExp(name)}\\s*\\(`).test(current)) continue;
+      visited.add(name);
+      queue.push(body);
+    }
+  }
+
+  return chunks.join('\n');
+}
+
+function hasInlinePermissionGate(node: IRNode): boolean {
+  const code = handlerText(node);
+  if (!code) return false;
+  const declaresPermissionCheck =
+    /\b(?:function|const|let)\s+checkPermission\b/.test(code) ||
+    /\bcheckPermission\s*[:=]\s*(?:async\s*)?\(/.test(code);
+  if (!declaresPermissionCheck) return false;
+  const returnsPermissionCheck = /\breturn\s*\{[\s\S]*\bcheckPermission\b[\s\S]*\}/.test(code);
+  const hasDecisionSignal =
+    /\bPermissionDecision\b/.test(code) ||
+    /\bpermissionMode\b/.test(code) ||
+    /\bbehavior\s*:\s*['"](?:allow|ask|deny)['"]/.test(code);
+  return returnsPermissionCheck && hasDecisionSignal;
+}
+
 function hasGuardLikeChild(node: IRNode): boolean {
-  return (node.children || []).some((child) => ['guard', 'auth', 'validate'].includes(child.type));
+  return (
+    (node.children || []).some((child) => ['guard', 'auth', 'validate'].includes(child.type)) ||
+    hasInlinePermissionGate(node)
+  );
 }
 
 function isMultiSourceTransitionFalsePositive(violation: SemanticViolation, root: IRNode): boolean {
@@ -545,16 +671,37 @@ function collectAssertions(testNode: IRNode): CollectedAssertion[] {
 function assertionLabel(node: IRNode): string {
   const props = getProps(node);
   const preset = str(props.preset);
+  const nodeType = str(props.node);
+  const name = str(props.name);
+  const prop = str(props.prop);
+  const isValue = props.is === undefined ? '' : exprToString(props.is) || String(props.is);
+  const child = str(props.child);
+  const childName = str(props.childName);
+  const count = props.count === undefined ? '' : String(props.count);
   const machine = str(props.machine);
   const reaches = str(props.reaches);
   const no = str(props.no);
   const guard = str(props.guard);
   const expr = exprToString(props.expr);
+  const equals = props.equals === undefined ? '' : exprToString(props.equals) || String(props.equals);
+  const matches = props.matches === undefined ? '' : String(props.matches);
+  const throws = props.throws === undefined ? '' : String(props.throws || 'true');
 
   if (preset) return `preset ${preset}`;
+  if (nodeType) {
+    const parts = [`node ${nodeType}`];
+    if (name) parts.push(name);
+    if (child) parts.push(`has ${child}${childName ? ` ${childName}` : ''}`);
+    if (prop) parts.push(`prop ${prop}${isValue ? ` is ${isValue}` : ''}`);
+    if (count) parts.push(`count ${count}`);
+    return parts.join(' ');
+  }
   if (no) return `${machine ? `machine ${machine} ` : ''}no ${no}`;
   if (guard) return `guard ${guard} exhaustive`;
   if (machine || reaches) return `machine ${machine || '<missing>'} reaches ${reaches || '<missing>'}`;
+  if (expr && equals) return `expr ${expr} equals ${equals}`;
+  if (expr && matches) return `expr ${expr} matches ${matches}`;
+  if (expr && throws) return `expr ${expr} throws ${throws}`;
   if (expr) return `expr ${expr}`;
   return 'expect';
 }
@@ -785,11 +932,11 @@ function findUnguardedEffects(root: IRNode): string[] {
 
   function visit(node: IRNode): void {
     if (checkedTypes.has(node.type)) {
-      const code = handlerText(node);
+      const code = reachableHandlerText(root, node);
       const effect = classifyEffect(code);
       if (effect && !hasGuardLikeChild(node)) {
         failures.push(
-          `${nodeLabel(node)} at line ${node.loc?.line ?? '?'} performs ${effect.label} without guard/auth/validate`,
+          `${nodeLabel(node)} at line ${node.loc?.line ?? '?'} performs ${effect.label} without guard/auth/validate/permission`,
         );
       }
     }
@@ -1023,6 +1170,10 @@ function hasAuthLikeChild(node: IRNode): boolean {
   });
 }
 
+function hasAuthorizationLikeGate(node: IRNode): boolean {
+  return hasAuthLikeChild(node) || hasInlinePermissionGate(node);
+}
+
 function hasUrlAllowlistGuard(node: IRNode, paramName?: string): boolean {
   return allChildGuards(node).some((guard) => {
     if (paramName && guardParam(guard) && !guardTargetsParam(guard, paramName)) return false;
@@ -1108,7 +1259,7 @@ function findSsrfRisks(root: IRNode): string[] {
         }
       }
 
-      const code = handlerText(node);
+      const code = reachableHandlerText(root, node);
       if (classifyEffect(code)?.kind === 'network' && !hasUrlAllowlistGuard(node)) {
         failures.push(`${nodeLabel(node)} performs network effect without URL/host allowlist guard`);
       }
@@ -1126,9 +1277,9 @@ function findSensitiveEffectsWithoutAuth(root: IRNode): string[] {
 
   function visit(node: IRNode): void {
     if (checkedTypes.has(node.type)) {
-      const effect = classifyEffect(handlerText(node));
-      if (effect?.sensitive && !hasAuthLikeChild(node)) {
-        failures.push(`${nodeLabel(node)} performs ${effect.label} without auth`);
+      const effect = classifyEffect(reachableHandlerText(root, node));
+      if (effect?.sensitive && !hasAuthorizationLikeGate(node)) {
+        failures.push(`${nodeLabel(node)} performs ${effect.label} without auth/permission`);
       }
     }
     for (const child of node.children || []) visit(child);
@@ -1160,7 +1311,9 @@ function findUncheckedRoutePathParams(root: IRNode): string[] {
 function findEffectsWithoutCleanup(root: IRNode): string[] {
   const needsCleanup = /\b(addEventListener|setInterval|setTimeout|subscribe|watch|fetch|AbortController|WebSocket)\b/;
   return collectNodes(root, 'effect')
-    .filter((effect) => needsCleanup.test(handlerText(effect)) && getChildren(effect, 'cleanup').length === 0)
+    .filter(
+      (effect) => needsCleanup.test(reachableHandlerText(root, effect)) && getChildren(effect, 'cleanup').length === 0,
+    )
     .map((effect) => `${nodeLabel(effect)} at line ${effect.loc?.line ?? '?'} has side-effect handler without cleanup`);
 }
 
@@ -1381,6 +1534,330 @@ function findCodegenErrors(root: IRNode): string[] {
   return failures;
 }
 
+const RUNTIME_EXPR_TIMEOUT_MS = 100;
+const RUNTIME_EXPR_UNSAFE_TOKEN =
+  /\b(?:async|await|class|constructor|Date|delete|do|eval|fetch|for|Function|global|globalThis|import|new|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
+
+function unsafeRuntimeExpressionReason(source: string): string | undefined {
+  if (source.length > 2000) return 'expression is longer than 2000 characters';
+  if (/[\r\n;]/.test(source)) return 'multi-statement expressions are not supported';
+  const unsafeToken = source.match(RUNTIME_EXPR_UNSAFE_TOKEN)?.[0];
+  if (unsafeToken) return `unsupported token '${unsafeToken}'`;
+  if (/(^|[^=!<>])=(?!=|>)/.test(source)) return 'assignment is not supported';
+  return undefined;
+}
+
+function isRuntimeBindingName(value: string): boolean {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
+}
+
+function runtimeBindingExpr(node: IRNode): string {
+  if (node.type === 'const') return exprPropToRuntimeSource(node, 'value');
+  if (node.type === 'derive' || node.type === 'let') {
+    return exprPropToRuntimeSource(node, 'value') || exprPropToRuntimeSource(node, 'expr');
+  }
+  if (node.type === 'fn') return runtimeFunctionExpr(node);
+  return '';
+}
+
+function runtimeParamNames(node: IRNode): string[] {
+  const names: string[] = [];
+  for (const param of getChildren(node, 'param')) {
+    const name = str(getProps(param).name);
+    if (name) names.push(name);
+  }
+  if (names.length > 0) return names;
+  return parseLegacyParamNames(str(getProps(node).params));
+}
+
+function simpleReturnExpression(code: string): string {
+  const match = code.trim().match(/^return\s+([\s\S]*?)\s*;?\s*$/);
+  return match ? match[1].trim() : '';
+}
+
+function runtimeFunctionExpr(node: IRNode): string {
+  const code = handlerText(node);
+  if (!code) return '';
+  const bodyExpr = simpleReturnExpression(code);
+  if (!bodyExpr) return '';
+
+  const params = runtimeParamNames(node);
+  if (!params.every(isRuntimeBindingName)) return '';
+  return `((${params.join(', ')}) => (${bodyExpr}))`;
+}
+
+function collectRuntimeBindings(root: IRNode): RuntimeBinding[] {
+  const bindings: RuntimeBinding[] = [];
+
+  function visit(node: IRNode): void {
+    if (node.type === 'const' || node.type === 'derive' || node.type === 'let' || node.type === 'fn') {
+      const name = str(getProps(node).name);
+      const expr = runtimeBindingExpr(node);
+      if (name && expr) {
+        bindings.push({
+          name,
+          expr,
+          line: node.loc?.line,
+        });
+      }
+    }
+    for (const child of node.children || []) visit(child);
+  }
+
+  visit(root);
+  return bindings;
+}
+
+function orderRuntimeBindings(bindings: RuntimeBinding[], entryExpr: string): RuntimeBindingOrder {
+  const byName = new Map<string, RuntimeBinding[]>();
+  for (const binding of bindings) {
+    if (!isRuntimeBindingName(binding.name)) {
+      return { ordered: [], error: `invalid runtime binding name '${binding.name}' at line ${binding.line ?? '?'}` };
+    }
+    byName.set(binding.name, [...(byName.get(binding.name) || []), binding]);
+  }
+
+  const ordered: RuntimeBinding[] = [];
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const stack: string[] = [];
+
+  function depsIn(source: string): string[] {
+    return [...byName.keys()].filter((name) => new RegExp(`\\b${escapeRegExp(name)}\\b`).test(source));
+  }
+
+  function bindingFor(name: string): RuntimeBinding | undefined {
+    const candidates = byName.get(name) || [];
+    if (candidates.length <= 1) return candidates[0];
+    const [first, ...rest] = candidates;
+    throw new Error(
+      `duplicate runtime binding '${name}' at line ${rest[0].line ?? '?'} (first at line ${first.line ?? '?'})`,
+    );
+  }
+
+  function visit(name: string): string | undefined {
+    if (visited.has(name)) return undefined;
+    if (visiting.has(name)) {
+      const start = stack.indexOf(name);
+      return `runtime binding cycle: ${[...stack.slice(start), name].join(' -> ')}`;
+    }
+
+    let binding: RuntimeBinding | undefined;
+    try {
+      binding = bindingFor(name);
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    if (!binding) return undefined;
+    visiting.add(name);
+    stack.push(name);
+    for (const dep of depsIn(binding.expr)) {
+      const error = visit(dep);
+      if (error) return error;
+    }
+    stack.pop();
+    visiting.delete(name);
+    visited.add(name);
+    ordered.push(binding);
+    return undefined;
+  }
+
+  for (const name of depsIn(entryExpr)) {
+    const error = visit(name);
+    if (error) return { ordered: [], error };
+  }
+
+  return { ordered };
+}
+
+function runtimeContext(): Record<string, unknown> {
+  return {
+    Array,
+    Boolean,
+    JSON,
+    Math,
+    Number,
+    Object,
+    String,
+    isFinite,
+    isNaN,
+    parseFloat,
+    parseInt,
+  };
+}
+
+function formatRuntimeValue(value: unknown): string {
+  return inspect(value, { breakLength: 80, depth: 4, sorted: true });
+}
+
+function runtimeValuesEqual(actual: unknown, expected: unknown): boolean {
+  if (Object.is(actual, expected)) return true;
+  if (isDeepStrictEqual(actual, expected)) return true;
+  try {
+    const normalizedActual = JSON.parse(JSON.stringify(actual));
+    const normalizedExpected = JSON.parse(JSON.stringify(expected));
+    return isDeepStrictEqual(normalizedActual, normalizedExpected);
+  } catch {
+    return false;
+  }
+}
+
+function formatThrownRuntimeError(error: unknown): string {
+  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  return String(error);
+}
+
+function thrownRuntimeErrorMatches(error: unknown, expected: string): boolean {
+  const normalized = expected.trim();
+  if (!normalized || normalized === 'true') return true;
+  if (error instanceof Error) {
+    return error.name === normalized || error.constructor.name === normalized || error.message.includes(normalized);
+  }
+  return String(error).includes(normalized);
+}
+
+function buildRuntimeDeclarations(
+  target: LoadedKernDocument,
+  entryExprs: string[],
+): { source: string; message?: undefined } | { source?: undefined; message: string } {
+  for (const entryExpr of entryExprs) {
+    const problem = unsafeRuntimeExpressionReason(entryExpr);
+    if (problem) {
+      return { message: `Runtime expr assertion cannot execute expression: ${problem}` };
+    }
+  }
+
+  const bindings = orderRuntimeBindings(collectRuntimeBindings(target.root!), entryExprs.join(' '));
+  if (bindings.error) {
+    return { message: `Runtime expr assertion cannot execute target bindings: ${bindings.error}` };
+  }
+
+  const declarations: string[] = [];
+  for (const binding of bindings.ordered) {
+    const bindingProblem = unsafeRuntimeExpressionReason(binding.expr);
+    if (bindingProblem) {
+      return {
+        message: `Runtime expr assertion cannot execute target binding '${binding.name}': ${bindingProblem}`,
+      };
+    }
+    declarations.push(`const ${binding.name} = (${binding.expr});`);
+  }
+
+  return { source: declarations.join('\n') };
+}
+
+function runRuntimeExpression(target: LoadedKernDocument, declarations: string, expr: string): RuntimeEvalResult {
+  try {
+    const script = new Script(`"use strict";\n${declarations}\n(${expr});`, {
+      filename: `native-kern-test:${target.file}`,
+    });
+    return {
+      ok: true,
+      value: script.runInContext(createContext(runtimeContext()), {
+        timeout: RUNTIME_EXPR_TIMEOUT_MS,
+      }),
+    };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
+function evaluateRuntimeThrows(
+  node: IRNode,
+  target: LoadedKernDocument,
+  declarations: string,
+  expr: string,
+): { passed: boolean; message?: string } {
+  const props = getProps(node);
+  const expectedRaw = props.throws === true || props.throws === '' ? 'true' : String(props.throws ?? 'true');
+  const actual = runRuntimeExpression(target, declarations, expr);
+  if (actual.ok) {
+    return {
+      passed: false,
+      message:
+        str(props.message) ||
+        `Runtime expr was expected to throw${expectedRaw && expectedRaw !== 'true' ? ` ${expectedRaw}` : ''}, but returned ${formatRuntimeValue(actual.value)}`,
+    };
+  }
+  if (!thrownRuntimeErrorMatches(actual.error, expectedRaw)) {
+    return {
+      passed: false,
+      message:
+        str(props.message) || `Runtime expr threw ${formatThrownRuntimeError(actual.error)}, expected ${expectedRaw}`,
+    };
+  }
+  return { passed: true };
+}
+
+function evaluateRuntimeExpression(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+
+  const props = getProps(node);
+  const expr = exprToString(props.expr).trim();
+  if (!expr) return { passed: false, message: 'Runtime expr assertion requires expr={{...}}' };
+
+  const expectedSource = runtimeExpectedSource(node, 'equals');
+  const expressionSources = expectedSource ? [expr, expectedSource] : [expr];
+  const declarations = buildRuntimeDeclarations(target, expressionSources);
+  if ('message' in declarations) return { passed: false, message: declarations.message };
+  const declarationSource = declarations.source;
+
+  if ('throws' in props) {
+    return evaluateRuntimeThrows(node, target, declarationSource, expr);
+  }
+
+  const actual = runRuntimeExpression(target, declarationSource, expr);
+  if (!actual.ok) {
+    return {
+      passed: false,
+      message: `Runtime expr threw: ${actual.error instanceof Error ? actual.error.message : String(actual.error)}`,
+    };
+  }
+
+  if (expectedSource !== undefined) {
+    const expected = runRuntimeExpression(target, declarationSource, expectedSource);
+    if (!expected.ok) {
+      return {
+        passed: false,
+        message: `Runtime expr assertion cannot execute expected equals value: ${formatThrownRuntimeError(expected.error)}`,
+      };
+    }
+    return runtimeValuesEqual(actual.value, expected.value)
+      ? { passed: true }
+      : {
+          passed: false,
+          message:
+            str(props.message) ||
+            `Runtime expr expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(actual.value)}: ${expr}`,
+        };
+  }
+
+  if ('matches' in props) {
+    const pattern = runtimePatternValue(node, 'matches') || '';
+    try {
+      const regex = new RegExp(pattern);
+      return regex.test(String(actual.value))
+        ? { passed: true }
+        : {
+            passed: false,
+            message:
+              str(props.message) ||
+              `Runtime expr value ${formatRuntimeValue(actual.value)} does not match /${pattern}/: ${expr}`,
+          };
+    } catch (error) {
+      return {
+        passed: false,
+        message: `Runtime expr assertion has invalid matches regex: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  return actual.value
+    ? { passed: true }
+    : { passed: false, message: str(props.message) || `Runtime expr evaluated false: ${expr}` };
+}
+
 function nodeSearchText(node: IRNode): string {
   const props = getProps(node);
   const parts = [
@@ -1450,6 +1927,108 @@ function evaluateGuardExhaustiveness(node: IRNode, target: LoadedKernDocument): 
         message: `Guard ${guardName} is not exhaustive over ${str(getProps(union).name)}; missing variants: ${missing.join(', ')}`,
       }
     : { passed: true };
+}
+
+interface NodeMatch {
+  node: IRNode;
+  ancestors: IRNode[];
+}
+
+function collectNodeMatches(
+  root: IRNode | undefined,
+  type: string,
+  matches: NodeMatch[] = [],
+  ancestors: IRNode[] = [],
+): NodeMatch[] {
+  if (!root) return matches;
+  if (root.type === type) matches.push({ node: root, ancestors });
+  for (const child of root.children || []) collectNodeMatches(child, type, matches, [...ancestors, root]);
+  return matches;
+}
+
+function ancestorMatches(ancestor: IRNode, expected: string): boolean {
+  return ancestor.type === expected || str(getProps(ancestor).name) === expected || nodeLabel(ancestor) === expected;
+}
+
+function propComparableValue(value: unknown): string {
+  if (value === undefined) return '<missing>';
+  const expr = exprToString(value);
+  return expr || String(value);
+}
+
+function evaluateNodeAssertion(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+
+  const props = getProps(node);
+  const type = str(props.node);
+  if (!type) return { passed: false, message: 'Node assertion requires node=<type>' };
+
+  const name = str(props.name);
+  const within = str(props.within);
+  const prop = str(props.prop);
+  const expectedProp = props.is === undefined ? undefined : propComparableValue(props.is);
+  const childType = str(props.child);
+  const childName = str(props.childName);
+  const expectedCount = props.count === undefined || props.count === '' ? undefined : Number(props.count);
+  if (expectedCount !== undefined && (!Number.isInteger(expectedCount) || expectedCount < 0)) {
+    return { passed: false, message: `Node assertion count must be a non-negative integer: ${String(props.count)}` };
+  }
+
+  const matches = collectNodeMatches(target.root, type)
+    .filter((match) => !name || str(getProps(match.node).name) === name)
+    .filter((match) => !within || match.ancestors.some((ancestor) => ancestorMatches(ancestor, within)));
+  if (matches.length === 0) {
+    return {
+      passed: false,
+      message: `KERN node not found: ${type}${name ? ` name=${name}` : ''}${within ? ` within=${within}` : ''}`,
+    };
+  }
+
+  if (prop) {
+    const propMatches = matches.filter((match) => {
+      const actual = propComparableValue(getProps(match.node)[prop]);
+      return expectedProp === undefined || actual === expectedProp;
+    });
+    if (propMatches.length === 0) {
+      const actuals = matches.map((match) => propComparableValue(getProps(match.node)[prop]));
+      return {
+        passed: false,
+        message:
+          expectedProp === undefined
+            ? `KERN node ${type}${name ? ` name=${name}` : ''} has no prop ${prop}`
+            : `KERN node ${type}${name ? ` name=${name}` : ''} prop ${prop} expected ${expectedProp}, found ${actuals.join(', ')}`,
+      };
+    }
+  }
+
+  if (childType) {
+    const childMatches = matches.flatMap((match) =>
+      getChildren(match.node, childType).filter((child) => !childName || str(getProps(child).name) === childName),
+    );
+    if (expectedCount !== undefined) {
+      return childMatches.length === expectedCount
+        ? { passed: true }
+        : {
+            passed: false,
+            message: `KERN node ${type}${name ? ` name=${name}` : ''} expected ${expectedCount} child ${childType}${childName ? ` name=${childName}` : ''}, found ${childMatches.length}`,
+          };
+    }
+    return childMatches.length > 0
+      ? { passed: true }
+      : {
+          passed: false,
+          message: `KERN node ${type}${name ? ` name=${name}` : ''} missing child ${childType}${childName ? ` name=${childName}` : ''}`,
+        };
+  }
+
+  if (expectedCount !== undefined) {
+    return matches.length === expectedCount
+      ? { passed: true }
+      : { passed: false, message: `Expected ${expectedCount} KERN node ${type} matches, found ${matches.length}` };
+  }
+
+  return { passed: true };
 }
 
 function evaluateNoInvariant(
@@ -1808,6 +2387,18 @@ function evaluateNativeAssertion(
 ): EvaluatedAssertion[] {
   const props = getProps(node);
   if ('preset' in props) return evaluatePresetAssertion(node, target, context);
+  if ('node' in props) {
+    const evaluated = evaluateNodeAssertion(node, target);
+    return [
+      {
+        ruleId: 'kern:node',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
   if ('no' in props) {
     const evaluated = evaluateNoInvariant(node, target, context);
     return [
@@ -1845,14 +2436,14 @@ function evaluateNativeAssertion(
     ];
   }
   if ('expr' in props) {
+    const evaluated = evaluateRuntimeExpression(node, target);
     return [
       {
         ruleId: 'expr',
         assertion: assertionLabel(node),
-        passed: false,
-        severity: 'error',
-        message:
-          'Runtime expr assertions are still compiled-test assertions; native kern test currently supports structural assertions.',
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
       },
     ];
   }
