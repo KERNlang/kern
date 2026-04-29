@@ -99,6 +99,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       returns: { kind: 'typeAnnotation' },
       generics: { kind: 'rawExpr' },
     },
+    allowedChildren: ['param'],
   },
   union: {
     description: 'Discriminated union type with variants, each having their own fields',
@@ -147,6 +148,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       name: { required: true, kind: 'identifier' },
       type: { kind: 'typeAnnotation' },
       optional: { kind: 'boolean' },
+      // Slice 3b — `value` is the native ValueIR-canonicalised initializer;
+      // `default` remains as the rawExpr passthrough escape hatch. `value`
+      // takes precedence when both are set. Either marks the field as having
+      // an initializer (which makes the interface-side property optional in
+      // config emit).
+      value: { kind: 'expression' },
       default: { kind: 'rawExpr' },
       private: { kind: 'boolean' },
       readonly: { kind: 'boolean' },
@@ -193,7 +200,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       static: { kind: 'boolean' },
       generics: { kind: 'rawExpr' },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'param'],
   },
   getter: {
     description: 'A getter accessor within a class or service — emits `get name(): T { body }`.',
@@ -215,7 +222,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       private: { kind: 'boolean' },
       static: { kind: 'boolean' },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'param'],
   },
   fn: {
     description: 'Standalone function — the most common code unit in KERN',
@@ -231,7 +238,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       expr: { kind: 'rawExpr' },
       generics: { kind: 'rawExpr' },
     },
-    allowedChildren: ['handler', 'signal', 'cleanup', 'overload'],
+    allowedChildren: ['handler', 'signal', 'cleanup', 'overload', 'param'],
   },
   machine: {
     description:
@@ -278,7 +285,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       params: { kind: 'string' },
       guard: { kind: 'rawExpr' },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'param'],
   },
   error: {
     description: 'Custom error class extending a base error, with typed fields',
@@ -318,8 +325,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example: 'test name="AuthService"\n  describe name="login"\n    it name="rejects invalid email"',
     props: {
       name: { required: true, kind: 'string' },
+      target: { kind: 'string' },
     },
-    allowedChildren: ['describe', 'it', 'handler'],
+    allowedChildren: ['describe', 'it', 'expect', 'handler'],
   },
   event: {
     description: 'Typed event with payload type children',
@@ -368,6 +376,80 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       export: { kind: 'boolean' },
     },
     allowedChildren: ['handler'],
+  },
+  destructure: {
+    description:
+      'Native destructuring statement — emits `const {a,b} = expr;` (object pattern with `binding` children) or `const [x,y] = expr;` (array pattern with `element` children). For complex patterns (rest `...`, defaults `=v`, nested `{a:{b}}`), use the `expr={{...}}` escape hatch which carries the raw TS statement verbatim. Slice 3d.',
+    example: 'destructure kind=const source=user\n  binding name=id\n  binding name=email key=mail',
+    props: {
+      kind: { kind: 'string' },
+      source: { kind: 'expression' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+      expr: { kind: 'rawExpr' },
+    },
+    allowedChildren: ['binding', 'element'],
+  },
+  binding: {
+    description:
+      'Object-destructuring binding inside a `destructure` parent. `name` is the local binding; `key` is the optional property key when renaming, e.g. `{a: foo}` → `binding name=foo key=a`. Slice 3d.',
+    example: 'binding name=foo key=a',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      key: { kind: 'identifier' },
+    },
+  },
+  element: {
+    description:
+      'Array-destructuring element inside a `destructure` parent. `index` is the ordered position (zero-based). Slice 3d.',
+    example: 'element name=first index=0',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      index: { kind: 'string' },
+    },
+  },
+  mapLit: {
+    description:
+      'Native Map<K,V> literal — emits `const name: Type = new Map([[k1, v1], [k2, v2]]);` from `mapEntry` children. For complex shapes (computed keys, conditional entries, spread), use the `expr={{...}}` escape hatch which carries the raw TS statement verbatim. Slice 3e.',
+    example: 'mapLit name=cache type="Map<string, number>"\n  mapEntry key="foo" value=1\n  mapEntry key="bar" value=2',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      kind: { kind: 'string' },
+      export: { kind: 'boolean' },
+      expr: { kind: 'rawExpr' },
+    },
+    allowedChildren: ['mapEntry'],
+  },
+  mapEntry: {
+    description:
+      'Map-literal entry inside a `mapLit` parent. `key` and `value` are both expression-typed and ValueIR-canonicalised. Slice 3e.',
+    example: 'mapEntry key="foo" value=1',
+    props: {
+      key: { required: true, kind: 'expression' },
+      value: { required: true, kind: 'expression' },
+    },
+  },
+  setLit: {
+    description:
+      'Native Set<T> literal — emits `const name: Type = new Set([v1, v2]);` from `setItem` children. For complex shapes (conditional members, spread), use the `expr={{...}}` escape hatch which carries the raw TS statement verbatim. Slice 3e.',
+    example: 'setLit name=allowed type="Set<string>"\n  setItem value="admin"\n  setItem value="user"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      kind: { kind: 'string' },
+      export: { kind: 'boolean' },
+      expr: { kind: 'rawExpr' },
+    },
+    allowedChildren: ['setItem'],
+  },
+  setItem: {
+    description:
+      'Set-literal item inside a `setLit` parent. `value` is expression-typed and ValueIR-canonicalised. Slice 3e.',
+    example: 'setItem value="admin"',
+    props: {
+      value: { required: true, kind: 'expression' },
+    },
   },
   on: {
     description: 'Event listener — binds a handler to a named event',
@@ -1008,7 +1090,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       reversible: { kind: 'boolean' },
       export: { kind: 'boolean' },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'param'],
   },
   actionRegistry: {
     description:
@@ -1032,6 +1114,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       confidence: { kind: 'number' },
       kind: { kind: 'identifier' },
       type: { kind: 'identifier' },
+      covers: { kind: 'string' },
       param: { kind: 'identifier' },
       field: { kind: 'identifier' },
       target: { kind: 'identifier' },
@@ -1204,7 +1287,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       params: { kind: 'string' },
       returns: { kind: 'typeAnnotation' },
     },
-    allowedChildren: ['handler', 'memo', 'callback', 'ref', 'effect'],
+    allowedChildren: ['handler', 'memo', 'callback', 'ref', 'effect', 'param'],
   },
   effect: {
     description: 'React useEffect — side effect with dependency tracking',
@@ -1511,12 +1594,22 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   param: {
     description:
-      'Parameter definition for a tool, resource, or prompt — name, type, required, default, and description',
+      'Parameter definition. Used in two contexts: (a) MCP tool/resource/prompt params (description/required/min/max apply); (b) fn/method/constructor/etc. parameter defaults via slice 3c — value flows through ValueIR canonicalisation (mirrors slice 1j const.value, 3a let.value, 3b field.value).',
     example: 'param name=query type=string required=true description="Search query"',
     props: {
       name: { required: true, kind: 'identifier' },
-      type: { kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      value: { kind: 'expression' },
       required: { kind: 'boolean' },
+      // Slice 3c-extension: TS-style optional `?` on the LHS, distinct from MCP
+      // `required`. When `optional=true`, codegen emits `name?: type` (with the
+      // `?` inside the parameter list) so callers may omit the argument.
+      optional: { kind: 'boolean' },
+      // Slice 3c-extension: TS-style variadic `...rest`. When `variadic=true`,
+      // codegen prepends `...` to the parameter name; the type should be an
+      // array (e.g. `string[]`). Variadic params can't have defaults — that's
+      // user error and TS will surface it at the call site.
+      variadic: { kind: 'boolean' },
       default: { kind: 'rawExpr' },
       description: { kind: 'string' },
       min: { kind: 'number' },
@@ -1806,7 +1899,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       deps: { kind: 'string' },
       async: { kind: 'boolean' },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'param'],
   },
   ref: {
     description: 'React useRef — mutable ref object that persists across renders',
@@ -2177,7 +2270,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       params: { kind: 'string' as PropKind },
       generics: { kind: 'rawExpr' as PropKind },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'param'],
   },
   cleanup: {
     description: 'Cleanup handler — runs on teardown (useEffect return, signal dispose)',
@@ -2200,13 +2293,13 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example:
       'describe name="UserService"\n  it name="creates a user"\n    handler <<<\n      expect(createUser()).toBeDefined();\n    >>>',
     props: { name: { required: true, kind: 'string' } },
-    allowedChildren: ['it', 'describe', 'handler'],
+    allowedChildren: ['it', 'describe', 'expect', 'handler'],
   },
   it: {
     description: 'Test case — single test assertion',
     example: 'it name="returns 200 on success"\n  handler <<<\n    expect(res.status).toBe(200);\n  >>>',
     props: { name: { required: true, kind: 'string' } },
-    allowedChildren: ['handler'],
+    allowedChildren: ['expect', 'handler'],
   },
 
   // Ground layer — semantic reasoning
@@ -2245,9 +2338,24 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: { fn: { kind: 'identifier' }, to: { kind: 'rawExpr' } },
   },
   expect: {
-    description: 'Assertion — declare an expected condition at runtime',
-    example: 'expect expr={{items.length > 0}} message="Items must not be empty"',
-    props: { expr: { required: true, kind: 'rawExpr' }, message: { kind: 'string' } },
+    description: 'Assertion — declare an expected runtime condition or KERN structural invariant',
+    example:
+      'expect expr={{items.length > 0}} message="Items must not be empty"\nexpect machine=Order reaches=paid via=confirm,capture\nexpect no=deriveCycles',
+    props: {
+      expr: { kind: 'rawExpr' },
+      message: { kind: 'string' },
+      preset: { kind: 'identifier' },
+      severity: { kind: 'identifier' },
+      machine: { kind: 'identifier' },
+      reaches: { kind: 'identifier' },
+      via: { kind: 'string' },
+      no: { kind: 'identifier' },
+      guard: { kind: 'identifier' },
+      exhaustive: { kind: 'boolean' },
+      over: { kind: 'identifier' },
+      union: { kind: 'identifier' },
+      covers: { kind: 'string' },
+    },
   },
   recover: {
     description: 'Recovery handler — runs when a parent node fails',
@@ -2355,6 +2463,43 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       line: node.loc?.line,
       col: node.loc?.col,
     });
+  }
+  if (node.type === 'expect') {
+    const hasRuntimeAssertion = 'expr' in props;
+    const hasPreset = 'preset' in props;
+    const hasNegativeInvariant = 'no' in props;
+    const hasGuardExhaustiveness = 'guard' in props;
+    const hasMachineReachability = 'reaches' in props || ('machine' in props && !hasNegativeInvariant);
+    if (
+      !hasRuntimeAssertion &&
+      !hasPreset &&
+      !hasMachineReachability &&
+      !hasNegativeInvariant &&
+      !hasGuardExhaustiveness
+    ) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' requires 'expr', 'preset', 'machine'/'reaches', 'no', or 'guard'",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasMachineReachability && (!('machine' in props) || !('reaches' in props))) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' machine reachability requires both 'machine' and 'reaches'",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasGuardExhaustiveness && props.exhaustive !== true && props.exhaustive !== 'true') {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' guard assertions require exhaustive=true",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
   }
   if (node.type === 'fmt') {
     const returnMode = isTruthyProp(props.return);

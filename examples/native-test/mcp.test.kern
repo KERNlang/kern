@@ -1,0 +1,3 @@
+test name="MCP safety" target="./mcp.kern"
+  it name="uses MCP safety preset"
+    expect preset=mcpSafety

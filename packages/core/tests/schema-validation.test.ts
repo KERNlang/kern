@@ -156,6 +156,30 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
 
+    it('allows native structural expect assertions inside tests', () => {
+      const v = validate(
+        [
+          'test name="Order invariants" target="./order.kern"',
+          '  it name="reaches paid"',
+          '    expect machine=Order reaches=paid via=confirm,capture',
+          '  it name="derive graph"',
+          '    expect no=deriveCycles',
+          '  it name="machine states stay live"',
+          '    expect machine=Order no=deadStates',
+          '  it name="guard covers payment variants"',
+          '    expect guard=ChargeCard exhaustive=true over=Payment',
+          '  it name="uses a preset"',
+          '    expect preset=mcpSafety severity=warn',
+        ].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
+
+    it('flags empty expect assertions', () => {
+      const v = validate(['test name="Empty"', '  it name="does nothing"', '    expect'].join('\n'));
+      expect(v.some((violation) => violation.message.includes("'expect' requires"))).toBe(true);
+    });
+
     it('allows helper core nodes in mcp', () => {
       const v = validate(
         [

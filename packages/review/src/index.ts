@@ -49,6 +49,7 @@ import { flattenIR, lintKernIR } from './kern-lint.js';
 import { extractTsConcepts } from './mappers/ts-concepts.js';
 import { mineNorms } from './norm-miner.js';
 import { synthesizeObligations } from './obligations.js';
+import { canonicalize } from './path-canonical.js';
 import {
   findProjectRoot,
   getProjectContext,
@@ -1369,7 +1370,12 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
       });
       for (const gf of graph.files) {
         try {
-          cgProject.addSourceFileAtPath(gf.path);
+          // Seed cgProject with CANONICAL paths so its internal SourceFile
+          // store collapses pnpm/symlink duplicates (red-team #9). This pairs
+          // with graph.ts feeding canonical paths to its own ts-morph project,
+          // so all subsequent ts-morph lookups (here AND in buildCallGraph)
+          // run through the same canonical key space.
+          cgProject.addSourceFileAtPath(gf.canonicalPath);
         } catch {
           /* skip unresolvable */
         }
@@ -1381,8 +1387,13 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     // Build the public-API map once per run — package.json walk is the heavy bit.
     // Then propagate through re-export chains so curated barrels (Agon-style:
     // `export { foo } from './worker.js'`) carry public-API status upstream.
+    // Pass canonical paths so the resulting `entryFiles` set keys match the
+    // canonical paths that cgProject (and therefore callGraph.functions[i]
+    // .filePath) uses. Otherwise red-team #9 sneaks back in: the call graph
+    // sees `/private/var/...` while the public-API map contains `/var/...`,
+    // and isPublicApi() misses every entry.
     const basePublicApi = buildPublicApiMap(
-      graph.files.map((gf) => gf.path),
+      graph.files.map((gf) => gf.canonicalPath),
       config?.publicApi,
     );
     // Step 8: seeded files (Next.js conventions, package.json entries) may
@@ -1394,10 +1405,15 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     // costs only the seed entries we actually need, no extra graph work.
     const sourceFileFor = (path: string): SourceFile | undefined => {
       if (!cgProject) return undefined;
-      const known = cgProject.getSourceFile(path);
+      // Lookup must use canonical too — callers from buildPublicApiMap or
+      // expandPublicApiThroughReExports may hand us a path captured in its
+      // symlink form. Without canonicalisation this would miss a file that
+      // cgProject has stored under its realpath.
+      const canonical = canonicalize(path);
+      const known = cgProject.getSourceFile(canonical);
       if (known) return known;
       try {
-        return cgProject.addSourceFileAtPath(path);
+        return cgProject.addSourceFileAtPath(canonical);
       } catch {
         return undefined;
       }
@@ -1413,12 +1429,39 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
     // short-circuits without any change to existing semantics.
     const reachabilityBlockers: ReachabilityBlocker[] = graph.blockers ?? [];
 
-    for (const report of reports) {
-      const deadExportFindings = deadExportRule(callGraph, report.filePath, publicApi, reachabilityBlockers);
-      report.findings.push(...deadExportFindings);
+    // canonicalToDisplay maps canonical paths back to caller-facing forms
+    // so findings emitted by the rules carry user-friendly paths even
+    // though the rules themselves match against canonical fn.filePath.
+    const canonicalToDisplay = new Map<string, string>();
+    for (const gf of graph.files) {
+      canonicalToDisplay.set(gf.canonicalPath, gf.path);
+    }
 
-      const asyncFindings = crossFileAsyncRule(callGraph, report.filePath);
-      report.findings.push(...asyncFindings);
+    for (const report of reports) {
+      // The rules iterate callGraph.functions whose filePath is canonical
+      // (cgProject seeded canonical → ts-morph getFilePath returns canonical).
+      // report.filePath is the user-facing display form for diagnostics —
+      // canonicalise at this boundary so the rule's `fn.filePath !== filePath`
+      // filter matches.
+      const ruleFilePath = canonicalize(report.filePath);
+      const deadExportFindings = deadExportRule(callGraph, ruleFilePath, publicApi, reachabilityBlockers);
+      const asyncFindings = crossFileAsyncRule(callGraph, ruleFilePath);
+
+      // Map canonical paths in finding spans back to display so the user
+      // sees `/var/...` not `/private/var/...` (and pnpm symlink paths
+      // are expressed in their workspace-relative form).
+      for (const f of [...deadExportFindings, ...asyncFindings]) {
+        const display = canonicalToDisplay.get(f.primarySpan.file);
+        if (display) f.primarySpan.file = display;
+        if (f.relatedSpans) {
+          for (const rs of f.relatedSpans) {
+            const rsDisplay = canonicalToDisplay.get(rs.file);
+            if (rsDisplay) rs.file = rsDisplay;
+          }
+        }
+      }
+
+      report.findings.push(...deadExportFindings, ...asyncFindings);
     }
 
     // Surface graph-traversal telemetry. Two independent failure modes feed
@@ -1476,6 +1519,34 @@ export function reviewGraph(entryFiles: string[], config?: ReviewConfig, graphOp
       report.suppressedFindings = suppression.suppressed.length > 0 ? sortAndDedup(suppression.suppressed) : undefined;
     } catch {
       report.findings = sortAndDedup(report.findings);
+    }
+  }
+
+  // Universal canonical → display remap. Multiple graph-aware rules
+  // (use-client-drilled-too-high, missing-use-client, server-hook,
+  // next-client-api-in-server, …) emit findings whose `relatedSpans`
+  // reference cross-file paths sourced from cgProject SourceFiles —
+  // those paths are canonical (red-team #9 fix). Walk every finding
+  // once and translate canonical paths back to the caller-facing
+  // display via the graph's display index. Cheap: O(findings * spans)
+  // with a pre-built Map; symmetric across all rules without each one
+  // needing to know about the canonicalisation invariant.
+  const canonicalToDisplayFinal = new Map<string, string>();
+  for (const gf of graph.files) {
+    canonicalToDisplayFinal.set(gf.canonicalPath, gf.path);
+  }
+  if (canonicalToDisplayFinal.size > 0) {
+    for (const report of reports) {
+      for (const f of report.findings) {
+        const displayPrimary = canonicalToDisplayFinal.get(f.primarySpan.file);
+        if (displayPrimary) f.primarySpan.file = displayPrimary;
+        if (f.relatedSpans) {
+          for (const rs of f.relatedSpans) {
+            const display = canonicalToDisplayFinal.get(rs.file);
+            if (display) rs.file = display;
+          }
+        }
+      }
     }
   }
 

@@ -172,41 +172,53 @@ function traceImportChain(targetPath: string, fileMap: Map<string, GraphFile>, e
 export function buildFileContextMap(graph: GraphResult): Map<string, FileContext> {
   const contextMap = new Map<string, FileContext>();
   const fileMap = new Map<string, GraphFile>();
-  const entrySet = new Set(graph.entryFiles);
+  // Internal maps key by canonicalPath (red-team #9 / Option B). Cross-file
+  // edges (gf.imports / gf.importedBy / graph.entryFiles include canonical
+  // forms after the canonicalisation pass in graph.ts), and ts-morph paths
+  // round-trip through canonical, so canonical is the only stable key.
+  // Display paths are reported via gf.path on the value side, not the key.
+  const entrySet = new Set(graph.entryFiles.map((p) => graph.files.find((g) => g.path === p)?.canonicalPath ?? p));
 
   for (const gf of graph.files) {
-    fileMap.set(gf.path, gf);
+    fileMap.set(gf.canonicalPath, gf);
   }
 
-  // Classify entry points
+  // Classify entry points (key by canonicalPath so subsequent lookups match)
   const entryBoundaries = new Map<string, RuntimeBoundary>();
   for (const entry of graph.entryFiles) {
-    entryBoundaries.set(entry, classifyEntryPoint(entry));
+    const entryGf = graph.files.find((g) => g.path === entry);
+    const key = entryGf?.canonicalPath ?? entry;
+    // classifyEntryPoint reads suffix patterns (page.tsx, route.ts, etc.) —
+    // those are the same regardless of /var vs /private/var, so passing
+    // either form works. Use display so reads from disk hit the right file.
+    entryBoundaries.set(key, classifyEntryPoint(entry));
   }
 
   // Client boundary propagation cache
   const clientBoundaryCache = new Map<string, boolean>();
 
   for (const gf of graph.files) {
-    const isClient = isWithinClientBoundary(gf.path, fileMap, entrySet, clientBoundaryCache, new Set());
+    const isClient = isWithinClientBoundary(gf.canonicalPath, fileMap, entrySet, clientBoundaryCache, new Set());
+    // hasUseClientDirective reads from disk — pass display so symlinked
+    // paths work even on systems without realpath idempotence guarantees.
     const hasDirective = hasUseClientDirective(gf.path);
-    const importChain = traceImportChain(gf.path, fileMap, entrySet);
+    const importChain = traceImportChain(gf.canonicalPath, fileMap, entrySet);
 
     // Determine boundary from import chain
     let boundary: RuntimeBoundary = 'unknown';
 
     if (isClient || hasDirective) {
       boundary = 'client';
-    } else if (entrySet.has(gf.path)) {
-      boundary = entryBoundaries.get(gf.path) || 'unknown';
+    } else if (entrySet.has(gf.canonicalPath)) {
+      boundary = entryBoundaries.get(gf.canonicalPath) || 'unknown';
     } else {
       // Inherit boundary from entry points that import this file
       const entryBounds = new Set<RuntimeBoundary>();
       for (const entry of graph.entryFiles) {
-        // Check if this entry eventually imports this file
-        const entryGf = fileMap.get(entry);
-        if (entryGf && canReach(entry, gf.path, fileMap, new Set())) {
-          entryBounds.add(entryBoundaries.get(entry) || 'unknown');
+        const entryGf = graph.files.find((g) => g.path === entry);
+        const entryKey = entryGf?.canonicalPath ?? entry;
+        if (entryGf && canReach(entryKey, gf.canonicalPath, fileMap, new Set())) {
+          entryBounds.add(entryBoundaries.get(entryKey) || 'unknown');
         }
       }
 
@@ -220,11 +232,18 @@ export function buildFileContextMap(graph: GraphResult): Map<string, FileContext
     // Find which entry points reach this file
     const reachableEntries: string[] = [];
     for (const entry of graph.entryFiles) {
-      if (entry === gf.path || canReach(entry, gf.path, fileMap, new Set())) {
+      const entryGf = graph.files.find((g) => g.path === entry);
+      const entryKey = entryGf?.canonicalPath ?? entry;
+      if (entryKey === gf.canonicalPath || canReach(entryKey, gf.canonicalPath, fileMap, new Set())) {
+        // Push the DISPLAY entry path so consumers see what the user
+        // passed in, not the realpath-resolved form.
         reachableEntries.push(entry);
       }
     }
 
+    // contextMap keyed by gf.path (display) so callers querying by the
+    // path they passed in find the entry directly. Internal lookups
+    // (fileMap, traceImportChain) use canonicalPath — see above.
     contextMap.set(gf.path, {
       boundary,
       entryPoints: reachableEntries,

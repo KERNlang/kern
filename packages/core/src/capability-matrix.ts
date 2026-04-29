@@ -67,6 +67,36 @@ const TS_CORE_CAPABILITIES: CapabilityEntry[] = [
   // ValueIR-canonicalised native expression form (mirrors `const.value`
   // from slice 1j). `expr=` remains as the rawExpr passthrough fallback.
   { feature: 'let-native-value', position: 'top-level', support: 'native' },
+  // Slice 3b — `field.value` extends class/service/config field initializers
+  // to the ValueIR-canonicalised native form (mirrors slice 1j/3a). `default=`
+  // remains as the rawExpr passthrough fallback for back-compat with seeds
+  // that author bare-string defaults like `default=plan` for string-typed
+  // fields, where the legacy type-aware coercion still applies.
+  { feature: 'field-native-value', position: 'top-level', support: 'native' },
+  // Slice 3c — `param.value` extends fn/method/constructor parameter defaults
+  // to the ValueIR-canonicalised native form via structured `param` child
+  // nodes. Mirrors slice 1j/3a/3b. Legacy `params="..."` string with embedded
+  // defaults remains supported for back-compat. Importer + migrate-class-body
+  // emit `param` children all-or-nothing per signature, gated to skip
+  // signatures with optional/variadic/destructured params (those stay legacy).
+  { feature: 'param-native-value', position: 'top-level', support: 'native' },
+  // Slice 3d — `destructure` adds a native node for TS-style destructured
+  // const/let bindings: `const {a, b: rename} = obj` (object pattern with
+  // `binding` children) and `const [x, y] = arr` (array pattern with
+  // `element` children). For complex patterns (rest `...`, defaults `=v`,
+  // nested `{a:{b}}`), the importer falls back to `expr={{...}}` carrying
+  // the raw TS statement verbatim. Codegen, importer, and decompiler all
+  // round-trip simple patterns; complex patterns survive but stay opaque.
+  { feature: 'destructure-native', position: 'top-level', support: 'native' },
+  // Slice 3e — `mapLit`/`setLit` add native top-level nodes for Map/Set
+  // declarations: `mapLit name=cache type="Map<string,number>"` with
+  // `mapEntry key=k value=v` children emits `new Map([[k, v]])`; same for
+  // `setLit`/`setItem`. Complex shapes (computed keys, spread, conditional
+  // entries) fall through to legacy `const` with handler block. Inline
+  // Map/Set literals inside expression-typed props still use the
+  // `value={{ new Map([...]) }}` escape hatch — slice 3e is statement-level
+  // sugar only, not a parser-grammar extension.
+  { feature: 'maplit-setlit-native', position: 'top-level', support: 'native' },
 ];
 
 const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
@@ -165,6 +195,45 @@ const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
     position: 'top-level',
     support: 'unsupported',
     note: 'FastAPI codegen does not yet translate `.kern` paths to Python `from x import y` syntax',
+  },
+  // Slice 3b — Python (FastAPI) field codegen reads `fp.default` directly
+  // and has no ValueIR pipeline yet, so `field.value` is unsupported until a
+  // dedicated Python emitter for canonicalised field initializers lands.
+  {
+    feature: 'field-native-value',
+    position: 'top-level',
+    support: 'unsupported',
+    note: 'FastAPI codegen has not been wired to ValueIR for field initializers; `value=` would emit raw',
+  },
+  // Slice 3c — FastAPI's 5 ad-hoc param parsers in
+  // packages/fastapi/src/generators/{core,ground,data}.ts have not been wired
+  // to read `param` child nodes; they only understand the legacy `params="..."`
+  // string. Slice 3c marks Python unsupported per the slice 3b precedent.
+  {
+    feature: 'param-native-value',
+    position: 'top-level',
+    support: 'unsupported',
+    note: 'FastAPI codegen reads the legacy `params="..."` string only; `param` child nodes with `value=` are ignored',
+  },
+  // Slice 3d — Python has no native syntactic equivalent of TS object/array
+  // destructuring on `const`/`let`. FastAPI codegen would have to lower
+  // `destructure` to a sequence of bindings (`a = obj.a; b = obj.b`) which
+  // is a separate work item. Marked unsupported per slice 3b/3c precedent.
+  {
+    feature: 'destructure-native',
+    position: 'top-level',
+    support: 'unsupported',
+    note: 'FastAPI codegen has not been wired to lower `destructure` nodes; would need per-binding assignment lowering',
+  },
+  // Slice 3e — Python's `dict`/`set` literals are syntactically different
+  // from TS `Map`/`Set` and FastAPI codegen has not been wired to lower
+  // `mapLit`/`setLit` to either form. Marked unsupported per slice 3b/3c/3d
+  // precedent until a dedicated Python emitter exists.
+  {
+    feature: 'maplit-setlit-native',
+    position: 'top-level',
+    support: 'unsupported',
+    note: 'FastAPI codegen has not been wired to lower `mapLit`/`setLit` to Python `dict`/`set` literals',
   },
 ];
 

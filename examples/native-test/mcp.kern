@@ -1,0 +1,8 @@
+mcp name=Files
+  tool name=readFile
+    param name=filePath type=string required=true
+    guard type=pathContainment param=filePath allowlist="/data,/home"
+
+  tool name=fetchAllowed
+    param name=url type=string required=true
+    guard type=urlAllowlist param=url allowlist="api.example.com"

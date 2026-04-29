@@ -725,6 +725,10 @@ from mcp.server.fastmcp import FastMCP
     const graph = resolveImportGraph(['/src/handler.ts'], { project });
     graph.files.push({
       path: '/src/safe-py-server.py',
+      // Synthetic GraphFile in a test fixture — synthetic in-memory paths
+      // canonicalise to themselves (no realpath on disk), so display ===
+      // canonical here. Real workloads canonicalise via path-canonical.ts.
+      canonicalPath: '/src/safe-py-server.py',
       distance: 0,
       imports: [],
       importedBy: [],

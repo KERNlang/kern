@@ -673,11 +673,14 @@ function renderLetBinding(node: IRNode): string {
   let rhs: string;
   const rawValue = lp.value;
   const rawExpr = lp.expr;
-  // Codex hold #1: `value=""` (quoted empty string, __quotedProps tracks
-  // 'value') must NOT be treated as "value absent". emitConstValue routes
-  // quoted empties through JSON.stringify and emits `const x = "";`.
-  // Test for `undefined` only — empty string is a legal explicit value.
-  if (rawValue !== undefined) {
+  // `value=""` (quoted empty string, __quotedProps tracks 'value') must be
+  // treated as a legal explicit string literal — emitConstValue routes it
+  // through JSON.stringify and emits `const x = "";`. But an unquoted-empty
+  // `value=` (no __quotedProps) is NOT a literal; routing it through
+  // emitConstValue throws inside parseExpression('') and falls back to '',
+  // producing invalid TS `const x: T = ;`. Mirrors slice 3b's gate.
+  const valuePresent = rawValue !== undefined && (rawValue !== '' || node.__quotedProps?.includes('value') === true);
+  if (valuePresent) {
     rhs = emitConstValue(node, rawValue);
   } else if (rawExpr !== undefined && rawExpr !== '') {
     rhs =

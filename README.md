@@ -413,6 +413,7 @@ Contributor architecture guide: [docs/architecture.md](docs/architecture.md)
 |:--------|:-------------|
 | **[@kernlang/cli](https://www.npmjs.com/package/@kernlang/cli)** | CLI — compile, review, evolve, dev |
 | **[@kernlang/core](https://www.npmjs.com/package/@kernlang/core)** | Parser, codegen, types — the compiler engine |
+| **[@kernlang/test](https://www.npmjs.com/package/@kernlang/test)** | Native KERN structural test runner |
 | **[@kernlang/review](https://www.npmjs.com/package/@kernlang/review)** | 159 rules, taint tracking, OWASP LLM01, concept model |
 | **[@kernlang/review-mcp](https://www.npmjs.com/package/@kernlang/review-mcp)** | MCP security scanner (12 rules, OWASP MCP Top 10) |
 | @kernlang/react | Next.js, Tailwind, Web transpilers |

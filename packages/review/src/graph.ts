@@ -9,8 +9,9 @@
  */
 
 import { existsSync } from 'fs';
-import { resolve } from 'path';
+import { dirname, relative, resolve } from 'path';
 import { type NoSubstitutionTemplateLiteral, Project, type SourceFile, type StringLiteral, SyntaxKind } from 'ts-morph';
+import { createPathCanonicalizer } from './path-canonical.js';
 import type { GraphEdge, GraphEdgeKind, GraphFile, GraphOptions, GraphResult, ReachabilityBlocker } from './types.js';
 
 /** Extension fallback map: .js→.ts, .jsx→.tsx (Codex idea) */
@@ -79,28 +80,48 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
   const blockers: ReachabilityBlocker[] = [];
   let unmappedDynamicImports = 0;
   let malformedImports = 0;
+  // Path canonicalisation (red-team #9). Every path that becomes a fileMap
+  // KEY or is fed to ts-morph's `addSourceFileAtPath` runs through this
+  // memoised canonicaliser so two display paths pointing at the same
+  // physical file (pnpm symlinks, macOS /var → /private/var) collapse to
+  // a single GraphFile. Display paths are preserved on `gf.path` —
+  // the canonicalisation only affects internal identity keys.
+  const canonicalize = createPathCanonicalizer();
 
   // Seed BFS with entry files
   for (const entry of entryFiles) {
-    let sf = project.getSourceFile(entry);
+    const canonicalEntry = canonicalize(entry);
+    // Feed the canonical form to ts-morph so its internal SourceFile
+    // store is keyed canonically. When a barrel reachable via a symlink
+    // imports the same file via realpath, ts-morph's resolution uses
+    // dirname(canonical) and lands on the canonical form too — keeping
+    // the project consistent without any other intervention.
+    let sf = project.getSourceFile(canonicalEntry);
     if (!sf) {
       try {
-        sf = project.addSourceFileAtPath(entry);
+        sf = project.addSourceFileAtPath(canonicalEntry);
       } catch {
-        const entryPath = resolve(entry);
+        const entryPath = resolve(canonicalEntry);
         if (!existsSync(entryPath)) {
           skipped++;
           continue;
         }
         if (!fileMap.has(entryPath)) {
-          fileMap.set(entryPath, makeGraphFile(entryPath, 0));
+          // Fallback path — rare, only when ts-morph rejects but the file
+          // exists on disk. We can't get a SourceFile so we synthesise a
+          // GraphFile entry with display = caller's input.
+          fileMap.set(entryPath, makeGraphFile(entry, entryPath, 0));
         }
         continue;
       }
     }
-    const p = sf.getFilePath();
+    const p = canonicalize(sf.getFilePath());
     if (!fileMap.has(p)) {
-      fileMap.set(p, makeGraphFile(p, 0));
+      // Display = caller's original entry path (so `report.filePath`
+      // matches what the user passed in, even when the entry sits behind
+      // a symlinked tmpdir — the regression-repo-shapes fixtures rely on
+      // this).
+      fileMap.set(p, makeGraphFile(entry, p, 0));
       queue.push({ path: p, distance: 0 });
     }
   }
@@ -120,12 +141,18 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
     const current = fileMap.get(filePath)!;
 
     // Collect module references from imports and re-exports (barrel file support)
-    const scan = collectModuleEdgeRefs(sf);
+    const scan = collectModuleEdgeRefs(sf, canonicalize);
     unmappedDynamicImports += scan.unmappedDynamicImports;
     malformedImports += scan.malformedImports;
 
     for (const ref of scan.refs) {
-      const { sourceFile: resolvedFile, via } = resolveModuleReference(project, sf, ref.specifier, ref.resolved);
+      const { sourceFile: resolvedFile, via } = resolveModuleReference(
+        project,
+        sf,
+        ref.specifier,
+        ref.resolved,
+        canonicalize,
+      );
 
       if (!resolvedFile) {
         // Producer 1: a re-export with a relative specifier that even the
@@ -157,7 +184,12 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
         continue;
       }
 
-      const resolvedPath = resolvedFile.getFilePath();
+      // Canonical-key the resolved file. ts-morph's getFilePath() is
+      // verbatim from the parent's path; if we fed canonical above, it
+      // returns canonical here too, so this is usually a no-op. Run it
+      // anyway so any externally-supplied `options.project` (which may
+      // not have been seeded canonical) still produces a clean key.
+      const resolvedPath = canonicalize(resolvedFile.getFilePath());
 
       // Skip .d.ts and node_modules (even if resolved via path alias)
       if (resolvedPath.endsWith('.d.ts')) {
@@ -185,7 +217,17 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
       }
 
       if (!fileMap.has(resolvedPath)) {
-        const nextFile = makeGraphFile(resolvedPath, distance + 1);
+        // Derive a DISPLAY path for the reached file from the parent's
+        // display path (red-team #9, multi-AI brainstorm Option B + 4th
+        // option). The relative form between parent's canonical dir and
+        // the resolved canonical path applied to the parent's display
+        // dir reproduces the symlink view the user sees: a barrel
+        // imported from `/var/folders/.../entry.ts` resolves its './worker'
+        // import to `/var/folders/.../worker.ts`, not the realpath form.
+        const parentCanonicalDir = dirname(filePath);
+        const relFromCanonical = relative(parentCanonicalDir, resolvedPath);
+        const displayPath = resolve(dirname(current.path), relFromCanonical);
+        const nextFile = makeGraphFile(displayPath, resolvedPath, distance + 1);
         nextFile.importedBy.push(filePath);
         nextFile.incomingEdges.push(edge);
         fileMap.set(resolvedPath, nextFile);
@@ -221,13 +263,21 @@ export function resolveImportGraph(entryFiles: string[], options: GraphOptions =
  * Extension fallback: when ts-morph can't resolve ./foo.js, try ./foo.ts and ./foo.tsx.
  * Common in ESM projects where imports use .js but source files are .ts.
  */
-function tryExtensionFallback(project: Project, fromFile: SourceFile, specifier: string): SourceFile | undefined {
+function tryExtensionFallback(
+  project: Project,
+  fromFile: SourceFile,
+  specifier: string,
+  canonicalize: (p: string) => string,
+): SourceFile | undefined {
   for (const [jsExt, tsExts] of Object.entries(EXT_FALLBACK)) {
     if (!specifier.endsWith(jsExt)) continue;
     const base = specifier.slice(0, -jsExt.length);
     for (const tsExt of tsExts) {
       const candidate = base + tsExt;
-      const fullPath = resolve(fromFile.getDirectoryPath(), candidate);
+      // Canonicalise before adding so ts-morph stores the realpath form.
+      // Same physical file reachable via two display paths collapses to
+      // a single SourceFile, preventing duplicate entries (red-team #9).
+      const fullPath = canonicalize(resolve(fromFile.getDirectoryPath(), candidate));
       const existing = project.getSourceFile(fullPath);
       if (existing) return existing;
       if (!existsSync(fullPath)) continue;
@@ -241,9 +291,10 @@ function tryExtensionFallback(project: Project, fromFile: SourceFile, specifier:
   return undefined;
 }
 
-function makeGraphFile(path: string, distance: number): GraphFile {
+function makeGraphFile(path: string, canonicalPath: string, distance: number): GraphFile {
   return {
     path,
+    canonicalPath,
     distance,
     imports: [],
     importedBy: [],
@@ -257,16 +308,17 @@ function resolveModuleReference(
   fromFile: SourceFile,
   specifier: string,
   resolved: SourceFile | undefined,
+  canonicalize: (p: string) => string,
 ): { sourceFile: SourceFile | undefined; via: GraphEdge['via'] } {
   if (resolved) return { sourceFile: resolved, via: 'ts-morph' };
   if (specifier.startsWith('.') || specifier.startsWith('/')) {
-    const fallback = tryExtensionFallback(project, fromFile, specifier);
+    const fallback = tryExtensionFallback(project, fromFile, specifier, canonicalize);
     if (fallback) return { sourceFile: fallback, via: 'extension-fallback' };
   }
   return { sourceFile: undefined, via: 'ts-morph' };
 }
 
-function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleRefScan {
+function collectModuleEdgeRefs(sourceFile: SourceFile, canonicalize: (p: string) => string): ModuleRefScan {
   const refs: ModuleEdgeRef[] = [];
   let unmappedDynamicImports = 0;
   let malformedImports = 0;
@@ -376,7 +428,7 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleRefScan {
       continue;
     }
 
-    const resolved = resolveDynamicImportTarget(sourceFile, specifier);
+    const resolved = resolveDynamicImportTarget(sourceFile, specifier, canonicalize);
     refs.push({
       specifier,
       resolved,
@@ -457,19 +509,26 @@ function collectModuleEdgeRefs(sourceFile: SourceFile): ModuleRefScan {
  * Bare/package specifiers (e.g. `import('react')`) are intentionally NOT
  * resolved; the import-graph already skips node_modules at the BFS level.
  */
-function resolveDynamicImportTarget(fromFile: SourceFile, specifier: string): SourceFile | undefined {
+function resolveDynamicImportTarget(
+  fromFile: SourceFile,
+  specifier: string,
+  canonicalize: (p: string) => string,
+): SourceFile | undefined {
   if (!specifier.startsWith('.') && !specifier.startsWith('/')) return undefined;
 
   const project = fromFile.getProject();
   const fromDir = fromFile.getDirectoryPath();
-  const abs = resolve(fromDir, specifier);
+  // Canonicalise the joined path so dynamic-import targets that traverse
+  // a symlink (pnpm `node_modules/.pnpm/...`) collapse to the same key
+  // ts-morph already has for the realpath form.
+  const abs = canonicalize(resolve(fromDir, specifier));
 
   const direct = project.getSourceFile(abs);
   if (direct) return direct;
 
   const extensionCandidates = ['.ts', '.tsx', '.js', '.jsx'];
   for (const ext of extensionCandidates) {
-    const cand = abs + ext;
+    const cand = canonicalize(abs + ext);
     const known = project.getSourceFile(cand);
     if (known) return known;
     if (existsSync(cand)) {
@@ -482,7 +541,7 @@ function resolveDynamicImportTarget(fromFile: SourceFile, specifier: string): So
   }
 
   for (const ext of ['.ts', '.tsx']) {
-    const cand = resolve(abs, `index${ext}`);
+    const cand = canonicalize(resolve(abs, `index${ext}`));
     const known = project.getSourceFile(cand);
     if (known) return known;
     if (existsSync(cand)) {

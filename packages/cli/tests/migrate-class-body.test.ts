@@ -24,9 +24,12 @@ describe('rewriteClassBodies', () => {
 
     expect(result.hits).toHaveLength(1);
     expect(result.output).toContain('class name=AudioRecorder export=true');
-    expect(result.output).toContain('field name=fd type="number | null" private=true default={{ null }}');
+    expect(result.output).toContain('field name=fd type="number | null" private=true value={{ null }}');
     expect(result.output).toContain('field name=filePath type=string private=true');
-    expect(result.output).toContain('constructor params="sessionKey:string"');
+    // Slice 3c: structured `param` children (canonical) replace embedded
+    // `params="sessionKey:string"`. ValueIR canonicalises any default; bare
+    // params with simple types still migrate (no `?`/`...`/destructure).
+    expect(result.output).toContain('param name=sessionKey type="string"');
     expect(result.output).toContain('method name=close returns=void');
     expect(result.output).not.toContain('const name=AudioRecorder');
     // The original const handler is gone, but the new class's constructor
@@ -154,7 +157,10 @@ describe('rewriteClassBodies', () => {
     expect(result.output).toContain('field name=y type=string readonly=true');
     expect(result.output).toContain('this.x = x;');
     expect(result.output).toContain('this.y = y;');
-    expect(result.output).toContain('constructor params="x:number,y:string"');
+    // Slice 3c: structured `param` children — note the `param name=x type="number"`
+    // line plus a separate `param name=y type="string"` for each ctor parameter.
+    expect(result.output).toContain('param name=x type="number"');
+    expect(result.output).toContain('param name=y type="string"');
   });
 
   test('migrates classes with static fields', () => {
@@ -170,7 +176,7 @@ describe('rewriteClassBodies', () => {
     const result = rewriteClassBodies(source);
 
     expect(result.hits).toHaveLength(1);
-    expect(result.output).toContain('field name=count private=true static=true default={{ 0 }}');
+    expect(result.output).toContain('field name=count private=true static=true value={{ 0 }}');
   });
 
   test('migrates classes with getter/setter members', () => {
@@ -189,7 +195,9 @@ describe('rewriteClassBodies', () => {
 
     expect(result.hits).toHaveLength(1);
     expect(result.output).toContain('getter name=v returns=number');
-    expect(result.output).toContain('setter name=v params="value:number"');
+    // Slice 3c: structured `param` children replace embedded `params="value:number"`.
+    expect(result.output).toContain('setter name=v');
+    expect(result.output).toContain('param name=value type="number"');
     expect(result.output).toContain('return this._v;');
     expect(result.output).toContain('this._v = value;');
   });

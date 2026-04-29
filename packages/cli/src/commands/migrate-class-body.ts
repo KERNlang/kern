@@ -17,7 +17,7 @@
  * and rewrites it to a proper:
  *
  *   class name=AudioRecorder [export=true] [extends=X] [implements=Y]
- *     field name=fd type=T private=true default={{ init }}
+ *     field name=fd type=T private=true value={{ init }}
  *     constructor params="..."
  *       handler <<< ... >>>
  *     method name=foo params="..." returns=T
@@ -173,6 +173,44 @@ function formatParams(params: ts.NodeArray<ts.ParameterDeclaration>, text: (n: t
     .join(',');
 }
 
+/**
+ * Slice 3c — try to emit fn parameters as structured `param` child lines.
+ * Returns the lines on success, or `null` if the signature contains
+ * optional `?`, variadic `...`, or destructuring (all-or-nothing per
+ * signature; mirrors importer's tryFormatParamChildren).
+ */
+function tryFormatParamChildren(
+  parameters: ts.NodeArray<ts.ParameterDeclaration>,
+  text: (n: ts.Node | undefined) => string,
+): string[] | null {
+  if (parameters.length === 0) return [];
+  for (const p of parameters) {
+    // Slice 3c-extension: optional `?` and variadic `...` are now structurable
+    // via `optional=true` / `variadic=true` (gates dropped, mirrors importer.ts).
+    // Destructure patterns still bail out.
+    if (!ts.isIdentifier(p.name)) return null;
+    // Multi-line types (inline object shapes spread across lines) cannot be
+    // round-tripped through a single-line `type="..."` quoted attribute —
+    // KERN's tokeniser treats newlines as record separators. Leave the
+    // whole signature legacy when any param has a multi-line type.
+    if (p.type && /\n/.test(text(p.type))) return null;
+  }
+  const lines: string[] = [];
+  for (const p of parameters) {
+    const name = text(p.name);
+    const type = p.type ? text(p.type) : '';
+    const parts: string[] = [`param name=${name}`];
+    if (type) parts.push(`type="${type.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+    if (p.questionToken) parts.push('optional=true');
+    if (p.dotDotDotToken) parts.push('variadic=true');
+    if (p.initializer) {
+      parts.push(`value={{ ${text(p.initializer)} }}`);
+    }
+    lines.push(parts.join(' '));
+  }
+  return lines;
+}
+
 function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {
   const mods = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
   return mods?.some((m) => m.kind === kind) ?? false;
@@ -249,7 +287,10 @@ function emitMember(
     const priv = hasModifier(member, ts.SyntaxKind.PrivateKeyword) ? ' private=true' : '';
     const readonly = hasModifier(member, ts.SyntaxKind.ReadonlyKeyword) ? ' readonly=true' : '';
     const staticStr = hasModifier(member, ts.SyntaxKind.StaticKeyword) ? ' static=true' : '';
-    const init = rawInit ? ` default={{ ${rawInit} }}` : '';
+    // Slice 3b: emit `value={{ <init> }}` (canonical) — see importer.ts for
+    // the same migration. The `{{...}}` wrap stays so arbitrary TS initializer
+    // expressions pass through ValueIR via emitConstValue's ExprObject branch.
+    const init = rawInit ? ` value={{ ${rawInit} }}` : '';
     return [`${indent}field name=${name}${type ? ` type=${type}` : ''}${priv}${staticStr}${readonly}${init}`];
   }
   if (ts.isConstructorDeclaration(member)) {
@@ -289,10 +330,22 @@ function emitMember(
       assignLines.push(`this.${paramName} = ${paramName};`);
     }
 
-    const params = formatParams(member.parameters, text);
-    const paramsStr = params ? ` params="${params}"` : '';
+    // Slice 3c — try structured `param` children first.
+    const ctorParamChildren = tryFormatParamChildren(member.parameters, text);
+    const paramsStr =
+      ctorParamChildren !== null
+        ? ''
+        : (() => {
+            const params = formatParams(member.parameters, text);
+            return params ? ` params="${params}"` : '';
+          })();
     const lines = [...shortcutFields];
     lines.push(`${indent}constructor${paramsStr}`);
+    if (ctorParamChildren) {
+      for (const childLine of ctorParamChildren) {
+        lines.push(`${indent}  ${childLine}`);
+      }
+    }
     const body = member.body;
     const bodyText = body ? text(body).slice(1, -1) : '';
     const trimmed = body ? dedentInteriorLines(bodyText) : '';
@@ -314,10 +367,17 @@ function emitMember(
     // prop yet, and emitting a body-less method would drop the abstractness
     // silently — bail so the class stays in its handler form for now.
     if (hasModifier(member, ts.SyntaxKind.AbstractKeyword) || !member.body) return null;
-    const params = formatParams(member.parameters, text);
+    // Slice 3c — try structured `param` children first.
+    const methodParamChildren = tryFormatParamChildren(member.parameters, text);
     const rawReturn = member.type ? text(member.type) : '';
     const name = text(member.name);
-    const paramsStr = params ? ` params="${params}"` : '';
+    const paramsStr =
+      methodParamChildren !== null
+        ? ''
+        : (() => {
+            const params = formatParams(member.parameters, text);
+            return params ? ` params="${params}"` : '';
+          })();
     const returns = rawReturn ? quoteTypeIfNeeded(rawReturn) : '';
     const returnsStr = returns ? ` returns=${returns}` : '';
     const isAsync = hasModifier(member, ts.SyntaxKind.AsyncKeyword);
@@ -327,6 +387,11 @@ function emitMember(
     const staticStr = isStatic ? ' static=true' : '';
     const privStr = isPriv ? ' private=true' : '';
     const lines = [`${indent}method name=${name}${paramsStr}${returnsStr}${asyncStr}${staticStr}${privStr}`];
+    if (methodParamChildren) {
+      for (const childLine of methodParamChildren) {
+        lines.push(`${indent}  ${childLine}`);
+      }
+    }
     const body = member.body;
     if (body) {
       const bodyText = text(body).slice(1, -1);
@@ -357,14 +422,26 @@ function emitMember(
   }
   if (ts.isSetAccessorDeclaration(member)) {
     if (!member.body) return null;
-    const params = formatParams(member.parameters, text);
+    // Slice 3c — try structured `param` children first.
+    const setterParamChildren = tryFormatParamChildren(member.parameters, text);
     const name = text(member.name);
-    const paramsStr = params ? ` params="${params}"` : '';
+    const paramsStr =
+      setterParamChildren !== null
+        ? ''
+        : (() => {
+            const params = formatParams(member.parameters, text);
+            return params ? ` params="${params}"` : '';
+          })();
     const isStatic = hasModifier(member, ts.SyntaxKind.StaticKeyword);
     const isPriv = hasModifier(member, ts.SyntaxKind.PrivateKeyword);
     const staticStr = isStatic ? ' static=true' : '';
     const privStr = isPriv ? ' private=true' : '';
     const lines = [`${indent}setter name=${name}${paramsStr}${privStr}${staticStr}`];
+    if (setterParamChildren) {
+      for (const childLine of setterParamChildren) {
+        lines.push(`${indent}  ${childLine}`);
+      }
+    }
     const bodyText = text(member.body).slice(1, -1);
     const trimmed = dedentInteriorLines(bodyText);
     lines.push(`${indent}  handler <<<`);

@@ -1,7 +1,21 @@
 import type { IRNode } from '@kernlang/core';
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import {
+  formatNativeKernTestRunSummary,
+  formatNativeKernTestSummary,
+  hasNativeKernTests,
+  runNativeKernTestRun,
+  runNativeKernTests,
+} from '@kernlang/test';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { basename, resolve } from 'path';
 import { hasFlag, parseAndSurface, parseFlag } from '../shared.js';
+
+export {
+  formatNativeKernTestRunSummary,
+  formatNativeKernTestSummary,
+  runNativeKernTestRun,
+  runNativeKernTests,
+} from '@kernlang/test';
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -179,12 +193,15 @@ export function runTest(args: string[]): void {
   const testInput = args[1];
   const outDir = parseFlag(args, '--outdir');
   const dryRun = hasFlag(args, '--dry-run');
+  const json = hasFlag(args, '--json');
+  const generateOnly = hasFlag(args, '--generate');
+  const failOnWarn = hasFlag(args, '--fail-on-warn');
 
   if (!testInput) {
-    console.error('Usage: kern test <file.kern> [--outdir=<dir>] [--dry-run]');
+    console.error('Usage: kern test <file-or-dir> [--json] [--fail-on-warn] [--generate] [--outdir=<dir>] [--dry-run]');
     console.error('');
-    console.error('Generates test files for MCP server tools defined in .kern files.');
-    console.error('Tests include happy path + guard violation test cases.');
+    console.error('Runs native KERN tests when the file contains test/describe/it nodes.');
+    console.error('Without native tests, keeps the legacy MCP Jest test generator behavior.');
     process.exit(1);
   }
 
@@ -194,7 +211,27 @@ export function runTest(args: string[]): void {
     process.exit(1);
   }
 
+  const stat = statSync(inputPath);
+  if (stat.isDirectory()) {
+    if (generateOnly) {
+      console.error('--generate requires a .kern file input, not a directory.');
+      process.exit(1);
+    }
+
+    const summary = runNativeKernTestRun(inputPath);
+    process.stdout.write(json ? `${JSON.stringify(summary, null, 2)}\n` : formatNativeKernTestRunSummary(summary));
+    if (summary.failed > 0 || (failOnWarn && summary.warnings > 0)) process.exitCode = 1;
+    return;
+  }
+
   const source = readFileSync(inputPath, 'utf-8');
+  if (!generateOnly && hasNativeKernTests(source)) {
+    const summary = runNativeKernTests(inputPath);
+    process.stdout.write(json ? `${JSON.stringify(summary, null, 2)}\n` : formatNativeKernTestSummary(summary));
+    if (summary.failed > 0 || (failOnWarn && summary.warnings > 0)) process.exitCode = 1;
+    return;
+  }
+
   const ast = parseAndSurface(source, inputPath);
   const testCode = generateTestFile(ast, basename(inputPath));
 

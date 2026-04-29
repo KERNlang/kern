@@ -9,13 +9,13 @@ import type { IRNode } from '@kernlang/core';
 import {
   dedent,
   emitIdentifier,
+  emitParamList,
   emitTypeAnnotation,
   generateCoreNode,
   getChildren,
   getFirstChild,
   getProps,
   handlerCode,
-  parseParamList,
 } from '@kernlang/core';
 
 // ── Provider → provide/inject ────────────────────────────────────────────
@@ -203,12 +203,12 @@ export function generateVueEffect(node: IRNode): string[] {
 export function generateVueHook(node: IRNode): string[] {
   const props = getProps(node);
   const name = props.name as string;
-  const params = (props.params as string) || '';
   const returnsType = props.returns as string | undefined;
   const lines: string[] = [];
   const vueImports = new Set<string>();
 
-  const paramList = parseParamList(params);
+  // Slice 3c: structured `param` child nodes win over legacy `params="..."`.
+  const paramList = emitParamList(node);
   const retClause = returnsType ? `: ${returnsType}` : '';
 
   lines.push(`export function ${name}(${paramList})${retClause} {`);
@@ -267,9 +267,8 @@ export function generateVueHook(node: IRNode): string[] {
       case 'callback': {
         // Vue doesn't need useCallback — just a plain function
         const cbname = cp.name as string;
-        const cbparams = (cp.params as string) || '';
         const cbcode = handlerCode(child);
-        const cbParamList = parseParamList(cbparams);
+        const cbParamList = emitParamList(child);
         lines.push(`  function ${cbname}(${cbParamList}) {`);
         if (cbcode) {
           for (const line of cbcode.split('\n')) {

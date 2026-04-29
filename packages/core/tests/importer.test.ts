@@ -16,6 +16,30 @@ import './setup';
     expect(() => parse(result.kern)).not.toThrow();
   });
 
+  test('slice 3c: structured param children handle whitespace types correctly (Codex P1)', () => {
+    // Regression for Codex's slice 3c P1 hold: typeToString() pre-quotes
+    // whitespace types (`"string | null"`), and tryFormatParamChildren was
+    // wrapping the already-quoted result again, producing the broken
+    // `type="\"string | null\""` shape that emitted as a TS string-literal
+    // type instead of a union. Fix: read raw `p.type.getText(source)` for
+    // structured param children, since they always wrap in quotes anyway.
+    const source = `
+export function find(query: string | null, filter: Map<string, number>): void {
+  return;
+}
+`;
+    const result = importTypeScript(source, 'find.ts');
+    // Union types (whitespace) emit cleanly as `type="string | null"` —
+    // single quotes, not double-wrapped.
+    expect(result.kern).toContain('param name=query type="string | null"');
+    expect(result.kern).toContain('param name=filter type="Map<string, number>"');
+    // Crucially, NO double-wrapped quotes — that would produce a TS string
+    // literal type at codegen time, not the intended union/generic.
+    expect(result.kern).not.toMatch(/type="\\"/);
+    // And the round-trip parses without throwing.
+    expect(() => parse(result.kern)).not.toThrow();
+  });
+
   test('imports typed exported async functions with doc comments and handlers', () => {
     const source = `
 /** Load a user by id. */
@@ -28,9 +52,13 @@ export async function loadUser(id: string, retries: number = 3): Promise<User> {
     const result = importTypeScript(source, 'load-user.ts');
 
     expect(result.kern).toContain('doc text="Load a user by id."');
-    expect(result.kern).toContain(
-      'fn name=loadUser params="id:string,retries:number=3" returns=Promise<User> async=true export=true',
-    );
+    // Slice 3c: structured `param` children (canonical), `value={{...}}` for
+    // ValueIR canonicalisation of the default. Replaces the legacy embedded
+    // `params="id:string,retries:number=3"` string. Mirrors slice 3b's
+    // field migration.
+    expect(result.kern).toContain('fn name=loadUser returns=Promise<User> async=true export=true');
+    expect(result.kern).toContain('param name=id type="string"');
+    expect(result.kern).toContain('param name=retries type="number" value={{ 3 }}');
     expect(result.kern).toContain("const response = await fetch('/api/users/' + id);");
     expect(result.kern).toContain('return response.json();');
     expect(result.stats.functions).toBe(1);
@@ -62,12 +90,15 @@ export class NotFoundError extends Error {
     const result = importTypeScript(source, 'services.ts');
 
     expect(result.kern).toContain('class name=UserService implements=Reader export=true');
-    // Field initializers are emitted as `{{ ... }}` rawExpr blocks so string
-    // literals round-trip with their quotes preserved by the parser.
-    expect(result.kern).toContain('field name=baseUrl type=string readonly=true default={{ "/api" }}');
+    // Slice 3b: field initializers are emitted as `value={{ ... }}` (canonical
+    // ValueIR-eligible form). The `{{...}}` wrap stays so arbitrary TS
+    // initializer expressions pass through without ValueIR parsing.
+    expect(result.kern).toContain('field name=baseUrl type=string readonly=true value={{ "/api" }}');
     // Type strings with whitespace are quoted so the prop tokeniser preserves them.
     expect(result.kern).toContain('field name=cache type="Map<string, User>" private=true');
-    expect(result.kern).toContain('method name=fetchUser params="id:string" returns=Promise<User> async=true');
+    // Slice 3c: structured `param` children replace embedded `params="id:string"`.
+    expect(result.kern).toContain('method name=fetchUser returns=Promise<User> async=true');
+    expect(result.kern).toContain('param name=id type="string"');
     expect(result.kern).toContain('error name=NotFoundError extends=Error message="\\"Not found\\"" export=true');
     expect(result.kern).toContain('field name=resource type=string');
     expect(result.stats.classes).toBe(2);

@@ -208,13 +208,30 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const staticKw = fp.static === 'true' || fp.static === true ? 'static ' : '';
     const readonly = fp.readonly === 'true' || fp.readonly === true ? 'readonly ' : '';
     const typeAnnotation = fp.type ? `: ${emitTypeAnnotation(fp.type, 'unknown', field)}` : '';
-    const defaultVal = (fp as { default?: unknown }).default;
-    // `default={{ expr }}` parses as an ExprObject; emit its raw code.
-    // Bare `default=0` arrives as a string. Either way it's by-design raw TS.
+    // Slice 3b: `value` (native ValueIR) takes precedence over `default`
+    // (rawExpr passthrough). `value` routes through emitConstValue for
+    // ValueIR canonicalisation + __quotedProps-aware string-literal handling;
+    // `default` keeps the original raw passthrough so existing seeds with
+    // bare-string defaults (e.g. `default=plan` for a string-typed field)
+    // continue to compile unchanged.
+    //
+    // Codex-hold guard from slice 3a: presence is `=== undefined` only —
+    // empty-string `value=""` is a legal explicit string literal when the
+    // source had it quoted (__quotedProps tracks it), and emitConstValue
+    // JSON.stringifies it to `""`. Slice 3b Codex hold #1: an unquoted
+    // empty `value=` (no __quotedProps) must NOT be routed through
+    // emitConstValue — parseExpression('') throws and returns '', producing
+    // invalid TS like `x: string = ;`. Treat unquoted-empty as absent.
+    const rawValue = (fp as { value?: unknown }).value;
+    const rawDefault = (fp as { default?: unknown }).default;
+    const valuePresent = rawValue !== undefined && (rawValue !== '' || field.__quotedProps?.includes('value') === true);
     const init = (() => {
-      if (defaultVal === undefined || defaultVal === '') return '';
-      if (isExprObject(defaultVal)) return ` = ${defaultVal.code}`;
-      return ` = ${defaultVal}`;
+      if (valuePresent) {
+        return ` = ${emitConstValue(field, rawValue)}`;
+      }
+      if (rawDefault === undefined || rawDefault === '') return '';
+      if (isExprObject(rawDefault)) return ` = ${rawDefault.code}`;
+      return ` = ${rawDefault}`;
     })();
     lines.push(`  ${vis}${staticKw}${readonly}${fieldName}${typeAnnotation}${init};`);
   }
@@ -223,7 +240,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
   const ctorNode = firstChild(node, 'constructor');
   if (ctorNode) {
     const ctorProps = propsOf<'constructor'>(ctorNode);
-    const ctorParams = ctorProps.params ? parseParamList(ctorProps.params) : '';
+    const ctorParams = emitParamList(ctorNode);
     const generics = ctorProps.generics ? emitTypeAnnotation(ctorProps.generics, '', ctorNode) : '';
     const ctorCode = handlerCode(ctorNode);
     lines.push('');
@@ -240,7 +257,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
   for (const method of kids(node, 'method')) {
     const mp = propsOf<'method'>(method);
     const mname = emitIdentifier(mp.name, 'method', method);
-    const mparams = mp.params ? parseParamList(mp.params) : '';
+    const mparams = emitParamList(method);
     const generics = mp.generics ? emitTypeAnnotation(mp.generics, '', method) : '';
     const isAsync = mp.async === 'true' || mp.async === true;
     const isStream = mp.stream === 'true' || mp.stream === true;
@@ -302,7 +319,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const sname = emitIdentifier(sp.name, 'setter', setter);
     const svis = sp.private === 'true' || sp.private === true ? 'private ' : '';
     const sstatic = sp.static === 'true' || sp.static === true ? 'static ' : '';
-    const sparams = sp.params ? parseParamList(sp.params) : 'value: unknown';
+    const sparams = emitParamList(setter, { fallback: 'value: unknown' });
     const scode = handlerCode(setter);
     lines.push('');
     lines.push(`  ${svis}${sstatic}set ${sname}(${sparams}) {`);
@@ -397,6 +414,185 @@ export function generateConst(node: IRNode): string[] {
   return [...docs, `${exp}const ${name}${typeAnnotation};`];
 }
 
+// ── Destructure (slice 3d) ──────────────────────────────────────────────
+
+/**
+ * Slice 3d — emit a TS destructuring statement from a `destructure` node.
+ *
+ * Two paths:
+ *   (1) `expr={{...}}` escape hatch — emit the carried code verbatim. Used
+ *       by the importer for complex patterns (rest `...`, defaults `=v`,
+ *       nested `{a:{b}}`, computed keys) where structured children would
+ *       lose information.
+ *   (2) Structured children — `binding` for object patterns (with optional
+ *       `key=` for renames) or `element` for array patterns (with `index=`
+ *       for ordered position). Codegen detects which child kind dominates
+ *       and emits `{a, b: alias} = src` or `[a, b, , c] = src` (holes from
+ *       index gaps).
+ *
+ * `kind` defaults to `const` when omitted. `type` (optional) flows through
+ * `emitTypeAnnotation` and is appended after the LHS pattern.
+ */
+export function generateDestructure(node: IRNode): string[] {
+  const props = propsOf<'destructure'>(node);
+  const docs = emitDocComment(node);
+  const exp = exportPrefix(node);
+  const kind = props.kind === 'let' ? 'let' : 'const';
+
+  // Escape-hatch path for unsupported patterns (rest/defaults/nested).
+  // Importer falls back to this when ts.ObjectBindingPattern / ts.ArrayBindingPattern
+  // contain features the structured emitter can't represent. The raw text is
+  // expected to be a full statement (including `const`/`let` and any `export`
+  // prefix), so we DON'T re-prepend `exp` or `kind` here.
+  if (props.expr !== undefined) {
+    const raw = isExprObject(props.expr) ? props.expr.code : String(props.expr);
+    return [...docs, raw];
+  }
+
+  if (props.source === undefined || props.source === '') {
+    throw new Error('destructure node requires either `source=...` or `expr={{...}}`');
+  }
+  const sourceCode = emitConstValue(node, props.source);
+
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(props.type, 'unknown', node)}` : '';
+
+  const children = node.children || [];
+  const bindings = children.filter((c) => c.type === 'binding');
+  const elements = children.filter((c) => c.type === 'element');
+
+  if (bindings.length === 0 && elements.length === 0) {
+    throw new Error(
+      'destructure node has no `binding` or `element` children — use `expr={{...}}` instead for empty patterns',
+    );
+  }
+  if (bindings.length > 0 && elements.length > 0) {
+    throw new Error('destructure node mixes `binding` (object) and `element` (array) children — use one or the other');
+  }
+
+  let pattern: string;
+  if (bindings.length > 0) {
+    // Object pattern: {a, b: rename, c}
+    const parts = bindings.map((child) => {
+      const cp = propsOf<'binding'>(child);
+      const name = emitIdentifier(cp.name, 'unknownBinding', child);
+      if (cp.key) {
+        const key = emitIdentifier(cp.key, 'unknownKey', child);
+        return `${key}: ${name}`;
+      }
+      return name;
+    });
+    pattern = `{ ${parts.join(', ')} }`;
+  } else {
+    // Array pattern: ordered by `index=`, gaps emit holes (`, ,`)
+    const indexed = elements.map((child) => {
+      const cp = propsOf<'element'>(child);
+      const idx = cp.index !== undefined ? Number.parseInt(cp.index, 10) : Number.NaN;
+      return { idx, child, props: cp };
+    });
+    if (indexed.some((e) => Number.isNaN(e.idx))) {
+      throw new Error('destructure `element` children require numeric `index=` props');
+    }
+    indexed.sort((a, b) => a.idx - b.idx);
+    const max = indexed[indexed.length - 1].idx;
+    const slots: string[] = [];
+    for (let i = 0; i <= max; i++) {
+      const match = indexed.find((e) => e.idx === i);
+      if (match) {
+        slots.push(emitIdentifier(match.props.name, 'unknownElement', match.child));
+      } else {
+        slots.push('');
+      }
+    }
+    pattern = `[${slots.join(', ')}]`;
+  }
+
+  return [...docs, `${exp}${kind} ${pattern}${typeAnn} = ${sourceCode};`];
+}
+
+// ── Map / Set literals (slice 3e) ───────────────────────────────────────
+
+/**
+ * Slice 3e — emit a TS Map literal from a `mapLit` node.
+ *
+ *   mapLit name=cache type="Map<string, number>"
+ *     mapEntry key="foo" value=1
+ *     mapEntry key="bar" value=2
+ *
+ * → `const cache: Map<string, number> = new Map([['foo', 1], ['bar', 2]]);`
+ *
+ * `expr={{...}}` escape hatch carries a raw TS statement verbatim — used
+ * by the importer fallback when a Map literal contains shapes the
+ * structured emitter can't represent (computed keys, conditional entries,
+ * spread). Mirrors slice 3d destructure escape-hatch policy.
+ */
+export function generateMapLit(node: IRNode): string[] {
+  const props = propsOf<'mapLit'>(node);
+  const docs = emitDocComment(node);
+  const exp = exportPrefix(node);
+
+  if (props.expr !== undefined) {
+    const raw = isExprObject(props.expr) ? props.expr.code : String(props.expr);
+    return [...docs, raw];
+  }
+
+  const name = emitIdentifier(props.name, 'unknownMap', node);
+  const kind = props.kind === 'let' ? 'let' : 'const';
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(props.type, 'Map<unknown, unknown>', node)}` : '';
+
+  const entries = (node.children || []).filter((c) => c.type === 'mapEntry');
+  const pairs = entries.map((child) => {
+    const cp = propsOf<'mapEntry'>(child);
+    if (cp.key === undefined) {
+      throw new Error('mapEntry requires a `key=` prop');
+    }
+    if (cp.value === undefined) {
+      throw new Error('mapEntry requires a `value=` prop');
+    }
+    const k = emitConstValue(child, cp.key, 'key');
+    const v = emitConstValue(child, cp.value, 'value');
+    return `[${k}, ${v}]`;
+  });
+
+  return [...docs, `${exp}${kind} ${name}${typeAnn} = new Map([${pairs.join(', ')}]);`];
+}
+
+/**
+ * Slice 3e — emit a TS Set literal from a `setLit` node.
+ *
+ *   setLit name=allowed type="Set<string>"
+ *     setItem value="admin"
+ *     setItem value="user"
+ *
+ * → `const allowed: Set<string> = new Set(['admin', 'user']);`
+ *
+ * Same `expr={{...}}` escape-hatch policy as `mapLit`/`destructure`.
+ */
+export function generateSetLit(node: IRNode): string[] {
+  const props = propsOf<'setLit'>(node);
+  const docs = emitDocComment(node);
+  const exp = exportPrefix(node);
+
+  if (props.expr !== undefined) {
+    const raw = isExprObject(props.expr) ? props.expr.code : String(props.expr);
+    return [...docs, raw];
+  }
+
+  const name = emitIdentifier(props.name, 'unknownSet', node);
+  const kind = props.kind === 'let' ? 'let' : 'const';
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(props.type, 'Set<unknown>', node)}` : '';
+
+  const items = (node.children || []).filter((c) => c.type === 'setItem');
+  const values = items.map((child) => {
+    const cp = propsOf<'setItem'>(child);
+    if (cp.value === undefined) {
+      throw new Error('setItem requires a `value=` prop');
+    }
+    return emitConstValue(child, cp.value, 'value');
+  });
+
+  return [...docs, `${exp}${kind} ${name}${typeAnn} = new Set([${values.join(', ')}]);`];
+}
+
 /** Emit the right-hand side of an expression-typed prop (e.g. `const.value`,
  *  `let.value`) from its raw IR form.
  *
@@ -406,16 +602,90 @@ export function generateConst(node: IRNode): string[] {
  *  - bare `<prop>=...` — try ValueIR parse + emit for canonicalization. Fall back to raw
  *    string on parse failure (validator emits INVALID_EXPRESSION but codegen still ships).
  *
- *  Currently the __quotedProps key is hardcoded to 'value' because every consumer
- *  uses that prop name. If a future consumer needs a different name, accept it as
- *  a parameter. */
-export function emitConstValue(node: IRNode, rawValue: unknown): string {
+ *  Slice 3e — `propName` parameter (default 'value') lets non-`value` props
+ *  participate in the same quoted-vs-bare distinction. `mapEntry.key` and
+ *  `mapEntry.value` both flow through this with their own __quotedProps key. */
+export function emitConstValue(node: IRNode, rawValue: unknown, propName = 'value'): string {
   if (isExprObject(rawValue)) return rawValue.code;
   if (typeof rawValue !== 'string') return String(rawValue);
-  if (node.__quotedProps?.includes('value')) return JSON.stringify(rawValue);
+  if (node.__quotedProps?.includes(propName)) return JSON.stringify(rawValue);
   try {
     return emitExpression(parseExpression(rawValue));
   } catch {
     return rawValue;
   }
+}
+
+/**
+ * Slice 3c — produce a TS parameter-list string from `param` child IR nodes.
+ *
+ * Mirrors `parseParamList` (which parses the legacy `params="..."` string)
+ * but reads structured child nodes so each parameter's `value=` flows through
+ * `emitConstValue` for ValueIR canonicalisation. Identifier/type annotations
+ * are routed through the schema emitters so authored bad input raises
+ * KernCodegenError instead of producing broken TS.
+ *
+ * Per child:
+ *   - `value=` (slice 3c, ValueIR-canonicalised) — JSON-quoted for quoted
+ *     string literals, parsed+re-emitted for bare expressions, raw for
+ *     `{{...}}` ExprObject. Same routing as slice 3b field.value.
+ *   - `default=` (rawExpr passthrough) — kept for back-compat / MCP usage.
+ *   - When both set, `value` wins. The slice 3a/3b gate treats unquoted
+ *     empty `value=` as absent so it doesn't trigger the
+ *     `parseExpression('')` throw → empty fallback → `name: T = ;` bug.
+ *
+ * `options.stripDefaults`: TS forbids parameter initializers in overload
+ * signatures — the implementation alone may carry defaults. Same flag as
+ * the sibling `parseParamList`.
+ */
+export function parseParamListFromChildren(paramNodes: IRNode[], options?: { stripDefaults?: boolean }): string {
+  if (paramNodes.length === 0) return '';
+  return paramNodes
+    .map((paramNode) => {
+      const pp = propsOf<'param'>(paramNode);
+      const rawName = emitIdentifier(pp.name, 'parameter', paramNode);
+      // Slice 3c-extension: TS-style variadic `...` prepended to name.
+      const variadic = pp.variadic === true || pp.variadic === 'true' ? '...' : '';
+      const pname = `${variadic}${rawName}`;
+      // Slice 3c-extension: TS-style optional `?` between name and type.
+      const optional = pp.optional === true || pp.optional === 'true' ? '?' : '';
+      const typeAnn = pp.type ? `: ${emitTypeAnnotation(pp.type, 'unknown', paramNode)}` : '';
+
+      if (options?.stripDefaults) return `${pname}${optional}${typeAnn}`;
+
+      const rawValue = pp.value;
+      const rawDefault = pp.default;
+      const valuePresent =
+        rawValue !== undefined && (rawValue !== '' || paramNode.__quotedProps?.includes('value') === true);
+
+      if (valuePresent) {
+        return `${pname}${optional}${typeAnn} = ${emitConstValue(paramNode, rawValue)}`;
+      }
+      if (rawDefault === undefined || rawDefault === '') return `${pname}${optional}${typeAnn}`;
+      if (isExprObject(rawDefault)) return `${pname}${optional}${typeAnn} = ${rawDefault.code}`;
+      return `${pname}${optional}${typeAnn} = ${rawDefault}`;
+    })
+    .join(', ');
+}
+
+/**
+ * Slice 3c — unified TS parameter-list emitter for any callable IR node.
+ *
+ * Reads the node's `param` children first (canonical, ValueIR-routed). If
+ * none, falls back to the legacy `params="..."` string. If neither, returns
+ * the fallback (default empty).
+ *
+ * Children win when present. Mixed mode is intentionally unsupported — a
+ * signature is either fully-structured-children or fully-legacy-string.
+ * Producers (importer, migrate-class-body) emit children all-or-nothing
+ * per signature; consumers don't need to reconcile partial states.
+ */
+export function emitParamList(node: IRNode, options?: { stripDefaults?: boolean; fallback?: string }): string {
+  const paramChildren = kids(node, 'param');
+  if (paramChildren.length > 0) {
+    return parseParamListFromChildren(paramChildren, options);
+  }
+  const params = (p(node).params as string | undefined) ?? '';
+  if (params) return parseParamList(params, options);
+  return options?.fallback ?? '';
 }

@@ -134,6 +134,59 @@ describe('let.value — slice 3a (native ValueIR form)', () => {
     });
   });
 
+  describe('slice 3a mirror-fix: unquoted-empty value= gate (mirrors slice 3b)', () => {
+    // The slice 3a guard `=== undefined` only is correct when the source
+    // guarantees __quotedProps is set on an authored empty literal. For an
+    // unquoted-empty `value=` (no __quotedProps) emitConstValue routes it
+    // through parseExpression('') which throws and falls back to '', producing
+    // invalid TS like `const x: T = ;`. Treat unquoted-empty as absent so the
+    // call falls through to expr= or the missing-prop throw.
+    it('JSX-render path: unquoted-empty value= falls through to expr=', () => {
+      const node: IRNode = {
+        type: 'let',
+        props: { name: 'idx', value: '', expr: 'i + 1' },
+        children: [],
+        // no __quotedProps — mirrors a direct IR construction with bare value=
+      };
+      const screen = screenWithLet(node);
+      const code = generateCoreNode(screen).join('\n');
+      expect(code).toContain('const idx = i + 1;');
+      expect(code).not.toMatch(/const idx[^=]* = ;/);
+    });
+
+    it('JSX-render path: unquoted-empty value= with no expr throws', () => {
+      const node: IRNode = {
+        type: 'let',
+        props: { name: 'orphan', value: '' },
+        children: [],
+      };
+      const screen = screenWithLet(node);
+      expect(() => generateCoreNode(screen)).toThrow(/let node requires a 'value' or 'expr' prop/);
+    });
+
+    it('statement-each path: unquoted-empty value= falls through to expr=', () => {
+      const letNode: IRNode = {
+        type: 'let',
+        props: { name: 'doubled', value: '', expr: 'i * 2' },
+        children: [],
+      };
+      const node = mk('each', { name: 'i', in: 'items' }, [letNode]);
+      const code = generateCoreNode(node).join('\n');
+      expect(code).toContain('const doubled = i * 2;');
+      expect(code).not.toMatch(/const doubled[^=]* = ;/);
+    });
+
+    it('statement-each path: unquoted-empty value= with no expr throws', () => {
+      const letNode: IRNode = {
+        type: 'let',
+        props: { name: 'orphan', value: '' },
+        children: [],
+      };
+      const node = mk('each', { name: 'i', in: 'items' }, [letNode]);
+      expect(() => generateCoreNode(node)).toThrow(/let node requires a 'value' or 'expr' prop/);
+    });
+  });
+
   describe('Codex hold #2: statement-position each (codegen-core path)', () => {
     it('non-render `each` honours let.value via emitConstValue', () => {
       // Top-level (non-render) each. generateCoreNode dispatches via the

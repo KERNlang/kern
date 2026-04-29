@@ -121,13 +121,19 @@ export { mapSemanticType, SEMANTIC_TYPE_MAP } from './codegen/semantic-types.js'
 export { generateTest } from './codegen/test-gen.js';
 // ── Re-exports: domain generators (backward compatibility) ──────────────
 export {
+  emitConstValue,
+  emitParamList,
   generateClass,
   generateConst,
+  generateDestructure,
   generateEnum,
   generateInterface,
+  generateMapLit,
   generateService,
+  generateSetLit,
   generateType,
   generateUnion,
+  parseParamListFromChildren,
 } from './codegen/type-system.js';
 
 import {
@@ -217,9 +223,12 @@ import {
   emitConstValue,
   generateClass,
   generateConst,
+  generateDestructure,
   generateEnum,
   generateInterface,
+  generateMapLit,
   generateService,
+  generateSetLit,
   generateType,
   generateUnion,
 } from './codegen/type-system.js';
@@ -367,12 +376,18 @@ export function generateEach(node: IRNode): string[] {
       // Mirror screens.ts:renderLetBinding — slice 3a adds `value=` (ValueIR
       // canonicalised) alongside the legacy `expr=` (rawExpr passthrough).
       // Codex hold #2: this statement-position path was previously expr-only.
+      // Gate mirrors slice 3b: unquoted-empty `value=` (no __quotedProps)
+      // must be treated as absent — routing it through emitConstValue throws
+      // and produces invalid TS `const x: T = ;`. Quoted empty `value=""`
+      // (with __quotedProps) is a legal `""` literal.
       const lp = getProps(child);
       const lname = emitIdentifier(lp.name as string, 'binding', child);
       const rawValue = lp.value;
       const rawExpr = lp.expr;
       let rhs: string;
-      if (rawValue !== undefined) {
+      const valuePresent =
+        rawValue !== undefined && (rawValue !== '' || child.__quotedProps?.includes('value') === true);
+      if (valuePresent) {
         rhs = emitConstValue(child, rawValue);
       } else if (rawExpr !== undefined && rawExpr !== '') {
         rhs =
@@ -694,6 +709,20 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return []; // Children of `use` — handled by generateUse, not at top level
     case 'const':
       return generateConst(node);
+    case 'destructure':
+      return generateDestructure(node);
+    case 'binding':
+    case 'element':
+      // Children of `destructure` — handled by generateDestructure, not at top level.
+      return [];
+    case 'mapLit':
+      return generateMapLit(node);
+    case 'setLit':
+      return generateSetLit(node);
+    case 'mapEntry':
+    case 'setItem':
+      // Children of `mapLit` / `setLit` — handled by their parent generator, not at top level.
+      return [];
     case 'hook':
       return []; // Handled by @kernlang/react
     case 'on':

@@ -5,18 +5,15 @@
  */
 
 import { propsOf } from '../node-props.js';
-import type { IRNode } from '../types.js';
+import type { ExprObject, IRNode } from '../types.js';
 import { emitIdentifier, emitPath, emitStringLiteral, emitTypeAnnotation } from './emitters.js';
-import {
-  emitDocComment,
-  exportPrefix,
-  getChildren,
-  getFirstChild,
-  getProps,
-  handlerCode,
-  parseParamList,
-} from './helpers.js';
+import { emitDocComment, exportPrefix, getChildren, getFirstChild, getProps, handlerCode } from './helpers.js';
 import { mapSemanticType } from './semantic-types.js';
+import { emitConstValue, emitParamList } from './type-system.js';
+
+function isExprObject(v: unknown): v is ExprObject {
+  return typeof v === 'object' && v !== null && (v as { __expr?: unknown }).__expr === true;
+}
 
 const p = getProps;
 const kids = getChildren;
@@ -36,7 +33,16 @@ export function generateConfig(node: IRNode): string[] {
   for (const field of fields) {
     const fp = propsOf<'field'>(field);
     const fieldName = emitIdentifier(fp.name, 'field', field);
-    const opt = fp.default !== undefined ? '?' : '';
+    // Slice 3b: either `value` or `default` marks the field as having an
+    // initializer, which makes it optional in the interface (the runtime
+    // DEFAULT_FOO object provides the fallback). Codex-hold guard from #1:
+    // an unquoted-empty `value=` is treated as absent (the same check used
+    // below to drive the DEFAULT_FOO branch), so the optional marker stays
+    // in lock-step with the runtime fallback path.
+    const valueExplicit =
+      fp.value !== undefined && (fp.value !== '' || field.__quotedProps?.includes('value') === true);
+    const hasInit = valueExplicit || fp.default !== undefined;
+    const opt = hasInit ? '?' : '';
     lines.push(`  ${fieldName}${opt}: ${emitTypeAnnotation(fp.type, 'unknown', field)};`);
   }
   lines.push('}');
@@ -48,24 +54,48 @@ export function generateConfig(node: IRNode): string[] {
     const fp = propsOf<'field'>(field);
     const fieldName = emitIdentifier(fp.name, 'field', field);
     const ftype = emitTypeAnnotation(fp.type, 'unknown', field);
-    let def = fp.default;
 
-    if (def === undefined) {
-      if (ftype === 'number') def = '0';
-      else if (ftype === 'boolean') def = 'false';
-      else if (ftype.endsWith('[]')) def = '[]';
-      else if (ftype.startsWith('Record<') || ftype.startsWith('{')) def = '{} as any';
-      else def = "''";
-    } else if (
-      ftype === 'string' ||
-      (!['number', 'boolean'].includes(ftype) &&
-        !ftype.endsWith('[]') &&
-        !def.startsWith("'") &&
-        !def.startsWith('"') &&
-        !def.startsWith('{') &&
-        !def.startsWith('['))
-    ) {
-      def = emitStringLiteral(def);
+    // Slice 3b: prefer `value` (canonical) over `default` (rawExpr passthrough).
+    // `value` routes through emitConstValue, which honours __quotedProps for
+    // string literals and uses ValueIR for bare expressions. `default` keeps
+    // the legacy type-aware string-coercion heuristic so seeds with bare
+    // unquoted strings (`default=plan` for a string-typed field) still emit
+    // valid TS.
+    //
+    // Codex-hold guard: `value` presence is `=== undefined` only — quoted
+    // empty `value=""` is a legal explicit string literal that JSON.stringify
+    // emits as `""`. Slice 3b Codex hold #1: unquoted empty `value=` is
+    // treated as absent (parseExpression('') would throw and produce
+    // `mode: ,` — invalid TS).
+    const rawValue = fp.value;
+    const valuePresent = rawValue !== undefined && (rawValue !== '' || field.__quotedProps?.includes('value') === true);
+    let def: string;
+    if (valuePresent) {
+      def = emitConstValue(field, rawValue);
+    } else {
+      let rawDef = fp.default;
+      if (rawDef === undefined || rawDef === '') {
+        if (ftype === 'number') rawDef = '0';
+        else if (ftype === 'boolean') rawDef = 'false';
+        else if (ftype.endsWith('[]')) rawDef = '[]';
+        else if (ftype.startsWith('Record<') || ftype.startsWith('{')) rawDef = '{} as any';
+        else rawDef = "''";
+      } else if (isExprObject(rawDef)) {
+        // `default={{ expr }}` — emit raw code as-is.
+        rawDef = rawDef.code;
+      } else if (
+        typeof rawDef === 'string' &&
+        (ftype === 'string' ||
+          (!['number', 'boolean'].includes(ftype) &&
+            !ftype.endsWith('[]') &&
+            !rawDef.startsWith("'") &&
+            !rawDef.startsWith('"') &&
+            !rawDef.startsWith('{') &&
+            !rawDef.startsWith('[')))
+      ) {
+        rawDef = emitStringLiteral(rawDef);
+      }
+      def = rawDef as string;
     }
 
     lines.push(`  ${fieldName}: ${def},`);
@@ -159,7 +189,7 @@ export function generateRepository(node: IRNode): string[] {
   for (const method of kids(node, 'method')) {
     const mp = propsOf<'method'>(method);
     const mname = emitIdentifier(mp.name, 'method', method);
-    const mparams = mp.params ? parseParamList(mp.params) : '';
+    const mparams = emitParamList(method);
     const isAsync = (mp as Record<string, unknown>).async === 'true' || (mp as Record<string, unknown>).async === true;
     const asyncKw = isAsync ? 'async ' : '';
     const mreturns = mp.returns ? `: ${emitTypeAnnotation(mp.returns, 'unknown', method)}` : '';

@@ -98,6 +98,44 @@ export interface ConstProps extends BaseProps {
   value?: string | ExprObject;
 }
 
+// Slice 3d — native destructuring
+export interface DestructureProps extends BaseProps {
+  kind?: 'const' | 'let';
+  source?: string | ExprObject;
+  type?: string;
+  expr?: string | ExprObject;
+}
+
+export interface BindingProps extends BaseProps {
+  key?: string;
+}
+
+export interface DestructureElementProps extends BaseProps {
+  index?: string;
+}
+
+// Slice 3e — native Map/Set literals
+export interface MapLitProps extends BaseProps {
+  type?: string;
+  kind?: 'const' | 'let';
+  expr?: string | ExprObject;
+}
+
+export interface MapEntryProps extends BaseProps {
+  key?: string | ExprObject;
+  value?: string | ExprObject;
+}
+
+export interface SetLitProps extends BaseProps {
+  type?: string;
+  kind?: 'const' | 'let';
+  expr?: string | ExprObject;
+}
+
+export interface SetItemProps extends BaseProps {
+  value?: string | ExprObject;
+}
+
 // ── Functions ───────────────────────────────────────────────────────────
 
 export interface FnProps extends BaseProps {
@@ -448,6 +486,7 @@ export interface ActionRegistryProps extends BaseProps {
 export interface GuardProps extends BaseProps {
   when?: string;
   message?: string;
+  covers?: string;
 }
 
 export interface AssumeProps extends BaseProps {
@@ -483,6 +522,18 @@ export interface ExpectProps extends BaseProps {
   within?: string;
   max?: string;
   min?: string;
+  message?: string;
+  preset?: string;
+  severity?: string;
+  machine?: string;
+  reaches?: string;
+  via?: string;
+  no?: string;
+  guard?: string;
+  exhaustive?: string | boolean;
+  over?: string;
+  union?: string;
+  covers?: string;
 }
 
 export interface RecoverProps extends BaseProps {}
@@ -525,7 +576,11 @@ export interface ImportProps extends BaseProps {
 export interface FieldProps extends BaseProps {
   type?: string;
   optional?: string | boolean;
-  default?: string;
+  // Slice 3b — `value` is the ValueIR-canonicalised native form;
+  // `default` is the rawExpr passthrough escape hatch. `value` takes
+  // precedence at codegen time when both are present.
+  value?: string | ExprObject;
+  default?: string | ExprObject;
   private?: string | boolean;
   readonly?: string | boolean;
   static?: string | boolean;
@@ -545,6 +600,27 @@ export interface SetterProps extends BaseProps {
 
 export interface VariantProps extends BaseProps {
   type?: string;
+}
+
+/**
+ * Slice 3c — `param` child node for fn/method/constructor/etc. parameter
+ * defaults via ValueIR. Same shape doubles as MCP tool/resource/prompt param
+ * (type widened from identifier → typeAnnotation in slice 3c).
+ *
+ * `value` is the ValueIR-canonicalised native form (mirrors slice 3b
+ * field.value); `default` is the rawExpr passthrough kept for back-compat
+ * and existing MCP usage. `value` wins when both present.
+ */
+export interface ParamProps extends BaseProps {
+  type?: string;
+  value?: string | ExprObject;
+  default?: string | ExprObject;
+  required?: string | boolean;
+  optional?: string | boolean;
+  variadic?: string | boolean;
+  description?: string;
+  min?: string | number;
+  max?: string | number;
 }
 
 export interface MethodProps extends BaseProps {
@@ -601,6 +677,7 @@ export interface OptionProps extends BaseProps {
 
 export interface TestProps extends BaseProps {
   suite?: string;
+  target?: string;
 }
 
 // ── Props Map ───────────────────────────────────────────────────────────
@@ -621,6 +698,13 @@ export interface NodePropsMap {
   service: ServiceProps;
   class: ClassProps;
   const: ConstProps;
+  destructure: DestructureProps;
+  binding: BindingProps;
+  element: DestructureElementProps;
+  mapLit: MapLitProps;
+  mapEntry: MapEntryProps;
+  setLit: SetLitProps;
+  setItem: SetItemProps;
   fn: FnProps;
   error: ErrorProps;
   machine: MachineProps;
@@ -703,6 +787,7 @@ export interface NodePropsMap {
   module: ModuleProps;
   import: ImportProps;
   field: FieldProps;
+  param: ParamProps;
   getter: GetterProps;
   setter: SetterProps;
   variant: VariantProps;
