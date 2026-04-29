@@ -291,4 +291,71 @@ describe('effects=pure — slice 6 validator', () => {
     expect(code).toContain('function clamp(value: number, min: number, max: number): number {');
     expect(code).toContain('return Math.max(min, Math.min(max, value));');
   });
+
+  // ── Coverage matrix: every forbidden pattern triggers a diagnostic ─
+
+  // OpenCode review fix: explicit coverage for every entry in
+  // FORBIDDEN_PATTERNS, not just one representative per category.
+  // The test exercises the body walker pattern-by-pattern. Each row is
+  // [callsite snippet, expected error-message substring].
+  const FORBIDDEN_CASES: [string, string][] = [
+    // I/O
+    ['fetch("/x")', 'fetch('],
+    ['new XMLHttpRequest()', 'XMLHttpRequest'],
+    ['console.log(x)', 'console.'],
+    ['process.exit(0)', 'process.'],
+    ['readFileSync("/x")', 'readFileSync'],
+    ['writeFileSync("/x", "")', 'writeFileSync'],
+    ['readFile("/x")', 'readFile('],
+    ['writeFile("/x", "")', 'writeFile('],
+    ['fs.statSync("/x")', 'fs.'],
+    ['localStorage.getItem("k")', 'localStorage'],
+    ['sessionStorage.getItem("k")', 'sessionStorage'],
+    ['indexedDB.open("db")', 'indexedDB'],
+    ['document.getElementById("x")', 'document.'],
+    ['window.alert("hi")', 'window.'],
+    // Time / randomness
+    ['Math.random()', 'Math.random'],
+    ['Date.now()', 'Date.now'],
+    ['new Date()', 'new Date'],
+    ['crypto.randomUUID()', 'crypto.randomUUID'],
+    ['crypto.getRandomValues(new Uint8Array(16))', 'crypto.getRandomValues'],
+    ['performance.now()', 'performance.now'],
+    // Async / scheduling
+    ['await getX()', 'await'],
+    ['p.then(v => v)', '.then('],
+    ['p.catch(e => e)', '.catch('],
+    ['p.finally(() => 0)', '.finally('],
+    ['setTimeout(() => 1, 0)', 'setTimeout'],
+    ['setInterval(() => 1, 0)', 'setInterval'],
+    ['setImmediate(() => 1)', 'setImmediate'],
+    ['queueMicrotask(() => 1)', 'queueMicrotask'],
+    ['requestAnimationFrame(() => 1)', 'requestAnimationFrame'],
+    ['requestIdleCallback(() => 1)', 'requestIdleCallback'],
+  ];
+
+  test.each(FORBIDDEN_CASES)('rejects forbidden pattern: %s', (snippet, marker) => {
+    const errs = effectsErrors(
+      ['fn name=probe returns=any effects=pure', '  handler <<<', `    return ${snippet};`, '  >>>'].join('\n'),
+    );
+    expect(errs.length).toBeGreaterThanOrEqual(1);
+    expect(errs[0].message).toContain(marker);
+  });
+
+  // ── effects="" silent-ignore behaviour is locked in ───────────────
+
+  // OpenCode review note: empty-string `effects=` is intentionally a no-op
+  // — the prop is treated as absent. Lock the behaviour so a future
+  // refactor cannot turn it into a hard error without an updated test.
+  test('effects="" is silently ignored (no diagnostic)', () => {
+    const errs = effectsErrors(
+      [
+        'fn name=noop params="x:number" returns=number effects=""',
+        '  handler <<<',
+        '    return Math.random();', // would be rejected if effects=pure took effect
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(errs).toEqual([]);
+  });
 });
