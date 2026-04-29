@@ -414,6 +414,101 @@ export function generateConst(node: IRNode): string[] {
   return [...docs, `${exp}const ${name}${typeAnnotation};`];
 }
 
+// ── Destructure (slice 3d) ──────────────────────────────────────────────
+
+/**
+ * Slice 3d — emit a TS destructuring statement from a `destructure` node.
+ *
+ * Two paths:
+ *   (1) `expr={{...}}` escape hatch — emit the carried code verbatim. Used
+ *       by the importer for complex patterns (rest `...`, defaults `=v`,
+ *       nested `{a:{b}}`, computed keys) where structured children would
+ *       lose information.
+ *   (2) Structured children — `binding` for object patterns (with optional
+ *       `key=` for renames) or `element` for array patterns (with `index=`
+ *       for ordered position). Codegen detects which child kind dominates
+ *       and emits `{a, b: alias} = src` or `[a, b, , c] = src` (holes from
+ *       index gaps).
+ *
+ * `kind` defaults to `const` when omitted. `type` (optional) flows through
+ * `emitTypeAnnotation` and is appended after the LHS pattern.
+ */
+export function generateDestructure(node: IRNode): string[] {
+  const props = propsOf<'destructure'>(node);
+  const docs = emitDocComment(node);
+  const exp = exportPrefix(node);
+  const kind = props.kind === 'let' ? 'let' : 'const';
+
+  // Escape-hatch path for unsupported patterns (rest/defaults/nested).
+  // Importer falls back to this when ts.ObjectBindingPattern / ts.ArrayBindingPattern
+  // contain features the structured emitter can't represent. The raw text is
+  // expected to be a full statement (including `const`/`let` and any `export`
+  // prefix), so we DON'T re-prepend `exp` or `kind` here.
+  if (props.expr !== undefined) {
+    const raw = isExprObject(props.expr) ? props.expr.code : String(props.expr);
+    return [...docs, raw];
+  }
+
+  if (props.source === undefined || props.source === '') {
+    throw new Error('destructure node requires either `source=...` or `expr={{...}}`');
+  }
+  const sourceCode = emitConstValue(node, props.source);
+
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(props.type, 'unknown', node)}` : '';
+
+  const children = node.children || [];
+  const bindings = children.filter((c) => c.type === 'binding');
+  const elements = children.filter((c) => c.type === 'element');
+
+  if (bindings.length === 0 && elements.length === 0) {
+    throw new Error(
+      'destructure node has no `binding` or `element` children — use `expr={{...}}` instead for empty patterns',
+    );
+  }
+  if (bindings.length > 0 && elements.length > 0) {
+    throw new Error('destructure node mixes `binding` (object) and `element` (array) children — use one or the other');
+  }
+
+  let pattern: string;
+  if (bindings.length > 0) {
+    // Object pattern: {a, b: rename, c}
+    const parts = bindings.map((child) => {
+      const cp = propsOf<'binding'>(child);
+      const name = emitIdentifier(cp.name, 'unknownBinding', child);
+      if (cp.key) {
+        const key = emitIdentifier(cp.key, 'unknownKey', child);
+        return `${key}: ${name}`;
+      }
+      return name;
+    });
+    pattern = `{ ${parts.join(', ')} }`;
+  } else {
+    // Array pattern: ordered by `index=`, gaps emit holes (`, ,`)
+    const indexed = elements.map((child) => {
+      const cp = propsOf<'element'>(child);
+      const idx = cp.index !== undefined ? Number.parseInt(cp.index, 10) : Number.NaN;
+      return { idx, child, props: cp };
+    });
+    if (indexed.some((e) => Number.isNaN(e.idx))) {
+      throw new Error('destructure `element` children require numeric `index=` props');
+    }
+    indexed.sort((a, b) => a.idx - b.idx);
+    const max = indexed[indexed.length - 1].idx;
+    const slots: string[] = [];
+    for (let i = 0; i <= max; i++) {
+      const match = indexed.find((e) => e.idx === i);
+      if (match) {
+        slots.push(emitIdentifier(match.props.name, 'unknownElement', match.child));
+      } else {
+        slots.push('');
+      }
+    }
+    pattern = `[${slots.join(', ')}]`;
+  }
+
+  return [...docs, `${exp}${kind} ${pattern}${typeAnn} = ${sourceCode};`];
+}
+
 /** Emit the right-hand side of an expression-typed prop (e.g. `const.value`,
  *  `let.value`) from its raw IR form.
  *

@@ -47,6 +47,17 @@ export function decompile(root: IRNode): DecompileResult {
       renderParam(node, indent);
       return;
     }
+    if (node.type === 'destructure') {
+      renderDestructure(node, indent);
+      return;
+    }
+    if (node.type === 'binding' || node.type === 'element') {
+      // Standalone render path — only hit when these appear outside a
+      // `destructure` parent. Inside a parent, `renderDestructure` handles
+      // them inline.
+      renderDestructureChild(node, indent);
+      return;
+    }
 
     const name = (props.name as string) || '';
     const type = node.type.charAt(0).toUpperCase() + node.type.slice(1);
@@ -232,6 +243,83 @@ export function decompile(root: IRNode): DecompileResult {
         render(child, `${indent}  `);
       }
     }
+  }
+
+  function renderDestructure(node: IRNode, indent: string): void {
+    // Slice 3d: emit `destructure` re-parseably so structured `binding`/
+    // `element` children plus the `expr={{...}}` escape hatch survive
+    // IR → text round-trip. Mirrors renderParam's __quotedProps-aware
+    // bare-vs-quoted policy on `source`.
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const parts: string[] = ['destructure'];
+
+    // Escape-hatch path: raw statement carried verbatim. When present, all
+    // other props are ignored (codegen also ignores them — see generateDestructure).
+    const rawExpr = props.expr as string | ExprObject | undefined;
+    if (rawExpr !== undefined) {
+      if (typeof rawExpr === 'object' && (rawExpr as ExprObject).__expr) {
+        parts.push(`expr={{${(rawExpr as ExprObject).code}}}`);
+      } else {
+        parts.push(`expr=${JSON.stringify(rawExpr)}`);
+      }
+      lines.push(`${indent}${parts.join(' ')}`);
+      return;
+    }
+
+    const kind = props.kind as string | undefined;
+    if (kind && kind !== 'const') parts.push(`kind=${kind}`);
+
+    const t = props.type as string | undefined;
+    if (t !== undefined) {
+      const wasQuoted = quoted.includes('type');
+      const safeBare = !wasQuoted && /^[\w.<>[\]|&,\s-]+$/.test(t) && !/\s/.test(t.trim());
+      parts.push(`type=${safeBare ? t : JSON.stringify(t)}`);
+    }
+
+    const rawSource = props.source as string | ExprObject | undefined;
+    if (rawSource !== undefined) {
+      if (typeof rawSource === 'object' && (rawSource as ExprObject).__expr) {
+        parts.push(`source={{${(rawSource as ExprObject).code}}}`);
+      } else {
+        const s = rawSource as string;
+        const wasQuoted = quoted.includes('source');
+        const safeBare = !wasQuoted && /^[\w.-]+$/.test(s);
+        parts.push(`source=${safeBare ? s : JSON.stringify(s)}`);
+      }
+    }
+
+    const exported = props.export;
+    if (exported === true || exported === 'true') parts.push('export=true');
+
+    lines.push(`${indent}${parts.join(' ')}`);
+
+    if (node.children) {
+      for (const child of node.children) {
+        renderDestructureChild(child, `${indent}  `);
+      }
+    }
+  }
+
+  function renderDestructureChild(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const name = (props.name as string) || '?';
+    if (node.type === 'binding') {
+      const parts: string[] = [`binding name=${name}`];
+      const key = props.key as string | undefined;
+      if (key) parts.push(`key=${key}`);
+      lines.push(`${indent}${parts.join(' ')}`);
+      return;
+    }
+    if (node.type === 'element') {
+      const parts: string[] = [`element name=${name}`];
+      const idx = props.index;
+      if (idx !== undefined) parts.push(`index=${idx}`);
+      lines.push(`${indent}${parts.join(' ')}`);
+      return;
+    }
+    // Unknown — should never hit; fall through to generic render.
+    render(node, indent);
   }
 
   function renderEach(node: IRNode, indent: string): void {

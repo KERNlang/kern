@@ -125,6 +125,7 @@ export {
   emitParamList,
   generateClass,
   generateConst,
+  generateDestructure,
   generateEnum,
   generateInterface,
   generateService,
@@ -220,6 +221,7 @@ import {
   emitConstValue,
   generateClass,
   generateConst,
+  generateDestructure,
   generateEnum,
   generateInterface,
   generateService,
@@ -703,6 +705,12 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return []; // Children of `use` — handled by generateUse, not at top level
     case 'const':
       return generateConst(node);
+    case 'destructure':
+      return generateDestructure(node);
+    case 'binding':
+    case 'element':
+      // Children of `destructure` — handled by generateDestructure, not at top level.
+      return [];
     case 'hook':
       return []; // Handled by @kernlang/react
     case 'on':

@@ -376,6 +376,37 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: ['handler'],
   },
+  destructure: {
+    description:
+      'Native destructuring statement — emits `const {a,b} = expr;` (object pattern with `binding` children) or `const [x,y] = expr;` (array pattern with `element` children). For complex patterns (rest `...`, defaults `=v`, nested `{a:{b}}`), use the `expr={{...}}` escape hatch which carries the raw TS statement verbatim. Slice 3d.',
+    example: 'destructure kind=const source=user\n  binding name=id\n  binding name=email key=mail',
+    props: {
+      kind: { kind: 'string' },
+      source: { kind: 'expression' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+      expr: { kind: 'rawExpr' },
+    },
+    allowedChildren: ['binding', 'element'],
+  },
+  binding: {
+    description:
+      'Object-destructuring binding inside a `destructure` parent. `name` is the local binding; `key` is the optional property key when renaming, e.g. `{a: foo}` → `binding name=foo key=a`. Slice 3d.',
+    example: 'binding name=foo key=a',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      key: { kind: 'identifier' },
+    },
+  },
+  element: {
+    description:
+      'Array-destructuring element inside a `destructure` parent. `index` is the ordered position (zero-based). Slice 3d.',
+    example: 'element name=first index=0',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      index: { kind: 'string' },
+    },
+  },
   on: {
     description: 'Event listener — binds a handler to a named event',
     example: 'on event=click handler=handleClick',

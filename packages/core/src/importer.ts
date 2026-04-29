@@ -652,12 +652,101 @@ function convertErrorClass(
   return lines;
 }
 
+/**
+ * Slice 3d — try to format a destructured `const`/`let` declaration as a
+ * structured `destructure` IR node with `binding` (object) or `element`
+ * (array) children. Returns `null` for non-destructured patterns; returns
+ * a single fallback line carrying the raw statement in `expr={{...}}` for
+ * patterns we can't structure (rest `...`, defaults `=v`, nested `{a:{b}}`,
+ * computed/string keys).
+ */
+function tryFormatDestructure(
+  decl: ts.VariableDeclaration,
+  kind: 'const' | 'let',
+  exported: boolean,
+  source: ts.SourceFile,
+  fullStmtText: string,
+): string[] | null {
+  if (!decl.initializer) return null;
+  const isObj = ts.isObjectBindingPattern(decl.name);
+  const isArr = ts.isArrayBindingPattern(decl.name);
+  if (!isObj && !isArr) return null;
+
+  const fallback = (): string[] => [`destructure expr={{ ${fullStmtText} }}`];
+
+  const childLines: string[] = [];
+  if (isObj) {
+    for (const el of (decl.name as ts.ObjectBindingPattern).elements) {
+      if (el.dotDotDotToken) return fallback();
+      if (el.initializer) return fallback();
+      if (!ts.isIdentifier(el.name)) return fallback();
+      const localName = el.name.getText(source);
+      let line = `binding name=${localName}`;
+      if (el.propertyName) {
+        if (!ts.isIdentifier(el.propertyName)) return fallback();
+        line += ` key=${el.propertyName.getText(source)}`;
+      }
+      childLines.push(line);
+    }
+  } else {
+    let idx = 0;
+    for (const el of (decl.name as ts.ArrayBindingPattern).elements) {
+      if (ts.isOmittedExpression(el)) {
+        idx++;
+        continue;
+      }
+      if (el.dotDotDotToken) return fallback();
+      if (el.initializer) return fallback();
+      if (!ts.isIdentifier(el.name)) return fallback();
+      childLines.push(`element name=${el.name.getText(source)} index=${idx}`);
+      idx++;
+    }
+  }
+
+  if (childLines.length === 0) return fallback();
+
+  const sourceText = decl.initializer.getText(source);
+  const isSimpleIdent = /^[A-Za-z_$][\w$]*$/.test(sourceText);
+  const sourceAttr = isSimpleIdent ? ` source=${sourceText}` : ` source={{ ${sourceText} }}`;
+  const type = typeToString(decl.type, source);
+  const typeAttr = type ? ` type=${type}` : '';
+  const expAttr = exported ? ' export=true' : '';
+
+  const lines: string[] = [`destructure kind=${kind}${typeAttr}${sourceAttr}${expAttr}`];
+  for (const line of childLines) lines.push(`  ${line}`);
+  return lines;
+}
+
 function convertVariableStatement(node: ts.VariableStatement, source: ts.SourceFile): string[] {
   const lines: string[] = [];
   const exp = isExported(node) ? ' export=true' : '';
   const doc = getJSDoc(node, source);
 
+  // Slice 3d — derive const|let|var from the declaration list flags.
+  const declKind: 'const' | 'let' =
+    (node.declarationList.flags & ts.NodeFlags.Const) !== 0
+      ? 'const'
+      : (node.declarationList.flags & ts.NodeFlags.Let) !== 0
+        ? 'let'
+        : 'const';
+
   for (const decl of node.declarationList.declarations) {
+    // Slice 3d — destructured LHS handled BEFORE the simple-value branch
+    // because `decl.name` for `const {a,b}=obj` is a binding pattern, not
+    // an identifier. Falls through to the legacy paths only when LHS is a
+    // plain identifier.
+    if (ts.isObjectBindingPattern(decl.name) || ts.isArrayBindingPattern(decl.name)) {
+      if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
+      // Reconstruct the full statement text for the expr= fallback path.
+      // Prefer node.getText(source) so we capture `export const {a}=obj;` shape.
+      const fullStmtText = node.getText(source).trim().replace(/;$/, '');
+      const result = tryFormatDestructure(decl, declKind, isExported(node), source, fullStmtText);
+      if (result) {
+        for (const l of result) lines.push(l);
+        continue;
+      }
+    }
+
     const name = decl.name.getText(source);
     const type = typeToString(decl.type, source);
     const typeStr = type ? ` type=${type}` : '';

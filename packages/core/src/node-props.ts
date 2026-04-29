@@ -98,6 +98,22 @@ export interface ConstProps extends BaseProps {
   value?: string | ExprObject;
 }
 
+// Slice 3d — native destructuring
+export interface DestructureProps extends BaseProps {
+  kind?: 'const' | 'let';
+  source?: string | ExprObject;
+  type?: string;
+  expr?: string | ExprObject;
+}
+
+export interface BindingProps extends BaseProps {
+  key?: string;
+}
+
+export interface DestructureElementProps extends BaseProps {
+  index?: string;
+}
+
 // ── Functions ───────────────────────────────────────────────────────────
 
 export interface FnProps extends BaseProps {
@@ -644,6 +660,9 @@ export interface NodePropsMap {
   service: ServiceProps;
   class: ClassProps;
   const: ConstProps;
+  destructure: DestructureProps;
+  binding: BindingProps;
+  element: DestructureElementProps;
   fn: FnProps;
   error: ErrorProps;
   machine: MachineProps;
