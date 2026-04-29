@@ -1599,6 +1599,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       type: { kind: 'typeAnnotation' },
       value: { kind: 'expression' },
       required: { kind: 'boolean' },
+      // Slice 3c-extension: TS-style optional `?` on the LHS, distinct from MCP
+      // `required`. When `optional=true`, codegen emits `name?: type` (with the
+      // `?` inside the parameter list) so callers may omit the argument.
+      optional: { kind: 'boolean' },
       default: { kind: 'rawExpr' },
       description: { kind: 'string' },
       min: { kind: 'number' },

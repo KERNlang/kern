@@ -11,6 +11,7 @@
 import { capabilitySupport } from '../src/capability-matrix.js';
 import { generateCoreNode } from '../src/codegen-core.js';
 import { decompile } from '../src/decompiler.js';
+import { importTypeScript } from '../src/importer.js';
 import { parse } from '../src/parser.js';
 import type { IRNode } from '../src/types.js';
 
@@ -348,6 +349,85 @@ describe('param.value — slice 3c (native ValueIR form)', () => {
 
     it('param-native-value is unsupported on Python (FastAPI)', () => {
       expect(capabilitySupport('fastapi', 'param-native-value', 'top-level')).toBe('unsupported');
+    });
+  });
+
+  // ─── Slice 3c-extension: optional `?` on param ─────────────────────────
+
+  describe('optional=true (slice 3c-extension)', () => {
+    it('emits `name?: type` when optional=true', () => {
+      const code = gen(
+        [
+          'fn name=greet returns=string',
+          '  param name=salutation type=string optional=true',
+          '  handler <<<',
+          '    return salutation ?? "hi";',
+          '  >>>',
+        ].join('\n'),
+      );
+      expect(code).toContain('function greet(salutation?: string): string {');
+    });
+
+    it('combines optional and value=', () => {
+      const code = gen(
+        [
+          'fn name=retry returns=number',
+          '  param name=attempts type=number optional=true value=3',
+          '  handler <<<',
+          '    return attempts ?? 0;',
+          '  >>>',
+        ].join('\n'),
+      );
+      expect(code).toContain('function retry(attempts?: number = 3): number {');
+    });
+
+    it('does NOT emit `?` when optional is false or absent', () => {
+      const code = gen(
+        [
+          'fn name=greet returns=string',
+          '  param name=salutation type=string',
+          '  handler <<<',
+          '    return salutation;',
+          '  >>>',
+        ].join('\n'),
+      );
+      expect(code).toContain('function greet(salutation: string): string {');
+      expect(code).not.toContain('salutation?:');
+    });
+
+    it('importer captures optional `?` and emits structured param children', () => {
+      const ts = `function greet(salutation?: string): string { return salutation ?? "hi"; }`;
+      const result = importTypeScript(ts, 'greet.ts');
+      expect(result.kern).toContain('optional=true');
+      expect(result.kern).toContain('param name=salutation');
+      // Verifies the questionToken gate dropped — fn now emits structured
+      // children instead of falling back to legacy params="...".
+      expect(result.kern).not.toMatch(/params=/);
+    });
+
+    it('importer combines optional + default value', () => {
+      const ts = `function retry(attempts: number = 3): number { return attempts; }`;
+      const result = importTypeScript(ts, 'retry.ts');
+      // Plain default (no `?`) — exists pre-extension, included for parity.
+      expect(result.kern).toContain('param name=attempts');
+      expect(result.kern).toContain('value={{ 3 }}');
+
+      const tsOpt = `function tryGet(key?: string): string | undefined { return key; }`;
+      const optResult = importTypeScript(tsOpt, 'try.ts');
+      expect(optResult.kern).toContain('param name=key');
+      expect(optResult.kern).toContain('optional=true');
+    });
+
+    it('decompiler round-trips optional=true', () => {
+      const node: IRNode = {
+        type: 'param',
+        props: { name: 'salutation', type: 'string', optional: true },
+        children: [],
+        __quotedProps: ['type'],
+      };
+      const { code } = decompile(node);
+      expect(code).toContain('optional=true');
+      expect(code).toContain('param name=salutation');
     });
   });
 });

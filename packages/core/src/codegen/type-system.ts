@@ -644,9 +644,11 @@ export function parseParamListFromChildren(paramNodes: IRNode[], options?: { str
     .map((paramNode) => {
       const pp = propsOf<'param'>(paramNode);
       const pname = emitIdentifier(pp.name, 'parameter', paramNode);
+      // Slice 3c-extension: TS-style optional `?` between name and type.
+      const optional = pp.optional === true || pp.optional === 'true' ? '?' : '';
       const typeAnn = pp.type ? `: ${emitTypeAnnotation(pp.type, 'unknown', paramNode)}` : '';
 
-      if (options?.stripDefaults) return `${pname}${typeAnn}`;
+      if (options?.stripDefaults) return `${pname}${optional}${typeAnn}`;
 
       const rawValue = pp.value;
       const rawDefault = pp.default;
@@ -654,11 +656,11 @@ export function parseParamListFromChildren(paramNodes: IRNode[], options?: { str
         rawValue !== undefined && (rawValue !== '' || paramNode.__quotedProps?.includes('value') === true);
 
       if (valuePresent) {
-        return `${pname}${typeAnn} = ${emitConstValue(paramNode, rawValue)}`;
+        return `${pname}${optional}${typeAnn} = ${emitConstValue(paramNode, rawValue)}`;
       }
-      if (rawDefault === undefined || rawDefault === '') return `${pname}${typeAnn}`;
-      if (isExprObject(rawDefault)) return `${pname}${typeAnn} = ${rawDefault.code}`;
-      return `${pname}${typeAnn} = ${rawDefault}`;
+      if (rawDefault === undefined || rawDefault === '') return `${pname}${optional}${typeAnn}`;
+      if (isExprObject(rawDefault)) return `${pname}${optional}${typeAnn} = ${rawDefault.code}`;
+      return `${pname}${optional}${typeAnn} = ${rawDefault}`;
     })
     .join(', ');
 }

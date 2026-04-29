@@ -185,7 +185,9 @@ function tryFormatParamChildren(
 ): string[] | null {
   if (parameters.length === 0) return [];
   for (const p of parameters) {
-    if (p.questionToken) return null;
+    // Slice 3c-extension: optional `?` is now structurable via `optional=true`
+    // (gate dropped, mirrors importer.ts). Variadic `...` and destructure
+    // patterns still bail out.
     if (p.dotDotDotToken) return null;
     if (!ts.isIdentifier(p.name)) return null;
     // Multi-line types (inline object shapes spread across lines) cannot be
@@ -200,6 +202,7 @@ function tryFormatParamChildren(
     const type = p.type ? text(p.type) : '';
     const parts: string[] = [`param name=${name}`];
     if (type) parts.push(`type="${type.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+    if (p.questionToken) parts.push('optional=true');
     if (p.initializer) {
       parts.push(`value={{ ${text(p.initializer)} }}`);
     }
