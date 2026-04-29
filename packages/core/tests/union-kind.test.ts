@@ -209,6 +209,38 @@ describe('union kind — slice 4 validator', () => {
 
   // ── KIND_SHAPE_VIOLATION — discriminant must be `kind` ────────────
 
+  test('kind=result rejects MISSING discriminant (codegen would default to `type`)', () => {
+    // Gemini review fix: prior validator only checked "if discriminant is
+    // present, it must be kind". A missing discriminant let codegen's
+    // default (`'type'`) silently emit `{ type: 'ok'; … }`, breaking the
+    // slice 7 contract.
+    const diags = kindErrors(unionDoc(['union name=R kind=result', '  variant name=ok', '  variant name=err']));
+    expect(diags.some((d) => d.code === 'KIND_SHAPE_VIOLATION' && /discriminant=kind/.test(d.message))).toBe(true);
+  });
+
+  test('kind=result rejects duplicate variant names ([ok, ok])', () => {
+    // Gemini review fix: prior `every(n => required.has(n))` allowed
+    // [ok, ok] because both are in the required set and length matched.
+    // Set comparison is the correct check.
+    const diags = kindErrors(
+      unionDoc([
+        'union name=R discriminant=kind kind=result',
+        '  variant name=ok',
+        '    field name=value type=A',
+        '  variant name=ok',
+        '    field name=value type=B',
+      ]),
+    );
+    expect(diags.some((d) => d.code === 'KIND_SHAPE_VIOLATION')).toBe(true);
+  });
+
+  test('kind=option rejects duplicate variant names ([some, some])', () => {
+    const diags = kindErrors(
+      unionDoc(['union name=O discriminant=kind kind=option', '  variant name=some', '  variant name=some']),
+    );
+    expect(diags.some((d) => d.code === 'KIND_SHAPE_VIOLATION')).toBe(true);
+  });
+
   test('kind=result rejects discriminant=tag', () => {
     const diags = kindErrors(
       unionDoc([

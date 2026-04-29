@@ -119,6 +119,24 @@ describe('transpileForTarget — slice 4 stdlib preamble dispatch', () => {
     expect(code).not.toContain('// ── KERN stdlib');
   });
 
+  test('Vue target does NOT get the TS preamble (SFC structure incompatible)', () => {
+    // Codex review fix: dumping `type Result<T,E> = …` BEFORE
+    // `<script setup lang="ts">` produces invalid SFC syntax. Vue users
+    // keep using the explicit `union name=R kind=result …` form until
+    // SFC-aware injection lands as a follow-up slice.
+    const src = [
+      'screen name=Page',
+      '  text value="hello"',
+      'fn name=parseUser params="raw:string" returns="Result<User, ParseError>"',
+      '  handler <<<',
+      '    return { kind: "ok", value: { name: "alice" } };',
+      '  >>>',
+    ].join('\n');
+    const code = compile(src, 'vue');
+    expect(code).not.toContain('type Result<T, E>');
+    expect(code).not.toContain('// ── KERN stdlib');
+  });
+
   test('mcp target gets the preamble for TS-family targets', () => {
     // MCP server emits TS — Result/Option aliases should land at the top.
     // We use `target=mcp` plus a minimal kern doc that the MCP transpiler

@@ -68,23 +68,34 @@ function validateNode(state: ParseState, node: IRNode): void {
       } else {
         const nameProp = typeof props.name === 'string' ? props.name : '<anonymous>';
 
-        // 4. discriminant must be `kind` — load-bearing for slice 7 propagation.
-        // Checked before the variant-shape rule so `discriminant=tag` on a
-        // shape-correct union still surfaces the most actionable error.
-        if (typeof props.discriminant === 'string' && props.discriminant !== 'kind') {
+        // 4. discriminant must be `kind` — load-bearing for slice 7 propagation
+        // operators (they desugar to `r.kind === 'err'`). The schema does NOT
+        // default discriminant, and `generateUnion` falls back to `'type'` if
+        // missing, so a `union kind=result` without `discriminant=kind` would
+        // silently emit `{ type: 'ok' …}` and break the contract. Codex/Gemini
+        // review fix: enforce presence (not just "if present, must equal").
+        if (props.discriminant !== 'kind') {
+          const got = props.discriminant === undefined ? '<missing>' : String(props.discriminant);
           emitDiagnostic(
             state,
             'KIND_SHAPE_VIOLATION',
             'error',
-            `\`union name=${nameProp} kind=${kindRaw}\` must use \`discriminant=kind\` (got \`discriminant=${props.discriminant}\`). The slice 7 \`?\` / \`!\` operators rely on this. See docs/language/result-option-spec.md.`,
+            `\`union name=${nameProp} kind=${kindRaw}\` must use \`discriminant=kind\` (got \`discriminant=${got}\`). The slice 7 \`?\` / \`!\` operators rely on this. See docs/language/result-option-spec.md.`,
             node.loc?.line ?? 0,
             node.loc?.col ?? 0,
           );
         } else {
           // 2/3. Variant-shape check for the two recognised kinds.
+          // Gemini review fix: compare the SET of variant names so duplicates
+          // like `[ok, ok]` for kind=result are rejected (the prior `every`
+          // form let `length === 2 && all in required` slip through).
           const required = REQUIRED_VARIANTS[kindRaw];
           const found = variantNames(node);
-          const sameSet = found.length === required.size && found.every((n) => required.has(n));
+          const foundSet = new Set(found);
+          const sameSet =
+            found.length === required.size &&
+            foundSet.size === required.size &&
+            [...required].every((n) => foundSet.has(n));
           if (!sameSet) {
             const expected = [...required].join(' / ');
             const got = found.length === 0 ? '<none>' : found.join(', ');

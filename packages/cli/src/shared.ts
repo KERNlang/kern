@@ -600,12 +600,18 @@ function transpileLib(ast: IRNode, _cfg: ResolvedKernConfig): import('@kernlang/
 /** Slice 4 layer 2 — apply the Result / Option preamble post-transpile.
  *
  *  Lifted from `transpileLib` so every TS-family target picks up the compact
- *  form without each transpiler needing its own integration. FastAPI is the
- *  only target excluded — it emits Python and has its own type-system path.
+ *  form without each transpiler needing its own integration. FastAPI is
+ *  excluded (Python). Vue / Nuxt are also excluded for now — their `.vue`
+ *  SFC output would receive raw `type Result<…>` text BEFORE the
+ *  `<script setup lang="ts">` block, which is invalid SFC syntax. SFC-aware
+ *  injection (place the preamble inside the script block) is a follow-up
+ *  slice; until then Vue users keep using the explicit
+ *  `union name=R kind=result …` form. (Codex review fix.)
  *
  *  Multi-artifact targets (express routes, structured Next.js, etc.) get the
  *  preamble injected into every artifact whose path ends in `.ts` / `.tsx`
- *  too, since each route file independently references types in its handlers. */
+ *  / `.mts` / `.cts`, since each route file independently references types
+ *  in its handlers. */
 const TS_FAMILY_TARGETS: ReadonlySet<KernTarget> = new Set<KernTarget>([
   'lib',
   'native',
@@ -616,13 +622,11 @@ const TS_FAMILY_TARGETS: ReadonlySet<KernTarget> = new Set<KernTarget>([
   'cli',
   'terminal',
   'ink',
-  'vue',
-  'nuxt',
   'nextjs',
 ]);
 
 function isTsArtifactPath(path: string): boolean {
-  return path.endsWith('.ts') || path.endsWith('.tsx');
+  return path.endsWith('.ts') || path.endsWith('.tsx') || path.endsWith('.mts') || path.endsWith('.cts');
 }
 
 function applyKernStdlibPreamble(

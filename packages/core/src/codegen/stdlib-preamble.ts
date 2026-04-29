@@ -99,35 +99,86 @@ export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
 }
 
 /** Smart-insert the preamble into a finished TS module string. Skips the
- *  leading directive block (`'use client';`, `'use server';`, `'use strict';`)
- *  so React's directive detection isn't broken, then injects before any
- *  imports / declarations.
+ *  leading prologue (hashbang, directives, single-line and multi-line
+ *  comments, blank lines) so the preamble lands AFTER required-first lines
+ *  but BEFORE imports / declarations.
  *
  *  Why not just prepend? React/Next.js parse `'use client';` only when it's
  *  the literal first non-comment statement in the file. Putting `type
  *  Result<…>` ahead of it silently drops the directive and the bundler
- *  treats the module as a server component — invisible breakage. Past the
- *  directive block, TS doesn't care about ordering, so injecting before
- *  imports is safe and keeps the preamble visually grouped with the file
- *  prologue. */
-const DIRECTIVE_RE = /^\s*['"]use [a-z]+['"];?\s*$/;
+ *  treats the module as a server component — invisible breakage. Same for
+ *  hashbangs in `target=cli` and Ink entry artifacts: `#!/usr/bin/env node`
+ *  must stay on line 1 or the binary stops being executable.
+ *
+ *  Multi-line block comments need careful skipping — the prior naive
+ *  `startsWith('/*')` check broke after the opening line and injected the
+ *  preamble inside the comment, corrupting JSDoc-style headers. We track
+ *  the open block and only stop at the next real statement.
+ *
+ *  Caveats this layer does NOT handle: SFC formats (.vue) where the script
+ *  lives inside a `<script>` block — those need format-aware injection.
+ *  The dispatcher excludes them by file-extension filter; full vue/nuxt
+ *  support is a follow-up slice. */
+//   Tolerates an optional trailing `// …` or `/* … */` after the directive
+//   so that hand-edited modules don't silently lose the preamble's directive
+//   skip. (Gemini review fix.)
+const DIRECTIVE_RE = /^\s*['"]use [a-z]+['"];?\s*(?:\/\/.*|\/\*[\s\S]*?\*\/)?\s*$/;
 
 export function injectKernStdlibPreamble(code: string, preamble: string[]): string {
   if (preamble.length === 0) return code;
   if (code.length === 0) return preamble.join('\n');
 
   const lines = code.split('\n');
-  // Find the index AFTER the directive block (directives + immediately
-  // adjacent blank/comment lines). Stop at the first import, declaration,
-  // or other statement.
+  // Find the index of the first real statement, skipping past:
+  //   - hashbang on line 1
+  //   - directives (`'use client';` etc.) — possibly multiple
+  //   - blank lines
+  //   - line comments (`// …`)
+  //   - block comments (`/* … */`) including multi-line JSDoc
+  // Anything else (`import …`, `export …`, `type …`, `function …`, …)
+  // ends the prologue.
   let i = 0;
+  let inBlockComment = false;
   while (i < lines.length) {
     const line = lines[i];
     const trimmed = line.trim();
-    if (trimmed === '' || trimmed.startsWith('//') || trimmed.startsWith('/*') || DIRECTIVE_RE.test(line)) {
+
+    // Inside an open /* … */: keep skipping until the closing `*/` line.
+    if (inBlockComment) {
+      if (trimmed.includes('*/')) inBlockComment = false;
       i++;
       continue;
     }
+
+    if (trimmed === '') {
+      i++;
+      continue;
+    }
+
+    // Hashbang only legal on line 1 (Codex review fix). Always skip when found.
+    if (i === 0 && trimmed.startsWith('#!')) {
+      i++;
+      continue;
+    }
+
+    // Single-line comment.
+    if (trimmed.startsWith('//')) {
+      i++;
+      continue;
+    }
+
+    // Block comment — may close on same line or span multiple lines.
+    if (trimmed.startsWith('/*')) {
+      if (!trimmed.includes('*/')) inBlockComment = true;
+      i++;
+      continue;
+    }
+
+    if (DIRECTIVE_RE.test(line)) {
+      i++;
+      continue;
+    }
+
     break;
   }
 

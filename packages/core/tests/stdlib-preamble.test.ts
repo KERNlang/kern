@@ -197,4 +197,54 @@ describe('injectKernStdlibPreamble', () => {
     expect(out.split('\n')[0]).toBe("'use client'");
     expect(out.indexOf('// PREAMBLE')).toBeGreaterThan(out.indexOf("'use client'"));
   });
+
+  // ── Codex review fixes — hashbang preservation ─────────────────────
+
+  test('preserves a hashbang on line 1 (target=cli, Ink entry)', () => {
+    // Without this, `target=cli` outputs no longer start with `#!/usr/bin/env node`
+    // and Node refuses to execute the generated binary.
+    const code = ['#!/usr/bin/env node', "import { foo } from './bar';"].join('\n');
+    const out = injectKernStdlibPreamble(code, PREAMBLE);
+    expect(out.split('\n')[0]).toBe('#!/usr/bin/env node');
+    expect(out.indexOf('// PREAMBLE')).toBeGreaterThan(out.indexOf('#!/usr/bin/env node'));
+    expect(out.indexOf('// PREAMBLE')).toBeLessThan(out.indexOf('import { foo }'));
+  });
+
+  test('hashbang + use client both stay at the top in order', () => {
+    const code = ['#!/usr/bin/env node', "'use client';", "import React from 'react';"].join('\n');
+    const out = injectKernStdlibPreamble(code, PREAMBLE);
+    const lines = out.split('\n');
+    expect(lines[0]).toBe('#!/usr/bin/env node');
+    expect(lines[1]).toBe("'use client';");
+  });
+
+  // ── Codex/Gemini review fixes — multi-line block comments ──────────
+
+  test('skips a leading multi-line JSDoc block as a single unit', () => {
+    // Prior `startsWith('/*')` check only matched the opening line; the
+    // injector then dropped the preamble between `* …` lines, corrupting
+    // the comment.
+    const code = ['/**', ' * Copyright 2026', ' * @generated', ' */', "import { foo } from './bar';"].join('\n');
+    const out = injectKernStdlibPreamble(code, PREAMBLE);
+    expect(out).toContain('/**\n * Copyright 2026\n * @generated\n */');
+    expect(out.indexOf('// PREAMBLE')).toBeGreaterThan(out.indexOf('*/'));
+    expect(out.indexOf('// PREAMBLE')).toBeLessThan(out.indexOf('import { foo }'));
+  });
+
+  test('handles a single-line block comment /* … */ on one line', () => {
+    const code = ['/* generated */', "import { foo } from './bar';"].join('\n');
+    const out = injectKernStdlibPreamble(code, PREAMBLE);
+    expect(out.split('\n')[0]).toBe('/* generated */');
+    expect(out.indexOf('// PREAMBLE')).toBeLessThan(out.indexOf('import { foo }'));
+  });
+
+  // ── Gemini review fix — directive with trailing comment ────────────
+
+  test("'use client'; with a trailing line comment still skips correctly", () => {
+    const code = ["'use client'; // entry point", "import React from 'react';"].join('\n');
+    const out = injectKernStdlibPreamble(code, PREAMBLE);
+    expect(out.split('\n')[0]).toBe("'use client'; // entry point");
+    expect(out.indexOf('// PREAMBLE')).toBeGreaterThan(out.indexOf("'use client';"));
+    expect(out.indexOf('// PREAMBLE')).toBeLessThan(out.indexOf('import React'));
+  });
 });
