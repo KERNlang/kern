@@ -2,6 +2,13 @@
  * @kernlang/core — parser, types, spec, config, style engines, codegen
  */
 
+export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
+// Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)
+export {
+  detectKernStdlibUsage,
+  injectKernStdlibPreamble,
+  kernStdlibPreamble,
+} from './codegen/stdlib-preamble.js';
 export type { SemanticTypeMapping } from './codegen-core.js';
 // Codegen — public entry points
 export {

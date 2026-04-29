@@ -144,7 +144,9 @@ export type ParseErrorCode =
   | 'DROPPED_LINE'
   | 'INVALID_BIGINT'
   | 'INVALID_EXPRESSION'
-  | 'INVALID_EFFECTS';
+  | 'INVALID_EFFECTS'
+  | 'INVALID_UNION_KIND'
+  | 'KIND_SHAPE_VIOLATION';
 
 export type ParseDiagnosticSeverity = 'error' | 'warning' | 'info';
 

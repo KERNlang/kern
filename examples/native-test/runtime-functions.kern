@@ -11,3 +11,22 @@ fn name=withBase params="value:number" returns=number
   handler <<<
     return add(value, base);
   >>>
+
+fn name=discountedTotal returns=number
+  param name=order type=object
+  handler <<<
+    const subtotal = order.items.reduce((sum, item) => sum + item.price * item.qty, 0);
+    if (subtotal >= 50) {
+      return subtotal * 0.9;
+    }
+    return subtotal;
+  >>>
+
+fn name=loadTotal async=true returns=number
+  param name=amount type=number
+  handler <<<
+    const loaded = await Promise.resolve(amount);
+    return loaded + 5;
+  >>>
+
+derive name=runtimeTotal expr={{discountedTotal(order) + base}}

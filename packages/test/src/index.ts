@@ -1,5 +1,6 @@
 import type { IRNode, ParseDiagnostic, SchemaViolation, SemanticViolation } from '@kernlang/core';
 import { generateCoreNode, parseDocumentWithDiagnostics, validateSchema, validateSemantics } from '@kernlang/core';
+import { execFileSync } from 'child_process';
 import type { Dirent } from 'fs';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { dirname, join, relative, resolve } from 'path';
@@ -119,6 +120,7 @@ interface CollectedAssertion {
   suite: string;
   caseName: string;
   node: IRNode;
+  fixtures: RuntimeBinding[];
 }
 
 interface EvaluatedAssertion {
@@ -131,11 +133,13 @@ interface EvaluatedAssertion {
 
 interface NativeKernAssertionContext {
   assertions: CollectedAssertion[];
+  fixtures?: RuntimeBinding[];
 }
 
 interface RuntimeBinding {
   name: string;
   expr: string;
+  kind: 'expr' | 'fixture' | 'fn';
   line?: number;
 }
 
@@ -145,6 +149,19 @@ interface RuntimeBindingOrder {
 }
 
 type RuntimeEvalResult = { ok: true; value: unknown } | { ok: false; error: unknown };
+
+type EncodedRuntimeValue =
+  | { type: 'json'; value: unknown }
+  | { type: 'undefined' }
+  | { type: 'number'; value: 'NaN' | 'Infinity' | '-Infinity' }
+  | { type: 'bigint'; value: string }
+  | { type: 'unserializable'; value: string };
+
+interface EncodedRuntimeError {
+  name?: string;
+  message?: string;
+  stack?: string;
+}
 
 const DISCOVERY_SKIP_DIRS = new Set([
   '.git',
@@ -209,6 +226,10 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
     description:
       'Evaluate a constrained runtime expression against target const/derive bindings, with optional equals/matches/throws comparators.',
   },
+  {
+    ruleId: 'runtime:behavior',
+    description: 'Evaluate a constrained pure fn or derive assertion with scoped native test fixtures.',
+  },
   { ruleId: 'expect:unsupported', description: 'The expect assertion shape is not supported by native kern test.' },
   { ruleId: 'preset:unknown', description: 'The requested preset name is unknown.' },
   { ruleId: 'no:schemaviolations', description: 'The target KERN file has no schema violations.' },
@@ -236,7 +257,7 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
   },
   {
     ruleId: 'no:emptyroutes',
-    description: 'Routes declare executable behavior with handler/respond/redirect/stream/spawn.',
+    description: 'Routes declare executable behavior with handler/respond/derive/fmt/branch/each/collect/effect.',
     presets: ['apiSafety', 'strict'],
   },
   {
@@ -463,6 +484,9 @@ function isAssertionConfigurationFailure(message?: string): boolean {
     message.startsWith('Runtime expr assertion requires ') ||
     message.startsWith('Runtime expr assertion cannot execute ') ||
     message.startsWith('Runtime expr assertion has ') ||
+    message.startsWith('Runtime fn assertion ') ||
+    message.startsWith('Runtime derive assertion ') ||
+    message.startsWith('Runtime behavior assertion ') ||
     message.startsWith('Node assertion requires ') ||
     message.startsWith('Node assertion count ') ||
     message === 'Unsupported native expect assertion.' ||
@@ -645,42 +669,59 @@ function issueResult(file: string, message: string, issue?: { line?: number; col
   };
 }
 
+function runtimeFixtureBinding(node: IRNode): RuntimeBinding | undefined {
+  const props = getProps(node);
+  const name = str(props.name);
+  const expr = exprPropToRuntimeSource(node, 'value') || exprPropToRuntimeSource(node, 'expr');
+  if (!name || !expr) return undefined;
+  return { name, expr, kind: 'fixture', line: node.loc?.line };
+}
+
+function runtimeFixtureBindings(node: IRNode): RuntimeBinding[] {
+  return getChildren(node, 'fixture')
+    .map((fixture) => runtimeFixtureBinding(fixture))
+    .filter((fixture): fixture is RuntimeBinding => fixture !== undefined);
+}
+
 function collectAssertions(testNode: IRNode): CollectedAssertion[] {
   const suite = str(getProps(testNode).name) || 'unnamed test';
   const assertions: CollectedAssertion[] = [];
 
-  function pushExpectation(node: IRNode, path: string[]): void {
+  function pushExpectation(node: IRNode, path: string[], fixtures: RuntimeBinding[]): void {
     assertions.push({
       suite,
       caseName: path.length > 0 ? path.join(' > ') : 'top-level',
       node,
+      fixtures,
     });
   }
 
-  function visit(node: IRNode, path: string[]): void {
+  function visit(node: IRNode, path: string[], fixtures: RuntimeBinding[]): void {
+    const scopedFixtures = [...fixtures, ...runtimeFixtureBindings(node)];
+
     if (node.type === 'expect') {
-      pushExpectation(node, path);
+      pushExpectation(node, path, scopedFixtures);
       return;
     }
 
     if (node.type === 'it') {
       const nextPath = [...path, str(getProps(node).name) || 'it'];
       for (const child of node.children || []) {
-        if (child.type === 'expect') pushExpectation(child, nextPath);
+        if (child.type === 'expect') pushExpectation(child, nextPath, scopedFixtures);
       }
       return;
     }
 
     if (node.type === 'describe') {
       const nextPath = [...path, str(getProps(node).name) || 'describe'];
-      for (const child of node.children || []) visit(child, nextPath);
+      for (const child of node.children || []) visit(child, nextPath, scopedFixtures);
       return;
     }
 
-    for (const child of node.children || []) visit(child, path);
+    for (const child of node.children || []) visit(child, path, scopedFixtures);
   }
 
-  visit(testNode, []);
+  visit(testNode, [], []);
   return assertions;
 }
 
@@ -702,6 +743,10 @@ function assertionLabel(node: IRNode): string {
   const no = str(props.no);
   const guard = str(props.guard);
   const expr = exprToString(props.expr);
+  const fn = str(props.fn);
+  const derive = str(props.derive);
+  const args = exprToString(props.args);
+  const withValue = exprToString(props.with);
   const equals = props.equals === undefined ? '' : exprToString(props.equals) || String(props.equals);
   const matches = props.matches === undefined ? '' : String(props.matches);
   const throws = props.throws === undefined ? '' : String(props.throws || 'true');
@@ -726,6 +771,22 @@ function assertionLabel(node: IRNode): string {
     return [`machine ${machine || '<missing>'}`, from ? `from ${from}` : '', `reaches ${reaches || '<missing>'}`]
       .filter(Boolean)
       .join(' ');
+  }
+  if (fn) {
+    const parts = [`fn ${fn}`];
+    if (args) parts.push(`args ${args}`);
+    if (withValue) parts.push(`with ${withValue}`);
+    if (equals) parts.push(`equals ${equals}`);
+    if (matches) parts.push(`matches ${matches}`);
+    if (throws) parts.push(`throws ${throws}`);
+    return parts.join(' ');
+  }
+  if (derive) {
+    const parts = [`derive ${derive}`];
+    if (equals) parts.push(`equals ${equals}`);
+    if (matches) parts.push(`matches ${matches}`);
+    if (throws) parts.push(`throws ${throws}`);
+    return parts.join(' ');
   }
   if (expr && equals) return `expr ${expr} equals ${equals}`;
   if (expr && matches) return `expr ${expr} matches ${matches}`;
@@ -1611,15 +1672,26 @@ function findCodegenErrors(root: IRNode): string[] {
 }
 
 const RUNTIME_EXPR_TIMEOUT_MS = 100;
+const RUNTIME_ASYNC_PROCESS_TIMEOUT_MS = 1500;
 const RUNTIME_EXPR_UNSAFE_TOKEN =
-  /\b(?:async|await|class|constructor|Date|delete|do|eval|fetch|for|Function|global|globalThis|import|new|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
+  /\b(?:async|class|constructor|Date|delete|do|eval|fetch|for|Function|global|globalThis|import|new|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
+const RUNTIME_FN_UNSAFE_TOKEN =
+  /\b(?:class|constructor|Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 
-function unsafeRuntimeExpressionReason(source: string): string | undefined {
+function unsafeRuntimeExpressionReason(source: string, options: { allowAwait?: boolean } = {}): string | undefined {
   if (source.length > 2000) return 'expression is longer than 2000 characters';
   if (/[\r\n;]/.test(source)) return 'multi-statement expressions are not supported';
   const unsafeToken = source.match(RUNTIME_EXPR_UNSAFE_TOKEN)?.[0];
   if (unsafeToken) return `unsupported token '${unsafeToken}'`;
+  if (!options.allowAwait && /\bawait\b/.test(source)) return "unsupported token 'await'";
   if (/(^|[^=!<>])=(?!=|>)/.test(source)) return 'assignment is not supported';
+  return undefined;
+}
+
+function unsafeRuntimeFunctionReason(source: string): string | undefined {
+  if (source.length > 5000) return 'function body is longer than 5000 characters';
+  const unsafeToken = source.match(RUNTIME_FN_UNSAFE_TOKEN)?.[0];
+  if (unsafeToken) return `unsupported token '${unsafeToken}'`;
   return undefined;
 }
 
@@ -1627,13 +1699,13 @@ function isRuntimeBindingName(value: string): boolean {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
 }
 
-function runtimeBindingExpr(node: IRNode): string {
-  if (node.type === 'const') return exprPropToRuntimeSource(node, 'value');
+function runtimeBindingSource(node: IRNode): { expr: string; kind: RuntimeBinding['kind'] } | undefined {
+  if (node.type === 'const') return { expr: exprPropToRuntimeSource(node, 'value'), kind: 'expr' };
   if (node.type === 'derive' || node.type === 'let') {
-    return exprPropToRuntimeSource(node, 'value') || exprPropToRuntimeSource(node, 'expr');
+    return { expr: exprPropToRuntimeSource(node, 'value') || exprPropToRuntimeSource(node, 'expr'), kind: 'expr' };
   }
-  if (node.type === 'fn') return runtimeFunctionExpr(node);
-  return '';
+  if (node.type === 'fn') return { expr: runtimeFunctionExpr(node), kind: 'fn' };
+  return undefined;
 }
 
 function runtimeParamNames(node: IRNode): string[] {
@@ -1646,20 +1718,14 @@ function runtimeParamNames(node: IRNode): string[] {
   return parseLegacyParamNames(str(getProps(node).params));
 }
 
-function simpleReturnExpression(code: string): string {
-  const match = code.trim().match(/^return\s+([\s\S]*?)\s*;?\s*$/);
-  return match ? match[1].trim() : '';
-}
-
 function runtimeFunctionExpr(node: IRNode): string {
   const code = handlerText(node);
   if (!code) return '';
-  const bodyExpr = simpleReturnExpression(code);
-  if (!bodyExpr) return '';
 
   const params = runtimeParamNames(node);
   if (!params.every(isRuntimeBindingName)) return '';
-  return `((${params.join(', ')}) => (${bodyExpr}))`;
+  const asyncKw = isTruthy(getProps(node).async) ? 'async ' : '';
+  return `(${asyncKw}(${params.join(', ')}) => {\n${code.trim()}\n})`;
 }
 
 function collectRuntimeBindings(root: IRNode): RuntimeBinding[] {
@@ -1668,11 +1734,12 @@ function collectRuntimeBindings(root: IRNode): RuntimeBinding[] {
   function visit(node: IRNode): void {
     if (node.type === 'const' || node.type === 'derive' || node.type === 'let' || node.type === 'fn') {
       const name = str(getProps(node).name);
-      const expr = runtimeBindingExpr(node);
-      if (name && expr) {
+      const binding = runtimeBindingSource(node);
+      if (name && binding?.expr) {
         bindings.push({
           name,
-          expr,
+          expr: binding.expr,
+          kind: binding.kind,
           line: node.loc?.line,
         });
       }
@@ -1750,11 +1817,17 @@ function runtimeContext(): Record<string, unknown> {
   return {
     Array,
     Boolean,
+    Error,
     JSON,
     Math,
     Number,
     Object,
+    Promise,
+    RangeError,
+    ReferenceError,
     String,
+    SyntaxError,
+    TypeError,
     isFinite,
     isNaN,
     parseFloat,
@@ -1783,6 +1856,20 @@ function formatThrownRuntimeError(error: unknown): string {
   return String(error);
 }
 
+function runtimeFixtureSuffix(fixtures: RuntimeBinding[]): string {
+  const names = fixtures.map((fixture) => fixture.name).filter(Boolean);
+  return names.length > 0 ? `; fixtures: ${names.join(', ')}` : '';
+}
+
+function runtimeExpressionContext(expr: string, fixtures: RuntimeBinding[]): string {
+  return `; expression: ${expr}${runtimeFixtureSuffix(fixtures)}`;
+}
+
+function runtimeBindingUnsafeReason(binding: RuntimeBinding): string | undefined {
+  if (binding.kind === 'fn') return unsafeRuntimeFunctionReason(binding.expr);
+  return unsafeRuntimeExpressionReason(binding.expr);
+}
+
 function thrownRuntimeErrorMatches(error: unknown, expected: string): boolean {
   const normalized = expected.trim();
   if (!normalized || normalized === 'true') return true;
@@ -1795,22 +1882,23 @@ function thrownRuntimeErrorMatches(error: unknown, expected: string): boolean {
 function buildRuntimeDeclarations(
   target: LoadedKernDocument,
   entryExprs: string[],
+  fixtures: RuntimeBinding[] = [],
 ): { source: string; message?: undefined } | { source?: undefined; message: string } {
   for (const entryExpr of entryExprs) {
-    const problem = unsafeRuntimeExpressionReason(entryExpr);
+    const problem = unsafeRuntimeExpressionReason(entryExpr, { allowAwait: true });
     if (problem) {
       return { message: `Runtime expr assertion cannot execute expression: ${problem}` };
     }
   }
 
-  const bindings = orderRuntimeBindings(collectRuntimeBindings(target.root!), entryExprs.join(' '));
+  const bindings = orderRuntimeBindings([...collectRuntimeBindings(target.root!), ...fixtures], entryExprs.join(' '));
   if (bindings.error) {
     return { message: `Runtime expr assertion cannot execute target bindings: ${bindings.error}` };
   }
 
   const declarations: string[] = [];
   for (const binding of bindings.ordered) {
-    const bindingProblem = unsafeRuntimeExpressionReason(binding.expr);
+    const bindingProblem = runtimeBindingUnsafeReason(binding);
     if (bindingProblem) {
       return {
         message: `Runtime expr assertion cannot execute target binding '${binding.name}': ${bindingProblem}`,
@@ -1822,7 +1910,134 @@ function buildRuntimeDeclarations(
   return { source: declarations.join('\n') };
 }
 
-function runRuntimeExpression(target: LoadedKernDocument, declarations: string, expr: string): RuntimeEvalResult {
+function isThenable(value: unknown): value is Promise<unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'then' in value &&
+    typeof (value as { then?: unknown }).then === 'function'
+  );
+}
+
+function needsAsyncRuntime(declarations: string, expr: string): boolean {
+  return /\b(?:async|await|Promise)\b/.test(`${declarations}\n${expr}`);
+}
+
+function decodeRuntimeValue(encoded: EncodedRuntimeValue): unknown {
+  switch (encoded.type) {
+    case 'undefined':
+      return undefined;
+    case 'number':
+      if (encoded.value === 'NaN') return Number.NaN;
+      return encoded.value === 'Infinity' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+    case 'bigint':
+      return BigInt(encoded.value);
+    case 'unserializable':
+      return encoded.value;
+    case 'json':
+      return encoded.value;
+  }
+}
+
+function decodeRuntimeError(encoded: EncodedRuntimeError | undefined): Error {
+  const error = new Error(encoded?.message || 'Runtime evaluation failed');
+  error.name = encoded?.name || 'Error';
+  if (encoded?.stack) error.stack = encoded.stack;
+  return error;
+}
+
+function asyncRuntimeChildSource(): string {
+  return `
+const { readFileSync } = require('fs');
+const { createContext, Script } = require('vm');
+
+function encodeRuntimeValue(value) {
+  if (value === undefined) return { type: 'undefined' };
+  if (typeof value === 'number' && Number.isNaN(value)) return { type: 'number', value: 'NaN' };
+  if (value === Number.POSITIVE_INFINITY) return { type: 'number', value: 'Infinity' };
+  if (value === Number.NEGATIVE_INFINITY) return { type: 'number', value: '-Infinity' };
+  if (typeof value === 'bigint') return { type: 'bigint', value: value.toString() };
+  try {
+    JSON.stringify(value);
+    return { type: 'json', value };
+  } catch {
+    return { type: 'unserializable', value: String(value) };
+  }
+}
+
+function encodeRuntimeError(error) {
+  return {
+    name: error && error.name ? String(error.name) : 'Error',
+    message: error && error.message ? String(error.message) : String(error),
+    stack: error && error.stack ? String(error.stack) : undefined,
+  };
+}
+
+function runtimeContext() {
+  return {
+    Array,
+    Boolean,
+    Error,
+    JSON,
+    Math,
+    Number,
+    Object,
+    Promise,
+    RangeError,
+    ReferenceError,
+    String,
+    SyntaxError,
+    TypeError,
+    isFinite,
+    isNaN,
+    parseFloat,
+    parseInt,
+  };
+}
+
+(async () => {
+  const input = JSON.parse(readFileSync(0, 'utf-8'));
+  try {
+    const script = new Script('"use strict";\\n' + input.declarations + '\\n(async () => (' + input.expr + '))();', {
+      filename: input.filename || 'native-kern-test:async',
+    });
+    const value = await script.runInContext(createContext(runtimeContext()), { timeout: input.timeout });
+    process.stdout.write(JSON.stringify({ ok: true, value: encodeRuntimeValue(value) }));
+  } catch (error) {
+    process.stdout.write(JSON.stringify({ ok: false, error: encodeRuntimeError(error) }));
+  }
+})().catch((error) => {
+  process.stdout.write(JSON.stringify({ ok: false, error: encodeRuntimeError(error) }));
+});
+`;
+}
+
+function runRuntimeExpressionAsync(target: LoadedKernDocument, declarations: string, expr: string): RuntimeEvalResult {
+  try {
+    const output = execFileSync(process.execPath, ['-e', asyncRuntimeChildSource()], {
+      input: JSON.stringify({
+        declarations,
+        expr,
+        filename: `native-kern-test:${target.file}`,
+        timeout: RUNTIME_EXPR_TIMEOUT_MS,
+      }),
+      encoding: 'utf-8',
+      maxBuffer: 1024 * 1024,
+      timeout: RUNTIME_ASYNC_PROCESS_TIMEOUT_MS,
+    });
+    const decoded = JSON.parse(output) as
+      | { ok: true; value: EncodedRuntimeValue }
+      | { ok: false; error?: EncodedRuntimeError };
+    return decoded.ok
+      ? { ok: true, value: decodeRuntimeValue(decoded.value) }
+      : { ok: false, error: decodeRuntimeError(decoded.error) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: new Error(`Async runtime evaluation failed: ${message}`) };
+  }
+}
+
+function runRuntimeExpressionSync(target: LoadedKernDocument, declarations: string, expr: string): RuntimeEvalResult {
   try {
     const script = new Script(`"use strict";\n${declarations}\n(${expr});`, {
       filename: `native-kern-test:${target.file}`,
@@ -1838,11 +2053,20 @@ function runRuntimeExpression(target: LoadedKernDocument, declarations: string, 
   }
 }
 
+function runRuntimeExpression(target: LoadedKernDocument, declarations: string, expr: string): RuntimeEvalResult {
+  if (needsAsyncRuntime(declarations, expr)) return runRuntimeExpressionAsync(target, declarations, expr);
+  const syncResult = runRuntimeExpressionSync(target, declarations, expr);
+  if (syncResult.ok && isThenable(syncResult.value)) return runRuntimeExpressionAsync(target, declarations, expr);
+  return syncResult;
+}
+
 function evaluateRuntimeThrows(
   node: IRNode,
   target: LoadedKernDocument,
   declarations: string,
   expr: string,
+  fixtures: RuntimeBinding[],
+  label = 'Runtime expr',
 ): { passed: boolean; message?: string } {
   const props = getProps(node);
   const expectedRaw = props.throws === true || props.throws === '' ? 'true' : String(props.throws ?? 'true');
@@ -1852,42 +2076,49 @@ function evaluateRuntimeThrows(
       passed: false,
       message:
         str(props.message) ||
-        `Runtime expr was expected to throw${expectedRaw && expectedRaw !== 'true' ? ` ${expectedRaw}` : ''}, but returned ${formatRuntimeValue(actual.value)}`,
+        `${label} was expected to throw${expectedRaw && expectedRaw !== 'true' ? ` ${expectedRaw}` : ''}, but returned ${formatRuntimeValue(actual.value)}${runtimeExpressionContext(expr, fixtures)}`,
     };
   }
   if (!thrownRuntimeErrorMatches(actual.error, expectedRaw)) {
     return {
       passed: false,
       message:
-        str(props.message) || `Runtime expr threw ${formatThrownRuntimeError(actual.error)}, expected ${expectedRaw}`,
+        str(props.message) ||
+        `${label} threw ${formatThrownRuntimeError(actual.error)}, expected ${expectedRaw}${runtimeExpressionContext(expr, fixtures)}`,
     };
   }
   return { passed: true };
 }
 
-function evaluateRuntimeExpression(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+function evaluateRuntimeSource(
+  node: IRNode,
+  target: LoadedKernDocument,
+  expr: string,
+  fixtures: RuntimeBinding[] = [],
+  label = 'Runtime expr',
+): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
 
   const props = getProps(node);
-  const expr = exprToString(props.expr).trim();
-  if (!expr) return { passed: false, message: 'Runtime expr assertion requires expr={{...}}' };
+  const trimmedExpr = expr.trim();
+  if (!trimmedExpr) return { passed: false, message: `${label} assertion requires an executable expression` };
 
   const expectedSource = runtimeExpectedSource(node, 'equals');
-  const expressionSources = expectedSource ? [expr, expectedSource] : [expr];
-  const declarations = buildRuntimeDeclarations(target, expressionSources);
+  const expressionSources = expectedSource ? [trimmedExpr, expectedSource] : [trimmedExpr];
+  const declarations = buildRuntimeDeclarations(target, expressionSources, fixtures);
   if ('message' in declarations) return { passed: false, message: declarations.message };
   const declarationSource = declarations.source;
 
   if ('throws' in props) {
-    return evaluateRuntimeThrows(node, target, declarationSource, expr);
+    return evaluateRuntimeThrows(node, target, declarationSource, trimmedExpr, fixtures, label);
   }
 
-  const actual = runRuntimeExpression(target, declarationSource, expr);
+  const actual = runRuntimeExpression(target, declarationSource, trimmedExpr);
   if (!actual.ok) {
     return {
       passed: false,
-      message: `Runtime expr threw: ${actual.error instanceof Error ? actual.error.message : String(actual.error)}`,
+      message: `${label} threw: ${actual.error instanceof Error ? actual.error.message : String(actual.error)}${runtimeExpressionContext(trimmedExpr, fixtures)}`,
     };
   }
 
@@ -1905,7 +2136,7 @@ function evaluateRuntimeExpression(node: IRNode, target: LoadedKernDocument): { 
           passed: false,
           message:
             str(props.message) ||
-            `Runtime expr expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(actual.value)}: ${expr}`,
+            `${label} expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(actual.value)}${runtimeExpressionContext(trimmedExpr, fixtures)}`,
         };
   }
 
@@ -1919,7 +2150,7 @@ function evaluateRuntimeExpression(node: IRNode, target: LoadedKernDocument): { 
             passed: false,
             message:
               str(props.message) ||
-              `Runtime expr value ${formatRuntimeValue(actual.value)} does not match /${pattern}/: ${expr}`,
+              `${label} value ${formatRuntimeValue(actual.value)} does not match /${pattern}/${runtimeExpressionContext(trimmedExpr, fixtures)}`,
           };
     } catch (error) {
       return {
@@ -1931,7 +2162,72 @@ function evaluateRuntimeExpression(node: IRNode, target: LoadedKernDocument): { 
 
   return actual.value
     ? { passed: true }
-    : { passed: false, message: str(props.message) || `Runtime expr evaluated false: ${expr}` };
+    : {
+        passed: false,
+        message: str(props.message) || `${label} evaluated false${runtimeExpressionContext(trimmedExpr, fixtures)}`,
+      };
+}
+
+function evaluateRuntimeExpression(
+  node: IRNode,
+  target: LoadedKernDocument,
+  fixtures: RuntimeBinding[] = [],
+): { passed: boolean; message?: string } {
+  const props = getProps(node);
+  const expr = exprToString(props.expr).trim();
+  if (!expr) return { passed: false, message: 'Runtime expr assertion requires expr={{...}}' };
+  return evaluateRuntimeSource(node, target, expr, fixtures);
+}
+
+function targetHasNamedNode(target: LoadedKernDocument, type: string, name: string): boolean {
+  return collectNodes(target.root, type).some((node) => str(getProps(node).name) === name);
+}
+
+function runtimeCallExpression(node: IRNode, fnName: string): { expr?: string; message?: string } {
+  const props = getProps(node);
+  const argsSource = exprToString(props.args).trim();
+  const withSource = exprToString(props.with).trim();
+
+  if (argsSource && withSource) {
+    return { message: 'Runtime fn assertion cannot combine args={{...}} and with={{...}}' };
+  }
+  if (argsSource) return { expr: `${fnName}(...(${argsSource}))` };
+  if (withSource) return { expr: `${fnName}(${withSource})` };
+  return { expr: `${fnName}()` };
+}
+
+function evaluateRuntimeBehavior(
+  node: IRNode,
+  target: LoadedKernDocument,
+  fixtures: RuntimeBinding[] = [],
+): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+
+  const props = getProps(node);
+  const fnName = str(props.fn);
+  const deriveName = str(props.derive);
+
+  if (fnName && deriveName)
+    return { passed: false, message: 'Runtime behavior assertion cannot combine fn and derive' };
+
+  if (fnName) {
+    if (!targetHasNamedNode(target, 'fn', fnName)) {
+      return { passed: false, message: `Runtime fn assertion target not found: ${fnName}` };
+    }
+    const call = runtimeCallExpression(node, fnName);
+    if (call.message) return { passed: false, message: call.message };
+    return evaluateRuntimeSource(node, target, call.expr || '', fixtures, `Runtime fn ${fnName}`);
+  }
+
+  if (deriveName) {
+    if (!targetHasNamedNode(target, 'derive', deriveName)) {
+      return { passed: false, message: `Runtime derive assertion target not found: ${deriveName}` };
+    }
+    return evaluateRuntimeSource(node, target, deriveName, fixtures, `Runtime derive ${deriveName}`);
+  }
+
+  return { passed: false, message: 'Runtime behavior assertion requires fn=<name> or derive=<name>' };
 }
 
 function nodeSearchText(node: IRNode): string {
@@ -2718,8 +3014,20 @@ function evaluateNativeAssertion(
       },
     ];
   }
+  if ('fn' in props || 'derive' in props) {
+    const evaluated = evaluateRuntimeBehavior(node, target, context?.fixtures || []);
+    return [
+      {
+        ruleId: 'runtime:behavior',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
   if ('expr' in props) {
-    const evaluated = evaluateRuntimeExpression(node, target);
+    const evaluated = evaluateRuntimeExpression(node, target, context?.fixtures || []);
     return [
       {
         ruleId: 'expr',
@@ -2874,8 +3182,8 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
       continue;
     }
 
-    const context: NativeKernAssertionContext = { assertions };
     for (const assertion of assertions) {
+      const context: NativeKernAssertionContext = { assertions, fixtures: assertion.fixtures };
       const requestedSeverity = severityFromNode(assertion.node);
       for (const evaluated of evaluateNativeAssertion(assertion.node, target, context)) {
         const severity = effectiveSeverity(requestedSeverity, evaluated);
