@@ -277,6 +277,156 @@ describe('native kern test runner', () => {
     expect(summary.results[1].message).toContain('amount is not defined');
   });
 
+  test('executes multi-statement fn handlers in behavioral assertions', () => {
+    writeFileSync(
+      join(tmpDir, 'totals.kern'),
+      [
+        'fn name=discountedTotal returns=number',
+        '  param name=order type=object',
+        '  handler <<<',
+        '    const subtotal = order.items.reduce((sum, item) => sum + item.price * item.qty, 0);',
+        '    if (subtotal >= 50) {',
+        '      return subtotal * 0.9;',
+        '    }',
+        '    return subtotal;',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'totals.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Multi statement functions" target="./totals.kern"',
+        '  fixture name=order value={{({ items: [{ price: 30, qty: 2 }] })}}',
+        '  it name="executes function body"',
+        '    expect fn=discountedTotal with=order equals=54',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(1);
+  });
+
+  test('executes async fn handlers and awaited runtime expr assertions', () => {
+    writeFileSync(
+      join(tmpDir, 'async.kern'),
+      [
+        'fn name=loadTotal async=true returns=number',
+        '  param name=amount type=number',
+        '  handler <<<',
+        '    const loaded = await Promise.resolve(amount);',
+        '    return loaded + 5;',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'async.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Async functions" target="./async.kern"',
+        '  fixture name=amount value=7',
+        '  it name="awaits behavior"',
+        '    expect fn=loadTotal with=amount equals=12',
+        '    expect expr={{await loadTotal(amount)}} equals=12',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(2);
+  });
+
+  test('supports throws assertions for sync and async behavioral functions', () => {
+    writeFileSync(
+      join(tmpDir, 'throws.kern'),
+      [
+        'fn name=requirePaid returns=boolean',
+        '  param name=order type=object',
+        '  handler <<<',
+        '    if (order.status !== "paid") {',
+        '      throw new TypeError("order is not paid");',
+        '    }',
+        '    return true;',
+        '  >>>',
+        'fn name=rejectLater async=true returns=boolean',
+        '  handler <<<',
+        '    await Promise.resolve(true);',
+        '    throw new RangeError("async rejection");',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'throws.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Throws behavior" target="./throws.kern"',
+        '  fixture name=draftOrder value={{({ status: "draft" })}}',
+        '  it name="checks sync and async failures"',
+        '    expect fn=requirePaid with=draftOrder throws=TypeError',
+        '    expect fn=rejectLater throws=RangeError',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(2);
+  });
+
+  test('behavioral assertion failures show call expression and fixture names', () => {
+    writeFileSync(
+      join(tmpDir, 'diagnostics.kern'),
+      [
+        'fn name=double returns=number',
+        '  param name=value type=number',
+        '  handler <<<',
+        '    return value * 2;',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'diagnostics.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Behavior diagnostics" target="./diagnostics.kern"',
+        '  fixture name=amount value=4',
+        '  it name="explains mismatch"',
+        '    expect fn=double with=amount equals=9',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain('double(amount)');
+    expect(summary.results[0].message).toContain('fixtures: amount');
+    expect(summary.results[0].message).toContain('received 8');
+  });
+
+  test('rejects unsafe tokens inside behavioral fn handlers before execution', () => {
+    writeFileSync(
+      join(tmpDir, 'unsafe-fn.kern'),
+      ['fn name=readEnv returns=string', '  handler <<<', '    return process.env.SECRET;', '  >>>'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'unsafe-fn.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Unsafe behavior" target="./unsafe-fn.kern"',
+        '  it name="blocks process access"',
+        '    expect fn=readEnv equals="secret"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain("target binding 'readEnv': unsupported token 'process'");
+  });
+
   test('runtime expr reads quoted JS string literal defaults as literal source', () => {
     writeFileSync(
       join(tmpDir, 'runtime.kern'),

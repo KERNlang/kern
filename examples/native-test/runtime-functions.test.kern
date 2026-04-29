@@ -2,3 +2,11 @@ test name="Runtime functions" target="./runtime-functions.kern"
   it name="pure functions execute inside runtime assertions"
     expect expr={{add(2, 3)}} equals=5
     expect expr={{withBase(7)}} equals=17
+
+  fixture name=order value={{({ items: [{ price: 30, qty: 2 }] })}}
+  fixture name=amount value=7
+
+  it name="behavior assertions execute target functions"
+    expect fn=discountedTotal with=order equals=54
+    expect fn=loadTotal with=amount equals=12
+    expect derive=runtimeTotal equals=64
