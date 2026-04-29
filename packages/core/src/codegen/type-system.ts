@@ -414,6 +414,185 @@ export function generateConst(node: IRNode): string[] {
   return [...docs, `${exp}const ${name}${typeAnnotation};`];
 }
 
+// ── Destructure (slice 3d) ──────────────────────────────────────────────
+
+/**
+ * Slice 3d — emit a TS destructuring statement from a `destructure` node.
+ *
+ * Two paths:
+ *   (1) `expr={{...}}` escape hatch — emit the carried code verbatim. Used
+ *       by the importer for complex patterns (rest `...`, defaults `=v`,
+ *       nested `{a:{b}}`, computed keys) where structured children would
+ *       lose information.
+ *   (2) Structured children — `binding` for object patterns (with optional
+ *       `key=` for renames) or `element` for array patterns (with `index=`
+ *       for ordered position). Codegen detects which child kind dominates
+ *       and emits `{a, b: alias} = src` or `[a, b, , c] = src` (holes from
+ *       index gaps).
+ *
+ * `kind` defaults to `const` when omitted. `type` (optional) flows through
+ * `emitTypeAnnotation` and is appended after the LHS pattern.
+ */
+export function generateDestructure(node: IRNode): string[] {
+  const props = propsOf<'destructure'>(node);
+  const docs = emitDocComment(node);
+  const exp = exportPrefix(node);
+  const kind = props.kind === 'let' ? 'let' : 'const';
+
+  // Escape-hatch path for unsupported patterns (rest/defaults/nested).
+  // Importer falls back to this when ts.ObjectBindingPattern / ts.ArrayBindingPattern
+  // contain features the structured emitter can't represent. The raw text is
+  // expected to be a full statement (including `const`/`let` and any `export`
+  // prefix), so we DON'T re-prepend `exp` or `kind` here.
+  if (props.expr !== undefined) {
+    const raw = isExprObject(props.expr) ? props.expr.code : String(props.expr);
+    return [...docs, raw];
+  }
+
+  if (props.source === undefined || props.source === '') {
+    throw new Error('destructure node requires either `source=...` or `expr={{...}}`');
+  }
+  const sourceCode = emitConstValue(node, props.source);
+
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(props.type, 'unknown', node)}` : '';
+
+  const children = node.children || [];
+  const bindings = children.filter((c) => c.type === 'binding');
+  const elements = children.filter((c) => c.type === 'element');
+
+  if (bindings.length === 0 && elements.length === 0) {
+    throw new Error(
+      'destructure node has no `binding` or `element` children — use `expr={{...}}` instead for empty patterns',
+    );
+  }
+  if (bindings.length > 0 && elements.length > 0) {
+    throw new Error('destructure node mixes `binding` (object) and `element` (array) children — use one or the other');
+  }
+
+  let pattern: string;
+  if (bindings.length > 0) {
+    // Object pattern: {a, b: rename, c}
+    const parts = bindings.map((child) => {
+      const cp = propsOf<'binding'>(child);
+      const name = emitIdentifier(cp.name, 'unknownBinding', child);
+      if (cp.key) {
+        const key = emitIdentifier(cp.key, 'unknownKey', child);
+        return `${key}: ${name}`;
+      }
+      return name;
+    });
+    pattern = `{ ${parts.join(', ')} }`;
+  } else {
+    // Array pattern: ordered by `index=`, gaps emit holes (`, ,`)
+    const indexed = elements.map((child) => {
+      const cp = propsOf<'element'>(child);
+      const idx = cp.index !== undefined ? Number.parseInt(cp.index, 10) : Number.NaN;
+      return { idx, child, props: cp };
+    });
+    if (indexed.some((e) => Number.isNaN(e.idx))) {
+      throw new Error('destructure `element` children require numeric `index=` props');
+    }
+    indexed.sort((a, b) => a.idx - b.idx);
+    const max = indexed[indexed.length - 1].idx;
+    const slots: string[] = [];
+    for (let i = 0; i <= max; i++) {
+      const match = indexed.find((e) => e.idx === i);
+      if (match) {
+        slots.push(emitIdentifier(match.props.name, 'unknownElement', match.child));
+      } else {
+        slots.push('');
+      }
+    }
+    pattern = `[${slots.join(', ')}]`;
+  }
+
+  return [...docs, `${exp}${kind} ${pattern}${typeAnn} = ${sourceCode};`];
+}
+
+// ── Map / Set literals (slice 3e) ───────────────────────────────────────
+
+/**
+ * Slice 3e — emit a TS Map literal from a `mapLit` node.
+ *
+ *   mapLit name=cache type="Map<string, number>"
+ *     mapEntry key="foo" value=1
+ *     mapEntry key="bar" value=2
+ *
+ * → `const cache: Map<string, number> = new Map([['foo', 1], ['bar', 2]]);`
+ *
+ * `expr={{...}}` escape hatch carries a raw TS statement verbatim — used
+ * by the importer fallback when a Map literal contains shapes the
+ * structured emitter can't represent (computed keys, conditional entries,
+ * spread). Mirrors slice 3d destructure escape-hatch policy.
+ */
+export function generateMapLit(node: IRNode): string[] {
+  const props = propsOf<'mapLit'>(node);
+  const docs = emitDocComment(node);
+  const exp = exportPrefix(node);
+
+  if (props.expr !== undefined) {
+    const raw = isExprObject(props.expr) ? props.expr.code : String(props.expr);
+    return [...docs, raw];
+  }
+
+  const name = emitIdentifier(props.name, 'unknownMap', node);
+  const kind = props.kind === 'let' ? 'let' : 'const';
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(props.type, 'Map<unknown, unknown>', node)}` : '';
+
+  const entries = (node.children || []).filter((c) => c.type === 'mapEntry');
+  const pairs = entries.map((child) => {
+    const cp = propsOf<'mapEntry'>(child);
+    if (cp.key === undefined) {
+      throw new Error('mapEntry requires a `key=` prop');
+    }
+    if (cp.value === undefined) {
+      throw new Error('mapEntry requires a `value=` prop');
+    }
+    const k = emitConstValue(child, cp.key, 'key');
+    const v = emitConstValue(child, cp.value, 'value');
+    return `[${k}, ${v}]`;
+  });
+
+  return [...docs, `${exp}${kind} ${name}${typeAnn} = new Map([${pairs.join(', ')}]);`];
+}
+
+/**
+ * Slice 3e — emit a TS Set literal from a `setLit` node.
+ *
+ *   setLit name=allowed type="Set<string>"
+ *     setItem value="admin"
+ *     setItem value="user"
+ *
+ * → `const allowed: Set<string> = new Set(['admin', 'user']);`
+ *
+ * Same `expr={{...}}` escape-hatch policy as `mapLit`/`destructure`.
+ */
+export function generateSetLit(node: IRNode): string[] {
+  const props = propsOf<'setLit'>(node);
+  const docs = emitDocComment(node);
+  const exp = exportPrefix(node);
+
+  if (props.expr !== undefined) {
+    const raw = isExprObject(props.expr) ? props.expr.code : String(props.expr);
+    return [...docs, raw];
+  }
+
+  const name = emitIdentifier(props.name, 'unknownSet', node);
+  const kind = props.kind === 'let' ? 'let' : 'const';
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(props.type, 'Set<unknown>', node)}` : '';
+
+  const items = (node.children || []).filter((c) => c.type === 'setItem');
+  const values = items.map((child) => {
+    const cp = propsOf<'setItem'>(child);
+    if (cp.value === undefined) {
+      throw new Error('setItem requires a `value=` prop');
+    }
+    return emitConstValue(child, cp.value, 'value');
+  });
+
+  return [...docs, `${exp}${kind} ${name}${typeAnn} = new Set([${values.join(', ')}]);`];
+}
+
 /** Emit the right-hand side of an expression-typed prop (e.g. `const.value`,
  *  `let.value`) from its raw IR form.
  *
@@ -423,13 +602,13 @@ export function generateConst(node: IRNode): string[] {
  *  - bare `<prop>=...` — try ValueIR parse + emit for canonicalization. Fall back to raw
  *    string on parse failure (validator emits INVALID_EXPRESSION but codegen still ships).
  *
- *  Currently the __quotedProps key is hardcoded to 'value' because every consumer
- *  uses that prop name. If a future consumer needs a different name, accept it as
- *  a parameter. */
-export function emitConstValue(node: IRNode, rawValue: unknown): string {
+ *  Slice 3e — `propName` parameter (default 'value') lets non-`value` props
+ *  participate in the same quoted-vs-bare distinction. `mapEntry.key` and
+ *  `mapEntry.value` both flow through this with their own __quotedProps key. */
+export function emitConstValue(node: IRNode, rawValue: unknown, propName = 'value'): string {
   if (isExprObject(rawValue)) return rawValue.code;
   if (typeof rawValue !== 'string') return String(rawValue);
-  if (node.__quotedProps?.includes('value')) return JSON.stringify(rawValue);
+  if (node.__quotedProps?.includes(propName)) return JSON.stringify(rawValue);
   try {
     return emitExpression(parseExpression(rawValue));
   } catch {
@@ -465,9 +644,11 @@ export function parseParamListFromChildren(paramNodes: IRNode[], options?: { str
     .map((paramNode) => {
       const pp = propsOf<'param'>(paramNode);
       const pname = emitIdentifier(pp.name, 'parameter', paramNode);
+      // Slice 3c-extension: TS-style optional `?` between name and type.
+      const optional = pp.optional === true || pp.optional === 'true' ? '?' : '';
       const typeAnn = pp.type ? `: ${emitTypeAnnotation(pp.type, 'unknown', paramNode)}` : '';
 
-      if (options?.stripDefaults) return `${pname}${typeAnn}`;
+      if (options?.stripDefaults) return `${pname}${optional}${typeAnn}`;
 
       const rawValue = pp.value;
       const rawDefault = pp.default;
@@ -475,11 +656,11 @@ export function parseParamListFromChildren(paramNodes: IRNode[], options?: { str
         rawValue !== undefined && (rawValue !== '' || paramNode.__quotedProps?.includes('value') === true);
 
       if (valuePresent) {
-        return `${pname}${typeAnn} = ${emitConstValue(paramNode, rawValue)}`;
+        return `${pname}${optional}${typeAnn} = ${emitConstValue(paramNode, rawValue)}`;
       }
-      if (rawDefault === undefined || rawDefault === '') return `${pname}${typeAnn}`;
-      if (isExprObject(rawDefault)) return `${pname}${typeAnn} = ${rawDefault.code}`;
-      return `${pname}${typeAnn} = ${rawDefault}`;
+      if (rawDefault === undefined || rawDefault === '') return `${pname}${optional}${typeAnn}`;
+      if (isExprObject(rawDefault)) return `${pname}${optional}${typeAnn} = ${rawDefault.code}`;
+      return `${pname}${optional}${typeAnn} = ${rawDefault}`;
     })
     .join(', ');
 }

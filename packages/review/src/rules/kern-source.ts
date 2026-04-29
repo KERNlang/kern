@@ -1144,6 +1144,205 @@ export const missingConfidence: KernSourceRule = (nodes: IRNode[], filePath: str
   ];
 };
 
+function readBooleanProp(node: IRNode, key: string): boolean {
+  const v = props(node)[key];
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'string') return v === 'true';
+  return false;
+}
+
+function readStringPropFlat(node: IRNode, key: string): string | undefined {
+  const v = props(node)[key];
+  if (typeof v === 'string') return v;
+  if (v && typeof v === 'object') {
+    const text = (v as { text?: unknown }).text;
+    if (typeof text === 'string') return text;
+    const code = (v as { code?: unknown }).code;
+    if (typeof code === 'string') return code;
+  }
+  return undefined;
+}
+
+const PREDICATE_METHODS = ['filter', 'find', 'some', 'every', 'findIndex', 'findLast', 'findLastIndex'];
+
+export const asyncPredicateReturn: KernSourceRule = (nodes: IRNode[], filePath: string): ReviewFinding[] => {
+  const parentMap = buildParentMap(nodes);
+  const rootNodes = nodes.filter((n) => parentMap.get(n) === undefined);
+  const asyncFnsByName = new Map<string, IRNode>();
+  for (const node of parentMap.keys()) {
+    if (node.type !== 'fn' && node.type !== 'method' && node.type !== 'callback' && node.type !== 'hook') {
+      continue;
+    }
+    if (!readBooleanProp(node, 'async')) continue;
+    const name = props(node).name;
+    if (typeof name !== 'string' || !name) continue;
+    asyncFnsByName.set(name, node);
+  }
+  if (asyncFnsByName.size === 0) return [];
+
+  const project = createInMemoryProject();
+  const findings: ReviewFinding[] = [];
+  const seen = new Set<string>();
+
+  for (const node of parentMap.keys()) {
+    if (node.type !== 'handler') continue;
+    const code = getCodeProp(node);
+    if (!code) continue;
+    let analysis: SnippetAnalysis | undefined;
+    let visibleBindings: Map<string, BindingInfo> | undefined;
+    for (const [fnName, fnNode] of asyncFnsByName) {
+      const escaped = fnName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`\\.(?:${PREDICATE_METHODS.join('|')})\\(\\s*${escaped}\\s*[,)]`);
+      if (!re.test(code)) continue;
+      // Codex P2 fix: resolve fnName in handler scope. If the name is shadowed
+      // by a handler-local binding or a closer ancestor scope, the file-level
+      // async fn isn't what's actually being passed — skip the false positive.
+      if (!analysis) analysis = createSnippetAnalysis(project, code, `async_pred_${loc(node).line}`, 'block');
+      if (analysis.localBindings.has(fnName)) continue;
+      if (!visibleBindings) visibleBindings = collectVisibleBindings(node, parentMap, rootNodes);
+      const visible = visibleBindings.get(fnName);
+      if (!visible || visible.node !== fnNode) continue;
+
+      const key = `${fnName}@${loc(fnNode).line}:${loc(fnNode).col}:${loc(node).line}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      findings.push(
+        finding(
+          'async-predicate-return',
+          'error',
+          'bug',
+          `Async function '${fnName}' is passed directly to a predicate-style array method (filter/find/some/every/findIndex). The callback returns Promise<boolean>, which is always truthy — the predicate cannot work as intended.`,
+          filePath,
+          fnNode,
+          {
+            suggestion: `Drop async=true and resolve any awaits before the call (e.g. preload data and use a synchronous predicate), or use a for-await loop instead of .filter/.find.`,
+          },
+        ),
+      );
+    }
+  }
+  return findings;
+};
+
+const THIS_IS_RE = /\bthis\s+is\s+\S/;
+const THIS_PARAM_RE = /(?:^|,)\s*this\s*:/;
+
+function fnHasThisParam(node: IRNode): boolean {
+  const params = readStringPropFlat(node, 'params');
+  if (params && THIS_PARAM_RE.test(params)) return true;
+  for (const child of node.children || []) {
+    if (child.type !== 'param') continue;
+    const name = props(child).name;
+    if (name === 'this') return true;
+  }
+  return false;
+}
+
+export const thisIsOutsideClass: KernSourceRule = (nodes: IRNode[], filePath: string): ReviewFinding[] => {
+  const findings: ReviewFinding[] = [];
+  const parentMap = buildParentMap(nodes);
+  for (const node of parentMap.keys()) {
+    const returns = readStringPropFlat(node, 'returns');
+    if (!returns || !THIS_IS_RE.test(returns)) continue;
+    // Codex P2 fix: TS allows `this is T` only on methods (implicit this) or on
+    // standalone fns with an explicit `this:` parameter. Accessors (getter/setter)
+    // are NOT allowed — TS rejects type predicates on accessors. Constructors
+    // can't have return types so they're irrelevant here.
+    if (node.type === 'method') continue;
+    if (node.type === 'fn' && fnHasThisParam(node)) continue;
+    findings.push(
+      finding(
+        'this-is-outside-class',
+        'error',
+        'type',
+        `'${node.type}' '${props(node).name ?? '<unnamed>'}' uses a 'this is …' type predicate. TypeScript only allows 'this' in a return type on methods, or on standalone fns that declare an explicit 'this:' parameter.`,
+        filePath,
+        node,
+        {
+          suggestion: `Either move this onto a method, add an explicit \`this: T\` parameter to the fn, or change the return type to a non-'this' predicate like 'x is T'.`,
+        },
+      ),
+    );
+  }
+  return findings;
+};
+
+export const multipleStringIndexers: KernSourceRule = (nodes: IRNode[], filePath: string): ReviewFinding[] => {
+  const findings: ReviewFinding[] = [];
+  const parentMap = buildParentMap(nodes);
+  for (const node of parentMap.keys()) {
+    const children = node.children || [];
+    if (children.length === 0) continue;
+    const stringIndexers = children.filter((c) => {
+      if (c.type !== 'indexer') return false;
+      const keyType = readStringPropFlat(c, 'keyType');
+      return keyType?.trim() === 'string';
+    });
+    if (stringIndexers.length < 2) continue;
+    const parentName = props(node).name;
+    const owner = typeof parentName === 'string' && parentName ? `'${parentName}'` : `'${node.type}'`;
+    findings.push(
+      finding(
+        'multiple-string-indexers',
+        'error',
+        'type',
+        `${owner} declares ${stringIndexers.length} string-keyed indexers. TypeScript permits at most one string indexer per type.`,
+        filePath,
+        stringIndexers[1],
+        {
+          suggestion: `Merge the string indexers into a single 'indexer keyType=string' whose value type is the union of the colliding value types.`,
+          relatedSpans: stringIndexers.slice(0, 1).map((dup) => ({
+            file: filePath,
+            startLine: loc(dup).line,
+            startCol: loc(dup).col,
+            endLine: loc(dup).line,
+            endCol: loc(dup).col,
+          })),
+        },
+      ),
+    );
+  }
+  return findings;
+};
+
+export const trailingPipeEnumValues: KernSourceRule = (nodes: IRNode[], filePath: string): ReviewFinding[] => {
+  const findings: ReviewFinding[] = [];
+  const parentMap = buildParentMap(nodes);
+  for (const node of parentMap.keys()) {
+    if (node.type !== 'type') continue;
+    const values = readStringPropFlat(node, 'values');
+    if (!values) continue;
+    const trimmed = values.trim();
+    if (!trimmed.includes('|')) continue;
+    const hasLeading = /^\|/.test(trimmed);
+    const hasTrailing = /\|$/.test(trimmed);
+    const hasDouble = /\|\s*\|/.test(trimmed);
+    if (!hasLeading && !hasTrailing && !hasDouble) continue;
+    const parts: string[] = [];
+    if (hasLeading) parts.push('leading');
+    if (hasTrailing) parts.push('trailing');
+    if (hasDouble) parts.push('empty middle');
+    // Codex P2 fix: core's generateType wraps each member in quotes, so
+    // values="active|" is technically valid TS — `'active' | ''` (empty-string
+    // member). Almost always a typo, but not invalid. Demoted from error/type
+    // to info/style as a likely-typo hint.
+    findings.push(
+      finding(
+        'trailing-pipe-enum',
+        'info',
+        'style',
+        `Type alias '${props(node).name ?? '<unnamed>'}' has ${parts.join(', ')} pipe in values="${values}" — produces a literal '' (empty-string) union member, which is valid TS but usually a typo.`,
+        filePath,
+        node,
+        {
+          suggestion: `If the empty-string member is intentional, ignore this hint. Otherwise remove the stray '|' so each member is non-empty.`,
+        },
+      ),
+    );
+  }
+  return findings;
+};
+
 export function lintKernSourceIR(
   nodes: IRNode[],
   filePath: string,
@@ -1159,4 +1358,8 @@ export const KERN_SOURCE_RULES: KernSourceRule[] = [
   handlerHeavy,
   missingConfidence,
   setSetterCollision,
+  asyncPredicateReturn,
+  thisIsOutsideClass,
+  multipleStringIndexers,
+  trailingPipeEnumValues,
 ];

@@ -125,9 +125,12 @@ export {
   emitParamList,
   generateClass,
   generateConst,
+  generateDestructure,
   generateEnum,
   generateInterface,
+  generateMapLit,
   generateService,
+  generateSetLit,
   generateType,
   generateUnion,
   parseParamListFromChildren,
@@ -220,9 +223,12 @@ import {
   emitConstValue,
   generateClass,
   generateConst,
+  generateDestructure,
   generateEnum,
   generateInterface,
+  generateMapLit,
   generateService,
+  generateSetLit,
   generateType,
   generateUnion,
 } from './codegen/type-system.js';
@@ -703,6 +709,20 @@ export function generateCoreNode(node: IRNode, target?: string, runtime?: KernRu
       return []; // Children of `use` — handled by generateUse, not at top level
     case 'const':
       return generateConst(node);
+    case 'destructure':
+      return generateDestructure(node);
+    case 'binding':
+    case 'element':
+      // Children of `destructure` — handled by generateDestructure, not at top level.
+      return [];
+    case 'mapLit':
+      return generateMapLit(node);
+    case 'setLit':
+      return generateSetLit(node);
+    case 'mapEntry':
+    case 'setItem':
+      // Children of `mapLit` / `setLit` — handled by their parent generator, not at top level.
+      return [];
     case 'hook':
       return []; // Handled by @kernlang/react
     case 'on':

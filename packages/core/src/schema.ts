@@ -376,6 +376,80 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
     allowedChildren: ['handler'],
   },
+  destructure: {
+    description:
+      'Native destructuring statement — emits `const {a,b} = expr;` (object pattern with `binding` children) or `const [x,y] = expr;` (array pattern with `element` children). For complex patterns (rest `...`, defaults `=v`, nested `{a:{b}}`), use the `expr={{...}}` escape hatch which carries the raw TS statement verbatim. Slice 3d.',
+    example: 'destructure kind=const source=user\n  binding name=id\n  binding name=email key=mail',
+    props: {
+      kind: { kind: 'string' },
+      source: { kind: 'expression' },
+      type: { kind: 'typeAnnotation' },
+      export: { kind: 'boolean' },
+      expr: { kind: 'rawExpr' },
+    },
+    allowedChildren: ['binding', 'element'],
+  },
+  binding: {
+    description:
+      'Object-destructuring binding inside a `destructure` parent. `name` is the local binding; `key` is the optional property key when renaming, e.g. `{a: foo}` → `binding name=foo key=a`. Slice 3d.',
+    example: 'binding name=foo key=a',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      key: { kind: 'identifier' },
+    },
+  },
+  element: {
+    description:
+      'Array-destructuring element inside a `destructure` parent. `index` is the ordered position (zero-based). Slice 3d.',
+    example: 'element name=first index=0',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      index: { kind: 'string' },
+    },
+  },
+  mapLit: {
+    description:
+      'Native Map<K,V> literal — emits `const name: Type = new Map([[k1, v1], [k2, v2]]);` from `mapEntry` children. For complex shapes (computed keys, conditional entries, spread), use the `expr={{...}}` escape hatch which carries the raw TS statement verbatim. Slice 3e.',
+    example: 'mapLit name=cache type="Map<string, number>"\n  mapEntry key="foo" value=1\n  mapEntry key="bar" value=2',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      kind: { kind: 'string' },
+      export: { kind: 'boolean' },
+      expr: { kind: 'rawExpr' },
+    },
+    allowedChildren: ['mapEntry'],
+  },
+  mapEntry: {
+    description:
+      'Map-literal entry inside a `mapLit` parent. `key` and `value` are both expression-typed and ValueIR-canonicalised. Slice 3e.',
+    example: 'mapEntry key="foo" value=1',
+    props: {
+      key: { required: true, kind: 'expression' },
+      value: { required: true, kind: 'expression' },
+    },
+  },
+  setLit: {
+    description:
+      'Native Set<T> literal — emits `const name: Type = new Set([v1, v2]);` from `setItem` children. For complex shapes (conditional members, spread), use the `expr={{...}}` escape hatch which carries the raw TS statement verbatim. Slice 3e.',
+    example: 'setLit name=allowed type="Set<string>"\n  setItem value="admin"\n  setItem value="user"',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      type: { kind: 'typeAnnotation' },
+      kind: { kind: 'string' },
+      export: { kind: 'boolean' },
+      expr: { kind: 'rawExpr' },
+    },
+    allowedChildren: ['setItem'],
+  },
+  setItem: {
+    description:
+      'Set-literal item inside a `setLit` parent. `value` is expression-typed and ValueIR-canonicalised. Slice 3e.',
+    example: 'setItem value="admin"',
+    props: {
+      value: { required: true, kind: 'expression' },
+    },
+  },
   on: {
     description: 'Event listener — binds a handler to a named event',
     example: 'on event=click handler=handleClick',
@@ -1525,6 +1599,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       type: { kind: 'typeAnnotation' },
       value: { kind: 'expression' },
       required: { kind: 'boolean' },
+      // Slice 3c-extension: TS-style optional `?` on the LHS, distinct from MCP
+      // `required`. When `optional=true`, codegen emits `name?: type` (with the
+      // `?` inside the parameter list) so callers may omit the argument.
+      optional: { kind: 'boolean' },
       default: { kind: 'rawExpr' },
       description: { kind: 'string' },
       min: { kind: 'number' },

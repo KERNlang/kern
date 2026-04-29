@@ -98,6 +98,44 @@ export interface ConstProps extends BaseProps {
   value?: string | ExprObject;
 }
 
+// Slice 3d — native destructuring
+export interface DestructureProps extends BaseProps {
+  kind?: 'const' | 'let';
+  source?: string | ExprObject;
+  type?: string;
+  expr?: string | ExprObject;
+}
+
+export interface BindingProps extends BaseProps {
+  key?: string;
+}
+
+export interface DestructureElementProps extends BaseProps {
+  index?: string;
+}
+
+// Slice 3e — native Map/Set literals
+export interface MapLitProps extends BaseProps {
+  type?: string;
+  kind?: 'const' | 'let';
+  expr?: string | ExprObject;
+}
+
+export interface MapEntryProps extends BaseProps {
+  key?: string | ExprObject;
+  value?: string | ExprObject;
+}
+
+export interface SetLitProps extends BaseProps {
+  type?: string;
+  kind?: 'const' | 'let';
+  expr?: string | ExprObject;
+}
+
+export interface SetItemProps extends BaseProps {
+  value?: string | ExprObject;
+}
+
 // ── Functions ───────────────────────────────────────────────────────────
 
 export interface FnProps extends BaseProps {
@@ -565,6 +603,7 @@ export interface ParamProps extends BaseProps {
   value?: string | ExprObject;
   default?: string | ExprObject;
   required?: string | boolean;
+  optional?: string | boolean;
   description?: string;
   min?: string | number;
   max?: string | number;
@@ -644,6 +683,13 @@ export interface NodePropsMap {
   service: ServiceProps;
   class: ClassProps;
   const: ConstProps;
+  destructure: DestructureProps;
+  binding: BindingProps;
+  element: DestructureElementProps;
+  mapLit: MapLitProps;
+  mapEntry: MapEntryProps;
+  setLit: SetLitProps;
+  setItem: SetItemProps;
   fn: FnProps;
   error: ErrorProps;
   machine: MachineProps;

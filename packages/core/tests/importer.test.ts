@@ -16,6 +16,30 @@ import './setup';
     expect(() => parse(result.kern)).not.toThrow();
   });
 
+  test('slice 3c: structured param children handle whitespace types correctly (Codex P1)', () => {
+    // Regression for Codex's slice 3c P1 hold: typeToString() pre-quotes
+    // whitespace types (`"string | null"`), and tryFormatParamChildren was
+    // wrapping the already-quoted result again, producing the broken
+    // `type="\"string | null\""` shape that emitted as a TS string-literal
+    // type instead of a union. Fix: read raw `p.type.getText(source)` for
+    // structured param children, since they always wrap in quotes anyway.
+    const source = `
+export function find(query: string | null, filter: Map<string, number>): void {
+  return;
+}
+`;
+    const result = importTypeScript(source, 'find.ts');
+    // Union types (whitespace) emit cleanly as `type="string | null"` —
+    // single quotes, not double-wrapped.
+    expect(result.kern).toContain('param name=query type="string | null"');
+    expect(result.kern).toContain('param name=filter type="Map<string, number>"');
+    // Crucially, NO double-wrapped quotes — that would produce a TS string
+    // literal type at codegen time, not the intended union/generic.
+    expect(result.kern).not.toMatch(/type="\\"/);
+    // And the round-trip parses without throwing.
+    expect(() => parse(result.kern)).not.toThrow();
+  });
+
   test('imports typed exported async functions with doc comments and handlers', () => {
     const source = `
 /** Load a user by id. */

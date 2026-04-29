@@ -137,22 +137,30 @@ function tryFormatParamChildren(
 ): string[] | null {
   if (parameters.length === 0) return [];
   for (const p of parameters) {
-    if (p.questionToken) return null;
+    // Slice 3c-extension: optional `?` is now structurable via `optional=true`
+    // (gate dropped). Variadic `...` and destructure patterns still bail out.
     if (p.dotDotDotToken) return null;
     if (!ts.isIdentifier(p.name)) return null;
     // Multi-line types (inline object shapes spread across lines) can't be
     // round-tripped through a single-line `type="..."` quoted attribute —
     // KERN's tokeniser treats newlines as record separators. Leave the
     // whole signature legacy when any param has a multi-line type.
-    const typeText = typeToString(p.type, source);
-    if (typeText && /\n/.test(typeText)) return null;
+    if (p.type && /\n/.test(p.type.getText(source))) return null;
   }
   const lines: string[] = [];
   for (const p of parameters) {
     const name = (p.name as ts.Identifier).getText(source);
-    const type = typeToString(p.type, source);
+    // Codex P1 fix: read the RAW type text here (not via `typeToString`,
+    // which pre-quotes whitespace types like `"string | null"`). Structured
+    // `param` children always wrap the type in quotes, so a pre-quoted
+    // value would double-wrap to `type="\"string | null\""` — invalid TS
+    // (the resulting fn would have `x: "string | null"` as a string-literal
+    // type, not a union). Legacy `params="..."` callers still go through
+    // `typeToString` and its space-aware pre-quoting.
+    const type = p.type ? p.type.getText(source) : '';
     const parts: string[] = [`param name=${name}`];
     if (type) parts.push(`type="${escapeKernString(type)}"`);
+    if (p.questionToken) parts.push('optional=true');
     if (p.initializer) {
       parts.push(`value={{ ${p.initializer.getText(source)} }}`);
     }
@@ -646,12 +654,222 @@ function convertErrorClass(
   return lines;
 }
 
+/**
+ * Slice 3d — try to format a destructured `const`/`let` declaration as a
+ * structured `destructure` IR node with `binding` (object) or `element`
+ * (array) children. Returns `null` for non-destructured patterns; returns
+ * a single fallback line carrying the raw statement in `expr={{...}}` for
+ * patterns we can't structure (rest `...`, defaults `=v`, nested `{a:{b}}`,
+ * computed/string keys).
+ */
+function tryFormatDestructure(
+  decl: ts.VariableDeclaration,
+  kind: 'const' | 'let',
+  exported: boolean,
+  source: ts.SourceFile,
+  fullStmtText: string,
+): string[] | null {
+  if (!decl.initializer) return null;
+  const isObj = ts.isObjectBindingPattern(decl.name);
+  const isArr = ts.isArrayBindingPattern(decl.name);
+  if (!isObj && !isArr) return null;
+
+  const fallback = (): string[] => [`destructure expr={{ ${fullStmtText} }}`];
+
+  const childLines: string[] = [];
+  if (isObj) {
+    for (const el of (decl.name as ts.ObjectBindingPattern).elements) {
+      if (el.dotDotDotToken) return fallback();
+      if (el.initializer) return fallback();
+      if (!ts.isIdentifier(el.name)) return fallback();
+      const localName = el.name.getText(source);
+      let line = `binding name=${localName}`;
+      if (el.propertyName) {
+        if (!ts.isIdentifier(el.propertyName)) return fallback();
+        line += ` key=${el.propertyName.getText(source)}`;
+      }
+      childLines.push(line);
+    }
+  } else {
+    let idx = 0;
+    for (const el of (decl.name as ts.ArrayBindingPattern).elements) {
+      if (ts.isOmittedExpression(el)) {
+        idx++;
+        continue;
+      }
+      if (el.dotDotDotToken) return fallback();
+      if (el.initializer) return fallback();
+      if (!ts.isIdentifier(el.name)) return fallback();
+      childLines.push(`element name=${el.name.getText(source)} index=${idx}`);
+      idx++;
+    }
+  }
+
+  if (childLines.length === 0) return fallback();
+
+  const sourceText = decl.initializer.getText(source);
+  const isSimpleIdent = /^[A-Za-z_$][\w$]*$/.test(sourceText);
+  const sourceAttr = isSimpleIdent ? ` source=${sourceText}` : ` source={{ ${sourceText} }}`;
+  const type = typeToString(decl.type, source);
+  const typeAttr = type ? ` type=${type}` : '';
+  const expAttr = exported ? ' export=true' : '';
+
+  const lines: string[] = [`destructure kind=${kind}${typeAttr}${sourceAttr}${expAttr}`];
+  for (const line of childLines) lines.push(`  ${line}`);
+  return lines;
+}
+
+/**
+ * Slice 3e — pick the right KERN attribute form for a TS expression node
+ * used as a key/value in a Map/Set literal entry.
+ *
+ *   - String literals → `prop="foo"` so the quoted source flows through
+ *     __quotedProps and codegen JSON-stringifies.
+ *   - Primitive literals (numeric, true, false, null) → `prop=42` bare so
+ *     they go through ValueIR canonicalisation per slice 3a-c precedent.
+ *   - Anything else → `prop={{ raw-ts }}` ExprObject escape hatch.
+ */
+function formatLitEntryAttr(propName: string, expr: ts.Expression, source: ts.SourceFile): string {
+  const text = expr.getText(source);
+  if (ts.isStringLiteral(expr)) return `${propName}=${text}`;
+  if (
+    ts.isNumericLiteral(expr) ||
+    expr.kind === ts.SyntaxKind.TrueKeyword ||
+    expr.kind === ts.SyntaxKind.FalseKeyword ||
+    expr.kind === ts.SyntaxKind.NullKeyword
+  ) {
+    return `${propName}=${text}`;
+  }
+  return `${propName}={{ ${text} }}`;
+}
+
+/**
+ * Slice 3e — try to format `const x = new Map([['k', v], ...])` as a
+ * structured `mapLit` IR node with `mapEntry` children. Returns null when
+ * the initializer is not a Map constructor call, or when the array argument
+ * contains non-canonical entries (spread, computed keys, non-tuple entries).
+ */
+function tryFormatMapLit(
+  decl: ts.VariableDeclaration,
+  kind: 'const' | 'let',
+  exported: boolean,
+  source: ts.SourceFile,
+): string[] | null {
+  if (!decl.initializer || !ts.isNewExpression(decl.initializer)) return null;
+  if (decl.initializer.expression.getText(source) !== 'Map') return null;
+  if (!ts.isIdentifier(decl.name)) return null;
+  // Empty `new Map()` or unusual form — pass through.
+  const args = decl.initializer.arguments;
+  if (!args || args.length === 0) return null;
+  const arg = args[0];
+  if (!ts.isArrayLiteralExpression(arg)) return null;
+
+  const entryLines: string[] = [];
+  for (const el of arg.elements) {
+    if (!ts.isArrayLiteralExpression(el)) return null; // non-tuple entry
+    if (el.elements.length !== 2) return null; // not [k, v]
+    if (el.elements.some((e) => ts.isSpreadElement(e))) return null;
+    const keyAttr = formatLitEntryAttr('key', el.elements[0], source);
+    const valAttr = formatLitEntryAttr('value', el.elements[1], source);
+    entryLines.push(`mapEntry ${keyAttr} ${valAttr}`);
+  }
+  if (entryLines.length === 0) return null; // empty array — pass through
+
+  const name = decl.name.getText(source);
+  const type = typeToString(decl.type, source);
+  const typeAttr = type ? ` type=${type}` : '';
+  const expAttr = exported ? ' export=true' : '';
+  const kindAttr = kind === 'let' ? ' kind=let' : '';
+  const lines: string[] = [`mapLit name=${name}${typeAttr}${kindAttr}${expAttr}`];
+  for (const l of entryLines) lines.push(`  ${l}`);
+  return lines;
+}
+
+/**
+ * Slice 3e — try to format `const x = new Set([v1, v2, ...])` as a
+ * structured `setLit` IR node with `setItem` children. Returns null when
+ * the initializer is not a Set constructor call, or when the array argument
+ * contains non-canonical members (spread).
+ */
+function tryFormatSetLit(
+  decl: ts.VariableDeclaration,
+  kind: 'const' | 'let',
+  exported: boolean,
+  source: ts.SourceFile,
+): string[] | null {
+  if (!decl.initializer || !ts.isNewExpression(decl.initializer)) return null;
+  if (decl.initializer.expression.getText(source) !== 'Set') return null;
+  if (!ts.isIdentifier(decl.name)) return null;
+  const args = decl.initializer.arguments;
+  if (!args || args.length === 0) return null;
+  const arg = args[0];
+  if (!ts.isArrayLiteralExpression(arg)) return null;
+
+  const itemLines: string[] = [];
+  for (const el of arg.elements) {
+    if (ts.isSpreadElement(el)) return null;
+    itemLines.push(`setItem ${formatLitEntryAttr('value', el as ts.Expression, source)}`);
+  }
+  if (itemLines.length === 0) return null;
+
+  const name = decl.name.getText(source);
+  const type = typeToString(decl.type, source);
+  const typeAttr = type ? ` type=${type}` : '';
+  const expAttr = exported ? ' export=true' : '';
+  const kindAttr = kind === 'let' ? ' kind=let' : '';
+  const lines: string[] = [`setLit name=${name}${typeAttr}${kindAttr}${expAttr}`];
+  for (const l of itemLines) lines.push(`  ${l}`);
+  return lines;
+}
+
 function convertVariableStatement(node: ts.VariableStatement, source: ts.SourceFile): string[] {
   const lines: string[] = [];
   const exp = isExported(node) ? ' export=true' : '';
   const doc = getJSDoc(node, source);
 
+  // Slice 3d — derive const|let|var from the declaration list flags.
+  const declKind: 'const' | 'let' =
+    (node.declarationList.flags & ts.NodeFlags.Const) !== 0
+      ? 'const'
+      : (node.declarationList.flags & ts.NodeFlags.Let) !== 0
+        ? 'let'
+        : 'const';
+
   for (const decl of node.declarationList.declarations) {
+    // Slice 3d — destructured LHS handled BEFORE the simple-value branch
+    // because `decl.name` for `const {a,b}=obj` is a binding pattern, not
+    // an identifier. Falls through to the legacy paths only when LHS is a
+    // plain identifier.
+    if (ts.isObjectBindingPattern(decl.name) || ts.isArrayBindingPattern(decl.name)) {
+      if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
+      // Reconstruct the full statement text for the expr= fallback path.
+      // Prefer node.getText(source) so we capture `export const {a}=obj;` shape.
+      const fullStmtText = node.getText(source).trim().replace(/;$/, '');
+      const result = tryFormatDestructure(decl, declKind, isExported(node), source, fullStmtText);
+      if (result) {
+        for (const l of result) lines.push(l);
+        continue;
+      }
+    }
+
+    // Slice 3e — Map/Set literal detection. Falls through to legacy const
+    // when the constructor argument shape isn't structurable (spread,
+    // computed keys, non-tuple entries, etc.).
+    {
+      const mapLines = tryFormatMapLit(decl, declKind, isExported(node), source);
+      if (mapLines) {
+        if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
+        for (const l of mapLines) lines.push(l);
+        continue;
+      }
+      const setLines = tryFormatSetLit(decl, declKind, isExported(node), source);
+      if (setLines) {
+        if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
+        for (const l of setLines) lines.push(l);
+        continue;
+      }
+    }
+
     const name = decl.name.getText(source);
     const type = typeToString(decl.type, source);
     const typeStr = type ? ` type=${type}` : '';

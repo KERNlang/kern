@@ -331,4 +331,230 @@ screen name=External
     const requiredReport = reviewKernSource(source, 'api.kern', { requireConfidenceAnnotations: true, noCache: true });
     expect(requiredReport.findings.some((f) => f.ruleId === 'missing-confidence')).toBe(true);
   });
+
+  describe('async-predicate-return', () => {
+    it('flags async fn passed directly to .filter()', () => {
+      const source = `
+fn name=isReady params="x:User" returns=boolean async=true
+  handler <<<
+    return await checkRemote(x);
+  >>>
+fn name=pickReady params="users:User[]" returns="User[]"
+  handler <<<
+    return users.filter(isReady);
+  >>>
+`;
+      const report = reviewKernSource(source, 'pred.kern');
+      const finding = report.findings.find((f) => f.ruleId === 'async-predicate-return');
+      expect(finding).toBeDefined();
+      expect(finding?.severity).toBe('error');
+      expect(finding?.message).toContain('isReady');
+      expect(finding?.message).toContain('Promise<boolean>');
+    });
+
+    it('flags async fn passed to .find/.some/.every/.findIndex', () => {
+      for (const method of ['find', 'some', 'every', 'findIndex']) {
+        const source = `
+fn name=isMatch params="x:User" returns=boolean async=true
+  handler <<<
+    return await remoteCheck(x);
+  >>>
+fn name=user params="users:User[]" returns=unknown
+  handler <<<
+    return users.${method}(isMatch);
+  >>>
+`;
+        const report = reviewKernSource(source, `pred-${method}.kern`);
+        const finding = report.findings.find((f) => f.ruleId === 'async-predicate-return');
+        expect(finding).toBeDefined();
+      }
+    });
+
+    it('does NOT flag async fn that is awaited (correct usage)', () => {
+      const source = `
+fn name=isReady params="x:User" returns=boolean async=true
+  handler <<<
+    return await checkRemote(x);
+  >>>
+fn name=gate params="x:User" returns=boolean async=true
+  handler <<<
+    if (await isReady(x)) return true;
+    return false;
+  >>>
+`;
+      const report = reviewKernSource(source, 'await.kern');
+      expect(report.findings.some((f) => f.ruleId === 'async-predicate-return')).toBe(false);
+    });
+
+    it('does NOT flag synchronous fn passed to .filter()', () => {
+      const source = `
+fn name=isReady params="x:User" returns=boolean
+  handler <<<
+    return x.ready === true;
+  >>>
+fn name=pickReady params="users:User[]" returns="User[]"
+  handler <<<
+    return users.filter(isReady);
+  >>>
+`;
+      const report = reviewKernSource(source, 'sync.kern');
+      expect(report.findings.some((f) => f.ruleId === 'async-predicate-return')).toBe(false);
+    });
+
+    it('does NOT flag when handler param shadows the file-level async fn name (Codex P2)', () => {
+      const source = `
+fn name=isReady params="x:User" returns=boolean async=true
+  handler <<<
+    return await checkRemote(x);
+  >>>
+fn name=pickReady params="isReady:(u:User)=>boolean,users:User[]" returns="User[]"
+  handler <<<
+    return users.filter(isReady);
+  >>>
+`;
+      const report = reviewKernSource(source, 'shadow.kern');
+      expect(report.findings.some((f) => f.ruleId === 'async-predicate-return')).toBe(false);
+    });
+  });
+
+  describe('this-is-outside-class', () => {
+    it('flags standalone fn (no this: param) with returns="this is T"', () => {
+      const source = `
+fn name=isAdmin params="x:User" returns="this is Admin"
+  handler <<<
+    return x.role === "admin";
+  >>>
+`;
+      const report = reviewKernSource(source, 'thisis.kern');
+      const finding = report.findings.find((f) => f.ruleId === 'this-is-outside-class');
+      expect(finding).toBeDefined();
+      expect(finding?.severity).toBe('error');
+      expect(finding?.message).toContain('isAdmin');
+    });
+
+    it('does NOT flag method with returns="this is T"', () => {
+      const source = `
+service name=UserService
+  method name=isAdmin params="" returns="this is AdminUser"
+    handler <<<
+      return (this as any).role === "admin";
+    >>>
+`;
+      const report = reviewKernSource(source, 'method-thisis.kern');
+      expect(report.findings.some((f) => f.ruleId === 'this-is-outside-class')).toBe(false);
+    });
+
+    it('does NOT flag fn with explicit this: parameter (Codex P2)', () => {
+      const source = `
+fn name=isAdmin params="this:User" returns="this is Admin"
+  handler <<<
+    return this.role === "admin";
+  >>>
+`;
+      const report = reviewKernSource(source, 'fn-thisparam.kern');
+      expect(report.findings.some((f) => f.ruleId === 'this-is-outside-class')).toBe(false);
+    });
+
+    it('flags getter with returns="this is T" (Codex P2)', () => {
+      const source = `
+service name=UserService
+  getter name=isAdmin returns="this is AdminUser"
+    handler <<<
+      return (this as any).role === "admin";
+    >>>
+`;
+      const report = reviewKernSource(source, 'getter-thisis.kern');
+      const finding = report.findings.find((f) => f.ruleId === 'this-is-outside-class');
+      expect(finding).toBeDefined();
+    });
+
+    it('does NOT flag fn with non-this type predicate "x is T"', () => {
+      const source = `
+fn name=isAdmin params="x:User" returns="x is Admin"
+  handler <<<
+    return x.role === "admin";
+  >>>
+`;
+      const report = reviewKernSource(source, 'xis.kern');
+      expect(report.findings.some((f) => f.ruleId === 'this-is-outside-class')).toBe(false);
+    });
+  });
+
+  describe('multiple-string-indexers', () => {
+    it('flags interface with two string-keyed indexers', () => {
+      const source = `
+interface name=Bag
+  indexer keyName=k keyType=string type=string
+  indexer keyName=k2 keyType=string type=number
+`;
+      const report = reviewKernSource(source, 'bag.kern');
+      const finding = report.findings.find((f) => f.ruleId === 'multiple-string-indexers');
+      expect(finding).toBeDefined();
+      expect(finding?.severity).toBe('error');
+      expect(finding?.message).toContain('Bag');
+      expect(finding?.message).toContain('2');
+    });
+
+    it('does NOT flag interface with one string and one number indexer', () => {
+      const source = `
+interface name=Mixed
+  indexer keyName=k keyType=string type=string
+  indexer keyName=i keyType=number type=string
+`;
+      const report = reviewKernSource(source, 'mixed.kern');
+      expect(report.findings.some((f) => f.ruleId === 'multiple-string-indexers')).toBe(false);
+    });
+
+    it('does NOT flag interface with a single string indexer', () => {
+      const source = `
+interface name=Solo
+  indexer keyName=k keyType=string type=string
+`;
+      const report = reviewKernSource(source, 'solo.kern');
+      expect(report.findings.some((f) => f.ruleId === 'multiple-string-indexers')).toBe(false);
+    });
+  });
+
+  describe('trailing-pipe-enum', () => {
+    it('hints at trailing pipe in values (info/style severity per Codex P2)', () => {
+      const source = `
+type name=Status values="active|inactive|"
+`;
+      const report = reviewKernSource(source, 'status.kern');
+      const finding = report.findings.find((f) => f.ruleId === 'trailing-pipe-enum');
+      expect(finding).toBeDefined();
+      expect(finding?.severity).toBe('info');
+      expect(finding?.category).toBe('style');
+      expect(finding?.message).toContain('Status');
+      expect(finding?.message).toContain('trailing');
+    });
+
+    it('hints at leading pipe in values', () => {
+      const source = `
+type name=Mode values="|read|write"
+`;
+      const report = reviewKernSource(source, 'mode.kern');
+      const finding = report.findings.find((f) => f.ruleId === 'trailing-pipe-enum');
+      expect(finding).toBeDefined();
+      expect(finding?.message).toContain('leading');
+    });
+
+    it('hints at double pipe in values', () => {
+      const source = `
+type name=Phase values="init||done"
+`;
+      const report = reviewKernSource(source, 'phase.kern');
+      const finding = report.findings.find((f) => f.ruleId === 'trailing-pipe-enum');
+      expect(finding).toBeDefined();
+      expect(finding?.message).toContain('empty middle');
+    });
+
+    it('does NOT hint on well-formed values', () => {
+      const source = `
+type name=Status values="active|inactive|banned"
+`;
+      const report = reviewKernSource(source, 'ok.kern');
+      expect(report.findings.some((f) => f.ruleId === 'trailing-pipe-enum')).toBe(false);
+    });
+  });
 });
