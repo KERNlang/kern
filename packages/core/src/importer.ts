@@ -144,13 +144,19 @@ function tryFormatParamChildren(
     // round-tripped through a single-line `type="..."` quoted attribute —
     // KERN's tokeniser treats newlines as record separators. Leave the
     // whole signature legacy when any param has a multi-line type.
-    const typeText = typeToString(p.type, source);
-    if (typeText && /\n/.test(typeText)) return null;
+    if (p.type && /\n/.test(p.type.getText(source))) return null;
   }
   const lines: string[] = [];
   for (const p of parameters) {
     const name = (p.name as ts.Identifier).getText(source);
-    const type = typeToString(p.type, source);
+    // Codex P1 fix: read the RAW type text here (not via `typeToString`,
+    // which pre-quotes whitespace types like `"string | null"`). Structured
+    // `param` children always wrap the type in quotes, so a pre-quoted
+    // value would double-wrap to `type="\"string | null\""` — invalid TS
+    // (the resulting fn would have `x: "string | null"` as a string-literal
+    // type, not a union). Legacy `params="..."` callers still go through
+    // `typeToString` and its space-aware pre-quoting.
+    const type = p.type ? p.type.getText(source) : '';
     const parts: string[] = [`param name=${name}`];
     if (type) parts.push(`type="${escapeKernString(type)}"`);
     if (p.initializer) {
