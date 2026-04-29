@@ -6,11 +6,7 @@ import type { ParseState } from './parser-diagnostics.js';
 import { emitDiagnostic } from './parser-diagnostics.js';
 import { parseExpression } from './parser-expression.js';
 import { NODE_SCHEMAS } from './schema.js';
-import type { IRNode } from './types.js';
-
-function isExprObject(v: unknown): boolean {
-  return typeof v === 'object' && v !== null && (v as { __expr?: unknown }).__expr === true;
-}
+import { type IRNode, isExprObject } from './types.js';
 
 function validateNode(state: ParseState, node: IRNode): void {
   const schema = NODE_SCHEMAS[node.type as string];

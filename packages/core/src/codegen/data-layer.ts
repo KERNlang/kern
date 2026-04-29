@@ -5,15 +5,11 @@
  */
 
 import { propsOf } from '../node-props.js';
-import type { ExprObject, IRNode } from '../types.js';
+import { type IRNode, isExprObject } from '../types.js';
 import { emitIdentifier, emitPath, emitStringLiteral, emitTypeAnnotation } from './emitters.js';
 import { emitDocComment, exportPrefix, getChildren, getFirstChild, getProps, handlerCode } from './helpers.js';
 import { mapSemanticType } from './semantic-types.js';
 import { emitConstValue, emitParamList } from './type-system.js';
-
-function isExprObject(v: unknown): v is ExprObject {
-  return typeof v === 'object' && v !== null && (v as { __expr?: unknown }).__expr === true;
-}
 
 const p = getProps;
 const kids = getChildren;

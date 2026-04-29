@@ -14,6 +14,16 @@ export interface ExprObject {
   code: string;
 }
 
+/** Type guard for ExprObject — matches the ExprObject contract exactly. */
+export function isExprObject(value: unknown): value is ExprObject {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { __expr?: unknown }).__expr === true &&
+    typeof (value as { code?: unknown }).code === 'string'
+  );
+}
+
 /** Base node in the IR tree */
 export interface IRNode {
   /** Node type identifier — known types have autocomplete, custom/evolved types accepted as string */

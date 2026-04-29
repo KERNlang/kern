@@ -14,6 +14,7 @@ import {
   getChildren,
   getFirstChild,
   getProps,
+  isExprObject,
   serializeIR,
 } from '@kernlang/core';
 import { PY_FILE_IO_PATTERN, PY_NETWORK_PATTERN, PY_SHELL_EXEC_PATTERN } from './effect-patterns.js';
@@ -71,7 +72,7 @@ function resolveParamDefault(paramNode: IRNode): string | undefined {
   const rawValue = props.value;
   const valuePresent = rawValue !== undefined && (rawValue !== '' || quoted.includes('value'));
   if (valuePresent) {
-    if (typeof rawValue === 'object' && rawValue !== null && (rawValue as { __expr?: unknown }).__expr === true) {
+    if (isExprObject(rawValue)) {
       // ExprObject is JS-flavored; cannot safely emit into Python signature.
       return undefined;
     }
@@ -79,7 +80,7 @@ function resolveParamDefault(paramNode: IRNode): string | undefined {
   }
   const rawDefault = props.default;
   if (rawDefault !== undefined && rawDefault !== '') {
-    if (typeof rawDefault === 'object' && rawDefault !== null && (rawDefault as { __expr?: unknown }).__expr === true) {
+    if (isExprObject(rawDefault)) {
       return undefined;
     }
     return String(rawDefault);
