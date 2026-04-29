@@ -535,6 +535,8 @@ export interface ExpectProps extends BaseProps {
   message?: string;
   preset?: string;
   severity?: string;
+  node?: string;
+  name?: string;
   machine?: string;
   reaches?: string;
   via?: string;
@@ -544,6 +546,11 @@ export interface ExpectProps extends BaseProps {
   over?: string;
   union?: string;
   covers?: string;
+  child?: string;
+  childName?: string;
+  prop?: string;
+  is?: string;
+  count?: string;
 }
 
 export interface RecoverProps extends BaseProps {}

@@ -2361,12 +2361,23 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   expect: {
     description: 'Assertion — declare an expected runtime condition or KERN structural invariant',
     example:
-      'expect expr={{items.length > 0}} message="Items must not be empty"\nexpect machine=Order reaches=paid via=confirm,capture\nexpect no=deriveCycles',
+      'expect expr={{items.length > 0}} message="Items must not be empty"\nexpect machine=Order reaches=paid via=confirm,capture\nexpect node=interface name=User child=field count=3\nexpect no=deriveCycles',
     props: {
       expr: { kind: 'rawExpr' },
+      equals: { kind: 'rawExpr' },
+      matches: { kind: 'string' },
+      throws: { kind: 'string' },
       message: { kind: 'string' },
       preset: { kind: 'identifier' },
       severity: { kind: 'identifier' },
+      node: { kind: 'identifier' },
+      name: { kind: 'string' },
+      within: { kind: 'string' },
+      child: { kind: 'identifier' },
+      childName: { kind: 'string' },
+      prop: { kind: 'identifier' },
+      is: { kind: 'string' },
+      count: { kind: 'number' },
       machine: { kind: 'identifier' },
       reaches: { kind: 'identifier' },
       via: { kind: 'string' },
@@ -2505,19 +2516,21 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
   if (node.type === 'expect') {
     const hasRuntimeAssertion = 'expr' in props;
     const hasPreset = 'preset' in props;
+    const hasNodeShape = 'node' in props;
     const hasNegativeInvariant = 'no' in props;
     const hasGuardExhaustiveness = 'guard' in props;
     const hasMachineReachability = 'reaches' in props || ('machine' in props && !hasNegativeInvariant);
     if (
       !hasRuntimeAssertion &&
       !hasPreset &&
+      !hasNodeShape &&
       !hasMachineReachability &&
       !hasNegativeInvariant &&
       !hasGuardExhaustiveness
     ) {
       violations.push({
         nodeType: 'expect',
-        message: "'expect' requires 'expr', 'preset', 'machine'/'reaches', 'no', or 'guard'",
+        message: "'expect' requires 'expr', 'preset', 'node', 'machine'/'reaches', 'no', or 'guard'",
         line: node.loc?.line,
         col: node.loc?.col,
       });

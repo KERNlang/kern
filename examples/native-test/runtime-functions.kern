@@ -1,0 +1,13 @@
+const name=base value=10
+
+fn name=add returns=number
+  param name=a type=number
+  param name=b type=number
+  handler <<<
+    return a + b;
+  >>>
+
+fn name=withBase params="value:number" returns=number
+  handler <<<
+    return add(value, base);
+  >>>

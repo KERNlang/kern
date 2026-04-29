@@ -1,7 +1,10 @@
 import type { IRNode, ParseDiagnostic, SchemaViolation, SemanticViolation } from '@kernlang/core';
-import { parseDocumentWithDiagnostics, validateSchema, validateSemantics } from '@kernlang/core';
+import { generateCoreNode, parseDocumentWithDiagnostics, validateSchema, validateSemantics } from '@kernlang/core';
+import type { Dirent } from 'fs';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { dirname, join, relative, resolve } from 'path';
+import { inspect, isDeepStrictEqual } from 'util';
+import { createContext, Script } from 'vm';
 
 export type NativeKernTestStatus = 'passed' | 'failed' | 'warning';
 export type NativeKernTestSeverity = 'error' | 'warn';
@@ -19,6 +22,28 @@ export interface NativeKernTestResult {
   col?: number;
 }
 
+export interface NativeKernTestCoverageMetric {
+  total: number;
+  covered: number;
+  percent: number;
+  uncovered: string[];
+}
+
+export interface NativeKernTestCoverageTarget {
+  file: string;
+  transitions: NativeKernTestCoverageMetric;
+  guards: NativeKernTestCoverageMetric;
+}
+
+export interface NativeKernTestCoverageSummary {
+  total: number;
+  covered: number;
+  percent: number;
+  transitions: NativeKernTestCoverageMetric;
+  guards: NativeKernTestCoverageMetric;
+  targets: NativeKernTestCoverageTarget[];
+}
+
 export interface NativeKernTestSummary {
   file: string;
   targetFiles: string[];
@@ -27,6 +52,7 @@ export interface NativeKernTestSummary {
   warnings: number;
   failed: number;
   results: NativeKernTestResult[];
+  coverage: NativeKernTestCoverageSummary;
 }
 
 export interface NativeKernTestRunSummary {
@@ -38,6 +64,46 @@ export interface NativeKernTestRunSummary {
   warnings: number;
   failed: number;
   files: NativeKernTestSummary[];
+  coverage: NativeKernTestCoverageSummary;
+}
+
+export interface NativeKernTestBaselineEntry {
+  suite: string;
+  caseName: string;
+  ruleId: string;
+  assertion: string;
+  signature?: string;
+  message?: string;
+}
+
+export interface NativeKernTestBaseline {
+  version: 1;
+  warnings: NativeKernTestBaselineEntry[];
+}
+
+export interface NativeKernTestBaselineCheck {
+  ok: boolean;
+  knownWarnings: NativeKernTestBaselineEntry[];
+  newWarnings: NativeKernTestBaselineEntry[];
+  staleWarnings: NativeKernTestBaselineEntry[];
+}
+
+export interface NativeKernTestOptions {
+  grep?: string | RegExp;
+  bail?: boolean;
+  passWithNoTests?: boolean;
+}
+
+export type NativeKernTestFormat = 'default' | 'compact';
+
+export interface NativeKernTestFormatOptions {
+  format?: NativeKernTestFormat;
+}
+
+export interface NativeKernTestRule {
+  ruleId: string;
+  description: string;
+  presets?: string[];
 }
 
 interface LoadedKernDocument {
@@ -59,8 +125,26 @@ interface EvaluatedAssertion {
   ruleId: string;
   assertion: string;
   passed: boolean;
+  severity?: NativeKernTestSeverity;
   message?: string;
 }
+
+interface NativeKernAssertionContext {
+  assertions: CollectedAssertion[];
+}
+
+interface RuntimeBinding {
+  name: string;
+  expr: string;
+  line?: number;
+}
+
+interface RuntimeBindingOrder {
+  ordered: RuntimeBinding[];
+  error?: string;
+}
+
+type RuntimeEvalResult = { ok: true; value: unknown } | { ok: false; error: unknown };
 
 const DISCOVERY_SKIP_DIRS = new Set([
   '.git',
@@ -75,6 +159,7 @@ const DISCOVERY_SKIP_DIRS = new Set([
 
 const NATIVE_TEST_PRESETS: Record<string, string[]> = {
   apisafety: ['duplicateRoutes', 'unvalidatedRoutes', 'unguardedEffects', 'uncheckedRoutePathParams'],
+  coverage: ['untestedTransitions', 'untestedGuards'],
   effects: ['unguardedEffects', 'sensitiveEffectsRequireAuth', 'effectWithoutCleanup', 'unrecoveredAsync'],
   guard: ['invalidGuards', 'weakGuards'],
   machine: ['deadStates', 'duplicateTransitions'],
@@ -85,6 +170,7 @@ const NATIVE_TEST_PRESETS: Record<string, string[]> = {
     'duplicateTransitions',
     'deadStates',
     'deriveCycles',
+    'codegenErrors',
     'invalidGuards',
     'unvalidatedRoutes',
     'unguardedEffects',
@@ -99,6 +185,133 @@ const NATIVE_TEST_PRESETS: Record<string, string[]> = {
     'unrecoveredAsync',
   ],
 };
+
+const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
+  { ruleId: 'file:validates', description: 'The native test file itself can be read, parsed, and schema validated.' },
+  { ruleId: 'suite:hasassertions', description: 'Every native test suite contains at least one expect assertion.' },
+  {
+    ruleId: 'machine:reaches',
+    description: 'A machine can reach the requested state, optionally through an explicit transition path.',
+  },
+  { ruleId: 'guard:exhaustive', description: 'A guard covers every variant of the referenced union type.' },
+  {
+    ruleId: 'kern:node',
+    description: 'A target KERN node exists and optionally matches child-count or prop-value constraints.',
+  },
+  {
+    ruleId: 'expr',
+    description:
+      'Evaluate a constrained runtime expression against target const/derive bindings, with optional equals/matches/throws comparators.',
+  },
+  { ruleId: 'expect:unsupported', description: 'The expect assertion shape is not supported by native kern test.' },
+  { ruleId: 'preset:unknown', description: 'The requested preset name is unknown.' },
+  { ruleId: 'no:schemaviolations', description: 'The target KERN file has no schema violations.' },
+  { ruleId: 'no:semanticviolations', description: 'The target KERN file has no semantic validation violations.' },
+  {
+    ruleId: 'no:codegenerrors',
+    description: 'The target KERN file can be passed through core code generation without generator errors.',
+  },
+  { ruleId: 'no:derivecycles', description: 'The target derive graph has no cycles.' },
+  { ruleId: 'no:deadstates', description: 'Machines have no unreachable states.', presets: ['machine'] },
+  {
+    ruleId: 'no:duplicatetransitions',
+    description: 'Machines do not declare duplicate transition names.',
+    presets: ['machine'],
+  },
+  {
+    ruleId: 'no:duplicatenames',
+    description: 'Sibling declarations do not reuse the same type/name pair.',
+    presets: ['strict'],
+  },
+  {
+    ruleId: 'no:duplicateroutes',
+    description: 'API/server routes do not duplicate method and path.',
+    presets: ['apiSafety', 'strict'],
+  },
+  {
+    ruleId: 'no:unvalidatedroutes',
+    description: 'Mutating routes have schema, validation, guard, or auth coverage.',
+    presets: ['apiSafety', 'strict'],
+  },
+  {
+    ruleId: 'no:uncheckedroutepathparams',
+    description: 'Route path params are declared, validated, or guarded.',
+    presets: ['apiSafety', 'strict'],
+  },
+  { ruleId: 'no:rawhandlers', description: 'Raw handler escapes are absent when a suite forbids them.' },
+  {
+    ruleId: 'no:invalidguards',
+    description: 'Guards reference valid params and have valid guard configuration.',
+    presets: ['guard', 'mcpSafety', 'strict'],
+  },
+  {
+    ruleId: 'no:weakguards',
+    description: 'Expression guards include an else branch, handler, or typed security kind.',
+    presets: ['guard', 'strict'],
+  },
+  {
+    ruleId: 'no:duplicateparams',
+    description: 'Parameter containers do not declare duplicate params.',
+    presets: ['mcpSafety', 'strict'],
+  },
+  {
+    ruleId: 'no:unguardedtoolparams',
+    description: 'Required tool params have param-specific guard coverage.',
+    presets: ['mcpSafety', 'strict'],
+  },
+  {
+    ruleId: 'no:missingpathguards',
+    description: 'Path-like params have path containment guards.',
+    presets: ['mcpSafety', 'strict'],
+  },
+  {
+    ruleId: 'no:ssrfrisks',
+    description: 'URL-like params and network effects have URL/host allowlist coverage.',
+    presets: ['mcpSafety', 'strict'],
+  },
+  {
+    ruleId: 'no:unguardedeffects',
+    description: 'Detected effects have guard, auth, or validation coverage.',
+    presets: ['apiSafety', 'effects', 'strict'],
+  },
+  {
+    ruleId: 'no:sensitiveeffectsrequireauth',
+    description: 'Sensitive detected effects have auth coverage.',
+    presets: ['effects', 'strict'],
+  },
+  {
+    ruleId: 'no:effectwithoutcleanup',
+    description: 'Effect blocks that need cleanup define cleanup handlers.',
+    presets: ['effects', 'strict'],
+  },
+  {
+    ruleId: 'no:unrecoveredasync',
+    description: 'Async blocks with handlers define recovery behavior.',
+    presets: ['effects', 'strict'],
+  },
+  {
+    ruleId: 'no:untestedtransitions',
+    description: 'Machine transitions are covered by native reachability assertions.',
+    presets: ['coverage'],
+  },
+  {
+    ruleId: 'no:untestedguards',
+    description: 'Guards are covered by exhaustive or guard-preset assertions.',
+    presets: ['coverage'],
+  },
+];
+
+export function listNativeKernTestRules(): NativeKernTestRule[] {
+  return NATIVE_KERN_TEST_RULES.map((rule) => ({
+    ...rule,
+    ...(rule.presets ? { presets: [...rule.presets] } : {}),
+  }));
+}
+
+export function explainNativeKernTestRule(ruleId: string): NativeKernTestRule | undefined {
+  const normalized = ruleId.includes(':') ? ruleId.toLowerCase() : invariantRuleId(ruleId);
+  return listNativeKernTestRules().find((rule) => rule.ruleId === normalized);
+}
 
 function getProps(node: IRNode): Record<string, unknown> {
   return node.props || {};
@@ -123,6 +336,57 @@ function exprToString(value: unknown): string {
 
 function isTruthy(value: unknown): boolean {
   return value === true || value === 'true';
+}
+
+function isJsStringLiteralSource(value: string): boolean {
+  return /^'(?:\\[\s\S]|[^'\\])*'$/.test(value) || /^"(?:\\[\s\S]|[^"\\])*"$/.test(value);
+}
+
+function exprPropToRuntimeSource(node: IRNode, propName: string): string {
+  const props = getProps(node);
+  const value = props[propName];
+  if (value === undefined || value === '') return '';
+  if (node.__quotedProps?.includes(propName)) {
+    const source = String(value);
+    return isJsStringLiteralSource(source) ? source : JSON.stringify(value);
+  }
+  return exprToString(value);
+}
+
+function runtimeExpectedSource(node: IRNode, propName: string): string | undefined {
+  const props = getProps(node);
+  const value = props[propName];
+  if (value === undefined) return undefined;
+  if (value && typeof value === 'object' && '__expr' in value) return exprToString(value);
+
+  const source = String(value);
+  if (node.__quotedProps?.includes(propName)) {
+    return isJsStringLiteralSource(source) ? source : JSON.stringify(source);
+  }
+
+  const trimmed = source.trim();
+  if (/^(?:true|false|null)$/.test(trimmed)) return trimmed;
+  if (/^-?(?:\d+|\d*\.\d+)(?:e[+-]?\d+)?$/i.test(trimmed)) return trimmed;
+  return JSON.stringify(source);
+}
+
+function runtimePatternValue(node: IRNode, propName: string): string | undefined {
+  const props = getProps(node);
+  const value = props[propName];
+  if (value === undefined) return undefined;
+  const source = String(value);
+  if (node.__quotedProps?.includes(propName) && isJsStringLiteralSource(source)) {
+    try {
+      const script = new Script(`"use strict";\n(${source});`);
+      const evaluated = script.runInContext(createContext(runtimeContext()), {
+        timeout: RUNTIME_EXPR_TIMEOUT_MS,
+      });
+      return String(evaluated);
+    } catch {
+      return source;
+    }
+  }
+  return source;
 }
 
 function escapeRegExp(value: string): string {
@@ -168,6 +432,51 @@ function statusForEvaluation(passed: boolean, severity: NativeKernTestSeverity):
   return severity === 'warn' ? 'warning' : 'failed';
 }
 
+function effectiveSeverity(
+  requestedSeverity: NativeKernTestSeverity,
+  evaluated: EvaluatedAssertion,
+): NativeKernTestSeverity {
+  return evaluated.severity || requestedSeverity;
+}
+
+function isAssertionConfigurationFailure(message?: string): boolean {
+  if (!message) return false;
+  return (
+    message.startsWith('Unsupported native ') ||
+    message.startsWith('Runtime expr assertions ') ||
+    message.startsWith('Runtime expr assertion requires ') ||
+    message.startsWith('Runtime expr assertion cannot execute ') ||
+    message.startsWith('Runtime expr assertion has ') ||
+    message.startsWith('Node assertion requires ') ||
+    message.startsWith('Node assertion count ') ||
+    message === 'Unsupported native expect assertion.' ||
+    message.includes(' assertion requires ') ||
+    message.includes(' needs over=') ||
+    message.startsWith('Machine not found:') ||
+    message.startsWith('Guard not found:') ||
+    message.startsWith('Union not found') ||
+    message.startsWith('State not found in machine ')
+  );
+}
+
+function grepMatches(options: NativeKernTestOptions | undefined, result: NativeKernTestResult): boolean {
+  const grep = options?.grep;
+  if (!grep) return true;
+  const haystack = [
+    result.suite,
+    result.caseName,
+    result.ruleId,
+    result.assertion,
+    result.message || '',
+    result.file || '',
+  ].join('\n');
+  if (grep instanceof RegExp) {
+    grep.lastIndex = 0;
+    return grep.test(haystack);
+  }
+  return haystack.toLowerCase().includes(grep.toLowerCase());
+}
+
 function invariantRuleId(value: string): string {
   return `no:${normalizeInvariant(value) || 'unknown'}`;
 }
@@ -193,8 +502,58 @@ function handlerText(node: IRNode): string {
     .join('\n');
 }
 
+function collectNamedHandlerBodies(root: IRNode): Map<string, string> {
+  const bodies = new Map<string, string>();
+  for (const fn of collectNodes(root, 'fn')) {
+    const name = str(getProps(fn).name);
+    const code = handlerText(fn);
+    if (name && code) bodies.set(name, code);
+  }
+  return bodies;
+}
+
+function reachableHandlerText(root: IRNode, node: IRNode): string {
+  const helperBodies = collectNamedHandlerBodies(root);
+  const chunks: string[] = [];
+  const queue = [handlerText(node)];
+  const visited = new Set<string>();
+
+  while (queue.length > 0) {
+    const current = queue.shift() || '';
+    if (!current) continue;
+    chunks.push(current);
+
+    for (const [name, body] of helperBodies) {
+      if (visited.has(name)) continue;
+      if (!new RegExp(`\\b${escapeRegExp(name)}\\s*\\(`).test(current)) continue;
+      visited.add(name);
+      queue.push(body);
+    }
+  }
+
+  return chunks.join('\n');
+}
+
+function hasInlinePermissionGate(node: IRNode): boolean {
+  const code = handlerText(node);
+  if (!code) return false;
+  const declaresPermissionCheck =
+    /\b(?:function|const|let)\s+checkPermission\b/.test(code) ||
+    /\bcheckPermission\s*[:=]\s*(?:async\s*)?\(/.test(code);
+  if (!declaresPermissionCheck) return false;
+  const returnsPermissionCheck = /\breturn\s*\{[\s\S]*\bcheckPermission\b[\s\S]*\}/.test(code);
+  const hasDecisionSignal =
+    /\bPermissionDecision\b/.test(code) ||
+    /\bpermissionMode\b/.test(code) ||
+    /\bbehavior\s*:\s*['"](?:allow|ask|deny)['"]/.test(code);
+  return returnsPermissionCheck && hasDecisionSignal;
+}
+
 function hasGuardLikeChild(node: IRNode): boolean {
-  return (node.children || []).some((child) => ['guard', 'auth', 'validate'].includes(child.type));
+  return (
+    (node.children || []).some((child) => ['guard', 'auth', 'validate'].includes(child.type)) ||
+    hasInlinePermissionGate(node)
+  );
 }
 
 function isMultiSourceTransitionFalsePositive(violation: SemanticViolation, root: IRNode): boolean {
@@ -312,16 +671,37 @@ function collectAssertions(testNode: IRNode): CollectedAssertion[] {
 function assertionLabel(node: IRNode): string {
   const props = getProps(node);
   const preset = str(props.preset);
+  const nodeType = str(props.node);
+  const name = str(props.name);
+  const prop = str(props.prop);
+  const isValue = props.is === undefined ? '' : exprToString(props.is) || String(props.is);
+  const child = str(props.child);
+  const childName = str(props.childName);
+  const count = props.count === undefined ? '' : String(props.count);
   const machine = str(props.machine);
   const reaches = str(props.reaches);
   const no = str(props.no);
   const guard = str(props.guard);
   const expr = exprToString(props.expr);
+  const equals = props.equals === undefined ? '' : exprToString(props.equals) || String(props.equals);
+  const matches = props.matches === undefined ? '' : String(props.matches);
+  const throws = props.throws === undefined ? '' : String(props.throws || 'true');
 
   if (preset) return `preset ${preset}`;
+  if (nodeType) {
+    const parts = [`node ${nodeType}`];
+    if (name) parts.push(name);
+    if (child) parts.push(`has ${child}${childName ? ` ${childName}` : ''}`);
+    if (prop) parts.push(`prop ${prop}${isValue ? ` is ${isValue}` : ''}`);
+    if (count) parts.push(`count ${count}`);
+    return parts.join(' ');
+  }
   if (no) return `${machine ? `machine ${machine} ` : ''}no ${no}`;
   if (guard) return `guard ${guard} exhaustive`;
   if (machine || reaches) return `machine ${machine || '<missing>'} reaches ${reaches || '<missing>'}`;
+  if (expr && equals) return `expr ${expr} equals ${equals}`;
+  if (expr && matches) return `expr ${expr} matches ${matches}`;
+  if (expr && throws) return `expr ${expr} throws ${throws}`;
   if (expr) return `expr ${expr}`;
   return 'expect';
 }
@@ -495,19 +875,55 @@ function findWeakGuards(root: IRNode): string[] {
     .map((guard) => `${nodeLabel(guard)} at line ${guard.loc?.line ?? '?'} has expr but no else/handler`);
 }
 
-const EFFECT_PATTERNS: { kind: string; re: RegExp }[] = [
-  { kind: 'network', re: /\b(fetch|axios|request|got)\s*\(/ },
-  { kind: 'shell', re: /\b(exec|execFile|spawn|spawnSync)\s*\(/ },
+interface EffectClassification {
+  kind: 'database' | 'email' | 'fs-read' | 'fs-write' | 'network' | 'shell';
+  label: string;
+  sensitive: boolean;
+}
+
+const EFFECT_PATTERNS: Array<EffectClassification & { re: RegExp }> = [
   {
-    kind: 'file',
-    re: /\b(readFile|writeFile|appendFile|unlink|rm|rename|mkdir|rmdir|createReadStream|createWriteStream)\s*\(/,
+    kind: 'shell',
+    label: 'shell command',
+    sensitive: true,
+    re: /\b(?:exec|execFile|execFileSync|execSync|spawn|spawnSync)\s*\(/,
   },
-  { kind: 'database', re: /\b(query|execute|findMany|findUnique|create|update|delete|upsert)\s*\(/ },
-  { kind: 'email', re: /\b(sendMail|sendEmail|mailer\.send|transporter\.send)\s*\(/ },
+  {
+    kind: 'network',
+    label: 'network request',
+    sensitive: true,
+    re: /\b(?:fetch|axios|got|request)\s*\(|\bnew\s+WebSocket\s*\(/,
+  },
+  {
+    kind: 'fs-write',
+    label: 'filesystem write',
+    sensitive: true,
+    re: /\b(?:appendFile|appendFileSync|createWriteStream|mkdir|mkdirSync|rename|renameSync|rm|rmSync|rmdir|rmdirSync|unlink|unlinkSync|writeFile|writeFileSync)\s*\(/,
+  },
+  {
+    kind: 'fs-read',
+    label: 'filesystem read',
+    sensitive: true,
+    re: /\b(?:access|accessSync|createReadStream|existsSync|lstat|lstatSync|readFile|readFileSync|readdir|readdirSync|stat|statSync)\s*\(/,
+  },
+  {
+    kind: 'database',
+    label: 'database query',
+    sensitive: true,
+    re: /\b(?:client|collection|connection|database|db|knex|pool|prisma|repo|repository)\s*\.(?:create|delete|execute|findFirst|findMany|findUnique|insert|query|select|update|upsert)\s*\(|(?:^|[^\w.])(?:create|delete|execute|findFirst|findMany|findUnique|query|update|upsert)\s*\(|\bsql\s*`/,
+  },
+  {
+    kind: 'email',
+    label: 'email send',
+    sensitive: true,
+    re: /\b(?:mailer\.send|sendEmail|sendMail|transporter\.send)\s*\(/,
+  },
 ];
 
-function classifyEffect(code: string): string | undefined {
-  return EFFECT_PATTERNS.find((pattern) => pattern.re.test(code))?.kind;
+function classifyEffect(code: string): EffectClassification | undefined {
+  const pattern = EFFECT_PATTERNS.find((candidate) => candidate.re.test(code));
+  if (!pattern) return undefined;
+  return { kind: pattern.kind, label: pattern.label, sensitive: pattern.sensitive };
 }
 
 function findUnguardedEffects(root: IRNode): string[] {
@@ -516,11 +932,11 @@ function findUnguardedEffects(root: IRNode): string[] {
 
   function visit(node: IRNode): void {
     if (checkedTypes.has(node.type)) {
-      const code = handlerText(node);
-      const effectKind = classifyEffect(code);
-      if (effectKind && !hasGuardLikeChild(node)) {
+      const code = reachableHandlerText(root, node);
+      const effect = classifyEffect(code);
+      if (effect && !hasGuardLikeChild(node)) {
         failures.push(
-          `${nodeLabel(node)} at line ${node.loc?.line ?? '?'} performs ${effectKind} effect without guard/auth/validate`,
+          `${nodeLabel(node)} at line ${node.loc?.line ?? '?'} performs ${effect.label} without guard/auth/validate/permission`,
         );
       }
     }
@@ -754,6 +1170,10 @@ function hasAuthLikeChild(node: IRNode): boolean {
   });
 }
 
+function hasAuthorizationLikeGate(node: IRNode): boolean {
+  return hasAuthLikeChild(node) || hasInlinePermissionGate(node);
+}
+
 function hasUrlAllowlistGuard(node: IRNode, paramName?: string): boolean {
   return allChildGuards(node).some((guard) => {
     if (paramName && guardParam(guard) && !guardTargetsParam(guard, paramName)) return false;
@@ -839,8 +1259,8 @@ function findSsrfRisks(root: IRNode): string[] {
         }
       }
 
-      const code = handlerText(node);
-      if (classifyEffect(code) === 'network' && !hasUrlAllowlistGuard(node)) {
+      const code = reachableHandlerText(root, node);
+      if (classifyEffect(code)?.kind === 'network' && !hasUrlAllowlistGuard(node)) {
         failures.push(`${nodeLabel(node)} performs network effect without URL/host allowlist guard`);
       }
     }
@@ -857,9 +1277,9 @@ function findSensitiveEffectsWithoutAuth(root: IRNode): string[] {
 
   function visit(node: IRNode): void {
     if (checkedTypes.has(node.type)) {
-      const effectKind = classifyEffect(handlerText(node));
-      if (effectKind && !hasAuthLikeChild(node)) {
-        failures.push(`${nodeLabel(node)} performs ${effectKind} effect without auth`);
+      const effect = classifyEffect(reachableHandlerText(root, node));
+      if (effect?.sensitive && !hasAuthorizationLikeGate(node)) {
+        failures.push(`${nodeLabel(node)} performs ${effect.label} without auth/permission`);
       }
     }
     for (const child of node.children || []) visit(child);
@@ -891,7 +1311,9 @@ function findUncheckedRoutePathParams(root: IRNode): string[] {
 function findEffectsWithoutCleanup(root: IRNode): string[] {
   const needsCleanup = /\b(addEventListener|setInterval|setTimeout|subscribe|watch|fetch|AbortController|WebSocket)\b/;
   return collectNodes(root, 'effect')
-    .filter((effect) => needsCleanup.test(handlerText(effect)) && getChildren(effect, 'cleanup').length === 0)
+    .filter(
+      (effect) => needsCleanup.test(reachableHandlerText(root, effect)) && getChildren(effect, 'cleanup').length === 0,
+    )
     .map((effect) => `${nodeLabel(effect)} at line ${effect.loc?.line ?? '?'} has side-effect handler without cleanup`);
 }
 
@@ -899,6 +1321,541 @@ function findUnrecoveredAsync(root: IRNode): string[] {
   return collectNodes(root, 'async')
     .filter((node) => handlerText(node).trim().length > 0 && getChildren(node, 'recover').length === 0)
     .map((node) => `${nodeLabel(node)} at line ${node.loc?.line ?? '?'} has async handler without recover`);
+}
+
+function assertionNoInvariant(node: IRNode): string {
+  return normalizeInvariant(str(getProps(node).no));
+}
+
+function presetInvariantNames(node: IRNode): string[] {
+  return (presetInvariants(node) || []).map(normalizeInvariant);
+}
+
+function assertionCoversAnyInvariant(node: IRNode, invariants: Set<string>): boolean {
+  const no = assertionNoInvariant(node);
+  if (no && invariants.has(no)) return true;
+  return presetInvariantNames(node).some((invariant) => invariants.has(invariant));
+}
+
+function findUntestedTransitions(
+  root: IRNode,
+  context: NativeKernAssertionContext | undefined,
+  machineName?: string,
+): string[] {
+  const machines = selectedMachines(root, machineName);
+  if (machineName && machines.length === 0) return [`Machine not found: ${machineName}`];
+
+  const coveredByMachine = new Map<string, Set<string>>();
+  for (const assertion of context?.assertions || []) {
+    const props = getProps(assertion.node);
+    const assertedMachine = str(props.machine);
+    if (!assertedMachine || !('reaches' in props) || 'no' in props) continue;
+    if (machineName && assertedMachine !== machineName) continue;
+    const covered = coveredByMachine.get(assertedMachine) || new Set<string>();
+    for (const transitionName of parseList(str(props.via))) covered.add(transitionName);
+    coveredByMachine.set(assertedMachine, covered);
+  }
+
+  const failures: string[] = [];
+  for (const machine of machines) {
+    const name = str(getProps(machine).name) || '<unnamed>';
+    const covered = coveredByMachine.get(name) || new Set<string>();
+    for (const transition of getChildren(machine, 'transition')) {
+      const transitionName = str(getProps(transition).name);
+      if (!transitionName || covered.has(transitionName)) continue;
+      failures.push(`${name}.${transitionName} at line ${transition.loc?.line ?? '?'}`);
+    }
+  }
+  return failures;
+}
+
+function findUntestedGuards(root: IRNode, context: NativeKernAssertionContext | undefined): string[] {
+  const guardCoverageInvariants = new Set(['invalidguards', 'guardmisconfigurations', 'weakguards']);
+  const assertions = context?.assertions || [];
+  if (assertions.some((assertion) => assertionCoversAnyInvariant(assertion.node, guardCoverageInvariants))) return [];
+
+  const explicitlyCovered = new Set(assertions.map((assertion) => str(getProps(assertion.node).guard)).filter(Boolean));
+
+  return collectNodes(root, 'guard')
+    .filter((guard) => {
+      const name = str(getProps(guard).name);
+      return !name || !explicitlyCovered.has(name);
+    })
+    .map((guard) => {
+      const name = str(getProps(guard).name);
+      return name
+        ? `guard ${name} at line ${guard.loc?.line ?? '?'}`
+        : `unnamed guard at line ${guard.loc?.line ?? '?'}`;
+    });
+}
+
+function coverageMetric(total: number, uncovered: string[]): NativeKernTestCoverageMetric {
+  const covered = Math.max(0, total - uncovered.length);
+  return {
+    total,
+    covered,
+    percent: total === 0 ? 100 : Math.round((covered / total) * 10000) / 100,
+    uncovered,
+  };
+}
+
+function combineCoverageMetrics(metrics: NativeKernTestCoverageMetric[]): NativeKernTestCoverageMetric {
+  const total = metrics.reduce((sum, metric) => sum + metric.total, 0);
+  const uncovered = metrics.flatMap((metric) => metric.uncovered);
+  return coverageMetric(total, uncovered);
+}
+
+function emptyCoverageSummary(): NativeKernTestCoverageSummary {
+  const empty = coverageMetric(0, []);
+  return {
+    total: 0,
+    covered: 0,
+    percent: 100,
+    transitions: empty,
+    guards: empty,
+    targets: [],
+  };
+}
+
+function combineCoverageSummaries(summaries: NativeKernTestCoverageSummary[]): NativeKernTestCoverageSummary {
+  const transitions = combineCoverageMetrics(summaries.map((summary) => summary.transitions));
+  const guards = combineCoverageMetrics(summaries.map((summary) => summary.guards));
+  const total = transitions.total + guards.total;
+  const covered = transitions.covered + guards.covered;
+  return {
+    total,
+    covered,
+    percent: total === 0 ? 100 : Math.round((covered / total) * 10000) / 100,
+    transitions,
+    guards,
+    targets: summaries.flatMap((summary) => summary.targets),
+  };
+}
+
+function machineTransitionCoverage(root: IRNode, assertions: CollectedAssertion[]): NativeKernTestCoverageMetric {
+  const machines = selectedMachines(root);
+  const coveredByMachine = new Map<string, Set<string>>();
+
+  for (const assertion of assertions) {
+    const props = getProps(assertion.node);
+    const assertedMachine = str(props.machine);
+    if (!assertedMachine || !('reaches' in props) || 'no' in props) continue;
+    const covered = coveredByMachine.get(assertedMachine) || new Set<string>();
+    for (const transitionName of parseList(str(props.via))) covered.add(transitionName);
+    coveredByMachine.set(assertedMachine, covered);
+  }
+
+  let total = 0;
+  const uncovered: string[] = [];
+  for (const machine of machines) {
+    const name = str(getProps(machine).name) || '<unnamed>';
+    const covered = coveredByMachine.get(name) || new Set<string>();
+    for (const transition of getChildren(machine, 'transition')) {
+      const transitionName = str(getProps(transition).name);
+      if (!transitionName) continue;
+      total += 1;
+      if (!covered.has(transitionName)) {
+        uncovered.push(`${name}.${transitionName} at line ${transition.loc?.line ?? '?'}`);
+      }
+    }
+  }
+  return coverageMetric(total, uncovered);
+}
+
+function guardCoverage(root: IRNode, assertions: CollectedAssertion[]): NativeKernTestCoverageMetric {
+  const guards = collectNodes(root, 'guard');
+  const guardCoverageInvariants = new Set(['invalidguards', 'guardmisconfigurations', 'weakguards']);
+  if (assertions.some((assertion) => assertionCoversAnyInvariant(assertion.node, guardCoverageInvariants))) {
+    return coverageMetric(guards.length, []);
+  }
+
+  const explicitlyCovered = new Set(assertions.map((assertion) => str(getProps(assertion.node).guard)).filter(Boolean));
+  const uncovered = guards
+    .filter((guard) => {
+      const name = str(getProps(guard).name);
+      return !name || !explicitlyCovered.has(name);
+    })
+    .map((guard) => {
+      const name = str(getProps(guard).name);
+      return name
+        ? `guard ${name} at line ${guard.loc?.line ?? '?'}`
+        : `unnamed guard at line ${guard.loc?.line ?? '?'}`;
+    });
+  return coverageMetric(guards.length, uncovered);
+}
+
+function coverageForTarget(target: LoadedKernDocument, assertions: CollectedAssertion[]): NativeKernTestCoverageTarget {
+  if (!target.root) {
+    return {
+      file: target.file,
+      transitions: coverageMetric(0, []),
+      guards: coverageMetric(0, []),
+    };
+  }
+  return {
+    file: target.file,
+    transitions: machineTransitionCoverage(target.root, assertions),
+    guards: guardCoverage(target.root, assertions),
+  };
+}
+
+function createCoverageSummary(targets: NativeKernTestCoverageTarget[]): NativeKernTestCoverageSummary {
+  const transitions = combineCoverageMetrics(targets.map((target) => target.transitions));
+  const guards = combineCoverageMetrics(targets.map((target) => target.guards));
+  const total = transitions.total + guards.total;
+  const covered = transitions.covered + guards.covered;
+  return {
+    total,
+    covered,
+    percent: total === 0 ? 100 : Math.round((covered / total) * 10000) / 100,
+    transitions,
+    guards,
+    targets,
+  };
+}
+
+function codegenRoots(root: IRNode): IRNode[] {
+  return root.type === 'document' ? root.children || [] : [root];
+}
+
+function findCodegenErrors(root: IRNode): string[] {
+  const failures: string[] = [];
+  for (const node of codegenRoots(root)) {
+    try {
+      generateCoreNode(node);
+    } catch (error) {
+      failures.push(
+        `${nodeLabel(node)} at line ${node.loc?.line ?? '?'}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  return failures;
+}
+
+const RUNTIME_EXPR_TIMEOUT_MS = 100;
+const RUNTIME_EXPR_UNSAFE_TOKEN =
+  /\b(?:async|await|class|constructor|Date|delete|do|eval|fetch|for|Function|global|globalThis|import|new|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
+
+function unsafeRuntimeExpressionReason(source: string): string | undefined {
+  if (source.length > 2000) return 'expression is longer than 2000 characters';
+  if (/[\r\n;]/.test(source)) return 'multi-statement expressions are not supported';
+  const unsafeToken = source.match(RUNTIME_EXPR_UNSAFE_TOKEN)?.[0];
+  if (unsafeToken) return `unsupported token '${unsafeToken}'`;
+  if (/(^|[^=!<>])=(?!=|>)/.test(source)) return 'assignment is not supported';
+  return undefined;
+}
+
+function isRuntimeBindingName(value: string): boolean {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
+}
+
+function runtimeBindingExpr(node: IRNode): string {
+  if (node.type === 'const') return exprPropToRuntimeSource(node, 'value');
+  if (node.type === 'derive' || node.type === 'let') {
+    return exprPropToRuntimeSource(node, 'value') || exprPropToRuntimeSource(node, 'expr');
+  }
+  if (node.type === 'fn') return runtimeFunctionExpr(node);
+  return '';
+}
+
+function runtimeParamNames(node: IRNode): string[] {
+  const names: string[] = [];
+  for (const param of getChildren(node, 'param')) {
+    const name = str(getProps(param).name);
+    if (name) names.push(name);
+  }
+  if (names.length > 0) return names;
+  return parseLegacyParamNames(str(getProps(node).params));
+}
+
+function simpleReturnExpression(code: string): string {
+  const match = code.trim().match(/^return\s+([\s\S]*?)\s*;?\s*$/);
+  return match ? match[1].trim() : '';
+}
+
+function runtimeFunctionExpr(node: IRNode): string {
+  const code = handlerText(node);
+  if (!code) return '';
+  const bodyExpr = simpleReturnExpression(code);
+  if (!bodyExpr) return '';
+
+  const params = runtimeParamNames(node);
+  if (!params.every(isRuntimeBindingName)) return '';
+  return `((${params.join(', ')}) => (${bodyExpr}))`;
+}
+
+function collectRuntimeBindings(root: IRNode): RuntimeBinding[] {
+  const bindings: RuntimeBinding[] = [];
+
+  function visit(node: IRNode): void {
+    if (node.type === 'const' || node.type === 'derive' || node.type === 'let' || node.type === 'fn') {
+      const name = str(getProps(node).name);
+      const expr = runtimeBindingExpr(node);
+      if (name && expr) {
+        bindings.push({
+          name,
+          expr,
+          line: node.loc?.line,
+        });
+      }
+    }
+    for (const child of node.children || []) visit(child);
+  }
+
+  visit(root);
+  return bindings;
+}
+
+function orderRuntimeBindings(bindings: RuntimeBinding[], entryExpr: string): RuntimeBindingOrder {
+  const byName = new Map<string, RuntimeBinding[]>();
+  for (const binding of bindings) {
+    if (!isRuntimeBindingName(binding.name)) {
+      return { ordered: [], error: `invalid runtime binding name '${binding.name}' at line ${binding.line ?? '?'}` };
+    }
+    byName.set(binding.name, [...(byName.get(binding.name) || []), binding]);
+  }
+
+  const ordered: RuntimeBinding[] = [];
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const stack: string[] = [];
+
+  function depsIn(source: string): string[] {
+    return [...byName.keys()].filter((name) => new RegExp(`\\b${escapeRegExp(name)}\\b`).test(source));
+  }
+
+  function bindingFor(name: string): RuntimeBinding | undefined {
+    const candidates = byName.get(name) || [];
+    if (candidates.length <= 1) return candidates[0];
+    const [first, ...rest] = candidates;
+    throw new Error(
+      `duplicate runtime binding '${name}' at line ${rest[0].line ?? '?'} (first at line ${first.line ?? '?'})`,
+    );
+  }
+
+  function visit(name: string): string | undefined {
+    if (visited.has(name)) return undefined;
+    if (visiting.has(name)) {
+      const start = stack.indexOf(name);
+      return `runtime binding cycle: ${[...stack.slice(start), name].join(' -> ')}`;
+    }
+
+    let binding: RuntimeBinding | undefined;
+    try {
+      binding = bindingFor(name);
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    if (!binding) return undefined;
+    visiting.add(name);
+    stack.push(name);
+    for (const dep of depsIn(binding.expr)) {
+      const error = visit(dep);
+      if (error) return error;
+    }
+    stack.pop();
+    visiting.delete(name);
+    visited.add(name);
+    ordered.push(binding);
+    return undefined;
+  }
+
+  for (const name of depsIn(entryExpr)) {
+    const error = visit(name);
+    if (error) return { ordered: [], error };
+  }
+
+  return { ordered };
+}
+
+function runtimeContext(): Record<string, unknown> {
+  return {
+    Array,
+    Boolean,
+    JSON,
+    Math,
+    Number,
+    Object,
+    String,
+    isFinite,
+    isNaN,
+    parseFloat,
+    parseInt,
+  };
+}
+
+function formatRuntimeValue(value: unknown): string {
+  return inspect(value, { breakLength: 80, depth: 4, sorted: true });
+}
+
+function runtimeValuesEqual(actual: unknown, expected: unknown): boolean {
+  if (Object.is(actual, expected)) return true;
+  if (isDeepStrictEqual(actual, expected)) return true;
+  try {
+    const normalizedActual = JSON.parse(JSON.stringify(actual));
+    const normalizedExpected = JSON.parse(JSON.stringify(expected));
+    return isDeepStrictEqual(normalizedActual, normalizedExpected);
+  } catch {
+    return false;
+  }
+}
+
+function formatThrownRuntimeError(error: unknown): string {
+  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  return String(error);
+}
+
+function thrownRuntimeErrorMatches(error: unknown, expected: string): boolean {
+  const normalized = expected.trim();
+  if (!normalized || normalized === 'true') return true;
+  if (error instanceof Error) {
+    return error.name === normalized || error.constructor.name === normalized || error.message.includes(normalized);
+  }
+  return String(error).includes(normalized);
+}
+
+function buildRuntimeDeclarations(
+  target: LoadedKernDocument,
+  entryExprs: string[],
+): { source: string; message?: undefined } | { source?: undefined; message: string } {
+  for (const entryExpr of entryExprs) {
+    const problem = unsafeRuntimeExpressionReason(entryExpr);
+    if (problem) {
+      return { message: `Runtime expr assertion cannot execute expression: ${problem}` };
+    }
+  }
+
+  const bindings = orderRuntimeBindings(collectRuntimeBindings(target.root!), entryExprs.join(' '));
+  if (bindings.error) {
+    return { message: `Runtime expr assertion cannot execute target bindings: ${bindings.error}` };
+  }
+
+  const declarations: string[] = [];
+  for (const binding of bindings.ordered) {
+    const bindingProblem = unsafeRuntimeExpressionReason(binding.expr);
+    if (bindingProblem) {
+      return {
+        message: `Runtime expr assertion cannot execute target binding '${binding.name}': ${bindingProblem}`,
+      };
+    }
+    declarations.push(`const ${binding.name} = (${binding.expr});`);
+  }
+
+  return { source: declarations.join('\n') };
+}
+
+function runRuntimeExpression(target: LoadedKernDocument, declarations: string, expr: string): RuntimeEvalResult {
+  try {
+    const script = new Script(`"use strict";\n${declarations}\n(${expr});`, {
+      filename: `native-kern-test:${target.file}`,
+    });
+    return {
+      ok: true,
+      value: script.runInContext(createContext(runtimeContext()), {
+        timeout: RUNTIME_EXPR_TIMEOUT_MS,
+      }),
+    };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
+function evaluateRuntimeThrows(
+  node: IRNode,
+  target: LoadedKernDocument,
+  declarations: string,
+  expr: string,
+): { passed: boolean; message?: string } {
+  const props = getProps(node);
+  const expectedRaw = props.throws === true || props.throws === '' ? 'true' : String(props.throws ?? 'true');
+  const actual = runRuntimeExpression(target, declarations, expr);
+  if (actual.ok) {
+    return {
+      passed: false,
+      message:
+        str(props.message) ||
+        `Runtime expr was expected to throw${expectedRaw && expectedRaw !== 'true' ? ` ${expectedRaw}` : ''}, but returned ${formatRuntimeValue(actual.value)}`,
+    };
+  }
+  if (!thrownRuntimeErrorMatches(actual.error, expectedRaw)) {
+    return {
+      passed: false,
+      message:
+        str(props.message) || `Runtime expr threw ${formatThrownRuntimeError(actual.error)}, expected ${expectedRaw}`,
+    };
+  }
+  return { passed: true };
+}
+
+function evaluateRuntimeExpression(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+
+  const props = getProps(node);
+  const expr = exprToString(props.expr).trim();
+  if (!expr) return { passed: false, message: 'Runtime expr assertion requires expr={{...}}' };
+
+  const expectedSource = runtimeExpectedSource(node, 'equals');
+  const expressionSources = expectedSource ? [expr, expectedSource] : [expr];
+  const declarations = buildRuntimeDeclarations(target, expressionSources);
+  if ('message' in declarations) return { passed: false, message: declarations.message };
+  const declarationSource = declarations.source;
+
+  if ('throws' in props) {
+    return evaluateRuntimeThrows(node, target, declarationSource, expr);
+  }
+
+  const actual = runRuntimeExpression(target, declarationSource, expr);
+  if (!actual.ok) {
+    return {
+      passed: false,
+      message: `Runtime expr threw: ${actual.error instanceof Error ? actual.error.message : String(actual.error)}`,
+    };
+  }
+
+  if (expectedSource !== undefined) {
+    const expected = runRuntimeExpression(target, declarationSource, expectedSource);
+    if (!expected.ok) {
+      return {
+        passed: false,
+        message: `Runtime expr assertion cannot execute expected equals value: ${formatThrownRuntimeError(expected.error)}`,
+      };
+    }
+    return runtimeValuesEqual(actual.value, expected.value)
+      ? { passed: true }
+      : {
+          passed: false,
+          message:
+            str(props.message) ||
+            `Runtime expr expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(actual.value)}: ${expr}`,
+        };
+  }
+
+  if ('matches' in props) {
+    const pattern = runtimePatternValue(node, 'matches') || '';
+    try {
+      const regex = new RegExp(pattern);
+      return regex.test(String(actual.value))
+        ? { passed: true }
+        : {
+            passed: false,
+            message:
+              str(props.message) ||
+              `Runtime expr value ${formatRuntimeValue(actual.value)} does not match /${pattern}/: ${expr}`,
+          };
+    } catch (error) {
+      return {
+        passed: false,
+        message: `Runtime expr assertion has invalid matches regex: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  return actual.value
+    ? { passed: true }
+    : { passed: false, message: str(props.message) || `Runtime expr evaluated false: ${expr}` };
 }
 
 function nodeSearchText(node: IRNode): string {
@@ -972,7 +1929,113 @@ function evaluateGuardExhaustiveness(node: IRNode, target: LoadedKernDocument): 
     : { passed: true };
 }
 
-function evaluateNoInvariant(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+interface NodeMatch {
+  node: IRNode;
+  ancestors: IRNode[];
+}
+
+function collectNodeMatches(
+  root: IRNode | undefined,
+  type: string,
+  matches: NodeMatch[] = [],
+  ancestors: IRNode[] = [],
+): NodeMatch[] {
+  if (!root) return matches;
+  if (root.type === type) matches.push({ node: root, ancestors });
+  for (const child of root.children || []) collectNodeMatches(child, type, matches, [...ancestors, root]);
+  return matches;
+}
+
+function ancestorMatches(ancestor: IRNode, expected: string): boolean {
+  return ancestor.type === expected || str(getProps(ancestor).name) === expected || nodeLabel(ancestor) === expected;
+}
+
+function propComparableValue(value: unknown): string {
+  if (value === undefined) return '<missing>';
+  const expr = exprToString(value);
+  return expr || String(value);
+}
+
+function evaluateNodeAssertion(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+
+  const props = getProps(node);
+  const type = str(props.node);
+  if (!type) return { passed: false, message: 'Node assertion requires node=<type>' };
+
+  const name = str(props.name);
+  const within = str(props.within);
+  const prop = str(props.prop);
+  const expectedProp = props.is === undefined ? undefined : propComparableValue(props.is);
+  const childType = str(props.child);
+  const childName = str(props.childName);
+  const expectedCount = props.count === undefined || props.count === '' ? undefined : Number(props.count);
+  if (expectedCount !== undefined && (!Number.isInteger(expectedCount) || expectedCount < 0)) {
+    return { passed: false, message: `Node assertion count must be a non-negative integer: ${String(props.count)}` };
+  }
+
+  const matches = collectNodeMatches(target.root, type)
+    .filter((match) => !name || str(getProps(match.node).name) === name)
+    .filter((match) => !within || match.ancestors.some((ancestor) => ancestorMatches(ancestor, within)));
+  if (matches.length === 0) {
+    return {
+      passed: false,
+      message: `KERN node not found: ${type}${name ? ` name=${name}` : ''}${within ? ` within=${within}` : ''}`,
+    };
+  }
+
+  if (prop) {
+    const propMatches = matches.filter((match) => {
+      const actual = propComparableValue(getProps(match.node)[prop]);
+      return expectedProp === undefined || actual === expectedProp;
+    });
+    if (propMatches.length === 0) {
+      const actuals = matches.map((match) => propComparableValue(getProps(match.node)[prop]));
+      return {
+        passed: false,
+        message:
+          expectedProp === undefined
+            ? `KERN node ${type}${name ? ` name=${name}` : ''} has no prop ${prop}`
+            : `KERN node ${type}${name ? ` name=${name}` : ''} prop ${prop} expected ${expectedProp}, found ${actuals.join(', ')}`,
+      };
+    }
+  }
+
+  if (childType) {
+    const childMatches = matches.flatMap((match) =>
+      getChildren(match.node, childType).filter((child) => !childName || str(getProps(child).name) === childName),
+    );
+    if (expectedCount !== undefined) {
+      return childMatches.length === expectedCount
+        ? { passed: true }
+        : {
+            passed: false,
+            message: `KERN node ${type}${name ? ` name=${name}` : ''} expected ${expectedCount} child ${childType}${childName ? ` name=${childName}` : ''}, found ${childMatches.length}`,
+          };
+    }
+    return childMatches.length > 0
+      ? { passed: true }
+      : {
+          passed: false,
+          message: `KERN node ${type}${name ? ` name=${name}` : ''} missing child ${childType}${childName ? ` name=${childName}` : ''}`,
+        };
+  }
+
+  if (expectedCount !== undefined) {
+    return matches.length === expectedCount
+      ? { passed: true }
+      : { passed: false, message: `Expected ${expectedCount} KERN node ${type} matches, found ${matches.length}` };
+  }
+
+  return { passed: true };
+}
+
+function evaluateNoInvariant(
+  node: IRNode,
+  target: LoadedKernDocument,
+  context?: NativeKernAssertionContext,
+): { passed: boolean; message?: string } {
   if (target.readError) return { passed: false, message: target.readError };
 
   const invariant = normalizeInvariant(str(getProps(node).no));
@@ -1002,6 +2065,15 @@ function evaluateNoInvariant(node: IRNode, target: LoadedKernDocument): { passed
           passed: false,
           message: `Found semantic violation at ${target.file}:${violation.line ?? 1}:${violation.col ?? 1}: ${violation.message}`,
         }
+      : { passed: true };
+  }
+
+  if (invariant === 'codegenerrors' || invariant === 'codegenerationerrors' || invariant === 'compileerrors') {
+    const blocking = targetBlockingMessage(target);
+    if (blocking) return { passed: false, message: blocking };
+    const errors = findCodegenErrors(target.root!);
+    return errors.length > 0
+      ? { passed: false, message: `Found codegen errors: ${errors.join('; ')}` }
       : { passed: true };
   }
 
@@ -1168,6 +2240,27 @@ function evaluateNoInvariant(node: IRNode, target: LoadedKernDocument): { passed
       : { passed: true };
   }
 
+  if (invariant === 'untestedtransitions' || invariant === 'uncoveredtransitions') {
+    const blocking = targetBlockingMessage(target);
+    if (blocking) return { passed: false, message: blocking };
+    const untested = findUntestedTransitions(target.root!, context, machineName);
+    return untested.length > 0
+      ? { passed: false, message: `Found untested machine transitions: ${untested.join('; ')}` }
+      : { passed: true };
+  }
+
+  if (invariant === 'untestedguards' || invariant === 'uncoveredguards') {
+    const blocking = targetBlockingMessage(target);
+    if (blocking) return { passed: false, message: blocking };
+    const untested = findUntestedGuards(target.root!, context);
+    return untested.length > 0
+      ? {
+          passed: false,
+          message: `Found untested guards: ${untested.join('; ')}. Add expect guard=<name> exhaustive=true or a guard-wide assertion such as expect preset=guard.`,
+        }
+      : { passed: true };
+  }
+
   return { passed: false, message: `Unsupported native invariant: no=${str(getProps(node).no)}` };
 }
 
@@ -1256,7 +2349,11 @@ function presetInvariants(node: IRNode): string[] | undefined {
   return NATIVE_TEST_PRESETS[preset];
 }
 
-function evaluatePresetAssertion(node: IRNode, target: LoadedKernDocument): EvaluatedAssertion[] {
+function evaluatePresetAssertion(
+  node: IRNode,
+  target: LoadedKernDocument,
+  context?: NativeKernAssertionContext,
+): EvaluatedAssertion[] {
   const preset = str(getProps(node).preset);
   const invariants = presetInvariants(node);
   if (!invariants) {
@@ -1265,32 +2362,51 @@ function evaluatePresetAssertion(node: IRNode, target: LoadedKernDocument): Eval
         ruleId: presetRuleId(preset),
         assertion: `preset ${preset || '<missing>'}`,
         passed: false,
+        severity: 'error',
         message: `Unsupported native preset: preset=${preset || '<missing>'}`,
       },
     ];
   }
 
   return invariants.map((invariant) => {
-    const evaluated = evaluateNoInvariant(nodeWithProps(node, { ...getProps(node), no: invariant }), target);
+    const evaluated = evaluateNoInvariant(nodeWithProps(node, { ...getProps(node), no: invariant }), target, context);
     return {
       ruleId: invariantRuleId(invariant),
       assertion: `preset ${preset} / no ${invariant}`,
       passed: evaluated.passed,
+      ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
       ...(evaluated.message ? { message: evaluated.message } : {}),
     };
   });
 }
 
-function evaluateNativeAssertion(node: IRNode, target: LoadedKernDocument): EvaluatedAssertion[] {
+function evaluateNativeAssertion(
+  node: IRNode,
+  target: LoadedKernDocument,
+  context?: NativeKernAssertionContext,
+): EvaluatedAssertion[] {
   const props = getProps(node);
-  if ('preset' in props) return evaluatePresetAssertion(node, target);
+  if ('preset' in props) return evaluatePresetAssertion(node, target, context);
+  if ('node' in props) {
+    const evaluated = evaluateNodeAssertion(node, target);
+    return [
+      {
+        ruleId: 'kern:node',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
   if ('no' in props) {
-    const evaluated = evaluateNoInvariant(node, target);
+    const evaluated = evaluateNoInvariant(node, target, context);
     return [
       {
         ruleId: invariantRuleId(str(props.no)),
         assertion: assertionLabel(node),
         passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
         ...(evaluated.message ? { message: evaluated.message } : {}),
       },
     ];
@@ -1302,6 +2418,7 @@ function evaluateNativeAssertion(node: IRNode, target: LoadedKernDocument): Eval
         ruleId: 'guard:exhaustive',
         assertion: assertionLabel(node),
         passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
         ...(evaluated.message ? { message: evaluated.message } : {}),
       },
     ];
@@ -1313,18 +2430,20 @@ function evaluateNativeAssertion(node: IRNode, target: LoadedKernDocument): Eval
         ruleId: 'machine:reaches',
         assertion: assertionLabel(node),
         passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
         ...(evaluated.message ? { message: evaluated.message } : {}),
       },
     ];
   }
   if ('expr' in props) {
+    const evaluated = evaluateRuntimeExpression(node, target);
     return [
       {
         ruleId: 'expr',
         assertion: assertionLabel(node),
-        passed: false,
-        message:
-          'Runtime expr assertions are still compiled-test assertions; native kern test currently supports structural assertions.',
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
       },
     ];
   }
@@ -1333,6 +2452,7 @@ function evaluateNativeAssertion(node: IRNode, target: LoadedKernDocument): Eval
       ruleId: 'expect:unsupported',
       assertion: assertionLabel(node),
       passed: false,
+      severity: 'error',
       message: 'Unsupported native expect assertion.',
     },
   ];
@@ -1358,7 +2478,14 @@ function discoverNativeKernTestFilesInDir(dir: string): string[] {
   const files: string[] = [];
 
   function walk(current: string): void {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
       if (entry.isDirectory()) {
         if (!DISCOVERY_SKIP_DIRS.has(entry.name)) walk(join(current, entry.name));
         continue;
@@ -1384,7 +2511,7 @@ export function discoverNativeKernTestFiles(input: string): string[] {
   return [];
 }
 
-export function runNativeKernTests(file: string): NativeKernTestSummary {
+export function runNativeKernTests(file: string, options: NativeKernTestOptions = {}): NativeKernTestSummary {
   const inputPath = resolve(file);
   const testDoc = loadKernDocument(inputPath);
   const results: NativeKernTestResult[] = [];
@@ -1409,6 +2536,29 @@ export function runNativeKernTests(file: string): NativeKernTestSummary {
 
   const testNodes = collectNodes(testDoc.root, 'test');
   const targetCache = new Map<string, LoadedKernDocument>([[inputPath, testDoc]]);
+  const assertionsByTarget = new Map<string, CollectedAssertion[]>();
+
+  const summarize = () =>
+    summarizeNativeTestRun(
+      inputPath,
+      targetFiles,
+      results,
+      createCoverageSummary(
+        [...targetFiles].sort().map((targetFile) => {
+          const target = targetCache.get(targetFile);
+          return coverageForTarget(
+            target || {
+              file: targetFile,
+              diagnostics: [],
+              schemaViolations: [],
+              semanticViolations: [],
+              readError: `Target not loaded: ${targetFile}`,
+            },
+            assertionsByTarget.get(targetFile) || [],
+          );
+        }),
+      ),
+    );
 
   for (const testNode of testNodes) {
     const suite = str(getProps(testNode).name) || 'unnamed test';
@@ -1423,6 +2573,7 @@ export function runNativeKernTests(file: string): NativeKernTestSummary {
     }
 
     const assertions = collectAssertions(testNode);
+    assertionsByTarget.set(targetPath, [...(assertionsByTarget.get(targetPath) || []), ...assertions]);
     if (assertions.length === 0) {
       results.push({
         suite,
@@ -1440,10 +2591,12 @@ export function runNativeKernTests(file: string): NativeKernTestSummary {
       continue;
     }
 
+    const context: NativeKernAssertionContext = { assertions };
     for (const assertion of assertions) {
-      const severity = severityFromNode(assertion.node);
-      for (const evaluated of evaluateNativeAssertion(assertion.node, target)) {
-        results.push({
+      const requestedSeverity = severityFromNode(assertion.node);
+      for (const evaluated of evaluateNativeAssertion(assertion.node, target, context)) {
+        const severity = effectiveSeverity(requestedSeverity, evaluated);
+        const result: NativeKernTestResult = {
           suite: assertion.suite,
           caseName: assertion.caseName,
           ruleId: evaluated.ruleId,
@@ -1454,27 +2607,38 @@ export function runNativeKernTests(file: string): NativeKernTestSummary {
           file: inputPath,
           line: assertion.node.loc?.line,
           col: assertion.node.loc?.col,
-        });
+        };
+        if (!grepMatches(options, result)) continue;
+        results.push(result);
+        if (options.bail && result.status === 'failed') {
+          return summarize();
+        }
       }
     }
   }
 
-  return summarizeNativeTestRun(inputPath, targetFiles, results);
+  return summarize();
 }
 
-export function runNativeKernTestRun(input: string): NativeKernTestRunSummary {
+export function runNativeKernTestRun(input: string, options: NativeKernTestOptions = {}): NativeKernTestRunSummary {
   const inputPath = resolve(input);
-  const files = discoverNativeKernTestFiles(inputPath).map((file) => runNativeKernTests(file));
+  const files: NativeKernTestSummary[] = [];
+  for (const file of discoverNativeKernTestFiles(inputPath)) {
+    const summary = runNativeKernTests(file, options);
+    files.push(summary);
+    if (options.bail && summary.failed > 0) break;
+  }
   if (files.length === 0) {
     return {
       input: inputPath,
       testFiles: [],
       targetFiles: [],
-      total: 1,
+      total: options.passWithNoTests ? 0 : 1,
       passed: 0,
       warnings: 0,
-      failed: 1,
+      failed: options.passWithNoTests ? 0 : 1,
       files: [],
+      coverage: emptyCoverageSummary(),
     };
   }
 
@@ -1492,6 +2656,7 @@ export function runNativeKernTestRun(input: string): NativeKernTestRunSummary {
     warnings: files.reduce((sum, file) => sum + file.warnings, 0),
     failed: files.reduce((sum, file) => sum + file.failed, 0),
     files,
+    coverage: combineCoverageSummaries(files.map((file) => file.coverage)),
   };
 }
 
@@ -1499,6 +2664,7 @@ function summarizeNativeTestRun(
   file: string,
   targetFiles: Set<string>,
   results: NativeKernTestResult[],
+  coverage: NativeKernTestCoverageSummary = emptyCoverageSummary(),
 ): NativeKernTestSummary {
   const passed = results.filter((result) => result.status === 'passed').length;
   const warnings = results.filter((result) => result.status === 'warning').length;
@@ -1511,42 +2677,186 @@ function summarizeNativeTestRun(
     warnings,
     failed,
     results,
+    coverage,
   };
 }
 
-export function formatNativeKernTestSummary(summary: NativeKernTestSummary): string {
-  const lines = [`kern test ${relative(process.cwd(), summary.file) || summary.file}`];
-  for (const result of summary.results) {
-    const marker = result.status === 'passed' ? 'PASS' : result.status === 'warning' ? 'WARN' : 'FAIL';
-    const loc = result.line
-      ? ` (${relative(process.cwd(), result.file || summary.file)}:${result.line}:${result.col ?? 1})`
-      : '';
-    lines.push(`${marker} ${result.suite} > ${result.caseName}: ${result.assertion} [${result.ruleId}]${loc}`);
-    if (result.status !== 'passed' && result.message) lines.push(`  ${result.message}`);
-  }
-  lines.push(
-    `${summary.passed} passed, ${summary.warnings} warnings, ${summary.failed} failed, ${summary.total} total`,
+function normalizeBaselineMessage(message: string): string {
+  return message
+    .replace(/\bat line \d+\b/g, 'at line <line>')
+    .replace(/:\d+:\d+/g, ':<line>:<col>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function warningDetailMessages(message: string | undefined): string[] {
+  if (!message) return [];
+  const foundMatch = message.match(/^Found [^:]+:\s*(.+)$/);
+  const body = foundMatch?.[1] || message;
+  return body.split(/;\s+/).map(normalizeBaselineMessage).filter(Boolean);
+}
+
+function warningEntryKey(entry: NativeKernTestBaselineEntry): string {
+  return (
+    entry.signature ||
+    JSON.stringify([
+      entry.suite,
+      entry.caseName,
+      entry.ruleId,
+      entry.assertion,
+      entry.message ? normalizeBaselineMessage(entry.message) : '',
+    ])
   );
+}
+
+function warningResultToBaselineEntries(result: NativeKernTestResult): NativeKernTestBaselineEntry[] {
+  const details = warningDetailMessages(result.message);
+  if (details.length === 0) {
+    const signature = JSON.stringify([result.suite, result.caseName, result.ruleId, result.assertion, '']);
+    return [
+      {
+        suite: result.suite,
+        caseName: result.caseName,
+        ruleId: result.ruleId,
+        assertion: result.assertion,
+        signature,
+      },
+    ];
+  }
+  return details.map((detail) => ({
+    suite: result.suite,
+    caseName: result.caseName,
+    ruleId: result.ruleId,
+    assertion: result.assertion,
+    signature: JSON.stringify([result.suite, result.caseName, result.ruleId, result.assertion, detail]),
+    message: detail,
+  }));
+}
+
+export function createNativeKernTestBaseline(
+  summary: NativeKernTestSummary | NativeKernTestRunSummary,
+): NativeKernTestBaseline {
+  const results = 'results' in summary ? summary.results : summary.files.flatMap((fileSummary) => fileSummary.results);
+  const warnings = results.filter((result) => result.status === 'warning').flatMap(warningResultToBaselineEntries);
+  const seen = new Set<string>();
+  const uniqueWarnings: NativeKernTestBaselineEntry[] = [];
+  for (const warning of warnings) {
+    const key = warningEntryKey(warning);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueWarnings.push(warning);
+  }
+  uniqueWarnings.sort((a, b) => warningEntryKey(a).localeCompare(warningEntryKey(b)));
+  return { version: 1, warnings: uniqueWarnings };
+}
+
+export function checkNativeKernTestBaseline(
+  summary: NativeKernTestSummary | NativeKernTestRunSummary,
+  baseline: NativeKernTestBaseline,
+): NativeKernTestBaselineCheck {
+  const actual = createNativeKernTestBaseline(summary).warnings;
+  const expected = baseline.warnings || [];
+  const expectedByKey = new Map(expected.map((entry) => [warningEntryKey(entry), entry]));
+  const actualByKey = new Map(actual.map((entry) => [warningEntryKey(entry), entry]));
+  const knownWarnings = actual.filter((entry) => expectedByKey.has(warningEntryKey(entry)));
+  const newWarnings = actual.filter((entry) => !expectedByKey.has(warningEntryKey(entry)));
+  const staleWarnings = expected.filter((entry) => !actualByKey.has(warningEntryKey(entry)));
+  return {
+    ok: newWarnings.length === 0 && staleWarnings.length === 0,
+    knownWarnings,
+    newWarnings,
+    staleWarnings,
+  };
+}
+
+function nativeCountsLine(summary: Pick<NativeKernTestSummary, 'failed' | 'passed' | 'total' | 'warnings'>): string {
+  return `${summary.passed} passed, ${summary.warnings} warnings, ${summary.failed} failed, ${summary.total} total`;
+}
+
+function coverageLine(name: string, metric: NativeKernTestCoverageMetric): string {
+  return `${name}: ${metric.covered}/${metric.total} (${metric.percent}%)`;
+}
+
+export function formatNativeKernTestCoverage(coverage: NativeKernTestCoverageSummary): string {
+  const lines = [
+    `coverage ${coverage.covered}/${coverage.total} (${coverage.percent}%)`,
+    coverageLine('transitions', coverage.transitions),
+    coverageLine('guards', coverage.guards),
+  ];
+  const uncoveredTransitions = coverage.transitions.uncovered;
+  const uncoveredGuards = coverage.guards.uncovered;
+  if (uncoveredTransitions.length > 0) {
+    lines.push('uncovered transitions:');
+    for (const item of uncoveredTransitions) lines.push(`  ${item}`);
+  }
+  if (uncoveredGuards.length > 0) {
+    lines.push('uncovered guards:');
+    for (const item of uncoveredGuards) lines.push(`  ${item}`);
+  }
   return `${lines.join('\n')}\n`;
 }
 
-export function formatNativeKernTestRunSummary(summary: NativeKernTestRunSummary): string {
-  const lines = [`kern test ${relative(process.cwd(), summary.input) || summary.input}`];
+function formatNativeKernTestResult(result: NativeKernTestResult, summaryFile: string): string[] {
+  const marker = result.status === 'passed' ? 'PASS' : result.status === 'warning' ? 'WARN' : 'FAIL';
+  const loc = result.line
+    ? ` (${relative(process.cwd(), result.file || summaryFile)}:${result.line}:${result.col ?? 1})`
+    : '';
+  const lines = [`${marker} ${result.suite} > ${result.caseName}: ${result.assertion} [${result.ruleId}]${loc}`];
+  if (result.status !== 'passed' && result.message) lines.push(`  ${result.message}`);
+  return lines;
+}
+
+export function formatNativeKernTestSummary(
+  summary: NativeKernTestSummary,
+  options: NativeKernTestFormatOptions = {},
+): string {
+  const lines = [
+    options.format === 'compact'
+      ? `kern test ${relative(process.cwd(), summary.file) || summary.file} - ${nativeCountsLine(summary)}`
+      : `kern test ${relative(process.cwd(), summary.file) || summary.file}`,
+  ];
+  const results =
+    options.format === 'compact' ? summary.results.filter((result) => result.status !== 'passed') : summary.results;
+  for (const result of results) {
+    lines.push(...formatNativeKernTestResult(result, summary.file));
+  }
+  if (options.format === 'compact' && results.length === 0) return `${lines.join('\n')}\n`;
+  if (options.format !== 'compact') lines.push(nativeCountsLine(summary));
+  return `${lines.join('\n')}\n`;
+}
+
+export function formatNativeKernTestRunSummary(
+  summary: NativeKernTestRunSummary,
+  options: NativeKernTestFormatOptions = {},
+): string {
+  const lines = [
+    options.format === 'compact'
+      ? `kern test ${relative(process.cwd(), summary.input) || summary.input} - ${nativeCountsLine(summary)}`
+      : `kern test ${relative(process.cwd(), summary.input) || summary.input}`,
+  ];
   if (summary.files.length === 0) {
     lines.push('No native KERN test files found.');
-    lines.push(
-      `${summary.passed} passed, ${summary.warnings} warnings, ${summary.failed} failed, ${summary.total} total`,
-    );
+    if (options.format !== 'compact') lines.push(nativeCountsLine(summary));
     return `${lines.join('\n')}\n`;
   }
 
   for (const fileSummary of summary.files) {
-    lines.push('');
-    lines.push(formatNativeKernTestSummary(fileSummary).trimEnd());
+    if (options.format === 'compact') {
+      const relFile = relative(process.cwd(), fileSummary.file) || fileSummary.file;
+      if (fileSummary.failed > 0 || fileSummary.warnings > 0) {
+        lines.push(`${relFile} - ${nativeCountsLine(fileSummary)}`);
+        for (const result of fileSummary.results.filter((candidate) => candidate.status !== 'passed')) {
+          lines.push(...formatNativeKernTestResult(result, fileSummary.file));
+        }
+      }
+    } else {
+      lines.push('');
+      lines.push(formatNativeKernTestSummary(fileSummary).trimEnd());
+    }
   }
-  lines.push('');
-  lines.push(
-    `${summary.passed} passed, ${summary.warnings} warnings, ${summary.failed} failed, ${summary.total} total`,
-  );
+  if (options.format !== 'compact') {
+    lines.push('');
+    lines.push(nativeCountsLine(summary));
+  }
   return `${lines.join('\n')}\n`;
 }
