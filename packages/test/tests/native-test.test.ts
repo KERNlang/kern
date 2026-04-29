@@ -1,7 +1,13 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { formatNativeKernTestSummary, runNativeKernTests } from '../src/index.js';
+import {
+  discoverNativeKernTestFiles,
+  formatNativeKernTestRunSummary,
+  formatNativeKernTestSummary,
+  runNativeKernTestRun,
+  runNativeKernTests,
+} from '../src/index.js';
 
 describe('native kern test runner', () => {
   let tmpDir: string;
@@ -429,5 +435,199 @@ describe('native kern test runner', () => {
     expect(summary.results[5].message).toContain("path param 'id' is not declared, validated, or guarded");
     expect(summary.results[6].message).toContain('side-effect handler without cleanup');
     expect(summary.results[7].message).toContain('async handler without recover');
+  });
+
+  test('expands native test presets into granular invariant results', () => {
+    writeFileSync(
+      join(tmpDir, 'mcp.kern'),
+      [
+        'mcp name=Files',
+        '  tool name=readFile',
+        '    param name=filePath type=string required=true',
+        '    guard type=pathContainment param=filePath allowlist="/data"',
+        '  tool name=fetchAllowed',
+        '    param name=url type=string required=true',
+        '    guard type=urlAllowlist param=url allowlist="api.example.com"',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'mcp.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="MCP safety" target="./mcp.kern"',
+        '  it name="uses safety preset"',
+        '    expect preset=mcpSafety',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(5);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'no:duplicateparams',
+      'no:invalidguards',
+      'no:unguardedtoolparams',
+      'no:missingpathguards',
+      'no:ssrfrisks',
+    ]);
+    expect(summary.results.map((result) => result.assertion)).toEqual([
+      'preset mcpSafety / no duplicateParams',
+      'preset mcpSafety / no invalidGuards',
+      'preset mcpSafety / no unguardedToolParams',
+      'preset mcpSafety / no missingPathGuards',
+      'preset mcpSafety / no ssrfRisks',
+    ]);
+  });
+
+  test('passes language surface smoke for arrays classes and functions', () => {
+    writeFileSync(
+      join(tmpDir, 'language.kern'),
+      [
+        'type name=UserSelector alias="(user: User) => boolean"',
+        'type name=UserPair alias="[User, User]"',
+        'interface name=User',
+        '  field name=id type=string',
+        '  field name=name type=string',
+        '  field name=active type=boolean',
+        '  field name=role type=string',
+        'const name=users type="User[]" value={{ [] }}',
+        'filter name=activeUsers in=users item=user where="user.active" type="User[]"',
+        'map name=userNames in=activeUsers item=user expr="user.name" type="string[]"',
+        'find name=adminUser in=activeUsers item=user where="user.role === \'admin\'" type="User | undefined"',
+        'reduce name=activeCount in=activeUsers acc=count item=user initial=0 expr="count + 1" type=number',
+        'slice name=firstUsers in=activeUsers start=0 end=10 type="User[]"',
+        'destructure kind=const source=activeUsers',
+        '  element name=firstUser index=0',
+        '  element name=secondUser index=1',
+        'mapLit name=roleLabels type="Map<string, string>"',
+        '  mapEntry key="admin" value="Administrator"',
+        '  mapEntry key="member" value="Member"',
+        'setLit name=allowedRoles type="Set<string>"',
+        '  setItem value="admin"',
+        '  setItem value="member"',
+        'class name=UserDirectory export=true',
+        '  field name=items type="User[]" private=true value={{ [] }}',
+        '  constructor',
+        '    param name=initial type="User[]" value={{ [] }}',
+        '    handler <<<',
+        '      this.items = initial;',
+        '    >>>',
+        '  method name=list returns="User[]"',
+        '    handler <<<',
+        '      return this.items;',
+        '    >>>',
+        '  method name=select generics="<T extends User>" params="items:T[]" returns="T[]"',
+        '    handler <<<',
+        '      return items.filter((item) => item.active);',
+        '    >>>',
+        'fn name=selectActive generics="<T extends User>" returns="T[]"',
+        '  param name=items type="T[]"',
+        '  param name=predicate type="(item: T) => boolean" value={{ (item) => item.active }}',
+        '  handler <<<',
+        '    return items.filter(predicate);',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'language.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Language surface" target="./language.kern"',
+        '  it name="arrays classes and functions stay schema valid"',
+        '    expect no=schemaViolations',
+        '  it name="arrays classes and functions stay semantically valid"',
+        '    expect no=semanticViolations',
+        '  it name="language surface names stay unique"',
+        '    expect no=duplicateNames',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(3);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'no:schemaviolations',
+      'no:semanticviolations',
+      'no:duplicatenames',
+    ]);
+  });
+
+  test('discovers and runs native test files under a directory', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=paid',
+        '  transition name=capture from=pending to=paid',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(tmpDir, 'order.test.kern'),
+      [
+        'test name="Order invariants" target="./order.kern"',
+        '  it name="uses machine preset"',
+        '    expect preset=machine',
+      ].join('\n'),
+    );
+    writeFileSync(join(tmpDir, 'notes.kern'), ['const name=notATest value=1'].join('\n'));
+
+    const files = discoverNativeKernTestFiles(tmpDir);
+    const summary = runNativeKernTestRun(tmpDir);
+
+    expect(files).toEqual([join(tmpDir, 'order.test.kern')]);
+    expect(summary.testFiles).toEqual([join(tmpDir, 'order.test.kern')]);
+    expect(summary.files).toHaveLength(1);
+    expect(summary.passed).toBe(2);
+    expect(summary.warnings).toBe(0);
+    expect(summary.failed).toBe(0);
+    expect(formatNativeKernTestRunSummary(summary)).toContain('2 passed, 0 warnings, 0 failed, 2 total');
+  });
+
+  test('downgrades failing assertions to warnings with severity warn', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=paid',
+        '  state name=orphaned',
+        '  transition name=capture from=pending to=paid',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order invariants" target="./order.kern"',
+        '  it name="tracks dead states as debt"',
+        '    expect machine=Order no=deadStates severity=warn',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+    const output = formatNativeKernTestSummary(summary);
+
+    expect(summary.passed).toBe(0);
+    expect(summary.warnings).toBe(1);
+    expect(summary.failed).toBe(0);
+    expect(summary.results[0].status).toBe('warning');
+    expect(summary.results[0].severity).toBe('warn');
+    expect(summary.results[0].ruleId).toBe('no:deadstates');
+    expect(output).toContain('WARN Order invariants > tracks dead states as debt');
+    expect(output).toContain('[no:deadstates]');
+  });
+
+  test('directory runner fails clearly when no native test files exist', () => {
+    writeFileSync(join(tmpDir, 'plain.kern'), 'const name=value value=1');
+
+    const summary = runNativeKernTestRun(tmpDir);
+
+    expect(summary.testFiles).toEqual([]);
+    expect(summary.passed).toBe(0);
+    expect(summary.failed).toBe(1);
+    expect(formatNativeKernTestRunSummary(summary)).toContain('No native KERN test files found.');
   });
 });

@@ -168,6 +168,8 @@ describe('Schema Validation', () => {
           '    expect machine=Order no=deadStates',
           '  it name="guard covers payment variants"',
           '    expect guard=ChargeCard exhaustive=true over=Payment',
+          '  it name="uses a preset"',
+          '    expect preset=mcpSafety severity=warn',
         ].join('\n'),
       );
       expect(v).toHaveLength(0);

@@ -2339,6 +2339,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       expr: { kind: 'rawExpr' },
       message: { kind: 'string' },
+      preset: { kind: 'identifier' },
+      severity: { kind: 'identifier' },
       machine: { kind: 'identifier' },
       reaches: { kind: 'identifier' },
       via: { kind: 'string' },
@@ -2459,13 +2461,20 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
   }
   if (node.type === 'expect') {
     const hasRuntimeAssertion = 'expr' in props;
+    const hasPreset = 'preset' in props;
     const hasNegativeInvariant = 'no' in props;
     const hasGuardExhaustiveness = 'guard' in props;
     const hasMachineReachability = 'reaches' in props || ('machine' in props && !hasNegativeInvariant);
-    if (!hasRuntimeAssertion && !hasMachineReachability && !hasNegativeInvariant && !hasGuardExhaustiveness) {
+    if (
+      !hasRuntimeAssertion &&
+      !hasPreset &&
+      !hasMachineReachability &&
+      !hasNegativeInvariant &&
+      !hasGuardExhaustiveness
+    ) {
       violations.push({
         nodeType: 'expect',
-        message: "'expect' requires 'expr', 'machine'/'reaches', 'no', or 'guard'",
+        message: "'expect' requires 'expr', 'preset', 'machine'/'reaches', 'no', or 'guard'",
         line: node.loc?.line,
         col: node.loc?.col,
       });
