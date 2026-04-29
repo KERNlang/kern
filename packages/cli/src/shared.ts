@@ -12,12 +12,15 @@ import {
   COMMON_TEMPLATES,
   clearTemplates,
   collectCoverageGaps,
+  detectKernStdlibUsage,
   detectTarget,
   expandTemplateNode,
   generateCoreNode,
+  injectKernStdlibPreamble,
   isCoreNode,
   isTemplateNode,
   KERN_VERSION,
+  kernStdlibPreamble,
   parseWithDiagnostics,
   registerTemplate,
   resolveConfig,
@@ -594,10 +597,64 @@ function transpileLib(ast: IRNode, _cfg: ResolvedKernConfig): import('@kernlang/
   return { code, sourceMap: [], irTokenCount: 0, tsTokenCount: 0, tokenReduction: 0 };
 }
 
+/** Slice 4 layer 2 — apply the Result / Option preamble post-transpile.
+ *
+ *  Lifted from `transpileLib` so every TS-family target picks up the compact
+ *  form without each transpiler needing its own integration. FastAPI is
+ *  excluded (Python). Vue / Nuxt are also excluded for now — their `.vue`
+ *  SFC output would receive raw `type Result<…>` text BEFORE the
+ *  `<script setup lang="ts">` block, which is invalid SFC syntax. SFC-aware
+ *  injection (place the preamble inside the script block) is a follow-up
+ *  slice; until then Vue users keep using the explicit
+ *  `union name=R kind=result …` form. (Codex review fix.)
+ *
+ *  Multi-artifact targets (express routes, structured Next.js, etc.) get the
+ *  preamble injected into every artifact whose path ends in `.ts` / `.tsx`
+ *  / `.mts` / `.cts`, since each route file independently references types
+ *  in its handlers. */
+const TS_FAMILY_TARGETS: ReadonlySet<KernTarget> = new Set<KernTarget>([
+  'lib',
+  'native',
+  'web',
+  'tailwind',
+  'mcp',
+  'express',
+  'cli',
+  'terminal',
+  'ink',
+  'nextjs',
+]);
+
+function isTsArtifactPath(path: string): boolean {
+  return path.endsWith('.ts') || path.endsWith('.tsx') || path.endsWith('.mts') || path.endsWith('.cts');
+}
+
+function applyKernStdlibPreamble(
+  ast: IRNode,
+  target: KernTarget,
+  result: import('@kernlang/core').TranspileResult,
+): import('@kernlang/core').TranspileResult {
+  if (!TS_FAMILY_TARGETS.has(target)) return result;
+
+  const usage = detectKernStdlibUsage(ast);
+  const preamble = kernStdlibPreamble(usage);
+  if (preamble.length === 0) return result;
+
+  const updatedCode = injectKernStdlibPreamble(result.code, preamble);
+  const updatedArtifacts = result.artifacts?.map((art) =>
+    isTsArtifactPath(art.path) ? { ...art, content: injectKernStdlibPreamble(art.content, preamble) } : art,
+  );
+
+  return {
+    ...result,
+    code: updatedCode,
+    ...(updatedArtifacts ? { artifacts: updatedArtifacts } : {}),
+  };
+}
+
 // ── Transpile dispatch ───────────────────────────────────────────────────
 
-export function transpileForTarget(ast: IRNode, cfg: ResolvedKernConfig) {
-  const target = cfg.target === 'auto' ? detectTarget(ast) : cfg.target;
+function dispatchTranspile(target: KernTarget, ast: IRNode, cfg: ResolvedKernConfig) {
   return target === 'lib'
     ? transpileLib(ast, cfg)
     : target === 'native'
@@ -623,6 +680,15 @@ export function transpileForTarget(ast: IRNode, cfg: ResolvedKernConfig) {
                         : target === 'nuxt'
                           ? transpileNuxt(ast, cfg)
                           : transpileNextjs(ast, cfg);
+}
+
+export function transpileForTarget(ast: IRNode, cfg: ResolvedKernConfig) {
+  const target = cfg.target === 'auto' ? detectTarget(ast) : cfg.target;
+  const result = dispatchTranspile(target, ast, cfg);
+  // Slice 4 layer 2 — auto-emit Result / Option type aliases for every
+  // TS-family target. Single integration point so target transpilers don't
+  // each need their own preamble plumbing.
+  return applyKernStdlibPreamble(ast, target, result);
 }
 
 // ── Transpile + write ────────────────────────────────────────────────────
