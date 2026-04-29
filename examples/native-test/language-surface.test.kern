@@ -1,0 +1,9 @@
+test name="Language surface" target="./language-surface.kern"
+  it name="arrays classes and functions stay schema valid"
+    expect no=schemaViolations
+
+  it name="arrays classes and functions stay semantically valid"
+    expect no=semanticViolations
+
+  it name="language surface names stay unique"
+    expect no=duplicateNames

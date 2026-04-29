@@ -1,0 +1,51 @@
+type name=UserSelector alias="(user: User) => boolean"
+type name=UserPair alias="[User, User]"
+
+interface name=User
+  field name=id type=string
+  field name=name type=string
+  field name=active type=boolean
+  field name=role type=string
+
+const name=users type="User[]" value={{ [] }}
+
+filter name=activeUsers in=users item=user where="user.active" type="User[]"
+map name=userNames in=activeUsers item=user expr="user.name" type="string[]"
+find name=adminUser in=activeUsers item=user where="user.role === 'admin'" type="User | undefined"
+reduce name=activeCount in=activeUsers acc=count item=user initial=0 expr="count + 1" type=number
+slice name=firstUsers in=activeUsers start=0 end=10 type="User[]"
+
+destructure kind=const source=activeUsers
+  element name=firstUser index=0
+  element name=secondUser index=1
+
+mapLit name=roleLabels type="Map<string, string>"
+  mapEntry key="admin" value="Administrator"
+  mapEntry key="member" value="Member"
+
+setLit name=allowedRoles type="Set<string>"
+  setItem value="admin"
+  setItem value="member"
+
+class name=UserDirectory export=true
+  field name=items type="User[]" private=true value={{ [] }}
+  constructor
+    param name=initial type="User[]" value={{ [] }}
+    handler <<<
+      this.items = initial;
+    >>>
+  method name=list returns="User[]"
+    handler <<<
+      return this.items;
+    >>>
+  method name=select generics="<T extends User>" params="items:T[]" returns="T[]"
+    handler <<<
+      return items.filter((item) => item.active);
+    >>>
+
+fn name=selectActive generics="<T extends User>" returns="T[]"
+  param name=items type="T[]"
+  param name=predicate type="(item: T) => boolean" value={{ (item) => item.active }}
+  handler <<<
+    return items.filter(predicate);
+  >>>
