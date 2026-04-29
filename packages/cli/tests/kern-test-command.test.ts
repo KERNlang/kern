@@ -95,4 +95,91 @@ describe('kern test command', () => {
     expect(summary.failed).toBe(1);
     expect(process.exitCode).toBe(1);
   });
+
+  test('runs native suites discovered under a directory', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=paid',
+        '  transition name=capture from=pending to=paid',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(tmpDir, 'order.test.kern'),
+      [
+        'test name="Order invariants" target="./order.kern"',
+        '  it name="uses machine preset"',
+        '    expect preset=machine',
+      ].join('\n'),
+    );
+
+    const chunks: string[] = [];
+    const originalWrite = process.stdout.write;
+    process.stdout.write = ((chunk: string | Uint8Array): boolean => {
+      chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8'));
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      runTest(['test', tmpDir, '--json']);
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+
+    const summary = JSON.parse(chunks.join(''));
+    expect(summary.testFiles).toEqual([join(tmpDir, 'order.test.kern')]);
+    expect(summary.passed).toBe(2);
+    expect(summary.warnings).toBe(0);
+    expect(summary.failed).toBe(0);
+  });
+
+  test('keeps warning-only native runs green unless fail-on-warn is set', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=paid',
+        '  state name=orphaned',
+        '  transition name=capture from=pending to=paid',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order invariants" target="./order.kern"',
+        '  it name="tracks dead states as debt"',
+        '    expect machine=Order no=deadStates severity=warn',
+      ].join('\n'),
+    );
+
+    const chunks: string[] = [];
+    const originalWrite = process.stdout.write;
+    process.stdout.write = ((chunk: string | Uint8Array): boolean => {
+      chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8'));
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      runTest(['test', testFile, '--json']);
+      const summary = JSON.parse(chunks.join(''));
+      expect(summary.warnings).toBe(1);
+      expect(summary.failed).toBe(0);
+      expect(summary.results[0].ruleId).toBe('no:deadstates');
+      expect(process.exitCode).toBeUndefined();
+
+      chunks.length = 0;
+      process.exitCode = undefined;
+      runTest(['test', testFile, '--json', '--fail-on-warn']);
+      const strictSummary = JSON.parse(chunks.join(''));
+      expect(strictSummary.warnings).toBe(1);
+      expect(strictSummary.failed).toBe(0);
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+  });
 });

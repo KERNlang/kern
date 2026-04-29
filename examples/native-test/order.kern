@@ -1,0 +1,10 @@
+machine name=Order
+  state name=pending initial=true
+  state name=confirmed
+  state name=paid
+  transition name=confirm from=pending to=confirmed
+  transition name=capture from=confirmed to=paid
+
+derive name=subtotal expr={{itemsTotal}}
+derive name=tax expr={{subtotal * taxRate}}
+derive name=total expr={{subtotal + tax}}

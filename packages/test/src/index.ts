@@ -1,14 +1,17 @@
 import type { IRNode, ParseDiagnostic, SchemaViolation, SemanticViolation } from '@kernlang/core';
 import { parseDocumentWithDiagnostics, validateSchema, validateSemantics } from '@kernlang/core';
-import { existsSync, readFileSync } from 'fs';
-import { dirname, relative, resolve } from 'path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
+import { dirname, join, relative, resolve } from 'path';
 
-export type NativeKernTestStatus = 'passed' | 'failed';
+export type NativeKernTestStatus = 'passed' | 'failed' | 'warning';
+export type NativeKernTestSeverity = 'error' | 'warn';
 
 export interface NativeKernTestResult {
   suite: string;
   caseName: string;
+  ruleId: string;
   assertion: string;
+  severity: NativeKernTestSeverity;
   status: NativeKernTestStatus;
   message?: string;
   file?: string;
@@ -21,8 +24,20 @@ export interface NativeKernTestSummary {
   targetFiles: string[];
   total: number;
   passed: number;
+  warnings: number;
   failed: number;
   results: NativeKernTestResult[];
+}
+
+export interface NativeKernTestRunSummary {
+  input: string;
+  testFiles: string[];
+  targetFiles: string[];
+  total: number;
+  passed: number;
+  warnings: number;
+  failed: number;
+  files: NativeKernTestSummary[];
 }
 
 interface LoadedKernDocument {
@@ -39,6 +54,51 @@ interface CollectedAssertion {
   caseName: string;
   node: IRNode;
 }
+
+interface EvaluatedAssertion {
+  ruleId: string;
+  assertion: string;
+  passed: boolean;
+  message?: string;
+}
+
+const DISCOVERY_SKIP_DIRS = new Set([
+  '.git',
+  '.next',
+  '.turbo',
+  '.vercel',
+  'coverage',
+  'dist',
+  'generated',
+  'node_modules',
+]);
+
+const NATIVE_TEST_PRESETS: Record<string, string[]> = {
+  apisafety: ['duplicateRoutes', 'unvalidatedRoutes', 'unguardedEffects', 'uncheckedRoutePathParams'],
+  effects: ['unguardedEffects', 'sensitiveEffectsRequireAuth', 'effectWithoutCleanup', 'unrecoveredAsync'],
+  guard: ['invalidGuards', 'weakGuards'],
+  machine: ['deadStates', 'duplicateTransitions'],
+  mcpsafety: ['duplicateParams', 'invalidGuards', 'unguardedToolParams', 'missingPathGuards', 'ssrfRisks'],
+  strict: [
+    'duplicateNames',
+    'duplicateRoutes',
+    'duplicateTransitions',
+    'deadStates',
+    'deriveCycles',
+    'invalidGuards',
+    'unvalidatedRoutes',
+    'unguardedEffects',
+    'weakGuards',
+    'duplicateParams',
+    'unguardedToolParams',
+    'missingPathGuards',
+    'ssrfRisks',
+    'sensitiveEffectsRequireAuth',
+    'uncheckedRoutePathParams',
+    'effectWithoutCleanup',
+    'unrecoveredAsync',
+  ],
+};
 
 function getProps(node: IRNode): Record<string, unknown> {
   return node.props || {};
@@ -96,6 +156,24 @@ function parseNameList(value: string): string[] {
 
 function normalizeInvariant(value: string): string {
   return value.replace(/[-_\s]/g, '').toLowerCase();
+}
+
+function severityFromNode(node: IRNode): NativeKernTestSeverity {
+  const severity = str(getProps(node).severity).toLowerCase();
+  return severity === 'warn' || severity === 'warning' ? 'warn' : 'error';
+}
+
+function statusForEvaluation(passed: boolean, severity: NativeKernTestSeverity): NativeKernTestStatus {
+  if (passed) return 'passed';
+  return severity === 'warn' ? 'warning' : 'failed';
+}
+
+function invariantRuleId(value: string): string {
+  return `no:${normalizeInvariant(value) || 'unknown'}`;
+}
+
+function presetRuleId(value: string): string {
+  return `preset:${normalizeInvariant(value) || 'unknown'}`;
 }
 
 function nodeLabel(node: IRNode): string {
@@ -181,7 +259,9 @@ function issueResult(file: string, message: string, issue?: { line?: number; col
   return {
     suite: 'native test',
     caseName: 'file validates',
+    ruleId: 'file:validates',
     assertion: 'parse/schema validity',
+    severity: 'error',
     status: 'failed',
     message,
     file,
@@ -231,12 +311,14 @@ function collectAssertions(testNode: IRNode): CollectedAssertion[] {
 
 function assertionLabel(node: IRNode): string {
   const props = getProps(node);
+  const preset = str(props.preset);
   const machine = str(props.machine);
   const reaches = str(props.reaches);
   const no = str(props.no);
   const guard = str(props.guard);
   const expr = exprToString(props.expr);
 
+  if (preset) return `preset ${preset}`;
   if (no) return `${machine ? `machine ${machine} ` : ''}no ${no}`;
   if (guard) return `guard ${guard} exhaustive`;
   if (machine || reaches) return `machine ${machine || '<missing>'} reaches ${reaches || '<missing>'}`;
@@ -1164,23 +1246,142 @@ function evaluateMachineReachability(node: IRNode, target: LoadedKernDocument): 
   };
 }
 
-function evaluateNativeAssertion(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
-  const props = getProps(node);
-  if ('no' in props) return evaluateNoInvariant(node, target);
-  if ('guard' in props) return evaluateGuardExhaustiveness(node, target);
-  if ('machine' in props || 'reaches' in props) return evaluateMachineReachability(node, target);
-  if ('expr' in props) {
-    return {
-      passed: false,
-      message:
-        'Runtime expr assertions are still compiled-test assertions; native kern test currently supports structural assertions.',
-    };
+function nodeWithProps(node: IRNode, props: Record<string, unknown>): IRNode {
+  return { ...node, props };
+}
+
+function presetInvariants(node: IRNode): string[] | undefined {
+  const preset = normalizeInvariant(str(getProps(node).preset));
+  if (!preset) return undefined;
+  return NATIVE_TEST_PRESETS[preset];
+}
+
+function evaluatePresetAssertion(node: IRNode, target: LoadedKernDocument): EvaluatedAssertion[] {
+  const preset = str(getProps(node).preset);
+  const invariants = presetInvariants(node);
+  if (!invariants) {
+    return [
+      {
+        ruleId: presetRuleId(preset),
+        assertion: `preset ${preset || '<missing>'}`,
+        passed: false,
+        message: `Unsupported native preset: preset=${preset || '<missing>'}`,
+      },
+    ];
   }
-  return { passed: false, message: 'Unsupported native expect assertion.' };
+
+  return invariants.map((invariant) => {
+    const evaluated = evaluateNoInvariant(nodeWithProps(node, { ...getProps(node), no: invariant }), target);
+    return {
+      ruleId: invariantRuleId(invariant),
+      assertion: `preset ${preset} / no ${invariant}`,
+      passed: evaluated.passed,
+      ...(evaluated.message ? { message: evaluated.message } : {}),
+    };
+  });
+}
+
+function evaluateNativeAssertion(node: IRNode, target: LoadedKernDocument): EvaluatedAssertion[] {
+  const props = getProps(node);
+  if ('preset' in props) return evaluatePresetAssertion(node, target);
+  if ('no' in props) {
+    const evaluated = evaluateNoInvariant(node, target);
+    return [
+      {
+        ruleId: invariantRuleId(str(props.no)),
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('guard' in props) {
+    const evaluated = evaluateGuardExhaustiveness(node, target);
+    return [
+      {
+        ruleId: 'guard:exhaustive',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('machine' in props || 'reaches' in props) {
+    const evaluated = evaluateMachineReachability(node, target);
+    return [
+      {
+        ruleId: 'machine:reaches',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('expr' in props) {
+    return [
+      {
+        ruleId: 'expr',
+        assertion: assertionLabel(node),
+        passed: false,
+        message:
+          'Runtime expr assertions are still compiled-test assertions; native kern test currently supports structural assertions.',
+      },
+    ];
+  }
+  return [
+    {
+      ruleId: 'expect:unsupported',
+      assertion: assertionLabel(node),
+      passed: false,
+      message: 'Unsupported native expect assertion.',
+    },
+  ];
 }
 
 export function hasNativeKernTests(source: string): boolean {
   return collectNodes(parseDocumentWithDiagnostics(source).root, 'test').length > 0;
+}
+
+function isKernFile(file: string): boolean {
+  return file.endsWith('.kern');
+}
+
+function hasNativeKernTestsInFile(file: string): boolean {
+  try {
+    return hasNativeKernTests(readFileSync(file, 'utf-8'));
+  } catch {
+    return false;
+  }
+}
+
+function discoverNativeKernTestFilesInDir(dir: string): string[] {
+  const files: string[] = [];
+
+  function walk(current: string): void {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (!DISCOVERY_SKIP_DIRS.has(entry.name)) walk(join(current, entry.name));
+        continue;
+      }
+
+      if (!entry.isFile()) continue;
+      const file = join(current, entry.name);
+      if (isKernFile(file) && hasNativeKernTestsInFile(file)) files.push(resolve(file));
+    }
+  }
+
+  walk(dir);
+  return files.sort();
+}
+
+export function discoverNativeKernTestFiles(input: string): string[] {
+  const inputPath = resolve(input);
+  if (!existsSync(inputPath)) return [];
+
+  const stat = statSync(inputPath);
+  if (stat.isDirectory()) return discoverNativeKernTestFilesInDir(inputPath);
+  if (stat.isFile() && isKernFile(inputPath) && hasNativeKernTestsInFile(inputPath)) return [inputPath];
+  return [];
 }
 
 export function runNativeKernTests(file: string): NativeKernTestSummary {
@@ -1226,7 +1427,9 @@ export function runNativeKernTests(file: string): NativeKernTestSummary {
       results.push({
         suite,
         caseName: 'suite',
+        ruleId: 'suite:hasassertions',
         assertion: 'has native expect assertions',
+        severity: 'error',
         status: 'failed',
         message:
           'No native expect assertions found. Add expect machine=..., expect no=deriveCycles, or expect no=schemaViolations.',
@@ -1238,21 +1441,58 @@ export function runNativeKernTests(file: string): NativeKernTestSummary {
     }
 
     for (const assertion of assertions) {
-      const evaluated = evaluateNativeAssertion(assertion.node, target);
-      results.push({
-        suite: assertion.suite,
-        caseName: assertion.caseName,
-        assertion: assertionLabel(assertion.node),
-        status: evaluated.passed ? 'passed' : 'failed',
-        ...(evaluated.message ? { message: evaluated.message } : {}),
-        file: inputPath,
-        line: assertion.node.loc?.line,
-        col: assertion.node.loc?.col,
-      });
+      const severity = severityFromNode(assertion.node);
+      for (const evaluated of evaluateNativeAssertion(assertion.node, target)) {
+        results.push({
+          suite: assertion.suite,
+          caseName: assertion.caseName,
+          ruleId: evaluated.ruleId,
+          assertion: evaluated.assertion,
+          severity,
+          status: statusForEvaluation(evaluated.passed, severity),
+          ...(evaluated.message ? { message: evaluated.message } : {}),
+          file: inputPath,
+          line: assertion.node.loc?.line,
+          col: assertion.node.loc?.col,
+        });
+      }
     }
   }
 
   return summarizeNativeTestRun(inputPath, targetFiles, results);
+}
+
+export function runNativeKernTestRun(input: string): NativeKernTestRunSummary {
+  const inputPath = resolve(input);
+  const files = discoverNativeKernTestFiles(inputPath).map((file) => runNativeKernTests(file));
+  if (files.length === 0) {
+    return {
+      input: inputPath,
+      testFiles: [],
+      targetFiles: [],
+      total: 1,
+      passed: 0,
+      warnings: 0,
+      failed: 1,
+      files: [],
+    };
+  }
+
+  const targetFiles = new Set<string>();
+  for (const file of files) {
+    for (const target of file.targetFiles) targetFiles.add(target);
+  }
+
+  return {
+    input: inputPath,
+    testFiles: files.map((file) => file.file),
+    targetFiles: [...targetFiles].sort(),
+    total: files.reduce((sum, file) => sum + file.total, 0),
+    passed: files.reduce((sum, file) => sum + file.passed, 0),
+    warnings: files.reduce((sum, file) => sum + file.warnings, 0),
+    failed: files.reduce((sum, file) => sum + file.failed, 0),
+    files,
+  };
 }
 
 function summarizeNativeTestRun(
@@ -1261,12 +1501,14 @@ function summarizeNativeTestRun(
   results: NativeKernTestResult[],
 ): NativeKernTestSummary {
   const passed = results.filter((result) => result.status === 'passed').length;
-  const failed = results.length - passed;
+  const warnings = results.filter((result) => result.status === 'warning').length;
+  const failed = results.filter((result) => result.status === 'failed').length;
   return {
     file,
-    targetFiles: [...targetFiles],
+    targetFiles: [...targetFiles].sort(),
     total: results.length,
     passed,
+    warnings,
     failed,
     results,
   };
@@ -1275,13 +1517,36 @@ function summarizeNativeTestRun(
 export function formatNativeKernTestSummary(summary: NativeKernTestSummary): string {
   const lines = [`kern test ${relative(process.cwd(), summary.file) || summary.file}`];
   for (const result of summary.results) {
-    const marker = result.status === 'passed' ? 'PASS' : 'FAIL';
+    const marker = result.status === 'passed' ? 'PASS' : result.status === 'warning' ? 'WARN' : 'FAIL';
     const loc = result.line
       ? ` (${relative(process.cwd(), result.file || summary.file)}:${result.line}:${result.col ?? 1})`
       : '';
-    lines.push(`${marker} ${result.suite} > ${result.caseName}: ${result.assertion}${loc}`);
-    if (result.status === 'failed' && result.message) lines.push(`  ${result.message}`);
+    lines.push(`${marker} ${result.suite} > ${result.caseName}: ${result.assertion} [${result.ruleId}]${loc}`);
+    if (result.status !== 'passed' && result.message) lines.push(`  ${result.message}`);
   }
-  lines.push(`${summary.passed} passed, ${summary.failed} failed, ${summary.total} total`);
+  lines.push(
+    `${summary.passed} passed, ${summary.warnings} warnings, ${summary.failed} failed, ${summary.total} total`,
+  );
+  return `${lines.join('\n')}\n`;
+}
+
+export function formatNativeKernTestRunSummary(summary: NativeKernTestRunSummary): string {
+  const lines = [`kern test ${relative(process.cwd(), summary.input) || summary.input}`];
+  if (summary.files.length === 0) {
+    lines.push('No native KERN test files found.');
+    lines.push(
+      `${summary.passed} passed, ${summary.warnings} warnings, ${summary.failed} failed, ${summary.total} total`,
+    );
+    return `${lines.join('\n')}\n`;
+  }
+
+  for (const fileSummary of summary.files) {
+    lines.push('');
+    lines.push(formatNativeKernTestSummary(fileSummary).trimEnd());
+  }
+  lines.push('');
+  lines.push(
+    `${summary.passed} passed, ${summary.warnings} warnings, ${summary.failed} failed, ${summary.total} total`,
+  );
   return `${lines.join('\n')}\n`;
 }

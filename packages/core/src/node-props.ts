@@ -523,6 +523,8 @@ export interface ExpectProps extends BaseProps {
   max?: string;
   min?: string;
   message?: string;
+  preset?: string;
+  severity?: string;
   machine?: string;
   reaches?: string;
   via?: string;

@@ -1,0 +1,9 @@
+test name="Order invariants" target="./order.kern"
+  it name="reaches paid through checkout"
+    expect machine=Order reaches=paid via=confirm,capture
+
+  it name="machine graph stays healthy"
+    expect preset=machine
+
+  it name="derived values stay acyclic"
+    expect no=deriveCycles
