@@ -18,6 +18,7 @@ kern test path/to/tests
 kern test path/to/tests --json
 kern test path/to/tests --grep Order
 kern test path/to/tests --bail
+kern test path/to/tests --watch
 kern test path/to/tests --format compact
 kern test path/to/tests --coverage
 kern test path/to/tests --min-coverage 80
@@ -76,6 +77,8 @@ Use `--coverage` to print native transition/guard coverage. Use `--min-coverage 
 Use `severity=warn` for known migration debt that should stay visible without failing local runs. CI can promote warnings to failures with `kern test <file-or-dir> --fail-on-warn`.
 
 Use `--grep <pattern>` to run only matching suites, cases, assertions, rule IDs, messages, or files. The CLI exits nonzero when a grep run matches zero assertions. Use `--bail` to stop after the first failed native assertion.
+
+Use `--watch` during development to rerun native KERN tests when watched `.kern` files change. Directory inputs watch every `.kern` file under the directory. Single native test files watch the test file plus its current target files.
 
 Use `--format compact` (or `--compact`) in CI when you only want the aggregate line plus warning/failure details. JSON output is unchanged by format flags.
 
