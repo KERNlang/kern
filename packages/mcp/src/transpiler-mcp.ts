@@ -60,6 +60,10 @@ interface ParamDefinition {
   type: string;
   optional: boolean;
   defaultValue?: string;
+  // Codex review fix: ExprObject defaults (`value={{Date.now()}}`) need to
+  // bypass `zodForParam`'s type-aware coercion. When `defaultIsExpr=true`,
+  // emit `defaultValue` verbatim instead of running through Number()/json().
+  defaultIsExpr?: boolean;
   description?: string;
   guards: GuardDefinition[];
   node: IRNode;
@@ -109,6 +113,41 @@ function findMcpNode(root: IRNode): IRNode | undefined {
 function str(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   return String(value);
+}
+
+/**
+ * Slice 3c P2 follow-up — resolve a `param`'s default for MCP emission.
+ * Reads `value` first (slice 3c canonical, ValueIR-routed), falls back to
+ * `default` (legacy rawExpr passthrough). Mirrors core's `parseParamListFromChildren`
+ * priority: `value` wins when both are set.
+ *
+ * Returns `{ value, isExpr }` where `isExpr=true` signals an ExprObject
+ * (`value={{...}}`) — the Zod / Python emitter must drop type-aware coercion
+ * and emit the `.code` verbatim, otherwise expressions like `Date.now()`
+ * collapse through `Number()` to `0` or get JSON-stringified into a string
+ * literal. Codex review fix: previously this returned a plain string and
+ * downstream `zodForParam` always re-coerced, silently corrupting expression
+ * defaults.
+ */
+function resolveParamDefault(paramNode: IRNode): { value: string; isExpr: boolean } | undefined {
+  const props = paramNode.props || {};
+  const quoted = paramNode.__quotedProps ?? [];
+  const rawValue = props.value;
+  const valuePresent = rawValue !== undefined && (rawValue !== '' || quoted.includes('value'));
+  if (valuePresent) {
+    if (typeof rawValue === 'object' && rawValue !== null && (rawValue as { __expr?: unknown }).__expr === true) {
+      return { value: (rawValue as { code: string }).code, isExpr: true };
+    }
+    return { value: String(rawValue), isExpr: false };
+  }
+  const rawDefault = props.default;
+  if (rawDefault !== undefined && rawDefault !== '') {
+    if (typeof rawDefault === 'object' && rawDefault !== null && (rawDefault as { __expr?: unknown }).__expr === true) {
+      return { value: (rawDefault as { code: string }).code, isExpr: true };
+    }
+    return { value: String(rawDefault), isExpr: false };
+  }
+  return undefined;
 }
 
 function extractDescription(node: IRNode): string {
@@ -342,11 +381,15 @@ function collectParams(node: IRNode, fallbackAllowlist: string[]): ParamDefiniti
       guards.push({ kind: 'pathContainment', target: name, allowlist: fallbackAllowlist });
     }
 
+    // Slice 3c P2 follow-up: read `value` (canonical) before `default` (legacy).
+    const resolved = resolveParamDefault(paramNode);
+
     return {
       name,
       type,
-      optional: str(props.required) === 'false' || props.default !== undefined,
-      defaultValue: str(props.default),
+      optional: str(props.required) === 'false' || resolved !== undefined,
+      defaultValue: resolved?.value,
+      defaultIsExpr: resolved?.isExpr,
       description: str(props.description),
       guards,
       node: paramNode,
@@ -431,17 +474,27 @@ function zodForParam(param: ParamDefinition): string {
   }
 
   if (param.defaultValue !== undefined) {
-    const t = param.type;
-    const isNumeric = t === 'number' || t === 'float' || t === 'int' || t === 'integer';
-    const dv = isNumeric
-      ? Number.isNaN(Number(param.defaultValue))
-        ? '0'
-        : param.defaultValue
-      : t === 'boolean' || t === 'bool'
-        ? param.defaultValue === 'true'
-          ? 'true'
-          : 'false'
-        : json(param.defaultValue);
+    // Codex review fix: ExprObject defaults (`value={{Date.now()}}` —
+    // marked via `defaultIsExpr`) bypass type coercion and emit verbatim.
+    // Without this, `Number('Date.now()')` is NaN → `.default(0)`, and string
+    // identifiers get JSON-stringified into `.default("DEFAULT_GREETING")`,
+    // collapsing both expression and reference defaults to literals.
+    let dv: string;
+    if (param.defaultIsExpr) {
+      dv = param.defaultValue;
+    } else {
+      const t = param.type;
+      const isNumeric = t === 'number' || t === 'float' || t === 'int' || t === 'integer';
+      dv = isNumeric
+        ? Number.isNaN(Number(param.defaultValue))
+          ? '0'
+          : param.defaultValue
+        : t === 'boolean' || t === 'bool'
+          ? param.defaultValue === 'true'
+            ? 'true'
+            : 'false'
+          : json(param.defaultValue);
+    }
     expr += `.default(${dv})`;
   } else if (param.optional) {
     expr += '.optional()';

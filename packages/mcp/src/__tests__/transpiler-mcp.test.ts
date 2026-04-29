@@ -343,6 +343,90 @@ describe('transpileMCP', () => {
     expect(result.code).not.toContain('.default("false")');
   });
 
+  // ─── Slice 3c P2 follow-up: param.value (canonical) is consumed ────────
+
+  it('reads param.value (slice 3c canonical) for Zod default — numeric', () => {
+    // Pre-migration this would have emitted no `.default()` because the
+    // transpiler only read `param.default`. Now `value` is the canonical
+    // entry point and `default` is the legacy fallback.
+    const ast = node('mcp', { name: 'RetryServer' }, [
+      node('tool', { name: 'retry' }, [node('param', { name: 'attempts', type: 'number', value: '3' })]),
+    ]);
+    const result = transpileMCP(ast);
+    expect(result.code).toContain('.default(3)');
+  });
+
+  it('reads param.value for Zod default — boolean', () => {
+    const ast = node('mcp', { name: 'BoolValueServer' }, [
+      node('tool', { name: 'toggle' }, [node('param', { name: 'enabled', type: 'boolean', value: 'false' })]),
+    ]);
+    const result = transpileMCP(ast);
+    expect(result.code).toContain('.default(false)');
+  });
+
+  it('value= wins over default= when both are set', () => {
+    const ast = node('mcp', { name: 'BothServer' }, [
+      node('tool', { name: 'retry' }, [node('param', { name: 'attempts', type: 'number', value: '7', default: '3' })]),
+    ]);
+    const result = transpileMCP(ast);
+    expect(result.code).toContain('.default(7)');
+    expect(result.code).not.toContain('.default(3)');
+  });
+
+  it('ExprObject value={{...}} bypasses type coercion and emits raw in Zod default', () => {
+    // Codex review fix: previously the resolver returned just the .code
+    // string, so the downstream numeric-coerce branch ran `Number('Date.now()')`
+    // → NaN → `.default(0)`, silently dropping the expression. The new
+    // `defaultIsExpr` flag bypasses coercion for ExprObject so the
+    // expression survives verbatim.
+    const ast = node('mcp', { name: 'ExprServer' }, [
+      node('tool', { name: 'stamp' }, [
+        node('param', { name: 'ts', type: 'number', value: { __expr: true, code: 'Date.now()' } }),
+      ]),
+    ]);
+    const result = transpileMCP(ast);
+    expect(result.code).toContain('.default(Date.now())');
+    expect(result.code).not.toContain('.default(0)');
+  });
+
+  it('ExprObject identifier reference bypasses string-literal coercion', () => {
+    // Codex review case: `value={{DEFAULT_GREETING}}` (a const reference)
+    // used to be JSON-stringified to `.default("DEFAULT_GREETING")` (string
+    // literal). Now emits the bare identifier so Zod resolves the actual
+    // const at runtime.
+    const ast = node('mcp', { name: 'IdentExpr' }, [
+      node('tool', { name: 'greet' }, [
+        node('param', { name: 'msg', type: 'string', value: { __expr: true, code: 'DEFAULT_GREETING' } }),
+      ]),
+    ]);
+    const result = transpileMCP(ast);
+    expect(result.code).toContain('.default(DEFAULT_GREETING)');
+    expect(result.code).not.toContain('.default("DEFAULT_GREETING")');
+  });
+
+  it('quoted-string value emits as JSON-stringified default', () => {
+    const ast = {
+      type: 'mcp',
+      props: { name: 'StringValueServer' },
+      children: [
+        {
+          type: 'tool',
+          props: { name: 'greet' },
+          children: [
+            {
+              type: 'param',
+              props: { name: 'salutation', type: 'string', value: 'hi' },
+              __quotedProps: ['value'],
+              children: [],
+            },
+          ],
+        },
+      ],
+    };
+    const result = transpileMCP(ast as Parameters<typeof transpileMCP>[0]);
+    expect(result.code).toContain('.default("hi")');
+  });
+
   it('should wrap handler with return in IIFE for correct try/catch behavior', () => {
     const ast = node('mcp', { name: 'IIFEServer' }, [
       node('tool', { name: 'action' }, [

@@ -1597,7 +1597,13 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'Parameter definition. Used in two contexts: (a) MCP tool/resource/prompt params (description/required/min/max apply); (b) fn/method/constructor/etc. parameter defaults via slice 3c — value flows through ValueIR canonicalisation (mirrors slice 1j const.value, 3a let.value, 3b field.value).',
     example: 'param name=query type=string required=true description="Search query"',
     props: {
-      name: { required: true, kind: 'identifier' },
+      // Slice 3c-extension #3: `name` is required UNLESS the param carries
+      // `binding`/`element` destructure children — destructured params encode
+      // the LHS pattern in the children, not in `name`. The required-OR-children
+      // invariant lives in `checkCrossProps` so `validateSchema` accepts both
+      // forms. Keeping the schema-level `required: true` here would reject the
+      // canonical destructured form emitted by the importer.
+      name: { kind: 'identifier' },
       type: { kind: 'typeAnnotation' },
       value: { kind: 'expression' },
       required: { kind: 'boolean' },
@@ -1605,12 +1611,25 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       // `required`. When `optional=true`, codegen emits `name?: type` (with the
       // `?` inside the parameter list) so callers may omit the argument.
       optional: { kind: 'boolean' },
+      // Slice 3c-extension: TS-style variadic `...rest`. When `variadic=true`,
+      // codegen prepends `...` to the parameter name; the type should be an
+      // array (e.g. `string[]`). Variadic params can't have defaults — that's
+      // user error and TS will surface it at the call site.
+      variadic: { kind: 'boolean' },
       default: { kind: 'rawExpr' },
       description: { kind: 'string' },
       min: { kind: 'number' },
       max: { kind: 'number' },
     },
-    allowedChildren: ['guard', 'description'],
+    // Slice 3c-extension #3: TS-style destructured params via slice 3d's
+    // `binding` (object pattern) / `element` (array pattern) children. When
+    // present, codegen uses the pattern as the LHS instead of `name`, e.g.
+    //   param type="Point"
+    //     binding name=x
+    //     binding name=y
+    // → `{x, y}: Point`. Same node types as slice 3d destructure — no new
+    // node types needed. `name=` is omitted on destructured params.
+    allowedChildren: ['guard', 'description', 'binding', 'element'],
   },
   prompt: {
     description: 'MCP prompt template — a reusable system prompt exposed to AI agents',
@@ -2458,6 +2477,23 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       line: node.loc?.line,
       col: node.loc?.col,
     });
+  }
+  if (node.type === 'param') {
+    // Slice 3c-extension #3: `param` requires `name=` UNLESS it carries
+    // `binding`/`element` destructure children — destructured params encode
+    // the LHS pattern in the children. Replaces the old prop-level
+    // `required: true` constraint which rejected the canonical destructured
+    // form emitted by importer/decompiler.
+    const hasName = 'name' in props;
+    const hasDestructure = (node.children ?? []).some((c) => c.type === 'binding' || c.type === 'element');
+    if (!hasName && !hasDestructure) {
+      violations.push({
+        nodeType: 'param',
+        message: "'param' requires either 'name' or destructure children ('binding'/'element')",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
   }
   if (node.type === 'expect') {
     const hasRuntimeAssertion = 'expr' in props;

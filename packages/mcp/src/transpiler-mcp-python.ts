@@ -52,6 +52,41 @@ function str(value: unknown): string | undefined {
   return String(value);
 }
 
+/**
+ * Slice 3c P2 follow-up — resolve a `param`'s default for MCP Python emission.
+ * Reads `value` first (slice 3c canonical, ValueIR-routed), falls back to
+ * `default` (legacy rawExpr). Mirrors `transpiler-mcp.ts` `resolveParamDefault`.
+ *
+ * Codex review fix: ExprObject (`value={{Date.now()}}`) carries JS-flavored
+ * code that cannot be emitted directly into a Python signature without
+ * raising `NameError` at module import. For Python, treat ExprObject defaults
+ * as "no static default" — the function still gets the param, but with no
+ * default value. The downstream Python emitter (line ~711) handles
+ * literal-keyword translation for booleans (`true` → `True`) — don't
+ * pre-translate here, that would mismatch its raw-string check.
+ */
+function resolveParamDefault(paramNode: IRNode): string | undefined {
+  const props = paramNode.props || {};
+  const quoted = paramNode.__quotedProps ?? [];
+  const rawValue = props.value;
+  const valuePresent = rawValue !== undefined && (rawValue !== '' || quoted.includes('value'));
+  if (valuePresent) {
+    if (typeof rawValue === 'object' && rawValue !== null && (rawValue as { __expr?: unknown }).__expr === true) {
+      // ExprObject is JS-flavored; cannot safely emit into Python signature.
+      return undefined;
+    }
+    return String(rawValue);
+  }
+  const rawDefault = props.default;
+  if (rawDefault !== undefined && rawDefault !== '') {
+    if (typeof rawDefault === 'object' && rawDefault !== null && (rawDefault as { __expr?: unknown }).__expr === true) {
+      return undefined;
+    }
+    return String(rawDefault);
+  }
+  return undefined;
+}
+
 function findMcpNode(root: IRNode): IRNode | undefined {
   if (root.type === 'mcp') return root;
   for (const child of root.children || []) {
@@ -643,7 +678,8 @@ function buildPythonCode(
       const kernType = str(pp.type) || 'string';
       let pType = pyType(kernType);
       const isOptional = str(pp.required) === 'false';
-      const defaultVal = str(pp.default);
+      // Slice 3c P2 follow-up: read `value` (canonical) before `default` (legacy).
+      const defaultVal = resolveParamDefault(p);
 
       // Auto-infer int when type=number but default/min/max are all integers
       if (pType === 'float' && defaultVal !== undefined) {
