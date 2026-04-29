@@ -342,20 +342,136 @@ describe('effects=pure — slice 6 validator', () => {
     expect(errs[0].message).toContain(marker);
   });
 
-  // ── effects="" silent-ignore behaviour is locked in ───────────────
+  // ── Codex review fix: malformed effects values must error ─────────
 
-  // OpenCode review note: empty-string `effects=` is intentionally a no-op
-  // — the prop is treated as absent. Lock the behaviour so a future
-  // refactor cannot turn it into a hard error without an updated test.
-  test('effects="" is silently ignored (no diagnostic)', () => {
+  // The earlier `effects !== ''` guard silently ignored empty-string and
+  // ExprObject values, contradicting the spec rule "anything other than
+  // `pure` errors". Both now fail.
+  test('effects="" rejects (slice 6 only accepts the literal `pure`)', () => {
+    const errs = effectsErrors(
+      ['fn name=noop params="x:number" returns=number effects=""', '  handler <<<', '    return x;', '  >>>'].join(
+        '\n',
+      ),
+    );
+    expect(errs.length).toBeGreaterThanOrEqual(1);
+    expect(errs[0].message).toMatch(/only accepts the literal `pure`/);
+  });
+
+  test('effects={{ ... }} (ExprObject) rejects', () => {
     const errs = effectsErrors(
       [
-        'fn name=noop params="x:number" returns=number effects=""',
+        'fn name=noop params="x:number" returns=number effects={{ maybe }}',
         '  handler <<<',
-        '    return Math.random();', // would be rejected if effects=pure took effect
+        '    return x;',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(errs.length).toBeGreaterThanOrEqual(1);
+    expect(errs[0].message).toMatch(/only accepts the literal `pure`/);
+  });
+
+  // ── Codex review fix: cleanup blocks are scanned ──────────────────
+
+  test('rejects forbidden pattern in cleanup block of pure fn', () => {
+    // cleanup compiles into the function's finally block — if we don't scan
+    // it, an effectful cleanup body bypasses the purity contract.
+    const errs = effectsErrors(
+      [
+        'fn name=safe params="x:number" returns=number effects=pure',
+        '  handler <<<',
+        '    return x * 2;',
+        '  >>>',
+        '  cleanup <<<',
+        '    console.log("cleaning up");',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(errs.length).toBeGreaterThanOrEqual(1);
+    expect(errs[0].message).toMatch(/console\./);
+  });
+
+  // ── Codex review fix: named HTTP clients ─────────────────────────
+
+  test.each([
+    ['axios.get("/x")', 'axios.'],
+    ['axios("/x")', 'axios.'],
+    ['got("/x")', 'got('],
+    ['ky.get("/x")', 'ky.'],
+    ['undici.request("/x")', 'undici.'],
+    ['http.get("/x")', 'http.'],
+    ['https.request("/x")', 'http.'],
+  ])('rejects named HTTP client: %s', (snippet, marker) => {
+    const errs = effectsErrors(
+      ['fn name=probe returns=any effects=pure', '  handler <<<', `    return ${snippet};`, '  >>>'].join('\n'),
+    );
+    expect(errs.length).toBeGreaterThanOrEqual(1);
+    expect(errs[0].message).toContain(marker);
+  });
+
+  // ── Gemini review fix: comments and string literals are stripped ──
+
+  test('forbidden pattern inside a line comment does NOT trigger a false positive', () => {
+    const errs = effectsErrors(
+      [
+        'fn name=clean params="x:number" returns=number effects=pure',
+        '  handler <<<',
+        '    // This pure helper does NOT call fetch() or readFileSync',
+        '    return x * 2;',
         '  >>>',
       ].join('\n'),
     );
     expect(errs).toEqual([]);
+  });
+
+  test('forbidden pattern inside a block comment does NOT trigger a false positive', () => {
+    const errs = effectsErrors(
+      [
+        'fn name=clean params="x:number" returns=number effects=pure',
+        '  handler <<<',
+        '    /* The console.log call is in a comment */',
+        '    return x * 2;',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(errs).toEqual([]);
+  });
+
+  test('forbidden pattern inside a string literal does NOT trigger a false positive', () => {
+    const errs = effectsErrors(
+      [
+        'fn name=describe params="x:number" returns=string effects=pure',
+        '  handler <<<',
+        '    return "fetch() and Math.random() are forbidden in pure code";',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(errs).toEqual([]);
+  });
+
+  test('forbidden pattern inside a single-quoted string does NOT trigger a false positive', () => {
+    const errs = effectsErrors(
+      [
+        'fn name=describe params="x:number" returns=string effects=pure',
+        '  handler <<<',
+        "    return 'console.log is forbidden';",
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(errs).toEqual([]);
+  });
+
+  test('forbidden pattern outside the comment but with another in the comment IS rejected', () => {
+    // Belt-and-suspenders: prove the strip pass doesn't blind the walker.
+    const errs = effectsErrors(
+      [
+        'fn name=mixed params="x:number" returns=number effects=pure',
+        '  handler <<<',
+        '    // This does NOT call fetch()',
+        '    return Math.random();',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(errs.length).toBeGreaterThanOrEqual(1);
+    expect(errs[0].message).toMatch(/Math\.random/);
   });
 });

@@ -4,9 +4,12 @@
  *
  *  Walks every `fn` / `derive` / `memo` node with `effects=pure` and rejects:
  *    1. `effects=...` on any other node type (allowed list is `fn|derive|memo`)
- *    2. `effects=<not-pure>` (slice 6 only accepts the literal `pure`)
+ *    2. `effects=<not-pure>` (slice 6 only accepts the literal `pure`) —
+ *       includes empty string and ExprObject `effects={{ ... }}` per spec.
  *    3. `async=true` / `stream=true` combined with `effects=pure` (incompatible)
- *    4. handler / expr body containing any of the FORBIDDEN_PATTERNS
+ *    4. handler / cleanup / expr body containing any of the FORBIDDEN_PATTERNS,
+ *       checked AFTER stripping comments and string literals to avoid false
+ *       positives on commented-out code or string content.
  *
  *  This is a static walker — same shape as the `batch=true` rejection in
  *  packages/terminal/src/transpiler-ink.ts. Limitations are documented in
@@ -16,7 +19,7 @@
 
 import type { ParseState } from './parser-diagnostics.js';
 import { emitDiagnostic } from './parser-diagnostics.js';
-import type { IRNode } from './types.js';
+import { type IRNode, isExprObject } from './types.js';
 
 const ALLOWED_NODE_TYPES = new Set(['fn', 'derive', 'memo']);
 
@@ -25,21 +28,31 @@ const ALLOWED_NODE_TYPES = new Set(['fn', 'derive', 'memo']);
  *  Each entry is a regex anchored on word boundaries / member-access
  *  punctuation. The walker reports the first match per pattern by name. */
 const FORBIDDEN_PATTERNS: { name: string; pattern: RegExp }[] = [
-  // ── I/O ─────────────────────────────────────────────────────────────
+  // ── I/O — Web ─────────────────────────────────────────────────────
   { name: 'fetch(', pattern: /\bfetch\s*\(/ },
   { name: 'XMLHttpRequest', pattern: /\bXMLHttpRequest\b/ },
   { name: 'console.', pattern: /\bconsole\s*\./ },
   { name: 'process.', pattern: /\bprocess\s*\./ },
+  // ── I/O — Filesystem ──────────────────────────────────────────────
   { name: 'readFileSync', pattern: /\breadFileSync\b/ },
   { name: 'writeFileSync', pattern: /\bwriteFileSync\b/ },
   { name: 'readFile(', pattern: /\breadFile\s*\(/ },
   { name: 'writeFile(', pattern: /\bwriteFile\s*\(/ },
   { name: 'fs.', pattern: /\bfs\s*\./ },
+  // ── I/O — Browser storage ────────────────────────────────────────
   { name: 'localStorage', pattern: /\blocalStorage\b/ },
   { name: 'sessionStorage', pattern: /\bsessionStorage\b/ },
   { name: 'indexedDB', pattern: /\bindexedDB\b/ },
   { name: 'document.', pattern: /\bdocument\s*\./ },
   { name: 'window.', pattern: /\bwindow\s*\./ },
+  // ── I/O — Named HTTP clients (Codex review fix) ──────────────────
+  // Spec lists axios/got/ky/undici explicitly — without these patterns
+  // the validator silently accepted `axios.get(...)` etc. as pure.
+  { name: 'axios.', pattern: /\baxios\s*[.(]/ },
+  { name: 'got(', pattern: /\bgot\s*\(/ },
+  { name: 'ky.', pattern: /\bky\s*[.(]/ },
+  { name: 'undici.', pattern: /\bundici\s*\./ },
+  { name: 'http.', pattern: /\bhttps?\s*\./ },
   // ── Time / randomness ───────────────────────────────────────────────
   { name: 'Math.random', pattern: /\bMath\.random\b/ },
   { name: 'Date.now', pattern: /\bDate\.now\b/ },
@@ -60,35 +73,53 @@ const FORBIDDEN_PATTERNS: { name: string; pattern: RegExp }[] = [
   { name: 'requestIdleCallback(', pattern: /\brequestIdleCallback\s*\(/ },
 ];
 
+/** Strip JS comments and string literals before pattern matching.
+ *
+ *  Gemini review fix: without this, a comment like `// don't call fetch()` or
+ *  a string literal like `"console.log is forbidden"` would falsely match the
+ *  forbidden patterns. We replace contents with empty quotes / spaces so
+ *  positional source-map info would still survive (we don't emit that here,
+ *  but the offset-preserving substitution is the careful default).
+ *
+ *  Limitations: template literal interpolations (`${...}`) are stripped along
+ *  with the rest of the template — a `fetch(...)` inside `${}` will not be
+ *  detected. Pure code shouldn't be embedding effectful calls inside template
+ *  literals; if it does, declare it impure. */
+function stripCommentsAndStrings(code: string): string {
+  return code
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => ' '.repeat(m.length))
+    .replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length))
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, (m) => `"${' '.repeat(Math.max(0, m.length - 2))}"`)
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, (m) => `'${' '.repeat(Math.max(0, m.length - 2))}'`)
+    .replace(/`(?:[^`\\]|\\.)*`/g, (m) => `\`${' '.repeat(Math.max(0, m.length - 2))}\``);
+}
+
 /** Extract the body code to scan for a node carrying `effects=pure`.
  *
- *  - `fn` / `memo`: handler child's `code` prop (compact `expr=` form on `fn`
- *    is a raw expression and is also scanned)
- *  - `derive`: `expr` prop value */
+ *  - `fn` / `memo`: handler child's `code` prop, plus cleanup blocks (Codex
+ *    review fix — cleanup emits into the function's `finally` and would
+ *    otherwise let `cleanup <<< console.log(...) >>>` bypass the walker).
+ *  - `derive`: `expr` prop value.
+ *  - Compact `expr={{ ... }}` form on `fn` is also scanned. */
+function extractExpr(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (isExprObject(value)) return value.code;
+  return null;
+}
+
 function extractBody(node: IRNode): string {
   const props = node.props || {};
   const parts: string[] = [];
 
-  if (node.type === 'derive') {
-    const expr = props.expr;
-    if (typeof expr === 'string') parts.push(expr);
-    else if (expr && typeof expr === 'object' && (expr as { code?: unknown }).code) {
-      parts.push(String((expr as { code: string }).code));
-    }
+  if (node.type === 'derive' || node.type === 'fn') {
+    const expr = extractExpr(props.expr);
+    if (expr) parts.push(expr);
   }
 
-  if (node.type === 'fn') {
-    // Compact form: `fn ... expr={{ ... }}`
-    const expr = props.expr;
-    if (typeof expr === 'string') parts.push(expr);
-    else if (expr && typeof expr === 'object' && (expr as { code?: unknown }).code) {
-      parts.push(String((expr as { code: string }).code));
-    }
-  }
-
-  // Handler children (fn, memo, and fn-with-handler form)
+  // Code-bearing children: handler (always emitted into the body) and
+  // cleanup (emitted into the function's finally block on `fn`).
   for (const child of node.children || []) {
-    if (child.type !== 'handler') continue;
+    if (child.type !== 'handler' && child.type !== 'cleanup') continue;
     const code = child.props?.code;
     if (typeof code === 'string') parts.push(code);
   }
@@ -96,12 +127,27 @@ function extractBody(node: IRNode): string {
   return parts.join('\n');
 }
 
+function describeEffectsValue(raw: unknown): string {
+  if (typeof raw === 'string') return raw === '' ? '<empty>' : raw;
+  if (isExprObject(raw)) return '<expression>';
+  return String(raw);
+}
+
 function validateNode(state: ParseState, node: IRNode): void {
   const props = node.props || {};
-  const effects = typeof props.effects === 'string' ? props.effects : undefined;
 
-  if (effects !== undefined && effects !== '') {
-    // 1. Reject on disallowed node types.
+  // Codex review fix: `effects` is "present" if the prop key exists at all,
+  // including empty string and ExprObject values. The earlier guard
+  // (`effects !== '' && typeof === 'string'`) silently dropped both, which
+  // contradicts the spec rule "anything other than `pure` errors".
+  const effectsRaw = props.effects;
+  const effectsPresent =
+    effectsRaw !== undefined &&
+    (typeof effectsRaw === 'string' || isExprObject(effectsRaw) || typeof effectsRaw === 'boolean');
+
+  if (effectsPresent) {
+    // 1. Reject on disallowed node types — checked before value validity so
+    // that `effects=junk` on a `transition` still surfaces the right diagnostic.
     if (!ALLOWED_NODE_TYPES.has(node.type as string)) {
       emitDiagnostic(
         state,
@@ -111,13 +157,14 @@ function validateNode(state: ParseState, node: IRNode): void {
         node.loc?.line ?? 0,
         node.loc?.col ?? 0,
       );
-    } else if (effects !== 'pure') {
-      // 2. Slice 6 only accepts the literal `pure`.
+    } else if (effectsRaw !== 'pure') {
+      // 2. Slice 6 only accepts the literal `pure`. Empty string and
+      // ExprObject both land here per Codex review.
       emitDiagnostic(
         state,
         'INVALID_EFFECTS',
         'error',
-        `\`effects=${effects}\` is not yet supported — slice 6 only accepts the literal \`pure\`. See docs/language/effects-pure-spec.md for future extensions.`,
+        `\`effects=${describeEffectsValue(effectsRaw)}\` is not yet supported — slice 6 only accepts the literal \`pure\`. See docs/language/effects-pure-spec.md for future extensions.`,
         node.loc?.line ?? 0,
         node.loc?.col ?? 0,
       );
@@ -137,8 +184,9 @@ function validateNode(state: ParseState, node: IRNode): void {
           node.loc?.col ?? 0,
         );
       } else {
-        // 4. Body walker — reject any forbidden pattern.
-        const body = extractBody(node);
+        // 4. Body walker — reject any forbidden pattern. Strip comments and
+        // string literals first to avoid false positives (Gemini review fix).
+        const body = stripCommentsAndStrings(extractBody(node));
         if (body) {
           for (const { name, pattern } of FORBIDDEN_PATTERNS) {
             if (pattern.test(body)) {
