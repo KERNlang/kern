@@ -1,5 +1,6 @@
 import type { IRNode, ParseDiagnostic, SchemaViolation, SemanticViolation } from '@kernlang/core';
-import { parseDocumentWithDiagnostics, validateSchema, validateSemantics } from '@kernlang/core';
+import { generateCoreNode, parseDocumentWithDiagnostics, validateSchema, validateSemantics } from '@kernlang/core';
+import type { Dirent } from 'fs';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { dirname, join, relative, resolve } from 'path';
 
@@ -59,6 +60,7 @@ interface EvaluatedAssertion {
   ruleId: string;
   assertion: string;
   passed: boolean;
+  severity?: NativeKernTestSeverity;
   message?: string;
 }
 
@@ -85,6 +87,7 @@ const NATIVE_TEST_PRESETS: Record<string, string[]> = {
     'duplicateTransitions',
     'deadStates',
     'deriveCycles',
+    'codegenErrors',
     'invalidGuards',
     'unvalidatedRoutes',
     'unguardedEffects',
@@ -166,6 +169,28 @@ function severityFromNode(node: IRNode): NativeKernTestSeverity {
 function statusForEvaluation(passed: boolean, severity: NativeKernTestSeverity): NativeKernTestStatus {
   if (passed) return 'passed';
   return severity === 'warn' ? 'warning' : 'failed';
+}
+
+function effectiveSeverity(
+  requestedSeverity: NativeKernTestSeverity,
+  evaluated: EvaluatedAssertion,
+): NativeKernTestSeverity {
+  return evaluated.severity || requestedSeverity;
+}
+
+function isAssertionConfigurationFailure(message?: string): boolean {
+  if (!message) return false;
+  return (
+    message.startsWith('Unsupported native ') ||
+    message.startsWith('Runtime expr assertions ') ||
+    message === 'Unsupported native expect assertion.' ||
+    message.includes(' assertion requires ') ||
+    message.includes(' needs over=') ||
+    message.startsWith('Machine not found:') ||
+    message.startsWith('Guard not found:') ||
+    message.startsWith('Union not found') ||
+    message.startsWith('State not found in machine ')
+  );
 }
 
 function invariantRuleId(value: string): string {
@@ -901,6 +926,26 @@ function findUnrecoveredAsync(root: IRNode): string[] {
     .map((node) => `${nodeLabel(node)} at line ${node.loc?.line ?? '?'} has async handler without recover`);
 }
 
+function codegenRoots(root: IRNode): IRNode[] {
+  return root.type === 'document' ? root.children || [] : [root];
+}
+
+function findCodegenErrors(root: IRNode): string[] {
+  const failures: string[] = [];
+  for (const node of codegenRoots(root)) {
+    try {
+      generateCoreNode(node);
+    } catch (error) {
+      failures.push(
+        `${nodeLabel(node)} at line ${node.loc?.line ?? '?'}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  return failures;
+}
+
 function nodeSearchText(node: IRNode): string {
   const props = getProps(node);
   const parts = [
@@ -1002,6 +1047,15 @@ function evaluateNoInvariant(node: IRNode, target: LoadedKernDocument): { passed
           passed: false,
           message: `Found semantic violation at ${target.file}:${violation.line ?? 1}:${violation.col ?? 1}: ${violation.message}`,
         }
+      : { passed: true };
+  }
+
+  if (invariant === 'codegenerrors' || invariant === 'codegenerationerrors' || invariant === 'compileerrors') {
+    const blocking = targetBlockingMessage(target);
+    if (blocking) return { passed: false, message: blocking };
+    const errors = findCodegenErrors(target.root!);
+    return errors.length > 0
+      ? { passed: false, message: `Found codegen errors: ${errors.join('; ')}` }
       : { passed: true };
   }
 
@@ -1265,6 +1319,7 @@ function evaluatePresetAssertion(node: IRNode, target: LoadedKernDocument): Eval
         ruleId: presetRuleId(preset),
         assertion: `preset ${preset || '<missing>'}`,
         passed: false,
+        severity: 'error',
         message: `Unsupported native preset: preset=${preset || '<missing>'}`,
       },
     ];
@@ -1276,6 +1331,7 @@ function evaluatePresetAssertion(node: IRNode, target: LoadedKernDocument): Eval
       ruleId: invariantRuleId(invariant),
       assertion: `preset ${preset} / no ${invariant}`,
       passed: evaluated.passed,
+      ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
       ...(evaluated.message ? { message: evaluated.message } : {}),
     };
   });
@@ -1291,6 +1347,7 @@ function evaluateNativeAssertion(node: IRNode, target: LoadedKernDocument): Eval
         ruleId: invariantRuleId(str(props.no)),
         assertion: assertionLabel(node),
         passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
         ...(evaluated.message ? { message: evaluated.message } : {}),
       },
     ];
@@ -1302,6 +1359,7 @@ function evaluateNativeAssertion(node: IRNode, target: LoadedKernDocument): Eval
         ruleId: 'guard:exhaustive',
         assertion: assertionLabel(node),
         passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
         ...(evaluated.message ? { message: evaluated.message } : {}),
       },
     ];
@@ -1313,6 +1371,7 @@ function evaluateNativeAssertion(node: IRNode, target: LoadedKernDocument): Eval
         ruleId: 'machine:reaches',
         assertion: assertionLabel(node),
         passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
         ...(evaluated.message ? { message: evaluated.message } : {}),
       },
     ];
@@ -1323,6 +1382,7 @@ function evaluateNativeAssertion(node: IRNode, target: LoadedKernDocument): Eval
         ruleId: 'expr',
         assertion: assertionLabel(node),
         passed: false,
+        severity: 'error',
         message:
           'Runtime expr assertions are still compiled-test assertions; native kern test currently supports structural assertions.',
       },
@@ -1333,6 +1393,7 @@ function evaluateNativeAssertion(node: IRNode, target: LoadedKernDocument): Eval
       ruleId: 'expect:unsupported',
       assertion: assertionLabel(node),
       passed: false,
+      severity: 'error',
       message: 'Unsupported native expect assertion.',
     },
   ];
@@ -1358,7 +1419,14 @@ function discoverNativeKernTestFilesInDir(dir: string): string[] {
   const files: string[] = [];
 
   function walk(current: string): void {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
       if (entry.isDirectory()) {
         if (!DISCOVERY_SKIP_DIRS.has(entry.name)) walk(join(current, entry.name));
         continue;
@@ -1441,8 +1509,9 @@ export function runNativeKernTests(file: string): NativeKernTestSummary {
     }
 
     for (const assertion of assertions) {
-      const severity = severityFromNode(assertion.node);
+      const requestedSeverity = severityFromNode(assertion.node);
       for (const evaluated of evaluateNativeAssertion(assertion.node, target)) {
+        const severity = effectiveSeverity(requestedSeverity, evaluated);
         results.push({
           suite: assertion.suite,
           caseName: assertion.caseName,

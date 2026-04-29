@@ -7,3 +7,6 @@ test name="Language surface" target="./language-surface.kern"
 
   it name="language surface names stay unique"
     expect no=duplicateNames
+
+  it name="arrays classes and functions reach core codegen"
+    expect no=codegenErrors

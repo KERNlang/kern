@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -480,6 +480,57 @@ describe('native kern test runner', () => {
     ]);
   });
 
+  test('fails invalid presets even when severity warn is requested', () => {
+    writeFileSync(join(tmpDir, 'target.kern'), 'const name=value value=1');
+    const testFile = join(tmpDir, 'target.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Preset configuration" target="./target.kern"',
+        '  it name="rejects unknown preset"',
+        '    expect preset=notReal severity=warn',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.warnings).toBe(0);
+    expect(summary.results[0].severity).toBe('error');
+    expect(summary.results[0].ruleId).toBe('preset:notreal');
+    expect(summary.results[0].message).toContain('Unsupported native preset');
+  });
+
+  test('applies severity warn to each expanded preset invariant failure', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=paid',
+        '  state name=orphaned',
+        '  transition name=capture from=pending to=paid',
+        '  transition name=capture from=pending to=paid',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Machine debt" target="./order.kern"',
+        '  it name="keeps machine preset visible"',
+        '    expect preset=machine severity=warn',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.warnings).toBe(2);
+    expect(summary.results.map((result) => result.ruleId)).toEqual(['no:deadstates', 'no:duplicatetransitions']);
+    expect(summary.results.every((result) => result.severity === 'warn')).toBe(true);
+  });
+
   test('passes language surface smoke for arrays classes and functions', () => {
     writeFileSync(
       join(tmpDir, 'language.kern'),
@@ -540,18 +591,44 @@ describe('native kern test runner', () => {
         '    expect no=semanticViolations',
         '  it name="language surface names stay unique"',
         '    expect no=duplicateNames',
+        '  it name="arrays classes and functions reach core codegen"',
+        '    expect no=codegenErrors',
       ].join('\n'),
     );
 
     const summary = runNativeKernTests(testFile);
 
     expect(summary.failed).toBe(0);
-    expect(summary.passed).toBe(3);
+    expect(summary.passed).toBe(4);
     expect(summary.results.map((result) => result.ruleId)).toEqual([
       'no:schemaviolations',
       'no:semanticviolations',
       'no:duplicatenames',
+      'no:codegenerrors',
     ]);
+  });
+
+  test('fails on target codegen errors not caught by schema validation', () => {
+    writeFileSync(
+      join(tmpDir, 'broken.kern'),
+      ['destructure source=user', '  binding name=id', 'destructure source=pair', '  element name=first'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'broken.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Codegen smoke" target="./broken.kern"',
+        '  it name="core generation stays healthy"',
+        '    expect no=codegenErrors',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('no:codegenerrors');
+    expect(summary.results[0].message).toContain('Found codegen errors');
+    expect(summary.results[0].message).toContain('numeric `index=`');
   });
 
   test('discovers and runs native test files under a directory', () => {
@@ -584,6 +661,44 @@ describe('native kern test runner', () => {
     expect(summary.warnings).toBe(0);
     expect(summary.failed).toBe(0);
     expect(formatNativeKernTestRunSummary(summary)).toContain('2 passed, 0 warnings, 0 failed, 2 total');
+  });
+
+  test('directory discovery skips generated and dependency folders', () => {
+    mkdirSync(join(tmpDir, 'generated'));
+    mkdirSync(join(tmpDir, 'node_modules'));
+    writeFileSync(
+      join(tmpDir, 'generated', 'bad.test.kern'),
+      [
+        'test name="Generated" target="../missing.kern"',
+        '  it name="would fail if discovered"',
+        '    expect no=schemaViolations',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(tmpDir, 'node_modules', 'bad.test.kern'),
+      [
+        'test name="Dependency" target="../missing.kern"',
+        '  it name="would fail if discovered"',
+        '    expect no=schemaViolations',
+      ].join('\n'),
+    );
+    writeFileSync(join(tmpDir, 'target.kern'), 'const name=value value=1');
+    writeFileSync(
+      join(tmpDir, 'target.test.kern'),
+      [
+        'test name="Source" target="./target.kern"',
+        '  it name="runs source test"',
+        '    expect no=schemaViolations',
+      ].join('\n'),
+    );
+
+    const files = discoverNativeKernTestFiles(tmpDir);
+    const summary = runNativeKernTestRun(tmpDir);
+
+    expect(files).toEqual([join(tmpDir, 'target.test.kern')]);
+    expect(summary.testFiles).toEqual([join(tmpDir, 'target.test.kern')]);
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(1);
   });
 
   test('downgrades failing assertions to warnings with severity warn', () => {

@@ -13,13 +13,13 @@ Use it for KERN-level invariants that should be checked before generated code ex
 ## CLI
 
 ```sh
-kern test examples/native-test/order.test.kern
-kern test examples/native-test
-kern test examples/native-test --json
-kern test examples/native-test --fail-on-warn
+kern test path/to/order.test.kern
+kern test path/to/tests
+kern test path/to/tests --json
+kern test path/to/tests --fail-on-warn
 ```
 
-Single-file inputs keep the legacy `kern test <file.kern>` generator behavior when the file has no native `test` nodes. Directory inputs discover `.kern` files that contain native `test` nodes and run them as one aggregate suite. The examples include machine, MCP safety, and language-surface smoke tests for arrays, classes, and functions.
+Single-file inputs keep the legacy `kern test <file.kern>` generator behavior when the file has no native `test` nodes. Directory inputs discover `.kern` files that contain native `test` nodes and run them as one aggregate suite. This repo's `examples/native-test` directory includes machine, MCP safety, and language-surface smoke tests for arrays, classes, and functions.
 
 ## KERN Syntax
 
@@ -33,6 +33,9 @@ test name="Order invariants" target="./order.kern"
 
   it name="known migration debt stays visible"
     expect no=deadStates severity=warn
+
+  it name="target still reaches core codegen"
+    expect no=codegenErrors
 ```
 
 Presets expand into granular checks:
@@ -43,6 +46,8 @@ Presets expand into granular checks:
 - `mcpSafety`: `duplicateParams`, `invalidGuards`, `unguardedToolParams`, `missingPathGuards`, `ssrfRisks`
 - `effects`: `unguardedEffects`, `sensitiveEffectsRequireAuth`, `effectWithoutCleanup`, `unrecoveredAsync`
 - `strict`: broad structural safety sweep
+
+Use `no=codegenErrors` as a smoke check when a suite should prove that valid KERN still reaches core code generation. It catches generator exceptions that parse/schema/semantic validation can miss.
 
 Use `severity=warn` for known migration debt that should stay visible without failing local runs. CI can promote warnings to failures with `kern test <file-or-dir> --fail-on-warn`.
 
