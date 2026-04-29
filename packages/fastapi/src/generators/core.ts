@@ -5,7 +5,7 @@
 
 import type { IRNode } from '@kernlang/core';
 import { emitIdentifier, handlerCode } from '@kernlang/core';
-import { kids, p } from '../codegen-helpers.js';
+import { buildPythonParamList, kids, p } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toScreamingSnake, toSnakeCase } from '../type-map.js';
 
 // ── Type Alias ───────────────────────────────────────────────────────────
@@ -72,20 +72,13 @@ export function generateInterface(node: IRNode): string[] {
 export function generateFunction(node: IRNode): string[] {
   const props = p(node);
   const name = toSnakeCase(props.name as string);
-  const params = (props.params as string) || '';
   const returns = props.returns as string;
   const isAsync = props.async === 'true' || props.async === true;
   const lines: string[] = [];
 
-  const paramList = params
-    ? params
-        .split(',')
-        .map((s) => {
-          const [pname, ...ptype] = s.split(':').map((t) => t.trim());
-          return ptype.length > 0 ? `${toSnakeCase(pname)}: ${mapTsTypeToPython(ptype.join(':'))}` : toSnakeCase(pname);
-        })
-        .join(', ')
-    : '';
+  // Slice 3c P2 follow-up: target-neutral helper reads structured `param`
+  // children when present, falls back to legacy `params="..."` otherwise.
+  const paramList = buildPythonParamList(node);
 
   const retClause = returns ? ` -> ${mapTsTypeToPython(returns)}` : '';
   const asyncKw = isAsync ? 'async ' : '';

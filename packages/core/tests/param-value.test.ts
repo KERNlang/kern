@@ -347,8 +347,11 @@ describe('param.value — slice 3c (native ValueIR form)', () => {
       expect(capabilitySupport('lib', 'param-native-value', 'top-level')).toBe('native');
     });
 
-    it('param-native-value is unsupported on Python (FastAPI)', () => {
-      expect(capabilitySupport('fastapi', 'param-native-value', 'top-level')).toBe('unsupported');
+    it('param-native-value is native on Python (FastAPI) — slice 3c P2 follow-up shipped', () => {
+      // Was 'unsupported' until `buildPythonParamList` consolidated the four
+      // ad-hoc parsers in fastapi/src/generators/{core,ground,data}.ts and
+      // wired them to read structured `param` children with value=/default=.
+      expect(capabilitySupport('fastapi', 'param-native-value', 'top-level')).toBe('native');
     });
   });
 
