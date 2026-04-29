@@ -19,7 +19,7 @@ kern test examples/native-test --json
 kern test examples/native-test --fail-on-warn
 ```
 
-Single-file inputs keep the legacy `kern test <file.kern>` generator behavior when the file has no native `test` nodes. Directory inputs discover `.kern` files that contain native `test` nodes and run them as one aggregate suite.
+Single-file inputs keep the legacy `kern test <file.kern>` generator behavior when the file has no native `test` nodes. Directory inputs discover `.kern` files that contain native `test` nodes and run them as one aggregate suite. The examples include machine, MCP safety, and language-surface smoke tests for arrays, classes, and functions.
 
 ## KERN Syntax
 
