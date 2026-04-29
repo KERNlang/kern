@@ -43,6 +43,10 @@ export function decompile(root: IRNode): DecompileResult {
       renderField(node, indent);
       return;
     }
+    if (node.type === 'param') {
+      renderParam(node, indent);
+      return;
+    }
 
     const name = (props.name as string) || '';
     const type = node.type.charAt(0).toUpperCase() + node.type.slice(1);
@@ -167,6 +171,60 @@ export function decompile(root: IRNode): DecompileResult {
     } else if (rawDefault !== undefined) {
       parts.push(renderStringProp('default', rawDefault));
     }
+
+    lines.push(`${indent}${parts.join(' ')}`);
+    if (node.children) {
+      for (const child of node.children) {
+        render(child, `${indent}  `);
+      }
+    }
+  }
+
+  function renderParam(node: IRNode, indent: string): void {
+    // Slice 3c: emit `param` re-parseably so canonical `value={{...}}` forms
+    // (and ValueIR-canonicalised bare values) survive IR → text round-trip.
+    // Mirrors renderField — same __quotedProps-aware bare/quoted policy.
+    //
+    // `param` is used in two contexts: (a) MCP tool/resource/prompt params
+    // (description/required/min/max apply); (b) fn/method/constructor
+    // parameter defaults via slice 3c (value/default apply). Both share this
+    // emitter so a node round-trips correctly regardless of parent context.
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const name = (props.name as string) || 'param';
+    const parts: string[] = [`param name=${name}`];
+
+    function renderStringProp(propName: string, raw: string | ExprObject): string {
+      if (typeof raw === 'object' && (raw as ExprObject).__expr) {
+        return `${propName}={{${(raw as ExprObject).code}}}`;
+      }
+      const s = raw as string;
+      // Bare-emit only when source was unquoted AND value matches the
+      // identifier-shape whitelist (mirrors renderField — see Codex hold #2).
+      const wasQuoted = quoted.includes(propName);
+      const safeBare = !wasQuoted && s !== '' && /^[\w.-]+$/.test(s);
+      return `${propName}=${safeBare ? s : JSON.stringify(s)}`;
+    }
+
+    const t = props.type as string | undefined;
+    if (t !== undefined) parts.push(renderStringProp('type', t));
+    const required = props.required;
+    if (required === true || required === 'true') parts.push('required=true');
+
+    const rawValue = props.value as string | ExprObject | undefined;
+    const rawDefault = props.default as string | ExprObject | undefined;
+    if (rawValue !== undefined) {
+      parts.push(renderStringProp('value', rawValue));
+    } else if (rawDefault !== undefined) {
+      parts.push(renderStringProp('default', rawDefault));
+    }
+
+    const description = props.description;
+    if (typeof description === 'string') parts.push(`description=${JSON.stringify(description)}`);
+    const min = props.min;
+    if (min !== undefined) parts.push(`min=${min}`);
+    const max = props.max;
+    if (max !== undefined) parts.push(`max=${max}`);
 
     lines.push(`${indent}${parts.join(' ')}`);
     if (node.children) {

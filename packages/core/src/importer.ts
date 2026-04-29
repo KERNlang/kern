@@ -120,6 +120,47 @@ function formatParams(params: ts.NodeArray<ts.ParameterDeclaration>, source: ts.
     .join(',');
 }
 
+/**
+ * Slice 3c — try to emit fn parameters as structured `param` child nodes
+ * (for ValueIR canonicalisation of defaults). Returns the child lines on
+ * success, or `null` if the signature contains any feature not yet
+ * supported by structured params: optional `?`, variadic `...`, or
+ * destructuring patterns. Producers fall back to the legacy `params="..."`
+ * string for those signatures (all-or-nothing per signature).
+ *
+ * Caller is responsible for indenting the returned lines and omitting the
+ * `params="..."` attribute from the parent.
+ */
+function tryFormatParamChildren(
+  parameters: ts.NodeArray<ts.ParameterDeclaration>,
+  source: ts.SourceFile,
+): string[] | null {
+  if (parameters.length === 0) return [];
+  for (const p of parameters) {
+    if (p.questionToken) return null;
+    if (p.dotDotDotToken) return null;
+    if (!ts.isIdentifier(p.name)) return null;
+    // Multi-line types (inline object shapes spread across lines) can't be
+    // round-tripped through a single-line `type="..."` quoted attribute —
+    // KERN's tokeniser treats newlines as record separators. Leave the
+    // whole signature legacy when any param has a multi-line type.
+    const typeText = typeToString(p.type, source);
+    if (typeText && /\n/.test(typeText)) return null;
+  }
+  const lines: string[] = [];
+  for (const p of parameters) {
+    const name = (p.name as ts.Identifier).getText(source);
+    const type = typeToString(p.type, source);
+    const parts: string[] = [`param name=${name}`];
+    if (type) parts.push(`type="${escapeKernString(type)}"`);
+    if (p.initializer) {
+      parts.push(`value={{ ${p.initializer.getText(source)} }}`);
+    }
+    lines.push(parts.join(' '));
+  }
+  return lines;
+}
+
 function getBodyText(body: ts.Block | ts.Expression | undefined, source: ts.SourceFile): string | undefined {
   if (!body) return undefined;
   if (ts.isBlock(body)) {
@@ -334,15 +375,27 @@ function convertFunction(node: ts.FunctionDeclaration, source: ts.SourceFile): s
 
   if (doc) lines.push(`doc text="${escapeKernString(doc)}"`);
 
-  const params = formatParams(node.parameters, source);
+  // Slice 3c — prefer structured `param` child nodes when the signature is
+  // simple enough (no `?`/`...`/destructuring). Falls back to the legacy
+  // `params="..."` string for unsupported shapes.
+  const paramChildren = tryFormatParamChildren(node.parameters, source);
   const returns = typeToString(node.type, source);
-  const paramsStr = params ? ` params="${params}"` : '';
   const returnsStr = returns ? ` returns=${returns}` : '';
-
-  // For async generators, use stream=true instead of async=true + generator=true
   const asyncFinal = isGenerator && isAsync(node) ? '' : asyncStr;
+  const paramsStr =
+    paramChildren !== null
+      ? ''
+      : (() => {
+          const params = formatParams(node.parameters, source);
+          return params ? ` params="${params}"` : '';
+        })();
 
   lines.push(`fn name=${name}${paramsStr}${returnsStr}${asyncFinal}${generatorStr}${generics}${exp}`);
+  if (paramChildren) {
+    for (const childLine of paramChildren) {
+      lines.push(`  ${childLine}`);
+    }
+  }
 
   const body = getBodyText(node.body, source);
   if (body) {
@@ -444,10 +497,23 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
         `  field name=${fieldName}${fieldType ? ` type=${fieldType}` : ''}${priv}${staticStr}${ro}${valueAttr}`,
       );
     } else if (ts.isConstructorDeclaration(member)) {
-      const ctorParams = formatParams(member.parameters, source);
-      const ctorParamsStr = ctorParams ? ` params="${ctorParams}"` : '';
+      // Slice 3c — try structured `param` children for default-bearing
+      // signatures; fall back to legacy `params="..."` string otherwise.
+      const ctorParamChildren = tryFormatParamChildren(member.parameters, source);
+      const ctorParamsStr =
+        ctorParamChildren !== null
+          ? ''
+          : (() => {
+              const ctorParams = formatParams(member.parameters, source);
+              return ctorParams ? ` params="${ctorParams}"` : '';
+            })();
       const generics = genericsAttr(member.typeParameters, source);
       lines.push(`  constructor${ctorParamsStr}${generics}`);
+      if (ctorParamChildren) {
+        for (const childLine of ctorParamChildren) {
+          lines.push(`    ${childLine}`);
+        }
+      }
       const body = getBodyText(member.body, source);
       if (body) {
         lines.push('    handler <<<');
@@ -458,17 +524,28 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
       }
     } else if (ts.isMethodDeclaration(member)) {
       const methodName = member.name.getText(source);
-      const params = formatParams(member.parameters, source);
+      const paramChildren = tryFormatParamChildren(member.parameters, source);
       const returns = typeToString(member.type, source);
       const generics = genericsAttr(member.typeParameters, source);
       const asyncStr = isAsync(member) ? ' async=true' : '';
       const staticStr = isStatic(member) ? ' static=true' : '';
       const privStr = isPrivate(member) ? ' private=true' : '';
-      const paramsStr = params ? ` params="${params}"` : '';
+      const paramsStr =
+        paramChildren !== null
+          ? ''
+          : (() => {
+              const params = formatParams(member.parameters, source);
+              return params ? ` params="${params}"` : '';
+            })();
       const returnsStr = returns ? ` returns=${returns}` : '';
       const memberDoc = getJSDoc(member, source);
       if (memberDoc) lines.push(`  doc text="${escapeKernString(memberDoc)}"`);
       lines.push(`  method name=${methodName}${paramsStr}${returnsStr}${asyncStr}${staticStr}${privStr}${generics}`);
+      if (paramChildren) {
+        for (const childLine of paramChildren) {
+          lines.push(`    ${childLine}`);
+        }
+      }
       const body = getBodyText(member.body, source);
       if (body) {
         lines.push('    handler <<<');
@@ -492,11 +569,22 @@ function convertClass(node: ts.ClassDeclaration, source: ts.SourceFile): string[
       }
     } else if (ts.isSetAccessorDeclaration(member)) {
       const sname = member.name.getText(source);
-      const params = formatParams(member.parameters, source);
-      const paramsStr = params ? ` params="${params}"` : '';
+      const setterParamChildren = tryFormatParamChildren(member.parameters, source);
+      const paramsStr =
+        setterParamChildren !== null
+          ? ''
+          : (() => {
+              const params = formatParams(member.parameters, source);
+              return params ? ` params="${params}"` : '';
+            })();
       const privStr = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.PrivateKeyword) ? ' private=true' : '';
       const staticStr = member.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) ? ' static=true' : '';
       lines.push(`  setter name=${sname}${paramsStr}${privStr}${staticStr}`);
+      if (setterParamChildren) {
+        for (const childLine of setterParamChildren) {
+          lines.push(`    ${childLine}`);
+        }
+      }
       const body = getBodyText(member.body, source);
       if (body) {
         lines.push('    handler <<<');
@@ -595,16 +683,29 @@ function convertVariableStatement(node: ts.VariableStatement, source: ts.SourceF
         // Arrow function or function expression → fn
         const func = decl.initializer;
         const asyncStr = isAsync(func as any) ? ' async=true' : '';
-        const params = formatParams(func.parameters, source);
+        // Slice 3c — try structured `param` children for default-bearing
+        // signatures; fall back to legacy `params="..."` string otherwise.
+        const paramChildren = tryFormatParamChildren(func.parameters, source);
         const returns = typeToString(func.type, source);
         const generics = genericsAttr(func.typeParameters, source);
-        const paramsStr = params ? ` params="${params}"` : '';
+        const paramsStr =
+          paramChildren !== null
+            ? ''
+            : (() => {
+                const params = formatParams(func.parameters, source);
+                return params ? ` params="${params}"` : '';
+              })();
         const returnsStr = returns ? ` returns=${returns}` : '';
         const isGen = ts.isFunctionExpression(func) && func.asteriskToken != null;
         const genStr = isGen ? (isAsync(func as any) ? ' stream=true' : ' generator=true') : '';
         const asyncFinal = isGen && isAsync(func as any) ? '' : asyncStr;
 
         lines.push(`fn name=${name}${paramsStr}${returnsStr}${asyncFinal}${genStr}${generics}${exp}`);
+        if (paramChildren) {
+          for (const childLine of paramChildren) {
+            lines.push(`  ${childLine}`);
+          }
+        }
         const body = ts.isArrowFunction(func)
           ? getBodyText(func.body as ts.Block | ts.Expression, source)
           : getBodyText(func.body, source);

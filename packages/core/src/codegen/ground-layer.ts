@@ -22,8 +22,8 @@ import {
   getFirstChild,
   getProps,
   handlerCode,
-  parseParamList,
 } from './helpers.js';
+import { emitParamList } from './type-system.js';
 
 const p = getProps;
 const kids = getChildren;
@@ -162,7 +162,6 @@ export function generateAction(node: IRNode): string[] {
     (props as Record<string, unknown>).idempotent === 'true' || (props as Record<string, unknown>).idempotent === true;
   const reversible =
     (props as Record<string, unknown>).reversible === 'true' || (props as Record<string, unknown>).reversible === true;
-  const params = props.params || '';
   const returns = props.returns;
   const exp = exportPrefix(node);
   const code = handlerCode(node);
@@ -177,7 +176,8 @@ export function generateAction(node: IRNode): string[] {
     lines.push(`/** @action ${metaParts.join(' ')} */`);
   }
 
-  const paramList = params ? parseParamList(params) : '';
+  // Slice 3c: structured `param` child nodes win over legacy `params="..."`.
+  const paramList = emitParamList(node);
   const retClause = returns ? `: Promise<${emitTypeAnnotation(returns, 'void', node)}>` : ': Promise<void>';
   lines.push(`${exp}async function ${name}(${paramList})${retClause} {`);
   if (code) {
@@ -224,7 +224,7 @@ export function generateActionRegistry(node: IRNode): string[] {
     if (!key) {
       throw new KernCodegenError('action inside actionRegistry requires `key` or `name`', child);
     }
-    const params = cp.params ? parseParamList(cp.params) : '';
+    const params = emitParamList(child);
     const code = handlerCode(child);
     const comma = i === actions.length - 1 ? '' : ',';
     lines.push(`  ${JSON.stringify(key)}: async (${params}) => {`);

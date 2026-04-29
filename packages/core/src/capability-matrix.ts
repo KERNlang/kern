@@ -73,6 +73,13 @@ const TS_CORE_CAPABILITIES: CapabilityEntry[] = [
   // that author bare-string defaults like `default=plan` for string-typed
   // fields, where the legacy type-aware coercion still applies.
   { feature: 'field-native-value', position: 'top-level', support: 'native' },
+  // Slice 3c — `param.value` extends fn/method/constructor parameter defaults
+  // to the ValueIR-canonicalised native form via structured `param` child
+  // nodes. Mirrors slice 1j/3a/3b. Legacy `params="..."` string with embedded
+  // defaults remains supported for back-compat. Importer + migrate-class-body
+  // emit `param` children all-or-nothing per signature, gated to skip
+  // signatures with optional/variadic/destructured params (those stay legacy).
+  { feature: 'param-native-value', position: 'top-level', support: 'native' },
 ];
 
 const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
@@ -180,6 +187,16 @@ const PY_CORE_CAPABILITIES: CapabilityEntry[] = [
     position: 'top-level',
     support: 'unsupported',
     note: 'FastAPI codegen has not been wired to ValueIR for field initializers; `value=` would emit raw',
+  },
+  // Slice 3c — FastAPI's 5 ad-hoc param parsers in
+  // packages/fastapi/src/generators/{core,ground,data}.ts have not been wired
+  // to read `param` child nodes; they only understand the legacy `params="..."`
+  // string. Slice 3c marks Python unsupported per the slice 3b precedent.
+  {
+    feature: 'param-native-value',
+    position: 'top-level',
+    support: 'unsupported',
+    note: 'FastAPI codegen reads the legacy `params="..."` string only; `param` child nodes with `value=` are ignored',
   },
 ];
 

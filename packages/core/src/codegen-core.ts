@@ -121,6 +121,8 @@ export { mapSemanticType, SEMANTIC_TYPE_MAP } from './codegen/semantic-types.js'
 export { generateTest } from './codegen/test-gen.js';
 // ── Re-exports: domain generators (backward compatibility) ──────────────
 export {
+  emitConstValue,
+  emitParamList,
   generateClass,
   generateConst,
   generateEnum,
@@ -128,6 +130,7 @@ export {
   generateService,
   generateType,
   generateUnion,
+  parseParamListFromChildren,
 } from './codegen/type-system.js';
 
 import {
@@ -367,12 +370,18 @@ export function generateEach(node: IRNode): string[] {
       // Mirror screens.ts:renderLetBinding — slice 3a adds `value=` (ValueIR
       // canonicalised) alongside the legacy `expr=` (rawExpr passthrough).
       // Codex hold #2: this statement-position path was previously expr-only.
+      // Gate mirrors slice 3b: unquoted-empty `value=` (no __quotedProps)
+      // must be treated as absent — routing it through emitConstValue throws
+      // and produces invalid TS `const x: T = ;`. Quoted empty `value=""`
+      // (with __quotedProps) is a legal `""` literal.
       const lp = getProps(child);
       const lname = emitIdentifier(lp.name as string, 'binding', child);
       const rawValue = lp.value;
       const rawExpr = lp.expr;
       let rhs: string;
-      if (rawValue !== undefined) {
+      const valuePresent =
+        rawValue !== undefined && (rawValue !== '' || child.__quotedProps?.includes('value') === true);
+      if (valuePresent) {
         rhs = emitConstValue(child, rawValue);
       } else if (rawExpr !== undefined && rawExpr !== '') {
         rhs =

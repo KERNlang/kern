@@ -7,17 +7,9 @@
 import { propsOf } from '../node-props.js';
 import type { ExprObject, IRNode } from '../types.js';
 import { emitIdentifier, emitPath, emitStringLiteral, emitTypeAnnotation } from './emitters.js';
-import {
-  emitDocComment,
-  exportPrefix,
-  getChildren,
-  getFirstChild,
-  getProps,
-  handlerCode,
-  parseParamList,
-} from './helpers.js';
+import { emitDocComment, exportPrefix, getChildren, getFirstChild, getProps, handlerCode } from './helpers.js';
 import { mapSemanticType } from './semantic-types.js';
-import { emitConstValue } from './type-system.js';
+import { emitConstValue, emitParamList } from './type-system.js';
 
 function isExprObject(v: unknown): v is ExprObject {
   return typeof v === 'object' && v !== null && (v as { __expr?: unknown }).__expr === true;
@@ -197,7 +189,7 @@ export function generateRepository(node: IRNode): string[] {
   for (const method of kids(node, 'method')) {
     const mp = propsOf<'method'>(method);
     const mname = emitIdentifier(mp.name, 'method', method);
-    const mparams = mp.params ? parseParamList(mp.params) : '';
+    const mparams = emitParamList(method);
     const isAsync = (mp as Record<string, unknown>).async === 'true' || (mp as Record<string, unknown>).async === true;
     const asyncKw = isAsync ? 'async ' : '';
     const mreturns = mp.returns ? `: ${emitTypeAnnotation(mp.returns, 'unknown', method)}` : '';

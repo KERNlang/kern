@@ -3,6 +3,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { Project } from 'ts-morph';
 import { resolveImportGraph } from '../src/graph.js';
+import { canonicalize } from '../src/path-canonical.js';
 import type { GraphEdge, ReachabilityBlocker } from '../src/types.js';
 
 function createTestProject(): Project {
@@ -235,14 +236,19 @@ describe('resolveImportGraph', () => {
 
     const result = resolveImportGraph([entry]);
     const entryFile = result.files.find((f) => f.path === entry)!;
-    expect(entryFile.imports).toContain(child);
+    // gf.imports / GraphEdge.to are CANONICAL paths (red-team #9 fix).
+    // On macOS, /var/folders/... is a symlink to /private/var/folders/...,
+    // so canonicalising the test's expected child path keeps the
+    // assertion correct on machines where TMPDIR sits behind a symlink.
+    const canonicalChild = canonicalize(child);
+    expect(entryFile.imports).toContain(canonicalChild);
     expect(entryFile.importEdges).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           kind: 'named-import',
           importedName: 'child',
           localName: 'child',
-          to: child,
+          to: canonicalChild,
         }),
       ]),
     );
