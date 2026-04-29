@@ -400,14 +400,29 @@ fn name=pickReady params="users:User[]" returns="User[]"
       const report = reviewKernSource(source, 'sync.kern');
       expect(report.findings.some((f) => f.ruleId === 'async-predicate-return')).toBe(false);
     });
+
+    it('does NOT flag when handler param shadows the file-level async fn name (Codex P2)', () => {
+      const source = `
+fn name=isReady params="x:User" returns=boolean async=true
+  handler <<<
+    return await checkRemote(x);
+  >>>
+fn name=pickReady params="isReady:(u:User)=>boolean,users:User[]" returns="User[]"
+  handler <<<
+    return users.filter(isReady);
+  >>>
+`;
+      const report = reviewKernSource(source, 'shadow.kern');
+      expect(report.findings.some((f) => f.ruleId === 'async-predicate-return')).toBe(false);
+    });
   });
 
   describe('this-is-outside-class', () => {
-    it('flags fn with returns="this is T"', () => {
+    it('flags standalone fn (no this: param) with returns="this is T"', () => {
       const source = `
-fn name=isAdmin params="this:User" returns="this is Admin"
+fn name=isAdmin params="x:User" returns="this is Admin"
   handler <<<
-    return this.role === "admin";
+    return x.role === "admin";
   >>>
 `;
       const report = reviewKernSource(source, 'thisis.kern');
@@ -427,6 +442,30 @@ service name=UserService
 `;
       const report = reviewKernSource(source, 'method-thisis.kern');
       expect(report.findings.some((f) => f.ruleId === 'this-is-outside-class')).toBe(false);
+    });
+
+    it('does NOT flag fn with explicit this: parameter (Codex P2)', () => {
+      const source = `
+fn name=isAdmin params="this:User" returns="this is Admin"
+  handler <<<
+    return this.role === "admin";
+  >>>
+`;
+      const report = reviewKernSource(source, 'fn-thisparam.kern');
+      expect(report.findings.some((f) => f.ruleId === 'this-is-outside-class')).toBe(false);
+    });
+
+    it('flags getter with returns="this is T" (Codex P2)', () => {
+      const source = `
+service name=UserService
+  getter name=isAdmin returns="this is AdminUser"
+    handler <<<
+      return (this as any).role === "admin";
+    >>>
+`;
+      const report = reviewKernSource(source, 'getter-thisis.kern');
+      const finding = report.findings.find((f) => f.ruleId === 'this-is-outside-class');
+      expect(finding).toBeDefined();
     });
 
     it('does NOT flag fn with non-this type predicate "x is T"', () => {
@@ -477,19 +516,20 @@ interface name=Solo
   });
 
   describe('trailing-pipe-enum', () => {
-    it('flags type with trailing pipe in values', () => {
+    it('hints at trailing pipe in values (info/style severity per Codex P2)', () => {
       const source = `
 type name=Status values="active|inactive|"
 `;
       const report = reviewKernSource(source, 'status.kern');
       const finding = report.findings.find((f) => f.ruleId === 'trailing-pipe-enum');
       expect(finding).toBeDefined();
-      expect(finding?.severity).toBe('error');
+      expect(finding?.severity).toBe('info');
+      expect(finding?.category).toBe('style');
       expect(finding?.message).toContain('Status');
       expect(finding?.message).toContain('trailing');
     });
 
-    it('flags type with leading pipe in values', () => {
+    it('hints at leading pipe in values', () => {
       const source = `
 type name=Mode values="|read|write"
 `;
@@ -499,7 +539,7 @@ type name=Mode values="|read|write"
       expect(finding?.message).toContain('leading');
     });
 
-    it('flags type with double pipe in values', () => {
+    it('hints at double pipe in values', () => {
       const source = `
 type name=Phase values="init||done"
 `;
@@ -509,7 +549,7 @@ type name=Phase values="init||done"
       expect(finding?.message).toContain('empty middle');
     });
 
-    it('does NOT flag well-formed values', () => {
+    it('does NOT hint on well-formed values', () => {
       const source = `
 type name=Status values="active|inactive|banned"
 `;
