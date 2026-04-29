@@ -330,7 +330,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       name: { required: true, kind: 'string' },
       target: { kind: 'string' },
     },
-    allowedChildren: ['describe', 'it', 'expect', 'handler'],
+    allowedChildren: ['describe', 'it', 'expect', 'fixture', 'handler'],
   },
   event: {
     description: 'Typed event with payload type children',
@@ -2316,13 +2316,13 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example:
       'describe name="UserService"\n  it name="creates a user"\n    handler <<<\n      expect(createUser()).toBeDefined();\n    >>>',
     props: { name: { required: true, kind: 'string' } },
-    allowedChildren: ['it', 'describe', 'expect', 'handler'],
+    allowedChildren: ['it', 'describe', 'expect', 'fixture', 'handler'],
   },
   it: {
     description: 'Test case — single test assertion',
     example: 'it name="returns 200 on success"\n  handler <<<\n    expect(res.status).toBe(200);\n  >>>',
     props: { name: { required: true, kind: 'string' } },
-    allowedChildren: ['expect', 'handler'],
+    allowedChildren: ['expect', 'fixture', 'handler'],
   },
 
   // Ground layer — semantic reasoning
@@ -2366,6 +2366,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'expect expr={{items.length > 0}} message="Items must not be empty"\nexpect machine=Order reaches=paid via=confirm,capture\nexpect machine=Order transition=capture from=confirmed to=paid\nexpect node=interface name=User child=field count=3\nexpect no=deriveCycles',
     props: {
       expr: { kind: 'rawExpr' },
+      fn: { kind: 'identifier' },
+      derive: { kind: 'identifier' },
+      args: { kind: 'rawExpr' },
+      with: { kind: 'rawExpr' },
       equals: { kind: 'rawExpr' },
       matches: { kind: 'string' },
       throws: { kind: 'string' },
@@ -2397,6 +2401,15 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       over: { kind: 'identifier' },
       union: { kind: 'identifier' },
       covers: { kind: 'string' },
+    },
+  },
+  fixture: {
+    description: 'Native test fixture — named runtime data available to scoped expect assertions',
+    example: 'fixture name=paidOrder value={{({ id: "ord_1", status: "paid" })}}',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      value: { kind: 'rawExpr' },
+      expr: { kind: 'rawExpr' },
     },
   },
   recover: {
@@ -2525,6 +2538,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
   }
   if (node.type === 'expect') {
     const hasRuntimeAssertion = 'expr' in props;
+    const hasRuntimeBehavior = 'fn' in props || 'derive' in props;
     const hasPreset = 'preset' in props;
     const hasNodeShape = 'node' in props;
     const hasNegativeInvariant = 'no' in props;
@@ -2534,6 +2548,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       'reaches' in props || ('machine' in props && !hasNegativeInvariant && !hasMachineTransition);
     if (
       !hasRuntimeAssertion &&
+      !hasRuntimeBehavior &&
       !hasPreset &&
       !hasNodeShape &&
       !hasMachineTransition &&
@@ -2544,7 +2559,23 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'expect',
         message:
-          "'expect' requires 'expr', 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
+          "'expect' requires 'expr', 'fn', 'derive', 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if ('fn' in props && 'derive' in props) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' cannot combine fn=<name> and derive=<name>",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasRuntimeBehavior && hasRuntimeAssertion) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' cannot combine fn/derive behavioral assertions with expr={{...}}",
         line: node.loc?.line,
         col: node.loc?.col,
       });
@@ -2577,6 +2608,26 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'expect',
         message: "'expect' guard assertions require exhaustive=true",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+  if (node.type === 'fixture') {
+    const hasValue = 'value' in props;
+    const hasExpr = 'expr' in props;
+    if (!hasValue && !hasExpr) {
+      violations.push({
+        nodeType: 'fixture',
+        message: "'fixture' requires either value={{...}} or expr={{...}}",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasValue && hasExpr) {
+      violations.push({
+        nodeType: 'fixture',
+        message: "'fixture' must not combine value={{...}} and expr={{...}}",
         line: node.loc?.line,
         col: node.loc?.col,
       });

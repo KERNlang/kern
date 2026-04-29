@@ -169,6 +169,114 @@ describe('native kern test runner', () => {
     expect(summary.results.map((result) => result.assertion)).toContain('expr add(2, 3) equals 5');
   });
 
+  test('executes behavioral fn assertions with scoped fixtures', () => {
+    writeFileSync(
+      join(tmpDir, 'orders.kern'),
+      [
+        'fn name=orderSubtotal returns=number',
+        '  param name=order type=object',
+        '  handler <<<',
+        '    return order.items.reduce((sum, item) => sum + item.price * item.qty, 0);',
+        '  >>>',
+        'fn name=addTax returns=number',
+        '  param name=subtotal type=number',
+        '  param name=rate type=number',
+        '  handler <<<',
+        '    return subtotal * (1 + rate);',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'orders.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order behavior" target="./orders.kern"',
+        '  fixture name=paidOrder value={{({ items: [{ price: 20, qty: 2 }, { price: 5, qty: 1 }] })}}',
+        '  describe name="totals"',
+        '    fixture name=taxRate value=0.2',
+        '    it name="calculates subtotal and tax"',
+        '      expect fn=orderSubtotal with=paidOrder equals=45',
+        '      expect fn=addTax args={{[orderSubtotal(paidOrder), taxRate]}} equals=54',
+        '      expect expr={{paidOrder.items.length}} equals=2',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(3);
+    expect(summary.results.map((result) => result.ruleId)).toEqual(['runtime:behavior', 'runtime:behavior', 'expr']);
+    expect(summary.results.map((result) => result.assertion)).toContain('fn orderSubtotal with paidOrder equals 45');
+    expect(summary.results.map((result) => result.assertion)).toContain(
+      'fn addTax args [orderSubtotal(paidOrder), taxRate] equals 54',
+    );
+  });
+
+  test('executes behavioral derive assertions with fixtures', () => {
+    writeFileSync(
+      join(tmpDir, 'cart.kern'),
+      [
+        'fn name=sumItems returns=number',
+        '  param name=items type="object[]"',
+        '  handler <<<',
+        '    return items.reduce((sum, item) => sum + item.price * item.qty, 0);',
+        '  >>>',
+        'derive name=subtotal expr={{sumItems(cart.items)}}',
+        'derive name=total expr={{subtotal * (1 + taxRate)}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'cart.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Cart derives" target="./cart.kern"',
+        '  fixture name=cart value={{({ items: [{ price: 10, qty: 3 }] })}}',
+        '  fixture name=taxRate value=0.1',
+        '  it name="computes derived totals"',
+        '    expect derive=subtotal equals=30',
+        '    expect derive=total equals=33',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(2);
+    expect(summary.results.map((result) => result.assertion)).toContain('derive subtotal equals 30');
+    expect(summary.results.map((result) => result.assertion)).toContain('derive total equals 33');
+  });
+
+  test('fixture scope does not leak between sibling test cases', () => {
+    writeFileSync(
+      join(tmpDir, 'math.kern'),
+      [
+        'fn name=identity returns=number',
+        '  param name=value type=number',
+        '  handler <<<',
+        '    return value;',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'math.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Fixture scopes" target="./math.kern"',
+        '  it name="has local value"',
+        '    fixture name=amount value=7',
+        '    expect fn=identity with=amount equals=7',
+        '  it name="does not see sibling fixture"',
+        '    expect fn=identity with=amount equals=7',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.passed).toBe(1);
+    expect(summary.results[1].message).toContain('amount is not defined');
+  });
+
   test('runtime expr reads quoted JS string literal defaults as literal source', () => {
     writeFileSync(
       join(tmpDir, 'runtime.kern'),

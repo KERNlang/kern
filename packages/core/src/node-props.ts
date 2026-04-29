@@ -531,6 +531,10 @@ export interface ResolveProps extends BaseProps {}
 
 export interface ExpectProps extends BaseProps {
   expr?: string;
+  fn?: string;
+  derive?: string;
+  args?: string | ExprObject;
+  with?: string | ExprObject;
   within?: string;
   max?: string;
   min?: string;
@@ -707,6 +711,11 @@ export interface TestProps extends BaseProps {
   target?: string;
 }
 
+export interface FixtureProps extends BaseProps {
+  value?: string | ExprObject;
+  expr?: string | ExprObject;
+}
+
 // ── Props Map ───────────────────────────────────────────────────────────
 
 /** Maps known node types to their typed prop interface. */
@@ -827,6 +836,7 @@ export interface NodePropsMap {
   relation: RelationProps;
   option: OptionProps;
   test: TestProps;
+  fixture: FixtureProps;
 }
 
 // ── Helper ──────────────────────────────────────────────────────────────
