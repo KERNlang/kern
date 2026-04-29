@@ -430,4 +430,82 @@ describe('param.value — slice 3c (native ValueIR form)', () => {
       expect(code).toContain('param name=salutation');
     });
   });
+
+  // ─── Slice 3c-extension: variadic `...` on param ────────────────────────
+
+  describe('variadic=true (slice 3c-extension)', () => {
+    it('emits `...name: type` when variadic=true', () => {
+      const code = gen(
+        [
+          'fn name=concat returns=string',
+          '  param name=parts type="string[]" variadic=true',
+          '  handler <<<',
+          '    return parts.join(",");',
+          '  >>>',
+        ].join('\n'),
+      );
+      expect(code).toContain('function concat(...parts: string[]): string {');
+    });
+
+    it('does NOT emit `...` when variadic is false or absent', () => {
+      const code = gen(
+        [
+          'fn name=concat returns=string',
+          '  param name=parts type="string[]"',
+          '  handler <<<',
+          '    return parts.join(",");',
+          '  >>>',
+        ].join('\n'),
+      );
+      expect(code).toContain('function concat(parts: string[]): string {');
+      expect(code).not.toContain('...parts');
+    });
+
+    it('importer captures variadic `...` and emits structured param children', () => {
+      const ts = `function concat(...parts: string[]): string { return parts.join(","); }`;
+      const result = importTypeScript(ts, 'concat.ts');
+      expect(result.kern).toContain('variadic=true');
+      expect(result.kern).toContain('param name=parts');
+      // Verifies the dotDotDotToken gate dropped — fn now emits structured
+      // children instead of falling back to legacy params="...".
+      expect(result.kern).not.toMatch(/params=/);
+    });
+
+    it('importer combines variadic with another leading param', () => {
+      const ts = `function log(level: string, ...messages: string[]): void { console.log(level, messages); }`;
+      const result = importTypeScript(ts, 'log.ts');
+      expect(result.kern).toContain('param name=level');
+      expect(result.kern).toContain('param name=messages');
+      expect(result.kern).toContain('variadic=true');
+      expect(result.kern).not.toMatch(/params=/);
+    });
+
+    it('decompiler round-trips variadic=true', () => {
+      const node: IRNode = {
+        type: 'param',
+        props: { name: 'parts', type: 'string[]', variadic: true },
+        children: [],
+        __quotedProps: ['type'],
+      };
+      const { code } = decompile(node);
+      expect(code).toContain('variadic=true');
+      expect(code).toContain('param name=parts');
+    });
+
+    it('parses generated KERN back to the same param shape', () => {
+      const original = [
+        'fn name=concat returns=string',
+        '  param name=parts type="string[]" variadic=true',
+        '  handler <<<',
+        '    return parts.join(",");',
+        '  >>>',
+      ].join('\n');
+      const parsed = parse(original);
+      // `parse()` unwraps the document for single top-level nodes, so the fn
+      // is `parsed` itself. Boolean props parse as strings ("true").
+      const paramNode = parsed.children?.find((c) => c.type === 'param');
+      expect(parsed.type).toBe('fn');
+      expect(paramNode?.props?.variadic).toBe('true');
+    });
+  });
 });

@@ -137,9 +137,9 @@ function tryFormatParamChildren(
 ): string[] | null {
   if (parameters.length === 0) return [];
   for (const p of parameters) {
-    // Slice 3c-extension: optional `?` is now structurable via `optional=true`
-    // (gate dropped). Variadic `...` and destructure patterns still bail out.
-    if (p.dotDotDotToken) return null;
+    // Slice 3c-extension: optional `?` and variadic `...` are now structurable
+    // via `optional=true` / `variadic=true` (gates dropped). Destructure
+    // patterns still bail out.
     if (!ts.isIdentifier(p.name)) return null;
     // Multi-line types (inline object shapes spread across lines) can't be
     // round-tripped through a single-line `type="..."` quoted attribute —
@@ -161,6 +161,7 @@ function tryFormatParamChildren(
     const parts: string[] = [`param name=${name}`];
     if (type) parts.push(`type="${escapeKernString(type)}"`);
     if (p.questionToken) parts.push('optional=true');
+    if (p.dotDotDotToken) parts.push('variadic=true');
     if (p.initializer) {
       parts.push(`value={{ ${p.initializer.getText(source)} }}`);
     }

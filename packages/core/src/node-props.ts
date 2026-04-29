@@ -617,6 +617,7 @@ export interface ParamProps extends BaseProps {
   default?: string | ExprObject;
   required?: string | boolean;
   optional?: string | boolean;
+  variadic?: string | boolean;
   description?: string;
   min?: string | number;
   max?: string | number;
