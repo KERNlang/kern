@@ -496,8 +496,26 @@ function handlerText(node: IRNode): string {
     .join('\n');
 }
 
+function hasInlinePermissionGate(node: IRNode): boolean {
+  const code = handlerText(node);
+  if (!code) return false;
+  const declaresPermissionCheck =
+    /\b(?:function|const|let)\s+checkPermission\b/.test(code) ||
+    /\bcheckPermission\s*[:=]\s*(?:async\s*)?\(/.test(code);
+  if (!declaresPermissionCheck) return false;
+  const returnsPermissionCheck = /\breturn\s*\{[\s\S]*\bcheckPermission\b[\s\S]*\}/.test(code);
+  const hasDecisionSignal =
+    /\bPermissionDecision\b/.test(code) ||
+    /\bpermissionMode\b/.test(code) ||
+    /\bbehavior\s*:\s*['"](?:allow|ask|deny)['"]/.test(code);
+  return returnsPermissionCheck && hasDecisionSignal;
+}
+
 function hasGuardLikeChild(node: IRNode): boolean {
-  return (node.children || []).some((child) => ['guard', 'auth', 'validate'].includes(child.type));
+  return (
+    (node.children || []).some((child) => ['guard', 'auth', 'validate'].includes(child.type)) ||
+    hasInlinePermissionGate(node)
+  );
 }
 
 function isMultiSourceTransitionFalsePositive(violation: SemanticViolation, root: IRNode): boolean {
@@ -865,7 +883,7 @@ function findUnguardedEffects(root: IRNode): string[] {
       const effect = classifyEffect(code);
       if (effect && !hasGuardLikeChild(node)) {
         failures.push(
-          `${nodeLabel(node)} at line ${node.loc?.line ?? '?'} performs ${effect.label} without guard/auth/validate`,
+          `${nodeLabel(node)} at line ${node.loc?.line ?? '?'} performs ${effect.label} without guard/auth/validate/permission`,
         );
       }
     }
@@ -1099,6 +1117,10 @@ function hasAuthLikeChild(node: IRNode): boolean {
   });
 }
 
+function hasAuthorizationLikeGate(node: IRNode): boolean {
+  return hasAuthLikeChild(node) || hasInlinePermissionGate(node);
+}
+
 function hasUrlAllowlistGuard(node: IRNode, paramName?: string): boolean {
   return allChildGuards(node).some((guard) => {
     if (paramName && guardParam(guard) && !guardTargetsParam(guard, paramName)) return false;
@@ -1203,8 +1225,8 @@ function findSensitiveEffectsWithoutAuth(root: IRNode): string[] {
   function visit(node: IRNode): void {
     if (checkedTypes.has(node.type)) {
       const effect = classifyEffect(handlerText(node));
-      if (effect?.sensitive && !hasAuthLikeChild(node)) {
-        failures.push(`${nodeLabel(node)} performs ${effect.label} without auth`);
+      if (effect?.sensitive && !hasAuthorizationLikeGate(node)) {
+        failures.push(`${nodeLabel(node)} performs ${effect.label} without auth/permission`);
       }
     }
     for (const child of node.children || []) visit(child);

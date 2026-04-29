@@ -31,7 +31,7 @@ kern test path/to/tests --pass-with-no-tests
 kern test path/to/tests --fail-on-warn
 ```
 
-Single-file inputs keep the legacy `kern test <file.kern>` generator behavior when the file has no native `test` nodes. Directory inputs discover `.kern` files that contain native `test` nodes and run them as one aggregate suite. This repo's `examples/native-test` directory includes machine, MCP safety, and language-surface smoke tests for arrays, classes, and functions.
+Single-file inputs keep the legacy `kern test <file.kern>` generator behavior when the file has no native `test` nodes. Directory inputs discover `.kern` files that contain native `test` nodes and run them as one aggregate suite. This repo's `examples/native-test` directory includes machine, MCP safety, permission-gated tool, and language-surface smoke tests for arrays, classes, and functions.
 
 ## KERN Syntax
 
@@ -74,6 +74,8 @@ Use `no=codegenErrors` as a smoke check when a suite should prove that valid KER
 Use `expect expr={{...}}` for small runtime assertions over referenced target-side `const`, `derive`, and `let` expression bindings. Without a comparator, the expression must evaluate truthy. Add `equals=...` for deep equality, `matches="..."` for string/regex checks, or `throws=ErrorName` for expected exceptions. This MVP intentionally does not execute KERN handlers or application code; multi-statement expressions and unsafe globals such as `process`, `require`, `eval`, `Function`, `fetch`, timers, and `WebSocket` are rejected before execution.
 
 Use `preset=coverage` when Guard/Sight need a native signal for untested KERN surface. Machine transition coverage is driven by explicit `via=...` reachability assertions. Guard coverage passes when guards have explicit `expect guard=<name> exhaustive=true` assertions or a guard-wide assertion such as `expect preset=guard`.
+
+Native effect checks also recognize inline CLI permission gates shaped like a `checkPermission` function returning a `PermissionDecision` and returned from a tool factory. That lets KERN test AGON-style tool factories without forcing every permission check into a separate `guard` node.
 
 Use `--coverage` to print native transition/guard coverage. Use `--min-coverage <pct>` to fail CI when combined machine-transition and guard coverage drops below the threshold. JSON summaries always include the same `coverage` object.
 

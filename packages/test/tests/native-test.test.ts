@@ -395,7 +395,7 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(5);
     expect(summary.results[0].message).toContain('POST /orders');
     expect(summary.results[1].message).toContain('mutates without schema/validate/guard/auth');
-    expect(summary.results[2].message).toContain('performs database query without guard/auth/validate');
+    expect(summary.results[2].message).toContain('performs database query without guard/auth/validate/permission');
     expect(summary.results[3].message).toContain('has expr but no else/handler');
     expect(summary.results[4].message).toContain('Found raw handler escapes');
   });
@@ -505,6 +505,41 @@ describe('native kern test runner', () => {
     expect(summary.passed).toBe(8);
   });
 
+  test('treats inline permission gates as sensitive effect coverage', () => {
+    writeFileSync(
+      join(tmpDir, 'permission-tool.kern'),
+      [
+        'fn name=createBashTool returns=ToolHandler',
+        '  handler <<<',
+        '    function checkPermission(input: Record<string, unknown>, ctx: ToolContext): PermissionDecision {',
+        "      if (ctx.permissionMode === 'auto') return { behavior: 'allow' };",
+        "      return { behavior: 'ask' };",
+        '    }',
+        '    async function execute(input: Record<string, unknown>) {',
+        "      const { readFileSync } = await import('node:fs');",
+        "      return readFileSync(String(input.path), 'utf-8');",
+        '    }',
+        '    return { definition: {}, validate: () => null, checkPermission, execute };',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'permission-tool.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Permission gated tool" target="./permission-tool.kern"',
+        '  it name="sensitive effects are permission gated"',
+        '    expect no=unguardedEffects',
+        '    expect no=sensitiveEffectsRequireAuth',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(2);
+  });
+
   test('fails on extended guard and effect invariant regressions', () => {
     writeFileSync(
       join(tmpDir, 'bad.kern'),
@@ -576,7 +611,7 @@ describe('native kern test runner', () => {
     expect(summary.results[1].message).toContain("requires param 'url' without a param-specific guard");
     expect(summary.results[2].message).toContain("path-like param 'filePath' lacks pathContainment guard");
     expect(summary.results[3].message).toContain('Found SSRF risks');
-    expect(summary.results[4].message).toContain('performs database query without auth');
+    expect(summary.results[4].message).toContain('performs database query without auth/permission');
     expect(summary.results[5].message).toContain("path param 'id' is not declared, validated, or guarded");
     expect(summary.results[6].message).toContain('side-effect handler without cleanup');
     expect(summary.results[7].message).toContain('async handler without recover');
@@ -1049,9 +1084,9 @@ describe('native kern test runner', () => {
     const summary = runNativeKernTests(testFile);
 
     expect(summary.failed).toBe(2);
-    expect(summary.results[0].message).toContain('performs database query without guard/auth/validate');
+    expect(summary.results[0].message).toContain('performs database query without guard/auth/validate/permission');
     expect(summary.results[0].message).toContain('fn saveOrder');
-    expect(summary.results[1].message).toContain('performs database query without auth');
+    expect(summary.results[1].message).toContain('performs database query without auth/permission');
     expect(summary.results[1].message).toContain('fn saveOrder');
   });
 
