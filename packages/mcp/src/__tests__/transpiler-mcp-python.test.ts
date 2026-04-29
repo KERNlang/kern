@@ -57,6 +57,45 @@ describe('transpileMCPPython', () => {
     expect(result.code).not.toContain('= false');
   });
 
+  // ─── Slice 3c P2 follow-up: param.value (canonical) consumed in Python ─
+
+  it('reads param.value (slice 3c canonical) for Python defaults', () => {
+    // OpenCode review gap: TS side had 5 tests for value=, Python had zero.
+    // Mirror them so the migration is locked in on both targets.
+    // (The pre-existing emitter auto-promotes `number` → `int` when the
+    // default is integer-shaped and no min/max constraints — that intelligent
+    // narrowing is unaffected by this slice.)
+    const ast = node('mcp', { name: 'PyValueServer' }, [
+      node('tool', { name: 'retry' }, [node('param', { name: 'attempts', type: 'number', value: '3' })]),
+    ]);
+    const result = transpileMCPPython(ast);
+    expect(result.code).toContain('attempts: int = 3');
+  });
+
+  it('value= wins over default= in Python emit', () => {
+    const ast = node('mcp', { name: 'PyBoth' }, [
+      node('tool', { name: 'retry' }, [node('param', { name: 'attempts', type: 'number', value: '7', default: '3' })]),
+    ]);
+    const result = transpileMCPPython(ast);
+    expect(result.code).toContain('attempts: int = 7');
+    expect(result.code).not.toMatch(/=\s*3\b/);
+  });
+
+  it('Python ExprObject value={{...}} emits no static default (avoids NameError)', () => {
+    // Codex review fix: previously emitted `ts: float = Date.now()` which
+    // raises NameError at module import. Now ExprObject is treated as
+    // "no static default" — param remains optional-shaped via the existing
+    // optional path, but no JS code leaks into the Python signature.
+    const ast = node('mcp', { name: 'PyExpr' }, [
+      node('tool', { name: 'stamp' }, [
+        node('param', { name: 'ts', type: 'number', value: { __expr: true, code: 'Date.now()' } }),
+      ]),
+    ]);
+    const result = transpileMCPPython(ast);
+    expect(result.code).not.toContain('= Date.now()');
+    expect(result.code).not.toContain('= Date');
+  });
+
   it('should auto-infer int when number type has integer default and constraints', () => {
     const ast = node('mcp', { name: 'IntInfer' }, [
       node('tool', { name: 'search' }, [

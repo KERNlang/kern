@@ -1597,7 +1597,13 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'Parameter definition. Used in two contexts: (a) MCP tool/resource/prompt params (description/required/min/max apply); (b) fn/method/constructor/etc. parameter defaults via slice 3c — value flows through ValueIR canonicalisation (mirrors slice 1j const.value, 3a let.value, 3b field.value).',
     example: 'param name=query type=string required=true description="Search query"',
     props: {
-      name: { required: true, kind: 'identifier' },
+      // Slice 3c-extension #3: `name` is required UNLESS the param carries
+      // `binding`/`element` destructure children — destructured params encode
+      // the LHS pattern in the children, not in `name`. The required-OR-children
+      // invariant lives in `checkCrossProps` so `validateSchema` accepts both
+      // forms. Keeping the schema-level `required: true` here would reject the
+      // canonical destructured form emitted by the importer.
+      name: { kind: 'identifier' },
       type: { kind: 'typeAnnotation' },
       value: { kind: 'expression' },
       required: { kind: 'boolean' },
@@ -2471,6 +2477,23 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       line: node.loc?.line,
       col: node.loc?.col,
     });
+  }
+  if (node.type === 'param') {
+    // Slice 3c-extension #3: `param` requires `name=` UNLESS it carries
+    // `binding`/`element` destructure children — destructured params encode
+    // the LHS pattern in the children. Replaces the old prop-level
+    // `required: true` constraint which rejected the canonical destructured
+    // form emitted by importer/decompiler.
+    const hasName = 'name' in props;
+    const hasDestructure = (node.children ?? []).some((c) => c.type === 'binding' || c.type === 'element');
+    if (!hasName && !hasDestructure) {
+      violations.push({
+        nodeType: 'param',
+        message: "'param' requires either 'name' or destructure children ('binding'/'element')",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
   }
   if (node.type === 'expect') {
     const hasRuntimeAssertion = 'expr' in props;

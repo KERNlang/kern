@@ -147,7 +147,7 @@ describe('FastAPI Transpiler', () => {
       expect(output).toContain('def concat(*parts: str) -> str:');
     });
 
-    test('emits Optional[T] = None for optional param children without defaults', async () => {
+    test('emits `T | None = None` for optional param children without defaults', async () => {
       const { parse } = await import('../../core/src/parser.js');
       const { generatePythonCoreNode } = await import('../src/codegen-python.js');
 
@@ -161,7 +161,36 @@ describe('FastAPI Transpiler', () => {
         ].join('\n'),
       );
       const output = generatePythonCoreNode(ast).join('\n');
-      expect(output).toContain('def greet(salutation: Optional[str] = None) -> str:');
+      // Codex review fix: PEP-604 union over `Optional[T]` to avoid
+      // requiring `from typing import Optional` (not auto-imported here).
+      expect(output).toContain('def greet(salutation: str | None = None) -> str:');
+    });
+
+    test('translates JS literal defaults (true/false/null) to Python equivalents', async () => {
+      // Codex review fix: bare `value=true` etc. used to emit `= true` raw,
+      // which fails Python's import-time evaluation (`NameError`). Now
+      // translated to `True`/`False`/`None`.
+      const { parse } = await import('../../core/src/parser.js');
+      const { generatePythonCoreNode } = await import('../src/codegen-python.js');
+
+      const ast = parse(
+        [
+          'fn name=run returns=string',
+          '  param name=enabled type=boolean value=true',
+          '  param name=quiet type=boolean value=false',
+          '  param name=tag type=string value=null',
+          '  handler <<<',
+          '    return tag or "default"',
+          '  >>>',
+        ].join('\n'),
+      );
+      const output = generatePythonCoreNode(ast).join('\n');
+      expect(output).toContain('enabled: bool = True');
+      expect(output).toContain('quiet: bool = False');
+      expect(output).toContain('tag: str = None');
+      expect(output).not.toContain('= true');
+      expect(output).not.toContain('= false');
+      expect(output).not.toContain('= null');
     });
 
     test('skips destructured params (no Python equivalent)', async () => {

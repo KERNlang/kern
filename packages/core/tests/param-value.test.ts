@@ -637,5 +637,37 @@ describe('param.value — slice 3c (native ValueIR form)', () => {
       expect(bindings[0].props?.name).toBe('x');
       expect(bindings[1].props?.name).toBe('y');
     });
+
+    // Codex review fix: schema validation must accept the canonical
+    // destructured-param form (no `name=`, with binding/element children).
+    it('validates: destructured param without name= passes schema', async () => {
+      const { validateSchema } = await import('../src/schema.js');
+      const paramNode: IRNode = {
+        type: 'param',
+        props: { type: 'Point' },
+        children: [mk('binding', { name: 'x' }), mk('binding', { name: 'y' })],
+      };
+      const violations = validateSchema(paramNode);
+      // Cross-prop rule allows missing name when binding/element children present.
+      expect(violations.filter((v) => v.message.includes('name'))).toEqual([]);
+    });
+
+    it('validates: param without name= AND without destructure children is rejected', async () => {
+      const { validateSchema } = await import('../src/schema.js');
+      const paramNode: IRNode = { type: 'param', props: { type: 'string' }, children: [] };
+      const violations = validateSchema(paramNode);
+      expect(violations.some((v) => /requires either 'name' or destructure children/.test(v.message))).toBe(true);
+    });
+
+    it('importer bails to legacy on rest+destructure (...[first]: T[])', () => {
+      // Codex review fix: variadic + array-destructure can't be represented in
+      // structured form (no slot for outer `...`). Bail to legacy `params=`
+      // so the rest marker survives the round-trip.
+      const ts = `function head(...[first]: string[]): string { return first; }`;
+      const result = importTypeScript(ts, 'head.ts');
+      expect(result.kern).toMatch(/params="\.\.\./);
+      expect(result.kern).not.toContain('binding name=first');
+      expect(result.kern).not.toContain('element name=first');
+    });
   });
 });
