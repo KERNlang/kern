@@ -108,6 +108,11 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       name: { required: true, kind: 'identifier' },
       discriminant: { required: true, kind: 'identifier' },
       export: { kind: 'boolean' },
+      // Slice 4 — `kind=result|option` opts the union into the Result/Option
+      // shape (see docs/language/result-option-spec.md). Default (unspecified)
+      // is a regular discriminated union, identical to the slice 3 behaviour.
+      // Validated by parser-validate-union-kind.ts.
+      kind: { kind: 'string' },
     },
     allowedChildren: ['variant'],
   },

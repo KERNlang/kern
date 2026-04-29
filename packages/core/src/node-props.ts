@@ -39,6 +39,8 @@ export interface InterfaceProps extends BaseProps {
 
 export interface UnionProps extends BaseProps {
   discriminant?: string;
+  /** Slice 4 — `result` | `option` | undefined (default: regular discriminated union). */
+  kind?: string;
 }
 
 export interface EnumProps extends BaseProps {

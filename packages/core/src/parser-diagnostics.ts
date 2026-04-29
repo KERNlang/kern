@@ -27,6 +27,10 @@ const DIAGNOSTIC_SUGGESTIONS: Record<ParseErrorCode, string> = {
   INVALID_EXPRESSION:
     'The value could not be parsed as a KERN expression. Wrap it in `{{ ... }}` if it uses syntax not yet natively supported.',
   INVALID_EFFECTS: 'See docs/language/effects-pure-spec.md for the full forbidden list and incompatible-prop rules.',
+  INVALID_UNION_KIND:
+    'Use `kind=result`, `kind=option`, or omit `kind` for a regular discriminated union. See docs/language/result-option-spec.md.',
+  KIND_SHAPE_VIOLATION:
+    'A `kind=result` union must declare exactly two variants named `ok` and `err`; `kind=option` must declare exactly two variants named `some` and `none`. See docs/language/result-option-spec.md.',
 };
 
 export function createParseState(): ParseState {
