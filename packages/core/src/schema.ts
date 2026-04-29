@@ -2543,7 +2543,8 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
     ) {
       violations.push({
         nodeType: 'expect',
-        message: "'expect' requires 'expr', 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
+        message:
+          "'expect' requires 'expr', 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
         line: node.loc?.line,
         col: node.loc?.col,
       });

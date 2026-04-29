@@ -628,10 +628,7 @@ describe('native kern test runner', () => {
   });
 
   test('apiSafety preset includes empty route detection', () => {
-    writeFileSync(
-      join(tmpDir, 'api.kern'),
-      ['server name=Api', '  route method=get path=/empty'].join('\n'),
-    );
+    writeFileSync(join(tmpDir, 'api.kern'), ['server name=Api', '  route method=get path=/empty'].join('\n'));
     const testFile = join(tmpDir, 'api.test.kern');
     writeFileSync(
       testFile,
@@ -653,11 +650,9 @@ describe('native kern test runner', () => {
   test('does not flag routes with portable behavior nodes as empty', () => {
     writeFileSync(
       join(tmpDir, 'api.kern'),
-      [
-        'server name=Api',
-        '  route method=get path=/orders',
-        '    derive orders expr={{await db.orders.list()}}',
-      ].join('\n'),
+      ['server name=Api', '  route method=get path=/orders', '    derive orders expr={{await db.orders.list()}}'].join(
+        '\n',
+      ),
     );
     const testFile = join(tmpDir, 'api.test.kern');
     writeFileSync(

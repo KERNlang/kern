@@ -718,20 +718,12 @@ function assertionLabel(node: IRNode): string {
   if (no) return `${machine ? `machine ${machine} ` : ''}no ${no}`;
   if (guard) return `guard ${guard} exhaustive`;
   if (machine && transition) {
-    return [
-      `machine ${machine} transition ${transition}`,
-      from ? `from ${from}` : '',
-      to ? `to ${to}` : '',
-    ]
+    return [`machine ${machine} transition ${transition}`, from ? `from ${from}` : '', to ? `to ${to}` : '']
       .filter(Boolean)
       .join(' ');
   }
   if (machine || reaches) {
-    return [
-      `machine ${machine || '<missing>'}`,
-      from ? `from ${from}` : '',
-      `reaches ${reaches || '<missing>'}`,
-    ]
+    return [`machine ${machine || '<missing>'}`, from ? `from ${from}` : '', `reaches ${reaches || '<missing>'}`]
       .filter(Boolean)
       .join(' ');
   }
@@ -1389,7 +1381,10 @@ function syntheticTarget(root: IRNode): LoadedKernDocument {
   return { file: '<coverage>', root, diagnostics: [], schemaViolations: [], semanticViolations: [] };
 }
 
-function coveredTransitionsFromAssertion(root: IRNode, assertion: IRNode): { machineName: string; transitions: Set<string> } | undefined {
+function coveredTransitionsFromAssertion(
+  root: IRNode,
+  assertion: IRNode,
+): { machineName: string; transitions: Set<string> } | undefined {
   const props = getProps(assertion);
   const machineName = str(props.machine);
   if (!machineName || 'no' in props) return undefined;
@@ -1965,7 +1960,9 @@ function unionVariantNames(union: IRNode): string[] {
 function isVariantGuardCandidate(guard: IRNode): boolean {
   const props = getProps(guard);
   const kind = guardKind(guard);
-  return Boolean(str(props.over) || str(props.union) || str(props.covers) || kind === 'variant' || kind === 'exhaustive');
+  return Boolean(
+    str(props.over) || str(props.union) || str(props.covers) || kind === 'variant' || kind === 'exhaustive',
+  );
 }
 
 function resolveGuardUnion(root: IRNode | undefined, guard: IRNode, requestedUnion?: string): IRNode | undefined {
@@ -2067,7 +2064,9 @@ function findNonExhaustiveGuards(root: IRNode): string[] {
 
     const missing = missingGuardVariants(guard, union);
     if (missing.length > 0) {
-      failures.push(`${label} is not exhaustive over ${str(getProps(union).name)}; missing variants: ${missing.join(', ')}`);
+      failures.push(
+        `${label} is not exhaustive over ${str(getProps(union).name)}; missing variants: ${missing.join(', ')}`,
+      );
     }
   }
   return failures;
@@ -2526,7 +2525,9 @@ function evaluateMachineReachability(node: IRNode, target: LoadedKernDocument): 
 
   const defaultMaxDepth = Math.max(transitions.length + states.length, states.length);
   const maxDepth = maxSteps ?? defaultMaxDepth;
-  const queue: { state: string; path: string[]; states: string[] }[] = [{ state: startState, path: [], states: [startState] }];
+  const queue: { state: string; path: string[]; states: string[] }[] = [
+    { state: startState, path: [], states: [startState] },
+  ];
   const initialSatisfiedThrough = throughStates.filter((state) => state === startState).join(',');
   const visited = new Set<string>([`${startState}:${initialSatisfiedThrough}`]);
   while (queue.length > 0) {
@@ -2559,7 +2560,10 @@ function evaluateMachineReachability(node: IRNode, target: LoadedKernDocument): 
   };
 }
 
-function evaluateMachineTransitionAssertion(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+function evaluateMachineTransitionAssertion(
+  node: IRNode,
+  target: LoadedKernDocument,
+): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
 

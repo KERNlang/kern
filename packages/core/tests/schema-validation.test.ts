@@ -184,9 +184,11 @@ describe('Schema Validation', () => {
 
     it('flags machine transition expect assertions without machine', () => {
       const v = validate(
-        ['test name="Order"', '  it name="declares capture"', '    expect transition=capture from=confirmed to=paid'].join(
-          '\n',
-        ),
+        [
+          'test name="Order"',
+          '  it name="declares capture"',
+          '    expect transition=capture from=confirmed to=paid',
+        ].join('\n'),
       );
       expect(v.some((violation) => violation.message.includes('require machine=<name>'))).toBe(true);
     });
