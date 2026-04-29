@@ -41,6 +41,7 @@
     "@kernlang/react": "workspace:*",
     "@kernlang/review": "workspace:*",
     "@kernlang/review-mcp": "workspace:*",
+    "@kernlang/test": "workspace:*",
     "@kernlang/terminal": "workspace:*",
     "@kernlang/vue": "workspace:*",
     "chokidar": "^5.0.0",

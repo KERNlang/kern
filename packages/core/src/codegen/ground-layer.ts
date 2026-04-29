@@ -375,10 +375,17 @@ export function generateExpect(node: IRNode): string[] {
   const conf = props.confidence;
   const todo = emitLowConfidenceTodo(node, conf);
   const name = props.name || 'expected';
-  const expr = props.expr;
+  const expr = unwrapExpr(props.expr);
   const within = props.within;
   const max = props.max;
   const min = props.min;
+
+  if (!expr) {
+    throw new KernCodegenError(
+      'expect codegen requires expr; structural expect assertions run through `kern test`',
+      node,
+    );
+  }
 
   const lines: string[] = [...todo, ...annotations];
   lines.push(`if (process.env.NODE_ENV !== 'production') {`);

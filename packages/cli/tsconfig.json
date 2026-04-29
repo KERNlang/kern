@@ -17,6 +17,7 @@
     { "path": "../review" },
     { "path": "../codemod" },
     { "path": "../review-mcp" },
+    { "path": "../test" },
     { "path": "../metrics" },
     { "path": "../evolve" }
   ]

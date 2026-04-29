@@ -53,14 +53,21 @@ function validateNode(
         const to = child.props?.to as string | undefined;
         const name = (child.props?.name as string) || '(unnamed)';
 
-        if (from && !stateNames.has(from)) {
-          violations.push({
-            rule: 'machine-transition-from',
-            nodeType: 'transition',
-            message: `Transition '${name}' references unknown state '${from}' in 'from'. Available states: ${[...stateNames].join(', ') || '(none)'}`,
-            line: child.loc?.line,
-            col: child.loc?.col,
-          });
+        if (from) {
+          for (const source of from
+            .split('|')
+            .map((part) => part.trim())
+            .filter(Boolean)) {
+            if (!stateNames.has(source)) {
+              violations.push({
+                rule: 'machine-transition-from',
+                nodeType: 'transition',
+                message: `Transition '${name}' references unknown state '${source}' in 'from'. Available states: ${[...stateNames].join(', ') || '(none)'}`,
+                line: child.loc?.line,
+                col: child.loc?.col,
+              });
+            }
+          }
         }
         if (to && !stateNames.has(to)) {
           violations.push({

@@ -72,6 +72,9 @@ importers:
       '@kernlang/terminal':
         specifier: workspace:*
         version: link:../terminal
+      '@kernlang/test':
+        specifier: workspace:*
+        version: link:../test
       '@kernlang/vue':
         specifier: workspace:*
         version: link:../vue
@@ -345,6 +348,12 @@ importers:
       react:
         specifier: 19.2.5
         version: 19.2.5
+
+  packages/test:
+    dependencies:
+      '@kernlang/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/vue:
     dependencies:

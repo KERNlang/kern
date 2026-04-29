@@ -325,8 +325,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example: 'test name="AuthService"\n  describe name="login"\n    it name="rejects invalid email"',
     props: {
       name: { required: true, kind: 'string' },
+      target: { kind: 'string' },
     },
-    allowedChildren: ['describe', 'it', 'handler'],
+    allowedChildren: ['describe', 'it', 'expect', 'handler'],
   },
   event: {
     description: 'Typed event with payload type children',
@@ -1113,6 +1114,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       confidence: { kind: 'number' },
       kind: { kind: 'identifier' },
       type: { kind: 'identifier' },
+      covers: { kind: 'string' },
       param: { kind: 'identifier' },
       field: { kind: 'identifier' },
       target: { kind: 'identifier' },
@@ -2286,13 +2288,13 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example:
       'describe name="UserService"\n  it name="creates a user"\n    handler <<<\n      expect(createUser()).toBeDefined();\n    >>>',
     props: { name: { required: true, kind: 'string' } },
-    allowedChildren: ['it', 'describe', 'handler'],
+    allowedChildren: ['it', 'describe', 'expect', 'handler'],
   },
   it: {
     description: 'Test case — single test assertion',
     example: 'it name="returns 200 on success"\n  handler <<<\n    expect(res.status).toBe(200);\n  >>>',
     props: { name: { required: true, kind: 'string' } },
-    allowedChildren: ['handler'],
+    allowedChildren: ['expect', 'handler'],
   },
 
   // Ground layer — semantic reasoning
@@ -2331,9 +2333,22 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: { fn: { kind: 'identifier' }, to: { kind: 'rawExpr' } },
   },
   expect: {
-    description: 'Assertion — declare an expected condition at runtime',
-    example: 'expect expr={{items.length > 0}} message="Items must not be empty"',
-    props: { expr: { required: true, kind: 'rawExpr' }, message: { kind: 'string' } },
+    description: 'Assertion — declare an expected runtime condition or KERN structural invariant',
+    example:
+      'expect expr={{items.length > 0}} message="Items must not be empty"\nexpect machine=Order reaches=paid via=confirm,capture\nexpect no=deriveCycles',
+    props: {
+      expr: { kind: 'rawExpr' },
+      message: { kind: 'string' },
+      machine: { kind: 'identifier' },
+      reaches: { kind: 'identifier' },
+      via: { kind: 'string' },
+      no: { kind: 'identifier' },
+      guard: { kind: 'identifier' },
+      exhaustive: { kind: 'boolean' },
+      over: { kind: 'identifier' },
+      union: { kind: 'identifier' },
+      covers: { kind: 'string' },
+    },
   },
   recover: {
     description: 'Recovery handler — runs when a parent node fails',
@@ -2441,6 +2456,36 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       line: node.loc?.line,
       col: node.loc?.col,
     });
+  }
+  if (node.type === 'expect') {
+    const hasRuntimeAssertion = 'expr' in props;
+    const hasNegativeInvariant = 'no' in props;
+    const hasGuardExhaustiveness = 'guard' in props;
+    const hasMachineReachability = 'reaches' in props || ('machine' in props && !hasNegativeInvariant);
+    if (!hasRuntimeAssertion && !hasMachineReachability && !hasNegativeInvariant && !hasGuardExhaustiveness) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' requires 'expr', 'machine'/'reaches', 'no', or 'guard'",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasMachineReachability && (!('machine' in props) || !('reaches' in props))) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' machine reachability requires both 'machine' and 'reaches'",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasGuardExhaustiveness && props.exhaustive !== true && props.exhaustive !== 'true') {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' guard assertions require exhaustive=true",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
   }
   if (node.type === 'fmt') {
     const returnMode = isTruthyProp(props.return);

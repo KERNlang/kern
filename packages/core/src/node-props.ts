@@ -486,6 +486,7 @@ export interface ActionRegistryProps extends BaseProps {
 export interface GuardProps extends BaseProps {
   when?: string;
   message?: string;
+  covers?: string;
 }
 
 export interface AssumeProps extends BaseProps {
@@ -521,6 +522,16 @@ export interface ExpectProps extends BaseProps {
   within?: string;
   max?: string;
   min?: string;
+  message?: string;
+  machine?: string;
+  reaches?: string;
+  via?: string;
+  no?: string;
+  guard?: string;
+  exhaustive?: string | boolean;
+  over?: string;
+  union?: string;
+  covers?: string;
 }
 
 export interface RecoverProps extends BaseProps {}
@@ -663,6 +674,7 @@ export interface OptionProps extends BaseProps {
 
 export interface TestProps extends BaseProps {
   suite?: string;
+  target?: string;
 }
 
 // ── Props Map ───────────────────────────────────────────────────────────
