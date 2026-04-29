@@ -1,3 +1,6 @@
 test name="MCP safety" target="./mcp.kern"
   it name="uses MCP safety preset"
     expect preset=mcpSafety
+
+  it name="suite covers guard surface"
+    expect preset=coverage

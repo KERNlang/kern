@@ -182,4 +182,130 @@ describe('kern test command', () => {
       process.stdout.write = originalWrite;
     }
   });
+
+  test('promotes directory warning summaries to exitCode with fail-on-warn', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=paid',
+        '  state name=orphaned',
+        '  transition name=capture from=pending to=paid',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(tmpDir, 'order.test.kern'),
+      [
+        'test name="Order invariants" target="./order.kern"',
+        '  it name="tracks dead states as debt"',
+        '    expect machine=Order no=deadStates severity=warn',
+      ].join('\n'),
+    );
+
+    const chunks: string[] = [];
+    const originalWrite = process.stdout.write;
+    process.stdout.write = ((chunk: string | Uint8Array): boolean => {
+      chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8'));
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      runTest(['test', tmpDir, '--json', '--fail-on-warn']);
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+
+    const summary = JSON.parse(chunks.join(''));
+    expect(summary.warnings).toBe(1);
+    expect(summary.failed).toBe(0);
+    expect(process.exitCode).toBe(1);
+  });
+
+  test('passes grep through to native test runs', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=paid',
+        '  state name=orphaned',
+        '  transition name=capture from=pending to=paid',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order invariants" target="./order.kern"',
+        '  it name="has no dead states"',
+        '    expect machine=Order no=deadStates',
+        '  it name="has no duplicate transitions"',
+        '    expect machine=Order no=duplicateTransitions',
+      ].join('\n'),
+    );
+
+    const chunks: string[] = [];
+    const originalWrite = process.stdout.write;
+    process.stdout.write = ((chunk: string | Uint8Array): boolean => {
+      chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8'));
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      runTest(['test', testFile, '--json', '--grep', 'duplicateTransitions']);
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+
+    const summary = JSON.parse(chunks.join(''));
+    expect(summary.total).toBe(1);
+    expect(summary.failed).toBe(0);
+    expect(summary.results[0].ruleId).toBe('no:duplicatetransitions');
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  test('passes bail through to native test runs', () => {
+    writeFileSync(
+      join(tmpDir, 'order.kern'),
+      [
+        'machine name=Order',
+        '  state name=pending initial=true',
+        '  state name=paid',
+        '  state name=orphaned',
+        '  transition name=capture from=pending to=paid',
+        '  transition name=capture from=pending to=paid',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'order.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Order invariants" target="./order.kern"',
+        '  it name="has no dead states"',
+        '    expect machine=Order no=deadStates',
+        '  it name="has no duplicate transitions"',
+        '    expect machine=Order no=duplicateTransitions',
+      ].join('\n'),
+    );
+
+    const chunks: string[] = [];
+    const originalWrite = process.stdout.write;
+    process.stdout.write = ((chunk: string | Uint8Array): boolean => {
+      chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf-8'));
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      runTest(['test', testFile, '--json', '--bail']);
+    } finally {
+      process.stdout.write = originalWrite;
+    }
+
+    const summary = JSON.parse(chunks.join(''));
+    expect(summary.total).toBe(1);
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('no:deadstates');
+    expect(process.exitCode).toBe(1);
+  });
 });
