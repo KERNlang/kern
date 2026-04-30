@@ -135,4 +135,117 @@ describe('slice 4a — FastAPI route lang=kern dispatch', () => {
     expect(content).toContain('return {"raw": True}');
     expect(content).not.toContain('import math as __k_math');
   });
+
+  // ── Slice 4a review fix (Gemini #5) — ? propagation → HTTPException ──
+
+  test('? propagation in route body raises HTTPException(500) instead of returning err', () => {
+    // Pre-fix: `?` err lowered to `return __k_t1` which FastAPI serialized
+    // as 200 OK with the err body. Now translates to a proper 500 error.
+    const route = makeRoute({ method: 'get', path: '/users/:id' }, [
+      { type: 'let', props: { name: 'u', value: 'fetchUser(id)?' } },
+      { type: 'return', props: { value: '{ name: u.name }' } },
+    ]);
+    const content = buildArtifactContent(route);
+    expect(content).toContain('from fastapi import HTTPException');
+    expect(content).toContain('__k_t1 = fetchUser(id)');
+    expect(content).toContain("if __k_t1.kind == 'err':");
+    expect(content).toContain('raise HTTPException(status_code=500, detail=__k_t1.error)');
+    expect(content).toContain('u = __k_t1.value');
+  });
+
+  test('routes without ? propagation do not import HTTPException', () => {
+    // Sanity: only routes that actually use propagation pull in the
+    // HTTPException import.
+    const route = makeRoute({ method: 'get', path: '/health' }, [
+      { type: 'return', props: { value: '{ status: "ok" }' } },
+    ]);
+    const content = buildArtifactContent(route);
+    expect(content).not.toContain('from fastapi import HTTPException');
+  });
+
+  // ── Slice 4a review fix (OpenCode #1, Gemini #4) — collisions ──
+
+  test('two query params snake-casing to the same name throws', () => {
+    const route: IRNode = {
+      type: 'route',
+      props: { method: 'get', path: '/collide' },
+      children: [
+        {
+          type: 'params',
+          props: {
+            items: [
+              { name: 'xCount', type: 'number' },
+              { name: 'x_count', type: 'number' },
+            ],
+          },
+        },
+        { type: 'handler', props: { lang: 'kern' }, children: [{ type: 'return', props: { value: '0' } }] },
+      ],
+    };
+    expect(() => buildArtifactContent(route)).toThrow(/snake-cases to 'x_count', which collides/);
+  });
+
+  test('path param + query param with same snake_case name throws', () => {
+    // /users/:id (path param `id`) plus query param `id` (already
+    // snake_case) — both end up named `id` in the FastAPI signature,
+    // which Python rejects with `SyntaxError: duplicate argument`.
+    const route: IRNode = {
+      type: 'route',
+      props: { method: 'get', path: '/users/:id' },
+      children: [
+        {
+          type: 'params',
+          props: { items: [{ name: 'id', type: 'string' }] },
+        },
+        { type: 'handler', props: { lang: 'kern' }, children: [{ type: 'return', props: { value: 'id' } }] },
+      ],
+    };
+    expect(() => buildArtifactContent(route)).toThrow(/snake-cases to 'id', which collides/);
+  });
+
+  // ── Slice 4a review fix — fail loud on unsupported combinations ──
+
+  test('stream + lang=kern throws (slice 4c follow-up)', () => {
+    // Stream routes resolve handler from inside the `stream` node, so the
+    // lang=kern handler lives there.
+    const route: IRNode = {
+      type: 'route',
+      props: { method: 'get', path: '/stream' },
+      children: [
+        {
+          type: 'stream',
+          props: {},
+          children: [{ type: 'handler', props: { lang: 'kern' }, children: [] }],
+        },
+      ],
+    };
+    expect(() => buildArtifactContent(route)).toThrow(/stream' handler with lang=kern is not yet supported/);
+  });
+
+  test('timer + lang=kern throws (slice 4c follow-up)', () => {
+    const route: IRNode = {
+      type: 'route',
+      props: { method: 'get', path: '/timer' },
+      children: [
+        {
+          type: 'timer',
+          props: { ms: 1000 },
+          children: [{ type: 'handler', props: { lang: 'kern' }, children: [] }],
+        },
+      ],
+    };
+    expect(() => buildArtifactContent(route)).toThrow(/timer' handler with lang=kern is not yet supported/);
+  });
+
+  test('portable nodes + lang=kern throws (must choose one path)', () => {
+    const route: IRNode = {
+      type: 'route',
+      props: { method: 'get', path: '/portable' },
+      children: [
+        { type: 'derive', props: {}, children: [] },
+        { type: 'handler', props: { lang: 'kern' }, children: [] },
+      ],
+    };
+    expect(() => buildArtifactContent(route)).toThrow(/BOTH portable nodes .* AND a `lang=kern` handler/);
+  });
 });

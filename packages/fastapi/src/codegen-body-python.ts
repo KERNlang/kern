@@ -56,21 +56,41 @@ export interface BodyEmitOptions {
    *  the KERN-form `userId` resolves to the snake_cased Python parameter.
    *  Identifiers not in the map pass through unchanged. */
   symbolMap?: Record<string, string>;
+  /** Slice 4a review fix (Gemini #5) — how to lower the `?` propagation
+   *  hoist's err-branch return:
+   *    - 'value' (default for `fn`): `return __k_tN` so the caller sees
+   *      the err Result and can chain. Matches slice 1 semantics.
+   *    - 'http-exception' (FastAPI routes): `raise HTTPException(500,
+   *      detail=__k_tN.error)` so route handlers don't accidentally
+   *      return a 200 OK with an err body. The route emitter is
+   *      responsible for adding `from fastapi import HTTPException`
+   *      to the file's imports when this style is used.
+   *  The route emitter walks `usedPropagation` in the result to know
+   *  whether the import is actually required. */
+  propagateStyle?: 'value' | 'http-exception';
 }
 
 /** Slice 3e — public return shape. `code` is the joined body text;
  *  `imports` is the per-handler set of import identifiers
  *  (e.g., `'math'` ⇒ `import math`) that the generator must emit at the
- *  top of the function body before the code. */
+ *  top of the function body before the code.
+ *
+ *  Slice 4a review fix — `usedPropagation` is true iff the body emitted at
+ *  least one `?` propagation hoist. Callers using `propagateStyle:
+ *  'http-exception'` use this signal to decide whether to add `from
+ *  fastapi import HTTPException` to the route file's imports. */
 export interface BodyEmitResult {
   code: string;
   imports: Set<string>;
+  usedPropagation: boolean;
 }
 
 interface BodyEmitContext {
   gensymCounter: number;
   imports: Set<string>;
   symbolMap: Record<string, string>;
+  propagateStyle: 'value' | 'http-exception';
+  usedPropagation: boolean;
 }
 
 const INDENT_STEP = '    ';
@@ -80,6 +100,8 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     gensymCounter: 0,
     imports: new Set<string>(),
     symbolMap: options?.symbolMap ?? {},
+    propagateStyle: options?.propagateStyle ?? 'value',
+    usedPropagation: false,
   };
 }
 
@@ -114,11 +136,15 @@ export function emitNativeKernBodyPython(handlerNode: IRNode, options?: BodyEmit
 /** Slice 3e — context-aware variant returning `{ code, imports }`. The
  *  FastAPI generator uses this to inject `import math` (etc.) at the top
  *  of the function body and to pass the param-rename map (3a) so the body
- *  resolves correctly against the snake_cased Python signature. */
+ *  resolves correctly against the snake_cased Python signature.
+ *
+ *  Slice 4a review fix — also returns `usedPropagation` so the route
+ *  emitter can conditionally add `from fastapi import HTTPException`
+ *  when `propagateStyle: 'http-exception'` is in effect. */
 export function emitNativeKernBodyPythonWithImports(handlerNode: IRNode, options?: BodyEmitOptions): BodyEmitResult {
   const ctx = freshCtx(options);
   const code = emitChildrenPy(handlerNode.children ?? [], ctx, '').join('\n');
-  return { code, imports: ctx.imports };
+  return { code, imports: ctx.imports, usedPropagation: ctx.usedPropagation };
 }
 
 function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string): string[] {
@@ -158,6 +184,18 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
   return lines;
 }
 
+function errPropagationLine(tmp: string, ctx: BodyEmitContext): string {
+  // Slice 4a review fix (Gemini #5) — when the route emitter requests
+  // 'http-exception' propagation style, the err branch raises rather than
+  // returns. Without this, FastAPI serializes the err Result as a 200 OK
+  // response with `{kind: 'err', error: ...}` body, which silently masks
+  // application errors as successful responses.
+  if (ctx.propagateStyle === 'http-exception') {
+    return `    raise HTTPException(status_code=500, detail=${tmp}.error)`;
+  }
+  return `    return ${tmp}`;
+}
+
 function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const name = String(props.name ?? '_');
@@ -169,7 +207,8 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     const tmp = `__k_t${++ctx.gensymCounter}`;
     const inner = emitPyExprCtx(valueIR.argument, ctx);
-    return [`${tmp} = ${inner}`, `if ${tmp}.kind == 'err':`, `    return ${tmp}`, `${name} = ${tmp}.value`];
+    ctx.usedPropagation = true;
+    return [`${tmp} = ${inner}`, `if ${tmp}.kind == 'err':`, errPropagationLine(tmp, ctx), `${name} = ${tmp}.value`];
   }
   return [`${name} = ${emitPyExprCtx(valueIR, ctx)}`];
 }
@@ -184,7 +223,8 @@ function emitReturnPy(node: IRNode, ctx: BodyEmitContext): string[] {
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     const tmp = `__k_t${++ctx.gensymCounter}`;
     const inner = emitPyExprCtx(valueIR.argument, ctx);
-    return [`${tmp} = ${inner}`, `if ${tmp}.kind == 'err':`, `    return ${tmp}`, `return ${tmp}.value`];
+    ctx.usedPropagation = true;
+    return [`${tmp} = ${inner}`, `if ${tmp}.kind == 'err':`, errPropagationLine(tmp, ctx), `return ${tmp}.value`];
   }
   return [`return ${emitPyExprCtx(valueIR, ctx)}`];
 }

@@ -267,6 +267,36 @@ export function buildRouteArtifact(
     lines.push('');
   }
 
+  // Slice 4a review fix (Codex+Gemini critical): stream/timer/portable
+  // routes do not support `lang=kern` yet — fail loud at codegen instead
+  // of silently swallowing the opt-in and emitting a broken handler.
+  // For stream routes, the handler is nested inside `streamNode`; for
+  // timer routes, inside `timerNode`. Resolve lang=kern off whichever
+  // handler the route configuration points to.
+  const streamHandlerNode = caps.streamNode ? getFirstChild(caps.streamNode, 'handler') : undefined;
+  const timerHandlerNode = caps.timerNode ? getFirstChild(caps.timerNode, 'handler') : undefined;
+  const standardHandlerNode = !caps.hasStream && !caps.hasTimer ? handlerNode : undefined;
+  const isKernHandler =
+    standardHandlerNode !== null && standardHandlerNode !== undefined && handlerProps.lang === 'kern';
+  if (caps.hasStream && streamHandlerNode && getProps(streamHandlerNode).lang === 'kern') {
+    throw new Error(
+      "Express route 'stream' handler with lang=kern is not yet supported. " +
+        'Use a non-stream route or a raw `<<<...>>>` body until slice 4c lands streaming response translation.',
+    );
+  }
+  if (caps.hasTimer && timerHandlerNode && getProps(timerHandlerNode).lang === 'kern') {
+    throw new Error(
+      "Express route 'timer' handler with lang=kern is not yet supported. " +
+        'Use a non-timer route or a raw `<<<...>>>` body until slice 4c lands timer response translation.',
+    );
+  }
+  if (isKernHandler && hasPortableNodes) {
+    throw new Error(
+      'Express route has BOTH portable nodes (derive/guard/respond/branch/each/collect/effect) AND a `lang=kern` handler. ' +
+        'Choose one path: portable nodes for declarative composition, or `lang=kern` for native KERN bodies.',
+    );
+  }
+
   if (caps.hasStream) {
     // SSE route — validate first, then stream
     lines.push(...generateStreamSetup('    '));
@@ -294,14 +324,46 @@ export function buildRouteArtifact(
     // Phase 1-3: Portable handler — derive → guard → handler → respond
     if (hasPortableNodes) {
       lines.push(...generatePortableHandlerExpress(routeNode, '      ', path));
-    } else if (handlerNode && handlerProps.lang === 'kern') {
-      // Slice 4a — native KERN handler body (TS target). Same dispatch
-      // pattern as `fn` codegen at packages/core/src/codegen/functions.ts:
-      // emitNativeKernBodyTS walks the handler children and emits TypeScript.
-      // Stream/timer routes still use raw bodies for now (slice 4 follow-up).
-      const kernBody = emitNativeKernBodyTS(handlerNode);
-      for (const kernLine of kernBody.split('\n')) {
-        lines.push(`      ${kernLine}`);
+    } else if (isKernHandler) {
+      // Slice 4a + 4a review fixes (Codex P1+P2, Gemini #1+#3): Express
+      // route handlers don't communicate via `return X` — Express ignores
+      // the return value and only acts on side-effecting `res.json(...)`
+      // calls. The native KERN body emitter generates `return X;` (slice 1
+      // for `fn` semantics). To bridge the gap, we wrap the emitted body
+      // in an IIFE, capture its return value, and translate that result
+      // back into an Express response:
+      //   - undefined         → no response (user wrote bare `return;`)
+      //   - { kind: 'err' }   → 500 with the err.error payload (Result.err
+      //                          short-circuit from `?` propagation)
+      //   - any other value   → 200 with the value as JSON
+      // Path params on Express live in `req.params.X`, NOT as free locals
+      // (Codex P2). We pre-bind them inside the IIFE so KERN bodies that
+      // reference path params by their KERN name resolve correctly.
+      // standardHandlerNode is guaranteed non-undefined when isKernHandler is true.
+      const kernBody = emitNativeKernBodyTS(standardHandlerNode!);
+      const kernBodyTrimmed = kernBody.trim();
+      if (kernBodyTrimmed === '') {
+        // Slice 4a review fix (Codex+Gemini+OpenCode): empty native body
+        // would produce a request that hangs (`next` never called, `res`
+        // never written). Send a clear 501 instead of silent failure.
+        lines.push(`      res.status(501).json({ error: 'Route handler not implemented' });`);
+      } else {
+        const pathParams = derivePathParams(path);
+        lines.push('      const __k_result = await (async () => {');
+        for (const param of pathParams) {
+          lines.push(`        const ${param} = req.params.${param};`);
+        }
+        for (const kernLine of kernBody.split('\n')) {
+          lines.push(`        ${kernLine}`);
+        }
+        lines.push('      })();');
+        lines.push(
+          "      if (__k_result !== undefined && typeof __k_result === 'object' && __k_result !== null && (__k_result as { kind?: unknown }).kind === 'err') {",
+        );
+        lines.push('        res.status(500).json({ error: (__k_result as { error?: unknown }).error });');
+        lines.push('      } else if (__k_result !== undefined) {');
+        lines.push('        res.json(__k_result);');
+        lines.push('      }');
       }
     } else {
       lines.push(...indentBlock(handlerCode, '      '));

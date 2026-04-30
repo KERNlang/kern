@@ -286,6 +286,39 @@ export function buildRouteArtifact(
     modelLines.push('');
   }
 
+  // Slice 4a review fix (Codex+Gemini critical): stream/timer/portable
+  // routes do not support `lang=kern` yet — fail loud at codegen instead
+  // of silently swallowing the opt-in and emitting a broken handler.
+  // For stream routes, the handler is nested inside `streamNode`; for
+  // timer routes, inside `timerNode`. Resolve lang=kern off whichever
+  // handler the route configuration points to.
+  const streamHandlerNode = caps.streamNode ? getFirstChild(caps.streamNode, 'handler') : undefined;
+  const timerHandlerNode = caps.timerNode ? getFirstChild(caps.timerNode, 'handler') : undefined;
+  const isKernHandler =
+    !caps.hasStream &&
+    !caps.hasTimer &&
+    handlerNode !== null &&
+    handlerNode !== undefined &&
+    handlerProps.lang === 'kern';
+  if (caps.hasStream && streamHandlerNode && getProps(streamHandlerNode).lang === 'kern') {
+    throw new Error(
+      "FastAPI route 'stream' handler with lang=kern is not yet supported. " +
+        'Use a non-stream route or a raw `<<<...>>>` body until slice 4c lands streaming response translation.',
+    );
+  }
+  if (caps.hasTimer && timerHandlerNode && getProps(timerHandlerNode).lang === 'kern') {
+    throw new Error(
+      "FastAPI route 'timer' handler with lang=kern is not yet supported. " +
+        'Use a non-timer route or a raw `<<<...>>>` body until slice 4c lands timer response translation.',
+    );
+  }
+  if (isKernHandler && hasPortableNodes) {
+    throw new Error(
+      'FastAPI route has BOTH portable nodes (derive/guard/respond/branch/each/collect/effect) AND a `lang=kern` handler. ' +
+        'Choose one path: portable nodes for declarative composition, or `lang=kern` for native KERN bodies.',
+    );
+  }
+
   // Generate handler body lines first (may add to imports)
   const bodyLines: string[] = [];
 
@@ -354,25 +387,50 @@ export function buildRouteArtifact(
 
     if (hasPortableNodes) {
       bodyLines.push(...generatePortableHandlerFastAPI(routeNode, '    ', pathParams, imports));
-    } else if (handlerNode && handlerProps.lang === 'kern') {
-      // Slice 4a — native KERN handler body (Python target). Same dispatch
-      // pattern as `fn` codegen at packages/fastapi/src/generators/core.ts:
-      //  - Path params are emitted camelCase as-is (line 300), so they
-      //    pass through the body unchanged. NO symbol-map entry needed.
-      //  - Query params ARE snake-cased in the signature (lines 307/309),
+    } else if (isKernHandler) {
+      // Slice 4a — native KERN handler body (Python target).
+      //  - Path params: camelCase as-is in the signature (line 300), so
+      //    they pass through the body unchanged. NO symbol-map entry.
+      //  - Query params: snake-cased in the signature (lines 307/309),
       //    so each camelCase→snake rename feeds the body symbol map.
       //  - Body emitter returns required imports (e.g. `math` ⇒
-      //    `import math as __k_math`); we add them to the route's
-      //    `imports` set so they land in the route file's import block.
-      // Stream/timer routes still use raw bodies for now (slice 4 follow-up).
+      //    `import math as __k_math`); aliased via slice 3 review fix.
+      //  - propagateStyle: 'http-exception' (slice 4a review fix Gemini
+      //    #5) so `?` err short-circuit raises HTTPException(500)
+      //    instead of returning the err object as a 200-OK JSON body.
+      //
+      // Slice 4a review fix (OpenCode #1, Gemini #4) — collision detection.
+      // Two query params that snake-case to the same Python name (e.g.
+      // `xCount` + `x_count`) would emit `def f(x_count, x_count)` —
+      // SyntaxError at import. Detect at codegen with a clear message.
+      // Also detect path-vs-query name collisions (OpenCode #2, Gemini #4):
+      // `/users/:id` + `params items=[{name:'id'}]` would emit two `id`
+      // params in the signature.
+      const claimedSnake = new Set<string>(pathParams);
       const symbolMap: Record<string, string> = {};
       for (const qp of queryParams) {
         const snake = toSnakeCase(qp.name);
+        if (claimedSnake.has(snake)) {
+          throw new Error(
+            `KERN-FastAPI route codegen: query param '${qp.name}' snake-cases to '${snake}', which collides with another param on this route ` +
+              '(another query param OR a path param of the same name). Rename one to disambiguate.',
+          );
+        }
+        claimedSnake.add(snake);
         if (snake !== qp.name) symbolMap[qp.name] = snake;
       }
-      const { code: kernBody, imports: bodyImports } = emitNativeKernBodyPythonWithImports(handlerNode, { symbolMap });
+      const {
+        code: kernBody,
+        imports: bodyImports,
+        usedPropagation,
+      } = emitNativeKernBodyPythonWithImports(handlerNode, { symbolMap, propagateStyle: 'http-exception' });
       for (const mod of bodyImports) {
         imports.add(`import ${mod} as __k_${mod}`);
+      }
+      if (usedPropagation) {
+        // Slice 4a review fix (Gemini #5) — `?` err is now translated
+        // into HTTPException(500), so the import is required.
+        imports.add('from fastapi import HTTPException');
       }
       if (kernBody) {
         for (const kernLine of kernBody.split('\n')) {
