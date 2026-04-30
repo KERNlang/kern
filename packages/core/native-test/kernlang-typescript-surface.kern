@@ -1,0 +1,83 @@
+type name=Pair generics="<K, V>" alias="[K, V]"
+type name=Wrapper generics="<T = string>" alias="{ value: T }"
+type name=Handler generics="<T = (x: any) => void>" alias="{ handle: T }"
+type name=ReadonlyTuple alias="readonly [string, number]"
+
+enum name=Status values="Pending|Active|Done"
+
+enum name=Direction
+  member name=Up value="UP"
+  member name=Down value="DOWN"
+
+enum name=Mask
+  member name=A value={{ 1 << 0 }}
+  member name=B value={{ 1 << 1 }}
+
+enum name=Custom values="Ignored|AlsoIgnored"
+  member name=Actual value="actual"
+
+interface name=StringMap
+  indexer keyType=string type=number
+
+interface name=Cache
+  indexer keyName=cacheKey keyType=string type=Buffer
+
+interface name=Frozen
+  indexer keyType=string type=unknown readonly=true
+
+interface name=List generics="<T>"
+  field name=items type="T[]"
+
+interface name=StringList generics="<T extends string>" extends="List<T>"
+
+interface name=TupleBox
+  field name=value type="[string, number]"
+
+class name=Container generics="<T>" export=true
+  field name=value type=T
+  method name=bar generics="<U>" params="x:U" returns=U
+    handler <<<
+      return x;
+    >>>
+
+const name=amount value=7
+const name=text value="hello"
+
+fn name=identity generics="<T>" params="x:T" returns=T export=true
+  handler <<<
+    return x;
+  >>>
+
+fn name=clone generics="<T extends object>" params="x:T" returns=T
+  handler <<<
+    return { ...x };
+  >>>
+
+fn name=add params="a:any,b:any" returns=any export=true
+  overload params="a:number,b:number" returns=number
+  overload params="a:string,b:string" returns=string
+  handler <<<
+    return a + b;
+  >>>
+
+fn name=defaulted params="a:number=0,b:number=0" returns=number
+  overload params="a:number=0,b:number=0" returns=number
+  handler <<<
+    return a + b;
+  >>>
+
+fn name=isString params="value:unknown" returns="value is string"
+  handler <<<
+    return typeof value === "string";
+  >>>
+
+fn name=assertUser params="x:unknown" returns="asserts x is User"
+  handler <<<
+    if (!x) throw new Error("not a user");
+  >>>
+
+class name=Account
+  method name=isAdmin returns="this is AdminUser"
+    handler <<<
+      return this.role === "admin";
+    >>>

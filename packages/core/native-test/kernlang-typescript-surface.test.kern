@@ -1,0 +1,69 @@
+test name="KERNlang TypeScript surface parity" target="./kernlang-typescript-surface.kern" coverage=false
+  it name="target stays valid and keeps typed IR shape"
+    expect no=schemaViolations
+    expect no=semanticViolations
+    expect no=duplicateNames
+    expect no=codegenErrors
+    expect node=enum name=Direction child=member count=2
+    expect node=interface name=StringMap child=indexer count=1
+    expect node=fn name=add child=overload count=2
+
+  it name="enum members and precedence match Jest contracts"
+    expect codegen contains="export enum Status { Pending, Active, Done }"
+    expect codegen contains="export enum Direction {"
+    expect codegen contains="Up = \"UP\","
+    expect codegen contains="Down = \"DOWN\","
+    expect codegen contains="A = 1 << 0,"
+    expect codegen contains="B = 1 << 1,"
+    expect codegen contains="Actual = \"actual\","
+    expect codegen notContains="Ignored,"
+
+  it name="tuple aliases and tuple fields preserve exact TS types"
+    expect codegen contains="export type Pair<K, V> = [K, V];"
+    expect codegen contains="export type Wrapper<T = string> = { value: T };"
+    expect codegen contains="export type Handler<T = (x: any) => void> = { handle: T };"
+    expect codegen contains="export type ReadonlyTuple = readonly [string, number];"
+    expect codegen contains="value: [string, number];"
+
+  it name="index signatures stay native KERN interface children"
+    expect codegen contains="export interface StringMap {"
+    expect codegen contains="[key: string]: number;"
+    expect codegen contains="[cacheKey: string]: Buffer;"
+    expect codegen contains="readonly [key: string]: unknown;"
+
+  it name="generic declarations keep type parameters across nodes"
+    expect codegen contains="export interface List<T> {"
+    expect codegen contains="export interface StringList<T extends string> extends List<T> {"
+    expect codegen contains="export class Container<T> {"
+    expect codegen contains="bar<U>(x: U): U {"
+    expect codegen contains="export function identity<T>(x: T): T {"
+    expect codegen contains="function clone<T extends object>(x: T): T {"
+
+  it name="overload declarations emit before implementations and strip overload defaults"
+    expect codegen contains="export function add(a: number, b: number): number;"
+    expect codegen contains="export function add(a: string, b: string): string;"
+    expect codegen contains="export function add(a: any, b: any): any {"
+    expect codegen contains="function defaulted(a: number, b: number): number;"
+    expect codegen contains="function defaulted(a: number = 0, b: number = 0): number {"
+    expect codegen notContains="function defaulted(a: number = 0, b: number = 0): number;"
+
+  it name="type predicates and assertion guards pass through codegen"
+    expect codegen contains="export function isString(value: unknown): value is string {"
+    expect codegen contains="export function assertUser(x: unknown): asserts x is User {"
+    expect codegen contains="isAdmin(): this is AdminUser {"
+
+  it name="generic and overloaded functions execute in native runtime"
+    expect fn=identity with=amount equals=7
+    expect fn=add args={{[2, 3]}} equals=5
+    expect fn=add args={{["a", "b"]}} equals="ab"
+    expect fn=defaulted args={{[4, 5]}} equals=9
+    expect fn=isString with=text equals=true
+
+  it name="typed surface roundtrips through native decompile"
+    expect decompile contains="enum name=Direction"
+    expect decompile contains="member name=Up value=\"UP\""
+    expect decompile contains="interface name=StringMap"
+    expect decompile contains="indexer keyType=string type=number"
+    expect decompile contains="fn name=add"
+    expect decompile contains="overload params=\"a:number,b:number\" returns=number"
+    expect roundtrip=true
