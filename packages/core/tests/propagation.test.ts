@@ -342,6 +342,113 @@ describe('rewritePropagationInBody — failure-kind from callee', () => {
   });
 });
 
+describe('parseDocumentWithDiagnostics — cross-module recognition (slice 7 v2)', () => {
+  // Without a resolveImport callback, calls to fns imported via `use` are
+  // not recognised. With a resolver that maps the imported path to a
+  // ModuleExports, the imported names become eligible for `?`/`!` rewrite.
+
+  function findHandler(node: {
+    type: string;
+    props?: Record<string, unknown>;
+    children?: { type: string; props?: Record<string, unknown>; children?: unknown[] }[];
+  }): string | null {
+    if (node.type === 'handler' && typeof node.props?.code === 'string') {
+      return node.props.code as string;
+    }
+    if (node.children) {
+      for (const c of node.children as never[]) {
+        const found = findHandler(c);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  const src = [
+    'use path="./a"',
+    '  from name=parseUser',
+    'fn name=loud params="raw:string" returns="Result<string, AppError>"',
+    '  handler <<<',
+    '    const u = parseUser(raw)?;',
+    '    return Result.ok(u.toUpperCase());',
+    '  >>>',
+  ].join('\n');
+
+  test('without resolver: imported `parseUser(raw)?` passes through unchanged', () => {
+    const result = parseDocumentWithDiagnostics(src);
+    const code = findHandler(result.root)!;
+    expect(code).toContain('parseUser(raw)?;');
+    expect(code).not.toContain("__k_t1.kind === 'err'");
+  });
+
+  test('with resolver: imported `parseUser(raw)?` gets propagation lowering', () => {
+    const result = parseDocumentWithDiagnostics(src, undefined, {
+      resolveImport: (path) => {
+        if (path === './a') {
+          return { resultFns: new Set(['parseUser']), optionFns: new Set() };
+        }
+        return null;
+      },
+    });
+    const code = findHandler(result.root)!;
+    expect(code).toContain('const __k_t1 = parseUser(raw);');
+    expect(code).toContain("if (__k_t1.kind === 'err') return __k_t1;");
+    expect(code).toContain('const u = __k_t1.value;');
+  });
+
+  test('with resolver returning null: imported call passes through (bare/non-KERN import)', () => {
+    const result = parseDocumentWithDiagnostics(src, undefined, {
+      resolveImport: () => null,
+    });
+    const code = findHandler(result.root)!;
+    expect(code).toContain('parseUser(raw)?;');
+  });
+
+  test('respects `as=alias` aliasing — `parseUser as=parse` recognises `parse(raw)?`', () => {
+    const aliasedSrc = [
+      'use path="./a"',
+      '  from name=parseUser as=parse',
+      'fn name=loud params="raw:string" returns="Result<string, AppError>"',
+      '  handler <<<',
+      '    const u = parse(raw)?;',
+      '    return Result.ok(u.toUpperCase());',
+      '  >>>',
+    ].join('\n');
+    const result = parseDocumentWithDiagnostics(aliasedSrc, undefined, {
+      resolveImport: (path) => (path === './a' ? { resultFns: new Set(['parseUser']), optionFns: new Set() } : null),
+    });
+    const code = findHandler(result.root)!;
+    expect(code).toContain('const __k_t1 = parse(raw);');
+  });
+
+  test("Option-returning imported fn uses kind==='none' discriminator", () => {
+    const optionSrc = [
+      'use path="./b"',
+      '  from name=lookup',
+      'fn name=find params="k:string" returns="Option<string>"',
+      '  handler <<<',
+      '    const u = lookup(k)?;',
+      '    return Option.some(u);',
+      '  >>>',
+    ].join('\n');
+    const result = parseDocumentWithDiagnostics(optionSrc, undefined, {
+      resolveImport: (path) => (path === './b' ? { resultFns: new Set(), optionFns: new Set(['lookup']) } : null),
+    });
+    const code = findHandler(result.root)!;
+    expect(code).toContain("if (__k_t1.kind === 'none')");
+  });
+
+  test('imported name not in module exports stays unrecognised', () => {
+    const result = parseDocumentWithDiagnostics(src, undefined, {
+      // resolver claims this module has DIFFERENT fns, not parseUser
+      resolveImport: () => ({ resultFns: new Set(['somethingElse']), optionFns: new Set() }),
+    });
+    const code = findHandler(result.root)!;
+    // parseUser shouldn't be recognised — body unchanged
+    expect(code).toContain('parseUser(raw)?;');
+  });
+});
+
 describe('parseDocumentWithDiagnostics — propagation pipeline', () => {
   // End-to-end through the actual parser. Confirms that:
   //   1. The propagation pass walks the IR and rewrites handler bodies.

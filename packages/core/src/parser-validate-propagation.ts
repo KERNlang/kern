@@ -68,6 +68,24 @@ interface PropagationContext {
   optionFns: Set<string>;
 }
 
+/** Slice 7 v2 — exported fn signatures of a single KERN module, narrowed
+ *  to the names whose `returns` is `Result<…>` / `Option<…>`. */
+export interface ModuleExports {
+  /** Names of fns / methods exported by the module that return `Result<…>`. */
+  resultFns: Set<string>;
+  /** Names of fns / methods exported by the module that return `Option<…>`. */
+  optionFns: Set<string>;
+}
+
+/** Slice 7 v2 — caller-supplied resolver mapping a `use path="…"` value to
+ *  the imported KERN module's exported fn signatures. Returning `null`
+ *  means "this import does not resolve to a KERN module" (bare npm import,
+ *  unresolved path, or non-KERN file) — those are skipped silently. The
+ *  CLI builds and supplies the resolver after a project-wide pre-pass.
+ *  Pure-parse callers (browser playground, tests) can omit it; cross-
+ *  module recognition is then disabled. */
+export type ImportResolver = (path: string) => ModuleExports | null;
+
 /** Containing-fn return-type classification for the current handler. */
 type FnReturn = 'result' | 'option' | 'other';
 
@@ -586,8 +604,13 @@ export function rewritePropagationInBody(
   return { code: outCode, usedUnwrap };
 }
 
-/** Walk the IR collecting fn/method names whose `returns` is Result/Option. */
-function collectKnownFns(root: IRNode): PropagationContext {
+/** Walk the IR collecting fn/method names whose `returns` is Result/Option.
+ *  When `resolveImport` is supplied, also walks `use` nodes and merges in
+ *  exported fn signatures from imported KERN modules — `from name=parseUser`
+ *  contributes `parseUser` (or its `as=alias` if present) to the local
+ *  resultFns/optionFns set. Imports the resolver returns `null` for are
+ *  skipped silently. */
+function collectKnownFns(root: IRNode, resolveImport?: ImportResolver): PropagationContext {
   const resultFns = new Set<string>();
   const optionFns = new Set<string>();
 
@@ -601,6 +624,22 @@ function collectKnownFns(root: IRNode): PropagationContext {
         if (cls === 'result') resultFns.add(name);
         if (cls === 'option') optionFns.add(name);
       }
+    } else if (node.type === 'use' && resolveImport) {
+      const path = node.props?.path;
+      if (typeof path === 'string') {
+        const exports = resolveImport(path);
+        if (exports) {
+          for (const child of node.children || []) {
+            if (child.type !== 'from') continue;
+            const importedName = child.props?.name;
+            if (typeof importedName !== 'string') continue;
+            const aliasRaw = child.props?.as;
+            const localName = typeof aliasRaw === 'string' && aliasRaw ? aliasRaw : importedName;
+            if (exports.resultFns.has(importedName)) resultFns.add(localName);
+            if (exports.optionFns.has(importedName)) optionFns.add(localName);
+          }
+        }
+      }
     }
     if (node.children) for (const child of node.children) walk(child);
   }
@@ -611,9 +650,19 @@ function collectKnownFns(root: IRNode): PropagationContext {
 
 /** Walk the IR and rewrite every fn/method handler body in place. Returns
  *  the set of nodes whose handlers used `!` so the codegen can decide
- *  whether to add `KernUnwrapError` to the auto-emitted preamble. */
-export function validateAndRewritePropagation(state: ParseState, root: IRNode): { unwrapUsedAnywhere: boolean } {
-  const ctx = collectKnownFns(root);
+ *  whether to add `KernUnwrapError` to the auto-emitted preamble.
+ *
+ *  Slice 7 v2 — when `resolveImport` is supplied, fn names imported via
+ *  `use path="…"` get merged into the recognised set so cross-module
+ *  `parseUser(raw)?` calls propagate. The CLI builds the resolver from a
+ *  project-wide pre-pass; pure-parse callers omit it and cross-module
+ *  recognition is disabled. */
+export function validateAndRewritePropagation(
+  state: ParseState,
+  root: IRNode,
+  resolveImport?: ImportResolver,
+): { unwrapUsedAnywhere: boolean } {
+  const ctx = collectKnownFns(root, resolveImport);
   let unwrapUsedAnywhere = false;
 
   function walk(node: IRNode): void {

@@ -612,8 +612,20 @@ function computeEndSpans(node: IRNode): void {
 
 // ── Core parse driver ────────────────────────────────────────────────────
 
+/** Slice 7 v2 — pure-data callers (browser playground, tests) can omit the
+ *  `resolveImport` callback. CLI supplies it to enable cross-module
+ *  recognition for `?`/`!` propagation against fns imported via `use`. */
+export interface ParseOptions {
+  resolveImport?: import('./parser-validate-propagation.js').ImportResolver;
+}
+
 /** @internal Single internal entry that wires parseLines → buildTree → computeEndSpans. */
-export function parseInternal(source: string, asDocument: boolean, runtime?: KernRuntime): ParseResult {
+export function parseInternal(
+  source: string,
+  asDocument: boolean,
+  runtime?: KernRuntime,
+  options?: ParseOptions,
+): ParseResult {
   const rt = runtime ?? defaultRuntime;
   const state = createParseState();
   const parsed = parseLines(state, source, rt);
@@ -640,7 +652,7 @@ export function parseInternal(source: string, asDocument: boolean, runtime?: Ker
   validateExpressions(state, root);
   validateEffects(state, root);
   validateUnionKind(state, root);
-  validateAndRewritePropagation(state, root);
+  validateAndRewritePropagation(state, root, options?.resolveImport);
   commitParseState(state, rt);
 
   // Count __error nodes for partial compilation support
