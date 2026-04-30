@@ -14,5 +14,6 @@
 
 - [ ] `tsc -b` passes
 - [ ] `pnpm test` passes
+- [ ] `pnpm test:kern` passes
 - [ ] `pnpm lint` passes
 - [ ] `kern review packages/ --recursive` checked

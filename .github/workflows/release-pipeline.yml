@@ -81,6 +81,9 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Native KERN Tests
+        run: pnpm test:kern
+
       - name: Publish dry run
         if: ${{ inputs.publish }}
         run: pnpm -r publish --dry-run --no-git-checks --access public
