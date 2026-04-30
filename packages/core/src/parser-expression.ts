@@ -70,7 +70,10 @@ const KEYWORDS: Record<string, ExprTokenKind> = {
   true: 'kwTrue',
   false: 'kwFalse',
   await: 'kwAwait',
-  new: 'kwNew',
+  // Slice 4c+4d review fix (Codex P2): `new` is prefix-position-only.
+  // Tokenizing it as `kwNew` globally broke `obj.new` and `{ new: 1 }`
+  // for property/key names. Now an `ident` token; parseUnary checks
+  // `value === 'new'` to recognize the prefix-position usage.
 };
 
 function isDigit(ch: string): boolean {
@@ -521,9 +524,11 @@ class Parser {
       }
       return awaited;
     }
-    if (this.peek().kind === 'kwNew') {
+    // Slice 4c+4d review fix (Codex P2) — match `new` only in prefix
+    // position so `obj.new` and `{ new: 1 }` keep working as identifier
+    // / property-name uses.
+    if (this.peek().kind === 'ident' && this.peek().value === 'new') {
       this.advance();
-      // 'new' typically binds to a call expression: `new Error("oops")`
       const argument = this.parseCall();
       return { kind: 'new', argument };
     }

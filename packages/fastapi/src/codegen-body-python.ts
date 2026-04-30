@@ -213,8 +213,10 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
       for (const line of emitThrowPy(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'each') {
       // Slice 4d — each loop.
-      const listRaw = String(child.props?.list ?? '[]');
-      const asName = String(child.props?.as ?? 'item');
+      // Slice 4c+4d review fix (Codex P1) — read schema-compliant
+      // `name`/`in` props (legacy `list`/`as` accepted as fallback).
+      const listRaw = String(child.props?.in ?? child.props?.list ?? '[]');
+      const asName = String(child.props?.name ?? child.props?.as ?? 'item');
       const listIR = parseExpression(listRaw);
       lines.push(`${indent}for ${asName} in ${emitPyExprCtx(listIR, ctx)}:`);
       const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);

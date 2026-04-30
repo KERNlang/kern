@@ -153,8 +153,16 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       for (const line of emitThrowTS(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'each') {
       // Slice 4d — each loop.
-      const listRaw = String(child.props?.list ?? '[]');
-      const asName = String(child.props?.as ?? 'item');
+      // Slice 4c+4d review fix (Codex P1): the schema's `each` already
+      // declares `name` (binding) and `in` (iterable expression). The
+      // earlier slice-4d body-emit read `list`/`as` instead, which meant
+      // (a) schema-validated source `each name=x in=items` fell back to
+      // `for (const item of [])` (empty list, wrong binding) and
+      // (b) tests that used `list`/`as` failed schema validation.
+      // Read schema-compliant `name`/`in` first; accept legacy
+      // `list`/`as` as a fallback for tests that pre-date this fix.
+      const listRaw = String(child.props?.in ?? child.props?.list ?? '[]');
+      const asName = String(child.props?.name ?? child.props?.as ?? 'item');
       const listIR = parseExpression(listRaw);
       lines.push(`${indent}for (const ${asName} of ${emitExpression(listIR)}) {`);
       for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
