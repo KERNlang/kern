@@ -89,6 +89,7 @@ describe('native kern test runner', () => {
         'examples/native-test/conformance-control-flow.test.kern',
         'examples/native-test/conformance-data-advanced.test.kern',
         'examples/native-test/conformance-effects.test.kern',
+        'examples/native-test/conformance-guards.test.kern',
         'examples/native-test/conformance-mocks.test.kern',
         'examples/native-test/conformance-routes.test.kern',
         'examples/native-test/conformance-tools.test.kern',
@@ -625,6 +626,74 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(1);
     expect(summary.results[0].message).toContain('expression: __kernTool_');
     expect(summary.results[0].message).toContain('fixtures: users, __kernTool_');
+  });
+
+  test('executes native guard kinds in route and tool workflows', () => {
+    writeFileSync(
+      join(tmpDir, 'guard-runtime.kern'),
+      [
+        'mcp name=SafeTools',
+        '  tool name=readFile',
+        '    param name=filePath type=string required=true',
+        '    guard type=pathContainment param=filePath allowlist="/data"',
+        '    respond 200 json=filePath',
+        '  tool name=search',
+        '    param name=query type=string required=true',
+        '    guard type=sanitize param=query pattern="[<>]" replacement=""',
+        '    respond 200 json=query',
+        '  tool name=listUsers',
+        '    param name=limit type=number value=10',
+        '    guard type=validate param=limit min=1 max=25',
+        '    respond 200 json=limit',
+        '  tool name=upload',
+        '    param name=payload type=string required=true',
+        '    guard type=sizeLimit param=payload maxBytes=4',
+        '    respond 200 json=payload',
+        '  tool name=secret',
+        '    param name=token type=string required=false',
+        '    guard type=auth param=token',
+        '    respond 200 json={{"ok"}}',
+        'server name=Api',
+        '  route GET /items/:id',
+        '    guard type=validate param=id regex="^item-"',
+        '    respond 200 json=id',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'guard-runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Guard runtime" target="./guard-runtime.kern"',
+        '  it name="runs guard semantics before tool response"',
+        '    expect tool=readFile with={{({ filePath: "/data/a.txt" })}} returns={{"/data/a.txt"}}',
+        '    expect tool=readFile with={{({ filePath: "/etc/passwd" })}} throws=PathContainmentError',
+        '    expect tool=search with={{({ query: "<hello>" })}} returns={{"hello"}}',
+        '    expect tool=listUsers with={{({ limit: 20 })}} returns=20',
+        '    expect tool=listUsers with={{({ limit: 99 })}} throws=ValidationError',
+        '    expect tool=upload with={{({ payload: "12345" })}} throws=SizeLimitError',
+        '    expect tool=secret with={{({ token: "ok" })}} returns={{"ok"}}',
+        '    expect tool=secret with={{({})}} throws=AuthError',
+        '  it name="runs guard semantics before route response"',
+        '    expect route="GET /items/:id" with={{({ params: { id: "item-1" } })}} returns={{"item-1"}}',
+        '    expect route="GET /items/:id" with={{({ params: { id: "bad" } })}} throws=ValidationError',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'runtime:tool',
+      'runtime:tool',
+      'runtime:tool',
+      'runtime:tool',
+      'runtime:tool',
+      'runtime:tool',
+      'runtime:tool',
+      'runtime:tool',
+      'runtime:route',
+      'runtime:route',
+    ]);
   });
 
   test('reports undeclared native mock call-count assertions as configuration failures', () => {

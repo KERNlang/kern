@@ -169,6 +169,11 @@ interface RuntimeWorkflowProgramOptions {
   kind?: RuntimeWorkflowKind;
 }
 
+interface RuntimeGuardOptions {
+  portable?: boolean;
+  targetParam?: string;
+}
+
 type RuntimeEvalResult = { ok: true; value: unknown } | { ok: false; error: unknown };
 
 type EncodedRuntimeValue =
@@ -2159,20 +2164,210 @@ function runtimeScopedObject(names: string[]): string {
   return `({ ${unique.join(', ')} })`;
 }
 
-function runtimeGuardStatement(node: IRNode, options: { portable?: boolean } = {}): string[] {
+function runtimeWorkflowHelperLines(): string[] {
+  return [
+    'const __kernGuardError = (name, message) => { const error = new Error(message); error.name = name; throw error; };',
+    'const __kernGuardSyncParam = (name, value) => {',
+    '  if (typeof params === "object" && params !== null) params[name] = value;',
+    '  if (typeof query === "object" && query !== null && name in query) query[name] = value;',
+    '  if (typeof body === "object" && body !== null && name in body) body[name] = value;',
+    '  if (typeof args === "object" && args !== null) args[name] = value;',
+    '};',
+    'const __kernNormalizePath = (value) => {',
+    '  const text = String(value || "");',
+    '  const absolute = text.startsWith("/") ? text : `/${text}`;',
+    '  const parts = [];',
+    '  for (const part of absolute.split("/")) {',
+    '    if (!part || part === ".") continue;',
+    '    if (part === "..") parts.pop();',
+    '    else parts.push(part);',
+    '  }',
+    '  return `/${parts.join("/")}`;',
+    '};',
+    'const __kernResolvePath = (value, base) => String(value).startsWith("/") ? __kernNormalizePath(value) : __kernNormalizePath(`${base || ""}/${value}`);',
+    'const __kernPathWithin = (candidate, roots) => roots.some((root) => candidate === root || candidate.startsWith(root.endsWith("/") ? root : `${root}/`));',
+    'const __kernByteLength = (value) => {',
+    '  const text = typeof value === "string" ? value : JSON.stringify(value);',
+    '  if (text == null) return 0;',
+    '  let bytes = 0;',
+    '  for (let i = 0; i < text.length; i++) {',
+    '    const code = text.charCodeAt(i);',
+    '    if (code < 0x80) bytes += 1;',
+    '    else if (code < 0x800) bytes += 2;',
+    '    else if (code >= 0xd800 && code <= 0xdbff) { bytes += 4; i++; }',
+    '    else bytes += 3;',
+    '  }',
+    '  return bytes;',
+    '};',
+    'const __kernUrlHost = (value) => {',
+    '  const match = String(value || "").match(/^[A-Za-z][A-Za-z0-9+.-]*:\\/\\/([^/?#]+)/);',
+    '  if (!match) return "";',
+    '  return match[1].split("@").pop().split(":")[0].toLowerCase();',
+    '};',
+  ];
+}
+
+function runtimeGuardTargetName(node: IRNode, options: RuntimeGuardOptions): string {
+  return guardParam(node) || options.targetParam || '';
+}
+
+function runtimeGuardListProp(node: IRNode, ...propNames: string[]): string[] {
+  const props = getProps(node);
+  for (const propName of propNames) {
+    const value = str(props[propName]);
+    if (value) return parseList(value);
+  }
+  return [];
+}
+
+function runtimeGuardAssignLines(target: string, source: string): string[] {
+  return [`${target} = ${source};`, `__kernGuardSyncParam(${JSON.stringify(target)}, ${target});`];
+}
+
+function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}): string[] {
   const rawExpr = exprPropToRuntimeSource(node, 'expr') || rawPropToRuntimeSource(node, 'expr');
   const expr = options.portable ? runtimePortableSource(rawExpr) : rawExpr;
-  if (!expr) return [];
   const props = getProps(node);
-  const fallback = str(props.else) || str(props.fallback);
-  const numericFallback = fallback && /^\d+$/.test(fallback) ? Number(fallback) : undefined;
-  const result =
-    numericFallback !== undefined
-      ? `({ status: ${numericFallback} })`
-      : fallback
-        ? `({ error: ${JSON.stringify(fallback)} })`
-        : 'false';
-  return [`if (!(${expr})) return (${result});`];
+  if (expr) {
+    const fallback = str(props.else) || str(props.fallback);
+    const numericFallback = fallback && /^\d+$/.test(fallback) ? Number(fallback) : undefined;
+    const result =
+      numericFallback !== undefined
+        ? `({ status: ${numericFallback} })`
+        : fallback
+          ? `({ error: ${JSON.stringify(fallback)} })`
+          : 'false';
+    return [`if (!(${expr})) return (${result});`];
+  }
+
+  if (!options.portable && !options.targetParam) return [];
+
+  const kind = guardKind(node);
+  const target = runtimeGuardTargetName(node, options);
+  const lines: string[] = [];
+
+  if (kind === 'sanitize') {
+    if (!target || !isRuntimeBindingName(target)) return [];
+    const pattern = str(props.pattern) || '[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]';
+    const replacement = str(props.replacement);
+    try {
+      new RegExp(pattern);
+      if (/([+*}])\s*\)\s*[+*{]/.test(pattern)) {
+        return [
+          `__kernGuardError("GuardConfigError", ${JSON.stringify(`Unsafe sanitize regex for ${target}: ${pattern}`)});`,
+        ];
+      }
+    } catch {
+      return [
+        `__kernGuardError("GuardConfigError", ${JSON.stringify(`Invalid sanitize regex for ${target}: ${pattern}`)});`,
+      ];
+    }
+    lines.push(`if (typeof ${target} === "string") {`);
+    for (const line of runtimeGuardAssignLines(
+      target,
+      `${target}.replace(new RegExp(${JSON.stringify(pattern)}, "g"), ${JSON.stringify(replacement)})`,
+    )) {
+      lines.push(`  ${line}`);
+    }
+    lines.push('}');
+    return lines;
+  }
+
+  if (kind === 'validate') {
+    if (!target || !isRuntimeBindingName(target)) return [];
+    const min = numericProp(props, 'min');
+    const max = numericProp(props, 'max');
+    if (min !== undefined) {
+      lines.push(
+        `if (typeof ${target} === "number" ? ${target} < ${min} : String(${target}).length < ${min}) __kernGuardError("ValidationError", ${JSON.stringify(`${target} below minimum ${min}`)});`,
+      );
+    }
+    if (max !== undefined) {
+      lines.push(
+        `if (typeof ${target} === "number" ? ${target} > ${max} : String(${target}).length > ${max}) __kernGuardError("ValidationError", ${JSON.stringify(`${target} above maximum ${max}`)});`,
+      );
+    }
+    const regex = str(props.regex) || str(props.pattern);
+    if (regex) {
+      try {
+        new RegExp(regex);
+        if (/([+*}])\s*\)\s*[+*{]/.test(regex)) {
+          lines.push(
+            `__kernGuardError("GuardConfigError", ${JSON.stringify(`Unsafe validate regex for ${target}: ${regex}`)});`,
+          );
+        } else {
+          lines.push(
+            `if (typeof ${target} === "string" && !(new RegExp(${JSON.stringify(regex)})).test(${target})) __kernGuardError("ValidationError", ${JSON.stringify(`${target} does not match required pattern`)});`,
+          );
+        }
+      } catch {
+        lines.push(
+          `__kernGuardError("GuardConfigError", ${JSON.stringify(`Invalid validate regex for ${target}: ${regex}`)});`,
+        );
+      }
+    }
+    return lines;
+  }
+
+  if (kind === 'pathcontainment' || kind === 'pathcontainmentguard' || kind === 'path') {
+    if (!target || !isRuntimeBindingName(target)) return [];
+    const roots = runtimeGuardListProp(node, 'allowlist', 'allow', 'roots', 'root');
+    const base = str(props.baseDir) || str(props.base) || '/';
+    const rootList = roots.length > 0 ? roots : [base || '/'];
+    const rootsSource = `[${rootList.map((root) => JSON.stringify(root)).join(', ')}].map(__kernNormalizePath)`;
+    lines.push(
+      `if (${target} == null || ${target} === "") __kernGuardError("PathContainmentError", ${JSON.stringify(`${target} is required for path containment check`)});`,
+    );
+    for (const line of runtimeGuardAssignLines(target, `__kernResolvePath(${target}, ${JSON.stringify(base)})`)) {
+      lines.push(line);
+    }
+    lines.push(
+      `if (!__kernPathWithin(${target}, ${rootsSource})) __kernGuardError("PathContainmentError", ${JSON.stringify(`${target} escapes allowed directories`)});`,
+    );
+    return lines;
+  }
+
+  if (kind === 'sizelimit') {
+    if (!target || !isRuntimeBindingName(target)) return [];
+    const maxBytes = numericProp(props, 'maxBytes') ?? numericProp(props, 'max') ?? 1048576;
+    lines.push(
+      `if (__kernByteLength(${target}) > ${maxBytes}) __kernGuardError("SizeLimitError", ${JSON.stringify(`${target} exceeds size limit of ${maxBytes} bytes`)});`,
+    );
+    return lines;
+  }
+
+  if (kind === 'auth') {
+    const tokenTarget = target && isRuntimeBindingName(target) ? target : '';
+    const header = str(props.header) || 'authorization';
+    const tokenExpr = tokenTarget
+      ? tokenTarget
+      : `(typeof headers === "object" && headers !== null ? (headers[${JSON.stringify(header)}] || headers[${JSON.stringify(header.toLowerCase())}] || headers.Authorization) : undefined) || (typeof params === "object" && params !== null ? (params.token || params.authorization) : undefined) || (typeof args === "object" && args !== null ? (args.token || args.authorization) : undefined)`;
+    lines.push(
+      `if (!(${tokenExpr})) __kernGuardError("AuthError", ${JSON.stringify(`Authentication required${tokenTarget ? `: ${tokenTarget}` : ''}`)});`,
+    );
+    return lines;
+  }
+
+  if (kind === 'ratelimit') {
+    const maxRequests = numericProp(props, 'maxRequests') ?? numericProp(props, 'requests') ?? 1;
+    if (maxRequests <= 0) {
+      return [`__kernGuardError("RateLimitError", "Rate limit maxRequests must be greater than 0");`];
+    }
+    return [];
+  }
+
+  if (kind === 'urlallowlist' || kind === 'urlvalidation' || kind === 'hostallowlist' || kind === 'domainallowlist') {
+    if (!target || !isRuntimeBindingName(target)) return [];
+    const allowed = runtimeGuardListProp(node, 'allowlist', 'allow').map((entry) => entry.toLowerCase());
+    if (allowed.length === 0) return [];
+    const allowedSource = `[${allowed.map((entry) => JSON.stringify(entry)).join(', ')}]`;
+    lines.push(
+      `if (!${allowedSource}.includes(__kernUrlHost(${target}))) __kernGuardError("UrlAllowlistError", ${JSON.stringify(`${target} host is not allowlisted`)});`,
+    );
+    return lines;
+  }
+
+  return [];
 }
 
 function runtimeScopedChildProgram(children: IRNode[]): { lines: string[]; names: string[]; hasReturn: boolean } {
@@ -2502,10 +2697,10 @@ function runtimeEffectExecutionExpr(
 function runtimeRouteRequestLines(route: IRNode, inputSource: string): { lines: string[]; message?: string } {
   const lines = [
     `const __request = ((${inputSource}) ?? {});`,
-    'const params = (__request.params ?? {});',
-    'const query = (__request.query ?? {});',
-    'const body = (__request.body ?? {});',
-    'const headers = (__request.headers ?? {});',
+    'let params = (__request.params ?? {});',
+    'let query = (__request.query ?? {});',
+    'let body = (__request.body ?? {});',
+    'let headers = (__request.headers ?? {});',
   ];
   const declared = new Set<string>();
 
@@ -2513,7 +2708,8 @@ function runtimeRouteRequestLines(route: IRNode, inputSource: string): { lines: 
     if (!isRuntimeBindingName(name)) return { lines: [], message: `Runtime route has invalid path param: ${name}` };
     if (declared.has(name)) continue;
     declared.add(name);
-    lines.push(`const ${name} = params[${JSON.stringify(name)}];`);
+    lines.push(`let ${name} = params[${JSON.stringify(name)}];`);
+    lines.push(`__kernGuardSyncParam(${JSON.stringify(name)}, ${name});`);
   }
 
   for (const item of runtimeRouteParamItems(route)) {
@@ -2524,7 +2720,8 @@ function runtimeRouteRequestLines(route: IRNode, inputSource: string): { lines: 
     declared.add(item.name);
     const fallback = item.defaultSource ?? 'undefined';
     const key = JSON.stringify(item.name);
-    lines.push(`const ${item.name} = query[${key}] ?? params[${key}] ?? (${fallback});`);
+    lines.push(`let ${item.name} = query[${key}] ?? params[${key}] ?? (${fallback});`);
+    lines.push(`__kernGuardSyncParam(${key}, ${item.name});`);
   }
 
   return { lines };
@@ -2682,7 +2879,7 @@ function runtimeRouteExecutionExpr(
   const program = runtimeRouteChildProgram(route.children || [], options);
   if (program.message) return { message: program.message };
 
-  const bodyLines = [...request.lines, ...program.lines];
+  const bodyLines = [...runtimeWorkflowHelperLines(), ...request.lines, ...program.lines];
   const lines = ['(async () => {', '  const __kernMockCalls = Object.create(null);'];
   if (options.probe) {
     lines.push('  const __kernRunRoute = async () => {');
@@ -2737,8 +2934,8 @@ function runtimeToolParamItems(tool: IRNode): Array<{ name: string; defaultSourc
 function runtimeToolInputLines(tool: IRNode, inputSource: string): { lines: string[]; message?: string } {
   const lines = [
     `const __toolInput = ((${inputSource}) ?? {});`,
-    'const args = __toolInput;',
-    'const params = __toolInput;',
+    'let args = __toolInput;',
+    'let params = __toolInput;',
   ];
   const declared = new Set<string>();
 
@@ -2753,7 +2950,12 @@ function runtimeToolInputLines(tool: IRNode, inputSource: string): { lines: stri
     declared.add(item.name);
     const fallback = item.defaultSource ?? 'undefined';
     const key = JSON.stringify(item.name);
-    lines.push(`const ${item.name} = params[${key}] ?? (${fallback});`);
+    lines.push(`let ${item.name} = params[${key}] ?? (${fallback});`);
+    lines.push(`__kernGuardSyncParam(${key}, ${item.name});`);
+    const paramNode = paramNodeByName(tool, item.name);
+    for (const guard of paramNode ? getChildren(paramNode, 'guard') : []) {
+      lines.push(...runtimeGuardStatement(guard, { portable: true, targetParam: item.name }));
+    }
   }
 
   return { lines };
@@ -2770,7 +2972,7 @@ function runtimeToolExecutionExpr(
   const program = runtimeRouteChildProgram(tool.children || [], { mocks: options.mocks, kind: 'tool' });
   if (program.message) return { message: program.message };
 
-  const bodyLines = [...input.lines, ...program.lines];
+  const bodyLines = [...runtimeWorkflowHelperLines(), ...input.lines, ...program.lines];
   const lines = ['(async () => {', '  const __kernMockCalls = Object.create(null);'];
   if (options.probe) {
     lines.push('  const __kernRunTool = async () => {');
