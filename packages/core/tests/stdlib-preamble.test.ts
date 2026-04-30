@@ -95,6 +95,35 @@ describe('detectKernStdlibUsage', () => {
     );
     expect(detectKernStdlibUsage(ast)).toEqual({ result: false, option: true });
   });
+
+  test('flags unwrap usage when handler body contains `new KernUnwrapError(`', () => {
+    // Slice 7 — emitted by the rewriter for `expr!`.
+    const ast = parseDocument(
+      [
+        'fn name=loud params="raw:string" returns=string',
+        '  handler <<<',
+        '    if (false) throw new KernUnwrapError({ kind: "err", error: "x" });',
+        '    return raw;',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(detectKernStdlibUsage(ast).unwrap).toBe(true);
+  });
+
+  test('does NOT flag unwrap when user has only declared `class KernUnwrapError`', () => {
+    // Without `new`, the bare reference shouldn't trigger preamble emission —
+    // double-emission of the class would cause a TS redeclaration error.
+    const ast = parseDocument(
+      [
+        'fn name=loud params="raw:string" returns=string',
+        '  handler <<<',
+        '    class KernUnwrapError extends Error {}',
+        '    return raw;',
+        '  >>>',
+      ].join('\n'),
+    );
+    expect(detectKernStdlibUsage(ast).unwrap).toBeFalsy();
+  });
 });
 
 describe('kernStdlibPreamble', () => {
