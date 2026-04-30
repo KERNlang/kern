@@ -47,11 +47,13 @@ export interface KernStdlibUsage {
  *  load-bearing safety check. */
 const RESULT_REGEX = /\bResult\s*</;
 const OPTION_REGEX = /\bOption\s*</;
-/** Slice 7 — the rewriter emits literal `KernUnwrapError(` calls in
- *  handler bodies. We detect those to know whether to include the class
- *  in the preamble. The user can't realistically type this name by
- *  accident (pascal-cased + Kern prefix), so a bare-name regex is safe. */
-const UNWRAP_REGEX = /\bKernUnwrapError\b/;
+/** Slice 7 — the rewriter emits literal `throw new KernUnwrapError(__k_tN);`
+ *  in handler bodies. Anchor on `new KernUnwrapError(` so a user-defined
+ *  `class KernUnwrapError extends Error {…}` does NOT trip the detector and
+ *  cause double-emission with a redeclaration error. The narrow pattern
+ *  still matches user code that constructs the class via `new`, which is
+ *  the only case where the auto-emitted definition is needed. */
+const UNWRAP_REGEX = /\bnew\s+KernUnwrapError\s*\(/;
 
 function scanString(s: string, usage: KernStdlibUsage): void {
   if (!usage.result && RESULT_REGEX.test(s)) usage.result = true;
