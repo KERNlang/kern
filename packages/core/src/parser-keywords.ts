@@ -193,8 +193,8 @@ export const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
       if (s.isKeyValue()) return;
       const pos = s.position();
       const id = s.tryIdent();
-      if (id === 'codegen') {
-        props.codegen = true;
+      if (id === 'codegen' || id === 'decompile' || id === 'roundtrip') {
+        props[id] = true;
       } else {
         s.setPosition(pos);
       }

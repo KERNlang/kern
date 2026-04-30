@@ -2406,6 +2406,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       recovers: { kind: 'boolean' },
       fallback: { kind: 'rawExpr' },
       codegen: { kind: 'boolean' },
+      decompile: { kind: 'boolean' },
+      roundtrip: { kind: 'boolean' },
       contains: { kind: 'string' },
       notContains: { kind: 'string' },
       matches: { kind: 'string' },
@@ -2612,6 +2614,8 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
     const hasRuntimeWorkflow = 'route' in props || 'tool' in props || 'effect' in props;
     const hasMockCallAssertion = 'mock' in props || 'called' in props;
     const hasCodegenAssertion = 'codegen' in props;
+    const hasDecompileAssertion = 'decompile' in props;
+    const hasRoundtripAssertion = 'roundtrip' in props;
     const hasPreset = 'preset' in props;
     const hasNodeShape = 'node' in props;
     const hasNegativeInvariant = 'no' in props;
@@ -2627,6 +2631,8 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       !hasRuntimeWorkflow &&
       !hasMockCallAssertion &&
       !hasCodegenAssertion &&
+      !hasDecompileAssertion &&
+      !hasRoundtripAssertion &&
       !hasPreset &&
       !hasNodeShape &&
       !hasMachineTransition &&
@@ -2638,7 +2644,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'expect',
         message:
-          "'expect' requires 'expr', 'fn', 'derive', 'route', 'tool', 'effect', 'mock' call count, 'codegen', 'preset', 'node', 'machine' reachability, machine transition, 'no', 'has', or 'guard'",
+          "'expect' requires 'expr', 'fn', 'derive', 'route', 'tool', 'effect', 'mock' call count, 'codegen', 'decompile', 'roundtrip', 'preset', 'node', 'machine' reachability, machine transition, 'no', 'has', or 'guard'",
         line: node.loc?.line,
         col: node.loc?.col,
       });
@@ -2647,6 +2653,14 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'expect',
         message: "'expect codegen' requires contains=, notContains=, or matches=",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasDecompileAssertion && !('contains' in props) && !('notContains' in props) && !('matches' in props)) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect decompile' requires contains=, notContains=, or matches=",
         line: node.loc?.line,
         col: node.loc?.col,
       });

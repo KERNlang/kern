@@ -1,5 +1,11 @@
 import type { IRNode, ParseDiagnostic, SchemaViolation, SemanticViolation } from '@kernlang/core';
-import { generateCoreNode, parseDocumentWithDiagnostics, validateSchema, validateSemantics } from '@kernlang/core';
+import {
+  decompile,
+  generateCoreNode,
+  parseDocumentWithDiagnostics,
+  validateSchema,
+  validateSemantics,
+} from '@kernlang/core';
 import { execFileSync } from 'child_process';
 import type { Dirent } from 'fs';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
@@ -943,6 +949,8 @@ function assertionLabel(node: IRNode): string {
   const effect = str(props.effect);
   const mock = str(props.mock);
   const codegen = 'codegen' in props;
+  const decompileAssertion = 'decompile' in props;
+  const roundtrip = 'roundtrip' in props;
   const args = exprToString(props.args);
   const withValue = exprToString(props.with);
   const input = exprToString(props.input);
@@ -956,6 +964,14 @@ function assertionLabel(node: IRNode): string {
   const throws = props.throws === undefined ? '' : String(props.throws || 'true');
   const called = props.called === undefined ? '' : String(props.called);
 
+  if (decompileAssertion) {
+    const parts = ['decompile'];
+    if (contains) parts.push(`contains ${contains}`);
+    if (notContains) parts.push(`notContains ${notContains}`);
+    if (matches) parts.push(`matches ${matches}`);
+    return parts.join(' ');
+  }
+  if (roundtrip) return 'roundtrip';
   if (codegen) {
     const parts = ['codegen'];
     if (contains) parts.push(`contains ${contains}`);
@@ -2078,6 +2094,50 @@ function generatedCoreSource(root: IRNode): { code?: string; message?: string } 
   return { code: chunks.join('\n') };
 }
 
+function decompiledCoreSource(root: IRNode): { code?: string; message?: string } {
+  const chunks: string[] = [];
+  for (const node of codegenRoots(root)) {
+    try {
+      chunks.push(decompile(node).code);
+    } catch (error) {
+      return {
+        message: `${nodeLabel(node)} at line ${node.loc?.line ?? '?'}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+  }
+  return { code: chunks.filter(Boolean).join('\n') };
+}
+
+function evaluateSourceTextAssertion(
+  node: IRNode,
+  source: string,
+  label: string,
+): { passed: boolean; message?: string } {
+  const props = getProps(node);
+  const contains = str(props.contains);
+  const notContains = str(props.notContains);
+  const matches = str(props.matches);
+  if (!contains && !notContains && !matches) {
+    return { passed: false, message: `${label} assertion requires contains=, notContains=, or matches=` };
+  }
+  if (contains && !source.includes(contains)) {
+    return { passed: false, message: `${label} does not contain ${JSON.stringify(contains)}` };
+  }
+  if (notContains && source.includes(notContains)) {
+    return { passed: false, message: `${label} unexpectedly contains ${JSON.stringify(notContains)}` };
+  }
+  if (matches) {
+    try {
+      if (!new RegExp(matches).test(source)) return { passed: false, message: `${label} does not match /${matches}/` };
+    } catch {
+      return { passed: false, message: `Invalid ${label.toLowerCase()} matches regex: ${matches}` };
+    }
+  }
+  return { passed: true };
+}
+
 function evaluateCodegenAssertion(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -2086,29 +2146,72 @@ function evaluateCodegenAssertion(node: IRNode, target: LoadedKernDocument): { p
   if (generated.message || generated.code === undefined) {
     return { passed: false, message: `Target has codegen error: ${generated.message || 'unknown error'}` };
   }
+  return evaluateSourceTextAssertion(node, generated.code, 'Generated code');
+}
 
-  const props = getProps(node);
-  const contains = str(props.contains);
-  const notContains = str(props.notContains);
-  const matches = str(props.matches);
-  if (!contains && !notContains && !matches) {
-    return { passed: false, message: 'Codegen assertion requires contains=, notContains=, or matches=' };
+function evaluateDecompileAssertion(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+  if (!target.root) return { passed: false, message: 'Target has no parsed KERN root' };
+  const decompiled = decompiledCoreSource(target.root);
+  if (decompiled.message || decompiled.code === undefined) {
+    return { passed: false, message: `Target has decompile error: ${decompiled.message || 'unknown error'}` };
   }
-  if (contains && !generated.code.includes(contains)) {
-    return { passed: false, message: `Generated code does not contain ${JSON.stringify(contains)}` };
+  return evaluateSourceTextAssertion(node, decompiled.code, 'Decompiled KERN');
+}
+
+function evaluateRoundtripAssertion(_node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+  if (!target.root) return { passed: false, message: 'Target has no parsed KERN root' };
+
+  const decompiled = decompiledCoreSource(target.root);
+  if (decompiled.message || decompiled.code === undefined) {
+    return { passed: false, message: `Target has decompile error: ${decompiled.message || 'unknown error'}` };
   }
-  if (notContains && generated.code.includes(notContains)) {
-    return { passed: false, message: `Generated code unexpectedly contains ${JSON.stringify(notContains)}` };
+
+  const reparsed = parseDocumentWithDiagnostics(decompiled.code);
+  const parseError = reparsed.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+  if (parseError) {
+    return {
+      passed: false,
+      message: `Decompiled KERN does not reparse at ${parseError.line}:${parseError.col}: ${parseError.message}`,
+    };
   }
-  if (matches) {
-    try {
-      if (!new RegExp(matches).test(generated.code)) {
-        return { passed: false, message: `Generated code does not match /${matches}/` };
-      }
-    } catch {
-      return { passed: false, message: `Invalid codegen matches regex: ${matches}` };
-    }
+
+  const schemaViolation = validateSchema(reparsed.root)[0];
+  if (schemaViolation) {
+    return {
+      passed: false,
+      message: `Decompiled KERN has schema violation at ${schemaViolation.line ?? 1}:${schemaViolation.col ?? 1}: ${schemaViolation.message}`,
+    };
   }
+
+  const semanticViolation = validateSemantics(reparsed.root).filter(
+    (violation) => !isMultiSourceTransitionFalsePositive(violation, reparsed.root),
+  )[0];
+  if (semanticViolation) {
+    return {
+      passed: false,
+      message: `Decompiled KERN has semantic violation at ${semanticViolation.line ?? 1}:${semanticViolation.col ?? 1}: ${semanticViolation.message}`,
+    };
+  }
+
+  const originalGenerated = generatedCoreSource(target.root);
+  if (originalGenerated.message || originalGenerated.code === undefined) {
+    return { passed: false, message: `Target has codegen error: ${originalGenerated.message || 'unknown error'}` };
+  }
+  const roundtripGenerated = generatedCoreSource(reparsed.root);
+  if (roundtripGenerated.message || roundtripGenerated.code === undefined) {
+    return {
+      passed: false,
+      message: `Decompiled KERN has codegen error: ${roundtripGenerated.message || 'unknown error'}`,
+    };
+  }
+  if (originalGenerated.code !== roundtripGenerated.code) {
+    return { passed: false, message: 'Round-trip changed generated core code' };
+  }
+
   return { passed: true };
 }
 
@@ -5583,6 +5686,30 @@ function evaluateNativeAssertion(
   context?: NativeKernAssertionContext,
 ): EvaluatedAssertion[] {
   const props = getProps(node);
+  if ('decompile' in props) {
+    const evaluated = evaluateDecompileAssertion(node, target);
+    return [
+      {
+        ruleId: 'decompile',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('roundtrip' in props) {
+    const evaluated = evaluateRoundtripAssertion(node, target);
+    return [
+      {
+        ruleId: 'roundtrip',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
   if ('codegen' in props) {
     const evaluated = evaluateCodegenAssertion(node, target);
     return [

@@ -2665,6 +2665,81 @@ describe('native kern test runner', () => {
     expect(summary.results[0].message).toContain('Generated code does not contain');
   });
 
+  test('asserts decompiled KERN source and round-trip stability natively', () => {
+    writeFileSync(
+      join(tmpDir, 'roundtrip.kern'),
+      [
+        'param name=attempts type=number value=3',
+        'param name=ts type=number value={{Date.now()}}',
+        'param name=name type=string value="world"',
+        `param name=kind type="'draft'|'done'"`,
+        'param name=salutation type=string optional=true',
+        'param name=parts type="string[]" variadic=true',
+        'param type=Point',
+        '  binding name=x',
+        '  binding name=y',
+        'destructure source=user',
+        '  binding name=id',
+        '  binding name=mail key=email',
+        'destructure source=tuple',
+        '  element name=second index=1',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'roundtrip.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Roundtrip assertions" target="./roundtrip.kern"',
+        '  it name="checks decompiled source"',
+        '    expect decompile contains="param name=attempts type=number value=3"',
+        '    expect decompile contains="value={{Date.now()}}"',
+        '    expect decompile contains="value=\\"world\\""',
+        '    expect decompile contains="type=\\"\'draft\'|\'done\'\\""',
+        '    expect decompile contains="optional=true"',
+        '    expect decompile contains="variadic=true"',
+        '    expect decompile contains="binding name=x"',
+        '    expect decompile contains="element name=second index=1"',
+        '    expect decompile notContains="kind=const"',
+        '    expect roundtrip=true',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'decompile',
+      'decompile',
+      'decompile',
+      'decompile',
+      'decompile',
+      'decompile',
+      'decompile',
+      'decompile',
+      'decompile',
+      'roundtrip',
+    ]);
+  });
+
+  test('reports decompiled KERN source mismatches', () => {
+    writeFileSync(join(tmpDir, 'decompile-mismatch.kern'), 'param name=attempts type=number value=3');
+    const testFile = join(tmpDir, 'decompile-mismatch.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Decompile mismatch" target="./decompile-mismatch.kern"',
+        '  it name="fails clearly"',
+        '    expect decompile contains="param name=missing"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('decompile');
+    expect(summary.results[0].message).toContain('Decompiled KERN does not contain');
+  });
+
   test('discovers and runs native test files under a directory', () => {
     writeFileSync(
       join(tmpDir, 'order.kern'),
