@@ -10,7 +10,7 @@
  * Targets: Next.js, React+Tailwind, React Native, Express
  */
 
-export const KERN_VERSION = '3.3.9';
+export const KERN_VERSION = '3.4.0';
 
 // ── Grammar ─────────────────────────────────────────────────────────────
 export const IR_GRAMMAR = `
