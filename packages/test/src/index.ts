@@ -139,7 +139,7 @@ interface NativeKernAssertionContext {
 interface RuntimeBinding {
   name: string;
   expr: string;
-  kind: 'expr' | 'fixture' | 'fn' | 'class';
+  kind: 'expr' | 'fixture' | 'fn' | 'class' | 'native';
   line?: number;
 }
 
@@ -1696,6 +1696,8 @@ const RUNTIME_FN_UNSAFE_TOKEN =
   /\b(?:class|constructor|Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 const RUNTIME_CLASS_UNSAFE_TOKEN =
   /\b(?:Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
+const RUNTIME_NATIVE_BINDING_UNSAFE_TOKEN =
+  /\b(?:class|constructor|Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 
 function unsafeRuntimeExpressionReason(source: string, options: { allowAwait?: boolean } = {}): string | undefined {
   if (source.length > 2000) return 'expression is longer than 2000 characters';
@@ -1721,6 +1723,13 @@ function unsafeRuntimeClassReason(source: string): string | undefined {
   return undefined;
 }
 
+function unsafeRuntimeNativeBindingReason(source: string): string | undefined {
+  if (source.length > 5000) return 'native binding expression is longer than 5000 characters';
+  const unsafeToken = source.match(RUNTIME_NATIVE_BINDING_UNSAFE_TOKEN)?.[0];
+  if (unsafeToken) return `unsupported token '${unsafeToken}'`;
+  return undefined;
+}
+
 function isRuntimeBindingName(value: string): boolean {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
 }
@@ -1732,10 +1741,10 @@ function runtimeBindingSource(node: IRNode): { expr: string; kind: RuntimeBindin
   }
   if (node.type === 'fn') return { expr: runtimeFunctionExpr(node), kind: 'fn' };
   if (node.type === 'class') return { expr: runtimeClassExpr(node), kind: 'class' };
-  if (node.type === 'mapLit') return { expr: runtimeMapLitExpr(node), kind: 'expr' };
-  if (node.type === 'setLit') return { expr: runtimeSetLitExpr(node), kind: 'expr' };
+  if (node.type === 'mapLit') return { expr: runtimeMapLitExpr(node), kind: 'native' };
+  if (node.type === 'setLit') return { expr: runtimeSetLitExpr(node), kind: 'native' };
   const arrayExpr = runtimeArrayBindingExpr(node);
-  if (arrayExpr !== undefined) return { expr: arrayExpr, kind: 'expr' };
+  if (arrayExpr !== undefined) return { expr: arrayExpr, kind: 'native' };
   return undefined;
 }
 
@@ -1898,7 +1907,7 @@ function runtimeDestructureBindings(node: IRNode): RuntimeBinding[] {
       bindings.push({
         name,
         expr: `((${source})[${index}])`,
-        kind: 'expr',
+        kind: 'native',
         line: child.loc?.line,
       });
     }
@@ -1909,7 +1918,7 @@ function runtimeDestructureBindings(node: IRNode): RuntimeBinding[] {
       bindings.push({
         name,
         expr: `((${source})${accessor})`,
-        kind: 'expr',
+        kind: 'native',
         line: child.loc?.line,
       });
     }
@@ -1949,6 +1958,40 @@ function runtimeArrayValueLookupBindingExpr(node: IRNode, method: 'includes' | '
   const from = rawPropToRuntimeSource(node, 'from');
   const args = from ? `${value}, ${from}` : value;
   return `((${collection}).${method}(${args}))`;
+}
+
+function runtimePartitionBindings(node: IRNode): RuntimeBinding[] {
+  const collection = rawPropToRuntimeSource(node, 'in');
+  const predicate = rawPropToRuntimeSource(node, 'where');
+  if (!collection || !predicate) return [];
+
+  const passName = str(getProps(node).pass);
+  const failName = str(getProps(node).fail);
+  if (!isRuntimeBindingName(passName) || !isRuntimeBindingName(failName)) return [];
+
+  const item = runtimeNamedProp(node, 'item', 'item');
+  const pairName = `__kernPartition_${passName}_${failName}`;
+  const pairExpr = `((${collection}).reduce((acc, ${item}) => { (${predicate} ? acc[0] : acc[1]).push(${item}); return acc; }, [[], []]))`;
+  return [
+    {
+      name: pairName,
+      expr: pairExpr,
+      kind: 'native',
+      line: node.loc?.line,
+    },
+    {
+      name: passName,
+      expr: `${pairName}[0]`,
+      kind: 'native',
+      line: node.loc?.line,
+    },
+    {
+      name: failName,
+      expr: `${pairName}[1]`,
+      kind: 'native',
+      line: node.loc?.line,
+    },
+  ];
 }
 
 function runtimeArrayBindingExpr(node: IRNode): string | undefined {
@@ -2025,6 +2068,91 @@ function runtimeArrayBindingExpr(node: IRNode): string | undefined {
     }
     case 'unique':
       return collection ? `((${collection}).filter((item, index, items) => items.indexOf(item) === index))` : '';
+    case 'uniqueBy': {
+      const by = rawPropToRuntimeSource(node, 'by');
+      if (!collection || !by) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `((__seen) => (${collection}).filter((${item}) => { const __k = ${by}; if (__seen.has(__k)) return false; __seen.add(__k); return true; }))(new Set())`;
+    }
+    case 'groupBy': {
+      const by = rawPropToRuntimeSource(node, 'by');
+      if (!collection || !by) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `((${collection}).reduce((acc, ${item}) => { const __k = ${by}; (acc[__k] ??= []).push(${item}); return acc; }, Object.create(null)))`;
+    }
+    case 'indexBy': {
+      const by = rawPropToRuntimeSource(node, 'by');
+      if (!collection || !by) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `(Object.fromEntries((${collection}).map((${item}) => [${by}, ${item}])))`;
+    }
+    case 'countBy': {
+      const by = rawPropToRuntimeSource(node, 'by');
+      if (!collection || !by) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `((${collection}).reduce((acc, ${item}) => { const __k = ${by}; acc[__k] = (acc[__k] ?? 0) + 1; return acc; }, Object.create(null)))`;
+    }
+    case 'chunk': {
+      const size = rawPropToRuntimeSource(node, 'size');
+      return collection && size
+        ? `((__src, __n) => Array.from({ length: Math.ceil(__src.length / __n) }, (_, i) => __src.slice(i * __n, (i + 1) * __n)))((${collection}), (${size}))`
+        : '';
+    }
+    case 'zip': {
+      const right = rawPropToRuntimeSource(node, 'with');
+      if (!collection || !right) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      const indexName = runtimeNamedProp(node, 'index', '__i');
+      return `((__r) => (${collection}).map((${item}, ${indexName}) => [${item}, __r[${indexName}]]))((${right}))`;
+    }
+    case 'range': {
+      const end = rawPropToRuntimeSource(node, 'end');
+      if (!end) return '';
+      const start = rawPropToRuntimeSource(node, 'start') || '0';
+      return `(Array.from({ length: (${end}) - (${start}) }, (_, i) => i + (${start})))`;
+    }
+    case 'take': {
+      const n = rawPropToRuntimeSource(node, 'n');
+      return collection && n ? `((${collection}).slice(0, ${n}))` : '';
+    }
+    case 'drop': {
+      const n = rawPropToRuntimeSource(node, 'n');
+      return collection && n ? `((${collection}).slice(${n}))` : '';
+    }
+    case 'min':
+      return collection
+        ? `((__src) => __src.length === 0 ? undefined : __src.reduce((__a, __b) => __b < __a ? __b : __a))((${collection}))`
+        : '';
+    case 'max':
+      return collection
+        ? `((__src) => __src.length === 0 ? undefined : __src.reduce((__a, __b) => __b > __a ? __b : __a))((${collection}))`
+        : '';
+    case 'minBy':
+    case 'maxBy': {
+      const by = rawPropToRuntimeSource(node, 'by');
+      if (!collection || !by) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      const op = node.type === 'minBy' ? '<' : '>';
+      return `((__src) => { if (__src.length === 0) return undefined; const __key = (${item}) => ${by}; return __src.reduce((__best, __cur) => __key(__cur) ${op} __key(__best) ? __cur : __best); })((${collection}))`;
+    }
+    case 'sum':
+      return collection ? `((${collection}).reduce((acc, n) => acc + n, 0))` : '';
+    case 'avg':
+      return collection
+        ? `((__src) => __src.length === 0 ? Number.NaN : __src.reduce((acc, n) => acc + n, 0) / __src.length)((${collection}))`
+        : '';
+    case 'sumBy': {
+      const by = rawPropToRuntimeSource(node, 'by');
+      if (!collection || !by) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `((${collection}).reduce((acc, ${item}) => acc + (${by}), 0))`;
+    }
+    case 'intersect': {
+      const right = rawPropToRuntimeSource(node, 'with');
+      if (!collection || !right) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `((__r) => (${collection}).filter((${item}) => __r.has(${item})))(new Set((${right})))`;
+    }
     default:
       return undefined;
   }
@@ -2036,6 +2164,9 @@ function collectRuntimeBindings(root: IRNode): RuntimeBinding[] {
   function visit(node: IRNode): void {
     if (node.type === 'destructure') {
       bindings.push(...runtimeDestructureBindings(node));
+    }
+    if (node.type === 'partition') {
+      bindings.push(...runtimePartitionBindings(node));
     }
     const name = str(getProps(node).name);
     const binding = runtimeBindingSource(node);
@@ -2173,6 +2304,7 @@ function runtimeExpressionContext(expr: string, fixtures: RuntimeBinding[]): str
 function runtimeBindingUnsafeReason(binding: RuntimeBinding): string | undefined {
   if (binding.kind === 'fn') return unsafeRuntimeFunctionReason(binding.expr);
   if (binding.kind === 'class') return unsafeRuntimeClassReason(binding.expr);
+  if (binding.kind === 'native') return unsafeRuntimeNativeBindingReason(binding.expr);
   return unsafeRuntimeExpressionReason(binding.expr);
 }
 
