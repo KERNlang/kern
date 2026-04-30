@@ -431,6 +431,32 @@ describe('native kern test runner', () => {
     ]);
   });
 
+  test('effect recovery mismatches include first runtime value difference', () => {
+    writeFileSync(
+      join(tmpDir, 'effect-diff.kern'),
+      [
+        'effect name=loadFallback',
+        '  trigger expr={{JSON.parse("not-json")}}',
+        '  recover retry=2 fallback={{[]}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'effect-diff.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Effect diff" target="./effect-diff.kern"',
+        '  it name="explains recovered mismatch"',
+        '    expect effect=loadFallback recovers=true fallback={{[{ id: "u1" }]}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain('Runtime effect loadFallback expected');
+    expect(summary.results[0].message).toContain('diff: at $[0]: missing item');
+  });
+
   test('uses scoped native mocks for effect and route workflow assertions', () => {
     writeFileSync(
       join(tmpDir, 'mocked-effects.kern'),
@@ -626,6 +652,7 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(1);
     expect(summary.results[0].message).toContain('expression: __kernTool_');
     expect(summary.results[0].message).toContain('fixtures: users, __kernTool_');
+    expect(summary.results[0].message).toContain('diff: at $[0]: missing item');
   });
 
   test('executes native guard kinds in route and tool workflows', () => {
@@ -732,10 +759,13 @@ describe('native kern test runner', () => {
     );
 
     const summary = runNativeKernTests(testFile);
+    const output = formatNativeKernTestSummary(summary);
 
     expect(summary.failed).toBe(1);
     expect(summary.results[0].message).toContain('expression: __kernRoute_');
     expect(summary.results[0].message).toContain('fixtures: users, __kernRoute_');
+    expect(summary.results[0].message).toContain('diff: at $[0]: missing item');
+    expect(output).toContain('\n  diff: at $[0]: missing item');
   });
 
   test('reports mocked effect call-count mismatches without duplicate unused-mock noise', () => {
@@ -938,6 +968,7 @@ describe('native kern test runner', () => {
     expect(summary.results[0].message).toContain('double(amount)');
     expect(summary.results[0].message).toContain('fixtures: amount');
     expect(summary.results[0].message).toContain('received 8');
+    expect(summary.results[0].message).toContain('diff: at $: expected 9, received 8');
   });
 
   test('rejects unsafe tokens inside behavioral fn handlers before execution', () => {

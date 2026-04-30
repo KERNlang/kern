@@ -3475,6 +3475,84 @@ function runtimeValuesEqual(actual: unknown, expected: unknown): boolean {
   }
 }
 
+function normalizeRuntimeDiffValue(value: unknown): unknown {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+}
+
+function runtimeValueKind(value: unknown): string {
+  if (Array.isArray(value)) return 'array';
+  if (value === null) return 'null';
+  return typeof value;
+}
+
+function runtimePathProperty(base: string, key: string): string {
+  return /^[A-Za-z_$][\w$]*$/.test(key) ? `${base}.${key}` : `${base}[${JSON.stringify(key)}]`;
+}
+
+function firstRuntimeValueDifference(expected: unknown, actual: unknown, path = '$', depth = 0): string | undefined {
+  if (runtimeValuesEqual(actual, expected)) return undefined;
+  if (depth > 16) {
+    return `at ${path}: expected ${formatRuntimeValue(expected)}, received ${formatRuntimeValue(actual)}`;
+  }
+
+  const expectedKind = runtimeValueKind(expected);
+  const actualKind = runtimeValueKind(actual);
+  if (expectedKind !== actualKind) {
+    return `at ${path}: expected ${expectedKind} ${formatRuntimeValue(expected)}, received ${actualKind} ${formatRuntimeValue(actual)}`;
+  }
+
+  if (Array.isArray(expected) && Array.isArray(actual)) {
+    const common = Math.min(expected.length, actual.length);
+    for (let i = 0; i < common; i++) {
+      const diff = firstRuntimeValueDifference(expected[i], actual[i], `${path}[${i}]`, depth + 1);
+      if (diff) return diff;
+    }
+    if (expected.length > actual.length) {
+      return `at ${path}[${actual.length}]: missing item; expected ${formatRuntimeValue(expected[actual.length])}`;
+    }
+    return `at ${path}[${expected.length}]: unexpected item ${formatRuntimeValue(actual[expected.length])}`;
+  }
+
+  if (
+    expected !== null &&
+    actual !== null &&
+    typeof expected === 'object' &&
+    typeof actual === 'object' &&
+    !Array.isArray(expected) &&
+    !Array.isArray(actual)
+  ) {
+    const expectedRecord = expected as Record<string, unknown>;
+    const actualRecord = actual as Record<string, unknown>;
+    const keys = [...new Set([...Object.keys(expectedRecord), ...Object.keys(actualRecord)])].sort();
+    for (const key of keys) {
+      const nextPath = runtimePathProperty(path, key);
+      if (!Object.hasOwn(actualRecord, key)) {
+        return `at ${nextPath}: missing property; expected ${formatRuntimeValue(expectedRecord[key])}`;
+      }
+      if (!Object.hasOwn(expectedRecord, key)) {
+        return `at ${nextPath}: unexpected property ${formatRuntimeValue(actualRecord[key])}`;
+      }
+      const diff = firstRuntimeValueDifference(expectedRecord[key], actualRecord[key], nextPath, depth + 1);
+      if (diff) return diff;
+    }
+  }
+
+  return `at ${path}: expected ${formatRuntimeValue(expected)}, received ${formatRuntimeValue(actual)}`;
+}
+
+function runtimeMismatchMessage(label: string, expected: unknown, actual: unknown, context: string): string {
+  const normalizedExpected = normalizeRuntimeDiffValue(expected);
+  const normalizedActual = normalizeRuntimeDiffValue(actual);
+  const diff =
+    firstRuntimeValueDifference(normalizedExpected, normalizedActual) ||
+    `at $: expected ${formatRuntimeValue(normalizedExpected)}, received ${formatRuntimeValue(normalizedActual)}`;
+  return `${label} expected ${formatRuntimeValue(expected)}, received ${formatRuntimeValue(actual)}${context}\ndiff: ${diff}`;
+}
+
 function formatThrownRuntimeError(error: unknown): string {
   if (error instanceof Error) return `${error.name}: ${error.message}`;
   return String(error);
@@ -3771,7 +3849,12 @@ function evaluateRuntimeSource(
           passed: false,
           message:
             str(props.message) ||
-            `${label} expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(actual.value)}${runtimeExpressionContext(trimmedExpr, fixtures)}`,
+            runtimeMismatchMessage(
+              label,
+              expected.value,
+              actual.value,
+              runtimeExpressionContext(trimmedExpr, fixtures),
+            ),
         };
   }
 
@@ -3975,11 +4058,7 @@ function evaluateRuntimeRoute(
       ? { passed: true }
       : {
           passed: false,
-          message:
-            str(props.message) ||
-            `${label} expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(
-              probe.value,
-            )}${routeContext}`,
+          message: str(props.message) || runtimeMismatchMessage(label, expected.value, probe.value, routeContext),
         };
   }
 
@@ -4119,11 +4198,7 @@ function evaluateRuntimeTool(
       ? { passed: true }
       : {
           passed: false,
-          message:
-            str(props.message) ||
-            `${label} expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(
-              probe.value,
-            )}${toolContext}`,
+          message: str(props.message) || runtimeMismatchMessage(label, expected.value, probe.value, toolContext),
         };
   }
 
@@ -4199,6 +4274,7 @@ function evaluateRuntimeEffectRecovery(
   const entryExprs = expected.source ? [effectBinding.name, expected.source] : [effectBinding.name];
   const declarations = buildRuntimeDeclarations(target, entryExprs, [...fixtures, effectBinding]);
   if ('message' in declarations) return { passed: false, message: declarations.message };
+  const effectContext = runtimeExpressionContext(effectBinding.name, [...fixtures, effectBinding]);
 
   const actual = runRuntimeExpression(target, declarations.source, effectBinding.name);
   if (scopedMock.mock) recordRuntimeEffectMockCall(scopedMock.mock, mockCalls);
@@ -4234,9 +4310,7 @@ function evaluateRuntimeEffectRecovery(
           passed: false,
           message:
             str(props.message) ||
-            `Runtime effect ${effectName} expected ${formatRuntimeValue(
-              expectedResult.value,
-            )}, received ${formatRuntimeValue(meta.result)}`,
+            runtimeMismatchMessage(`Runtime effect ${effectName}`, expectedResult.value, meta.result, effectContext),
         };
   }
 
@@ -5635,7 +5709,9 @@ function formatNativeKernTestResult(result: NativeKernTestResult, summaryFile: s
     ? ` (${relative(process.cwd(), result.file || summaryFile)}:${result.line}:${result.col ?? 1})`
     : '';
   const lines = [`${marker} ${result.suite} > ${result.caseName}: ${result.assertion} [${result.ruleId}]${loc}`];
-  if (result.status !== 'passed' && result.message) lines.push(`  ${result.message}`);
+  if (result.status !== 'passed' && result.message) {
+    for (const line of result.message.split('\n')) lines.push(`  ${line}`);
+  }
   return lines;
 }
 
