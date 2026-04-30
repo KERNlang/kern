@@ -91,6 +91,12 @@ interface BodyEmitContext {
   symbolMap: Record<string, string>;
   propagateStyle: 'value' | 'http-exception';
   usedPropagation: boolean;
+  /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
+   *  `try` blocks. Propagation `?` lowers to `return tmp` (or `raise
+   *  HTTPException` in route mode), and BOTH bypass the enclosing
+   *  `except` clause unexpectedly. Reject `?` inside try with a clear
+   *  let-bind hint. Increment on try entry, decrement on try exit. */
+  tryDepth: number;
 }
 
 const INDENT_STEP = '    ';
@@ -102,6 +108,7 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
     symbolMap: options?.symbolMap ?? {},
     propagateStyle: options?.propagateStyle ?? 'value',
     usedPropagation: false,
+    tryDepth: 0,
   };
 }
 
@@ -181,19 +188,25 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
       throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
     } else if (child.type === 'try') {
       // Slice 4c — try/except control flow.
+      // Slice 4c review fix (OpenCode + Gemini high): orphan `try` is a
+      // SyntaxError in Python (`try:` requires an `except`/`finally`).
+      // Require the catch sibling and fail loud if missing.
+      const next = children[i + 1];
+      if (!next || next.type !== 'catch') {
+        throw new Error('`try` must be immediately followed by a `catch` sibling. Found orphan `try` in handler body.');
+      }
       lines.push(`${indent}try:`);
+      ctx.tryDepth++;
       const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
+      ctx.tryDepth--;
       if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
       for (const sl of inner) lines.push(sl);
-      const next = children[i + 1];
-      if (next && next.type === 'catch') {
-        const errName = String(next.props?.name ?? 'e');
-        lines.push(`${indent}except Exception as ${errName}:`);
-        const catchInner = emitChildrenPy(next.children ?? [], ctx, indent + INDENT_STEP);
-        if (catchInner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
-        for (const cl of catchInner) lines.push(cl);
-        i++;
-      }
+      const errName = String(next.props?.name ?? 'e');
+      lines.push(`${indent}except Exception as ${errName}:`);
+      const catchInner = emitChildrenPy(next.children ?? [], ctx, indent + INDENT_STEP);
+      if (catchInner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+      for (const cl of catchInner) lines.push(cl);
+      i++;
     } else if (child.type === 'catch') {
       throw new Error('`catch` must immediately follow a `try` sibling. Found orphan `catch` in handler body.');
     } else if (child.type === 'throw') {
@@ -210,6 +223,21 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
     }
   }
   return lines;
+}
+
+/** Slice 4c review fix (OpenCode + Gemini critical) — propagation `?`
+ *  inside `try` has no clean lowering on either propagateStyle: the
+ *  'value' style emits `return tmp` (exits the function bypassing
+ *  except), and the 'http-exception' style emits `raise HTTPException`
+ *  (caught by the bare `except Exception` we generate, swallowing the
+ *  err). Reject at codegen with a let-bind hint. */
+function rejectPropagationInsideTry(ctx: BodyEmitContext): void {
+  if (ctx.tryDepth > 0) {
+    throw new Error(
+      "Propagation '?' is not allowed inside a `try` block — `return`/`raise` from the err branch interacts incorrectly with the enclosing `except` clause. " +
+        'Bind the call to a `let` outside the try, then use `if x.kind == "err" then throw ...` inside the try, OR use raw `lang=ts`/`lang=python` for the affected handler.',
+    );
+  }
 }
 
 function errPropagationLine(tmp: string, ctx: BodyEmitContext): string {
@@ -233,6 +261,7 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const valueIR = parseExpression(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
+    rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
     const inner = emitPyExprCtx(valueIR.argument, ctx);
     ctx.usedPropagation = true;
@@ -249,6 +278,7 @@ function emitReturnPy(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const valueIR = parseExpression(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
+    rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
     const inner = emitPyExprCtx(valueIR.argument, ctx);
     ctx.usedPropagation = true;
@@ -265,6 +295,7 @@ function emitThrowPy(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const valueIR = parseExpression(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
+    rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
     const inner = emitPyExprCtx(valueIR.argument, ctx);
     ctx.usedPropagation = true;

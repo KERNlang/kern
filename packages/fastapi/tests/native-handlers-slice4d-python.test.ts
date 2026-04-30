@@ -1,8 +1,8 @@
 /** Native KERN handler bodies — slice 4d (each/spread, Python target). */
 
+import type { IRNode } from '@kernlang/core';
 import { parseExpression } from '@kernlang/core';
 import { emitNativeKernBodyPython, emitPyExpression } from '../src/codegen-body-python.js';
-import type { IRNode } from '@kernlang/core';
 
 function makeHandler(children: IRNode[]): IRNode {
   return { type: 'handler', props: { lang: 'kern' }, children };
@@ -14,10 +14,8 @@ describe('slice 4d — Python each/spread', () => {
       {
         type: 'each',
         props: { list: 'items', as: 'x' },
-        children: [
-          { type: 'let', props: { name: 'y', value: 'x * 2' } }
-        ]
-      }
+        children: [{ type: 'let', props: { name: 'y', value: 'x * 2' } }],
+      },
     ]);
     const out = emitNativeKernBodyPython(handler);
     expect(out).toContain('for x in items:');

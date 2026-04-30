@@ -59,6 +59,13 @@ export interface BodyEmitResult {
 
 interface BodyEmitContext {
   gensymCounter: number;
+  /** Slice 4c review fix (OpenCode + Gemini critical) — depth of nested
+   *  `try` blocks the emitter is currently inside. Propagation `?` lowers
+   *  to a `return` that exits the function — that bypasses the enclosing
+   *  `catch`, which is almost never what users mean. Increment on try
+   *  entry, decrement on try exit; the let/return propagation paths
+   *  check `tryDepth > 0` and throw with a let-bind hint. */
+  tryDepth: number;
 }
 
 const INDENT_STEP = '  ';
@@ -81,7 +88,7 @@ export function emitNativeKernBodyTS(handlerNode: IRNode, options?: BodyEmitOpti
  *  Provided for symmetry with the Python target so generators that drive
  *  both languages have a uniform call shape. */
 export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, _options?: BodyEmitOptions): BodyEmitResult {
-  const ctx: BodyEmitContext = { gensymCounter: 0 };
+  const ctx: BodyEmitContext = { gensymCounter: 0, tryDepth: 0 };
   const code = emitChildrenTS(handlerNode.children ?? [], ctx, '').join('\n');
   return { code, imports: new Set<string>() };
 }
@@ -122,15 +129,22 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
     } else if (child.type === 'try') {
       // Slice 4c — try/catch control flow.
-      lines.push(`${indent}try {`);
-      for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
+      // Slice 4c review fix (OpenCode + Gemini high): orphan `try` produces
+      // a syntactically-incomplete body. Both TS (no-catch try is legal but
+      // semantically wrong) and Python (SyntaxError) need a paired catch;
+      // require the sibling and fail loud if missing.
       const next = children[i + 1];
-      if (next && next.type === 'catch') {
-        const errName = String(next.props?.name ?? 'e');
-        lines.push(`${indent}} catch (${errName}) {`);
-        for (const cl of emitChildrenTS(next.children ?? [], ctx, indent + INDENT_STEP)) lines.push(cl);
-        i++;
+      if (!next || next.type !== 'catch') {
+        throw new Error('`try` must be immediately followed by a `catch` sibling. Found orphan `try` in handler body.');
       }
+      lines.push(`${indent}try {`);
+      ctx.tryDepth++;
+      for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
+      ctx.tryDepth--;
+      const errName = String(next.props?.name ?? 'e');
+      lines.push(`${indent}} catch (${errName}) {`);
+      for (const cl of emitChildrenTS(next.children ?? [], ctx, indent + INDENT_STEP)) lines.push(cl);
+      i++;
       lines.push(`${indent}}`);
     } else if (child.type === 'catch') {
       throw new Error('`catch` must immediately follow a `try` sibling. Found orphan `catch` in handler body.');
@@ -151,6 +165,22 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
   return lines;
 }
 
+/** Slice 4c review fix (OpenCode + Gemini critical) — propagation `?`
+ *  inside a `try` block has no clean lowering. The hoisted err-branch
+ *  emits `return tmp` which exits the function entirely, BYPASSING the
+ *  enclosing `catch`. That's almost never what users mean — they wrote
+ *  `?` to flag a Result.err and (presumably) to let the catch handle
+ *  it. Reject at codegen with a let-bind hint. Same shape as
+ *  slice-2's reject-`?`-in-`if-cond` rule. */
+function rejectPropagationInsideTry(ctx: BodyEmitContext): void {
+  if (ctx.tryDepth > 0) {
+    throw new Error(
+      "Propagation '?' is not allowed inside a `try` block — `return` from the err branch exits the function and bypasses the enclosing `catch`. " +
+        'Bind the call to a `let` outside the try, then use `if x.kind === "err" throw new Error(...)` inside the try, OR use raw `lang=ts`/`lang=python` for the affected handler.',
+    );
+  }
+}
+
 function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const name = String(props.name ?? '_');
@@ -160,6 +190,7 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const valueIR = parseExpression(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
+    rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
     const inner = emitExpression(valueIR.argument);
     return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`, `const ${name} = ${tmp}.value;`];
@@ -175,6 +206,7 @@ function emitReturnTS(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const valueIR = parseExpression(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
+    rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
     const inner = emitExpression(valueIR.argument);
     return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`, `return ${tmp}.value;`];

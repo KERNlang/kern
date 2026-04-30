@@ -1,8 +1,8 @@
 /** Native KERN handler bodies — slice 4d (each/spread, TS target). */
 
-import { parseExpression } from '../src/parser-expression.js';
 import { emitNativeKernBodyTS } from '../src/codegen/body-ts.js';
 import { emitExpression } from '../src/codegen-expression.js';
+import { parseExpression } from '../src/parser-expression.js';
 import type { IRNode } from '../src/types.js';
 
 function makeHandler(children: IRNode[]): IRNode {
@@ -15,10 +15,8 @@ describe('slice 4d — TS each/spread', () => {
       {
         type: 'each',
         props: { list: 'items', as: 'x' },
-        children: [
-          { type: 'let', props: { name: 'y', value: 'x * 2' } }
-        ]
-      }
+        children: [{ type: 'let', props: { name: 'y', value: 'x * 2' } }],
+      },
     ]);
     const out = emitNativeKernBodyTS(handler);
     expect(out).toContain('for (const x of items) {');
