@@ -3,6 +3,13 @@
  */
 
 export { emitNativeKernBodyTS } from './codegen/body-ts.js';
+export type { StdlibEntry, StdlibLowering } from './codegen/kern-stdlib.js';
+export {
+  KERN_STDLIB,
+  KERN_STDLIB_MODULES,
+  lookupStdlib,
+  suggestStdlibMethod,
+} from './codegen/kern-stdlib.js';
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 // Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)
 export {
@@ -57,7 +64,9 @@ export {
   sourceComment,
   unregisterEvolvedGenerator,
 } from './codegen-core.js';
-export { emitExpression } from './codegen-expression.js';
+// Native KERN handler bodies (slice 2a) — stdlib lowering table for cross-target
+// method dispatch. `applyLowering` is the shape-driven emit shared by TS + Py.
+export { applyLowering, emitExpression } from './codegen-expression.js';
 export type {
   CallPayload,
   ConceptEdge,

@@ -20,7 +20,7 @@
  *  its own 4-space relative indent so the post-indent result is well-formed. */
 
 import type { IRNode, ValueIR } from '@kernlang/core';
-import { parseExpression } from '@kernlang/core';
+import { applyLowering, KERN_STDLIB_MODULES, lookupStdlib, parseExpression, suggestStdlibMethod } from '@kernlang/core';
 
 interface BodyEmitContext {
   gensymCounter: number;
@@ -108,6 +108,9 @@ export function emitPyExpression(node: ValueIR): string {
       return `${obj}.${node.property}`;
     }
     case 'call': {
+      // Slice 2a — KERN-stdlib dispatch (Python target).
+      const stdlib = applyStdlibLoweringPython(node);
+      if (stdlib !== null) return stdlib;
       const callee = emitPyExpression(node.callee);
       const args = node.args.map(emitPyExpression).join(', ');
       return `${callee}(${args})`;
@@ -141,4 +144,25 @@ export function emitPyExpression(node: ValueIR): string {
         `Propagation '${node.op}' is statement-level only — body codegen must hoist it before emitPyExpression.`,
       );
   }
+}
+
+/** Slice 2a — KERN-stdlib dispatch for Python. Returns the lowered Python
+ *  string when the call matches `<KnownModule>.<method>(args)`, or null when
+ *  it doesn't. Throws on `<KnownModule>.<unknownMethod>(...)` with a
+ *  did-you-mean suggestion. Mirror of `applyStdlibLoweringTS` in core. */
+function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>): string | null {
+  const callee = call.callee;
+  if (callee.kind !== 'member') return null;
+  if (callee.object.kind !== 'ident') return null;
+  const moduleName = callee.object.name;
+  if (!KERN_STDLIB_MODULES.has(moduleName)) return null;
+  const methodName = callee.property;
+  const entry = lookupStdlib(moduleName, methodName);
+  if (entry === null) {
+    const suggestion = suggestStdlibMethod(moduleName, methodName);
+    const hint = suggestion ? ` Did you mean '${moduleName}.${suggestion}'?` : '';
+    throw new Error(`Unknown KERN-stdlib method '${moduleName}.${methodName}'.${hint}`);
+  }
+  const args = call.args.map(emitPyExpression);
+  return applyLowering(entry.py, args);
 }
