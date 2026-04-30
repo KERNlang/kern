@@ -1,3 +1,3 @@
-test name="KERNlang schema bad-case self contracts" target="./kernlang-schema-bad.kern"
+test name="KERNlang schema bad-case self contracts" target="./kernlang-schema-bad.kern" coverage=false
   it name="native tests can assert expected schema failures"
-    expect has=schemaViolations matches="'expect' requires"
+    expect has=schemaViolations count=1 matches="'expect' requires"

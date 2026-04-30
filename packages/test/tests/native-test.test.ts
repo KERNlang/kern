@@ -134,8 +134,8 @@ describe('native kern test runner', () => {
       [
         'test name="Bad target" target="./bad.kern"',
         '  it name="detects expected native failures"',
-        '    expect has=duplicateNames matches="User"',
-        '    expect has=deriveCycles matches="cycleA.*cycleB|cycleB.*cycleA"',
+        '    expect has=duplicateNames count=1 matches="User"',
+        '    expect has=deriveCycles count=1 matches="cycleA.*cycleB|cycleB.*cycleA"',
       ].join('\n'),
     );
 
@@ -144,6 +144,46 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(0);
     expect(summary.passed).toBe(2);
     expect(summary.results.map((result) => result.ruleId)).toEqual(['has:duplicatenames', 'has:derivecycles']);
+  });
+
+  test('fails positive invariant assertions with incorrect expected counts', () => {
+    writeFileSync(
+      join(tmpDir, 'bad-count.kern'),
+      ['interface name=User', 'interface name=User', 'interface name=Team', 'interface name=Team'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'bad-count.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Bad count" target="./bad-count.kern"',
+        '  it name="detects changed bad-case cardinality"',
+        '    expect has=duplicateNames count=1 matches="User"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('has:duplicatenames');
+    expect(summary.results[0].message).toContain('count 1, found 2');
+  });
+
+  test('rejects invalid positive invariant counts', () => {
+    writeFileSync(join(tmpDir, 'valid-count.kern'), 'const name=ok value=true');
+    const testFile = join(tmpDir, 'invalid-count.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Invalid count" target="./valid-count.kern"',
+        '  it name="rejects negative count"',
+        '    expect has=deriveCycles count=-1',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain('count must be a non-negative integer');
   });
 
   test('fails positive invariant assertions for unsupported invariants', () => {
@@ -2264,6 +2304,36 @@ describe('native kern test runner', () => {
     expect(output).toContain('uncovered routes:');
     expect(output).toContain('uncovered tools:');
     expect(output).toContain('uncovered effects:');
+  });
+
+  test('excludes coverage=false targets from aggregate native coverage', () => {
+    writeFileSync(
+      join(tmpDir, 'covered.kern'),
+      ['server name=Api', '  route GET /ok', '    respond 200 json={{[]}}'].join('\n'),
+    );
+    writeFileSync(join(tmpDir, 'ignored.kern'), ['server name=Bad', '  route GET /empty'].join('\n'));
+    const testFile = join(tmpDir, 'coverage-ignore.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Covered target" target="./covered.kern"',
+        '  it name="covers route"',
+        '    expect route="GET /ok" returns={{[]}}',
+        'test name="Ignored bad target" target="./ignored.kern" coverage=false',
+        '  it name="still asserts expected debt"',
+        '    expect has=emptyRoutes matches="/empty"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.targetFiles.map((file) => file.split('/').pop())).toEqual(['covered.kern', 'ignored.kern']);
+    expect(summary.coverage.percent).toBe(100);
+    expect(summary.coverage.total).toBe(1);
+    expect(summary.coverage.routes.total).toBe(1);
+    expect(summary.coverage.routes.uncovered).toEqual([]);
+    expect(summary.coverage.targets.map((target) => target.file.split('/').pop())).toEqual(['covered.kern']);
   });
 
   test('passes language surface smoke for arrays classes and functions', () => {
