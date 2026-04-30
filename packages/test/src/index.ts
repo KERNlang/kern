@@ -191,6 +191,7 @@ interface RuntimeWorkflowProgramOptions {
 interface RuntimeGuardOptions {
   portable?: boolean;
   targetParam?: string;
+  trackCoverage?: boolean;
 }
 
 type RuntimeEvalResult = { ok: true; value: unknown } | { ok: false; error: unknown };
@@ -1779,19 +1780,69 @@ function findUntestedGuards(root: IRNode, context: NativeKernAssertionContext | 
   const assertions = context?.assertions || [];
   if (assertions.some((assertion) => assertionCoversAnyInvariant(assertion.node, guardCoverageInvariants))) return [];
 
-  const explicitlyCovered = new Set(assertions.map((assertion) => str(getProps(assertion.node).guard)).filter(Boolean));
+  const covered = coveredGuardKeys(root, assertions);
 
   return collectNodes(root, 'guard')
-    .filter((guard) => {
-      const name = str(getProps(guard).name);
-      return !name || !explicitlyCovered.has(name);
-    })
+    .filter((guard) => !covered.has(runtimeGuardCoverageKey(guard)))
     .map((guard) => {
       const name = str(getProps(guard).name);
       return name
         ? `guard ${name} at line ${guard.loc?.line ?? '?'}`
         : `unnamed guard at line ${guard.loc?.line ?? '?'}`;
     });
+}
+
+function coveredGuardKeys(root: IRNode, assertions: CollectedAssertion[]): Set<string> {
+  const target = syntheticTarget(root);
+  const covered = new Set<string>();
+
+  for (const assertion of assertions) {
+    const props = getProps(assertion.node);
+    const guardName = str(props.guard);
+    if (guardName) {
+      for (const guard of collectNodes(root, 'guard')) {
+        if (str(getProps(guard).name) === guardName) covered.add(runtimeGuardCoverageKey(guard));
+      }
+      continue;
+    }
+
+    const routeSpec = str(props.route);
+    if (routeSpec) {
+      const guardCalls = new Map<string, number>();
+      const evaluated = evaluateRuntimeRoute(
+        assertion.node,
+        target,
+        assertion.fixtures,
+        assertion.mocks,
+        new Map<string, number>(),
+        undefined,
+        guardCalls,
+      );
+      if (evaluated.passed) {
+        for (const [key, count] of guardCalls) if (count > 0) covered.add(key);
+      }
+      continue;
+    }
+
+    const toolName = str(props.tool);
+    if (toolName) {
+      const guardCalls = new Map<string, number>();
+      const evaluated = evaluateRuntimeTool(
+        assertion.node,
+        target,
+        assertion.fixtures,
+        assertion.mocks,
+        new Map<string, number>(),
+        undefined,
+        guardCalls,
+      );
+      if (evaluated.passed) {
+        for (const [key, count] of guardCalls) if (count > 0) covered.add(key);
+      }
+    }
+  }
+
+  return covered;
 }
 
 function coveredRouteLabels(root: IRNode, assertions: CollectedAssertion[]): Set<string> {
@@ -2037,12 +2088,9 @@ function guardCoverage(root: IRNode, assertions: CollectedAssertion[]): NativeKe
     return coverageMetric(guards.length, []);
   }
 
-  const explicitlyCovered = new Set(assertions.map((assertion) => str(getProps(assertion.node).guard)).filter(Boolean));
+  const covered = coveredGuardKeys(root, assertions);
   const uncovered = guards
-    .filter((guard) => {
-      const name = str(getProps(guard).name);
-      return !name || !explicitlyCovered.has(name);
-    })
+    .filter((guard) => !covered.has(runtimeGuardCoverageKey(guard)))
     .map((guard) => {
       const name = str(getProps(guard).name);
       return name
@@ -2687,6 +2735,8 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
   const rawExpr = exprPropToRuntimeSource(node, 'expr') || rawPropToRuntimeSource(node, 'expr');
   const expr = options.portable ? runtimePortableSource(rawExpr) : rawExpr;
   const props = getProps(node);
+  const coverageLine = options.trackCoverage ? runtimeGuardCoverageCallLine(node) : undefined;
+  const withCoverage = (lines: string[]) => (coverageLine ? [coverageLine, ...lines] : lines);
   if (expr) {
     const fallback = str(props.else) || str(props.fallback);
     const numericFallback = fallback && /^\d+$/.test(fallback) ? Number(fallback) : undefined;
@@ -2696,7 +2746,7 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
         : fallback
           ? `({ error: ${JSON.stringify(fallback)} })`
           : 'false';
-    return [`if (!(${expr})) return (${result});`];
+    return withCoverage([`if (!(${expr})) return (${result});`]);
   }
 
   if (!options.portable && !options.targetParam) return [];
@@ -2712,14 +2762,14 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
     try {
       new RegExp(pattern);
       if (/([+*}])\s*\)\s*[+*{]/.test(pattern)) {
-        return [
+        return withCoverage([
           `__kernGuardError("GuardConfigError", ${JSON.stringify(`Unsafe sanitize regex for ${target}: ${pattern}`)});`,
-        ];
+        ]);
       }
     } catch {
-      return [
+      return withCoverage([
         `__kernGuardError("GuardConfigError", ${JSON.stringify(`Invalid sanitize regex for ${target}: ${pattern}`)});`,
-      ];
+      ]);
     }
     lines.push(`if (typeof ${target} === "string") {`);
     for (const line of runtimeGuardAssignLines(
@@ -2729,7 +2779,7 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
       lines.push(`  ${line}`);
     }
     lines.push('}');
-    return lines;
+    return withCoverage(lines);
   }
 
   if (kind === 'validate') {
@@ -2765,7 +2815,7 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
         );
       }
     }
-    return lines;
+    return withCoverage(lines);
   }
 
   if (kind === 'pathcontainment' || kind === 'pathcontainmentguard' || kind === 'path') {
@@ -2783,7 +2833,7 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
     lines.push(
       `if (!__kernPathWithin(${target}, ${rootsSource})) __kernGuardError("PathContainmentError", ${JSON.stringify(`${target} escapes allowed directories`)});`,
     );
-    return lines;
+    return withCoverage(lines);
   }
 
   if (kind === 'sizelimit') {
@@ -2792,7 +2842,7 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
     lines.push(
       `if (__kernByteLength(${target}) > ${maxBytes}) __kernGuardError("SizeLimitError", ${JSON.stringify(`${target} exceeds size limit of ${maxBytes} bytes`)});`,
     );
-    return lines;
+    return withCoverage(lines);
   }
 
   if (kind === 'auth') {
@@ -2804,15 +2854,15 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
     lines.push(
       `if (!(${tokenExpr})) __kernGuardError("AuthError", ${JSON.stringify(`Authentication required${tokenTarget ? `: ${tokenTarget}` : ''}`)});`,
     );
-    return lines;
+    return withCoverage(lines);
   }
 
   if (kind === 'ratelimit') {
     const maxRequests = numericProp(props, 'maxRequests') ?? numericProp(props, 'requests') ?? 1;
     if (maxRequests <= 0) {
-      return [`__kernGuardError("RateLimitError", "Rate limit maxRequests must be greater than 0");`];
+      return withCoverage([`__kernGuardError("RateLimitError", "Rate limit maxRequests must be greater than 0");`]);
     }
-    return [];
+    return withCoverage([]);
   }
 
   if (kind === 'urlallowlist' || kind === 'urlvalidation' || kind === 'hostallowlist' || kind === 'domainallowlist') {
@@ -2823,7 +2873,7 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
     lines.push(
       `if (!${allowedSource}.includes(__kernUrlHost(${target}))) __kernGuardError("UrlAllowlistError", ${JSON.stringify(`${target} host is not allowlisted`)});`,
     );
-    return lines;
+    return withCoverage(lines);
   }
 
   return [];
@@ -3009,6 +3059,10 @@ function runtimeEffectCoverageKey(node: IRNode): string {
   return `${runtimeEffectName(node)}:${node.loc?.line ?? '?'}`;
 }
 
+function runtimeGuardCoverageKey(node: IRNode): string {
+  return `${node.loc?.line ?? '?'}:${node.loc?.col ?? '?'}`;
+}
+
 function runtimeEffectTriggerSource(
   node: IRNode,
   options: { portable?: boolean } = {},
@@ -3102,6 +3156,11 @@ function runtimeEffectCoverageCallLine(effect: IRNode): string {
   return `__kernEffectCalls[${key}] = (__kernEffectCalls[${key}] || 0) + 1;`;
 }
 
+function runtimeGuardCoverageCallLine(guard: IRNode): string {
+  const key = JSON.stringify(runtimeGuardCoverageKey(guard));
+  return `__kernGuardCalls[${key}] = (__kernGuardCalls[${key}] || 0) + 1;`;
+}
+
 function mergeRuntimeEffectMockCalls(mockCalls: Map<string, number> | undefined, calls: unknown): void {
   if (!mockCalls || !calls || typeof calls !== 'object') return;
   for (const [id, count] of Object.entries(calls as Record<string, unknown>)) {
@@ -3117,6 +3176,15 @@ function mergeRuntimeEffectCoverageCalls(effectCalls: Map<string, number> | unde
     const numeric = Number(count);
     if (!Number.isFinite(numeric) || numeric <= 0) continue;
     effectCalls.set(key, (effectCalls.get(key) || 0) + numeric);
+  }
+}
+
+function mergeRuntimeGuardCoverageCalls(guardCalls: Map<string, number> | undefined, calls: unknown): void {
+  if (!guardCalls || !calls || typeof calls !== 'object') return;
+  for (const [key, count] of Object.entries(calls as Record<string, unknown>)) {
+    const numeric = Number(count);
+    if (!Number.isFinite(numeric) || numeric <= 0) continue;
+    guardCalls.set(key, (guardCalls.get(key) || 0) + numeric);
   }
 }
 
@@ -3258,7 +3326,7 @@ function runtimeRouteChildProgram(
     }
 
     if (child.type === 'guard') {
-      lines.push(...runtimeGuardStatement(child, { portable: true }));
+      lines.push(...runtimeGuardStatement(child, { portable: true, trackCoverage: true }));
       continue;
     }
 
@@ -3377,6 +3445,7 @@ function runtimeRouteExecutionExpr(
   const bodyLines = [...runtimeWorkflowHelperLines(), ...request.lines, ...program.lines];
   const lines = ['(async () => {', '  const __kernMockCalls = Object.create(null);'];
   lines.push('  const __kernEffectCalls = Object.create(null);');
+  lines.push('  const __kernGuardCalls = Object.create(null);');
   if (options.probe) {
     lines.push('  const __kernRunRoute = async () => {');
     for (const line of bodyLines) lines.push(`    ${line}`);
@@ -3384,7 +3453,7 @@ function runtimeRouteExecutionExpr(
     lines.push('  try {');
     lines.push('    const __kernValue = await __kernRunRoute();');
     lines.push(
-      '    return { __kernRouteStatus: "returned", value: __kernValue, calls: __kernMockCalls, effects: __kernEffectCalls };',
+      '    return { __kernRouteStatus: "returned", value: __kernValue, calls: __kernMockCalls, effects: __kernEffectCalls, guards: __kernGuardCalls };',
     );
     lines.push('  } catch (__kernError) {');
     lines.push('    return {');
@@ -3398,6 +3467,7 @@ function runtimeRouteExecutionExpr(
     lines.push('      },');
     lines.push('      calls: __kernMockCalls,');
     lines.push('      effects: __kernEffectCalls,');
+    lines.push('      guards: __kernGuardCalls,');
     lines.push('    };');
     lines.push('  }');
   } else {
@@ -3453,7 +3523,7 @@ function runtimeToolInputLines(tool: IRNode, inputSource: string): { lines: stri
     lines.push(`__kernGuardSyncParam(${key}, ${item.name});`);
     const paramNode = paramNodeByName(tool, item.name);
     for (const guard of paramNode ? getChildren(paramNode, 'guard') : []) {
-      lines.push(...runtimeGuardStatement(guard, { portable: true, targetParam: item.name }));
+      lines.push(...runtimeGuardStatement(guard, { portable: true, targetParam: item.name, trackCoverage: true }));
     }
   }
 
@@ -3474,6 +3544,7 @@ function runtimeToolExecutionExpr(
   const bodyLines = [...runtimeWorkflowHelperLines(), ...input.lines, ...program.lines];
   const lines = ['(async () => {', '  const __kernMockCalls = Object.create(null);'];
   lines.push('  const __kernEffectCalls = Object.create(null);');
+  lines.push('  const __kernGuardCalls = Object.create(null);');
   if (options.probe) {
     lines.push('  const __kernRunTool = async () => {');
     for (const line of bodyLines) lines.push(`    ${line}`);
@@ -3481,7 +3552,7 @@ function runtimeToolExecutionExpr(
     lines.push('  try {');
     lines.push('    const __kernValue = await __kernRunTool();');
     lines.push(
-      '    return { __kernToolStatus: "returned", value: __kernValue, calls: __kernMockCalls, effects: __kernEffectCalls };',
+      '    return { __kernToolStatus: "returned", value: __kernValue, calls: __kernMockCalls, effects: __kernEffectCalls, guards: __kernGuardCalls };',
     );
     lines.push('  } catch (__kernError) {');
     lines.push('    return {');
@@ -3495,6 +3566,7 @@ function runtimeToolExecutionExpr(
     lines.push('      },');
     lines.push('      calls: __kernMockCalls,');
     lines.push('      effects: __kernEffectCalls,');
+    lines.push('      guards: __kernGuardCalls,');
     lines.push('    };');
     lines.push('  }');
   } else {
@@ -4304,6 +4376,7 @@ function evaluateRuntimeRoute(
   mocks: RuntimeEffectMock[] = [],
   mockCalls?: Map<string, number>,
   effectCalls?: Map<string, number>,
+  guardCalls?: Map<string, number>,
 ): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -4358,12 +4431,14 @@ function evaluateRuntimeRoute(
     error?: EncodedRuntimeError;
     calls?: Record<string, number>;
     effects?: Record<string, number>;
+    guards?: Record<string, number>;
   };
   if (!probe || typeof probe !== 'object' || typeof probe.__kernRouteStatus !== 'string') {
     return { passed: false, message: `${label} returned an invalid runtime probe` };
   }
   mergeRuntimeEffectMockCalls(mockCalls, probe.calls);
   mergeRuntimeEffectCoverageCalls(effectCalls, probe.effects);
+  mergeRuntimeGuardCoverageCalls(guardCalls, probe.guards);
 
   if ('throws' in props) {
     const expectedRaw = props.throws === true || props.throws === '' ? 'true' : String(props.throws ?? 'true');
@@ -4446,6 +4521,7 @@ function evaluateRuntimeTool(
   mocks: RuntimeEffectMock[] = [],
   mockCalls?: Map<string, number>,
   effectCalls?: Map<string, number>,
+  guardCalls?: Map<string, number>,
 ): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -4501,12 +4577,14 @@ function evaluateRuntimeTool(
     error?: EncodedRuntimeError;
     calls?: Record<string, number>;
     effects?: Record<string, number>;
+    guards?: Record<string, number>;
   };
   if (!probe || typeof probe !== 'object' || typeof probe.__kernToolStatus !== 'string') {
     return { passed: false, message: `${label} returned an invalid runtime probe` };
   }
   mergeRuntimeEffectMockCalls(mockCalls, probe.calls);
   mergeRuntimeEffectCoverageCalls(effectCalls, probe.effects);
+  mergeRuntimeGuardCoverageCalls(guardCalls, probe.guards);
 
   if ('throws' in props) {
     const expectedRaw = props.throws === true || props.throws === '' ? 'true' : String(props.throws ?? 'true');
@@ -5246,7 +5324,7 @@ function evaluateNoInvariant(
     return untested.length > 0
       ? {
           passed: false,
-          message: `Found untested guards: ${untested.join('; ')}. Add expect guard=<name> exhaustive=true or a guard-wide assertion such as expect preset=guard.`,
+          message: `Found untested guards: ${untested.join('; ')}. Add expect guard=<name> exhaustive=true, a route/tool workflow assertion that executes the guard, or a guard-wide assertion such as expect preset=guard.`,
         }
       : { passed: true };
   }

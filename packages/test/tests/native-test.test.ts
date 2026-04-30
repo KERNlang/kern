@@ -2246,7 +2246,7 @@ describe('native kern test runner', () => {
     expect(summary.results[1].message).toContain('Order.capture');
   });
 
-  test('fails coverage when guards lack explicit or guard-wide assertions', () => {
+  test('fails coverage when guards lack explicit workflow or guard-wide assertions', () => {
     writeFileSync(
       join(tmpDir, 'payment.kern'),
       [
@@ -2274,7 +2274,43 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(1);
     expect(summary.results[1].ruleId).toBe('no:untestedguards');
     expect(summary.results[1].message).toContain('guard VerifyUser');
+    expect(summary.results[1].message).toContain('route/tool workflow assertion');
     expect(summary.results[1].message).toContain('expect preset=guard');
+  });
+
+  test('counts guards executed by route and tool workflow assertions as covered', () => {
+    writeFileSync(
+      join(tmpDir, 'workflow-guard-coverage.kern'),
+      [
+        'server name=Api',
+        '  route GET /items/:id',
+        '    guard type=validate param=id regex="^item-"',
+        '    respond 200 json=id',
+        'mcp name=Tools',
+        '  tool name=search',
+        '    param name=query type=string required=true',
+        '    guard type=sanitize param=query pattern="[<>]" replacement=""',
+        '    respond 200 json=query',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'workflow-guard-coverage.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Workflow guard coverage" target="./workflow-guard-coverage.kern"',
+        '  it name="covers guards through workflows"',
+        '    expect route="GET /items/:id" with={{({ params: { id: "bad" } })}} throws=ValidationError',
+        '    expect tool=search with={{({ query: "<hello>" })}} returns={{"hello"}}',
+        '    expect preset=coverage',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.coverage.guards.total).toBe(2);
+    expect(summary.coverage.guards.covered).toBe(2);
+    expect(summary.coverage.guards.uncovered).toEqual([]);
   });
 
   test('reports native coverage metrics for transitions and guards', () => {
