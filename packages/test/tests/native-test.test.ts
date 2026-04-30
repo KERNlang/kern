@@ -85,6 +85,7 @@ describe('native kern test runner', () => {
       expect.arrayContaining([
         'examples/native-test/conformance-arrays.test.kern',
         'examples/native-test/conformance-classes.test.kern',
+        'examples/native-test/conformance-collections.test.kern',
         'examples/native-test/language-surface.test.kern',
         'examples/native-test/order.test.kern',
       ]),

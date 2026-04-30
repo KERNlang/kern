@@ -1732,6 +1732,8 @@ function runtimeBindingSource(node: IRNode): { expr: string; kind: RuntimeBindin
   }
   if (node.type === 'fn') return { expr: runtimeFunctionExpr(node), kind: 'fn' };
   if (node.type === 'class') return { expr: runtimeClassExpr(node), kind: 'class' };
+  if (node.type === 'mapLit') return { expr: runtimeMapLitExpr(node), kind: 'expr' };
+  if (node.type === 'setLit') return { expr: runtimeSetLitExpr(node), kind: 'expr' };
   const arrayExpr = runtimeArrayBindingExpr(node);
   if (arrayExpr !== undefined) return { expr: arrayExpr, kind: 'expr' };
   return undefined;
@@ -1855,6 +1857,67 @@ function runtimeClassExpr(node: IRNode): string {
   return lines.join('\n');
 }
 
+function runtimeValuePropSource(node: IRNode, propName: string): string {
+  return exprPropToRuntimeSource(node, propName) || rawPropToRuntimeSource(node, propName);
+}
+
+function runtimeMapLitExpr(node: IRNode): string {
+  const entries: string[] = [];
+  for (const entry of getChildren(node, 'mapEntry')) {
+    const key = runtimeValuePropSource(entry, 'key');
+    const value = runtimeValuePropSource(entry, 'value');
+    if (!key || !value) return '';
+    entries.push(`[${key}, ${value}]`);
+  }
+  return `new Map([${entries.join(', ')}])`;
+}
+
+function runtimeSetLitExpr(node: IRNode): string {
+  const items: string[] = [];
+  for (const item of getChildren(node, 'setItem')) {
+    const value = runtimeValuePropSource(item, 'value');
+    if (!value) return '';
+    items.push(value);
+  }
+  return `new Set([${items.join(', ')}])`;
+}
+
+function runtimeDestructureBindings(node: IRNode): RuntimeBinding[] {
+  const source = rawPropToRuntimeSource(node, 'source');
+  if (!source) return [];
+
+  const bindings: RuntimeBinding[] = [];
+  for (const child of node.children || []) {
+    const props = getProps(child);
+    const name = str(props.name);
+    if (!isRuntimeBindingName(name)) continue;
+
+    if (child.type === 'element') {
+      const rawIndex = str(props.index);
+      const index = rawIndex && /^-?\d+$/.test(rawIndex) ? rawIndex : String(bindings.length);
+      bindings.push({
+        name,
+        expr: `((${source})[${index}])`,
+        kind: 'expr',
+        line: child.loc?.line,
+      });
+    }
+
+    if (child.type === 'binding') {
+      const key = str(props.key) || name;
+      const accessor = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`;
+      bindings.push({
+        name,
+        expr: `((${source})${accessor})`,
+        kind: 'expr',
+        line: child.loc?.line,
+      });
+    }
+  }
+
+  return bindings;
+}
+
 function runtimeNamedProp(node: IRNode, propName: string, fallback: string): string {
   const value = str(getProps(node)[propName]);
   return isRuntimeBindingName(value) ? value : fallback;
@@ -1971,6 +2034,9 @@ function collectRuntimeBindings(root: IRNode): RuntimeBinding[] {
   const bindings: RuntimeBinding[] = [];
 
   function visit(node: IRNode): void {
+    if (node.type === 'destructure') {
+      bindings.push(...runtimeDestructureBindings(node));
+    }
     const name = str(getProps(node).name);
     const binding = runtimeBindingSource(node);
     if (name && binding?.expr) {
