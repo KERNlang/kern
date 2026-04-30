@@ -206,6 +206,72 @@ export async function loadUser(id: string): Promise<User> {
     expect(errors).toEqual([]);
   });
 
+  it('checks TypeScript imports without writing KERN output', () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'add.ts');
+    writeFileSync(sourceFile, 'export function add(a: number, b: number): number { return a + b; }\n');
+
+    runImport(['import', sourceFile, '--check']);
+
+    expect(existsSync(join(tmpDir, 'add.kern'))).toBe(false);
+    expect(logs.join('\n')).toContain('Import check passed');
+    expect(errors).toEqual([]);
+  });
+
+  it('emits JSON import check reports', () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'bag.ts');
+    writeFileSync(sourceFile, 'export interface Bag { [key: string]: number; }\n');
+
+    runImport(['import', sourceFile, '--json']);
+
+    const report = JSON.parse(logs.join('\n'));
+    expect(report.ok).toBe(true);
+    expect(report.files).toHaveLength(1);
+    expect(report.files[0].unmapped).toEqual([]);
+    expect(report.files[0].diagnostics).toEqual([]);
+    expect(report.files[0].schemaViolations).toEqual([]);
+    expect(report.files[0].semanticViolations).toEqual([]);
+    expect(report.files[0].codegenErrors).toEqual([]);
+    expect(report.totals.schemaViolations).toBe(0);
+    expect(report.totals.semanticViolations).toBe(0);
+    expect(existsSync(join(tmpDir, 'bag.kern'))).toBe(false);
+  });
+
+  it('fails import --check on unmapped TypeScript', () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'bad.ts');
+    writeFileSync(sourceFile, 'debugger;\n');
+    const getExitCode = trapExit();
+
+    expect(() => runImport(['import', sourceFile, '--check'])).toThrow('EXIT:1');
+
+    expect(getExitCode()).toBe(1);
+    expect(logs.join('\n')).toContain('unmapped=1');
+    expect(logs.join('\n')).toContain('debugger');
+    expect(errors.join('\n')).toContain('Import check failed');
+    expect(existsSync(join(tmpDir, 'bad.kern'))).toBe(false);
+  });
+
+  it('emits JSON before failing import --check', () => {
+    process.chdir(tmpDir);
+
+    const sourceFile = join(tmpDir, 'bad-json.ts');
+    writeFileSync(sourceFile, 'debugger;\n');
+    const getExitCode = trapExit();
+
+    expect(() => runImport(['import', sourceFile, '--json', '--check'])).toThrow('EXIT:1');
+
+    const report = JSON.parse(logs.join('\n'));
+    expect(getExitCode()).toBe(1);
+    expect(report.ok).toBe(false);
+    expect(report.files[0].unmapped[0]).toContain('debugger');
+    expect(report.files[0].diagnostics).toEqual([]);
+  });
+
   it('compiles MCP sources through kern compile --target=mcp', async () => {
     process.chdir(tmpDir);
 

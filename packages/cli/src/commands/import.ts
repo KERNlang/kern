@@ -1,7 +1,38 @@
-import { importTypeScript } from '@kernlang/core';
+import type { ImportResult, ParseDiagnostic, SchemaViolation, SemanticViolation } from '@kernlang/core';
+import {
+  generateCoreNode,
+  importTypeScript,
+  parseDocumentWithDiagnostics,
+  validateSchema,
+  validateSemantics,
+} from '@kernlang/core';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { basename, dirname, relative, resolve } from 'path';
 import { hasFlag, parseFlag } from '../shared.js';
+
+interface ImportFileReport {
+  file: string;
+  output: string;
+  ok: boolean;
+  stats: ImportResult['stats'];
+  unmapped: string[];
+  diagnostics: ParseDiagnostic[];
+  schemaViolations: SchemaViolation[];
+  semanticViolations: SemanticViolation[];
+  codegenErrors: string[];
+}
+
+interface ImportCommandReport {
+  files: ImportFileReport[];
+  totals: ImportResult['stats'] & {
+    unmapped: number;
+    diagnostics: number;
+    schemaViolations: number;
+    semanticViolations: number;
+    codegenErrors: number;
+  };
+  ok: boolean;
+}
 
 function findTsFiles(dir: string): string[] {
   const files: string[] = [];
@@ -20,10 +51,107 @@ function findTsFiles(dir: string): string[] {
   return files;
 }
 
+function codegenRoots(root: { type: string; children?: unknown[] }): unknown[] {
+  return root.type === 'document' ? root.children || [] : [root];
+}
+
+function findCodegenErrors(root: ReturnType<typeof parseDocumentWithDiagnostics>['root']): string[] {
+  const failures: string[] = [];
+  for (const node of codegenRoots(root)) {
+    try {
+      generateCoreNode(node as never);
+    } catch (error) {
+      const typedNode = node as { type?: string; loc?: { line?: number } };
+      failures.push(
+        `${typedNode.type || 'node'} at line ${typedNode.loc?.line ?? '?'}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+  return failures;
+}
+
+function checkImportedKern(
+  result: ImportResult,
+): Omit<ImportFileReport, 'file' | 'output' | 'stats' | 'unmapped' | 'ok'> {
+  const parsed = parseDocumentWithDiagnostics(result.kern);
+  const diagnostics = parsed.diagnostics;
+  return {
+    diagnostics,
+    schemaViolations: validateSchema(parsed.root),
+    semanticViolations: validateSemantics(parsed.root),
+    codegenErrors: findCodegenErrors(parsed.root),
+  };
+}
+
+function formatImportIssues(report: ImportFileReport): string[] {
+  const lines: string[] = [];
+  if (report.unmapped.length > 0) lines.push(`unmapped=${report.unmapped.length}`);
+  if (report.diagnostics.length > 0) lines.push(`diagnostics=${report.diagnostics.length}`);
+  if (report.schemaViolations.length > 0) lines.push(`schema=${report.schemaViolations.length}`);
+  if (report.semanticViolations.length > 0) lines.push(`semantic=${report.semanticViolations.length}`);
+  if (report.codegenErrors.length > 0) lines.push(`codegen=${report.codegenErrors.length}`);
+  return lines;
+}
+
+function createImportReport(files: string[], outDir?: string): ImportCommandReport {
+  const reports: ImportFileReport[] = [];
+  const totals: ImportCommandReport['totals'] = {
+    types: 0,
+    interfaces: 0,
+    functions: 0,
+    classes: 0,
+    imports: 0,
+    constants: 0,
+    enums: 0,
+    components: 0,
+    unmapped: 0,
+    diagnostics: 0,
+    schemaViolations: 0,
+    semanticViolations: 0,
+    codegenErrors: 0,
+  };
+
+  for (const file of files) {
+    const source = readFileSync(file, 'utf-8');
+    const result = importTypeScript(source, basename(file));
+    const kernFileName = basename(file).replace(/\.tsx?$/, '.kern');
+    const kernOutDir = outDir ? resolve(outDir) : dirname(file);
+    const kernPath = resolve(kernOutDir, kernFileName);
+    const checked = checkImportedKern(result);
+
+    for (const key of Object.keys(result.stats) as (keyof ImportResult['stats'])[]) {
+      totals[key] += result.stats[key];
+    }
+    totals.unmapped += result.unmapped.length;
+    totals.diagnostics += checked.diagnostics.length;
+    totals.schemaViolations += checked.schemaViolations.length;
+    totals.semanticViolations += checked.semanticViolations.length;
+    totals.codegenErrors += checked.codegenErrors.length;
+
+    reports.push({
+      file,
+      output: kernPath,
+      ok:
+        result.unmapped.length === 0 &&
+        checked.diagnostics.length === 0 &&
+        checked.schemaViolations.length === 0 &&
+        checked.semanticViolations.length === 0 &&
+        checked.codegenErrors.length === 0,
+      stats: result.stats,
+      unmapped: result.unmapped,
+      ...checked,
+    });
+  }
+
+  return { files: reports, totals, ok: reports.every((report) => report.ok) };
+}
+
 export function runImport(args: string[]): void {
   const input = args[1];
   if (!input) {
-    console.error('Usage: kern import <file.ts|dir> [--outdir=<dir>] [--dry-run]');
+    console.error('Usage: kern import <file.ts|dir> [--outdir=<dir>] [--dry-run] [--check] [--json]');
     process.exit(1);
   }
 
@@ -35,72 +163,103 @@ export function runImport(args: string[]): void {
 
   const outDir = parseFlag(args, '--outdir');
   const dryRun = hasFlag(args, '--dry-run');
+  const check = hasFlag(args, '--check');
+  const json = hasFlag(args, '--json');
   const stat = statSync(inputPath);
   const files = stat.isDirectory() ? findTsFiles(inputPath) : [inputPath];
 
   if (files.length === 0) {
-    console.log('No .ts/.tsx files found.');
+    if (json) console.log(JSON.stringify({ files: [], totals: {}, ok: true }, null, 2));
+    else console.log('No .ts/.tsx files found.');
+    return;
+  }
+
+  const report = createImportReport(files, outDir);
+  if (json) {
+    console.log(JSON.stringify(report, null, 2));
+    if (check && !report.ok) process.exit(1);
+    return;
+  }
+
+  if (check) {
+    console.log(`\n  KERN import check — validating ${files.length} TypeScript file(s)\n`);
+    for (const fileReport of report.files) {
+      const relFile = relative(process.cwd(), fileReport.file);
+      if (fileReport.ok) {
+        console.log(`  ✓ ${relFile}`);
+        continue;
+      }
+      console.log(`  ✗ ${relFile} (${formatImportIssues(fileReport).join(', ')})`);
+      for (const unmapped of fileReport.unmapped.slice(0, 3)) console.log(`      unmapped: ${unmapped}`);
+      for (const diagnostic of fileReport.diagnostics.slice(0, 3)) {
+        console.log(`      diagnostic: ${diagnostic.line}:${diagnostic.col} ${diagnostic.message}`);
+      }
+      for (const error of fileReport.codegenErrors.slice(0, 3)) console.log(`      codegen: ${error}`);
+    }
+    console.log('');
+    if (!report.ok) {
+      console.error(
+        `Import check failed: ${report.files.filter((fileReport) => !fileReport.ok).length} file(s) failed.`,
+      );
+      process.exit(1);
+    }
+    console.log('Import check passed.');
     return;
   }
 
   console.log(`\n  KERN import — converting ${files.length} TypeScript file(s)\n`);
 
-  const totalStats = { types: 0, interfaces: 0, functions: 0, classes: 0, imports: 0, constants: 0, enums: 0 };
-  let totalUnmapped = 0;
-
-  for (const file of files) {
-    const source = readFileSync(file, 'utf-8');
-    const relFile = relative(process.cwd(), file);
-    const result = importTypeScript(source, basename(file));
-
-    // Accumulate stats
-    for (const key of Object.keys(totalStats) as (keyof typeof totalStats)[]) {
-      totalStats[key] += result.stats[key];
-    }
-    totalUnmapped += result.unmapped.length;
-
-    const kernFileName = basename(file).replace(/\.tsx?$/, '.kern');
-    const kernOutDir = outDir ? resolve(outDir) : dirname(file);
-    const kernPath = resolve(kernOutDir, kernFileName);
+  for (const fileReport of report.files) {
+    const relFile = relative(process.cwd(), fileReport.file);
+    const kernFileName = basename(fileReport.output);
 
     if (dryRun) {
-      console.log(`  ${relFile} → ${relative(process.cwd(), kernPath)}`);
+      console.log(`  ${relFile} → ${relative(process.cwd(), fileReport.output)}`);
       console.log(
-        `    types: ${result.stats.types}, interfaces: ${result.stats.interfaces}, functions: ${result.stats.functions}, classes: ${result.stats.classes}`,
+        `    types: ${fileReport.stats.types}, interfaces: ${fileReport.stats.interfaces}, functions: ${fileReport.stats.functions}, classes: ${fileReport.stats.classes}`,
       );
-      if (result.unmapped.length > 0) {
-        console.log(`    unmapped: ${result.unmapped.length}`);
-        for (const u of result.unmapped.slice(0, 3)) {
+      if (fileReport.unmapped.length > 0) {
+        console.log(`    unmapped: ${fileReport.unmapped.length}`);
+        for (const u of fileReport.unmapped.slice(0, 3)) {
           console.log(`      - ${u}`);
         }
-        if (result.unmapped.length > 3) {
-          console.log(`      ... and ${result.unmapped.length - 3} more`);
+        if (fileReport.unmapped.length > 3) {
+          console.log(`      ... and ${fileReport.unmapped.length - 3} more`);
         }
       }
       console.log('');
-      console.log(result.kern);
+      console.log(importTypeScript(readFileSync(fileReport.file, 'utf-8'), basename(fileReport.file)).kern);
       console.log('---');
     } else {
-      mkdirSync(kernOutDir, { recursive: true });
-      writeFileSync(kernPath, result.kern);
+      mkdirSync(dirname(fileReport.output), { recursive: true });
+      writeFileSync(
+        fileReport.output,
+        importTypeScript(readFileSync(fileReport.file, 'utf-8'), basename(fileReport.file)).kern,
+      );
       const parts: string[] = [];
-      if (result.stats.types) parts.push(`${result.stats.types} types`);
-      if (result.stats.interfaces) parts.push(`${result.stats.interfaces} interfaces`);
-      if (result.stats.functions) parts.push(`${result.stats.functions} functions`);
-      if (result.stats.classes) parts.push(`${result.stats.classes} classes`);
-      if (result.stats.constants) parts.push(`${result.stats.constants} constants`);
-      if (result.stats.imports) parts.push(`${result.stats.imports} imports`);
+      if (fileReport.stats.types) parts.push(`${fileReport.stats.types} types`);
+      if (fileReport.stats.interfaces) parts.push(`${fileReport.stats.interfaces} interfaces`);
+      if (fileReport.stats.functions) parts.push(`${fileReport.stats.functions} functions`);
+      if (fileReport.stats.classes) parts.push(`${fileReport.stats.classes} classes`);
+      if (fileReport.stats.constants) parts.push(`${fileReport.stats.constants} constants`);
+      if (fileReport.stats.imports) parts.push(`${fileReport.stats.imports} imports`);
       console.log(`  ${relFile} → ${kernFileName} (${parts.join(', ')})`);
-      if (result.unmapped.length > 0) {
-        console.log(`    ⚠ ${result.unmapped.length} unmapped construct(s)`);
+      if (fileReport.unmapped.length > 0) {
+        console.log(`    ⚠ ${fileReport.unmapped.length} unmapped construct(s)`);
       }
     }
   }
 
   console.log(
-    `\n  Total: ${totalStats.types + totalStats.interfaces + totalStats.functions + totalStats.classes + totalStats.constants} declarations imported`,
+    `\n  Total: ${
+      report.totals.types +
+      report.totals.interfaces +
+      report.totals.functions +
+      report.totals.classes +
+      report.totals.constants
+    } declarations imported`,
   );
-  if (totalUnmapped > 0) {
-    console.log(`  ${totalUnmapped} unmapped construct(s) — check comments in output`);
+  if (report.totals.unmapped > 0) {
+    console.log(`  ${report.totals.unmapped} unmapped construct(s) — check comments in output`);
   }
 }
