@@ -1,0 +1,8 @@
+interface name=User
+  field name=id type=string
+
+interface name=User
+  field name=email type=string
+
+derive name=cycleA expr={{cycleB + 1}}
+derive name=cycleB expr={{cycleA + 1}}

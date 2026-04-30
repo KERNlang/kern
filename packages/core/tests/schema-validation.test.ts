@@ -313,6 +313,28 @@ describe('Schema Validation', () => {
       expect(v.some((violation) => violation.message.includes("'expect' requires"))).toBe(true);
     });
 
+    it('accepts positive native invariant assertions', () => {
+      const v = validate(
+        [
+          'test name="Bad target" target="./bad.kern"',
+          '  it name="detects broken source"',
+          '    expect has=deriveCycles matches="cycle"',
+        ].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
+
+    it('flags expect assertions that combine positive and negative invariants', () => {
+      const v = validate(
+        ['test name="Ambiguous"', '  it name="cannot be both"', '    expect no=deriveCycles has=deriveCycles'].join(
+          '\n',
+        ),
+      );
+      expect(
+        v.some((violation) => violation.message.includes('cannot combine no=<invariant> and has=<invariant>')),
+      ).toBe(true);
+    });
+
     it('flags fixtures without a runtime value', () => {
       const v = validate(['test name="Fixture"', '  it name="missing value"', '    fixture name=order'].join('\n'));
       expect(v.some((violation) => violation.message.includes("'fixture' requires either value"))).toBe(true);

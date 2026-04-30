@@ -1,0 +1,63 @@
+interface name=User
+  field name=id type=string
+
+interface name=User
+  field name=email type=string
+
+derive name=cycleA expr={{cycleB + 1}}
+derive name=cycleB expr={{cycleA + 1}}
+
+union name=Payment discriminant=kind
+  variant name=card
+  variant name=paypal
+
+guard name=PaymentGuard kind=variant covers=card over=Payment
+
+server name=Api
+  route method=post path=/orders
+    handler <<<
+      await db.create(input);
+    >>>
+  route method=post path=/orders
+  route method=get path=/empty
+  route method=get path=/unsafe
+    guard name=hasUser expr={{user}}
+    handler <<<
+      await fetch(url);
+    >>>
+  route method=get path=/items/:id
+    handler <<<
+      res.json({});
+    >>>
+
+mcp name=BadTools
+  tool name=fetchRemote
+    param name=url type=string required=true
+    handler <<<
+      return await fetch(url);
+    >>>
+  tool name=readFile
+    param name=filePath type=string required=true
+    guard type=sanitize param=filePath
+    handler <<<
+      return await fs.readFile(filePath, "utf-8");
+    >>>
+  tool name=search
+    param name=query type=string required=true
+    param name=query type=string required=true
+
+component name=Dashboard
+  effect deps=window
+    handler <<<
+      window.addEventListener("resize", onResize);
+    >>>
+
+async name=loadRemote
+  handler <<<
+    await fetch(url);
+  >>>
+
+fn name=loadRemote
+  handler <<<
+    return fetch(url);
+  >>>

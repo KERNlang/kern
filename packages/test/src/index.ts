@@ -278,6 +278,10 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
     ruleId: 'mock:called',
     description: 'Assert how many times a scoped native effect mock was actually invoked.',
   },
+  {
+    ruleId: 'has:invariant',
+    description: 'Assert that an intentionally bad target KERN file contains the requested native invariant failure.',
+  },
   { ruleId: 'expect:unsupported', description: 'The expect assertion shape is not supported by native kern test.' },
   { ruleId: 'preset:unknown', description: 'The requested preset name is unknown.' },
   { ruleId: 'no:schemaviolations', description: 'The target KERN file has no schema violations.' },
@@ -601,6 +605,10 @@ function invariantRuleId(value: string): string {
   return `no:${normalizeInvariant(value) || 'unknown'}`;
 }
 
+function hasInvariantRuleId(value: string): string {
+  return `has:${normalizeInvariant(value) || 'unknown'}`;
+}
+
 function presetRuleId(value: string): string {
   return `preset:${normalizeInvariant(value) || 'unknown'}`;
 }
@@ -839,6 +847,7 @@ function assertionLabel(node: IRNode): string {
   const to = str(props.to);
   const reaches = str(props.reaches);
   const no = str(props.no);
+  const has = str(props.has);
   const guard = str(props.guard);
   const expr = exprToString(props.expr);
   const fn = str(props.fn);
@@ -868,6 +877,7 @@ function assertionLabel(node: IRNode): string {
     return parts.join(' ');
   }
   if (no) return `${machine ? `machine ${machine} ` : ''}no ${no}`;
+  if (has) return `${machine ? `machine ${machine} ` : ''}has ${has}${matches ? ` matches ${matches}` : ''}`;
   if (guard) return `guard ${guard} exhaustive`;
   if (machine && transition) {
     return [`machine ${machine} transition ${transition}`, from ? `from ${from}` : '', to ? `to ${to}` : '']
@@ -4935,6 +4945,52 @@ function evaluateNoInvariant(
   return { passed: false, message: `Unsupported native invariant: no=${str(getProps(node).no)}` };
 }
 
+function evaluateHasInvariant(
+  node: IRNode,
+  target: LoadedKernDocument,
+  context?: NativeKernAssertionContext,
+): { passed: boolean; message?: string } {
+  const props = getProps(node);
+  const invariant = str(props.has);
+  const normalized = normalizeInvariant(invariant);
+  if (!['parseerrors', 'schemaviolations', 'semanticviolations'].includes(normalized)) {
+    const blocking = targetBlockingMessage(target);
+    if (blocking) return { passed: false, message: blocking };
+  }
+  const evaluated = evaluateNoInvariant(nodeWithProps(node, { ...props, no: invariant }), target, context);
+
+  if (isAssertionConfigurationFailure(evaluated.message)) {
+    return { passed: false, message: evaluated.message };
+  }
+
+  if (evaluated.passed) {
+    return {
+      passed: false,
+      message: `Expected target to have ${invariant || '<missing>'}, but none was found`,
+    };
+  }
+
+  if ('matches' in props) {
+    const pattern = runtimePatternValue(node, 'matches') || '';
+    try {
+      const regex = new RegExp(pattern);
+      return regex.test(evaluated.message || '')
+        ? { passed: true }
+        : {
+            passed: false,
+            message: `Expected ${invariant || '<missing>'} message to match /${pattern}/, got: ${evaluated.message || '<none>'}`,
+          };
+    } catch (error) {
+      return {
+        passed: false,
+        message: `Native has assertion has invalid matches regex: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  return { passed: true };
+}
+
 function evaluateMachineReachability(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -5185,6 +5241,18 @@ function evaluateNativeAssertion(
     return [
       {
         ruleId: invariantRuleId(str(props.no)),
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('has' in props) {
+    const evaluated = evaluateHasInvariant(node, target, context);
+    return [
+      {
+        ruleId: hasInvariantRuleId(str(props.has)),
         assertion: assertionLabel(node),
         passed: evaluated.passed,
         ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),

@@ -84,6 +84,7 @@ describe('native kern test runner', () => {
     expect(relativeFiles).toEqual(
       expect.arrayContaining([
         'examples/native-test/conformance-arrays.test.kern',
+        'examples/native-test/conformance-bad-cases.test.kern',
         'examples/native-test/conformance-classes.test.kern',
         'examples/native-test/conformance-collections.test.kern',
         'examples/native-test/conformance-control-flow.test.kern',
@@ -108,7 +109,60 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(0);
     expect(summary.total).toBeGreaterThan(0);
     expect(summary.coverage.percent).toBe(100);
-    expect(relativeFiles).toEqual(expect.arrayContaining(['packages/core/native-test/kernlang-contracts.test.kern']));
+    expect(relativeFiles).toEqual(
+      expect.arrayContaining([
+        'packages/core/native-test/kernlang-bad-cases.test.kern',
+        'packages/core/native-test/kernlang-contracts.test.kern',
+        'packages/core/native-test/kernlang-schema-bad.test.kern',
+      ]),
+    );
+  });
+
+  test('passes positive invariant assertions against intentionally bad KERN', () => {
+    writeFileSync(
+      join(tmpDir, 'bad.kern'),
+      [
+        'interface name=User',
+        'interface name=User',
+        'derive name=cycleA expr={{cycleB + 1}}',
+        'derive name=cycleB expr={{cycleA + 1}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'bad.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Bad target" target="./bad.kern"',
+        '  it name="detects expected native failures"',
+        '    expect has=duplicateNames matches="User"',
+        '    expect has=deriveCycles matches="cycleA.*cycleB|cycleB.*cycleA"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(2);
+    expect(summary.results.map((result) => result.ruleId)).toEqual(['has:duplicatenames', 'has:derivecycles']);
+  });
+
+  test('fails positive invariant assertions for unsupported invariants', () => {
+    writeFileSync(join(tmpDir, 'valid.kern'), 'const name=ok value=true');
+    const testFile = join(tmpDir, 'unknown.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Unknown invariant" target="./valid.kern"',
+        '  it name="rejects unknown has"',
+        '    expect has=notARealInvariant',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('has:notarealinvariant');
+    expect(summary.results[0].message).toContain('Unsupported native invariant');
   });
 
   test('executes runtime expr assertions against target const and derive bindings', () => {

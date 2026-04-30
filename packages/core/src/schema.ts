@@ -2589,10 +2589,12 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
     const hasPreset = 'preset' in props;
     const hasNodeShape = 'node' in props;
     const hasNegativeInvariant = 'no' in props;
+    const hasPositiveInvariant = 'has' in props;
     const hasGuardExhaustiveness = 'guard' in props;
     const hasMachineTransition = 'transition' in props;
     const hasMachineReachability =
-      'reaches' in props || ('machine' in props && !hasNegativeInvariant && !hasMachineTransition);
+      'reaches' in props ||
+      ('machine' in props && !hasNegativeInvariant && !hasPositiveInvariant && !hasMachineTransition);
     if (
       !hasRuntimeAssertion &&
       !hasRuntimeBehavior &&
@@ -2603,12 +2605,21 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       !hasMachineTransition &&
       !hasMachineReachability &&
       !hasNegativeInvariant &&
+      !hasPositiveInvariant &&
       !hasGuardExhaustiveness
     ) {
       violations.push({
         nodeType: 'expect',
         message:
-          "'expect' requires 'expr', 'fn', 'derive', 'route', 'tool', 'effect', 'mock' call count, 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
+          "'expect' requires 'expr', 'fn', 'derive', 'route', 'tool', 'effect', 'mock' call count, 'preset', 'node', 'machine' reachability, machine transition, 'no', 'has', or 'guard'",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasNegativeInvariant && hasPositiveInvariant) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' cannot combine no=<invariant> and has=<invariant>",
         line: node.loc?.line,
         col: node.loc?.col,
       });
