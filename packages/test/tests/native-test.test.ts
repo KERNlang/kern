@@ -2814,6 +2814,59 @@ describe('native kern test runner', () => {
     expect(summary.results[0].message).toContain('Decompiled KERN does not contain');
   });
 
+  test('asserts TypeScript importer output and imported KERN roundtrip natively', () => {
+    writeFileSync(join(tmpDir, 'target.kern'), 'const name=ok value=true');
+    writeFileSync(
+      join(tmpDir, 'fixture.ts'),
+      [
+        'export interface Bag {',
+        '  [key: string]: number;',
+        '}',
+        'export function add(a: number, b: number): number;',
+        'export function add(a: string, b: string): string;',
+        'export function add(a: any, b: any): any {',
+        '  return a + b;',
+        '}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'import.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Import assertions" target="./target.kern" coverage=false',
+        '  it name="checks imported KERN"',
+        '    expect import="./fixture.ts" contains="interface name=Bag export=true"',
+        '    expect import=true from="./fixture.ts" contains="overload params=\\"a:number,b:number\\" returns=number"',
+        '    expect import="./fixture.ts" notContains="TODO(unmapped)"',
+        '    expect import="./fixture.ts" roundtrip=true',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.ruleId)).toEqual(['import', 'import', 'import', 'import']);
+  });
+
+  test('reports TypeScript importer assertion mismatches', () => {
+    writeFileSync(join(tmpDir, 'fixture.ts'), 'export interface Bag { [key: string]: number }');
+    const testFile = join(tmpDir, 'import-mismatch.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Import mismatch" coverage=false',
+        '  it name="fails clearly"',
+        '    expect import="./fixture.ts" contains="class name=Missing"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('import');
+    expect(summary.results[0].message).toContain('Imported KERN does not contain');
+  });
+
   test('discovers and runs native test files under a directory', () => {
     writeFileSync(
       join(tmpDir, 'order.kern'),

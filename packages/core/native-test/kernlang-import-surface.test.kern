@@ -1,0 +1,24 @@
+test name="KERNlang TypeScript importer parity" target="./kernlang-typescript-surface.kern" coverage=false
+  it name="imports typed declarations into native KERN"
+    expect import="./kernlang-import-surface.ts" contains="interface name=Bag export=true"
+    expect import="./kernlang-import-surface.ts" contains="indexer keyName=key keyType=string type=number"
+    expect import="./kernlang-import-surface.ts" contains="interface name=Frozen export=true"
+    expect import="./kernlang-import-surface.ts" contains="indexer keyName=key keyType=string type=unknown readonly=true"
+    expect import="./kernlang-import-surface.ts" contains="type name=Box"
+    expect import="./kernlang-import-surface.ts" contains="generics=\"<T>\""
+    expect import=true from="./kernlang-import-surface.ts" contains="enum name=Direction export=true"
+
+  it name="imports overloads classes and collections"
+    expect import="./kernlang-import-surface.ts" contains="fn name=add returns=any export=true"
+    expect import="./kernlang-import-surface.ts" contains="overload params=\"a:number,b:number\" returns=number"
+    expect import="./kernlang-import-surface.ts" contains="class name=Container generics=\"<T>\" export=true"
+    expect import="./kernlang-import-surface.ts" contains="method name=bar returns=U generics=\"<U>\""
+    expect import="./kernlang-import-surface.ts" contains="mapLit name=lookup export=true"
+    expect import="./kernlang-import-surface.ts" contains="setLit name=roles export=true"
+
+  it name="imports destructuring and recompiles imported KERN"
+    expect import="./kernlang-import-surface.ts" contains="destructure kind=const source=user export=true"
+    expect import="./kernlang-import-surface.ts" contains="binding name=mail key=email"
+    expect import="./kernlang-import-surface.ts" contains="element name=first index=0"
+    expect import="./kernlang-import-surface.ts" notContains="TODO(unmapped)"
+    expect import="./kernlang-import-surface.ts" roundtrip=true

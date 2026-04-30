@@ -2398,6 +2398,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       effect: { kind: 'identifier' },
       mock: { kind: 'identifier' },
       called: { kind: 'number' },
+      import: { kind: 'string' },
+      source: { kind: 'string' },
       args: { kind: 'rawExpr' },
       with: { kind: 'rawExpr' },
       input: { kind: 'rawExpr' },
@@ -2615,6 +2617,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
     const hasMockCallAssertion = 'mock' in props || 'called' in props;
     const hasCodegenAssertion = 'codegen' in props;
     const hasDecompileAssertion = 'decompile' in props;
+    const hasImportAssertion = 'import' in props;
     const hasRoundtripAssertion = 'roundtrip' in props;
     const hasPreset = 'preset' in props;
     const hasNodeShape = 'node' in props;
@@ -2632,6 +2635,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       !hasMockCallAssertion &&
       !hasCodegenAssertion &&
       !hasDecompileAssertion &&
+      !hasImportAssertion &&
       !hasRoundtripAssertion &&
       !hasPreset &&
       !hasNodeShape &&
@@ -2644,7 +2648,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'expect',
         message:
-          "'expect' requires 'expr', 'fn', 'derive', 'route', 'tool', 'effect', 'mock' call count, 'codegen', 'decompile', 'roundtrip', 'preset', 'node', 'machine' reachability, machine transition, 'no', 'has', or 'guard'",
+          "'expect' requires 'expr', 'fn', 'derive', 'route', 'tool', 'effect', 'mock' call count, 'codegen', 'decompile', 'import', 'roundtrip', 'preset', 'node', 'machine' reachability, machine transition, 'no', 'has', or 'guard'",
         line: node.loc?.line,
         col: node.loc?.col,
       });
@@ -2664,6 +2668,27 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
         line: node.loc?.line,
         col: node.loc?.col,
       });
+    }
+    if (hasImportAssertion) {
+      const importValue = props.import === undefined ? '' : String(props.import);
+      const hasPath = (importValue !== '' && importValue !== 'true') || 'from' in props || 'source' in props;
+      const hasTextAssertion = 'contains' in props || 'notContains' in props || 'matches' in props;
+      if (!hasPath) {
+        violations.push({
+          nodeType: 'expect',
+          message: "'expect import' requires import=<ts-file>, from=<ts-file>, or source=<typescript>",
+          line: node.loc?.line,
+          col: node.loc?.col,
+        });
+      }
+      if (!hasTextAssertion && !hasRoundtripAssertion) {
+        violations.push({
+          nodeType: 'expect',
+          message: "'expect import' requires contains=, notContains=, matches=, or roundtrip=true",
+          line: node.loc?.line,
+          col: node.loc?.col,
+        });
+      }
     }
     if (hasNegativeInvariant && hasPositiveInvariant) {
       violations.push({

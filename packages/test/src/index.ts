@@ -2,6 +2,7 @@ import type { IRNode, ParseDiagnostic, SchemaViolation, SemanticViolation } from
 import {
   decompile,
   generateCoreNode,
+  importTypeScript,
   parseDocumentWithDiagnostics,
   validateSchema,
   validateSemantics,
@@ -146,6 +147,7 @@ interface EvaluatedAssertion {
 
 interface NativeKernAssertionContext {
   assertions: CollectedAssertion[];
+  testFile?: string;
   fixtures?: RuntimeBinding[];
   mocks?: RuntimeEffectMock[];
   mockCalls?: Map<string, number>;
@@ -291,6 +293,10 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
   {
     ruleId: 'mock:called',
     description: 'Assert how many times a scoped native effect mock was actually invoked.',
+  },
+  {
+    ruleId: 'import',
+    description: 'Assert that a TypeScript fixture imports to expected KERN source and optionally recompiles.',
   },
   {
     ruleId: 'has:invariant',
@@ -949,6 +955,8 @@ function assertionLabel(node: IRNode): string {
   const tool = str(props.tool);
   const effect = str(props.effect);
   const mock = str(props.mock);
+  const importAssertion = 'import' in props;
+  const importSource = importAssertionSourcePath(node);
   const codegen = 'codegen' in props;
   const decompileAssertion = 'decompile' in props;
   const roundtrip = 'roundtrip' in props;
@@ -965,6 +973,14 @@ function assertionLabel(node: IRNode): string {
   const throws = props.throws === undefined ? '' : String(props.throws || 'true');
   const called = props.called === undefined ? '' : String(props.called);
 
+  if (importAssertion) {
+    const parts = [`import${importSource ? ` ${importSource}` : ''}`];
+    if (contains) parts.push(`contains ${contains}`);
+    if (notContains) parts.push(`notContains ${notContains}`);
+    if (matches) parts.push(`matches ${matches}`);
+    if (roundtrip) parts.push('roundtrip');
+    return parts.join(' ');
+  }
   if (decompileAssertion) {
     const parts = ['decompile'];
     if (contains) parts.push(`contains ${contains}`);
@@ -2294,6 +2310,110 @@ function evaluateRoundtripAssertion(_node: IRNode, target: LoadedKernDocument): 
   }
   if (originalGenerated.code !== roundtripGenerated.code) {
     return { passed: false, message: 'Round-trip changed generated core code' };
+  }
+
+  return { passed: true };
+}
+
+function importAssertionSourcePath(node: IRNode): string {
+  const props = getProps(node);
+  const importValue = str(props.import);
+  if (importValue && importValue !== 'true') return importValue;
+  return str(props.from) || '';
+}
+
+function resolveImportAssertionSource(
+  node: IRNode,
+  context?: NativeKernAssertionContext,
+): { source?: string; fileName?: string; message?: string } {
+  const props = getProps(node);
+  const inlineSource = str(props.source);
+  if (inlineSource) return { source: inlineSource, fileName: 'inline.ts' };
+
+  const sourcePath = importAssertionSourcePath(node);
+  if (!sourcePath) return { message: 'Import assertion requires import=<ts-file> or from=<ts-file>' };
+
+  const baseDir = context?.testFile ? dirname(context.testFile) : process.cwd();
+  const fileName = resolve(baseDir, sourcePath);
+  try {
+    return { source: readFileSync(fileName, 'utf-8'), fileName };
+  } catch (error) {
+    return {
+      message: `Could not read import source ${sourcePath}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+function evaluateImportedKernRoundtrip(kern: string): { passed: boolean; message?: string } {
+  const reparsed = parseDocumentWithDiagnostics(kern);
+  const parseError = reparsed.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+  if (parseError) {
+    return {
+      passed: false,
+      message: `Imported KERN does not reparse at ${parseError.line}:${parseError.col}: ${parseError.message}`,
+    };
+  }
+
+  const schemaViolation = validateSchema(reparsed.root)[0];
+  if (schemaViolation) {
+    return {
+      passed: false,
+      message: `Imported KERN has schema violation at ${schemaViolation.line ?? 1}:${schemaViolation.col ?? 1}: ${schemaViolation.message}`,
+    };
+  }
+
+  const semanticViolation = validateSemantics(reparsed.root).filter(
+    (violation) => !isMultiSourceTransitionFalsePositive(violation, reparsed.root),
+  )[0];
+  if (semanticViolation) {
+    return {
+      passed: false,
+      message: `Imported KERN has semantic violation at ${semanticViolation.line ?? 1}:${semanticViolation.col ?? 1}: ${semanticViolation.message}`,
+    };
+  }
+
+  const generated = generatedCoreSource(reparsed.root);
+  if (generated.message || generated.code === undefined) {
+    return { passed: false, message: `Imported KERN has codegen error: ${generated.message || 'unknown error'}` };
+  }
+
+  return { passed: true };
+}
+
+function evaluateImportAssertion(
+  node: IRNode,
+  context?: NativeKernAssertionContext,
+): { passed: boolean; message?: string } {
+  const props = getProps(node);
+  const hasTextAssertion = 'contains' in props || 'notContains' in props || 'matches' in props;
+  const hasRoundtripAssertion = 'roundtrip' in props;
+  if (!hasTextAssertion && !hasRoundtripAssertion) {
+    return { passed: false, message: 'Import assertion requires contains=, notContains=, matches=, or roundtrip=true' };
+  }
+
+  const resolved = resolveImportAssertionSource(node, context);
+  if (resolved.message || resolved.source === undefined) {
+    return { passed: false, message: resolved.message || 'Could not resolve import source' };
+  }
+
+  let kern: string;
+  try {
+    kern = importTypeScript(resolved.source, resolved.fileName || 'input.ts').kern;
+  } catch (error) {
+    return {
+      passed: false,
+      message: `TypeScript import failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  if (hasTextAssertion) {
+    const sourceAssertion = evaluateSourceTextAssertion(node, kern, 'Imported KERN');
+    if (!sourceAssertion.passed) return sourceAssertion;
+  }
+
+  if (hasRoundtripAssertion) {
+    const roundtrip = evaluateImportedKernRoundtrip(kern);
+    if (!roundtrip.passed) return roundtrip;
   }
 
   return { passed: true };
@@ -5846,6 +5966,18 @@ function evaluateNativeAssertion(
       },
     ];
   }
+  if ('import' in props) {
+    const evaluated = evaluateImportAssertion(node, context);
+    return [
+      {
+        ruleId: 'import',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
   if ('roundtrip' in props) {
     const evaluated = evaluateRoundtripAssertion(node, target);
     return [
@@ -6198,6 +6330,7 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
     for (const assertion of assertions) {
       const context: NativeKernAssertionContext = {
         assertions,
+        testFile: inputPath,
         fixtures: assertion.fixtures,
         mocks: assertion.mocks,
         mockCalls,
