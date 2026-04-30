@@ -578,6 +578,9 @@ function isAssertionConfigurationFailure(message?: string): boolean {
     message.startsWith('Runtime fn assertion ') ||
     message.startsWith('Runtime derive assertion ') ||
     message.startsWith('Runtime behavior assertion ') ||
+    message.startsWith('Runtime route assertion cannot ') ||
+    message.startsWith('Runtime tool assertion cannot ') ||
+    message.startsWith('Runtime effect assertion cannot ') ||
     message.startsWith('Node assertion requires ') ||
     message.startsWith('Node assertion count ') ||
     message === 'Unsupported native expect assertion.' ||
@@ -2993,10 +2996,10 @@ function runtimeRouteChildProgram(
 
   for (const child of children) {
     if (child.type === 'handler') {
-      return {
-        lines: [],
-        message: `Runtime ${workflowKind} assertions execute portable KERN ${workflowKind} nodes; handler blocks remain backend/runtime tests.`,
-      };
+      const handler = runtimeWorkflowHandlerLines(child, workflowKind);
+      if (handler.message) return handler;
+      lines.push(...handler.lines);
+      continue;
     }
     if (child.type === 'effect') {
       const effectName = runtimeEffectName(child);
@@ -3077,6 +3080,22 @@ function runtimeRouteChildProgram(
 
   lines.push('return undefined;');
   return { lines };
+}
+
+function runtimeWorkflowHandlerLines(
+  node: IRNode,
+  workflowKind: RuntimeWorkflowKind,
+): { lines: string[]; message?: string } {
+  const code = str(getProps(node).code).trim();
+  if (!code) return { lines: [] };
+  const problem = unsafeRuntimeWorkflowReason(code);
+  if (problem) {
+    return {
+      lines: [],
+      message: `Runtime ${workflowKind} assertion cannot execute handler: ${problem}`,
+    };
+  }
+  return { lines: code.split('\n') };
 }
 
 function runtimeRouteBranchExecutionExpr(node: IRNode, options: RuntimeWorkflowProgramOptions = {}): string {

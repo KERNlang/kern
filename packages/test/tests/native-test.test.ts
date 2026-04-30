@@ -772,18 +772,66 @@ describe('native kern test runner', () => {
     ]);
   });
 
-  test('reports handler-backed MCP tool assertions as configuration failures', () => {
+  test('executes safe handler-backed route and tool assertions', () => {
     writeFileSync(
-      join(tmpDir, 'handler-tool.kern'),
-      ['mcp name=Files', '  tool name=readFile', '    handler <<<', '      return "hello";', '    >>>'].join('\n'),
+      join(tmpDir, 'handler-workflows.kern'),
+      [
+        'const name=users value={{[{ id: "u1", role: "admin" }, { id: "u2", role: "member" }]}}',
+        'server name=Api',
+        '  route GET /api/users',
+        '    handler <<<',
+        '      if (query.role) return users.filter((user) => user.role === query.role);',
+        '      return users;',
+        '    >>>',
+        '  route GET /api/users/:id',
+        '    handler <<<',
+        '      return users.find((user) => user.id === id);',
+        '    >>>',
+        'mcp name=Tools',
+        '  tool name=readUser',
+        '    param name=id type=string',
+        '    handler <<<',
+        '      return users.find((user) => user.id === id);',
+        '    >>>',
+      ].join('\n'),
     );
-    const testFile = join(tmpDir, 'handler-tool.test.kern');
+    const testFile = join(tmpDir, 'handler-workflows.test.kern');
     writeFileSync(
       testFile,
       [
-        'test name="Handler tool" target="./handler-tool.kern"',
-        '  it name="rejects backend handler runtime"',
-        '    expect tool=readFile returns={{"hello"}}',
+        'test name="Handler workflows" target="./handler-workflows.kern"',
+        '  it name="runs safe route handlers"',
+        '    expect route="GET /api/users" with={{({ query: { role: "admin" } })}} returns={{[{ id: "u1", role: "admin" }]}}',
+        '    expect route="GET /api/users/:id" with={{({ params: { id: "u2" } })}} returns={{({ id: "u2", role: "member" })}}',
+        '  it name="runs safe tool handlers"',
+        '    expect tool=readUser with={{({ id: "u1" })}} returns={{({ id: "u1", role: "admin" })}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.ruleId)).toEqual(['runtime:route', 'runtime:route', 'runtime:tool']);
+  });
+
+  test('rejects unsafe handler-backed workflow assertions before execution', () => {
+    writeFileSync(
+      join(tmpDir, 'unsafe-handler.kern'),
+      [
+        'mcp name=Files',
+        '  tool name=readSecret',
+        '    handler <<<',
+        '      return process.env.SECRET;',
+        '    >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'unsafe-handler.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Unsafe handler" target="./unsafe-handler.kern"',
+        '  it name="rejects unsafe handler globals"',
+        '    expect tool=readSecret returns={{"secret"}} severity=warn',
       ].join('\n'),
     );
 
@@ -792,7 +840,8 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(1);
     expect(summary.results[0].ruleId).toBe('runtime:tool');
     expect(summary.results[0].severity).toBe('error');
-    expect(summary.results[0].message).toContain('Runtime tool assertions execute portable KERN tool nodes');
+    expect(summary.results[0].message).toContain('Runtime tool assertion cannot execute handler');
+    expect(summary.results[0].message).toContain("unsupported token 'process'");
   });
 
   test('tool assertion failures include runtime expression context', () => {
