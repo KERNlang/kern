@@ -146,7 +146,10 @@ export type ParseErrorCode =
   | 'INVALID_EXPRESSION'
   | 'INVALID_EFFECTS'
   | 'INVALID_UNION_KIND'
-  | 'KIND_SHAPE_VIOLATION';
+  | 'KIND_SHAPE_VIOLATION'
+  | 'INVALID_PROPAGATION'
+  | 'NESTED_PROPAGATION'
+  | 'UNSAFE_UNWRAP_IN_RESULT_FN';
 
 export type ParseDiagnosticSeverity = 'error' | 'warning' | 'info';
 

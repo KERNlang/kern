@@ -9,6 +9,7 @@ import type { Token } from './parser-tokenizer.js';
 import { tokenizeLineInternal } from './parser-tokenizer.js';
 import { validateEffects } from './parser-validate-effects.js';
 import { validateExpressions } from './parser-validate-expressions.js';
+import { validateAndRewritePropagation } from './parser-validate-propagation.js';
 import { validateUnionKind } from './parser-validate-union-kind.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
 import { isKnownNodeType } from './spec.js';
@@ -639,6 +640,7 @@ export function parseInternal(source: string, asDocument: boolean, runtime?: Ker
   validateExpressions(state, root);
   validateEffects(state, root);
   validateUnionKind(state, root);
+  validateAndRewritePropagation(state, root);
   commitParseState(state, rt);
 
   // Count __error nodes for partial compilation support

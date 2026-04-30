@@ -27,10 +27,15 @@ const DIAGNOSTIC_SUGGESTIONS: Record<ParseErrorCode, string> = {
   INVALID_EXPRESSION:
     'The value could not be parsed as a KERN expression. Wrap it in `{{ ... }}` if it uses syntax not yet natively supported.',
   INVALID_EFFECTS: 'See docs/language/effects-pure-spec.md for the full forbidden list and incompatible-prop rules.',
-  INVALID_UNION_KIND:
-    'Use `kind=result`, `kind=option`, or omit `kind` for a regular discriminated union. See docs/language/result-option-spec.md.',
+  INVALID_UNION_KIND: 'Use `kind=result`, `kind=option`, or omit `kind` for a regular discriminated union.',
   KIND_SHAPE_VIOLATION:
-    'A `kind=result` union must declare exactly two variants named `ok` and `err`; `kind=option` must declare exactly two variants named `some` and `none`. See docs/language/result-option-spec.md.',
+    'A `kind=result` union must declare exactly two variants named `ok` and `err`; `kind=option` must declare exactly two variants named `some` and `none`.',
+  INVALID_PROPAGATION:
+    'Postfix `?` requires a call to a Result/Option-returning function and a containing fn whose return type is Result<T, E> or Option<T>. Use explicit `match` or a helper to bridge mixed types.',
+  NESTED_PROPAGATION:
+    'Chained `??` is not supported — bind the intermediate value to a `let`/`const` and propagate each step explicitly.',
+  UNSAFE_UNWRAP_IN_RESULT_FN:
+    'A function returning Result/Option is using `!` (panic) instead of `?` (propagate). Switch to `?` to keep the rich error shape.',
 };
 
 export function createParseState(): ParseState {
