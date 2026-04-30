@@ -4,9 +4,90 @@
  */
 
 import type { IRNode } from '@kernlang/core';
-import { emitIdentifier, handlerCode, mapSemanticType, propsOf } from '@kernlang/core';
+import { emitIdentifier, getFirstChild, getProps, handlerCode, mapSemanticType, propsOf } from '@kernlang/core';
+import { emitNativeKernBodyPythonWithImports } from '../codegen-body-python.js';
 import { buildPythonParamList, firstChild, kids, p } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
+
+/** Slice 4b — native KERN method body dispatch (Python target).
+ *
+ *  Returns `{ code, imports }` for a method's handler. When the handler
+ *  opts in via `lang=kern`, walks the structured statements via
+ *  `emitNativeKernBodyPythonWithImports` with a snake_case symbol map
+ *  built from the method's `param` children (or legacy `params="..."`
+ *  string). Methods use `propagateStyle: 'value'` (default) — they're
+ *  application-layer code, and the caller (typically a route) translates
+ *  Result.err to HTTP. Slice 4a's collision-detection rule is applied
+ *  here too: if two params snake-case to the same Python name, throw.
+ *
+ *  When the handler is legacy raw, returns `{ code: handlerCode(method),
+ *  imports: empty }`. */
+function methodBodyCodePython(method: IRNode): { code: string; imports: Set<string> } {
+  const handler = getFirstChild(method, 'handler');
+  if (!handler || getProps(handler).lang !== 'kern') {
+    return { code: handlerCode(method), imports: new Set() };
+  }
+  const symbolMap: Record<string, string> = {};
+  const claimedSnake = new Set<string>(['self']);
+  const recordParam = (rawName: string): void => {
+    if (!rawName) return;
+    const snake = toSnakeCase(rawName);
+    if (claimedSnake.has(snake)) {
+      throw new Error(
+        `KERN-Python codegen: method param '${rawName}' snake-cases to '${snake}', which collides with another param on this method. ` +
+          'Rename one of the parameters to disambiguate.',
+      );
+    }
+    claimedSnake.add(snake);
+    if (snake !== rawName) symbolMap[rawName] = snake;
+  };
+  const paramChildren = (method.children ?? []).filter((c) => c.type === 'param');
+  if (paramChildren.length > 0) {
+    for (const param of paramChildren) {
+      const hasDestructure = (param.children ?? []).some((c) => c.type === 'binding' || c.type === 'element');
+      if (hasDestructure) continue;
+      recordParam((getProps(param).name as string) || '');
+    }
+  } else {
+    const rawParams = (getProps(method).params as string) || '';
+    if (rawParams) {
+      for (const part of rawParams.split(',')) {
+        const trimmed = part.trim();
+        if (!trimmed) continue;
+        const colonIdx = trimmed.indexOf(':');
+        const eqIdx = trimmed.indexOf('=');
+        let nameEnd = trimmed.length;
+        if (colonIdx >= 0) nameEnd = Math.min(nameEnd, colonIdx);
+        if (eqIdx >= 0) nameEnd = Math.min(nameEnd, eqIdx);
+        recordParam(trimmed.slice(0, nameEnd).trim());
+      }
+    }
+  }
+  const { code, imports } = emitNativeKernBodyPythonWithImports(handler, { symbolMap });
+  return { code, imports };
+}
+
+/** Slice 4b — flatten a method's body code + per-method imports into the
+ *  list of indented body lines. Imports go inline at the top of the method
+ *  body (slice 3b convention extended to methods); the function-local
+ *  scope absorbs them, and Python caches modules after first import.
+ *  Returns the indented lines (4-space prefix) ready to push into the
+ *  enclosing class definition. Empty body yields a single `pass`. */
+function methodBodyLinesPython(method: IRNode): string[] {
+  const { code, imports } = methodBodyCodePython(method);
+  const lines: string[] = [];
+  for (const mod of [...imports].sort()) {
+    lines.push(`        import ${mod} as __k_${mod}`);
+  }
+  if (code) {
+    for (const line of code.split('\n')) {
+      lines.push(`        ${line}`);
+    }
+  } else if (lines.length === 0) {
+    lines.push('        pass');
+  }
+  return lines;
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -145,15 +226,16 @@ export function generatePythonRepository(node: IRNode): string[] {
     // children when present, falls back to legacy `params="..."` otherwise.
     const params = buildPythonParamList(method, { selfPrefix: true });
     const returns = mp.returns ? ` -> ${mapTsTypeToPython(mp.returns as string)}` : '';
-    const code = handlerCode(method);
 
     lines.push(`    ${asyncKw}def ${mname}(${params})${returns}:`);
-    if (code) {
-      for (const line of code.split('\n')) {
-        lines.push(`        ${line}`);
-      }
+    // Slice 4b — methodBodyLinesPython dispatches lang=kern, builds symbol
+    // map, injects required imports inline, and falls back to raw handler
+    // code for legacy bodies. Empty bodies yield `pass`.
+    const bodyLines = methodBodyLinesPython(method);
+    if (bodyLines.length === 0) {
+      lines.push('        pass');
     } else {
-      lines.push(`        pass`);
+      for (const bl of bodyLines) lines.push(bl);
     }
     lines.push('');
   }
@@ -326,15 +408,14 @@ export function generatePythonService(node: IRNode): string[] {
     // children when present, falls back to legacy `params="..."` otherwise.
     const params = buildPythonParamList(method, { selfPrefix: true });
     const returns = mp.returns ? ` -> ${mapTsTypeToPython(mp.returns as string)}` : '';
-    const code = handlerCode(method);
 
     lines.push(`    ${asyncKw}def ${mname}(${params})${returns}:`);
-    if (code) {
-      for (const line of code.split('\n')) {
-        lines.push(`        ${line}`);
-      }
+    // Slice 4b — same method dispatch as repository, sharing the helper.
+    const bodyLines = methodBodyLinesPython(method);
+    if (bodyLines.length === 0) {
+      lines.push('        pass');
     } else {
-      lines.push(`        pass`);
+      for (const bl of bodyLines) lines.push(bl);
     }
     lines.push('');
   }
