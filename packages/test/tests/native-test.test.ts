@@ -2266,6 +2266,36 @@ describe('native kern test runner', () => {
     expect(output).toContain('uncovered effects:');
   });
 
+  test('excludes coverage=false targets from aggregate native coverage', () => {
+    writeFileSync(
+      join(tmpDir, 'covered.kern'),
+      ['server name=Api', '  route GET /ok', '    respond 200 json={{[]}}'].join('\n'),
+    );
+    writeFileSync(join(tmpDir, 'ignored.kern'), ['server name=Bad', '  route GET /empty'].join('\n'));
+    const testFile = join(tmpDir, 'coverage-ignore.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Covered target" target="./covered.kern"',
+        '  it name="covers route"',
+        '    expect route="GET /ok" returns={{[]}}',
+        'test name="Ignored bad target" target="./ignored.kern" coverage=false',
+        '  it name="still asserts expected debt"',
+        '    expect has=emptyRoutes matches="/empty"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.targetFiles.map((file) => file.split('/').pop())).toEqual(['covered.kern', 'ignored.kern']);
+    expect(summary.coverage.percent).toBe(100);
+    expect(summary.coverage.total).toBe(1);
+    expect(summary.coverage.routes.total).toBe(1);
+    expect(summary.coverage.routes.uncovered).toEqual([]);
+    expect(summary.coverage.targets.map((target) => target.file.split('/').pop())).toEqual(['covered.kern']);
+  });
+
   test('passes language surface smoke for arrays classes and functions', () => {
     writeFileSync(
       join(tmpDir, 'language.kern'),

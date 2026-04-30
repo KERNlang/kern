@@ -1594,6 +1594,14 @@ function syntheticTarget(root: IRNode): LoadedKernDocument {
   return { file: '<coverage>', root, diagnostics: [], schemaViolations: [], semanticViolations: [] };
 }
 
+function testNodeContributesCoverage(node: IRNode): boolean {
+  const raw = getProps(node).coverage;
+  if (raw === undefined || raw === '') return true;
+  if (raw === false) return false;
+  const value = String(raw).toLowerCase();
+  return !['0', 'false', 'off', 'ignore', 'ignored', 'exclude', 'excluded', 'none'].includes(value);
+}
+
 function coveredTransitionsFromAssertion(
   root: IRNode,
   assertion: IRNode,
@@ -5455,6 +5463,8 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
   const testDoc = loadKernDocument(inputPath);
   const results: NativeKernTestResult[] = [];
   const targetFiles = new Set<string>();
+  const coverageExcludedTargetFiles = new Set<string>();
+  const coverageIncludedTargetFiles = new Set<string>();
 
   if (testDoc.readError) {
     results.push(issueResult(inputPath, testDoc.readError));
@@ -5483,19 +5493,24 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
       targetFiles,
       results,
       createCoverageSummary(
-        [...targetFiles].sort().map((targetFile) => {
-          const target = targetCache.get(targetFile);
-          return coverageForTarget(
-            target || {
-              file: targetFile,
-              diagnostics: [],
-              schemaViolations: [],
-              semanticViolations: [],
-              readError: `Target not loaded: ${targetFile}`,
-            },
-            assertionsByTarget.get(targetFile) || [],
-          );
-        }),
+        [...targetFiles]
+          .sort()
+          .filter(
+            (targetFile) => !coverageExcludedTargetFiles.has(targetFile) || coverageIncludedTargetFiles.has(targetFile),
+          )
+          .map((targetFile) => {
+            const target = targetCache.get(targetFile);
+            return coverageForTarget(
+              target || {
+                file: targetFile,
+                diagnostics: [],
+                schemaViolations: [],
+                semanticViolations: [],
+                readError: `Target not loaded: ${targetFile}`,
+              },
+              assertionsByTarget.get(targetFile) || [],
+            );
+          }),
       ),
     );
 
@@ -5504,6 +5519,11 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
     const targetProp = str(getProps(testNode).target);
     const targetPath = targetProp ? resolve(dirname(inputPath), targetProp) : inputPath;
     targetFiles.add(targetPath);
+    if (testNodeContributesCoverage(testNode)) {
+      coverageIncludedTargetFiles.add(targetPath);
+    } else {
+      coverageExcludedTargetFiles.add(targetPath);
+    }
 
     let target = targetCache.get(targetPath);
     if (!target) {

@@ -1,4 +1,4 @@
-test name="Bad KERN conformance" target="./conformance-bad-cases.kern"
+test name="Bad KERN conformance" target="./conformance-bad-cases.kern" coverage=false
   it name="positive invariant assertions prove detector coverage"
     expect has=duplicateNames matches="User"
     expect has=deriveCycles matches="cycleA.*cycleB|cycleB.*cycleA"

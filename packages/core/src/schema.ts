@@ -334,6 +334,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { required: true, kind: 'string' },
       target: { kind: 'string' },
+      coverage: { kind: 'boolean' },
     },
     allowedChildren: ['describe', 'it', 'expect', 'fixture', 'mock', 'handler'],
   },
