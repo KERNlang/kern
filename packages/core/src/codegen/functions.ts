@@ -13,7 +13,13 @@ import { emitParamList } from './type-system.js';
 
 /** Slice 1 — native KERN handler bodies (`handler lang=kern`).
  *  Returns the emitted body when the fn's handler child opts in via `lang=kern`,
- *  otherwise returns the legacy raw `<<<…>>>` body via `handlerCode`. */
+ *  otherwise returns the legacy raw `<<<…>>>` body via `handlerCode`.
+ *
+ *  Slice 3e — `emitNativeKernBodyTS` returns `{ code, imports }` for parity
+ *  with the Python target. TS body emit currently never populates `imports`
+ *  (Math/Map/Set are global, no module-level wiring needed yet), so we just
+ *  unwrap `code`. Future TS-stdlib entries declaring `requires.ts` would
+ *  need this caller to inject the imports above the function declaration. */
 function fnBodyCode(node: IRNode): string {
   const handler = getFirstChild(node, 'handler');
   if (handler && getProps(handler).lang === 'kern') {

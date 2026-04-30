@@ -1,4 +1,4 @@
-/** Native KERN handler-body codegen — TypeScript target (slices 1 + 2c).
+/** Native KERN handler-body codegen — TypeScript target (slices 1–3).
  *
  *  Walks the children of a handler with `lang=kern` and emits a TypeScript
  *  body string. Recognized statements:
@@ -13,6 +13,15 @@
  *      const __k_t1 = await call();
  *      if (__k_t1.kind === 'err') return __k_t1;
  *      const u = __k_t1.value;
+ *
+ *  Slice 3 — symmetric `{ code, imports }` shape with the Python target so
+ *  body-emitter callers have a uniform signature regardless of language.
+ *  TS's KERN-stdlib lowerings don't currently demand any imports (`Math` is
+ *  global, `Set`/`Map` are global), so `imports` is typically empty. The
+ *  `BodyEmitOptions.symbolMap` parameter is currently unused on the TS
+ *  target — TS preserves the camelCase identifier shape end-to-end — but
+ *  is plumbed through for parity with the Python emitter (and for any
+ *  future TS-only renames such as reserved-word collision handling).
  *
  *  Slice scope:
  *    - Result-flavored propagation only (`'err'` discriminant). Option
@@ -32,18 +41,49 @@ import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { IRNode } from '../types.js';
 
+/** Slice 3e — caller-provided options, parity with the Python body emitter.
+ *  `symbolMap` is currently unused on the TS target; reserved for future
+ *  use (e.g., reserved-word renames). */
+export interface BodyEmitOptions {
+  symbolMap?: Record<string, string>;
+}
+
+/** Slice 3e — public return shape, parity with the Python body emitter.
+ *  TS's KERN-stdlib lowerings don't currently demand any imports; the
+ *  `imports` set will typically be empty until a future slice introduces
+ *  TS-stdlib entries with `requires.ts` (e.g., a `node:crypto` import). */
+export interface BodyEmitResult {
+  code: string;
+  imports: Set<string>;
+}
+
 interface BodyEmitContext {
   gensymCounter: number;
 }
 
 const INDENT_STEP = '  ';
 
-/** Emit the body of a native KERN handler as TypeScript source. Returns a
- *  multi-line string. Each top-level line is unindented; nested branches
- *  indent by 2 spaces per level. */
-export function emitNativeKernBodyTS(handlerNode: IRNode): string {
+/** Emit the body of a native KERN handler as TypeScript source. Returns
+ *  the joined body text. Each top-level line is unindented; nested
+ *  branches indent by 2 spaces per level.
+ *
+ *  Legacy slice 1/2 signature — returns just the code string. Callers
+ *  that also need the import set (slice 3b parity with Python) should
+ *  use `emitNativeKernBodyTSWithImports`. */
+export function emitNativeKernBodyTS(handlerNode: IRNode, options?: BodyEmitOptions): string {
+  return emitNativeKernBodyTSWithImports(handlerNode, options).code;
+}
+
+/** Slice 3e — context-aware variant returning `{ code, imports }`.
+ *  TS's KERN-stdlib lowerings don't currently demand any imports; the
+ *  `imports` set will typically be empty until a future slice introduces
+ *  TS-stdlib entries with `requires.ts` (e.g., a `node:crypto` import).
+ *  Provided for symmetry with the Python target so generators that drive
+ *  both languages have a uniform call shape. */
+export function emitNativeKernBodyTSWithImports(handlerNode: IRNode, _options?: BodyEmitOptions): BodyEmitResult {
   const ctx: BodyEmitContext = { gensymCounter: 0 };
-  return emitChildrenTS(handlerNode.children ?? [], ctx, '').join('\n');
+  const code = emitChildrenTS(handlerNode.children ?? [], ctx, '').join('\n');
+  return { code, imports: new Set<string>() };
 }
 
 function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string): string[] {

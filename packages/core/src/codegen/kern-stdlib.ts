@@ -38,6 +38,12 @@ export interface StdlibEntry {
   arity: number;
   ts: string;
   py: string;
+  /** Slice 3b — per-target imports required when this lowering is used.
+   *  The body emitter collects these into a per-handler import set so the
+   *  generator can emit `import math` (etc.) at the top of the function
+   *  body. Keys are target names ('ts' / 'py'); values are the import
+   *  identifier (`'math'` ⇒ `import math`). Undefined when none required. */
+  requires?: { ts?: string; py?: string };
 }
 
 export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
@@ -82,9 +88,16 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
     size: { arity: 1, ts: '$0.size', py: 'len($0)' },
   },
   Number: {
-    round: { arity: 1, ts: 'Math.round($0)', py: 'round($0)' },
-    floor: { arity: 1, ts: 'Math.floor($0)', py: 'math.floor($0)' },
-    ceil: { arity: 1, ts: 'Math.ceil($0)', py: 'math.ceil($0)' },
+    // Slice 3c — JS `Math.round` rounds half toward +∞ (so Math.round(-1.5) === -1
+    // and Math.round(2.5) === 3). Python's built-in `round` is banker's rounding
+    // (half-to-even), which diverges on `.5` values. To preserve the JS-flavored
+    // KERN AST semantics on the Python target, lower to `math.floor($0 + 0.5)`
+    // — a one-line identity that matches JS `Math.round` parity for both
+    // positive and negative half-cases. Single-eval because `$0` is substituted
+    // once.
+    round: { arity: 1, ts: 'Math.round($0)', py: 'math.floor($0 + 0.5)', requires: { py: 'math' } },
+    floor: { arity: 1, ts: 'Math.floor($0)', py: 'math.floor($0)', requires: { py: 'math' } },
+    ceil: { arity: 1, ts: 'Math.ceil($0)', py: 'math.ceil($0)', requires: { py: 'math' } },
     abs: { arity: 1, ts: 'Math.abs($0)', py: 'abs($0)' },
   },
 };

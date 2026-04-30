@@ -49,8 +49,11 @@ describe('KERN-stdlib expansion — Python target', () => {
     // Use dict.get(k) for None-on-miss parity.
     ['Map.get(m, k)', 'm.get(k)'],
     ['Map.size(m)', 'len(m)'],
-    // Number
-    ['Number.round(n)', 'round(n)'],
+    // Number — slice 3c flips Number.round Python lowering from `round(n)`
+    // (banker's rounding) to `math.floor(n + 0.5)` to match JS Math.round
+    // semantics (round-half-toward-+∞). See slice 3c rationale in
+    // packages/core/src/codegen/kern-stdlib.ts.
+    ['Number.round(n)', 'math.floor(n + 0.5)'],
     ['Number.floor(n)', 'math.floor(n)'],
     ['Number.ceil(n)', 'math.ceil(n)'],
     ['Number.abs(n)', 'abs(n)'],

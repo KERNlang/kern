@@ -5,19 +5,79 @@
 
 import type { IRNode } from '@kernlang/core';
 import { emitIdentifier, handlerCode } from '@kernlang/core';
-import { emitNativeKernBodyPython } from '../codegen-body-python.js';
+import { emitNativeKernBodyPythonWithImports } from '../codegen-body-python.js';
 import { buildPythonParamList, kids, p } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toScreamingSnake, toSnakeCase } from '../type-map.js';
 
 /** Slice 1 — native KERN handler bodies for Python target.
  *  Returns the emitted Python body when the fn's handler child opts in via
- *  `lang=kern`, otherwise returns the legacy raw body via `handlerCode`. */
+ *  `lang=kern`, otherwise returns the legacy raw body via `handlerCode`.
+ *
+ *  Slice 3a — KERN bodies reference parameters in their original camelCase
+ *  form (e.g., `userId`), but the Python signature snake-cases them
+ *  (`user_id`). We build a `userId → user_id` map from the param list and
+ *  hand it to the body emitter so identifier references resolve correctly.
+ *
+ *  Slice 3b — the body emitter returns a per-handler set of required
+ *  imports (`'math'` ⇒ `import math`); we inject them as the first lines
+ *  of the function body before the user code. Inline-in-function imports
+ *  are valid Python, idempotent (Python caches modules after first import),
+ *  and avoid the cross-cutting refactor that module-level emission would
+ *  require. */
 function fnBodyCodePython(node: IRNode): string {
   const handler = node.children?.find((c) => c.type === 'handler');
   if (handler && handler.props?.lang === 'kern') {
-    return emitNativeKernBodyPython(handler);
+    const symbolMap = buildPythonSymbolMap(node);
+    const { code, imports } = emitNativeKernBodyPythonWithImports(handler, { symbolMap });
+    if (imports.size === 0) return code;
+    // Stable ordering for deterministic output / test snapshots.
+    const importLines = [...imports].sort().map((mod) => `import ${mod}`);
+    return code ? `${importLines.join('\n')}\n${code}` : importLines.join('\n');
   }
   return handlerCode(node);
+}
+
+/** Slice 3a — collect KERN-form parameter names paired with their Python
+ *  snake_case form. Mirrors the rename rules in `buildPythonParamList` (see
+ *  packages/fastapi/src/codegen-helpers.ts) so the body symbol-map and the
+ *  Python signature stay in lockstep. Destructured params (children
+ *  `binding`/`element`) are skipped — they have no single name to rename;
+ *  their decomposed bindings are emitted in the body itself, not the
+ *  signature, and remain a slice-4 follow-up.
+ *
+ *  Returns an entry only when the snake-cased form differs from the KERN
+ *  form, so the map stays a tight identity overlay (no work done at the
+ *  ident-emit hot path for already-snake_case names like `id` or `count`). */
+function buildPythonSymbolMap(node: IRNode): Record<string, string> {
+  const map: Record<string, string> = {};
+  const paramChildren = (node.children ?? []).filter((c) => c.type === 'param');
+  if (paramChildren.length > 0) {
+    for (const param of paramChildren) {
+      const hasDestructure = (param.children ?? []).some((c) => c.type === 'binding' || c.type === 'element');
+      if (hasDestructure) continue;
+      const rawName = (param.props?.name as string) || '';
+      if (!rawName) continue;
+      const snake = toSnakeCase(rawName);
+      if (snake !== rawName) map[rawName] = snake;
+    }
+    return map;
+  }
+  const rawParams = (node.props?.params as string) || '';
+  if (!rawParams) return map;
+  for (const part of rawParams.split(',')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const colonIdx = trimmed.indexOf(':');
+    const eqIdx = trimmed.indexOf('=');
+    let nameEnd = trimmed.length;
+    if (colonIdx >= 0) nameEnd = Math.min(nameEnd, colonIdx);
+    if (eqIdx >= 0) nameEnd = Math.min(nameEnd, eqIdx);
+    const rawName = trimmed.slice(0, nameEnd).trim();
+    if (!rawName) continue;
+    const snake = toSnakeCase(rawName);
+    if (snake !== rawName) map[rawName] = snake;
+  }
+  return map;
 }
 
 // ── Type Alias ───────────────────────────────────────────────────────────

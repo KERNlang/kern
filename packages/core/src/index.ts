@@ -2,7 +2,8 @@
  * @kernlang/core — parser, types, spec, config, style engines, codegen
  */
 
-export { emitNativeKernBodyTS } from './codegen/body-ts.js';
+export type { BodyEmitOptions, BodyEmitResult } from './codegen/body-ts.js';
+export { emitNativeKernBodyTS, emitNativeKernBodyTSWithImports } from './codegen/body-ts.js';
 export type { StdlibEntry } from './codegen/kern-stdlib.js';
 export {
   applyTemplate,
