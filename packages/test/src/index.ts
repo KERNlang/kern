@@ -877,7 +877,9 @@ function assertionLabel(node: IRNode): string {
     return parts.join(' ');
   }
   if (no) return `${machine ? `machine ${machine} ` : ''}no ${no}`;
-  if (has) return `${machine ? `machine ${machine} ` : ''}has ${has}${matches ? ` matches ${matches}` : ''}`;
+  if (has) {
+    return `${machine ? `machine ${machine} ` : ''}has ${has}${count ? ` count ${count}` : ''}${matches ? ` matches ${matches}` : ''}`;
+  }
   if (guard) return `guard ${guard} exhaustive`;
   if (machine && transition) {
     return [`machine ${machine} transition ${transition}`, from ? `from ${from}` : '', to ? `to ${to}` : '']
@@ -4953,6 +4955,150 @@ function evaluateNoInvariant(
   return { passed: false, message: `Unsupported native invariant: no=${str(getProps(node).no)}` };
 }
 
+function diagnosticFinding(file: string, issue: { line?: number; col?: number; message: string }): string {
+  return `${file}:${issue.line ?? 1}:${issue.col ?? 1}: ${issue.message}`;
+}
+
+function nativeInvariantFindings(
+  node: IRNode,
+  target: LoadedKernDocument,
+  context?: NativeKernAssertionContext,
+): { findings?: string[]; message?: string } {
+  if (target.readError) return { message: target.readError };
+
+  const props = getProps(node);
+  const invariant = normalizeInvariant(str(props.has) || str(props.no));
+  const machineName = str(props.machine) || undefined;
+
+  if (invariant === 'parseerrors') {
+    return {
+      findings: target.diagnostics
+        .filter((diagnostic) => diagnostic.severity === 'error')
+        .map((diagnostic) => diagnosticFinding(target.file, diagnostic)),
+    };
+  }
+
+  if (invariant === 'schemaviolations') {
+    return { findings: target.schemaViolations.map((violation) => diagnosticFinding(target.file, violation)) };
+  }
+
+  if (invariant === 'semanticviolations') {
+    return { findings: target.semanticViolations.map((violation) => diagnosticFinding(target.file, violation)) };
+  }
+
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { message: blocking };
+
+  const root = target.root!;
+
+  if (invariant === 'codegenerrors' || invariant === 'codegenerationerrors' || invariant === 'compileerrors') {
+    return { findings: findCodegenErrors(root) };
+  }
+
+  if (invariant === 'cycles' || invariant === 'derivecycles') {
+    return { findings: findDeriveCycles(root).map((cycle) => cycle.join(' -> ')) };
+  }
+
+  if (invariant === 'deadstates' || invariant === 'unreachablestates') {
+    return { findings: findUnreachableStates(root, machineName) };
+  }
+
+  if (invariant === 'duplicatetransitions') {
+    return { findings: findDuplicateTransitions(root, machineName) };
+  }
+
+  if (invariant === 'duplicateroutes') {
+    return { findings: findDuplicateRoutes(root) };
+  }
+
+  if (invariant === 'emptyroutes' || invariant === 'missingroutehandlers' || invariant === 'missingrouteresponses') {
+    return { findings: findEmptyRoutes(root) };
+  }
+
+  if (invariant === 'duplicatenames' || invariant === 'duplicatesiblingnames') {
+    return { findings: findDuplicateSiblingNames(root) };
+  }
+
+  if (invariant === 'weakguards' || invariant === 'guardwithoutelse' || invariant === 'guardswithoutelse') {
+    return { findings: findWeakGuards(root) };
+  }
+
+  if (invariant === 'nonexhaustiveguards' || invariant === 'guardexhaustiveness' || invariant === 'exhaustiveguards') {
+    return { findings: findNonExhaustiveGuards(root) };
+  }
+
+  if (invariant === 'unguardedeffects') {
+    return { findings: findUnguardedEffects(root) };
+  }
+
+  if (invariant === 'unvalidatedroutes' || invariant === 'unguardedmutatingroutes') {
+    return { findings: findUnvalidatedMutatingRoutes(root) };
+  }
+
+  if (invariant === 'rawhandlers' || invariant === 'handlerescapes') {
+    return { findings: findRawHandlerEscapes(root) };
+  }
+
+  if (invariant === 'invalidguards' || invariant === 'guardmisconfigurations') {
+    return { findings: findInvalidGuards(root) };
+  }
+
+  if (invariant === 'duplicateparams' || invariant === 'duplicateparameters') {
+    return { findings: findDuplicateParams(root) };
+  }
+
+  if (invariant === 'unguardedtoolparams' || invariant === 'unguardedrequiredparams') {
+    return { findings: findUnguardedRequiredToolParams(root) };
+  }
+
+  if (invariant === 'missingpathguards' || invariant === 'pathparamguards') {
+    return { findings: findMissingPathGuards(root) };
+  }
+
+  if (invariant === 'ssrfrisks' || invariant === 'ssrf') {
+    return { findings: findSsrfRisks(root) };
+  }
+
+  if (invariant === 'sensitiveeffectsrequireauth' || invariant === 'missingeffectauth' || invariant === 'missingauth') {
+    return { findings: findSensitiveEffectsWithoutAuth(root) };
+  }
+
+  if (invariant === 'uncheckedroutepathparams' || invariant === 'routepathparams') {
+    return { findings: findUncheckedRoutePathParams(root) };
+  }
+
+  if (invariant === 'effectwithoutcleanup' || invariant === 'effectcleanup') {
+    return { findings: findEffectsWithoutCleanup(root) };
+  }
+
+  if (invariant === 'unrecoveredasync' || invariant === 'asyncrecover') {
+    return { findings: findUnrecoveredAsync(root) };
+  }
+
+  if (invariant === 'untestedtransitions' || invariant === 'uncoveredtransitions') {
+    return { findings: findUntestedTransitions(root, context, machineName) };
+  }
+
+  if (invariant === 'untestedguards' || invariant === 'uncoveredguards') {
+    return { findings: findUntestedGuards(root, context) };
+  }
+
+  if (invariant === 'untestedroutes' || invariant === 'uncoveredroutes') {
+    return { findings: findUntestedRoutes(root, context) };
+  }
+
+  if (invariant === 'untestedtools' || invariant === 'uncoveredtools') {
+    return { findings: findUntestedTools(root, context) };
+  }
+
+  if (invariant === 'untestedeffects' || invariant === 'uncoveredeffects') {
+    return { findings: findUntestedEffects(root, context) };
+  }
+
+  const propName = 'has' in props ? 'has' : 'no';
+  return { message: `Unsupported native invariant: ${propName}=${str(props.has) || str(props.no)}` };
+}
+
 function evaluateHasInvariant(
   node: IRNode,
   target: LoadedKernDocument,
@@ -4961,6 +5107,50 @@ function evaluateHasInvariant(
   const props = getProps(node);
   const invariant = str(props.has);
   const normalized = normalizeInvariant(invariant);
+  const expectedCount = props.count === undefined || props.count === '' ? undefined : Number(props.count);
+  if (expectedCount !== undefined && (!Number.isInteger(expectedCount) || expectedCount < 0)) {
+    return {
+      passed: false,
+      message: `Native has assertion count must be a non-negative integer: ${String(props.count)}`,
+    };
+  }
+
+  if (expectedCount !== undefined) {
+    const collected = nativeInvariantFindings(node, target, context);
+    if (collected.message) return { passed: false, message: collected.message };
+
+    const findings = collected.findings || [];
+    if (findings.length !== expectedCount) {
+      const details = findings.length > 0 ? `: ${findings.slice(0, 10).join('; ')}` : '';
+      const extra = findings.length > 10 ? `; +${findings.length - 10} more` : '';
+      return {
+        passed: false,
+        message: `Expected target to have ${invariant || '<missing>'} count ${expectedCount}, found ${findings.length}${details}${extra}`,
+      };
+    }
+
+    if ('matches' in props) {
+      const pattern = runtimePatternValue(node, 'matches') || '';
+      const message = findings.join('; ');
+      try {
+        const regex = new RegExp(pattern);
+        return regex.test(message)
+          ? { passed: true }
+          : {
+              passed: false,
+              message: `Expected ${invariant || '<missing>'} findings to match /${pattern}/, got: ${message || '<none>'}`,
+            };
+      } catch (error) {
+        return {
+          passed: false,
+          message: `Native has assertion has invalid matches regex: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    }
+
+    return { passed: true };
+  }
+
   if (!['parseerrors', 'schemaviolations', 'semanticviolations'].includes(normalized)) {
     const blocking = targetBlockingMessage(target);
     if (blocking) return { passed: false, message: blocking };

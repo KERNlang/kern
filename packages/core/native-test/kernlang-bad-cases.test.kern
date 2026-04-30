@@ -1,4 +1,4 @@
 test name="KERNlang bad-case self contracts" target="./kernlang-bad-cases.kern" coverage=false
   it name="native tests can assert intentionally broken source"
-    expect has=duplicateNames matches="User"
-    expect has=deriveCycles matches="cycleA.*cycleB|cycleB.*cycleA"
+    expect has=duplicateNames count=1 matches="User"
+    expect has=deriveCycles count=1 matches="cycleA.*cycleB|cycleB.*cycleA"

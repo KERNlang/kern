@@ -134,8 +134,8 @@ describe('native kern test runner', () => {
       [
         'test name="Bad target" target="./bad.kern"',
         '  it name="detects expected native failures"',
-        '    expect has=duplicateNames matches="User"',
-        '    expect has=deriveCycles matches="cycleA.*cycleB|cycleB.*cycleA"',
+        '    expect has=duplicateNames count=1 matches="User"',
+        '    expect has=deriveCycles count=1 matches="cycleA.*cycleB|cycleB.*cycleA"',
       ].join('\n'),
     );
 
@@ -144,6 +144,46 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(0);
     expect(summary.passed).toBe(2);
     expect(summary.results.map((result) => result.ruleId)).toEqual(['has:duplicatenames', 'has:derivecycles']);
+  });
+
+  test('fails positive invariant assertions with incorrect expected counts', () => {
+    writeFileSync(
+      join(tmpDir, 'bad-count.kern'),
+      ['interface name=User', 'interface name=User', 'interface name=Team', 'interface name=Team'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'bad-count.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Bad count" target="./bad-count.kern"',
+        '  it name="detects changed bad-case cardinality"',
+        '    expect has=duplicateNames count=1 matches="User"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('has:duplicatenames');
+    expect(summary.results[0].message).toContain('count 1, found 2');
+  });
+
+  test('rejects invalid positive invariant counts', () => {
+    writeFileSync(join(tmpDir, 'valid-count.kern'), 'const name=ok value=true');
+    const testFile = join(tmpDir, 'invalid-count.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Invalid count" target="./valid-count.kern"',
+        '  it name="rejects negative count"',
+        '    expect has=deriveCycles count=-1',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain('count must be a non-negative integer');
   });
 
   test('fails positive invariant assertions for unsupported invariants', () => {
