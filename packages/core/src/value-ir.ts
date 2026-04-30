@@ -44,7 +44,9 @@ export type ValueIR =
   | { kind: 'unary'; op: UnaryOp; argument: ValueIR; loc?: IRSourceLocation }
   | { kind: 'spread'; argument: ValueIR; loc?: IRSourceLocation }
   | { kind: 'await'; argument: ValueIR; loc?: IRSourceLocation }
-  | { kind: 'propagate'; argument: ValueIR; op: '?' | '!'; loc?: IRSourceLocation };
+  | { kind: 'propagate'; argument: ValueIR; op: '?' | '!'; loc?: IRSourceLocation }
+  | { kind: 'objectLit'; entries: { key: string; value: ValueIR }[]; loc?: IRSourceLocation }
+  | { kind: 'arrayLit'; items: ValueIR[]; loc?: IRSourceLocation };
 
 export type ValueIRKind = ValueIR['kind'];
 
@@ -66,6 +68,8 @@ export function isValueIR(x: unknown): x is ValueIR {
     k === 'unary' ||
     k === 'spread' ||
     k === 'await' ||
-    k === 'propagate'
+    k === 'propagate' ||
+    k === 'objectLit' ||
+    k === 'arrayLit'
   );
 }

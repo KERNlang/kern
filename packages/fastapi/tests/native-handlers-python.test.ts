@@ -53,16 +53,17 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
     expect(() => emitPyExpression(parseExpression('foo()?'))).toThrow(/statement-level only/);
   });
 
-  test('binary ops are slice 2+ — slice 1 throws on emit', () => {
-    // parseExpression doesn't support binary ops yet, so we construct manually.
-    expect(() =>
+  test('binary ops became supported in slice 2c — verify lowering still works', () => {
+    // Slice 1 originally forbade binary ops; slice 2c lifted that. The same
+    // hand-constructed binary node now lowers cleanly.
+    expect(
       emitPyExpression({
         kind: 'binary',
         op: '+',
         left: { kind: 'numLit', value: 1, raw: '1' },
         right: { kind: 'numLit', value: 2, raw: '2' },
       }),
-    ).toThrow(/not supported in slice-1/);
+    ).toBe('1 + 2');
   });
 });
 

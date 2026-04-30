@@ -27,9 +27,28 @@ export type ExprTokenKind =
   | 'and'
   | 'lparen'
   | 'rparen'
+  | 'lbrace'
+  | 'rbrace'
+  | 'lbracket'
+  | 'rbracket'
+  | 'colon'
   | 'comma'
   | 'spread'
   | 'qmark'
+  | 'eq'
+  | 'neq'
+  | 'strictEq'
+  | 'strictNeq'
+  | 'bang'
+  | 'lt'
+  | 'lte'
+  | 'gt'
+  | 'gte'
+  | 'plus'
+  | 'minus'
+  | 'star'
+  | 'slash'
+  | 'percent'
   | 'kwNull'
   | 'kwUndef'
   | 'kwTrue'
@@ -188,6 +207,81 @@ export function tokenizeExpression(input: string): ExprToken[] {
       i++;
       continue;
     }
+    // Slice 2c — equality / strict-equality / negation. Multi-char first.
+    if (ch === '=' && input[i + 1] === '=' && input[i + 2] === '=') {
+      tokens.push({ kind: 'strictEq', value: '===', pos: i });
+      i += 3;
+      continue;
+    }
+    if (ch === '=' && input[i + 1] === '=') {
+      tokens.push({ kind: 'eq', value: '==', pos: i });
+      i += 2;
+      continue;
+    }
+    if (ch === '!' && input[i + 1] === '=' && input[i + 2] === '=') {
+      tokens.push({ kind: 'strictNeq', value: '!==', pos: i });
+      i += 3;
+      continue;
+    }
+    if (ch === '!' && input[i + 1] === '=') {
+      tokens.push({ kind: 'neq', value: '!=', pos: i });
+      i += 2;
+      continue;
+    }
+    if (ch === '!') {
+      tokens.push({ kind: 'bang', value: '!', pos: i });
+      i++;
+      continue;
+    }
+    // Slice 2c — relational. Multi-char first so `<=` / `>=` win over bare `<` / `>`.
+    if (ch === '<' && input[i + 1] === '=') {
+      tokens.push({ kind: 'lte', value: '<=', pos: i });
+      i += 2;
+      continue;
+    }
+    if (ch === '<') {
+      tokens.push({ kind: 'lt', value: '<', pos: i });
+      i++;
+      continue;
+    }
+    if (ch === '>' && input[i + 1] === '=') {
+      tokens.push({ kind: 'gte', value: '>=', pos: i });
+      i += 2;
+      continue;
+    }
+    if (ch === '>') {
+      tokens.push({ kind: 'gt', value: '>', pos: i });
+      i++;
+      continue;
+    }
+    // Slice 2c — arithmetic. `-` could be sign of a number, but the number
+    // tokenizer below handles only unsigned literals; unary minus is a parser
+    // concern (see parseUnary), so keep `-` as its own token here.
+    if (ch === '+') {
+      tokens.push({ kind: 'plus', value: '+', pos: i });
+      i++;
+      continue;
+    }
+    if (ch === '-') {
+      tokens.push({ kind: 'minus', value: '-', pos: i });
+      i++;
+      continue;
+    }
+    if (ch === '*') {
+      tokens.push({ kind: 'star', value: '*', pos: i });
+      i++;
+      continue;
+    }
+    if (ch === '/') {
+      tokens.push({ kind: 'slash', value: '/', pos: i });
+      i++;
+      continue;
+    }
+    if (ch === '%') {
+      tokens.push({ kind: 'percent', value: '%', pos: i });
+      i++;
+      continue;
+    }
     if (ch === '|' && input[i + 1] === '|') {
       tokens.push({ kind: 'or', value: '||', pos: i });
       i += 2;
@@ -224,6 +318,31 @@ export function tokenizeExpression(input: string): ExprToken[] {
     }
     if (ch === ')') {
       tokens.push({ kind: 'rparen', value: ')', pos: i });
+      i++;
+      continue;
+    }
+    if (ch === '{') {
+      tokens.push({ kind: 'lbrace', value: '{', pos: i });
+      i++;
+      continue;
+    }
+    if (ch === '}') {
+      tokens.push({ kind: 'rbrace', value: '}', pos: i });
+      i++;
+      continue;
+    }
+    if (ch === '[') {
+      tokens.push({ kind: 'lbracket', value: '[', pos: i });
+      i++;
+      continue;
+    }
+    if (ch === ']') {
+      tokens.push({ kind: 'rbracket', value: ']', pos: i });
+      i++;
+      continue;
+    }
+    if (ch === ':') {
+      tokens.push({ kind: 'colon', value: ':', pos: i });
       i++;
       continue;
     }
@@ -312,11 +431,63 @@ class Parser {
   }
 
   private parseAnd(): ValueIR {
-    let left = this.parseUnary();
+    let left = this.parseEquality();
     while (this.peek().kind === 'and') {
       this.advance();
-      const right = this.parseUnary();
+      const right = this.parseEquality();
       left = { kind: 'binary', op: '&&', left, right };
+    }
+    return left;
+  }
+
+  // Slice 2c — equality (==, !=, ===, !==), left-associative.
+  private parseEquality(): ValueIR {
+    let left = this.parseRelational();
+    while (true) {
+      const k = this.peek().kind;
+      if (k !== 'eq' && k !== 'neq' && k !== 'strictEq' && k !== 'strictNeq') break;
+      const op = this.advance().value as '==' | '!=' | '===' | '!==';
+      const right = this.parseRelational();
+      left = { kind: 'binary', op, left, right };
+    }
+    return left;
+  }
+
+  // Slice 2c — relational (<, <=, >, >=), left-associative.
+  private parseRelational(): ValueIR {
+    let left = this.parseAdditive();
+    while (true) {
+      const k = this.peek().kind;
+      if (k !== 'lt' && k !== 'lte' && k !== 'gt' && k !== 'gte') break;
+      const op = this.advance().value as '<' | '<=' | '>' | '>=';
+      const right = this.parseAdditive();
+      left = { kind: 'binary', op, left, right };
+    }
+    return left;
+  }
+
+  // Slice 2c — additive (+, -), left-associative.
+  private parseAdditive(): ValueIR {
+    let left = this.parseMultiplicative();
+    while (true) {
+      const k = this.peek().kind;
+      if (k !== 'plus' && k !== 'minus') break;
+      const op = this.advance().value as '+' | '-';
+      const right = this.parseMultiplicative();
+      left = { kind: 'binary', op, left, right };
+    }
+    return left;
+  }
+
+  // Slice 2c — multiplicative (*, /, %), left-associative.
+  private parseMultiplicative(): ValueIR {
+    let left = this.parseUnary();
+    while (true) {
+      const k = this.peek().kind;
+      if (k !== 'star' && k !== 'slash' && k !== 'percent') break;
+      const op = this.advance().value as '*' | '/' | '%';
+      const right = this.parseUnary();
+      left = { kind: 'binary', op, left, right };
     }
     return left;
   }
@@ -325,6 +496,14 @@ class Parser {
     if (this.peek().kind === 'spread') {
       this.advance();
       return { kind: 'spread', argument: this.parseUnary() };
+    }
+    if (this.peek().kind === 'bang') {
+      this.advance();
+      return { kind: 'unary', op: '!', argument: this.parseUnary() };
+    }
+    if (this.peek().kind === 'minus') {
+      this.advance();
+      return { kind: 'unary', op: '-', argument: this.parseUnary() };
     }
     if (this.peek().kind === 'kwAwait') {
       this.advance();
@@ -432,12 +611,73 @@ class Parser {
         this.expect('rparen');
         return inner;
       }
+      case 'lbrace':
+        this.advance();
+        return this.parseObjectLiteral();
+      case 'lbracket':
+        this.advance();
+        return this.parseArrayLiteral();
       case 'tmplStart':
         this.advance();
         return this.parseTemplate(t.pos);
       default:
         throw new Error(`Unexpected token ${t.kind} ('${t.value}') at column ${t.pos + 1}`);
     }
+  }
+
+  // Slice 2d — object literal: `{ key: value, "str-key": value }`. Computed
+  // keys (`[expr]:`) defer to slice 3.
+  private parseObjectLiteral(): ValueIR {
+    const entries: { key: string; value: ValueIR }[] = [];
+    if (this.peek().kind === 'rbrace') {
+      this.advance();
+      return { kind: 'objectLit', entries };
+    }
+    while (true) {
+      const keyTok = this.peek();
+      let key: string;
+      if (keyTok.kind === 'ident') {
+        key = keyTok.value;
+        this.advance();
+      } else if (keyTok.kind === 'str') {
+        key = keyTok.value;
+        this.advance();
+      } else {
+        throw new Error(`Object literal key must be an identifier or string at column ${keyTok.pos + 1}`);
+      }
+      this.expect('colon');
+      const value = this.parseNullish();
+      entries.push({ key, value });
+      if (this.peek().kind === 'comma') {
+        this.advance();
+        // Trailing comma allowed.
+        if (this.peek().kind === 'rbrace') break;
+        continue;
+      }
+      break;
+    }
+    this.expect('rbrace');
+    return { kind: 'objectLit', entries };
+  }
+
+  // Slice 2d — array literal: `[a, b, c]`.
+  private parseArrayLiteral(): ValueIR {
+    const items: ValueIR[] = [];
+    if (this.peek().kind === 'rbracket') {
+      this.advance();
+      return { kind: 'arrayLit', items };
+    }
+    while (true) {
+      items.push(this.parseNullish());
+      if (this.peek().kind === 'comma') {
+        this.advance();
+        if (this.peek().kind === 'rbracket') break;
+        continue;
+      }
+      break;
+    }
+    this.expect('rbracket');
+    return { kind: 'arrayLit', items };
   }
 
   private parseTemplate(startPos: number): ValueIR {

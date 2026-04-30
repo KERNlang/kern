@@ -120,6 +120,8 @@ export const NODE_TYPES = [
   'local',
   // Native KERN handler-body statements (slice 1)
   'return',
+  // Native KERN handler-body control flow (slice 2c)
+  'if',
   // Next.js App Router
   'layout',
   'loading',

@@ -1,48 +1,76 @@
-/** Native KERN handler-body codegen — Python target (slice 1).
+/** Native KERN handler-body codegen — Python target (slices 1 + 2c).
  *
  *  Mirror of `packages/core/src/codegen/body-ts.ts` for the FastAPI/Python
- *  target. Walks `let` / `return` child nodes of a handler with `lang=kern`
- *  and emits Python body lines.
+ *  target. Walks the children of a handler with `lang=kern` and emits Python
+ *  body lines. Recognized statements:
  *
- *  Lowering parallels slice 7's TS hoist, in Python form:
+ *    - `let name=X value="EXPR"` — `X = EXPR` (slice 1)
+ *    - `return value="EXPR"` / bare `return` (slice 1)
+ *    - `if cond="EXPR"` / sibling `else` — `if EXPR:\n    body\nelse:\n    body` (slice 2c)
+ *
+ *  Statement-level propagation `?` lowers to:
  *
  *      __k_t1 = await call()
  *      if __k_t1.kind == 'err':
  *          return __k_t1
  *      u = __k_t1.value
  *
- *  Slice 1 surface: literals (str/num/bool/none), idents, calls, member
- *  access (data fields only), `await`, statement-level propagation `?` on
- *  Result-flavored callees. All other ValueIR kinds are slice 2+.
- *
- *  Output lines are unindented; the FastAPI generator indents them to match
- *  the surrounding `async def` / `def` body. The Python `if`-body line carries
- *  its own 4-space relative indent so the post-indent result is well-formed. */
+ *  Indentation: Python is whitespace-significant, so the recursive walk
+ *  threads a `indent` string. The propagation hoist embeds its own 4-space
+ *  relative indent on the `return __k_tN` line; the wrapper prepends the
+ *  surrounding indent so the post-emit result nests correctly. */
 
 import type { IRNode, ValueIR } from '@kernlang/core';
-import { applyLowering, KERN_STDLIB_MODULES, lookupStdlib, parseExpression, suggestStdlibMethod } from '@kernlang/core';
+import {
+  applyTemplate,
+  KERN_STDLIB_MODULES,
+  lookupStdlib,
+  needsArgParens,
+  needsBinaryParens,
+  parseExpression,
+  suggestStdlibMethod,
+} from '@kernlang/core';
 
 interface BodyEmitContext {
   gensymCounter: number;
 }
 
-/** Emit the body of a native KERN handler as Python source.
- *
- *  Returns a multi-line string suitable for splicing into a `def`/`async def`
- *  body. Each top-level line is unindented; nested `if`-bodies carry a single
- *  level of 4-space indent (relative to the surrounding body). */
+const INDENT_STEP = '    ';
+
+/** Emit the body of a native KERN handler as Python source. Returns a
+ *  multi-line string. Each top-level line is unindented; nested `if`-bodies
+ *  carry one level of 4-space indent per level of nesting. */
 export function emitNativeKernBodyPython(handlerNode: IRNode): string {
   const ctx: BodyEmitContext = { gensymCounter: 0 };
+  return emitChildrenPy(handlerNode.children ?? [], ctx, '').join('\n');
+}
+
+function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string): string[] {
   const lines: string[] = [];
-  const children = handlerNode.children ?? [];
-  for (const child of children) {
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
     if (child.type === 'let') {
-      for (const line of emitLetPy(child, ctx)) lines.push(line);
+      for (const line of emitLetPy(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'return') {
-      for (const line of emitReturnPy(child, ctx)) lines.push(line);
+      for (const line of emitReturnPy(child, ctx)) lines.push(`${indent}${line}`);
+    } else if (child.type === 'if') {
+      const condRaw = String(child.props?.cond ?? '');
+      const condIR = parseExpression(condRaw);
+      lines.push(`${indent}if ${emitPyExpression(condIR)}:`);
+      const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
+      if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+      for (const sl of inner) lines.push(sl);
+      const next = children[i + 1];
+      if (next && next.type === 'else') {
+        lines.push(`${indent}else:`);
+        const elseInner = emitChildrenPy(next.children ?? [], ctx, indent + INDENT_STEP);
+        if (elseInner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+        for (const el of elseInner) lines.push(el);
+        i++;
+      }
     }
   }
-  return lines.join('\n');
+  return lines;
 }
 
 function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
@@ -132,17 +160,64 @@ export function emitPyExpression(node: ValueIR): string {
       out += '"';
       return out;
     }
-    case 'binary':
-    case 'unary':
+    case 'binary': {
+      // Slice 2c — arithmetic / comparison / logical lowering for Python.
+      // Use precedence-aware paren-wrapping so `a + b * c` doesn't redundantly
+      // wrap the right side (`a + (b * c)`) — same rule as the TS side.
+      const left = emitPyExpression(node.left);
+      const right = emitPyExpression(node.right);
+      const lp = needsBinaryParens(node.left, node.op, 'left') ? `(${left})` : left;
+      const rp = needsBinaryParens(node.right, node.op, 'right') ? `(${right})` : right;
+      const op = mapBinaryOpToPython(node.op);
+      return `${lp} ${op} ${rp}`;
+    }
+    case 'unary': {
+      // Slice 2c — `!x` → `not x`, `-x` → `-x`, others unsupported.
+      const arg = emitPyExpression(node.argument);
+      const wrapped = needsArgParens(node.argument) ? `(${arg})` : arg;
+      if (node.op === '!') return `not ${wrapped}`;
+      if (node.op === '-') return `-${wrapped}`;
+      if (node.op === '+') return `+${wrapped}`;
+      throw new Error(`emitPyExpression: unary op '${node.op}' has no Python equivalent in slice-2c.`);
+    }
+    case 'objectLit': {
+      // Slice 2d — Python dict literal. Keys are ALWAYS double-quoted (no
+      // shorthand-key syntax in Python).
+      const entries = node.entries.map((e) => `${JSON.stringify(e.key)}: ${emitPyExpression(e.value)}`);
+      return `{${entries.join(', ')}}`;
+    }
+    case 'arrayLit':
+      return `[${node.items.map(emitPyExpression).join(', ')}]`;
     case 'spread':
     case 'regexLit':
       throw new Error(
-        `emitPyExpression: ValueIR kind '${node.kind}' is not supported in slice-1 native KERN bodies (Python target).`,
+        `emitPyExpression: ValueIR kind '${node.kind}' is not supported in slice-2 native KERN bodies (Python target).`,
       );
     case 'propagate':
       throw new Error(
         `Propagation '${node.op}' is statement-level only — body codegen must hoist it before emitPyExpression.`,
       );
+  }
+}
+
+/** Slice 2c — map KERN/TS-flavored binary ops to Python equivalents.
+ *  KERN inherits TS's `===` / `!==` strict-equality syntax; Python uses
+ *  `==` / `!=` for the equivalent value-equality semantics on primitives.
+ *  `??` (nullish coalesce) lowers to a Python ternary in slice 3 — for
+ *  slice 2c it falls through and emits literally, which is invalid Python
+ *  (caller should not produce `??` in body codegen until slice 3). */
+function mapBinaryOpToPython(op: string): string {
+  switch (op) {
+    case '===':
+      return '==';
+    case '!==':
+      return '!=';
+    case '&&':
+      return 'and';
+    case '||':
+      return 'or';
+    default:
+      return op;
   }
 }
 
@@ -163,6 +238,9 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>): st
     const hint = suggestion ? ` Did you mean '${moduleName}.${suggestion}'?` : '';
     throw new Error(`Unknown KERN-stdlib method '${moduleName}.${methodName}'.${hint}`);
   }
-  const args = call.args.map(emitPyExpression);
-  return applyLowering(entry.py, args);
+  const args = call.args.map((a) => {
+    const emitted = emitPyExpression(a);
+    return needsArgParens(a) ? `(${emitted})` : emitted;
+  });
+  return applyTemplate(entry.py, args);
 }

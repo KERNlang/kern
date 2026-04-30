@@ -3,8 +3,9 @@
  */
 
 export { emitNativeKernBodyTS } from './codegen/body-ts.js';
-export type { StdlibEntry, StdlibLowering } from './codegen/kern-stdlib.js';
+export type { StdlibEntry } from './codegen/kern-stdlib.js';
 export {
+  applyTemplate,
   KERN_STDLIB,
   KERN_STDLIB_MODULES,
   lookupStdlib,
@@ -64,9 +65,11 @@ export {
   sourceComment,
   unregisterEvolvedGenerator,
 } from './codegen-core.js';
-// Native KERN handler bodies (slice 2a) — stdlib lowering table for cross-target
-// method dispatch. `applyLowering` is the shape-driven emit shared by TS + Py.
-export { applyLowering, emitExpression } from './codegen-expression.js';
+// Native KERN handler bodies (slice 2a/2b/2c) — stdlib lowering table for
+// cross-target method dispatch. `applyTemplate` is the shared placeholder
+// substitution; `needsBinaryParens` is the shared precedence-aware paren
+// predicate so Python codegen reuses the same rule.
+export { emitExpression, needsArgParens, needsBinaryParens } from './codegen-expression.js';
 export type {
   CallPayload,
   ConceptEdge,

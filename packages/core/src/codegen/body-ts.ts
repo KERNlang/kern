@@ -1,24 +1,32 @@
-/** Native KERN handler-body codegen — TypeScript target (slice 1).
+/** Native KERN handler-body codegen — TypeScript target (slices 1 + 2c).
  *
- *  Walks `let` / `return` child nodes of a handler with `lang=kern` and
- *  emits a TypeScript body string. Reuses `parseExpression` for value
- *  expressions and `emitExpression` for the non-propagate path; lowers
- *  statement-level propagation `?` via the same hoisted shape that slice 7
- *  established for raw-body propagation:
+ *  Walks the children of a handler with `lang=kern` and emits a TypeScript
+ *  body string. Recognized statements:
+ *
+ *    - `let name=X value="EXPR"` — `const X = EXPR;` (slice 1)
+ *    - `return value="EXPR"` / bare `return` — `return EXPR;` (slice 1)
+ *    - `if cond="EXPR"` / sibling `else` — `if (EXPR) { … } else { … }` (slice 2c)
+ *
+ *  Statement-level propagation `?` lowers to the same hoisted shape that
+ *  slice 7 established for raw-body propagation:
  *
  *      const __k_t1 = await call();
  *      if (__k_t1.kind === 'err') return __k_t1;
  *      const u = __k_t1.value;
  *
- *  Slice 1 scope:
- *    - Result-flavored propagation only (`'err'` discriminant). Option-flavored
+ *  Slice scope:
+ *    - Result-flavored propagation only (`'err'` discriminant). Option
  *      propagation in native bodies is deferred to slice 8 (typecheck-driven).
- *    - `let name=X value="EXPR"` and `return value="EXPR"` (or bare `return`).
- *    - Other child types are silently skipped at slice 1; later slices add
- *      `if`/`else`, expression statements, etc.
+ *    - `if` requires `cond="EXPR"`. `else` is a sibling node (no condition).
+ *      `else if` chains land in slice 3 — for slice 2c users nest `if` inside
+ *      the `else` branch.
  *
  *  `gensymCounter` is local to each emit call — every handler gets its own
- *  fresh `__k_t1`, `__k_t2`, … sequence (same convention as slice 7). */
+ *  fresh `__k_t1`, `__k_t2`, … sequence (same convention as slice 7).
+ *
+ *  Indentation: the recursive walk threads an `indent` string so nested
+ *  `if`/`else` branches indent correctly. The caller adds the leading indent
+ *  for the surrounding function body. */
 
 import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
@@ -28,24 +36,40 @@ interface BodyEmitContext {
   gensymCounter: number;
 }
 
-/** Emit the body of a native KERN handler as TypeScript source.
- *
- *  Returns a multi-line string suitable for splicing into a function body.
- *  Each line is unindented; the caller is responsible for indenting to match
- *  the surrounding TS scope. */
+const INDENT_STEP = '  ';
+
+/** Emit the body of a native KERN handler as TypeScript source. Returns a
+ *  multi-line string. Each top-level line is unindented; nested branches
+ *  indent by 2 spaces per level. */
 export function emitNativeKernBodyTS(handlerNode: IRNode): string {
   const ctx: BodyEmitContext = { gensymCounter: 0 };
+  return emitChildrenTS(handlerNode.children ?? [], ctx, '').join('\n');
+}
+
+function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string): string[] {
   const lines: string[] = [];
-  const children = handlerNode.children ?? [];
-  for (const child of children) {
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i];
     if (child.type === 'let') {
-      for (const line of emitLetTS(child, ctx)) lines.push(line);
+      for (const line of emitLetTS(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'return') {
-      for (const line of emitReturnTS(child, ctx)) lines.push(line);
+      for (const line of emitReturnTS(child, ctx)) lines.push(`${indent}${line}`);
+    } else if (child.type === 'if') {
+      const condRaw = String(child.props?.cond ?? '');
+      const condIR = parseExpression(condRaw);
+      lines.push(`${indent}if (${emitExpression(condIR)}) {`);
+      for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
+      const next = children[i + 1];
+      if (next && next.type === 'else') {
+        lines.push(`${indent}} else {`);
+        for (const el of emitChildrenTS(next.children ?? [], ctx, indent + INDENT_STEP)) lines.push(el);
+        i++;
+      }
+      lines.push(`${indent}}`);
     }
-    // Other child types fall through silently — slice 2+ will recognize them.
+    // Other child types fall through silently — slices 2d/3 add more.
   }
-  return lines.join('\n');
+  return lines;
 }
 
 function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {

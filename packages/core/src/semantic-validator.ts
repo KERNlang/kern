@@ -130,12 +130,14 @@ function validateNode(
   // dropped — fail loudly instead.
   if (node.type === 'let') {
     const parent = ancestry[ancestry.length - 1];
-    if (parent !== 'each' && parent !== 'handler') {
+    // Slice 2c — also accept `if` / `else` parents for native body control flow.
+    // `let` inside an if-branch is the natural expression for conditional bindings.
+    if (parent !== 'each' && parent !== 'handler' && parent !== 'if' && parent !== 'else') {
       violations.push({
         rule: 'let-must-be-inside-each',
         nodeType: 'let',
         message:
-          '`let` must be a direct child of `each` or `handler`. Use `derive` for component-scoped bindings, or `const` at file scope.',
+          '`let` must be a direct child of `each`, `handler`, or `if`/`else` (slice 2c). Use `derive` for component-scoped bindings, or `const` at file scope.',
         line: node.loc?.line,
         col: node.loc?.col,
       });
