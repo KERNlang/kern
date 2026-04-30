@@ -7,6 +7,7 @@ export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 export {
   detectKernStdlibUsage,
   injectKernStdlibPreamble,
+  injectKernStdlibPreambleIntoSFC,
   kernStdlibPreamble,
 } from './codegen/stdlib-preamble.js';
 export type { SemanticTypeMapping } from './codegen-core.js';

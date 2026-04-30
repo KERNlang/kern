@@ -196,6 +196,37 @@ export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
 //   skip. (Gemini review fix.)
 const DIRECTIVE_RE = /^\s*['"]use [a-z]+['"];?\s*(?:\/\/.*|\/\*[\s\S]*?\*\/)?\s*$/;
 
+/** Slice 4 follow-up — inject the preamble INSIDE a Vue/Nuxt SFC's first
+ *  `<script[ setup]? lang="ts">` block instead of before the SFC. The plain
+ *  `injectKernStdlibPreamble` would prepend `type Result<…>` text ahead of
+ *  the SFC, breaking the file's parse.
+ *
+ *  Only matches a TS-language script block. JavaScript script blocks
+ *  (`lang="js"` or no `lang`) are left alone — the preamble emits TS
+ *  syntax (generics, type aliases) which JS can't host.
+ *
+ *  When no matching script tag exists (template-only SFC, JS-only SFC),
+ *  the preamble is dropped entirely — silently injecting it elsewhere
+ *  would corrupt the file. The handler bodies in such SFCs cannot use
+ *  `Result<…>` / `Option<…>` types anyway, so the dropped preamble is
+ *  not load-bearing. */
+export function injectKernStdlibPreambleIntoSFC(code: string, preamble: string[]): string {
+  if (preamble.length === 0) return code;
+  // Match the opening `<script ... lang="ts" ...>` tag — `setup` may appear
+  // before or after `lang`, attribute quotes can be single or double, and
+  // additional attributes (e.g. `name="...">`) are tolerated.
+  const scriptOpen = /<script\b[^>]*\blang\s*=\s*["']ts["'][^>]*>/i;
+  const match = code.match(scriptOpen);
+  if (!match) return code;
+  const tagEnd = (match.index ?? 0) + match[0].length;
+  // Skip a single trailing newline if present so the preamble lands on
+  // its own line rather than directly after the `>`.
+  const afterTag = code[tagEnd] === '\n' ? tagEnd + 1 : tagEnd;
+  const before = code.slice(0, afterTag);
+  const after = code.slice(afterTag);
+  return `${before}${preamble.join('\n')}\n${after}`;
+}
+
 export function injectKernStdlibPreamble(code: string, preamble: string[]): string {
   if (preamble.length === 0) return code;
   if (code.length === 0) return preamble.join('\n');
