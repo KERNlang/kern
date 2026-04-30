@@ -140,6 +140,7 @@ interface RuntimeBinding {
   name: string;
   expr: string;
   kind: 'expr' | 'fixture' | 'fn' | 'class' | 'native';
+  eager?: boolean;
   line?: number;
 }
 
@@ -1743,6 +1744,7 @@ function runtimeBindingSource(node: IRNode): { expr: string; kind: RuntimeBindin
   if (node.type === 'class') return { expr: runtimeClassExpr(node), kind: 'class' };
   if (node.type === 'mapLit') return { expr: runtimeMapLitExpr(node), kind: 'native' };
   if (node.type === 'setLit') return { expr: runtimeSetLitExpr(node), kind: 'native' };
+  if (node.type === 'collect') return { expr: runtimeCollectBindingExpr(node), kind: 'native' };
   const arrayExpr = runtimeArrayBindingExpr(node);
   if (arrayExpr !== undefined) return { expr: arrayExpr, kind: 'native' };
   return undefined;
@@ -1891,6 +1893,12 @@ function runtimeSetLitExpr(node: IRNode): string {
   return `new Set([${items.join(', ')}])`;
 }
 
+function runtimeSyntheticName(node: IRNode, prefix: string): string {
+  const line = node.loc?.line ?? 0;
+  const col = node.loc?.col ?? 0;
+  return `__kern${prefix}_${line}_${col}`;
+}
+
 function runtimeDestructureBindings(node: IRNode): RuntimeBinding[] {
   const source = rawPropToRuntimeSource(node, 'source');
   if (!source) return [];
@@ -1960,6 +1968,20 @@ function runtimeArrayValueLookupBindingExpr(node: IRNode, method: 'includes' | '
   return `((${collection}).${method}(${args}))`;
 }
 
+function runtimeCollectBindingExpr(node: IRNode): string {
+  const from = rawPropToRuntimeSource(node, 'from');
+  if (!from) return '';
+  const where = rawPropToRuntimeSource(node, 'where');
+  const order = rawPropToRuntimeSource(node, 'order');
+  const limit = rawPropToRuntimeSource(node, 'limit');
+
+  let chain = `(${from})`;
+  if (where) chain += `.filter((item) => ${where})`;
+  if (order) chain += `.sort((a, b) => ${order})`;
+  if (limit) chain += `.slice(0, ${limit})`;
+  return `(${chain})`;
+}
+
 function runtimePartitionBindings(node: IRNode): RuntimeBinding[] {
   const collection = rawPropToRuntimeSource(node, 'in');
   const predicate = rawPropToRuntimeSource(node, 'where');
@@ -1992,6 +2014,153 @@ function runtimePartitionBindings(node: IRNode): RuntimeBinding[] {
       line: node.loc?.line,
     },
   ];
+}
+
+function runtimeRespondSource(node: IRNode): string {
+  const props = getProps(node);
+  const status = typeof props.status === 'number' ? props.status : Number(str(props.status)) || undefined;
+  const jsonSource = runtimeValuePropSource(node, 'json');
+  if (jsonSource) return jsonSource;
+
+  const textSource = runtimeValuePropSource(node, 'text');
+  if (textSource) return textSource;
+
+  const error = str(props.error);
+  if (error) return `({ status: ${status || 500}, error: ${JSON.stringify(error)} })`;
+
+  const redirect = str(props.redirect);
+  if (redirect) return `({ status: ${status || 302}, redirect: ${JSON.stringify(redirect)} })`;
+
+  return `({ status: ${status || 200} })`;
+}
+
+function runtimeScopedObject(names: string[]): string {
+  const unique = [...new Set(names)].filter(isRuntimeBindingName);
+  if (unique.length === 0) return 'undefined';
+  if (unique.length === 1) return unique[0];
+  return `({ ${unique.join(', ')} })`;
+}
+
+function runtimeGuardStatement(node: IRNode): string[] {
+  const expr = exprPropToRuntimeSource(node, 'expr') || rawPropToRuntimeSource(node, 'expr');
+  if (!expr) return [];
+  const props = getProps(node);
+  const fallback = str(props.else) || str(props.fallback);
+  const numericFallback = fallback && /^\d+$/.test(fallback) ? Number(fallback) : undefined;
+  const result =
+    numericFallback !== undefined
+      ? `({ status: ${numericFallback} })`
+      : fallback
+        ? `({ error: ${JSON.stringify(fallback)} })`
+        : 'false';
+  return [`if (!(${expr})) return (${result});`];
+}
+
+function runtimeScopedChildProgram(children: IRNode[]): { lines: string[]; names: string[]; hasReturn: boolean } {
+  const lines: string[] = [];
+  const names: string[] = [];
+  let hasReturn = false;
+
+  for (const child of children) {
+    if (child.type === 'respond') {
+      lines.push(`return (${runtimeRespondSource(child)});`);
+      hasReturn = true;
+      continue;
+    }
+
+    if (child.type === 'guard') {
+      lines.push(...runtimeGuardStatement(child));
+      continue;
+    }
+
+    if (child.type === 'destructure') {
+      for (const binding of runtimeDestructureBindings(child)) {
+        lines.push(`const ${binding.name} = (${binding.expr});`);
+        names.push(binding.name);
+      }
+      continue;
+    }
+
+    if (child.type === 'partition') {
+      const partitionBindings = runtimePartitionBindings(child);
+      for (const binding of partitionBindings) {
+        lines.push(`const ${binding.name} = (${binding.expr});`);
+        names.push(binding.name);
+      }
+      continue;
+    }
+
+    if (child.type === 'each') {
+      const expr = runtimeEachExecutionExpr(child);
+      if (expr) lines.push(`(${expr});`);
+      continue;
+    }
+
+    const name = str(getProps(child).name);
+    const binding = runtimeBindingSource(child);
+    if (name && binding?.expr && isRuntimeBindingName(name)) {
+      lines.push(`const ${name} = (${binding.expr});`);
+      names.push(name);
+    }
+  }
+
+  return { lines, names, hasReturn };
+}
+
+function runtimeBranchBindingExpr(node: IRNode): string {
+  const on = rawPropToRuntimeSource(node, 'on');
+  if (!on) return '';
+
+  const lines = ['(() => {', `  const __branchValue = (${on});`];
+  const paths = getChildren(node, 'path');
+  for (let index = 0; index < paths.length; index++) {
+    const pathNode = paths[index];
+    const value = str(getProps(pathNode).value);
+    const program = runtimeScopedChildProgram(pathNode.children || []);
+    const keyword = index === 0 ? 'if' : 'else if';
+    lines.push(`  ${keyword} (__branchValue === ${JSON.stringify(value)}) {`);
+    for (const line of program.lines) lines.push(`    ${line}`);
+    if (!program.hasReturn) lines.push(`    return (${runtimeScopedObject(program.names)});`);
+    lines.push('  }');
+  }
+  lines.push('  return undefined;');
+  lines.push('})()');
+  return lines.join('\n');
+}
+
+function runtimeEachExecutionExpr(node: IRNode): string {
+  const collection = rawPropToRuntimeSource(node, 'in');
+  const item = str(getProps(node).name) || 'item';
+  if (!collection || !isRuntimeBindingName(item)) return '';
+
+  const index = str(getProps(node).index);
+  if (index && !isRuntimeBindingName(index)) return '';
+
+  const program = runtimeScopedChildProgram(node.children || []);
+  const lines = ['(() => {', '  const __results = [];'];
+  if (index) {
+    lines.push(`  for (const [${index}, ${item}] of (${collection}).entries()) {`);
+  } else {
+    lines.push(`  for (const ${item} of ${collection}) {`);
+  }
+  for (const line of program.lines) lines.push(`    ${line}`);
+  lines.push(`    __results.push(${runtimeScopedObject(program.names)});`);
+  lines.push('  }');
+  lines.push('  return __results;');
+  lines.push('})()');
+  return lines.join('\n');
+}
+
+function runtimeEachExecutionBinding(node: IRNode): RuntimeBinding | undefined {
+  const expr = runtimeEachExecutionExpr(node);
+  if (!expr) return undefined;
+  return {
+    name: runtimeSyntheticName(node, 'Each'),
+    expr,
+    kind: 'native',
+    eager: true,
+    line: node.loc?.line,
+  };
 }
 
 function runtimeArrayBindingExpr(node: IRNode): string | undefined {
@@ -2162,6 +2331,26 @@ function collectRuntimeBindings(root: IRNode): RuntimeBinding[] {
   const bindings: RuntimeBinding[] = [];
 
   function visit(node: IRNode): void {
+    if (node.type === 'branch') {
+      const name = str(getProps(node).name);
+      const expr = runtimeBranchBindingExpr(node);
+      if (name && expr) {
+        bindings.push({
+          name,
+          expr,
+          kind: 'native',
+          line: node.loc?.line,
+        });
+      }
+      return;
+    }
+
+    if (node.type === 'each') {
+      const binding = runtimeEachExecutionBinding(node);
+      if (binding) bindings.push(binding);
+      return;
+    }
+
     if (node.type === 'destructure') {
       bindings.push(...runtimeDestructureBindings(node));
     }
@@ -2239,7 +2428,10 @@ function orderRuntimeBindings(bindings: RuntimeBinding[], entryExpr: string): Ru
     return undefined;
   }
 
-  for (const name of depsIn(entryExpr)) {
+  const initialNames = new Set([...bindings.filter((binding) => binding.eager).map((binding) => binding.name)]);
+  for (const name of depsIn(entryExpr)) initialNames.add(name);
+
+  for (const name of initialNames) {
     const error = visit(name);
     if (error) return { ordered: [], error };
   }
