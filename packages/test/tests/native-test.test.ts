@@ -490,6 +490,64 @@ describe('native kern test runner', () => {
     expect(summary.results.every((result) => result.ruleId === 'runtime:route')).toBe(true);
   });
 
+  test('expands table-driven native cases for runtime assertions', () => {
+    writeFileSync(
+      join(tmpDir, 'table-users.kern'),
+      [
+        'const name=users value={{[{ id: "u1", name: "Ada", role: "admin", active: true }, { id: "u2", name: "Grace", role: "member", active: true }]}}',
+        'fn name=pickName returns=string',
+        '  param name=user type=object',
+        '  handler <<<',
+        '    return user.name;',
+        '  >>>',
+        'server name=UsersAPI',
+        '  route GET /api/users',
+        '    params role:string',
+        '    branch name=roleSelection on=query.role',
+        '      path value="admin"',
+        '        collect name=result from=users where={{item.role === "admin"}}',
+        '        respond 200 json=result',
+        '      path value="member"',
+        '        collect name=result from=users where={{item.role === "member"}}',
+        '        respond 200 json=result',
+        '    respond 200 json=users',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'table-users.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Table cases" target="./table-users.kern"',
+        '  fixture name=ada value={{({ name: "Ada" })}}',
+        '  it name="routes reuse one expect across cases"',
+        '    case name=admin with={{({ query: { role: "admin" } })}} returns={{[{ id: "u1", name: "Ada", role: "admin", active: true }]}}',
+        '    case name=member with={{({ query: { role: "member" } })}} returns={{[{ id: "u2", name: "Grace", role: "member", active: true }]}}',
+        '    expect route="GET /api/users"',
+        '  it name="expect-local cases override inputs"',
+        '    expect fn=pickName',
+        '      case name=fixture with={{ada}} equals="Ada"',
+        '      case name=inline with={{({ name: "Lin" })}} equals="Lin"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(4);
+    expect(summary.results.map((result) => result.caseName)).toEqual([
+      'routes reuse one expect across cases > admin',
+      'routes reuse one expect across cases > member',
+      'expect-local cases override inputs > fixture',
+      'expect-local cases override inputs > inline',
+    ]);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'runtime:route',
+      'runtime:route',
+      'runtime:behavior',
+      'runtime:behavior',
+    ]);
+  });
+
   test('executes deterministic effect and recover assertions before codegen', () => {
     writeFileSync(
       join(tmpDir, 'effects.kern'),

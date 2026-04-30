@@ -168,6 +168,13 @@ interface RuntimeEffectMock {
   col?: number;
 }
 
+interface NativeTestCaseRow {
+  node: IRNode;
+  fixtures: RuntimeBinding[];
+  mocks: RuntimeEffectMock[];
+  label: string;
+}
+
 type RuntimeWorkflowKind = 'route' | 'tool';
 
 interface RuntimeWorkflowProgramOptions {
@@ -784,6 +791,20 @@ function collectAssertions(testNode: IRNode): CollectedAssertion[] {
   const suite = str(getProps(testNode).name) || 'unnamed test';
   const assertions: CollectedAssertion[] = [];
   let mockId = 0;
+  const caseMergeProps = new Set([
+    'args',
+    'with',
+    'input',
+    'equals',
+    'returns',
+    'recovers',
+    'fallback',
+    'matches',
+    'throws',
+    'called',
+    'message',
+    'severity',
+  ]);
 
   function runtimeEffectMocks(node: IRNode): RuntimeEffectMock[] {
     return getChildren(node, 'mock')
@@ -791,7 +812,59 @@ function collectAssertions(testNode: IRNode): CollectedAssertion[] {
       .filter((mock): mock is RuntimeEffectMock => mock !== undefined);
   }
 
-  function pushExpectation(node: IRNode, path: string[], fixtures: RuntimeBinding[], mocks: RuntimeEffectMock[]): void {
+  function testCaseRows(node: IRNode, fixtures: RuntimeBinding[], mocks: RuntimeEffectMock[]): NativeTestCaseRow[] {
+    return getChildren(node, 'case').map((caseNode, index) => {
+      const label = str(getProps(caseNode).name) || `case ${index + 1}`;
+      return {
+        node: caseNode,
+        fixtures: [...fixtures, ...runtimeFixtureBindings(caseNode)],
+        mocks: [...mocks, ...runtimeEffectMocks(caseNode)],
+        label,
+      };
+    });
+  }
+
+  function expectationForCase(expectNode: IRNode, caseNode: IRNode): IRNode {
+    const mergedProps = { ...getProps(expectNode) };
+    const quotedProps = new Set(expectNode.__quotedProps || []);
+    const caseQuotedProps = new Set(caseNode.__quotedProps || []);
+
+    for (const [key, value] of Object.entries(getProps(caseNode))) {
+      if (!caseMergeProps.has(key)) continue;
+      mergedProps[key] = value;
+      if (caseQuotedProps.has(key)) quotedProps.add(key);
+      else quotedProps.delete(key);
+    }
+
+    return {
+      ...expectNode,
+      props: mergedProps,
+      __quotedProps: [...quotedProps],
+      loc: caseNode.loc || expectNode.loc,
+      children: (expectNode.children || []).filter((child) => child.type !== 'case'),
+    };
+  }
+
+  function pushExpectation(
+    node: IRNode,
+    path: string[],
+    fixtures: RuntimeBinding[],
+    mocks: RuntimeEffectMock[],
+    cases: NativeTestCaseRow[] = [],
+  ): void {
+    if (cases.length > 0) {
+      for (const testCase of cases) {
+        assertions.push({
+          suite,
+          caseName: [...path, testCase.label].join(' > '),
+          node: expectationForCase(node, testCase.node),
+          fixtures: testCase.fixtures,
+          mocks: testCase.mocks,
+        });
+      }
+      return;
+    }
+
     assertions.push({
       suite,
       caseName: path.length > 0 ? path.join(' > ') : 'top-level',
@@ -806,14 +879,24 @@ function collectAssertions(testNode: IRNode): CollectedAssertion[] {
     const scopedMocks = [...mocks, ...runtimeEffectMocks(node)];
 
     if (node.type === 'expect') {
-      pushExpectation(node, path, scopedFixtures, scopedMocks);
+      pushExpectation(node, path, scopedFixtures, scopedMocks, testCaseRows(node, scopedFixtures, scopedMocks));
       return;
     }
 
     if (node.type === 'it') {
       const nextPath = [...path, str(getProps(node).name) || 'it'];
+      const scopedCases = testCaseRows(node, scopedFixtures, scopedMocks);
       for (const child of node.children || []) {
-        if (child.type === 'expect') pushExpectation(child, nextPath, scopedFixtures, scopedMocks);
+        if (child.type === 'expect') {
+          const expectCases = testCaseRows(child, scopedFixtures, scopedMocks);
+          pushExpectation(
+            child,
+            nextPath,
+            scopedFixtures,
+            scopedMocks,
+            expectCases.length > 0 ? expectCases : scopedCases,
+          );
+        }
       }
       return;
     }

@@ -5,12 +5,14 @@ test name="Route workflow conformance" target="./conformance-routes.kern"
     expect no=codegenErrors
 
   it name="collection route filters through branch and collect"
-    expect route="GET /api/users" with={{({ query: { role: "member" } })}} returns={{[{ id: "u2", name: "Grace", role: "member", active: true, score: 9 }]}}
-    expect route="GET /api/users" with={{({ query: { role: "missing" } })}} returns={{[{ id: "u1", name: "Ada", role: "admin", active: true, score: 8 }, { id: "u2", name: "Grace", role: "member", active: true, score: 9 }, { id: "u4", name: "Mina", role: "guest", active: true, score: 6 }]}}
+    case name=member with={{({ query: { role: "member" } })}} returns={{[{ id: "u2", name: "Grace", role: "member", active: true, score: 9 }]}}
+    case name=missing with={{({ query: { role: "missing" } })}} returns={{[{ id: "u1", name: "Ada", role: "admin", active: true, score: 8 }, { id: "u2", name: "Grace", role: "member", active: true, score: 9 }, { id: "u4", name: "Mina", role: "guest", active: true, score: 6 }]}}
+    expect route="GET /api/users"
 
   it name="path-param route proves guard fallback"
-    expect route="GET /api/users/:id" with={{({ params: { id: "u1" } })}} returns={{({ id: "u1", name: "Ada", role: "admin", active: true, score: 8 })}}
-    expect route="GET /api/users/:id" with={{({ params: { id: "missing" } })}} returns={{({ status: 404 })}}
+    case name=found with={{({ params: { id: "u1" } })}} returns={{({ id: "u1", name: "Ada", role: "admin", active: true, score: 8 })}}
+    case name=missing with={{({ params: { id: "missing" } })}} returns={{({ status: 404 })}}
+    expect route="GET /api/users/:id"
 
   it name="non-200 response keeps status with body"
     expect route="POST /api/users" with={{({ body: { id: "u5", name: "Nia", role: "member", active: true, score: 7 } })}} returns={{({ status: 201, json: { id: "u5", name: "Nia", role: "member", active: true, score: 7 } })}}

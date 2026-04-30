@@ -2347,7 +2347,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     description: 'Test case — single test assertion',
     example: 'it name="returns 200 on success"\n  handler <<<\n    expect(res.status).toBe(200);\n  >>>',
     props: { name: { required: true, kind: 'string' } },
-    allowedChildren: ['expect', 'fixture', 'mock', 'handler'],
+    allowedChildren: ['expect', 'case', 'fixture', 'mock', 'handler'],
   },
 
   // Ground layer — semantic reasoning
@@ -2436,6 +2436,27 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       union: { kind: 'identifier' },
       covers: { kind: 'string' },
     },
+  },
+  case: {
+    description: 'Native test table row — supplies input and expected output for a parent expect assertion',
+    example:
+      'case name=admin with={{({ query: { role: "admin" } })}} returns={{adminUsers}}\nexpect route="GET /api/users"',
+    props: {
+      name: { kind: 'string' },
+      args: { kind: 'rawExpr' },
+      with: { kind: 'rawExpr' },
+      input: { kind: 'rawExpr' },
+      equals: { kind: 'rawExpr' },
+      returns: { kind: 'rawExpr' },
+      recovers: { kind: 'boolean' },
+      fallback: { kind: 'rawExpr' },
+      matches: { kind: 'string' },
+      throws: { kind: 'string' },
+      called: { kind: 'number' },
+      message: { kind: 'string' },
+      severity: { kind: 'identifier' },
+    },
+    allowedChildren: ['fixture', 'mock'],
   },
   fixture: {
     description: 'Native test fixture — named runtime data available to scoped expect assertions',
