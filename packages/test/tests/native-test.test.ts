@@ -89,6 +89,7 @@ describe('native kern test runner', () => {
         'examples/native-test/conformance-control-flow.test.kern',
         'examples/native-test/conformance-data-advanced.test.kern',
         'examples/native-test/conformance-effects.test.kern',
+        'examples/native-test/conformance-mocks.test.kern',
         'examples/native-test/conformance-routes.test.kern',
         'examples/native-test/language-surface.test.kern',
         'examples/native-test/order.test.kern',
@@ -422,6 +423,62 @@ describe('native kern test runner', () => {
       'runtime:effect',
       'runtime:route',
     ]);
+  });
+
+  test('uses scoped native mocks for effect and route workflow assertions', () => {
+    writeFileSync(
+      join(tmpDir, 'mocked-effects.kern'),
+      [
+        'effect name=loadUsers',
+        '  trigger query="SELECT * FROM users"',
+        'server name=UsersAPI',
+        '  route GET /api/users',
+        '    effect name=fetchUsers',
+        '      trigger url="/api/users"',
+        '    respond 200 json=fetchUsers.result',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'mocked-effects.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Mocked effect workflows" target="./mocked-effects.kern"',
+        '  fixture name=users value={{[{ id: "u1", name: "Ada" }]}}',
+        '  it name="mocks top-level effect boundaries"',
+        '    mock effect=loadUsers returns={{users}}',
+        '    expect effect=loadUsers returns={{users}}',
+        '  it name="mocks route-local effect boundaries"',
+        '    mock effect=fetchUsers returns={{users}}',
+        '    expect route="GET /api/users" returns={{users}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(2);
+    expect(summary.results.map((result) => result.ruleId)).toEqual(['runtime:effect', 'runtime:route']);
+  });
+
+  test('reports unused scoped native effect mocks', () => {
+    writeFileSync(join(tmpDir, 'unused-mock.kern'), ['effect name=loadUsers', '  trigger expr={{[]}}'].join('\n'));
+    const testFile = join(tmpDir, 'unused-mock.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Unused mock" target="./unused-mock.kern"',
+        '  it name="declares dead mock"',
+        '    mock effect=loadUsers returns={{[]}}',
+        '    expect expr={{true}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.passed).toBe(1);
+    expect(summary.failed).toBe(1);
+    expect(summary.results[1].ruleId).toBe('mock:unused');
+    expect(summary.results[1].message).toContain('effect=loadUsers');
   });
 
   test('fixture scope does not leak between sibling test cases', () => {

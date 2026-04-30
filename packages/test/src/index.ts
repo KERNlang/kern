@@ -121,6 +121,7 @@ interface CollectedAssertion {
   caseName: string;
   node: IRNode;
   fixtures: RuntimeBinding[];
+  mocks: RuntimeEffectMock[];
 }
 
 interface EvaluatedAssertion {
@@ -134,6 +135,8 @@ interface EvaluatedAssertion {
 interface NativeKernAssertionContext {
   assertions: CollectedAssertion[];
   fixtures?: RuntimeBinding[];
+  mocks?: RuntimeEffectMock[];
+  usedMocks?: Set<string>;
 }
 
 interface RuntimeBinding {
@@ -147,6 +150,14 @@ interface RuntimeBinding {
 interface RuntimeBindingOrder {
   ordered: RuntimeBinding[];
   error?: string;
+}
+
+interface RuntimeEffectMock {
+  id: string;
+  effect: string;
+  returns: string;
+  line?: number;
+  col?: number;
 }
 
 type RuntimeEvalResult = { ok: true; value: unknown } | { ok: false; error: unknown };
@@ -709,45 +720,62 @@ function runtimeFixtureBindings(node: IRNode): RuntimeBinding[] {
     .filter((fixture): fixture is RuntimeBinding => fixture !== undefined);
 }
 
+function runtimeEffectMock(node: IRNode, id: string): RuntimeEffectMock | undefined {
+  const props = getProps(node);
+  const effect = str(props.effect);
+  const returns = runtimeExpectedSource(node, 'returns');
+  if (!effect || returns === undefined) return undefined;
+  return { id, effect, returns, line: node.loc?.line, col: node.loc?.col };
+}
+
 function collectAssertions(testNode: IRNode): CollectedAssertion[] {
   const suite = str(getProps(testNode).name) || 'unnamed test';
   const assertions: CollectedAssertion[] = [];
+  let mockId = 0;
 
-  function pushExpectation(node: IRNode, path: string[], fixtures: RuntimeBinding[]): void {
+  function runtimeEffectMocks(node: IRNode): RuntimeEffectMock[] {
+    return getChildren(node, 'mock')
+      .map((mock) => runtimeEffectMock(mock, `mock:${mockId++}`))
+      .filter((mock): mock is RuntimeEffectMock => mock !== undefined);
+  }
+
+  function pushExpectation(node: IRNode, path: string[], fixtures: RuntimeBinding[], mocks: RuntimeEffectMock[]): void {
     assertions.push({
       suite,
       caseName: path.length > 0 ? path.join(' > ') : 'top-level',
       node,
       fixtures,
+      mocks,
     });
   }
 
-  function visit(node: IRNode, path: string[], fixtures: RuntimeBinding[]): void {
+  function visit(node: IRNode, path: string[], fixtures: RuntimeBinding[], mocks: RuntimeEffectMock[]): void {
     const scopedFixtures = [...fixtures, ...runtimeFixtureBindings(node)];
+    const scopedMocks = [...mocks, ...runtimeEffectMocks(node)];
 
     if (node.type === 'expect') {
-      pushExpectation(node, path, scopedFixtures);
+      pushExpectation(node, path, scopedFixtures, scopedMocks);
       return;
     }
 
     if (node.type === 'it') {
       const nextPath = [...path, str(getProps(node).name) || 'it'];
       for (const child of node.children || []) {
-        if (child.type === 'expect') pushExpectation(child, nextPath, scopedFixtures);
+        if (child.type === 'expect') pushExpectation(child, nextPath, scopedFixtures, scopedMocks);
       }
       return;
     }
 
     if (node.type === 'describe') {
       const nextPath = [...path, str(getProps(node).name) || 'describe'];
-      for (const child of node.children || []) visit(child, nextPath, scopedFixtures);
+      for (const child of node.children || []) visit(child, nextPath, scopedFixtures, scopedMocks);
       return;
     }
 
-    for (const child of node.children || []) visit(child, path, scopedFixtures);
+    for (const child of node.children || []) visit(child, path, scopedFixtures, scopedMocks);
   }
 
-  visit(testNode, [], []);
+  visit(testNode, [], [], []);
   return assertions;
 }
 
@@ -2314,6 +2342,40 @@ function runtimeEffectRecoverFallbackSource(node: IRNode, options: { portable?: 
   return options.portable ? runtimePortableSource(source) : source;
 }
 
+function findRuntimeEffectMock(
+  mocks: RuntimeEffectMock[] | undefined,
+  effectName: string,
+): { mock?: RuntimeEffectMock; message?: string } {
+  const matches = (mocks || []).filter((mock) => mock.effect === effectName);
+  if (matches.length === 0) return {};
+  if (matches.length === 1) return { mock: matches[0] };
+  return { message: `Runtime effect ${effectName} has multiple scoped mocks` };
+}
+
+function runtimeEffectMockExecutionExpr(
+  mock: RuntimeEffectMock,
+  options: { portable?: boolean; meta?: boolean } = {},
+): { expr?: string; message?: string } {
+  if (!isRuntimeBindingName(mock.effect)) return { message: `Runtime mock has invalid effect name: ${mock.effect}` };
+
+  const source = options.portable ? runtimePortableSource(mock.returns) : mock.returns;
+  const problem = unsafeRuntimeExpressionReason(source, { allowAwait: true });
+  if (problem) return { message: `Runtime mock effect ${mock.effect} cannot execute returns value: ${problem}` };
+
+  const lines = ['(async () => {', `  const __value = await (${source});`];
+  if (options.meta) {
+    lines.push('  return { result: __value, recovered: false, attempts: 0, mocked: true };');
+  } else {
+    lines.push('  return __value;');
+  }
+  lines.push('})()');
+  return { expr: lines.join('\n') };
+}
+
+function markRuntimeEffectMockUsed(mock: RuntimeEffectMock, usedMocks?: Set<string>): void {
+  usedMocks?.add(mock.id);
+}
+
 function runtimeEffectExecutionExpr(
   node: IRNode,
   options: { portable?: boolean; meta?: boolean } = {},
@@ -2396,7 +2458,10 @@ function runtimeRouteRequestLines(route: IRNode, inputSource: string): { lines: 
   return { lines };
 }
 
-function runtimeRouteChildProgram(children: IRNode[]): { lines: string[]; message?: string } {
+function runtimeRouteChildProgram(
+  children: IRNode[],
+  options: { mocks?: RuntimeEffectMock[]; usedMocks?: Set<string> } = {},
+): { lines: string[]; message?: string } {
   const lines: string[] = [];
 
   for (const child of children) {
@@ -2412,6 +2477,22 @@ function runtimeRouteChildProgram(children: IRNode[]): { lines: string[]; messag
       if (!isRuntimeBindingName(effectName)) {
         return { lines: [], message: `Runtime route effect has invalid name: ${effectName}` };
       }
+
+      const scopedMock = findRuntimeEffectMock(options.mocks, effectName);
+      if (scopedMock.message) return { lines: [], message: scopedMock.message };
+      if (scopedMock.mock) {
+        const mocked = runtimeEffectMockExecutionExpr(scopedMock.mock, { portable: true });
+        if (mocked.message || !mocked.expr) {
+          return {
+            lines: [],
+            message: mocked.message || `Runtime route mock effect ${effectName} cannot be simulated`,
+          };
+        }
+        markRuntimeEffectMockUsed(scopedMock.mock, options.usedMocks);
+        lines.push(`const ${effectName} = await (${mocked.expr});`);
+        continue;
+      }
+
       const effect = runtimeEffectExecutionExpr(child, { portable: true });
       if (effect.message || !effect.expr) {
         return { lines: [], message: effect.message || `Runtime route effect ${effectName} cannot be simulated` };
@@ -2431,7 +2512,7 @@ function runtimeRouteChildProgram(children: IRNode[]): { lines: string[]; messag
     }
 
     if (child.type === 'branch') {
-      const expr = runtimeRouteBranchExecutionExpr(child);
+      const expr = runtimeRouteBranchExecutionExpr(child, options);
       if (!expr) continue;
       const name = runtimeSyntheticName(child, 'BranchResult');
       lines.push(`const ${name} = await (${expr});`);
@@ -2440,7 +2521,7 @@ function runtimeRouteChildProgram(children: IRNode[]): { lines: string[]; messag
     }
 
     if (child.type === 'each') {
-      const expr = runtimeRouteEachExecutionExpr(child);
+      const expr = runtimeRouteEachExecutionExpr(child, options);
       if (expr) lines.push(`await (${expr});`);
       continue;
     }
@@ -2469,7 +2550,10 @@ function runtimeRouteChildProgram(children: IRNode[]): { lines: string[]; messag
   return { lines };
 }
 
-function runtimeRouteBranchExecutionExpr(node: IRNode): string {
+function runtimeRouteBranchExecutionExpr(
+  node: IRNode,
+  options: { mocks?: RuntimeEffectMock[]; usedMocks?: Set<string> } = {},
+): string {
   const on = runtimePortableSource(rawPropToRuntimeSource(node, 'on'));
   if (!on) return '';
 
@@ -2478,7 +2562,7 @@ function runtimeRouteBranchExecutionExpr(node: IRNode): string {
   for (let index = 0; index < paths.length; index++) {
     const pathNode = paths[index];
     const value = str(getProps(pathNode).value);
-    const program = runtimeRouteChildProgram(pathNode.children || []);
+    const program = runtimeRouteChildProgram(pathNode.children || [], options);
     if (program.message) return '';
     const keyword = index === 0 ? 'if' : 'else if';
     lines.push(`  ${keyword} (__branchValue === ${JSON.stringify(value)}) {`);
@@ -2490,7 +2574,10 @@ function runtimeRouteBranchExecutionExpr(node: IRNode): string {
   return lines.join('\n');
 }
 
-function runtimeRouteEachExecutionExpr(node: IRNode): string {
+function runtimeRouteEachExecutionExpr(
+  node: IRNode,
+  options: { mocks?: RuntimeEffectMock[]; usedMocks?: Set<string> } = {},
+): string {
   const collection = runtimePortableSource(rawPropToRuntimeSource(node, 'in'));
   const item = str(getProps(node).name) || 'item';
   if (!collection || !isRuntimeBindingName(item)) return '';
@@ -2498,7 +2585,7 @@ function runtimeRouteEachExecutionExpr(node: IRNode): string {
   const index = str(getProps(node).index);
   if (index && !isRuntimeBindingName(index)) return '';
 
-  const program = runtimeRouteChildProgram(node.children || []);
+  const program = runtimeRouteChildProgram(node.children || [], options);
   if (program.message) return '';
 
   const lines = ['(async () => {', '  const __results = [];'];
@@ -2515,11 +2602,15 @@ function runtimeRouteEachExecutionExpr(node: IRNode): string {
   return lines.join('\n');
 }
 
-function runtimeRouteExecutionExpr(route: IRNode, inputSource: string): { expr?: string; message?: string } {
+function runtimeRouteExecutionExpr(
+  route: IRNode,
+  inputSource: string,
+  options: { mocks?: RuntimeEffectMock[]; usedMocks?: Set<string> } = {},
+): { expr?: string; message?: string } {
   const request = runtimeRouteRequestLines(route, inputSource || '{}');
   if (request.message) return { message: request.message };
 
-  const program = runtimeRouteChildProgram(route.children || []);
+  const program = runtimeRouteChildProgram(route.children || [], options);
   if (program.message) return { message: program.message };
 
   const lines = ['(async () => {'];
@@ -3242,6 +3333,8 @@ function evaluateRuntimeRoute(
   node: IRNode,
   target: LoadedKernDocument,
   fixtures: RuntimeBinding[] = [],
+  mocks: RuntimeEffectMock[] = [],
+  usedMocks?: Set<string>,
 ): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -3260,7 +3353,7 @@ function evaluateRuntimeRoute(
     return { passed: false, message: `Runtime route assertion cannot execute request input: ${inputProblem}` };
   }
 
-  const routeExpr = runtimeRouteExecutionExpr(found.route, inputSource);
+  const routeExpr = runtimeRouteExecutionExpr(found.route, inputSource, { mocks, usedMocks });
   if (routeExpr.message || !routeExpr.expr) {
     return { passed: false, message: routeExpr.message || 'Runtime route assertion cannot build route workflow' };
   }
@@ -3304,13 +3397,21 @@ function evaluateRuntimeEffectRecovery(
   target: LoadedKernDocument,
   effect: IRNode,
   fixtures: RuntimeBinding[],
+  mocks: RuntimeEffectMock[] = [],
+  usedMocks?: Set<string>,
 ): { passed: boolean; message?: string } {
   const props = getProps(node);
   const effectName = runtimeEffectName(effect);
-  const effectExpr = runtimeEffectExecutionExpr(effect, { portable: true, meta: true });
+
+  const scopedMock = findRuntimeEffectMock(mocks, effectName);
+  if (scopedMock.message) return { passed: false, message: scopedMock.message };
+  const effectExpr = scopedMock.mock
+    ? runtimeEffectMockExecutionExpr(scopedMock.mock, { portable: true, meta: true })
+    : runtimeEffectExecutionExpr(effect, { portable: true, meta: true });
   if (effectExpr.message || !effectExpr.expr) {
     return { passed: false, message: effectExpr.message || `Runtime effect ${effectName} cannot be simulated` };
   }
+  if (scopedMock.mock) markRuntimeEffectMockUsed(scopedMock.mock, usedMocks);
 
   const effectBinding: RuntimeBinding = {
     name: runtimeSyntheticName(node, 'Effect'),
@@ -3370,6 +3471,8 @@ function evaluateRuntimeEffect(
   node: IRNode,
   target: LoadedKernDocument,
   fixtures: RuntimeBinding[] = [],
+  mocks: RuntimeEffectMock[] = [],
+  usedMocks?: Set<string>,
 ): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -3384,13 +3487,18 @@ function evaluateRuntimeEffect(
   }
 
   if (isTruthy(props.recovers)) {
-    return evaluateRuntimeEffectRecovery(node, target, found.effect, fixtures);
+    return evaluateRuntimeEffectRecovery(node, target, found.effect, fixtures, mocks, usedMocks);
   }
 
-  const effectExpr = runtimeEffectExecutionExpr(found.effect, { portable: true });
+  const scopedMock = findRuntimeEffectMock(mocks, effectName);
+  if (scopedMock.message) return { passed: false, message: scopedMock.message };
+  const effectExpr = scopedMock.mock
+    ? runtimeEffectMockExecutionExpr(scopedMock.mock, { portable: true })
+    : runtimeEffectExecutionExpr(found.effect, { portable: true });
   if (effectExpr.message || !effectExpr.expr) {
     return { passed: false, message: effectExpr.message || `Runtime effect ${effectName} cannot be simulated` };
   }
+  if (scopedMock.mock) markRuntimeEffectMockUsed(scopedMock.mock, usedMocks);
 
   const effectBinding: RuntimeBinding = {
     name: runtimeSyntheticName(node, 'Effect'),
@@ -4206,7 +4314,13 @@ function evaluateNativeAssertion(
     ];
   }
   if ('route' in props) {
-    const evaluated = evaluateRuntimeRoute(node, target, context?.fixtures || []);
+    const evaluated = evaluateRuntimeRoute(
+      node,
+      target,
+      context?.fixtures || [],
+      context?.mocks || [],
+      context?.usedMocks,
+    );
     return [
       {
         ruleId: 'runtime:route',
@@ -4218,7 +4332,13 @@ function evaluateNativeAssertion(
     ];
   }
   if ('effect' in props) {
-    const evaluated = evaluateRuntimeEffect(node, target, context?.fixtures || []);
+    const evaluated = evaluateRuntimeEffect(
+      node,
+      target,
+      context?.fixtures || [],
+      context?.mocks || [],
+      context?.usedMocks,
+    );
     return [
       {
         ruleId: 'runtime:effect',
@@ -4367,6 +4487,11 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
     }
 
     const assertions = collectAssertions(testNode);
+    const declaredMocks = new Map<string, RuntimeEffectMock>();
+    for (const assertion of assertions) {
+      for (const mock of assertion.mocks) declaredMocks.set(mock.id, mock);
+    }
+    const usedMocks = new Set<string>();
     assertionsByTarget.set(targetPath, [...(assertionsByTarget.get(targetPath) || []), ...assertions]);
     if (assertions.length === 0) {
       results.push({
@@ -4386,7 +4511,12 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
     }
 
     for (const assertion of assertions) {
-      const context: NativeKernAssertionContext = { assertions, fixtures: assertion.fixtures };
+      const context: NativeKernAssertionContext = {
+        assertions,
+        fixtures: assertion.fixtures,
+        mocks: assertion.mocks,
+        usedMocks,
+      };
       const requestedSeverity = severityFromNode(assertion.node);
       for (const evaluated of evaluateNativeAssertion(assertion.node, target, context)) {
         const severity = effectiveSeverity(requestedSeverity, evaluated);
@@ -4408,6 +4538,25 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
           return summarize();
         }
       }
+    }
+
+    for (const mock of declaredMocks.values()) {
+      if (usedMocks.has(mock.id)) continue;
+      const result: NativeKernTestResult = {
+        suite,
+        caseName: 'mock usage',
+        ruleId: 'mock:unused',
+        assertion: `mock effect ${mock.effect}`,
+        severity: 'error',
+        status: 'failed',
+        message: `Native effect mock effect=${mock.effect} was declared but never used`,
+        file: inputPath,
+        line: mock.line,
+        col: mock.col,
+      };
+      if (!grepMatches(options, result)) continue;
+      results.push(result);
+      if (options.bail) return summarize();
     }
   }
 

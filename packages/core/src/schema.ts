@@ -335,7 +335,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       name: { required: true, kind: 'string' },
       target: { kind: 'string' },
     },
-    allowedChildren: ['describe', 'it', 'expect', 'fixture', 'handler'],
+    allowedChildren: ['describe', 'it', 'expect', 'fixture', 'mock', 'handler'],
   },
   event: {
     description: 'Typed event with payload type children',
@@ -2325,13 +2325,13 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example:
       'describe name="UserService"\n  it name="creates a user"\n    handler <<<\n      expect(createUser()).toBeDefined();\n    >>>',
     props: { name: { required: true, kind: 'string' } },
-    allowedChildren: ['it', 'describe', 'expect', 'fixture', 'handler'],
+    allowedChildren: ['it', 'describe', 'expect', 'fixture', 'mock', 'handler'],
   },
   it: {
     description: 'Test case — single test assertion',
     example: 'it name="returns 200 on success"\n  handler <<<\n    expect(res.status).toBe(200);\n  >>>',
     props: { name: { required: true, kind: 'string' } },
-    allowedChildren: ['expect', 'fixture', 'handler'],
+    allowedChildren: ['expect', 'fixture', 'mock', 'handler'],
   },
 
   // Ground layer — semantic reasoning
@@ -2425,6 +2425,14 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       name: { required: true, kind: 'identifier' },
       value: { kind: 'rawExpr' },
       expr: { kind: 'rawExpr' },
+    },
+  },
+  mock: {
+    description: 'Native test mock — replaces a scoped KERN effect with deterministic runtime data',
+    example: 'mock effect=fetchUsers returns={{users}}',
+    props: {
+      effect: { required: true, kind: 'identifier' },
+      returns: { required: true, kind: 'rawExpr' },
     },
   },
   recover: {
