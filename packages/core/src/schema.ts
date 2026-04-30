@@ -1592,7 +1592,22 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { required: true, kind: 'identifier' },
     },
-    allowedChildren: ['param', 'handler', 'description', 'guard', 'sampling', 'elicitation'],
+    allowedChildren: [
+      'param',
+      'handler',
+      'description',
+      'guard',
+      'sampling',
+      'elicitation',
+      'derive',
+      'effect',
+      'respond',
+      'branch',
+      'each',
+      'collect',
+      'destructure',
+      'partition',
+    ],
   },
   resource: {
     description: 'MCP resource — a data source exposed to AI agents via URI. Use {variables} for templated URIs.',
@@ -2378,6 +2393,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       fn: { kind: 'identifier' },
       derive: { kind: 'identifier' },
       route: { kind: 'string' },
+      tool: { kind: 'identifier' },
       effect: { kind: 'identifier' },
       mock: { kind: 'identifier' },
       called: { kind: 'number' },
@@ -2568,7 +2584,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
   if (node.type === 'expect') {
     const hasRuntimeAssertion = 'expr' in props;
     const hasRuntimeBehavior = 'fn' in props || 'derive' in props;
-    const hasRuntimeWorkflow = 'route' in props || 'effect' in props;
+    const hasRuntimeWorkflow = 'route' in props || 'tool' in props || 'effect' in props;
     const hasMockCallAssertion = 'mock' in props || 'called' in props;
     const hasPreset = 'preset' in props;
     const hasNodeShape = 'node' in props;
@@ -2592,7 +2608,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'expect',
         message:
-          "'expect' requires 'expr', 'fn', 'derive', 'route', 'effect', 'mock' call count, 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
+          "'expect' requires 'expr', 'fn', 'derive', 'route', 'tool', 'effect', 'mock' call count, 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
         line: node.loc?.line,
         col: node.loc?.col,
       });
@@ -2601,13 +2617,15 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       Number('fn' in props) +
         Number('derive' in props) +
         Number('route' in props) +
+        Number('tool' in props) +
         Number('effect' in props) +
         Number('mock' in props) >
       1
     ) {
       violations.push({
         nodeType: 'expect',
-        message: "'expect' cannot combine fn=<name>, derive=<name>, route=<spec>, effect=<name>, and mock=<name>",
+        message:
+          "'expect' cannot combine fn=<name>, derive=<name>, route=<spec>, tool=<name>, effect=<name>, and mock=<name>",
         line: node.loc?.line,
         col: node.loc?.col,
       });
@@ -2615,7 +2633,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
     if ((hasRuntimeBehavior || hasRuntimeWorkflow || hasMockCallAssertion) && hasRuntimeAssertion) {
       violations.push({
         nodeType: 'expect',
-        message: "'expect' cannot combine fn/derive/route/effect/mock behavioral assertions with expr={{...}}",
+        message: "'expect' cannot combine fn/derive/route/tool/effect/mock behavioral assertions with expr={{...}}",
         line: node.loc?.line,
         col: node.loc?.col,
       });

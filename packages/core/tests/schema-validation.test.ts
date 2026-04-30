@@ -208,6 +208,29 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
 
+    it('allows native tool workflow expect assertions with scoped mocks', () => {
+      const target = validate(
+        [
+          'mcp name=Files',
+          '  tool name=readFile',
+          '    param name=filePath type=string required=true',
+          '    effect name=readDisk',
+          '      trigger url="/fs/read"',
+          '    respond 200 json=readDisk.result',
+        ].join('\n'),
+      );
+      const test = validate(
+        [
+          'test name="Tool behavior" target="./files.kern"',
+          '  it name="mocks tool effect boundary"',
+          '    mock effect=readDisk returns={{"hello"}}',
+          '    expect tool=readFile with={{({ filePath: "/data/a.txt" })}} returns={{"hello"}}',
+        ].join('\n'),
+      );
+      expect(target).toHaveLength(0);
+      expect(test).toHaveLength(0);
+    });
+
     it('allows native mock call-count assertions', () => {
       const v = validate(
         [
@@ -313,19 +336,21 @@ describe('Schema Validation', () => {
       expect(
         v.some((violation) =>
           violation.message.includes(
-            'cannot combine fn=<name>, derive=<name>, route=<spec>, effect=<name>, and mock=<name>',
+            'cannot combine fn=<name>, derive=<name>, route=<spec>, tool=<name>, effect=<name>, and mock=<name>',
           ),
         ),
       ).toBe(true);
     });
 
-    it('flags behavioral expect assertions that combine fn or derive with expr', () => {
+    it('flags behavioral expect assertions that combine runtime targets with expr', () => {
       const v = validate(
-        ['test name="Behavior"', '  it name="ambiguous"', '    expect fn=total expr={{total()}} equals=3'].join('\n'),
+        ['test name="Behavior"', '  it name="ambiguous"', '    expect tool=readFile expr={{readFile()}} equals=3'].join(
+          '\n',
+        ),
       );
       expect(
         v.some((violation) =>
-          violation.message.includes('cannot combine fn/derive/route/effect/mock behavioral assertions'),
+          violation.message.includes('cannot combine fn/derive/route/tool/effect/mock behavioral assertions'),
         ),
       ).toBe(true);
     });

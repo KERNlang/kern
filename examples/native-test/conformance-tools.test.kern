@@ -1,0 +1,11 @@
+test name="Tool workflow conformance" target="./conformance-tools.kern"
+  fixture name=fileBody value={{"hello"}}
+
+  it name="mocks tool-local effects"
+    mock effect=readDisk returns={{fileBody}}
+    expect tool=readFile with={{({ filePath: "/data/a.txt" })}} returns={{fileBody}}
+    expect mock=readDisk called=1
+
+  it name="runs declarative tool branches"
+    expect tool=findUsers with={{({ role: "admin" })}} returns={{[{ id: "u1", role: "admin" }]}}
+    expect tool=findUsers returns={{[{ id: "u2", role: "member" }]}}

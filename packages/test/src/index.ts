@@ -162,6 +162,13 @@ interface RuntimeEffectMock {
   col?: number;
 }
 
+type RuntimeWorkflowKind = 'route' | 'tool';
+
+interface RuntimeWorkflowProgramOptions {
+  mocks?: RuntimeEffectMock[];
+  kind?: RuntimeWorkflowKind;
+}
+
 type RuntimeEvalResult = { ok: true; value: unknown } | { ok: false; error: unknown };
 
 type EncodedRuntimeValue =
@@ -249,8 +256,16 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
     description: 'Evaluate a portable route workflow with request fixtures before backend code generation.',
   },
   {
+    ruleId: 'runtime:tool',
+    description: 'Evaluate a portable MCP tool workflow with input fixtures before backend code generation.',
+  },
+  {
     ruleId: 'runtime:effect',
     description: 'Evaluate a deterministic portable effect/recover workflow before backend code generation.',
+  },
+  {
+    ruleId: 'mock:called',
+    description: 'Assert how many times a scoped native effect mock was actually invoked.',
   },
   { ruleId: 'expect:unsupported', description: 'The expect assertion shape is not supported by native kern test.' },
   { ruleId: 'preset:unknown', description: 'The requested preset name is unknown.' },
@@ -803,6 +818,7 @@ function assertionLabel(node: IRNode): string {
   const fn = str(props.fn);
   const derive = str(props.derive);
   const route = str(props.route);
+  const tool = str(props.tool);
   const effect = str(props.effect);
   const mock = str(props.mock);
   const args = exprToString(props.args);
@@ -855,6 +871,16 @@ function assertionLabel(node: IRNode): string {
   }
   if (route) {
     const parts = [`route ${route}`];
+    if (withValue) parts.push(`with ${withValue}`);
+    if (input) parts.push(`input ${input}`);
+    if (returns) parts.push(`returns ${returns}`);
+    if (equals) parts.push(`equals ${equals}`);
+    if (matches) parts.push(`matches ${matches}`);
+    if (throws) parts.push(`throws ${throws}`);
+    return parts.join(' ');
+  }
+  if (tool) {
+    const parts = [`tool ${tool}`];
     if (withValue) parts.push(`with ${withValue}`);
     if (input) parts.push(`input ${input}`);
     if (returns) parts.push(`returns ${returns}`);
@@ -2317,6 +2343,10 @@ function runtimeRouteParamItems(route: IRNode): Array<{ name: string; defaultSou
   return items;
 }
 
+function runtimeWorkflowKind(options: RuntimeWorkflowProgramOptions): RuntimeWorkflowKind {
+  return options.kind || 'route';
+}
+
 function runtimeEffectName(node: IRNode): string {
   return str(getProps(node).name) || 'effect';
 }
@@ -2502,22 +2532,22 @@ function runtimeRouteRequestLines(route: IRNode, inputSource: string): { lines: 
 
 function runtimeRouteChildProgram(
   children: IRNode[],
-  options: { mocks?: RuntimeEffectMock[] } = {},
+  options: RuntimeWorkflowProgramOptions = {},
 ): { lines: string[]; message?: string } {
   const lines: string[] = [];
+  const workflowKind = runtimeWorkflowKind(options);
 
   for (const child of children) {
     if (child.type === 'handler') {
       return {
         lines: [],
-        message:
-          'Runtime route assertions execute portable KERN route nodes; handler blocks remain backend/runtime tests.',
+        message: `Runtime ${workflowKind} assertions execute portable KERN ${workflowKind} nodes; handler blocks remain backend/runtime tests.`,
       };
     }
     if (child.type === 'effect') {
       const effectName = runtimeEffectName(child);
       if (!isRuntimeBindingName(effectName)) {
-        return { lines: [], message: `Runtime route effect has invalid name: ${effectName}` };
+        return { lines: [], message: `Runtime ${workflowKind} effect has invalid name: ${effectName}` };
       }
 
       const scopedMock = findRuntimeEffectMock(options.mocks, effectName);
@@ -2527,7 +2557,7 @@ function runtimeRouteChildProgram(
         if (mocked.message || !mocked.expr) {
           return {
             lines: [],
-            message: mocked.message || `Runtime route mock effect ${effectName} cannot be simulated`,
+            message: mocked.message || `Runtime ${workflowKind} mock effect ${effectName} cannot be simulated`,
           };
         }
         lines.push(runtimeEffectMockCallLine(scopedMock.mock));
@@ -2537,7 +2567,10 @@ function runtimeRouteChildProgram(
 
       const effect = runtimeEffectExecutionExpr(child, { portable: true });
       if (effect.message || !effect.expr) {
-        return { lines: [], message: effect.message || `Runtime route effect ${effectName} cannot be simulated` };
+        return {
+          lines: [],
+          message: effect.message || `Runtime ${workflowKind} effect ${effectName} cannot be simulated`,
+        };
       }
       lines.push(`const ${effectName} = await (${effect.expr});`);
       continue;
@@ -2592,7 +2625,7 @@ function runtimeRouteChildProgram(
   return { lines };
 }
 
-function runtimeRouteBranchExecutionExpr(node: IRNode, options: { mocks?: RuntimeEffectMock[] } = {}): string {
+function runtimeRouteBranchExecutionExpr(node: IRNode, options: RuntimeWorkflowProgramOptions = {}): string {
   const on = runtimePortableSource(rawPropToRuntimeSource(node, 'on'));
   if (!on) return '';
 
@@ -2613,7 +2646,7 @@ function runtimeRouteBranchExecutionExpr(node: IRNode, options: { mocks?: Runtim
   return lines.join('\n');
 }
 
-function runtimeRouteEachExecutionExpr(node: IRNode, options: { mocks?: RuntimeEffectMock[] } = {}): string {
+function runtimeRouteEachExecutionExpr(node: IRNode, options: RuntimeWorkflowProgramOptions = {}): string {
   const collection = runtimePortableSource(rawPropToRuntimeSource(node, 'in'));
   const item = str(getProps(node).name) || 'item';
   if (!collection || !isRuntimeBindingName(item)) return '';
@@ -2661,6 +2694,94 @@ function runtimeRouteExecutionExpr(
     lines.push('  } catch (__kernError) {');
     lines.push('    return {');
     lines.push('      __kernRouteStatus: "thrown",');
+    lines.push('      error: {');
+    lines.push('        name: __kernError && __kernError.name ? String(__kernError.name) : "Error",');
+    lines.push(
+      '        message: __kernError && __kernError.message ? String(__kernError.message) : String(__kernError),',
+    );
+    lines.push('        stack: __kernError && __kernError.stack ? String(__kernError.stack) : undefined,');
+    lines.push('      },');
+    lines.push('      calls: __kernMockCalls,');
+    lines.push('    };');
+    lines.push('  }');
+  } else {
+    for (const line of bodyLines) lines.push(`  ${line}`);
+  }
+  lines.push('})()');
+  return { expr: lines.join('\n') };
+}
+
+function runtimeToolName(node: IRNode): string {
+  return str(getProps(node).name) || 'tool';
+}
+
+function findRuntimeTool(target: LoadedKernDocument, toolName: string): { tool?: IRNode; message?: string } {
+  const tools = collectNodes(target.root, 'tool').filter((tool) => runtimeToolName(tool) === toolName);
+  if (tools.length === 1) return { tool: tools[0] };
+  if (tools.length === 0) return { message: `Runtime tool assertion target not found: ${toolName}` };
+  return { message: `Runtime tool assertion target is ambiguous: ${toolName}` };
+}
+
+function runtimeToolParamItems(tool: IRNode): Array<{ name: string; defaultSource?: string }> {
+  const items: Array<{ name: string; defaultSource?: string }> = [];
+  for (const param of getChildren(tool, 'param')) {
+    const name = str(getProps(param).name);
+    if (!name) continue;
+    const defaultSource =
+      runtimePortableValuePropSource(param, 'value') || runtimePortableValuePropSource(param, 'default');
+    items.push({ name, ...(defaultSource ? { defaultSource } : {}) });
+  }
+  return items;
+}
+
+function runtimeToolInputLines(tool: IRNode, inputSource: string): { lines: string[]; message?: string } {
+  const lines = [
+    `const __toolInput = ((${inputSource}) ?? {});`,
+    'const args = __toolInput;',
+    'const params = __toolInput;',
+  ];
+  const declared = new Set<string>();
+
+  for (const item of runtimeToolParamItems(tool)) {
+    if (!isRuntimeBindingName(item.name)) {
+      return { lines: [], message: `Runtime tool has invalid param: ${item.name}` };
+    }
+    if (item.name === 'args' || item.name === 'params') {
+      return { lines: [], message: `Runtime tool param name is reserved for native context: ${item.name}` };
+    }
+    if (declared.has(item.name)) continue;
+    declared.add(item.name);
+    const fallback = item.defaultSource ?? 'undefined';
+    const key = JSON.stringify(item.name);
+    lines.push(`const ${item.name} = params[${key}] ?? (${fallback});`);
+  }
+
+  return { lines };
+}
+
+function runtimeToolExecutionExpr(
+  tool: IRNode,
+  inputSource: string,
+  options: { mocks?: RuntimeEffectMock[]; probe?: boolean } = {},
+): { expr?: string; message?: string } {
+  const input = runtimeToolInputLines(tool, inputSource || '{}');
+  if (input.message) return { message: input.message };
+
+  const program = runtimeRouteChildProgram(tool.children || [], { mocks: options.mocks, kind: 'tool' });
+  if (program.message) return { message: program.message };
+
+  const bodyLines = [...input.lines, ...program.lines];
+  const lines = ['(async () => {', '  const __kernMockCalls = Object.create(null);'];
+  if (options.probe) {
+    lines.push('  const __kernRunTool = async () => {');
+    for (const line of bodyLines) lines.push(`    ${line}`);
+    lines.push('  };');
+    lines.push('  try {');
+    lines.push('    const __kernValue = await __kernRunTool();');
+    lines.push('    return { __kernToolStatus: "returned", value: __kernValue, calls: __kernMockCalls };');
+    lines.push('  } catch (__kernError) {');
+    lines.push('    return {');
+    lines.push('      __kernToolStatus: "thrown",');
     lines.push('      error: {');
     lines.push('        name: __kernError && __kernError.name ? String(__kernError.name) : "Error",');
     lines.push(
@@ -3529,6 +3650,150 @@ function evaluateRuntimeRoute(
   return probe.value
     ? { passed: true }
     : { passed: false, message: str(props.message) || `${label} evaluated false${routeContext}` };
+}
+
+function evaluateRuntimeTool(
+  node: IRNode,
+  target: LoadedKernDocument,
+  fixtures: RuntimeBinding[] = [],
+  mocks: RuntimeEffectMock[] = [],
+  mockCalls?: Map<string, number>,
+): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+
+  const props = getProps(node);
+  const toolName = str(props.tool);
+  if (!toolName) return { passed: false, message: 'Runtime tool assertion requires tool=<name>' };
+
+  const found = findRuntimeTool(target, toolName);
+  if (found.message || !found.tool) {
+    return { passed: false, message: found.message || 'Runtime tool target not found' };
+  }
+
+  const inputSource = runtimeValuePropSource(node, 'with') || runtimeValuePropSource(node, 'input') || '{}';
+  const inputProblem = unsafeRuntimeExpressionReason(inputSource, { allowAwait: true });
+  if (inputProblem) {
+    return { passed: false, message: `Runtime tool assertion cannot execute input: ${inputProblem}` };
+  }
+
+  const toolExpr = runtimeToolExecutionExpr(found.tool, inputSource, { mocks, probe: true });
+  if (toolExpr.message || !toolExpr.expr) {
+    return { passed: false, message: toolExpr.message || 'Runtime tool assertion cannot build tool workflow' };
+  }
+
+  const toolBinding: RuntimeBinding = {
+    name: runtimeSyntheticName(node, 'Tool'),
+    expr: toolExpr.expr,
+    kind: 'workflow',
+    line: node.loc?.line,
+  };
+
+  const label = `Runtime tool ${runtimeToolName(found.tool)}`;
+  const expectedSource = runtimeExpectedSource(node, 'returns') ?? runtimeExpectedSource(node, 'equals');
+  const expectedLabel = 'returns' in props ? 'returns' : 'equals';
+  const expressionSources = expectedSource ? [toolBinding.name, expectedSource] : [toolBinding.name];
+  const declarations = buildRuntimeDeclarations(target, expressionSources, [...fixtures, toolBinding]);
+  if ('message' in declarations) return { passed: false, message: declarations.message };
+  const toolContext = runtimeExpressionContext(toolBinding.name, [...fixtures, toolBinding]);
+
+  const actual = runRuntimeExpression(target, declarations.source, toolBinding.name);
+  if (!actual.ok) {
+    return {
+      passed: false,
+      message: `${label} threw: ${
+        actual.error instanceof Error ? actual.error.message : String(actual.error)
+      }${toolContext}`,
+    };
+  }
+
+  const probe = actual.value as {
+    __kernToolStatus?: unknown;
+    value?: unknown;
+    error?: EncodedRuntimeError;
+    calls?: Record<string, number>;
+  };
+  if (!probe || typeof probe !== 'object' || typeof probe.__kernToolStatus !== 'string') {
+    return { passed: false, message: `${label} returned an invalid runtime probe` };
+  }
+  mergeRuntimeEffectMockCalls(mockCalls, probe.calls);
+
+  if ('throws' in props) {
+    const expectedRaw = props.throws === true || props.throws === '' ? 'true' : String(props.throws ?? 'true');
+    if (probe.__kernToolStatus !== 'thrown') {
+      return {
+        passed: false,
+        message:
+          str(props.message) ||
+          `${label} was expected to throw${
+            expectedRaw && expectedRaw !== 'true' ? ` ${expectedRaw}` : ''
+          }, but returned ${formatRuntimeValue(probe.value)}${toolContext}`,
+      };
+    }
+    const error = decodeRuntimeError(probe.error);
+    if (!thrownRuntimeErrorMatches(error, expectedRaw)) {
+      return {
+        passed: false,
+        message:
+          str(props.message) ||
+          `${label} threw ${formatThrownRuntimeError(error)}, expected ${expectedRaw}${toolContext}`,
+      };
+    }
+    return { passed: true };
+  }
+
+  if (probe.__kernToolStatus === 'thrown') {
+    return {
+      passed: false,
+      message: `${label} threw: ${formatThrownRuntimeError(decodeRuntimeError(probe.error))}${toolContext}`,
+    };
+  }
+
+  if (expectedSource !== undefined) {
+    const expected = runRuntimeExpression(target, declarations.source, expectedSource);
+    if (!expected.ok) {
+      return {
+        passed: false,
+        message: `Runtime tool assertion cannot execute expected ${expectedLabel} value: ${formatThrownRuntimeError(
+          expected.error,
+        )}${toolContext}`,
+      };
+    }
+    return runtimeValuesEqual(probe.value, expected.value)
+      ? { passed: true }
+      : {
+          passed: false,
+          message:
+            str(props.message) ||
+            `${label} expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(
+              probe.value,
+            )}${toolContext}`,
+        };
+  }
+
+  if ('matches' in props) {
+    const pattern = runtimePatternValue(node, 'matches') || '';
+    try {
+      const regex = new RegExp(pattern);
+      return regex.test(String(probe.value))
+        ? { passed: true }
+        : {
+            passed: false,
+            message:
+              str(props.message) ||
+              `${label} value ${formatRuntimeValue(probe.value)} does not match /${pattern}/${toolContext}`,
+          };
+    } catch (error) {
+      return {
+        passed: false,
+        message: `Runtime tool assertion has invalid matches regex: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  return probe.value
+    ? { passed: true }
+    : { passed: false, message: str(props.message) || `${label} evaluated false${toolContext}` };
 }
 
 function findRuntimeEffect(target: LoadedKernDocument, effectName: string): { effect?: IRNode; message?: string } {
@@ -4520,6 +4785,24 @@ function evaluateNativeAssertion(
     return [
       {
         ruleId: 'runtime:route',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('tool' in props) {
+    const evaluated = evaluateRuntimeTool(
+      node,
+      target,
+      context?.fixtures || [],
+      context?.mocks || [],
+      context?.mockCalls,
+    );
+    return [
+      {
+        ruleId: 'runtime:tool',
         assertion: assertionLabel(node),
         passed: evaluated.passed,
         ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
