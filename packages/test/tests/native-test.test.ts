@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { dirname, join, relative, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import {
   checkNativeKernTestBaseline,
   createNativeKernTestBaseline,
@@ -11,6 +12,9 @@ import {
   runNativeKernTestRun,
   runNativeKernTests,
 } from '../src/index.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__dirname, '../../..');
 
 describe('native kern test runner', () => {
   let tmpDir: string;
@@ -69,6 +73,23 @@ describe('native kern test runner', () => {
     expect(formatNativeKernTestSummary(summary)).toContain('PASS Order invariants > reaches paid');
   });
 
+  test('runs checked-in native conformance examples', () => {
+    const examplesDir = join(REPO_ROOT, 'examples/native-test');
+
+    const summary = runNativeKernTestRun(examplesDir);
+    const relativeFiles = summary.testFiles.map((file) => relative(REPO_ROOT, file));
+
+    expect(summary.failed).toBe(0);
+    expect(summary.total).toBeGreaterThan(0);
+    expect(relativeFiles).toEqual(
+      expect.arrayContaining([
+        'examples/native-test/conformance-arrays.test.kern',
+        'examples/native-test/language-surface.test.kern',
+        'examples/native-test/order.test.kern',
+      ]),
+    );
+  });
+
   test('executes runtime expr assertions against target const and derive bindings', () => {
     writeFileSync(
       join(tmpDir, 'runtime.kern'),
@@ -95,6 +116,70 @@ describe('native kern test runner', () => {
     expect(summary.total).toBe(1);
     expect(summary.passed).toBe(1);
     expect(summary.results[0].ruleId).toBe('expr');
+  });
+
+  test('executes native array data bindings in runtime assertions', () => {
+    writeFileSync(
+      join(tmpDir, 'arrays.kern'),
+      [
+        'const name=users value={{[{ id: "u1", name: "Ada", active: true, role: "admin", score: 3, tags: ["core", "ops"] }, { id: "u2", name: "Grace", active: false, role: "member", score: 9, tags: ["api"] }, { id: "u3", name: "Lin", active: true, role: "member", score: 4, tags: ["lang"] }]}}',
+        'const name=roles value={{["admin", "member", "admin"]}}',
+        'const name=maybeValues value={{[0, "kern", false, "test", null]}}',
+        'const name=nestedTags value={{[["core"], ["test", "guard"]]}}',
+        'filter name=activeUsers in=users item=user where="user.active"',
+        'map name=activeNames in=activeUsers item=user expr="user.name"',
+        'find name=adminUser in=users item=user where="user.role === \'admin\'"',
+        'some name=hasInactive in=users item=user where="!user.active"',
+        'every name=activeHaveNames in=activeUsers item=user where="user.name.length > 0"',
+        'findIndex name=linIndex in=users item=user where="user.name === \'Lin\'"',
+        'reduce name=totalActiveScore in=activeUsers acc=sum item=user initial=0 expr="sum + user.score"',
+        'slice name=firstTwo in=users start=0 end=2',
+        'flatMap name=activeTags in=activeUsers item=user expr="user.tags"',
+        'flat name=flatTags in=nestedTags',
+        'at name=lastUser in=users index=-1',
+        'sort name=scoreAsc in=users a=left b=right compare="left.score - right.score"',
+        'reverse name=reverseActiveNames in=activeNames',
+        'join name=activeCsv in=activeNames separator=","',
+        'includes name=hasAda in=activeNames value="\'Ada\'"',
+        'indexOf name=adaIndex in=activeNames value="\'Ada\'"',
+        'lastIndexOf name=lastAdminRole in=roles value="\'admin\'"',
+        'concat name=namesWithGuest in=activeNames with="[\'Guest\']"',
+        'compact name=truthyValues in=maybeValues',
+        'pluck name=userIds in=users prop=id',
+        'unique name=uniqueRoles in=roles',
+        'derive name=arraySummary expr={{activeUsers.length + ":" + activeCsv + ":" + totalActiveScore}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'arrays.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Array data bindings" target="./arrays.kern"',
+        '  it name="executes KERN array primitives before codegen"',
+        '    expect expr={{activeNames}} equals={{["Ada", "Lin"]}}',
+        '    expect expr={{adminUser.id}} equals="u1"',
+        '    expect expr={{hasInactive && activeHaveNames && linIndex === 2}}',
+        '    expect expr={{totalActiveScore}} equals=7',
+        '    expect expr={{firstTwo.map((user) => user.id)}} equals={{["u1", "u2"]}}',
+        '    expect expr={{activeTags}} equals={{["core", "ops", "lang"]}}',
+        '    expect expr={{flatTags}} equals={{["core", "test", "guard"]}}',
+        '    expect expr={{lastUser.id}} equals="u3"',
+        '    expect expr={{scoreAsc.map((user) => user.id)}} equals={{["u1", "u3", "u2"]}}',
+        '    expect expr={{reverseActiveNames}} equals={{["Lin", "Ada"]}}',
+        '    expect expr={{activeCsv}} equals="Ada,Lin"',
+        '    expect expr={{hasAda && adaIndex === 0 && lastAdminRole === 2}}',
+        '    expect expr={{namesWithGuest}} equals={{["Ada", "Lin", "Guest"]}}',
+        '    expect expr={{truthyValues}} equals={{["kern", "test"]}}',
+        '    expect expr={{userIds}} equals={{["u1", "u2", "u3"]}}',
+        '    expect expr={{uniqueRoles}} equals={{["admin", "member"]}}',
+        '    expect derive=arraySummary equals="2:Ada,Lin:7"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(17);
   });
 
   test('supports runtime expr equals, matches, and throws comparators', () => {

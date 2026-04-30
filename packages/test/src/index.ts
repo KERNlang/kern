@@ -390,6 +390,23 @@ function exprPropToRuntimeSource(node: IRNode, propName: string): string {
   return exprToString(value);
 }
 
+function rawPropToRuntimeSource(node: IRNode, propName: string): string {
+  const props = getProps(node);
+  const value = props[propName];
+  if (value === undefined || value === '') return '';
+  const expr = exprToString(value);
+  return expr || String(value);
+}
+
+function stringLiteralOrExprPropToRuntimeSource(node: IRNode, propName: string): string {
+  const props = getProps(node);
+  const value = props[propName];
+  if (value === undefined || value === '') return '';
+  if (value && typeof value === 'object' && '__expr' in value) return exprToString(value);
+  const source = String(value);
+  return isJsStringLiteralSource(source) ? source : JSON.stringify(source);
+}
+
 function runtimeExpectedSource(node: IRNode, propName: string): string | undefined {
   const props = getProps(node);
   const value = props[propName];
@@ -1705,6 +1722,8 @@ function runtimeBindingSource(node: IRNode): { expr: string; kind: RuntimeBindin
     return { expr: exprPropToRuntimeSource(node, 'value') || exprPropToRuntimeSource(node, 'expr'), kind: 'expr' };
   }
   if (node.type === 'fn') return { expr: runtimeFunctionExpr(node), kind: 'fn' };
+  const arrayExpr = runtimeArrayBindingExpr(node);
+  if (arrayExpr !== undefined) return { expr: arrayExpr, kind: 'expr' };
   return undefined;
 }
 
@@ -1728,21 +1747,131 @@ function runtimeFunctionExpr(node: IRNode): string {
   return `(${asyncKw}(${params.join(', ')}) => {\n${code.trim()}\n})`;
 }
 
+function runtimeNamedProp(node: IRNode, propName: string, fallback: string): string {
+  const value = str(getProps(node)[propName]);
+  return isRuntimeBindingName(value) ? value : fallback;
+}
+
+function runtimeArrayPredicateBindingExpr(
+  node: IRNode,
+  method: 'filter' | 'find' | 'some' | 'every' | 'findIndex',
+): string {
+  const collection = rawPropToRuntimeSource(node, 'in');
+  const predicate = rawPropToRuntimeSource(node, 'where');
+  if (!collection || !predicate) return '';
+  const item = runtimeNamedProp(node, 'item', 'item');
+  return `((${collection}).${method}((${item}) => ${predicate}))`;
+}
+
+function runtimeArrayProjectionBindingExpr(node: IRNode, method: 'map' | 'flatMap'): string {
+  const collection = rawPropToRuntimeSource(node, 'in');
+  const body = rawPropToRuntimeSource(node, 'expr');
+  if (!collection || !body) return '';
+  const item = runtimeNamedProp(node, 'item', 'item');
+  return `((${collection}).${method}((${item}) => ${body}))`;
+}
+
+function runtimeArrayValueLookupBindingExpr(node: IRNode, method: 'includes' | 'indexOf' | 'lastIndexOf'): string {
+  const collection = rawPropToRuntimeSource(node, 'in');
+  const value = rawPropToRuntimeSource(node, 'value');
+  if (!collection || !value) return '';
+  const from = rawPropToRuntimeSource(node, 'from');
+  const args = from ? `${value}, ${from}` : value;
+  return `((${collection}).${method}(${args}))`;
+}
+
+function runtimeArrayBindingExpr(node: IRNode): string | undefined {
+  const collection = rawPropToRuntimeSource(node, 'in');
+  switch (node.type) {
+    case 'filter':
+    case 'find':
+    case 'some':
+    case 'every':
+    case 'findIndex':
+      return runtimeArrayPredicateBindingExpr(node, node.type as 'filter' | 'find' | 'some' | 'every' | 'findIndex');
+    case 'map':
+    case 'flatMap':
+      return runtimeArrayProjectionBindingExpr(node, node.type as 'map' | 'flatMap');
+    case 'reduce': {
+      const body = rawPropToRuntimeSource(node, 'expr');
+      const initial = rawPropToRuntimeSource(node, 'initial');
+      if (!collection || !body || !initial) return '';
+      const acc = runtimeNamedProp(node, 'acc', 'acc');
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `((${collection}).reduce((${acc}, ${item}) => ${body}, ${initial}))`;
+    }
+    case 'slice': {
+      if (!collection) return '';
+      const start = rawPropToRuntimeSource(node, 'start');
+      const end = rawPropToRuntimeSource(node, 'end');
+      const args: string[] = [];
+      if (start) args.push(start);
+      if (end) {
+        if (!start) args.push('0');
+        args.push(end);
+      }
+      return `((${collection}).slice(${args.join(', ')}))`;
+    }
+    case 'flat': {
+      if (!collection) return '';
+      const depth = rawPropToRuntimeSource(node, 'depth');
+      return `((${collection}).flat(${depth}))`;
+    }
+    case 'at': {
+      const index = rawPropToRuntimeSource(node, 'index');
+      return collection && index ? `((${collection}).at(${index}))` : '';
+    }
+    case 'sort': {
+      if (!collection) return '';
+      const compare = rawPropToRuntimeSource(node, 'compare');
+      if (!compare) return `([...(${collection})].sort())`;
+      const a = runtimeNamedProp(node, 'a', 'a');
+      const b = runtimeNamedProp(node, 'b', 'b');
+      return `([...(${collection})].sort((${a}, ${b}) => ${compare}))`;
+    }
+    case 'reverse':
+      return collection ? `([...(${collection})].reverse())` : '';
+    case 'join': {
+      if (!collection) return '';
+      const separator = stringLiteralOrExprPropToRuntimeSource(node, 'separator');
+      return `((${collection}).join(${separator}))`;
+    }
+    case 'includes':
+    case 'indexOf':
+    case 'lastIndexOf':
+      return runtimeArrayValueLookupBindingExpr(node, node.type as 'includes' | 'indexOf' | 'lastIndexOf');
+    case 'concat': {
+      const withArg = rawPropToRuntimeSource(node, 'with');
+      return collection && withArg ? `((${collection}).concat(${withArg}))` : '';
+    }
+    case 'compact':
+      return collection ? `((${collection}).filter(Boolean))` : '';
+    case 'pluck': {
+      const prop = rawPropToRuntimeSource(node, 'prop');
+      if (!collection || !prop) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `((${collection}).map((${item}) => ${item}.${prop}))`;
+    }
+    case 'unique':
+      return collection ? `((${collection}).filter((item, index, items) => items.indexOf(item) === index))` : '';
+    default:
+      return undefined;
+  }
+}
+
 function collectRuntimeBindings(root: IRNode): RuntimeBinding[] {
   const bindings: RuntimeBinding[] = [];
 
   function visit(node: IRNode): void {
-    if (node.type === 'const' || node.type === 'derive' || node.type === 'let' || node.type === 'fn') {
-      const name = str(getProps(node).name);
-      const binding = runtimeBindingSource(node);
-      if (name && binding?.expr) {
-        bindings.push({
-          name,
-          expr: binding.expr,
-          kind: binding.kind,
-          line: node.loc?.line,
-        });
-      }
+    const name = str(getProps(node).name);
+    const binding = runtimeBindingSource(node);
+    if (name && binding?.expr) {
+      bindings.push({
+        name,
+        expr: binding.expr,
+        kind: binding.kind,
+        line: node.loc?.line,
+      });
     }
     for (const child of node.children || []) visit(child);
   }

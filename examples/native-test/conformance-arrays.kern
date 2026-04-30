@@ -1,0 +1,28 @@
+const name=users value={{[{ id: "u1", name: "Ada", active: true, role: "admin", score: 3, tags: ["core", "ops"] }, { id: "u2", name: "Grace", active: false, role: "member", score: 9, tags: ["api"] }, { id: "u3", name: "Lin", active: true, role: "member", score: 4, tags: ["lang"] }]}}
+const name=roles value={{["admin", "member", "admin"]}}
+const name=maybeValues value={{[0, "kern", false, "test", null]}}
+const name=nestedTags value={{[["core"], ["test", "guard"]]}}
+
+filter name=activeUsers in=users item=user where="user.active" type="object[]"
+map name=activeNames in=activeUsers item=user expr="user.name" type="string[]"
+find name=adminUser in=users item=user where="user.role === 'admin'" type=object
+some name=hasInactive in=users item=user where="!user.active" type=boolean
+every name=activeHaveNames in=activeUsers item=user where="user.name.length > 0" type=boolean
+findIndex name=linIndex in=users item=user where="user.name === 'Lin'" type=number
+reduce name=totalActiveScore in=activeUsers acc=sum item=user initial=0 expr="sum + user.score" type=number
+slice name=firstTwo in=users start=0 end=2 type="object[]"
+flatMap name=activeTags in=activeUsers item=user expr="user.tags" type="string[]"
+flat name=flatTags in=nestedTags type="string[]"
+at name=lastUser in=users index=-1 type=object
+sort name=scoreAsc in=users a=left b=right compare="left.score - right.score" type="object[]"
+reverse name=reverseActiveNames in=activeNames type="string[]"
+join name=activeCsv in=activeNames separator="," type=string
+includes name=hasAda in=activeNames value="'Ada'" type=boolean
+indexOf name=adaIndex in=activeNames value="'Ada'" type=number
+lastIndexOf name=lastAdminRole in=roles value="'admin'" type=number
+concat name=namesWithGuest in=activeNames with="['Guest']" type="string[]"
+compact name=truthyValues in=maybeValues type="unknown[]"
+pluck name=userIds in=users prop=id type="string[]"
+unique name=uniqueRoles in=roles type="string[]"
+
+derive name=arraySummary expr={{activeUsers.length + ":" + activeCsv + ":" + totalActiveScore}}

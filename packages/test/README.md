@@ -33,7 +33,7 @@ kern test path/to/tests --pass-with-no-tests
 kern test path/to/tests --fail-on-warn
 ```
 
-`kern-test` is the standalone binary shipped by `@kernlang/test`. `kern test` is the integrated command from `@kernlang/cli`; it supports the same native runner flags plus `--watch` and the legacy MCP Jest generator fallback. Single-file `kern test <file.kern>` inputs keep that legacy generator behavior when the file has no native `test` nodes. Directory inputs discover `.kern` files that contain native `test` nodes and run them as one aggregate suite. This repo's `examples/native-test` directory includes machine, MCP safety, permission-gated tool, runtime-function, and language-surface smoke tests for arrays, classes, and functions.
+`kern-test` is the standalone binary shipped by `@kernlang/test`. `kern test` is the integrated command from `@kernlang/cli`; it supports the same native runner flags plus `--watch` and the legacy MCP Jest generator fallback. Single-file `kern test <file.kern>` inputs keep that legacy generator behavior when the file has no native `test` nodes. Directory inputs discover `.kern` files that contain native `test` nodes and run them as one aggregate suite. This repo's `examples/native-test` directory includes machine, MCP safety, permission-gated tool, runtime-function, language-surface, and array conformance tests.
 
 ## KERN Syntax
 
@@ -92,7 +92,7 @@ Use `expect node=<type>` for KERN-native shape assertions over the target IR. Ad
 
 Use `no=nonExhaustiveGuards` to scan target-side variant guards that declare `covers=...`, `over=<Union>`, or `union=<Union>`. This is useful when Guard/Sight should catch a newly-added union variant before any backend compiler runs. Use `no=emptyRoutes` when route declarations must carry executable behavior through `handler`, `respond`, `derive`, `fmt`, `branch`, `each`, `collect`, or `effect`.
 
-Use `expect expr={{...}}` for small runtime assertions over referenced target-side `const`, `derive`, `let`, and pure `fn` bindings. Runtime `fn` handlers may use local statements, `if`, `return`, `throw`, and `async=true`/`await` over sandboxed values. Without a comparator, the expression must evaluate truthy. Add `equals=...` for deep equality, `matches="..."` for string/regex checks, or `throws=ErrorName` for expected exceptions.
+Use `expect expr={{...}}` for small runtime assertions over referenced target-side `const`, `derive`, `let`, pure `fn`, and safe native array data bindings such as `filter`, `map`, `find`, `reduce`, `slice`, `flatMap`, `sort`, `join`, `compact`, `pluck`, and `unique`. Runtime `fn` handlers may use local statements, `if`, `return`, `throw`, and `async=true`/`await` over sandboxed values. Without a comparator, the expression must evaluate truthy. Add `equals=...` for deep equality, `matches="..."` for string/regex checks, or `throws=ErrorName` for expected exceptions.
 
 Use `fixture name=<id> value={{...}}` or `fixture name=<id> expr={{...}}` to define scoped runtime data inside `test`, `describe`, or `it`. Fixtures are visible to descendant assertions and do not leak into sibling cases.
 
