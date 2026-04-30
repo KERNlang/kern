@@ -16,3 +16,7 @@ test name="Route workflow conformance" target="./conformance-routes.kern"
 
   it name="non-200 response keeps status with body"
     expect route="POST /api/users" with={{({ body: { id: "u5", name: "Nia", role: "member", active: true, score: 7 } })}} returns={{({ status: 201, json: { id: "u5", name: "Nia", role: "member", active: true, score: 7 } })}}
+
+  it name="suite covers route guard surface"
+    expect preset=guard
+    expect preset=coverage

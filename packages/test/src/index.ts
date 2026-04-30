@@ -1871,33 +1871,69 @@ function runtimeEffectNodes(root: IRNode): IRNode[] {
   });
 }
 
-function coveredEffectNames(root: IRNode, assertions: CollectedAssertion[]): Set<string> {
+function coveredEffectKeys(root: IRNode, assertions: CollectedAssertion[]): Set<string> {
   const target = syntheticTarget(root);
   const covered = new Set<string>();
 
   for (const assertion of assertions) {
-    const effectName = str(getProps(assertion.node).effect);
-    if (!effectName) continue;
-    const found = findRuntimeEffect(target, effectName);
-    if (!found.effect) continue;
-    const evaluated = evaluateRuntimeEffect(
-      assertion.node,
-      target,
-      assertion.fixtures,
-      assertion.mocks,
-      new Map<string, number>(),
-    );
-    if (evaluated.passed) covered.add(runtimeEffectName(found.effect));
+    const props = getProps(assertion.node);
+    const effectName = str(props.effect);
+    if (effectName) {
+      const found = findRuntimeEffect(target, effectName);
+      if (!found.effect) continue;
+      const evaluated = evaluateRuntimeEffect(
+        assertion.node,
+        target,
+        assertion.fixtures,
+        assertion.mocks,
+        new Map<string, number>(),
+      );
+      if (evaluated.passed) covered.add(runtimeEffectCoverageKey(found.effect));
+      continue;
+    }
+
+    const routeSpec = str(props.route);
+    if (routeSpec) {
+      const effectCalls = new Map<string, number>();
+      const evaluated = evaluateRuntimeRoute(
+        assertion.node,
+        target,
+        assertion.fixtures,
+        assertion.mocks,
+        new Map<string, number>(),
+        effectCalls,
+      );
+      if (evaluated.passed) {
+        for (const [key, count] of effectCalls) if (count > 0) covered.add(key);
+      }
+      continue;
+    }
+
+    const toolName = str(props.tool);
+    if (toolName) {
+      const effectCalls = new Map<string, number>();
+      const evaluated = evaluateRuntimeTool(
+        assertion.node,
+        target,
+        assertion.fixtures,
+        assertion.mocks,
+        new Map<string, number>(),
+        effectCalls,
+      );
+      if (evaluated.passed) {
+        for (const [key, count] of effectCalls) if (count > 0) covered.add(key);
+      }
+    }
   }
 
   return covered;
 }
 
 function effectCoverage(root: IRNode, assertions: CollectedAssertion[]): NativeKernTestCoverageMetric {
-  const covered = coveredEffectNames(root, assertions);
+  const covered = coveredEffectKeys(root, assertions);
   const effects = runtimeEffectNodes(root);
   const uncovered = effects
-    .filter((effect) => !covered.has(runtimeEffectName(effect)))
+    .filter((effect) => !covered.has(runtimeEffectCoverageKey(effect)))
     .map((effect) => `effect ${runtimeEffectName(effect)} at line ${effect.loc?.line ?? '?'}`);
   return coverageMetric(effects.length, uncovered);
 }
@@ -2969,6 +3005,10 @@ function runtimeEffectName(node: IRNode): string {
   return str(getProps(node).name) || 'effect';
 }
 
+function runtimeEffectCoverageKey(node: IRNode): string {
+  return `${runtimeEffectName(node)}:${node.loc?.line ?? '?'}`;
+}
+
 function runtimeEffectTriggerSource(
   node: IRNode,
   options: { portable?: boolean } = {},
@@ -3057,12 +3097,26 @@ function runtimeEffectMockCallLine(mock: RuntimeEffectMock): string {
   return `__kernMockCalls[${id}] = (__kernMockCalls[${id}] || 0) + 1;`;
 }
 
+function runtimeEffectCoverageCallLine(effect: IRNode): string {
+  const key = JSON.stringify(runtimeEffectCoverageKey(effect));
+  return `__kernEffectCalls[${key}] = (__kernEffectCalls[${key}] || 0) + 1;`;
+}
+
 function mergeRuntimeEffectMockCalls(mockCalls: Map<string, number> | undefined, calls: unknown): void {
   if (!mockCalls || !calls || typeof calls !== 'object') return;
   for (const [id, count] of Object.entries(calls as Record<string, unknown>)) {
     const numeric = Number(count);
     if (!Number.isFinite(numeric) || numeric <= 0) continue;
     mockCalls.set(id, (mockCalls.get(id) || 0) + numeric);
+  }
+}
+
+function mergeRuntimeEffectCoverageCalls(effectCalls: Map<string, number> | undefined, calls: unknown): void {
+  if (!effectCalls || !calls || typeof calls !== 'object') return;
+  for (const [key, count] of Object.entries(calls as Record<string, unknown>)) {
+    const numeric = Number(count);
+    if (!Number.isFinite(numeric) || numeric <= 0) continue;
+    effectCalls.set(key, (effectCalls.get(key) || 0) + numeric);
   }
 }
 
@@ -3180,6 +3234,7 @@ function runtimeRouteChildProgram(
             message: mocked.message || `Runtime ${workflowKind} mock effect ${effectName} cannot be simulated`,
           };
         }
+        lines.push(runtimeEffectCoverageCallLine(child));
         lines.push(runtimeEffectMockCallLine(scopedMock.mock));
         lines.push(`const ${effectName} = await (${mocked.expr});`);
         continue;
@@ -3192,6 +3247,7 @@ function runtimeRouteChildProgram(
           message: effect.message || `Runtime ${workflowKind} effect ${effectName} cannot be simulated`,
         };
       }
+      lines.push(runtimeEffectCoverageCallLine(child));
       lines.push(`const ${effectName} = await (${effect.expr});`);
       continue;
     }
@@ -3320,13 +3376,16 @@ function runtimeRouteExecutionExpr(
 
   const bodyLines = [...runtimeWorkflowHelperLines(), ...request.lines, ...program.lines];
   const lines = ['(async () => {', '  const __kernMockCalls = Object.create(null);'];
+  lines.push('  const __kernEffectCalls = Object.create(null);');
   if (options.probe) {
     lines.push('  const __kernRunRoute = async () => {');
     for (const line of bodyLines) lines.push(`    ${line}`);
     lines.push('  };');
     lines.push('  try {');
     lines.push('    const __kernValue = await __kernRunRoute();');
-    lines.push('    return { __kernRouteStatus: "returned", value: __kernValue, calls: __kernMockCalls };');
+    lines.push(
+      '    return { __kernRouteStatus: "returned", value: __kernValue, calls: __kernMockCalls, effects: __kernEffectCalls };',
+    );
     lines.push('  } catch (__kernError) {');
     lines.push('    return {');
     lines.push('      __kernRouteStatus: "thrown",');
@@ -3338,6 +3397,7 @@ function runtimeRouteExecutionExpr(
     lines.push('        stack: __kernError && __kernError.stack ? String(__kernError.stack) : undefined,');
     lines.push('      },');
     lines.push('      calls: __kernMockCalls,');
+    lines.push('      effects: __kernEffectCalls,');
     lines.push('    };');
     lines.push('  }');
   } else {
@@ -3413,13 +3473,16 @@ function runtimeToolExecutionExpr(
 
   const bodyLines = [...runtimeWorkflowHelperLines(), ...input.lines, ...program.lines];
   const lines = ['(async () => {', '  const __kernMockCalls = Object.create(null);'];
+  lines.push('  const __kernEffectCalls = Object.create(null);');
   if (options.probe) {
     lines.push('  const __kernRunTool = async () => {');
     for (const line of bodyLines) lines.push(`    ${line}`);
     lines.push('  };');
     lines.push('  try {');
     lines.push('    const __kernValue = await __kernRunTool();');
-    lines.push('    return { __kernToolStatus: "returned", value: __kernValue, calls: __kernMockCalls };');
+    lines.push(
+      '    return { __kernToolStatus: "returned", value: __kernValue, calls: __kernMockCalls, effects: __kernEffectCalls };',
+    );
     lines.push('  } catch (__kernError) {');
     lines.push('    return {');
     lines.push('      __kernToolStatus: "thrown",');
@@ -3431,6 +3494,7 @@ function runtimeToolExecutionExpr(
     lines.push('        stack: __kernError && __kernError.stack ? String(__kernError.stack) : undefined,');
     lines.push('      },');
     lines.push('      calls: __kernMockCalls,');
+    lines.push('      effects: __kernEffectCalls,');
     lines.push('    };');
     lines.push('  }');
   } else {
@@ -4239,6 +4303,7 @@ function evaluateRuntimeRoute(
   fixtures: RuntimeBinding[] = [],
   mocks: RuntimeEffectMock[] = [],
   mockCalls?: Map<string, number>,
+  effectCalls?: Map<string, number>,
 ): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -4292,11 +4357,13 @@ function evaluateRuntimeRoute(
     value?: unknown;
     error?: EncodedRuntimeError;
     calls?: Record<string, number>;
+    effects?: Record<string, number>;
   };
   if (!probe || typeof probe !== 'object' || typeof probe.__kernRouteStatus !== 'string') {
     return { passed: false, message: `${label} returned an invalid runtime probe` };
   }
   mergeRuntimeEffectMockCalls(mockCalls, probe.calls);
+  mergeRuntimeEffectCoverageCalls(effectCalls, probe.effects);
 
   if ('throws' in props) {
     const expectedRaw = props.throws === true || props.throws === '' ? 'true' : String(props.throws ?? 'true');
@@ -4378,6 +4445,7 @@ function evaluateRuntimeTool(
   fixtures: RuntimeBinding[] = [],
   mocks: RuntimeEffectMock[] = [],
   mockCalls?: Map<string, number>,
+  effectCalls?: Map<string, number>,
 ): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -4432,11 +4500,13 @@ function evaluateRuntimeTool(
     value?: unknown;
     error?: EncodedRuntimeError;
     calls?: Record<string, number>;
+    effects?: Record<string, number>;
   };
   if (!probe || typeof probe !== 'object' || typeof probe.__kernToolStatus !== 'string') {
     return { passed: false, message: `${label} returned an invalid runtime probe` };
   }
   mergeRuntimeEffectMockCalls(mockCalls, probe.calls);
+  mergeRuntimeEffectCoverageCalls(effectCalls, probe.effects);
 
   if ('throws' in props) {
     const expectedRaw = props.throws === true || props.throws === '' ? 'true' : String(props.throws ?? 'true');

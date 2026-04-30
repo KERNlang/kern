@@ -2413,6 +2413,44 @@ describe('native kern test runner', () => {
     expect(output).toContain('uncovered effects:');
   });
 
+  test('counts effects executed by route and tool workflow assertions as covered', () => {
+    writeFileSync(
+      join(tmpDir, 'workflow-effect-coverage.kern'),
+      [
+        'server name=Api',
+        '  route GET /users',
+        '    effect name=fetchUsers',
+        '      trigger expr={{[{ id: "u1" }]}}',
+        '    respond 200 json=fetchUsers.result',
+        'mcp name=Tools',
+        '  tool name=readFile',
+        '    effect name=readDisk',
+        '      trigger url="/fs/read"',
+        '    respond 200 json=readDisk.result',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'workflow-effect-coverage.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Workflow effect coverage" target="./workflow-effect-coverage.kern"',
+        '  fixture name=fileBody value={{"hello"}}',
+        '  it name="covers nested route and tool effects"',
+        '    mock effect=readDisk returns={{fileBody}}',
+        '    expect route="GET /users" returns={{[{ id: "u1" }]}}',
+        '    expect tool=readFile returns={{fileBody}}',
+        '    expect mock=readDisk called=1',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.coverage.effects.total).toBe(2);
+    expect(summary.coverage.effects.covered).toBe(2);
+    expect(summary.coverage.effects.uncovered).toEqual([]);
+  });
+
   test('excludes coverage=false targets from aggregate native coverage', () => {
     writeFileSync(
       join(tmpDir, 'covered.kern'),
