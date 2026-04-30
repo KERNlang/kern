@@ -136,7 +136,8 @@ interface NativeKernAssertionContext {
   assertions: CollectedAssertion[];
   fixtures?: RuntimeBinding[];
   mocks?: RuntimeEffectMock[];
-  usedMocks?: Set<string>;
+  mockCalls?: Map<string, number>;
+  checkedMocks?: Set<string>;
 }
 
 interface RuntimeBinding {
@@ -803,6 +804,7 @@ function assertionLabel(node: IRNode): string {
   const derive = str(props.derive);
   const route = str(props.route);
   const effect = str(props.effect);
+  const mock = str(props.mock);
   const args = exprToString(props.args);
   const withValue = exprToString(props.with);
   const input = exprToString(props.input);
@@ -812,6 +814,7 @@ function assertionLabel(node: IRNode): string {
   const recovers = props.recovers === undefined ? '' : String(props.recovers || 'true');
   const matches = props.matches === undefined ? '' : String(props.matches);
   const throws = props.throws === undefined ? '' : String(props.throws || 'true');
+  const called = props.called === undefined ? '' : String(props.called);
 
   if (preset) return `preset ${preset}`;
   if (nodeType) {
@@ -868,6 +871,11 @@ function assertionLabel(node: IRNode): string {
     if (equals) parts.push(`equals ${equals}`);
     if (matches) parts.push(`matches ${matches}`);
     if (throws) parts.push(`throws ${throws}`);
+    return parts.join(' ');
+  }
+  if (mock) {
+    const parts = [`mock ${mock}`];
+    if (called) parts.push(`called ${called}`);
     return parts.join(' ');
   }
   if (expr && equals) return `expr ${expr} equals ${equals}`;
@@ -2387,8 +2395,27 @@ function runtimeEffectMockExecutionExpr(
   return { expr: lines.join('\n') };
 }
 
-function markRuntimeEffectMockUsed(mock: RuntimeEffectMock, usedMocks?: Set<string>): void {
-  usedMocks?.add(mock.id);
+function recordRuntimeEffectMockCall(mock: RuntimeEffectMock, mockCalls?: Map<string, number>): void {
+  if (!mockCalls) return;
+  mockCalls.set(mock.id, (mockCalls.get(mock.id) || 0) + 1);
+}
+
+function markRuntimeEffectMockChecked(mock: RuntimeEffectMock, checkedMocks?: Set<string>): void {
+  checkedMocks?.add(mock.id);
+}
+
+function runtimeEffectMockCallLine(mock: RuntimeEffectMock): string {
+  const id = JSON.stringify(mock.id);
+  return `__kernMockCalls[${id}] = (__kernMockCalls[${id}] || 0) + 1;`;
+}
+
+function mergeRuntimeEffectMockCalls(mockCalls: Map<string, number> | undefined, calls: unknown): void {
+  if (!mockCalls || !calls || typeof calls !== 'object') return;
+  for (const [id, count] of Object.entries(calls as Record<string, unknown>)) {
+    const numeric = Number(count);
+    if (!Number.isFinite(numeric) || numeric <= 0) continue;
+    mockCalls.set(id, (mockCalls.get(id) || 0) + numeric);
+  }
 }
 
 function runtimeEffectExecutionExpr(
@@ -2475,7 +2502,7 @@ function runtimeRouteRequestLines(route: IRNode, inputSource: string): { lines: 
 
 function runtimeRouteChildProgram(
   children: IRNode[],
-  options: { mocks?: RuntimeEffectMock[]; usedMocks?: Set<string> } = {},
+  options: { mocks?: RuntimeEffectMock[] } = {},
 ): { lines: string[]; message?: string } {
   const lines: string[] = [];
 
@@ -2503,7 +2530,7 @@ function runtimeRouteChildProgram(
             message: mocked.message || `Runtime route mock effect ${effectName} cannot be simulated`,
           };
         }
-        markRuntimeEffectMockUsed(scopedMock.mock, options.usedMocks);
+        lines.push(runtimeEffectMockCallLine(scopedMock.mock));
         lines.push(`const ${effectName} = await (${mocked.expr});`);
         continue;
       }
@@ -2565,10 +2592,7 @@ function runtimeRouteChildProgram(
   return { lines };
 }
 
-function runtimeRouteBranchExecutionExpr(
-  node: IRNode,
-  options: { mocks?: RuntimeEffectMock[]; usedMocks?: Set<string> } = {},
-): string {
+function runtimeRouteBranchExecutionExpr(node: IRNode, options: { mocks?: RuntimeEffectMock[] } = {}): string {
   const on = runtimePortableSource(rawPropToRuntimeSource(node, 'on'));
   if (!on) return '';
 
@@ -2589,10 +2613,7 @@ function runtimeRouteBranchExecutionExpr(
   return lines.join('\n');
 }
 
-function runtimeRouteEachExecutionExpr(
-  node: IRNode,
-  options: { mocks?: RuntimeEffectMock[]; usedMocks?: Set<string> } = {},
-): string {
+function runtimeRouteEachExecutionExpr(node: IRNode, options: { mocks?: RuntimeEffectMock[] } = {}): string {
   const collection = runtimePortableSource(rawPropToRuntimeSource(node, 'in'));
   const item = str(getProps(node).name) || 'item';
   if (!collection || !isRuntimeBindingName(item)) return '';
@@ -2620,7 +2641,7 @@ function runtimeRouteEachExecutionExpr(
 function runtimeRouteExecutionExpr(
   route: IRNode,
   inputSource: string,
-  options: { mocks?: RuntimeEffectMock[]; usedMocks?: Set<string> } = {},
+  options: { mocks?: RuntimeEffectMock[]; probe?: boolean } = {},
 ): { expr?: string; message?: string } {
   const request = runtimeRouteRequestLines(route, inputSource || '{}');
   if (request.message) return { message: request.message };
@@ -2628,8 +2649,31 @@ function runtimeRouteExecutionExpr(
   const program = runtimeRouteChildProgram(route.children || [], options);
   if (program.message) return { message: program.message };
 
-  const lines = ['(async () => {'];
-  for (const line of [...request.lines, ...program.lines]) lines.push(`  ${line}`);
+  const bodyLines = [...request.lines, ...program.lines];
+  const lines = ['(async () => {', '  const __kernMockCalls = Object.create(null);'];
+  if (options.probe) {
+    lines.push('  const __kernRunRoute = async () => {');
+    for (const line of bodyLines) lines.push(`    ${line}`);
+    lines.push('  };');
+    lines.push('  try {');
+    lines.push('    const __kernValue = await __kernRunRoute();');
+    lines.push('    return { __kernRouteStatus: "returned", value: __kernValue, calls: __kernMockCalls };');
+    lines.push('  } catch (__kernError) {');
+    lines.push('    return {');
+    lines.push('      __kernRouteStatus: "thrown",');
+    lines.push('      error: {');
+    lines.push('        name: __kernError && __kernError.name ? String(__kernError.name) : "Error",');
+    lines.push(
+      '        message: __kernError && __kernError.message ? String(__kernError.message) : String(__kernError),',
+    );
+    lines.push('        stack: __kernError && __kernError.stack ? String(__kernError.stack) : undefined,');
+    lines.push('      },');
+    lines.push('      calls: __kernMockCalls,');
+    lines.push('    };');
+    lines.push('  }');
+  } else {
+    for (const line of bodyLines) lines.push(`  ${line}`);
+  }
   lines.push('})()');
   return { expr: lines.join('\n') };
 }
@@ -3349,7 +3393,7 @@ function evaluateRuntimeRoute(
   target: LoadedKernDocument,
   fixtures: RuntimeBinding[] = [],
   mocks: RuntimeEffectMock[] = [],
-  usedMocks?: Set<string>,
+  mockCalls?: Map<string, number>,
 ): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -3368,7 +3412,7 @@ function evaluateRuntimeRoute(
     return { passed: false, message: `Runtime route assertion cannot execute request input: ${inputProblem}` };
   }
 
-  const routeExpr = runtimeRouteExecutionExpr(found.route, inputSource, { mocks, usedMocks });
+  const routeExpr = runtimeRouteExecutionExpr(found.route, inputSource, { mocks, probe: true });
   if (routeExpr.message || !routeExpr.expr) {
     return { passed: false, message: routeExpr.message || 'Runtime route assertion cannot build route workflow' };
   }
@@ -3380,14 +3424,96 @@ function evaluateRuntimeRoute(
     line: node.loc?.line,
   };
 
-  return evaluateRuntimeSource(
-    node,
-    target,
-    routeBinding.name,
-    [...fixtures, routeBinding],
-    `Runtime route ${runtimeRouteLabel(found.route)}`,
-    'returns',
-  );
+  const label = `Runtime route ${runtimeRouteLabel(found.route)}`;
+  const expectedSource = runtimeExpectedSource(node, 'returns') ?? runtimeExpectedSource(node, 'equals');
+  const expectedLabel = 'returns' in props ? 'returns' : 'equals';
+  const expressionSources = expectedSource ? [routeBinding.name, expectedSource] : [routeBinding.name];
+  const declarations = buildRuntimeDeclarations(target, expressionSources, [...fixtures, routeBinding]);
+  if ('message' in declarations) return { passed: false, message: declarations.message };
+
+  const actual = runRuntimeExpression(target, declarations.source, routeBinding.name);
+  if (!actual.ok) {
+    return {
+      passed: false,
+      message: `${label} threw: ${actual.error instanceof Error ? actual.error.message : String(actual.error)}`,
+    };
+  }
+
+  const probe = actual.value as {
+    __kernRouteStatus?: unknown;
+    value?: unknown;
+    error?: EncodedRuntimeError;
+    calls?: Record<string, number>;
+  };
+  if (!probe || typeof probe !== 'object' || typeof probe.__kernRouteStatus !== 'string') {
+    return { passed: false, message: `${label} returned an invalid runtime probe` };
+  }
+  mergeRuntimeEffectMockCalls(mockCalls, probe.calls);
+
+  if ('throws' in props) {
+    const expectedRaw = props.throws === true || props.throws === '' ? 'true' : String(props.throws ?? 'true');
+    if (probe.__kernRouteStatus !== 'thrown') {
+      return {
+        passed: false,
+        message:
+          str(props.message) ||
+          `${label} was expected to throw${expectedRaw && expectedRaw !== 'true' ? ` ${expectedRaw}` : ''}, but returned ${formatRuntimeValue(probe.value)}`,
+      };
+    }
+    const error = decodeRuntimeError(probe.error);
+    if (!thrownRuntimeErrorMatches(error, expectedRaw)) {
+      return {
+        passed: false,
+        message: str(props.message) || `${label} threw ${formatThrownRuntimeError(error)}, expected ${expectedRaw}`,
+      };
+    }
+    return { passed: true };
+  }
+
+  if (probe.__kernRouteStatus === 'thrown') {
+    return { passed: false, message: `${label} threw: ${formatThrownRuntimeError(decodeRuntimeError(probe.error))}` };
+  }
+
+  if (expectedSource !== undefined) {
+    const expected = runRuntimeExpression(target, declarations.source, expectedSource);
+    if (!expected.ok) {
+      return {
+        passed: false,
+        message: `Runtime route assertion cannot execute expected ${expectedLabel} value: ${formatThrownRuntimeError(
+          expected.error,
+        )}`,
+      };
+    }
+    return runtimeValuesEqual(probe.value, expected.value)
+      ? { passed: true }
+      : {
+          passed: false,
+          message:
+            str(props.message) ||
+            `${label} expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(probe.value)}`,
+        };
+  }
+
+  if ('matches' in props) {
+    const pattern = runtimePatternValue(node, 'matches') || '';
+    try {
+      const regex = new RegExp(pattern);
+      return regex.test(String(probe.value))
+        ? { passed: true }
+        : {
+            passed: false,
+            message:
+              str(props.message) || `${label} value ${formatRuntimeValue(probe.value)} does not match /${pattern}/`,
+          };
+    } catch (error) {
+      return {
+        passed: false,
+        message: `Runtime route assertion has invalid matches regex: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  return probe.value ? { passed: true } : { passed: false, message: str(props.message) || `${label} evaluated false` };
 }
 
 function findRuntimeEffect(target: LoadedKernDocument, effectName: string): { effect?: IRNode; message?: string } {
@@ -3413,7 +3539,7 @@ function evaluateRuntimeEffectRecovery(
   effect: IRNode,
   fixtures: RuntimeBinding[],
   mocks: RuntimeEffectMock[] = [],
-  usedMocks?: Set<string>,
+  mockCalls?: Map<string, number>,
 ): { passed: boolean; message?: string } {
   const props = getProps(node);
   const effectName = runtimeEffectName(effect);
@@ -3426,8 +3552,6 @@ function evaluateRuntimeEffectRecovery(
   if (effectExpr.message || !effectExpr.expr) {
     return { passed: false, message: effectExpr.message || `Runtime effect ${effectName} cannot be simulated` };
   }
-  if (scopedMock.mock) markRuntimeEffectMockUsed(scopedMock.mock, usedMocks);
-
   const effectBinding: RuntimeBinding = {
     name: runtimeSyntheticName(node, 'Effect'),
     expr: effectExpr.expr,
@@ -3441,6 +3565,7 @@ function evaluateRuntimeEffectRecovery(
   if ('message' in declarations) return { passed: false, message: declarations.message };
 
   const actual = runRuntimeExpression(target, declarations.source, effectBinding.name);
+  if (scopedMock.mock) recordRuntimeEffectMockCall(scopedMock.mock, mockCalls);
   if (!actual.ok) {
     return {
       passed: false,
@@ -3487,7 +3612,7 @@ function evaluateRuntimeEffect(
   target: LoadedKernDocument,
   fixtures: RuntimeBinding[] = [],
   mocks: RuntimeEffectMock[] = [],
-  usedMocks?: Set<string>,
+  mockCalls?: Map<string, number>,
 ): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -3502,7 +3627,7 @@ function evaluateRuntimeEffect(
   }
 
   if (isTruthy(props.recovers)) {
-    return evaluateRuntimeEffectRecovery(node, target, found.effect, fixtures, mocks, usedMocks);
+    return evaluateRuntimeEffectRecovery(node, target, found.effect, fixtures, mocks, mockCalls);
   }
 
   const scopedMock = findRuntimeEffectMock(mocks, effectName);
@@ -3513,8 +3638,6 @@ function evaluateRuntimeEffect(
   if (effectExpr.message || !effectExpr.expr) {
     return { passed: false, message: effectExpr.message || `Runtime effect ${effectName} cannot be simulated` };
   }
-  if (scopedMock.mock) markRuntimeEffectMockUsed(scopedMock.mock, usedMocks);
-
   const effectBinding: RuntimeBinding = {
     name: runtimeSyntheticName(node, 'Effect'),
     expr: effectExpr.expr,
@@ -3522,7 +3645,7 @@ function evaluateRuntimeEffect(
     line: node.loc?.line,
   };
 
-  return evaluateRuntimeSource(
+  const evaluated = evaluateRuntimeSource(
     node,
     target,
     effectBinding.name,
@@ -3530,6 +3653,49 @@ function evaluateRuntimeEffect(
     `Runtime effect ${effectName}`,
     'returns',
   );
+  if (scopedMock.mock && !isAssertionConfigurationFailure(evaluated.message)) {
+    recordRuntimeEffectMockCall(scopedMock.mock, mockCalls);
+  }
+  return evaluated;
+}
+
+function expectedMockCallCount(node: IRNode): { count?: number; message?: string } {
+  const raw = getProps(node).called;
+  const count = Number(raw);
+  if (!Number.isInteger(count) || count < 0) {
+    return { message: `Runtime mock call assertion requires called=<non-negative integer>, got ${String(raw)}` };
+  }
+  return { count };
+}
+
+function evaluateRuntimeMockCall(
+  node: IRNode,
+  mocks: RuntimeEffectMock[] = [],
+  mockCalls?: Map<string, number>,
+  checkedMocks?: Set<string>,
+): { passed: boolean; message?: string } {
+  const props = getProps(node);
+  const effectName = str(props.mock);
+  if (!effectName) return { passed: false, message: 'Runtime mock call assertion requires mock=<effect>' };
+  if (!('called' in props)) return { passed: false, message: 'Runtime mock call assertion requires called=<count>' };
+
+  const expected = expectedMockCallCount(node);
+  if (expected.message || expected.count === undefined) return { passed: false, message: expected.message };
+
+  const scopedMock = findRuntimeEffectMock(mocks, effectName);
+  if (scopedMock.message) return { passed: false, message: scopedMock.message };
+  if (!scopedMock.mock) return { passed: false, message: `Runtime mock assertion target not found: ${effectName}` };
+
+  markRuntimeEffectMockChecked(scopedMock.mock, checkedMocks);
+  const actual = mockCalls?.get(scopedMock.mock.id) || 0;
+  return actual === expected.count
+    ? { passed: true }
+    : {
+        passed: false,
+        message:
+          str(props.message) ||
+          `Native effect mock effect=${effectName} expected called=${expected.count}, received called=${actual}`,
+      };
 }
 
 function nodeSearchText(node: IRNode): string {
@@ -4334,7 +4500,7 @@ function evaluateNativeAssertion(
       target,
       context?.fixtures || [],
       context?.mocks || [],
-      context?.usedMocks,
+      context?.mockCalls,
     );
     return [
       {
@@ -4352,11 +4518,23 @@ function evaluateNativeAssertion(
       target,
       context?.fixtures || [],
       context?.mocks || [],
-      context?.usedMocks,
+      context?.mockCalls,
     );
     return [
       {
         ruleId: 'runtime:effect',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('mock' in props || 'called' in props) {
+    const evaluated = evaluateRuntimeMockCall(node, context?.mocks || [], context?.mockCalls, context?.checkedMocks);
+    return [
+      {
+        ruleId: 'mock:called',
         assertion: assertionLabel(node),
         passed: evaluated.passed,
         ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
@@ -4506,7 +4684,8 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
     for (const assertion of assertions) {
       for (const mock of assertion.mocks) declaredMocks.set(mock.id, mock);
     }
-    const usedMocks = new Set<string>();
+    const mockCalls = new Map<string, number>();
+    const checkedMocks = new Set<string>();
     assertionsByTarget.set(targetPath, [...(assertionsByTarget.get(targetPath) || []), ...assertions]);
     if (assertions.length === 0) {
       results.push({
@@ -4530,7 +4709,8 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
         assertions,
         fixtures: assertion.fixtures,
         mocks: assertion.mocks,
-        usedMocks,
+        mockCalls,
+        checkedMocks,
       };
       const requestedSeverity = severityFromNode(assertion.node);
       for (const evaluated of evaluateNativeAssertion(assertion.node, target, context)) {
@@ -4556,7 +4736,7 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
     }
 
     for (const mock of declaredMocks.values()) {
-      if (usedMocks.has(mock.id)) continue;
+      if ((mockCalls.get(mock.id) || 0) > 0 || checkedMocks.has(mock.id)) continue;
       const result: NativeKernTestResult = {
         suite,
         caseName: 'mock usage',

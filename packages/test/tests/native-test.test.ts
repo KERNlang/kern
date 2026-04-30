@@ -451,28 +451,100 @@ describe('native kern test runner', () => {
         '  it name="mocks top-level effect boundaries"',
         '    mock effect=loadUsers returns={{users}}',
         '    expect effect=loadUsers returns={{users}}',
+        '    expect mock=loadUsers called=1',
         '  it name="mocks route-local effect boundaries"',
         '    mock effect=fetchUsers returns={{users}}',
         '    expect route="GET /api/users" returns={{users}}',
+        '    expect mock=fetchUsers called=1',
         '  it name="mocks top-level effect failures"',
         '    mock effect=loadUsers throws=NetworkError',
         '    expect effect=loadUsers throws=NetworkError',
+        '    expect mock=loadUsers called=1',
         '  it name="mocks route-local effect failures"',
         '    mock effect=fetchUsers throws=NetworkError',
         '    expect route="GET /api/users" throws=NetworkError',
+        '    expect mock=fetchUsers called=1',
       ].join('\n'),
     );
 
     const summary = runNativeKernTests(testFile);
 
     expect(summary.failed).toBe(0);
-    expect(summary.passed).toBe(4);
+    expect(summary.passed).toBe(8);
     expect(summary.results.map((result) => result.ruleId)).toEqual([
       'runtime:effect',
+      'mock:called',
       'runtime:route',
+      'mock:called',
       'runtime:effect',
+      'mock:called',
       'runtime:route',
+      'mock:called',
     ]);
+  });
+
+  test('counts mocked effect calls from actually executed route branches', () => {
+    writeFileSync(
+      join(tmpDir, 'branch-mocked-effects.kern'),
+      [
+        'server name=UsersAPI',
+        '  route GET /api/users',
+        '    params role:string',
+        '    branch name=byRole on={{query.role}}',
+        '      path value=admin',
+        '        effect name=fetchUsers',
+        '          trigger url="/api/users"',
+        '        respond 200 json=fetchUsers.result',
+        '      path value=guest',
+        '        respond 200 json={{[]}}',
+        '    respond 200 json={{[]}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'branch-mocked-effects.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Branch mock calls" target="./branch-mocked-effects.kern"',
+        '  fixture name=users value={{[{ id: "u1", role: "admin" }]}}',
+        '  it name="counts branch-local calls"',
+        '    mock effect=fetchUsers returns={{users}}',
+        '    expect route="GET /api/users" with={{({ query: { role: "guest" } })}} returns={{[]}}',
+        '    expect mock=fetchUsers called=0',
+        '    expect route="GET /api/users" with={{({ query: { role: "admin" } })}} returns={{users}}',
+        '    expect mock=fetchUsers called=1',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'runtime:route',
+      'mock:called',
+      'runtime:route',
+      'mock:called',
+    ]);
+  });
+
+  test('reports mocked effect call-count mismatches without duplicate unused-mock noise', () => {
+    writeFileSync(join(tmpDir, 'count-mismatch.kern'), ['effect name=loadUsers', '  trigger expr={{[]}}'].join('\n'));
+    const testFile = join(tmpDir, 'count-mismatch.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Mock count mismatch" target="./count-mismatch.kern"',
+        '  it name="expects call that never happened"',
+        '    mock effect=loadUsers returns={{[]}}',
+        '    expect mock=loadUsers called=1',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.passed).toBe(0);
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('mock:called');
+    expect(summary.results[0].message).toContain('expected called=1, received called=0');
   });
 
   test('reports unused scoped native effect mocks', () => {

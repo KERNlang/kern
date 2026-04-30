@@ -2379,6 +2379,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       derive: { kind: 'identifier' },
       route: { kind: 'string' },
       effect: { kind: 'identifier' },
+      mock: { kind: 'identifier' },
+      called: { kind: 'number' },
       args: { kind: 'rawExpr' },
       with: { kind: 'rawExpr' },
       input: { kind: 'rawExpr' },
@@ -2567,6 +2569,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
     const hasRuntimeAssertion = 'expr' in props;
     const hasRuntimeBehavior = 'fn' in props || 'derive' in props;
     const hasRuntimeWorkflow = 'route' in props || 'effect' in props;
+    const hasMockCallAssertion = 'mock' in props || 'called' in props;
     const hasPreset = 'preset' in props;
     const hasNodeShape = 'node' in props;
     const hasNegativeInvariant = 'no' in props;
@@ -2578,6 +2581,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       !hasRuntimeAssertion &&
       !hasRuntimeBehavior &&
       !hasRuntimeWorkflow &&
+      !hasMockCallAssertion &&
       !hasPreset &&
       !hasNodeShape &&
       !hasMachineTransition &&
@@ -2588,23 +2592,62 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'expect',
         message:
-          "'expect' requires 'expr', 'fn', 'derive', 'route', 'effect', 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
+          "'expect' requires 'expr', 'fn', 'derive', 'route', 'effect', 'mock' call count, 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
         line: node.loc?.line,
         col: node.loc?.col,
       });
     }
-    if (Number('fn' in props) + Number('derive' in props) + Number('route' in props) + Number('effect' in props) > 1) {
+    if (
+      Number('fn' in props) +
+        Number('derive' in props) +
+        Number('route' in props) +
+        Number('effect' in props) +
+        Number('mock' in props) >
+      1
+    ) {
       violations.push({
         nodeType: 'expect',
-        message: "'expect' cannot combine fn=<name>, derive=<name>, route=<spec>, and effect=<name>",
+        message: "'expect' cannot combine fn=<name>, derive=<name>, route=<spec>, effect=<name>, and mock=<name>",
         line: node.loc?.line,
         col: node.loc?.col,
       });
     }
-    if ((hasRuntimeBehavior || hasRuntimeWorkflow) && hasRuntimeAssertion) {
+    if ((hasRuntimeBehavior || hasRuntimeWorkflow || hasMockCallAssertion) && hasRuntimeAssertion) {
       violations.push({
         nodeType: 'expect',
-        message: "'expect' cannot combine fn/derive/route behavioral assertions with expr={{...}}",
+        message: "'expect' cannot combine fn/derive/route/effect/mock behavioral assertions with expr={{...}}",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasMockCallAssertion && (!('mock' in props) || !('called' in props))) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' mock call assertions require both mock=<effect> and called=<count>",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if ('called' in props) {
+      const called = Number(props.called);
+      if (!Number.isInteger(called) || called < 0) {
+        violations.push({
+          nodeType: 'expect',
+          message: "'expect' mock call assertions require called=<non-negative integer>",
+          line: node.loc?.line,
+          col: node.loc?.col,
+        });
+      }
+    }
+    if (
+      hasMockCallAssertion &&
+      ['args', 'with', 'input', 'equals', 'returns', 'recovers', 'fallback', 'matches', 'throws'].some(
+        (prop) => prop in props,
+      )
+    ) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' mock call assertions cannot combine with runtime value/result props",
         line: node.loc?.line,
         col: node.loc?.col,
       });
