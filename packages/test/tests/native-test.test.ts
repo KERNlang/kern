@@ -99,6 +99,18 @@ describe('native kern test runner', () => {
     );
   });
 
+  test('runs KERNlang native self-contract tests', () => {
+    const selfTestDir = join(REPO_ROOT, 'packages/core/native-test');
+
+    const summary = runNativeKernTestRun(selfTestDir);
+    const relativeFiles = summary.testFiles.map((file) => relative(REPO_ROOT, file));
+
+    expect(summary.failed).toBe(0);
+    expect(summary.total).toBeGreaterThan(0);
+    expect(summary.coverage.percent).toBe(100);
+    expect(relativeFiles).toEqual(expect.arrayContaining(['packages/core/native-test/kernlang-contracts.test.kern']));
+  });
+
   test('executes runtime expr assertions against target const and derive bindings', () => {
     writeFileSync(
       join(tmpDir, 'runtime.kern'),

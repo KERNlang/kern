@@ -15,6 +15,7 @@
   "scripts": {
     "build": "tsc -b && pnpm --filter @kernlang/playground build",
     "test": "pnpm -r --filter '!@kernlang/review-python' test",
+    "test:kern": "pnpm --filter @kernlang/test build && node packages/test/dist/cli.js examples/native-test --coverage && node packages/test/dist/cli.js packages/core/native-test --coverage",
     "test:root": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config jest.config.js",
     "fitness": "pnpm test",
     "check:repo": "node ./scripts/check-repo-consistency.mjs",
