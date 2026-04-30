@@ -1,0 +1,21 @@
+const name=users value={{[{ id: "u1", name: "Ada", role: "admin", active: true, score: 8 }, { id: "u2", name: "Grace", role: "member", active: true, score: 9 }, { id: "u3", name: "Lin", role: "member", active: false, score: 4 }, { id: "u4", name: "Mina", role: "guest", active: true, score: 6 }]}}
+const name=query value={{({ role: "member" })}}
+const name=processedIds value={{[]}}
+
+collect name=activeTopUsers from=users where={{item.active}} order={{b.score - a.score}} limit=3
+
+branch name=roleSelection on=query.role
+  path value="admin"
+    collect name=result from=users where={{item.role === "admin"}}
+    respond 200 json=result
+  path value="member"
+    collect name=result from=users where={{item.role === "member" && item.active}}
+    respond 200 json=result
+  path value="guest"
+    respond 404 error="guest unsupported"
+
+each name=user in=users index=i
+  let name=rank expr={{i + 1}}
+  derive name=appendProcessedId expr={{processedIds.push(user.id + ":" + rank)}}
+
+derive name=processedSummary expr={{processedIds.join("|")}}

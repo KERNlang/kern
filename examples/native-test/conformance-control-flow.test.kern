@@ -1,0 +1,25 @@
+test name="Control flow conformance" target="./conformance-control-flow.kern"
+  it name="control-flow target stays schema and semantic valid"
+    expect no=schemaViolations
+    expect no=semanticViolations
+
+  it name="control-flow primitives keep their KERN shape"
+    expect node=collect name=activeTopUsers
+    expect node=branch name=roleSelection child=path count=3
+    expect node=each name=user child=let count=1
+    expect node=derive name=processedSummary
+
+  it name="collect chains execute before codegen"
+    expect expr={{activeTopUsers.map((user) => user.id)}} equals={{["u2", "u1", "u4"]}}
+    expect expr={{activeTopUsers.every((user) => user.active)}}
+
+  it name="branch paths execute scoped children before codegen"
+    expect expr={{roleSelection.map((user) => user.id)}} equals={{["u2"]}}
+    expect expr={{roleSelection[0].name}} equals="Grace"
+
+  it name="each executes iteration-scoped children before codegen"
+    expect expr={{processedIds}} equals={{["u1:1", "u2:2", "u3:3", "u4:4"]}}
+    expect derive=processedSummary equals="u1:1|u2:2|u3:3|u4:4"
+
+  it name="control-flow target reaches core codegen"
+    expect no=codegenErrors

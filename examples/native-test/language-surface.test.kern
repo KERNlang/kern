@@ -14,5 +14,9 @@ test name="Language surface" target="./language-surface.kern"
     expect node=class name=UserDirectory child=method childName=list
     expect node=fn name=selectActive child=param count=2
 
+  it name="generic functions execute against native fixtures"
+    fixture name=sampleUsers value={{[{ id: "u1", name: "Ada", active: true, role: "admin" }, { id: "u2", name: "Grace", active: false, role: "member" }, { id: "u3", name: "Lin", active: true, role: "member" }]}}
+    expect fn=selectActive args={{[sampleUsers, (user) => user.active]}} equals={{[{ id: "u1", name: "Ada", active: true, role: "admin" }, { id: "u3", name: "Lin", active: true, role: "member" }]}}
+
   it name="arrays classes and functions reach core codegen"
     expect no=codegenErrors

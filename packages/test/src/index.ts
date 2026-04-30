@@ -139,7 +139,8 @@ interface NativeKernAssertionContext {
 interface RuntimeBinding {
   name: string;
   expr: string;
-  kind: 'expr' | 'fixture' | 'fn';
+  kind: 'expr' | 'fixture' | 'fn' | 'class' | 'native' | 'workflow';
+  eager?: boolean;
   line?: number;
 }
 
@@ -229,6 +230,14 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
   {
     ruleId: 'runtime:behavior',
     description: 'Evaluate a constrained pure fn or derive assertion with scoped native test fixtures.',
+  },
+  {
+    ruleId: 'runtime:route',
+    description: 'Evaluate a portable route workflow with request fixtures before backend code generation.',
+  },
+  {
+    ruleId: 'runtime:effect',
+    description: 'Evaluate a deterministic portable effect/recover workflow before backend code generation.',
   },
   { ruleId: 'expect:unsupported', description: 'The expect assertion shape is not supported by native kern test.' },
   { ruleId: 'preset:unknown', description: 'The requested preset name is unknown.' },
@@ -388,6 +397,23 @@ function exprPropToRuntimeSource(node: IRNode, propName: string): string {
     return isJsStringLiteralSource(source) ? source : JSON.stringify(value);
   }
   return exprToString(value);
+}
+
+function rawPropToRuntimeSource(node: IRNode, propName: string): string {
+  const props = getProps(node);
+  const value = props[propName];
+  if (value === undefined || value === '') return '';
+  const expr = exprToString(value);
+  return expr || String(value);
+}
+
+function stringLiteralOrExprPropToRuntimeSource(node: IRNode, propName: string): string {
+  const props = getProps(node);
+  const value = props[propName];
+  if (value === undefined || value === '') return '';
+  if (value && typeof value === 'object' && '__expr' in value) return exprToString(value);
+  const source = String(value);
+  return isJsStringLiteralSource(source) ? source : JSON.stringify(source);
 }
 
 function runtimeExpectedSource(node: IRNode, propName: string): string | undefined {
@@ -745,9 +771,15 @@ function assertionLabel(node: IRNode): string {
   const expr = exprToString(props.expr);
   const fn = str(props.fn);
   const derive = str(props.derive);
+  const route = str(props.route);
+  const effect = str(props.effect);
   const args = exprToString(props.args);
   const withValue = exprToString(props.with);
+  const input = exprToString(props.input);
   const equals = props.equals === undefined ? '' : exprToString(props.equals) || String(props.equals);
+  const returns = props.returns === undefined ? '' : exprToString(props.returns) || String(props.returns);
+  const fallback = props.fallback === undefined ? '' : exprToString(props.fallback) || String(props.fallback);
+  const recovers = props.recovers === undefined ? '' : String(props.recovers || 'true');
   const matches = props.matches === undefined ? '' : String(props.matches);
   const throws = props.throws === undefined ? '' : String(props.throws || 'true');
 
@@ -783,6 +815,26 @@ function assertionLabel(node: IRNode): string {
   }
   if (derive) {
     const parts = [`derive ${derive}`];
+    if (equals) parts.push(`equals ${equals}`);
+    if (matches) parts.push(`matches ${matches}`);
+    if (throws) parts.push(`throws ${throws}`);
+    return parts.join(' ');
+  }
+  if (route) {
+    const parts = [`route ${route}`];
+    if (withValue) parts.push(`with ${withValue}`);
+    if (input) parts.push(`input ${input}`);
+    if (returns) parts.push(`returns ${returns}`);
+    if (equals) parts.push(`equals ${equals}`);
+    if (matches) parts.push(`matches ${matches}`);
+    if (throws) parts.push(`throws ${throws}`);
+    return parts.join(' ');
+  }
+  if (effect) {
+    const parts = [`effect ${effect}`];
+    if (returns) parts.push(`returns ${returns}`);
+    if (recovers) parts.push(`recovers ${recovers}`);
+    if (fallback) parts.push(`fallback ${fallback}`);
     if (equals) parts.push(`equals ${equals}`);
     if (matches) parts.push(`matches ${matches}`);
     if (throws) parts.push(`throws ${throws}`);
@@ -1674,8 +1726,14 @@ function findCodegenErrors(root: IRNode): string[] {
 const RUNTIME_EXPR_TIMEOUT_MS = 100;
 const RUNTIME_ASYNC_PROCESS_TIMEOUT_MS = 1500;
 const RUNTIME_EXPR_UNSAFE_TOKEN =
-  /\b(?:async|class|constructor|Date|delete|do|eval|fetch|for|Function|global|globalThis|import|new|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
+  /\b(?:async|class|constructor|Date|delete|do|eval|fetch|for|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 const RUNTIME_FN_UNSAFE_TOKEN =
+  /\b(?:class|constructor|Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
+const RUNTIME_CLASS_UNSAFE_TOKEN =
+  /\b(?:Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
+const RUNTIME_NATIVE_BINDING_UNSAFE_TOKEN =
+  /\b(?:class|constructor|Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
+const RUNTIME_WORKFLOW_BINDING_UNSAFE_TOKEN =
   /\b(?:class|constructor|Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 
 function unsafeRuntimeExpressionReason(source: string, options: { allowAwait?: boolean } = {}): string | undefined {
@@ -1695,6 +1753,27 @@ function unsafeRuntimeFunctionReason(source: string): string | undefined {
   return undefined;
 }
 
+function unsafeRuntimeClassReason(source: string): string | undefined {
+  if (source.length > 10000) return 'class body is longer than 10000 characters';
+  const unsafeToken = source.match(RUNTIME_CLASS_UNSAFE_TOKEN)?.[0];
+  if (unsafeToken) return `unsupported token '${unsafeToken}'`;
+  return undefined;
+}
+
+function unsafeRuntimeNativeBindingReason(source: string): string | undefined {
+  if (source.length > 5000) return 'native binding expression is longer than 5000 characters';
+  const unsafeToken = source.match(RUNTIME_NATIVE_BINDING_UNSAFE_TOKEN)?.[0];
+  if (unsafeToken) return `unsupported token '${unsafeToken}'`;
+  return undefined;
+}
+
+function unsafeRuntimeWorkflowReason(source: string): string | undefined {
+  if (source.length > 10000) return 'workflow expression is longer than 10000 characters';
+  const unsafeToken = source.match(RUNTIME_WORKFLOW_BINDING_UNSAFE_TOKEN)?.[0];
+  if (unsafeToken) return `unsupported token '${unsafeToken}'`;
+  return undefined;
+}
+
 function isRuntimeBindingName(value: string): boolean {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
 }
@@ -1705,6 +1784,12 @@ function runtimeBindingSource(node: IRNode): { expr: string; kind: RuntimeBindin
     return { expr: exprPropToRuntimeSource(node, 'value') || exprPropToRuntimeSource(node, 'expr'), kind: 'expr' };
   }
   if (node.type === 'fn') return { expr: runtimeFunctionExpr(node), kind: 'fn' };
+  if (node.type === 'class') return { expr: runtimeClassExpr(node), kind: 'class' };
+  if (node.type === 'mapLit') return { expr: runtimeMapLitExpr(node), kind: 'native' };
+  if (node.type === 'setLit') return { expr: runtimeSetLitExpr(node), kind: 'native' };
+  if (node.type === 'collect') return { expr: runtimeCollectBindingExpr(node), kind: 'native' };
+  const arrayExpr = runtimeArrayBindingExpr(node);
+  if (arrayExpr !== undefined) return { expr: arrayExpr, kind: 'native' };
   return undefined;
 }
 
@@ -1728,21 +1813,928 @@ function runtimeFunctionExpr(node: IRNode): string {
   return `(${asyncKw}(${params.join(', ')}) => {\n${code.trim()}\n})`;
 }
 
+function runtimeHandlerLines(node: IRNode, spaces = 4): string[] {
+  const prefix = ' '.repeat(spaces);
+  const code = handlerText(node).trim();
+  if (!code) return [];
+  return code.split('\n').map((line) => `${prefix}${line}`);
+}
+
+function runtimeClassFieldInitializers(node: IRNode): string[] {
+  const lines: string[] = [];
+  for (const field of getChildren(node, 'field')) {
+    const props = getProps(field);
+    if (isTruthy(props.static)) continue;
+    const name = str(props.name);
+    if (!isRuntimeBindingName(name)) return [];
+    const value = exprPropToRuntimeSource(field, 'value') || rawPropToRuntimeSource(field, 'default');
+    if (value) lines.push(`    this.${name} = (${value});`);
+  }
+  return lines;
+}
+
+function runtimeClassMethodLines(node: IRNode): string[] | undefined {
+  const props = getProps(node);
+  const name = str(props.name);
+  if (!isRuntimeBindingName(name)) return undefined;
+  const params = runtimeParamNames(node);
+  if (!params.every(isRuntimeBindingName)) return undefined;
+
+  const staticKw = isTruthy(props.static) ? 'static ' : '';
+  const asyncKw = isTruthy(props.async) || isTruthy(props.stream) ? 'async ' : '';
+  const star = isTruthy(props.stream) ? '*' : '';
+  const lines = [`  ${staticKw}${asyncKw}${star}${name}(${params.join(', ')}) {`];
+  lines.push(...runtimeHandlerLines(node));
+  lines.push('  }');
+  return lines;
+}
+
+function runtimeClassGetterLines(node: IRNode): string[] | undefined {
+  const props = getProps(node);
+  const name = str(props.name);
+  if (!isRuntimeBindingName(name)) return undefined;
+  const staticKw = isTruthy(props.static) ? 'static ' : '';
+  const lines = [`  ${staticKw}get ${name}() {`];
+  lines.push(...runtimeHandlerLines(node));
+  lines.push('  }');
+  return lines;
+}
+
+function runtimeClassSetterLines(node: IRNode): string[] | undefined {
+  const props = getProps(node);
+  const name = str(props.name);
+  if (!isRuntimeBindingName(name)) return undefined;
+  const params = runtimeParamNames(node);
+  if (!params.every(isRuntimeBindingName)) return undefined;
+  const param = params[0] || 'value';
+  const staticKw = isTruthy(props.static) ? 'static ' : '';
+  const lines = [`  ${staticKw}set ${name}(${param}) {`];
+  lines.push(...runtimeHandlerLines(node));
+  lines.push('  }');
+  return lines;
+}
+
+function runtimeClassExpr(node: IRNode): string {
+  const name = str(getProps(node).name);
+  if (!isRuntimeBindingName(name)) return '';
+
+  const ctorNode = getChildren(node, 'constructor')[0];
+  const ctorParams = ctorNode ? runtimeParamNames(ctorNode) : [];
+  if (!ctorParams.every(isRuntimeBindingName)) return '';
+
+  const fieldInitializers = runtimeClassFieldInitializers(node);
+  const lines = ['(class {'];
+  if (ctorNode || fieldInitializers.length > 0) {
+    lines.push(`  constructor(${ctorParams.join(', ')}) {`);
+    lines.push(...fieldInitializers);
+    if (ctorNode) lines.push(...runtimeHandlerLines(ctorNode));
+    lines.push('  }');
+  }
+
+  for (const method of getChildren(node, 'method')) {
+    const methodLines = runtimeClassMethodLines(method);
+    if (!methodLines) return '';
+    lines.push(...methodLines);
+  }
+  for (const getter of getChildren(node, 'getter')) {
+    const getterLines = runtimeClassGetterLines(getter);
+    if (!getterLines) return '';
+    lines.push(...getterLines);
+  }
+  for (const setter of getChildren(node, 'setter')) {
+    const setterLines = runtimeClassSetterLines(setter);
+    if (!setterLines) return '';
+    lines.push(...setterLines);
+  }
+
+  lines.push('})');
+  return lines.join('\n');
+}
+
+function runtimeValuePropSource(node: IRNode, propName: string): string {
+  return exprPropToRuntimeSource(node, propName) || rawPropToRuntimeSource(node, propName);
+}
+
+function runtimePortableSource(source: string): string {
+  return source.replace(/\b([A-Za-z_$][A-Za-z0-9_$]*)\.result\b/g, '$1');
+}
+
+function runtimePortableValuePropSource(node: IRNode, propName: string): string {
+  const source = runtimeValuePropSource(node, propName);
+  return source ? runtimePortableSource(source) : '';
+}
+
+function runtimeMapLitExpr(node: IRNode): string {
+  const entries: string[] = [];
+  for (const entry of getChildren(node, 'mapEntry')) {
+    const key = runtimeValuePropSource(entry, 'key');
+    const value = runtimeValuePropSource(entry, 'value');
+    if (!key || !value) return '';
+    entries.push(`[${key}, ${value}]`);
+  }
+  return `new Map([${entries.join(', ')}])`;
+}
+
+function runtimeSetLitExpr(node: IRNode): string {
+  const items: string[] = [];
+  for (const item of getChildren(node, 'setItem')) {
+    const value = runtimeValuePropSource(item, 'value');
+    if (!value) return '';
+    items.push(value);
+  }
+  return `new Set([${items.join(', ')}])`;
+}
+
+function runtimeSyntheticName(node: IRNode, prefix: string): string {
+  const line = node.loc?.line ?? 0;
+  const col = node.loc?.col ?? 0;
+  return `__kern${prefix}_${line}_${col}`;
+}
+
+function runtimeDestructureBindings(node: IRNode): RuntimeBinding[] {
+  const source = rawPropToRuntimeSource(node, 'source');
+  if (!source) return [];
+
+  const bindings: RuntimeBinding[] = [];
+  for (const child of node.children || []) {
+    const props = getProps(child);
+    const name = str(props.name);
+    if (!isRuntimeBindingName(name)) continue;
+
+    if (child.type === 'element') {
+      const rawIndex = str(props.index);
+      const index = rawIndex && /^-?\d+$/.test(rawIndex) ? rawIndex : String(bindings.length);
+      bindings.push({
+        name,
+        expr: `((${source})[${index}])`,
+        kind: 'native',
+        line: child.loc?.line,
+      });
+    }
+
+    if (child.type === 'binding') {
+      const key = str(props.key) || name;
+      const accessor = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`;
+      bindings.push({
+        name,
+        expr: `((${source})${accessor})`,
+        kind: 'native',
+        line: child.loc?.line,
+      });
+    }
+  }
+
+  return bindings;
+}
+
+function runtimeNamedProp(node: IRNode, propName: string, fallback: string): string {
+  const value = str(getProps(node)[propName]);
+  return isRuntimeBindingName(value) ? value : fallback;
+}
+
+function runtimeArrayPredicateBindingExpr(
+  node: IRNode,
+  method: 'filter' | 'find' | 'some' | 'every' | 'findIndex',
+): string {
+  const collection = rawPropToRuntimeSource(node, 'in');
+  const predicate = rawPropToRuntimeSource(node, 'where');
+  if (!collection || !predicate) return '';
+  const item = runtimeNamedProp(node, 'item', 'item');
+  return `((${collection}).${method}((${item}) => ${predicate}))`;
+}
+
+function runtimeArrayProjectionBindingExpr(node: IRNode, method: 'map' | 'flatMap'): string {
+  const collection = rawPropToRuntimeSource(node, 'in');
+  const body = rawPropToRuntimeSource(node, 'expr');
+  if (!collection || !body) return '';
+  const item = runtimeNamedProp(node, 'item', 'item');
+  return `((${collection}).${method}((${item}) => ${body}))`;
+}
+
+function runtimeArrayValueLookupBindingExpr(node: IRNode, method: 'includes' | 'indexOf' | 'lastIndexOf'): string {
+  const collection = rawPropToRuntimeSource(node, 'in');
+  const value = rawPropToRuntimeSource(node, 'value');
+  if (!collection || !value) return '';
+  const from = rawPropToRuntimeSource(node, 'from');
+  const args = from ? `${value}, ${from}` : value;
+  return `((${collection}).${method}(${args}))`;
+}
+
+function runtimeCollectBindingExpr(node: IRNode, options: { portable?: boolean } = {}): string {
+  const source = options.portable ? runtimePortableSource : (value: string) => value;
+  const from = source(rawPropToRuntimeSource(node, 'from'));
+  if (!from) return '';
+  const where = source(rawPropToRuntimeSource(node, 'where'));
+  const order = source(rawPropToRuntimeSource(node, 'order'));
+  const limit = source(rawPropToRuntimeSource(node, 'limit'));
+
+  let chain = `(${from})`;
+  if (where) chain += `.filter((item) => ${where})`;
+  if (order) chain += `.sort((a, b) => ${order})`;
+  if (limit) chain += `.slice(0, ${limit})`;
+  return `(${chain})`;
+}
+
+function runtimePartitionBindings(node: IRNode): RuntimeBinding[] {
+  const collection = rawPropToRuntimeSource(node, 'in');
+  const predicate = rawPropToRuntimeSource(node, 'where');
+  if (!collection || !predicate) return [];
+
+  const passName = str(getProps(node).pass);
+  const failName = str(getProps(node).fail);
+  if (!isRuntimeBindingName(passName) || !isRuntimeBindingName(failName)) return [];
+
+  const item = runtimeNamedProp(node, 'item', 'item');
+  const pairName = `__kernPartition_${passName}_${failName}`;
+  const pairExpr = `((${collection}).reduce((acc, ${item}) => { (${predicate} ? acc[0] : acc[1]).push(${item}); return acc; }, [[], []]))`;
+  return [
+    {
+      name: pairName,
+      expr: pairExpr,
+      kind: 'native',
+      line: node.loc?.line,
+    },
+    {
+      name: passName,
+      expr: `${pairName}[0]`,
+      kind: 'native',
+      line: node.loc?.line,
+    },
+    {
+      name: failName,
+      expr: `${pairName}[1]`,
+      kind: 'native',
+      line: node.loc?.line,
+    },
+  ];
+}
+
+function runtimeRespondSource(node: IRNode, options: { portable?: boolean } = {}): string {
+  const props = getProps(node);
+  const status = typeof props.status === 'number' ? props.status : Number(str(props.status)) || undefined;
+  const valueSource = options.portable ? runtimePortableValuePropSource : runtimeValuePropSource;
+  const jsonSource = valueSource(node, 'json');
+  if (jsonSource) return status && status !== 200 ? `({ status: ${status}, json: ${jsonSource} })` : jsonSource;
+
+  const textSource = valueSource(node, 'text');
+  if (textSource) return status && status !== 200 ? `({ status: ${status}, text: ${textSource} })` : textSource;
+
+  const error = str(props.error);
+  if (error) return `({ status: ${status || 500}, error: ${JSON.stringify(error)} })`;
+
+  const redirect = str(props.redirect);
+  if (redirect) return `({ status: ${status || 302}, redirect: ${JSON.stringify(redirect)} })`;
+
+  return `({ status: ${status || 200} })`;
+}
+
+function runtimeScopedObject(names: string[]): string {
+  const unique = [...new Set(names)].filter(isRuntimeBindingName);
+  if (unique.length === 0) return 'undefined';
+  if (unique.length === 1) return unique[0];
+  return `({ ${unique.join(', ')} })`;
+}
+
+function runtimeGuardStatement(node: IRNode, options: { portable?: boolean } = {}): string[] {
+  const rawExpr = exprPropToRuntimeSource(node, 'expr') || rawPropToRuntimeSource(node, 'expr');
+  const expr = options.portable ? runtimePortableSource(rawExpr) : rawExpr;
+  if (!expr) return [];
+  const props = getProps(node);
+  const fallback = str(props.else) || str(props.fallback);
+  const numericFallback = fallback && /^\d+$/.test(fallback) ? Number(fallback) : undefined;
+  const result =
+    numericFallback !== undefined
+      ? `({ status: ${numericFallback} })`
+      : fallback
+        ? `({ error: ${JSON.stringify(fallback)} })`
+        : 'false';
+  return [`if (!(${expr})) return (${result});`];
+}
+
+function runtimeScopedChildProgram(children: IRNode[]): { lines: string[]; names: string[]; hasReturn: boolean } {
+  const lines: string[] = [];
+  const names: string[] = [];
+  let hasReturn = false;
+
+  for (const child of children) {
+    if (child.type === 'respond') {
+      lines.push(`return (${runtimeRespondSource(child)});`);
+      hasReturn = true;
+      continue;
+    }
+
+    if (child.type === 'guard') {
+      lines.push(...runtimeGuardStatement(child));
+      continue;
+    }
+
+    if (child.type === 'destructure') {
+      for (const binding of runtimeDestructureBindings(child)) {
+        lines.push(`const ${binding.name} = (${binding.expr});`);
+        names.push(binding.name);
+      }
+      continue;
+    }
+
+    if (child.type === 'partition') {
+      const partitionBindings = runtimePartitionBindings(child);
+      for (const binding of partitionBindings) {
+        lines.push(`const ${binding.name} = (${binding.expr});`);
+        names.push(binding.name);
+      }
+      continue;
+    }
+
+    if (child.type === 'each') {
+      const expr = runtimeEachExecutionExpr(child);
+      if (expr) lines.push(`(${expr});`);
+      continue;
+    }
+
+    const name = str(getProps(child).name);
+    const binding = runtimeBindingSource(child);
+    if (name && binding?.expr && isRuntimeBindingName(name)) {
+      lines.push(`const ${name} = (${binding.expr});`);
+      names.push(name);
+    }
+  }
+
+  return { lines, names, hasReturn };
+}
+
+function runtimeBranchBindingExpr(node: IRNode, options: { async?: boolean } = {}): string {
+  const on = rawPropToRuntimeSource(node, 'on');
+  if (!on) return '';
+
+  const lines = [`(${options.async ? 'async ' : ''}() => {`, `  const __branchValue = (${on});`];
+  const paths = getChildren(node, 'path');
+  for (let index = 0; index < paths.length; index++) {
+    const pathNode = paths[index];
+    const value = str(getProps(pathNode).value);
+    const program = runtimeScopedChildProgram(pathNode.children || []);
+    const keyword = index === 0 ? 'if' : 'else if';
+    lines.push(`  ${keyword} (__branchValue === ${JSON.stringify(value)}) {`);
+    for (const line of program.lines) lines.push(`    ${line}`);
+    if (!program.hasReturn) lines.push(`    return (${runtimeScopedObject(program.names)});`);
+    lines.push('  }');
+  }
+  lines.push('  return undefined;');
+  lines.push('})()');
+  return lines.join('\n');
+}
+
+function runtimeEachExecutionExpr(node: IRNode, options: { async?: boolean } = {}): string {
+  const collection = rawPropToRuntimeSource(node, 'in');
+  const item = str(getProps(node).name) || 'item';
+  if (!collection || !isRuntimeBindingName(item)) return '';
+
+  const index = str(getProps(node).index);
+  if (index && !isRuntimeBindingName(index)) return '';
+
+  const program = runtimeScopedChildProgram(node.children || []);
+  const lines = [`(${options.async ? 'async ' : ''}() => {`, '  const __results = [];'];
+  if (index) {
+    lines.push(`  for (const [${index}, ${item}] of (${collection}).entries()) {`);
+  } else {
+    lines.push(`  for (const ${item} of ${collection}) {`);
+  }
+  for (const line of program.lines) lines.push(`    ${line}`);
+  lines.push(`    __results.push(${runtimeScopedObject(program.names)});`);
+  lines.push('  }');
+  lines.push('  return __results;');
+  lines.push('})()');
+  return lines.join('\n');
+}
+
+function runtimeEachExecutionBinding(node: IRNode): RuntimeBinding | undefined {
+  const expr = runtimeEachExecutionExpr(node);
+  if (!expr) return undefined;
+  return {
+    name: runtimeSyntheticName(node, 'Each'),
+    expr,
+    kind: 'native',
+    eager: true,
+    line: node.loc?.line,
+  };
+}
+
+function runtimeRouteMethod(node: IRNode): string {
+  return (str(getProps(node).method) || 'get').toLowerCase();
+}
+
+function runtimeRoutePath(node: IRNode): string {
+  return str(getProps(node).path);
+}
+
+function runtimeRouteLabel(node: IRNode): string {
+  return `${runtimeRouteMethod(node).toUpperCase()} ${runtimeRoutePath(node) || '<missing-path>'}`;
+}
+
+function parseRuntimeRouteSpec(spec: string): { method?: string; path?: string; name?: string } {
+  const trimmed = spec.trim();
+  const match = trimmed.match(/^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(.+)$/i);
+  if (match) return { method: match[1].toLowerCase(), path: match[2].trim() };
+  if (trimmed.startsWith('/')) return { path: trimmed };
+  return { name: trimmed };
+}
+
+function findRuntimeRoute(target: LoadedKernDocument, spec: string): { route?: IRNode; message?: string } {
+  const parsed = parseRuntimeRouteSpec(spec);
+  const routes = collectNodes(target.root, 'route').filter((route) => {
+    const props = getProps(route);
+    if (parsed.name) {
+      return str(props.name) === parsed.name || runtimeRouteLabel(route) === parsed.name;
+    }
+    if (parsed.method && runtimeRouteMethod(route) !== parsed.method) return false;
+    return !parsed.path || runtimeRoutePath(route) === parsed.path;
+  });
+
+  if (routes.length === 1) return { route: routes[0] };
+  if (routes.length === 0) return { message: `Runtime route assertion target not found: ${spec}` };
+  return { message: `Runtime route assertion target is ambiguous: ${spec}` };
+}
+
+function runtimeRoutePathParamNames(path: string): string[] {
+  const names: string[] = [];
+  const matcher = /(?::|\{)([A-Za-z_$][A-Za-z0-9_$]*)(?:\})?/g;
+  let match: RegExpExecArray | null;
+  while ((match = matcher.exec(path))) names.push(match[1]);
+  return [...new Set(names)];
+}
+
+function runtimeRouteParamItems(route: IRNode): Array<{ name: string; defaultSource?: string }> {
+  const items: Array<{ name: string; defaultSource?: string }> = [];
+  for (const paramsNode of getChildren(route, 'params')) {
+    const rawItems = getProps(paramsNode).items;
+    if (!Array.isArray(rawItems)) continue;
+    for (const item of rawItems) {
+      if (!item || typeof item !== 'object') continue;
+      const itemProps = item as { name?: unknown; default?: unknown };
+      const name = str(itemProps.name);
+      if (!name) continue;
+      const defaultSource = itemProps.default === undefined ? undefined : String(itemProps.default);
+      items.push({ name, defaultSource });
+    }
+  }
+  return items;
+}
+
+function runtimeEffectName(node: IRNode): string {
+  return str(getProps(node).name) || 'effect';
+}
+
+function runtimeEffectTriggerSource(
+  node: IRNode,
+  options: { portable?: boolean } = {},
+): { source?: string; message?: string } {
+  const triggerNode = getChildren(node, 'trigger')[0];
+  if (!triggerNode) return { message: `Runtime effect ${runtimeEffectName(node)} requires trigger expr={{...}}` };
+
+  const source = exprPropToRuntimeSource(triggerNode, 'expr');
+  if (!source) {
+    return {
+      message:
+        `Runtime effect ${runtimeEffectName(node)} can only simulate trigger expr={{...}}; ` +
+        'query/url/call triggers need native mocks or a backend integration test.',
+    };
+  }
+
+  const portableSource = options.portable ? runtimePortableSource(source) : source;
+  const problem = unsafeRuntimeExpressionReason(portableSource, { allowAwait: true });
+  if (problem) {
+    return { message: `Runtime effect ${runtimeEffectName(node)} cannot execute trigger: ${problem}` };
+  }
+  return { source: portableSource };
+}
+
+function runtimeEffectRecoverFallbackSource(node: IRNode, options: { portable?: boolean } = {}): string {
+  const recoverNode = getChildren(node, 'recover')[0];
+  if (!recoverNode) return 'null';
+  const source = runtimeValuePropSource(recoverNode, 'fallback') || 'null';
+  return options.portable ? runtimePortableSource(source) : source;
+}
+
+function runtimeEffectExecutionExpr(
+  node: IRNode,
+  options: { portable?: boolean; meta?: boolean } = {},
+): { expr?: string; message?: string } {
+  const name = runtimeEffectName(node);
+  if (!isRuntimeBindingName(name)) return { message: `Runtime effect has invalid name: ${name}` };
+
+  const trigger = runtimeEffectTriggerSource(node, options);
+  if (trigger.message || !trigger.source) return { message: trigger.message || 'Runtime effect has no trigger' };
+
+  const recoverNode = getChildren(node, 'recover')[0];
+  const hasRecover = recoverNode !== undefined;
+  const fallbackSource = runtimeEffectRecoverFallbackSource(node, options);
+  const fallbackProblem = unsafeRuntimeExpressionReason(fallbackSource, { allowAwait: true });
+  if (fallbackProblem) {
+    return { message: `Runtime effect ${name} cannot execute fallback: ${fallbackProblem}` };
+  }
+
+  const rawRetry = recoverNode ? getProps(recoverNode).retry : undefined;
+  const retryCount = rawRetry === undefined || rawRetry === '' ? 0 : Number(rawRetry);
+  if (!Number.isInteger(retryCount) || retryCount < 0) {
+    return { message: `Runtime effect ${name} has invalid recover retry=${String(rawRetry)}` };
+  }
+  const attempts = hasRecover && retryCount > 0 ? retryCount : 1;
+  const result = (value: string, recovered: boolean) =>
+    options.meta ? `({ result: ${value}, recovered: ${recovered}, attempts: __attempts })` : value;
+
+  const lines = ['(async () => {', '  let __attempts = 0;'];
+  if (!hasRecover) {
+    lines.push('  __attempts++;');
+    lines.push(`  const __value = await (${trigger.source});`);
+    lines.push(`  return ${result('__value', false)};`);
+    lines.push('})()');
+    return { expr: lines.join('\n') };
+  }
+
+  lines.push(`  const __fallback = (${fallbackSource});`);
+  lines.push(`  for (let __attempt = 0; __attempt < ${attempts}; __attempt++) {`);
+  lines.push('    __attempts++;');
+  lines.push('    try {');
+  lines.push(`      const __value = await (${trigger.source});`);
+  lines.push(`      return ${result('__value', false)};`);
+  lines.push('    } catch (__error) {');
+  lines.push(`      if (__attempt === ${attempts - 1}) return ${result('__fallback', true)};`);
+  lines.push('    }');
+  lines.push('  }');
+  lines.push(`  return ${result('__fallback', true)};`);
+  lines.push('})()');
+  return { expr: lines.join('\n') };
+}
+
+function runtimeRouteRequestLines(route: IRNode, inputSource: string): { lines: string[]; message?: string } {
+  const lines = [
+    `const __request = ((${inputSource}) ?? {});`,
+    'const params = (__request.params ?? {});',
+    'const query = (__request.query ?? {});',
+    'const body = (__request.body ?? {});',
+    'const headers = (__request.headers ?? {});',
+  ];
+  const declared = new Set<string>();
+
+  for (const name of runtimeRoutePathParamNames(runtimeRoutePath(route))) {
+    if (!isRuntimeBindingName(name)) return { lines: [], message: `Runtime route has invalid path param: ${name}` };
+    if (declared.has(name)) continue;
+    declared.add(name);
+    lines.push(`const ${name} = params[${JSON.stringify(name)}];`);
+  }
+
+  for (const item of runtimeRouteParamItems(route)) {
+    if (!isRuntimeBindingName(item.name)) {
+      return { lines: [], message: `Runtime route has invalid params entry: ${item.name}` };
+    }
+    if (declared.has(item.name)) continue;
+    declared.add(item.name);
+    const fallback = item.defaultSource ?? 'undefined';
+    const key = JSON.stringify(item.name);
+    lines.push(`const ${item.name} = query[${key}] ?? params[${key}] ?? (${fallback});`);
+  }
+
+  return { lines };
+}
+
+function runtimeRouteChildProgram(children: IRNode[]): { lines: string[]; message?: string } {
+  const lines: string[] = [];
+
+  for (const child of children) {
+    if (child.type === 'handler') {
+      return {
+        lines: [],
+        message:
+          'Runtime route assertions execute portable KERN route nodes; handler blocks remain backend/runtime tests.',
+      };
+    }
+    if (child.type === 'effect') {
+      const effectName = runtimeEffectName(child);
+      if (!isRuntimeBindingName(effectName)) {
+        return { lines: [], message: `Runtime route effect has invalid name: ${effectName}` };
+      }
+      const effect = runtimeEffectExecutionExpr(child, { portable: true });
+      if (effect.message || !effect.expr) {
+        return { lines: [], message: effect.message || `Runtime route effect ${effectName} cannot be simulated` };
+      }
+      lines.push(`const ${effectName} = await (${effect.expr});`);
+      continue;
+    }
+
+    if (child.type === 'respond') {
+      lines.push(`return (${runtimeRespondSource(child, { portable: true })});`);
+      continue;
+    }
+
+    if (child.type === 'guard') {
+      lines.push(...runtimeGuardStatement(child, { portable: true }));
+      continue;
+    }
+
+    if (child.type === 'branch') {
+      const expr = runtimeRouteBranchExecutionExpr(child);
+      if (!expr) continue;
+      const name = runtimeSyntheticName(child, 'BranchResult');
+      lines.push(`const ${name} = await (${expr});`);
+      lines.push(`if (${name} !== undefined) return ${name};`);
+      continue;
+    }
+
+    if (child.type === 'each') {
+      const expr = runtimeRouteEachExecutionExpr(child);
+      if (expr) lines.push(`await (${expr});`);
+      continue;
+    }
+
+    if (child.type === 'destructure') {
+      for (const binding of runtimeDestructureBindings(child)) lines.push(`const ${binding.name} = (${binding.expr});`);
+      continue;
+    }
+
+    if (child.type === 'partition') {
+      for (const binding of runtimePartitionBindings(child)) lines.push(`const ${binding.name} = (${binding.expr});`);
+      continue;
+    }
+
+    const name = str(getProps(child).name);
+    const binding =
+      child.type === 'collect'
+        ? { expr: runtimeCollectBindingExpr(child, { portable: true }), kind: 'native' as const }
+        : runtimeBindingSource(child);
+    if (name && binding?.expr && isRuntimeBindingName(name)) {
+      lines.push(`const ${name} = (${runtimePortableSource(binding.expr)});`);
+    }
+  }
+
+  lines.push('return undefined;');
+  return { lines };
+}
+
+function runtimeRouteBranchExecutionExpr(node: IRNode): string {
+  const on = runtimePortableSource(rawPropToRuntimeSource(node, 'on'));
+  if (!on) return '';
+
+  const lines = ['(async () => {', `  const __branchValue = (${on});`];
+  const paths = getChildren(node, 'path');
+  for (let index = 0; index < paths.length; index++) {
+    const pathNode = paths[index];
+    const value = str(getProps(pathNode).value);
+    const program = runtimeRouteChildProgram(pathNode.children || []);
+    if (program.message) return '';
+    const keyword = index === 0 ? 'if' : 'else if';
+    lines.push(`  ${keyword} (__branchValue === ${JSON.stringify(value)}) {`);
+    for (const line of program.lines) lines.push(`    ${line}`);
+    lines.push('  }');
+  }
+  lines.push('  return undefined;');
+  lines.push('})()');
+  return lines.join('\n');
+}
+
+function runtimeRouteEachExecutionExpr(node: IRNode): string {
+  const collection = runtimePortableSource(rawPropToRuntimeSource(node, 'in'));
+  const item = str(getProps(node).name) || 'item';
+  if (!collection || !isRuntimeBindingName(item)) return '';
+
+  const index = str(getProps(node).index);
+  if (index && !isRuntimeBindingName(index)) return '';
+
+  const program = runtimeRouteChildProgram(node.children || []);
+  if (program.message) return '';
+
+  const lines = ['(async () => {', '  const __results = [];'];
+  if (index) {
+    lines.push(`  for (const [${index}, ${item}] of (${collection}).entries()) {`);
+  } else {
+    lines.push(`  for (const ${item} of ${collection}) {`);
+  }
+  for (const line of program.lines) lines.push(`    ${line}`);
+  lines.push('    __results.push(undefined);');
+  lines.push('  }');
+  lines.push('  return __results;');
+  lines.push('})()');
+  return lines.join('\n');
+}
+
+function runtimeRouteExecutionExpr(route: IRNode, inputSource: string): { expr?: string; message?: string } {
+  const request = runtimeRouteRequestLines(route, inputSource || '{}');
+  if (request.message) return { message: request.message };
+
+  const program = runtimeRouteChildProgram(route.children || []);
+  if (program.message) return { message: program.message };
+
+  const lines = ['(async () => {'];
+  for (const line of [...request.lines, ...program.lines]) lines.push(`  ${line}`);
+  lines.push('})()');
+  return { expr: lines.join('\n') };
+}
+
+function runtimeArrayBindingExpr(node: IRNode): string | undefined {
+  const collection = rawPropToRuntimeSource(node, 'in');
+  switch (node.type) {
+    case 'filter':
+    case 'find':
+    case 'some':
+    case 'every':
+    case 'findIndex':
+      return runtimeArrayPredicateBindingExpr(node, node.type as 'filter' | 'find' | 'some' | 'every' | 'findIndex');
+    case 'map':
+    case 'flatMap':
+      return runtimeArrayProjectionBindingExpr(node, node.type as 'map' | 'flatMap');
+    case 'reduce': {
+      const body = rawPropToRuntimeSource(node, 'expr');
+      const initial = rawPropToRuntimeSource(node, 'initial');
+      if (!collection || !body || !initial) return '';
+      const acc = runtimeNamedProp(node, 'acc', 'acc');
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `((${collection}).reduce((${acc}, ${item}) => ${body}, ${initial}))`;
+    }
+    case 'slice': {
+      if (!collection) return '';
+      const start = rawPropToRuntimeSource(node, 'start');
+      const end = rawPropToRuntimeSource(node, 'end');
+      const args: string[] = [];
+      if (start) args.push(start);
+      if (end) {
+        if (!start) args.push('0');
+        args.push(end);
+      }
+      return `((${collection}).slice(${args.join(', ')}))`;
+    }
+    case 'flat': {
+      if (!collection) return '';
+      const depth = rawPropToRuntimeSource(node, 'depth');
+      return `((${collection}).flat(${depth}))`;
+    }
+    case 'at': {
+      const index = rawPropToRuntimeSource(node, 'index');
+      return collection && index ? `((${collection}).at(${index}))` : '';
+    }
+    case 'sort': {
+      if (!collection) return '';
+      const compare = rawPropToRuntimeSource(node, 'compare');
+      if (!compare) return `([...(${collection})].sort())`;
+      const a = runtimeNamedProp(node, 'a', 'a');
+      const b = runtimeNamedProp(node, 'b', 'b');
+      return `([...(${collection})].sort((${a}, ${b}) => ${compare}))`;
+    }
+    case 'reverse':
+      return collection ? `([...(${collection})].reverse())` : '';
+    case 'join': {
+      if (!collection) return '';
+      const separator = stringLiteralOrExprPropToRuntimeSource(node, 'separator');
+      return `((${collection}).join(${separator}))`;
+    }
+    case 'includes':
+    case 'indexOf':
+    case 'lastIndexOf':
+      return runtimeArrayValueLookupBindingExpr(node, node.type as 'includes' | 'indexOf' | 'lastIndexOf');
+    case 'concat': {
+      const withArg = rawPropToRuntimeSource(node, 'with');
+      return collection && withArg ? `((${collection}).concat(${withArg}))` : '';
+    }
+    case 'compact':
+      return collection ? `((${collection}).filter(Boolean))` : '';
+    case 'pluck': {
+      const prop = rawPropToRuntimeSource(node, 'prop');
+      if (!collection || !prop) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `((${collection}).map((${item}) => ${item}.${prop}))`;
+    }
+    case 'unique':
+      return collection ? `((${collection}).filter((item, index, items) => items.indexOf(item) === index))` : '';
+    case 'uniqueBy': {
+      const by = rawPropToRuntimeSource(node, 'by');
+      if (!collection || !by) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `((__seen) => (${collection}).filter((${item}) => { const __k = ${by}; if (__seen.has(__k)) return false; __seen.add(__k); return true; }))(new Set())`;
+    }
+    case 'groupBy': {
+      const by = rawPropToRuntimeSource(node, 'by');
+      if (!collection || !by) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `((${collection}).reduce((acc, ${item}) => { const __k = ${by}; (acc[__k] ??= []).push(${item}); return acc; }, Object.create(null)))`;
+    }
+    case 'indexBy': {
+      const by = rawPropToRuntimeSource(node, 'by');
+      if (!collection || !by) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `(Object.fromEntries((${collection}).map((${item}) => [${by}, ${item}])))`;
+    }
+    case 'countBy': {
+      const by = rawPropToRuntimeSource(node, 'by');
+      if (!collection || !by) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `((${collection}).reduce((acc, ${item}) => { const __k = ${by}; acc[__k] = (acc[__k] ?? 0) + 1; return acc; }, Object.create(null)))`;
+    }
+    case 'chunk': {
+      const size = rawPropToRuntimeSource(node, 'size');
+      return collection && size
+        ? `((__src, __n) => Array.from({ length: Math.ceil(__src.length / __n) }, (_, i) => __src.slice(i * __n, (i + 1) * __n)))((${collection}), (${size}))`
+        : '';
+    }
+    case 'zip': {
+      const right = rawPropToRuntimeSource(node, 'with');
+      if (!collection || !right) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      const indexName = runtimeNamedProp(node, 'index', '__i');
+      return `((__r) => (${collection}).map((${item}, ${indexName}) => [${item}, __r[${indexName}]]))((${right}))`;
+    }
+    case 'range': {
+      const end = rawPropToRuntimeSource(node, 'end');
+      if (!end) return '';
+      const start = rawPropToRuntimeSource(node, 'start') || '0';
+      return `(Array.from({ length: (${end}) - (${start}) }, (_, i) => i + (${start})))`;
+    }
+    case 'take': {
+      const n = rawPropToRuntimeSource(node, 'n');
+      return collection && n ? `((${collection}).slice(0, ${n}))` : '';
+    }
+    case 'drop': {
+      const n = rawPropToRuntimeSource(node, 'n');
+      return collection && n ? `((${collection}).slice(${n}))` : '';
+    }
+    case 'min':
+      return collection
+        ? `((__src) => __src.length === 0 ? undefined : __src.reduce((__a, __b) => __b < __a ? __b : __a))((${collection}))`
+        : '';
+    case 'max':
+      return collection
+        ? `((__src) => __src.length === 0 ? undefined : __src.reduce((__a, __b) => __b > __a ? __b : __a))((${collection}))`
+        : '';
+    case 'minBy':
+    case 'maxBy': {
+      const by = rawPropToRuntimeSource(node, 'by');
+      if (!collection || !by) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      const op = node.type === 'minBy' ? '<' : '>';
+      return `((__src) => { if (__src.length === 0) return undefined; const __key = (${item}) => ${by}; return __src.reduce((__best, __cur) => __key(__cur) ${op} __key(__best) ? __cur : __best); })((${collection}))`;
+    }
+    case 'sum':
+      return collection ? `((${collection}).reduce((acc, n) => acc + n, 0))` : '';
+    case 'avg':
+      return collection
+        ? `((__src) => __src.length === 0 ? Number.NaN : __src.reduce((acc, n) => acc + n, 0) / __src.length)((${collection}))`
+        : '';
+    case 'sumBy': {
+      const by = rawPropToRuntimeSource(node, 'by');
+      if (!collection || !by) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `((${collection}).reduce((acc, ${item}) => acc + (${by}), 0))`;
+    }
+    case 'intersect': {
+      const right = rawPropToRuntimeSource(node, 'with');
+      if (!collection || !right) return '';
+      const item = runtimeNamedProp(node, 'item', 'item');
+      return `((__r) => (${collection}).filter((${item}) => __r.has(${item})))(new Set((${right})))`;
+    }
+    default:
+      return undefined;
+  }
+}
+
 function collectRuntimeBindings(root: IRNode): RuntimeBinding[] {
   const bindings: RuntimeBinding[] = [];
 
   function visit(node: IRNode): void {
-    if (node.type === 'const' || node.type === 'derive' || node.type === 'let' || node.type === 'fn') {
+    if (node.type === 'route') {
+      return;
+    }
+
+    if (node.type === 'branch') {
       const name = str(getProps(node).name);
-      const binding = runtimeBindingSource(node);
-      if (name && binding?.expr) {
+      const expr = runtimeBranchBindingExpr(node);
+      if (name && expr) {
         bindings.push({
           name,
-          expr: binding.expr,
-          kind: binding.kind,
+          expr,
+          kind: 'native',
           line: node.loc?.line,
         });
       }
+      return;
+    }
+
+    if (node.type === 'each') {
+      const binding = runtimeEachExecutionBinding(node);
+      if (binding) bindings.push(binding);
+      return;
+    }
+
+    if (node.type === 'destructure') {
+      bindings.push(...runtimeDestructureBindings(node));
+    }
+    if (node.type === 'partition') {
+      bindings.push(...runtimePartitionBindings(node));
+    }
+    const name = str(getProps(node).name);
+    const binding = runtimeBindingSource(node);
+    if (name && binding?.expr) {
+      bindings.push({
+        name,
+        expr: binding.expr,
+        kind: binding.kind,
+        line: node.loc?.line,
+      });
     }
     for (const child of node.children || []) visit(child);
   }
@@ -1805,7 +2797,10 @@ function orderRuntimeBindings(bindings: RuntimeBinding[], entryExpr: string): Ru
     return undefined;
   }
 
-  for (const name of depsIn(entryExpr)) {
+  const initialNames = new Set([...bindings.filter((binding) => binding.eager).map((binding) => binding.name)]);
+  for (const name of depsIn(entryExpr)) initialNames.add(name);
+
+  for (const name of initialNames) {
     const error = visit(name);
     if (error) return { ordered: [], error };
   }
@@ -1819,12 +2814,14 @@ function runtimeContext(): Record<string, unknown> {
     Boolean,
     Error,
     JSON,
+    Map,
     Math,
     Number,
     Object,
     Promise,
     RangeError,
     ReferenceError,
+    Set,
     String,
     SyntaxError,
     TypeError,
@@ -1867,6 +2864,9 @@ function runtimeExpressionContext(expr: string, fixtures: RuntimeBinding[]): str
 
 function runtimeBindingUnsafeReason(binding: RuntimeBinding): string | undefined {
   if (binding.kind === 'fn') return unsafeRuntimeFunctionReason(binding.expr);
+  if (binding.kind === 'class') return unsafeRuntimeClassReason(binding.expr);
+  if (binding.kind === 'workflow') return unsafeRuntimeWorkflowReason(binding.expr);
+  if (binding.kind === 'native') return unsafeRuntimeNativeBindingReason(binding.expr);
   return unsafeRuntimeExpressionReason(binding.expr);
 }
 
@@ -1979,12 +2979,14 @@ function runtimeContext() {
     Boolean,
     Error,
     JSON,
+    Map,
     Math,
     Number,
     Object,
     Promise,
     RangeError,
     ReferenceError,
+    Set,
     String,
     SyntaxError,
     TypeError,
@@ -2096,6 +3098,7 @@ function evaluateRuntimeSource(
   expr: string,
   fixtures: RuntimeBinding[] = [],
   label = 'Runtime expr',
+  expectedPropName = 'equals',
 ): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -2104,7 +3107,10 @@ function evaluateRuntimeSource(
   const trimmedExpr = expr.trim();
   if (!trimmedExpr) return { passed: false, message: `${label} assertion requires an executable expression` };
 
-  const expectedSource = runtimeExpectedSource(node, 'equals');
+  const expectedSource =
+    runtimeExpectedSource(node, expectedPropName) ??
+    (expectedPropName === 'equals' ? undefined : runtimeExpectedSource(node, 'equals'));
+  const expectedLabel = expectedPropName !== 'equals' && expectedPropName in props ? expectedPropName : 'equals';
   const expressionSources = expectedSource ? [trimmedExpr, expectedSource] : [trimmedExpr];
   const declarations = buildRuntimeDeclarations(target, expressionSources, fixtures);
   if ('message' in declarations) return { passed: false, message: declarations.message };
@@ -2127,7 +3133,9 @@ function evaluateRuntimeSource(
     if (!expected.ok) {
       return {
         passed: false,
-        message: `Runtime expr assertion cannot execute expected equals value: ${formatThrownRuntimeError(expected.error)}`,
+        message: `Runtime expr assertion cannot execute expected ${expectedLabel} value: ${formatThrownRuntimeError(
+          expected.error,
+        )}`,
       };
     }
     return runtimeValuesEqual(actual.value, expected.value)
@@ -2228,6 +3236,177 @@ function evaluateRuntimeBehavior(
   }
 
   return { passed: false, message: 'Runtime behavior assertion requires fn=<name> or derive=<name>' };
+}
+
+function evaluateRuntimeRoute(
+  node: IRNode,
+  target: LoadedKernDocument,
+  fixtures: RuntimeBinding[] = [],
+): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+
+  const props = getProps(node);
+  const routeSpec = str(props.route);
+  if (!routeSpec) return { passed: false, message: 'Runtime route assertion requires route="METHOD /path"' };
+
+  const found = findRuntimeRoute(target, routeSpec);
+  if (found.message || !found.route)
+    return { passed: false, message: found.message || 'Runtime route target not found' };
+
+  const inputSource = runtimeValuePropSource(node, 'with') || runtimeValuePropSource(node, 'input') || '{}';
+  const inputProblem = unsafeRuntimeExpressionReason(inputSource, { allowAwait: true });
+  if (inputProblem) {
+    return { passed: false, message: `Runtime route assertion cannot execute request input: ${inputProblem}` };
+  }
+
+  const routeExpr = runtimeRouteExecutionExpr(found.route, inputSource);
+  if (routeExpr.message || !routeExpr.expr) {
+    return { passed: false, message: routeExpr.message || 'Runtime route assertion cannot build route workflow' };
+  }
+
+  const routeBinding: RuntimeBinding = {
+    name: runtimeSyntheticName(node, 'Route'),
+    expr: routeExpr.expr,
+    kind: 'workflow',
+    line: node.loc?.line,
+  };
+
+  return evaluateRuntimeSource(
+    node,
+    target,
+    routeBinding.name,
+    [...fixtures, routeBinding],
+    `Runtime route ${runtimeRouteLabel(found.route)}`,
+    'returns',
+  );
+}
+
+function findRuntimeEffect(target: LoadedKernDocument, effectName: string): { effect?: IRNode; message?: string } {
+  const effects = collectNodes(target.root, 'effect').filter((effect) => runtimeEffectName(effect) === effectName);
+  if (effects.length === 1) return { effect: effects[0] };
+  if (effects.length === 0) return { message: `Runtime effect assertion target not found: ${effectName}` };
+  return { message: `Runtime effect assertion target is ambiguous: ${effectName}` };
+}
+
+function runtimeEffectExpectedSource(node: IRNode): { source?: string; label?: string } {
+  const fallback = runtimeExpectedSource(node, 'fallback');
+  if (fallback !== undefined) return { source: fallback, label: 'fallback' };
+  const returns = runtimeExpectedSource(node, 'returns');
+  if (returns !== undefined) return { source: returns, label: 'returns' };
+  const equals = runtimeExpectedSource(node, 'equals');
+  if (equals !== undefined) return { source: equals, label: 'equals' };
+  return {};
+}
+
+function evaluateRuntimeEffectRecovery(
+  node: IRNode,
+  target: LoadedKernDocument,
+  effect: IRNode,
+  fixtures: RuntimeBinding[],
+): { passed: boolean; message?: string } {
+  const props = getProps(node);
+  const effectName = runtimeEffectName(effect);
+  const effectExpr = runtimeEffectExecutionExpr(effect, { portable: true, meta: true });
+  if (effectExpr.message || !effectExpr.expr) {
+    return { passed: false, message: effectExpr.message || `Runtime effect ${effectName} cannot be simulated` };
+  }
+
+  const effectBinding: RuntimeBinding = {
+    name: runtimeSyntheticName(node, 'Effect'),
+    expr: effectExpr.expr,
+    kind: 'workflow',
+    line: node.loc?.line,
+  };
+
+  const expected = runtimeEffectExpectedSource(node);
+  const entryExprs = expected.source ? [effectBinding.name, expected.source] : [effectBinding.name];
+  const declarations = buildRuntimeDeclarations(target, entryExprs, [...fixtures, effectBinding]);
+  if ('message' in declarations) return { passed: false, message: declarations.message };
+
+  const actual = runRuntimeExpression(target, declarations.source, effectBinding.name);
+  if (!actual.ok) {
+    return {
+      passed: false,
+      message: `Runtime effect ${effectName} threw: ${formatThrownRuntimeError(actual.error)}`,
+    };
+  }
+
+  const meta = actual.value as { result?: unknown; recovered?: unknown; attempts?: unknown };
+  if (isTruthy(props.recovers) && meta.recovered !== true) {
+    return {
+      passed: false,
+      message:
+        str(props.message) || `Runtime effect ${effectName} was expected to recover, but completed without recovery`,
+    };
+  }
+
+  if (expected.source !== undefined) {
+    const expectedResult = runRuntimeExpression(target, declarations.source, expected.source);
+    if (!expectedResult.ok) {
+      return {
+        passed: false,
+        message: `Runtime effect assertion cannot execute expected ${expected.label} value: ${formatThrownRuntimeError(
+          expectedResult.error,
+        )}`,
+      };
+    }
+    return runtimeValuesEqual(meta.result, expectedResult.value)
+      ? { passed: true }
+      : {
+          passed: false,
+          message:
+            str(props.message) ||
+            `Runtime effect ${effectName} expected ${formatRuntimeValue(
+              expectedResult.value,
+            )}, received ${formatRuntimeValue(meta.result)}`,
+        };
+  }
+
+  return { passed: true };
+}
+
+function evaluateRuntimeEffect(
+  node: IRNode,
+  target: LoadedKernDocument,
+  fixtures: RuntimeBinding[] = [],
+): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+
+  const props = getProps(node);
+  const effectName = str(props.effect);
+  if (!effectName) return { passed: false, message: 'Runtime effect assertion requires effect=<name>' };
+
+  const found = findRuntimeEffect(target, effectName);
+  if (found.message || !found.effect) {
+    return { passed: false, message: found.message || 'Runtime effect target not found' };
+  }
+
+  if (isTruthy(props.recovers)) {
+    return evaluateRuntimeEffectRecovery(node, target, found.effect, fixtures);
+  }
+
+  const effectExpr = runtimeEffectExecutionExpr(found.effect, { portable: true });
+  if (effectExpr.message || !effectExpr.expr) {
+    return { passed: false, message: effectExpr.message || `Runtime effect ${effectName} cannot be simulated` };
+  }
+
+  const effectBinding: RuntimeBinding = {
+    name: runtimeSyntheticName(node, 'Effect'),
+    expr: effectExpr.expr,
+    kind: 'workflow',
+    line: node.loc?.line,
+  };
+
+  return evaluateRuntimeSource(
+    node,
+    target,
+    effectBinding.name,
+    [...fixtures, effectBinding],
+    `Runtime effect ${effectName}`,
+    'returns',
+  );
 }
 
 function nodeSearchText(node: IRNode): string {
@@ -3019,6 +4198,30 @@ function evaluateNativeAssertion(
     return [
       {
         ruleId: 'runtime:behavior',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('route' in props) {
+    const evaluated = evaluateRuntimeRoute(node, target, context?.fixtures || []);
+    return [
+      {
+        ruleId: 'runtime:route',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('effect' in props) {
+    const evaluated = evaluateRuntimeEffect(node, target, context?.fixtures || []);
+    return [
+      {
+        ruleId: 'runtime:effect',
         assertion: assertionLabel(node),
         passed: evaluated.passed,
         ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),

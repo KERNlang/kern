@@ -33,7 +33,7 @@ kern test path/to/tests --pass-with-no-tests
 kern test path/to/tests --fail-on-warn
 ```
 
-`kern-test` is the standalone binary shipped by `@kernlang/test`. `kern test` is the integrated command from `@kernlang/cli`; it supports the same native runner flags plus `--watch` and the legacy MCP Jest generator fallback. Single-file `kern test <file.kern>` inputs keep that legacy generator behavior when the file has no native `test` nodes. Directory inputs discover `.kern` files that contain native `test` nodes and run them as one aggregate suite. This repo's `examples/native-test` directory includes machine, MCP safety, permission-gated tool, runtime-function, and language-surface smoke tests for arrays, classes, and functions.
+`kern-test` is the standalone binary shipped by `@kernlang/test`. `kern test` is the integrated command from `@kernlang/cli`; it supports the same native runner flags plus `--watch` and the legacy MCP Jest generator fallback. Single-file `kern test <file.kern>` inputs keep that legacy generator behavior when the file has no native `test` nodes. Directory inputs discover `.kern` files that contain native `test` nodes and run them as one aggregate suite. This repo's `examples/native-test` directory includes machine, MCP safety, permission-gated tool, runtime-function, language-surface, array conformance, class/function conformance, collection/destructure conformance, advanced data conformance, control-flow conformance, effect recovery conformance, and route workflow conformance tests.
 
 ## KERN Syntax
 
@@ -70,6 +70,14 @@ test name="Order invariants" target="./order.kern"
     expect fn=addTax args={{[orderSubtotal(paidOrder), taxRate]}} equals=54
     expect derive=total equals=54
 
+  it name="route workflow is stable"
+    expect route="GET /api/users" with={{({ query: { role: "admin" } })}} returns={{adminUsers}}
+    expect route="GET /api/users/:id" with={{({ params: { id: "missing" } })}} returns={{({ status: 404 })}}
+
+  it name="effect recovery is stable"
+    expect effect=fetchUsers returns={{users}}
+    expect effect=loadFallback recovers=true fallback={{[]}}
+
   it name="suite covers target surface"
     expect preset=coverage
 ```
@@ -92,11 +100,15 @@ Use `expect node=<type>` for KERN-native shape assertions over the target IR. Ad
 
 Use `no=nonExhaustiveGuards` to scan target-side variant guards that declare `covers=...`, `over=<Union>`, or `union=<Union>`. This is useful when Guard/Sight should catch a newly-added union variant before any backend compiler runs. Use `no=emptyRoutes` when route declarations must carry executable behavior through `handler`, `respond`, `derive`, `fmt`, `branch`, `each`, `collect`, or `effect`.
 
-Use `expect expr={{...}}` for small runtime assertions over referenced target-side `const`, `derive`, `let`, and pure `fn` bindings. Runtime `fn` handlers may use local statements, `if`, `return`, `throw`, and `async=true`/`await` over sandboxed values. Without a comparator, the expression must evaluate truthy. Add `equals=...` for deep equality, `matches="..."` for string/regex checks, or `throws=ErrorName` for expected exceptions.
+Use `expect expr={{...}}` for small runtime assertions over referenced target-side `const`, `derive`, `let`, pure `fn`, constrained `class`, `mapLit`, `setLit`, structured `destructure`, and safe native array/data bindings such as `filter`, `map`, `find`, `reduce`, `slice`, `flatMap`, `sort`, `join`, `compact`, `pluck`, `unique`, `uniqueBy`, `groupBy`, `partition`, `indexBy`, `countBy`, `chunk`, `zip`, `range`, `take`, `drop`, `min`, `max`, `minBy`, `maxBy`, `sum`, `avg`, `sumBy`, `intersect`, and `collect`. Runtime branch bindings execute matching `path` children and return the first `respond` payload when present. Runtime `each` nodes execute eagerly so iteration-scoped `let`/`derive` children can prove loop behavior before codegen. Runtime `fn` handlers may use local statements, `if`, `return`, `throw`, and `async=true`/`await` over sandboxed values. Runtime `class` support covers fields, constructors, methods, and getters/setters with the same sandbox restrictions. Without a comparator, the expression must evaluate truthy. Add `equals=...` for deep equality, `matches="..."` for string/regex checks, or `throws=ErrorName` for expected exceptions.
 
 Use `fixture name=<id> value={{...}}` or `fixture name=<id> expr={{...}}` to define scoped runtime data inside `test`, `describe`, or `it`. Fixtures are visible to descendant assertions and do not leak into sibling cases.
 
 Use `expect fn=<name>` when the target KERN `fn` itself is the behavior under test. Add `with=<fixture-or-expression>` to pass one argument, or `args={{[...]}}` to spread an argument array into the function. Use `expect derive=<name>` to execute a target-side `derive` binding through the same runtime evaluator. Behavioral assertions support the same `equals=...`, `matches="..."`, and `throws=ErrorName` comparators as `expect expr={{...}}`. Failed behavior assertions report the generated call expression and fixture names so CI output points back to the KERN-native setup.
+
+Use `expect route="METHOD /path"` to execute portable KERN route workflows before Express/FastAPI generation. Add `with={{...}}` (or `input={{...}}`) to provide `{ params, query, body, headers }`. Route workflow assertions currently execute target-side `derive`, `guard`, `branch`, `collect`, `each`, `destructure`, `partition`, deterministic `effect`/`recover`, and `respond` nodes. Use `returns={{...}}` for deep equality, or the same `equals=...`, `matches="..."`, and `throws=ErrorName` comparators as other runtime assertions. Handler blocks and non-expression effects remain backend/runtime-test territory until dedicated native mocks land.
+
+Use `expect effect=<name>` for deterministic portable effects with `trigger expr={{...}}`. A successful trigger can be checked with `returns={{...}}`; recovery can be checked with `recovers=true fallback={{...}}`. Route workflow assertions execute the same deterministic effect/recover subset, including `effectName.result` references. Non-expression triggers such as `query=`, `url=`, and `call=` are intentionally not executed by the native runner yet.
 
 Runtime assertions intentionally do not execute arbitrary application code. Multi-statement expressions and unsafe globals such as `process`, `require`, `eval`, `Function`, `fetch`, timers, and `WebSocket` are rejected before execution.
 

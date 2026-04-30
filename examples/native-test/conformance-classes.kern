@@ -1,0 +1,38 @@
+class name=UserDirectory export=true
+  field name=items type="object[]" private=true value={{ [] }}
+  constructor
+    param name=initial type="object[]" value={{ [] }}
+    handler <<<
+      this.items = initial;
+    >>>
+  method name=list returns="object[]"
+    handler <<<
+      return this.items;
+    >>>
+  method name=active returns="object[]"
+    handler <<<
+      return this.items.filter((user) => user.active);
+    >>>
+  method name=names returns="string[]"
+    handler <<<
+      return this.active().map((user) => user.name);
+    >>>
+  getter name=count returns=number
+    handler <<<
+      return this.items.length;
+    >>>
+
+fn name=makeDirectory returns=object
+  param name=users type="object[]"
+  handler <<<
+    return new UserDirectory(users);
+  >>>
+
+fn name=activeNames returns="string[]"
+  param name=users type="object[]"
+  handler <<<
+    const directory = makeDirectory(users);
+    return directory.names();
+  >>>
+
+derive name=emptyDirectoryCount expr={{new UserDirectory([]).count}}

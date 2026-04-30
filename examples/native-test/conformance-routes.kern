@@ -1,0 +1,23 @@
+const name=users value={{[{ id: "u1", name: "Ada", role: "admin", active: true, score: 8 }, { id: "u2", name: "Grace", role: "member", active: true, score: 9 }, { id: "u3", name: "Lin", role: "member", active: false, score: 4 }, { id: "u4", name: "Mina", role: "guest", active: true, score: 6 }]}}
+
+server name=UsersAPI
+  route GET /api/users
+    params role:string
+    derive visible expr={{users.filter((user) => user.active)}}
+    branch name=filterByRole on=query.role
+      path value="admin"
+        collect name=result from=visible where={{item.role === "admin"}}
+        respond 200 json=result
+      path value="member"
+        collect name=result from=visible where={{item.role === "member"}}
+        respond 200 json=result
+    respond 200 json=visible
+
+  route GET /api/users/:id
+    derive user expr={{users.find((item) => item.id === params.id)}}
+    guard name=exists expr={{user}} else=404
+    respond 200 json=user
+
+  route POST /api/users
+    derive user expr={{body}}
+    respond 201 json=user

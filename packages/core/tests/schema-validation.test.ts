@@ -218,18 +218,20 @@ describe('Schema Validation', () => {
       const v = validate(
         ['test name="Behavior"', '  it name="ambiguous"', '    expect fn=total derive=total equals=3'].join('\n'),
       );
-      expect(v.some((violation) => violation.message.includes('cannot combine fn=<name> and derive=<name>'))).toBe(
-        true,
-      );
+      expect(
+        v.some((violation) =>
+          violation.message.includes('cannot combine fn=<name>, derive=<name>, route=<spec>, and effect=<name>'),
+        ),
+      ).toBe(true);
     });
 
     it('flags behavioral expect assertions that combine fn or derive with expr', () => {
       const v = validate(
         ['test name="Behavior"', '  it name="ambiguous"', '    expect fn=total expr={{total()}} equals=3'].join('\n'),
       );
-      expect(v.some((violation) => violation.message.includes('cannot combine fn/derive behavioral assertions'))).toBe(
-        true,
-      );
+      expect(
+        v.some((violation) => violation.message.includes('cannot combine fn/derive/route behavioral assertions')),
+      ).toBe(true);
     });
 
     it('flags machine transition expect assertions without machine', () => {

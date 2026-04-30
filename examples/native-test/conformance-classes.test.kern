@@ -1,0 +1,26 @@
+test name="Class and function conformance" target="./conformance-classes.kern"
+  fixture name=sampleUsers value={{[{ id: "u1", name: "Ada", active: true }, { id: "u2", name: "Grace", active: false }, { id: "u3", name: "Lin", active: true }]}}
+
+  it name="class target stays schema and semantic valid"
+    expect no=schemaViolations
+    expect no=semanticViolations
+
+  it name="classes and functions keep their KERN shape"
+    expect node=class name=UserDirectory child=field childName=items
+    expect node=class name=UserDirectory child=constructor
+    expect node=class name=UserDirectory child=method childName=active
+    expect node=class name=UserDirectory child=getter childName=count
+    expect node=fn name=activeNames child=param count=1
+
+  it name="classes execute before codegen"
+    expect expr={{new UserDirectory(sampleUsers).count}} equals=3
+    expect expr={{new UserDirectory(sampleUsers).active().map((user) => user.id)}} equals={{["u1", "u3"]}}
+    expect expr={{new UserDirectory(sampleUsers).names()}} equals={{["Ada", "Lin"]}}
+
+  it name="functions compose class behavior"
+    expect fn=makeDirectory with=sampleUsers equals={{new UserDirectory(sampleUsers)}}
+    expect fn=activeNames with=sampleUsers equals={{["Ada", "Lin"]}}
+    expect derive=emptyDirectoryCount equals=0
+
+  it name="classes and functions reach core codegen"
+    expect no=codegenErrors

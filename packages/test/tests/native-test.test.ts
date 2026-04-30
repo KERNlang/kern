@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { dirname, join, relative, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import {
   checkNativeKernTestBaseline,
   createNativeKernTestBaseline,
@@ -11,6 +12,9 @@ import {
   runNativeKernTestRun,
   runNativeKernTests,
 } from '../src/index.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__dirname, '../../..');
 
 describe('native kern test runner', () => {
   let tmpDir: string;
@@ -69,6 +73,29 @@ describe('native kern test runner', () => {
     expect(formatNativeKernTestSummary(summary)).toContain('PASS Order invariants > reaches paid');
   });
 
+  test('runs checked-in native conformance examples', () => {
+    const examplesDir = join(REPO_ROOT, 'examples/native-test');
+
+    const summary = runNativeKernTestRun(examplesDir);
+    const relativeFiles = summary.testFiles.map((file) => relative(REPO_ROOT, file));
+
+    expect(summary.failed).toBe(0);
+    expect(summary.total).toBeGreaterThan(0);
+    expect(relativeFiles).toEqual(
+      expect.arrayContaining([
+        'examples/native-test/conformance-arrays.test.kern',
+        'examples/native-test/conformance-classes.test.kern',
+        'examples/native-test/conformance-collections.test.kern',
+        'examples/native-test/conformance-control-flow.test.kern',
+        'examples/native-test/conformance-data-advanced.test.kern',
+        'examples/native-test/conformance-effects.test.kern',
+        'examples/native-test/conformance-routes.test.kern',
+        'examples/native-test/language-surface.test.kern',
+        'examples/native-test/order.test.kern',
+      ]),
+    );
+  });
+
   test('executes runtime expr assertions against target const and derive bindings', () => {
     writeFileSync(
       join(tmpDir, 'runtime.kern'),
@@ -95,6 +122,70 @@ describe('native kern test runner', () => {
     expect(summary.total).toBe(1);
     expect(summary.passed).toBe(1);
     expect(summary.results[0].ruleId).toBe('expr');
+  });
+
+  test('executes native array data bindings in runtime assertions', () => {
+    writeFileSync(
+      join(tmpDir, 'arrays.kern'),
+      [
+        'const name=users value={{[{ id: "u1", name: "Ada", active: true, role: "admin", score: 3, tags: ["core", "ops"] }, { id: "u2", name: "Grace", active: false, role: "member", score: 9, tags: ["api"] }, { id: "u3", name: "Lin", active: true, role: "member", score: 4, tags: ["lang"] }]}}',
+        'const name=roles value={{["admin", "member", "admin"]}}',
+        'const name=maybeValues value={{[0, "kern", false, "test", null]}}',
+        'const name=nestedTags value={{[["core"], ["test", "guard"]]}}',
+        'filter name=activeUsers in=users item=user where="user.active"',
+        'map name=activeNames in=activeUsers item=user expr="user.name"',
+        'find name=adminUser in=users item=user where="user.role === \'admin\'"',
+        'some name=hasInactive in=users item=user where="!user.active"',
+        'every name=activeHaveNames in=activeUsers item=user where="user.name.length > 0"',
+        'findIndex name=linIndex in=users item=user where="user.name === \'Lin\'"',
+        'reduce name=totalActiveScore in=activeUsers acc=sum item=user initial=0 expr="sum + user.score"',
+        'slice name=firstTwo in=users start=0 end=2',
+        'flatMap name=activeTags in=activeUsers item=user expr="user.tags"',
+        'flat name=flatTags in=nestedTags',
+        'at name=lastUser in=users index=-1',
+        'sort name=scoreAsc in=users a=left b=right compare="left.score - right.score"',
+        'reverse name=reverseActiveNames in=activeNames',
+        'join name=activeCsv in=activeNames separator=","',
+        'includes name=hasAda in=activeNames value="\'Ada\'"',
+        'indexOf name=adaIndex in=activeNames value="\'Ada\'"',
+        'lastIndexOf name=lastAdminRole in=roles value="\'admin\'"',
+        'concat name=namesWithGuest in=activeNames with="[\'Guest\']"',
+        'compact name=truthyValues in=maybeValues',
+        'pluck name=userIds in=users prop=id',
+        'unique name=uniqueRoles in=roles',
+        'derive name=arraySummary expr={{activeUsers.length + ":" + activeCsv + ":" + totalActiveScore}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'arrays.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Array data bindings" target="./arrays.kern"',
+        '  it name="executes KERN array primitives before codegen"',
+        '    expect expr={{activeNames}} equals={{["Ada", "Lin"]}}',
+        '    expect expr={{adminUser.id}} equals="u1"',
+        '    expect expr={{hasInactive && activeHaveNames && linIndex === 2}}',
+        '    expect expr={{totalActiveScore}} equals=7',
+        '    expect expr={{firstTwo.map((user) => user.id)}} equals={{["u1", "u2"]}}',
+        '    expect expr={{activeTags}} equals={{["core", "ops", "lang"]}}',
+        '    expect expr={{flatTags}} equals={{["core", "test", "guard"]}}',
+        '    expect expr={{lastUser.id}} equals="u3"',
+        '    expect expr={{scoreAsc.map((user) => user.id)}} equals={{["u1", "u3", "u2"]}}',
+        '    expect expr={{reverseActiveNames}} equals={{["Lin", "Ada"]}}',
+        '    expect expr={{activeCsv}} equals="Ada,Lin"',
+        '    expect expr={{hasAda && adaIndex === 0 && lastAdminRole === 2}}',
+        '    expect expr={{namesWithGuest}} equals={{["Ada", "Lin", "Guest"]}}',
+        '    expect expr={{truthyValues}} equals={{["kern", "test"]}}',
+        '    expect expr={{userIds}} equals={{["u1", "u2", "u3"]}}',
+        '    expect expr={{uniqueRoles}} equals={{["admin", "member"]}}',
+        '    expect derive=arraySummary equals="2:Ada,Lin:7"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(17);
   });
 
   test('supports runtime expr equals, matches, and throws comparators', () => {
@@ -244,6 +335,93 @@ describe('native kern test runner', () => {
     expect(summary.passed).toBe(2);
     expect(summary.results.map((result) => result.assertion)).toContain('derive subtotal equals 30');
     expect(summary.results.map((result) => result.assertion)).toContain('derive total equals 33');
+  });
+
+  test('executes portable route workflow assertions with request input', () => {
+    writeFileSync(
+      join(tmpDir, 'users.kern'),
+      [
+        'const name=users value={{[{ id: "u1", name: "Ada", role: "admin", active: true }, { id: "u2", name: "Grace", role: "member", active: true }, { id: "u3", name: "Lin", role: "member", active: false }]}}',
+        'server name=UsersAPI',
+        '  route GET /api/users',
+        '    params role:string',
+        '    derive visible expr={{users.filter((user) => user.active)}}',
+        '    branch name=roleSelection on=query.role',
+        '      path value="admin"',
+        '        collect name=result from=visible where={{item.role === "admin"}}',
+        '        respond 200 json=result',
+        '      path value="member"',
+        '        collect name=result from=visible where={{item.role === "member"}}',
+        '        respond 200 json=result',
+        '    respond 200 json=visible',
+        '  route GET /api/users/:id',
+        '    derive user expr={{users.find((item) => item.id === params.id)}}',
+        '    guard name=exists expr={{user}} else=404',
+        '    respond 200 json=user',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'users.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="User route workflows" target="./users.kern"',
+        '  it name="filters collection routes before codegen"',
+        '    expect route="GET /api/users" with={{({ query: { role: "member" } })}} returns={{[{ id: "u2", name: "Grace", role: "member", active: true }]}}',
+        '    expect route="GET /api/users" with={{({ query: { role: "guest" } })}} returns={{[{ id: "u1", name: "Ada", role: "admin", active: true }, { id: "u2", name: "Grace", role: "member", active: true }]}}',
+        '  it name="checks path-param guard results"',
+        '    expect route="GET /api/users/:id" with={{({ params: { id: "u1" } })}} returns={{({ id: "u1", name: "Ada", role: "admin", active: true })}}',
+        '    expect route="GET /api/users/:id" with={{({ params: { id: "missing" } })}} returns={{({ status: 404 })}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(4);
+    expect(summary.results.every((result) => result.ruleId === 'runtime:route')).toBe(true);
+  });
+
+  test('executes deterministic effect and recover assertions before codegen', () => {
+    writeFileSync(
+      join(tmpDir, 'effects.kern'),
+      [
+        'const name=cachedUsers value={{[{ id: "u1", active: true }]}}',
+        'effect name=loadUsers',
+        '  trigger expr={{cachedUsers}}',
+        '  recover fallback={{[]}}',
+        'effect name=loadFallback',
+        '  trigger expr={{JSON.parse("not-json")}}',
+        '  recover retry=2 fallback={{[]}}',
+        'server name=UsersAPI',
+        '  route GET /api/users',
+        '    effect name=fetchUsers',
+        '      trigger expr={{JSON.parse("not-json")}}',
+        '      recover retry=2 fallback={{[]}}',
+        '    respond 200 json=fetchUsers.result',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'effects.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Effect workflows" target="./effects.kern"',
+        '  it name="runs effect result and recovery"',
+        '    expect effect=loadUsers returns={{cachedUsers}}',
+        '    expect effect=loadFallback recovers=true fallback={{[]}}',
+        '  it name="routes can recover effect results"',
+        '    expect route="GET /api/users" returns={{[]}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(3);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'runtime:effect',
+      'runtime:effect',
+      'runtime:route',
+    ]);
   });
 
   test('fixture scope does not leak between sibling test cases', () => {
@@ -425,6 +603,54 @@ describe('native kern test runner', () => {
 
     expect(summary.failed).toBe(1);
     expect(summary.results[0].message).toContain("target binding 'readEnv': unsupported token 'process'");
+  });
+
+  test('rejects unsafe tokens inside runtime class methods before execution', () => {
+    writeFileSync(
+      join(tmpDir, 'unsafe-class.kern'),
+      [
+        'class name=Leaky',
+        '  method name=secret returns=string',
+        '    handler <<<',
+        '      return process.env.SECRET;',
+        '    >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'unsafe-class.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Unsafe class behavior" target="./unsafe-class.kern"',
+        '  it name="blocks process access"',
+        '    expect expr={{new Leaky().secret()}} equals="secret"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain("target binding 'Leaky': unsupported token 'process'");
+  });
+
+  test('fails destructure runtime assertions when the source binding is missing', () => {
+    writeFileSync(
+      join(tmpDir, 'broken-destructure.kern'),
+      ['destructure kind=const source=missingUsers', '  element name=firstUser index=0'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'broken-destructure.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Broken destructure" target="./broken-destructure.kern"',
+        '  it name="reports missing source"',
+        '    expect expr={{firstUser.id}} equals="u1"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain('missingUsers is not defined');
   });
 
   test('runtime expr reads quoted JS string literal defaults as literal source', () => {

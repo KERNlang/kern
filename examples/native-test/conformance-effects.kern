@@ -1,0 +1,24 @@
+const name=cache value={{[{ id: "u1", name: "Ada" }]}}
+
+effect name=loadCachedUsers
+  trigger expr={{cache}}
+  recover fallback={{[]}}
+
+effect name=loadRecoveredUsers
+  trigger expr={{JSON.parse("not-json")}}
+  recover retry=2 fallback={{[]}}
+
+server name=EffectAPI
+  route GET /api/users
+    effect name=fetchUsers
+      trigger expr={{JSON.parse("not-json")}}
+      recover retry=2 fallback={{[]}}
+    respond 200 json=fetchUsers.result
+
+  route GET /api/first-user
+    effect name=fetchUsers
+      trigger expr={{cache}}
+      recover fallback={{[]}}
+    derive first expr={{fetchUsers.result[0]}}
+    guard name=exists expr={{first}} else=404
+    respond 200 json=first
