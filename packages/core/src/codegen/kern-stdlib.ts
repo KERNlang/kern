@@ -95,9 +95,13 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
     // — a one-line identity that matches JS `Math.round` parity for both
     // positive and negative half-cases. Single-eval because `$0` is substituted
     // once.
-    round: { arity: 1, ts: 'Math.round($0)', py: 'math.floor($0 + 0.5)', requires: { py: 'math' } },
-    floor: { arity: 1, ts: 'Math.floor($0)', py: 'math.floor($0)', requires: { py: 'math' } },
-    ceil: { arity: 1, ts: 'Math.ceil($0)', py: 'math.ceil($0)', requires: { py: 'math' } },
+    // Slice 3 review fix (Gemini): use `__k_math` alias to avoid shadowing
+    // when the user has a body-local binding or param named `math`. The
+    // FastAPI generator emits `import math as __k_math` for any handler
+    // that references these.
+    round: { arity: 1, ts: 'Math.round($0)', py: '__k_math.floor($0 + 0.5)', requires: { py: 'math' } },
+    floor: { arity: 1, ts: 'Math.floor($0)', py: '__k_math.floor($0)', requires: { py: 'math' } },
+    ceil: { arity: 1, ts: 'Math.ceil($0)', py: '__k_math.ceil($0)', requires: { py: 'math' } },
     abs: { arity: 1, ts: 'Math.abs($0)', py: 'abs($0)' },
   },
 };

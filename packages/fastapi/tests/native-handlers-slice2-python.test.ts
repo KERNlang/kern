@@ -49,13 +49,13 @@ describe('KERN-stdlib expansion — Python target', () => {
     // Use dict.get(k) for None-on-miss parity.
     ['Map.get(m, k)', 'm.get(k)'],
     ['Map.size(m)', 'len(m)'],
-    // Number — slice 3c flips Number.round Python lowering from `round(n)`
-    // (banker's rounding) to `math.floor(n + 0.5)` to match JS Math.round
-    // semantics (round-half-toward-+∞). See slice 3c rationale in
-    // packages/core/src/codegen/kern-stdlib.ts.
-    ['Number.round(n)', 'math.floor(n + 0.5)'],
-    ['Number.floor(n)', 'math.floor(n)'],
-    ['Number.ceil(n)', 'math.ceil(n)'],
+    // Number — slice 3 review fix (Gemini): aliased to `__k_math` to avoid
+    // shadowing when the user has a local binding or param named `math`.
+    // Slice 3c flips Number.round to `__k_math.floor(n + 0.5)` to match JS
+    // Math.round semantics (round-half-toward-+∞).
+    ['Number.round(n)', '__k_math.floor(n + 0.5)'],
+    ['Number.floor(n)', '__k_math.floor(n)'],
+    ['Number.ceil(n)', '__k_math.ceil(n)'],
     ['Number.abs(n)', 'abs(n)'],
   ])('Python lowering: %s → %s', (kern, py) => {
     expect(emitPyExpression(parseExpression(kern))).toBe(py);
@@ -216,7 +216,7 @@ describe('Cross-target parity — slice 2 stdlib hard cases', () => {
     ['List.join(xs, ",")', 'xs.join(",")', '",".join(map(str, xs))'],
     ['Map.has(m, k)', 'm.has(k)', 'k in m'],
     ['Map.get(m, k)', 'm.get(k)', 'm.get(k)'],
-    ['Number.floor(n)', 'Math.floor(n)', 'math.floor(n)'],
+    ['Number.floor(n)', 'Math.floor(n)', '__k_math.floor(n)'],
   ])('%s → TS %s / Python %s', async (kern, ts, py) => {
     const { emitExpression } = await import('@kernlang/core');
     expect(emitExpression(parseExpression(kern))).toBe(ts);

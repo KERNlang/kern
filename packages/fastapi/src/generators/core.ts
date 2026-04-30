@@ -31,7 +31,10 @@ function fnBodyCodePython(node: IRNode): string {
     const { code, imports } = emitNativeKernBodyPythonWithImports(handler, { symbolMap });
     if (imports.size === 0) return code;
     // Stable ordering for deterministic output / test snapshots.
-    const importLines = [...imports].sort().map((mod) => `import ${mod}`);
+    // Slice 3 review fix (Gemini): import-as-alias to avoid shadowing user
+    // bindings. KERN-stdlib templates reference the alias (`__k_math.floor`),
+    // so any user-defined `math` ident in the body remains accessible.
+    const importLines = [...imports].sort().map((mod) => `import ${mod} as __k_${mod}`);
     return code ? `${importLines.join('\n')}\n${code}` : importLines.join('\n');
   }
   return handlerCode(node);
@@ -50,6 +53,22 @@ function fnBodyCodePython(node: IRNode): string {
  *  ident-emit hot path for already-snake_case names like `id` or `count`). */
 function buildPythonSymbolMap(node: IRNode): Record<string, string> {
   const map: Record<string, string> = {};
+  // Slice 3 review fix (OpenCode + Gemini): detect when two distinct KERN
+  // params snake-case to the same Python name (e.g. `xCount` and `x_count`
+  // both → `x_count`) and throw with a descriptive error. Without this,
+  // Python emits a `def foo(x_count, x_count)` signature that fails at
+  // import time with `SyntaxError: duplicate argument`.
+  const usedSnake = new Set<string>();
+  const claimSnake = (rawName: string, snake: string): void => {
+    if (usedSnake.has(snake)) {
+      throw new Error(
+        `KERN-Python codegen: parameter '${rawName}' snake-cases to '${snake}', which collides with another parameter on this function. ` +
+          'Rename one of the parameters to disambiguate (KERN identifiers are case-sensitive; the Python target is not).',
+      );
+    }
+    usedSnake.add(snake);
+  };
+
   const paramChildren = (node.children ?? []).filter((c) => c.type === 'param');
   if (paramChildren.length > 0) {
     for (const param of paramChildren) {
@@ -58,6 +77,7 @@ function buildPythonSymbolMap(node: IRNode): Record<string, string> {
       const rawName = (param.props?.name as string) || '';
       if (!rawName) continue;
       const snake = toSnakeCase(rawName);
+      claimSnake(rawName, snake);
       if (snake !== rawName) map[rawName] = snake;
     }
     return map;
@@ -75,6 +95,7 @@ function buildPythonSymbolMap(node: IRNode): Record<string, string> {
     const rawName = trimmed.slice(0, nameEnd).trim();
     if (!rawName) continue;
     const snake = toSnakeCase(rawName);
+    claimSnake(rawName, snake);
     if (snake !== rawName) map[rawName] = snake;
   }
   return map;

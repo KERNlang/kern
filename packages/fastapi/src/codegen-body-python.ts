@@ -90,9 +90,25 @@ function freshCtx(options?: BodyEmitOptions): BodyEmitContext {
  *  Legacy slice 1/2 signature — returns just the code string. Callers
  *  that also need the import set (slice 3b: `math` etc.) and/or want to
  *  pass a symbol map (slice 3a: `userId → user_id`) should use
- *  `emitNativeKernBodyPythonWithImports`. */
+ *  `emitNativeKernBodyPythonWithImports`.
+ *
+ *  Slice 3 review fix (OpenCode + Gemini): if the handler requires imports
+ *  (e.g. `Number.floor` ⇒ `math`) and the legacy entry point is used,
+ *  the imports would be silently discarded — the generated Python would
+ *  reference `__k_math.floor(...)` without the matching `import math as
+ *  __k_math`, producing a `NameError` at runtime. Throw instead so the
+ *  caller upgrades to the WithImports variant rather than shipping
+ *  broken code. */
 export function emitNativeKernBodyPython(handlerNode: IRNode, options?: BodyEmitOptions): string {
-  return emitNativeKernBodyPythonWithImports(handlerNode, options).code;
+  const result = emitNativeKernBodyPythonWithImports(handlerNode, options);
+  if (result.imports.size > 0) {
+    const list = [...result.imports].sort().join(', ');
+    throw new Error(
+      `emitNativeKernBodyPython: handler requires imports [${list}] which the legacy string-only API silently discards. ` +
+        'Use emitNativeKernBodyPythonWithImports and emit the imports yourself (FastAPI generator does this automatically).',
+    );
+  }
+  return result.code;
 }
 
 /** Slice 3e — context-aware variant returning `{ code, imports }`. The
@@ -211,42 +227,24 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // Python-form `user_id`. Identifiers not in the map (locals, globals,
       // module names) pass through unchanged.
       return ctx.symbolMap[node.name] ?? node.name;
-    case 'member': {
-      // Slice 3d — optional-chain lowering. TS has a native `?.` operator;
-      // Python doesn't, so we lower to a conditional expression. To avoid
-      // double-evaluating side-effecting receivers, the receiver MUST be
-      // pure (ident or member chain rooted at an ident). Anything else
-      // (call/await/binary) is rejected with a let-bind hint.
-      if (node.optional) {
-        if (!isReceiverPureForOptionalChain(node.object)) {
-          throw new Error(
-            "Optional chain '?.' on Python target requires a side-effect-free receiver (identifier or pure member chain). " +
-              'Bind the call/await result to a `let` first, then use `let.field?.next` on the bound name.',
-          );
-        }
-        const obj = emitPyExprCtx(node.object, ctx);
-        return `(${obj}.${node.property} if ${obj} is not None else None)`;
-      }
-      const obj = emitPyExprCtx(node.object, ctx);
-      return `${obj}.${node.property}`;
-    }
+    case 'member':
     case 'call': {
-      // Slice 3d — optional call chain `f?.()` is rare and has no clean
-      // single-expression Python lowering (would double-eval `f`). Punt to
-      // a let-bind workaround until slice 4 introduces statement-level
-      // expansion.
-      if (node.optional) {
-        throw new Error(
-          "Optional call '?.()' is not yet supported on Python target. " +
-            'Bind the function reference to a `let` first, then test for `none` before calling.',
-        );
-      }
-      // Slice 2a — KERN-stdlib dispatch (Python target).
-      const stdlib = applyStdlibLoweringPython(node, ctx);
-      if (stdlib !== null) return stdlib;
-      const callee = emitPyExprCtx(node.callee, ctx);
-      const args = node.args.map((a) => emitPyExprCtx(a, ctx)).join(', ');
-      return `${callee}(${args})`;
+      // Slice 3d (review fix — Codex critical): optional chains short-circuit
+      // the ENTIRE trailing expression after `?.`, not just the immediate
+      // access. So `user?.profile.name` must lower to
+      // `(user.profile.name if user is not None else None)` — not
+      // `(user.profile if user is not None else None).name`, which would
+      // raise `AttributeError` on a None receiver.
+      //
+      // To carry the trailing chain into the guarded branch, member/call
+      // emit goes through `lowerMemberOrCall` which returns
+      // `{ guard, expr }`. The guard accumulates `is not None` tests
+      // collected from each `?.` link in the receiver chain; the expr
+      // appends each `.prop` / `(...args)` link to the unguarded form.
+      // The top-level wrapper produces `(expr if guard else None)` once
+      // (or just `expr` when no `?.` was seen).
+      const lowered = lowerMemberOrCall(node, ctx);
+      return wrapGuardIfAny(lowered);
     }
     case 'await':
       return `await ${emitPyExprCtx(node.argument, ctx)}`;
@@ -315,14 +313,86 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
   }
 }
 
-/** Slice 3d — receiver-purity predicate for optional-chain lowering on the
- *  Python target. TS has native `?.`; Python has to lower to a conditional
- *  expression that names the receiver twice, so the receiver MUST be free
- *  of observable side effects. Identifier and member-of-identifier chains
- *  qualify; calls/awaits/binaries don't. */
-function isReceiverPureForOptionalChain(node: ValueIR): boolean {
+/** Slice 3d (review fix) — chain-aware lowering for member/call expressions.
+ *  Returns `{ guard, expr }` where `guard` is an accumulated `is not None`
+ *  test (or `null` if no `?.` appears in the chain) and `expr` is the
+ *  unguarded receiver-and-trailing-chain expression.
+ *
+ *  Codex critical: a single `?.` link must short-circuit the entire trailing
+ *  chain, not just the immediate access. `user?.profile.name` lowers to
+ *  `(user.profile.name if user is not None else None)`. With the previous
+ *  bottom-up emit, only `user?.profile` was guarded and `.name` was
+ *  appended outside the conditional, raising `AttributeError` on `None`.
+ *
+ *  For multi-level optional chains (`a?.b?.c`), each `?.` adds a
+ *  short-circuit test against the receiver expression at that point,
+ *  combined with `and` so any `None` step short-circuits the whole chain. */
+interface GuardedExpr {
+  guard: string | null;
+  expr: string;
+}
+
+type MemberOrCall = Extract<ValueIR, { kind: 'member' | 'call' }>;
+
+function lowerMemberOrCall(node: MemberOrCall, ctx: BodyEmitContext): GuardedExpr {
+  if (node.kind === 'member') {
+    const obj = node.object;
+    const inner: GuardedExpr =
+      obj.kind === 'member' || obj.kind === 'call'
+        ? lowerMemberOrCall(obj, ctx)
+        : { guard: null, expr: emitPyExprCtx(obj, ctx) };
+    if (node.optional) {
+      // The receiver expression names what we need to test. The expr names
+      // the receiver twice (once in test, once in branch); reject when that
+      // would re-evaluate side-effecting code.
+      if (!isReceiverChainPure(node.object)) {
+        throw new Error(
+          "Optional chain '?.' on Python target requires a side-effect-free receiver (identifier or pure member chain). " +
+            'Bind the call/await result to a `let` first, then use `let.field?.next` on the bound name.',
+        );
+      }
+      const newGuard =
+        inner.guard === null ? `${inner.expr} is not None` : `${inner.guard} and ${inner.expr} is not None`;
+      return { guard: newGuard, expr: `${inner.expr}.${node.property}` };
+    }
+    return { guard: inner.guard, expr: `${inner.expr}.${node.property}` };
+  }
+  // node.kind === 'call'
+  if (node.optional) {
+    throw new Error(
+      "Optional call '?.()' is not yet supported on Python target. " +
+        'Bind the function reference to a `let` first, then test for `none` before calling.',
+    );
+  }
+  // Slice 2a — KERN-stdlib dispatch must run on a top-level Module.method
+  // call BEFORE we descend into the callee chain, so `Number.floor(x)`
+  // doesn't degrade into a non-stdlib `Number.floor(x)` Python emit.
+  const stdlib = applyStdlibLoweringPython(node, ctx);
+  if (stdlib !== null) return { guard: null, expr: stdlib };
+  const callee = node.callee;
+  const inner: GuardedExpr =
+    callee.kind === 'member' || callee.kind === 'call'
+      ? lowerMemberOrCall(callee, ctx)
+      : { guard: null, expr: emitPyExprCtx(callee, ctx) };
+  const args = node.args.map((a) => emitPyExprCtx(a, ctx)).join(', ');
+  return { guard: inner.guard, expr: `${inner.expr}(${args})` };
+}
+
+function wrapGuardIfAny(g: GuardedExpr): string {
+  return g.guard === null ? g.expr : `(${g.expr} if ${g.guard} else None)`;
+}
+
+/** Slice 3d (review fix) — receiver-purity walk for the optional-chain
+ *  short-circuit lowering. Pure means: no observable side effects when
+ *  re-named twice (once in the `is not None` guard, once in the branch).
+ *
+ *  Pure: `ident`, member chains rooted at `ident` (whether optional or
+ *  not — repeated attribute access on `None` raises but never silently
+ *  side-effects). NOT pure: `call`, `await`, `binary`, `unary`, `propagate`,
+ *  literals (which are technically pure but never sensible receivers). */
+function isReceiverChainPure(node: ValueIR): boolean {
   if (node.kind === 'ident') return true;
-  if (node.kind === 'member' && !node.optional) return isReceiverPureForOptionalChain(node.object);
+  if (node.kind === 'member') return isReceiverChainPure(node.object);
   return false;
 }
 

@@ -112,6 +112,31 @@ describe('slice 3a — Python symbol-map for snake_case params', () => {
     expect(joined).toContain('oid = order_id');
   });
 
+  // ── Slice 3 review fix (OpenCode + Gemini) — collision detection ──
+
+  test('snake-case collision (xCount + x_count) throws with descriptive error', () => {
+    // Both params snake_case to `x_count`, which would emit
+    // `def f(x_count, x_count)` — Python `SyntaxError: duplicate argument`.
+    // Catch it at codegen time with a clearer message.
+    const fn: IRNode = {
+      type: 'fn',
+      props: { name: 'collide', returns: 'number' },
+      children: [
+        { type: 'param', props: { name: 'xCount', type: 'number' } },
+        { type: 'param', props: { name: 'x_count', type: 'number' } },
+        makeHandler([{ type: 'return', props: { value: 'xCount' } }]),
+      ],
+    };
+    expect(() => generateFunction(fn)).toThrow(/snake-cases to 'x_count', which collides/);
+  });
+
+  test('snake-case collision in legacy params="..." string also throws', () => {
+    const fn = makeFn({ name: 'collide', params: 'xCount:number,x_count:number', returns: 'number' }, [
+      { type: 'return', props: { value: 'xCount' } },
+    ]);
+    expect(() => generateFunction(fn)).toThrow(/snake-cases to 'x_count', which collides/);
+  });
+
   test('destructured params (binding/element children) skipped in symbol map', () => {
     // Destructured params have no single name — they're emitted in-body, not
     // in the signature. The symbol-map builder must not crash on them.
@@ -138,7 +163,7 @@ describe('slice 3b — Python import collection for stdlib lowerings', () => {
   test('Number.floor adds math to imports set', () => {
     const handler = makeHandler([{ type: 'return', props: { value: 'Number.floor(x)' } }]);
     const { code, imports } = emitNativeKernBodyPythonWithImports(handler);
-    expect(code).toBe('return math.floor(x)');
+    expect(code).toBe('return __k_math.floor(x)');
     expect([...imports]).toEqual(['math']);
   });
 
@@ -176,14 +201,16 @@ describe('slice 3b — Python import collection for stdlib lowerings', () => {
     expect([...imports]).toEqual(['math']);
   });
 
-  test('end-to-end via generateFunction: import math is injected at top of body', () => {
+  test('end-to-end via generateFunction: aliased import math is injected at top of body', () => {
     const fn = makeFn({ name: 'roundIt', params: 'x:number', returns: 'number' }, [
       { type: 'return', props: { value: 'Number.round(x)' } },
     ]);
     const lines = generateFunction(fn);
     const joined = lines.join('\n');
     expect(joined).toContain('def round_it(x: float) -> float:');
-    expect(joined).toMatch(/import math[\s\S]*math\.floor\(x \+ 0\.5\)/);
+    // Slice 3 review fix (Gemini): aliased to `__k_math` to avoid shadowing
+    // when the user has a local binding or param named `math`.
+    expect(joined).toMatch(/import math as __k_math[\s\S]*__k_math\.floor\(x \+ 0\.5\)/);
   });
 
   test('handlers without math-dependent stdlib emit no extra import', () => {
@@ -193,19 +220,34 @@ describe('slice 3b — Python import collection for stdlib lowerings', () => {
     const lines = generateFunction(fn);
     expect(lines.join('\n')).not.toContain('import math');
   });
+
+  test('user-defined `math` ident in body does not collide with stdlib import', () => {
+    // Slice 3 review fix (Gemini): The bare `import math` would have shadowed
+    // any user binding named `math`. With the `__k_math` alias, both can
+    // coexist — the user's `math` resolves to their value, while
+    // Number.floor/ceil/round resolve via the alias.
+    const fn = makeFn({ name: 'calc', params: 'math:number', returns: 'number' }, [
+      { type: 'return', props: { value: 'Number.floor(math)' } },
+    ]);
+    const lines = generateFunction(fn);
+    const joined = lines.join('\n');
+    expect(joined).toContain('import math as __k_math');
+    // The body references the user's `math` param (not the module).
+    expect(joined).toContain('__k_math.floor(math)');
+  });
 });
 
 // ── 3c: Number.round JS-parity ────────────────────────────────────────────
 
 describe('slice 3c — Number.round JS-parity on Python', () => {
-  test('Number.round(x) lowers to math.floor(x + 0.5)', () => {
-    expect(emitPyExpression(parseExpression('Number.round(x)'))).toBe('math.floor(x + 0.5)');
+  test('Number.round(x) lowers to __k_math.floor(x + 0.5)', () => {
+    expect(emitPyExpression(parseExpression('Number.round(x)'))).toBe('__k_math.floor(x + 0.5)');
   });
 
   test('paren-wrapped binary arg preserved through template substitution', () => {
     // Number.round(a - b) — receiver is binary, gets paren-wrapped to `(a - b)`,
     // then the `+ 0.5` is appended at template-substitution time.
-    expect(emitPyExpression(parseExpression('Number.round(a - b)'))).toBe('math.floor((a - b) + 0.5)');
+    expect(emitPyExpression(parseExpression('Number.round(a - b)'))).toBe('__k_math.floor((a - b) + 0.5)');
   });
 
   test('TS lowering remains Math.round (no banker compensation needed on TS)', () => {
@@ -257,6 +299,49 @@ describe('slice 3d — optional chain ?. lowering on Python target', () => {
     });
     expect(out).toBe('(current_user.name if current_user is not None else None)');
   });
+
+  // ── Slice 3 review fix (Codex critical) — optional chain continuation ──
+
+  test('chain continues into guarded branch — user?.profile.name short-circuits whole chain', () => {
+    // Pre-fix: lowered to `(user.profile if user is not None else None).name`,
+    // raising AttributeError on a None user. JS spec: ALL trailing access
+    // after `?.` short-circuits, so the entire `user.profile.name` belongs
+    // inside the guarded branch.
+    expect(emitPyExpression(parseExpression('user?.profile.name'))).toBe(
+      '(user.profile.name if user is not None else None)',
+    );
+  });
+
+  test('chain continues through deeper non-optional accesses', () => {
+    expect(emitPyExpression(parseExpression('user?.profile.address.city'))).toBe(
+      '(user.profile.address.city if user is not None else None)',
+    );
+  });
+
+  test('multi-level optional a?.b?.c combines guards with `and`', () => {
+    // Pre-fix: threw because the inner `?.` made the receiver fail the
+    // purity check. Each `?.` link adds an `is not None` test against the
+    // expression up to that point, combined with `and`.
+    expect(emitPyExpression(parseExpression('a?.b?.c'))).toBe('(a.b.c if a is not None and a.b is not None else None)');
+  });
+
+  test('optional then non-optional then optional — a?.b.c?.d', () => {
+    expect(emitPyExpression(parseExpression('a?.b.c?.d'))).toBe(
+      '(a.b.c.d if a is not None and a.b.c is not None else None)',
+    );
+  });
+
+  test('optional member followed by call — user?.fetch() is guarded', () => {
+    // The trailing call belongs inside the guarded branch.
+    expect(emitPyExpression(parseExpression('user?.fetch()'))).toBe('(user.fetch() if user is not None else None)');
+  });
+
+  test('symbol-map composes with chain continuation', () => {
+    const out = emitPyExpression(parseExpression('user?.profile.name'), {
+      symbolMap: { user: 'current_user' },
+    });
+    expect(out).toBe('(current_user.profile.name if current_user is not None else None)');
+  });
 });
 
 // ── 3e: integration sanity (BodyEmitOptions / BodyEmitResult shapes) ─────
@@ -273,6 +358,15 @@ describe('slice 3e — body-emitter context API surface', () => {
   test('legacy emitNativeKernBodyPython returns plain string', () => {
     const handler = makeHandler([{ type: 'return', props: { value: 'x' } }]);
     expect(typeof emitNativeKernBodyPython(handler)).toBe('string');
+  });
+
+  test('legacy emitNativeKernBodyPython THROWS when imports are required', () => {
+    // Slice 3 review fix (OpenCode + Gemini): the legacy string-only API
+    // silently dropped the imports set, producing Python code that
+    // referenced `__k_math.floor(...)` without the matching import. Now
+    // throws so the caller upgrades to WithImports.
+    const handler = makeHandler([{ type: 'return', props: { value: 'Number.floor(x)' } }]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/legacy string-only API silently discards/);
   });
 
   test('symbolMap option is respected by both legacy and Ctx variants', () => {
