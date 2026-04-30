@@ -514,6 +514,54 @@ describe('native kern test runner', () => {
     expect(summary.results[0].message).toContain("target binding 'readEnv': unsupported token 'process'");
   });
 
+  test('rejects unsafe tokens inside runtime class methods before execution', () => {
+    writeFileSync(
+      join(tmpDir, 'unsafe-class.kern'),
+      [
+        'class name=Leaky',
+        '  method name=secret returns=string',
+        '    handler <<<',
+        '      return process.env.SECRET;',
+        '    >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'unsafe-class.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Unsafe class behavior" target="./unsafe-class.kern"',
+        '  it name="blocks process access"',
+        '    expect expr={{new Leaky().secret()}} equals="secret"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain("target binding 'Leaky': unsupported token 'process'");
+  });
+
+  test('fails destructure runtime assertions when the source binding is missing', () => {
+    writeFileSync(
+      join(tmpDir, 'broken-destructure.kern'),
+      ['destructure kind=const source=missingUsers', '  element name=firstUser index=0'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'broken-destructure.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Broken destructure" target="./broken-destructure.kern"',
+        '  it name="reports missing source"',
+        '    expect expr={{firstUser.id}} equals="u1"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain('missingUsers is not defined');
+  });
+
   test('runtime expr reads quoted JS string literal defaults as literal source', () => {
     writeFileSync(
       join(tmpDir, 'runtime.kern'),
