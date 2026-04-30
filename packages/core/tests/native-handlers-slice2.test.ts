@@ -25,13 +25,16 @@ describe('KERN-stdlib expansion — Text+, List, Map, Number', () => {
     ['Text.startsWith(s, "p")', 's.startsWith("p")'],
     ['Text.endsWith(s, "p")', 's.endsWith("p")'],
     ['Text.split(s, ",")', 's.split(",")'],
-    ['Text.replace(s, "a", "b")', 's.replace("a", "b")'],
+    // Review fix: KERN normalizes to replace-all semantics; TS uses replaceAll.
+    ['Text.replace(s, "a", "b")', 's.replaceAll("a", "b")'],
     // List
     ['List.length(xs)', 'xs.length'],
     ['List.isEmpty(xs)', 'xs.length === 0'],
     ['List.includes(xs, x)', 'xs.includes(x)'],
     ['List.first(xs)', 'xs[0]'],
-    ['List.last(xs)', 'xs[xs.length - 1]'],
+    // Review fix: `.at(-1)` is single-eval (avoids the `xs.length` re-eval bug
+    // when the receiver is a function call).
+    ['List.last(xs)', 'xs.at(-1)'],
     ['List.indexOf(xs, x)', 'xs.indexOf(x)'],
     ['List.join(xs, ",")', 'xs.join(",")'],
     // Map
@@ -225,5 +228,56 @@ describe('end-to-end fn lang=kern with slice-2 features', () => {
     expect(out).toContain('if (trimmed.length === 0) {');
     expect(out).toContain('return Result.err({ kind: "empty" });');
     expect(out).toContain('return Result.ok(trimmed.toUpperCase());');
+  });
+});
+
+// ── Review-fix tests (post-buddy-review) ──────────────────────────────────
+
+describe('Review fixes — TS', () => {
+  test('unary `!` wraps binary args in parens', () => {
+    expect(emitExpression(parseExpression('!(a === b)'))).toBe('!(a === b)');
+  });
+
+  test('unary `-` wraps binary args in parens', () => {
+    expect(emitExpression(parseExpression('-(a + b)'))).toBe('-(a + b)');
+  });
+
+  test('mid-expression `?` rejected with helpful guidance', () => {
+    expect(() => emitExpression(parseExpression('Text.upper(call()?)'))).toThrow(/bind the call to a `let` first/);
+  });
+
+  test('stdlib arity mismatch — extra args throw', () => {
+    expect(() => emitExpression(parseExpression('Text.upper(s, extra)'))).toThrow(/takes 1 arg, got 2/);
+  });
+
+  test('stdlib arity mismatch — too few args throw', () => {
+    expect(() => emitExpression(parseExpression('Text.replace(s, "a")'))).toThrow(/takes 3 args, got 2/);
+  });
+
+  test('orphan `else` rejected', () => {
+    const handler: IRNode = {
+      type: 'handler',
+      props: { lang: 'kern' },
+      children: [{ type: 'else', props: {}, children: [{ type: 'return', props: {} }] }],
+    };
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/orphan `else`/);
+  });
+
+  test('propagation `?` rejected inside `if cond`', () => {
+    const handler: IRNode = {
+      type: 'handler',
+      props: { lang: 'kern' },
+      children: [{ type: 'if', props: { cond: 'call()?' }, children: [{ type: 'return', props: {} }] }],
+    };
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/Propagation '\?' is not allowed in `if cond=`/);
+  });
+
+  test('List.last single-eval semantics — `.at(-1)`', () => {
+    // Doesn't matter what the receiver is; `.at(-1)` does not duplicate it.
+    expect(emitExpression(parseExpression('List.last(load())'))).toBe('load().at(-1)');
+  });
+
+  test('Text.replace uses replace-all semantics in TS', () => {
+    expect(emitExpression(parseExpression('Text.replace(s, "a", "b")'))).toBe('s.replaceAll("a", "b")');
   });
 });

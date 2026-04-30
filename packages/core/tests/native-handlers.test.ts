@@ -65,7 +65,7 @@ describe('emitExpression — TS — await + propagate', () => {
   });
 
   test('propagate at expression level throws — must hoist at statement level', () => {
-    expect(() => emitExpression(parseExpression('foo()?'))).toThrow(/statement-level only/);
+    expect(() => emitExpression(parseExpression('foo()?'))).toThrow(/only allowed at statement level/);
   });
 
   test('null and `none` both emit TS `null`', () => {

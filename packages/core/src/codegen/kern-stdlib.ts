@@ -50,20 +50,35 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
     startsWith: { arity: 2, ts: '$0.startsWith($1)', py: '$0.startswith($1)' },
     endsWith: { arity: 2, ts: '$0.endsWith($1)', py: '$0.endswith($1)' },
     split: { arity: 2, ts: '$0.split($1)', py: '$0.split($1)' },
-    replace: { arity: 3, ts: '$0.replace($1, $2)', py: '$0.replace($1, $2)' },
+    // Slice-2 review fix: replace-all is the canonical KERN semantics. JS
+    // `replace` only swaps the first match; KERN normalizes to TS
+    // `replaceAll` (ES2021+) and Python `replace` (default replace-all).
+    replace: { arity: 3, ts: '$0.replaceAll($1, $2)', py: '$0.replace($1, $2)' },
   },
   List: {
     length: { arity: 1, ts: '$0.length', py: 'len($0)' },
     isEmpty: { arity: 1, ts: '$0.length === 0', py: 'len($0) == 0' },
     includes: { arity: 2, ts: '$0.includes($1)', py: '$1 in $0' },
     first: { arity: 1, ts: '$0[0]', py: '$0[0]' },
-    last: { arity: 1, ts: '$0[$0.length - 1]', py: '$0[-1]' },
-    indexOf: { arity: 2, ts: '$0.indexOf($1)', py: '$0.index($1)' },
-    join: { arity: 2, ts: '$0.join($1)', py: '$1.join($0)' },
+    // Slice-2 review fix: `$0[$0.length - 1]` evaluated `$0` twice; if `$0`
+    // is a function call, that's a double-evaluation bug. `.at(-1)` is
+    // ES2022+ and matches Python's `[-1]` semantics (single eval, supports
+    // negative index).
+    last: { arity: 1, ts: '$0.at(-1)', py: '$0[-1]' },
+    // Slice-2 review fix: Python `list.index` raises ValueError when the
+    // item isn't found; TS `indexOf` returns -1. Match TS by guarding with
+    // a containment check.
+    indexOf: { arity: 2, ts: '$0.indexOf($1)', py: '($0.index($1) if $1 in $0 else -1)' },
+    // Slice-2 review fix: Python `str.join` requires string elements. Wrap
+    // with `map(str, …)` so non-string KERN values stringify like JS does.
+    join: { arity: 2, ts: '$0.join($1)', py: '$1.join(map(str, $0))' },
   },
   Map: {
     has: { arity: 2, ts: '$0.has($1)', py: '$1 in $0' },
-    get: { arity: 2, ts: '$0.get($1)', py: '$0[$1]' },
+    // Slice-2 review fix: TS `Map.get(k)` returns `undefined` for missing
+    // keys. Python `dict[k]` raises KeyError. Use `.get($1)` (Python dicts'
+    // safe-access, returns None) for parity.
+    get: { arity: 2, ts: '$0.get($1)', py: '$0.get($1)' },
     size: { arity: 1, ts: '$0.size', py: 'len($0)' },
   },
   Number: {

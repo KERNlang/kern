@@ -57,6 +57,14 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
     } else if (child.type === 'if') {
       const condRaw = String(child.props?.cond ?? '');
       const condIR = parseExpression(condRaw);
+      // Slice-2 review fix: propagation `?` in an `if` condition has no
+      // sensible single-line lowering; reject early with a clear message
+      // pointing users at the let-bind workaround.
+      if (condIR.kind === 'propagate') {
+        throw new Error(
+          "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
+        );
+      }
       lines.push(`${indent}if (${emitExpression(condIR)}) {`);
       for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
       const next = children[i + 1];
@@ -66,8 +74,14 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
         i++;
       }
       lines.push(`${indent}}`);
+    } else if (child.type === 'else') {
+      // Slice-2 review fix: orphan `else` (without a preceding `if` sibling)
+      // is a structural error — silently dropping it produced confusing
+      // miscompiles. The `if` arm above consumes its paired `else` via i++,
+      // so reaching one here means it was orphaned.
+      throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
     }
-    // Other child types fall through silently — slices 2d/3 add more.
+    // Other child types fall through silently — slice 3 adds more.
   }
   return lines;
 }

@@ -28,6 +28,8 @@ describe('KERN-stdlib expansion — Python target', () => {
     ['Text.startsWith(s, "p")', 's.startswith("p")'],
     ['Text.endsWith(s, "p")', 's.endswith("p")'],
     ['Text.split(s, ",")', 's.split(",")'],
+    // Review fix: replace-all semantics. Python `replace` is replace-all by
+    // default; KERN normalizes both targets to the replace-all behavior.
     ['Text.replace(s, "a", "b")', 's.replace("a", "b")'],
     // List
     ['List.length(xs)', 'len(xs)'],
@@ -35,11 +37,17 @@ describe('KERN-stdlib expansion — Python target', () => {
     ['List.includes(xs, x)', 'x in xs'],
     ['List.first(xs)', 'xs[0]'],
     ['List.last(xs)', 'xs[-1]'],
-    ['List.indexOf(xs, x)', 'xs.index(x)'],
-    ['List.join(xs, ",")', '",".join(xs)'],
+    // Review fix: Python list.index raises on miss; ternary returns -1 to
+    // match TS semantics.
+    ['List.indexOf(xs, x)', '(xs.index(x) if x in xs else -1)'],
+    // Review fix: Python str.join requires string elements; map(str, …) wraps
+    // numeric values to match TS behavior.
+    ['List.join(xs, ",")', '",".join(map(str, xs))'],
     // Map (dict-like)
     ['Map.has(m, k)', 'k in m'],
-    ['Map.get(m, k)', 'm[k]'],
+    // Review fix: TS Map.get returns undefined; Python dict[k] raises KeyError.
+    // Use dict.get(k) for None-on-miss parity.
+    ['Map.get(m, k)', 'm.get(k)'],
     ['Map.size(m)', 'len(m)'],
     // Number
     ['Number.round(n)', 'round(n)'],
@@ -201,14 +209,72 @@ describe('Cross-target parity — slice 2 stdlib hard cases', () => {
   test.each([
     ['Text.includes(s, "x")', 's.includes("x")', '"x" in s'],
     ['List.isEmpty(xs)', 'xs.length === 0', 'len(xs) == 0'],
-    ['List.last(xs)', 'xs[xs.length - 1]', 'xs[-1]'],
-    ['List.join(xs, ",")', 'xs.join(",")', '",".join(xs)'],
+    ['List.last(xs)', 'xs.at(-1)', 'xs[-1]'],
+    ['List.join(xs, ",")', 'xs.join(",")', '",".join(map(str, xs))'],
     ['Map.has(m, k)', 'm.has(k)', 'k in m'],
-    ['Map.get(m, k)', 'm.get(k)', 'm[k]'],
+    ['Map.get(m, k)', 'm.get(k)', 'm.get(k)'],
     ['Number.floor(n)', 'Math.floor(n)', 'math.floor(n)'],
   ])('%s → TS %s / Python %s', async (kern, ts, py) => {
     const { emitExpression } = await import('@kernlang/core');
     expect(emitExpression(parseExpression(kern))).toBe(ts);
     expect(emitPyExpression(parseExpression(kern))).toBe(py);
+  });
+});
+
+// ── Review-fix tests (post-buddy-review) — Python target ─────────────────
+
+describe('Review fixes — Python', () => {
+  test('`??` nullish coalesce throws with deferral guidance', () => {
+    expect(() => emitPyExpression(parseExpression('a ?? b'))).toThrow(/Nullish coalesce/);
+  });
+
+  test('comparison chaining gets force-parens to disable Python chaining', () => {
+    // KERN/JS precedence: `<` (11) binds tighter than `===` (10), so
+    // `a === b < c` parses as `a === (b < c)`. Without force-parens, Python
+    // would interpret `a == b < c` as chained `(a == b) and (b < c)` —
+    // different semantics. The force-paren on comparison-comparison nesting
+    // preserves the AST shape: `a == (b < c)`.
+    expect(emitPyExpression(parseExpression('a === b < c'))).toBe('a == (b < c)');
+  });
+
+  test('non-comparison binary ops do NOT trigger force-paren', () => {
+    // `a + b - c` should NOT get extra parens (force-paren only applies to
+    // comparison-comparison nesting).
+    expect(emitPyExpression(parseExpression('a + b - c'))).toBe('a + b - c');
+  });
+
+  test('stdlib arity mismatch — Python target also throws', () => {
+    expect(() => emitPyExpression(parseExpression('Text.upper(s, extra)'))).toThrow(/takes 1 arg, got 2/);
+  });
+
+  test('orphan `else` rejected — Python target', () => {
+    const handler: IRNode = {
+      type: 'handler',
+      props: { lang: 'kern' },
+      children: [{ type: 'else', props: {}, children: [{ type: 'return', props: {} }] }],
+    };
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/orphan `else`/);
+  });
+
+  test('propagation `?` rejected inside `if cond` — Python target', () => {
+    const handler: IRNode = {
+      type: 'handler',
+      props: { lang: 'kern' },
+      children: [{ type: 'if', props: { cond: 'call()?' }, children: [{ type: 'return', props: {} }] }],
+    };
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/Propagation '\?' is not allowed in `if cond=`/);
+  });
+
+  test('List.indexOf returns -1 for missing item (matches TS semantics)', () => {
+    // Verifies the ternary lowering — Python `list.index` would otherwise raise.
+    expect(emitPyExpression(parseExpression('List.indexOf(xs, x)'))).toBe('(xs.index(x) if x in xs else -1)');
+  });
+
+  test('Map.get returns None for missing key (matches TS undefined)', () => {
+    expect(emitPyExpression(parseExpression('Map.get(m, k)'))).toBe('m.get(k)');
+  });
+
+  test('List.join wraps elements with str() to handle non-string lists', () => {
+    expect(emitPyExpression(parseExpression('List.join(xs, ",")'))).toBe('",".join(map(str, xs))');
   });
 });

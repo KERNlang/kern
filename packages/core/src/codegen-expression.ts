@@ -84,8 +84,14 @@ export function emitExpression(node: ValueIR): string {
       const rp = needsParens(node.right, node.op, 'right') ? `(${right})` : right;
       return `${lp} ${node.op} ${rp}`;
     }
-    case 'unary':
-      return `${node.op}${node.op === 'typeof' || node.op === 'void' ? ' ' : ''}${emitExpression(node.argument)}`;
+    case 'unary': {
+      // Slice-2 review fix: wrap binary/unary/spread args in parens to preserve
+      // unary's tight binding. `!(a === b)` would otherwise emit `!a === b`.
+      const arg = emitExpression(node.argument);
+      const wrapped = needsArgParens(node.argument) ? `(${arg})` : arg;
+      const sep = node.op === 'typeof' || node.op === 'void' ? ' ' : '';
+      return `${node.op}${sep}${wrapped}`;
+    }
     case 'spread':
       return `...${emitExpression(node.argument)}`;
     case 'await':
@@ -104,7 +110,8 @@ export function emitExpression(node: ValueIR): string {
       return `[${node.items.map(emitExpression).join(', ')}]`;
     case 'propagate':
       throw new Error(
-        `Propagation '${node.op}' is statement-level only — body codegen must hoist it before emitExpression. Got ${node.op} on ${node.argument.kind}.`,
+        `Propagation '${node.op}' is only allowed at statement level (top of \`let value=\` or \`return value=\`). ` +
+          `Mid-expression \`${node.op}\` (e.g., \`Text.upper(call()${node.op})\`) is rejected — bind the call to a \`let\` first, then use the bound name.`,
       );
   }
 }
@@ -164,6 +171,14 @@ function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>): string
     const suggestion = suggestStdlibMethod(moduleName, methodName);
     const hint = suggestion ? ` Did you mean '${moduleName}.${suggestion}'?` : '';
     throw new Error(`Unknown KERN-stdlib method '${moduleName}.${methodName}'.${hint}`);
+  }
+  // Slice-2 review fix: enforce declared arity. Silently ignoring extra args
+  // hides bugs (`Text.upper(s, extra)` would emit `s.toUpperCase()` and drop
+  // `extra` without warning).
+  if (call.args.length !== entry.arity) {
+    throw new Error(
+      `KERN-stdlib '${moduleName}.${methodName}' takes ${entry.arity} arg${entry.arity === 1 ? '' : 's'}, got ${call.args.length}.`,
+    );
   }
   const args = call.args.map((a) => {
     const emitted = emitExpression(a);

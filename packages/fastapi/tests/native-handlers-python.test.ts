@@ -50,7 +50,7 @@ describe('emitPyExpression — slice 1 lowering rules', () => {
   });
 
   test('propagate at expression level throws — must hoist at statement level', () => {
-    expect(() => emitPyExpression(parseExpression('foo()?'))).toThrow(/statement-level only/);
+    expect(() => emitPyExpression(parseExpression('foo()?'))).toThrow(/only allowed at statement level/);
   });
 
   test('binary ops became supported in slice 2c — verify lowering still works', () => {

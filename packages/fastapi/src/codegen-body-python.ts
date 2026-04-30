@@ -56,6 +56,12 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
     } else if (child.type === 'if') {
       const condRaw = String(child.props?.cond ?? '');
       const condIR = parseExpression(condRaw);
+      // Slice-2 review fix: reject propagation `?` in `if cond=` (parallel to TS side).
+      if (condIR.kind === 'propagate') {
+        throw new Error(
+          "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
+        );
+      }
       lines.push(`${indent}if ${emitPyExpression(condIR)}:`);
       const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
       if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
@@ -68,6 +74,9 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
         for (const el of elseInner) lines.push(el);
         i++;
       }
+    } else if (child.type === 'else') {
+      // Slice-2 review fix: orphan `else` is a structural error (matches TS side).
+      throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
     }
   }
   return lines;
@@ -164,10 +173,19 @@ export function emitPyExpression(node: ValueIR): string {
       // Slice 2c — arithmetic / comparison / logical lowering for Python.
       // Use precedence-aware paren-wrapping so `a + b * c` doesn't redundantly
       // wrap the right side (`a + (b * c)`) — same rule as the TS side.
+      //
+      // Slice-2 review fix: Python chains comparisons (`a == b < c` means
+      // `(a == b) and (b < c)`), but TS evaluates left-to-right with strict
+      // precedence. To preserve KERN's TS-flavored AST semantics on the
+      // Python target, force parens around comparison children whose op is
+      // ALSO a comparison — that disables Python's chaining and yields the
+      // expected `(a == b) < c` evaluation order.
       const left = emitPyExpression(node.left);
       const right = emitPyExpression(node.right);
-      const lp = needsBinaryParens(node.left, node.op, 'left') ? `(${left})` : left;
-      const rp = needsBinaryParens(node.right, node.op, 'right') ? `(${right})` : right;
+      const forceLeft = needsComparisonChainParens(node.left, node.op);
+      const forceRight = needsComparisonChainParens(node.right, node.op);
+      const lp = forceLeft || needsBinaryParens(node.left, node.op, 'left') ? `(${left})` : left;
+      const rp = forceRight || needsBinaryParens(node.right, node.op, 'right') ? `(${right})` : right;
       const op = mapBinaryOpToPython(node.op);
       return `${lp} ${op} ${rp}`;
     }
@@ -195,17 +213,30 @@ export function emitPyExpression(node: ValueIR): string {
       );
     case 'propagate':
       throw new Error(
-        `Propagation '${node.op}' is statement-level only — body codegen must hoist it before emitPyExpression.`,
+        `Propagation '${node.op}' is only allowed at statement level (top of \`let value=\` or \`return value=\`). ` +
+          `Mid-expression \`${node.op}\` is rejected — bind the call to a \`let\` first, then use the bound name.`,
       );
   }
+}
+
+const COMPARISON_OPS = new Set(['==', '!=', '===', '!==', '<', '<=', '>', '>=']);
+
+/** Slice-2 review fix — Python chains comparisons by default. When the parent
+ *  binary op is a comparison and the child is also a (different) comparison
+ *  binary, force parens to preserve KERN's TS-flavored left-associative AST. */
+function needsComparisonChainParens(child: { kind: string; op?: string }, parentOp: string): boolean {
+  if (!COMPARISON_OPS.has(parentOp)) return false;
+  if (child.kind !== 'binary') return false;
+  if (typeof child.op !== 'string') return false;
+  return COMPARISON_OPS.has(child.op);
 }
 
 /** Slice 2c — map KERN/TS-flavored binary ops to Python equivalents.
  *  KERN inherits TS's `===` / `!==` strict-equality syntax; Python uses
  *  `==` / `!=` for the equivalent value-equality semantics on primitives.
- *  `??` (nullish coalesce) lowers to a Python ternary in slice 3 — for
- *  slice 2c it falls through and emits literally, which is invalid Python
- *  (caller should not produce `??` in body codegen until slice 3). */
+ *  `??` (nullish coalesce) has no Python equivalent and slice 3 introduces
+ *  a single-eval `(L if L is not None else R)` lowering. Slice 2 throws
+ *  rather than emit invalid syntax (review fix). */
 function mapBinaryOpToPython(op: string): string {
   switch (op) {
     case '===':
@@ -216,6 +247,12 @@ function mapBinaryOpToPython(op: string): string {
       return 'and';
     case '||':
       return 'or';
+    case '??':
+      throw new Error(
+        "Nullish coalesce '??' is not yet supported in native KERN bodies on Python target. " +
+          'Slice 3 introduces a single-eval lowering; for now, write an explicit `if x === none then ...` ' +
+          'or use `lang=ts` opt-out for the affected handler.',
+      );
     default:
       return op;
   }
@@ -237,6 +274,12 @@ function applyStdlibLoweringPython(call: Extract<ValueIR, { kind: 'call' }>): st
     const suggestion = suggestStdlibMethod(moduleName, methodName);
     const hint = suggestion ? ` Did you mean '${moduleName}.${suggestion}'?` : '';
     throw new Error(`Unknown KERN-stdlib method '${moduleName}.${methodName}'.${hint}`);
+  }
+  // Slice-2 review fix: enforce declared arity (matches TS-side check).
+  if (call.args.length !== entry.arity) {
+    throw new Error(
+      `KERN-stdlib '${moduleName}.${methodName}' takes ${entry.arity} arg${entry.arity === 1 ? '' : 's'}, got ${call.args.length}.`,
+    );
   }
   const args = call.args.map((a) => {
     const emitted = emitPyExpression(a);
