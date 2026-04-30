@@ -1,0 +1,21 @@
+const name=users value={{[{ id: "u1", name: "Ada", role: "admin" }, { id: "u2", name: "Grace", role: "member" }, { id: "u3", name: "Lin", role: "member" }]}}
+
+mapLit name=roleLabels type="Map<string, string>"
+  mapEntry key="admin" value="Administrator"
+  mapEntry key="member" value="Member"
+
+setLit name=allowedRoles type="Set<string>"
+  setItem value="admin"
+  setItem value="member"
+
+destructure kind=const source=users
+  element name=firstUser index=0
+  element name=secondUser index=1
+
+destructure kind=const source=firstUser
+  binding name=firstId key=id
+  binding name=firstName key=name
+  binding name=firstRole key=role
+
+derive name=firstUserLabel expr={{roleLabels.get(firstRole)}}
+derive name=knownRolesCount expr={{allowedRoles.size}}

@@ -1,0 +1,33 @@
+test name="Array conformance" target="./conformance-arrays.kern"
+  it name="array target stays schema and semantic valid"
+    expect no=schemaViolations
+    expect no=semanticViolations
+
+  it name="array primitives keep their KERN shape"
+    expect node=filter name=activeUsers prop=where is="user.active"
+    expect node=map name=activeNames prop=expr is="user.name"
+    expect node=reduce name=totalActiveScore prop=expr is="sum + user.score"
+    expect node=join name=activeCsv prop=separator is=","
+    expect node=unique name=uniqueRoles
+
+  it name="array primitives execute before codegen"
+    expect expr={{activeNames}} equals={{["Ada", "Lin"]}}
+    expect expr={{adminUser.id}} equals="u1"
+    expect expr={{hasInactive && activeHaveNames && linIndex === 2}}
+    expect expr={{totalActiveScore}} equals=7
+    expect expr={{firstTwo.map((user) => user.id)}} equals={{["u1", "u2"]}}
+    expect expr={{activeTags}} equals={{["core", "ops", "lang"]}}
+    expect expr={{flatTags}} equals={{["core", "test", "guard"]}}
+    expect expr={{lastUser.id}} equals="u3"
+    expect expr={{scoreAsc.map((user) => user.id)}} equals={{["u1", "u3", "u2"]}}
+    expect expr={{reverseActiveNames}} equals={{["Lin", "Ada"]}}
+    expect expr={{activeCsv}} equals="Ada,Lin"
+    expect expr={{hasAda && adaIndex === 0 && lastAdminRole === 2}}
+    expect expr={{namesWithGuest}} equals={{["Ada", "Lin", "Guest"]}}
+    expect expr={{truthyValues}} equals={{["kern", "test"]}}
+    expect expr={{userIds}} equals={{["u1", "u2", "u3"]}}
+    expect expr={{uniqueRoles}} equals={{["admin", "member"]}}
+    expect derive=arraySummary equals="2:Ada,Lin:7"
+
+  it name="array primitives reach core codegen"
+    expect no=codegenErrors

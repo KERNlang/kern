@@ -1,0 +1,54 @@
+test name="Advanced data conformance" target="./conformance-data-advanced.kern"
+  it name="advanced data target stays schema and semantic valid"
+    expect no=schemaViolations
+    expect no=semanticViolations
+
+  it name="advanced data primitives keep their KERN shape"
+    expect node=uniqueBy name=uniqueByRole
+    expect node=groupBy name=usersByRole
+    expect node=partition
+    expect node=indexBy name=usersById
+    expect node=countBy name=countByRole
+    expect node=chunk name=roleChunks
+    expect node=zip name=roleScorePairs
+    expect node=range name=firstIndexes
+    expect node=take name=topTwoUsers
+    expect node=drop name=afterTwoUsers
+    expect node=min name=minScore
+    expect node=max name=maxScore
+    expect node=minBy name=lowestUser
+    expect node=maxBy name=highestUser
+    expect node=sum name=scoreTotal
+    expect node=avg name=scoreAverage
+    expect node=sumBy name=userScoreTotal
+    expect node=intersect name=sharedRoles
+
+  it name="keyed collection transforms execute before codegen"
+    expect expr={{uniqueByRole.map((user) => user.id)}} equals={{["u1", "u2", "u4"]}}
+    expect expr={{Object.keys(usersByRole).sort()}} equals={{["admin", "guest", "member"]}}
+    expect expr={{usersByRole.member.map((user) => user.id)}} equals={{["u2", "u3"]}}
+    expect expr={{usersById.u3.name}} equals="Lin"
+    expect expr={{Object.keys(countByRole).sort().map((role) => role + ":" + countByRole[role])}} equals={{["admin:1", "guest:1", "member:2"]}}
+
+  it name="partition and sequence transforms execute before codegen"
+    expect expr={{adminUsers.map((user) => user.id)}} equals={{["u1"]}}
+    expect expr={{nonAdminUsers.map((user) => user.id)}} equals={{["u2", "u3", "u4"]}}
+    expect expr={{roleChunks}} equals={{[["admin", "member"], ["guest"]]}}
+    expect expr={{roleScorePairs}} equals={{[["admin", 3], ["member", 9], ["guest", 4]]}}
+    expect expr={{firstIndexes}} equals={{[1, 2, 3]}}
+    expect expr={{topTwoUsers.map((user) => user.id)}} equals={{["u1", "u2"]}}
+    expect expr={{afterTwoUsers.map((user) => user.id)}} equals={{["u3", "u4"]}}
+
+  it name="numeric reducers execute before codegen"
+    expect expr={{minScore}} equals=2
+    expect expr={{maxScore}} equals=9
+    expect expr={{lowestUser.id}} equals="u4"
+    expect expr={{highestUser.id}} equals="u2"
+    expect expr={{scoreTotal}} equals=18
+    expect expr={{Math.round(scoreAverage * 100)}} equals=450
+    expect expr={{userScoreTotal}} equals=18
+    expect expr={{sharedRoles}} equals={{["member", "guest"]}}
+    expect derive=advancedSummary equals="3:3:18"
+
+  it name="advanced data target reaches core codegen"
+    expect no=codegenErrors

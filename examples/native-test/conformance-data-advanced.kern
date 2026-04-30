@@ -1,0 +1,25 @@
+const name=users value={{[{ id: "u1", name: "Ada", role: "admin", score: 3 }, { id: "u2", name: "Grace", role: "member", score: 9 }, { id: "u3", name: "Lin", role: "member", score: 4 }, { id: "u4", name: "Mina", role: "guest", score: 2 }]}}
+const name=roles value={{["admin", "member", "guest"]}}
+const name=scores value={{[3, 9, 4, 2]}}
+const name=otherRoles value={{["member", "guest", "missing"]}}
+
+uniqueBy name=uniqueByRole in=users item=user by="user.role"
+groupBy name=usersByRole in=users item=user by="user.role"
+partition pass=adminUsers fail=nonAdminUsers in=users item=user where="user.role === 'admin'"
+indexBy name=usersById in=users item=user by="user.id"
+countBy name=countByRole in=users item=user by="user.role"
+chunk name=roleChunks in=roles size=2
+zip name=roleScorePairs in=roles with=scores
+range name=firstIndexes start=1 end=4
+take name=topTwoUsers in=users n=2
+drop name=afterTwoUsers in=users n=2
+min name=minScore in=scores
+max name=maxScore in=scores
+minBy name=lowestUser in=users item=user by="user.score"
+maxBy name=highestUser in=users item=user by="user.score"
+sum name=scoreTotal in=scores
+avg name=scoreAverage in=scores
+sumBy name=userScoreTotal in=users item=user by="user.score"
+intersect name=sharedRoles in=roles with=otherRoles
+
+derive name=advancedSummary expr={{uniqueByRole.length + ":" + Object.keys(usersByRole).length + ":" + userScoreTotal}}

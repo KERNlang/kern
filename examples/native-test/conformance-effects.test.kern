@@ -1,0 +1,15 @@
+test name="Effect recovery conformance" target="./conformance-effects.kern"
+  it name="effect target stays valid before backend codegen"
+    expect no=schemaViolations
+    expect no=semanticViolations
+    expect no=codegenErrors
+
+  it name="effects execute deterministic trigger expressions"
+    expect effect=loadCachedUsers returns={{cache}}
+
+  it name="effects recover deterministic trigger failures"
+    expect effect=loadRecoveredUsers recovers=true fallback={{[]}}
+
+  it name="routes can recover effect results before codegen"
+    expect route="GET /api/users" returns={{[]}}
+    expect route="GET /api/first-user" returns={{({ id: "u1", name: "Ada" })}}

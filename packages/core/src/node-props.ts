@@ -499,6 +499,8 @@ export interface GuardProps extends BaseProps {
   when?: string;
   message?: string;
   covers?: string;
+  over?: string;
+  union?: string;
 }
 
 export interface AssumeProps extends BaseProps {
@@ -531,14 +533,28 @@ export interface ResolveProps extends BaseProps {}
 
 export interface ExpectProps extends BaseProps {
   expr?: string;
+  fn?: string;
+  derive?: string;
+  args?: string | ExprObject;
+  with?: string | ExprObject;
   within?: string;
   max?: string;
   min?: string;
   message?: string;
   preset?: string;
   severity?: string;
+  node?: string;
+  name?: string;
   machine?: string;
+  transition?: string;
+  from?: string;
+  to?: string;
+  guarded?: string | boolean;
   reaches?: string;
+  through?: string;
+  avoid?: string;
+  avoids?: string;
+  maxSteps?: string;
   via?: string;
   no?: string;
   guard?: string;
@@ -546,6 +562,11 @@ export interface ExpectProps extends BaseProps {
   over?: string;
   union?: string;
   covers?: string;
+  child?: string;
+  childName?: string;
+  prop?: string;
+  is?: string;
+  count?: string;
 }
 
 export interface RecoverProps extends BaseProps {}
@@ -692,6 +713,11 @@ export interface TestProps extends BaseProps {
   target?: string;
 }
 
+export interface FixtureProps extends BaseProps {
+  value?: string | ExprObject;
+  expr?: string | ExprObject;
+}
+
 // ── Props Map ───────────────────────────────────────────────────────────
 
 /** Maps known node types to their typed prop interface. */
@@ -812,6 +838,7 @@ export interface NodePropsMap {
   relation: RelationProps;
   option: OptionProps;
   test: TestProps;
+  fixture: FixtureProps;
 }
 
 // ── Helper ──────────────────────────────────────────────────────────────

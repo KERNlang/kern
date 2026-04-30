@@ -1,0 +1,25 @@
+test name="Collection and destructure conformance" target="./conformance-collections.kern"
+  it name="collection target stays schema and semantic valid"
+    expect no=schemaViolations
+    expect no=semanticViolations
+
+  it name="collection primitives keep their KERN shape"
+    expect node=mapLit name=roleLabels child=mapEntry count=2
+    expect node=setLit name=allowedRoles child=setItem count=2
+    expect node=destructure child=element count=2
+    expect node=destructure child=binding count=3
+
+  it name="map and set literals execute before codegen"
+    expect expr={{roleLabels.get("admin")}} equals="Administrator"
+    expect expr={{roleLabels.get("member")}} equals="Member"
+    expect expr={{allowedRoles.has("admin") && allowedRoles.has("member")}}
+    expect derive=knownRolesCount equals=2
+
+  it name="structured destructuring executes before codegen"
+    expect expr={{firstUser.id}} equals="u1"
+    expect expr={{secondUser.id}} equals="u2"
+    expect expr={{firstId + ":" + firstName + ":" + firstRole}} equals="u1:Ada:admin"
+    expect derive=firstUserLabel equals="Administrator"
+
+  it name="collections reach core codegen"
+    expect no=codegenErrors

@@ -5,7 +5,7 @@ examples/src/generated/
 examples/*.tsx
 *.min.kern
 .claude/
-docs/plans/
+docs/*
 .claude*.tsbuildinfo
 *.tsbuildinfo
 .pnpm-store/

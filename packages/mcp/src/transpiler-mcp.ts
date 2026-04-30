@@ -16,7 +16,6 @@ import {
   getChildren,
   getFirstChild,
   getProps,
-  isExprObject,
   serializeIR,
 } from '@kernlang/core';
 import { FILE_IO_PATTERN, NETWORK_PATTERN, SHELL_EXEC_PATTERN } from './effect-patterns.js';
@@ -136,15 +135,15 @@ function resolveParamDefault(paramNode: IRNode): { value: string; isExpr: boolea
   const rawValue = props.value;
   const valuePresent = rawValue !== undefined && (rawValue !== '' || quoted.includes('value'));
   if (valuePresent) {
-    if (isExprObject(rawValue)) {
-      return { value: rawValue.code, isExpr: true };
+    if (typeof rawValue === 'object' && rawValue !== null && (rawValue as { __expr?: unknown }).__expr === true) {
+      return { value: (rawValue as { code: string }).code, isExpr: true };
     }
     return { value: String(rawValue), isExpr: false };
   }
   const rawDefault = props.default;
   if (rawDefault !== undefined && rawDefault !== '') {
-    if (isExprObject(rawDefault)) {
-      return { value: rawDefault.code, isExpr: true };
+    if (typeof rawDefault === 'object' && rawDefault !== null && (rawDefault as { __expr?: unknown }).__expr === true) {
+      return { value: (rawDefault as { code: string }).code, isExpr: true };
     }
     return { value: String(rawDefault), isExpr: false };
   }

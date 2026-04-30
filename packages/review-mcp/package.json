@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/review-mcp",
-  "version": "3.3.9",
+  "version": "3.4.0",
   "description": "MCP server security scanner — static analysis for Model Context Protocol implementations",
   "type": "module",
   "main": "dist/index.js",

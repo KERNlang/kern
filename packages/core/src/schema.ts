@@ -335,7 +335,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       name: { required: true, kind: 'string' },
       target: { kind: 'string' },
     },
-    allowedChildren: ['describe', 'it', 'expect', 'handler'],
+    allowedChildren: ['describe', 'it', 'expect', 'fixture', 'handler'],
   },
   event: {
     description: 'Typed event with payload type children',
@@ -1125,6 +1125,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       kind: { kind: 'identifier' },
       type: { kind: 'identifier' },
       covers: { kind: 'string' },
+      over: { kind: 'identifier' },
+      union: { kind: 'identifier' },
       param: { kind: 'identifier' },
       field: { kind: 'identifier' },
       target: { kind: 'identifier' },
@@ -1308,7 +1310,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       deps: { kind: 'string' },
       once: { kind: 'boolean' },
     },
-    allowedChildren: ['prop', 'handler', 'cleanup'],
+    allowedChildren: ['prop', 'handler', 'cleanup', 'trigger', 'recover'],
   },
   // ── Web / UI node types ──────────────────────────────────────────────
   page: {
@@ -1815,6 +1817,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       kind: { kind: 'identifier' },
       on: { kind: 'string' },
       from: { kind: 'string' },
+      expr: { kind: 'rawExpr' },
+      query: { kind: 'string' },
+      url: { kind: 'string' },
+      call: { kind: 'rawExpr' },
     },
     allowedChildren: ['handler'],
   },
@@ -2319,13 +2325,13 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     example:
       'describe name="UserService"\n  it name="creates a user"\n    handler <<<\n      expect(createUser()).toBeDefined();\n    >>>',
     props: { name: { required: true, kind: 'string' } },
-    allowedChildren: ['it', 'describe', 'expect', 'handler'],
+    allowedChildren: ['it', 'describe', 'expect', 'fixture', 'handler'],
   },
   it: {
     description: 'Test case — single test assertion',
     example: 'it name="returns 200 on success"\n  handler <<<\n    expect(res.status).toBe(200);\n  >>>',
     props: { name: { required: true, kind: 'string' } },
-    allowedChildren: ['expect', 'handler'],
+    allowedChildren: ['expect', 'fixture', 'handler'],
   },
 
   // Ground layer — semantic reasoning
@@ -2366,14 +2372,43 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   expect: {
     description: 'Assertion — declare an expected runtime condition or KERN structural invariant',
     example:
-      'expect expr={{items.length > 0}} message="Items must not be empty"\nexpect machine=Order reaches=paid via=confirm,capture\nexpect no=deriveCycles',
+      'expect expr={{items.length > 0}} message="Items must not be empty"\nexpect route="GET /api/users" with={{({ query: { role: "admin" } })}} returns={{adminUsers}}\nexpect machine=Order reaches=paid via=confirm,capture\nexpect machine=Order transition=capture from=confirmed to=paid\nexpect node=interface name=User child=field count=3\nexpect no=deriveCycles',
     props: {
       expr: { kind: 'rawExpr' },
+      fn: { kind: 'identifier' },
+      derive: { kind: 'identifier' },
+      route: { kind: 'string' },
+      effect: { kind: 'identifier' },
+      args: { kind: 'rawExpr' },
+      with: { kind: 'rawExpr' },
+      input: { kind: 'rawExpr' },
+      equals: { kind: 'rawExpr' },
+      returns: { kind: 'rawExpr' },
+      recovers: { kind: 'boolean' },
+      fallback: { kind: 'rawExpr' },
+      matches: { kind: 'string' },
+      throws: { kind: 'string' },
       message: { kind: 'string' },
       preset: { kind: 'identifier' },
       severity: { kind: 'identifier' },
+      node: { kind: 'identifier' },
+      name: { kind: 'string' },
+      within: { kind: 'string' },
+      child: { kind: 'identifier' },
+      childName: { kind: 'string' },
+      prop: { kind: 'identifier' },
+      is: { kind: 'string' },
+      count: { kind: 'number' },
       machine: { kind: 'identifier' },
+      transition: { kind: 'identifier' },
+      from: { kind: 'identifier' },
+      to: { kind: 'identifier' },
+      guarded: { kind: 'boolean' },
       reaches: { kind: 'identifier' },
+      through: { kind: 'string' },
+      avoid: { kind: 'string' },
+      avoids: { kind: 'string' },
+      maxSteps: { kind: 'number' },
       via: { kind: 'string' },
       no: { kind: 'identifier' },
       guard: { kind: 'identifier' },
@@ -2383,10 +2418,22 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       covers: { kind: 'string' },
     },
   },
+  fixture: {
+    description: 'Native test fixture — named runtime data available to scoped expect assertions',
+    example: 'fixture name=paidOrder value={{({ id: "ord_1", status: "paid" })}}',
+    props: {
+      name: { required: true, kind: 'identifier' },
+      value: { kind: 'rawExpr' },
+      expr: { kind: 'rawExpr' },
+    },
+  },
   recover: {
     description: 'Recovery handler — runs when a parent node fails',
     example: 'recover\n  handler <<<\n    return fallbackValue;\n  >>>',
-    props: {},
+    props: {
+      retry: { kind: 'number' },
+      fallback: { kind: 'rawExpr' },
+    },
     allowedChildren: ['handler'],
   },
   strategy: {
@@ -2509,20 +2556,62 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
   }
   if (node.type === 'expect') {
     const hasRuntimeAssertion = 'expr' in props;
+    const hasRuntimeBehavior = 'fn' in props || 'derive' in props;
+    const hasRuntimeWorkflow = 'route' in props || 'effect' in props;
     const hasPreset = 'preset' in props;
+    const hasNodeShape = 'node' in props;
     const hasNegativeInvariant = 'no' in props;
     const hasGuardExhaustiveness = 'guard' in props;
-    const hasMachineReachability = 'reaches' in props || ('machine' in props && !hasNegativeInvariant);
+    const hasMachineTransition = 'transition' in props;
+    const hasMachineReachability =
+      'reaches' in props || ('machine' in props && !hasNegativeInvariant && !hasMachineTransition);
     if (
       !hasRuntimeAssertion &&
+      !hasRuntimeBehavior &&
+      !hasRuntimeWorkflow &&
       !hasPreset &&
+      !hasNodeShape &&
+      !hasMachineTransition &&
       !hasMachineReachability &&
       !hasNegativeInvariant &&
       !hasGuardExhaustiveness
     ) {
       violations.push({
         nodeType: 'expect',
-        message: "'expect' requires 'expr', 'preset', 'machine'/'reaches', 'no', or 'guard'",
+        message:
+          "'expect' requires 'expr', 'fn', 'derive', 'route', 'effect', 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (Number('fn' in props) + Number('derive' in props) + Number('route' in props) + Number('effect' in props) > 1) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' cannot combine fn=<name>, derive=<name>, route=<spec>, and effect=<name>",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if ((hasRuntimeBehavior || hasRuntimeWorkflow) && hasRuntimeAssertion) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' cannot combine fn/derive/route behavioral assertions with expr={{...}}",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasMachineTransition && !('machine' in props)) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' machine transition assertions require machine=<name>",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasMachineTransition && 'reaches' in props) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect' cannot combine machine transition assertions with reaches=<state>",
         line: node.loc?.line,
         col: node.loc?.col,
       });
@@ -2539,6 +2628,26 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'expect',
         message: "'expect' guard assertions require exhaustive=true",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+  if (node.type === 'fixture') {
+    const hasValue = 'value' in props;
+    const hasExpr = 'expr' in props;
+    if (!hasValue && !hasExpr) {
+      violations.push({
+        nodeType: 'fixture',
+        message: "'fixture' requires either value={{...}} or expr={{...}}",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasValue && hasExpr) {
+      violations.push({
+        nodeType: 'fixture',
+        message: "'fixture' must not combine value={{...}} and expr={{...}}",
         line: node.loc?.line,
         col: node.loc?.col,
       });

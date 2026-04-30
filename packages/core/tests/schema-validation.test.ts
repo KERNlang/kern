@@ -162,6 +162,8 @@ describe('Schema Validation', () => {
           'test name="Order invariants" target="./order.kern"',
           '  it name="reaches paid"',
           '    expect machine=Order reaches=paid via=confirm,capture',
+          '  it name="declares capture transition"',
+          '    expect machine=Order transition=capture from=confirmed to=paid guarded=true',
           '  it name="derive graph"',
           '    expect no=deriveCycles',
           '  it name="machine states stay live"',
@@ -175,9 +177,83 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
 
+    it('allows native behavioral expect assertions with scoped fixtures', () => {
+      const v = validate(
+        [
+          'test name="Order behavior" target="./order.kern"',
+          '  fixture name=paidOrder value={{({ items: [{ price: 20, qty: 2 }] })}}',
+          '  describe name="totals"',
+          '    fixture name=taxRate value=0.2',
+          '    it name="calculates subtotal and tax"',
+          '      expect fn=orderSubtotal with=paidOrder equals=40',
+          '      expect fn=addTax args={{[orderSubtotal(paidOrder), taxRate]}} equals=48',
+          '      expect derive=total equals=48',
+        ].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
+
     it('flags empty expect assertions', () => {
       const v = validate(['test name="Empty"', '  it name="does nothing"', '    expect'].join('\n'));
       expect(v.some((violation) => violation.message.includes("'expect' requires"))).toBe(true);
+    });
+
+    it('flags fixtures without a runtime value', () => {
+      const v = validate(['test name="Fixture"', '  it name="missing value"', '    fixture name=order'].join('\n'));
+      expect(v.some((violation) => violation.message.includes("'fixture' requires either value"))).toBe(true);
+    });
+
+    it('flags fixtures that combine value and expr', () => {
+      const v = validate(
+        [
+          'test name="Fixture"',
+          '  it name="ambiguous"',
+          '    fixture name=order value={{({ id: "1" })}} expr={{({ id: "2" })}}',
+        ].join('\n'),
+      );
+      expect(v.some((violation) => violation.message.includes("'fixture' must not combine"))).toBe(true);
+    });
+
+    it('flags behavioral expect assertions that combine fn and derive', () => {
+      const v = validate(
+        ['test name="Behavior"', '  it name="ambiguous"', '    expect fn=total derive=total equals=3'].join('\n'),
+      );
+      expect(
+        v.some((violation) =>
+          violation.message.includes('cannot combine fn=<name>, derive=<name>, route=<spec>, and effect=<name>'),
+        ),
+      ).toBe(true);
+    });
+
+    it('flags behavioral expect assertions that combine fn or derive with expr', () => {
+      const v = validate(
+        ['test name="Behavior"', '  it name="ambiguous"', '    expect fn=total expr={{total()}} equals=3'].join('\n'),
+      );
+      expect(
+        v.some((violation) => violation.message.includes('cannot combine fn/derive/route behavioral assertions')),
+      ).toBe(true);
+    });
+
+    it('flags machine transition expect assertions without machine', () => {
+      const v = validate(
+        [
+          'test name="Order"',
+          '  it name="declares capture"',
+          '    expect transition=capture from=confirmed to=paid',
+        ].join('\n'),
+      );
+      expect(v.some((violation) => violation.message.includes('require machine=<name>'))).toBe(true);
+    });
+
+    it('flags mixed transition and reachability expect assertions', () => {
+      const v = validate(
+        [
+          'test name="Order"',
+          '  it name="mixes transition and reachability"',
+          '    expect machine=Order transition=capture reaches=paid',
+        ].join('\n'),
+      );
+      expect(v.some((violation) => violation.message.includes('cannot combine machine transition'))).toBe(true);
     });
 
     it('allows helper core nodes in mcp', () => {

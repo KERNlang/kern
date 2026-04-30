@@ -1,9 +1,16 @@
 test name="Order invariants" target="./order.kern"
   it name="reaches paid through checkout"
     expect machine=Order reaches=paid via=confirm,capture
+    expect machine=Order from=confirmed reaches=paid via=capture maxSteps=1
+
+  it name="declares checkout transition shape"
+    expect machine=Order transition=capture from=confirmed to=paid
 
   it name="machine graph stays healthy"
     expect preset=machine
 
   it name="derived values stay acyclic"
     expect no=deriveCycles
+
+  it name="suite covers target surface"
+    expect preset=coverage
