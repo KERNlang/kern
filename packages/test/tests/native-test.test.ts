@@ -88,6 +88,7 @@ describe('native kern test runner', () => {
         'examples/native-test/conformance-collections.test.kern',
         'examples/native-test/conformance-control-flow.test.kern',
         'examples/native-test/conformance-data-advanced.test.kern',
+        'examples/native-test/conformance-effects.test.kern',
         'examples/native-test/conformance-routes.test.kern',
         'examples/native-test/language-surface.test.kern',
         'examples/native-test/order.test.kern',
@@ -378,6 +379,49 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(0);
     expect(summary.passed).toBe(4);
     expect(summary.results.every((result) => result.ruleId === 'runtime:route')).toBe(true);
+  });
+
+  test('executes deterministic effect and recover assertions before codegen', () => {
+    writeFileSync(
+      join(tmpDir, 'effects.kern'),
+      [
+        'const name=cachedUsers value={{[{ id: "u1", active: true }]}}',
+        'effect name=loadUsers',
+        '  trigger expr={{cachedUsers}}',
+        '  recover fallback={{[]}}',
+        'effect name=loadFallback',
+        '  trigger expr={{JSON.parse("not-json")}}',
+        '  recover retry=2 fallback={{[]}}',
+        'server name=UsersAPI',
+        '  route GET /api/users',
+        '    effect name=fetchUsers',
+        '      trigger expr={{JSON.parse("not-json")}}',
+        '      recover retry=2 fallback={{[]}}',
+        '    respond 200 json=fetchUsers.result',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'effects.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Effect workflows" target="./effects.kern"',
+        '  it name="runs effect result and recovery"',
+        '    expect effect=loadUsers returns={{cachedUsers}}',
+        '    expect effect=loadFallback recovers=true fallback={{[]}}',
+        '  it name="routes can recover effect results"',
+        '    expect route="GET /api/users" returns={{[]}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(3);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'runtime:effect',
+      'runtime:effect',
+      'runtime:route',
+    ]);
   });
 
   test('fixture scope does not leak between sibling test cases', () => {

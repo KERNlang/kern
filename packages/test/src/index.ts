@@ -139,7 +139,7 @@ interface NativeKernAssertionContext {
 interface RuntimeBinding {
   name: string;
   expr: string;
-  kind: 'expr' | 'fixture' | 'fn' | 'class' | 'native';
+  kind: 'expr' | 'fixture' | 'fn' | 'class' | 'native' | 'workflow';
   eager?: boolean;
   line?: number;
 }
@@ -234,6 +234,10 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
   {
     ruleId: 'runtime:route',
     description: 'Evaluate a portable route workflow with request fixtures before backend code generation.',
+  },
+  {
+    ruleId: 'runtime:effect',
+    description: 'Evaluate a deterministic portable effect/recover workflow before backend code generation.',
   },
   { ruleId: 'expect:unsupported', description: 'The expect assertion shape is not supported by native kern test.' },
   { ruleId: 'preset:unknown', description: 'The requested preset name is unknown.' },
@@ -768,11 +772,14 @@ function assertionLabel(node: IRNode): string {
   const fn = str(props.fn);
   const derive = str(props.derive);
   const route = str(props.route);
+  const effect = str(props.effect);
   const args = exprToString(props.args);
   const withValue = exprToString(props.with);
   const input = exprToString(props.input);
   const equals = props.equals === undefined ? '' : exprToString(props.equals) || String(props.equals);
   const returns = props.returns === undefined ? '' : exprToString(props.returns) || String(props.returns);
+  const fallback = props.fallback === undefined ? '' : exprToString(props.fallback) || String(props.fallback);
+  const recovers = props.recovers === undefined ? '' : String(props.recovers || 'true');
   const matches = props.matches === undefined ? '' : String(props.matches);
   const throws = props.throws === undefined ? '' : String(props.throws || 'true');
 
@@ -818,6 +825,16 @@ function assertionLabel(node: IRNode): string {
     if (withValue) parts.push(`with ${withValue}`);
     if (input) parts.push(`input ${input}`);
     if (returns) parts.push(`returns ${returns}`);
+    if (equals) parts.push(`equals ${equals}`);
+    if (matches) parts.push(`matches ${matches}`);
+    if (throws) parts.push(`throws ${throws}`);
+    return parts.join(' ');
+  }
+  if (effect) {
+    const parts = [`effect ${effect}`];
+    if (returns) parts.push(`returns ${returns}`);
+    if (recovers) parts.push(`recovers ${recovers}`);
+    if (fallback) parts.push(`fallback ${fallback}`);
     if (equals) parts.push(`equals ${equals}`);
     if (matches) parts.push(`matches ${matches}`);
     if (throws) parts.push(`throws ${throws}`);
@@ -1716,6 +1733,8 @@ const RUNTIME_CLASS_UNSAFE_TOKEN =
   /\b(?:Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 const RUNTIME_NATIVE_BINDING_UNSAFE_TOKEN =
   /\b(?:class|constructor|Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
+const RUNTIME_WORKFLOW_BINDING_UNSAFE_TOKEN =
+  /\b(?:class|constructor|Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 
 function unsafeRuntimeExpressionReason(source: string, options: { allowAwait?: boolean } = {}): string | undefined {
   if (source.length > 2000) return 'expression is longer than 2000 characters';
@@ -1744,6 +1763,13 @@ function unsafeRuntimeClassReason(source: string): string | undefined {
 function unsafeRuntimeNativeBindingReason(source: string): string | undefined {
   if (source.length > 5000) return 'native binding expression is longer than 5000 characters';
   const unsafeToken = source.match(RUNTIME_NATIVE_BINDING_UNSAFE_TOKEN)?.[0];
+  if (unsafeToken) return `unsupported token '${unsafeToken}'`;
+  return undefined;
+}
+
+function unsafeRuntimeWorkflowReason(source: string): string | undefined {
+  if (source.length > 10000) return 'workflow expression is longer than 10000 characters';
+  const unsafeToken = source.match(RUNTIME_WORKFLOW_BINDING_UNSAFE_TOKEN)?.[0];
   if (unsafeToken) return `unsupported token '${unsafeToken}'`;
   return undefined;
 }
@@ -1889,6 +1915,15 @@ function runtimeValuePropSource(node: IRNode, propName: string): string {
   return exprPropToRuntimeSource(node, propName) || rawPropToRuntimeSource(node, propName);
 }
 
+function runtimePortableSource(source: string): string {
+  return source.replace(/\b([A-Za-z_$][A-Za-z0-9_$]*)\.result\b/g, '$1');
+}
+
+function runtimePortableValuePropSource(node: IRNode, propName: string): string {
+  const source = runtimeValuePropSource(node, propName);
+  return source ? runtimePortableSource(source) : '';
+}
+
 function runtimeMapLitExpr(node: IRNode): string {
   const entries: string[] = [];
   for (const entry of getChildren(node, 'mapEntry')) {
@@ -1985,12 +2020,13 @@ function runtimeArrayValueLookupBindingExpr(node: IRNode, method: 'includes' | '
   return `((${collection}).${method}(${args}))`;
 }
 
-function runtimeCollectBindingExpr(node: IRNode): string {
-  const from = rawPropToRuntimeSource(node, 'from');
+function runtimeCollectBindingExpr(node: IRNode, options: { portable?: boolean } = {}): string {
+  const source = options.portable ? runtimePortableSource : (value: string) => value;
+  const from = source(rawPropToRuntimeSource(node, 'from'));
   if (!from) return '';
-  const where = rawPropToRuntimeSource(node, 'where');
-  const order = rawPropToRuntimeSource(node, 'order');
-  const limit = rawPropToRuntimeSource(node, 'limit');
+  const where = source(rawPropToRuntimeSource(node, 'where'));
+  const order = source(rawPropToRuntimeSource(node, 'order'));
+  const limit = source(rawPropToRuntimeSource(node, 'limit'));
 
   let chain = `(${from})`;
   if (where) chain += `.filter((item) => ${where})`;
@@ -2033,13 +2069,14 @@ function runtimePartitionBindings(node: IRNode): RuntimeBinding[] {
   ];
 }
 
-function runtimeRespondSource(node: IRNode): string {
+function runtimeRespondSource(node: IRNode, options: { portable?: boolean } = {}): string {
   const props = getProps(node);
   const status = typeof props.status === 'number' ? props.status : Number(str(props.status)) || undefined;
-  const jsonSource = runtimeValuePropSource(node, 'json');
+  const valueSource = options.portable ? runtimePortableValuePropSource : runtimeValuePropSource;
+  const jsonSource = valueSource(node, 'json');
   if (jsonSource) return status && status !== 200 ? `({ status: ${status}, json: ${jsonSource} })` : jsonSource;
 
-  const textSource = runtimeValuePropSource(node, 'text');
+  const textSource = valueSource(node, 'text');
   if (textSource) return status && status !== 200 ? `({ status: ${status}, text: ${textSource} })` : textSource;
 
   const error = str(props.error);
@@ -2058,8 +2095,9 @@ function runtimeScopedObject(names: string[]): string {
   return `({ ${unique.join(', ')} })`;
 }
 
-function runtimeGuardStatement(node: IRNode): string[] {
-  const expr = exprPropToRuntimeSource(node, 'expr') || rawPropToRuntimeSource(node, 'expr');
+function runtimeGuardStatement(node: IRNode, options: { portable?: boolean } = {}): string[] {
+  const rawExpr = exprPropToRuntimeSource(node, 'expr') || rawPropToRuntimeSource(node, 'expr');
+  const expr = options.portable ? runtimePortableSource(rawExpr) : rawExpr;
   if (!expr) return [];
   const props = getProps(node);
   const fallback = str(props.else) || str(props.fallback);
@@ -2241,6 +2279,92 @@ function runtimeRouteParamItems(route: IRNode): Array<{ name: string; defaultSou
   return items;
 }
 
+function runtimeEffectName(node: IRNode): string {
+  return str(getProps(node).name) || 'effect';
+}
+
+function runtimeEffectTriggerSource(
+  node: IRNode,
+  options: { portable?: boolean } = {},
+): { source?: string; message?: string } {
+  const triggerNode = getChildren(node, 'trigger')[0];
+  if (!triggerNode) return { message: `Runtime effect ${runtimeEffectName(node)} requires trigger expr={{...}}` };
+
+  const source = exprPropToRuntimeSource(triggerNode, 'expr');
+  if (!source) {
+    return {
+      message:
+        `Runtime effect ${runtimeEffectName(node)} can only simulate trigger expr={{...}}; ` +
+        'query/url/call triggers need native mocks or a backend integration test.',
+    };
+  }
+
+  const portableSource = options.portable ? runtimePortableSource(source) : source;
+  const problem = unsafeRuntimeExpressionReason(portableSource, { allowAwait: true });
+  if (problem) {
+    return { message: `Runtime effect ${runtimeEffectName(node)} cannot execute trigger: ${problem}` };
+  }
+  return { source: portableSource };
+}
+
+function runtimeEffectRecoverFallbackSource(node: IRNode, options: { portable?: boolean } = {}): string {
+  const recoverNode = getChildren(node, 'recover')[0];
+  if (!recoverNode) return 'null';
+  const source = runtimeValuePropSource(recoverNode, 'fallback') || 'null';
+  return options.portable ? runtimePortableSource(source) : source;
+}
+
+function runtimeEffectExecutionExpr(
+  node: IRNode,
+  options: { portable?: boolean; meta?: boolean } = {},
+): { expr?: string; message?: string } {
+  const name = runtimeEffectName(node);
+  if (!isRuntimeBindingName(name)) return { message: `Runtime effect has invalid name: ${name}` };
+
+  const trigger = runtimeEffectTriggerSource(node, options);
+  if (trigger.message || !trigger.source) return { message: trigger.message || 'Runtime effect has no trigger' };
+
+  const recoverNode = getChildren(node, 'recover')[0];
+  const hasRecover = recoverNode !== undefined;
+  const fallbackSource = runtimeEffectRecoverFallbackSource(node, options);
+  const fallbackProblem = unsafeRuntimeExpressionReason(fallbackSource, { allowAwait: true });
+  if (fallbackProblem) {
+    return { message: `Runtime effect ${name} cannot execute fallback: ${fallbackProblem}` };
+  }
+
+  const rawRetry = recoverNode ? getProps(recoverNode).retry : undefined;
+  const retryCount = rawRetry === undefined || rawRetry === '' ? 0 : Number(rawRetry);
+  if (!Number.isInteger(retryCount) || retryCount < 0) {
+    return { message: `Runtime effect ${name} has invalid recover retry=${String(rawRetry)}` };
+  }
+  const attempts = hasRecover && retryCount > 0 ? retryCount : 1;
+  const result = (value: string, recovered: boolean) =>
+    options.meta ? `({ result: ${value}, recovered: ${recovered}, attempts: __attempts })` : value;
+
+  const lines = ['(async () => {', '  let __attempts = 0;'];
+  if (!hasRecover) {
+    lines.push('  __attempts++;');
+    lines.push(`  const __value = await (${trigger.source});`);
+    lines.push(`  return ${result('__value', false)};`);
+    lines.push('})()');
+    return { expr: lines.join('\n') };
+  }
+
+  lines.push(`  const __fallback = (${fallbackSource});`);
+  lines.push(`  for (let __attempt = 0; __attempt < ${attempts}; __attempt++) {`);
+  lines.push('    __attempts++;');
+  lines.push('    try {');
+  lines.push(`      const __value = await (${trigger.source});`);
+  lines.push(`      return ${result('__value', false)};`);
+  lines.push('    } catch (__error) {');
+  lines.push(`      if (__attempt === ${attempts - 1}) return ${result('__fallback', true)};`);
+  lines.push('    }');
+  lines.push('  }');
+  lines.push(`  return ${result('__fallback', true)};`);
+  lines.push('})()');
+  return { expr: lines.join('\n') };
+}
+
 function runtimeRouteRequestLines(route: IRNode, inputSource: string): { lines: string[]; message?: string } {
   const lines = [
     `const __request = ((${inputSource}) ?? {});`,
@@ -2284,25 +2408,30 @@ function runtimeRouteChildProgram(children: IRNode[]): { lines: string[]; messag
       };
     }
     if (child.type === 'effect') {
-      return {
-        lines: [],
-        message:
-          'Runtime route assertions do not simulate effect/recover yet; extract the effect result into a fixture or pure derive.',
-      };
+      const effectName = runtimeEffectName(child);
+      if (!isRuntimeBindingName(effectName)) {
+        return { lines: [], message: `Runtime route effect has invalid name: ${effectName}` };
+      }
+      const effect = runtimeEffectExecutionExpr(child, { portable: true });
+      if (effect.message || !effect.expr) {
+        return { lines: [], message: effect.message || `Runtime route effect ${effectName} cannot be simulated` };
+      }
+      lines.push(`const ${effectName} = await (${effect.expr});`);
+      continue;
     }
 
     if (child.type === 'respond') {
-      lines.push(`return (${runtimeRespondSource(child)});`);
+      lines.push(`return (${runtimeRespondSource(child, { portable: true })});`);
       continue;
     }
 
     if (child.type === 'guard') {
-      lines.push(...runtimeGuardStatement(child));
+      lines.push(...runtimeGuardStatement(child, { portable: true }));
       continue;
     }
 
     if (child.type === 'branch') {
-      const expr = runtimeBranchBindingExpr(child, { async: true });
+      const expr = runtimeRouteBranchExecutionExpr(child);
       if (!expr) continue;
       const name = runtimeSyntheticName(child, 'BranchResult');
       lines.push(`const ${name} = await (${expr});`);
@@ -2311,7 +2440,7 @@ function runtimeRouteChildProgram(children: IRNode[]): { lines: string[]; messag
     }
 
     if (child.type === 'each') {
-      const expr = runtimeEachExecutionExpr(child, { async: true });
+      const expr = runtimeRouteEachExecutionExpr(child);
       if (expr) lines.push(`await (${expr});`);
       continue;
     }
@@ -2327,14 +2456,63 @@ function runtimeRouteChildProgram(children: IRNode[]): { lines: string[]; messag
     }
 
     const name = str(getProps(child).name);
-    const binding = runtimeBindingSource(child);
+    const binding =
+      child.type === 'collect'
+        ? { expr: runtimeCollectBindingExpr(child, { portable: true }), kind: 'native' as const }
+        : runtimeBindingSource(child);
     if (name && binding?.expr && isRuntimeBindingName(name)) {
-      lines.push(`const ${name} = (${binding.expr});`);
+      lines.push(`const ${name} = (${runtimePortableSource(binding.expr)});`);
     }
   }
 
   lines.push('return undefined;');
   return { lines };
+}
+
+function runtimeRouteBranchExecutionExpr(node: IRNode): string {
+  const on = runtimePortableSource(rawPropToRuntimeSource(node, 'on'));
+  if (!on) return '';
+
+  const lines = ['(async () => {', `  const __branchValue = (${on});`];
+  const paths = getChildren(node, 'path');
+  for (let index = 0; index < paths.length; index++) {
+    const pathNode = paths[index];
+    const value = str(getProps(pathNode).value);
+    const program = runtimeRouteChildProgram(pathNode.children || []);
+    if (program.message) return '';
+    const keyword = index === 0 ? 'if' : 'else if';
+    lines.push(`  ${keyword} (__branchValue === ${JSON.stringify(value)}) {`);
+    for (const line of program.lines) lines.push(`    ${line}`);
+    lines.push('  }');
+  }
+  lines.push('  return undefined;');
+  lines.push('})()');
+  return lines.join('\n');
+}
+
+function runtimeRouteEachExecutionExpr(node: IRNode): string {
+  const collection = runtimePortableSource(rawPropToRuntimeSource(node, 'in'));
+  const item = str(getProps(node).name) || 'item';
+  if (!collection || !isRuntimeBindingName(item)) return '';
+
+  const index = str(getProps(node).index);
+  if (index && !isRuntimeBindingName(index)) return '';
+
+  const program = runtimeRouteChildProgram(node.children || []);
+  if (program.message) return '';
+
+  const lines = ['(async () => {', '  const __results = [];'];
+  if (index) {
+    lines.push(`  for (const [${index}, ${item}] of (${collection}).entries()) {`);
+  } else {
+    lines.push(`  for (const ${item} of ${collection}) {`);
+  }
+  for (const line of program.lines) lines.push(`    ${line}`);
+  lines.push('    __results.push(undefined);');
+  lines.push('  }');
+  lines.push('  return __results;');
+  lines.push('})()');
+  return lines.join('\n');
 }
 
 function runtimeRouteExecutionExpr(route: IRNode, inputSource: string): { expr?: string; message?: string } {
@@ -2687,6 +2865,7 @@ function runtimeExpressionContext(expr: string, fixtures: RuntimeBinding[]): str
 function runtimeBindingUnsafeReason(binding: RuntimeBinding): string | undefined {
   if (binding.kind === 'fn') return unsafeRuntimeFunctionReason(binding.expr);
   if (binding.kind === 'class') return unsafeRuntimeClassReason(binding.expr);
+  if (binding.kind === 'workflow') return unsafeRuntimeWorkflowReason(binding.expr);
   if (binding.kind === 'native') return unsafeRuntimeNativeBindingReason(binding.expr);
   return unsafeRuntimeExpressionReason(binding.expr);
 }
@@ -3089,7 +3268,7 @@ function evaluateRuntimeRoute(
   const routeBinding: RuntimeBinding = {
     name: runtimeSyntheticName(node, 'Route'),
     expr: routeExpr.expr,
-    kind: 'native',
+    kind: 'workflow',
     line: node.loc?.line,
   };
 
@@ -3099,6 +3278,133 @@ function evaluateRuntimeRoute(
     routeBinding.name,
     [...fixtures, routeBinding],
     `Runtime route ${runtimeRouteLabel(found.route)}`,
+    'returns',
+  );
+}
+
+function findRuntimeEffect(target: LoadedKernDocument, effectName: string): { effect?: IRNode; message?: string } {
+  const effects = collectNodes(target.root, 'effect').filter((effect) => runtimeEffectName(effect) === effectName);
+  if (effects.length === 1) return { effect: effects[0] };
+  if (effects.length === 0) return { message: `Runtime effect assertion target not found: ${effectName}` };
+  return { message: `Runtime effect assertion target is ambiguous: ${effectName}` };
+}
+
+function runtimeEffectExpectedSource(node: IRNode): { source?: string; label?: string } {
+  const fallback = runtimeExpectedSource(node, 'fallback');
+  if (fallback !== undefined) return { source: fallback, label: 'fallback' };
+  const returns = runtimeExpectedSource(node, 'returns');
+  if (returns !== undefined) return { source: returns, label: 'returns' };
+  const equals = runtimeExpectedSource(node, 'equals');
+  if (equals !== undefined) return { source: equals, label: 'equals' };
+  return {};
+}
+
+function evaluateRuntimeEffectRecovery(
+  node: IRNode,
+  target: LoadedKernDocument,
+  effect: IRNode,
+  fixtures: RuntimeBinding[],
+): { passed: boolean; message?: string } {
+  const props = getProps(node);
+  const effectName = runtimeEffectName(effect);
+  const effectExpr = runtimeEffectExecutionExpr(effect, { portable: true, meta: true });
+  if (effectExpr.message || !effectExpr.expr) {
+    return { passed: false, message: effectExpr.message || `Runtime effect ${effectName} cannot be simulated` };
+  }
+
+  const effectBinding: RuntimeBinding = {
+    name: runtimeSyntheticName(node, 'Effect'),
+    expr: effectExpr.expr,
+    kind: 'workflow',
+    line: node.loc?.line,
+  };
+
+  const expected = runtimeEffectExpectedSource(node);
+  const entryExprs = expected.source ? [effectBinding.name, expected.source] : [effectBinding.name];
+  const declarations = buildRuntimeDeclarations(target, entryExprs, [...fixtures, effectBinding]);
+  if ('message' in declarations) return { passed: false, message: declarations.message };
+
+  const actual = runRuntimeExpression(target, declarations.source, effectBinding.name);
+  if (!actual.ok) {
+    return {
+      passed: false,
+      message: `Runtime effect ${effectName} threw: ${formatThrownRuntimeError(actual.error)}`,
+    };
+  }
+
+  const meta = actual.value as { result?: unknown; recovered?: unknown; attempts?: unknown };
+  if (isTruthy(props.recovers) && meta.recovered !== true) {
+    return {
+      passed: false,
+      message:
+        str(props.message) || `Runtime effect ${effectName} was expected to recover, but completed without recovery`,
+    };
+  }
+
+  if (expected.source !== undefined) {
+    const expectedResult = runRuntimeExpression(target, declarations.source, expected.source);
+    if (!expectedResult.ok) {
+      return {
+        passed: false,
+        message: `Runtime effect assertion cannot execute expected ${expected.label} value: ${formatThrownRuntimeError(
+          expectedResult.error,
+        )}`,
+      };
+    }
+    return runtimeValuesEqual(meta.result, expectedResult.value)
+      ? { passed: true }
+      : {
+          passed: false,
+          message:
+            str(props.message) ||
+            `Runtime effect ${effectName} expected ${formatRuntimeValue(
+              expectedResult.value,
+            )}, received ${formatRuntimeValue(meta.result)}`,
+        };
+  }
+
+  return { passed: true };
+}
+
+function evaluateRuntimeEffect(
+  node: IRNode,
+  target: LoadedKernDocument,
+  fixtures: RuntimeBinding[] = [],
+): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+
+  const props = getProps(node);
+  const effectName = str(props.effect);
+  if (!effectName) return { passed: false, message: 'Runtime effect assertion requires effect=<name>' };
+
+  const found = findRuntimeEffect(target, effectName);
+  if (found.message || !found.effect) {
+    return { passed: false, message: found.message || 'Runtime effect target not found' };
+  }
+
+  if (isTruthy(props.recovers)) {
+    return evaluateRuntimeEffectRecovery(node, target, found.effect, fixtures);
+  }
+
+  const effectExpr = runtimeEffectExecutionExpr(found.effect, { portable: true });
+  if (effectExpr.message || !effectExpr.expr) {
+    return { passed: false, message: effectExpr.message || `Runtime effect ${effectName} cannot be simulated` };
+  }
+
+  const effectBinding: RuntimeBinding = {
+    name: runtimeSyntheticName(node, 'Effect'),
+    expr: effectExpr.expr,
+    kind: 'workflow',
+    line: node.loc?.line,
+  };
+
+  return evaluateRuntimeSource(
+    node,
+    target,
+    effectBinding.name,
+    [...fixtures, effectBinding],
+    `Runtime effect ${effectName}`,
     'returns',
   );
 }
@@ -3904,6 +4210,18 @@ function evaluateNativeAssertion(
     return [
       {
         ruleId: 'runtime:route',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('effect' in props) {
+    const evaluated = evaluateRuntimeEffect(node, target, context?.fixtures || []);
+    return [
+      {
+        ruleId: 'runtime:effect',
         assertion: assertionLabel(node),
         passed: evaluated.passed,
         ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),

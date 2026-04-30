@@ -1310,7 +1310,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       deps: { kind: 'string' },
       once: { kind: 'boolean' },
     },
-    allowedChildren: ['prop', 'handler', 'cleanup'],
+    allowedChildren: ['prop', 'handler', 'cleanup', 'trigger', 'recover'],
   },
   // ── Web / UI node types ──────────────────────────────────────────────
   page: {
@@ -1817,6 +1817,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       kind: { kind: 'identifier' },
       on: { kind: 'string' },
       from: { kind: 'string' },
+      expr: { kind: 'rawExpr' },
+      query: { kind: 'string' },
+      url: { kind: 'string' },
+      call: { kind: 'rawExpr' },
     },
     allowedChildren: ['handler'],
   },
@@ -2374,11 +2378,14 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       fn: { kind: 'identifier' },
       derive: { kind: 'identifier' },
       route: { kind: 'string' },
+      effect: { kind: 'identifier' },
       args: { kind: 'rawExpr' },
       with: { kind: 'rawExpr' },
       input: { kind: 'rawExpr' },
       equals: { kind: 'rawExpr' },
       returns: { kind: 'rawExpr' },
+      recovers: { kind: 'boolean' },
+      fallback: { kind: 'rawExpr' },
       matches: { kind: 'string' },
       throws: { kind: 'string' },
       message: { kind: 'string' },
@@ -2423,7 +2430,10 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   recover: {
     description: 'Recovery handler — runs when a parent node fails',
     example: 'recover\n  handler <<<\n    return fallbackValue;\n  >>>',
-    props: {},
+    props: {
+      retry: { kind: 'number' },
+      fallback: { kind: 'rawExpr' },
+    },
     allowedChildren: ['handler'],
   },
   strategy: {
@@ -2547,7 +2557,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
   if (node.type === 'expect') {
     const hasRuntimeAssertion = 'expr' in props;
     const hasRuntimeBehavior = 'fn' in props || 'derive' in props;
-    const hasRuntimeWorkflow = 'route' in props;
+    const hasRuntimeWorkflow = 'route' in props || 'effect' in props;
     const hasPreset = 'preset' in props;
     const hasNodeShape = 'node' in props;
     const hasNegativeInvariant = 'no' in props;
@@ -2569,15 +2579,15 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'expect',
         message:
-          "'expect' requires 'expr', 'fn', 'derive', 'route', 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
+          "'expect' requires 'expr', 'fn', 'derive', 'route', 'effect', 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
         line: node.loc?.line,
         col: node.loc?.col,
       });
     }
-    if (Number('fn' in props) + Number('derive' in props) + Number('route' in props) > 1) {
+    if (Number('fn' in props) + Number('derive' in props) + Number('route' in props) + Number('effect' in props) > 1) {
       violations.push({
         nodeType: 'expect',
-        message: "'expect' cannot combine fn=<name>, derive=<name>, and route=<spec>",
+        message: "'expect' cannot combine fn=<name>, derive=<name>, route=<spec>, and effect=<name>",
         line: node.loc?.line,
         col: node.loc?.col,
       });

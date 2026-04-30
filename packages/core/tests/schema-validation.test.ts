@@ -219,7 +219,9 @@ describe('Schema Validation', () => {
         ['test name="Behavior"', '  it name="ambiguous"', '    expect fn=total derive=total equals=3'].join('\n'),
       );
       expect(
-        v.some((violation) => violation.message.includes('cannot combine fn=<name>, derive=<name>, and route=<spec>')),
+        v.some((violation) =>
+          violation.message.includes('cannot combine fn=<name>, derive=<name>, route=<spec>, and effect=<name>'),
+        ),
       ).toBe(true);
     });
 

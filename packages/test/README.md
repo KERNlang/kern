@@ -33,7 +33,7 @@ kern test path/to/tests --pass-with-no-tests
 kern test path/to/tests --fail-on-warn
 ```
 
-`kern-test` is the standalone binary shipped by `@kernlang/test`. `kern test` is the integrated command from `@kernlang/cli`; it supports the same native runner flags plus `--watch` and the legacy MCP Jest generator fallback. Single-file `kern test <file.kern>` inputs keep that legacy generator behavior when the file has no native `test` nodes. Directory inputs discover `.kern` files that contain native `test` nodes and run them as one aggregate suite. This repo's `examples/native-test` directory includes machine, MCP safety, permission-gated tool, runtime-function, language-surface, array conformance, class/function conformance, collection/destructure conformance, advanced data conformance, control-flow conformance, and route workflow conformance tests.
+`kern-test` is the standalone binary shipped by `@kernlang/test`. `kern test` is the integrated command from `@kernlang/cli`; it supports the same native runner flags plus `--watch` and the legacy MCP Jest generator fallback. Single-file `kern test <file.kern>` inputs keep that legacy generator behavior when the file has no native `test` nodes. Directory inputs discover `.kern` files that contain native `test` nodes and run them as one aggregate suite. This repo's `examples/native-test` directory includes machine, MCP safety, permission-gated tool, runtime-function, language-surface, array conformance, class/function conformance, collection/destructure conformance, advanced data conformance, control-flow conformance, effect recovery conformance, and route workflow conformance tests.
 
 ## KERN Syntax
 
@@ -74,6 +74,10 @@ test name="Order invariants" target="./order.kern"
     expect route="GET /api/users" with={{({ query: { role: "admin" } })}} returns={{adminUsers}}
     expect route="GET /api/users/:id" with={{({ params: { id: "missing" } })}} returns={{({ status: 404 })}}
 
+  it name="effect recovery is stable"
+    expect effect=fetchUsers returns={{users}}
+    expect effect=loadFallback recovers=true fallback={{[]}}
+
   it name="suite covers target surface"
     expect preset=coverage
 ```
@@ -102,7 +106,9 @@ Use `fixture name=<id> value={{...}}` or `fixture name=<id> expr={{...}}` to def
 
 Use `expect fn=<name>` when the target KERN `fn` itself is the behavior under test. Add `with=<fixture-or-expression>` to pass one argument, or `args={{[...]}}` to spread an argument array into the function. Use `expect derive=<name>` to execute a target-side `derive` binding through the same runtime evaluator. Behavioral assertions support the same `equals=...`, `matches="..."`, and `throws=ErrorName` comparators as `expect expr={{...}}`. Failed behavior assertions report the generated call expression and fixture names so CI output points back to the KERN-native setup.
 
-Use `expect route="METHOD /path"` to execute portable KERN route workflows before Express/FastAPI generation. Add `with={{...}}` (or `input={{...}}`) to provide `{ params, query, body, headers }`. Route workflow assertions currently execute target-side `derive`, `guard`, `branch`, `collect`, `each`, `destructure`, `partition`, and `respond` nodes. Use `returns={{...}}` for deep equality, or the same `equals=...`, `matches="..."`, and `throws=ErrorName` comparators as other runtime assertions. Handler blocks and effect/recover simulation remain backend/runtime-test territory until dedicated native mocks land.
+Use `expect route="METHOD /path"` to execute portable KERN route workflows before Express/FastAPI generation. Add `with={{...}}` (or `input={{...}}`) to provide `{ params, query, body, headers }`. Route workflow assertions currently execute target-side `derive`, `guard`, `branch`, `collect`, `each`, `destructure`, `partition`, deterministic `effect`/`recover`, and `respond` nodes. Use `returns={{...}}` for deep equality, or the same `equals=...`, `matches="..."`, and `throws=ErrorName` comparators as other runtime assertions. Handler blocks and non-expression effects remain backend/runtime-test territory until dedicated native mocks land.
+
+Use `expect effect=<name>` for deterministic portable effects with `trigger expr={{...}}`. A successful trigger can be checked with `returns={{...}}`; recovery can be checked with `recovers=true fallback={{...}}`. Route workflow assertions execute the same deterministic effect/recover subset, including `effectName.result` references. Non-expression triggers such as `query=`, `url=`, and `call=` are intentionally not executed by the native runner yet.
 
 Runtime assertions intentionally do not execute arbitrary application code. Multi-statement expressions and unsafe globals such as `process`, `require`, `eval`, `Function`, `fetch`, timers, and `WebSocket` are rejected before execution.
 
