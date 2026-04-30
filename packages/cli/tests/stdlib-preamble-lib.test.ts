@@ -119,11 +119,28 @@ describe('transpileForTarget — slice 4 stdlib preamble dispatch', () => {
     expect(code).not.toContain('// ── KERN stdlib');
   });
 
-  test('Vue target does NOT get the TS preamble (SFC structure incompatible)', () => {
-    // Codex review fix: dumping `type Result<T,E> = …` BEFORE
-    // `<script setup lang="ts">` produces invalid SFC syntax. Vue users
-    // keep using the explicit `union name=R kind=result …` form until
-    // SFC-aware injection lands as a follow-up slice.
+  test('Nuxt target also injects the preamble inside `<script setup lang="ts">`', () => {
+    const src = [
+      'screen name=Page',
+      '  text value="hello"',
+      'fn name=parseUser params="raw:string" returns="Result<User, ParseError>"',
+      '  handler <<<',
+      '    return { kind: "ok", value: { name: "alice" } };',
+      '  >>>',
+    ].join('\n');
+    const code = compile(src, 'nuxt');
+    const scriptOpen = code.indexOf('<script setup lang="ts">');
+    const preamble = code.indexOf('type Result<T, E>');
+    const scriptClose = code.indexOf('</script>');
+    expect(scriptOpen).toBeGreaterThanOrEqual(0);
+    expect(scriptOpen).toBeLessThan(preamble);
+    expect(preamble).toBeLessThan(scriptClose);
+  });
+
+  test('Vue target injects the TS preamble INSIDE `<script setup lang="ts">`', () => {
+    // Slice 4 follow-up: SFC-aware injection. The preamble must land
+    // INSIDE the script block (so `<template>` parsing isn't broken) and
+    // BEFORE any user code in that block.
     const src = [
       'screen name=Page',
       '  text value="hello"',
@@ -133,8 +150,17 @@ describe('transpileForTarget — slice 4 stdlib preamble dispatch', () => {
       '  >>>',
     ].join('\n');
     const code = compile(src, 'vue');
-    expect(code).not.toContain('type Result<T, E>');
-    expect(code).not.toContain('// ── KERN stdlib');
+    expect(code).toContain('type Result<T, E>');
+    expect(code).toContain('// ── KERN stdlib');
+    // Order: opening script tag, then preamble, then `</script>`.
+    const scriptOpen = code.indexOf('<script setup lang="ts">');
+    const preamble = code.indexOf('type Result<T, E>');
+    const scriptClose = code.indexOf('</script>');
+    expect(scriptOpen).toBeGreaterThanOrEqual(0);
+    expect(scriptOpen).toBeLessThan(preamble);
+    expect(preamble).toBeLessThan(scriptClose);
+    // SFC structure preserved.
+    expect(code).toContain('<template>');
   });
 
   test('layer 3 — Result.ok / Result.err / Result.map are usable end-to-end on lib', () => {

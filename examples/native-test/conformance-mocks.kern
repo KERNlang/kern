@@ -1,0 +1,8 @@
+effect name=loadUsers
+  trigger query="SELECT id, name FROM users"
+
+server name=MockedUsersAPI
+  route GET /api/users
+    effect name=fetchUsers
+      trigger url="/api/users"
+    respond 200 json=fetchUsers.result
