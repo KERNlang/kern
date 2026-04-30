@@ -263,8 +263,12 @@ export function surfaceParseDiagnostics(
   return { errors, warnings };
 }
 
-export function parseAndSurface(source: string, file?: string): IRNode {
-  const result = parseWithDiagnostics(source);
+export function parseAndSurface(
+  source: string,
+  file?: string,
+  options?: import('@kernlang/core').ParseOptions,
+): IRNode {
+  const result = parseWithDiagnostics(source, undefined, options);
   surfaceParseDiagnostics(result.diagnostics, file);
   return result.root;
 }
@@ -280,8 +284,12 @@ export interface FileDiagnosticsJSON {
 }
 
 /** Parse a .kern file and return structured diagnostics as JSON-serializable object. */
-export function parseWithJSONDiagnostics(source: string, file: string): { root: IRNode; json: FileDiagnosticsJSON } {
-  const result = parseWithDiagnostics(source);
+export function parseWithJSONDiagnostics(
+  source: string,
+  file: string,
+  options?: import('@kernlang/core').ParseOptions,
+): { root: IRNode; json: FileDiagnosticsJSON } {
+  const result = parseWithDiagnostics(source, undefined, options);
   const schemaViolations = [
     ...validateSchema(result.root),
     ...validateSemantics(result.root).map((sv) => ({
@@ -699,9 +707,10 @@ export function transpileAndWrite(
   args: string[],
   outDirOverride?: string,
   inputBase?: string,
+  options?: import('@kernlang/core').ParseOptions,
 ): void {
   const source = readFileSync(file, 'utf-8');
-  const ast = parseAndSurface(source, file);
+  const ast = parseAndSurface(source, file, options);
   const ext = file.endsWith('.kern') ? '.kern' : '.ir';
   const name = basename(file, ext);
   const sourceName = basename(file, ext);

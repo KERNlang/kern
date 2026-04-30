@@ -101,8 +101,8 @@ export function parseDocument(source: string, runtime?: KernRuntime): IRNode {
  * @param runtime - Optional KernRuntime instance for isolation
  * @returns `{ root: IRNode, diagnostics: ParseDiagnostic[] }`
  */
-export function parseWithDiagnostics(source: string, runtime?: KernRuntime): ParseResult {
-  return parseInternal(source, false, runtime);
+export function parseWithDiagnostics(source: string, runtime?: KernRuntime, options?: ParseOptions): ParseResult {
+  return parseInternal(source, false, runtime, options);
 }
 
 /** Parse with diagnostics (document mode).
