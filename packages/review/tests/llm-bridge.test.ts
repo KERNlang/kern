@@ -256,9 +256,9 @@ describe('chunkLargeInput', () => {
   });
 
   it('splits an oversized CHANGED file into multiple chunks with overlap', () => {
-    // 5000 lines × ~100 chars = ~125K tokens → over MAX_SINGLE_FILE_TOKENS (100K).
+    // 12000 lines × ~100 chars = ~300K tokens → over the current 200K batch budget.
     const line = `${'x'.repeat(99)}`;
-    const lines = Array.from({ length: 5_000 }, (_, i) => `// L${i + 1} ${line}`);
+    const lines = Array.from({ length: 12_000 }, (_, i) => `// L${i + 1} ${line}`);
     const source = lines.join('\n');
     const input = {
       filePath: 'changed.ts',
@@ -319,7 +319,7 @@ describe('chunkLargeInput', () => {
     // SYSTEM_PROMPT + OVERHEAD + irTokens + sourceTokens, and if IR alone
     // blows past the threshold, sourceBudget goes non-positive. The chunker
     // cannot help — chunking source doesn't reduce IR — so we return [].
-    const hugeIR = 'x'.repeat(280_000); // ~70K tokens of IR alone
+    const hugeIR = 'x'.repeat(900_000); // ~225K tokens of IR alone
     const input = {
       filePath: 'ir-heavy.ts',
       inferred: [],
@@ -348,13 +348,13 @@ describe('chunkLargeInput', () => {
   });
 
   it('returns [] when a single line exceeds the per-chunk source budget (minified)', () => {
-    // One line of 300K chars ≈ 75K tokens — bigger than any plausible
+    // One line of 900K chars ≈ 225K tokens — bigger than the per-chunk
     // per-chunk budget. Byte-splitting this would corrupt syntax, so we skip.
     const input = {
       filePath: 'bundle.min.js',
       inferred: [],
       templateMatches: [],
-      source: 'x'.repeat(600_000), // single 600K-char line → 150K tokens
+      source: 'x'.repeat(900_000), // single 900K-char line → 225K tokens
       graphContext: { fileDistances: new Map([['bundle.min.js', 0]]) },
     };
     expect(chunkLargeInput(input, '')).toEqual([]);
