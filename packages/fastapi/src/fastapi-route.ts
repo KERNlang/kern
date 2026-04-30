@@ -8,6 +8,7 @@
 
 import type { IRNode, SourceMapEntry } from '@kernlang/core';
 import { getChildren, getFirstChild, getProps } from '@kernlang/core';
+import { emitNativeKernBodyPythonWithImports } from './codegen-body-python.js';
 import { generatePortableHandlerFastAPI } from './fastapi-portable.js';
 import type { RouteArtifactRef, RouteCapabilities } from './fastapi-types.js';
 import { HTTP_METHODS } from './fastapi-types.js';
@@ -353,6 +354,33 @@ export function buildRouteArtifact(
 
     if (hasPortableNodes) {
       bodyLines.push(...generatePortableHandlerFastAPI(routeNode, '    ', pathParams, imports));
+    } else if (handlerNode && handlerProps.lang === 'kern') {
+      // Slice 4a — native KERN handler body (Python target). Same dispatch
+      // pattern as `fn` codegen at packages/fastapi/src/generators/core.ts:
+      //  - Path params are emitted camelCase as-is (line 300), so they
+      //    pass through the body unchanged. NO symbol-map entry needed.
+      //  - Query params ARE snake-cased in the signature (lines 307/309),
+      //    so each camelCase→snake rename feeds the body symbol map.
+      //  - Body emitter returns required imports (e.g. `math` ⇒
+      //    `import math as __k_math`); we add them to the route's
+      //    `imports` set so they land in the route file's import block.
+      // Stream/timer routes still use raw bodies for now (slice 4 follow-up).
+      const symbolMap: Record<string, string> = {};
+      for (const qp of queryParams) {
+        const snake = toSnakeCase(qp.name);
+        if (snake !== qp.name) symbolMap[qp.name] = snake;
+      }
+      const { code: kernBody, imports: bodyImports } = emitNativeKernBodyPythonWithImports(handlerNode, { symbolMap });
+      for (const mod of bodyImports) {
+        imports.add(`import ${mod} as __k_${mod}`);
+      }
+      if (kernBody) {
+        for (const kernLine of kernBody.split('\n')) {
+          bodyLines.push(`    ${kernLine}`);
+        }
+      } else {
+        bodyLines.push(`    return {"error": "Route handler not implemented"}`);
+      }
     } else if (handlerCode) {
       bodyLines.push(...indentHandler(handlerCode, '    '));
     } else if (routeHandlerCode) {

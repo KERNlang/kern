@@ -1,5 +1,5 @@
 import type { IRNode, SourceMapEntry } from '@kernlang/core';
-import { getChildren, getFirstChild, getProps } from '@kernlang/core';
+import { emitNativeKernBodyTS, getChildren, getFirstChild, getProps } from '@kernlang/core';
 import { buildSchema, resolveMiddlewareUsage } from './express-middleware.js';
 import { generatePortableHandlerExpress } from './express-portable.js';
 import { generateSpawnCode, generateStreamSetup, generateStreamWrap, generateTimerCode } from './express-stream.js';
@@ -294,6 +294,15 @@ export function buildRouteArtifact(
     // Phase 1-3: Portable handler — derive → guard → handler → respond
     if (hasPortableNodes) {
       lines.push(...generatePortableHandlerExpress(routeNode, '      ', path));
+    } else if (handlerNode && handlerProps.lang === 'kern') {
+      // Slice 4a — native KERN handler body (TS target). Same dispatch
+      // pattern as `fn` codegen at packages/core/src/codegen/functions.ts:
+      // emitNativeKernBodyTS walks the handler children and emits TypeScript.
+      // Stream/timer routes still use raw bodies for now (slice 4 follow-up).
+      const kernBody = emitNativeKernBodyTS(handlerNode);
+      for (const kernLine of kernBody.split('\n')) {
+        lines.push(`      ${kernLine}`);
+      }
     } else {
       lines.push(...indentBlock(handlerCode, '      '));
     }
