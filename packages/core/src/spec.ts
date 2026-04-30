@@ -118,6 +118,8 @@ export const NODE_TYPES = [
   'each',
   'let',
   'local',
+  // Native KERN handler-body statements (slice 1)
+  'return',
   // Next.js App Router
   'layout',
   'loading',

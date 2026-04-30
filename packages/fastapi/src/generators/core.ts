@@ -5,8 +5,20 @@
 
 import type { IRNode } from '@kernlang/core';
 import { emitIdentifier, handlerCode } from '@kernlang/core';
+import { emitNativeKernBodyPython } from '../codegen-body-python.js';
 import { buildPythonParamList, kids, p } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toScreamingSnake, toSnakeCase } from '../type-map.js';
+
+/** Slice 1 — native KERN handler bodies for Python target.
+ *  Returns the emitted Python body when the fn's handler child opts in via
+ *  `lang=kern`, otherwise returns the legacy raw body via `handlerCode`. */
+function fnBodyCodePython(node: IRNode): string {
+  const handler = node.children?.find((c) => c.type === 'handler');
+  if (handler && handler.props?.lang === 'kern') {
+    return emitNativeKernBodyPython(handler);
+  }
+  return handlerCode(node);
+}
 
 // ── Type Alias ───────────────────────────────────────────────────────────
 // type name=PlanState values="draft|approved|running"
@@ -82,7 +94,7 @@ export function generateFunction(node: IRNode): string[] {
 
   const retClause = returns ? ` -> ${mapTsTypeToPython(returns)}` : '';
   const asyncKw = isAsync ? 'async ' : '';
-  const code = handlerCode(node);
+  const code = fnBodyCodePython(node);
 
   lines.push(`${asyncKw}def ${name}(${paramList})${retClause}:`);
   if (code) {

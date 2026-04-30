@@ -2,6 +2,7 @@
  * @kernlang/core — parser, types, spec, config, style engines, codegen
  */
 
+export { emitNativeKernBodyTS } from './codegen/body-ts.js';
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 // Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)
 export {
@@ -56,6 +57,7 @@ export {
   sourceComment,
   unregisterEvolvedGenerator,
 } from './codegen-core.js';
+export { emitExpression } from './codegen-expression.js';
 export type {
   CallPayload,
   ConceptEdge,
@@ -173,6 +175,8 @@ export {
   unregisterParserHints,
 } from './parser.js';
 export type { ParseOptions } from './parser-core.js';
+// Native KERN handler bodies (slice 1) — expression parsing + body emit
+export { parseExpression } from './parser-expression.js';
 // Slice 7 v2 — cross-module recognition surface for `?`/`!` propagation.
 export type { ImportResolver, ModuleExports } from './parser-validate-propagation.js';
 export type { ParserHintsConfig } from './runtime.js';
@@ -258,6 +262,8 @@ export {
   escapeJsxText,
   serializeIR,
 } from './utils.js';
+export type { BinaryOp, UnaryOp, ValueIR, ValueIRKind } from './value-ir.js';
+export { isValueIR } from './value-ir.js';
 export type {
   NextjsOutputRules,
   NextjsVersionProfile,

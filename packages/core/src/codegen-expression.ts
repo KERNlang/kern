@@ -66,6 +66,12 @@ export function emitExpression(node: ValueIR): string {
       return `${node.op}${node.op === 'typeof' || node.op === 'void' ? ' ' : ''}${emitExpression(node.argument)}`;
     case 'spread':
       return `...${emitExpression(node.argument)}`;
+    case 'await':
+      return `await ${emitExpression(node.argument)}`;
+    case 'propagate':
+      throw new Error(
+        `Propagation '${node.op}' is statement-level only — body codegen must hoist it before emitExpression. Got ${node.op} on ${node.argument.kind}.`,
+      );
   }
 }
 

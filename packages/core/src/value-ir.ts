@@ -42,7 +42,9 @@ export type ValueIR =
   | { kind: 'call'; callee: ValueIR; args: ValueIR[]; optional: boolean; loc?: IRSourceLocation }
   | { kind: 'binary'; op: BinaryOp; left: ValueIR; right: ValueIR; loc?: IRSourceLocation }
   | { kind: 'unary'; op: UnaryOp; argument: ValueIR; loc?: IRSourceLocation }
-  | { kind: 'spread'; argument: ValueIR; loc?: IRSourceLocation };
+  | { kind: 'spread'; argument: ValueIR; loc?: IRSourceLocation }
+  | { kind: 'await'; argument: ValueIR; loc?: IRSourceLocation }
+  | { kind: 'propagate'; argument: ValueIR; op: '?' | '!'; loc?: IRSourceLocation };
 
 export type ValueIRKind = ValueIR['kind'];
 
@@ -62,6 +64,8 @@ export function isValueIR(x: unknown): x is ValueIR {
     k === 'call' ||
     k === 'binary' ||
     k === 'unary' ||
-    k === 'spread'
+    k === 'spread' ||
+    k === 'await' ||
+    k === 'propagate'
   );
 }

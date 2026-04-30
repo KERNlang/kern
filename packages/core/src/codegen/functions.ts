@@ -6,9 +6,21 @@
 
 import { propsOf } from '../node-props.js';
 import type { ExprObject, IRNode } from '../types.js';
+import { emitNativeKernBodyTS } from './body-ts.js';
 import { emitIdentifier, emitTypeAnnotation } from './emitters.js';
 import { dedent, emitDocComment, exportPrefix, getChildren, getFirstChild, getProps, handlerCode } from './helpers.js';
 import { emitParamList } from './type-system.js';
+
+/** Slice 1 — native KERN handler bodies (`handler lang=kern`).
+ *  Returns the emitted body when the fn's handler child opts in via `lang=kern`,
+ *  otherwise returns the legacy raw `<<<…>>>` body via `handlerCode`. */
+function fnBodyCode(node: IRNode): string {
+  const handler = getFirstChild(node, 'handler');
+  if (handler && getProps(handler).lang === 'kern') {
+    return emitNativeKernBodyTS(handler);
+  }
+  return handlerCode(node);
+}
 
 const p = getProps;
 const kids = getChildren;
@@ -60,7 +72,7 @@ export function generateFunction(node: IRNode): string[] {
     const yieldType = emitTypeAnnotation(returns, 'unknown', node);
     // If user already declared AsyncGenerator<...>, use as-is to avoid double-wrapping
     const retClause = yieldType.startsWith('AsyncGenerator<') ? `: ${yieldType}` : `: AsyncGenerator<${yieldType}>`;
-    const code = handlerCode(node);
+    const code = fnBodyCode(node);
     lines.push(`${exp}async function* ${name}${generics}(${paramList})${retClause} {`);
     if (code) {
       for (const line of code.split('\n')) {
@@ -84,7 +96,7 @@ export function generateFunction(node: IRNode): string[] {
         ? `: ${emitTypeAnnotation(returns, 'unknown', node)}`
         : '';
   const asyncKw = isAsync ? 'async ' : '';
-  const code = handlerCode(node);
+  const code = fnBodyCode(node);
 
   const signalNode = firstChild(node, 'signal');
   const cleanupNode = firstChild(node, 'cleanup');

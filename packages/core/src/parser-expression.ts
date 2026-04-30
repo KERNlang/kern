@@ -1,7 +1,12 @@
 /** Expression-mode tokenizer + recursive-descent parser producing ValueIR.
- *  Supports: identifiers, literals (number/string/true/false/null/undefined),
+ *  Supports: identifiers, literals (number/string/true/false/null/undefined/none),
  *  member access (. and ?.), call (() and ?.()), spread (...), logical ?? || &&,
- *  parenthesized grouping, template literals with ${...} interpolation.
+ *  parenthesized grouping, template literals with ${...} interpolation,
+ *  `await` prefix, propagation `?` postfix on call/await-call.
+ *
+ *  `none` is a KERN-side alias for `null` — both produce nullLit. Per native-handler
+ *  spec, `none` is the canonical empty-value form in `lang=kern` bodies; `null` is
+ *  retained for legacy/round-trip compatibility.
  *
  *  Intentionally NOT yet supported: arithmetic, comparisons, ternary, indexing,
  *  bitwise, assignment. Those land in a later slice. */
@@ -24,10 +29,12 @@ export type ExprTokenKind =
   | 'rparen'
   | 'comma'
   | 'spread'
+  | 'qmark'
   | 'kwNull'
   | 'kwUndef'
   | 'kwTrue'
   | 'kwFalse'
+  | 'kwAwait'
   | 'eof';
 
 export interface ExprToken {
@@ -38,9 +45,11 @@ export interface ExprToken {
 
 const KEYWORDS: Record<string, ExprTokenKind> = {
   null: 'kwNull',
+  none: 'kwNull',
   undefined: 'kwUndef',
   true: 'kwTrue',
   false: 'kwFalse',
+  await: 'kwAwait',
 };
 
 function isDigit(ch: string): boolean {
@@ -172,6 +181,11 @@ export function tokenizeExpression(input: string): ExprToken[] {
     if (ch === '?' && input[i + 1] === '?') {
       tokens.push({ kind: 'nullish', value: '??', pos: i });
       i += 2;
+      continue;
+    }
+    if (ch === '?') {
+      tokens.push({ kind: 'qmark', value: '?', pos: i });
+      i++;
       continue;
     }
     if (ch === '|' && input[i + 1] === '|') {
@@ -312,7 +326,30 @@ class Parser {
       this.advance();
       return { kind: 'spread', argument: this.parseUnary() };
     }
-    return this.parseCall();
+    if (this.peek().kind === 'kwAwait') {
+      this.advance();
+      // Use parseCall (not parsePostfix) so the trailing `?` stays available
+      // for the outer await + propagation composition. With parsePostfix the
+      // `?` would bind to the call alone, producing `await(propagate(call()))`
+      // instead of the semantically-correct `propagate(await(call()))`.
+      const argument = this.parseCall();
+      const awaited: ValueIR = { kind: 'await', argument };
+      if (this.peek().kind === 'qmark') {
+        this.advance();
+        return { kind: 'propagate', argument: awaited, op: '?' };
+      }
+      return awaited;
+    }
+    return this.parsePostfix();
+  }
+
+  private parsePostfix(): ValueIR {
+    const node = this.parseCall();
+    if (this.peek().kind === 'qmark') {
+      this.advance();
+      return { kind: 'propagate', argument: node, op: '?' };
+    }
+    return node;
   }
 
   private parseCall(): ValueIR {
