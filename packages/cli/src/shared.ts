@@ -17,6 +17,7 @@ import {
   expandTemplateNode,
   generateCoreNode,
   injectKernStdlibPreamble,
+  injectKernStdlibPreambleIntoSFC,
   isCoreNode,
   isTemplateNode,
   KERN_VERSION,
@@ -263,8 +264,12 @@ export function surfaceParseDiagnostics(
   return { errors, warnings };
 }
 
-export function parseAndSurface(source: string, file?: string): IRNode {
-  const result = parseWithDiagnostics(source);
+export function parseAndSurface(
+  source: string,
+  file?: string,
+  options?: import('@kernlang/core').ParseOptions,
+): IRNode {
+  const result = parseWithDiagnostics(source, undefined, options);
   surfaceParseDiagnostics(result.diagnostics, file);
   return result.root;
 }
@@ -280,8 +285,12 @@ export interface FileDiagnosticsJSON {
 }
 
 /** Parse a .kern file and return structured diagnostics as JSON-serializable object. */
-export function parseWithJSONDiagnostics(source: string, file: string): { root: IRNode; json: FileDiagnosticsJSON } {
-  const result = parseWithDiagnostics(source);
+export function parseWithJSONDiagnostics(
+  source: string,
+  file: string,
+  options?: import('@kernlang/core').ParseOptions,
+): { root: IRNode; json: FileDiagnosticsJSON } {
+  const result = parseWithDiagnostics(source, undefined, options);
   const schemaViolations = [
     ...validateSchema(result.root),
     ...validateSemantics(result.root).map((sv) => ({
@@ -601,17 +610,21 @@ function transpileLib(ast: IRNode, _cfg: ResolvedKernConfig): import('@kernlang/
  *
  *  Lifted from `transpileLib` so every TS-family target picks up the compact
  *  form without each transpiler needing its own integration. FastAPI is
- *  excluded (Python). Vue / Nuxt are also excluded for now — their `.vue`
- *  SFC output would receive raw `type Result<…>` text BEFORE the
- *  `<script setup lang="ts">` block, which is invalid SFC syntax. SFC-aware
- *  injection (place the preamble inside the script block) is a follow-up
- *  slice; until then Vue users keep using the explicit
- *  `union name=R kind=result …` form. (Codex review fix.)
+ *  excluded (Python).
+ *
+ *  Slice 4 follow-up — Vue / Nuxt SFC outputs route through
+ *  `injectKernStdlibPreambleIntoSFC`, which inserts the preamble INSIDE
+ *  the `<script setup lang="ts">` block instead of before it. The earlier
+ *  blanket pre-injection broke `.vue` parse because raw `type Result<…>`
+ *  text appeared ahead of the SFC. Plain TS-family targets continue to
+ *  use `injectKernStdlibPreamble` (which knows about `'use client'`,
+ *  hashbangs, and JSDoc).
  *
  *  Multi-artifact targets (express routes, structured Next.js, etc.) get the
  *  preamble injected into every artifact whose path ends in `.ts` / `.tsx`
  *  / `.mts` / `.cts`, since each route file independently references types
- *  in its handlers. */
+ *  in its handlers. Structured Vue / Nuxt artifacts use the SFC injector
+ *  for `.vue` files. */
 const TS_FAMILY_TARGETS: ReadonlySet<KernTarget> = new Set<KernTarget>([
   'lib',
   'native',
@@ -625,8 +638,14 @@ const TS_FAMILY_TARGETS: ReadonlySet<KernTarget> = new Set<KernTarget>([
   'nextjs',
 ]);
 
+const SFC_TARGETS: ReadonlySet<KernTarget> = new Set<KernTarget>(['vue', 'nuxt']);
+
 function isTsArtifactPath(path: string): boolean {
   return path.endsWith('.ts') || path.endsWith('.tsx') || path.endsWith('.mts') || path.endsWith('.cts');
+}
+
+function isSfcArtifactPath(path: string): boolean {
+  return path.endsWith('.vue');
 }
 
 function applyKernStdlibPreamble(
@@ -634,16 +653,24 @@ function applyKernStdlibPreamble(
   target: KernTarget,
   result: import('@kernlang/core').TranspileResult,
 ): import('@kernlang/core').TranspileResult {
-  if (!TS_FAMILY_TARGETS.has(target)) return result;
+  const isSfc = SFC_TARGETS.has(target);
+  if (!TS_FAMILY_TARGETS.has(target) && !isSfc) return result;
 
   const usage = detectKernStdlibUsage(ast);
   const preamble = kernStdlibPreamble(usage);
   if (preamble.length === 0) return result;
 
-  const updatedCode = injectKernStdlibPreamble(result.code, preamble);
-  const updatedArtifacts = result.artifacts?.map((art) =>
-    isTsArtifactPath(art.path) ? { ...art, content: injectKernStdlibPreamble(art.content, preamble) } : art,
-  );
+  const inject = isSfc ? injectKernStdlibPreambleIntoSFC : injectKernStdlibPreamble;
+  const updatedCode = inject(result.code, preamble);
+  const updatedArtifacts = result.artifacts?.map((art) => {
+    if (isSfcArtifactPath(art.path)) {
+      return { ...art, content: injectKernStdlibPreambleIntoSFC(art.content, preamble) };
+    }
+    if (isTsArtifactPath(art.path)) {
+      return { ...art, content: injectKernStdlibPreamble(art.content, preamble) };
+    }
+    return art;
+  });
 
   return {
     ...result,
@@ -699,9 +726,10 @@ export function transpileAndWrite(
   args: string[],
   outDirOverride?: string,
   inputBase?: string,
+  options?: import('@kernlang/core').ParseOptions,
 ): void {
   const source = readFileSync(file, 'utf-8');
-  const ast = parseAndSurface(source, file);
+  const ast = parseAndSurface(source, file, options);
   const ext = file.endsWith('.kern') ? '.kern' : '.ir';
   const name = basename(file, ext);
   const sourceName = basename(file, ext);

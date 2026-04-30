@@ -7,6 +7,7 @@ export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 export {
   detectKernStdlibUsage,
   injectKernStdlibPreamble,
+  injectKernStdlibPreambleIntoSFC,
   kernStdlibPreamble,
 } from './codegen/stdlib-preamble.js';
 export type { SemanticTypeMapping } from './codegen-core.js';
@@ -171,6 +172,9 @@ export {
   tokenizeLine,
   unregisterParserHints,
 } from './parser.js';
+export type { ParseOptions } from './parser-core.js';
+// Slice 7 v2 — cross-module recognition surface for `?`/`!` propagation.
+export type { ImportResolver, ModuleExports } from './parser-validate-propagation.js';
 export type { ParserHintsConfig } from './runtime.js';
 // Runtime (instance-based state)
 export { defaultRuntime, KernRuntime } from './runtime.js';

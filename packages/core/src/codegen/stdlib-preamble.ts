@@ -35,6 +35,10 @@ export interface KernStdlibUsage {
   result: boolean;
   /** Module references `Option<…>` somewhere in a type annotation. */
   option: boolean;
+  /** Module uses `KernUnwrapError` — auto-emitted by the slice 7 `!`
+   *  rewriter when a user wrote `expr!`. Optional for back-compat with
+   *  callers who only construct the result/option flags. */
+  unwrap?: boolean;
 }
 
 /** Regex anchored on word boundary + opening angle so a user identifier
@@ -43,10 +47,18 @@ export interface KernStdlibUsage {
  *  load-bearing safety check. */
 const RESULT_REGEX = /\bResult\s*</;
 const OPTION_REGEX = /\bOption\s*</;
+/** Slice 7 — the rewriter emits literal `throw new KernUnwrapError(__k_tN);`
+ *  in handler bodies. Anchor on `new KernUnwrapError(` so a user-defined
+ *  `class KernUnwrapError extends Error {…}` does NOT trip the detector and
+ *  cause double-emission with a redeclaration error. The narrow pattern
+ *  still matches user code that constructs the class via `new`, which is
+ *  the only case where the auto-emitted definition is needed. */
+const UNWRAP_REGEX = /\bnew\s+KernUnwrapError\s*\(/;
 
 function scanString(s: string, usage: KernStdlibUsage): void {
   if (!usage.result && RESULT_REGEX.test(s)) usage.result = true;
   if (!usage.option && OPTION_REGEX.test(s)) usage.option = true;
+  if (UNWRAP_REGEX.test(s)) usage.unwrap = true;
 }
 
 function scanProps(props: Record<string, unknown> | undefined, usage: KernStdlibUsage): void {
@@ -63,15 +75,18 @@ function scanProps(props: Record<string, unknown> | undefined, usage: KernStdlib
 }
 
 export function detectKernStdlibUsage(root: IRNode): KernStdlibUsage {
+  // `unwrap` stays absent (rather than `false`) when not detected, so
+  // strict `toEqual({ result, option })` callers from the slice 4 layer 2
+  // test suite continue to match without requiring updates.
   const usage: KernStdlibUsage = { result: false, option: false };
 
   function walk(node: IRNode): void {
     scanProps(node.props, usage);
-    if (usage.result && usage.option) return; // both flagged — short-circuit
+    if (usage.result && usage.option && usage.unwrap) return; // all flagged — short-circuit
     if (node.children) {
       for (const child of node.children) {
         walk(child);
-        if (usage.result && usage.option) return;
+        if (usage.result && usage.option && usage.unwrap) return;
       }
     }
   }
@@ -124,8 +139,20 @@ const OPTION_HELPERS = [
   '});',
 ];
 
+/** Slice 7 — `KernUnwrapError` carries the original err/none value when a
+ *  user writes `expr!`. The class is auto-emitted alongside the slice 4
+ *  helpers when at least one `!` rewrite happened in this module. */
+const UNWRAP_ERROR_CLASS = [
+  'class KernUnwrapError<T = unknown> extends Error {',
+  '  constructor(public readonly cause: T) {',
+  '    super(`KernUnwrapError: unwrap on ${(cause as { kind?: string }).kind ?? "unknown"}`);',
+  '    this.name = "KernUnwrapError";',
+  '  }',
+  '}',
+];
+
 export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
-  if (!usage.result && !usage.option) return [];
+  if (!usage.result && !usage.option && !usage.unwrap) return [];
 
   const lines: string[] = ['// ── KERN stdlib (auto-emitted) ──────────────────────────────────────'];
   if (usage.result) {
@@ -135,6 +162,9 @@ export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
   if (usage.option) {
     lines.push("type Option<T> = { kind: 'some'; value: T } | { kind: 'none' };");
     lines.push(...OPTION_HELPERS);
+  }
+  if (usage.unwrap) {
+    lines.push(...UNWRAP_ERROR_CLASS);
   }
   lines.push('');
   return lines;
@@ -165,6 +195,37 @@ export function kernStdlibPreamble(usage: KernStdlibUsage): string[] {
 //   so that hand-edited modules don't silently lose the preamble's directive
 //   skip. (Gemini review fix.)
 const DIRECTIVE_RE = /^\s*['"]use [a-z]+['"];?\s*(?:\/\/.*|\/\*[\s\S]*?\*\/)?\s*$/;
+
+/** Slice 4 follow-up — inject the preamble INSIDE a Vue/Nuxt SFC's first
+ *  `<script[ setup]? lang="ts">` block instead of before the SFC. The plain
+ *  `injectKernStdlibPreamble` would prepend `type Result<…>` text ahead of
+ *  the SFC, breaking the file's parse.
+ *
+ *  Only matches a TS-language script block. JavaScript script blocks
+ *  (`lang="js"` or no `lang`) are left alone — the preamble emits TS
+ *  syntax (generics, type aliases) which JS can't host.
+ *
+ *  When no matching script tag exists (template-only SFC, JS-only SFC),
+ *  the preamble is dropped entirely — silently injecting it elsewhere
+ *  would corrupt the file. The handler bodies in such SFCs cannot use
+ *  `Result<…>` / `Option<…>` types anyway, so the dropped preamble is
+ *  not load-bearing. */
+export function injectKernStdlibPreambleIntoSFC(code: string, preamble: string[]): string {
+  if (preamble.length === 0) return code;
+  // Match the opening `<script ... lang="ts" ...>` tag — `setup` may appear
+  // before or after `lang`, attribute quotes can be single or double, and
+  // additional attributes (e.g. `name="...">`) are tolerated.
+  const scriptOpen = /<script\b[^>]*\blang\s*=\s*["']ts["'][^>]*>/i;
+  const match = code.match(scriptOpen);
+  if (!match) return code;
+  const tagEnd = (match.index ?? 0) + match[0].length;
+  // Skip a single trailing newline if present so the preamble lands on
+  // its own line rather than directly after the `>`.
+  const afterTag = code[tagEnd] === '\n' ? tagEnd + 1 : tagEnd;
+  const before = code.slice(0, afterTag);
+  const after = code.slice(afterTag);
+  return `${before}${preamble.join('\n')}\n${after}`;
+}
 
 export function injectKernStdlibPreamble(code: string, preamble: string[]): string {
   if (preamble.length === 0) return code;
