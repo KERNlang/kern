@@ -1,0 +1,63 @@
+interface name=User
+  field name=id type=string
+  field name=name type=string
+  field name=role type=string
+  field name=active type=boolean
+
+const name=users value={{[{ id: "u1", name: "Ada", role: "admin", active: true }, { id: "u2", name: "Grace", role: "member", active: true }, { id: "u3", name: "Lin", role: "member", active: false }]}}
+derive name=activeUsers expr={{users.filter((user) => user.active)}}
+
+machine name=Order
+  state name=pending initial=true
+  state name=confirmed
+  state name=paid
+  state name=refunded
+  transition name=confirm from=pending to=confirmed
+  transition name=capture from=confirmed to=paid
+  transition name=refund from=paid to=refunded
+
+union name=Payment discriminant=kind
+  variant name=card
+  variant name=paypal
+
+guard name=PaymentGuard kind=variant covers=card,paypal over=Payment
+
+effect name=loadUsers
+  trigger expr={{activeUsers}}
+  recover fallback={{[]}}
+
+server name=KernSelfApi
+  route GET /users
+    params role:string
+    branch name=byRole on=query.role
+      path value=admin
+        collect name=result from=activeUsers where={{item.role === "admin"}}
+        respond 200 json=result
+      path value=member
+        collect name=result from=activeUsers where={{item.role === "member"}}
+        respond 200 json=result
+    respond 200 json=activeUsers
+
+  route GET /users/:id
+    guard type=validate param=id regex="^u[0-9]+$"
+    derive user expr={{users.find((item) => item.id === params.id)}}
+    guard name=exists expr={{user}} else=404
+    respond 200 json=user
+
+mcp name=KernSelfTools
+  tool name=filterUsers
+    param name=role type=string value=member
+    guard type=sanitize param=role pattern="[^a-z]" replacement=""
+    branch name=byRole on=role
+      path value=admin
+        collect name=result from=activeUsers where={{item.role === "admin"}}
+        respond 200 json=result
+      path value=member
+        collect name=result from=activeUsers where={{item.role === "member"}}
+        respond 200 json=result
+    respond 200 json=activeUsers
+
+  tool name=readSafe
+    param name=filePath type=string required=true
+    guard type=pathContainment param=filePath allowlist="/data"
+    respond 200 json=filePath
