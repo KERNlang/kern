@@ -342,6 +342,138 @@ describe('rewritePropagationInBody — failure-kind from callee', () => {
   });
 });
 
+describe('rewritePropagationInBody — async/await fusion (slice 7 v2.1)', () => {
+  function rewriteAsync(
+    body: string,
+    fnReturn: 'result' | 'option' | 'asyncResult' | 'asyncOption' | 'other',
+    knownResultFns: string[] = [],
+    knownOptionFns: string[] = [],
+    knownAsyncResultFns: string[] = [],
+    knownAsyncOptionFns: string[] = [],
+  ): { code: string; usedUnwrap: boolean; diagnostics: DiagSink['diagnostics'] } {
+    const sink = freshSink();
+    const out = rewritePropagationInBody(
+      body,
+      fnReturn,
+      {
+        resultFns: new Set(knownResultFns),
+        optionFns: new Set(knownOptionFns),
+        asyncResultFns: new Set(knownAsyncResultFns),
+        asyncOptionFns: new Set(knownAsyncOptionFns),
+      },
+      (code, message) => sink.diagnostics.push({ code, message }),
+    );
+    return { code: out.code, usedUnwrap: out.usedUnwrap, diagnostics: sink.diagnostics };
+  }
+
+  test('rewrites `await fetchUser(id)?` in an async Result-returning fn', () => {
+    const out = rewriteAsync('const u = await fetchUser(id)?;', 'asyncResult', [], [], ['fetchUser']);
+    expect(out.diagnostics).toEqual([]);
+    expect(out.code).toContain('const __k_t1 = await fetchUser(id);');
+    expect(out.code).toContain("if (__k_t1.kind === 'err') return __k_t1;");
+    expect(out.code).toContain('const u = __k_t1.value;');
+  });
+
+  test('rewrites `await lookup(k)!` panics with KernUnwrapError (in async container)', () => {
+    // `await` requires async container even for `!` (TS would reject `await`
+    // in a sync function regardless of the panic semantics).
+    const out = rewriteAsync('const u = await lookup(k)!;', 'asyncResult', [], [], [], ['lookup']);
+    expect(out.code).toContain('const __k_t1 = await lookup(k);');
+    expect(out.code).toContain("if (__k_t1.kind === 'none') throw new KernUnwrapError(__k_t1);");
+    expect(out.usedUnwrap).toBe(true);
+  });
+
+  test('rewrites `return await fetchUser(id)?`', () => {
+    const out = rewriteAsync('return await fetchUser(id)?;', 'asyncResult', [], [], ['fetchUser']);
+    expect(out.diagnostics).toEqual([]);
+    expect(out.code).toContain('const __k_t1 = await fetchUser(id);');
+    expect(out.code).toContain('return __k_t1.value;');
+  });
+
+  test('async container with sync Result callee — no await, normal rewrite', () => {
+    const out = rewriteAsync('const u = parse(x)?;', 'asyncResult', ['parse']);
+    expect(out.diagnostics).toEqual([]);
+    expect(out.code).toContain('const __k_t1 = parse(x);');
+    expect(out.code).not.toContain('await');
+  });
+
+  test('rejects async callee WITHOUT await (forgot to await)', () => {
+    const out = rewriteAsync('const u = fetchUser(id)?;', 'asyncResult', [], [], ['fetchUser']);
+    expect(out.diagnostics.some((d) => d.code === 'INVALID_PROPAGATION')).toBe(true);
+    expect(out.diagnostics[0].message).toMatch(/await fetchUser/);
+  });
+
+  test('rejects sync callee WITH await (await on non-Promise)', () => {
+    const out = rewriteAsync('const u = await parse(x)?;', 'asyncResult', ['parse']);
+    expect(out.diagnostics.some((d) => d.code === 'INVALID_PROPAGATION')).toBe(true);
+    expect(out.diagnostics[0].message).toMatch(/unnecessary/);
+  });
+
+  test('rejects await in a sync container fn', () => {
+    // Result-returning sync fn with async callee + await → await is invalid
+    // because the container isn't async.
+    const out = rewriteAsync('const u = await fetchUser(id)?;', 'result', [], [], ['fetchUser']);
+    expect(out.diagnostics.some((d) => d.code === 'INVALID_PROPAGATION')).toBe(true);
+    expect(out.diagnostics[0].message).toMatch(/async=true/);
+  });
+
+  test('mixed-kind reject: async Option callee `?` inside async Result fn', () => {
+    const out = rewriteAsync('const u = await lookup(k)?;', 'asyncResult', [], [], [], ['lookup']);
+    expect(out.diagnostics.some((d) => d.code === 'INVALID_PROPAGATION')).toBe(true);
+    expect(out.diagnostics[0].message).toMatch(/Option.*Result/);
+  });
+
+  test('end-to-end via parseDocumentWithDiagnostics — `Promise<Result<…>>` returns classify async', () => {
+    const src = [
+      'fn name=loud params="raw:string" returns="Promise<Result<string, AppError>>"',
+      '  handler <<<',
+      '    const u = await fetchUser(raw)?;',
+      '    return Result.ok(u.toUpperCase());',
+      '  >>>',
+      'fn name=fetchUser params="raw:string" returns="Promise<Result<string, AppError>>"',
+      '  handler <<<',
+      '    return Result.ok(raw);',
+      '  >>>',
+    ].join('\n');
+    const result = parseDocumentWithDiagnostics(src);
+    function findHandler(node: typeof result.root): string | null {
+      if (node.type === 'handler' && typeof node.props?.code === 'string') return node.props.code as string;
+      for (const c of node.children || []) {
+        const found = findHandler(c);
+        if (found) return found;
+      }
+      return null;
+    }
+    const code = findHandler(result.root)!;
+    expect(code).toContain('const __k_t1 = await fetchUser(raw);');
+  });
+
+  test('end-to-end — `async=true` flag with bare `Result<…>` returns classifies async', () => {
+    const src = [
+      'fn name=loud params="raw:string" returns="Result<string, AppError>" async=true',
+      '  handler <<<',
+      '    const u = await fetchUser(raw)?;',
+      '    return Result.ok(u);',
+      '  >>>',
+      'fn name=fetchUser params="raw:string" returns="Result<string, AppError>" async=true',
+      '  handler <<<',
+      '    return Result.ok(raw);',
+      '  >>>',
+    ].join('\n');
+    const result = parseDocumentWithDiagnostics(src);
+    function findFirst(node: typeof result.root): string | null {
+      if (node.type === 'handler' && typeof node.props?.code === 'string') return node.props.code as string;
+      for (const c of node.children || []) {
+        const found = findFirst(c);
+        if (found) return found;
+      }
+      return null;
+    }
+    const code = findFirst(result.root)!;
+    expect(code).toContain('await fetchUser(raw)');
+  });
+});
+
 describe('parseDocumentWithDiagnostics — cross-module recognition (slice 7 v2)', () => {
   // Without a resolveImport callback, calls to fns imported via `use` are
   // not recognised. With a resolver that maps the imported path to a

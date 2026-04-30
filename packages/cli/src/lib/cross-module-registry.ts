@@ -15,9 +15,22 @@ import { dirname, resolve } from 'path';
 const RESULT_RETURN_RE = /^Result<[\s\S]*>$/;
 const OPTION_RETURN_RE = /^Option<[\s\S]*>$/;
 
+/** Strip an outer `Promise<…>` wrapper if present. Mirrors the helper in
+ *  `parser-validate-propagation.ts` so the registry classifies async
+ *  exports the same way the propagation pass does. */
+function unwrapPromise(s: string): { inner: string; wasPromise: boolean } {
+  const t = s.trim();
+  if (t.startsWith('Promise<') && t.endsWith('>')) {
+    return { inner: t.slice('Promise<'.length, -1).trim(), wasPromise: true };
+  }
+  return { inner: t, wasPromise: false };
+}
+
 function classifyExports(root: IRNode): ModuleExports {
   const resultFns = new Set<string>();
   const optionFns = new Set<string>();
+  const asyncResultFns = new Set<string>();
+  const asyncOptionFns = new Set<string>();
 
   function walk(node: IRNode): void {
     if (node.type === 'fn' || node.type === 'method') {
@@ -28,17 +41,22 @@ function classifyExports(root: IRNode): ModuleExports {
       // exported names contribute to cross-module recognition.
       const exportProp = props.export;
       const isExported = !(exportProp === 'false' || exportProp === false);
+      const isAsync = props.async === true || props.async === 'true';
       if (name && isExported && typeof returns === 'string') {
-        const trimmed = returns.trim();
-        if (RESULT_RETURN_RE.test(trimmed)) resultFns.add(name);
-        else if (OPTION_RETURN_RE.test(trimmed)) optionFns.add(name);
+        const { inner, wasPromise } = unwrapPromise(returns);
+        const effectivelyAsync = wasPromise || isAsync;
+        if (RESULT_RETURN_RE.test(inner)) {
+          (effectivelyAsync ? asyncResultFns : resultFns).add(name);
+        } else if (OPTION_RETURN_RE.test(inner)) {
+          (effectivelyAsync ? asyncOptionFns : optionFns).add(name);
+        }
       }
     }
     if (node.children) for (const c of node.children) walk(c);
   }
 
   walk(root);
-  return { resultFns, optionFns };
+  return { resultFns, optionFns, asyncResultFns, asyncOptionFns };
 }
 
 /** Walk every `.kern` file in the project once and produce a

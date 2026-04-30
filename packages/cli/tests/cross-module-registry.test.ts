@@ -174,6 +174,63 @@ describe('cross-module registry — end-to-end', () => {
     expect(code).toContain('const __k_t1 = parse(raw);');
   });
 
+  test('async exports populate asyncResultFns / asyncOptionFns', () => {
+    const aPath = join(tmpDir, 'a.kern');
+    writeFileSync(
+      aPath,
+      [
+        'fn name=fetchUser params="id:string" returns="Promise<Result<string, AppError>>"',
+        '  handler <<<',
+        '    return Result.ok(id);',
+        '  >>>',
+        'fn name=lookup params="k:string" returns="Option<string>" async=true',
+        '  handler <<<',
+        '    return Option.some(k);',
+        '  >>>',
+      ].join('\n'),
+    );
+    const registry = buildCrossModuleRegistry([aPath]);
+    const exp = registry.get(resolve(aPath));
+    expect(exp?.asyncResultFns?.has('fetchUser')).toBe(true);
+    expect(exp?.asyncOptionFns?.has('lookup')).toBe(true);
+    // Sync sets must NOT contain the async names.
+    expect(exp?.resultFns.has('fetchUser')).toBe(false);
+    expect(exp?.optionFns.has('lookup')).toBe(false);
+  });
+
+  test('cross-module `await fetchUser(id)?` lowers correctly with async registry', () => {
+    const aPath = join(tmpDir, 'a.kern');
+    writeFileSync(
+      aPath,
+      [
+        'fn name=fetchUser params="id:string" returns="Promise<Result<string, AppError>>"',
+        '  handler <<<',
+        '    return Result.ok(id);',
+        '  >>>',
+      ].join('\n'),
+    );
+
+    const bPath = join(tmpDir, 'b.kern');
+    const bSource = [
+      'use path="./a"',
+      '  from name=fetchUser',
+      'fn name=loud params="id:string" returns="Promise<Result<string, AppError>>"',
+      '  handler <<<',
+      '    const u = await fetchUser(id)?;',
+      '    return Result.ok(u);',
+      '  >>>',
+    ].join('\n');
+    writeFileSync(bPath, bSource);
+
+    const registry = buildCrossModuleRegistry([aPath, bPath]);
+    const resolver = makeImportResolverForFile(resolve(bPath), registry);
+    const result = parseDocumentWithDiagnostics(bSource, undefined, { resolveImport: resolver });
+    const code = findHandlerCode(result.root)!;
+
+    expect(code).toContain('const __k_t1 = await fetchUser(id);');
+    expect(code).toContain("if (__k_t1.kind === 'err') return __k_t1;");
+  });
+
   test('non-exported fns (export=false) are excluded from the registry', () => {
     const aPath = join(tmpDir, 'a.kern');
     writeFileSync(
