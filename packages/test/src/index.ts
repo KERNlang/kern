@@ -136,7 +136,8 @@ interface NativeKernAssertionContext {
   assertions: CollectedAssertion[];
   fixtures?: RuntimeBinding[];
   mocks?: RuntimeEffectMock[];
-  usedMocks?: Set<string>;
+  mockCalls?: Map<string, number>;
+  checkedMocks?: Set<string>;
 }
 
 interface RuntimeBinding {
@@ -159,6 +160,18 @@ interface RuntimeEffectMock {
   throws?: string;
   line?: number;
   col?: number;
+}
+
+type RuntimeWorkflowKind = 'route' | 'tool';
+
+interface RuntimeWorkflowProgramOptions {
+  mocks?: RuntimeEffectMock[];
+  kind?: RuntimeWorkflowKind;
+}
+
+interface RuntimeGuardOptions {
+  portable?: boolean;
+  targetParam?: string;
 }
 
 type RuntimeEvalResult = { ok: true; value: unknown } | { ok: false; error: unknown };
@@ -248,8 +261,16 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
     description: 'Evaluate a portable route workflow with request fixtures before backend code generation.',
   },
   {
+    ruleId: 'runtime:tool',
+    description: 'Evaluate a portable MCP tool workflow with input fixtures before backend code generation.',
+  },
+  {
     ruleId: 'runtime:effect',
     description: 'Evaluate a deterministic portable effect/recover workflow before backend code generation.',
+  },
+  {
+    ruleId: 'mock:called',
+    description: 'Assert how many times a scoped native effect mock was actually invoked.',
   },
   { ruleId: 'expect:unsupported', description: 'The expect assertion shape is not supported by native kern test.' },
   { ruleId: 'preset:unknown', description: 'The requested preset name is unknown.' },
@@ -802,7 +823,9 @@ function assertionLabel(node: IRNode): string {
   const fn = str(props.fn);
   const derive = str(props.derive);
   const route = str(props.route);
+  const tool = str(props.tool);
   const effect = str(props.effect);
+  const mock = str(props.mock);
   const args = exprToString(props.args);
   const withValue = exprToString(props.with);
   const input = exprToString(props.input);
@@ -812,6 +835,7 @@ function assertionLabel(node: IRNode): string {
   const recovers = props.recovers === undefined ? '' : String(props.recovers || 'true');
   const matches = props.matches === undefined ? '' : String(props.matches);
   const throws = props.throws === undefined ? '' : String(props.throws || 'true');
+  const called = props.called === undefined ? '' : String(props.called);
 
   if (preset) return `preset ${preset}`;
   if (nodeType) {
@@ -860,6 +884,16 @@ function assertionLabel(node: IRNode): string {
     if (throws) parts.push(`throws ${throws}`);
     return parts.join(' ');
   }
+  if (tool) {
+    const parts = [`tool ${tool}`];
+    if (withValue) parts.push(`with ${withValue}`);
+    if (input) parts.push(`input ${input}`);
+    if (returns) parts.push(`returns ${returns}`);
+    if (equals) parts.push(`equals ${equals}`);
+    if (matches) parts.push(`matches ${matches}`);
+    if (throws) parts.push(`throws ${throws}`);
+    return parts.join(' ');
+  }
   if (effect) {
     const parts = [`effect ${effect}`];
     if (returns) parts.push(`returns ${returns}`);
@@ -868,6 +902,11 @@ function assertionLabel(node: IRNode): string {
     if (equals) parts.push(`equals ${equals}`);
     if (matches) parts.push(`matches ${matches}`);
     if (throws) parts.push(`throws ${throws}`);
+    return parts.join(' ');
+  }
+  if (mock) {
+    const parts = [`mock ${mock}`];
+    if (called) parts.push(`called ${called}`);
     return parts.join(' ');
   }
   if (expr && equals) return `expr ${expr} equals ${equals}`;
@@ -2125,20 +2164,210 @@ function runtimeScopedObject(names: string[]): string {
   return `({ ${unique.join(', ')} })`;
 }
 
-function runtimeGuardStatement(node: IRNode, options: { portable?: boolean } = {}): string[] {
+function runtimeWorkflowHelperLines(): string[] {
+  return [
+    'const __kernGuardError = (name, message) => { const error = new Error(message); error.name = name; throw error; };',
+    'const __kernGuardSyncParam = (name, value) => {',
+    '  if (typeof params === "object" && params !== null) params[name] = value;',
+    '  if (typeof query === "object" && query !== null && name in query) query[name] = value;',
+    '  if (typeof body === "object" && body !== null && name in body) body[name] = value;',
+    '  if (typeof args === "object" && args !== null) args[name] = value;',
+    '};',
+    'const __kernNormalizePath = (value) => {',
+    '  const text = String(value || "");',
+    '  const absolute = text.startsWith("/") ? text : `/${text}`;',
+    '  const parts = [];',
+    '  for (const part of absolute.split("/")) {',
+    '    if (!part || part === ".") continue;',
+    '    if (part === "..") parts.pop();',
+    '    else parts.push(part);',
+    '  }',
+    '  return `/${parts.join("/")}`;',
+    '};',
+    'const __kernResolvePath = (value, base) => String(value).startsWith("/") ? __kernNormalizePath(value) : __kernNormalizePath(`${base || ""}/${value}`);',
+    'const __kernPathWithin = (candidate, roots) => roots.some((root) => candidate === root || candidate.startsWith(root.endsWith("/") ? root : `${root}/`));',
+    'const __kernByteLength = (value) => {',
+    '  const text = typeof value === "string" ? value : JSON.stringify(value);',
+    '  if (text == null) return 0;',
+    '  let bytes = 0;',
+    '  for (let i = 0; i < text.length; i++) {',
+    '    const code = text.charCodeAt(i);',
+    '    if (code < 0x80) bytes += 1;',
+    '    else if (code < 0x800) bytes += 2;',
+    '    else if (code >= 0xd800 && code <= 0xdbff) { bytes += 4; i++; }',
+    '    else bytes += 3;',
+    '  }',
+    '  return bytes;',
+    '};',
+    'const __kernUrlHost = (value) => {',
+    '  const match = String(value || "").match(/^[A-Za-z][A-Za-z0-9+.-]*:\\/\\/([^/?#]+)/);',
+    '  if (!match) return "";',
+    '  return match[1].split("@").pop().split(":")[0].toLowerCase();',
+    '};',
+  ];
+}
+
+function runtimeGuardTargetName(node: IRNode, options: RuntimeGuardOptions): string {
+  return guardParam(node) || options.targetParam || '';
+}
+
+function runtimeGuardListProp(node: IRNode, ...propNames: string[]): string[] {
+  const props = getProps(node);
+  for (const propName of propNames) {
+    const value = str(props[propName]);
+    if (value) return parseList(value);
+  }
+  return [];
+}
+
+function runtimeGuardAssignLines(target: string, source: string): string[] {
+  return [`${target} = ${source};`, `__kernGuardSyncParam(${JSON.stringify(target)}, ${target});`];
+}
+
+function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}): string[] {
   const rawExpr = exprPropToRuntimeSource(node, 'expr') || rawPropToRuntimeSource(node, 'expr');
   const expr = options.portable ? runtimePortableSource(rawExpr) : rawExpr;
-  if (!expr) return [];
   const props = getProps(node);
-  const fallback = str(props.else) || str(props.fallback);
-  const numericFallback = fallback && /^\d+$/.test(fallback) ? Number(fallback) : undefined;
-  const result =
-    numericFallback !== undefined
-      ? `({ status: ${numericFallback} })`
-      : fallback
-        ? `({ error: ${JSON.stringify(fallback)} })`
-        : 'false';
-  return [`if (!(${expr})) return (${result});`];
+  if (expr) {
+    const fallback = str(props.else) || str(props.fallback);
+    const numericFallback = fallback && /^\d+$/.test(fallback) ? Number(fallback) : undefined;
+    const result =
+      numericFallback !== undefined
+        ? `({ status: ${numericFallback} })`
+        : fallback
+          ? `({ error: ${JSON.stringify(fallback)} })`
+          : 'false';
+    return [`if (!(${expr})) return (${result});`];
+  }
+
+  if (!options.portable && !options.targetParam) return [];
+
+  const kind = guardKind(node);
+  const target = runtimeGuardTargetName(node, options);
+  const lines: string[] = [];
+
+  if (kind === 'sanitize') {
+    if (!target || !isRuntimeBindingName(target)) return [];
+    const pattern = str(props.pattern) || '[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]';
+    const replacement = str(props.replacement);
+    try {
+      new RegExp(pattern);
+      if (/([+*}])\s*\)\s*[+*{]/.test(pattern)) {
+        return [
+          `__kernGuardError("GuardConfigError", ${JSON.stringify(`Unsafe sanitize regex for ${target}: ${pattern}`)});`,
+        ];
+      }
+    } catch {
+      return [
+        `__kernGuardError("GuardConfigError", ${JSON.stringify(`Invalid sanitize regex for ${target}: ${pattern}`)});`,
+      ];
+    }
+    lines.push(`if (typeof ${target} === "string") {`);
+    for (const line of runtimeGuardAssignLines(
+      target,
+      `${target}.replace(new RegExp(${JSON.stringify(pattern)}, "g"), ${JSON.stringify(replacement)})`,
+    )) {
+      lines.push(`  ${line}`);
+    }
+    lines.push('}');
+    return lines;
+  }
+
+  if (kind === 'validate') {
+    if (!target || !isRuntimeBindingName(target)) return [];
+    const min = numericProp(props, 'min');
+    const max = numericProp(props, 'max');
+    if (min !== undefined) {
+      lines.push(
+        `if (typeof ${target} === "number" ? ${target} < ${min} : String(${target}).length < ${min}) __kernGuardError("ValidationError", ${JSON.stringify(`${target} below minimum ${min}`)});`,
+      );
+    }
+    if (max !== undefined) {
+      lines.push(
+        `if (typeof ${target} === "number" ? ${target} > ${max} : String(${target}).length > ${max}) __kernGuardError("ValidationError", ${JSON.stringify(`${target} above maximum ${max}`)});`,
+      );
+    }
+    const regex = str(props.regex) || str(props.pattern);
+    if (regex) {
+      try {
+        new RegExp(regex);
+        if (/([+*}])\s*\)\s*[+*{]/.test(regex)) {
+          lines.push(
+            `__kernGuardError("GuardConfigError", ${JSON.stringify(`Unsafe validate regex for ${target}: ${regex}`)});`,
+          );
+        } else {
+          lines.push(
+            `if (typeof ${target} === "string" && !(new RegExp(${JSON.stringify(regex)})).test(${target})) __kernGuardError("ValidationError", ${JSON.stringify(`${target} does not match required pattern`)});`,
+          );
+        }
+      } catch {
+        lines.push(
+          `__kernGuardError("GuardConfigError", ${JSON.stringify(`Invalid validate regex for ${target}: ${regex}`)});`,
+        );
+      }
+    }
+    return lines;
+  }
+
+  if (kind === 'pathcontainment' || kind === 'pathcontainmentguard' || kind === 'path') {
+    if (!target || !isRuntimeBindingName(target)) return [];
+    const roots = runtimeGuardListProp(node, 'allowlist', 'allow', 'roots', 'root');
+    const base = str(props.baseDir) || str(props.base) || '/';
+    const rootList = roots.length > 0 ? roots : [base || '/'];
+    const rootsSource = `[${rootList.map((root) => JSON.stringify(root)).join(', ')}].map(__kernNormalizePath)`;
+    lines.push(
+      `if (${target} == null || ${target} === "") __kernGuardError("PathContainmentError", ${JSON.stringify(`${target} is required for path containment check`)});`,
+    );
+    for (const line of runtimeGuardAssignLines(target, `__kernResolvePath(${target}, ${JSON.stringify(base)})`)) {
+      lines.push(line);
+    }
+    lines.push(
+      `if (!__kernPathWithin(${target}, ${rootsSource})) __kernGuardError("PathContainmentError", ${JSON.stringify(`${target} escapes allowed directories`)});`,
+    );
+    return lines;
+  }
+
+  if (kind === 'sizelimit') {
+    if (!target || !isRuntimeBindingName(target)) return [];
+    const maxBytes = numericProp(props, 'maxBytes') ?? numericProp(props, 'max') ?? 1048576;
+    lines.push(
+      `if (__kernByteLength(${target}) > ${maxBytes}) __kernGuardError("SizeLimitError", ${JSON.stringify(`${target} exceeds size limit of ${maxBytes} bytes`)});`,
+    );
+    return lines;
+  }
+
+  if (kind === 'auth') {
+    const tokenTarget = target && isRuntimeBindingName(target) ? target : '';
+    const header = str(props.header) || 'authorization';
+    const tokenExpr = tokenTarget
+      ? tokenTarget
+      : `(typeof headers === "object" && headers !== null ? (headers[${JSON.stringify(header)}] || headers[${JSON.stringify(header.toLowerCase())}] || headers.Authorization) : undefined) || (typeof params === "object" && params !== null ? (params.token || params.authorization) : undefined) || (typeof args === "object" && args !== null ? (args.token || args.authorization) : undefined)`;
+    lines.push(
+      `if (!(${tokenExpr})) __kernGuardError("AuthError", ${JSON.stringify(`Authentication required${tokenTarget ? `: ${tokenTarget}` : ''}`)});`,
+    );
+    return lines;
+  }
+
+  if (kind === 'ratelimit') {
+    const maxRequests = numericProp(props, 'maxRequests') ?? numericProp(props, 'requests') ?? 1;
+    if (maxRequests <= 0) {
+      return [`__kernGuardError("RateLimitError", "Rate limit maxRequests must be greater than 0");`];
+    }
+    return [];
+  }
+
+  if (kind === 'urlallowlist' || kind === 'urlvalidation' || kind === 'hostallowlist' || kind === 'domainallowlist') {
+    if (!target || !isRuntimeBindingName(target)) return [];
+    const allowed = runtimeGuardListProp(node, 'allowlist', 'allow').map((entry) => entry.toLowerCase());
+    if (allowed.length === 0) return [];
+    const allowedSource = `[${allowed.map((entry) => JSON.stringify(entry)).join(', ')}]`;
+    lines.push(
+      `if (!${allowedSource}.includes(__kernUrlHost(${target}))) __kernGuardError("UrlAllowlistError", ${JSON.stringify(`${target} host is not allowlisted`)});`,
+    );
+    return lines;
+  }
+
+  return [];
 }
 
 function runtimeScopedChildProgram(children: IRNode[]): { lines: string[]; names: string[]; hasReturn: boolean } {
@@ -2309,6 +2538,10 @@ function runtimeRouteParamItems(route: IRNode): Array<{ name: string; defaultSou
   return items;
 }
 
+function runtimeWorkflowKind(options: RuntimeWorkflowProgramOptions): RuntimeWorkflowKind {
+  return options.kind || 'route';
+}
+
 function runtimeEffectName(node: IRNode): string {
   return str(getProps(node).name) || 'effect';
 }
@@ -2387,8 +2620,27 @@ function runtimeEffectMockExecutionExpr(
   return { expr: lines.join('\n') };
 }
 
-function markRuntimeEffectMockUsed(mock: RuntimeEffectMock, usedMocks?: Set<string>): void {
-  usedMocks?.add(mock.id);
+function recordRuntimeEffectMockCall(mock: RuntimeEffectMock, mockCalls?: Map<string, number>): void {
+  if (!mockCalls) return;
+  mockCalls.set(mock.id, (mockCalls.get(mock.id) || 0) + 1);
+}
+
+function markRuntimeEffectMockChecked(mock: RuntimeEffectMock, checkedMocks?: Set<string>): void {
+  checkedMocks?.add(mock.id);
+}
+
+function runtimeEffectMockCallLine(mock: RuntimeEffectMock): string {
+  const id = JSON.stringify(mock.id);
+  return `__kernMockCalls[${id}] = (__kernMockCalls[${id}] || 0) + 1;`;
+}
+
+function mergeRuntimeEffectMockCalls(mockCalls: Map<string, number> | undefined, calls: unknown): void {
+  if (!mockCalls || !calls || typeof calls !== 'object') return;
+  for (const [id, count] of Object.entries(calls as Record<string, unknown>)) {
+    const numeric = Number(count);
+    if (!Number.isFinite(numeric) || numeric <= 0) continue;
+    mockCalls.set(id, (mockCalls.get(id) || 0) + numeric);
+  }
 }
 
 function runtimeEffectExecutionExpr(
@@ -2445,10 +2697,10 @@ function runtimeEffectExecutionExpr(
 function runtimeRouteRequestLines(route: IRNode, inputSource: string): { lines: string[]; message?: string } {
   const lines = [
     `const __request = ((${inputSource}) ?? {});`,
-    'const params = (__request.params ?? {});',
-    'const query = (__request.query ?? {});',
-    'const body = (__request.body ?? {});',
-    'const headers = (__request.headers ?? {});',
+    'let params = (__request.params ?? {});',
+    'let query = (__request.query ?? {});',
+    'let body = (__request.body ?? {});',
+    'let headers = (__request.headers ?? {});',
   ];
   const declared = new Set<string>();
 
@@ -2456,7 +2708,8 @@ function runtimeRouteRequestLines(route: IRNode, inputSource: string): { lines: 
     if (!isRuntimeBindingName(name)) return { lines: [], message: `Runtime route has invalid path param: ${name}` };
     if (declared.has(name)) continue;
     declared.add(name);
-    lines.push(`const ${name} = params[${JSON.stringify(name)}];`);
+    lines.push(`let ${name} = params[${JSON.stringify(name)}];`);
+    lines.push(`__kernGuardSyncParam(${JSON.stringify(name)}, ${name});`);
   }
 
   for (const item of runtimeRouteParamItems(route)) {
@@ -2467,7 +2720,8 @@ function runtimeRouteRequestLines(route: IRNode, inputSource: string): { lines: 
     declared.add(item.name);
     const fallback = item.defaultSource ?? 'undefined';
     const key = JSON.stringify(item.name);
-    lines.push(`const ${item.name} = query[${key}] ?? params[${key}] ?? (${fallback});`);
+    lines.push(`let ${item.name} = query[${key}] ?? params[${key}] ?? (${fallback});`);
+    lines.push(`__kernGuardSyncParam(${key}, ${item.name});`);
   }
 
   return { lines };
@@ -2475,22 +2729,22 @@ function runtimeRouteRequestLines(route: IRNode, inputSource: string): { lines: 
 
 function runtimeRouteChildProgram(
   children: IRNode[],
-  options: { mocks?: RuntimeEffectMock[]; usedMocks?: Set<string> } = {},
+  options: RuntimeWorkflowProgramOptions = {},
 ): { lines: string[]; message?: string } {
   const lines: string[] = [];
+  const workflowKind = runtimeWorkflowKind(options);
 
   for (const child of children) {
     if (child.type === 'handler') {
       return {
         lines: [],
-        message:
-          'Runtime route assertions execute portable KERN route nodes; handler blocks remain backend/runtime tests.',
+        message: `Runtime ${workflowKind} assertions execute portable KERN ${workflowKind} nodes; handler blocks remain backend/runtime tests.`,
       };
     }
     if (child.type === 'effect') {
       const effectName = runtimeEffectName(child);
       if (!isRuntimeBindingName(effectName)) {
-        return { lines: [], message: `Runtime route effect has invalid name: ${effectName}` };
+        return { lines: [], message: `Runtime ${workflowKind} effect has invalid name: ${effectName}` };
       }
 
       const scopedMock = findRuntimeEffectMock(options.mocks, effectName);
@@ -2500,17 +2754,20 @@ function runtimeRouteChildProgram(
         if (mocked.message || !mocked.expr) {
           return {
             lines: [],
-            message: mocked.message || `Runtime route mock effect ${effectName} cannot be simulated`,
+            message: mocked.message || `Runtime ${workflowKind} mock effect ${effectName} cannot be simulated`,
           };
         }
-        markRuntimeEffectMockUsed(scopedMock.mock, options.usedMocks);
+        lines.push(runtimeEffectMockCallLine(scopedMock.mock));
         lines.push(`const ${effectName} = await (${mocked.expr});`);
         continue;
       }
 
       const effect = runtimeEffectExecutionExpr(child, { portable: true });
       if (effect.message || !effect.expr) {
-        return { lines: [], message: effect.message || `Runtime route effect ${effectName} cannot be simulated` };
+        return {
+          lines: [],
+          message: effect.message || `Runtime ${workflowKind} effect ${effectName} cannot be simulated`,
+        };
       }
       lines.push(`const ${effectName} = await (${effect.expr});`);
       continue;
@@ -2565,10 +2822,7 @@ function runtimeRouteChildProgram(
   return { lines };
 }
 
-function runtimeRouteBranchExecutionExpr(
-  node: IRNode,
-  options: { mocks?: RuntimeEffectMock[]; usedMocks?: Set<string> } = {},
-): string {
+function runtimeRouteBranchExecutionExpr(node: IRNode, options: RuntimeWorkflowProgramOptions = {}): string {
   const on = runtimePortableSource(rawPropToRuntimeSource(node, 'on'));
   if (!on) return '';
 
@@ -2589,10 +2843,7 @@ function runtimeRouteBranchExecutionExpr(
   return lines.join('\n');
 }
 
-function runtimeRouteEachExecutionExpr(
-  node: IRNode,
-  options: { mocks?: RuntimeEffectMock[]; usedMocks?: Set<string> } = {},
-): string {
+function runtimeRouteEachExecutionExpr(node: IRNode, options: RuntimeWorkflowProgramOptions = {}): string {
   const collection = runtimePortableSource(rawPropToRuntimeSource(node, 'in'));
   const item = str(getProps(node).name) || 'item';
   if (!collection || !isRuntimeBindingName(item)) return '';
@@ -2620,7 +2871,7 @@ function runtimeRouteEachExecutionExpr(
 function runtimeRouteExecutionExpr(
   route: IRNode,
   inputSource: string,
-  options: { mocks?: RuntimeEffectMock[]; usedMocks?: Set<string> } = {},
+  options: { mocks?: RuntimeEffectMock[]; probe?: boolean } = {},
 ): { expr?: string; message?: string } {
   const request = runtimeRouteRequestLines(route, inputSource || '{}');
   if (request.message) return { message: request.message };
@@ -2628,8 +2879,124 @@ function runtimeRouteExecutionExpr(
   const program = runtimeRouteChildProgram(route.children || [], options);
   if (program.message) return { message: program.message };
 
-  const lines = ['(async () => {'];
-  for (const line of [...request.lines, ...program.lines]) lines.push(`  ${line}`);
+  const bodyLines = [...runtimeWorkflowHelperLines(), ...request.lines, ...program.lines];
+  const lines = ['(async () => {', '  const __kernMockCalls = Object.create(null);'];
+  if (options.probe) {
+    lines.push('  const __kernRunRoute = async () => {');
+    for (const line of bodyLines) lines.push(`    ${line}`);
+    lines.push('  };');
+    lines.push('  try {');
+    lines.push('    const __kernValue = await __kernRunRoute();');
+    lines.push('    return { __kernRouteStatus: "returned", value: __kernValue, calls: __kernMockCalls };');
+    lines.push('  } catch (__kernError) {');
+    lines.push('    return {');
+    lines.push('      __kernRouteStatus: "thrown",');
+    lines.push('      error: {');
+    lines.push('        name: __kernError && __kernError.name ? String(__kernError.name) : "Error",');
+    lines.push(
+      '        message: __kernError && __kernError.message ? String(__kernError.message) : String(__kernError),',
+    );
+    lines.push('        stack: __kernError && __kernError.stack ? String(__kernError.stack) : undefined,');
+    lines.push('      },');
+    lines.push('      calls: __kernMockCalls,');
+    lines.push('    };');
+    lines.push('  }');
+  } else {
+    for (const line of bodyLines) lines.push(`  ${line}`);
+  }
+  lines.push('})()');
+  return { expr: lines.join('\n') };
+}
+
+function runtimeToolName(node: IRNode): string {
+  return str(getProps(node).name) || 'tool';
+}
+
+function findRuntimeTool(target: LoadedKernDocument, toolName: string): { tool?: IRNode; message?: string } {
+  const tools = collectNodes(target.root, 'tool').filter((tool) => runtimeToolName(tool) === toolName);
+  if (tools.length === 1) return { tool: tools[0] };
+  if (tools.length === 0) return { message: `Runtime tool assertion target not found: ${toolName}` };
+  return { message: `Runtime tool assertion target is ambiguous: ${toolName}` };
+}
+
+function runtimeToolParamItems(tool: IRNode): Array<{ name: string; defaultSource?: string }> {
+  const items: Array<{ name: string; defaultSource?: string }> = [];
+  for (const param of getChildren(tool, 'param')) {
+    const name = str(getProps(param).name);
+    if (!name) continue;
+    const defaultSource =
+      runtimePortableValuePropSource(param, 'value') || runtimePortableValuePropSource(param, 'default');
+    items.push({ name, ...(defaultSource ? { defaultSource } : {}) });
+  }
+  return items;
+}
+
+function runtimeToolInputLines(tool: IRNode, inputSource: string): { lines: string[]; message?: string } {
+  const lines = [
+    `const __toolInput = ((${inputSource}) ?? {});`,
+    'let args = __toolInput;',
+    'let params = __toolInput;',
+  ];
+  const declared = new Set<string>();
+
+  for (const item of runtimeToolParamItems(tool)) {
+    if (!isRuntimeBindingName(item.name)) {
+      return { lines: [], message: `Runtime tool has invalid param: ${item.name}` };
+    }
+    if (item.name === 'args' || item.name === 'params') {
+      return { lines: [], message: `Runtime tool param name is reserved for native context: ${item.name}` };
+    }
+    if (declared.has(item.name)) continue;
+    declared.add(item.name);
+    const fallback = item.defaultSource ?? 'undefined';
+    const key = JSON.stringify(item.name);
+    lines.push(`let ${item.name} = params[${key}] ?? (${fallback});`);
+    lines.push(`__kernGuardSyncParam(${key}, ${item.name});`);
+    const paramNode = paramNodeByName(tool, item.name);
+    for (const guard of paramNode ? getChildren(paramNode, 'guard') : []) {
+      lines.push(...runtimeGuardStatement(guard, { portable: true, targetParam: item.name }));
+    }
+  }
+
+  return { lines };
+}
+
+function runtimeToolExecutionExpr(
+  tool: IRNode,
+  inputSource: string,
+  options: { mocks?: RuntimeEffectMock[]; probe?: boolean } = {},
+): { expr?: string; message?: string } {
+  const input = runtimeToolInputLines(tool, inputSource || '{}');
+  if (input.message) return { message: input.message };
+
+  const program = runtimeRouteChildProgram(tool.children || [], { mocks: options.mocks, kind: 'tool' });
+  if (program.message) return { message: program.message };
+
+  const bodyLines = [...runtimeWorkflowHelperLines(), ...input.lines, ...program.lines];
+  const lines = ['(async () => {', '  const __kernMockCalls = Object.create(null);'];
+  if (options.probe) {
+    lines.push('  const __kernRunTool = async () => {');
+    for (const line of bodyLines) lines.push(`    ${line}`);
+    lines.push('  };');
+    lines.push('  try {');
+    lines.push('    const __kernValue = await __kernRunTool();');
+    lines.push('    return { __kernToolStatus: "returned", value: __kernValue, calls: __kernMockCalls };');
+    lines.push('  } catch (__kernError) {');
+    lines.push('    return {');
+    lines.push('      __kernToolStatus: "thrown",');
+    lines.push('      error: {');
+    lines.push('        name: __kernError && __kernError.name ? String(__kernError.name) : "Error",');
+    lines.push(
+      '        message: __kernError && __kernError.message ? String(__kernError.message) : String(__kernError),',
+    );
+    lines.push('        stack: __kernError && __kernError.stack ? String(__kernError.stack) : undefined,');
+    lines.push('      },');
+    lines.push('      calls: __kernMockCalls,');
+    lines.push('    };');
+    lines.push('  }');
+  } else {
+    for (const line of bodyLines) lines.push(`  ${line}`);
+  }
   lines.push('})()');
   return { expr: lines.join('\n') };
 }
@@ -3349,7 +3716,7 @@ function evaluateRuntimeRoute(
   target: LoadedKernDocument,
   fixtures: RuntimeBinding[] = [],
   mocks: RuntimeEffectMock[] = [],
-  usedMocks?: Set<string>,
+  mockCalls?: Map<string, number>,
 ): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -3368,7 +3735,7 @@ function evaluateRuntimeRoute(
     return { passed: false, message: `Runtime route assertion cannot execute request input: ${inputProblem}` };
   }
 
-  const routeExpr = runtimeRouteExecutionExpr(found.route, inputSource, { mocks, usedMocks });
+  const routeExpr = runtimeRouteExecutionExpr(found.route, inputSource, { mocks, probe: true });
   if (routeExpr.message || !routeExpr.expr) {
     return { passed: false, message: routeExpr.message || 'Runtime route assertion cannot build route workflow' };
   }
@@ -3380,14 +3747,255 @@ function evaluateRuntimeRoute(
     line: node.loc?.line,
   };
 
-  return evaluateRuntimeSource(
-    node,
-    target,
-    routeBinding.name,
-    [...fixtures, routeBinding],
-    `Runtime route ${runtimeRouteLabel(found.route)}`,
-    'returns',
-  );
+  const label = `Runtime route ${runtimeRouteLabel(found.route)}`;
+  const expectedSource = runtimeExpectedSource(node, 'returns') ?? runtimeExpectedSource(node, 'equals');
+  const expectedLabel = 'returns' in props ? 'returns' : 'equals';
+  const expressionSources = expectedSource ? [routeBinding.name, expectedSource] : [routeBinding.name];
+  const declarations = buildRuntimeDeclarations(target, expressionSources, [...fixtures, routeBinding]);
+  if ('message' in declarations) return { passed: false, message: declarations.message };
+  const routeContext = runtimeExpressionContext(routeBinding.name, [...fixtures, routeBinding]);
+
+  const actual = runRuntimeExpression(target, declarations.source, routeBinding.name);
+  if (!actual.ok) {
+    return {
+      passed: false,
+      message: `${label} threw: ${
+        actual.error instanceof Error ? actual.error.message : String(actual.error)
+      }${routeContext}`,
+    };
+  }
+
+  const probe = actual.value as {
+    __kernRouteStatus?: unknown;
+    value?: unknown;
+    error?: EncodedRuntimeError;
+    calls?: Record<string, number>;
+  };
+  if (!probe || typeof probe !== 'object' || typeof probe.__kernRouteStatus !== 'string') {
+    return { passed: false, message: `${label} returned an invalid runtime probe` };
+  }
+  mergeRuntimeEffectMockCalls(mockCalls, probe.calls);
+
+  if ('throws' in props) {
+    const expectedRaw = props.throws === true || props.throws === '' ? 'true' : String(props.throws ?? 'true');
+    if (probe.__kernRouteStatus !== 'thrown') {
+      return {
+        passed: false,
+        message:
+          str(props.message) ||
+          `${label} was expected to throw${
+            expectedRaw && expectedRaw !== 'true' ? ` ${expectedRaw}` : ''
+          }, but returned ${formatRuntimeValue(probe.value)}${routeContext}`,
+      };
+    }
+    const error = decodeRuntimeError(probe.error);
+    if (!thrownRuntimeErrorMatches(error, expectedRaw)) {
+      return {
+        passed: false,
+        message:
+          str(props.message) ||
+          `${label} threw ${formatThrownRuntimeError(error)}, expected ${expectedRaw}${routeContext}`,
+      };
+    }
+    return { passed: true };
+  }
+
+  if (probe.__kernRouteStatus === 'thrown') {
+    return {
+      passed: false,
+      message: `${label} threw: ${formatThrownRuntimeError(decodeRuntimeError(probe.error))}${routeContext}`,
+    };
+  }
+
+  if (expectedSource !== undefined) {
+    const expected = runRuntimeExpression(target, declarations.source, expectedSource);
+    if (!expected.ok) {
+      return {
+        passed: false,
+        message: `Runtime route assertion cannot execute expected ${expectedLabel} value: ${formatThrownRuntimeError(
+          expected.error,
+        )}${routeContext}`,
+      };
+    }
+    return runtimeValuesEqual(probe.value, expected.value)
+      ? { passed: true }
+      : {
+          passed: false,
+          message:
+            str(props.message) ||
+            `${label} expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(
+              probe.value,
+            )}${routeContext}`,
+        };
+  }
+
+  if ('matches' in props) {
+    const pattern = runtimePatternValue(node, 'matches') || '';
+    try {
+      const regex = new RegExp(pattern);
+      return regex.test(String(probe.value))
+        ? { passed: true }
+        : {
+            passed: false,
+            message:
+              str(props.message) ||
+              `${label} value ${formatRuntimeValue(probe.value)} does not match /${pattern}/${routeContext}`,
+          };
+    } catch (error) {
+      return {
+        passed: false,
+        message: `Runtime route assertion has invalid matches regex: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  return probe.value
+    ? { passed: true }
+    : { passed: false, message: str(props.message) || `${label} evaluated false${routeContext}` };
+}
+
+function evaluateRuntimeTool(
+  node: IRNode,
+  target: LoadedKernDocument,
+  fixtures: RuntimeBinding[] = [],
+  mocks: RuntimeEffectMock[] = [],
+  mockCalls?: Map<string, number>,
+): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+
+  const props = getProps(node);
+  const toolName = str(props.tool);
+  if (!toolName) return { passed: false, message: 'Runtime tool assertion requires tool=<name>' };
+
+  const found = findRuntimeTool(target, toolName);
+  if (found.message || !found.tool) {
+    return { passed: false, message: found.message || 'Runtime tool target not found' };
+  }
+
+  const inputSource = runtimeValuePropSource(node, 'with') || runtimeValuePropSource(node, 'input') || '{}';
+  const inputProblem = unsafeRuntimeExpressionReason(inputSource, { allowAwait: true });
+  if (inputProblem) {
+    return { passed: false, message: `Runtime tool assertion cannot execute input: ${inputProblem}` };
+  }
+
+  const toolExpr = runtimeToolExecutionExpr(found.tool, inputSource, { mocks, probe: true });
+  if (toolExpr.message || !toolExpr.expr) {
+    return { passed: false, message: toolExpr.message || 'Runtime tool assertion cannot build tool workflow' };
+  }
+
+  const toolBinding: RuntimeBinding = {
+    name: runtimeSyntheticName(node, 'Tool'),
+    expr: toolExpr.expr,
+    kind: 'workflow',
+    line: node.loc?.line,
+  };
+
+  const label = `Runtime tool ${runtimeToolName(found.tool)}`;
+  const expectedSource = runtimeExpectedSource(node, 'returns') ?? runtimeExpectedSource(node, 'equals');
+  const expectedLabel = 'returns' in props ? 'returns' : 'equals';
+  const expressionSources = expectedSource ? [toolBinding.name, expectedSource] : [toolBinding.name];
+  const declarations = buildRuntimeDeclarations(target, expressionSources, [...fixtures, toolBinding]);
+  if ('message' in declarations) return { passed: false, message: declarations.message };
+  const toolContext = runtimeExpressionContext(toolBinding.name, [...fixtures, toolBinding]);
+
+  const actual = runRuntimeExpression(target, declarations.source, toolBinding.name);
+  if (!actual.ok) {
+    return {
+      passed: false,
+      message: `${label} threw: ${
+        actual.error instanceof Error ? actual.error.message : String(actual.error)
+      }${toolContext}`,
+    };
+  }
+
+  const probe = actual.value as {
+    __kernToolStatus?: unknown;
+    value?: unknown;
+    error?: EncodedRuntimeError;
+    calls?: Record<string, number>;
+  };
+  if (!probe || typeof probe !== 'object' || typeof probe.__kernToolStatus !== 'string') {
+    return { passed: false, message: `${label} returned an invalid runtime probe` };
+  }
+  mergeRuntimeEffectMockCalls(mockCalls, probe.calls);
+
+  if ('throws' in props) {
+    const expectedRaw = props.throws === true || props.throws === '' ? 'true' : String(props.throws ?? 'true');
+    if (probe.__kernToolStatus !== 'thrown') {
+      return {
+        passed: false,
+        message:
+          str(props.message) ||
+          `${label} was expected to throw${
+            expectedRaw && expectedRaw !== 'true' ? ` ${expectedRaw}` : ''
+          }, but returned ${formatRuntimeValue(probe.value)}${toolContext}`,
+      };
+    }
+    const error = decodeRuntimeError(probe.error);
+    if (!thrownRuntimeErrorMatches(error, expectedRaw)) {
+      return {
+        passed: false,
+        message:
+          str(props.message) ||
+          `${label} threw ${formatThrownRuntimeError(error)}, expected ${expectedRaw}${toolContext}`,
+      };
+    }
+    return { passed: true };
+  }
+
+  if (probe.__kernToolStatus === 'thrown') {
+    return {
+      passed: false,
+      message: `${label} threw: ${formatThrownRuntimeError(decodeRuntimeError(probe.error))}${toolContext}`,
+    };
+  }
+
+  if (expectedSource !== undefined) {
+    const expected = runRuntimeExpression(target, declarations.source, expectedSource);
+    if (!expected.ok) {
+      return {
+        passed: false,
+        message: `Runtime tool assertion cannot execute expected ${expectedLabel} value: ${formatThrownRuntimeError(
+          expected.error,
+        )}${toolContext}`,
+      };
+    }
+    return runtimeValuesEqual(probe.value, expected.value)
+      ? { passed: true }
+      : {
+          passed: false,
+          message:
+            str(props.message) ||
+            `${label} expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(
+              probe.value,
+            )}${toolContext}`,
+        };
+  }
+
+  if ('matches' in props) {
+    const pattern = runtimePatternValue(node, 'matches') || '';
+    try {
+      const regex = new RegExp(pattern);
+      return regex.test(String(probe.value))
+        ? { passed: true }
+        : {
+            passed: false,
+            message:
+              str(props.message) ||
+              `${label} value ${formatRuntimeValue(probe.value)} does not match /${pattern}/${toolContext}`,
+          };
+    } catch (error) {
+      return {
+        passed: false,
+        message: `Runtime tool assertion has invalid matches regex: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  return probe.value
+    ? { passed: true }
+    : { passed: false, message: str(props.message) || `${label} evaluated false${toolContext}` };
 }
 
 function findRuntimeEffect(target: LoadedKernDocument, effectName: string): { effect?: IRNode; message?: string } {
@@ -3413,7 +4021,7 @@ function evaluateRuntimeEffectRecovery(
   effect: IRNode,
   fixtures: RuntimeBinding[],
   mocks: RuntimeEffectMock[] = [],
-  usedMocks?: Set<string>,
+  mockCalls?: Map<string, number>,
 ): { passed: boolean; message?: string } {
   const props = getProps(node);
   const effectName = runtimeEffectName(effect);
@@ -3426,8 +4034,6 @@ function evaluateRuntimeEffectRecovery(
   if (effectExpr.message || !effectExpr.expr) {
     return { passed: false, message: effectExpr.message || `Runtime effect ${effectName} cannot be simulated` };
   }
-  if (scopedMock.mock) markRuntimeEffectMockUsed(scopedMock.mock, usedMocks);
-
   const effectBinding: RuntimeBinding = {
     name: runtimeSyntheticName(node, 'Effect'),
     expr: effectExpr.expr,
@@ -3441,6 +4047,7 @@ function evaluateRuntimeEffectRecovery(
   if ('message' in declarations) return { passed: false, message: declarations.message };
 
   const actual = runRuntimeExpression(target, declarations.source, effectBinding.name);
+  if (scopedMock.mock) recordRuntimeEffectMockCall(scopedMock.mock, mockCalls);
   if (!actual.ok) {
     return {
       passed: false,
@@ -3487,7 +4094,7 @@ function evaluateRuntimeEffect(
   target: LoadedKernDocument,
   fixtures: RuntimeBinding[] = [],
   mocks: RuntimeEffectMock[] = [],
-  usedMocks?: Set<string>,
+  mockCalls?: Map<string, number>,
 ): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -3502,7 +4109,7 @@ function evaluateRuntimeEffect(
   }
 
   if (isTruthy(props.recovers)) {
-    return evaluateRuntimeEffectRecovery(node, target, found.effect, fixtures, mocks, usedMocks);
+    return evaluateRuntimeEffectRecovery(node, target, found.effect, fixtures, mocks, mockCalls);
   }
 
   const scopedMock = findRuntimeEffectMock(mocks, effectName);
@@ -3513,8 +4120,6 @@ function evaluateRuntimeEffect(
   if (effectExpr.message || !effectExpr.expr) {
     return { passed: false, message: effectExpr.message || `Runtime effect ${effectName} cannot be simulated` };
   }
-  if (scopedMock.mock) markRuntimeEffectMockUsed(scopedMock.mock, usedMocks);
-
   const effectBinding: RuntimeBinding = {
     name: runtimeSyntheticName(node, 'Effect'),
     expr: effectExpr.expr,
@@ -3522,7 +4127,7 @@ function evaluateRuntimeEffect(
     line: node.loc?.line,
   };
 
-  return evaluateRuntimeSource(
+  const evaluated = evaluateRuntimeSource(
     node,
     target,
     effectBinding.name,
@@ -3530,6 +4135,49 @@ function evaluateRuntimeEffect(
     `Runtime effect ${effectName}`,
     'returns',
   );
+  if (scopedMock.mock && !isAssertionConfigurationFailure(evaluated.message)) {
+    recordRuntimeEffectMockCall(scopedMock.mock, mockCalls);
+  }
+  return evaluated;
+}
+
+function expectedMockCallCount(node: IRNode): { count?: number; message?: string } {
+  const raw = getProps(node).called;
+  const count = Number(raw);
+  if (raw === '' || !Number.isInteger(count) || count < 0) {
+    return { message: `Runtime mock call assertion requires called=<non-negative integer>, got ${String(raw)}` };
+  }
+  return { count };
+}
+
+function evaluateRuntimeMockCall(
+  node: IRNode,
+  mocks: RuntimeEffectMock[] = [],
+  mockCalls?: Map<string, number>,
+  checkedMocks?: Set<string>,
+): { passed: boolean; message?: string } {
+  const props = getProps(node);
+  const effectName = str(props.mock);
+  if (!effectName) return { passed: false, message: 'Runtime mock call assertion requires mock=<effect>' };
+  if (!('called' in props)) return { passed: false, message: 'Runtime mock call assertion requires called=<count>' };
+
+  const expected = expectedMockCallCount(node);
+  if (expected.message || expected.count === undefined) return { passed: false, message: expected.message };
+
+  const scopedMock = findRuntimeEffectMock(mocks, effectName);
+  if (scopedMock.message) return { passed: false, message: scopedMock.message };
+  if (!scopedMock.mock) return { passed: false, message: `Runtime mock assertion target not found: ${effectName}` };
+
+  markRuntimeEffectMockChecked(scopedMock.mock, checkedMocks);
+  const actual = mockCalls?.get(scopedMock.mock.id) || 0;
+  return actual === expected.count
+    ? { passed: true }
+    : {
+        passed: false,
+        message:
+          str(props.message) ||
+          `Native effect mock effect=${effectName} expected called=${expected.count}, received called=${actual}`,
+      };
 }
 
 function nodeSearchText(node: IRNode): string {
@@ -4334,11 +4982,29 @@ function evaluateNativeAssertion(
       target,
       context?.fixtures || [],
       context?.mocks || [],
-      context?.usedMocks,
+      context?.mockCalls,
     );
     return [
       {
         ruleId: 'runtime:route',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('tool' in props) {
+    const evaluated = evaluateRuntimeTool(
+      node,
+      target,
+      context?.fixtures || [],
+      context?.mocks || [],
+      context?.mockCalls,
+    );
+    return [
+      {
+        ruleId: 'runtime:tool',
         assertion: assertionLabel(node),
         passed: evaluated.passed,
         ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
@@ -4352,11 +5018,23 @@ function evaluateNativeAssertion(
       target,
       context?.fixtures || [],
       context?.mocks || [],
-      context?.usedMocks,
+      context?.mockCalls,
     );
     return [
       {
         ruleId: 'runtime:effect',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('mock' in props || 'called' in props) {
+    const evaluated = evaluateRuntimeMockCall(node, context?.mocks || [], context?.mockCalls, context?.checkedMocks);
+    return [
+      {
+        ruleId: 'mock:called',
         assertion: assertionLabel(node),
         passed: evaluated.passed,
         ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
@@ -4506,7 +5184,8 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
     for (const assertion of assertions) {
       for (const mock of assertion.mocks) declaredMocks.set(mock.id, mock);
     }
-    const usedMocks = new Set<string>();
+    const mockCalls = new Map<string, number>();
+    const checkedMocks = new Set<string>();
     assertionsByTarget.set(targetPath, [...(assertionsByTarget.get(targetPath) || []), ...assertions]);
     if (assertions.length === 0) {
       results.push({
@@ -4530,7 +5209,8 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
         assertions,
         fixtures: assertion.fixtures,
         mocks: assertion.mocks,
-        usedMocks,
+        mockCalls,
+        checkedMocks,
       };
       const requestedSeverity = severityFromNode(assertion.node);
       for (const evaluated of evaluateNativeAssertion(assertion.node, target, context)) {
@@ -4556,7 +5236,7 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
     }
 
     for (const mock of declaredMocks.values()) {
-      if (usedMocks.has(mock.id)) continue;
+      if ((mockCalls.get(mock.id) || 0) > 0 || checkedMocks.has(mock.id)) continue;
       const result: NativeKernTestResult = {
         suite,
         caseName: 'mock usage',

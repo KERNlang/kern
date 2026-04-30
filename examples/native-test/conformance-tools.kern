@@ -1,0 +1,18 @@
+mcp name=ToolWorkflows
+  tool name=readFile
+    param name=filePath type=string required=true
+    effect name=readDisk
+      trigger url="/fs/read"
+    respond 200 json=readDisk.result
+
+  tool name=findUsers
+    param name=role type=string value="member"
+    derive users expr={{[{ id: "u1", role: "admin" }, { id: "u2", role: "member" }]}}
+    branch name=byRole on={{role}}
+      path value=admin
+        collect name=filtered from=users where={{item.role === "admin"}}
+        respond 200 json=filtered
+      path value=member
+        collect name=filtered from=users where={{item.role === "member"}}
+        respond 200 json=filtered
+    respond 200 json=users

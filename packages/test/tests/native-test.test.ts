@@ -89,8 +89,10 @@ describe('native kern test runner', () => {
         'examples/native-test/conformance-control-flow.test.kern',
         'examples/native-test/conformance-data-advanced.test.kern',
         'examples/native-test/conformance-effects.test.kern',
+        'examples/native-test/conformance-guards.test.kern',
         'examples/native-test/conformance-mocks.test.kern',
         'examples/native-test/conformance-routes.test.kern',
+        'examples/native-test/conformance-tools.test.kern',
         'examples/native-test/language-surface.test.kern',
         'examples/native-test/order.test.kern',
       ]),
@@ -451,28 +453,310 @@ describe('native kern test runner', () => {
         '  it name="mocks top-level effect boundaries"',
         '    mock effect=loadUsers returns={{users}}',
         '    expect effect=loadUsers returns={{users}}',
+        '    expect mock=loadUsers called=1',
         '  it name="mocks route-local effect boundaries"',
         '    mock effect=fetchUsers returns={{users}}',
         '    expect route="GET /api/users" returns={{users}}',
+        '    expect mock=fetchUsers called=1',
         '  it name="mocks top-level effect failures"',
         '    mock effect=loadUsers throws=NetworkError',
         '    expect effect=loadUsers throws=NetworkError',
+        '    expect mock=loadUsers called=1',
         '  it name="mocks route-local effect failures"',
         '    mock effect=fetchUsers throws=NetworkError',
         '    expect route="GET /api/users" throws=NetworkError',
+        '    expect mock=fetchUsers called=1',
       ].join('\n'),
     );
 
     const summary = runNativeKernTests(testFile);
 
     expect(summary.failed).toBe(0);
-    expect(summary.passed).toBe(4);
+    expect(summary.passed).toBe(8);
     expect(summary.results.map((result) => result.ruleId)).toEqual([
       'runtime:effect',
+      'mock:called',
       'runtime:route',
+      'mock:called',
       'runtime:effect',
+      'mock:called',
+      'runtime:route',
+      'mock:called',
+    ]);
+  });
+
+  test('counts mocked effect calls from actually executed route branches', () => {
+    writeFileSync(
+      join(tmpDir, 'branch-mocked-effects.kern'),
+      [
+        'server name=UsersAPI',
+        '  route GET /api/users',
+        '    params role:string',
+        '    branch name=byRole on={{query.role}}',
+        '      path value=admin',
+        '        effect name=fetchUsers',
+        '          trigger url="/api/users"',
+        '        respond 200 json=fetchUsers.result',
+        '      path value=guest',
+        '        respond 200 json={{[]}}',
+        '    respond 200 json={{[]}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'branch-mocked-effects.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Branch mock calls" target="./branch-mocked-effects.kern"',
+        '  fixture name=users value={{[{ id: "u1", role: "admin" }]}}',
+        '  it name="counts branch-local calls"',
+        '    mock effect=fetchUsers returns={{users}}',
+        '    expect route="GET /api/users" with={{({ query: { role: "guest" } })}} returns={{[]}}',
+        '    expect mock=fetchUsers called=0',
+        '    expect route="GET /api/users" with={{({ query: { role: "admin" } })}} returns={{users}}',
+        '    expect mock=fetchUsers called=1',
+        '    expect route="GET /api/users" with={{({ query: { role: "admin" } })}} returns={{users}}',
+        '    expect mock=fetchUsers called=2',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'runtime:route',
+      'mock:called',
+      'runtime:route',
+      'mock:called',
+      'runtime:route',
+      'mock:called',
+    ]);
+  });
+
+  test('executes native MCP tool workflow assertions with mocks and param defaults', () => {
+    writeFileSync(
+      join(tmpDir, 'tool-workflows.kern'),
+      [
+        'mcp name=Files',
+        '  tool name=readFile',
+        '    param name=filePath type=string required=true',
+        '    effect name=readDisk',
+        '      trigger url="/fs/read"',
+        '    respond 200 json=readDisk.result',
+        '  tool name=findUsers',
+        '    param name=role type=string value="member"',
+        '    derive users expr={{[{ id: "u1", role: "admin" }, { id: "u2", role: "member" }]}}',
+        '    branch name=byRole on={{role}}',
+        '      path value=admin',
+        '        collect name=filtered from=users where={{item.role === "admin"}}',
+        '        respond 200 json=filtered',
+        '      path value=member',
+        '        collect name=filtered from=users where={{item.role === "member"}}',
+        '        respond 200 json=filtered',
+        '    respond 200 json=users',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'tool-workflows.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Tool workflows" target="./tool-workflows.kern"',
+        '  fixture name=fileBody value={{"hello"}}',
+        '  it name="mocks tool-local effects"',
+        '    mock effect=readDisk returns={{fileBody}}',
+        '    expect tool=readFile with={{({ filePath: "/data/a.txt" })}} returns={{fileBody}}',
+        '    expect mock=readDisk called=1',
+        '  it name="runs declarative tool branches"',
+        '    expect tool=findUsers with={{({ role: "admin" })}} returns={{[{ id: "u1", role: "admin" }]}}',
+        '    expect tool=findUsers returns={{[{ id: "u2", role: "member" }]}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'runtime:tool',
+      'mock:called',
+      'runtime:tool',
+      'runtime:tool',
+    ]);
+  });
+
+  test('reports handler-backed MCP tool assertions as configuration failures', () => {
+    writeFileSync(
+      join(tmpDir, 'handler-tool.kern'),
+      ['mcp name=Files', '  tool name=readFile', '    handler <<<', '      return "hello";', '    >>>'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'handler-tool.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Handler tool" target="./handler-tool.kern"',
+        '  it name="rejects backend handler runtime"',
+        '    expect tool=readFile returns={{"hello"}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('runtime:tool');
+    expect(summary.results[0].severity).toBe('error');
+    expect(summary.results[0].message).toContain('Runtime tool assertions execute portable KERN tool nodes');
+  });
+
+  test('tool assertion failures include runtime expression context', () => {
+    writeFileSync(
+      join(tmpDir, 'tool-context.kern'),
+      ['mcp name=Files', '  tool name=listUsers', '    respond 200 json={{[]}}'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'tool-context.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Tool failure context" target="./tool-context.kern"',
+        '  fixture name=users value={{[{ id: "u1" }]}}',
+        '  it name="shows context"',
+        '    expect tool=listUsers returns={{users}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain('expression: __kernTool_');
+    expect(summary.results[0].message).toContain('fixtures: users, __kernTool_');
+  });
+
+  test('executes native guard kinds in route and tool workflows', () => {
+    writeFileSync(
+      join(tmpDir, 'guard-runtime.kern'),
+      [
+        'mcp name=SafeTools',
+        '  tool name=readFile',
+        '    param name=filePath type=string required=true',
+        '    guard type=pathContainment param=filePath allowlist="/data"',
+        '    respond 200 json=filePath',
+        '  tool name=search',
+        '    param name=query type=string required=true',
+        '    guard type=sanitize param=query pattern="[<>]" replacement=""',
+        '    respond 200 json=query',
+        '  tool name=listUsers',
+        '    param name=limit type=number value=10',
+        '    guard type=validate param=limit min=1 max=25',
+        '    respond 200 json=limit',
+        '  tool name=upload',
+        '    param name=payload type=string required=true',
+        '    guard type=sizeLimit param=payload maxBytes=4',
+        '    respond 200 json=payload',
+        '  tool name=secret',
+        '    param name=token type=string required=false',
+        '    guard type=auth param=token',
+        '    respond 200 json={{"ok"}}',
+        'server name=Api',
+        '  route GET /items/:id',
+        '    guard type=validate param=id regex="^item-"',
+        '    respond 200 json=id',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'guard-runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Guard runtime" target="./guard-runtime.kern"',
+        '  it name="runs guard semantics before tool response"',
+        '    expect tool=readFile with={{({ filePath: "/data/a.txt" })}} returns={{"/data/a.txt"}}',
+        '    expect tool=readFile with={{({ filePath: "/etc/passwd" })}} throws=PathContainmentError',
+        '    expect tool=search with={{({ query: "<hello>" })}} returns={{"hello"}}',
+        '    expect tool=listUsers with={{({ limit: 20 })}} returns=20',
+        '    expect tool=listUsers with={{({ limit: 99 })}} throws=ValidationError',
+        '    expect tool=upload with={{({ payload: "12345" })}} throws=SizeLimitError',
+        '    expect tool=secret with={{({ token: "ok" })}} returns={{"ok"}}',
+        '    expect tool=secret with={{({})}} throws=AuthError',
+        '  it name="runs guard semantics before route response"',
+        '    expect route="GET /items/:id" with={{({ params: { id: "item-1" } })}} returns={{"item-1"}}',
+        '    expect route="GET /items/:id" with={{({ params: { id: "bad" } })}} throws=ValidationError',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'runtime:tool',
+      'runtime:tool',
+      'runtime:tool',
+      'runtime:tool',
+      'runtime:tool',
+      'runtime:tool',
+      'runtime:tool',
+      'runtime:tool',
+      'runtime:route',
       'runtime:route',
     ]);
+  });
+
+  test('reports undeclared native mock call-count assertions as configuration failures', () => {
+    writeFileSync(join(tmpDir, 'undeclared-mock.kern'), ['effect name=loadUsers', '  trigger expr={{[]}}'].join('\n'));
+    const testFile = join(tmpDir, 'undeclared-mock.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Undeclared mock" target="./undeclared-mock.kern"',
+        '  it name="expects undeclared mock calls"',
+        '    expect mock=loadUsers called=1',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('mock:called');
+    expect(summary.results[0].message).toContain('Runtime mock assertion target not found: loadUsers');
+  });
+
+  test('route assertion failures include runtime expression context', () => {
+    writeFileSync(
+      join(tmpDir, 'route-context.kern'),
+      ['server name=UsersAPI', '  route GET /api/users', '    respond 200 json={{[]}}'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'route-context.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Route failure context" target="./route-context.kern"',
+        '  fixture name=users value={{[{ id: "u1" }]}}',
+        '  it name="shows context"',
+        '    expect route="GET /api/users" returns={{users}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain('expression: __kernRoute_');
+    expect(summary.results[0].message).toContain('fixtures: users, __kernRoute_');
+  });
+
+  test('reports mocked effect call-count mismatches without duplicate unused-mock noise', () => {
+    writeFileSync(join(tmpDir, 'count-mismatch.kern'), ['effect name=loadUsers', '  trigger expr={{[]}}'].join('\n'));
+    const testFile = join(tmpDir, 'count-mismatch.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Mock count mismatch" target="./count-mismatch.kern"',
+        '  it name="expects call that never happened"',
+        '    mock effect=loadUsers returns={{[]}}',
+        '    expect mock=loadUsers called=1',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.passed).toBe(0);
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('mock:called');
+    expect(summary.results[0].message).toContain('expected called=1, received called=0');
   });
 
   test('reports unused scoped native effect mocks', () => {

@@ -1,0 +1,20 @@
+mcp name=GuardedTools
+  tool name=readFile
+    param name=filePath type=string required=true
+    guard type=pathContainment param=filePath allowlist="/data"
+    respond 200 json=filePath
+
+  tool name=search
+    param name=query type=string required=true
+    guard type=sanitize param=query pattern="[<>]" replacement=""
+    respond 200 json=query
+
+  tool name=listUsers
+    param name=limit type=number value=10
+    guard type=validate param=limit min=1 max=25
+    respond 200 json=limit
+
+server name=GuardedApi
+  route GET /items/:id
+    guard type=validate param=id regex="^item-"
+    respond 200 json=id

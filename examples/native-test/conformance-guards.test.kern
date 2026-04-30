@@ -1,0 +1,8 @@
+test name="Guard runtime conformance" target="./conformance-guards.kern"
+  it name="executes guard kinds before workflow response"
+    expect tool=readFile with={{({ filePath: "/data/a.txt" })}} returns={{"/data/a.txt"}}
+    expect tool=readFile with={{({ filePath: "/etc/passwd" })}} throws=PathContainmentError
+    expect tool=search with={{({ query: "<hello>" })}} returns={{"hello"}}
+    expect tool=listUsers with={{({ limit: 99 })}} throws=ValidationError
+    expect route="GET /items/:id" with={{({ params: { id: "item-1" } })}} returns={{"item-1"}}
+    expect route="GET /items/:id" with={{({ params: { id: "bad" } })}} throws=ValidationError

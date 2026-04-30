@@ -208,6 +208,42 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
 
+    it('allows native tool workflow expect assertions with scoped mocks', () => {
+      const target = validate(
+        [
+          'mcp name=Files',
+          '  tool name=readFile',
+          '    param name=filePath type=string required=true',
+          '    effect name=readDisk',
+          '      trigger url="/fs/read"',
+          '    respond 200 json=readDisk.result',
+        ].join('\n'),
+      );
+      const test = validate(
+        [
+          'test name="Tool behavior" target="./files.kern"',
+          '  it name="mocks tool effect boundary"',
+          '    mock effect=readDisk returns={{"hello"}}',
+          '    expect tool=readFile with={{({ filePath: "/data/a.txt" })}} returns={{"hello"}}',
+        ].join('\n'),
+      );
+      expect(target).toHaveLength(0);
+      expect(test).toHaveLength(0);
+    });
+
+    it('allows native mock call-count assertions', () => {
+      const v = validate(
+        [
+          'test name="Effect behavior" target="./effects.kern"',
+          '  it name="counts mocked effect calls"',
+          '    mock effect=fetchUsers returns={{users}}',
+          '    expect effect=fetchUsers returns={{users}}',
+          '    expect mock=fetchUsers called=1',
+        ].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
+
     it('flags native effect mocks without behavior', () => {
       const v = validate(
         ['test name="Effect behavior"', '  it name="mocks effect boundary"', '    mock effect=fetchUsers'].join('\n'),
@@ -224,6 +260,52 @@ describe('Schema Validation', () => {
         ].join('\n'),
       );
       expect(v.some((violation) => violation.message.includes("'mock' must not combine returns"))).toBe(true);
+    });
+
+    it('flags incomplete native mock call-count assertions', () => {
+      const missingCalled = validate(
+        [
+          'test name="Effect behavior"',
+          '  it name="missing called"',
+          '    mock effect=fetchUsers returns={{[]}}',
+          '    expect mock=fetchUsers',
+        ].join('\n'),
+      );
+      const missingMock = validate(
+        ['test name="Effect behavior"', '  it name="missing mock"', '    expect called=1'].join('\n'),
+      );
+      expect(
+        missingCalled.some((violation) => violation.message.includes('require both mock=<effect> and called=<count>')),
+      ).toBe(true);
+      expect(
+        missingMock.some((violation) => violation.message.includes('require both mock=<effect> and called=<count>')),
+      ).toBe(true);
+    });
+
+    it('flags empty native mock call counts', () => {
+      const v = validate(
+        [
+          'test name="Effect behavior"',
+          '  it name="empty called"',
+          '    mock effect=fetchUsers returns={{[]}}',
+          '    expect mock=fetchUsers called=',
+        ].join('\n'),
+      );
+      expect(v.some((violation) => violation.message.includes('called=<non-negative integer>'))).toBe(true);
+    });
+
+    it('flags native mock call-count assertions with ignored result props', () => {
+      const v = validate(
+        [
+          'test name="Effect behavior"',
+          '  it name="ambiguous mock call"',
+          '    mock effect=fetchUsers returns={{[]}}',
+          '    expect mock=fetchUsers called=1 returns={{[]}}',
+        ].join('\n'),
+      );
+      expect(
+        v.some((violation) => violation.message.includes('mock call assertions cannot combine with runtime value')),
+      ).toBe(true);
     });
 
     it('flags empty expect assertions', () => {
@@ -253,17 +335,23 @@ describe('Schema Validation', () => {
       );
       expect(
         v.some((violation) =>
-          violation.message.includes('cannot combine fn=<name>, derive=<name>, route=<spec>, and effect=<name>'),
+          violation.message.includes(
+            'cannot combine fn=<name>, derive=<name>, route=<spec>, tool=<name>, effect=<name>, and mock=<name>',
+          ),
         ),
       ).toBe(true);
     });
 
-    it('flags behavioral expect assertions that combine fn or derive with expr', () => {
+    it('flags behavioral expect assertions that combine runtime targets with expr', () => {
       const v = validate(
-        ['test name="Behavior"', '  it name="ambiguous"', '    expect fn=total expr={{total()}} equals=3'].join('\n'),
+        ['test name="Behavior"', '  it name="ambiguous"', '    expect tool=readFile expr={{readFile()}} equals=3'].join(
+          '\n',
+        ),
       );
       expect(
-        v.some((violation) => violation.message.includes('cannot combine fn/derive/route behavioral assertions')),
+        v.some((violation) =>
+          violation.message.includes('cannot combine fn/derive/route/tool/effect/mock behavioral assertions'),
+        ),
       ).toBe(true);
     });
 
