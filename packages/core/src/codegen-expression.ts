@@ -96,13 +96,19 @@ export function emitExpression(node: ValueIR): string {
       return `...${emitExpression(node.argument)}`;
     case 'await':
       return `await ${emitExpression(node.argument)}`;
+    case 'new':
+      return `new ${emitExpression(node.argument)}`;
     case 'objectLit': {
       // Slice 2d — TS object literal. Bare-key when valid identifier; else JSON-quote.
       // Empty object emits `{}` to match JS convention.
       if (node.entries.length === 0) return '{}';
       const entries = node.entries.map((e) => {
-        const k = isValidJSIdent(e.key) ? e.key : JSON.stringify(e.key);
-        return `${k}: ${emitExpression(e.value)}`;
+        if ('kind' in e && (e as any).kind === 'spread') {
+          return `...${emitExpression((e as any).argument)}`;
+        }
+        const prop = e as { key: string; value: ValueIR };
+        const k = isValidJSIdent(prop.key) ? prop.key : JSON.stringify(prop.key);
+        return `${k}: ${emitExpression(prop.value)}`;
       });
       return `{ ${entries.join(', ')} }`;
     }

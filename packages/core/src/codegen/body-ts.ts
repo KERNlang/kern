@@ -120,6 +120,31 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       // miscompiles. The `if` arm above consumes its paired `else` via i++,
       // so reaching one here means it was orphaned.
       throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
+    } else if (child.type === 'try') {
+      // Slice 4c — try/catch control flow.
+      lines.push(`${indent}try {`);
+      for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
+      const next = children[i + 1];
+      if (next && next.type === 'catch') {
+        const errName = String(next.props?.name ?? 'e');
+        lines.push(`${indent}} catch (${errName}) {`);
+        for (const cl of emitChildrenTS(next.children ?? [], ctx, indent + INDENT_STEP)) lines.push(cl);
+        i++;
+      }
+      lines.push(`${indent}}`);
+    } else if (child.type === 'catch') {
+      throw new Error('`catch` must immediately follow a `try` sibling. Found orphan `catch` in handler body.');
+    } else if (child.type === 'throw') {
+      // Slice 4c — throw statement.
+      for (const line of emitThrowTS(child, ctx)) lines.push(`${indent}${line}`);
+    } else if (child.type === 'each') {
+      // Slice 4d — each loop.
+      const listRaw = String(child.props?.list ?? '[]');
+      const asName = String(child.props?.as ?? 'item');
+      const listIR = parseExpression(listRaw);
+      lines.push(`${indent}for (const ${asName} of ${emitExpression(listIR)}) {`);
+      for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
+      lines.push(`${indent}}`);
     }
     // Other child types fall through silently — slice 3 adds more.
   }
@@ -155,4 +180,19 @@ function emitReturnTS(node: IRNode, ctx: BodyEmitContext): string[] {
     return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`, `return ${tmp}.value;`];
   }
   return [`return ${emitExpression(valueIR)};`];
+}
+
+function emitThrowTS(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawValue = props.value;
+  if (rawValue === undefined || rawValue === '') {
+    return [`throw new Error();`];
+  }
+  const valueIR = parseExpression(String(rawValue));
+  if (valueIR.kind === 'propagate' && valueIR.op === '?') {
+    const tmp = `__k_t${++ctx.gensymCounter}`;
+    const inner = emitExpression(valueIR.argument);
+    return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`, `throw ${tmp}.value;`];
+  }
+  return [`throw ${emitExpression(valueIR)};`];
 }

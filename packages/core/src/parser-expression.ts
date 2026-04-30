@@ -54,6 +54,7 @@ export type ExprTokenKind =
   | 'kwTrue'
   | 'kwFalse'
   | 'kwAwait'
+  | 'kwNew'
   | 'eof';
 
 export interface ExprToken {
@@ -69,6 +70,7 @@ const KEYWORDS: Record<string, ExprTokenKind> = {
   true: 'kwTrue',
   false: 'kwFalse',
   await: 'kwAwait',
+  new: 'kwNew',
 };
 
 function isDigit(ch: string): boolean {
@@ -519,6 +521,12 @@ class Parser {
       }
       return awaited;
     }
+    if (this.peek().kind === 'kwNew') {
+      this.advance();
+      // 'new' typically binds to a call expression: `new Error("oops")`
+      const argument = this.parseCall();
+      return { kind: 'new', argument };
+    }
     return this.parsePostfix();
   }
 
@@ -628,26 +636,32 @@ class Parser {
   // Slice 2d — object literal: `{ key: value, "str-key": value }`. Computed
   // keys (`[expr]:`) defer to slice 3.
   private parseObjectLiteral(): ValueIR {
-    const entries: { key: string; value: ValueIR }[] = [];
+    const entries: ({ key: string; value: ValueIR } | { kind: 'spread'; argument: ValueIR })[] = [];
     if (this.peek().kind === 'rbrace') {
       this.advance();
       return { kind: 'objectLit', entries };
     }
     while (true) {
       const keyTok = this.peek();
-      let key: string;
-      if (keyTok.kind === 'ident') {
-        key = keyTok.value;
+      if (keyTok.kind === 'spread') {
         this.advance();
-      } else if (keyTok.kind === 'str') {
-        key = keyTok.value;
-        this.advance();
+        const argument = this.parseNullish();
+        entries.push({ kind: 'spread', argument });
       } else {
-        throw new Error(`Object literal key must be an identifier or string at column ${keyTok.pos + 1}`);
+        let key: string;
+        if (keyTok.kind === 'ident') {
+          key = keyTok.value;
+          this.advance();
+        } else if (keyTok.kind === 'str') {
+          key = keyTok.value;
+          this.advance();
+        } else {
+          throw new Error(`Object literal key must be an identifier, string, or spread at column ${keyTok.pos + 1}`);
+        }
+        this.expect('colon');
+        const value = this.parseNullish();
+        entries.push({ key, value });
       }
-      this.expect('colon');
-      const value = this.parseNullish();
-      entries.push({ key, value });
       if (this.peek().kind === 'comma') {
         this.advance();
         // Trailing comma allowed.

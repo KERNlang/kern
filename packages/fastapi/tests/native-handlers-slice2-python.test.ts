@@ -227,8 +227,18 @@ describe('Cross-target parity — slice 2 stdlib hard cases', () => {
 // ── Review-fix tests (post-buddy-review) — Python target ─────────────────
 
 describe('Review fixes — Python', () => {
-  test('`??` nullish coalesce throws with deferral guidance', () => {
-    expect(() => emitPyExpression(parseExpression('a ?? b'))).toThrow(/Nullish coalesce/);
+  test('`??` nullish coalesce lowers to Python ternary with None check', () => {
+    expect(emitPyExpression(parseExpression('user ?? guest'))).toBe('(user if user is not None else guest)');
+  });
+
+  test('`??` on member chain also works', () => {
+    expect(emitPyExpression(parseExpression('user.id ?? 0'))).toBe('(user.id if user.id is not None else 0)');
+  });
+
+  test('`??` with side-effecting left side uses walrus for single-eval (slice 4c)', () => {
+    expect(emitPyExpression(parseExpression('call() ?? b'))).toBe(
+      '(__k_nc1 if (__k_nc1 := call()) is not None else b)',
+    );
   });
 
   test('comparison chaining gets force-parens to disable Python chaining', () => {

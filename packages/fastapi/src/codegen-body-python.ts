@@ -179,6 +179,34 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
     } else if (child.type === 'else') {
       // Slice-2 review fix: orphan `else` is a structural error (matches TS side).
       throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
+    } else if (child.type === 'try') {
+      // Slice 4c — try/except control flow.
+      lines.push(`${indent}try:`);
+      const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
+      if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+      for (const sl of inner) lines.push(sl);
+      const next = children[i + 1];
+      if (next && next.type === 'catch') {
+        const errName = String(next.props?.name ?? 'e');
+        lines.push(`${indent}except Exception as ${errName}:`);
+        const catchInner = emitChildrenPy(next.children ?? [], ctx, indent + INDENT_STEP);
+        if (catchInner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+        for (const cl of catchInner) lines.push(cl);
+        i++;
+      }
+    } else if (child.type === 'catch') {
+      throw new Error('`catch` must immediately follow a `try` sibling. Found orphan `catch` in handler body.');
+    } else if (child.type === 'throw') {
+      for (const line of emitThrowPy(child, ctx)) lines.push(`${indent}${line}`);
+    } else if (child.type === 'each') {
+      // Slice 4d — each loop.
+      const listRaw = String(child.props?.list ?? '[]');
+      const asName = String(child.props?.as ?? 'item');
+      const listIR = parseExpression(listRaw);
+      lines.push(`${indent}for ${asName} in ${emitPyExprCtx(listIR, ctx)}:`);
+      const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
+      if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+      for (const sl of inner) lines.push(sl);
     }
   }
   return lines;
@@ -227,6 +255,22 @@ function emitReturnPy(node: IRNode, ctx: BodyEmitContext): string[] {
     return [`${tmp} = ${inner}`, `if ${tmp}.kind == 'err':`, errPropagationLine(tmp, ctx), `return ${tmp}.value`];
   }
   return [`return ${emitPyExprCtx(valueIR, ctx)}`];
+}
+
+function emitThrowPy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawValue = props.value;
+  if (rawValue === undefined || rawValue === '') {
+    return [`raise Exception()`];
+  }
+  const valueIR = parseExpression(String(rawValue));
+  if (valueIR.kind === 'propagate' && valueIR.op === '?') {
+    const tmp = `__k_t${++ctx.gensymCounter}`;
+    const inner = emitPyExprCtx(valueIR.argument, ctx);
+    ctx.usedPropagation = true;
+    return [`${tmp} = ${inner}`, `if ${tmp}.kind == 'err':`, errPropagationLine(tmp, ctx), `raise ${tmp}.value`];
+  }
+  return [`raise ${emitPyExprCtx(valueIR, ctx)}`];
 }
 
 /** Slice-1 ValueIR → Python expression. Covers the surface that body-ts.ts
@@ -288,6 +332,8 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     }
     case 'await':
       return `await ${emitPyExprCtx(node.argument, ctx)}`;
+    case 'new':
+      return emitPyExprCtx(node.argument, ctx);
     case 'tmplLit': {
       // Lower TS template literals to Python f-strings.
       let out = 'f"';
@@ -316,6 +362,36 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // expected `(a == b) < c` evaluation order.
       const left = emitPyExprCtx(node.left, ctx);
       const right = emitPyExprCtx(node.right, ctx);
+
+      if (node.op === '??') {
+        // Slice 4c — nullish coalesce lowering. Two shapes:
+        //
+        //   (a) Pure left side (ident or non-optional member chain rooted
+        //       at ident) — re-evaluating the expression in both the test
+        //       and the result branch is side-effect-free, so emit the
+        //       readable double-name form:
+        //         `(L if L is not None else R)`
+        //
+        //   (b) Non-pure left side (call / await / binary / etc.) — single-
+        //       eval is required so we use Python's walrus operator
+        //       (PEP 572, Python 3.8+) to bind the result inline:
+        //         `(__k_nc1 if (__k_nc1 := L) is not None else R)`
+        //       Python evaluates the walrus assignment expression FIRST
+        //       (single eval of L → bound to __k_nc1), tests for None, and
+        //       returns __k_nc1 or R. The gensym counter shares with the
+        //       propagation hoist (`__k_t…`) — distinct prefix prevents
+        //       any name collision.
+        //
+        // Slice 4c (post-buddy-review) was the easy-win expansion after the
+        // 22.7% empirical-gate scan; this lifts the slice-2 `??` throw and
+        // adds an estimated +7% to native eligibility on Agon-AI bodies.
+        if (isReceiverChainPure(node.left)) {
+          return `(${left} if ${left} is not None else ${right})`;
+        }
+        const tmp = `__k_nc${++ctx.gensymCounter}`;
+        return `(${tmp} if (${tmp} := ${left}) is not None else ${right})`;
+      }
+
       const forceLeft = needsComparisonChainParens(node.left, node.op);
       const forceRight = needsComparisonChainParens(node.right, node.op);
       const lp = forceLeft || needsBinaryParens(node.left, node.op, 'left') ? `(${left})` : left;
@@ -335,12 +411,19 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     case 'objectLit': {
       // Slice 2d — Python dict literal. Keys are ALWAYS double-quoted (no
       // shorthand-key syntax in Python).
-      const entries = node.entries.map((e) => `${JSON.stringify(e.key)}: ${emitPyExprCtx(e.value, ctx)}`);
+      const entries = node.entries.map((e) => {
+        if ('kind' in e && (e as any).kind === 'spread') {
+          return `**${emitPyExprCtx((e as any).argument, ctx)}`;
+        }
+        const prop = e as { key: string; value: ValueIR };
+        return `${JSON.stringify(prop.key)}: ${emitPyExprCtx(prop.value, ctx)}`;
+      });
       return `{${entries.join(', ')}}`;
     }
     case 'arrayLit':
       return `[${node.items.map((i) => emitPyExprCtx(i, ctx)).join(', ')}]`;
     case 'spread':
+      return `*${emitPyExprCtx(node.argument, ctx)}`;
     case 'regexLit':
       throw new Error(
         `emitPyExpression: ValueIR kind '${node.kind}' is not supported in slice-2 native KERN bodies (Python target).`,
@@ -464,12 +547,6 @@ function mapBinaryOpToPython(op: string): string {
       return 'and';
     case '||':
       return 'or';
-    case '??':
-      throw new Error(
-        "Nullish coalesce '??' is not yet supported in native KERN bodies on Python target. " +
-          'Slice 3 introduces a single-eval lowering; for now, write an explicit `if x === none then ...` ' +
-          'or use `lang=ts` opt-out for the affected handler.',
-      );
     default:
       return op;
   }
