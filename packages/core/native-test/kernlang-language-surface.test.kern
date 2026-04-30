@@ -1,0 +1,37 @@
+test name="KERNlang language surface self contracts" target="./kernlang-language-surface.kern"
+  it name="source shape stays valid before generated TypeScript"
+    expect no=schemaViolations
+    expect no=semanticViolations
+    expect no=duplicateNames
+    expect node=interface name=User child=field count=5
+    expect node=field name=score within=User prop=type is=number
+    expect node=class name=UserDirectory child=method childName=active
+    expect node=fn name=selectActive child=param count=1
+
+  it name="array primitives execute as KERN-owned data transforms"
+    expect expr={{activeNames}} equals={{["Ada", "Lin", "Mina"]}}
+    expect expr={{activeScore}} equals=9
+    expect expr={{scoreAsc.map((user) => user.id)}} equals={{["u4", "u1", "u3", "u2"]}}
+    expect expr={{uniqueRoles}} equals={{["admin", "member", "guest"]}}
+
+  it name="map set and destructure nodes keep runtime meaning"
+    expect expr={{roleLabels.get(firstRole)}} equals="Administrator"
+    expect expr={{allowedRoles.has("admin") && allowedRoles.has("member") && !allowedRoles.has("guest")}}
+    expect expr={{firstId + ":" + secondUser.id}} equals="u1:u2"
+
+  it name="advanced collection nodes execute before codegen"
+    expect expr={{Object.keys(usersByRole).sort()}} equals={{["admin", "guest", "member"]}}
+    expect expr={{usersById.u3.name}} equals="Lin"
+    expect expr={{countByRole.member}} equals=2
+    expect expr={{scoreAverage}} equals=4.5
+    expect expr={{userScoreTotal}} equals=18
+    expect expr={{lowestUser.id + ":" + highestUser.id}} equals="u4:u2"
+
+  it name="classes functions and derives compose in native runtime"
+    expect expr={{new UserDirectory(users).count}} equals=4
+    expect expr={{new UserDirectory(users).names()}} equals={{["Ada", "Lin", "Mina"]}}
+    expect fn=selectActive with=users equals={{[{ id: "u1", name: "Ada", role: "admin", active: true, score: 3 }, { id: "u3", name: "Lin", role: "member", active: true, score: 4 }, { id: "u4", name: "Mina", role: "guest", active: true, score: 2 }]}}
+    expect derive=languageSummary equals="3:Ada,Lin,Mina:18"
+
+  it name="language surface reaches core codegen"
+    expect no=codegenErrors

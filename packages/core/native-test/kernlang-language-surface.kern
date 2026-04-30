@@ -1,0 +1,73 @@
+type name=UserId alias=string
+type name=UserPair alias="[User, User]"
+
+interface name=User
+  field name=id type=string
+  field name=name type=string
+  field name=role type=string
+  field name=active type=boolean
+  field name=score type=number
+
+const name=users type="User[]" value={{[{ id: "u1", name: "Ada", role: "admin", active: true, score: 3 }, { id: "u2", name: "Grace", role: "member", active: false, score: 9 }, { id: "u3", name: "Lin", role: "member", active: true, score: 4 }, { id: "u4", name: "Mina", role: "guest", active: true, score: 2 }]}}
+const name=roles value={{["admin", "member", "guest", "admin"]}}
+const name=scores value={{[3, 9, 4, 2]}}
+
+filter name=activeUsers in=users item=user where="user.active" type="User[]"
+map name=activeNames in=activeUsers item=user expr="user.name" type="string[]"
+reduce name=activeScore in=activeUsers acc=sum item=user initial=0 expr="sum + user.score" type=number
+sort name=scoreAsc in=users a=left b=right compare="left.score - right.score" type="User[]"
+unique name=uniqueRoles in=roles type="string[]"
+
+mapLit name=roleLabels type="Map<string, string>"
+  mapEntry key="admin" value="Administrator"
+  mapEntry key="member" value="Member"
+  mapEntry key="guest" value="Guest"
+
+setLit name=allowedRoles type="Set<string>"
+  setItem value="admin"
+  setItem value="member"
+
+destructure kind=const source=users
+  element name=firstUser index=0
+  element name=secondUser index=1
+
+destructure kind=const source=firstUser
+  binding name=firstId key=id
+  binding name=firstRole key=role
+
+groupBy name=usersByRole in=users item=user by="user.role"
+indexBy name=usersById in=users item=user by="user.id"
+countBy name=countByRole in=users item=user by="user.role"
+sum name=scoreTotal in=scores
+avg name=scoreAverage in=scores
+sumBy name=userScoreTotal in=users item=user by="user.score"
+minBy name=lowestUser in=users item=user by="user.score"
+maxBy name=highestUser in=users item=user by="user.score"
+
+class name=UserDirectory export=true
+  field name=items type="User[]" private=true value={{ [] }}
+  constructor
+    param name=initial type="User[]" value={{ [] }}
+    handler <<<
+      this.items = initial;
+    >>>
+  method name=active returns="User[]"
+    handler <<<
+      return this.items.filter((user) => user.active);
+    >>>
+  method name=names returns="string[]"
+    handler <<<
+      return this.active().map((user) => user.name);
+    >>>
+  getter name=count returns=number
+    handler <<<
+      return this.items.length;
+    >>>
+
+fn name=selectActive returns="User[]"
+  param name=items type="User[]"
+  handler <<<
+    return new UserDirectory(items).active();
+  >>>
+
+derive name=languageSummary expr={{activeUsers.length + ":" + activeNames.join(",") + ":" + scoreTotal}}
