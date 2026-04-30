@@ -2838,6 +2838,8 @@ describe('native kern test runner', () => {
         '    expect import="./fixture.ts" contains="interface name=Bag export=true"',
         '    expect import=true from="./fixture.ts" contains="overload params=\\"a:number,b:number\\" returns=number"',
         '    expect import="./fixture.ts" notContains="TODO(unmapped)"',
+        '    expect import="./fixture.ts" no=unmapped',
+        '    expect import="./fixture.ts" unmapped=0',
         '    expect import="./fixture.ts" roundtrip=true',
       ].join('\n'),
     );
@@ -2845,7 +2847,14 @@ describe('native kern test runner', () => {
     const summary = runNativeKernTests(testFile);
 
     expect(summary.failed).toBe(0);
-    expect(summary.results.map((result) => result.ruleId)).toEqual(['import', 'import', 'import', 'import']);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'import',
+      'import',
+      'import',
+      'import',
+      'import',
+      'import',
+    ]);
   });
 
   test('reports TypeScript importer assertion mismatches', () => {
@@ -2865,6 +2874,26 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(1);
     expect(summary.results[0].ruleId).toBe('import');
     expect(summary.results[0].message).toContain('Imported KERN does not contain');
+  });
+
+  test('reports unmapped TypeScript importer assertions', () => {
+    writeFileSync(join(tmpDir, 'fixture.ts'), 'debugger;');
+    const testFile = join(tmpDir, 'import-unmapped.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Import unmapped" coverage=false',
+        '  it name="fails clearly"',
+        '    expect import="./fixture.ts" no=unmapped',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('import');
+    expect(summary.results[0].message).toContain('expected no unmapped TypeScript');
+    expect(summary.results[0].message).toContain('debugger');
   });
 
   test('discovers and runs native test files under a directory', () => {

@@ -21,4 +21,6 @@ test name="KERNlang TypeScript importer parity" target="./kernlang-typescript-su
     expect import="./kernlang-import-surface.ts" contains="binding name=mail key=email"
     expect import="./kernlang-import-surface.ts" contains="element name=first index=0"
     expect import="./kernlang-import-surface.ts" notContains="TODO(unmapped)"
+    expect import="./kernlang-import-surface.ts" no=unmapped
+    expect import="./kernlang-import-surface.ts" unmapped=0
     expect import="./kernlang-import-surface.ts" roundtrip=true

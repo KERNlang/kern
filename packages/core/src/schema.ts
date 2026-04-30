@@ -2400,6 +2400,8 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       called: { kind: 'number' },
       import: { kind: 'string' },
       source: { kind: 'string' },
+      unmapped: { kind: 'number' },
+      allowWarnings: { kind: 'boolean' },
       args: { kind: 'rawExpr' },
       with: { kind: 'rawExpr' },
       input: { kind: 'rawExpr' },
@@ -2673,6 +2675,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       const importValue = props.import === undefined ? '' : String(props.import);
       const hasPath = (importValue !== '' && importValue !== 'true') || 'from' in props || 'source' in props;
       const hasTextAssertion = 'contains' in props || 'notContains' in props || 'matches' in props;
+      const hasUnmappedAssertion = 'unmapped' in props || props.no === 'unmapped';
       if (!hasPath) {
         violations.push({
           nodeType: 'expect',
@@ -2681,10 +2684,11 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
           col: node.loc?.col,
         });
       }
-      if (!hasTextAssertion && !hasRoundtripAssertion) {
+      if (!hasTextAssertion && !hasRoundtripAssertion && !hasUnmappedAssertion) {
         violations.push({
           nodeType: 'expect',
-          message: "'expect import' requires contains=, notContains=, matches=, or roundtrip=true",
+          message:
+            "'expect import' requires contains=, notContains=, matches=, roundtrip=true, unmapped=<count>, or no=unmapped",
           line: node.loc?.line,
           col: node.loc?.col,
         });

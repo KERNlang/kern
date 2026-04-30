@@ -535,6 +535,10 @@ export interface ExpectProps extends BaseProps {
   expr?: string;
   fn?: string;
   derive?: string;
+  import?: string;
+  source?: string;
+  unmapped?: string;
+  allowWarnings?: string | boolean;
   args?: string | ExprObject;
   with?: string | ExprObject;
   within?: string;

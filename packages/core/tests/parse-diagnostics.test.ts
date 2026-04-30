@@ -102,6 +102,22 @@ describe('Parse Diagnostics', () => {
     expect(match?.suggestion.length).toBeGreaterThan(0);
   });
 
+  test('importer-owned collection and destructure nodes are known parser nodes', () => {
+    const source = [
+      'mapLit name=lookup',
+      "  mapEntry key='foo' value=1",
+      'setLit name=roles',
+      "  setItem value='admin'",
+      'destructure kind=const source=user',
+      '  binding name=id',
+      'destructure kind=const source=pair',
+      '  element name=first index=0',
+    ].join('\n');
+    const { diagnostics } = parseWithDiagnostics(source);
+
+    expect(diagnostics.filter((diagnostic) => diagnostic.code === 'UNKNOWN_NODE_TYPE')).toEqual([]);
+  });
+
   test('getParseDiagnostics returns the last parse diagnostics', () => {
     parse('mystery');
     expect(getParseDiagnostics().some((d) => d.code === 'UNKNOWN_NODE_TYPE')).toBe(true);

@@ -970,6 +970,7 @@ function assertionLabel(node: IRNode): string {
   const contains = props.contains === undefined ? '' : String(props.contains);
   const notContains = props.notContains === undefined ? '' : String(props.notContains);
   const matches = props.matches === undefined ? '' : String(props.matches);
+  const unmapped = props.unmapped === undefined ? '' : String(props.unmapped);
   const throws = props.throws === undefined ? '' : String(props.throws || 'true');
   const called = props.called === undefined ? '' : String(props.called);
 
@@ -979,6 +980,8 @@ function assertionLabel(node: IRNode): string {
     if (notContains) parts.push(`notContains ${notContains}`);
     if (matches) parts.push(`matches ${matches}`);
     if (roundtrip) parts.push('roundtrip');
+    if (unmapped) parts.push(`unmapped ${unmapped}`);
+    if (no === 'unmapped') parts.push('no unmapped');
     return parts.join(' ');
   }
   if (decompileAssertion) {
@@ -2344,13 +2347,23 @@ function resolveImportAssertionSource(
   }
 }
 
-function evaluateImportedKernRoundtrip(kern: string): { passed: boolean; message?: string } {
+function evaluateImportedKernRoundtrip(
+  kern: string,
+  options: { allowWarnings?: boolean } = {},
+): { passed: boolean; message?: string } {
   const reparsed = parseDocumentWithDiagnostics(kern);
   const parseError = reparsed.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
   if (parseError) {
     return {
       passed: false,
       message: `Imported KERN does not reparse at ${parseError.line}:${parseError.col}: ${parseError.message}`,
+    };
+  }
+  const parseWarning = reparsed.diagnostics.find((diagnostic) => diagnostic.severity === 'warning');
+  if (parseWarning && !options.allowWarnings) {
+    return {
+      passed: false,
+      message: `Imported KERN has parser warning at ${parseWarning.line}:${parseWarning.col}: ${parseWarning.message}`,
     };
   }
 
@@ -2380,6 +2393,13 @@ function evaluateImportedKernRoundtrip(kern: string): { passed: boolean; message
   return { passed: true };
 }
 
+function formatImportUnmapped(unmapped: string[]): string {
+  if (unmapped.length === 0) return 'no unmapped TypeScript statements';
+  const shown = unmapped.slice(0, 5).join('; ');
+  const suffix = unmapped.length > 5 ? `; +${unmapped.length - 5} more` : '';
+  return `${unmapped.length} unmapped TypeScript statement(s): ${shown}${suffix}`;
+}
+
 function evaluateImportAssertion(
   node: IRNode,
   context?: NativeKernAssertionContext,
@@ -2387,8 +2407,13 @@ function evaluateImportAssertion(
   const props = getProps(node);
   const hasTextAssertion = 'contains' in props || 'notContains' in props || 'matches' in props;
   const hasRoundtripAssertion = 'roundtrip' in props;
-  if (!hasTextAssertion && !hasRoundtripAssertion) {
-    return { passed: false, message: 'Import assertion requires contains=, notContains=, matches=, or roundtrip=true' };
+  const hasUnmappedAssertion = 'unmapped' in props || str(props.no) === 'unmapped';
+  if (!hasTextAssertion && !hasRoundtripAssertion && !hasUnmappedAssertion) {
+    return {
+      passed: false,
+      message:
+        'Import assertion requires contains=, notContains=, matches=, roundtrip=true, unmapped=<count>, or no=unmapped',
+    };
   }
 
   const resolved = resolveImportAssertionSource(node, context);
@@ -2396,9 +2421,9 @@ function evaluateImportAssertion(
     return { passed: false, message: resolved.message || 'Could not resolve import source' };
   }
 
-  let kern: string;
+  let imported: ReturnType<typeof importTypeScript>;
   try {
-    kern = importTypeScript(resolved.source, resolved.fileName || 'input.ts').kern;
+    imported = importTypeScript(resolved.source, resolved.fileName || 'input.ts');
   } catch (error) {
     return {
       passed: false,
@@ -2406,13 +2431,32 @@ function evaluateImportAssertion(
     };
   }
 
+  if (str(props.no) === 'unmapped' && imported.unmapped.length > 0) {
+    return {
+      passed: false,
+      message: `Import expected no unmapped TypeScript, found ${formatImportUnmapped(imported.unmapped)}`,
+    };
+  }
+  if ('unmapped' in props) {
+    const expected = Number(props.unmapped);
+    if (!Number.isInteger(expected) || expected < 0) {
+      return { passed: false, message: 'Import assertion requires unmapped=<non-negative integer>' };
+    }
+    if (imported.unmapped.length !== expected) {
+      return {
+        passed: false,
+        message: `Import expected ${expected} unmapped TypeScript statement(s), found ${formatImportUnmapped(imported.unmapped)}`,
+      };
+    }
+  }
+
   if (hasTextAssertion) {
-    const sourceAssertion = evaluateSourceTextAssertion(node, kern, 'Imported KERN');
+    const sourceAssertion = evaluateSourceTextAssertion(node, imported.kern, 'Imported KERN');
     if (!sourceAssertion.passed) return sourceAssertion;
   }
 
   if (hasRoundtripAssertion) {
-    const roundtrip = evaluateImportedKernRoundtrip(kern);
+    const roundtrip = evaluateImportedKernRoundtrip(imported.kern, { allowWarnings: isTruthy(props.allowWarnings) });
     if (!roundtrip.passed) return roundtrip;
   }
 
