@@ -3430,12 +3430,15 @@ function evaluateRuntimeRoute(
   const expressionSources = expectedSource ? [routeBinding.name, expectedSource] : [routeBinding.name];
   const declarations = buildRuntimeDeclarations(target, expressionSources, [...fixtures, routeBinding]);
   if ('message' in declarations) return { passed: false, message: declarations.message };
+  const routeContext = runtimeExpressionContext(routeBinding.name, [...fixtures, routeBinding]);
 
   const actual = runRuntimeExpression(target, declarations.source, routeBinding.name);
   if (!actual.ok) {
     return {
       passed: false,
-      message: `${label} threw: ${actual.error instanceof Error ? actual.error.message : String(actual.error)}`,
+      message: `${label} threw: ${
+        actual.error instanceof Error ? actual.error.message : String(actual.error)
+      }${routeContext}`,
     };
   }
 
@@ -3457,21 +3460,28 @@ function evaluateRuntimeRoute(
         passed: false,
         message:
           str(props.message) ||
-          `${label} was expected to throw${expectedRaw && expectedRaw !== 'true' ? ` ${expectedRaw}` : ''}, but returned ${formatRuntimeValue(probe.value)}`,
+          `${label} was expected to throw${
+            expectedRaw && expectedRaw !== 'true' ? ` ${expectedRaw}` : ''
+          }, but returned ${formatRuntimeValue(probe.value)}${routeContext}`,
       };
     }
     const error = decodeRuntimeError(probe.error);
     if (!thrownRuntimeErrorMatches(error, expectedRaw)) {
       return {
         passed: false,
-        message: str(props.message) || `${label} threw ${formatThrownRuntimeError(error)}, expected ${expectedRaw}`,
+        message:
+          str(props.message) ||
+          `${label} threw ${formatThrownRuntimeError(error)}, expected ${expectedRaw}${routeContext}`,
       };
     }
     return { passed: true };
   }
 
   if (probe.__kernRouteStatus === 'thrown') {
-    return { passed: false, message: `${label} threw: ${formatThrownRuntimeError(decodeRuntimeError(probe.error))}` };
+    return {
+      passed: false,
+      message: `${label} threw: ${formatThrownRuntimeError(decodeRuntimeError(probe.error))}${routeContext}`,
+    };
   }
 
   if (expectedSource !== undefined) {
@@ -3481,7 +3491,7 @@ function evaluateRuntimeRoute(
         passed: false,
         message: `Runtime route assertion cannot execute expected ${expectedLabel} value: ${formatThrownRuntimeError(
           expected.error,
-        )}`,
+        )}${routeContext}`,
       };
     }
     return runtimeValuesEqual(probe.value, expected.value)
@@ -3490,7 +3500,9 @@ function evaluateRuntimeRoute(
           passed: false,
           message:
             str(props.message) ||
-            `${label} expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(probe.value)}`,
+            `${label} expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(
+              probe.value,
+            )}${routeContext}`,
         };
   }
 
@@ -3503,7 +3515,8 @@ function evaluateRuntimeRoute(
         : {
             passed: false,
             message:
-              str(props.message) || `${label} value ${formatRuntimeValue(probe.value)} does not match /${pattern}/`,
+              str(props.message) ||
+              `${label} value ${formatRuntimeValue(probe.value)} does not match /${pattern}/${routeContext}`,
           };
     } catch (error) {
       return {
@@ -3513,7 +3526,9 @@ function evaluateRuntimeRoute(
     }
   }
 
-  return probe.value ? { passed: true } : { passed: false, message: str(props.message) || `${label} evaluated false` };
+  return probe.value
+    ? { passed: true }
+    : { passed: false, message: str(props.message) || `${label} evaluated false${routeContext}` };
 }
 
 function findRuntimeEffect(target: LoadedKernDocument, effectName: string): { effect?: IRNode; message?: string } {
@@ -3662,7 +3677,7 @@ function evaluateRuntimeEffect(
 function expectedMockCallCount(node: IRNode): { count?: number; message?: string } {
   const raw = getProps(node).called;
   const count = Number(raw);
-  if (!Number.isInteger(count) || count < 0) {
+  if (raw === '' || !Number.isInteger(count) || count < 0) {
     return { message: `Runtime mock call assertion requires called=<non-negative integer>, got ${String(raw)}` };
   }
   return { count };

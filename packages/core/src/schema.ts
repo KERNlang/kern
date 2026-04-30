@@ -2629,8 +2629,9 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       });
     }
     if ('called' in props) {
+      const rawCalled = props.called;
       const called = Number(props.called);
-      if (!Number.isInteger(called) || called < 0) {
+      if (rawCalled === '' || !Number.isInteger(called) || called < 0) {
         violations.push({
           nodeType: 'expect',
           message: "'expect' mock call assertions require called=<non-negative integer>",

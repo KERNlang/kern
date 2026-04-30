@@ -512,6 +512,8 @@ describe('native kern test runner', () => {
         '    expect mock=fetchUsers called=0',
         '    expect route="GET /api/users" with={{({ query: { role: "admin" } })}} returns={{users}}',
         '    expect mock=fetchUsers called=1',
+        '    expect route="GET /api/users" with={{({ query: { role: "admin" } })}} returns={{users}}',
+        '    expect mock=fetchUsers called=2',
       ].join('\n'),
     );
 
@@ -523,7 +525,51 @@ describe('native kern test runner', () => {
       'mock:called',
       'runtime:route',
       'mock:called',
+      'runtime:route',
+      'mock:called',
     ]);
+  });
+
+  test('reports undeclared native mock call-count assertions as configuration failures', () => {
+    writeFileSync(join(tmpDir, 'undeclared-mock.kern'), ['effect name=loadUsers', '  trigger expr={{[]}}'].join('\n'));
+    const testFile = join(tmpDir, 'undeclared-mock.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Undeclared mock" target="./undeclared-mock.kern"',
+        '  it name="expects undeclared mock calls"',
+        '    expect mock=loadUsers called=1',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('mock:called');
+    expect(summary.results[0].message).toContain('Runtime mock assertion target not found: loadUsers');
+  });
+
+  test('route assertion failures include runtime expression context', () => {
+    writeFileSync(
+      join(tmpDir, 'route-context.kern'),
+      ['server name=UsersAPI', '  route GET /api/users', '    respond 200 json={{[]}}'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'route-context.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Route failure context" target="./route-context.kern"',
+        '  fixture name=users value={{[{ id: "u1" }]}}',
+        '  it name="shows context"',
+        '    expect route="GET /api/users" returns={{users}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain('expression: __kernRoute_');
+    expect(summary.results[0].message).toContain('fixtures: users, __kernRoute_');
   });
 
   test('reports mocked effect call-count mismatches without duplicate unused-mock noise', () => {

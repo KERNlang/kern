@@ -259,6 +259,18 @@ describe('Schema Validation', () => {
       ).toBe(true);
     });
 
+    it('flags empty native mock call counts', () => {
+      const v = validate(
+        [
+          'test name="Effect behavior"',
+          '  it name="empty called"',
+          '    mock effect=fetchUsers returns={{[]}}',
+          '    expect mock=fetchUsers called=',
+        ].join('\n'),
+      );
+      expect(v.some((violation) => violation.message.includes('called=<non-negative integer>'))).toBe(true);
+    });
+
     it('flags native mock call-count assertions with ignored result props', () => {
       const v = validate(
         [
