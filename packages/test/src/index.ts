@@ -231,6 +231,10 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
     ruleId: 'runtime:behavior',
     description: 'Evaluate a constrained pure fn or derive assertion with scoped native test fixtures.',
   },
+  {
+    ruleId: 'runtime:route',
+    description: 'Evaluate a portable route workflow with request fixtures before backend code generation.',
+  },
   { ruleId: 'expect:unsupported', description: 'The expect assertion shape is not supported by native kern test.' },
   { ruleId: 'preset:unknown', description: 'The requested preset name is unknown.' },
   { ruleId: 'no:schemaviolations', description: 'The target KERN file has no schema violations.' },
@@ -763,9 +767,12 @@ function assertionLabel(node: IRNode): string {
   const expr = exprToString(props.expr);
   const fn = str(props.fn);
   const derive = str(props.derive);
+  const route = str(props.route);
   const args = exprToString(props.args);
   const withValue = exprToString(props.with);
+  const input = exprToString(props.input);
   const equals = props.equals === undefined ? '' : exprToString(props.equals) || String(props.equals);
+  const returns = props.returns === undefined ? '' : exprToString(props.returns) || String(props.returns);
   const matches = props.matches === undefined ? '' : String(props.matches);
   const throws = props.throws === undefined ? '' : String(props.throws || 'true');
 
@@ -801,6 +808,16 @@ function assertionLabel(node: IRNode): string {
   }
   if (derive) {
     const parts = [`derive ${derive}`];
+    if (equals) parts.push(`equals ${equals}`);
+    if (matches) parts.push(`matches ${matches}`);
+    if (throws) parts.push(`throws ${throws}`);
+    return parts.join(' ');
+  }
+  if (route) {
+    const parts = [`route ${route}`];
+    if (withValue) parts.push(`with ${withValue}`);
+    if (input) parts.push(`input ${input}`);
+    if (returns) parts.push(`returns ${returns}`);
     if (equals) parts.push(`equals ${equals}`);
     if (matches) parts.push(`matches ${matches}`);
     if (throws) parts.push(`throws ${throws}`);
@@ -2020,10 +2037,10 @@ function runtimeRespondSource(node: IRNode): string {
   const props = getProps(node);
   const status = typeof props.status === 'number' ? props.status : Number(str(props.status)) || undefined;
   const jsonSource = runtimeValuePropSource(node, 'json');
-  if (jsonSource) return jsonSource;
+  if (jsonSource) return status && status !== 200 ? `({ status: ${status}, json: ${jsonSource} })` : jsonSource;
 
   const textSource = runtimeValuePropSource(node, 'text');
-  if (textSource) return textSource;
+  if (textSource) return status && status !== 200 ? `({ status: ${status}, text: ${textSource} })` : textSource;
 
   const error = str(props.error);
   if (error) return `({ status: ${status || 500}, error: ${JSON.stringify(error)} })`;
@@ -2107,11 +2124,11 @@ function runtimeScopedChildProgram(children: IRNode[]): { lines: string[]; names
   return { lines, names, hasReturn };
 }
 
-function runtimeBranchBindingExpr(node: IRNode): string {
+function runtimeBranchBindingExpr(node: IRNode, options: { async?: boolean } = {}): string {
   const on = rawPropToRuntimeSource(node, 'on');
   if (!on) return '';
 
-  const lines = ['(() => {', `  const __branchValue = (${on});`];
+  const lines = [`(${options.async ? 'async ' : ''}() => {`, `  const __branchValue = (${on});`];
   const paths = getChildren(node, 'path');
   for (let index = 0; index < paths.length; index++) {
     const pathNode = paths[index];
@@ -2128,7 +2145,7 @@ function runtimeBranchBindingExpr(node: IRNode): string {
   return lines.join('\n');
 }
 
-function runtimeEachExecutionExpr(node: IRNode): string {
+function runtimeEachExecutionExpr(node: IRNode, options: { async?: boolean } = {}): string {
   const collection = rawPropToRuntimeSource(node, 'in');
   const item = str(getProps(node).name) || 'item';
   if (!collection || !isRuntimeBindingName(item)) return '';
@@ -2137,7 +2154,7 @@ function runtimeEachExecutionExpr(node: IRNode): string {
   if (index && !isRuntimeBindingName(index)) return '';
 
   const program = runtimeScopedChildProgram(node.children || []);
-  const lines = ['(() => {', '  const __results = [];'];
+  const lines = [`(${options.async ? 'async ' : ''}() => {`, '  const __results = [];'];
   if (index) {
     lines.push(`  for (const [${index}, ${item}] of (${collection}).entries()) {`);
   } else {
@@ -2161,6 +2178,176 @@ function runtimeEachExecutionBinding(node: IRNode): RuntimeBinding | undefined {
     eager: true,
     line: node.loc?.line,
   };
+}
+
+function runtimeRouteMethod(node: IRNode): string {
+  return (str(getProps(node).method) || 'get').toLowerCase();
+}
+
+function runtimeRoutePath(node: IRNode): string {
+  return str(getProps(node).path);
+}
+
+function runtimeRouteLabel(node: IRNode): string {
+  return `${runtimeRouteMethod(node).toUpperCase()} ${runtimeRoutePath(node) || '<missing-path>'}`;
+}
+
+function parseRuntimeRouteSpec(spec: string): { method?: string; path?: string; name?: string } {
+  const trimmed = spec.trim();
+  const match = trimmed.match(/^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(.+)$/i);
+  if (match) return { method: match[1].toLowerCase(), path: match[2].trim() };
+  if (trimmed.startsWith('/')) return { path: trimmed };
+  return { name: trimmed };
+}
+
+function findRuntimeRoute(target: LoadedKernDocument, spec: string): { route?: IRNode; message?: string } {
+  const parsed = parseRuntimeRouteSpec(spec);
+  const routes = collectNodes(target.root, 'route').filter((route) => {
+    const props = getProps(route);
+    if (parsed.name) {
+      return str(props.name) === parsed.name || runtimeRouteLabel(route) === parsed.name;
+    }
+    if (parsed.method && runtimeRouteMethod(route) !== parsed.method) return false;
+    return !parsed.path || runtimeRoutePath(route) === parsed.path;
+  });
+
+  if (routes.length === 1) return { route: routes[0] };
+  if (routes.length === 0) return { message: `Runtime route assertion target not found: ${spec}` };
+  return { message: `Runtime route assertion target is ambiguous: ${spec}` };
+}
+
+function runtimeRoutePathParamNames(path: string): string[] {
+  const names: string[] = [];
+  const matcher = /(?::|\{)([A-Za-z_$][A-Za-z0-9_$]*)(?:\})?/g;
+  let match: RegExpExecArray | null;
+  while ((match = matcher.exec(path))) names.push(match[1]);
+  return [...new Set(names)];
+}
+
+function runtimeRouteParamItems(route: IRNode): Array<{ name: string; defaultSource?: string }> {
+  const items: Array<{ name: string; defaultSource?: string }> = [];
+  for (const paramsNode of getChildren(route, 'params')) {
+    const rawItems = getProps(paramsNode).items;
+    if (!Array.isArray(rawItems)) continue;
+    for (const item of rawItems) {
+      if (!item || typeof item !== 'object') continue;
+      const itemProps = item as { name?: unknown; default?: unknown };
+      const name = str(itemProps.name);
+      if (!name) continue;
+      const defaultSource = itemProps.default === undefined ? undefined : String(itemProps.default);
+      items.push({ name, defaultSource });
+    }
+  }
+  return items;
+}
+
+function runtimeRouteRequestLines(route: IRNode, inputSource: string): { lines: string[]; message?: string } {
+  const lines = [
+    `const __request = ((${inputSource}) ?? {});`,
+    'const params = (__request.params ?? {});',
+    'const query = (__request.query ?? {});',
+    'const body = (__request.body ?? {});',
+    'const headers = (__request.headers ?? {});',
+  ];
+  const declared = new Set<string>();
+
+  for (const name of runtimeRoutePathParamNames(runtimeRoutePath(route))) {
+    if (!isRuntimeBindingName(name)) return { lines: [], message: `Runtime route has invalid path param: ${name}` };
+    if (declared.has(name)) continue;
+    declared.add(name);
+    lines.push(`const ${name} = params[${JSON.stringify(name)}];`);
+  }
+
+  for (const item of runtimeRouteParamItems(route)) {
+    if (!isRuntimeBindingName(item.name)) {
+      return { lines: [], message: `Runtime route has invalid params entry: ${item.name}` };
+    }
+    if (declared.has(item.name)) continue;
+    declared.add(item.name);
+    const fallback = item.defaultSource ?? 'undefined';
+    const key = JSON.stringify(item.name);
+    lines.push(`const ${item.name} = query[${key}] ?? params[${key}] ?? (${fallback});`);
+  }
+
+  return { lines };
+}
+
+function runtimeRouteChildProgram(children: IRNode[]): { lines: string[]; message?: string } {
+  const lines: string[] = [];
+
+  for (const child of children) {
+    if (child.type === 'handler') {
+      return {
+        lines: [],
+        message:
+          'Runtime route assertions execute portable KERN route nodes; handler blocks remain backend/runtime tests.',
+      };
+    }
+    if (child.type === 'effect') {
+      return {
+        lines: [],
+        message:
+          'Runtime route assertions do not simulate effect/recover yet; extract the effect result into a fixture or pure derive.',
+      };
+    }
+
+    if (child.type === 'respond') {
+      lines.push(`return (${runtimeRespondSource(child)});`);
+      continue;
+    }
+
+    if (child.type === 'guard') {
+      lines.push(...runtimeGuardStatement(child));
+      continue;
+    }
+
+    if (child.type === 'branch') {
+      const expr = runtimeBranchBindingExpr(child, { async: true });
+      if (!expr) continue;
+      const name = runtimeSyntheticName(child, 'BranchResult');
+      lines.push(`const ${name} = await (${expr});`);
+      lines.push(`if (${name} !== undefined) return ${name};`);
+      continue;
+    }
+
+    if (child.type === 'each') {
+      const expr = runtimeEachExecutionExpr(child, { async: true });
+      if (expr) lines.push(`await (${expr});`);
+      continue;
+    }
+
+    if (child.type === 'destructure') {
+      for (const binding of runtimeDestructureBindings(child)) lines.push(`const ${binding.name} = (${binding.expr});`);
+      continue;
+    }
+
+    if (child.type === 'partition') {
+      for (const binding of runtimePartitionBindings(child)) lines.push(`const ${binding.name} = (${binding.expr});`);
+      continue;
+    }
+
+    const name = str(getProps(child).name);
+    const binding = runtimeBindingSource(child);
+    if (name && binding?.expr && isRuntimeBindingName(name)) {
+      lines.push(`const ${name} = (${binding.expr});`);
+    }
+  }
+
+  lines.push('return undefined;');
+  return { lines };
+}
+
+function runtimeRouteExecutionExpr(route: IRNode, inputSource: string): { expr?: string; message?: string } {
+  const request = runtimeRouteRequestLines(route, inputSource || '{}');
+  if (request.message) return { message: request.message };
+
+  const program = runtimeRouteChildProgram(route.children || []);
+  if (program.message) return { message: program.message };
+
+  const lines = ['(async () => {'];
+  for (const line of [...request.lines, ...program.lines]) lines.push(`  ${line}`);
+  lines.push('})()');
+  return { expr: lines.join('\n') };
 }
 
 function runtimeArrayBindingExpr(node: IRNode): string | undefined {
@@ -2331,6 +2518,10 @@ function collectRuntimeBindings(root: IRNode): RuntimeBinding[] {
   const bindings: RuntimeBinding[] = [];
 
   function visit(node: IRNode): void {
+    if (node.type === 'route') {
+      return;
+    }
+
     if (node.type === 'branch') {
       const name = str(getProps(node).name);
       const expr = runtimeBranchBindingExpr(node);
@@ -2728,6 +2919,7 @@ function evaluateRuntimeSource(
   expr: string,
   fixtures: RuntimeBinding[] = [],
   label = 'Runtime expr',
+  expectedPropName = 'equals',
 ): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -2736,7 +2928,10 @@ function evaluateRuntimeSource(
   const trimmedExpr = expr.trim();
   if (!trimmedExpr) return { passed: false, message: `${label} assertion requires an executable expression` };
 
-  const expectedSource = runtimeExpectedSource(node, 'equals');
+  const expectedSource =
+    runtimeExpectedSource(node, expectedPropName) ??
+    (expectedPropName === 'equals' ? undefined : runtimeExpectedSource(node, 'equals'));
+  const expectedLabel = expectedPropName !== 'equals' && expectedPropName in props ? expectedPropName : 'equals';
   const expressionSources = expectedSource ? [trimmedExpr, expectedSource] : [trimmedExpr];
   const declarations = buildRuntimeDeclarations(target, expressionSources, fixtures);
   if ('message' in declarations) return { passed: false, message: declarations.message };
@@ -2759,7 +2954,9 @@ function evaluateRuntimeSource(
     if (!expected.ok) {
       return {
         passed: false,
-        message: `Runtime expr assertion cannot execute expected equals value: ${formatThrownRuntimeError(expected.error)}`,
+        message: `Runtime expr assertion cannot execute expected ${expectedLabel} value: ${formatThrownRuntimeError(
+          expected.error,
+        )}`,
       };
     }
     return runtimeValuesEqual(actual.value, expected.value)
@@ -2860,6 +3057,50 @@ function evaluateRuntimeBehavior(
   }
 
   return { passed: false, message: 'Runtime behavior assertion requires fn=<name> or derive=<name>' };
+}
+
+function evaluateRuntimeRoute(
+  node: IRNode,
+  target: LoadedKernDocument,
+  fixtures: RuntimeBinding[] = [],
+): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+
+  const props = getProps(node);
+  const routeSpec = str(props.route);
+  if (!routeSpec) return { passed: false, message: 'Runtime route assertion requires route="METHOD /path"' };
+
+  const found = findRuntimeRoute(target, routeSpec);
+  if (found.message || !found.route)
+    return { passed: false, message: found.message || 'Runtime route target not found' };
+
+  const inputSource = runtimeValuePropSource(node, 'with') || runtimeValuePropSource(node, 'input') || '{}';
+  const inputProblem = unsafeRuntimeExpressionReason(inputSource, { allowAwait: true });
+  if (inputProblem) {
+    return { passed: false, message: `Runtime route assertion cannot execute request input: ${inputProblem}` };
+  }
+
+  const routeExpr = runtimeRouteExecutionExpr(found.route, inputSource);
+  if (routeExpr.message || !routeExpr.expr) {
+    return { passed: false, message: routeExpr.message || 'Runtime route assertion cannot build route workflow' };
+  }
+
+  const routeBinding: RuntimeBinding = {
+    name: runtimeSyntheticName(node, 'Route'),
+    expr: routeExpr.expr,
+    kind: 'native',
+    line: node.loc?.line,
+  };
+
+  return evaluateRuntimeSource(
+    node,
+    target,
+    routeBinding.name,
+    [...fixtures, routeBinding],
+    `Runtime route ${runtimeRouteLabel(found.route)}`,
+    'returns',
+  );
 }
 
 function nodeSearchText(node: IRNode): string {
@@ -3651,6 +3892,18 @@ function evaluateNativeAssertion(
     return [
       {
         ruleId: 'runtime:behavior',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('route' in props) {
+    const evaluated = evaluateRuntimeRoute(node, target, context?.fixtures || []);
+    return [
+      {
+        ruleId: 'runtime:route',
         assertion: assertionLabel(node),
         passed: evaluated.passed,
         ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),

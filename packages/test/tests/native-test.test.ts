@@ -88,6 +88,7 @@ describe('native kern test runner', () => {
         'examples/native-test/conformance-collections.test.kern',
         'examples/native-test/conformance-control-flow.test.kern',
         'examples/native-test/conformance-data-advanced.test.kern',
+        'examples/native-test/conformance-routes.test.kern',
         'examples/native-test/language-surface.test.kern',
         'examples/native-test/order.test.kern',
       ]),
@@ -333,6 +334,50 @@ describe('native kern test runner', () => {
     expect(summary.passed).toBe(2);
     expect(summary.results.map((result) => result.assertion)).toContain('derive subtotal equals 30');
     expect(summary.results.map((result) => result.assertion)).toContain('derive total equals 33');
+  });
+
+  test('executes portable route workflow assertions with request input', () => {
+    writeFileSync(
+      join(tmpDir, 'users.kern'),
+      [
+        'const name=users value={{[{ id: "u1", name: "Ada", role: "admin", active: true }, { id: "u2", name: "Grace", role: "member", active: true }, { id: "u3", name: "Lin", role: "member", active: false }]}}',
+        'server name=UsersAPI',
+        '  route GET /api/users',
+        '    params role:string',
+        '    derive visible expr={{users.filter((user) => user.active)}}',
+        '    branch name=roleSelection on=query.role',
+        '      path value="admin"',
+        '        collect name=result from=visible where={{item.role === "admin"}}',
+        '        respond 200 json=result',
+        '      path value="member"',
+        '        collect name=result from=visible where={{item.role === "member"}}',
+        '        respond 200 json=result',
+        '    respond 200 json=visible',
+        '  route GET /api/users/:id',
+        '    derive user expr={{users.find((item) => item.id === params.id)}}',
+        '    guard name=exists expr={{user}} else=404',
+        '    respond 200 json=user',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'users.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="User route workflows" target="./users.kern"',
+        '  it name="filters collection routes before codegen"',
+        '    expect route="GET /api/users" with={{({ query: { role: "member" } })}} returns={{[{ id: "u2", name: "Grace", role: "member", active: true }]}}',
+        '    expect route="GET /api/users" with={{({ query: { role: "guest" } })}} returns={{[{ id: "u1", name: "Ada", role: "admin", active: true }, { id: "u2", name: "Grace", role: "member", active: true }]}}',
+        '  it name="checks path-param guard results"',
+        '    expect route="GET /api/users/:id" with={{({ params: { id: "u1" } })}} returns={{({ id: "u1", name: "Ada", role: "admin", active: true })}}',
+        '    expect route="GET /api/users/:id" with={{({ params: { id: "missing" } })}} returns={{({ status: 404 })}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(4);
+    expect(summary.results.every((result) => result.ruleId === 'runtime:route')).toBe(true);
   });
 
   test('fixture scope does not leak between sibling test cases', () => {

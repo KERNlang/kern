@@ -1,0 +1,16 @@
+test name="Route workflow conformance" target="./conformance-routes.kern"
+  it name="route target stays valid before backend codegen"
+    expect no=schemaViolations
+    expect no=semanticViolations
+    expect no=codegenErrors
+
+  it name="collection route filters through branch and collect"
+    expect route="GET /api/users" with={{({ query: { role: "member" } })}} returns={{[{ id: "u2", name: "Grace", role: "member", active: true, score: 9 }]}}
+    expect route="GET /api/users" with={{({ query: { role: "missing" } })}} returns={{[{ id: "u1", name: "Ada", role: "admin", active: true, score: 8 }, { id: "u2", name: "Grace", role: "member", active: true, score: 9 }, { id: "u4", name: "Mina", role: "guest", active: true, score: 6 }]}}
+
+  it name="path-param route proves guard fallback"
+    expect route="GET /api/users/:id" with={{({ params: { id: "u1" } })}} returns={{({ id: "u1", name: "Ada", role: "admin", active: true, score: 8 })}}
+    expect route="GET /api/users/:id" with={{({ params: { id: "missing" } })}} returns={{({ status: 404 })}}
+
+  it name="non-200 response keeps status with body"
+    expect route="POST /api/users" with={{({ body: { id: "u5", name: "Nia", role: "member", active: true, score: 7 } })}} returns={{({ status: 201, json: { id: "u5", name: "Nia", role: "member", active: true, score: 7 } })}}

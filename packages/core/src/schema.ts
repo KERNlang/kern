@@ -2368,14 +2368,17 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   expect: {
     description: 'Assertion — declare an expected runtime condition or KERN structural invariant',
     example:
-      'expect expr={{items.length > 0}} message="Items must not be empty"\nexpect machine=Order reaches=paid via=confirm,capture\nexpect machine=Order transition=capture from=confirmed to=paid\nexpect node=interface name=User child=field count=3\nexpect no=deriveCycles',
+      'expect expr={{items.length > 0}} message="Items must not be empty"\nexpect route="GET /api/users" with={{({ query: { role: "admin" } })}} returns={{adminUsers}}\nexpect machine=Order reaches=paid via=confirm,capture\nexpect machine=Order transition=capture from=confirmed to=paid\nexpect node=interface name=User child=field count=3\nexpect no=deriveCycles',
     props: {
       expr: { kind: 'rawExpr' },
       fn: { kind: 'identifier' },
       derive: { kind: 'identifier' },
+      route: { kind: 'string' },
       args: { kind: 'rawExpr' },
       with: { kind: 'rawExpr' },
+      input: { kind: 'rawExpr' },
       equals: { kind: 'rawExpr' },
+      returns: { kind: 'rawExpr' },
       matches: { kind: 'string' },
       throws: { kind: 'string' },
       message: { kind: 'string' },
@@ -2544,6 +2547,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
   if (node.type === 'expect') {
     const hasRuntimeAssertion = 'expr' in props;
     const hasRuntimeBehavior = 'fn' in props || 'derive' in props;
+    const hasRuntimeWorkflow = 'route' in props;
     const hasPreset = 'preset' in props;
     const hasNodeShape = 'node' in props;
     const hasNegativeInvariant = 'no' in props;
@@ -2554,6 +2558,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
     if (
       !hasRuntimeAssertion &&
       !hasRuntimeBehavior &&
+      !hasRuntimeWorkflow &&
       !hasPreset &&
       !hasNodeShape &&
       !hasMachineTransition &&
@@ -2564,23 +2569,23 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'expect',
         message:
-          "'expect' requires 'expr', 'fn', 'derive', 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
+          "'expect' requires 'expr', 'fn', 'derive', 'route', 'preset', 'node', 'machine' reachability, machine transition, 'no', or 'guard'",
         line: node.loc?.line,
         col: node.loc?.col,
       });
     }
-    if ('fn' in props && 'derive' in props) {
+    if (Number('fn' in props) + Number('derive' in props) + Number('route' in props) > 1) {
       violations.push({
         nodeType: 'expect',
-        message: "'expect' cannot combine fn=<name> and derive=<name>",
+        message: "'expect' cannot combine fn=<name>, derive=<name>, and route=<spec>",
         line: node.loc?.line,
         col: node.loc?.col,
       });
     }
-    if (hasRuntimeBehavior && hasRuntimeAssertion) {
+    if ((hasRuntimeBehavior || hasRuntimeWorkflow) && hasRuntimeAssertion) {
       violations.push({
         nodeType: 'expect',
-        message: "'expect' cannot combine fn/derive behavioral assertions with expr={{...}}",
+        message: "'expect' cannot combine fn/derive/route behavioral assertions with expr={{...}}",
         line: node.loc?.line,
         col: node.loc?.col,
       });

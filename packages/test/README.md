@@ -33,7 +33,7 @@ kern test path/to/tests --pass-with-no-tests
 kern test path/to/tests --fail-on-warn
 ```
 
-`kern-test` is the standalone binary shipped by `@kernlang/test`. `kern test` is the integrated command from `@kernlang/cli`; it supports the same native runner flags plus `--watch` and the legacy MCP Jest generator fallback. Single-file `kern test <file.kern>` inputs keep that legacy generator behavior when the file has no native `test` nodes. Directory inputs discover `.kern` files that contain native `test` nodes and run them as one aggregate suite. This repo's `examples/native-test` directory includes machine, MCP safety, permission-gated tool, runtime-function, language-surface, array conformance, class/function conformance, collection/destructure conformance, advanced data conformance, and control-flow conformance tests.
+`kern-test` is the standalone binary shipped by `@kernlang/test`. `kern test` is the integrated command from `@kernlang/cli`; it supports the same native runner flags plus `--watch` and the legacy MCP Jest generator fallback. Single-file `kern test <file.kern>` inputs keep that legacy generator behavior when the file has no native `test` nodes. Directory inputs discover `.kern` files that contain native `test` nodes and run them as one aggregate suite. This repo's `examples/native-test` directory includes machine, MCP safety, permission-gated tool, runtime-function, language-surface, array conformance, class/function conformance, collection/destructure conformance, advanced data conformance, control-flow conformance, and route workflow conformance tests.
 
 ## KERN Syntax
 
@@ -70,6 +70,10 @@ test name="Order invariants" target="./order.kern"
     expect fn=addTax args={{[orderSubtotal(paidOrder), taxRate]}} equals=54
     expect derive=total equals=54
 
+  it name="route workflow is stable"
+    expect route="GET /api/users" with={{({ query: { role: "admin" } })}} returns={{adminUsers}}
+    expect route="GET /api/users/:id" with={{({ params: { id: "missing" } })}} returns={{({ status: 404 })}}
+
   it name="suite covers target surface"
     expect preset=coverage
 ```
@@ -97,6 +101,8 @@ Use `expect expr={{...}}` for small runtime assertions over referenced target-si
 Use `fixture name=<id> value={{...}}` or `fixture name=<id> expr={{...}}` to define scoped runtime data inside `test`, `describe`, or `it`. Fixtures are visible to descendant assertions and do not leak into sibling cases.
 
 Use `expect fn=<name>` when the target KERN `fn` itself is the behavior under test. Add `with=<fixture-or-expression>` to pass one argument, or `args={{[...]}}` to spread an argument array into the function. Use `expect derive=<name>` to execute a target-side `derive` binding through the same runtime evaluator. Behavioral assertions support the same `equals=...`, `matches="..."`, and `throws=ErrorName` comparators as `expect expr={{...}}`. Failed behavior assertions report the generated call expression and fixture names so CI output points back to the KERN-native setup.
+
+Use `expect route="METHOD /path"` to execute portable KERN route workflows before Express/FastAPI generation. Add `with={{...}}` (or `input={{...}}`) to provide `{ params, query, body, headers }`. Route workflow assertions currently execute target-side `derive`, `guard`, `branch`, `collect`, `each`, `destructure`, `partition`, and `respond` nodes. Use `returns={{...}}` for deep equality, or the same `equals=...`, `matches="..."`, and `throws=ErrorName` comparators as other runtime assertions. Handler blocks and effect/recover simulation remain backend/runtime-test territory until dedicated native mocks land.
 
 Runtime assertions intentionally do not execute arbitrary application code. Multi-statement expressions and unsafe globals such as `process`, `require`, `eval`, `Function`, `fetch`, timers, and `WebSocket` are rejected before execution.
 
