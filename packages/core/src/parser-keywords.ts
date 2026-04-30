@@ -186,6 +186,21 @@ export const KEYWORD_HANDLERS = new Map<string, KeywordHandler>([
     },
   ],
 
+  [
+    'expect',
+    (s, props) => {
+      s.skipWS();
+      if (s.isKeyValue()) return;
+      const pos = s.position();
+      const id = s.tryIdent();
+      if (id === 'codegen') {
+        props.codegen = true;
+      } else {
+        s.setPosition(pos);
+      }
+    },
+  ],
+
   // Rule syntax — native .kern lint rules
   [
     'rule',

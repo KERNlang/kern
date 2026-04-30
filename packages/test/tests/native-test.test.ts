@@ -2611,6 +2611,60 @@ describe('native kern test runner', () => {
     expect(summary.results[0].message).toContain('numeric `index=`');
   });
 
+  test('asserts generated core code substrings natively', () => {
+    writeFileSync(
+      join(tmpDir, 'codegen.kern'),
+      [
+        'fn name=retry returns=number',
+        '  param name=attempts type=number value=3',
+        '  handler <<<',
+        '    return attempts;',
+        '  >>>',
+        'destructure kind=const source=user',
+        '  binding name=id',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'codegen.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Codegen assertions" target="./codegen.kern"',
+        '  it name="checks generated output"',
+        '    expect codegen contains="function retry(attempts: number = 3): number {"',
+        '    expect codegen contains="const { id } = user;"',
+        '    expect codegen notContains="attempts: number = 0"',
+        '    expect codegen matches="function retry\\\\([^)]+\\\\): number"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.ruleId)).toEqual(['codegen', 'codegen', 'codegen', 'codegen']);
+  });
+
+  test('reports generated core code mismatches', () => {
+    writeFileSync(
+      join(tmpDir, 'codegen-mismatch.kern'),
+      ['fn name=retry returns=number', '  handler <<<', '    return 1;', '  >>>'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'codegen-mismatch.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Codegen mismatch" target="./codegen-mismatch.kern"',
+        '  it name="fails clearly"',
+        '    expect codegen contains="function missing()"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('codegen');
+    expect(summary.results[0].message).toContain('Generated code does not contain');
+  });
+
   test('discovers and runs native test files under a directory', () => {
     writeFileSync(
       join(tmpDir, 'order.kern'),

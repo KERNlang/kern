@@ -244,6 +244,19 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
 
+    it('allows native codegen assertions', () => {
+      const v = validate(
+        [
+          'test name="Codegen" target="./source.kern"',
+          '  it name="checks output"',
+          '    expect codegen contains="function retry"',
+          '    expect codegen notContains="function bad"',
+          '    expect codegen matches="retry\\\\("',
+        ].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
+
     it('flags native effect mocks without behavior', () => {
       const v = validate(
         ['test name="Effect behavior"', '  it name="mocks effect boundary"', '    mock effect=fetchUsers'].join('\n'),

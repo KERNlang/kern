@@ -2405,6 +2405,9 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       returns: { kind: 'rawExpr' },
       recovers: { kind: 'boolean' },
       fallback: { kind: 'rawExpr' },
+      codegen: { kind: 'boolean' },
+      contains: { kind: 'string' },
+      notContains: { kind: 'string' },
       matches: { kind: 'string' },
       throws: { kind: 'string' },
       message: { kind: 'string' },
@@ -2608,6 +2611,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
     const hasRuntimeBehavior = 'fn' in props || 'derive' in props;
     const hasRuntimeWorkflow = 'route' in props || 'tool' in props || 'effect' in props;
     const hasMockCallAssertion = 'mock' in props || 'called' in props;
+    const hasCodegenAssertion = 'codegen' in props;
     const hasPreset = 'preset' in props;
     const hasNodeShape = 'node' in props;
     const hasNegativeInvariant = 'no' in props;
@@ -2622,6 +2626,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       !hasRuntimeBehavior &&
       !hasRuntimeWorkflow &&
       !hasMockCallAssertion &&
+      !hasCodegenAssertion &&
       !hasPreset &&
       !hasNodeShape &&
       !hasMachineTransition &&
@@ -2633,7 +2638,15 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'expect',
         message:
-          "'expect' requires 'expr', 'fn', 'derive', 'route', 'tool', 'effect', 'mock' call count, 'preset', 'node', 'machine' reachability, machine transition, 'no', 'has', or 'guard'",
+          "'expect' requires 'expr', 'fn', 'derive', 'route', 'tool', 'effect', 'mock' call count, 'codegen', 'preset', 'node', 'machine' reachability, machine transition, 'no', 'has', or 'guard'",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasCodegenAssertion && !('contains' in props) && !('notContains' in props) && !('matches' in props)) {
+      violations.push({
+        nodeType: 'expect',
+        message: "'expect codegen' requires contains=, notContains=, or matches=",
         line: node.loc?.line,
         col: node.loc?.col,
       });

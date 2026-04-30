@@ -942,6 +942,7 @@ function assertionLabel(node: IRNode): string {
   const tool = str(props.tool);
   const effect = str(props.effect);
   const mock = str(props.mock);
+  const codegen = 'codegen' in props;
   const args = exprToString(props.args);
   const withValue = exprToString(props.with);
   const input = exprToString(props.input);
@@ -949,10 +950,19 @@ function assertionLabel(node: IRNode): string {
   const returns = props.returns === undefined ? '' : exprToString(props.returns) || String(props.returns);
   const fallback = props.fallback === undefined ? '' : exprToString(props.fallback) || String(props.fallback);
   const recovers = props.recovers === undefined ? '' : String(props.recovers || 'true');
+  const contains = props.contains === undefined ? '' : String(props.contains);
+  const notContains = props.notContains === undefined ? '' : String(props.notContains);
   const matches = props.matches === undefined ? '' : String(props.matches);
   const throws = props.throws === undefined ? '' : String(props.throws || 'true');
   const called = props.called === undefined ? '' : String(props.called);
 
+  if (codegen) {
+    const parts = ['codegen'];
+    if (contains) parts.push(`contains ${contains}`);
+    if (notContains) parts.push(`notContains ${notContains}`);
+    if (matches) parts.push(`matches ${matches}`);
+    return parts.join(' ');
+  }
   if (preset) return `preset ${preset}`;
   if (nodeType) {
     const parts = [`node ${nodeType}`];
@@ -2050,6 +2060,56 @@ function findCodegenErrors(root: IRNode): string[] {
     }
   }
   return failures;
+}
+
+function generatedCoreSource(root: IRNode): { code?: string; message?: string } {
+  const chunks: string[] = [];
+  for (const node of codegenRoots(root)) {
+    try {
+      chunks.push(...generateCoreNode(node));
+    } catch (error) {
+      return {
+        message: `${nodeLabel(node)} at line ${node.loc?.line ?? '?'}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+  }
+  return { code: chunks.join('\n') };
+}
+
+function evaluateCodegenAssertion(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+  if (!target.root) return { passed: false, message: 'Target has no parsed KERN root' };
+  const generated = generatedCoreSource(target.root);
+  if (generated.message || generated.code === undefined) {
+    return { passed: false, message: `Target has codegen error: ${generated.message || 'unknown error'}` };
+  }
+
+  const props = getProps(node);
+  const contains = str(props.contains);
+  const notContains = str(props.notContains);
+  const matches = str(props.matches);
+  if (!contains && !notContains && !matches) {
+    return { passed: false, message: 'Codegen assertion requires contains=, notContains=, or matches=' };
+  }
+  if (contains && !generated.code.includes(contains)) {
+    return { passed: false, message: `Generated code does not contain ${JSON.stringify(contains)}` };
+  }
+  if (notContains && generated.code.includes(notContains)) {
+    return { passed: false, message: `Generated code unexpectedly contains ${JSON.stringify(notContains)}` };
+  }
+  if (matches) {
+    try {
+      if (!new RegExp(matches).test(generated.code)) {
+        return { passed: false, message: `Generated code does not match /${matches}/` };
+      }
+    } catch {
+      return { passed: false, message: `Invalid codegen matches regex: ${matches}` };
+    }
+  }
+  return { passed: true };
 }
 
 const RUNTIME_EXPR_TIMEOUT_MS = 100;
@@ -5523,6 +5583,18 @@ function evaluateNativeAssertion(
   context?: NativeKernAssertionContext,
 ): EvaluatedAssertion[] {
   const props = getProps(node);
+  if ('codegen' in props) {
+    const evaluated = evaluateCodegenAssertion(node, target);
+    return [
+      {
+        ruleId: 'codegen',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
   if ('preset' in props) return evaluatePresetAssertion(node, target, context);
   if ('node' in props) {
     const evaluated = evaluateNodeAssertion(node, target);

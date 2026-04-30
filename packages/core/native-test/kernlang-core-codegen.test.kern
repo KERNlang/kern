@@ -1,0 +1,23 @@
+test name="KERNlang core codegen self contracts" target="./kernlang-core-codegen.kern"
+  it name="target stays valid before generated TypeScript is inspected"
+    expect no=schemaViolations
+    expect no=semanticViolations
+    expect no=duplicateNames
+    expect no=codegenErrors
+
+  it name="structured param defaults preserve exact TypeScript shape"
+    expect codegen contains="function retry(attempts: number = 3): number {"
+    expect codegen contains="function stamp(ts: number = Date.now()): number {"
+    expect codegen contains="function greet(name: string = \"world\"): string {"
+    expect codegen contains="function load(id: string, retries: number = 3): string {"
+    expect codegen notContains="function retry(attempts: number = 0): number {"
+
+  it name="optional variadic and destructured params stay native"
+    expect codegen contains="function maybe(salutation?: string): string {"
+    expect codegen contains="function concat(...parts: string[]): string {"
+    expect codegen contains="function length({ x, y }: Point): number {"
+    expect codegen contains="function swap([a, b]: [number, number]): [number, number] {"
+
+  it name="structured destructure statements preserve exact output"
+    expect codegen contains="const { id, email: mail } = user;"
+    expect codegen contains="const [first, second] = pair;"
