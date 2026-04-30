@@ -61,6 +61,22 @@ export function mapTsTypeToPython(tsType: string): string {
     return mapTsTypeToPython(promiseMatch[1]);
   }
 
+  // Slice 4 — Result<T, E> → Result[T, E] / Option<T> → Option[T]. The
+  // type aliases are emitted by `pythonStdlibPreamble` when the module
+  // references them; here we only translate the syntax. Splitting `T, E`
+  // requires depth-aware parsing because nested generics may also use `,`.
+  const resultMatch = trimmed.match(/^Result<([\s\S]+)>$/);
+  if (resultMatch) {
+    const args = splitGenericArgs(resultMatch[1]);
+    if (args.length === 2) {
+      return `Result[${mapTsTypeToPython(args[0])}, ${mapTsTypeToPython(args[1])}]`;
+    }
+  }
+  const optionMatch = trimmed.match(/^Option<([\s\S]+)>$/);
+  if (optionMatch) {
+    return `Option[${mapTsTypeToPython(optionMatch[1])}]`;
+  }
+
   // Map<K, V> → dict[K, V]
   const mapMatch = trimmed.match(/^Map<(.+),\s*(.+)>$/);
   if (mapMatch) {
@@ -85,6 +101,26 @@ export function mapTsTypeToPython(tsType: string): string {
 
   // Passthrough (custom types, capitalized identifiers)
   return trimmed;
+}
+
+/** Split a generic-args string at top-level `,`s — depth-aware so nested
+ *  generics (`Result<Foo<X, Y>, Bar>`) don't get split mid-arg. */
+function splitGenericArgs(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const c of s) {
+    if (c === '<' || c === '[' || c === '(') depth++;
+    else if (c === '>' || c === ']' || c === ')') depth--;
+    if (c === ',' && depth === 0) {
+      out.push(current.trim());
+      current = '';
+    } else {
+      current += c;
+    }
+  }
+  if (current.trim()) out.push(current.trim());
+  return out;
 }
 
 /** Convert a camelCase or PascalCase identifier to snake_case. */

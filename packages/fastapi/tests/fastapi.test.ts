@@ -64,6 +64,101 @@ describe('FastAPI Transpiler', () => {
       expect(toSnakeCase('HTMLParser')).toBe('html_parser');
       expect(toSnakeCase('simple')).toBe('simple');
     });
+
+    test('maps `Result<T, E>` and `Option<T>` (slice 4 compact form)', async () => {
+      const { mapTsTypeToPython } = await import('../src/type-map.js');
+
+      expect(mapTsTypeToPython('Result<User, ParseError>')).toBe('Result[User, ParseError]');
+      expect(mapTsTypeToPython('Option<string>')).toBe('Option[str]');
+      // Nested generic in T
+      expect(mapTsTypeToPython('Result<list<User>, ParseError>')).toBe('Result[list<User>, ParseError]');
+      // Promise<Result<T, E>> → Result[T, E] (Promise stripped, then Result mapped)
+      expect(mapTsTypeToPython('Promise<Result<User, ParseError>>')).toBe('Result[User, ParseError]');
+    });
+  });
+
+  // ── Slice 4 — Python stdlib preamble ─────────────────────────────────
+
+  describe('Python stdlib preamble', () => {
+    test('emits empty preamble when neither Result nor Option used', async () => {
+      const { pythonStdlibPreamble } = await import('../src/python-stdlib-preamble.js');
+      expect(pythonStdlibPreamble({ result: false, option: false })).toEqual([]);
+    });
+
+    test('emits Result + TypeAlias when result=true', async () => {
+      const { pythonStdlibPreamble } = await import('../src/python-stdlib-preamble.js');
+      const out = pythonStdlibPreamble({ result: true, option: false }).join('\n');
+      expect(out).toContain('class Ok(Generic[_T_kern]):');
+      expect(out).toContain('class Err(Generic[_E_kern]):');
+      expect(out).toContain('Result: TypeAlias = Union[Ok[_T_kern], Err[_E_kern]]');
+      expect(out).not.toContain('class Some(');
+      expect(out).not.toContain('class None_');
+    });
+
+    test('emits Option + TypeAlias when option=true', async () => {
+      const { pythonStdlibPreamble } = await import('../src/python-stdlib-preamble.js');
+      const out = pythonStdlibPreamble({ result: false, option: true }).join('\n');
+      expect(out).toContain('class Some(Generic[_T_kern]):');
+      expect(out).toContain('class None_:');
+      expect(out).toContain('Option: TypeAlias = Union[Some[_T_kern], None_]');
+      expect(out).not.toContain('class Ok(');
+    });
+
+    test('emits BOTH Result and Option when both used', async () => {
+      const { pythonStdlibPreamble } = await import('../src/python-stdlib-preamble.js');
+      const out = pythonStdlibPreamble({ result: true, option: true }).join('\n');
+      expect(out).toContain('Result: TypeAlias = Union[Ok[_T_kern], Err[_E_kern]]');
+      expect(out).toContain('Option: TypeAlias = Union[Some[_T_kern], None_]');
+    });
+
+    test('uses frozen=True dataclass (not Optional[T])', async () => {
+      const { pythonStdlibPreamble } = await import('../src/python-stdlib-preamble.js');
+      const out = pythonStdlibPreamble({ result: true, option: true }).join('\n');
+      // Spec: frozen dataclass to keep Some(None) round-trip distinct from None_.
+      const frozenCount = out.split('@dataclass(frozen=True)').length - 1;
+      expect(frozenCount).toBe(4); // Ok, Err, Some, None_
+      expect(out).not.toContain('Optional[');
+    });
+
+    test('end-to-end: transpileFastAPI injects preamble + maps Result return', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+
+      const root = parse(
+        [
+          'server name=API port=8000',
+          '  fn name=parseUser params="raw:string" returns="Result<User, ParseError>"',
+          '    handler <<<',
+          '      return Ok(value=raw)',
+          '    >>>',
+        ].join('\n'),
+      );
+      const result = transpileFastAPI(root);
+      expect(result.code).toContain('from dataclasses import dataclass');
+      expect(result.code).toContain('class Ok(Generic[_T_kern]):');
+      expect(result.code).toContain('Result: TypeAlias = Union[Ok[_T_kern], Err[_E_kern]]');
+      expect(result.code).toContain('-> Result[User, ParseError]');
+      // Preamble must come before the user fn definition.
+      expect(result.code.indexOf('Result: TypeAlias')).toBeLessThan(result.code.indexOf('def parse_user'));
+    });
+
+    test('no preamble when module does not reference Result/Option', async () => {
+      const { parse } = await import('../../core/src/parser.js');
+      const { transpileFastAPI } = await import('../src/transpiler-fastapi.js');
+
+      const root = parse(
+        [
+          'server name=API port=8000',
+          '  fn name=greet params="name:string" returns=string',
+          '    handler <<<',
+          '      return f"hi {name}"',
+          '    >>>',
+        ].join('\n'),
+      );
+      const result = transpileFastAPI(root);
+      expect(result.code).not.toContain('class Ok(Generic');
+      expect(result.code).not.toContain('Result: TypeAlias');
+    });
   });
 
   // ── Python Codegen ───────────────────────────────────────────────────

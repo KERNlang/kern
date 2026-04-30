@@ -17,6 +17,7 @@ import { generateReactNode, isReactNode } from '@kernlang/react';
 import type { ChildProcess } from 'child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { basename, dirname, relative, resolve } from 'path';
+import { buildCrossModuleRegistry, makeImportResolverForFile } from '../lib/cross-module-registry.js';
 import {
   type BarrelEntry,
   extractExportsFromLines,
@@ -56,6 +57,7 @@ async function compileDefaultSingle(
   jsonDiagnostics: FileDiagnosticsJSON[],
   shadow: boolean,
   inputBase?: string,
+  parseOptions?: import('@kernlang/core').ParseOptions,
 ): Promise<DefaultCompileResult> {
   const source = readFileSync(file, 'utf-8');
 
@@ -76,13 +78,13 @@ async function compileDefaultSingle(
       throw err;
     }
   } else if (jsonOutput) {
-    const { root, json } = parseWithJSONDiagnostics(source, file);
+    const { root, json } = parseWithJSONDiagnostics(source, file, parseOptions);
     ast = root;
     jsonDiagnostics.push(json);
     errors = json.diagnostics.filter((d) => d.severity === 'error').length + json.schemaViolations.length;
     warnings = json.diagnostics.filter((d) => d.severity === 'warning').length;
   } else {
-    const result = parseWithDiagnostics(source);
+    const result = parseWithDiagnostics(source, undefined, parseOptions);
     const diag = surfaceParseDiagnostics(result.diagnostics, file);
     ast = result.root;
     errors = diag.errors;
@@ -244,6 +246,14 @@ export async function runCompile(args: string[]): Promise<void> {
   // ── Resolve config with target ─────────────────────────────────────
   const cfg = targetArg ? resolveConfig({ ...compileConfig, target: targetArg }) : compileConfig;
 
+  // ── Slice 7 v2 — cross-module Result/Option registry ───────────────
+  // Index every `.kern` file's exported fn signatures once, before the
+  // per-file compile loop. Each compile then receives a per-file
+  // `ImportResolver` that translates `use path="…"` strings into the
+  // imported module's ModuleExports, enabling `?`/`!` propagation across
+  // KERN-to-KERN imports.
+  const crossModuleRegistry = buildCrossModuleRegistry(kernFiles);
+
   // ── Initial compilation ────────────────────────────────────────────
   const jsonDiagnostics: FileDiagnosticsJSON[] = [];
 
@@ -270,7 +280,9 @@ export async function runCompile(args: string[]): Promise<void> {
           }
         }
         try {
-          transpileAndWrite(file, cfg as ResolvedKernConfig, args, outDir, isDir ? inputPath : undefined);
+          transpileAndWrite(file, cfg as ResolvedKernConfig, args, outDir, isDir ? inputPath : undefined, {
+            resolveImport: makeImportResolverForFile(resolve(file), crossModuleRegistry),
+          });
           if (!jsonOutput) console.log(`  ${basename(file)} → ${targetArg}`);
           compiled++;
         } catch (err) {
@@ -317,6 +329,7 @@ export async function runCompile(args: string[]): Promise<void> {
           jsonDiagnostics,
           shadow,
           isDir ? inputPath : undefined,
+          { resolveImport: makeImportResolverForFile(resolve(file), crossModuleRegistry) },
         );
         if (result.compiled) compiled++;
         totalErrors += result.errors;
@@ -435,9 +448,13 @@ export async function runCompile(args: string[]): Promise<void> {
     const start = performance.now();
     try {
       if (targetArg) {
-        transpileAndWrite(filePath, cfg as ResolvedKernConfig, args, outDir, isDir ? inputPath : undefined);
+        transpileAndWrite(filePath, cfg as ResolvedKernConfig, args, outDir, isDir ? inputPath : undefined, {
+          resolveImport: makeImportResolverForFile(resolve(filePath), crossModuleRegistry),
+        });
       } else {
-        await compileDefaultSingle(filePath, outDir, strictParse, false, [], shadow, isDir ? inputPath : undefined);
+        await compileDefaultSingle(filePath, outDir, strictParse, false, [], shadow, isDir ? inputPath : undefined, {
+          resolveImport: makeImportResolverForFile(resolve(filePath), crossModuleRegistry),
+        });
       }
 
       // Regenerate barrel/facades from current output state

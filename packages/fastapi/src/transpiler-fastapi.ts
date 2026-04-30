@@ -28,6 +28,7 @@ import { buildRouteArtifact } from './fastapi-route.js';
 import type { MiddlewareArtifactRef } from './fastapi-types.js';
 import { analyzeRouteCapabilities, findServerNode } from './fastapi-utils.js';
 import { buildWebSocketArtifact } from './fastapi-websocket.js';
+import { buildPythonStdlibPreamble } from './python-stdlib-preamble.js';
 
 // ── Main transpiler ──────────────────────────────────────────────────────
 
@@ -259,6 +260,17 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     }
   }
 
+  // ── Slice 4 follow-up — Python stdlib preamble for compact-form
+  //    `Result<T, E>` / `Option<T>` references. The preamble's imports
+  //    merge into the existing FastAPI imports; the body lines land
+  //    between the imports and the first core artifact so generated fn
+  //    signatures (`def parse_user(...) -> Result[User, ParseError]`)
+  //    have the type aliases in scope.
+  const stdlibPreamble = buildPythonStdlibPreamble(root);
+  for (const imp of stdlibPreamble.imports) {
+    serverImports.add(imp);
+  }
+
   // ── Generate main.py ──────────────────────────────────────────────────
 
   const lines: string[] = [];
@@ -268,6 +280,13 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     lines.push(imp);
   }
   lines.push('');
+
+  // Stdlib preamble — emitted before user-declared core nodes so any
+  // `def parse_user(...) -> Result[...]` annotation can resolve.
+  if (stdlibPreamble.lines.length > 0) {
+    lines.push('');
+    lines.push(...stdlibPreamble.lines);
+  }
 
   // Core language nodes (models, types, etc.)
   if (coreNodes.length > 0) {

@@ -3,7 +3,12 @@
  *  Spec: docs/language/result-option-spec.md.
  *  Utility: packages/core/src/codegen/stdlib-preamble.ts. */
 
-import { detectKernStdlibUsage, injectKernStdlibPreamble, kernStdlibPreamble } from '../src/codegen/stdlib-preamble.js';
+import {
+  detectKernStdlibUsage,
+  injectKernStdlibPreamble,
+  injectKernStdlibPreambleIntoSFC,
+  kernStdlibPreamble,
+} from '../src/codegen/stdlib-preamble.js';
 import { parseDocument } from '../src/parser.js';
 
 describe('detectKernStdlibUsage', () => {
@@ -334,5 +339,66 @@ describe('injectKernStdlibPreamble', () => {
     expect(out.split('\n')[0]).toBe("'use client'; // entry point");
     expect(out.indexOf('// PREAMBLE')).toBeGreaterThan(out.indexOf("'use client';"));
     expect(out.indexOf('// PREAMBLE')).toBeLessThan(out.indexOf('import React'));
+  });
+});
+
+describe('injectKernStdlibPreambleIntoSFC', () => {
+  // Slice 4 follow-up — the preamble must land INSIDE the `<script setup
+  // lang="ts">` block. Putting it before the SFC root corrupts the parse.
+
+  const PREAMBLE = ['// PREAMBLE-LINE-1', '// PREAMBLE-LINE-2'];
+
+  test('inserts after `<script setup lang="ts">` opening tag', () => {
+    const sfc = [
+      '<script setup lang="ts">',
+      'const x = 1;',
+      '</script>',
+      '',
+      '<template>',
+      '  <div>{{ x }}</div>',
+      '</template>',
+    ].join('\n');
+    const out = injectKernStdlibPreambleIntoSFC(sfc, PREAMBLE);
+    const lines = out.split('\n');
+    expect(lines[0]).toBe('<script setup lang="ts">');
+    expect(lines[1]).toBe('// PREAMBLE-LINE-1');
+    expect(lines[2]).toBe('// PREAMBLE-LINE-2');
+    expect(lines[3]).toBe('const x = 1;');
+  });
+
+  test('inserts after `<script lang="ts" setup>` (attribute order swap)', () => {
+    const sfc = ['<script lang="ts" setup>', 'const x = 1;', '</script>'].join('\n');
+    const out = injectKernStdlibPreambleIntoSFC(sfc, PREAMBLE);
+    expect(out.indexOf('// PREAMBLE-LINE-1')).toBeGreaterThan(out.indexOf('<script'));
+    expect(out.indexOf('// PREAMBLE-LINE-1')).toBeLessThan(out.indexOf('const x'));
+  });
+
+  test("accepts single-quoted lang='ts'", () => {
+    const sfc = ["<script setup lang='ts'>", 'const x = 1;', '</script>'].join('\n');
+    const out = injectKernStdlibPreambleIntoSFC(sfc, PREAMBLE);
+    expect(out).toContain('// PREAMBLE-LINE-1');
+  });
+
+  test('drops the preamble when no `lang="ts"` script block exists', () => {
+    const sfc = ['<script setup>', 'const x = 1;', '</script>', '<template><div>x</div></template>'].join('\n');
+    const out = injectKernStdlibPreambleIntoSFC(sfc, PREAMBLE);
+    expect(out).toBe(sfc);
+  });
+
+  test('drops the preamble for template-only SFC (no script block)', () => {
+    const sfc = '<template><div>hello</div></template>\n';
+    const out = injectKernStdlibPreambleIntoSFC(sfc, PREAMBLE);
+    expect(out).toBe(sfc);
+  });
+
+  test('returns code unchanged when preamble is empty', () => {
+    const sfc = '<script setup lang="ts">\nconst x = 1;\n</script>\n';
+    expect(injectKernStdlibPreambleIntoSFC(sfc, [])).toBe(sfc);
+  });
+
+  test('preamble lands BEFORE user imports inside the script block', () => {
+    const sfc = ['<script setup lang="ts">', "import { ref } from 'vue';", 'const x = ref(1);', '</script>'].join('\n');
+    const out = injectKernStdlibPreambleIntoSFC(sfc, PREAMBLE);
+    expect(out.indexOf('// PREAMBLE-LINE-1')).toBeLessThan(out.indexOf('import { ref }'));
   });
 });

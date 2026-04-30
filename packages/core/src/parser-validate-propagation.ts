@@ -66,16 +66,69 @@ interface PropagationContext {
   resultFns: Set<string>;
   /** Identifiers known to return Option<…> in this module. */
   optionFns: Set<string>;
+  /** Slice 7 v2.1 — identifiers known to return Promise<Result<…>>. */
+  asyncResultFns?: Set<string>;
+  /** Slice 7 v2.1 — identifiers known to return Promise<Option<…>>. */
+  asyncOptionFns?: Set<string>;
 }
 
-/** Containing-fn return-type classification for the current handler. */
-type FnReturn = 'result' | 'option' | 'other';
+/** Slice 7 v2 — exported fn signatures of a single KERN module, narrowed
+ *  to the names whose `returns` is `Result<…>` / `Option<…>` (sync) or
+ *  `Promise<Result<…>>` / `Promise<Option<…>>` (async). */
+export interface ModuleExports {
+  /** Names of fns / methods exported by the module that return `Result<…>`. */
+  resultFns: Set<string>;
+  /** Names of fns / methods exported by the module that return `Option<…>`. */
+  optionFns: Set<string>;
+  /** Slice 7 v2.1 — async fns that return `Promise<Result<…>>` (or any
+   *  fn marked `async=true` with a `Result<…>` return). Recognised at
+   *  `await call()?` propagation sites. */
+  asyncResultFns?: Set<string>;
+  /** Slice 7 v2.1 — async fns that return `Promise<Option<…>>`. */
+  asyncOptionFns?: Set<string>;
+}
 
-function classifyReturn(returns: unknown): FnReturn {
-  if (typeof returns !== 'string') return 'other';
+/** Slice 7 v2 — caller-supplied resolver mapping a `use path="…"` value to
+ *  the imported KERN module's exported fn signatures. Returning `null`
+ *  means "this import does not resolve to a KERN module" (bare npm import,
+ *  unresolved path, or non-KERN file) — those are skipped silently. The
+ *  CLI builds and supplies the resolver after a project-wide pre-pass.
+ *  Pure-parse callers (browser playground, tests) can omit it; cross-
+ *  module recognition is then disabled. */
+export type ImportResolver = (path: string) => ModuleExports | null;
+
+/** Containing-fn return-type classification for the current handler.
+ *  `result`/`option` cover the slice 7 v1 sync shapes; `asyncResult` /
+ *  `asyncOption` cover slice 7 v2.1 — async fns whose declared return is
+ *  `Promise<Result<…>>` / `Promise<Option<…>>` (or marked `async=true`
+ *  with the inner Result/Option return). */
+type FnReturn = 'result' | 'option' | 'asyncResult' | 'asyncOption' | 'other';
+
+/** Strip an outer `Promise<…>` wrapper if present, returning the inner
+ *  text and a flag. Used by `classifyReturn` and the cross-module
+ *  registry's identical classifier. */
+function unwrapPromise(returns: string): { inner: string; wasPromise: boolean } {
   const trimmed = returns.trim();
-  if (RESULT_RETURN_RE.test(trimmed)) return 'result';
-  if (OPTION_RETURN_RE.test(trimmed)) return 'option';
+  if (trimmed.startsWith('Promise<') && trimmed.endsWith('>')) {
+    return { inner: trimmed.slice('Promise<'.length, -1).trim(), wasPromise: true };
+  }
+  return { inner: trimmed, wasPromise: false };
+}
+
+function classifyReturn(returns: unknown, isAsync = false): FnReturn {
+  if (typeof returns !== 'string') return 'other';
+  const { inner, wasPromise } = unwrapPromise(returns);
+  const effectivelyAsync = wasPromise || isAsync;
+  if (RESULT_RETURN_RE.test(inner)) return effectivelyAsync ? 'asyncResult' : 'result';
+  if (OPTION_RETURN_RE.test(inner)) return effectivelyAsync ? 'asyncOption' : 'option';
+  return 'other';
+}
+
+/** Inner-kind helper — strips async to its underlying Result/Option family,
+ *  used when checking that a callee's kind matches its container. */
+function innerKind(k: FnReturn): 'result' | 'option' | 'other' {
+  if (k === 'result' || k === 'asyncResult') return 'result';
+  if (k === 'option' || k === 'asyncOption') return 'option';
   return 'other';
 }
 
@@ -321,13 +374,16 @@ function statementBounds(cleaned: string, opPos: number): StatementBounds {
 }
 
 /** Classify the statement around the propagation site. Returns either a
- *  recognised shape or null with a reason for the diagnostic. */
+ *  recognised shape or null with a reason for the diagnostic. The optional
+ *  `hasAwait` flag indicates whether the call was preceded by `await` — set
+ *  by stripping a trailing `await` token from the head before re-matching
+ *  the accepted statement grammar. */
 function classifyStatement(
   cleaned: string,
   callStart: number,
   opPos: number,
   bounds: StatementBounds,
-): { ok: true; shape: StmtShape } | { ok: false; reason: string } {
+): { ok: true; shape: StmtShape; hasAwait: boolean } | { ok: false; reason: string } {
   if (bounds.insideGrouping) {
     return { ok: false, reason: 'mid-expression — propagation operator inside a parenthesised sub-expression' };
   }
@@ -340,10 +396,21 @@ function classifyStatement(
   }
 
   // Head is everything before the call within the statement.
-  const head = cleaned.slice(bounds.start, callStart).trim();
+  const headRaw = cleaned.slice(bounds.start, callStart).trim();
 
-  if (head === '') return { ok: true, shape: { kind: 'exprStmt' } };
-  if (head === 'return') return { ok: true, shape: { kind: 'return' } };
+  // Slice 7 v2.1 — strip a trailing `await` token (or a sole `await`) so the
+  // shape matchers can run against the same accepted grammar as the sync
+  // forms. `hasAwait` is propagated to the site for validation + lowering.
+  let hasAwait = false;
+  let head = headRaw;
+  const awaitSuffix = /(?:^|\s)await$/;
+  if (awaitSuffix.test(head)) {
+    hasAwait = true;
+    head = head.replace(awaitSuffix, '').trim();
+  }
+
+  if (head === '') return { ok: true, shape: { kind: 'exprStmt' }, hasAwait };
+  if (head === 'return') return { ok: true, shape: { kind: 'return' }, hasAwait };
 
   const declMatch = head.match(/^(const|let|var)\s+([A-Za-z_$][\w$]*)(\s*:\s*[\s\S]+?)?\s*=$/);
   if (declMatch) {
@@ -355,18 +422,17 @@ function classifyStatement(
         declId: declMatch[2],
         typeAnnot: declMatch[3] ?? '',
       },
+      hasAwait,
     };
-  }
-
-  if (/\bawait\b/.test(head)) {
-    return { ok: false, reason: '`await call()?` is not supported in slice 7 v1 — bind the awaited result first' };
   }
 
   return {
     ok: false,
-    reason: `unsupported statement shape — only declaration init, \`return\`, and expression-statement are accepted in v1 (got: "${head}")`,
+    reason: `unsupported statement shape — only declaration init, \`return\`, and expression-statement are accepted (got: "${headRaw}")`,
   };
 }
+
+type CalleeKind = 'result' | 'option' | 'asyncResult' | 'asyncOption';
 
 interface PropagationSite {
   callStart: number;
@@ -375,11 +441,13 @@ interface PropagationSite {
   op: '?' | '!';
   callExpr: string;
   callee: string;
-  calleeKind: 'result' | 'option';
+  calleeKind: CalleeKind;
   bounds: StatementBounds;
   shape: StmtShape | null; // null when classification failed (we still emit one diagnostic)
   insideClosure: boolean;
   chained: boolean;
+  /** Slice 7 v2.1 — `await` was present immediately before the call. */
+  hasAwait: boolean;
   /** Reason captured when classification failed (for diagnostic). */
   rejectReason: string | null;
 }
@@ -397,12 +465,7 @@ function findPropagationSites(original: string, cleaned: string, ctx: Propagatio
   const reA = /\b(Result|Option)\.(\w+)\s*\(/g;
   const reB = /\b(\w+)\s*\(/g;
 
-  function maybeRecord(
-    callStart: number,
-    openParen: number,
-    calleeText: string,
-    calleeKind: 'result' | 'option',
-  ): void {
+  function maybeRecord(callStart: number, openParen: number, calleeText: string, calleeKind: CalleeKind): void {
     const closeParen = findMatchingClose(cleaned, openParen);
     if (closeParen < 0) return;
     let after = closeParen + 1;
@@ -435,6 +498,7 @@ function findPropagationSites(original: string, cleaned: string, ctx: Propagatio
       shape: cls.ok ? cls.shape : null,
       insideClosure,
       chained,
+      hasAwait: cls.ok ? cls.hasAwait : false,
       rejectReason: cls.ok ? null : cls.reason,
     });
   }
@@ -454,20 +518,24 @@ function findPropagationSites(original: string, cleaned: string, ctx: Propagatio
   }
 
   // Pass B — bare identifier calls, restricted to known result/option fns
-  // and excluding member-access (preceded by `.`) so `obj.parse(x)?` is
-  // skipped instead of producing an invalid `obj.(() => …)()` rewrite.
+  // (sync or async) and excluding member-access (preceded by `.`) so
+  // `obj.parse(x)?` is skipped instead of producing an invalid
+  // `obj.(() => …)()` rewrite.
   for (const m of cleaned.matchAll(reB)) {
     const start = m.index ?? 0;
     const ident = m[1];
     if (ident === 'Result' || ident === 'Option') continue;
     if (start > 0 && cleaned[start - 1] === '.') continue;
-    const isResult = ctx.resultFns.has(ident);
-    const isOption = ctx.optionFns.has(ident);
-    if (!isResult && !isOption) continue;
+    let calleeKind: CalleeKind | null = null;
+    if (ctx.asyncResultFns?.has(ident)) calleeKind = 'asyncResult';
+    else if (ctx.asyncOptionFns?.has(ident)) calleeKind = 'asyncOption';
+    else if (ctx.resultFns.has(ident)) calleeKind = 'result';
+    else if (ctx.optionFns.has(ident)) calleeKind = 'option';
+    if (!calleeKind) continue;
     if (sites.some((s) => s.callStart === start)) continue;
     const openParen = start + m[0].length - 1;
     const calleeText = original.slice(start, openParen).trim();
-    maybeRecord(start, openParen, calleeText, isResult ? 'result' : 'option');
+    maybeRecord(start, openParen, calleeText, calleeKind);
   }
 
   sites.sort((a, b) => a.callStart - b.callStart);
@@ -490,9 +558,13 @@ type Emit = (code: DiagCode, message: string) => void;
 
 /** Build the hoisted lowering for a single site. */
 function buildLowering(site: PropagationSite, tmp: string): string {
-  const failureKind = site.calleeKind === 'option' ? 'none' : 'err';
+  const calleeInner = innerKind(site.calleeKind);
+  const failureKind = calleeInner === 'option' ? 'none' : 'err';
   const failBranch = site.op === '?' ? `return ${tmp};` : `throw new KernUnwrapError(${tmp});`;
-  const hoist = `const ${tmp} = ${site.callExpr};\nif (${tmp}.kind === '${failureKind}') ${failBranch}`;
+  // Slice 7 v2.1 — preserve `await` on the awaited call expression so the
+  // hoisted temp resolves the Promise BEFORE the discriminant check.
+  const callRhs = site.hasAwait ? `await ${site.callExpr}` : site.callExpr;
+  const hoist = `const ${tmp} = ${callRhs};\nif (${tmp}.kind === '${failureKind}') ${failBranch}`;
   const shape = site.shape;
   if (!shape) return hoist; // shouldn't reach if shape was null we skipped earlier
   switch (shape.kind) {
@@ -543,28 +615,56 @@ export function rewritePropagationInBody(
         `\`${site.op}\` after \`${site.callExpr}\` is rejected: ${site.rejectReason ?? 'unsupported context'}. Slice 7 v1 supports only \`<call>${site.op};\`, \`return <call>${site.op};\`, and \`(const|let|var) name = <call>${site.op};\`.`,
       );
       apply = false;
-    } else if (site.op === '?') {
-      if (fnReturn === 'other') {
+    } else {
+      // Slice 7 v2.1 — async/await checks BEFORE the kind-match checks so a
+      // missing-`await` or stray-`await` site gets a clearer diagnostic
+      // (otherwise the kind-match error would dominate).
+      const calleeIsAsync = site.calleeKind === 'asyncResult' || site.calleeKind === 'asyncOption';
+      const containerIsAsync = fnReturn === 'asyncResult' || fnReturn === 'asyncOption';
+      const calleeInner = innerKind(site.calleeKind);
+      const containerInner = innerKind(fnReturn);
+      const calleeLabel = calleeInner === 'result' ? 'Result' : 'Option';
+
+      if (site.hasAwait && !calleeIsAsync) {
         emit(
           'INVALID_PROPAGATION',
-          `\`?\` requires the containing fn to return Result<T, E> or Option<T> — got a fn whose \`returns\` does not match. Use \`!\` to panic, or change the fn's return type.`,
+          `\`await\` before \`${site.callee}(...)\` is unnecessary — \`${site.callee}\` returns a sync ${calleeLabel}, not a Promise.`,
         );
         apply = false;
-      } else if (fnReturn !== site.calleeKind) {
-        const containerLabel = fnReturn === 'result' ? 'Result' : 'Option';
-        const calleeLabel = site.calleeKind === 'result' ? 'Result' : 'Option';
+      } else if (!site.hasAwait && calleeIsAsync) {
         emit(
           'INVALID_PROPAGATION',
-          `\`?\` on a ${calleeLabel} call cannot propagate from a ${containerLabel}-returning fn. Use \`!\` to panic, or convert with \`match\`.`,
+          `\`${site.callee}(...)\` returns Promise<${calleeLabel}<…>> — write \`await ${site.callee}(...)${site.op}\` so the discriminant check sees the resolved value.`,
         );
         apply = false;
+      } else if (site.hasAwait && !containerIsAsync) {
+        emit(
+          'INVALID_PROPAGATION',
+          `\`await\` is only valid inside an \`async=true\` fn or one whose \`returns\` is \`Promise<…>\`. Mark the containing fn async or drop the \`await\`.`,
+        );
+        apply = false;
+      } else if (site.op === '?') {
+        if (containerInner === 'other') {
+          emit(
+            'INVALID_PROPAGATION',
+            `\`?\` requires the containing fn to return Result<T, E> or Option<T> — got a fn whose \`returns\` does not match. Use \`!\` to panic, or change the fn's return type.`,
+          );
+          apply = false;
+        } else if (containerInner !== calleeInner) {
+          const containerLabel = containerInner === 'result' ? 'Result' : 'Option';
+          emit(
+            'INVALID_PROPAGATION',
+            `\`?\` on a ${calleeLabel} call cannot propagate from a ${containerLabel}-returning fn. Use \`!\` to panic, or convert with \`match\`.`,
+          );
+          apply = false;
+        }
+      } else if (site.op === '!' && containerInner === calleeInner) {
+        emit(
+          'UNSAFE_UNWRAP_IN_RESULT_FN',
+          `\`${site.callExpr}!\` panics inside a fn that returns ${calleeLabel} — use \`?\` to propagate the error/none case instead of throwing.`,
+        );
+        // Soft warning — still rewrite.
       }
-    } else if (site.op === '!' && fnReturn === site.calleeKind) {
-      emit(
-        'UNSAFE_UNWRAP_IN_RESULT_FN',
-        `\`${site.callExpr}!\` panics inside a fn that returns ${site.calleeKind === 'result' ? 'Result' : 'Option'} — use \`?\` to propagate the error/none case instead of throwing.`,
-      );
-      // Soft warning — still rewrite.
     }
 
     const tmp = apply ? nextGensym() : '';
@@ -586,39 +686,78 @@ export function rewritePropagationInBody(
   return { code: outCode, usedUnwrap };
 }
 
-/** Walk the IR collecting fn/method names whose `returns` is Result/Option. */
-function collectKnownFns(root: IRNode): PropagationContext {
+/** Walk the IR collecting fn/method names whose `returns` is Result/Option.
+ *  When `resolveImport` is supplied, also walks `use` nodes and merges in
+ *  exported fn signatures from imported KERN modules — `from name=parseUser`
+ *  contributes `parseUser` (or its `as=alias` if present) to the local
+ *  resultFns/optionFns set. Imports the resolver returns `null` for are
+ *  skipped silently. */
+function collectKnownFns(root: IRNode, resolveImport?: ImportResolver): PropagationContext {
   const resultFns = new Set<string>();
   const optionFns = new Set<string>();
+  const asyncResultFns = new Set<string>();
+  const asyncOptionFns = new Set<string>();
 
   function walk(node: IRNode): void {
     if (node.type === 'fn' || node.type === 'method') {
       const props = node.props || {};
       const name = typeof props.name === 'string' ? props.name : null;
       const returns = props.returns;
+      const isAsync = props.async === true || props.async === 'true';
       if (name && typeof returns === 'string') {
-        const cls = classifyReturn(returns);
+        const cls = classifyReturn(returns, isAsync);
         if (cls === 'result') resultFns.add(name);
-        if (cls === 'option') optionFns.add(name);
+        else if (cls === 'option') optionFns.add(name);
+        else if (cls === 'asyncResult') asyncResultFns.add(name);
+        else if (cls === 'asyncOption') asyncOptionFns.add(name);
+      }
+    } else if (node.type === 'use' && resolveImport) {
+      const path = node.props?.path;
+      if (typeof path === 'string') {
+        const exports = resolveImport(path);
+        if (exports) {
+          for (const child of node.children || []) {
+            if (child.type !== 'from') continue;
+            const importedName = child.props?.name;
+            if (typeof importedName !== 'string') continue;
+            const aliasRaw = child.props?.as;
+            const localName = typeof aliasRaw === 'string' && aliasRaw ? aliasRaw : importedName;
+            if (exports.resultFns.has(importedName)) resultFns.add(localName);
+            if (exports.optionFns.has(importedName)) optionFns.add(localName);
+            if (exports.asyncResultFns?.has(importedName)) asyncResultFns.add(localName);
+            if (exports.asyncOptionFns?.has(importedName)) asyncOptionFns.add(localName);
+          }
+        }
       }
     }
     if (node.children) for (const child of node.children) walk(child);
   }
 
   walk(root);
-  return { resultFns, optionFns };
+  return { resultFns, optionFns, asyncResultFns, asyncOptionFns };
 }
 
 /** Walk the IR and rewrite every fn/method handler body in place. Returns
  *  the set of nodes whose handlers used `!` so the codegen can decide
- *  whether to add `KernUnwrapError` to the auto-emitted preamble. */
-export function validateAndRewritePropagation(state: ParseState, root: IRNode): { unwrapUsedAnywhere: boolean } {
-  const ctx = collectKnownFns(root);
+ *  whether to add `KernUnwrapError` to the auto-emitted preamble.
+ *
+ *  Slice 7 v2 — when `resolveImport` is supplied, fn names imported via
+ *  `use path="…"` get merged into the recognised set so cross-module
+ *  `parseUser(raw)?` calls propagate. The CLI builds the resolver from a
+ *  project-wide pre-pass; pure-parse callers omit it and cross-module
+ *  recognition is disabled. */
+export function validateAndRewritePropagation(
+  state: ParseState,
+  root: IRNode,
+  resolveImport?: ImportResolver,
+): { unwrapUsedAnywhere: boolean } {
+  const ctx = collectKnownFns(root, resolveImport);
   let unwrapUsedAnywhere = false;
 
   function walk(node: IRNode): void {
     if (node.type === 'fn' || node.type === 'method') {
-      const fnReturn: FnReturn = classifyReturn(node.props?.returns);
+      const isAsync = node.props?.async === true || node.props?.async === 'true';
+      const fnReturn: FnReturn = classifyReturn(node.props?.returns, isAsync);
       for (const child of node.children || []) {
         if (child.type !== 'handler') continue;
         const code = child.props?.code;

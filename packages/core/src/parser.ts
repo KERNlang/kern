@@ -11,7 +11,7 @@
  */
 
 import { KernParseError } from './errors.js';
-import { parseInternal } from './parser-core.js';
+import { type ParseOptions, parseInternal } from './parser-core.js';
 import type { ParserHintsConfig } from './runtime.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
 import { validateSchema } from './schema.js';
@@ -101,13 +101,23 @@ export function parseDocument(source: string, runtime?: KernRuntime): IRNode {
  * @param runtime - Optional KernRuntime instance for isolation
  * @returns `{ root: IRNode, diagnostics: ParseDiagnostic[] }`
  */
-export function parseWithDiagnostics(source: string, runtime?: KernRuntime): ParseResult {
-  return parseInternal(source, false, runtime);
+export function parseWithDiagnostics(source: string, runtime?: KernRuntime, options?: ParseOptions): ParseResult {
+  return parseInternal(source, false, runtime, options);
 }
 
-/** Parse with diagnostics (document mode). */
-export function parseDocumentWithDiagnostics(source: string, runtime?: KernRuntime): ParseResult {
-  return parseInternal(source, true, runtime);
+/** Parse with diagnostics (document mode).
+ *
+ *  Slice 7 v2 — `options.resolveImport` enables cross-module Result/Option
+ *  recognition for `?`/`!` propagation. The CLI builds the resolver from a
+ *  project-wide pre-pass over `.kern` files and passes it per-file; pure
+ *  callers (browser playground, tests) omit it and cross-module
+ *  recognition stays disabled. */
+export function parseDocumentWithDiagnostics(
+  source: string,
+  runtime?: KernRuntime,
+  options?: ParseOptions,
+): ParseResult {
+  return parseInternal(source, true, runtime, options);
 }
 
 /**
