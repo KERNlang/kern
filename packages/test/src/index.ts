@@ -34,6 +34,9 @@ export interface NativeKernTestCoverageTarget {
   file: string;
   transitions: NativeKernTestCoverageMetric;
   guards: NativeKernTestCoverageMetric;
+  routes: NativeKernTestCoverageMetric;
+  tools: NativeKernTestCoverageMetric;
+  effects: NativeKernTestCoverageMetric;
 }
 
 export interface NativeKernTestCoverageSummary {
@@ -42,6 +45,9 @@ export interface NativeKernTestCoverageSummary {
   percent: number;
   transitions: NativeKernTestCoverageMetric;
   guards: NativeKernTestCoverageMetric;
+  routes: NativeKernTestCoverageMetric;
+  tools: NativeKernTestCoverageMetric;
+  effects: NativeKernTestCoverageMetric;
   targets: NativeKernTestCoverageTarget[];
 }
 
@@ -202,7 +208,7 @@ const DISCOVERY_SKIP_DIRS = new Set([
 
 const NATIVE_TEST_PRESETS: Record<string, string[]> = {
   apisafety: ['duplicateRoutes', 'emptyRoutes', 'unvalidatedRoutes', 'unguardedEffects', 'uncheckedRoutePathParams'],
-  coverage: ['untestedTransitions', 'untestedGuards'],
+  coverage: ['untestedTransitions', 'untestedGuards', 'untestedRoutes', 'untestedTools', 'untestedEffects'],
   effects: ['unguardedEffects', 'sensitiveEffectsRequireAuth', 'effectWithoutCleanup', 'unrecoveredAsync'],
   guard: ['invalidGuards', 'weakGuards', 'nonExhaustiveGuards'],
   machine: ['deadStates', 'duplicateTransitions'],
@@ -376,6 +382,21 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
   {
     ruleId: 'no:untestedguards',
     description: 'Guards are covered by exhaustive or guard-preset assertions.',
+    presets: ['coverage'],
+  },
+  {
+    ruleId: 'no:untestedroutes',
+    description: 'Routes are covered by native route workflow assertions.',
+    presets: ['coverage'],
+  },
+  {
+    ruleId: 'no:untestedtools',
+    description: 'MCP tools are covered by native tool workflow assertions.',
+    presets: ['coverage'],
+  },
+  {
+    ruleId: 'no:untestedeffects',
+    description: 'Deterministic KERN effects are covered by native effect assertions.',
     presets: ['coverage'],
   },
 ];
@@ -1641,6 +1662,118 @@ function findUntestedGuards(root: IRNode, context: NativeKernAssertionContext | 
     });
 }
 
+function coveredRouteLabels(root: IRNode, assertions: CollectedAssertion[]): Set<string> {
+  const target = syntheticTarget(root);
+  const covered = new Set<string>();
+
+  for (const assertion of assertions) {
+    const routeSpec = str(getProps(assertion.node).route);
+    if (!routeSpec) continue;
+    const found = findRuntimeRoute(target, routeSpec);
+    if (!found.route) continue;
+    const evaluated = evaluateRuntimeRoute(
+      assertion.node,
+      target,
+      assertion.fixtures,
+      assertion.mocks,
+      new Map<string, number>(),
+    );
+    if (evaluated.passed) covered.add(runtimeRouteLabel(found.route));
+  }
+
+  return covered;
+}
+
+function routeCoverage(root: IRNode, assertions: CollectedAssertion[]): NativeKernTestCoverageMetric {
+  const covered = coveredRouteLabels(root, assertions);
+  const routes = collectNodes(root, 'route');
+  const uncovered = routes
+    .filter((route) => !covered.has(runtimeRouteLabel(route)))
+    .map((route) => `route ${runtimeRouteLabel(route)} at line ${route.loc?.line ?? '?'}`);
+  return coverageMetric(routes.length, uncovered);
+}
+
+function findUntestedRoutes(root: IRNode, context: NativeKernAssertionContext | undefined): string[] {
+  return routeCoverage(root, context?.assertions || []).uncovered;
+}
+
+function coveredToolNames(root: IRNode, assertions: CollectedAssertion[]): Set<string> {
+  const target = syntheticTarget(root);
+  const covered = new Set<string>();
+
+  for (const assertion of assertions) {
+    const toolName = str(getProps(assertion.node).tool);
+    if (!toolName) continue;
+    const found = findRuntimeTool(target, toolName);
+    if (!found.tool) continue;
+    const evaluated = evaluateRuntimeTool(
+      assertion.node,
+      target,
+      assertion.fixtures,
+      assertion.mocks,
+      new Map<string, number>(),
+    );
+    if (evaluated.passed) covered.add(runtimeToolName(found.tool));
+  }
+
+  return covered;
+}
+
+function toolCoverage(root: IRNode, assertions: CollectedAssertion[]): NativeKernTestCoverageMetric {
+  const covered = coveredToolNames(root, assertions);
+  const tools = collectNodes(root, 'tool');
+  const uncovered = tools
+    .filter((tool) => !covered.has(runtimeToolName(tool)))
+    .map((tool) => `tool ${runtimeToolName(tool)} at line ${tool.loc?.line ?? '?'}`);
+  return coverageMetric(tools.length, uncovered);
+}
+
+function findUntestedTools(root: IRNode, context: NativeKernAssertionContext | undefined): string[] {
+  return toolCoverage(root, context?.assertions || []).uncovered;
+}
+
+function runtimeEffectNodes(root: IRNode): IRNode[] {
+  return collectNodes(root, 'effect').filter((effect) => {
+    const name = str(getProps(effect).name);
+    return Boolean(name && getChildren(effect, 'trigger').length > 0);
+  });
+}
+
+function coveredEffectNames(root: IRNode, assertions: CollectedAssertion[]): Set<string> {
+  const target = syntheticTarget(root);
+  const covered = new Set<string>();
+
+  for (const assertion of assertions) {
+    const effectName = str(getProps(assertion.node).effect);
+    if (!effectName) continue;
+    const found = findRuntimeEffect(target, effectName);
+    if (!found.effect) continue;
+    const evaluated = evaluateRuntimeEffect(
+      assertion.node,
+      target,
+      assertion.fixtures,
+      assertion.mocks,
+      new Map<string, number>(),
+    );
+    if (evaluated.passed) covered.add(runtimeEffectName(found.effect));
+  }
+
+  return covered;
+}
+
+function effectCoverage(root: IRNode, assertions: CollectedAssertion[]): NativeKernTestCoverageMetric {
+  const covered = coveredEffectNames(root, assertions);
+  const effects = runtimeEffectNodes(root);
+  const uncovered = effects
+    .filter((effect) => !covered.has(runtimeEffectName(effect)))
+    .map((effect) => `effect ${runtimeEffectName(effect)} at line ${effect.loc?.line ?? '?'}`);
+  return coverageMetric(effects.length, uncovered);
+}
+
+function findUntestedEffects(root: IRNode, context: NativeKernAssertionContext | undefined): string[] {
+  return effectCoverage(root, context?.assertions || []).uncovered;
+}
+
 function coverageMetric(total: number, uncovered: string[]): NativeKernTestCoverageMetric {
   const covered = Math.max(0, total - uncovered.length);
   return {
@@ -1665,6 +1798,9 @@ function emptyCoverageSummary(): NativeKernTestCoverageSummary {
     percent: 100,
     transitions: empty,
     guards: empty,
+    routes: empty,
+    tools: empty,
+    effects: empty,
     targets: [],
   };
 }
@@ -1672,14 +1808,20 @@ function emptyCoverageSummary(): NativeKernTestCoverageSummary {
 function combineCoverageSummaries(summaries: NativeKernTestCoverageSummary[]): NativeKernTestCoverageSummary {
   const transitions = combineCoverageMetrics(summaries.map((summary) => summary.transitions));
   const guards = combineCoverageMetrics(summaries.map((summary) => summary.guards));
-  const total = transitions.total + guards.total;
-  const covered = transitions.covered + guards.covered;
+  const routes = combineCoverageMetrics(summaries.map((summary) => summary.routes));
+  const tools = combineCoverageMetrics(summaries.map((summary) => summary.tools));
+  const effects = combineCoverageMetrics(summaries.map((summary) => summary.effects));
+  const total = transitions.total + guards.total + routes.total + tools.total + effects.total;
+  const covered = transitions.covered + guards.covered + routes.covered + tools.covered + effects.covered;
   return {
     total,
     covered,
     percent: total === 0 ? 100 : Math.round((covered / total) * 10000) / 100,
     transitions,
     guards,
+    routes,
+    tools,
+    effects,
     targets: summaries.flatMap((summary) => summary.targets),
   };
 }
@@ -1748,26 +1890,38 @@ function coverageForTarget(target: LoadedKernDocument, assertions: CollectedAsse
       file: target.file,
       transitions: coverageMetric(0, []),
       guards: coverageMetric(0, []),
+      routes: coverageMetric(0, []),
+      tools: coverageMetric(0, []),
+      effects: coverageMetric(0, []),
     };
   }
   return {
     file: target.file,
     transitions: machineTransitionCoverage(target.root, assertions),
     guards: guardCoverage(target.root, assertions),
+    routes: routeCoverage(target.root, assertions),
+    tools: toolCoverage(target.root, assertions),
+    effects: effectCoverage(target.root, assertions),
   };
 }
 
 function createCoverageSummary(targets: NativeKernTestCoverageTarget[]): NativeKernTestCoverageSummary {
   const transitions = combineCoverageMetrics(targets.map((target) => target.transitions));
   const guards = combineCoverageMetrics(targets.map((target) => target.guards));
-  const total = transitions.total + guards.total;
-  const covered = transitions.covered + guards.covered;
+  const routes = combineCoverageMetrics(targets.map((target) => target.routes));
+  const tools = combineCoverageMetrics(targets.map((target) => target.tools));
+  const effects = combineCoverageMetrics(targets.map((target) => target.effects));
+  const total = transitions.total + guards.total + routes.total + tools.total + effects.total;
+  const covered = transitions.covered + guards.covered + routes.covered + tools.covered + effects.covered;
   return {
     total,
     covered,
     percent: total === 0 ? 100 : Math.round((covered / total) * 10000) / 100,
     transitions,
     guards,
+    routes,
+    tools,
+    effects,
     targets,
   };
 }
@@ -3321,6 +3475,84 @@ function runtimeValuesEqual(actual: unknown, expected: unknown): boolean {
   }
 }
 
+function normalizeRuntimeDiffValue(value: unknown): unknown {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+}
+
+function runtimeValueKind(value: unknown): string {
+  if (Array.isArray(value)) return 'array';
+  if (value === null) return 'null';
+  return typeof value;
+}
+
+function runtimePathProperty(base: string, key: string): string {
+  return /^[A-Za-z_$][\w$]*$/.test(key) ? `${base}.${key}` : `${base}[${JSON.stringify(key)}]`;
+}
+
+function firstRuntimeValueDifference(expected: unknown, actual: unknown, path = '$', depth = 0): string | undefined {
+  if (runtimeValuesEqual(actual, expected)) return undefined;
+  if (depth > 16) {
+    return `at ${path}: expected ${formatRuntimeValue(expected)}, received ${formatRuntimeValue(actual)}`;
+  }
+
+  const expectedKind = runtimeValueKind(expected);
+  const actualKind = runtimeValueKind(actual);
+  if (expectedKind !== actualKind) {
+    return `at ${path}: expected ${expectedKind} ${formatRuntimeValue(expected)}, received ${actualKind} ${formatRuntimeValue(actual)}`;
+  }
+
+  if (Array.isArray(expected) && Array.isArray(actual)) {
+    const common = Math.min(expected.length, actual.length);
+    for (let i = 0; i < common; i++) {
+      const diff = firstRuntimeValueDifference(expected[i], actual[i], `${path}[${i}]`, depth + 1);
+      if (diff) return diff;
+    }
+    if (expected.length > actual.length) {
+      return `at ${path}[${actual.length}]: missing item; expected ${formatRuntimeValue(expected[actual.length])}`;
+    }
+    return `at ${path}[${expected.length}]: unexpected item ${formatRuntimeValue(actual[expected.length])}`;
+  }
+
+  if (
+    expected !== null &&
+    actual !== null &&
+    typeof expected === 'object' &&
+    typeof actual === 'object' &&
+    !Array.isArray(expected) &&
+    !Array.isArray(actual)
+  ) {
+    const expectedRecord = expected as Record<string, unknown>;
+    const actualRecord = actual as Record<string, unknown>;
+    const keys = [...new Set([...Object.keys(expectedRecord), ...Object.keys(actualRecord)])].sort();
+    for (const key of keys) {
+      const nextPath = runtimePathProperty(path, key);
+      if (!Object.hasOwn(actualRecord, key)) {
+        return `at ${nextPath}: missing property; expected ${formatRuntimeValue(expectedRecord[key])}`;
+      }
+      if (!Object.hasOwn(expectedRecord, key)) {
+        return `at ${nextPath}: unexpected property ${formatRuntimeValue(actualRecord[key])}`;
+      }
+      const diff = firstRuntimeValueDifference(expectedRecord[key], actualRecord[key], nextPath, depth + 1);
+      if (diff) return diff;
+    }
+  }
+
+  return `at ${path}: expected ${formatRuntimeValue(expected)}, received ${formatRuntimeValue(actual)}`;
+}
+
+function runtimeMismatchMessage(label: string, expected: unknown, actual: unknown, context: string): string {
+  const normalizedExpected = normalizeRuntimeDiffValue(expected);
+  const normalizedActual = normalizeRuntimeDiffValue(actual);
+  const diff =
+    firstRuntimeValueDifference(normalizedExpected, normalizedActual) ||
+    `at $: expected ${formatRuntimeValue(normalizedExpected)}, received ${formatRuntimeValue(normalizedActual)}`;
+  return `${label} expected ${formatRuntimeValue(expected)}, received ${formatRuntimeValue(actual)}${context}\ndiff: ${diff}`;
+}
+
 function formatThrownRuntimeError(error: unknown): string {
   if (error instanceof Error) return `${error.name}: ${error.message}`;
   return String(error);
@@ -3617,7 +3849,12 @@ function evaluateRuntimeSource(
           passed: false,
           message:
             str(props.message) ||
-            `${label} expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(actual.value)}${runtimeExpressionContext(trimmedExpr, fixtures)}`,
+            runtimeMismatchMessage(
+              label,
+              expected.value,
+              actual.value,
+              runtimeExpressionContext(trimmedExpr, fixtures),
+            ),
         };
   }
 
@@ -3821,11 +4058,7 @@ function evaluateRuntimeRoute(
       ? { passed: true }
       : {
           passed: false,
-          message:
-            str(props.message) ||
-            `${label} expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(
-              probe.value,
-            )}${routeContext}`,
+          message: str(props.message) || runtimeMismatchMessage(label, expected.value, probe.value, routeContext),
         };
   }
 
@@ -3965,11 +4198,7 @@ function evaluateRuntimeTool(
       ? { passed: true }
       : {
           passed: false,
-          message:
-            str(props.message) ||
-            `${label} expected ${formatRuntimeValue(expected.value)}, received ${formatRuntimeValue(
-              probe.value,
-            )}${toolContext}`,
+          message: str(props.message) || runtimeMismatchMessage(label, expected.value, probe.value, toolContext),
         };
   }
 
@@ -4045,6 +4274,7 @@ function evaluateRuntimeEffectRecovery(
   const entryExprs = expected.source ? [effectBinding.name, expected.source] : [effectBinding.name];
   const declarations = buildRuntimeDeclarations(target, entryExprs, [...fixtures, effectBinding]);
   if ('message' in declarations) return { passed: false, message: declarations.message };
+  const effectContext = runtimeExpressionContext(effectBinding.name, [...fixtures, effectBinding]);
 
   const actual = runRuntimeExpression(target, declarations.source, effectBinding.name);
   if (scopedMock.mock) recordRuntimeEffectMockCall(scopedMock.mock, mockCalls);
@@ -4080,9 +4310,7 @@ function evaluateRuntimeEffectRecovery(
           passed: false,
           message:
             str(props.message) ||
-            `Runtime effect ${effectName} expected ${formatRuntimeValue(
-              expectedResult.value,
-            )}, received ${formatRuntimeValue(meta.result)}`,
+            runtimeMismatchMessage(`Runtime effect ${effectName}`, expectedResult.value, meta.result, effectContext),
         };
   }
 
@@ -4664,6 +4892,42 @@ function evaluateNoInvariant(
       ? {
           passed: false,
           message: `Found untested guards: ${untested.join('; ')}. Add expect guard=<name> exhaustive=true or a guard-wide assertion such as expect preset=guard.`,
+        }
+      : { passed: true };
+  }
+
+  if (invariant === 'untestedroutes' || invariant === 'uncoveredroutes') {
+    const blocking = targetBlockingMessage(target);
+    if (blocking) return { passed: false, message: blocking };
+    const untested = findUntestedRoutes(target.root!, context);
+    return untested.length > 0
+      ? {
+          passed: false,
+          message: `Found untested routes: ${untested.join('; ')}. Add expect route="METHOD /path" assertions for each route.`,
+        }
+      : { passed: true };
+  }
+
+  if (invariant === 'untestedtools' || invariant === 'uncoveredtools') {
+    const blocking = targetBlockingMessage(target);
+    if (blocking) return { passed: false, message: blocking };
+    const untested = findUntestedTools(target.root!, context);
+    return untested.length > 0
+      ? {
+          passed: false,
+          message: `Found untested tools: ${untested.join('; ')}. Add expect tool=<name> assertions for each MCP tool.`,
+        }
+      : { passed: true };
+  }
+
+  if (invariant === 'untestedeffects' || invariant === 'uncoveredeffects') {
+    const blocking = targetBlockingMessage(target);
+    if (blocking) return { passed: false, message: blocking };
+    const untested = findUntestedEffects(target.root!, context);
+    return untested.length > 0
+      ? {
+          passed: false,
+          message: `Found untested effects: ${untested.join('; ')}. Add expect effect=<name> assertions for deterministic effects.`,
         }
       : { passed: true };
   }
@@ -5420,16 +5684,21 @@ export function formatNativeKernTestCoverage(coverage: NativeKernTestCoverageSum
     `coverage ${coverage.covered}/${coverage.total} (${coverage.percent}%)`,
     coverageLine('transitions', coverage.transitions),
     coverageLine('guards', coverage.guards),
+    coverageLine('routes', coverage.routes),
+    coverageLine('tools', coverage.tools),
+    coverageLine('effects', coverage.effects),
   ];
-  const uncoveredTransitions = coverage.transitions.uncovered;
-  const uncoveredGuards = coverage.guards.uncovered;
-  if (uncoveredTransitions.length > 0) {
-    lines.push('uncovered transitions:');
-    for (const item of uncoveredTransitions) lines.push(`  ${item}`);
-  }
-  if (uncoveredGuards.length > 0) {
-    lines.push('uncovered guards:');
-    for (const item of uncoveredGuards) lines.push(`  ${item}`);
+  const uncoveredSections: Array<[string, string[]]> = [
+    ['transitions', coverage.transitions.uncovered],
+    ['guards', coverage.guards.uncovered],
+    ['routes', coverage.routes.uncovered],
+    ['tools', coverage.tools.uncovered],
+    ['effects', coverage.effects.uncovered],
+  ];
+  for (const [name, uncovered] of uncoveredSections) {
+    if (uncovered.length === 0) continue;
+    lines.push(`uncovered ${name}:`);
+    for (const item of uncovered) lines.push(`  ${item}`);
   }
   return `${lines.join('\n')}\n`;
 }
@@ -5440,7 +5709,9 @@ function formatNativeKernTestResult(result: NativeKernTestResult, summaryFile: s
     ? ` (${relative(process.cwd(), result.file || summaryFile)}:${result.line}:${result.col ?? 1})`
     : '';
   const lines = [`${marker} ${result.suite} > ${result.caseName}: ${result.assertion} [${result.ruleId}]${loc}`];
-  if (result.status !== 'passed' && result.message) lines.push(`  ${result.message}`);
+  if (result.status !== 'passed' && result.message) {
+    for (const line of result.message.split('\n')) lines.push(`  ${line}`);
+  }
   return lines;
 }
 

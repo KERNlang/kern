@@ -431,6 +431,32 @@ describe('native kern test runner', () => {
     ]);
   });
 
+  test('effect recovery mismatches include first runtime value difference', () => {
+    writeFileSync(
+      join(tmpDir, 'effect-diff.kern'),
+      [
+        'effect name=loadFallback',
+        '  trigger expr={{JSON.parse("not-json")}}',
+        '  recover retry=2 fallback={{[]}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'effect-diff.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Effect diff" target="./effect-diff.kern"',
+        '  it name="explains recovered mismatch"',
+        '    expect effect=loadFallback recovers=true fallback={{[{ id: "u1" }]}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].message).toContain('Runtime effect loadFallback expected');
+    expect(summary.results[0].message).toContain('diff: at $[0]: missing item');
+  });
+
   test('uses scoped native mocks for effect and route workflow assertions', () => {
     writeFileSync(
       join(tmpDir, 'mocked-effects.kern'),
@@ -626,6 +652,7 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(1);
     expect(summary.results[0].message).toContain('expression: __kernTool_');
     expect(summary.results[0].message).toContain('fixtures: users, __kernTool_');
+    expect(summary.results[0].message).toContain('diff: at $[0]: missing item');
   });
 
   test('executes native guard kinds in route and tool workflows', () => {
@@ -732,10 +759,13 @@ describe('native kern test runner', () => {
     );
 
     const summary = runNativeKernTests(testFile);
+    const output = formatNativeKernTestSummary(summary);
 
     expect(summary.failed).toBe(1);
     expect(summary.results[0].message).toContain('expression: __kernRoute_');
     expect(summary.results[0].message).toContain('fixtures: users, __kernRoute_');
+    expect(summary.results[0].message).toContain('diff: at $[0]: missing item');
+    expect(output).toContain('\n  diff: at $[0]: missing item');
   });
 
   test('reports mocked effect call-count mismatches without duplicate unused-mock noise', () => {
@@ -938,6 +968,7 @@ describe('native kern test runner', () => {
     expect(summary.results[0].message).toContain('double(amount)');
     expect(summary.results[0].message).toContain('fixtures: amount');
     expect(summary.results[0].message).toContain('received 8');
+    expect(summary.results[0].message).toContain('diff: at $: expected 9, received 8');
   });
 
   test('rejects unsafe tokens inside behavioral fn handlers before execution', () => {
@@ -1889,7 +1920,7 @@ describe('native kern test runner', () => {
     const summary = runNativeKernTests(testFile);
 
     expect(summary.failed).toBe(0);
-    expect(summary.passed).toBe(6);
+    expect(summary.passed).toBe(9);
     expect(summary.results.map((result) => result.ruleId)).toEqual([
       'machine:reaches',
       'no:invalidguards',
@@ -1897,6 +1928,9 @@ describe('native kern test runner', () => {
       'no:nonexhaustiveguards',
       'no:untestedtransitions',
       'no:untestedguards',
+      'no:untestedroutes',
+      'no:untestedtools',
+      'no:untestedeffects',
     ]);
   });
 
@@ -2075,6 +2109,95 @@ describe('native kern test runner', () => {
     expect(output).toContain('Order.refund');
     expect(output).toContain('uncovered guards:');
     expect(output).toContain('guard VerifyUser');
+  });
+
+  test('coverage preset fails when workflows lack native assertions', () => {
+    writeFileSync(
+      join(tmpDir, 'workflows.kern'),
+      [
+        'effect name=loadUsers',
+        '  trigger expr={{[{ id: "u1" }]}}',
+        'server name=Api',
+        '  route GET /users',
+        '    respond 200 json={{[]}}',
+        'mcp name=Tools',
+        '  tool name=search',
+        '    respond 200 json={{[]}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'workflow-coverage.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Workflow coverage" target="./workflows.kern"',
+        '  it name="requires source-level workflow tests"',
+        '    expect preset=coverage',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(3);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'no:untestedtransitions',
+      'no:untestedguards',
+      'no:untestedroutes',
+      'no:untestedtools',
+      'no:untestedeffects',
+    ]);
+    expect(summary.results[2].message).toContain('route GET /users');
+    expect(summary.results[3].message).toContain('tool search');
+    expect(summary.results[4].message).toContain('effect loadUsers');
+  });
+
+  test('reports native coverage metrics for routes tools and effects', () => {
+    writeFileSync(
+      join(tmpDir, 'workflow-metrics.kern'),
+      [
+        'effect name=loadUsers',
+        '  trigger expr={{[{ id: "u1" }]}}',
+        'effect name=saveUser',
+        '  trigger expr={{true}}',
+        'server name=Api',
+        '  route GET /users',
+        '    respond 200 json={{[]}}',
+        '  route POST /users',
+        '    respond 201 json={{({ ok: true })}}',
+        'mcp name=Tools',
+        '  tool name=search',
+        '    respond 200 json={{[]}}',
+        '  tool name=deleteUser',
+        '    respond 200 json={{true}}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'workflow-metrics.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Workflow metrics" target="./workflow-metrics.kern"',
+        '  it name="covers one workflow from each kind"',
+        '    expect route="GET /users" returns={{[]}}',
+        '    expect tool=search returns={{[]}}',
+        '    expect effect=loadUsers returns={{[{ id: "u1" }]}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+    const output = formatNativeKernTestCoverage(summary.coverage);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.coverage.total).toBe(6);
+    expect(summary.coverage.covered).toBe(3);
+    expect(summary.coverage.percent).toBe(50);
+    expect(summary.coverage.routes.uncovered).toEqual(['route POST /users at line 8']);
+    expect(summary.coverage.tools.uncovered).toEqual(['tool deleteUser at line 13']);
+    expect(summary.coverage.effects.uncovered).toEqual(['effect saveUser at line 3']);
+    expect(output).toContain('routes: 1/2 (50%)');
+    expect(output).toContain('tools: 1/2 (50%)');
+    expect(output).toContain('effects: 1/2 (50%)');
+    expect(output).toContain('uncovered routes:');
+    expect(output).toContain('uncovered tools:');
+    expect(output).toContain('uncovered effects:');
   });
 
   test('passes language surface smoke for arrays classes and functions', () => {

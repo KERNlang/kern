@@ -2,5 +2,9 @@ test name="MCP safety" target="./mcp.kern"
   it name="uses MCP safety preset"
     expect preset=mcpSafety
 
+  it name="covers tool workflows"
+    expect tool=readFile with={{({ filePath: "/data/a.txt" })}} returns={{"/data/a.txt"}}
+    expect tool=fetchAllowed with={{({ url: "https://api.example.com/v1" })}} returns={{"https://api.example.com/v1"}}
+
   it name="suite covers guard surface"
     expect preset=coverage
