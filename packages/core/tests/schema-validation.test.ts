@@ -200,16 +200,30 @@ describe('Schema Validation', () => {
           '  it name="mocks effect boundary"',
           '    mock effect=fetchUsers returns={{users}}',
           '    expect effect=fetchUsers returns={{users}}',
+          '  it name="mocks failures"',
+          '    mock effect=fetchUsers throws=NetworkError',
+          '    expect effect=fetchUsers throws=NetworkError',
         ].join('\n'),
       );
       expect(v).toHaveLength(0);
     });
 
-    it('flags native effect mocks without returns value', () => {
+    it('flags native effect mocks without behavior', () => {
       const v = validate(
         ['test name="Effect behavior"', '  it name="mocks effect boundary"', '    mock effect=fetchUsers'].join('\n'),
       );
-      expect(v.some((violation) => violation.message.includes("'mock' requires prop 'returns'"))).toBe(true);
+      expect(v.some((violation) => violation.message.includes("'mock' requires either returns"))).toBe(true);
+    });
+
+    it('flags native effect mocks that combine returns and throws', () => {
+      const v = validate(
+        [
+          'test name="Effect behavior"',
+          '  it name="mocks effect boundary"',
+          '    mock effect=fetchUsers returns={{[]}} throws=NetworkError',
+        ].join('\n'),
+      );
+      expect(v.some((violation) => violation.message.includes("'mock' must not combine returns"))).toBe(true);
     });
 
     it('flags empty expect assertions', () => {

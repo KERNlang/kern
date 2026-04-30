@@ -393,6 +393,8 @@ describe('native kern test runner', () => {
         'effect name=loadFallback',
         '  trigger expr={{JSON.parse("not-json")}}',
         '  recover retry=2 fallback={{[]}}',
+        'effect name=loadBroken',
+        '  trigger expr={{JSON.parse("not-json")}}',
         'server name=UsersAPI',
         '  route GET /api/users',
         '    effect name=fetchUsers',
@@ -409,6 +411,7 @@ describe('native kern test runner', () => {
         '  it name="runs effect result and recovery"',
         '    expect effect=loadUsers returns={{cachedUsers}}',
         '    expect effect=loadFallback recovers=true fallback={{[]}}',
+        '    expect effect=loadBroken throws=SyntaxError',
         '  it name="routes can recover effect results"',
         '    expect route="GET /api/users" returns={{[]}}',
       ].join('\n'),
@@ -417,8 +420,9 @@ describe('native kern test runner', () => {
     const summary = runNativeKernTests(testFile);
 
     expect(summary.failed).toBe(0);
-    expect(summary.passed).toBe(3);
+    expect(summary.passed).toBe(4);
     expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'runtime:effect',
       'runtime:effect',
       'runtime:effect',
       'runtime:route',
@@ -450,14 +454,25 @@ describe('native kern test runner', () => {
         '  it name="mocks route-local effect boundaries"',
         '    mock effect=fetchUsers returns={{users}}',
         '    expect route="GET /api/users" returns={{users}}',
+        '  it name="mocks top-level effect failures"',
+        '    mock effect=loadUsers throws=NetworkError',
+        '    expect effect=loadUsers throws=NetworkError',
+        '  it name="mocks route-local effect failures"',
+        '    mock effect=fetchUsers throws=NetworkError',
+        '    expect route="GET /api/users" throws=NetworkError',
       ].join('\n'),
     );
 
     const summary = runNativeKernTests(testFile);
 
     expect(summary.failed).toBe(0);
-    expect(summary.passed).toBe(2);
-    expect(summary.results.map((result) => result.ruleId)).toEqual(['runtime:effect', 'runtime:route']);
+    expect(summary.passed).toBe(4);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'runtime:effect',
+      'runtime:route',
+      'runtime:effect',
+      'runtime:route',
+    ]);
   });
 
   test('reports unused scoped native effect mocks', () => {

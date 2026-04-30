@@ -2429,10 +2429,11 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   mock: {
     description: 'Native test mock — replaces a scoped KERN effect with deterministic runtime data',
-    example: 'mock effect=fetchUsers returns={{users}}',
+    example: 'mock effect=fetchUsers returns={{users}}\nmock effect=fetchUsers throws=NetworkError',
     props: {
       effect: { required: true, kind: 'identifier' },
-      returns: { required: true, kind: 'rawExpr' },
+      returns: { kind: 'rawExpr' },
+      throws: { kind: 'string' },
     },
   },
   recover: {
@@ -2656,6 +2657,26 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'fixture',
         message: "'fixture' must not combine value={{...}} and expr={{...}}",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+  if (node.type === 'mock') {
+    const hasReturns = 'returns' in props;
+    const hasThrows = 'throws' in props;
+    if (!hasReturns && !hasThrows) {
+      violations.push({
+        nodeType: 'mock',
+        message: "'mock' requires either returns={{...}} or throws=<ErrorName>",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasReturns && hasThrows) {
+      violations.push({
+        nodeType: 'mock',
+        message: "'mock' must not combine returns={{...}} and throws=<ErrorName>",
         line: node.loc?.line,
         col: node.loc?.col,
       });

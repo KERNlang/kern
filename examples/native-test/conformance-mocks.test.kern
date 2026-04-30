@@ -8,3 +8,11 @@ test name="Native mock conformance" target="./conformance-mocks.kern"
   it name="mocks route-local effect boundaries"
     mock effect=fetchUsers returns={{users}}
     expect route="GET /api/users" returns={{users}}
+
+  it name="mocks top-level effect failures"
+    mock effect=loadUsers throws=NetworkError
+    expect effect=loadUsers throws=NetworkError
+
+  it name="mocks route-local effect failures"
+    mock effect=fetchUsers throws=NetworkError
+    expect route="GET /api/users" throws=NetworkError

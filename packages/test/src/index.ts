@@ -155,7 +155,8 @@ interface RuntimeBindingOrder {
 interface RuntimeEffectMock {
   id: string;
   effect: string;
-  returns: string;
+  returns?: string;
+  throws?: string;
   line?: number;
   col?: number;
 }
@@ -724,8 +725,9 @@ function runtimeEffectMock(node: IRNode, id: string): RuntimeEffectMock | undefi
   const props = getProps(node);
   const effect = str(props.effect);
   const returns = runtimeExpectedSource(node, 'returns');
-  if (!effect || returns === undefined) return undefined;
-  return { id, effect, returns, line: node.loc?.line, col: node.loc?.col };
+  const throws = props.throws === undefined ? undefined : String(props.throws || 'true');
+  if (!effect || (returns === undefined && throws === undefined)) return undefined;
+  return { id, effect, returns, throws, line: node.loc?.line, col: node.loc?.col };
 }
 
 function collectAssertions(testNode: IRNode): CollectedAssertion[] {
@@ -2358,7 +2360,20 @@ function runtimeEffectMockExecutionExpr(
 ): { expr?: string; message?: string } {
   if (!isRuntimeBindingName(mock.effect)) return { message: `Runtime mock has invalid effect name: ${mock.effect}` };
 
-  const source = options.portable ? runtimePortableSource(mock.returns) : mock.returns;
+  if (mock.throws !== undefined) {
+    const rawName = mock.throws.trim() && mock.throws !== 'true' ? mock.throws.trim() : 'Error';
+    const message = rawName === 'Error' ? `Mocked effect ${mock.effect} failed` : rawName;
+    const lines = [
+      '(async () => {',
+      `  const __error = new Error(${JSON.stringify(message)});`,
+      `  __error.name = ${JSON.stringify(rawName)};`,
+      '  throw __error;',
+      '})()',
+    ];
+    return { expr: lines.join('\n') };
+  }
+
+  const source = options.portable ? runtimePortableSource(mock.returns || 'undefined') : mock.returns || 'undefined';
   const problem = unsafeRuntimeExpressionReason(source, { allowAwait: true });
   if (problem) return { message: `Runtime mock effect ${mock.effect} cannot execute returns value: ${problem}` };
 
