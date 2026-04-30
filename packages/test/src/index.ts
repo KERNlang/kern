@@ -139,7 +139,7 @@ interface NativeKernAssertionContext {
 interface RuntimeBinding {
   name: string;
   expr: string;
-  kind: 'expr' | 'fixture' | 'fn';
+  kind: 'expr' | 'fixture' | 'fn' | 'class';
   line?: number;
 }
 
@@ -1691,9 +1691,11 @@ function findCodegenErrors(root: IRNode): string[] {
 const RUNTIME_EXPR_TIMEOUT_MS = 100;
 const RUNTIME_ASYNC_PROCESS_TIMEOUT_MS = 1500;
 const RUNTIME_EXPR_UNSAFE_TOKEN =
-  /\b(?:async|class|constructor|Date|delete|do|eval|fetch|for|Function|global|globalThis|import|new|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
+  /\b(?:async|class|constructor|Date|delete|do|eval|fetch|for|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 const RUNTIME_FN_UNSAFE_TOKEN =
   /\b(?:class|constructor|Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
+const RUNTIME_CLASS_UNSAFE_TOKEN =
+  /\b(?:Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 
 function unsafeRuntimeExpressionReason(source: string, options: { allowAwait?: boolean } = {}): string | undefined {
   if (source.length > 2000) return 'expression is longer than 2000 characters';
@@ -1712,6 +1714,13 @@ function unsafeRuntimeFunctionReason(source: string): string | undefined {
   return undefined;
 }
 
+function unsafeRuntimeClassReason(source: string): string | undefined {
+  if (source.length > 10000) return 'class body is longer than 10000 characters';
+  const unsafeToken = source.match(RUNTIME_CLASS_UNSAFE_TOKEN)?.[0];
+  if (unsafeToken) return `unsupported token '${unsafeToken}'`;
+  return undefined;
+}
+
 function isRuntimeBindingName(value: string): boolean {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
 }
@@ -1722,6 +1731,7 @@ function runtimeBindingSource(node: IRNode): { expr: string; kind: RuntimeBindin
     return { expr: exprPropToRuntimeSource(node, 'value') || exprPropToRuntimeSource(node, 'expr'), kind: 'expr' };
   }
   if (node.type === 'fn') return { expr: runtimeFunctionExpr(node), kind: 'fn' };
+  if (node.type === 'class') return { expr: runtimeClassExpr(node), kind: 'class' };
   const arrayExpr = runtimeArrayBindingExpr(node);
   if (arrayExpr !== undefined) return { expr: arrayExpr, kind: 'expr' };
   return undefined;
@@ -1745,6 +1755,104 @@ function runtimeFunctionExpr(node: IRNode): string {
   if (!params.every(isRuntimeBindingName)) return '';
   const asyncKw = isTruthy(getProps(node).async) ? 'async ' : '';
   return `(${asyncKw}(${params.join(', ')}) => {\n${code.trim()}\n})`;
+}
+
+function runtimeHandlerLines(node: IRNode, spaces = 4): string[] {
+  const prefix = ' '.repeat(spaces);
+  const code = handlerText(node).trim();
+  if (!code) return [];
+  return code.split('\n').map((line) => `${prefix}${line}`);
+}
+
+function runtimeClassFieldInitializers(node: IRNode): string[] {
+  const lines: string[] = [];
+  for (const field of getChildren(node, 'field')) {
+    const props = getProps(field);
+    if (isTruthy(props.static)) continue;
+    const name = str(props.name);
+    if (!isRuntimeBindingName(name)) return [];
+    const value = exprPropToRuntimeSource(field, 'value') || rawPropToRuntimeSource(field, 'default');
+    if (value) lines.push(`    this.${name} = (${value});`);
+  }
+  return lines;
+}
+
+function runtimeClassMethodLines(node: IRNode): string[] | undefined {
+  const props = getProps(node);
+  const name = str(props.name);
+  if (!isRuntimeBindingName(name)) return undefined;
+  const params = runtimeParamNames(node);
+  if (!params.every(isRuntimeBindingName)) return undefined;
+
+  const staticKw = isTruthy(props.static) ? 'static ' : '';
+  const asyncKw = isTruthy(props.async) || isTruthy(props.stream) ? 'async ' : '';
+  const star = isTruthy(props.stream) ? '*' : '';
+  const lines = [`  ${staticKw}${asyncKw}${star}${name}(${params.join(', ')}) {`];
+  lines.push(...runtimeHandlerLines(node));
+  lines.push('  }');
+  return lines;
+}
+
+function runtimeClassGetterLines(node: IRNode): string[] | undefined {
+  const props = getProps(node);
+  const name = str(props.name);
+  if (!isRuntimeBindingName(name)) return undefined;
+  const staticKw = isTruthy(props.static) ? 'static ' : '';
+  const lines = [`  ${staticKw}get ${name}() {`];
+  lines.push(...runtimeHandlerLines(node));
+  lines.push('  }');
+  return lines;
+}
+
+function runtimeClassSetterLines(node: IRNode): string[] | undefined {
+  const props = getProps(node);
+  const name = str(props.name);
+  if (!isRuntimeBindingName(name)) return undefined;
+  const params = runtimeParamNames(node);
+  if (!params.every(isRuntimeBindingName)) return undefined;
+  const param = params[0] || 'value';
+  const staticKw = isTruthy(props.static) ? 'static ' : '';
+  const lines = [`  ${staticKw}set ${name}(${param}) {`];
+  lines.push(...runtimeHandlerLines(node));
+  lines.push('  }');
+  return lines;
+}
+
+function runtimeClassExpr(node: IRNode): string {
+  const name = str(getProps(node).name);
+  if (!isRuntimeBindingName(name)) return '';
+
+  const ctorNode = getChildren(node, 'constructor')[0];
+  const ctorParams = ctorNode ? runtimeParamNames(ctorNode) : [];
+  if (!ctorParams.every(isRuntimeBindingName)) return '';
+
+  const fieldInitializers = runtimeClassFieldInitializers(node);
+  const lines = ['(class {'];
+  if (ctorNode || fieldInitializers.length > 0) {
+    lines.push(`  constructor(${ctorParams.join(', ')}) {`);
+    lines.push(...fieldInitializers);
+    if (ctorNode) lines.push(...runtimeHandlerLines(ctorNode));
+    lines.push('  }');
+  }
+
+  for (const method of getChildren(node, 'method')) {
+    const methodLines = runtimeClassMethodLines(method);
+    if (!methodLines) return '';
+    lines.push(...methodLines);
+  }
+  for (const getter of getChildren(node, 'getter')) {
+    const getterLines = runtimeClassGetterLines(getter);
+    if (!getterLines) return '';
+    lines.push(...getterLines);
+  }
+  for (const setter of getChildren(node, 'setter')) {
+    const setterLines = runtimeClassSetterLines(setter);
+    if (!setterLines) return '';
+    lines.push(...setterLines);
+  }
+
+  lines.push('})');
+  return lines.join('\n');
 }
 
 function runtimeNamedProp(node: IRNode, propName: string, fallback: string): string {
@@ -1948,12 +2056,14 @@ function runtimeContext(): Record<string, unknown> {
     Boolean,
     Error,
     JSON,
+    Map,
     Math,
     Number,
     Object,
     Promise,
     RangeError,
     ReferenceError,
+    Set,
     String,
     SyntaxError,
     TypeError,
@@ -1996,6 +2106,7 @@ function runtimeExpressionContext(expr: string, fixtures: RuntimeBinding[]): str
 
 function runtimeBindingUnsafeReason(binding: RuntimeBinding): string | undefined {
   if (binding.kind === 'fn') return unsafeRuntimeFunctionReason(binding.expr);
+  if (binding.kind === 'class') return unsafeRuntimeClassReason(binding.expr);
   return unsafeRuntimeExpressionReason(binding.expr);
 }
 
@@ -2108,12 +2219,14 @@ function runtimeContext() {
     Boolean,
     Error,
     JSON,
+    Map,
     Math,
     Number,
     Object,
     Promise,
     RangeError,
     ReferenceError,
+    Set,
     String,
     SyntaxError,
     TypeError,
