@@ -2,6 +2,16 @@
  * @kernlang/core — parser, types, spec, config, style engines, codegen
  */
 
+export type { BodyEmitOptions, BodyEmitResult } from './codegen/body-ts.js';
+export { emitNativeKernBodyTS, emitNativeKernBodyTSWithImports } from './codegen/body-ts.js';
+export type { StdlibEntry } from './codegen/kern-stdlib.js';
+export {
+  applyTemplate,
+  KERN_STDLIB,
+  KERN_STDLIB_MODULES,
+  lookupStdlib,
+  suggestStdlibMethod,
+} from './codegen/kern-stdlib.js';
 export type { KernStdlibUsage } from './codegen/stdlib-preamble.js';
 // Slice 4 layer 2 — Result / Option compact form preamble (TS-family targets)
 export {
@@ -56,6 +66,11 @@ export {
   sourceComment,
   unregisterEvolvedGenerator,
 } from './codegen-core.js';
+// Native KERN handler bodies (slice 2a/2b/2c) — stdlib lowering table for
+// cross-target method dispatch. `applyTemplate` is the shared placeholder
+// substitution; `needsBinaryParens` is the shared precedence-aware paren
+// predicate so Python codegen reuses the same rule.
+export { emitExpression, needsArgParens, needsBinaryParens } from './codegen-expression.js';
 export type {
   CallPayload,
   ConceptEdge,
@@ -173,6 +188,8 @@ export {
   unregisterParserHints,
 } from './parser.js';
 export type { ParseOptions } from './parser-core.js';
+// Native KERN handler bodies (slice 1) — expression parsing + body emit
+export { parseExpression } from './parser-expression.js';
 // Slice 7 v2 — cross-module recognition surface for `?`/`!` propagation.
 export type { ImportResolver, ModuleExports } from './parser-validate-propagation.js';
 export type { ParserHintsConfig } from './runtime.js';
@@ -258,6 +275,8 @@ export {
   escapeJsxText,
   serializeIR,
 } from './utils.js';
+export type { BinaryOp, UnaryOp, ValueIR, ValueIRKind } from './value-ir.js';
+export { isValueIR } from './value-ir.js';
 export type {
   NextjsOutputRules,
   NextjsVersionProfile,
