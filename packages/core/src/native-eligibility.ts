@@ -72,6 +72,27 @@ const NEG_PATTERNS: ReadonlyArray<RegExp> = [
   // single-binding form. `const { a, b } = obj` and `let [x, y] = arr` would
   // need the slice 5b rewriter to expand into multiple let-bindings.
   /\b(?:const|let|var)\s*[{[]/,
+  // Mutation / re-assignment — slice 4d's `let` lowers to `const`, and the
+  // expression parser explicitly rejects `=` in expressions. Caught: `x++`,
+  // `++x`, `x += 1`, `x -= 1`, `x *= 2`, `x /= 2`, `x %= 2`, `obj.x = 1`,
+  // `arr[i] = v`, `delete obj.x`. Bare ident reassignment (`x = 1`) needs
+  // line-leading detection to avoid colliding with `const x = 1` declarations.
+  /\+\+|--/,
+  /[+\-*/%]=/,
+  /^\s*\w+(?:\.\w+|\[[^\]]+\])+\s*=[^=]/m,
+  /^\s*\w+\s*=[^=>]/m,
+  /\bdelete\s/,
+  // Indexing (`xs[0]`, `arr[i]`, `arr[0][1]`) — slice 4d's expression parser
+  // rejects lbracket in `parseCall`. Pattern matches an ident-char or `]`
+  // immediately followed by `[`, no whitespace. Standalone array literals
+  // (`[1, 2, 3]`) and `return [...]` (keyword + space + `[`) are not
+  // matched because they don't have an ident-char directly adjacent to `[`.
+  /[\w\]]\[/,
+  // Other operators / keywords that slice 4d does not lower
+  /\bvoid\s/,
+  /\bdebugger\b/,
+  /\bwith\s*\(/,
+  /\beval\s*\(/,
   /\bthis\.\w+\s*=/,
   /\bconsole\.\w/,
   /\bprocess\.\w/,
@@ -96,29 +117,53 @@ export function classifyHandlerBody(rawBody: string): EligibilityResult {
 }
 
 /** Walk a `.kern` source file's text and pull out every `<<< … >>>` body,
- *  preserving line positions. The terminator must be `>>>` on its own line
- *  (matches the convention enforced by parser-tokenizer). */
+ *  preserving line positions. Mirrors the behaviour of `parser-core.ts`
+ *  `parseLines`: handles three shapes the parser accepts —
+ *
+ *    1. Inline single-line:   `handler <<< return 1; >>>`
+ *    2. Open + close on diff: line ends with `<<<`, body lines, `>>>` line
+ *    3. Tail-content close:   open line, body lines, `body; >>>` (close on
+ *       same line as last body content)
+ *
+ *  Older versions of this extractor only matched shape 2, which made
+ *  inline handlers invisible to scanners — `parseLines` was happy to
+ *  parse them, but the future codemod (slice 5b) would never see them. */
 export function extractRawBodies(content: string): RawBody[] {
   const bodies: RawBody[] = [];
   const lines = content.split('\n');
   let inBody = false;
   let buf: string[] = [];
   let startLine = 0;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!inBody) {
-      if (line.trimEnd().endsWith('<<<')) {
-        inBody = true;
-        buf = [];
-        startLine = i + 1;
+      const openIdx = line.indexOf('<<<');
+      if (openIdx === -1) continue;
+      const afterOpen = line.slice(openIdx + 3);
+      const closeIdx = afterOpen.indexOf('>>>');
+      if (closeIdx !== -1) {
+        // Shape 1: inline single-line `handler <<< body >>>`.
+        bodies.push({ text: afterOpen.slice(0, closeIdx).trim(), startLine: i + 1, endLine: i + 1 });
+        continue;
       }
+      // Shape 2/3: multi-line block. parser-core.ts `parseLines` discards
+      // content after `<<<` on the open line in this shape, only collecting
+      // subsequent lines until `>>>`. Mirror that behaviour exactly so the
+      // extractor and the parser agree on what counts as body content.
+      inBody = true;
+      buf = [];
+      startLine = i + 1;
     } else {
-      if (line.trim() === '>>>') {
-        bodies.push({ text: buf.join('\n'), startLine, endLine: i + 1 });
-        inBody = false;
-      } else {
+      const closeIdx = line.indexOf('>>>');
+      if (closeIdx === -1) {
         buf.push(line);
+        continue;
       }
+      const before = line.slice(0, closeIdx).trim();
+      if (before.length > 0) buf.push(before);
+      bodies.push({ text: buf.join('\n'), startLine, endLine: i + 1 });
+      inBody = false;
     }
   }
   return bodies;

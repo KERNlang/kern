@@ -5,6 +5,8 @@
  *  classifier, and stays silent on bodies that do not. */
 
 import { parseDocumentWithDiagnostics } from '../src/parser.js';
+import { collectNativeEligibleHints } from '../src/parser-validate-native-eligible.js';
+import type { IRNode } from '../src/types.js';
 
 function diagnostics(source: string) {
   return parseDocumentWithDiagnostics(source).diagnostics;
@@ -30,12 +32,56 @@ describe('NATIVE_KERN_ELIGIBLE diagnostic — emission', () => {
   });
 });
 
-describe('NATIVE_KERN_ELIGIBLE diagnostic — silence cases', () => {
-  test('no hint when handler is already lang="kern"', () => {
-    const src = ['fn name="add" type=int', '  handler lang="kern" <<<', '    return 1 + 2;', '  >>>'].join('\n');
-    expect(nativeHints(src)).toHaveLength(0);
+describe('NATIVE_KERN_ELIGIBLE diagnostic — lang=kern skip (direct validator)', () => {
+  // The parser does not accept `lang="kern" <<< raw >>>` (the `<<<` becomes
+  // a stray token, no `props.code` is attached), so the lang-skip branch
+  // can't be exercised end-to-end. Slice 5a pre-push review (codex) flagged
+  // that the prior parser-driven test passed vacuously. Drive the validator
+  // directly with hand-built IR to actually prove the skip.
+
+  function handler(props: Record<string, unknown>): IRNode {
+    return {
+      type: 'handler',
+      props,
+      children: [],
+      loc: { line: 1, col: 1, endLine: 1, endCol: 5 },
+    };
+  }
+  function doc(children: IRNode[]): IRNode {
+    return { type: 'document', props: {}, children, loc: { line: 1, col: 1 } };
+  }
+
+  test('handler with code + lang=kern emits no hint', () => {
+    const root = doc([handler({ code: 'return 1 + 2;', lang: 'kern' })]);
+    expect(collectNativeEligibleHints(root)).toHaveLength(0);
   });
 
+  test('handler with code + no lang emits hint', () => {
+    const root = doc([handler({ code: 'return 1 + 2;' })]);
+    const diagnostics = collectNativeEligibleHints(root);
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.code).toBe('NATIVE_KERN_ELIGIBLE');
+  });
+
+  test('handler with code + lang="other" still emits hint', () => {
+    // Only `lang === "kern"` skips. Other lang values shouldn't suppress —
+    // those handlers are still raw-body candidates.
+    const root = doc([handler({ code: 'return 1 + 2;', lang: 'other' })]);
+    expect(collectNativeEligibleHints(root)).toHaveLength(1);
+  });
+
+  test('handler with no code prop emits no hint', () => {
+    const root = doc([handler({ lang: 'kern' })]);
+    expect(collectNativeEligibleHints(root)).toHaveLength(0);
+  });
+
+  test('handler with code + ineligible body emits no hint', () => {
+    const root = doc([handler({ code: 'for (const x of xs) y += x; return y;' })]);
+    expect(collectNativeEligibleHints(root)).toHaveLength(0);
+  });
+});
+
+describe('NATIVE_KERN_ELIGIBLE diagnostic — silence cases', () => {
   test('no hint when raw body has a disqualifier (for-loop)', () => {
     const src = [
       'fn name="sum" type=int',

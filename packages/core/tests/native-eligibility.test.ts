@@ -89,7 +89,10 @@ describe('classifyHandlerBody — disqualifiers', () => {
 
   test('require call rejected', () => rejected(`const x = require('x');\nreturn x;`, '\\brequire\\('));
 
-  test('this.X = Y rejected', () => rejected(`this.value = 1;\nreturn this.value;`, '\\bthis\\.\\w+\\s*='));
+  test('this.X = Y rejected', () =>
+    // The generic property-assignment pattern catches this before the more
+    // specific `\bthis\.\w+\s*=` pattern (first match wins).
+    rejected(`this.value = 1;\nreturn this.value;`, '^\\s*\\w+(?:\\.\\w+|\\[[^\\]]+\\])+\\s*=[^=]'));
 
   test('console.log rejected', () => rejected(`console.log(x);\nreturn x;`, '\\bconsole\\.\\w'));
 
@@ -134,6 +137,60 @@ describe('classifyHandlerBody — disqualifiers', () => {
     rejected(`const [first, ...rest] = xs;\nreturn first;`, '\\b(?:const|let|var)\\s*[{[]'));
 
   test('var destructuring rejected', () => rejected(`var { x } = obj;\nreturn x;`, '\\b(?:const|let|var)\\s*[{[]'));
+
+  // Mutation / assignment / indexing — flagged by the slice 5a pre-push
+  // review (codex+gemini). KERN's `let` lowers to `const`, the expression
+  // parser rejects assignment in expressions, and lbracket-indexing breaks
+  // codegen.
+  test('post-increment rejected', () => rejected(`let x = 0;\nx++;\nreturn x;`, '\\+\\+|--'));
+
+  test('pre-decrement rejected', () => rejected(`let x = 5;\n--x;\nreturn x;`, '\\+\\+|--'));
+
+  test('compound add-assign rejected', () => rejected(`let x = 1;\nx += 2;\nreturn x;`, '[+\\-*/%]='));
+
+  test('compound mul-assign rejected', () => rejected(`let x = 2;\nx *= 3;\nreturn x;`, '[+\\-*/%]='));
+
+  test('property assignment rejected', () =>
+    rejected(`obj.x = 1;\nreturn obj;`, '^\\s*\\w+(?:\\.\\w+|\\[[^\\]]+\\])+\\s*=[^=]'));
+
+  test('bracket-index assignment rejected', () =>
+    rejected(`arr[0] = 1;\nreturn arr;`, '^\\s*\\w+(?:\\.\\w+|\\[[^\\]]+\\])+\\s*=[^=]'));
+
+  test('bare reassignment rejected', () => rejected(`x = 1;\nreturn x;`, '^\\s*\\w+\\s*=[^=>]'));
+
+  test('delete operator rejected', () => rejected(`delete obj.x;\nreturn obj;`, '\\bdelete\\s'));
+
+  test('indexing rejected', () => rejected(`return xs[0];`, '[\\w\\]]\\['));
+
+  test('chained indexing rejected', () => rejected(`return arr[i][j];`, '[\\w\\]]\\['));
+
+  test('void operator rejected', () => rejected(`return void 0;`, '\\bvoid\\s'));
+
+  test('debugger statement rejected', () => rejected(`debugger;\nreturn 1;`, '\\bdebugger\\b'));
+
+  test('with statement rejected', () => rejected(`with (obj) { return x; }`, '\\bwith\\s*\\('));
+
+  test('eval call rejected', () => rejected(`return eval("1+2");`, '\\beval\\s*\\('));
+});
+
+describe('classifyHandlerBody — array / object literals stay eligible', () => {
+  // Sanity: `return [1, 2, 3]` (array literal preceded by keyword + space)
+  // must NOT trip the indexing pattern `[\w\]]\[`.
+  test('array literal as return value is eligible', () => {
+    expect(classifyHandlerBody(`return [1, 2, 3];`).eligible).toBe(true);
+  });
+
+  test('array literal as let value is eligible', () => {
+    expect(classifyHandlerBody(`const xs = [1, 2, 3];\nreturn xs;`).eligible).toBe(true);
+  });
+
+  test('comparisons (==, ===, !=, <=, >=) stay eligible', () => {
+    expect(classifyHandlerBody(`return x === 1 && y >= 2 && z != 3;`).eligible).toBe(true);
+  });
+
+  test('declarations with `=` stay eligible', () => {
+    expect(classifyHandlerBody(`const x = 1;\nconst y = 2;\nreturn x + y;`).eligible).toBe(true);
+  });
 });
 
 describe('extractRawBodies', () => {
@@ -165,6 +222,34 @@ describe('extractRawBodies', () => {
     const src = [`fn handler<<<`, `  const x = 1;`, ``, `  return x;`, `>>>`].join('\n');
     const bodies = extractRawBodies(src);
     expect(bodies[0]?.text).toBe('  const x = 1;\n\n  return x;');
+  });
+
+  // Inline shapes mirror parser-core.ts `parseLines`. Slice 5a review
+  // (gemini) flagged that the v1 extractor only matched line-end `<<<` +
+  // line-only `>>>`, missing inline forms that the parser accepts.
+  test('extracts inline single-line body `<<< body >>>`', () => {
+    const src = `fn handler <<< return 1; >>>`;
+    const bodies = extractRawBodies(src);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]?.text).toBe('return 1;');
+    expect(bodies[0]?.startLine).toBe(1);
+    expect(bodies[0]?.endLine).toBe(1);
+  });
+
+  test('discards content after `<<<` on open line in multi-line shape', () => {
+    // parser-core.ts `parseLines` drops `afterOpen` content in this shape;
+    // the extractor mirrors that behaviour so they agree on body content.
+    const src = [`fn handler<<< discarded;`, `  second;`, `>>>`].join('\n');
+    const bodies = extractRawBodies(src);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]?.text).toBe('  second;');
+  });
+
+  test('extracts content + close on same line', () => {
+    const src = [`fn handler<<<`, `  body line`, `  return 1; >>>`].join('\n');
+    const bodies = extractRawBodies(src);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]?.text).toBe('  body line\nreturn 1;');
   });
 });
 

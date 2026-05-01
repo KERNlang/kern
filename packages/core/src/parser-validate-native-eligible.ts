@@ -13,11 +13,21 @@
  */
 
 import { classifyHandlerBody } from './native-eligibility.js';
-import { emitDiagnostic, type ParseState } from './parser-diagnostics.js';
-import type { IRNode } from './types.js';
+import { createParseState, emitDiagnostic, type ParseState } from './parser-diagnostics.js';
+import type { IRNode, ParseDiagnostic } from './types.js';
 
 export function validateNativeEligible(state: ParseState, root: IRNode): void {
   walk(state, root);
+}
+
+/** Test-friendly wrapper — runs the validator over a hand-built IRNode and
+ *  returns the collected diagnostics. Used by the unit test that exercises
+ *  the `lang="kern"` skip path, which the parser cannot produce end-to-end
+ *  (the parser drops raw bodies on `lang="kern" <<< … >>>`). */
+export function collectNativeEligibleHints(root: IRNode): ParseDiagnostic[] {
+  const state = createParseState();
+  validateNativeEligible(state, root);
+  return state.diagnostics;
 }
 
 function walk(state: ParseState, node: IRNode): void {

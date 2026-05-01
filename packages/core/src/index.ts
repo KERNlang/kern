@@ -194,6 +194,10 @@ export {
 export type { ParseOptions } from './parser-core.js';
 // Native KERN handler bodies (slice 1) — expression parsing + body emit
 export { parseExpression } from './parser-expression.js';
+// Exported so unit tests can drive the validator directly with hand-built IR
+// (the parser drops `lang="kern" <<< raw >>>` bodies, so the lang-skip branch
+// can't be exercised end-to-end through the parser).
+export { collectNativeEligibleHints, validateNativeEligible } from './parser-validate-native-eligible.js';
 // Slice 7 v2 — cross-module recognition surface for `?`/`!` propagation.
 export type { ImportResolver, ModuleExports } from './parser-validate-propagation.js';
 export type { ParserHintsConfig } from './runtime.js';
