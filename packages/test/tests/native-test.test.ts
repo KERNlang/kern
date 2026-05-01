@@ -1086,6 +1086,68 @@ describe('native kern test runner', () => {
     expect(summary.passed).toBe(1);
   });
 
+  test('executes const handler values, safe while loops, recursion, and TS-only syntax', () => {
+    writeFileSync(
+      join(tmpDir, 'agon-runtime.kern'),
+      [
+        'const name=DANGEROUS_COMMANDS type="string[]"',
+        '  handler <<<',
+        '    [',
+        "      'rm -rf /',",
+        "      'sudo ',",
+        '    ] as const',
+        '  >>>',
+        'const name=SAFE_SHELL_WRAPPERS value={{ ["time", "timeout"] }}',
+        'fn name=stripShellWrappers params="command:string" returns=string',
+        '  handler <<<',
+        '    let cmd = command.trim();',
+        '    let changed = true;',
+        '    while (changed) {',
+        '      changed = false;',
+        '      for (const wrapper of SAFE_SHELL_WRAPPERS) {',
+        "        if (cmd.startsWith(wrapper + ' ')) {",
+        '          cmd = cmd.slice(wrapper.length + 1).trim();',
+        '          changed = true;',
+        '        }',
+        '      }',
+        '    }',
+        '    return cmd;',
+        '  >>>',
+        'fn name=isDangerousCommand params="command:string" returns=boolean',
+        '  handler <<<',
+        '    const lower: string = command.toLowerCase().trim();',
+        '    return (DANGEROUS_COMMANDS as string[]).some((dangerous: string) => lower.includes(dangerous));',
+        '  >>>',
+        'fn name=isReadOnlyCommand params="command:string" returns=boolean',
+        '  handler <<<',
+        "    const stripped = stripShellWrappers(command).replace(/\\s+\\d*(?:>>?|<<?)\\s*\\S+/g, '').trim();",
+        "    if (stripped.includes('|')) {",
+        "      const parts = stripped.split('|').map((p: string) => p.trim());",
+        '      return parts.every((p: string) => p && isReadOnlyCommand(p));',
+        '    }',
+        "    return stripped === 'cat file.txt' || stripped === 'grep pattern' || stripped === 'npm test';",
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'agon-runtime.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="AGON runtime surface" target="./agon-runtime.kern"',
+        '  it name="runs AGON-style safe helpers"',
+        '    expect expr={{DANGEROUS_COMMANDS.includes("rm -rf /")}}',
+        '    expect fn=stripShellWrappers args={{["time timeout npm test"]}} equals="npm test"',
+        '    expect fn=isDangerousCommand args={{["sudo rm file"]}} equals=true',
+        '    expect fn=isReadOnlyCommand args={{["cat file.txt | grep pattern"]}} equals=true',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(4);
+  });
+
   test('executes async fn handlers and awaited runtime expr assertions', () => {
     writeFileSync(
       join(tmpDir, 'async.kern'),
