@@ -256,7 +256,7 @@ describe('chunkLargeInput', () => {
   });
 
   it('splits an oversized CHANGED file into multiple chunks with overlap', () => {
-    // 12000 lines × ~100 chars = ~300K tokens → over the current 200K batch budget.
+    // 12000 lines x ~100 chars = ~300K tokens -> over the default batch budget.
     const line = `${'x'.repeat(99)}`;
     const lines = Array.from({ length: 12_000 }, (_, i) => `// L${i + 1} ${line}`);
     const source = lines.join('\n');
@@ -292,6 +292,21 @@ describe('chunkLargeInput', () => {
       const nextFirstLine = next.split('\n').find((l) => l.length > 0)!;
       expect(current).toContain(nextFirstLine);
     }
+  });
+
+  it('honors a custom max batch token budget', () => {
+    const line = `${'x'.repeat(99)}`;
+    const lines = Array.from({ length: 1_000 }, (_, i) => `// L${i + 1} ${line}`);
+    const input = {
+      filePath: 'custom-budget.ts',
+      inferred: [],
+      templateMatches: [],
+      source: lines.join('\n'),
+      graphContext: { fileDistances: new Map([['custom-budget.ts', 0]]) },
+    };
+
+    expect(chunkLargeInput(input, '')).toHaveLength(1);
+    expect(chunkLargeInput(input, '', 20_000).length).toBeGreaterThanOrEqual(2);
   });
 
   it('returns [] for unchunkable CONTEXT files (distance > 0, no source in estimate)', () => {

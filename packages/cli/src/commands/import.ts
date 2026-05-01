@@ -22,6 +22,10 @@ interface ImportFileReport {
   codegenErrors: string[];
 }
 
+interface ImportFileWorkReport extends ImportFileReport {
+  kern: string;
+}
+
 interface ImportCommandReport {
   files: ImportFileReport[];
   totals: ImportResult['stats'] & {
@@ -32,6 +36,10 @@ interface ImportCommandReport {
     codegenErrors: number;
   };
   ok: boolean;
+}
+
+interface ImportCommandWorkReport extends Omit<ImportCommandReport, 'files'> {
+  files: ImportFileWorkReport[];
 }
 
 function findTsFiles(dir: string): string[] {
@@ -85,19 +93,8 @@ function checkImportedKern(
   };
 }
 
-function formatImportIssues(report: ImportFileReport): string[] {
-  const lines: string[] = [];
-  if (report.unmapped.length > 0) lines.push(`unmapped=${report.unmapped.length}`);
-  if (report.diagnostics.length > 0) lines.push(`diagnostics=${report.diagnostics.length}`);
-  if (report.schemaViolations.length > 0) lines.push(`schema=${report.schemaViolations.length}`);
-  if (report.semanticViolations.length > 0) lines.push(`semantic=${report.semanticViolations.length}`);
-  if (report.codegenErrors.length > 0) lines.push(`codegen=${report.codegenErrors.length}`);
-  return lines;
-}
-
-function createImportReport(files: string[], outDir?: string): ImportCommandReport {
-  const reports: ImportFileReport[] = [];
-  const totals: ImportCommandReport['totals'] = {
+function emptyImportTotals(): ImportCommandReport['totals'] {
+  return {
     types: 0,
     interfaces: 0,
     functions: 0,
@@ -112,6 +109,52 @@ function createImportReport(files: string[], outDir?: string): ImportCommandRepo
     semanticViolations: 0,
     codegenErrors: 0,
   };
+}
+
+function emptyImportChecks(): Omit<ImportFileReport, 'file' | 'output' | 'stats' | 'unmapped' | 'ok'> {
+  return {
+    diagnostics: [],
+    schemaViolations: [],
+    semanticViolations: [],
+    codegenErrors: [],
+  };
+}
+
+function formatImportIssues(report: ImportFileReport): string[] {
+  const lines: string[] = [];
+  if (report.unmapped.length > 0) lines.push(`unmapped=${report.unmapped.length}`);
+  if (report.diagnostics.length > 0) lines.push(`diagnostics=${report.diagnostics.length}`);
+  if (report.schemaViolations.length > 0) lines.push(`schema=${report.schemaViolations.length}`);
+  if (report.semanticViolations.length > 0) lines.push(`semantic=${report.semanticViolations.length}`);
+  if (report.codegenErrors.length > 0) lines.push(`codegen=${report.codegenErrors.length}`);
+  return lines;
+}
+
+function publicImportReport(report: ImportCommandWorkReport): ImportCommandReport {
+  return {
+    ok: report.ok,
+    totals: report.totals,
+    files: report.files.map((fileReport) => ({
+      file: fileReport.file,
+      output: fileReport.output,
+      ok: fileReport.ok,
+      stats: fileReport.stats,
+      unmapped: fileReport.unmapped,
+      diagnostics: fileReport.diagnostics,
+      schemaViolations: fileReport.schemaViolations,
+      semanticViolations: fileReport.semanticViolations,
+      codegenErrors: fileReport.codegenErrors,
+    })),
+  };
+}
+
+function createImportReport(
+  files: string[],
+  outDir?: string,
+  options: { validate: boolean } = { validate: true },
+): ImportCommandWorkReport {
+  const reports: ImportFileWorkReport[] = [];
+  const totals = emptyImportTotals();
 
   for (const file of files) {
     const source = readFileSync(file, 'utf-8');
@@ -119,7 +162,7 @@ function createImportReport(files: string[], outDir?: string): ImportCommandRepo
     const kernFileName = basename(file).replace(/\.tsx?$/, '.kern');
     const kernOutDir = outDir ? resolve(outDir) : dirname(file);
     const kernPath = resolve(kernOutDir, kernFileName);
-    const checked = checkImportedKern(result);
+    const checked = options.validate ? checkImportedKern(result) : emptyImportChecks();
 
     for (const key of Object.keys(result.stats) as (keyof ImportResult['stats'])[]) {
       totals[key] += result.stats[key];
@@ -133,6 +176,7 @@ function createImportReport(files: string[], outDir?: string): ImportCommandRepo
     reports.push({
       file,
       output: kernPath,
+      kern: result.kern,
       ok:
         result.unmapped.length === 0 &&
         checked.diagnostics.length === 0 &&
@@ -151,7 +195,7 @@ function createImportReport(files: string[], outDir?: string): ImportCommandRepo
 export function runImport(args: string[]): void {
   const input = args[1];
   if (!input) {
-    console.error('Usage: kern import <file.ts|dir> [--outdir=<dir>] [--dry-run] [--check] [--json]');
+    console.error('Usage: kern import <file.ts|dir> [--outdir=<dir>] [--dry-run] [--check] [--json (report-only)]');
     process.exit(1);
   }
 
@@ -169,14 +213,14 @@ export function runImport(args: string[]): void {
   const files = stat.isDirectory() ? findTsFiles(inputPath) : [inputPath];
 
   if (files.length === 0) {
-    if (json) console.log(JSON.stringify({ files: [], totals: {}, ok: true }, null, 2));
+    if (json) console.log(JSON.stringify({ files: [], totals: emptyImportTotals(), ok: true }, null, 2));
     else console.log('No .ts/.tsx files found.');
     return;
   }
 
-  const report = createImportReport(files, outDir);
+  const report = createImportReport(files, outDir, { validate: check || json });
   if (json) {
-    console.log(JSON.stringify(report, null, 2));
+    console.log(JSON.stringify(publicImportReport(report), null, 2));
     if (check && !report.ok) process.exit(1);
     return;
   }
@@ -193,6 +237,12 @@ export function runImport(args: string[]): void {
       for (const unmapped of fileReport.unmapped.slice(0, 3)) console.log(`      unmapped: ${unmapped}`);
       for (const diagnostic of fileReport.diagnostics.slice(0, 3)) {
         console.log(`      diagnostic: ${diagnostic.line}:${diagnostic.col} ${diagnostic.message}`);
+      }
+      for (const violation of fileReport.schemaViolations.slice(0, 3)) {
+        console.log(`      schema: ${violation.line ?? '?'}:${violation.col ?? '?'} ${violation.message}`);
+      }
+      for (const violation of fileReport.semanticViolations.slice(0, 3)) {
+        console.log(`      semantic: ${violation.line ?? '?'}:${violation.col ?? '?'} ${violation.message}`);
       }
       for (const error of fileReport.codegenErrors.slice(0, 3)) console.log(`      codegen: ${error}`);
     }
@@ -228,14 +278,11 @@ export function runImport(args: string[]): void {
         }
       }
       console.log('');
-      console.log(importTypeScript(readFileSync(fileReport.file, 'utf-8'), basename(fileReport.file)).kern);
+      console.log(fileReport.kern);
       console.log('---');
     } else {
       mkdirSync(dirname(fileReport.output), { recursive: true });
-      writeFileSync(
-        fileReport.output,
-        importTypeScript(readFileSync(fileReport.file, 'utf-8'), basename(fileReport.file)).kern,
-      );
+      writeFileSync(fileReport.output, fileReport.kern);
       const parts: string[] = [];
       if (fileReport.stats.types) parts.push(`${fileReport.stats.types} types`);
       if (fileReport.stats.interfaces) parts.push(`${fileReport.stats.interfaces} interfaces`);
