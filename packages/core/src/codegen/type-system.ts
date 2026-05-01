@@ -8,6 +8,7 @@ import { emitExpression } from '../codegen-expression.js';
 import { propsOf } from '../node-props.js';
 import { parseExpression } from '../parser-expression.js';
 import { type IRNode, isExprObject } from '../types.js';
+import { emitNativeKernBodyTS } from './body-ts.js';
 import { emitIdentifier, emitTemplateSafe, emitTypeAnnotation } from './emitters.js';
 import {
   emitDocComment,
@@ -18,6 +19,20 @@ import {
   handlerCode,
   parseParamList,
 } from './helpers.js';
+
+/** Slice 4b — native KERN method body dispatch. Methods on `class` and
+ *  `service` (both go through `emitClassBody`) get the same `lang=kern`
+ *  opt-in as `fn` (slice 1). The handler is resolved off the method's
+ *  child handler node; if it opts in, walk the structured statements
+ *  via `emitNativeKernBodyTS`. Otherwise fall back to the legacy raw
+ *  `<<<...>>>` body via `handlerCode`. */
+function methodBodyCode(method: IRNode): string {
+  const handler = getFirstChild(method, 'handler');
+  if (handler && getProps(handler).lang === 'kern') {
+    return emitNativeKernBodyTS(handler);
+  }
+  return handlerCode(method);
+}
 
 const p = getProps;
 const kids = getChildren;
@@ -258,7 +273,7 @@ function emitClassBody(node: IRNode, lines: string[]): void {
     const staticKw = isStatic ? 'static ' : '';
     const star = isStream || isGenerator ? '*' : '';
     const asyncKw = isAsync || isStream ? 'async ' : '';
-    const mcode = handlerCode(method);
+    const mcode = methodBodyCode(method);
 
     // stream=true → AsyncGenerator, generator=true → Generator/AsyncGenerator
     // If user already declared full Generator<...>/AsyncGenerator<...>, use as-is

@@ -237,7 +237,38 @@ export async function loadUser(id: string): Promise<User> {
     expect(report.files[0].codegenErrors).toEqual([]);
     expect(report.totals.schemaViolations).toBe(0);
     expect(report.totals.semanticViolations).toBe(0);
+    expect(report.files[0].kern).toBeUndefined();
     expect(existsSync(join(tmpDir, 'bag.kern'))).toBe(false);
+  });
+
+  it('emits stable empty JSON import reports', () => {
+    process.chdir(tmpDir);
+
+    const emptyDir = join(tmpDir, 'empty');
+    mkdirSync(emptyDir);
+
+    runImport(['import', emptyDir, '--json']);
+
+    const report = JSON.parse(logs.join('\n'));
+    expect(report).toEqual({
+      files: [],
+      totals: {
+        types: 0,
+        interfaces: 0,
+        functions: 0,
+        classes: 0,
+        imports: 0,
+        constants: 0,
+        enums: 0,
+        components: 0,
+        unmapped: 0,
+        diagnostics: 0,
+        schemaViolations: 0,
+        semanticViolations: 0,
+        codegenErrors: 0,
+      },
+      ok: true,
+    });
   });
 
   it('fails import --check on unmapped TypeScript', () => {

@@ -5,8 +5,101 @@
 
 import type { IRNode } from '@kernlang/core';
 import { emitIdentifier, handlerCode } from '@kernlang/core';
+import { emitNativeKernBodyPythonWithImports } from '../codegen-body-python.js';
 import { buildPythonParamList, kids, p } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toScreamingSnake, toSnakeCase } from '../type-map.js';
+
+/** Slice 1 — native KERN handler bodies for Python target.
+ *  Returns the emitted Python body when the fn's handler child opts in via
+ *  `lang=kern`, otherwise returns the legacy raw body via `handlerCode`.
+ *
+ *  Slice 3a — KERN bodies reference parameters in their original camelCase
+ *  form (e.g., `userId`), but the Python signature snake-cases them
+ *  (`user_id`). We build a `userId → user_id` map from the param list and
+ *  hand it to the body emitter so identifier references resolve correctly.
+ *
+ *  Slice 3b — the body emitter returns a per-handler set of required
+ *  imports (`'math'` ⇒ `import math`); we inject them as the first lines
+ *  of the function body before the user code. Inline-in-function imports
+ *  are valid Python, idempotent (Python caches modules after first import),
+ *  and avoid the cross-cutting refactor that module-level emission would
+ *  require. */
+function fnBodyCodePython(node: IRNode): string {
+  const handler = node.children?.find((c) => c.type === 'handler');
+  if (handler && handler.props?.lang === 'kern') {
+    const symbolMap = buildPythonSymbolMap(node);
+    const { code, imports } = emitNativeKernBodyPythonWithImports(handler, { symbolMap });
+    if (imports.size === 0) return code;
+    // Stable ordering for deterministic output / test snapshots.
+    // Slice 3 review fix (Gemini): import-as-alias to avoid shadowing user
+    // bindings. KERN-stdlib templates reference the alias (`__k_math.floor`),
+    // so any user-defined `math` ident in the body remains accessible.
+    const importLines = [...imports].sort().map((mod) => `import ${mod} as __k_${mod}`);
+    return code ? `${importLines.join('\n')}\n${code}` : importLines.join('\n');
+  }
+  return handlerCode(node);
+}
+
+/** Slice 3a — collect KERN-form parameter names paired with their Python
+ *  snake_case form. Mirrors the rename rules in `buildPythonParamList` (see
+ *  packages/fastapi/src/codegen-helpers.ts) so the body symbol-map and the
+ *  Python signature stay in lockstep. Destructured params (children
+ *  `binding`/`element`) are skipped — they have no single name to rename;
+ *  their decomposed bindings are emitted in the body itself, not the
+ *  signature, and remain a slice-4 follow-up.
+ *
+ *  Returns an entry only when the snake-cased form differs from the KERN
+ *  form, so the map stays a tight identity overlay (no work done at the
+ *  ident-emit hot path for already-snake_case names like `id` or `count`). */
+function buildPythonSymbolMap(node: IRNode): Record<string, string> {
+  const map: Record<string, string> = {};
+  // Slice 3 review fix (OpenCode + Gemini): detect when two distinct KERN
+  // params snake-case to the same Python name (e.g. `xCount` and `x_count`
+  // both → `x_count`) and throw with a descriptive error. Without this,
+  // Python emits a `def foo(x_count, x_count)` signature that fails at
+  // import time with `SyntaxError: duplicate argument`.
+  const usedSnake = new Set<string>();
+  const claimSnake = (rawName: string, snake: string): void => {
+    if (usedSnake.has(snake)) {
+      throw new Error(
+        `KERN-Python codegen: parameter '${rawName}' snake-cases to '${snake}', which collides with another parameter on this function. ` +
+          'Rename one of the parameters to disambiguate (KERN identifiers are case-sensitive; the Python target is not).',
+      );
+    }
+    usedSnake.add(snake);
+  };
+
+  const paramChildren = (node.children ?? []).filter((c) => c.type === 'param');
+  if (paramChildren.length > 0) {
+    for (const param of paramChildren) {
+      const hasDestructure = (param.children ?? []).some((c) => c.type === 'binding' || c.type === 'element');
+      if (hasDestructure) continue;
+      const rawName = (param.props?.name as string) || '';
+      if (!rawName) continue;
+      const snake = toSnakeCase(rawName);
+      claimSnake(rawName, snake);
+      if (snake !== rawName) map[rawName] = snake;
+    }
+    return map;
+  }
+  const rawParams = (node.props?.params as string) || '';
+  if (!rawParams) return map;
+  for (const part of rawParams.split(',')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const colonIdx = trimmed.indexOf(':');
+    const eqIdx = trimmed.indexOf('=');
+    let nameEnd = trimmed.length;
+    if (colonIdx >= 0) nameEnd = Math.min(nameEnd, colonIdx);
+    if (eqIdx >= 0) nameEnd = Math.min(nameEnd, eqIdx);
+    const rawName = trimmed.slice(0, nameEnd).trim();
+    if (!rawName) continue;
+    const snake = toSnakeCase(rawName);
+    claimSnake(rawName, snake);
+    if (snake !== rawName) map[rawName] = snake;
+  }
+  return map;
+}
 
 // ── Type Alias ───────────────────────────────────────────────────────────
 // type name=PlanState values="draft|approved|running"
@@ -82,7 +175,7 @@ export function generateFunction(node: IRNode): string[] {
 
   const retClause = returns ? ` -> ${mapTsTypeToPython(returns)}` : '';
   const asyncKw = isAsync ? 'async ' : '';
-  const code = handlerCode(node);
+  const code = fnBodyCodePython(node);
 
   lines.push(`${asyncKw}def ${name}(${paramList})${retClause}:`);
   if (code) {

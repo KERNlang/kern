@@ -2468,9 +2468,9 @@ const RUNTIME_ASYNC_PROCESS_TIMEOUT_MS = 1500;
 const RUNTIME_EXPR_UNSAFE_TOKEN =
   /\b(?:async|class|constructor|Date|delete|do|eval|fetch|for|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 const RUNTIME_FN_UNSAFE_TOKEN =
-  /\b(?:class|constructor|Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
+  /\b(?:class|constructor|Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 const RUNTIME_CLASS_UNSAFE_TOKEN =
-  /\b(?:Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
+  /\b(?:Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 const RUNTIME_NATIVE_BINDING_UNSAFE_TOKEN =
   /\b(?:class|constructor|Date|delete|do|eval|fetch|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 const RUNTIME_WORKFLOW_BINDING_UNSAFE_TOKEN =
@@ -2518,10 +2518,102 @@ function isRuntimeBindingName(value: string): boolean {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
 }
 
+function transformRuntimeCodeSegments(source: string, transform: (segment: string) => string): string {
+  let output = '';
+  let segmentStart = 0;
+  let index = 0;
+
+  function flush(until: number): void {
+    if (until > segmentStart) output += transform(source.slice(segmentStart, until));
+  }
+
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (char === '/' && next === '/') {
+      flush(index);
+      const end = source.indexOf('\n', index + 2);
+      const commentEnd = end === -1 ? source.length : end;
+      output += source.slice(index, commentEnd);
+      index = commentEnd;
+      segmentStart = index;
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      flush(index);
+      const end = source.indexOf('*/', index + 2);
+      const commentEnd = end === -1 ? source.length : end + 2;
+      output += source.slice(index, commentEnd);
+      index = commentEnd;
+      segmentStart = index;
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === '`') {
+      flush(index);
+      const quote = char;
+      let end = index + 1;
+      while (end < source.length) {
+        if (source[end] === '\\') {
+          end += 2;
+          continue;
+        }
+        if (source[end] === quote) {
+          end += 1;
+          break;
+        }
+        end += 1;
+      }
+      output += source.slice(index, end);
+      index = end;
+      segmentStart = index;
+      continue;
+    }
+
+    index += 1;
+  }
+
+  flush(source.length);
+  return output;
+}
+
+function runtimeJsSource(source: string): string {
+  return transformRuntimeCodeSegments(source, (segment) =>
+    segment
+      .replace(
+        /\s+as\s+(?:const|any|unknown|never|[A-Za-z_$][\w$]*(?:<[^;\n(){}=]*>)?(?:\[\])?(?:\s*\|\s*[A-Za-z_$][\w$]*(?:<[^;\n(){}=]*>)?(?:\[\])?)*)/g,
+        '',
+      )
+      .replace(/\b(const|let|var)\s+([A-Za-z_$][\w$]*)\s*:\s*[^=;\n]+(?=\s*=)/g, '$1 $2')
+      .replace(/([,(]\s*[A-Za-z_$][\w$]*)\s*:\s*[^,)]+(?=\s*[,)]\s*=>)/g, '$1')
+      .replace(/\bfunction\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*:\s*[^{]+{/g, 'function $1($2) {'),
+  );
+}
+
+function runtimeConstHandlerExpr(node: IRNode): string {
+  const code = runtimeJsSource(handlerText(node).trim());
+  if (!code) return '';
+  if (/^\s*(?:return|const|let|var|if|for|while|try|throw)\b/.test(code) || /;\s*$/.test(code)) {
+    return `(() => {\n${code}\n})()`;
+  }
+  return `(${code})`;
+}
+
 function runtimeBindingSource(node: IRNode): { expr: string; kind: RuntimeBinding['kind'] } | undefined {
-  if (node.type === 'const') return { expr: exprPropToRuntimeSource(node, 'value'), kind: 'expr' };
+  if (node.type === 'const') {
+    const value = exprPropToRuntimeSource(node, 'value');
+    if (value) return { expr: runtimeJsSource(value), kind: 'expr' };
+    const handlerExpr = runtimeConstHandlerExpr(node);
+    if (handlerExpr) return { expr: handlerExpr, kind: 'native' };
+    return { expr: '', kind: 'expr' };
+  }
   if (node.type === 'derive' || node.type === 'let') {
-    return { expr: exprPropToRuntimeSource(node, 'value') || exprPropToRuntimeSource(node, 'expr'), kind: 'expr' };
+    return {
+      expr: runtimeJsSource(exprPropToRuntimeSource(node, 'value') || exprPropToRuntimeSource(node, 'expr')),
+      kind: 'expr',
+    };
   }
   if (node.type === 'fn') return { expr: runtimeFunctionExpr(node), kind: 'fn' };
   if (node.type === 'class') return { expr: runtimeClassExpr(node), kind: 'class' };
@@ -2544,7 +2636,7 @@ function runtimeParamNames(node: IRNode): string[] {
 }
 
 function runtimeFunctionExpr(node: IRNode): string {
-  const code = handlerText(node);
+  const code = runtimeJsSource(handlerText(node));
   if (!code) return '';
 
   const params = runtimeParamNames(node);
@@ -2555,7 +2647,7 @@ function runtimeFunctionExpr(node: IRNode): string {
 
 function runtimeHandlerLines(node: IRNode, spaces = 4): string[] {
   const prefix = ' '.repeat(spaces);
-  const code = handlerText(node).trim();
+  const code = runtimeJsSource(handlerText(node).trim());
   if (!code) return [];
   return code.split('\n').map((line) => `${prefix}${line}`);
 }
@@ -3999,6 +4091,7 @@ function orderRuntimeBindings(bindings: RuntimeBinding[], entryExpr: string): Ru
     visiting.add(name);
     stack.push(name);
     for (const dep of depsIn(binding.expr)) {
+      if (dep === name && binding.kind === 'fn') continue;
       const error = visit(dep);
       if (error) return error;
     }
