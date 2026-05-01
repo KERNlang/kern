@@ -256,6 +256,13 @@ export function surfaceParseDiagnostics(
   let errors = 0;
   let warnings = 0;
   for (const diagnostic of diagnostics) {
+    // Slice 5a: native-eligibility hints fire on every raw handler whose
+    // body could opt in to lang="kern". They're surfaced via the API for
+    // IDE integrations and the future `kern migrate native-handlers` CLI,
+    // but printing them on every `kern compile` would flood CI logs and
+    // user output. Skip from the default print path; dedicated commands
+    // (gaps, migrate, review) can opt to surface them explicitly.
+    if (diagnostic.code === 'NATIVE_KERN_ELIGIBLE') continue;
     const tag = diagnostic.severity === 'error' ? 'ERROR' : diagnostic.severity === 'warning' ? 'WARN' : 'INFO';
     console.error(`  ${prefix}[${tag}] ${diagnostic.code}: ${diagnostic.message}`);
     if (diagnostic.severity === 'error') errors++;
