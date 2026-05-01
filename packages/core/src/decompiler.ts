@@ -21,6 +21,28 @@ function expandVal(val: string): string {
 export function decompile(root: IRNode): DecompileResult {
   const lines: string[] = [];
 
+  function isExpr(value: unknown): value is ExprObject {
+    return typeof value === 'object' && value !== null && (value as ExprObject).__expr === true;
+  }
+
+  function renderScalarProp(propName: string, raw: unknown, quoted: string[] = []): string {
+    if (isExpr(raw)) return `${propName}={{${raw.code}}}`;
+    if (typeof raw === 'boolean' || typeof raw === 'number') return `${propName}=${String(raw)}`;
+    const s = String(raw);
+    const wasQuoted = quoted.includes(propName);
+    const safeBare = !wasQuoted && s !== '' && /^[\w.-]+$/.test(s);
+    return `${propName}=${safeBare ? s : JSON.stringify(s)}`;
+  }
+
+  function pushHandler(node: IRNode, indent: string): void {
+    const code = String(node.props?.code || '');
+    lines.push(`${indent}handler <<<`);
+    for (const line of code.split('\n')) {
+      lines.push(`${indent}  ${line}`);
+    }
+    lines.push(`${indent}>>>`);
+  }
+
   function render(node: IRNode, indent: string): void {
     if (!node.type) {
       lines.push(`${indent}[unknown node]`);
@@ -31,6 +53,53 @@ export function decompile(root: IRNode): DecompileResult {
     // Canonical-grammar cases — emit re-parseable KERN. Other node types
     // still fall through to the debug-shape serializer below; make them
     // canonical in a follow-up PR.
+    if (node.type === 'type') {
+      renderType(node, indent);
+      return;
+    }
+    if (node.type === 'interface') {
+      renderInterface(node, indent);
+      return;
+    }
+    if (node.type === 'enum') {
+      renderEnum(node, indent);
+      return;
+    }
+    if (node.type === 'class' || node.type === 'service') {
+      renderClassLike(node, indent);
+      return;
+    }
+    if (
+      node.type === 'fn' ||
+      node.type === 'method' ||
+      node.type === 'constructor' ||
+      node.type === 'getter' ||
+      node.type === 'setter' ||
+      node.type === 'overload'
+    ) {
+      renderCallable(node, indent);
+      return;
+    }
+    if (node.type === 'const') {
+      renderConst(node, indent);
+      return;
+    }
+    if (node.type === 'member') {
+      renderMember(node, indent);
+      return;
+    }
+    if (node.type === 'indexer') {
+      renderIndexer(node, indent);
+      return;
+    }
+    if (node.type === 'handler') {
+      pushHandler(node, indent);
+      return;
+    }
+    if (node.type === 'doc') {
+      renderDoc(node, indent);
+      return;
+    }
     if (node.type === 'each') {
       renderEach(node, indent);
       return;
@@ -108,6 +177,129 @@ export function decompile(root: IRNode): DecompileResult {
         render(child, `${indent}  `);
       }
     }
+  }
+
+  function renderType(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const name = (props.name as string) || 'UnknownType';
+    const parts: string[] = [`type name=${name}`];
+    if (props.generics !== undefined) parts.push(renderScalarProp('generics', props.generics, quoted));
+    if (props.values !== undefined) parts.push(renderScalarProp('values', props.values, quoted));
+    if (props.alias !== undefined) parts.push(renderScalarProp('alias', props.alias, quoted));
+    if (props.export === false || props.export === 'false') parts.push('export=false');
+    lines.push(`${indent}${parts.join(' ')}`);
+    for (const child of node.children || []) render(child, `${indent}  `);
+  }
+
+  function renderInterface(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const name = (props.name as string) || 'UnknownInterface';
+    const parts: string[] = [`interface name=${name}`];
+    if (props.generics !== undefined) parts.push(renderScalarProp('generics', props.generics, quoted));
+    if (props.extends !== undefined) parts.push(renderScalarProp('extends', props.extends, quoted));
+    if (props.export === false || props.export === 'false') parts.push('export=false');
+    lines.push(`${indent}${parts.join(' ')}`);
+    for (const child of node.children || []) render(child, `${indent}  `);
+  }
+
+  function renderEnum(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const name = (props.name as string) || 'UnknownEnum';
+    const parts: string[] = [`enum name=${name}`];
+    if (props.values !== undefined) parts.push(renderScalarProp('values', props.values, quoted));
+    if (props.const === true || props.const === 'true') parts.push('const=true');
+    if (props.export === false || props.export === 'false') parts.push('export=false');
+    lines.push(`${indent}${parts.join(' ')}`);
+    for (const child of node.children || []) render(child, `${indent}  `);
+  }
+
+  function renderMember(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const name = (props.name as string) || 'member';
+    const parts: string[] = [`member name=${name}`];
+    if (props.value !== undefined) parts.push(renderScalarProp('value', props.value, quoted));
+    lines.push(`${indent}${parts.join(' ')}`);
+  }
+
+  function renderIndexer(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const parts: string[] = ['indexer'];
+    if (props.keyName !== undefined) parts.push(renderScalarProp('keyName', props.keyName, quoted));
+    if (props.keyType !== undefined) parts.push(renderScalarProp('keyType', props.keyType, quoted));
+    if (props.type !== undefined) parts.push(renderScalarProp('type', props.type, quoted));
+    if (props.readonly === true || props.readonly === 'true') parts.push('readonly=true');
+    lines.push(`${indent}${parts.join(' ')}`);
+  }
+
+  function renderClassLike(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const name = (props.name as string) || (node.type === 'service' ? 'UnknownService' : 'UnknownClass');
+    const parts: string[] = [`${node.type} name=${name}`];
+    if (props.generics !== undefined) parts.push(renderScalarProp('generics', props.generics, quoted));
+    if (props.extends !== undefined) parts.push(renderScalarProp('extends', props.extends, quoted));
+    if (props.implements !== undefined) parts.push(renderScalarProp('implements', props.implements, quoted));
+    if (props.abstract === true || props.abstract === 'true') parts.push('abstract=true');
+    if (props.export === false || props.export === 'false') parts.push('export=false');
+    lines.push(`${indent}${parts.join(' ')}`);
+    for (const child of node.children || []) render(child, `${indent}  `);
+  }
+
+  function renderCallable(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const parts: string[] = [];
+    if (node.type === 'constructor') {
+      parts.push('constructor');
+    } else if (node.type === 'overload') {
+      parts.push('overload');
+    } else {
+      parts.push(`${node.type} name=${(props.name as string) || node.type}`);
+    }
+
+    if (props.generics !== undefined) parts.push(renderScalarProp('generics', props.generics, quoted));
+    if (props.params !== undefined) parts.push(renderScalarProp('params', props.params, quoted));
+    if (props.returns !== undefined) parts.push(renderScalarProp('returns', props.returns, quoted));
+    if (props.async === true || props.async === 'true') parts.push('async=true');
+    if (props.stream === true || props.stream === 'true') parts.push('stream=true');
+    if (props.generator === true || props.generator === 'true') parts.push('generator=true');
+    if (props.static === true || props.static === 'true') parts.push('static=true');
+    if (props.private === true || props.private === 'true') parts.push('private=true');
+    if (props.export === false || props.export === 'false') parts.push('export=false');
+    if (props.expr !== undefined) parts.push(renderScalarProp('expr', props.expr, quoted));
+
+    lines.push(`${indent}${parts.join(' ')}`);
+    for (const child of node.children || []) render(child, `${indent}  `);
+  }
+
+  function renderConst(node: IRNode, indent: string): void {
+    const props = node.props || {};
+    const quoted = node.__quotedProps ?? [];
+    const name = (props.name as string) || 'unknownConst';
+    const parts: string[] = [`const name=${name}`];
+    if (props.type !== undefined) parts.push(renderScalarProp('type', props.type, quoted));
+    if (props.value !== undefined) parts.push(renderScalarProp('value', props.value, quoted));
+    if (props.export === false || props.export === 'false') parts.push('export=false');
+    lines.push(`${indent}${parts.join(' ')}`);
+    for (const child of node.children || []) render(child, `${indent}  `);
+  }
+
+  function renderDoc(node: IRNode, indent: string): void {
+    const text = String(node.props?.text || node.props?.code || '');
+    if (!text.includes('\n')) {
+      lines.push(`${indent}doc text=${JSON.stringify(text)}`);
+      return;
+    }
+    lines.push(`${indent}doc <<<`);
+    for (const line of text.split('\n')) {
+      lines.push(`${indent}  ${line}`);
+    }
+    lines.push(`${indent}>>>`);
   }
 
   function renderLet(node: IRNode, indent: string): void {

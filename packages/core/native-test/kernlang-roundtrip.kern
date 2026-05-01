@@ -1,0 +1,17 @@
+param name=attempts type=number value=3
+param name=ts type=number value={{Date.now()}}
+param name=name type=string value="world"
+param name=kind type="'draft'|'done'"
+param name=salutation type=string optional=true
+param name=parts type="string[]" variadic=true
+
+param type=Point
+  binding name=x
+  binding name=y
+
+destructure source=user
+  binding name=id
+  binding name=mail key=email
+
+destructure source=tuple
+  element name=second index=1

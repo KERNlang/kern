@@ -13,3 +13,6 @@ test name="Effect recovery conformance" target="./conformance-effects.kern"
   it name="routes can recover effect results before codegen"
     expect route="GET /api/users" returns={{[]}}
     expect route="GET /api/first-user" returns={{({ id: "u1", name: "Ada" })}}
+
+  it name="suite covers route guard and effect surface"
+    expect preset=coverage

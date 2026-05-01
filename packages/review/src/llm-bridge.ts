@@ -60,7 +60,14 @@ export interface LLMBridgeConfig {
   model?: string;
   baseUrl?: string;
   timeout?: number; // ms, default 60000
-  maxTokens?: number; // default 16384
+  maxTokens?: number; // output token cap; default 16384
+  /** Max input tokens per batch. Defaults to DEFAULT_MAX_BATCH_TOKENS.
+   *  Callers should pass a value derived from the model's actual
+   *  context window (e.g. `Math.floor(contextWindow * 0.78)` to leave
+   *  room for output + system prompt + schema). Hardcoding one number
+   *  here would either skip files on small-context models or waste
+   *  capacity on big-context ones. */
+  maxBatchTokens?: number;
 }
 
 export interface ReviewInstructionOptions {
@@ -77,6 +84,7 @@ function resolveConfig(override?: LLMBridgeConfig): Required<LLMBridgeConfig> & 
     baseUrl: (override?.baseUrl || process.env.KERN_LLM_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, ''),
     timeout: override?.timeout || 60_000,
     maxTokens: override?.maxTokens || 16384,
+    maxBatchTokens: override?.maxBatchTokens || DEFAULT_MAX_BATCH_TOKENS,
     available: apiKey.length > 0,
   };
 }
@@ -217,19 +225,25 @@ export function isHighValueFinding(f: ReviewFinding): boolean {
   return f.severity !== 'info' && (f.confidence === undefined || f.confidence >= 0.5);
 }
 
-/** Max input tokens per batch. Conservative — leaves room for output + overhead. */
-const MAX_BATCH_TOKENS = 60_000;
+/** Default ceiling when the caller doesn't pass `maxBatchTokens`. Sized
+ *  for modern frontier coding models — Kimi For Coding k2p6 (256K),
+ *  Claude Haiku 4.5 / Sonnet 4.6 (200K), GPT-4o (128K), Gemini 2.5
+ *  (1M+). 200K leaves ~50K headroom for output + system prompt +
+ *  schema on a 256K-context model and fits a 138K-token IR-bound file
+ *  in one call without the chunker giving up and emitting llm-skipped.
+ *
+ *  Originally 60_000, set when 64K-context models were the norm — that
+ *  ceiling caused the chunker to skip large modules (exactly the files
+ *  most worth reviewing) on installs running modern providers. Callers
+ *  should override via `LLMBridgeConfig.maxBatchTokens` when they know
+ *  the actual context window (e.g. ~78% of contextWindow). */
+export const DEFAULT_MAX_BATCH_TOKENS = 200_000;
 
 /** Safety margin subtracted when computing the per-chunk source budget. Also
- *  the gap between a solo input's estimated tokens and MAX_BATCH_TOKENS at
- *  which we trigger chunking. Keeps a single oversized input from being put
- *  into a batch that would silently exceed the per-call limit. */
+ *  the gap between a solo input's estimated tokens and the per-call
+ *  budget at which we trigger chunking. Keeps a single oversized input
+ *  from being put into a batch that would silently exceed the limit. */
 const CHUNK_HEADROOM_TOKENS = 2_000;
-
-/** A file whose estimated prompt exceeds this is chunked. Derived from the
- *  batch budget so an un-chunked input that passes through never produces
- *  a batch over the per-call limit. */
-const CHUNK_TRIGGER_TOKENS = MAX_BATCH_TOKENS - CHUNK_HEADROOM_TOKENS;
 
 /** Line overlap between consecutive source chunks so a declaration split
  *  across a boundary still appears whole in at least one chunk. */
@@ -244,19 +258,30 @@ function longestLineLength(lines: readonly string[]): number {
 }
 
 /**
- * Split a single oversized LLMReviewInput into N smaller inputs that each
- * fit inside MAX_BATCH_TOKENS. IR, taint, staticFindings and obligations
- * are replicated on every chunk — they are small relative to source and
- * every chunk needs the full structural context to reason correctly.
+ * Split a single oversized LLMReviewInput into N smaller inputs that
+ * each fit inside `maxBatchTokens` (defaults to DEFAULT_MAX_BATCH_TOKENS).
+ * IR, taint, staticFindings and obligations are replicated on every
+ * chunk — they are small relative to source and every chunk needs the
+ * full structural context to reason correctly.
  *
- * Returns the original input as a 1-element array if it already fits, or
- * an empty array if the input is genuinely unchunkable (non-source inputs
- * whose IR alone exceeds the budget, or files where a single line is
- * larger than the per-chunk source budget — minified bundles).
+ * Returns the original input as a 1-element array if it already fits,
+ * or an empty array if the input is genuinely unchunkable (non-source
+ * inputs whose IR alone exceeds the budget, or files where a single
+ * line is larger than the per-chunk source budget — minified bundles).
+ *
+ * `maxBatchTokens` is exposed so callers (kern-guard, CI runners) can
+ * pass a value derived from the configured model's actual context
+ * window. Hardcoding one number here either skips files on small
+ * models or wastes capacity on big ones.
  */
-export function chunkLargeInput(input: LLMReviewInput, cachedIR: string): LLMReviewInput[] {
+export function chunkLargeInput(
+  input: LLMReviewInput,
+  cachedIR: string,
+  maxBatchTokens: number = DEFAULT_MAX_BATCH_TOKENS,
+): LLMReviewInput[] {
+  const chunkTriggerTokens = maxBatchTokens - CHUNK_HEADROOM_TOKENS;
   const totalTokens = estimateInputTokens(input, cachedIR);
-  if (totalTokens <= CHUNK_TRIGGER_TOKENS) return [input];
+  if (totalTokens <= chunkTriggerTokens) return [input];
 
   // Only CHANGED files include source in the token count, so only those
   // can be chunked. If a CONTEXT file somehow crossed the threshold it's
@@ -265,7 +290,7 @@ export function chunkLargeInput(input: LLMReviewInput, cachedIR: string): LLMRev
 
   const sourceTokens = estimateTokens(input.source);
   const nonSourceTokens = totalTokens - sourceTokens;
-  const sourceBudget = MAX_BATCH_TOKENS - nonSourceTokens - CHUNK_HEADROOM_TOKENS;
+  const sourceBudget = maxBatchTokens - nonSourceTokens - CHUNK_HEADROOM_TOKENS;
   if (sourceBudget <= 0) return []; // IR + context alone too large — unchunkable
 
   const lines = input.source.split('\n');
@@ -377,7 +402,7 @@ export async function runLLMReview(
   const expanded: Array<{ input: LLMReviewInput; originalIR: string }> = [];
   for (const input of inputs) {
     const ir = irCache.get(input)!;
-    const chunks = chunkLargeInput(input, ir);
+    const chunks = chunkLargeInput(input, ir, config.maxBatchTokens);
 
     if (chunks.length === 0) {
       // Unchunkable (IR alone too large, or minified single-line file).
@@ -407,7 +432,7 @@ export async function runLLMReview(
     const inputTokens = estimateInputTokens(input, originalIR);
 
     // Start new batch if adding this input would exceed budget
-    if (currentBatch.length > 0 && currentTokens + inputTokens > MAX_BATCH_TOKENS) {
+    if (currentBatch.length > 0 && currentTokens + inputTokens > config.maxBatchTokens) {
       batches.push(currentBatch);
       currentBatch = [];
       currentTokens = 0;

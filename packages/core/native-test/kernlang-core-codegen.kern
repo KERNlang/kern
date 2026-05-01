@@ -1,0 +1,63 @@
+type name=Point alias="{ x: number; y: number }"
+
+const name=user value={{({ id: "u1", email: "ada@example.com" })}}
+const name=pair value={{[1, 2]}}
+
+fn name=retry returns=number
+  param name=attempts type=number value=3
+  handler <<<
+    return attempts;
+  >>>
+
+fn name=stamp returns=number
+  param name=ts type=number value={{Date.now()}}
+  handler <<<
+    return ts;
+  >>>
+
+fn name=greet returns=string
+  param name=name type=string value="world"
+  handler <<<
+    return name;
+  >>>
+
+fn name=load params="id:string,retries:number=3" returns=string
+  handler <<<
+    return id;
+  >>>
+
+fn name=maybe returns=string
+  param name=salutation type=string optional=true
+  handler <<<
+    return salutation ?? "hi";
+  >>>
+
+fn name=concat returns=string
+  param name=parts type="string[]" variadic=true
+  handler <<<
+    return parts.join(",");
+  >>>
+
+fn name=length returns=number
+  param type=Point
+    binding name=x
+    binding name=y
+  handler <<<
+    return Math.hypot(x, y);
+  >>>
+
+fn name=swap returns="[number, number]"
+  param type="[number, number]"
+    element name=a index=0
+    element name=b index=1
+  handler <<<
+    return [b, a];
+  >>>
+
+destructure kind=const source=user
+  binding name=id
+  binding name=mail key=email
+
+destructure kind=const source=pair
+  element name=first index=0
+  element name=second index=1

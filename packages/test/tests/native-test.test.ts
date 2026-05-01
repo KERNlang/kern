@@ -490,6 +490,64 @@ describe('native kern test runner', () => {
     expect(summary.results.every((result) => result.ruleId === 'runtime:route')).toBe(true);
   });
 
+  test('expands table-driven native cases for runtime assertions', () => {
+    writeFileSync(
+      join(tmpDir, 'table-users.kern'),
+      [
+        'const name=users value={{[{ id: "u1", name: "Ada", role: "admin", active: true }, { id: "u2", name: "Grace", role: "member", active: true }]}}',
+        'fn name=pickName returns=string',
+        '  param name=user type=object',
+        '  handler <<<',
+        '    return user.name;',
+        '  >>>',
+        'server name=UsersAPI',
+        '  route GET /api/users',
+        '    params role:string',
+        '    branch name=roleSelection on=query.role',
+        '      path value="admin"',
+        '        collect name=result from=users where={{item.role === "admin"}}',
+        '        respond 200 json=result',
+        '      path value="member"',
+        '        collect name=result from=users where={{item.role === "member"}}',
+        '        respond 200 json=result',
+        '    respond 200 json=users',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'table-users.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Table cases" target="./table-users.kern"',
+        '  fixture name=ada value={{({ name: "Ada" })}}',
+        '  it name="routes reuse one expect across cases"',
+        '    case name=admin with={{({ query: { role: "admin" } })}} returns={{[{ id: "u1", name: "Ada", role: "admin", active: true }]}}',
+        '    case name=member with={{({ query: { role: "member" } })}} returns={{[{ id: "u2", name: "Grace", role: "member", active: true }]}}',
+        '    expect route="GET /api/users"',
+        '  it name="expect-local cases override inputs"',
+        '    expect fn=pickName',
+        '      case name=fixture with={{ada}} equals="Ada"',
+        '      case name=inline with={{({ name: "Lin" })}} equals="Lin"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(4);
+    expect(summary.results.map((result) => result.caseName)).toEqual([
+      'routes reuse one expect across cases > admin',
+      'routes reuse one expect across cases > member',
+      'expect-local cases override inputs > fixture',
+      'expect-local cases override inputs > inline',
+    ]);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'runtime:route',
+      'runtime:route',
+      'runtime:behavior',
+      'runtime:behavior',
+    ]);
+  });
+
   test('executes deterministic effect and recover assertions before codegen', () => {
     writeFileSync(
       join(tmpDir, 'effects.kern'),
@@ -714,18 +772,66 @@ describe('native kern test runner', () => {
     ]);
   });
 
-  test('reports handler-backed MCP tool assertions as configuration failures', () => {
+  test('executes safe handler-backed route and tool assertions', () => {
     writeFileSync(
-      join(tmpDir, 'handler-tool.kern'),
-      ['mcp name=Files', '  tool name=readFile', '    handler <<<', '      return "hello";', '    >>>'].join('\n'),
+      join(tmpDir, 'handler-workflows.kern'),
+      [
+        'const name=users value={{[{ id: "u1", role: "admin" }, { id: "u2", role: "member" }]}}',
+        'server name=Api',
+        '  route GET /api/users',
+        '    handler <<<',
+        '      if (query.role) return users.filter((user) => user.role === query.role);',
+        '      return users;',
+        '    >>>',
+        '  route GET /api/users/:id',
+        '    handler <<<',
+        '      return users.find((user) => user.id === id);',
+        '    >>>',
+        'mcp name=Tools',
+        '  tool name=readUser',
+        '    param name=id type=string',
+        '    handler <<<',
+        '      return users.find((user) => user.id === id);',
+        '    >>>',
+      ].join('\n'),
     );
-    const testFile = join(tmpDir, 'handler-tool.test.kern');
+    const testFile = join(tmpDir, 'handler-workflows.test.kern');
     writeFileSync(
       testFile,
       [
-        'test name="Handler tool" target="./handler-tool.kern"',
-        '  it name="rejects backend handler runtime"',
-        '    expect tool=readFile returns={{"hello"}}',
+        'test name="Handler workflows" target="./handler-workflows.kern"',
+        '  it name="runs safe route handlers"',
+        '    expect route="GET /api/users" with={{({ query: { role: "admin" } })}} returns={{[{ id: "u1", role: "admin" }]}}',
+        '    expect route="GET /api/users/:id" with={{({ params: { id: "u2" } })}} returns={{({ id: "u2", role: "member" })}}',
+        '  it name="runs safe tool handlers"',
+        '    expect tool=readUser with={{({ id: "u1" })}} returns={{({ id: "u1", role: "admin" })}}',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.ruleId)).toEqual(['runtime:route', 'runtime:route', 'runtime:tool']);
+  });
+
+  test('rejects unsafe handler-backed workflow assertions before execution', () => {
+    writeFileSync(
+      join(tmpDir, 'unsafe-handler.kern'),
+      [
+        'mcp name=Files',
+        '  tool name=readSecret',
+        '    handler <<<',
+        '      return process.env.SECRET;',
+        '    >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'unsafe-handler.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Unsafe handler" target="./unsafe-handler.kern"',
+        '  it name="rejects unsafe handler globals"',
+        '    expect tool=readSecret returns={{"secret"}} severity=warn',
       ].join('\n'),
     );
 
@@ -734,7 +840,8 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(1);
     expect(summary.results[0].ruleId).toBe('runtime:tool');
     expect(summary.results[0].severity).toBe('error');
-    expect(summary.results[0].message).toContain('Runtime tool assertions execute portable KERN tool nodes');
+    expect(summary.results[0].message).toContain('Runtime tool assertion cannot execute handler');
+    expect(summary.results[0].message).toContain("unsupported token 'process'");
   });
 
   test('tool assertion failures include runtime expression context', () => {
@@ -2139,7 +2246,7 @@ describe('native kern test runner', () => {
     expect(summary.results[1].message).toContain('Order.capture');
   });
 
-  test('fails coverage when guards lack explicit or guard-wide assertions', () => {
+  test('fails coverage when guards lack explicit workflow or guard-wide assertions', () => {
     writeFileSync(
       join(tmpDir, 'payment.kern'),
       [
@@ -2167,7 +2274,43 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(1);
     expect(summary.results[1].ruleId).toBe('no:untestedguards');
     expect(summary.results[1].message).toContain('guard VerifyUser');
+    expect(summary.results[1].message).toContain('route/tool workflow assertion');
     expect(summary.results[1].message).toContain('expect preset=guard');
+  });
+
+  test('counts guards executed by route and tool workflow assertions as covered', () => {
+    writeFileSync(
+      join(tmpDir, 'workflow-guard-coverage.kern'),
+      [
+        'server name=Api',
+        '  route GET /items/:id',
+        '    guard type=validate param=id regex="^item-"',
+        '    respond 200 json=id',
+        'mcp name=Tools',
+        '  tool name=search',
+        '    param name=query type=string required=true',
+        '    guard type=sanitize param=query pattern="[<>]" replacement=""',
+        '    respond 200 json=query',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'workflow-guard-coverage.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Workflow guard coverage" target="./workflow-guard-coverage.kern"',
+        '  it name="covers guards through workflows"',
+        '    expect route="GET /items/:id" with={{({ params: { id: "bad" } })}} throws=ValidationError',
+        '    expect tool=search with={{({ query: "<hello>" })}} returns={{"hello"}}',
+        '    expect preset=coverage',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.coverage.guards.total).toBe(2);
+    expect(summary.coverage.guards.covered).toBe(2);
+    expect(summary.coverage.guards.uncovered).toEqual([]);
   });
 
   test('reports native coverage metrics for transitions and guards', () => {
@@ -2304,6 +2447,44 @@ describe('native kern test runner', () => {
     expect(output).toContain('uncovered routes:');
     expect(output).toContain('uncovered tools:');
     expect(output).toContain('uncovered effects:');
+  });
+
+  test('counts effects executed by route and tool workflow assertions as covered', () => {
+    writeFileSync(
+      join(tmpDir, 'workflow-effect-coverage.kern'),
+      [
+        'server name=Api',
+        '  route GET /users',
+        '    effect name=fetchUsers',
+        '      trigger expr={{[{ id: "u1" }]}}',
+        '    respond 200 json=fetchUsers.result',
+        'mcp name=Tools',
+        '  tool name=readFile',
+        '    effect name=readDisk',
+        '      trigger url="/fs/read"',
+        '    respond 200 json=readDisk.result',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'workflow-effect-coverage.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Workflow effect coverage" target="./workflow-effect-coverage.kern"',
+        '  fixture name=fileBody value={{"hello"}}',
+        '  it name="covers nested route and tool effects"',
+        '    mock effect=readDisk returns={{fileBody}}',
+        '    expect route="GET /users" returns={{[{ id: "u1" }]}}',
+        '    expect tool=readFile returns={{fileBody}}',
+        '    expect mock=readDisk called=1',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.coverage.effects.total).toBe(2);
+    expect(summary.coverage.effects.covered).toBe(2);
+    expect(summary.coverage.effects.uncovered).toEqual([]);
   });
 
   test('excludes coverage=false targets from aggregate native coverage', () => {
@@ -2502,6 +2683,217 @@ describe('native kern test runner', () => {
     expect(summary.results[0].ruleId).toBe('no:codegenerrors');
     expect(summary.results[0].message).toContain('Found codegen errors');
     expect(summary.results[0].message).toContain('numeric `index=`');
+  });
+
+  test('asserts generated core code substrings natively', () => {
+    writeFileSync(
+      join(tmpDir, 'codegen.kern'),
+      [
+        'fn name=retry returns=number',
+        '  param name=attempts type=number value=3',
+        '  handler <<<',
+        '    return attempts;',
+        '  >>>',
+        'destructure kind=const source=user',
+        '  binding name=id',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'codegen.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Codegen assertions" target="./codegen.kern"',
+        '  it name="checks generated output"',
+        '    expect codegen contains="function retry(attempts: number = 3): number {"',
+        '    expect codegen contains="const { id } = user;"',
+        '    expect codegen notContains="attempts: number = 0"',
+        '    expect codegen matches="function retry\\\\([^)]+\\\\): number"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.ruleId)).toEqual(['codegen', 'codegen', 'codegen', 'codegen']);
+  });
+
+  test('reports generated core code mismatches', () => {
+    writeFileSync(
+      join(tmpDir, 'codegen-mismatch.kern'),
+      ['fn name=retry returns=number', '  handler <<<', '    return 1;', '  >>>'].join('\n'),
+    );
+    const testFile = join(tmpDir, 'codegen-mismatch.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Codegen mismatch" target="./codegen-mismatch.kern"',
+        '  it name="fails clearly"',
+        '    expect codegen contains="function missing()"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('codegen');
+    expect(summary.results[0].message).toContain('Generated code does not contain');
+  });
+
+  test('asserts decompiled KERN source and round-trip stability natively', () => {
+    writeFileSync(
+      join(tmpDir, 'roundtrip.kern'),
+      [
+        'param name=attempts type=number value=3',
+        'param name=ts type=number value={{Date.now()}}',
+        'param name=name type=string value="world"',
+        `param name=kind type="'draft'|'done'"`,
+        'param name=salutation type=string optional=true',
+        'param name=parts type="string[]" variadic=true',
+        'param type=Point',
+        '  binding name=x',
+        '  binding name=y',
+        'destructure source=user',
+        '  binding name=id',
+        '  binding name=mail key=email',
+        'destructure source=tuple',
+        '  element name=second index=1',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'roundtrip.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Roundtrip assertions" target="./roundtrip.kern"',
+        '  it name="checks decompiled source"',
+        '    expect decompile contains="param name=attempts type=number value=3"',
+        '    expect decompile contains="value={{Date.now()}}"',
+        '    expect decompile contains="value=\\"world\\""',
+        '    expect decompile contains="type=\\"\'draft\'|\'done\'\\""',
+        '    expect decompile contains="optional=true"',
+        '    expect decompile contains="variadic=true"',
+        '    expect decompile contains="binding name=x"',
+        '    expect decompile contains="element name=second index=1"',
+        '    expect decompile notContains="kind=const"',
+        '    expect roundtrip=true',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'decompile',
+      'decompile',
+      'decompile',
+      'decompile',
+      'decompile',
+      'decompile',
+      'decompile',
+      'decompile',
+      'decompile',
+      'roundtrip',
+    ]);
+  });
+
+  test('reports decompiled KERN source mismatches', () => {
+    writeFileSync(join(tmpDir, 'decompile-mismatch.kern'), 'param name=attempts type=number value=3');
+    const testFile = join(tmpDir, 'decompile-mismatch.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Decompile mismatch" target="./decompile-mismatch.kern"',
+        '  it name="fails clearly"',
+        '    expect decompile contains="param name=missing"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('decompile');
+    expect(summary.results[0].message).toContain('Decompiled KERN does not contain');
+  });
+
+  test('asserts TypeScript importer output and imported KERN roundtrip natively', () => {
+    writeFileSync(join(tmpDir, 'target.kern'), 'const name=ok value=true');
+    writeFileSync(
+      join(tmpDir, 'fixture.ts'),
+      [
+        'export interface Bag {',
+        '  [key: string]: number;',
+        '}',
+        'export function add(a: number, b: number): number;',
+        'export function add(a: string, b: string): string;',
+        'export function add(a: any, b: any): any {',
+        '  return a + b;',
+        '}',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'import.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Import assertions" target="./target.kern" coverage=false',
+        '  it name="checks imported KERN"',
+        '    expect import="./fixture.ts" contains="interface name=Bag export=true"',
+        '    expect import=true from="./fixture.ts" contains="overload params=\\"a:number,b:number\\" returns=number"',
+        '    expect import="./fixture.ts" notContains="TODO(unmapped)"',
+        '    expect import="./fixture.ts" no=unmapped',
+        '    expect import="./fixture.ts" unmapped=0',
+        '    expect import="./fixture.ts" roundtrip=true',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.results.map((result) => result.ruleId)).toEqual([
+      'import',
+      'import',
+      'import',
+      'import',
+      'import',
+      'import',
+    ]);
+  });
+
+  test('reports TypeScript importer assertion mismatches', () => {
+    writeFileSync(join(tmpDir, 'fixture.ts'), 'export interface Bag { [key: string]: number }');
+    const testFile = join(tmpDir, 'import-mismatch.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Import mismatch" coverage=false',
+        '  it name="fails clearly"',
+        '    expect import="./fixture.ts" contains="class name=Missing"',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('import');
+    expect(summary.results[0].message).toContain('Imported KERN does not contain');
+  });
+
+  test('reports unmapped TypeScript importer assertions', () => {
+    writeFileSync(join(tmpDir, 'fixture.ts'), 'debugger;');
+    const testFile = join(tmpDir, 'import-unmapped.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="Import unmapped" coverage=false',
+        '  it name="fails clearly"',
+        '    expect import="./fixture.ts" no=unmapped',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(1);
+    expect(summary.results[0].ruleId).toBe('import');
+    expect(summary.results[0].message).toContain('expected no unmapped TypeScript');
+    expect(summary.results[0].message).toContain('debugger');
   });
 
   test('discovers and runs native test files under a directory', () => {

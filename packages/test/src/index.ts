@@ -1,5 +1,12 @@
 import type { IRNode, ParseDiagnostic, SchemaViolation, SemanticViolation } from '@kernlang/core';
-import { generateCoreNode, parseDocumentWithDiagnostics, validateSchema, validateSemantics } from '@kernlang/core';
+import {
+  decompile,
+  generateCoreNode,
+  importTypeScript,
+  parseDocumentWithDiagnostics,
+  validateSchema,
+  validateSemantics,
+} from '@kernlang/core';
 import { execFileSync } from 'child_process';
 import type { Dirent } from 'fs';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
@@ -140,6 +147,7 @@ interface EvaluatedAssertion {
 
 interface NativeKernAssertionContext {
   assertions: CollectedAssertion[];
+  testFile?: string;
   fixtures?: RuntimeBinding[];
   mocks?: RuntimeEffectMock[];
   mockCalls?: Map<string, number>;
@@ -168,6 +176,13 @@ interface RuntimeEffectMock {
   col?: number;
 }
 
+interface NativeTestCaseRow {
+  node: IRNode;
+  fixtures: RuntimeBinding[];
+  mocks: RuntimeEffectMock[];
+  label: string;
+}
+
 type RuntimeWorkflowKind = 'route' | 'tool';
 
 interface RuntimeWorkflowProgramOptions {
@@ -178,6 +193,7 @@ interface RuntimeWorkflowProgramOptions {
 interface RuntimeGuardOptions {
   portable?: boolean;
   targetParam?: string;
+  trackCoverage?: boolean;
 }
 
 type RuntimeEvalResult = { ok: true; value: unknown } | { ok: false; error: unknown };
@@ -277,6 +293,10 @@ const NATIVE_KERN_TEST_RULES: NativeKernTestRule[] = [
   {
     ruleId: 'mock:called',
     description: 'Assert how many times a scoped native effect mock was actually invoked.',
+  },
+  {
+    ruleId: 'import',
+    description: 'Assert that a TypeScript fixture imports to expected KERN source and optionally recompiles.',
   },
   {
     ruleId: 'has:invariant',
@@ -571,6 +591,9 @@ function isAssertionConfigurationFailure(message?: string): boolean {
     message.startsWith('Runtime fn assertion ') ||
     message.startsWith('Runtime derive assertion ') ||
     message.startsWith('Runtime behavior assertion ') ||
+    message.startsWith('Runtime route assertion cannot ') ||
+    message.startsWith('Runtime tool assertion cannot ') ||
+    message.startsWith('Runtime effect assertion cannot ') ||
     message.startsWith('Node assertion requires ') ||
     message.startsWith('Node assertion count ') ||
     message === 'Unsupported native expect assertion.' ||
@@ -784,6 +807,20 @@ function collectAssertions(testNode: IRNode): CollectedAssertion[] {
   const suite = str(getProps(testNode).name) || 'unnamed test';
   const assertions: CollectedAssertion[] = [];
   let mockId = 0;
+  const caseMergeProps = new Set([
+    'args',
+    'with',
+    'input',
+    'equals',
+    'returns',
+    'recovers',
+    'fallback',
+    'matches',
+    'throws',
+    'called',
+    'message',
+    'severity',
+  ]);
 
   function runtimeEffectMocks(node: IRNode): RuntimeEffectMock[] {
     return getChildren(node, 'mock')
@@ -791,7 +828,59 @@ function collectAssertions(testNode: IRNode): CollectedAssertion[] {
       .filter((mock): mock is RuntimeEffectMock => mock !== undefined);
   }
 
-  function pushExpectation(node: IRNode, path: string[], fixtures: RuntimeBinding[], mocks: RuntimeEffectMock[]): void {
+  function testCaseRows(node: IRNode, fixtures: RuntimeBinding[], mocks: RuntimeEffectMock[]): NativeTestCaseRow[] {
+    return getChildren(node, 'case').map((caseNode, index) => {
+      const label = str(getProps(caseNode).name) || `case ${index + 1}`;
+      return {
+        node: caseNode,
+        fixtures: [...fixtures, ...runtimeFixtureBindings(caseNode)],
+        mocks: [...mocks, ...runtimeEffectMocks(caseNode)],
+        label,
+      };
+    });
+  }
+
+  function expectationForCase(expectNode: IRNode, caseNode: IRNode): IRNode {
+    const mergedProps = { ...getProps(expectNode) };
+    const quotedProps = new Set(expectNode.__quotedProps || []);
+    const caseQuotedProps = new Set(caseNode.__quotedProps || []);
+
+    for (const [key, value] of Object.entries(getProps(caseNode))) {
+      if (!caseMergeProps.has(key)) continue;
+      mergedProps[key] = value;
+      if (caseQuotedProps.has(key)) quotedProps.add(key);
+      else quotedProps.delete(key);
+    }
+
+    return {
+      ...expectNode,
+      props: mergedProps,
+      __quotedProps: [...quotedProps],
+      loc: caseNode.loc || expectNode.loc,
+      children: (expectNode.children || []).filter((child) => child.type !== 'case'),
+    };
+  }
+
+  function pushExpectation(
+    node: IRNode,
+    path: string[],
+    fixtures: RuntimeBinding[],
+    mocks: RuntimeEffectMock[],
+    cases: NativeTestCaseRow[] = [],
+  ): void {
+    if (cases.length > 0) {
+      for (const testCase of cases) {
+        assertions.push({
+          suite,
+          caseName: [...path, testCase.label].join(' > '),
+          node: expectationForCase(node, testCase.node),
+          fixtures: testCase.fixtures,
+          mocks: testCase.mocks,
+        });
+      }
+      return;
+    }
+
     assertions.push({
       suite,
       caseName: path.length > 0 ? path.join(' > ') : 'top-level',
@@ -806,14 +895,24 @@ function collectAssertions(testNode: IRNode): CollectedAssertion[] {
     const scopedMocks = [...mocks, ...runtimeEffectMocks(node)];
 
     if (node.type === 'expect') {
-      pushExpectation(node, path, scopedFixtures, scopedMocks);
+      pushExpectation(node, path, scopedFixtures, scopedMocks, testCaseRows(node, scopedFixtures, scopedMocks));
       return;
     }
 
     if (node.type === 'it') {
       const nextPath = [...path, str(getProps(node).name) || 'it'];
+      const scopedCases = testCaseRows(node, scopedFixtures, scopedMocks);
       for (const child of node.children || []) {
-        if (child.type === 'expect') pushExpectation(child, nextPath, scopedFixtures, scopedMocks);
+        if (child.type === 'expect') {
+          const expectCases = testCaseRows(child, scopedFixtures, scopedMocks);
+          pushExpectation(
+            child,
+            nextPath,
+            scopedFixtures,
+            scopedMocks,
+            expectCases.length > 0 ? expectCases : scopedCases,
+          );
+        }
       }
       return;
     }
@@ -856,6 +955,11 @@ function assertionLabel(node: IRNode): string {
   const tool = str(props.tool);
   const effect = str(props.effect);
   const mock = str(props.mock);
+  const importAssertion = 'import' in props;
+  const importSource = importAssertionSourcePath(node);
+  const codegen = 'codegen' in props;
+  const decompileAssertion = 'decompile' in props;
+  const roundtrip = 'roundtrip' in props;
   const args = exprToString(props.args);
   const withValue = exprToString(props.with);
   const input = exprToString(props.input);
@@ -863,10 +967,38 @@ function assertionLabel(node: IRNode): string {
   const returns = props.returns === undefined ? '' : exprToString(props.returns) || String(props.returns);
   const fallback = props.fallback === undefined ? '' : exprToString(props.fallback) || String(props.fallback);
   const recovers = props.recovers === undefined ? '' : String(props.recovers || 'true');
+  const contains = props.contains === undefined ? '' : String(props.contains);
+  const notContains = props.notContains === undefined ? '' : String(props.notContains);
   const matches = props.matches === undefined ? '' : String(props.matches);
+  const unmapped = props.unmapped === undefined ? '' : String(props.unmapped);
   const throws = props.throws === undefined ? '' : String(props.throws || 'true');
   const called = props.called === undefined ? '' : String(props.called);
 
+  if (importAssertion) {
+    const parts = [`import${importSource ? ` ${importSource}` : ''}`];
+    if (contains) parts.push(`contains ${contains}`);
+    if (notContains) parts.push(`notContains ${notContains}`);
+    if (matches) parts.push(`matches ${matches}`);
+    if (roundtrip) parts.push('roundtrip');
+    if (unmapped) parts.push(`unmapped ${unmapped}`);
+    if (no === 'unmapped') parts.push('no unmapped');
+    return parts.join(' ');
+  }
+  if (decompileAssertion) {
+    const parts = ['decompile'];
+    if (contains) parts.push(`contains ${contains}`);
+    if (notContains) parts.push(`notContains ${notContains}`);
+    if (matches) parts.push(`matches ${matches}`);
+    return parts.join(' ');
+  }
+  if (roundtrip) return 'roundtrip';
+  if (codegen) {
+    const parts = ['codegen'];
+    if (contains) parts.push(`contains ${contains}`);
+    if (notContains) parts.push(`notContains ${notContains}`);
+    if (matches) parts.push(`matches ${matches}`);
+    return parts.join(' ');
+  }
   if (preset) return `preset ${preset}`;
   if (nodeType) {
     const parts = [`node ${nodeType}`];
@@ -1667,19 +1799,69 @@ function findUntestedGuards(root: IRNode, context: NativeKernAssertionContext | 
   const assertions = context?.assertions || [];
   if (assertions.some((assertion) => assertionCoversAnyInvariant(assertion.node, guardCoverageInvariants))) return [];
 
-  const explicitlyCovered = new Set(assertions.map((assertion) => str(getProps(assertion.node).guard)).filter(Boolean));
+  const covered = coveredGuardKeys(root, assertions);
 
   return collectNodes(root, 'guard')
-    .filter((guard) => {
-      const name = str(getProps(guard).name);
-      return !name || !explicitlyCovered.has(name);
-    })
+    .filter((guard) => !covered.has(runtimeGuardCoverageKey(guard)))
     .map((guard) => {
       const name = str(getProps(guard).name);
       return name
         ? `guard ${name} at line ${guard.loc?.line ?? '?'}`
         : `unnamed guard at line ${guard.loc?.line ?? '?'}`;
     });
+}
+
+function coveredGuardKeys(root: IRNode, assertions: CollectedAssertion[]): Set<string> {
+  const target = syntheticTarget(root);
+  const covered = new Set<string>();
+
+  for (const assertion of assertions) {
+    const props = getProps(assertion.node);
+    const guardName = str(props.guard);
+    if (guardName) {
+      for (const guard of collectNodes(root, 'guard')) {
+        if (str(getProps(guard).name) === guardName) covered.add(runtimeGuardCoverageKey(guard));
+      }
+      continue;
+    }
+
+    const routeSpec = str(props.route);
+    if (routeSpec) {
+      const guardCalls = new Map<string, number>();
+      const evaluated = evaluateRuntimeRoute(
+        assertion.node,
+        target,
+        assertion.fixtures,
+        assertion.mocks,
+        new Map<string, number>(),
+        undefined,
+        guardCalls,
+      );
+      if (evaluated.passed) {
+        for (const [key, count] of guardCalls) if (count > 0) covered.add(key);
+      }
+      continue;
+    }
+
+    const toolName = str(props.tool);
+    if (toolName) {
+      const guardCalls = new Map<string, number>();
+      const evaluated = evaluateRuntimeTool(
+        assertion.node,
+        target,
+        assertion.fixtures,
+        assertion.mocks,
+        new Map<string, number>(),
+        undefined,
+        guardCalls,
+      );
+      if (evaluated.passed) {
+        for (const [key, count] of guardCalls) if (count > 0) covered.add(key);
+      }
+    }
+  }
+
+  return covered;
 }
 
 function coveredRouteLabels(root: IRNode, assertions: CollectedAssertion[]): Set<string> {
@@ -1759,33 +1941,69 @@ function runtimeEffectNodes(root: IRNode): IRNode[] {
   });
 }
 
-function coveredEffectNames(root: IRNode, assertions: CollectedAssertion[]): Set<string> {
+function coveredEffectKeys(root: IRNode, assertions: CollectedAssertion[]): Set<string> {
   const target = syntheticTarget(root);
   const covered = new Set<string>();
 
   for (const assertion of assertions) {
-    const effectName = str(getProps(assertion.node).effect);
-    if (!effectName) continue;
-    const found = findRuntimeEffect(target, effectName);
-    if (!found.effect) continue;
-    const evaluated = evaluateRuntimeEffect(
-      assertion.node,
-      target,
-      assertion.fixtures,
-      assertion.mocks,
-      new Map<string, number>(),
-    );
-    if (evaluated.passed) covered.add(runtimeEffectName(found.effect));
+    const props = getProps(assertion.node);
+    const effectName = str(props.effect);
+    if (effectName) {
+      const found = findRuntimeEffect(target, effectName);
+      if (!found.effect) continue;
+      const evaluated = evaluateRuntimeEffect(
+        assertion.node,
+        target,
+        assertion.fixtures,
+        assertion.mocks,
+        new Map<string, number>(),
+      );
+      if (evaluated.passed) covered.add(runtimeEffectCoverageKey(found.effect));
+      continue;
+    }
+
+    const routeSpec = str(props.route);
+    if (routeSpec) {
+      const effectCalls = new Map<string, number>();
+      const evaluated = evaluateRuntimeRoute(
+        assertion.node,
+        target,
+        assertion.fixtures,
+        assertion.mocks,
+        new Map<string, number>(),
+        effectCalls,
+      );
+      if (evaluated.passed) {
+        for (const [key, count] of effectCalls) if (count > 0) covered.add(key);
+      }
+      continue;
+    }
+
+    const toolName = str(props.tool);
+    if (toolName) {
+      const effectCalls = new Map<string, number>();
+      const evaluated = evaluateRuntimeTool(
+        assertion.node,
+        target,
+        assertion.fixtures,
+        assertion.mocks,
+        new Map<string, number>(),
+        effectCalls,
+      );
+      if (evaluated.passed) {
+        for (const [key, count] of effectCalls) if (count > 0) covered.add(key);
+      }
+    }
   }
 
   return covered;
 }
 
 function effectCoverage(root: IRNode, assertions: CollectedAssertion[]): NativeKernTestCoverageMetric {
-  const covered = coveredEffectNames(root, assertions);
+  const covered = coveredEffectKeys(root, assertions);
   const effects = runtimeEffectNodes(root);
   const uncovered = effects
-    .filter((effect) => !covered.has(runtimeEffectName(effect)))
+    .filter((effect) => !covered.has(runtimeEffectCoverageKey(effect)))
     .map((effect) => `effect ${runtimeEffectName(effect)} at line ${effect.loc?.line ?? '?'}`);
   return coverageMetric(effects.length, uncovered);
 }
@@ -1889,12 +2107,9 @@ function guardCoverage(root: IRNode, assertions: CollectedAssertion[]): NativeKe
     return coverageMetric(guards.length, []);
   }
 
-  const explicitlyCovered = new Set(assertions.map((assertion) => str(getProps(assertion.node).guard)).filter(Boolean));
+  const covered = coveredGuardKeys(root, assertions);
   const uncovered = guards
-    .filter((guard) => {
-      const name = str(getProps(guard).name);
-      return !name || !explicitlyCovered.has(name);
-    })
+    .filter((guard) => !covered.has(runtimeGuardCoverageKey(guard)))
     .map((guard) => {
       const name = str(getProps(guard).name);
       return name
@@ -1964,6 +2179,288 @@ function findCodegenErrors(root: IRNode): string[] {
     }
   }
   return failures;
+}
+
+function generatedCoreSource(root: IRNode): { code?: string; message?: string } {
+  const chunks: string[] = [];
+  for (const node of codegenRoots(root)) {
+    try {
+      chunks.push(...generateCoreNode(node));
+    } catch (error) {
+      return {
+        message: `${nodeLabel(node)} at line ${node.loc?.line ?? '?'}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+  }
+  return { code: chunks.join('\n') };
+}
+
+function decompiledCoreSource(root: IRNode): { code?: string; message?: string } {
+  const chunks: string[] = [];
+  for (const node of codegenRoots(root)) {
+    try {
+      chunks.push(decompile(node).code);
+    } catch (error) {
+      return {
+        message: `${nodeLabel(node)} at line ${node.loc?.line ?? '?'}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+  }
+  return { code: chunks.filter(Boolean).join('\n') };
+}
+
+function evaluateSourceTextAssertion(
+  node: IRNode,
+  source: string,
+  label: string,
+): { passed: boolean; message?: string } {
+  const props = getProps(node);
+  const contains = str(props.contains);
+  const notContains = str(props.notContains);
+  const matches = str(props.matches);
+  if (!contains && !notContains && !matches) {
+    return { passed: false, message: `${label} assertion requires contains=, notContains=, or matches=` };
+  }
+  if (contains && !source.includes(contains)) {
+    return { passed: false, message: `${label} does not contain ${JSON.stringify(contains)}` };
+  }
+  if (notContains && source.includes(notContains)) {
+    return { passed: false, message: `${label} unexpectedly contains ${JSON.stringify(notContains)}` };
+  }
+  if (matches) {
+    try {
+      if (!new RegExp(matches).test(source)) return { passed: false, message: `${label} does not match /${matches}/` };
+    } catch {
+      return { passed: false, message: `Invalid ${label.toLowerCase()} matches regex: ${matches}` };
+    }
+  }
+  return { passed: true };
+}
+
+function evaluateCodegenAssertion(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+  if (!target.root) return { passed: false, message: 'Target has no parsed KERN root' };
+  const generated = generatedCoreSource(target.root);
+  if (generated.message || generated.code === undefined) {
+    return { passed: false, message: `Target has codegen error: ${generated.message || 'unknown error'}` };
+  }
+  return evaluateSourceTextAssertion(node, generated.code, 'Generated code');
+}
+
+function evaluateDecompileAssertion(node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+  if (!target.root) return { passed: false, message: 'Target has no parsed KERN root' };
+  const decompiled = decompiledCoreSource(target.root);
+  if (decompiled.message || decompiled.code === undefined) {
+    return { passed: false, message: `Target has decompile error: ${decompiled.message || 'unknown error'}` };
+  }
+  return evaluateSourceTextAssertion(node, decompiled.code, 'Decompiled KERN');
+}
+
+function evaluateRoundtripAssertion(_node: IRNode, target: LoadedKernDocument): { passed: boolean; message?: string } {
+  const blocking = targetBlockingMessage(target);
+  if (blocking) return { passed: false, message: blocking };
+  if (!target.root) return { passed: false, message: 'Target has no parsed KERN root' };
+
+  const decompiled = decompiledCoreSource(target.root);
+  if (decompiled.message || decompiled.code === undefined) {
+    return { passed: false, message: `Target has decompile error: ${decompiled.message || 'unknown error'}` };
+  }
+
+  const reparsed = parseDocumentWithDiagnostics(decompiled.code);
+  const parseError = reparsed.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+  if (parseError) {
+    return {
+      passed: false,
+      message: `Decompiled KERN does not reparse at ${parseError.line}:${parseError.col}: ${parseError.message}`,
+    };
+  }
+
+  const schemaViolation = validateSchema(reparsed.root)[0];
+  if (schemaViolation) {
+    return {
+      passed: false,
+      message: `Decompiled KERN has schema violation at ${schemaViolation.line ?? 1}:${schemaViolation.col ?? 1}: ${schemaViolation.message}`,
+    };
+  }
+
+  const semanticViolation = validateSemantics(reparsed.root).filter(
+    (violation) => !isMultiSourceTransitionFalsePositive(violation, reparsed.root),
+  )[0];
+  if (semanticViolation) {
+    return {
+      passed: false,
+      message: `Decompiled KERN has semantic violation at ${semanticViolation.line ?? 1}:${semanticViolation.col ?? 1}: ${semanticViolation.message}`,
+    };
+  }
+
+  const originalGenerated = generatedCoreSource(target.root);
+  if (originalGenerated.message || originalGenerated.code === undefined) {
+    return { passed: false, message: `Target has codegen error: ${originalGenerated.message || 'unknown error'}` };
+  }
+  const roundtripGenerated = generatedCoreSource(reparsed.root);
+  if (roundtripGenerated.message || roundtripGenerated.code === undefined) {
+    return {
+      passed: false,
+      message: `Decompiled KERN has codegen error: ${roundtripGenerated.message || 'unknown error'}`,
+    };
+  }
+  if (originalGenerated.code !== roundtripGenerated.code) {
+    return { passed: false, message: 'Round-trip changed generated core code' };
+  }
+
+  return { passed: true };
+}
+
+function importAssertionSourcePath(node: IRNode): string {
+  const props = getProps(node);
+  const importValue = str(props.import);
+  if (importValue && importValue !== 'true') return importValue;
+  return str(props.from) || '';
+}
+
+function resolveImportAssertionSource(
+  node: IRNode,
+  context?: NativeKernAssertionContext,
+): { source?: string; fileName?: string; message?: string } {
+  const props = getProps(node);
+  const inlineSource = str(props.source);
+  if (inlineSource) return { source: inlineSource, fileName: 'inline.ts' };
+
+  const sourcePath = importAssertionSourcePath(node);
+  if (!sourcePath) return { message: 'Import assertion requires import=<ts-file> or from=<ts-file>' };
+
+  const baseDir = context?.testFile ? dirname(context.testFile) : process.cwd();
+  const fileName = resolve(baseDir, sourcePath);
+  try {
+    return { source: readFileSync(fileName, 'utf-8'), fileName };
+  } catch (error) {
+    return {
+      message: `Could not read import source ${sourcePath}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+function evaluateImportedKernRoundtrip(
+  kern: string,
+  options: { allowWarnings?: boolean } = {},
+): { passed: boolean; message?: string } {
+  const reparsed = parseDocumentWithDiagnostics(kern);
+  const parseError = reparsed.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+  if (parseError) {
+    return {
+      passed: false,
+      message: `Imported KERN does not reparse at ${parseError.line}:${parseError.col}: ${parseError.message}`,
+    };
+  }
+  const parseWarning = reparsed.diagnostics.find((diagnostic) => diagnostic.severity === 'warning');
+  if (parseWarning && !options.allowWarnings) {
+    return {
+      passed: false,
+      message: `Imported KERN has parser warning at ${parseWarning.line}:${parseWarning.col}: ${parseWarning.message}`,
+    };
+  }
+
+  const schemaViolation = validateSchema(reparsed.root)[0];
+  if (schemaViolation) {
+    return {
+      passed: false,
+      message: `Imported KERN has schema violation at ${schemaViolation.line ?? 1}:${schemaViolation.col ?? 1}: ${schemaViolation.message}`,
+    };
+  }
+
+  const semanticViolation = validateSemantics(reparsed.root).filter(
+    (violation) => !isMultiSourceTransitionFalsePositive(violation, reparsed.root),
+  )[0];
+  if (semanticViolation) {
+    return {
+      passed: false,
+      message: `Imported KERN has semantic violation at ${semanticViolation.line ?? 1}:${semanticViolation.col ?? 1}: ${semanticViolation.message}`,
+    };
+  }
+
+  const generated = generatedCoreSource(reparsed.root);
+  if (generated.message || generated.code === undefined) {
+    return { passed: false, message: `Imported KERN has codegen error: ${generated.message || 'unknown error'}` };
+  }
+
+  return { passed: true };
+}
+
+function formatImportUnmapped(unmapped: string[]): string {
+  if (unmapped.length === 0) return 'no unmapped TypeScript statements';
+  const shown = unmapped.slice(0, 5).join('; ');
+  const suffix = unmapped.length > 5 ? `; +${unmapped.length - 5} more` : '';
+  return `${unmapped.length} unmapped TypeScript statement(s): ${shown}${suffix}`;
+}
+
+function evaluateImportAssertion(
+  node: IRNode,
+  context?: NativeKernAssertionContext,
+): { passed: boolean; message?: string } {
+  const props = getProps(node);
+  const hasTextAssertion = 'contains' in props || 'notContains' in props || 'matches' in props;
+  const hasRoundtripAssertion = 'roundtrip' in props;
+  const hasUnmappedAssertion = 'unmapped' in props || str(props.no) === 'unmapped';
+  if (!hasTextAssertion && !hasRoundtripAssertion && !hasUnmappedAssertion) {
+    return {
+      passed: false,
+      message:
+        'Import assertion requires contains=, notContains=, matches=, roundtrip=true, unmapped=<count>, or no=unmapped',
+    };
+  }
+
+  const resolved = resolveImportAssertionSource(node, context);
+  if (resolved.message || resolved.source === undefined) {
+    return { passed: false, message: resolved.message || 'Could not resolve import source' };
+  }
+
+  let imported: ReturnType<typeof importTypeScript>;
+  try {
+    imported = importTypeScript(resolved.source, resolved.fileName || 'input.ts');
+  } catch (error) {
+    return {
+      passed: false,
+      message: `TypeScript import failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  if (str(props.no) === 'unmapped' && imported.unmapped.length > 0) {
+    return {
+      passed: false,
+      message: `Import expected no unmapped TypeScript, found ${formatImportUnmapped(imported.unmapped)}`,
+    };
+  }
+  if ('unmapped' in props) {
+    const expected = Number(props.unmapped);
+    if (!Number.isInteger(expected) || expected < 0) {
+      return { passed: false, message: 'Import assertion requires unmapped=<non-negative integer>' };
+    }
+    if (imported.unmapped.length !== expected) {
+      return {
+        passed: false,
+        message: `Import expected ${expected} unmapped TypeScript statement(s), found ${formatImportUnmapped(imported.unmapped)}`,
+      };
+    }
+  }
+
+  if (hasTextAssertion) {
+    const sourceAssertion = evaluateSourceTextAssertion(node, imported.kern, 'Imported KERN');
+    if (!sourceAssertion.passed) return sourceAssertion;
+  }
+
+  if (hasRoundtripAssertion) {
+    const roundtrip = evaluateImportedKernRoundtrip(imported.kern, { allowWarnings: isTruthy(props.allowWarnings) });
+    if (!roundtrip.passed) return roundtrip;
+  }
+
+  return { passed: true };
 }
 
 const RUNTIME_EXPR_TIMEOUT_MS = 100;
@@ -2402,6 +2899,8 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
   const rawExpr = exprPropToRuntimeSource(node, 'expr') || rawPropToRuntimeSource(node, 'expr');
   const expr = options.portable ? runtimePortableSource(rawExpr) : rawExpr;
   const props = getProps(node);
+  const coverageLine = options.trackCoverage ? runtimeGuardCoverageCallLine(node) : undefined;
+  const withCoverage = (lines: string[]) => (coverageLine ? [coverageLine, ...lines] : lines);
   if (expr) {
     const fallback = str(props.else) || str(props.fallback);
     const numericFallback = fallback && /^\d+$/.test(fallback) ? Number(fallback) : undefined;
@@ -2411,7 +2910,7 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
         : fallback
           ? `({ error: ${JSON.stringify(fallback)} })`
           : 'false';
-    return [`if (!(${expr})) return (${result});`];
+    return withCoverage([`if (!(${expr})) return (${result});`]);
   }
 
   if (!options.portable && !options.targetParam) return [];
@@ -2427,14 +2926,14 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
     try {
       new RegExp(pattern);
       if (/([+*}])\s*\)\s*[+*{]/.test(pattern)) {
-        return [
+        return withCoverage([
           `__kernGuardError("GuardConfigError", ${JSON.stringify(`Unsafe sanitize regex for ${target}: ${pattern}`)});`,
-        ];
+        ]);
       }
     } catch {
-      return [
+      return withCoverage([
         `__kernGuardError("GuardConfigError", ${JSON.stringify(`Invalid sanitize regex for ${target}: ${pattern}`)});`,
-      ];
+      ]);
     }
     lines.push(`if (typeof ${target} === "string") {`);
     for (const line of runtimeGuardAssignLines(
@@ -2444,7 +2943,7 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
       lines.push(`  ${line}`);
     }
     lines.push('}');
-    return lines;
+    return withCoverage(lines);
   }
 
   if (kind === 'validate') {
@@ -2480,7 +2979,7 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
         );
       }
     }
-    return lines;
+    return withCoverage(lines);
   }
 
   if (kind === 'pathcontainment' || kind === 'pathcontainmentguard' || kind === 'path') {
@@ -2498,7 +2997,7 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
     lines.push(
       `if (!__kernPathWithin(${target}, ${rootsSource})) __kernGuardError("PathContainmentError", ${JSON.stringify(`${target} escapes allowed directories`)});`,
     );
-    return lines;
+    return withCoverage(lines);
   }
 
   if (kind === 'sizelimit') {
@@ -2507,7 +3006,7 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
     lines.push(
       `if (__kernByteLength(${target}) > ${maxBytes}) __kernGuardError("SizeLimitError", ${JSON.stringify(`${target} exceeds size limit of ${maxBytes} bytes`)});`,
     );
-    return lines;
+    return withCoverage(lines);
   }
 
   if (kind === 'auth') {
@@ -2519,15 +3018,15 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
     lines.push(
       `if (!(${tokenExpr})) __kernGuardError("AuthError", ${JSON.stringify(`Authentication required${tokenTarget ? `: ${tokenTarget}` : ''}`)});`,
     );
-    return lines;
+    return withCoverage(lines);
   }
 
   if (kind === 'ratelimit') {
     const maxRequests = numericProp(props, 'maxRequests') ?? numericProp(props, 'requests') ?? 1;
     if (maxRequests <= 0) {
-      return [`__kernGuardError("RateLimitError", "Rate limit maxRequests must be greater than 0");`];
+      return withCoverage([`__kernGuardError("RateLimitError", "Rate limit maxRequests must be greater than 0");`]);
     }
-    return [];
+    return withCoverage([]);
   }
 
   if (kind === 'urlallowlist' || kind === 'urlvalidation' || kind === 'hostallowlist' || kind === 'domainallowlist') {
@@ -2538,7 +3037,7 @@ function runtimeGuardStatement(node: IRNode, options: RuntimeGuardOptions = {}):
     lines.push(
       `if (!${allowedSource}.includes(__kernUrlHost(${target}))) __kernGuardError("UrlAllowlistError", ${JSON.stringify(`${target} host is not allowlisted`)});`,
     );
-    return lines;
+    return withCoverage(lines);
   }
 
   return [];
@@ -2720,6 +3219,14 @@ function runtimeEffectName(node: IRNode): string {
   return str(getProps(node).name) || 'effect';
 }
 
+function runtimeEffectCoverageKey(node: IRNode): string {
+  return `${runtimeEffectName(node)}:${node.loc?.line ?? '?'}`;
+}
+
+function runtimeGuardCoverageKey(node: IRNode): string {
+  return `${node.loc?.line ?? '?'}:${node.loc?.col ?? '?'}`;
+}
+
 function runtimeEffectTriggerSource(
   node: IRNode,
   options: { portable?: boolean } = {},
@@ -2808,12 +3315,40 @@ function runtimeEffectMockCallLine(mock: RuntimeEffectMock): string {
   return `__kernMockCalls[${id}] = (__kernMockCalls[${id}] || 0) + 1;`;
 }
 
+function runtimeEffectCoverageCallLine(effect: IRNode): string {
+  const key = JSON.stringify(runtimeEffectCoverageKey(effect));
+  return `__kernEffectCalls[${key}] = (__kernEffectCalls[${key}] || 0) + 1;`;
+}
+
+function runtimeGuardCoverageCallLine(guard: IRNode): string {
+  const key = JSON.stringify(runtimeGuardCoverageKey(guard));
+  return `__kernGuardCalls[${key}] = (__kernGuardCalls[${key}] || 0) + 1;`;
+}
+
 function mergeRuntimeEffectMockCalls(mockCalls: Map<string, number> | undefined, calls: unknown): void {
   if (!mockCalls || !calls || typeof calls !== 'object') return;
   for (const [id, count] of Object.entries(calls as Record<string, unknown>)) {
     const numeric = Number(count);
     if (!Number.isFinite(numeric) || numeric <= 0) continue;
     mockCalls.set(id, (mockCalls.get(id) || 0) + numeric);
+  }
+}
+
+function mergeRuntimeEffectCoverageCalls(effectCalls: Map<string, number> | undefined, calls: unknown): void {
+  if (!effectCalls || !calls || typeof calls !== 'object') return;
+  for (const [key, count] of Object.entries(calls as Record<string, unknown>)) {
+    const numeric = Number(count);
+    if (!Number.isFinite(numeric) || numeric <= 0) continue;
+    effectCalls.set(key, (effectCalls.get(key) || 0) + numeric);
+  }
+}
+
+function mergeRuntimeGuardCoverageCalls(guardCalls: Map<string, number> | undefined, calls: unknown): void {
+  if (!guardCalls || !calls || typeof calls !== 'object') return;
+  for (const [key, count] of Object.entries(calls as Record<string, unknown>)) {
+    const numeric = Number(count);
+    if (!Number.isFinite(numeric) || numeric <= 0) continue;
+    guardCalls.set(key, (guardCalls.get(key) || 0) + numeric);
   }
 }
 
@@ -2910,10 +3445,10 @@ function runtimeRouteChildProgram(
 
   for (const child of children) {
     if (child.type === 'handler') {
-      return {
-        lines: [],
-        message: `Runtime ${workflowKind} assertions execute portable KERN ${workflowKind} nodes; handler blocks remain backend/runtime tests.`,
-      };
+      const handler = runtimeWorkflowHandlerLines(child, workflowKind);
+      if (handler.message) return handler;
+      lines.push(...handler.lines);
+      continue;
     }
     if (child.type === 'effect') {
       const effectName = runtimeEffectName(child);
@@ -2931,6 +3466,7 @@ function runtimeRouteChildProgram(
             message: mocked.message || `Runtime ${workflowKind} mock effect ${effectName} cannot be simulated`,
           };
         }
+        lines.push(runtimeEffectCoverageCallLine(child));
         lines.push(runtimeEffectMockCallLine(scopedMock.mock));
         lines.push(`const ${effectName} = await (${mocked.expr});`);
         continue;
@@ -2943,6 +3479,7 @@ function runtimeRouteChildProgram(
           message: effect.message || `Runtime ${workflowKind} effect ${effectName} cannot be simulated`,
         };
       }
+      lines.push(runtimeEffectCoverageCallLine(child));
       lines.push(`const ${effectName} = await (${effect.expr});`);
       continue;
     }
@@ -2953,7 +3490,7 @@ function runtimeRouteChildProgram(
     }
 
     if (child.type === 'guard') {
-      lines.push(...runtimeGuardStatement(child, { portable: true }));
+      lines.push(...runtimeGuardStatement(child, { portable: true, trackCoverage: true }));
       continue;
     }
 
@@ -2994,6 +3531,22 @@ function runtimeRouteChildProgram(
 
   lines.push('return undefined;');
   return { lines };
+}
+
+function runtimeWorkflowHandlerLines(
+  node: IRNode,
+  workflowKind: RuntimeWorkflowKind,
+): { lines: string[]; message?: string } {
+  const code = str(getProps(node).code).trim();
+  if (!code) return { lines: [] };
+  const problem = unsafeRuntimeWorkflowReason(code);
+  if (problem) {
+    return {
+      lines: [],
+      message: `Runtime ${workflowKind} assertion cannot execute handler: ${problem}`,
+    };
+  }
+  return { lines: code.split('\n') };
 }
 
 function runtimeRouteBranchExecutionExpr(node: IRNode, options: RuntimeWorkflowProgramOptions = {}): string {
@@ -3055,13 +3608,17 @@ function runtimeRouteExecutionExpr(
 
   const bodyLines = [...runtimeWorkflowHelperLines(), ...request.lines, ...program.lines];
   const lines = ['(async () => {', '  const __kernMockCalls = Object.create(null);'];
+  lines.push('  const __kernEffectCalls = Object.create(null);');
+  lines.push('  const __kernGuardCalls = Object.create(null);');
   if (options.probe) {
     lines.push('  const __kernRunRoute = async () => {');
     for (const line of bodyLines) lines.push(`    ${line}`);
     lines.push('  };');
     lines.push('  try {');
     lines.push('    const __kernValue = await __kernRunRoute();');
-    lines.push('    return { __kernRouteStatus: "returned", value: __kernValue, calls: __kernMockCalls };');
+    lines.push(
+      '    return { __kernRouteStatus: "returned", value: __kernValue, calls: __kernMockCalls, effects: __kernEffectCalls, guards: __kernGuardCalls };',
+    );
     lines.push('  } catch (__kernError) {');
     lines.push('    return {');
     lines.push('      __kernRouteStatus: "thrown",');
@@ -3073,6 +3630,8 @@ function runtimeRouteExecutionExpr(
     lines.push('        stack: __kernError && __kernError.stack ? String(__kernError.stack) : undefined,');
     lines.push('      },');
     lines.push('      calls: __kernMockCalls,');
+    lines.push('      effects: __kernEffectCalls,');
+    lines.push('      guards: __kernGuardCalls,');
     lines.push('    };');
     lines.push('  }');
   } else {
@@ -3128,7 +3687,7 @@ function runtimeToolInputLines(tool: IRNode, inputSource: string): { lines: stri
     lines.push(`__kernGuardSyncParam(${key}, ${item.name});`);
     const paramNode = paramNodeByName(tool, item.name);
     for (const guard of paramNode ? getChildren(paramNode, 'guard') : []) {
-      lines.push(...runtimeGuardStatement(guard, { portable: true, targetParam: item.name }));
+      lines.push(...runtimeGuardStatement(guard, { portable: true, targetParam: item.name, trackCoverage: true }));
     }
   }
 
@@ -3148,13 +3707,17 @@ function runtimeToolExecutionExpr(
 
   const bodyLines = [...runtimeWorkflowHelperLines(), ...input.lines, ...program.lines];
   const lines = ['(async () => {', '  const __kernMockCalls = Object.create(null);'];
+  lines.push('  const __kernEffectCalls = Object.create(null);');
+  lines.push('  const __kernGuardCalls = Object.create(null);');
   if (options.probe) {
     lines.push('  const __kernRunTool = async () => {');
     for (const line of bodyLines) lines.push(`    ${line}`);
     lines.push('  };');
     lines.push('  try {');
     lines.push('    const __kernValue = await __kernRunTool();');
-    lines.push('    return { __kernToolStatus: "returned", value: __kernValue, calls: __kernMockCalls };');
+    lines.push(
+      '    return { __kernToolStatus: "returned", value: __kernValue, calls: __kernMockCalls, effects: __kernEffectCalls, guards: __kernGuardCalls };',
+    );
     lines.push('  } catch (__kernError) {');
     lines.push('    return {');
     lines.push('      __kernToolStatus: "thrown",');
@@ -3166,6 +3729,8 @@ function runtimeToolExecutionExpr(
     lines.push('        stack: __kernError && __kernError.stack ? String(__kernError.stack) : undefined,');
     lines.push('      },');
     lines.push('      calls: __kernMockCalls,');
+    lines.push('      effects: __kernEffectCalls,');
+    lines.push('      guards: __kernGuardCalls,');
     lines.push('    };');
     lines.push('  }');
   } else {
@@ -3974,6 +4539,8 @@ function evaluateRuntimeRoute(
   fixtures: RuntimeBinding[] = [],
   mocks: RuntimeEffectMock[] = [],
   mockCalls?: Map<string, number>,
+  effectCalls?: Map<string, number>,
+  guardCalls?: Map<string, number>,
 ): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -4027,11 +4594,15 @@ function evaluateRuntimeRoute(
     value?: unknown;
     error?: EncodedRuntimeError;
     calls?: Record<string, number>;
+    effects?: Record<string, number>;
+    guards?: Record<string, number>;
   };
   if (!probe || typeof probe !== 'object' || typeof probe.__kernRouteStatus !== 'string') {
     return { passed: false, message: `${label} returned an invalid runtime probe` };
   }
   mergeRuntimeEffectMockCalls(mockCalls, probe.calls);
+  mergeRuntimeEffectCoverageCalls(effectCalls, probe.effects);
+  mergeRuntimeGuardCoverageCalls(guardCalls, probe.guards);
 
   if ('throws' in props) {
     const expectedRaw = props.throws === true || props.throws === '' ? 'true' : String(props.throws ?? 'true');
@@ -4113,6 +4684,8 @@ function evaluateRuntimeTool(
   fixtures: RuntimeBinding[] = [],
   mocks: RuntimeEffectMock[] = [],
   mockCalls?: Map<string, number>,
+  effectCalls?: Map<string, number>,
+  guardCalls?: Map<string, number>,
 ): { passed: boolean; message?: string } {
   const blocking = targetBlockingMessage(target);
   if (blocking) return { passed: false, message: blocking };
@@ -4167,11 +4740,15 @@ function evaluateRuntimeTool(
     value?: unknown;
     error?: EncodedRuntimeError;
     calls?: Record<string, number>;
+    effects?: Record<string, number>;
+    guards?: Record<string, number>;
   };
   if (!probe || typeof probe !== 'object' || typeof probe.__kernToolStatus !== 'string') {
     return { passed: false, message: `${label} returned an invalid runtime probe` };
   }
   mergeRuntimeEffectMockCalls(mockCalls, probe.calls);
+  mergeRuntimeEffectCoverageCalls(effectCalls, probe.effects);
+  mergeRuntimeGuardCoverageCalls(guardCalls, probe.guards);
 
   if ('throws' in props) {
     const expectedRaw = props.throws === true || props.throws === '' ? 'true' : String(props.throws ?? 'true');
@@ -4911,7 +5488,7 @@ function evaluateNoInvariant(
     return untested.length > 0
       ? {
           passed: false,
-          message: `Found untested guards: ${untested.join('; ')}. Add expect guard=<name> exhaustive=true or a guard-wide assertion such as expect preset=guard.`,
+          message: `Found untested guards: ${untested.join('; ')}. Add expect guard=<name> exhaustive=true, a route/tool workflow assertion that executes the guard, or a guard-wide assertion such as expect preset=guard.`,
         }
       : { passed: true };
   }
@@ -5421,6 +5998,54 @@ function evaluateNativeAssertion(
   context?: NativeKernAssertionContext,
 ): EvaluatedAssertion[] {
   const props = getProps(node);
+  if ('decompile' in props) {
+    const evaluated = evaluateDecompileAssertion(node, target);
+    return [
+      {
+        ruleId: 'decompile',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('import' in props) {
+    const evaluated = evaluateImportAssertion(node, context);
+    return [
+      {
+        ruleId: 'import',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('roundtrip' in props) {
+    const evaluated = evaluateRoundtripAssertion(node, target);
+    return [
+      {
+        ruleId: 'roundtrip',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
+  if ('codegen' in props) {
+    const evaluated = evaluateCodegenAssertion(node, target);
+    return [
+      {
+        ruleId: 'codegen',
+        assertion: assertionLabel(node),
+        passed: evaluated.passed,
+        ...(isAssertionConfigurationFailure(evaluated.message) ? { severity: 'error' as const } : {}),
+        ...(evaluated.message ? { message: evaluated.message } : {}),
+      },
+    ];
+  }
   if ('preset' in props) return evaluatePresetAssertion(node, target, context);
   if ('node' in props) {
     const evaluated = evaluateNodeAssertion(node, target);
@@ -5749,6 +6374,7 @@ export function runNativeKernTests(file: string, options: NativeKernTestOptions 
     for (const assertion of assertions) {
       const context: NativeKernAssertionContext = {
         assertions,
+        testFile: inputPath,
         fixtures: assertion.fixtures,
         mocks: assertion.mocks,
         mockCalls,

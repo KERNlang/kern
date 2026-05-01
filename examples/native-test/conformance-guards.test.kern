@@ -6,3 +6,6 @@ test name="Guard runtime conformance" target="./conformance-guards.kern"
     expect tool=listUsers with={{({ limit: 99 })}} throws=ValidationError
     expect route="GET /items/:id" with={{({ params: { id: "item-1" } })}} returns={{"item-1"}}
     expect route="GET /items/:id" with={{({ params: { id: "bad" } })}} throws=ValidationError
+
+  it name="suite covers guard surface"
+    expect preset=coverage

@@ -244,6 +244,33 @@ describe('Schema Validation', () => {
       expect(v).toHaveLength(0);
     });
 
+    it('allows native codegen assertions', () => {
+      const v = validate(
+        [
+          'test name="Codegen" target="./source.kern"',
+          '  it name="checks output"',
+          '    expect codegen contains="function retry"',
+          '    expect codegen notContains="function bad"',
+          '    expect codegen matches="retry\\\\("',
+        ].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
+
+    it('allows native decompile and roundtrip assertions', () => {
+      const v = validate(
+        [
+          'test name="Roundtrip" target="./source.kern"',
+          '  it name="checks source regeneration"',
+          '    expect decompile contains="param name=attempts"',
+          '    expect decompile notContains="kind=const"',
+          '    expect decompile matches="binding name=id"',
+          '    expect roundtrip=true',
+        ].join('\n'),
+      );
+      expect(v).toHaveLength(0);
+    });
+
     it('flags native effect mocks without behavior', () => {
       const v = validate(
         ['test name="Effect behavior"', '  it name="mocks effect boundary"', '    mock effect=fetchUsers'].join('\n'),

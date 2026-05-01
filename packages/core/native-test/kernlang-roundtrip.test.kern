@@ -1,0 +1,16 @@
+test name="KERNlang decompile roundtrip self contracts" target="./kernlang-roundtrip.kern" coverage=false
+  it name="param values decompile to canonical KERN"
+    expect decompile contains="param name=attempts type=number value=3"
+    expect decompile contains="param name=ts type=number value={{Date.now()}}"
+    expect decompile contains="param name=name type=string value=\"world\""
+    expect decompile contains="param name=kind type=\"'draft'|'done'\""
+    expect decompile contains="param name=salutation type=string optional=true"
+    expect decompile contains="param name=parts type=\"string[]\" variadic=true"
+
+  it name="destructured params and statements roundtrip"
+    expect decompile contains="param type=Point"
+    expect decompile contains="binding name=x"
+    expect decompile contains="binding name=mail key=email"
+    expect decompile contains="element name=second index=1"
+    expect decompile notContains="kind=const"
+    expect roundtrip=true

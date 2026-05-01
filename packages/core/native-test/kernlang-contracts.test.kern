@@ -20,16 +20,20 @@ test name="KERNlang native self contracts" target="./kernlang-contracts.kern"
     expect expr={{activeUsers.every((user) => user.active)}} equals=true
 
   it name="routes execute as source workflows"
-    expect route="GET /users" with={{({ query: { role: "admin" } })}} returns={{adminUsers}}
-    expect route="GET /users" returns={{visibleUsers}}
-    expect route="GET /users/:id" with={{({ params: { id: "u1" } })}} returns={{({ id: "u1", name: "Ada", role: "admin", active: true })}}
-    expect route="GET /users/:id" with={{({ params: { id: "bad" } })}} throws=ValidationError
+    expect route="GET /users"
+      case name=admin with={{({ query: { role: "admin" } })}} returns={{adminUsers}}
+      case name=default returns={{visibleUsers}}
+    expect route="GET /users/:id"
+      case name=found with={{({ params: { id: "u1" } })}} returns={{({ id: "u1", name: "Ada", role: "admin", active: true })}}
+      case name=invalid with={{({ params: { id: "bad" } })}} throws=ValidationError
 
   it name="tools and deterministic effects execute before backend codegen"
-    expect tool=filterUsers with={{({ role: "member" })}} returns={{memberUsers}}
-    expect tool=filterUsers with={{({ role: "<admin>" })}} returns={{adminUsers}}
-    expect tool=readSafe with={{({ filePath: "/data/readme.md" })}} returns={{"/data/readme.md"}}
-    expect tool=readSafe with={{({ filePath: "/etc/passwd" })}} throws=PathContainmentError
+    expect tool=filterUsers
+      case name=member with={{({ role: "member" })}} returns={{memberUsers}}
+      case name=sanitized with={{({ role: "<admin>" })}} returns={{adminUsers}}
+    expect tool=readSafe
+      case name=inside with={{({ filePath: "/data/readme.md" })}} returns={{"/data/readme.md"}}
+      case name=outside with={{({ filePath: "/etc/passwd" })}} throws=PathContainmentError
     expect effect=loadUsers returns={{visibleUsers}}
 
   it name="native coverage proves KERN source is first-class"
