@@ -68,6 +68,10 @@ const NEG_PATTERNS: ReadonlyArray<RegExp> = [
   /\binstanceof\b/,
   /^\s*import\b/m,
   /\brequire\(/,
+  // Destructuring declarations — slice 4d only supports `let name=X value=EXPR`
+  // single-binding form. `const { a, b } = obj` and `let [x, y] = arr` would
+  // need the slice 5b rewriter to expand into multiple let-bindings.
+  /\b(?:const|let|var)\s*[{[]/,
   /\bthis\.\w+\s*=/,
   /\bconsole\.\w/,
   /\bprocess\.\w/,

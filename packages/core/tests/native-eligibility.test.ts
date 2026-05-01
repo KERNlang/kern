@@ -119,6 +119,21 @@ describe('classifyHandlerBody — disqualifiers', () => {
     // disqualifier — the test pins the actual reported reason.
     rejected(`do {\n  i++;\n} while (i < 5);`, '\\bwhile\\s*\\(');
   });
+
+  // Destructuring gap — flagged by all three buddies (Codex/Gemini/OpenCode)
+  // in the slice 5a review. Slice 4d only supports the single-binding
+  // `let name=X value=EXPR` form; the rewriter (slice 5b) is what would
+  // expand `let { a, b } = obj` into multiple lets.
+  test('object destructuring const rejected', () =>
+    rejected(`const { a, b } = obj;\nreturn a + b;`, '\\b(?:const|let|var)\\s*[{[]'));
+
+  test('object destructuring let rejected', () =>
+    rejected(`let { a } = obj;\nreturn a;`, '\\b(?:const|let|var)\\s*[{[]'));
+
+  test('array destructuring rejected', () =>
+    rejected(`const [first, ...rest] = xs;\nreturn first;`, '\\b(?:const|let|var)\\s*[{[]'));
+
+  test('var destructuring rejected', () => rejected(`var { x } = obj;\nreturn x;`, '\\b(?:const|let|var)\\s*[{[]'));
 });
 
 describe('extractRawBodies', () => {
