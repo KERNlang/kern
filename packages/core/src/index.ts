@@ -122,6 +122,10 @@ export type { ImportResult } from './importer.js';
 export { escapeKernString, importTypeScript } from './importer.js';
 export type { GapCategory, GapClassification } from './migrate-literals.js';
 export { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } from './migrate-literals.js';
+// Native KERN handler eligibility (slice 5a) — heuristic classifier used by
+// the diagnostic layer and the future `kern migrate native-handlers` CLI.
+export type { EligibilityResult, FileEligibilityReport, RawBody } from './native-eligibility.js';
+export { classifyHandlerBody, extractRawBodies, scanFileForEligibility } from './native-eligibility.js';
 export type {
   ActionProps,
   AssumeProps,
