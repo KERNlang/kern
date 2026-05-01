@@ -60,7 +60,7 @@ export interface LLMBridgeConfig {
   model?: string;
   baseUrl?: string;
   timeout?: number; // ms, default 60000
-  maxTokens?: number; // output token cap; default 16384
+  maxTokens?: number; // output token cap; default 32768
   /** Max input tokens per batch. Defaults to a value derived from
    *  DEFAULT_CONTEXT_WINDOW_TOKENS, maxTokens, and prompt overhead.
    *  Callers should pass a value derived from the model's actual
@@ -79,7 +79,7 @@ export interface ReviewInstructionOptions {
 function resolveConfig(override?: LLMBridgeConfig): Required<LLMBridgeConfig> & { available: boolean } {
   const apiKey = override?.apiKey || process.env.KERN_LLM_API_KEY || '';
   const model = override?.model || process.env.KERN_LLM_MODEL || '';
-  const maxTokens = override?.maxTokens || 16384;
+  const maxTokens = override?.maxTokens || 32_768;
   return {
     apiKey,
     model,
@@ -227,25 +227,29 @@ export function isHighValueFinding(f: ReviewFinding): boolean {
   return f.severity !== 'info' && (f.confidence === undefined || f.confidence >= 0.5);
 }
 
-/** Conservative default context window for OpenAI-compatible providers.
- *  Larger-context callers can pass LLMBridgeConfig.maxBatchTokens. */
-const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
+/** Default context window for modern frontier coding models. Sized for
+ *  the floor of current providers — Kimi For Coding k2p6 (256K), Claude
+ *  Haiku 4.5 / Sonnet 4.6 (200K), Gemini 2.5 (1M+). Smaller-context
+ *  callers (8K local models, GPT-4o at 128K) should pass an explicit
+ *  LLMBridgeConfig.maxBatchTokens. */
+const DEFAULT_CONTEXT_WINDOW_TOKENS = 256_000;
 
 /** Extra non-input overhead beyond maxTokens: system prompt, schema, provider
  *  framing, and estimation error. */
 const DEFAULT_NON_INPUT_HEADROOM_TOKENS = 4_000;
 
 /** Default input ceiling when the caller doesn't pass `maxBatchTokens`.
- *  It leaves room for the default 16K output cap plus prompt/schema
- *  overhead on 200K-context models, while still handling large modules
- *  without the old 60K-era chunking pressure.
+ *  Leaves room for the default 32K output cap plus prompt/schema
+ *  overhead on a 256K-context model — yields ~220K input budget, which
+ *  fits realistic large modules in one call without re-introducing the
+ *  old 60K-era chunking pressure.
  *
  *  Originally 60_000, set when 64K-context models were the norm — that
  *  ceiling caused the chunker to skip large modules (exactly the files
  *  most worth reviewing) on installs running modern providers. Callers
  *  should override via `LLMBridgeConfig.maxBatchTokens` when they know
  *  the actual context window (e.g. ~78% of contextWindow). */
-export const DEFAULT_MAX_BATCH_TOKENS = DEFAULT_CONTEXT_WINDOW_TOKENS - 16_384 - DEFAULT_NON_INPUT_HEADROOM_TOKENS;
+export const DEFAULT_MAX_BATCH_TOKENS = DEFAULT_CONTEXT_WINDOW_TOKENS - 32_768 - DEFAULT_NON_INPUT_HEADROOM_TOKENS;
 
 function defaultMaxBatchTokens(maxTokens: number): number {
   return Math.max(10_000, DEFAULT_CONTEXT_WINDOW_TOKENS - maxTokens - DEFAULT_NON_INPUT_HEADROOM_TOKENS);
