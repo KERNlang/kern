@@ -9,6 +9,7 @@ import type { Token } from './parser-tokenizer.js';
 import { tokenizeLineInternal } from './parser-tokenizer.js';
 import { validateEffects } from './parser-validate-effects.js';
 import { validateExpressions } from './parser-validate-expressions.js';
+import { validateNativeEligible } from './parser-validate-native-eligible.js';
 import { validateAndRewritePropagation } from './parser-validate-propagation.js';
 import { validateUnionKind } from './parser-validate-union-kind.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
@@ -653,6 +654,7 @@ export function parseInternal(
   validateEffects(state, root);
   validateUnionKind(state, root);
   validateAndRewritePropagation(state, root, options?.resolveImport);
+  validateNativeEligible(state, root);
   commitParseState(state, rt);
 
   // Count __error nodes for partial compilation support
