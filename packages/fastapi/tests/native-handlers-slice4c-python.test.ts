@@ -1,7 +1,6 @@
 /** Native KERN handler bodies — slice 4c (try/catch/throw, Python target). */
 
 import type { IRNode } from '@kernlang/core';
-import { parseExpression } from '@kernlang/core';
 import { emitNativeKernBodyPython } from '../src/codegen-body-python.js';
 
 function makeHandler(children: IRNode[]): IRNode {

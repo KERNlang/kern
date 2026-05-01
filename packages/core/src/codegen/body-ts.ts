@@ -230,6 +230,7 @@ function emitThrowTS(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const valueIR = parseExpression(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
+    rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
     const inner = emitExpression(valueIR.argument);
     return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`, `throw ${tmp}.value;`];

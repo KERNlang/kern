@@ -65,6 +65,20 @@ describe('slice 4c+4d review fix — `?` propagation inside `try` rejection (Pyt
     expect(() => emitNativeKernBodyPython(handler)).toThrow(/'\?' is not allowed inside a `try` block/);
   });
 
+  test('`throw call()?` inside try also throws', () => {
+    // Mirror of the TS test — Python's emitThrowPy already had the guard,
+    // but the test was missing. Codex's pre-push review surfaced both gaps.
+    const handler = makeHandler([
+      {
+        type: 'try',
+        props: {},
+        children: [{ type: 'throw', props: { value: 'call()?' } }],
+      },
+      { type: 'catch', props: { name: 'e' }, children: [] },
+    ]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/'\?' is not allowed inside a `try` block/);
+  });
+
   test('top-level `?` propagation still works as before', () => {
     const handler = makeHandler([{ type: 'return', props: { value: 'call()?' } }]);
     const out = emitNativeKernBodyPython(handler);

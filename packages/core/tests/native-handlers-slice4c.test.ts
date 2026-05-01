@@ -1,7 +1,6 @@
 /** Native KERN handler bodies — slice 4c (try/catch/throw, TS target). */
 
 import { emitNativeKernBodyTS } from '../src/codegen/body-ts.js';
-import { parseExpression } from '../src/parser-expression.js';
 import type { IRNode } from '../src/types.js';
 
 function makeHandler(children: IRNode[]): IRNode {

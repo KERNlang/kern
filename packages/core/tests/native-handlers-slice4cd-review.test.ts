@@ -60,6 +60,22 @@ describe('slice 4c+4d review fix — `?` propagation inside `try` rejection (TS)
     expect(() => emitNativeKernBodyTS(handler)).toThrow(/'\?' is not allowed inside a `try` block/);
   });
 
+  test('`throw call()?` inside try also throws', () => {
+    // Without the guard, the propagation hoist emits an err-branch `return`
+    // that silently bypasses the enclosing catch — same root cause as
+    // let-in-try and return-in-try. Codex caught the asymmetry: Python's
+    // emitThrowPy had the guard, TS's emitThrowTS did not.
+    const handler = makeHandler([
+      {
+        type: 'try',
+        props: {},
+        children: [{ type: 'throw', props: { value: 'call()?' } }],
+      },
+      { type: 'catch', props: { name: 'e' }, children: [] },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/'\?' is not allowed inside a `try` block/);
+  });
+
   test('top-level (outside try) `?` propagation still works as before', () => {
     // Sanity: the new restriction is scoped to inside-try only. Outside
     // try, the existing slice-1 propagation hoist semantics still apply.
