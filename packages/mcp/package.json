@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/mcp",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "description": "Kern MCP server transpiler — compile .kern to secure MCP servers",
   "type": "module",
   "main": "./dist/index.js",
