@@ -378,6 +378,29 @@ function emptyUsage(): LLMUsage {
   return { requestCount: 0, requestDurationsMs: [] };
 }
 
+// Walk the Error.cause chain so the surfaced message names the actual
+// failure, not undici's generic "fetch failed" wrapper. Common causes:
+// ConnectTimeoutError (host unreachable), SocketError (RST), or a typo
+// in baseUrl that yields a relative URL — without the cause, all three
+// look identical in the finding row.
+function describeError(err: unknown): string {
+  const seen = new Set<unknown>();
+  const parts: string[] = [];
+  let cur: unknown = err;
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    if (cur instanceof Error) {
+      const name = cur.name && cur.name !== 'Error' ? `${cur.name}: ` : '';
+      parts.push(`${name}${cur.message}`);
+      cur = (cur as { cause?: unknown }).cause;
+    } else {
+      parts.push(String(cur));
+      break;
+    }
+  }
+  return parts.join(' — ') || 'unknown error';
+}
+
 function mergeUsage(into: LLMUsage, call: LLMCallResult): void {
   into.requestCount += 1;
   into.requestDurationsMs.push(call.durationMs);
@@ -469,7 +492,7 @@ export async function runLLMReview(
         ruleId: 'llm-error',
         severity: 'info',
         category: 'bug',
-        message: `LLM batch failed: ${(err as Error).message}`,
+        message: `LLM batch failed: ${describeError(err)}`,
         primarySpan: { file: batch[0]?.filePath || '', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
         fingerprint: `llm-error-batch-${batch[0]?.filePath || ''}`,
       });
@@ -579,7 +602,7 @@ async function reviewBatch(
       ruleId: 'llm-error',
       severity: 'info',
       category: 'bug',
-      message: `LLM review failed: ${(err as Error).message}`,
+      message: `LLM review failed: ${describeError(err)}`,
       primarySpan: { file: inputs[0]?.filePath || '', startLine: 0, startCol: 0, endLine: 0, endCol: 0 },
       fingerprint: 'llm-error-0',
     });
