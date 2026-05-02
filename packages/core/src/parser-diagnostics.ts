@@ -36,6 +36,8 @@ const DIAGNOSTIC_SUGGESTIONS: Record<ParseErrorCode, string> = {
     'Chained `??` is not supported — bind the intermediate value to a `let`/`const` and propagate each step explicitly.',
   UNSAFE_UNWRAP_IN_RESULT_FN:
     'A function returning Result/Option is using `!` (panic) instead of `?` (propagate). Switch to `?` to keep the rich error shape.',
+  NATIVE_KERN_ELIGIBLE:
+    'Add `lang="kern"` to this handler and convert the body to KERN structured statements (let/return/if/each/try/throw) for native cross-target validation.',
 };
 
 export function createParseState(): ParseState {

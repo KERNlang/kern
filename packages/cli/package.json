@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/cli",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "description": "KERN CLI — transpile, compile, minify, and analyze .kern files",
   "type": "module",
   "main": "./dist/index.js",

@@ -122,6 +122,10 @@ export type { ImportResult } from './importer.js';
 export { escapeKernString, importTypeScript } from './importer.js';
 export type { GapCategory, GapClassification } from './migrate-literals.js';
 export { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } from './migrate-literals.js';
+// Native KERN handler eligibility (slice 5a) — heuristic classifier used by
+// the diagnostic layer and the future `kern migrate native-handlers` CLI.
+export type { EligibilityResult, FileEligibilityReport, RawBody } from './native-eligibility.js';
+export { classifyHandlerBody, extractRawBodies, scanFileForEligibility } from './native-eligibility.js';
 export type {
   ActionProps,
   AssumeProps,
@@ -190,6 +194,10 @@ export {
 export type { ParseOptions } from './parser-core.js';
 // Native KERN handler bodies (slice 1) — expression parsing + body emit
 export { parseExpression } from './parser-expression.js';
+// Exported so unit tests can drive the validator directly with hand-built IR
+// (the parser drops `lang="kern" <<< raw >>>` bodies, so the lang-skip branch
+// can't be exercised end-to-end through the parser).
+export { collectNativeEligibleHints, validateNativeEligible } from './parser-validate-native-eligible.js';
 // Slice 7 v2 — cross-module recognition surface for `?`/`!` propagation.
 export type { ImportResolver, ModuleExports } from './parser-validate-propagation.js';
 export type { ParserHintsConfig } from './runtime.js';

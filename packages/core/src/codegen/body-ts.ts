@@ -129,25 +129,46 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
     } else if (child.type === 'try') {
       // Slice 4c — try/catch control flow.
-      // Slice 4c review fix (OpenCode + Gemini high): orphan `try` produces
-      // a syntactically-incomplete body. Both TS (no-catch try is legal but
-      // semantically wrong) and Python (SyntaxError) need a paired catch;
-      // require the sibling and fail loud if missing.
-      const next = children[i + 1];
-      if (!next || next.type !== 'catch') {
-        throw new Error('`try` must be immediately followed by a `catch` sibling. Found orphan `try` in handler body.');
+      //
+      // Slice 5a deferred-fix (Codex P2-2): the schema declares
+      // `try.allowedChildren = ['step', 'handler', 'catch']` — `catch` is a
+      // CHILD of `try`, NOT a sibling. The previous body-emit read `catch`
+      // as a sibling, which (a) put it out of step with the validator
+      // (schema-compliant `try { catch { … } }` shape couldn't body-emit at
+      // all because validator rejected the legacy sibling shape first) and
+      // (b) silently mis-handled schema-compliant source if the validator
+      // was bypassed. Read child `catch` here to match the schema; treat
+      // legacy sibling shape as orphan since callers writing schema-valid
+      // IR will never emit it.
+      const tryChildren = child.children ?? [];
+      const catchIdx = tryChildren.findIndex((c) => c.type === 'catch');
+      if (catchIdx === -1) {
+        throw new Error('`try` must contain a `catch` child. Found orphan `try` in handler body.');
+      }
+      const catchNode = tryChildren[catchIdx];
+      const tryBlockChildren = tryChildren.filter((c) => c.type !== 'catch');
+      // Slice 5a deferred-fix (Codex): the schema allows `step` and `handler`
+      // as `try` children for the *async orchestration* form (`try name=…`),
+      // not for body-statement try/catch. Body-emit only knows how to emit
+      // body-statements (let/return/if/each/throw/nested try). Reject the
+      // orchestration-only nodes loudly instead of silently dropping them
+      // through the unmatched-child path in emitChildrenTS.
+      const orchestrationChild = tryBlockChildren.find((c) => c.type === 'step' || c.type === 'handler');
+      if (orchestrationChild) {
+        throw new Error(
+          `\`${orchestrationChild.type}\` is only valid inside an async-orchestration \`try name=…\` block, not inside a body-statement \`try\`. Move the steps into the surrounding fn or use a structured orchestration block.`,
+        );
       }
       lines.push(`${indent}try {`);
       ctx.tryDepth++;
-      for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
+      for (const sl of emitChildrenTS(tryBlockChildren, ctx, indent + INDENT_STEP)) lines.push(sl);
       ctx.tryDepth--;
-      const errName = String(next.props?.name ?? 'e');
+      const errName = String(catchNode.props?.name ?? 'e');
       lines.push(`${indent}} catch (${errName}) {`);
-      for (const cl of emitChildrenTS(next.children ?? [], ctx, indent + INDENT_STEP)) lines.push(cl);
-      i++;
+      for (const cl of emitChildrenTS(catchNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(cl);
       lines.push(`${indent}}`);
     } else if (child.type === 'catch') {
-      throw new Error('`catch` must immediately follow a `try` sibling. Found orphan `catch` in handler body.');
+      throw new Error('`catch` must be a child of `try`. Found top-level `catch` in handler body.');
     } else if (child.type === 'throw') {
       // Slice 4c — throw statement.
       for (const line of emitThrowTS(child, ctx)) lines.push(`${indent}${line}`);

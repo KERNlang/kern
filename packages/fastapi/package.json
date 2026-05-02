@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/fastapi",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "description": "Kern FastAPI Python backend transpiler",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,6 +24,9 @@
     "ai"
   ],
   "license": "AGPL-3.0",
+  "engines": {
+    "python": ">=3.8"
+  },
   "scripts": {
     "build": "tsc -b",
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"

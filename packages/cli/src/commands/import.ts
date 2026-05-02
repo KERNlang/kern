@@ -84,7 +84,11 @@ function checkImportedKern(
   result: ImportResult,
 ): Omit<ImportFileReport, 'file' | 'output' | 'stats' | 'unmapped' | 'ok'> {
   const parsed = parseDocumentWithDiagnostics(result.kern);
-  const diagnostics = parsed.diagnostics;
+  // Slice 5a: NATIVE_KERN_ELIGIBLE is an opt-in hint, not an import-quality
+  // signal — every importable TS handler that happens to be eligible would
+  // otherwise flip `ok` to false. Filter at the import-check boundary so the
+  // diagnostic still reaches IDE/API consumers but doesn't gate `kern import`.
+  const diagnostics = parsed.diagnostics.filter((d) => d.code !== 'NATIVE_KERN_ELIGIBLE');
   return {
     diagnostics,
     schemaViolations: validateSchema(parsed.root),

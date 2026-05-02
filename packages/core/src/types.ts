@@ -149,7 +149,8 @@ export type ParseErrorCode =
   | 'KIND_SHAPE_VIOLATION'
   | 'INVALID_PROPAGATION'
   | 'NESTED_PROPAGATION'
-  | 'UNSAFE_UNWRAP_IN_RESULT_FN';
+  | 'UNSAFE_UNWRAP_IN_RESULT_FN'
+  | 'NATIVE_KERN_ELIGIBLE';
 
 export type ParseDiagnosticSeverity = 'error' | 'warning' | 'info';
 

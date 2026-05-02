@@ -654,8 +654,10 @@ class Parser {
         entries.push({ kind: 'spread', argument });
       } else {
         let key: string;
+        let isIdentKey = false;
         if (keyTok.kind === 'ident') {
           key = keyTok.value;
+          isIdentKey = true;
           this.advance();
         } else if (keyTok.kind === 'str') {
           key = keyTok.value;
@@ -663,9 +665,18 @@ class Parser {
         } else {
           throw new Error(`Object literal key must be an identifier, string, or spread at column ${keyTok.pos + 1}`);
         }
-        this.expect('colon');
-        const value = this.parseNullish();
-        entries.push({ key, value });
+        // Shorthand property: `{ user }` is equivalent to `{ user: user }`.
+        // Only valid when the key is a bare identifier (string keys can't
+        // be shorthand). Detect by what follows: comma or rbrace means
+        // shorthand; colon means longhand.
+        const nextKind = this.peek().kind;
+        if (isIdentKey && (nextKind === 'comma' || nextKind === 'rbrace')) {
+          entries.push({ key, value: { kind: 'ident', name: key } });
+        } else {
+          this.expect('colon');
+          const value = this.parseNullish();
+          entries.push({ key, value });
+        }
       }
       if (this.peek().kind === 'comma') {
         this.advance();

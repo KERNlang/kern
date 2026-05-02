@@ -909,6 +909,12 @@ export function reviewKernSource(source: string, filePath = 'input.kern', _confi
   // Map parse diagnostics → ReviewFindings (severity capped at 'warning' unless --strict-parse is enabled)
   const hasParseErrors = parseDiags.some((d) => d.severity === 'error');
   for (const d of parseDiags) {
+    // Slice 5a: NATIVE_KERN_ELIGIBLE is an opt-in hint, not a review finding.
+    // It fires on every raw handler whose body could opt into `lang="kern"`,
+    // which would flood `kern review` output. Filter at this consumer same
+    // as in shared.ts/import.ts; the diagnostic still flows through the
+    // parser API for IDE integrations and the future migrate CLI.
+    if (d.code === 'NATIVE_KERN_ELIGIBLE') continue;
     allFindings.push({
       source: 'kern',
       ruleId: `parse/${d.code}`,
