@@ -188,27 +188,33 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
       throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
     } else if (child.type === 'try') {
       // Slice 4c — try/except control flow.
-      // Slice 4c review fix (OpenCode + Gemini high): orphan `try` is a
-      // SyntaxError in Python (`try:` requires an `except`/`finally`).
-      // Require the catch sibling and fail loud if missing.
-      const next = children[i + 1];
-      if (!next || next.type !== 'catch') {
-        throw new Error('`try` must be immediately followed by a `catch` sibling. Found orphan `try` in handler body.');
+      //
+      // Slice 5a deferred-fix (Codex P2-2): mirror the TS-side change to
+      // read `catch` as a CHILD of `try`, matching the schema's
+      // `try.allowedChildren = ['step', 'handler', 'catch']`. The previous
+      // sibling-shape body-emit was unreachable for schema-validated source
+      // (the validator rejected it first) and miscompiled when invoked
+      // directly with hand-built IR.
+      const tryChildren = child.children ?? [];
+      const catchIdx = tryChildren.findIndex((c) => c.type === 'catch');
+      if (catchIdx === -1) {
+        throw new Error('`try` must contain a `catch` child. Found orphan `try` in handler body.');
       }
+      const catchNode = tryChildren[catchIdx];
+      const tryBlockChildren = tryChildren.filter((c) => c.type !== 'catch');
       lines.push(`${indent}try:`);
       ctx.tryDepth++;
-      const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
+      const inner = emitChildrenPy(tryBlockChildren, ctx, indent + INDENT_STEP);
       ctx.tryDepth--;
       if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
       for (const sl of inner) lines.push(sl);
-      const errName = String(next.props?.name ?? 'e');
+      const errName = String(catchNode.props?.name ?? 'e');
       lines.push(`${indent}except Exception as ${errName}:`);
-      const catchInner = emitChildrenPy(next.children ?? [], ctx, indent + INDENT_STEP);
+      const catchInner = emitChildrenPy(catchNode.children ?? [], ctx, indent + INDENT_STEP);
       if (catchInner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
       for (const cl of catchInner) lines.push(cl);
-      i++;
     } else if (child.type === 'catch') {
-      throw new Error('`catch` must immediately follow a `try` sibling. Found orphan `catch` in handler body.');
+      throw new Error('`catch` must be a child of `try`. Found top-level `catch` in handler body.');
     } else if (child.type === 'throw') {
       for (const line of emitThrowPy(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'each') {
@@ -218,9 +224,21 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
       const listRaw = String(child.props?.in ?? child.props?.list ?? '[]');
       const asName = String(child.props?.name ?? child.props?.as ?? 'item');
       const listIR = parseExpression(listRaw);
-      lines.push(`${indent}for ${asName} in ${emitPyExprCtx(listIR, ctx)}:`);
+      // Slice 5a deferred-fix: TS `for (const item of xs)` is block-scoped
+      // — `item` is undefined after the loop. Python `for item in xs:`
+      // leaks: `item` keeps the last iteration value, and a prior outer
+      // `item` would have been clobbered. We use a gensym for the
+      // iteration variable and unpack into the user-friendly name on each
+      // iteration. After the loop the gensym leaks (Python language
+      // limitation), but the user-facing `asName` is no worse than before
+      // and the inter-loop collision (two `each` with the same `as=`)
+      // works because each loop has a fresh gensym + fresh body-local
+      // alias. Document the residual leak in the spec.
+      const iterVar = `__k_each_${++ctx.gensymCounter}`;
+      lines.push(`${indent}for ${iterVar} in ${emitPyExprCtx(listIR, ctx)}:`);
+      lines.push(`${indent}${INDENT_STEP}${asName} = ${iterVar}`);
       const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
-      if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+      if (inner.length === 0 && asName === iterVar) lines.push(`${indent}${INDENT_STEP}pass`);
       for (const sl of inner) lines.push(sl);
     }
   }
@@ -303,8 +321,32 @@ function emitThrowPy(node: IRNode, ctx: BodyEmitContext): string[] {
     ctx.usedPropagation = true;
     return [`${tmp} = ${inner}`, `if ${tmp}.kind == 'err':`, errPropagationLine(tmp, ctx), `raise ${tmp}.value`];
   }
+  // TS allows `throw "msg"` / `throw 42` — Python `raise X` requires X to be
+  // a BaseException subclass, otherwise raises TypeError. Wrap literal
+  // values in `Exception(...)` so the cross-target lowering matches user
+  // expectations. Calls (`new Error(...)`, `MyError(...)`) and identifiers
+  // (could be a caught exception var) pass through unwrapped.
+  if (NON_EXCEPTION_LITERAL_KINDS.has(valueIR.kind)) {
+    return [`raise Exception(${emitPyExprCtx(valueIR, ctx)})`];
+  }
   return [`raise ${emitPyExprCtx(valueIR, ctx)}`];
 }
+
+/** ValueIR `kind`s that lower to Python literals/values and would trigger
+ *  `TypeError: exceptions must derive from BaseException` if `raise`d
+ *  directly. Calls / new / member access / identifiers are NOT in this
+ *  set — they could legitimately be Exception subclasses. */
+const NON_EXCEPTION_LITERAL_KINDS: ReadonlySet<string> = new Set([
+  'numLit',
+  'strLit',
+  'boolLit',
+  'nullLit',
+  'undefLit',
+  'objectLit',
+  'arrayLit',
+  'tmplLit',
+  'regexLit',
+]);
 
 /** Slice-1 ValueIR → Python expression. Covers the surface that body-ts.ts
  *  emits today; later slices extend per the spec.

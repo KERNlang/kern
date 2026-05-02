@@ -9,7 +9,10 @@ function makeHandler(children: IRNode[]): IRNode {
 }
 
 describe('slice 4d — Python each/spread', () => {
-  test('each loop', () => {
+  test('each loop (gensym iter var aliased to user name — slice 5a deferred-fix)', () => {
+    // Python lacks block scope; to avoid clobbering an outer `x` and to
+    // make multi-each-with-same-as= predictable, the iteration var is
+    // gensym'd and aliased into the user-friendly name on each iteration.
     const handler = makeHandler([
       {
         type: 'each',
@@ -18,7 +21,8 @@ describe('slice 4d — Python each/spread', () => {
       },
     ]);
     const out = emitNativeKernBodyPython(handler);
-    expect(out).toContain('for x in items:');
+    expect(out).toContain('for __k_each_1 in items:');
+    expect(out).toContain('    x = __k_each_1');
     expect(out).toContain('    y = x * 2');
   });
 

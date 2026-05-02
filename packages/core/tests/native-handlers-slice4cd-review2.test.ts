@@ -26,6 +26,7 @@
  */
 
 import { emitNativeKernBodyTS } from '../src/codegen/body-ts.js';
+import { emitExpression } from '../src/codegen-expression.js';
 import { parseExpression } from '../src/parser-expression.js';
 import type { IRNode } from '../src/types.js';
 
@@ -104,5 +105,53 @@ describe('slice 4c+4d review fix (Codex P1) — `each` schema-compliant props', 
     ]);
     const out = emitNativeKernBodyTS(handler);
     expect(out).toContain('for (const fromSchema of schemaItems) {');
+  });
+});
+
+// Slice 5a deferred-fix (Gemini): `{ user }` shorthand was rejected by the
+// parser — it required a colon after every ident key. Now `{ user }`
+// parses as `{ key: "user", value: ident("user") }`, matching JS semantics.
+describe('slice 5a deferred-fix — object literal shorthand properties', () => {
+  test('`{ user }` parses as shorthand', () => {
+    const ir = parseExpression('{ user }');
+    expect(ir.kind).toBe('objectLit');
+    if (ir.kind === 'objectLit') {
+      expect(ir.entries).toEqual([{ key: 'user', value: { kind: 'ident', name: 'user' } }]);
+    }
+  });
+
+  test('`{ user, name }` parses both as shorthand', () => {
+    const ir = parseExpression('{ user, name }');
+    expect(ir.kind).toBe('objectLit');
+    if (ir.kind === 'objectLit') {
+      expect(ir.entries).toEqual([
+        { key: 'user', value: { kind: 'ident', name: 'user' } },
+        { key: 'name', value: { kind: 'ident', name: 'name' } },
+      ]);
+    }
+  });
+
+  test('mixed shorthand + longhand entries', () => {
+    const ir = parseExpression('{ user, role: "admin" }');
+    expect(ir.kind).toBe('objectLit');
+    if (ir.kind === 'objectLit') {
+      expect(ir.entries).toEqual([
+        { key: 'user', value: { kind: 'ident', name: 'user' } },
+        { key: 'role', value: { kind: 'strLit', value: 'admin', quote: '"' } },
+      ]);
+    }
+  });
+
+  test('shorthand emits identical TS source via emitExpression', () => {
+    // Sanity: the codegen lowers shorthand to longhand (`{ user: user }`)
+    // which is functionally identical to JS `{ user }`. Either is fine —
+    // the parser-level shorthand support unblocks the eligibility classifier
+    // and the importer roundtrip.
+    const out = emitExpression(parseExpression('{ user }'));
+    expect(out).toMatch(/^\{ user: ?user \}$/);
+  });
+
+  test('string keys still require colon (shorthand is ident-only)', () => {
+    expect(() => parseExpression('{ "user" }')).toThrow();
   });
 });

@@ -24,6 +24,9 @@
     "ai"
   ],
   "license": "AGPL-3.0",
+  "engines": {
+    "python": ">=3.8"
+  },
   "scripts": {
     "build": "tsc -b",
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"

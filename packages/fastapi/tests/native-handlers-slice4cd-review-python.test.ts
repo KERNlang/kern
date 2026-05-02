@@ -26,29 +26,39 @@ function makeHandler(children: IRNode[]): IRNode {
 }
 
 describe('slice 4c+4d review fix — orphan `try` rejection (Python)', () => {
-  test('try without catch sibling throws with structural error', () => {
+  // Slice 5a deferred-fix: orphan = `try` without a `catch` CHILD.
+  test('try without catch child throws with structural error', () => {
     const handler = makeHandler([{ type: 'try', props: {}, children: [{ type: 'return', props: { value: '1' } }] }]);
-    expect(() => emitNativeKernBodyPython(handler)).toThrow(/Found orphan `try`/);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/orphan `try`/);
   });
 
-  test('try followed by non-catch sibling also throws', () => {
+  test('try with non-catch children only also throws', () => {
     const handler = makeHandler([
-      { type: 'try', props: {}, children: [{ type: 'return', props: { value: '1' } }] },
-      { type: 'return', props: { value: '2' } },
+      {
+        type: 'try',
+        props: {},
+        children: [
+          { type: 'return', props: { value: '1' } },
+          { type: 'let', props: { name: 'x', value: '2' } },
+        ],
+      },
     ]);
-    expect(() => emitNativeKernBodyPython(handler)).toThrow(/Found orphan `try`/);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/orphan `try`/);
   });
 });
 
 describe('slice 4c+4d review fix — `?` propagation inside `try` rejection (Python)', () => {
+  // Slice 5a deferred-fix: catch is a CHILD of try (schema-compliant).
   test('`let x = call()?` inside try throws with let-bind hint', () => {
     const handler = makeHandler([
       {
         type: 'try',
         props: {},
-        children: [{ type: 'let', props: { name: 'x', value: 'call()?' } }],
+        children: [
+          { type: 'let', props: { name: 'x', value: 'call()?' } },
+          { type: 'catch', props: { name: 'e' }, children: [] },
+        ],
       },
-      { type: 'catch', props: { name: 'e' }, children: [] },
     ]);
     expect(() => emitNativeKernBodyPython(handler)).toThrow(/'\?' is not allowed inside a `try` block/);
   });
@@ -58,23 +68,25 @@ describe('slice 4c+4d review fix — `?` propagation inside `try` rejection (Pyt
       {
         type: 'try',
         props: {},
-        children: [{ type: 'return', props: { value: 'call()?' } }],
+        children: [
+          { type: 'return', props: { value: 'call()?' } },
+          { type: 'catch', props: { name: 'e' }, children: [] },
+        ],
       },
-      { type: 'catch', props: { name: 'e' }, children: [] },
     ]);
     expect(() => emitNativeKernBodyPython(handler)).toThrow(/'\?' is not allowed inside a `try` block/);
   });
 
   test('`throw call()?` inside try also throws', () => {
-    // Mirror of the TS test — Python's emitThrowPy already had the guard,
-    // but the test was missing. Codex's pre-push review surfaced both gaps.
     const handler = makeHandler([
       {
         type: 'try',
         props: {},
-        children: [{ type: 'throw', props: { value: 'call()?' } }],
+        children: [
+          { type: 'throw', props: { value: 'call()?' } },
+          { type: 'catch', props: { name: 'e' }, children: [] },
+        ],
       },
-      { type: 'catch', props: { name: 'e' }, children: [] },
     ]);
     expect(() => emitNativeKernBodyPython(handler)).toThrow(/'\?' is not allowed inside a `try` block/);
   });
@@ -93,9 +105,11 @@ describe('slice 4c+4d review fix — `?` propagation inside `try` rejection (Pyt
       {
         type: 'try',
         props: {},
-        children: [{ type: 'return', props: { value: '1' } }],
+        children: [
+          { type: 'return', props: { value: '1' } },
+          { type: 'catch', props: { name: 'e' }, children: [{ type: 'return', props: { value: '2' } }] },
+        ],
       },
-      { type: 'catch', props: { name: 'e' }, children: [{ type: 'return', props: { value: '2' } }] },
       { type: 'return', props: { value: 'call()?' } },
     ]);
     const out = emitNativeKernBodyPython(handler);
