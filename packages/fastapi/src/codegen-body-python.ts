@@ -202,6 +202,15 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
       }
       const catchNode = tryChildren[catchIdx];
       const tryBlockChildren = tryChildren.filter((c) => c.type !== 'catch');
+      // Slice 5a deferred-fix (Codex): see body-ts.ts for the rationale —
+      // `step` / `handler` are valid only inside an async-orchestration
+      // `try name=…` block, not inside body-statement try/catch.
+      const orchestrationChild = tryBlockChildren.find((c) => c.type === 'step' || c.type === 'handler');
+      if (orchestrationChild) {
+        throw new Error(
+          `\`${orchestrationChild.type}\` is only valid inside an async-orchestration \`try name=…\` block, not inside a body-statement \`try\`. Move the steps into the surrounding fn or use a structured orchestration block.`,
+        );
+      }
       lines.push(`${indent}try:`);
       ctx.tryDepth++;
       const inner = emitChildrenPy(tryBlockChildren, ctx, indent + INDENT_STEP);

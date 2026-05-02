@@ -147,6 +147,18 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       }
       const catchNode = tryChildren[catchIdx];
       const tryBlockChildren = tryChildren.filter((c) => c.type !== 'catch');
+      // Slice 5a deferred-fix (Codex): the schema allows `step` and `handler`
+      // as `try` children for the *async orchestration* form (`try name=…`),
+      // not for body-statement try/catch. Body-emit only knows how to emit
+      // body-statements (let/return/if/each/throw/nested try). Reject the
+      // orchestration-only nodes loudly instead of silently dropping them
+      // through the unmatched-child path in emitChildrenTS.
+      const orchestrationChild = tryBlockChildren.find((c) => c.type === 'step' || c.type === 'handler');
+      if (orchestrationChild) {
+        throw new Error(
+          `\`${orchestrationChild.type}\` is only valid inside an async-orchestration \`try name=…\` block, not inside a body-statement \`try\`. Move the steps into the surrounding fn or use a structured orchestration block.`,
+        );
+      }
       lines.push(`${indent}try {`);
       ctx.tryDepth++;
       for (const sl of emitChildrenTS(tryBlockChildren, ctx, indent + INDENT_STEP)) lines.push(sl);

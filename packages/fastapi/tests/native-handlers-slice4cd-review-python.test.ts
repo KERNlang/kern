@@ -45,6 +45,37 @@ describe('slice 4c+4d review fix — orphan `try` rejection (Python)', () => {
     ]);
     expect(() => emitNativeKernBodyPython(handler)).toThrow(/orphan `try`/);
   });
+
+  // Slice 5a deferred-fix (Codex review of the bundle): mirror the TS
+  // rejection of orchestration-only `step` / `handler` children inside
+  // body-statement try blocks.
+  test('body-statement try with `step` child rejects loudly', () => {
+    const handler = makeHandler([
+      {
+        type: 'try',
+        props: {},
+        children: [
+          { type: 'step', props: { name: 'res', await: 'fetch(url)' }, children: [] },
+          { type: 'catch', props: { name: 'e' }, children: [] },
+        ],
+      },
+    ]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/`step` is only valid inside an async-orchestration/);
+  });
+
+  test('body-statement try with `handler` child rejects loudly', () => {
+    const handler = makeHandler([
+      {
+        type: 'try',
+        props: {},
+        children: [
+          { type: 'handler', props: {}, children: [] },
+          { type: 'catch', props: { name: 'e' }, children: [] },
+        ],
+      },
+    ]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/`handler` is only valid inside an async-orchestration/);
+  });
 });
 
 describe('slice 4c+4d review fix — `?` propagation inside `try` rejection (Python)', () => {
