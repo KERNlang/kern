@@ -150,7 +150,8 @@ export type ParseErrorCode =
   | 'INVALID_PROPAGATION'
   | 'NESTED_PROPAGATION'
   | 'UNSAFE_UNWRAP_IN_RESULT_FN'
-  | 'NATIVE_KERN_ELIGIBLE';
+  | 'NATIVE_KERN_ELIGIBLE'
+  | 'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER';
 
 export type ParseDiagnosticSeverity = 'error' | 'warning' | 'info';
 

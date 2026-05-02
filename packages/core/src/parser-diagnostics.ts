@@ -38,6 +38,8 @@ const DIAGNOSTIC_SUGGESTIONS: Record<ParseErrorCode, string> = {
     'A function returning Result/Option is using `!` (panic) instead of `?` (propagate). Switch to `?` to keep the rich error shape.',
   NATIVE_KERN_ELIGIBLE:
     'Add `lang="kern"` to this handler and convert the body to KERN structured statements (let/return/if/each/try/throw) for native cross-target validation.',
+  BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER:
+    'Body-statement nodes (`let`/`return`/`if`/`else`/`each`/`try`/`catch`/`throw`) are only valid inside a `handler lang="kern"` block (or nested in another body-statement). Add `lang="kern"` to the parent handler, or move this node into one.',
 };
 
 export function createParseState(): ParseState {

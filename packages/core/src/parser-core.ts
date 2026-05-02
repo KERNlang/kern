@@ -7,6 +7,7 @@ import { parseStyleBlock } from './parser-style.js';
 import { TokenStream } from './parser-token-stream.js';
 import type { Token } from './parser-tokenizer.js';
 import { tokenizeLineInternal } from './parser-tokenizer.js';
+import { validateBodyStatements } from './parser-validate-body-statements.js';
 import { validateEffects } from './parser-validate-effects.js';
 import { validateExpressions } from './parser-validate-expressions.js';
 import { validateNativeEligible } from './parser-validate-native-eligible.js';
@@ -654,6 +655,7 @@ export function parseInternal(
   validateEffects(state, root);
   validateUnionKind(state, root);
   validateAndRewritePropagation(state, root, options?.resolveImport);
+  validateBodyStatements(state, root);
   validateNativeEligible(state, root);
   commitParseState(state, rt);
 
