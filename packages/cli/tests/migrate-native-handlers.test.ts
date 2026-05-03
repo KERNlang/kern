@@ -257,6 +257,78 @@ describe('rewriteNativeHandlers — round-trip', () => {
   });
 });
 
+describe('rewriteNativeHandlers — review-found regressions', () => {
+  // Codex P2: multi-line expression initializers embed literal newlines into
+  // `value="…"` because escapeKernString does not escape `\n`. Without the
+  // fix, the migrated source would split mid-attribute into invalid KERN.
+  test('bails on multi-line expression initializer', () => {
+    const source = [
+      'fn name=ok returns=any',
+      '  handler <<<',
+      '    const opts = {',
+      '      enabled: true',
+      '    };',
+      '    return opts;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  // Codex P2: single-line TS expressions that pass the slice-5a classifier
+  // but fail KERN's parseExpression (e.g. ternaries, JSX) would emit an
+  // invalid `value=` and only fail later at codegen. parseExpression gating
+  // catches them at rewrite time so the bail is truthful.
+  test('bails on TS-only expression shapes (ternary)', () => {
+    const source = ['fn name=ok returns=any', '  handler <<<', '    return ok ? a : b;', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  // Gemini HIGH: scanner used indexOf('>>>') instead of trimStart-startsWith,
+  // so a body line containing the literal `">>>"` inside a string would be
+  // truncated mid-statement. Mirror parser-core.ts:476 exactly.
+  test("does not terminate body early on a string containing '>>>'", () => {
+    const source = ['fn name=ok returns=string', '  handler <<<', '    return ">>>";', '  >>>'].join('\n');
+    // Slice 5a classifier accepts this body, so the rewriter sees it.
+    // After the fix, the body terminates only on the line that trim-starts
+    // with `>>>`, so the migration is valid.
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('return value="\\">>>\\""');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  // Gemini MED: the prior AST-walk hasComments missed comments inside block
+  // bodies (e.g. `if (c) { // … }`). Scanner-based detection catches all
+  // comment trivia regardless of position.
+  test('detects comments inside if-block bodies', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    if (c) {',
+      '      // explain',
+      '      return 1;',
+      '    }',
+      '    return 0;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  // Gemini MED: trailing comment after the last statement was missed.
+  test('detects trailing comments after the last statement', () => {
+    const source = ['fn name=ok returns=number', '  handler <<<', '    return 1;', '    // tail comment', '  >>>'].join(
+      '\n',
+    );
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+});
+
 describe('rewriteNativeHandlers — multi-handler files', () => {
   test('migrates multiple handlers in one file independently', () => {
     const source = [

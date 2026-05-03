@@ -16,7 +16,7 @@
  * codegen drift.
  */
 
-import { classifyHandlerBody, escapeKernString } from '@kernlang/core';
+import { classifyHandlerBody, escapeKernString, parseExpression } from '@kernlang/core';
 import ts from 'typescript';
 
 export interface NativeHandlerHit {
@@ -61,24 +61,20 @@ function findHandlerBlocks(lines: string[]): HandlerBlock[] {
     const headerIndent = m[1];
     const headerProps = m[2];
 
-    // Find matching `>>>`. Per parser-core.ts:480-489 the close can carry
-    // tail content: `body; >>>` is valid and the parser includes the
-    // pre-`>>>` text in props.code. Mirror that here so the dedent + AST
-    // walk see the same body the parser would.
+    // Find matching `>>>`. Per parser-core.ts:476 the parser ONLY terminates
+    // on lines whose trimmed content starts with `>>>` — `indexOf('>>>')`
+    // would falsely terminate on a body line containing the literal `">>>"`
+    // inside a string or regex. Mirror the parser's predicate exactly.
     let closeIdx = -1;
-    let tailContent: string | null = null;
     for (let j = i + 1; j < lines.length; j++) {
-      const closePos = lines[j].indexOf('>>>');
-      if (closePos === -1) continue;
-      closeIdx = j;
-      const before = lines[j].slice(0, closePos).trim();
-      tailContent = before.length > 0 ? lines[j].slice(0, closePos) : null;
-      break;
+      if (lines[j].trimStart().startsWith('>>>')) {
+        closeIdx = j;
+        break;
+      }
     }
     if (closeIdx === -1) continue;
 
     const bodyLines = lines.slice(i + 1, closeIdx);
-    if (tailContent !== null) bodyLines.push(tailContent);
     if (bodyLines.length === 0) continue;
     const bodyText = dedent(bodyLines);
     blocks.push({ startLine: i, endLine: closeIdx, headerIndent, headerProps, bodyText });
@@ -119,18 +115,21 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
     if (decl.type) return null; // bail on type annotations (body-`let` ignores `type`)
     const name = decl.name.text;
     const exprText = decl.initializer.getText(source);
+    if (!isValidKernExpression(exprText)) return null;
     return [`${indent}let name=${name} value="${escapeKernString(exprText)}"`];
   }
 
   if (ts.isReturnStatement(stmt)) {
     if (!stmt.expression) return [`${indent}return`];
     const exprText = stmt.expression.getText(source);
+    if (!isValidKernExpression(exprText)) return null;
     return [`${indent}return value="${escapeKernString(exprText)}"`];
   }
 
   if (ts.isThrowStatement(stmt)) {
     if (!stmt.expression) return null;
     const exprText = stmt.expression.getText(source);
+    if (!isValidKernExpression(exprText)) return null;
     return [`${indent}throw value="${escapeKernString(exprText)}"`];
   }
 
@@ -149,6 +148,7 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
 
 function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string): string[] | null {
   const condText = stmt.expression.getText(source);
+  if (!isValidKernExpression(condText)) return null;
   const innerIndent = indent + INDENT_STEP;
   const out: string[] = [`${indent}if cond="${escapeKernString(condText)}"`];
 
@@ -209,38 +209,41 @@ function mapBranch(node: ts.Statement, source: ts.SourceFile, indent: string): s
   return out;
 }
 
-/** True when the body text contains line or block comments. Initial cut
- *  bails on these to avoid silent loss. */
+/** True when the body text contains line or block comments. Uses ts.Scanner
+ *  for token-by-token coverage — the prior AST-walk approach missed comments
+ *  inside block bodies (e.g. `if (c) { // missed }`) because `forEachChild`
+ *  does not visit every comment trivia position. Bail-on-comments is the
+ *  initial cut so silent comment loss can't happen. */
 function hasComments(bodyText: string): boolean {
-  // Check via TS scanner so we don't false-positive on `//` inside strings.
-  const sf = ts.createSourceFile('__probe.ts', bodyText, ts.ScriptTarget.Latest, true);
-  let found = false;
-  ts.forEachLeadingCommentRange(bodyText, 0, () => {
-    found = true;
-  });
-  if (found) return true;
-  // Walk every node, check for trailing/leading comments.
-  function walk(n: ts.Node): void {
-    if (found) return;
-    const leading = ts.getLeadingCommentRanges(bodyText, n.getFullStart()) ?? [];
-    if (leading.length > 0) {
-      found = true;
-      return;
-    }
-    const trailing = ts.getTrailingCommentRanges(bodyText, n.getEnd()) ?? [];
-    if (trailing.length > 0) {
-      found = true;
-      return;
-    }
-    n.forEachChild(walk);
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, /*skipTrivia*/ false);
+  scanner.setText(bodyText);
+  while (true) {
+    const kind = scanner.scan();
+    if (kind === ts.SyntaxKind.EndOfFileToken) return false;
+    if (kind === ts.SyntaxKind.SingleLineCommentTrivia || kind === ts.SyntaxKind.MultiLineCommentTrivia) return true;
   }
-  walk(sf);
-  return found;
 }
 
-/** Append `lang="kern"` to a header-props string if not already present. */
+/** Validate that `exprText` (the right-hand side of a body-statement attr)
+ *  is acceptable to KERN's expression parser. Codex review found that single-
+ *  line TS expressions like ternaries pass the slice-5a classifier but fail
+ *  KERN's parseExpression — emitting them blindly produces a `lang="kern"`
+ *  handler that fails later at codegen. Multi-line expressions are also
+ *  rejected here because escapeKernString does not escape newlines, so a
+ *  raw newline inside `value="…"` would split the KERN line. */
+function isValidKernExpression(exprText: string): boolean {
+  if (/\n/.test(exprText)) return false;
+  try {
+    parseExpression(exprText);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Append `lang="kern"` to a header-props string. Caller filters out
+ *  handlers that already carry any `lang=` so we can append unconditionally. */
 function ensureLangKern(headerProps: string): string {
-  if (/\blang=("kern"|kern)\b/.test(headerProps)) return headerProps;
   return headerProps.length === 0 ? 'lang="kern"' : `${headerProps} lang="kern"`;
 }
 
@@ -294,7 +297,9 @@ export function rewriteNativeHandlers(source: string): NativeHandlerResult {
       lines: replacementLines,
       hit: {
         headerLine: block.startLine + 1,
-        literal: block.bodyText.split('\n')[0].trim(),
+        // Trim the whole body before splitting so a leading blank line
+        // doesn't produce an empty `literal` in the migration report.
+        literal: block.bodyText.trim().split('\n')[0],
         valueAttr: `${sourceFile.statements.length} statement${sourceFile.statements.length === 1 ? '' : 's'}`,
       },
     });
