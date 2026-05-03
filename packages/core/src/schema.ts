@@ -533,7 +533,14 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { kind: 'identifier' },
     },
-    allowedChildren: ['step', 'handler', 'catch'],
+    // Two shapes share this `try` node type:
+    // 1. Async-orchestration: `try name=loadUser` with `step`/`handler`/`catch` children.
+    // 2. Body-statement (slice 4c+4d, opt-in via parent `handler lang="kern"`):
+    //    `try` with `let`/`return`/`if`/`throw`/`each`/`try` body-statement children
+    //    plus a required `catch` child. Schema permits both child sets;
+    //    body-ts.ts disambiguates by inspecting the children, and validateBodyStatements
+    //    enforces the body-statement-only constraints when the enclosing handler is `lang="kern"`.
+    allowedChildren: ['step', 'handler', 'catch', 'let', 'return', 'if', 'else', 'each', 'try', 'throw'],
   },
   step: {
     description:
@@ -547,12 +554,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   catch: {
     description:
-      'Catch clause of a `try` block — binds the thrown value to `name` (default `e`) and runs its `handler` body. Must be a direct child of `try`. Without a `catch`, a `try` still surrounds its steps + handler but any rejection propagates unchanged.',
+      'Catch clause of a `try` block — binds the thrown value to `name` (default `e`) and runs its body. In async-orchestration `try`, the body is a single `handler` child. In body-statement `try` (parent `handler lang="kern"`), the body consists of body-statement children. Must be a direct child of `try`. Without a `catch`, a `try` still surrounds its steps + handler but any rejection propagates unchanged.',
     example: 'catch name=err\n  handler <<<\n    setError(err);\n  >>>',
     props: {
       name: { kind: 'identifier' },
     },
-    allowedChildren: ['handler'],
+    allowedChildren: ['handler', 'let', 'return', 'if', 'else', 'each', 'try', 'throw'],
   },
   filter: {
     description:
@@ -1443,11 +1450,40 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   handler: {
     description:
-      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for multiline code.',
+      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`return`/`if`/`else`/`each`/`try`/`catch`/`throw`) for cross-target structured bodies.',
     example: 'handler <<<\n  const result = await doWork();\n  return result;\n>>>',
     props: {
       code: { kind: 'rawBlock' },
       lang: { kind: 'string' },
+    },
+    // Body-statement children apply when `lang="kern"`. Outside that opt-in,
+    // body statements are rejected by validateBodyStatements (the schema list
+    // is intentionally permissive so the validator can produce a clearer
+    // context-aware error).
+    allowedChildren: ['let', 'return', 'if', 'else', 'each', 'try', 'catch', 'throw'],
+  },
+  return: {
+    description:
+      'Body-statement return — emits `return value` (or bare `return;` when `value` is omitted) inside a `lang="kern"` handler body. Only valid as a child of `handler lang="kern"` or another body-statement (if/else/each/try/catch).',
+    example: 'return value="exists"',
+    props: {
+      value: { kind: 'expression' },
+    },
+  },
+  throw: {
+    description:
+      'Body-statement throw — emits `throw expr;` (TS) or `raise expr` (Python). Bare `throw` without `value` emits `throw new Error();`. The TS emitter does NOT wrap `value` in a fresh `Error(...)` constructor — pass `new Error("msg")` explicitly if you want that. Only valid inside a `lang="kern"` handler body.',
+    example: 'throw value="new Error(\\"user not found\\")"',
+    props: {
+      value: { kind: 'expression' },
+    },
+  },
+  if: {
+    description:
+      'Body-statement if — emits `if (cond) { ... }` inside a `lang="kern"` handler body. Optional `else` SIBLING (not child) emits `} else { ... }`. Distinct from the `if=` prop on `conditional` and route-guard nodes.',
+    example: 'if cond="user.active"\n  return value="true"',
+    props: {
+      cond: { required: true, kind: 'expression' },
     },
   },
   conditional: {
