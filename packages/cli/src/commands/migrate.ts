@@ -315,6 +315,7 @@ export interface MigrationDef {
 }
 
 import { rewriteClassBodies } from './migrate-class-body.js';
+import { rewriteNativeHandlers } from './migrate-native-handlers.js';
 
 export const MIGRATIONS: Record<string, MigrationDef> = {
   'literal-const': {
@@ -334,6 +335,12 @@ export const MIGRATIONS: Record<string, MigrationDef> = {
     category: 'migratable',
     summary: 'Convert `const X type=any handler<<<class X{...}>>>` to a `class` node',
     rewrite: rewriteClassBodies,
+  },
+  'native-handlers': {
+    name: 'native-handlers',
+    category: 'migratable',
+    summary: 'Convert raw `<<<…>>>` handler bodies to `lang="kern"` body-statement form',
+    rewrite: rewriteNativeHandlers,
   },
 };
 

@@ -1,0 +1,293 @@
+/** Slice 5b — `kern migrate native-handlers` rewriter tests.
+ *
+ *  Verifies the pure rewriter in isolation. The rewriter takes raw `.kern`
+ *  source containing `handler <<< … >>>` blocks and converts the eligible
+ *  ones to `handler lang="kern"` body-statement form. Anything outside the
+ *  supported AST shape (let/var, destructuring, side-effect calls, comments,
+ *  arrow functions etc.) is skipped — never half-migrated.
+ *
+ *  Round-trip safety is provided by the slice 5b-pre parser surface
+ *  (commit aa5d69e6): rewritten output parses strict and emits the same
+ *  TS as the original raw body would. The `--verify` mode in `runMigrate`
+ *  is the byte-equivalence safety net at file-system level.
+ */
+
+import { parseDocumentStrict } from '@kernlang/core';
+import { rewriteNativeHandlers } from '../src/commands/migrate-native-handlers.js';
+
+describe('rewriteNativeHandlers — supported statement types', () => {
+  test('migrates a let-assignment + return body', () => {
+    const source = [
+      'fn name=greet returns=string',
+      '  handler <<<',
+      '    const msg = who;',
+      '    return msg;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toContain('let name=msg value="who"');
+    expect(result.output).toContain('return value="msg"');
+    expect(result.output).not.toContain('<<<');
+  });
+
+  test('migrates a bare return', () => {
+    const source = ['fn name=ok returns=void', '  handler <<<', '    return;', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toMatch(/^\s*return\s*$/m);
+  });
+
+  test('migrates if/else with sibling layout', () => {
+    const source = [
+      'fn name=classify returns=string',
+      '  handler <<<',
+      '    if (n > 0) {',
+      '      return "positive";',
+      '    } else {',
+      '      return "non-positive";',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('if cond="n > 0"');
+    expect(result.output).toContain('return value="\\"positive\\""');
+    expect(result.output).toMatch(/^\s*else\s*$/m);
+    expect(result.output).toContain('return value="\\"non-positive\\""');
+  });
+
+  test('migrates try/catch/throw', () => {
+    const source = [
+      'fn name=safeRun returns=number',
+      '  handler <<<',
+      '    try {',
+      '      const x = 42;',
+      '      return x;',
+      '    } catch (e) {',
+      '      throw new Error("bad");',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toMatch(/^\s*try\s*$/m);
+    expect(result.output).toContain('let name=x value="42"');
+    expect(result.output).toContain('catch name=e');
+    expect(result.output).toContain('throw value="new Error(\\"bad\\")"');
+  });
+});
+
+describe('rewriteNativeHandlers — bail conditions', () => {
+  test('skips handlers whose body is ineligible (arrow function in classifier reject set)', () => {
+    const source = [
+      'fn name=fold returns=number',
+      '  handler <<<',
+      '    return items.reduce((s, x) => s + x, 0);',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('skips handlers already opted into lang="kern"', () => {
+    const source = ['fn name=ok returns=number', '  handler lang="kern" <<<', '    return 1;', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('skips handlers with explicit non-kern lang= (lang="ts", lang="python")', () => {
+    const source = ['fn name=ok returns=number', '  handler lang="ts" <<<', '    return 1;', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on `let X = …` (KERN body `let` lowers to TS `const` — not byte-preserving)', () => {
+    const source = ['fn name=ok returns=number', '  handler <<<', '    let x = 1;', '    return x;', '  >>>'].join(
+      '\n',
+    );
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('bails on `var X = …` (function-scoped, body-`let` cannot preserve)', () => {
+    const source = ['fn name=ok returns=number', '  handler <<<', '    var x = 1;', '    return x;', '  >>>'].join(
+      '\n',
+    );
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on destructuring (const { a } = obj)', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    const { a } = obj;',
+      '    return a;',
+      '  >>>',
+    ].join('\n');
+    // Classifier already rejects destructuring; documents the safety net.
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on bare side-effect call (no body-statement equivalent)', () => {
+    const source = ['fn name=ok returns=void', '  handler <<<', '    doIt();', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on `else if` (body emitter has no elseif)', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    if (a) {',
+      '      return 1;',
+      '    } else if (b) {',
+      '      return 2;',
+      '    } else {',
+      '      return 3;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on body containing line comments', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    // explain things',
+      '    return 1;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on body containing block comments', () => {
+    const source = ['fn name=ok returns=number', '  handler <<<', '    /* explain */', '    return 1;', '  >>>'].join(
+      '\n',
+    );
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on try without catch (finally-only or bare)', () => {
+    const source = [
+      'fn name=ok returns=void',
+      '  handler <<<',
+      '    try {',
+      '      return;',
+      '    } finally {',
+      '      return;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on const with type annotation (body-`let` ignores `type` prop)', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    const x: number = 1;',
+      '    return x;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+});
+
+describe('rewriteNativeHandlers — round-trip', () => {
+  test('migrated output parses strict (slice 5b-pre validators are happy)', () => {
+    const source = [
+      'fn name=greet returns=string',
+      '  handler <<<',
+      '    const msg = who;',
+      '    return msg;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrated try/catch round-trips through parseDocumentStrict', () => {
+    const source = [
+      'fn name=safeRun returns=number',
+      '  handler <<<',
+      '    try {',
+      '      const x = 42;',
+      '      return x;',
+      '    } catch (e) {',
+      '      throw new Error("bad");',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('preserves indentation in nested contexts', () => {
+    const source = [
+      'module name=Greetings',
+      '  fn name=hello returns=string',
+      '    handler <<<',
+      '      const m = "hi";',
+      '      return m;',
+      '    >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('    handler lang="kern"');
+    expect(result.output).toContain('      let name=m value="\\"hi\\""');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+});
+
+describe('rewriteNativeHandlers — multi-handler files', () => {
+  test('migrates multiple handlers in one file independently', () => {
+    const source = [
+      'fn name=a returns=number',
+      '  handler <<<',
+      '    return 1;',
+      '  >>>',
+      'fn name=b returns=number',
+      '  handler <<<',
+      '    return 2;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(2);
+    expect((result.output.match(/handler lang="kern"/g) ?? []).length).toBe(2);
+  });
+
+  test('mixed: migrates eligible, leaves ineligible alone', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    return 1;',
+      '  >>>',
+      'fn name=skip returns=void',
+      '  handler <<<',
+      '    doSideEffect();',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect((result.output.match(/handler lang="kern"/g) ?? []).length).toBe(1);
+    expect(result.output).toContain('doSideEffect();');
+  });
+});
