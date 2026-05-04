@@ -7,7 +7,7 @@
 
 import type { ConceptEdge, ConceptMap, ConceptNode, ConceptSpan, ErrorHandlePayload } from '@kernlang/core';
 import { conceptId, conceptSpan } from '@kernlang/core';
-import { type SourceFile, SyntaxKind } from 'ts-morph';
+import { type SourceFile, SyntaxKind, VariableDeclarationKind } from 'ts-morph';
 
 const EXTRACTOR_VERSION = '1.0.0';
 
@@ -318,6 +318,7 @@ function hasIntentComment(text: string): boolean {
 
 function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
   const clientIdents = collectClientIdentifiers(sf);
+  const constLiterals = buildConstLiteralMap(sf);
 
   for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const callee = call.getExpression();
@@ -339,9 +340,9 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
 
     if (isDirectNetwork || isKnownLibraryMethod || isWrappedClientCall) {
       const isAsync = isInAsyncContext(call);
-      const target = extractTarget(call);
+      const target = extractTarget(call, constLiterals);
       const sentFieldsInfo = extractSentFields(call, funcName);
-      const queryParamsInfo = extractQueryParams(call);
+      const queryParamsInfo = extractQueryParams(call, constLiterals);
       const hasAuthHeader = extractHasAuthHeader(call, funcName);
       nodes.push({
         id: conceptId(filePath, 'effect', call.getStart()),
@@ -1758,7 +1759,121 @@ function extractLiteralObjectFields(obj: import('ts-morph').ObjectLiteralExpress
   return { fields, resolved: true };
 }
 
-function extractTarget(call: import('ts-morph').CallExpression): string | undefined {
+// ── Const literal resolution (phase-1 IR depth) ─────────────────────────
+//
+// Real-world cross-stack URLs hide behind module-level constants:
+//   const API_BASE = 'https://api.example.com';
+//   fetch(`${API_BASE}/users/${id}`)
+//
+// Without resolution, `extractTarget` sees a TemplateExpression with a bare
+// `API_BASE` identifier, drops the head (looksLikeBaseUrlName), and degrades
+// to `/users/:id`. Host extraction silently fails. Probe on audiofacets
+// (~939 files, ~48 fetch call-sites): only ~8% had `host` populated.
+//
+// This pass collects every same-file `const X = <literal>` declaration into
+// a `VariableDeclaration → literal` map. Lookup at use-sites is **symbol-
+// based**, not name-based: we ask ts-morph for the identifier's binding
+// (`getSymbol().getDeclarations()`) and only resolve if that binding is one
+// of the declarations we collected. This is the FP gate against shadowing —
+// a parameter or inner non-literal `const` with the same text would
+// otherwise fabricate a wrong host/target. (Codex review 2026-05-04 caught
+// the original name-keyed implementation as unsound; this is the fix.)
+//
+// Two passes:
+//   - pass 1: direct string / no-substitution-template literal initializers
+//   - pass 2: template-with-refs (\`\${A}/...\`) where each `${IDENT}`
+//             resolves via symbol to a pass-1 declaration. One hop only.
+//
+// Out-of-scope for phase 1 (deliberate):
+//   - Cross-file imports.
+//   - Object property destructuring (`const { url } = config`).
+//   - Conditional expressions (`const X = cond ? a : b`).
+//   - Function-call initializers other than no-sub templates.
+// Map key: declaration's source-file path + AST start offset. Stable across
+// AST walks (ts-morph node identity is not always reference-stable when the
+// node is re-fetched via a different traversal).
+type ConstLiteralMap = ReadonlyMap<string, string>;
+
+function declKey(decl: import('ts-morph').VariableDeclaration): string {
+  return `${decl.getSourceFile().getFilePath()}:${decl.getStart()}`;
+}
+
+function buildConstLiteralMap(sf: SourceFile): ConstLiteralMap {
+  const candidates: Array<{
+    decl: import('ts-morph').VariableDeclaration;
+    key: string;
+    init: import('ts-morph').Node;
+  }> = [];
+  for (const decl of sf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const stmt = decl.getVariableStatement();
+    if (!stmt) continue;
+    if (stmt.getDeclarationKind() !== VariableDeclarationKind.Const) continue;
+    if (decl.getNameNode().getKind() !== SyntaxKind.Identifier) continue; // skip destructure
+    const init = decl.getInitializer();
+    if (!init) continue;
+    candidates.push({ decl, key: declKey(decl), init });
+  }
+
+  const direct = new Map<string, string>();
+  for (const { key, init } of candidates) {
+    if (init.getKind() === SyntaxKind.StringLiteral) {
+      direct.set(key, (init as import('ts-morph').StringLiteral).getLiteralValue());
+    } else if (init.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral) {
+      direct.set(key, (init as import('ts-morph').NoSubstitutionTemplateLiteral).getLiteralValue());
+    }
+  }
+
+  // Pass 2: template-with-refs against pass 1. One hop — no transitive
+  // resolution. A `const A = \`\${B}/x\`` whose `B` is itself a
+  // template-with-refs won't resolve here; that's a phase-1 cap.
+  const all = new Map(direct);
+  for (const { key, init } of candidates) {
+    if (init.getKind() !== SyntaxKind.TemplateExpression) continue;
+    const lit = resolveTemplateAgainst(init as import('ts-morph').TemplateExpression, direct);
+    if (lit !== undefined) all.set(key, lit);
+  }
+  return all;
+}
+
+function resolveTemplateAgainst(tmpl: import('ts-morph').TemplateExpression, map: ConstLiteralMap): string | undefined {
+  let out = tmpl.getHead().getLiteralText();
+  for (const span of tmpl.getTemplateSpans()) {
+    const expr = span.getExpression();
+    if (expr.getKind() !== SyntaxKind.Identifier) return undefined;
+    const inner = lookupConstLiteral(expr as import('ts-morph').Identifier, map);
+    if (inner === undefined) return undefined;
+    out += inner;
+    out += span.getLiteral().getLiteralText();
+  }
+  return out;
+}
+
+// Symbol-based lookup. Resolves the identifier to its binding via the TS
+// type checker, then checks whether that binding is a literal const we
+// collected. Returns `undefined` for any identifier that does NOT bind to
+// a single same-file VariableDeclaration in the map — including parameters,
+// `let` / `var`, imports, function names, and shadowing declarations. This
+// is the unsoundness fix from the Codex review.
+//
+// Same-file filter on the declarations: TypeScript's symbol for a name that
+// shadows a global (e.g. `URL`, `Request`, `Response`) returns BOTH the
+// local declaration AND the lib.dom.d.ts ambient. We only care about the
+// in-file declaration; the lib ambient never has a literal value anyway.
+function lookupConstLiteral(ident: import('ts-morph').Identifier, map: ConstLiteralMap): string | undefined {
+  const sym = ident.getSymbol();
+  if (!sym) return undefined;
+  const sfPath = ident.getSourceFile().getFilePath();
+  const inFile: import('ts-morph').VariableDeclaration[] = [];
+  for (const d of sym.getDeclarations()) {
+    if (d.getKind() !== SyntaxKind.VariableDeclaration) continue;
+    if (d.getSourceFile().getFilePath() !== sfPath) continue;
+    inFile.push(d as import('ts-morph').VariableDeclaration);
+  }
+  if (inFile.length !== 1) return undefined;
+  return map.get(declKey(inFile[0]));
+}
+
+function extractTarget(call: import('ts-morph').CallExpression, consts?: ConstLiteralMap): string | undefined {
   const args = call.getArguments();
   if (args.length === 0) return undefined;
   const first = args[0];
@@ -1769,7 +1884,10 @@ function extractTarget(call: import('ts-morph').CallExpression): string | undefi
     return (first as import('ts-morph').NoSubstitutionTemplateLiteral).getLiteralValue();
   }
   if (first.getKind() === SyntaxKind.TemplateExpression) {
-    return extractTemplateUrl(first as import('ts-morph').TemplateExpression);
+    return extractTemplateUrl(first as import('ts-morph').TemplateExpression, consts);
+  }
+  if (first.getKind() === SyntaxKind.Identifier && consts) {
+    return lookupConstLiteral(first as import('ts-morph').Identifier, consts);
   }
   return undefined;
 }
@@ -1874,11 +1992,14 @@ function isStatusPropertyAccess(node: import('ts-morph').Node | undefined): bool
   return STATUS_LIKELY_RECEIVER_RE.test(text);
 }
 
-function extractQueryParams(call: import('ts-morph').CallExpression): {
+function extractQueryParams(
+  call: import('ts-morph').CallExpression,
+  consts?: ConstLiteralMap,
+): {
   params: readonly string[] | undefined;
   resolved: boolean;
 } {
-  const target = extractTarget(call);
+  const target = extractTarget(call, consts);
   if (!target) return { params: undefined, resolved: false };
   const q = target.indexOf('?');
   if (q === -1) return { params: [], resolved: true };
@@ -1900,7 +2021,7 @@ function extractQueryParams(call: import('ts-morph').CallExpression): {
 // correlate it against backend routes. Without this every `fetch(` \`${BASE}/…\` `)`
 // call is silently dropped by `normalizeClientUrl` (which rejects targets that
 // start with \`$ instead of \`/).
-function extractTemplateUrl(tmpl: import('ts-morph').TemplateExpression): string | undefined {
+function extractTemplateUrl(tmpl: import('ts-morph').TemplateExpression, consts?: ConstLiteralMap): string | undefined {
   const head = tmpl.getHead();
   let out = head.getLiteralText();
   const spans = tmpl.getTemplateSpans();
@@ -1909,6 +2030,22 @@ function extractTemplateUrl(tmpl: import('ts-morph').TemplateExpression): string
     const expr = span.getExpression();
     const exprText = expr.getText();
     const isBareIdent = expr.getKind() === SyntaxKind.Identifier;
+
+    // Phase 1 const resolution: substitute `${IDENT}` with its same-file literal
+    // value when the symbol-resolved binding is a literal const we collected.
+    // Lifts host extraction and route matching on the common
+    // `${API_BASE}/users/${id}` shape. Symbol-based (not name-based) so that
+    // a shadowing parameter / `let` / inner non-literal const cannot
+    // fabricate a wrong absolute URL.
+    if (isBareIdent && consts) {
+      const resolved = lookupConstLiteral(expr as import('ts-morph').Identifier, consts);
+      if (resolved !== undefined) {
+        out += resolved;
+        out += span.getLiteral().getLiteralText();
+        continue;
+      }
+    }
+
     if (i === 0 && out === '' && isBareIdent && looksLikeBaseUrlName(exprText)) {
       // Drop a leading `${BASE_URL}` interpolation so the path starts with `/`.
     } else {
