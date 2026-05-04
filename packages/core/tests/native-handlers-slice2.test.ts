@@ -46,6 +46,11 @@ describe('KERN-stdlib expansion — Text+, List, Map, Number', () => {
     ['Number.floor(n)', 'Math.floor(n)'],
     ['Number.ceil(n)', 'Math.ceil(n)'],
     ['Number.abs(n)', 'Math.abs(n)'],
+    // `Number.isFinite` / `Number.isNaN` (NOT the coercive globals) — these
+    // are the strict, type-safe forms that return false on non-numbers
+    // instead of doing JS-style coercion.
+    ['Number.isFinite(n)', 'Number.isFinite(n)'],
+    ['Number.isNaN(n)', 'Number.isNaN(n)'],
   ])('TS lowering: %s → %s', (kern, ts) => {
     expect(emitExpression(parseExpression(kern))).toBe(ts);
   });

@@ -185,6 +185,20 @@ describe('slice 3b — Python import collection for stdlib lowerings', () => {
     expect([...imports]).toEqual([]);
   });
 
+  test('Number.isFinite adds math (lowers via __k_math.isfinite)', () => {
+    const handler = makeHandler([{ type: 'return', props: { value: 'Number.isFinite(x)' } }]);
+    const { code, imports } = emitNativeKernBodyPythonWithImports(handler);
+    expect(code).toBe('return __k_math.isfinite(x)');
+    expect([...imports]).toEqual(['math']);
+  });
+
+  test('Number.isNaN adds math (lowers via __k_math.isnan)', () => {
+    const handler = makeHandler([{ type: 'return', props: { value: 'Number.isNaN(x)' } }]);
+    const { code, imports } = emitNativeKernBodyPythonWithImports(handler);
+    expect(code).toBe('return __k_math.isnan(x)');
+    expect([...imports]).toEqual(['math']);
+  });
+
   test('Text.upper does NOT require any import', () => {
     const handler = makeHandler([{ type: 'return', props: { value: 'Text.upper(s)' } }]);
     const { imports } = emitNativeKernBodyPythonWithImports(handler);

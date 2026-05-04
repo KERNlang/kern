@@ -26,7 +26,7 @@
  *    - 2a: Text upper/lower/length/trim
  *    - 2b: Text+ (includes, startsWith, endsWith, split, replace);
  *      List (length, isEmpty, includes, first, last, indexOf, join);
- *      Map (has, get, size); Number (round, floor, ceil, abs).
+ *      Map (has, get, size); Number (round, floor, ceil, abs, isFinite, isNaN).
  *  Future slices may extend further (List.map / List.filter need closures,
  *  so they're deferred until closure support — currently never).
  *
@@ -103,6 +103,17 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
     floor: { arity: 1, ts: 'Math.floor($0)', py: '__k_math.floor($0)', requires: { py: 'math' } },
     ceil: { arity: 1, ts: 'Math.ceil($0)', py: '__k_math.ceil($0)', requires: { py: 'math' } },
     abs: { arity: 1, ts: 'Math.abs($0)', py: 'abs($0)' },
+    // `Number.isFinite($0)` returns false for NaN, +∞, -∞ on both targets.
+    // The TS lowering uses `Number.isFinite` (NOT the global `isFinite`) so
+    // non-number arguments deterministically return false rather than being
+    // coerced. Python's `math.isfinite` matches that semantic on float inputs;
+    // KERN's type system rejects non-number arguments at AST validation, so
+    // Python's `TypeError` on non-numerics is unreachable from typed bodies.
+    isFinite: { arity: 1, ts: 'Number.isFinite($0)', py: '__k_math.isfinite($0)', requires: { py: 'math' } },
+    // `Number.isNaN($0)` returns true ONLY for the NaN value itself (no
+    // coercion). Python's `math.isnan` matches that strict shape. Use `Number`
+    // (not the global `isNaN`) so the TS output is the strict, type-safe form.
+    isNaN: { arity: 1, ts: 'Number.isNaN($0)', py: '__k_math.isnan($0)', requires: { py: 'math' } },
   },
 };
 
