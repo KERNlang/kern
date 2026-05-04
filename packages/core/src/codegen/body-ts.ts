@@ -200,6 +200,8 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
     } else if (child.type === 'throw') {
       // Slice 4c — throw statement.
       for (const line of emitThrowTS(child, ctx)) lines.push(`${indent}${line}`);
+    } else if (child.type === 'do') {
+      for (const line of emitDoTS(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'each') {
       // Slice 4d — each loop.
       // Slice 4c+4d review fix (Codex P1): the schema's `each` already
@@ -285,4 +287,20 @@ function emitThrowTS(node: IRNode, ctx: BodyEmitContext): string[] {
     return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`, `throw ${tmp}.value;`];
   }
   return [`throw ${emitExpression(valueIR)};`];
+}
+
+function emitDoTS(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawValue = props.value;
+  if (rawValue === undefined || rawValue === '') {
+    return [];
+  }
+  const valueIR = parseExpression(String(rawValue));
+  if (valueIR.kind === 'propagate' && valueIR.op === '?') {
+    rejectPropagationInsideTry(ctx);
+    const tmp = `__k_t${++ctx.gensymCounter}`;
+    const inner = emitExpression(valueIR.argument);
+    return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`];
+  }
+  return [`${emitExpression(valueIR)};`];
 }

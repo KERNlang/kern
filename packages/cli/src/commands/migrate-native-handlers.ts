@@ -16,7 +16,7 @@
  * codegen drift.
  */
 
-import { classifyHandlerBody, escapeKernString, parseExpression } from '@kernlang/core';
+import { classifyHandlerBody, escapeKernString, hasComments, isValidKernExpression } from '@kernlang/core';
 import ts from 'typescript';
 
 export interface NativeHandlerHit {
@@ -141,8 +141,34 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
     return mapTry(stmt, source, indent);
   }
 
-  // ExpressionStatement (bare call), Block, ForOf, etc — no body-statement
-  // equivalent. Bail.
+  if (ts.isExpressionStatement(stmt)) {
+    // Bare expression statement (`reg.load(x);`, `arr.push(y);`) maps to the
+    // `do value="…"` body-statement (slice α-1). Largest AST-rejection bucket
+    // pre-α — see project_alpha_migrator_ast_plan.md.
+    //
+    // Reject assignments and prefix/postfix mutations explicitly — the slice 5a
+    // regex classifier already rejects these structurally, but a defensive
+    // check here keeps `do` from silently miscompiling if the classifier ever
+    // loosens (e.g. `arr[i] = v` would parse as a BinaryExpression with `=`).
+    //
+    // Gemini review: cover ALL assignment operators, not just `=`. The classifier
+    // regex `[+\-*/%]=` misses bitwise (`|=`, `&=`, `^=`, `<<=`, `>>=`, `>>>=`),
+    // logical (`&&=`, `||=`, `??=`), and exponentiation (`**=`) assignments.
+    // TS's FirstAssignment/LastAssignment range covers the full set.
+    if (ts.isBinaryExpression(stmt.expression)) {
+      const op = stmt.expression.operatorToken.kind;
+      if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) return null;
+    }
+    if (ts.isPostfixUnaryExpression(stmt.expression) || ts.isPrefixUnaryExpression(stmt.expression)) {
+      const op = (stmt.expression as ts.PrefixUnaryExpression | ts.PostfixUnaryExpression).operator;
+      if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) return null;
+    }
+    const exprText = stmt.expression.getText(source);
+    if (!isValidKernExpression(exprText)) return null;
+    return [`${indent}do value="${escapeKernString(exprText)}"`];
+  }
+
+  // Block, ForOf, while, switch, etc — no body-statement equivalent. Bail.
   return null;
 }
 
@@ -214,37 +240,11 @@ function mapBranch(node: ts.Statement, source: ts.SourceFile, indent: string): s
   return out;
 }
 
-/** True when the body text contains line or block comments. Uses ts.Scanner
- *  for token-by-token coverage — the prior AST-walk approach missed comments
- *  inside block bodies (e.g. `if (c) { // missed }`) because `forEachChild`
- *  does not visit every comment trivia position. Bail-on-comments is the
- *  initial cut so silent comment loss can't happen. */
-function hasComments(bodyText: string): boolean {
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, /*skipTrivia*/ false);
-  scanner.setText(bodyText);
-  while (true) {
-    const kind = scanner.scan();
-    if (kind === ts.SyntaxKind.EndOfFileToken) return false;
-    if (kind === ts.SyntaxKind.SingleLineCommentTrivia || kind === ts.SyntaxKind.MultiLineCommentTrivia) return true;
-  }
-}
-
-/** Validate that `exprText` (the right-hand side of a body-statement attr)
- *  is acceptable to KERN's expression parser. Codex review found that single-
- *  line TS expressions like ternaries pass the slice-5a classifier but fail
- *  KERN's parseExpression — emitting them blindly produces a `lang="kern"`
- *  handler that fails later at codegen. Multi-line expressions are also
- *  rejected here because escapeKernString does not escape newlines, so a
- *  raw newline inside `value="…"` would split the KERN line. */
-function isValidKernExpression(exprText: string): boolean {
-  if (/\n/.test(exprText)) return false;
-  try {
-    parseExpression(exprText);
-    return true;
-  } catch {
-    return false;
-  }
-}
+// Slice α-3 (gemini review): `hasComments` and `isValidKernExpression` were
+// previously duplicated here and in `packages/core/src/native-eligibility-ast.ts`.
+// The classifier needs the same predicates the migrator uses to keep the
+// "eligibility ≡ migrate-success" invariant tight, so the canonical
+// implementations now live in core and both sides import them.
 
 /** Append `lang="kern"` to a header-props string. Caller filters out
  *  handlers that already carry any `lang=` so we can append unconditionally. */

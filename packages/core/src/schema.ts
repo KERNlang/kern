@@ -540,7 +540,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     //    plus a required `catch` child. Schema permits both child sets;
     //    body-ts.ts disambiguates by inspecting the children, and validateBodyStatements
     //    enforces the body-statement-only constraints when the enclosing handler is `lang="kern"`.
-    allowedChildren: ['step', 'handler', 'catch', 'let', 'return', 'if', 'else', 'each', 'try', 'throw'],
+    allowedChildren: ['step', 'handler', 'catch', 'let', 'do', 'return', 'if', 'else', 'each', 'try', 'throw'],
   },
   step: {
     description:
@@ -559,7 +559,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { kind: 'identifier' },
     },
-    allowedChildren: ['handler', 'let', 'return', 'if', 'else', 'each', 'try', 'throw'],
+    allowedChildren: ['handler', 'let', 'do', 'return', 'if', 'else', 'each', 'try', 'throw'],
   },
   filter: {
     description:
@@ -1450,7 +1450,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   handler: {
     description:
-      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`return`/`if`/`else`/`each`/`try`/`catch`/`throw`) for cross-target structured bodies.',
+      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`do`/`return`/`if`/`else`/`each`/`try`/`catch`/`throw`) for cross-target structured bodies.',
     example: 'handler <<<\n  const result = await doWork();\n  return result;\n>>>',
     props: {
       code: { kind: 'rawBlock' },
@@ -1460,7 +1460,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     // body statements are rejected by validateBodyStatements (the schema list
     // is intentionally permissive so the validator can produce a clearer
     // context-aware error).
-    allowedChildren: ['let', 'return', 'if', 'else', 'each', 'try', 'catch', 'throw'],
+    allowedChildren: ['let', 'do', 'return', 'if', 'else', 'each', 'try', 'catch', 'throw'],
   },
   return: {
     description:
@@ -1474,6 +1474,14 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     description:
       'Body-statement throw — emits `throw expr;` (TS) or `raise expr` (Python). Bare `throw` without `value` emits `throw new Error();`. The TS emitter does NOT wrap `value` in a fresh `Error(...)` constructor — pass `new Error("msg")` explicitly if you want that. Only valid inside a `lang="kern"` handler body.',
     example: 'throw value="new Error(\\"user not found\\")"',
+    props: {
+      value: { kind: 'expression' },
+    },
+  },
+  do: {
+    description:
+      'Body-statement effect — emits `expr;` (TS) or `expr` (Python) for side-effecting bare-call expressions whose return value is discarded. Use for `arr.push(x)`, `reg.load(path)`, `cleanup()`. Only valid inside a `lang="kern"` handler body. Distinct from `let` (which binds the value) and `return` (which exits with the value).',
+    example: 'do value="reg.load(engDir)"',
     props: {
       value: { kind: 'expression' },
     },

@@ -8,8 +8,10 @@
  *  spec, `none` is the canonical empty-value form in `lang=kern` bodies; `null` is
  *  retained for legacy/round-trip compatibility.
  *
- *  Intentionally NOT yet supported: arithmetic, comparisons, ternary, indexing,
- *  bitwise, assignment. Those land in a later slice. */
+ *  Slice 2c added arithmetic and comparisons; slice α-2 added ternary
+ *  `a ? b : c`. Still NOT supported: indexing (`xs[0]`), bitwise ops,
+ *  assignment — these would require shape changes the body emitter
+ *  doesn't have, so the parser deliberately rejects them. */
 
 import type { ValueIR } from './value-ir.js';
 
@@ -61,6 +63,37 @@ export interface ExprToken {
   kind: ExprTokenKind;
   value: string;
   pos: number;
+}
+
+/** Slice α-2: token kinds that can start an expression. Used by parsePostfix
+ *  and the await branch of parseUnary to disambiguate postfix `?`
+ *  (propagation) from ternary `?` (which is always followed by an expression).
+ *  If the token AFTER `?` is in this set, the `?` belongs to the outer
+ *  ternary (parseConditional); otherwise, it's propagation.
+ *
+ *  `plus` is not in the set — KERN's parseUnary doesn't accept unary `+`.
+ *  `kwNew` isn't in the set — `new` is matched by parseUnary as an `ident`
+ *  token with value `'new'`. */
+const EXPR_START_KINDS: ReadonlySet<ExprTokenKind> = new Set<ExprTokenKind>([
+  'ident',
+  'num',
+  'str',
+  'tmplStart',
+  'kwTrue',
+  'kwFalse',
+  'kwNull',
+  'kwUndef',
+  'kwAwait',
+  'lparen',
+  'lbrace',
+  'lbracket',
+  'spread',
+  'bang',
+  'minus',
+]);
+
+function isExprStartKind(kind: ExprTokenKind): boolean {
+  return EXPR_START_KINDS.has(kind);
 }
 
 const KEYWORDS: Record<string, ExprTokenKind> = {
@@ -407,12 +440,38 @@ class Parser {
   }
 
   parse(): ValueIR {
-    const result = this.parseNullish();
+    const result = this.parseConditional();
     if (this.peek().kind !== 'eof') {
       const t = this.peek();
       throw new Error(`Unexpected token ${t.kind} ('${t.value}') at column ${t.pos + 1}`);
     }
     return result;
+  }
+
+  // Slice α-2: ternary `test ? consequent : alternate`. Right-associative —
+  // `a ? b : c ? d : e` parses as `a ? b : (c ? d : e)`. Lower precedence
+  // than `??`/`||`/`&&`/binary ops, so it wraps `parseNullish`.
+  //
+  // Disambiguation with propagation `?`: parsePostfix and the await branch
+  // of parseUnary both consume a postfix `?` when the next token is NOT an
+  // expression-start. So when this method sees `?` at the top, it's
+  // unambiguously a ternary `?` (the next token MUST be an expression-start
+  // — otherwise parsePostfix would have consumed the `?` as propagation).
+  private parseConditional(): ValueIR {
+    const test = this.parseNullish();
+    if (this.peek().kind !== 'qmark') return test;
+    if (!isExprStartKind(this.peek(1).kind)) {
+      // Defensive: shouldn't happen given the parsePostfix lookahead rule.
+      const t = this.peek();
+      throw new Error(
+        `Unexpected '?' at column ${t.pos + 1}. Postfix '?' (propagation) is recognized inside expressions; ternary '?' must be followed by an expression then ':'.`,
+      );
+    }
+    this.advance(); // consume `?`
+    const consequent = this.parseConditional();
+    this.expect('colon');
+    const alternate = this.parseConditional();
+    return { kind: 'conditional', test, consequent, alternate };
   }
 
   private parseNullish(): ValueIR {
@@ -518,7 +577,10 @@ class Parser {
       // instead of the semantically-correct `propagate(await(call()))`.
       const argument = this.parseCall();
       const awaited: ValueIR = { kind: 'await', argument };
-      if (this.peek().kind === 'qmark') {
+      // Slice α-2: only consume postfix `?` as propagation if the token
+      // after it is NOT an expression-start. Otherwise leave it for the
+      // outer parseConditional (ternary).
+      if (this.peek().kind === 'qmark' && !isExprStartKind(this.peek(1).kind)) {
         this.advance();
         return { kind: 'propagate', argument: awaited, op: '?' };
       }
@@ -537,7 +599,10 @@ class Parser {
 
   private parsePostfix(): ValueIR {
     const node = this.parseCall();
-    if (this.peek().kind === 'qmark') {
+    // Slice α-2: only consume postfix `?` as propagation if the token after
+    // it is NOT an expression-start. Otherwise leave it for the outer
+    // parseConditional (ternary).
+    if (this.peek().kind === 'qmark' && !isExprStartKind(this.peek(1).kind)) {
       this.advance();
       return { kind: 'propagate', argument: node, op: '?' };
     }
@@ -579,10 +644,10 @@ class Parser {
   private parseArgs(): ValueIR[] {
     const args: ValueIR[] = [];
     if (this.peek().kind === 'rparen') return args;
-    args.push(this.parseNullish());
+    args.push(this.parseConditional());
     while (this.peek().kind === 'comma') {
       this.advance();
-      args.push(this.parseNullish());
+      args.push(this.parseConditional());
     }
     return args;
   }
@@ -620,7 +685,7 @@ class Parser {
         return { kind: 'undefLit' };
       case 'lparen': {
         this.advance();
-        const inner = this.parseNullish();
+        const inner = this.parseConditional();
         this.expect('rparen');
         return inner;
       }
@@ -650,7 +715,7 @@ class Parser {
       const keyTok = this.peek();
       if (keyTok.kind === 'spread') {
         this.advance();
-        const argument = this.parseNullish();
+        const argument = this.parseConditional();
         entries.push({ kind: 'spread', argument });
       } else {
         let key: string;
@@ -674,7 +739,7 @@ class Parser {
           entries.push({ key, value: { kind: 'ident', name: key } });
         } else {
           this.expect('colon');
-          const value = this.parseNullish();
+          const value = this.parseConditional();
           entries.push({ key, value });
         }
       }
@@ -698,7 +763,7 @@ class Parser {
       return { kind: 'arrayLit', items };
     }
     while (true) {
-      items.push(this.parseNullish());
+      items.push(this.parseConditional());
       if (this.peek().kind === 'comma') {
         this.advance();
         if (this.peek().kind === 'rbracket') break;
