@@ -310,15 +310,14 @@ describe('rewriteNativeHandlers — review-found regressions', () => {
     expect(result.output).toBe(source);
   });
 
-  // Codex P2: single-line TS expressions that pass the slice-5a classifier
-  // but fail KERN's parseExpression (e.g. ternaries, JSX) would emit an
-  // invalid `value=` and only fail later at codegen. parseExpression gating
-  // catches them at rewrite time so the bail is truthful.
-  test('bails on TS-only expression shapes (ternary)', () => {
+  // Slice α-2: ternary support shipped — parseExpression accepts `a ? b : c`.
+  // Bodies that previously bailed here (Codex P2 review case) now migrate.
+  test('migrates ternary return (slice α-2)', () => {
     const source = ['fn name=ok returns=any', '  handler <<<', '    return ok ? a : b;', '  >>>'].join('\n');
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
-    expect(result.output).toBe(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toContain('return value="ok ? a : b"');
   });
 
   // Gemini HIGH: scanner used indexOf('>>>') instead of trimStart-startsWith,

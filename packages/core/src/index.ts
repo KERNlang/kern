@@ -126,6 +126,13 @@ export { classifyHandlerGap, isInlineSafeExpression, isInlineSafeLiteral } from 
 // the diagnostic layer and the future `kern migrate native-handlers` CLI.
 export type { EligibilityResult, FileEligibilityReport, RawBody } from './native-eligibility.js';
 export { classifyHandlerBody, extractRawBodies, scanFileForEligibility } from './native-eligibility.js';
+// Slice α-3: AST-walker classifier + shared helpers (migrator imports these).
+export type { AstEligibilityResult } from './native-eligibility-ast.js';
+export {
+  classifyHandlerBodyAst,
+  hasComments,
+  isValidKernExpression,
+} from './native-eligibility-ast.js';
 export type {
   ActionProps,
   AssumeProps,

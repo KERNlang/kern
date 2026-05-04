@@ -553,6 +553,29 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
     }
     case 'arrayLit':
       return `[${node.items.map((i) => emitPyExprCtx(i, ctx)).join(', ')}]`;
+    case 'conditional': {
+      // Slice α-2: TS `test ? consequent : alternate` lowers to Python's
+      // expression-form conditional `consequent if test else alternate`
+      // (operand reorder). Lowest-precedence in Python expressions, so
+      // paren-wrap binary/unary children for safety.
+      const testStr = emitPyExprCtx(node.test, ctx);
+      const consStr = emitPyExprCtx(node.consequent, ctx);
+      const altStr = emitPyExprCtx(node.alternate, ctx);
+      const wrap = (child: ValueIR, emitted: string): string => {
+        switch (child.kind) {
+          case 'binary':
+          case 'unary':
+          case 'spread':
+          case 'await':
+          case 'new':
+          case 'conditional':
+            return `(${emitted})`;
+          default:
+            return emitted;
+        }
+      };
+      return `${wrap(node.consequent, consStr)} if ${wrap(node.test, testStr)} else ${wrap(node.alternate, altStr)}`;
+    }
     case 'spread':
       return `*${emitPyExprCtx(node.argument, ctx)}`;
     case 'regexLit':
