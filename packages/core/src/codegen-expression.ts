@@ -114,6 +114,17 @@ export function emitExpression(node: ValueIR): string {
     }
     case 'arrayLit':
       return `[${node.items.map(emitExpression).join(', ')}]`;
+    case 'conditional': {
+      // Slice α-2: ternary `test ? consequent : alternate`. Right-associative
+      // and lower precedence than every binary op — paren-wrap any non-atomic
+      // child to keep the round-tripped TS unambiguous to humans and tools.
+      const test = emitExpression(node.test);
+      const consequent = emitExpression(node.consequent);
+      const alternate = emitExpression(node.alternate);
+      const wrap = (child: ValueIR, emitted: string): string =>
+        needsConditionalChildParens(child) ? `(${emitted})` : emitted;
+      return `${wrap(node.test, test)} ? ${wrap(node.consequent, consequent)} : ${wrap(node.alternate, alternate)}`;
+    }
     case 'propagate':
       throw new Error(
         `Propagation '${node.op}' is only allowed at statement level (top of \`let value=\` or \`return value=\`). ` +
@@ -145,6 +156,24 @@ function needsParens(child: ValueIR, parentOp: string, side: 'left' | 'right'): 
 
 function needsReceiverParens(child: ValueIR): boolean {
   return child.kind === 'binary' || child.kind === 'unary' || child.kind === 'spread';
+}
+
+/** Slice α-2: paren-wrap predicate for ternary children. Ternary has very
+ *  low precedence — only `,` and assignment are lower. Atoms (idents,
+ *  literals, calls, members, parenthesized) emit without extra parens.
+ *  Binary/unary/await/spread/new/conditional get wrapped for clarity. */
+function needsConditionalChildParens(child: ValueIR): boolean {
+  switch (child.kind) {
+    case 'binary':
+    case 'unary':
+    case 'spread':
+    case 'await':
+    case 'new':
+    case 'conditional':
+      return true;
+    default:
+      return false;
+  }
 }
 
 function escapeTemplateQuasi(s: string): string {

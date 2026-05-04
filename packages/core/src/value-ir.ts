@@ -51,7 +51,10 @@ export type ValueIR =
       entries: ({ key: string; value: ValueIR } | { kind: 'spread'; argument: ValueIR })[];
       loc?: IRSourceLocation;
     }
-  | { kind: 'arrayLit'; items: ValueIR[]; loc?: IRSourceLocation };
+  | { kind: 'arrayLit'; items: ValueIR[]; loc?: IRSourceLocation }
+  // Slice α-2: ternary `test ? consequent : alternate`. Three-operand —
+  // distinct from `binary`. Right-associative in the parser.
+  | { kind: 'conditional'; test: ValueIR; consequent: ValueIR; alternate: ValueIR; loc?: IRSourceLocation };
 
 export type ValueIRKind = ValueIR['kind'];
 
@@ -76,6 +79,7 @@ export function isValueIR(x: unknown): x is ValueIR {
     k === 'new' ||
     k === 'propagate' ||
     k === 'objectLit' ||
-    k === 'arrayLit'
+    k === 'arrayLit' ||
+    k === 'conditional'
   );
 }
