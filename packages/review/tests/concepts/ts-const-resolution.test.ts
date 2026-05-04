@@ -230,4 +230,92 @@ describe('TS const literal resolution (phase 1 IR depth)', () => {
     expect(p.target).toBeUndefined();
     expect(p.host).toBeUndefined();
   });
+
+  // ── Env-with-fallback initializer (phase 1.5) ────────────────────────
+  // Real-world audiofacets shape: `const API_URL = process.env.X || "https://..."`.
+  // Pure-literal collector silently dropped these — phase 1.5 captures the
+  // fallback branch as the resolvable value.
+
+  it('resolves `const X = process.env.A || "literal"`', () => {
+    const src = `
+      const API_URL = process.env.AUDIOFACETS_API_URL || 'https://api.audiofacets.com';
+      async function load() { await fetch(\`\${API_URL}/api/profiles\`); }
+    `;
+    const p = effectOf('/t/a.ts', src);
+    expect(p.host).toBe('api.audiofacets.com');
+    expect(p.target).toBe('https://api.audiofacets.com/api/profiles');
+  });
+
+  it('resolves `const X = process.env.A ?? "literal"` (nullish-coalescing)', () => {
+    const src = `
+      const API_URL = process.env.X ?? 'https://api.example.com';
+      async function load() { await fetch(\`\${API_URL}/api/x\`); }
+    `;
+    const p = effectOf('/t/a.ts', src);
+    expect(p.host).toBe('api.example.com');
+    expect(p.target).toBe('https://api.example.com/api/x');
+  });
+
+  it('resolves the audiofacets server-api shape: env-fallback const + multi-segment template + POST', () => {
+    const src = `
+      const API_URL = process.env.AUDIOFACETS_API_URL || 'https://api.audiofacets.com';
+      async function postFeedback(slug: string) {
+        const response = await fetch(\`\${API_URL}/api/review/\${slug}/feedback\`, {
+          method: 'POST',
+          body: JSON.stringify({ rating: 5 }),
+        });
+        return response.json();
+      }
+    `;
+    const p = effectOf('/t/a.ts', src);
+    expect(p.host).toBe('api.audiofacets.com');
+    expect(p.target).toBe('https://api.audiofacets.com/api/review/:slug/feedback');
+    expect(p.method).toBe('POST');
+  });
+
+  it('resolves chained `a || b || "lit"` to the rightmost literal (left-assoc AST)', () => {
+    // `a || b || 'fallback'` parses as `(a || b) || 'fallback'`. Our
+    // collector takes the right side of the OUTERMOST `||`, which is the
+    // rightmost literal — exactly the value the runtime returns when all
+    // env reads are falsy. Useful, and it's the semantically correct
+    // "no-env-set" value.
+    const src = `
+      const API_URL = process.env.A || process.env.B || 'fallback';
+      async function load() { await fetch(API_URL); }
+    `;
+    const p = effectOf('/t/a.ts', src);
+    expect(p.target).toBe('fallback');
+  });
+
+  it('does NOT resolve a ternary initializer (out of phase-1.5 scope)', () => {
+    const src = `
+      const API_URL = isDev ? 'http://localhost:3000' : 'https://api.example.com';
+      async function load() { await fetch(API_URL); }
+    `;
+    const p = effectOf('/t/a.ts', src);
+    expect(p.target).toBeUndefined();
+  });
+
+  it('does NOT resolve when the right side of `||` is a non-literal expression', () => {
+    const src = `
+      const API_URL = process.env.X || someFunction();
+      async function load() { await fetch(API_URL); }
+    `;
+    const p = effectOf('/t/a.ts', src);
+    expect(p.target).toBeUndefined();
+  });
+
+  it('preserves shadow-bail under env-fallback initializer', () => {
+    // Env-fallback resolution must still respect symbol-binding gates. A
+    // parameter shadowing the const must NOT pick up the fallback.
+    const src = `
+      const API_URL = process.env.X || 'https://api.example.com';
+      async function load(API_URL: string) {
+        await fetch(API_URL); // parameter shadows outer const
+      }
+    `;
+    const p = effectOf('/t/a.ts', src);
+    expect(p.target).toBeUndefined();
+    expect(p.host).toBeUndefined();
+  });
 });

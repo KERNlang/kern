@@ -1798,6 +1798,45 @@ function declKey(decl: import('ts-morph').VariableDeclaration): string {
   return `${decl.getSourceFile().getFilePath()}:${decl.getStart()}`;
 }
 
+// Extract a literal string from a const initializer. Handles:
+//   const X = 'lit';
+//   const X = `lit`;                                 (no substitutions)
+//   const X = process.env.FOO || 'fallback';         (env-with-fallback)
+//   const X = process.env.FOO ?? 'fallback';         (nullish-coalescing)
+//
+// The `||` / `??` fallback case is the dominant real-world shape — audiofacets
+// has 10+ `const API_URL = process.env.X || "https://..."` sites that the
+// pure-literal collector silently dropped. Resolution captures the FALLBACK
+// branch as the "no-env-set" value. At runtime when env IS set the URL
+// differs, but for cross-stack matching the path part is identical and
+// `host` is "best effort, stay silent if not absolute" anyway.
+//
+// Conservative: only the right-hand side of `||`/`??` is taken as the literal.
+// Chained `a || b || 'lit'` bails (right is BinaryExpression, not literal).
+// Ternaries and other shapes stay out of scope.
+function literalStringFromInit(init: import('ts-morph').Node): string | undefined {
+  if (init.getKind() === SyntaxKind.StringLiteral) {
+    return (init as import('ts-morph').StringLiteral).getLiteralValue();
+  }
+  if (init.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral) {
+    return (init as import('ts-morph').NoSubstitutionTemplateLiteral).getLiteralValue();
+  }
+  if (init.getKind() === SyntaxKind.BinaryExpression) {
+    const bin = init as import('ts-morph').BinaryExpression;
+    const op = bin.getOperatorToken().getKind();
+    if (op === SyntaxKind.BarBarToken || op === SyntaxKind.QuestionQuestionToken) {
+      const right = bin.getRight();
+      if (right.getKind() === SyntaxKind.StringLiteral) {
+        return (right as import('ts-morph').StringLiteral).getLiteralValue();
+      }
+      if (right.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral) {
+        return (right as import('ts-morph').NoSubstitutionTemplateLiteral).getLiteralValue();
+      }
+    }
+  }
+  return undefined;
+}
+
 function buildConstLiteralMap(sf: SourceFile): ConstLiteralMap {
   const candidates: Array<{
     decl: import('ts-morph').VariableDeclaration;
@@ -1816,11 +1855,8 @@ function buildConstLiteralMap(sf: SourceFile): ConstLiteralMap {
 
   const direct = new Map<string, string>();
   for (const { key, init } of candidates) {
-    if (init.getKind() === SyntaxKind.StringLiteral) {
-      direct.set(key, (init as import('ts-morph').StringLiteral).getLiteralValue());
-    } else if (init.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral) {
-      direct.set(key, (init as import('ts-morph').NoSubstitutionTemplateLiteral).getLiteralValue());
-    }
+    const lit = literalStringFromInit(init);
+    if (lit !== undefined) direct.set(key, lit);
   }
 
   // Pass 2: template-with-refs against pass 1. One hop — no transitive
