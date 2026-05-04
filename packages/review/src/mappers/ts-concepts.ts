@@ -339,6 +339,7 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
 
     if (isDirectNetwork || isKnownLibraryMethod || isWrappedClientCall) {
       const isAsync = isInAsyncContext(call);
+      const target = extractTarget(call);
       const sentFieldsInfo = extractSentFields(call, funcName);
       const queryParamsInfo = extractQueryParams(call);
       const hasAuthHeader = extractHasAuthHeader(call, funcName);
@@ -354,7 +355,9 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
           kind: 'effect',
           subtype: 'network',
           async: isAsync,
-          target: extractTarget(call),
+          target,
+          host: extractHost(target),
+          handledErrorStatusCodes: extractHandledErrorStatusCodes(call),
           responseAsserted: isResponseAsserted(call, isWrappedClientCall),
           bodyKind: extractBodyKind(call, funcName),
           method: extractHttpMethod(call, funcName, isDirectNetwork, isKnownLibraryMethod, isWrappedClientCall),
@@ -1769,6 +1772,106 @@ function extractTarget(call: import('ts-morph').CallExpression): string | undefi
     return extractTemplateUrl(first as import('ts-morph').TemplateExpression);
   }
   return undefined;
+}
+
+// Phase 1 of surface-fingerprinting: pull the host out of an absolute URL so
+// downstream cross-stack rules can later filter third-party calls (e.g. a
+// frontend `fetch` to `stripe.com/api/charges` shouldn't match against the
+// partner backend's `/api/charges` route). Phase 2 will use this — phase 1
+// only captures it.
+//
+// Accepts the already-extracted target string (lit / no-substitution / template
+// post-extraction). Rejects targets where the host slot is a placeholder like
+// `:HOST` produced by `extractTemplateUrl` from `https://${HOST}/...` — those
+// aren't real DNS names. Returns the host lower-cased so case-insensitive
+// comparison is free downstream.
+const HOST_LIKE_RE = /^[a-z0-9][a-z0-9.-]*(:[0-9]+)?$/i;
+
+function extractHost(target: string | undefined): string | undefined {
+  if (!target) return undefined;
+  if (!target.startsWith('http://') && !target.startsWith('https://')) return undefined;
+  const hostStart = target.indexOf('://') + 3;
+  const pathStart = target.indexOf('/', hostStart);
+  const host = pathStart === -1 ? target.slice(hostStart) : target.slice(hostStart, pathStart);
+  if (!HOST_LIKE_RE.test(host)) return undefined;
+  return host.toLowerCase();
+}
+
+// Phase 1 of error-contract-drift: pull the literal status codes the
+// call-site EXPLICITLY branches on. Phase 2 will compare these against
+// the server's `errorStatusCodes` to flag PRs that introduce a server
+// status the client doesn't handle.
+//
+// Buddies' converged 0.9 gate: ONLY explicit status-dispatch counts.
+// Generic `catch (e) { log(e) }` and `if (!response.ok) {…}` checks do
+// not — those treat every failure identically and are not contract
+// evidence. We walk a bounded distance from the network call (the
+// enclosing function), look for `<X>.status === N` and `case N:` in
+// switches over `<X>.status`, where `<X>` is any expression — keeping
+// it permissive on the receiver lets us catch the common patterns
+// (`response.status`, `err.status`, `err.response.status`,
+// `result.status`) without trying to bind the response variable back
+// to this specific call.
+//
+// Returns:
+//   - empty array — saw the call, walked the scope, found no explicit
+//     status branch (the call-site is generic-handle-only).
+//   - non-empty sorted array — explicit codes the call-site branches on.
+//   - undefined — analysis was inconclusive (no enclosing function /
+//     scope walk wasn't safe).
+const STATUS_PROP_RE = /(?:^|\.)status$/;
+const STATUS_LIKELY_RECEIVER_RE = /\b(res|response|reply|err|error|e|ex|result|r)\b/i;
+
+function extractHandledErrorStatusCodes(call: import('ts-morph').CallExpression): readonly number[] | undefined {
+  const enclosing =
+    call.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) ??
+    call.getFirstAncestorByKind(SyntaxKind.ArrowFunction) ??
+    call.getFirstAncestorByKind(SyntaxKind.FunctionExpression) ??
+    call.getFirstAncestorByKind(SyntaxKind.MethodDeclaration);
+  if (!enclosing) return undefined;
+
+  const codes = new Set<number>();
+
+  // Pattern 1: binary `===` / `==` of a `<X>.status` against a numeric literal.
+  for (const bin of enclosing.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+    const op = bin.getOperatorToken().getText();
+    if (op !== '===' && op !== '==') continue;
+    const left = bin.getLeft();
+    const right = bin.getRight();
+    const code = numericLiteralValue(left) ?? numericLiteralValue(right);
+    if (code === undefined) continue;
+    const other = code === numericLiteralValue(left) ? right : left;
+    if (!isStatusPropertyAccess(other)) continue;
+    codes.add(code);
+  }
+
+  // Pattern 2: `case N:` inside a `switch (<X>.status) {…}`.
+  for (const sw of enclosing.getDescendantsOfKind(SyntaxKind.SwitchStatement)) {
+    const expr = sw.getExpression();
+    if (!isStatusPropertyAccess(expr)) continue;
+    for (const caseClause of sw.getDescendantsOfKind(SyntaxKind.CaseClause)) {
+      const code = numericLiteralValue(caseClause.getExpression());
+      if (code !== undefined) codes.add(code);
+    }
+  }
+
+  return Array.from(codes).sort((a, b) => a - b);
+}
+
+// Recogniser for `<expr>.status` shape. The `<expr>` is intentionally
+// loose — we accept any property access whose final property name is
+// `status` AND whose receiver text mentions a known response/error
+// identifier somewhere. That accepts `response.status`, `err.status`,
+// `err.response.status`, `result.status`, `e.response?.status`, …
+// without binding to the specific response variable from THIS call.
+// False-positive tax: a stray `obj.status === 200` for some unrelated
+// object would count, but the `STATUS_LIKELY_RECEIVER_RE` filter on
+// the receiver text keeps it tight.
+function isStatusPropertyAccess(node: import('ts-morph').Node | undefined): boolean {
+  if (!node) return false;
+  const text = node.getText();
+  if (!STATUS_PROP_RE.test(text.replace(/\?\./g, '.'))) return false;
+  return STATUS_LIKELY_RECEIVER_RE.test(text);
 }
 
 function extractQueryParams(call: import('ts-morph').CallExpression): {
