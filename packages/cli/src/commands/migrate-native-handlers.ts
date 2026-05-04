@@ -157,15 +157,20 @@ function mapIf(stmt: ts.IfStatement, source: ts.SourceFile, indent: string): str
   out.push(...thenLines);
 
   if (stmt.elseStatement) {
-    if (ts.isIfStatement(stmt.elseStatement)) {
-      // `else if (...)` — body emitter has no `elseif`; bail. (Future:
-      // nest as `else` containing a body-statement `if`.)
-      return null;
-    }
     out.push(`${indent}else`);
-    const elseLines = mapBranch(stmt.elseStatement, source, innerIndent);
-    if (elseLines === null) return null;
-    out.push(...elseLines);
+    if (ts.isIfStatement(stmt.elseStatement)) {
+      // `else if (…)` nests as `else > if(…)` (with optional inner else).
+      // The TS+Python body emitters detect this shape and emit `else if`/
+      // `elif` directly, so the migration is byte-equivalent to the raw
+      // `else if` chain that --verify diffs against.
+      const nested = mapIf(stmt.elseStatement, source, innerIndent);
+      if (nested === null) return null;
+      out.push(...nested);
+    } else {
+      const elseLines = mapBranch(stmt.elseStatement, source, innerIndent);
+      if (elseLines === null) return null;
+      out.push(...elseLines);
+    }
   }
   return out;
 }

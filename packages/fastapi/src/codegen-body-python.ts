@@ -6,7 +6,9 @@
  *
  *    - `let name=X value="EXPR"` — `X = EXPR` (slice 1)
  *    - `return value="EXPR"` / bare `return` (slice 1)
- *    - `if cond="EXPR"` / sibling `else` — `if EXPR:\n    body\nelse:\n    body` (slice 2c)
+ *    - `if cond="EXPR"` / sibling `else` — `if EXPR:\n    body\nelse:\n    body` (slice 2c).
+ *      `else > if(…)` and `else > [if(…), else_inner]` collapse to `elif EXPR:` so
+ *      raw `elif` chains round-trip byte-equivalent through slice 5b migration.
  *
  *  Statement-level propagation `?` lowers to:
  *
@@ -175,13 +177,39 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
       const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
       if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
       for (const sl of inner) lines.push(sl);
-      const next = children[i + 1];
-      if (next && next.type === 'else') {
-        lines.push(`${indent}else:`);
-        const elseInner = emitChildrenPy(next.children ?? [], ctx, indent + INDENT_STEP);
-        if (elseInner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
-        for (const el of elseInner) lines.push(el);
-        i++;
+      // Walk the `else` chain. Recognised shapes for `else`:
+      //   1. else > [if, else_inner]  → emit `elif`, recurse on else_inner
+      //   2. else > [if]              → terminal `elif` with no else
+      //   3. else > anything else     → plain `else:`, chain ends
+      // Mirrors the TS emitter's `else if` collapsing so byte-equivalent
+      // raw-body `else if` chains round-trip cleanly through slice 5b.
+      let elseCandidate: IRNode | undefined = children[i + 1];
+      if (elseCandidate?.type === 'else') i++;
+      while (elseCandidate && elseCandidate.type === 'else') {
+        const ec: IRNode[] = elseCandidate.children ?? [];
+        const isChainable =
+          ec.length >= 1 && ec[0].type === 'if' && (ec.length === 1 || (ec.length === 2 && ec[1].type === 'else'));
+        if (isChainable) {
+          const ifNode = ec[0];
+          const nestedCondRaw = String(ifNode.props?.cond ?? '');
+          const nestedCondIR = parseExpression(nestedCondRaw);
+          if (nestedCondIR.kind === 'propagate') {
+            throw new Error(
+              "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
+            );
+          }
+          lines.push(`${indent}elif ${emitPyExprCtx(nestedCondIR, ctx)}:`);
+          const ifInner = emitChildrenPy(ifNode.children ?? [], ctx, indent + INDENT_STEP);
+          if (ifInner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+          for (const sl of ifInner) lines.push(sl);
+          elseCandidate = ec.length === 2 ? ec[1] : undefined;
+        } else {
+          lines.push(`${indent}else:`);
+          const elseInner = emitChildrenPy(ec, ctx, indent + INDENT_STEP);
+          if (elseInner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+          for (const el of elseInner) lines.push(el);
+          break;
+        }
       }
     } else if (child.type === 'else') {
       // Slice-2 review fix: orphan `else` is a structural error (matches TS side).
