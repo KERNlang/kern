@@ -32,6 +32,7 @@
   "license": "AGPL-3.0",
   "scripts": {
     "build": "tsc -b",
+    "kern:compile": "node ../cli/dist/cli.js compile src/kern --outdir=src/generated",
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.js"
   },
   "dependencies": {
