@@ -27,8 +27,11 @@
  *    - Result-flavored propagation only (`'err'` discriminant). Option
  *      propagation in native bodies is deferred to slice 8 (typecheck-driven).
  *    - `if` requires `cond="EXPR"`. `else` is a sibling node (no condition).
- *      `else if` chains land in slice 3 — for slice 2c users nest `if` inside
- *      the `else` branch.
+ *      `else if` chains: an `else` whose first child is an `if` (with optional
+ *      sibling inner `else`) is collapsed to `else if (...)` in the emitted
+ *      TS. Same shape works for hand-written nested KERN and for slice 5b's
+ *      `kern migrate native-handlers` output, which emits `else > if(…)` so
+ *      raw `else if` chains round-trip byte-equivalent through `--verify`.
  *
  *  `gensymCounter` is local to each emit call — every handler gets its own
  *  fresh `__k_t1`, `__k_t2`, … sequence (same convention as slice 7).
@@ -114,11 +117,36 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       }
       lines.push(`${indent}if (${emitExpression(condIR)}) {`);
       for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
-      const next = children[i + 1];
-      if (next && next.type === 'else') {
-        lines.push(`${indent}} else {`);
-        for (const el of emitChildrenTS(next.children ?? [], ctx, indent + INDENT_STEP)) lines.push(el);
-        i++;
+      // Walk the `else` chain so byte-equivalent `else if` chains compile back
+      // out as `else if (...)` instead of `else { if (...) {...} else {...} }`.
+      // Recognised shapes for `else`:
+      //   1. else > [if, else_inner]  → chain: `} else if (cond) {...`, recurse on else_inner
+      //   2. else > [if]              → terminal chain: `} else if (cond) {...}` (no else)
+      //   3. else > anything else     → plain `} else { ... }`, chain ends
+      // Slice 5b's migration emits shape 1/2; hand-written KERN can use any.
+      let elseCandidate: IRNode | undefined = children[i + 1];
+      if (elseCandidate?.type === 'else') i++;
+      while (elseCandidate && elseCandidate.type === 'else') {
+        const ec: IRNode[] = elseCandidate.children ?? [];
+        const isChainable =
+          ec.length >= 1 && ec[0].type === 'if' && (ec.length === 1 || (ec.length === 2 && ec[1].type === 'else'));
+        if (isChainable) {
+          const ifNode = ec[0];
+          const nestedCondRaw = String(ifNode.props?.cond ?? '');
+          const nestedCondIR = parseExpression(nestedCondRaw);
+          if (nestedCondIR.kind === 'propagate') {
+            throw new Error(
+              "Propagation '?' is not allowed in `if cond=` — bind the call to a `let` first, then test the bound name.",
+            );
+          }
+          lines.push(`${indent}} else if (${emitExpression(nestedCondIR)}) {`);
+          for (const sl of emitChildrenTS(ifNode.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
+          elseCandidate = ec.length === 2 ? ec[1] : undefined;
+        } else {
+          lines.push(`${indent}} else {`);
+          for (const el of emitChildrenTS(ec, ctx, indent + INDENT_STEP)) lines.push(el);
+          break;
+        }
       }
       lines.push(`${indent}}`);
     } else if (child.type === 'else') {
