@@ -3392,4 +3392,68 @@ describe('native kern test runner', () => {
     expect(summary.failed).toBe(0);
     expect(formatNativeKernTestRunSummary(summary)).toContain('0 passed, 0 warnings, 0 failed, 0 total');
   });
+
+  // Regression: bug 2 — fns whose handler is `lang=kern` must resolve at
+  // runtime. Before the fix, the runner read `props.code` verbatim (raw KERN
+  // source) and V8 threw ReferenceError because the symbol's binding had no
+  // valid JS body. The runner now lowers kern handlers via
+  // `emitNativeKernBodyTS` before evaluation.
+  test('resolves fn symbols whose handler body is lang=kern', () => {
+    writeFileSync(
+      join(tmpDir, 'native-body.kern'),
+      ['fn name=identity params="value:number" returns=number', '  handler lang=kern', '    return value="value"'].join(
+        '\n',
+      ),
+    );
+    const testFile = join(tmpDir, 'native-body.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="lang=kern fn body" target="./native-body.kern"',
+        '  it name="executes the lowered body"',
+        '    expect fn=identity args={{[7]}} equals=7',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(1);
+    expect(summary.results[0].message ?? '').not.toMatch(/ReferenceError/);
+  });
+
+  // Regression: bug 1 — the legacy 100ms `RUNTIME_EXPR_TIMEOUT_MS` produced
+  // non-deterministic flakes under CPU contention because cold-compile +
+  // JIT routinely blew that budget. The default is now 1000ms (override
+  // via `KERN_TEST_RUNTIME_TIMEOUT_MS`). This test exercises a small loop
+  // that would have been flaky on the old budget but should always pass on
+  // the new one.
+  test('default runtime timeout absorbs short loop computations', () => {
+    writeFileSync(
+      join(tmpDir, 'loop.kern'),
+      [
+        'fn name=sumTo params="n:number" returns=number',
+        '  handler <<<',
+        '    let total = 0;',
+        '    for (let i = 0; i < n; i++) total += i;',
+        '    return total;',
+        '  >>>',
+      ].join('\n'),
+    );
+    const testFile = join(tmpDir, 'loop.test.kern');
+    writeFileSync(
+      testFile,
+      [
+        'test name="loop budget" target="./loop.kern"',
+        '  it name="finishes within default budget"',
+        '    expect fn=sumTo args={{[5000]}} equals=12497500',
+      ].join('\n'),
+    );
+
+    const summary = runNativeKernTests(testFile);
+
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(1);
+    expect(summary.results[0].message ?? '').not.toMatch(/timed out/i);
+  });
 });
