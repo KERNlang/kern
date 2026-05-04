@@ -15,6 +15,7 @@ import { boundaryMutation } from './boundary-mutation.js';
 import { contractDrift } from './contract-drift.js';
 import { contractMethodDrift } from './contract-method-drift.js';
 import { duplicateRoute } from './duplicate-route.js';
+import { errorContractDrift } from './error-contract-drift.js';
 import { ignoredError } from './ignored-error.js';
 import { missingResponseModel } from './missing-response-model.js';
 import { mutationWithoutIdempotency } from './mutation-without-idempotency.js';
@@ -51,6 +52,7 @@ export const conceptRules: ConceptRule[] = [
   contractDrift,
   contractMethodDrift,
   duplicateRoute,
+  errorContractDrift,
   ignoredError,
   missingResponseModel,
   mutationWithoutIdempotency,
