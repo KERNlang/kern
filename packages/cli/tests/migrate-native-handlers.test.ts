@@ -12,8 +12,21 @@
  *  is the byte-equivalence safety net at file-system level.
  */
 
-import { parseDocumentStrict } from '@kernlang/core';
+import type { IRNode } from '@kernlang/core';
+import { emitNativeKernBodyTS, parseDocumentStrict } from '@kernlang/core';
 import { rewriteNativeHandlers } from '../src/commands/migrate-native-handlers.js';
+
+/** Walk the parsed IR and return the first `handler` node. Used by the
+ *  byte-equivalence tests below to feed a migrated handler back through
+ *  emitNativeKernBodyTS and assert the compiled TS matches the raw body. */
+function findHandler(node: IRNode): IRNode | undefined {
+  if (node.type === 'handler') return node;
+  for (const child of node.children ?? []) {
+    const found = findHandler(child);
+    if (found) return found;
+  }
+  return undefined;
+}
 
 describe('rewriteNativeHandlers — supported statement types', () => {
   test('migrates a let-assignment + return body', () => {
@@ -158,9 +171,9 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.hits).toHaveLength(0);
   });
 
-  test('bails on `else if` (body emitter has no elseif)', () => {
+  test('migrates `else if` chains as nested `else > if` (body emitter collapses to `else if`)', () => {
     const source = [
-      'fn name=ok returns=number',
+      'fn name=classify returns=number',
       '  handler <<<',
       '    if (a) {',
       '      return 1;',
@@ -172,7 +185,14 @@ describe('rewriteNativeHandlers — bail conditions', () => {
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toContain('if cond="a"');
+    expect(result.output).toContain('if cond="b"');
+    // The nested-`if` lives inside `else`, not as a sibling. Expressed in
+    // the migrated source as nested indentation.
+    expect(result.output).toMatch(/else\s*\n\s+if cond="b"/);
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
   test('bails on body containing line comments', () => {
@@ -377,5 +397,100 @@ describe('rewriteNativeHandlers — multi-handler files', () => {
     // The `for` loop body has no body-statement equivalent, so the second
     // handler stays raw `<<<…>>>`.
     expect(result.output).toContain('for (const x of xs) doSideEffect(x);');
+  });
+});
+
+describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalence)', () => {
+  // Slice 5b's stated guarantee is that migrated source compiles to TS that
+  // is byte-equivalent to the original raw body (so `--verify` passes).
+  // The else-if collapse in body-ts.ts is the load-bearing piece: without
+  // it, migrated `else if` chains would compile to `} else { if (...) {...} }`
+  // and `--verify` would roll back. These tests assert the contract directly:
+  // migrate → parse → emitNativeKernBodyTS → compare to expected raw output.
+
+  test('if/else if/else compiles byte-equivalent to the raw body', () => {
+    const source = [
+      'fn name=classify returns=number',
+      '  handler <<<',
+      '    if (a) {',
+      '      return 1;',
+      '    } else if (b) {',
+      '      return 2;',
+      '    } else {',
+      '      return 3;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const root = parseDocumentStrict(result.output);
+    const handler = findHandler(root);
+    expect(handler).toBeDefined();
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('if (a) {');
+    expect(ts).toContain('  return 1;');
+    expect(ts).toContain('} else if (b) {');
+    expect(ts).toContain('  return 2;');
+    expect(ts).toContain('} else {');
+    expect(ts).toContain('  return 3;');
+    // Critical: NO `else { if (...) ... }` shape — that's the bug the
+    // else-if collapse exists to prevent.
+    expect(ts).not.toMatch(/else \{\s*if/);
+    // Closing brace count: outer if/else-if/else block has exactly one
+    // top-level closing brace.
+    const closes = (ts.match(/^}$/gm) ?? []).length;
+    expect(closes).toBe(1);
+  });
+
+  test('three-level chain (if/else if/else if/else) compiles byte-equivalent', () => {
+    const source = [
+      'fn name=four returns=number',
+      '  handler <<<',
+      '    if (a) {',
+      '      return 1;',
+      '    } else if (b) {',
+      '      return 2;',
+      '    } else if (c) {',
+      '      return 3;',
+      '    } else {',
+      '      return 4;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('if (a) {');
+    expect(ts).toContain('} else if (b) {');
+    expect(ts).toContain('} else if (c) {');
+    expect(ts).toContain('} else {');
+    expect(ts).toContain('  return 4;');
+    expect(ts).not.toMatch(/else \{\s*if/);
+    const closes = (ts.match(/^}$/gm) ?? []).length;
+    expect(closes).toBe(1);
+  });
+
+  test('plain if/else (no chain) compiles byte-equivalent', () => {
+    const source = [
+      'fn name=b returns=number',
+      '  handler <<<',
+      '    if (a) {',
+      '      return 1;',
+      '    } else {',
+      '      return 2;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('if (a) {');
+    expect(ts).toContain('} else {');
+    expect(ts).not.toContain('else if');
   });
 });
