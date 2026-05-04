@@ -34,10 +34,15 @@ export interface AstEligibilityResult {
 }
 
 /** True when `exprText` parses cleanly under KERN's parser-expression. The
- *  multi-line guard mirrors `isValidKernExpression` in the migrator — a
- *  body-statement attribute (`value="…"`) cannot embed raw newlines without
- *  breaking the line shape. */
-function isValidKernExpression(exprText: string): boolean {
+ *  multi-line guard catches body-statement attributes (`value="…"`) where
+ *  raw newlines would break the line shape.
+ *
+ *  Exported so the migrator (`migrate-native-handlers.ts`) shares the
+ *  same predicate the classifier uses — slice α-3 gemini review pulled
+ *  the formerly duplicated helper into core to prevent the migrator's
+ *  bail conditions from drifting away from the classifier's pass
+ *  conditions. */
+export function isValidKernExpression(exprText: string): boolean {
   if (/\n/.test(exprText)) return false;
   try {
     parseExpression(exprText);
@@ -47,10 +52,13 @@ function isValidKernExpression(exprText: string): boolean {
   }
 }
 
-/** Bail on any comment in the body — the migrator drops comments silently
- *  when it rewrites, so comments would be lost. Mirrors the migrator's
- *  `hasComments` function so eligibility tracks rewrite safety. */
-function hasComments(bodyText: string): boolean {
+/** True when `bodyText` contains any line or block comment. The migrator
+ *  drops comments silently on rewrite, so a body containing them is
+ *  ineligible — preserving the comment is the user's responsibility.
+ *  Exported (slice α-3 gemini review) so the migrator imports the same
+ *  scanner predicate and comment-detection cannot diverge between the
+ *  two sides. */
+export function hasComments(bodyText: string): boolean {
   const scanner = ts.createScanner(ts.ScriptTarget.Latest, /*skipTrivia*/ false);
   scanner.setText(bodyText);
   while (true) {

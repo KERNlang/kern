@@ -8,8 +8,10 @@
  *  spec, `none` is the canonical empty-value form in `lang=kern` bodies; `null` is
  *  retained for legacy/round-trip compatibility.
  *
- *  Intentionally NOT yet supported: arithmetic, comparisons, ternary, indexing,
- *  bitwise, assignment. Those land in a later slice. */
+ *  Slice 2c added arithmetic and comparisons; slice α-2 added ternary
+ *  `a ? b : c`. Still NOT supported: indexing (`xs[0]`), bitwise ops,
+ *  assignment — these would require shape changes the body emitter
+ *  doesn't have, so the parser deliberately rejects them. */
 
 import type { ValueIR } from './value-ir.js';
 
