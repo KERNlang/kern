@@ -662,14 +662,23 @@ function handlerText(node: IRNode): string {
 // `runtimeHandlerSource` lowers each kern handler through the same emitter
 // the codegen path uses (`emitNativeKernBodyTS`), giving the runner a
 // JS body it can wrap and execute.
+//
+// On lowering failure we warn and inject a `throw new Error(...)` body so
+// the binding compiles cleanly but blows up at invocation with the actual
+// emitter error — instead of degrading to an empty body that surfaces as a
+// misleading downstream ReferenceError.
 function runtimeHandlerSource(node: IRNode): string {
   return getChildren(node, 'handler')
     .map((handler) => {
       if (str(getProps(handler).lang) === 'kern') {
         try {
           return emitNativeKernBodyTS(handler);
-        } catch {
-          return '';
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const ownerName = str(getProps(node).name) || node.type;
+          console.warn(`[kern-test] kern handler lowering failed for '${ownerName}': ${message}`);
+          const literal = JSON.stringify(`kern handler lowering failed for '${ownerName}': ${message}`);
+          return `throw new Error(${literal});`;
         }
       }
       return str(getProps(handler).code);
@@ -2503,10 +2512,21 @@ function readPositiveIntEnv(name: string, fallback: number): number {
 const RUNTIME_EXPR_TIMEOUT_MS = readPositiveIntEnv('KERN_TEST_RUNTIME_TIMEOUT_MS', 1000);
 // Outer process timeout for the async eval path — must comfortably exceed
 // `RUNTIME_EXPR_TIMEOUT_MS` plus Node spawn cost (~200-400ms on busy machines).
-const RUNTIME_ASYNC_PROCESS_TIMEOUT_MS = readPositiveIntEnv(
-  'KERN_TEST_ASYNC_PROCESS_TIMEOUT_MS',
-  Math.max(5000, RUNTIME_EXPR_TIMEOUT_MS + 2000),
-);
+// We enforce a 2s safety margin even when the user overrides the env var: a
+// shorter outer timeout would kill the worker before V8 can report a real
+// inner timeout, surfacing as an opaque "process timed out" instead of the
+// actionable script-execution-timed-out error.
+const RUNTIME_ASYNC_PROCESS_FLOOR_MS = Math.max(5000, RUNTIME_EXPR_TIMEOUT_MS + 2000);
+const RUNTIME_ASYNC_PROCESS_TIMEOUT_MS = (() => {
+  const requested = readPositiveIntEnv('KERN_TEST_ASYNC_PROCESS_TIMEOUT_MS', RUNTIME_ASYNC_PROCESS_FLOOR_MS);
+  if (requested < RUNTIME_ASYNC_PROCESS_FLOOR_MS) {
+    console.warn(
+      `[kern-test] KERN_TEST_ASYNC_PROCESS_TIMEOUT_MS=${requested} is below the required floor (${RUNTIME_ASYNC_PROCESS_FLOOR_MS}ms = max(5000, RUNTIME_EXPR_TIMEOUT_MS+2000)); using the floor instead.`,
+    );
+    return RUNTIME_ASYNC_PROCESS_FLOOR_MS;
+  }
+  return requested;
+})();
 const RUNTIME_EXPR_UNSAFE_TOKEN =
   /\b(?:async|class|constructor|Date|delete|do|eval|fetch|for|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 const RUNTIME_FN_UNSAFE_TOKEN =

@@ -3456,4 +3456,50 @@ describe('native kern test runner', () => {
     expect(summary.passed).toBe(1);
     expect(summary.results[0].message ?? '').not.toMatch(/timed out/i);
   });
+
+  // Regression: tribunal verdict — when `emitNativeKernBodyTS` rejects a
+  // construct, the runner used to silently emit an empty body, surfacing
+  // as a misleading downstream ReferenceError. It now injects a
+  // `throw new Error(...)` body so the binding compiles and the failure
+  // surfaces at invocation with the actual emitter message.
+  test('lang=kern lowering failure surfaces emitter error at invocation', () => {
+    const originalWarn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map((a) => String(a)).join(' '));
+    };
+    try {
+      // `if cond="<expr>?"` is rejected by emitNativeKernBodyTS — propagation
+      // in `if` has no single-line lowering. See body-ts.ts.
+      writeFileSync(
+        join(tmpDir, 'broken.kern'),
+        [
+          'fn name=brokenFn params="x:number" returns=number',
+          '  handler lang=kern',
+          '    if cond="x?"',
+          '      return value="1"',
+          '    return value="0"',
+        ].join('\n'),
+      );
+      const testFile = join(tmpDir, 'broken.test.kern');
+      writeFileSync(
+        testFile,
+        [
+          'test name="lowering failure" target="./broken.kern"',
+          '  it name="surfaces a precise emitter error"',
+          '    expect fn=brokenFn args={{[1]}} equals=1',
+        ].join('\n'),
+      );
+
+      const summary = runNativeKernTests(testFile);
+
+      expect(summary.failed).toBe(1);
+      const message = summary.results[0].message ?? '';
+      expect(message).toMatch(/kern handler lowering failed/i);
+      expect(message).not.toMatch(/ReferenceError/);
+      expect(warnings.some((w) => /kern handler lowering failed/i.test(w))).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
 });
