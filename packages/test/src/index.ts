@@ -1,6 +1,7 @@
 import type { IRNode, ParseDiagnostic, SchemaViolation, SemanticViolation } from '@kernlang/core';
 import {
   decompile,
+  emitNativeKernBodyTS,
   generateCoreNode,
   importTypeScript,
   parseDocumentWithDiagnostics,
@@ -649,6 +650,39 @@ function nodeLabel(node: IRNode): string {
 function handlerText(node: IRNode): string {
   return getChildren(node, 'handler')
     .map((handler) => str(getProps(handler).code))
+    .filter(Boolean)
+    .join('\n');
+}
+
+// `handlerText` returns the verbatim `props.code` from each handler child,
+// which is what most callers (reach analysis, length checks, regex sniffing)
+// want. The runtime-eval path is different: a handler with `lang="kern"`
+// stores raw KERN source in `props.code`, not JS. Feeding that to V8 yields
+// ReferenceErrors when tests reference symbols whose body is kern-native.
+// `runtimeHandlerSource` lowers each kern handler through the same emitter
+// the codegen path uses (`emitNativeKernBodyTS`), giving the runner a
+// JS body it can wrap and execute.
+//
+// On lowering failure we warn and inject a `throw new Error(...)` body so
+// the binding compiles cleanly but blows up at invocation with the actual
+// emitter error — instead of degrading to an empty body that surfaces as a
+// misleading downstream ReferenceError.
+function runtimeHandlerSource(node: IRNode): string {
+  return getChildren(node, 'handler')
+    .map((handler) => {
+      if (str(getProps(handler).lang) === 'kern') {
+        try {
+          return emitNativeKernBodyTS(handler);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const ownerName = str(getProps(node).name) || node.type;
+          console.warn(`[kern-test] kern handler lowering failed for '${ownerName}': ${message}`);
+          const literal = JSON.stringify(`kern handler lowering failed for '${ownerName}': ${message}`);
+          return `throw new Error(${literal});`;
+        }
+      }
+      return str(getProps(handler).code);
+    })
     .filter(Boolean)
     .join('\n');
 }
@@ -2463,8 +2497,36 @@ function evaluateImportAssertion(
   return { passed: true };
 }
 
-const RUNTIME_EXPR_TIMEOUT_MS = 100;
-const RUNTIME_ASYNC_PROCESS_TIMEOUT_MS = 1500;
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+// V8 enforces wall-clock time on `script.runInContext`. Under CPU contention
+// cold-compile + JIT can blow tight budgets — a 100ms default produced flaky
+// non-deterministic failures across runs. 1s is the new floor; override via
+// `KERN_TEST_RUNTIME_TIMEOUT_MS` for slow CI or expensive evals.
+const RUNTIME_EXPR_TIMEOUT_MS = readPositiveIntEnv('KERN_TEST_RUNTIME_TIMEOUT_MS', 1000);
+// Outer process timeout for the async eval path — must comfortably exceed
+// `RUNTIME_EXPR_TIMEOUT_MS` plus Node spawn cost (~200-400ms on busy machines).
+// We enforce a 2s safety margin even when the user overrides the env var: a
+// shorter outer timeout would kill the worker before V8 can report a real
+// inner timeout, surfacing as an opaque "process timed out" instead of the
+// actionable script-execution-timed-out error.
+const RUNTIME_ASYNC_PROCESS_FLOOR_MS = Math.max(5000, RUNTIME_EXPR_TIMEOUT_MS + 2000);
+const RUNTIME_ASYNC_PROCESS_TIMEOUT_MS = (() => {
+  const requested = readPositiveIntEnv('KERN_TEST_ASYNC_PROCESS_TIMEOUT_MS', RUNTIME_ASYNC_PROCESS_FLOOR_MS);
+  if (requested < RUNTIME_ASYNC_PROCESS_FLOOR_MS) {
+    console.warn(
+      `[kern-test] KERN_TEST_ASYNC_PROCESS_TIMEOUT_MS=${requested} is below the required floor (${RUNTIME_ASYNC_PROCESS_FLOOR_MS}ms = max(5000, RUNTIME_EXPR_TIMEOUT_MS+2000)); using the floor instead.`,
+    );
+    return RUNTIME_ASYNC_PROCESS_FLOOR_MS;
+  }
+  return requested;
+})();
 const RUNTIME_EXPR_UNSAFE_TOKEN =
   /\b(?:async|class|constructor|Date|delete|do|eval|fetch|for|Function|global|globalThis|import|process|prototype|require|setInterval|setTimeout|switch|this|throw|try|while|with|WebSocket|XMLHttpRequest|__proto__)\b/;
 const RUNTIME_FN_UNSAFE_TOKEN =
@@ -2593,7 +2655,7 @@ function runtimeJsSource(source: string): string {
 }
 
 function runtimeConstHandlerExpr(node: IRNode): string {
-  const code = runtimeJsSource(handlerText(node).trim());
+  const code = runtimeJsSource(runtimeHandlerSource(node).trim());
   if (!code) return '';
   if (/^\s*(?:return|const|let|var|if|for|while|try|throw)\b/.test(code) || /;\s*$/.test(code)) {
     return `(() => {\n${code}\n})()`;
@@ -2636,7 +2698,7 @@ function runtimeParamNames(node: IRNode): string[] {
 }
 
 function runtimeFunctionExpr(node: IRNode): string {
-  const code = runtimeJsSource(handlerText(node));
+  const code = runtimeJsSource(runtimeHandlerSource(node));
   if (!code) return '';
 
   const params = runtimeParamNames(node);
@@ -2647,7 +2709,7 @@ function runtimeFunctionExpr(node: IRNode): string {
 
 function runtimeHandlerLines(node: IRNode, spaces = 4): string[] {
   const prefix = ' '.repeat(spaces);
-  const code = runtimeJsSource(handlerText(node).trim());
+  const code = runtimeJsSource(runtimeHandlerSource(node).trim());
   if (!code) return [];
   return code.split('\n').map((line) => `${prefix}${line}`);
 }
