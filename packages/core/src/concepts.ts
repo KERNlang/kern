@@ -190,6 +190,26 @@ export interface EffectPayload {
    */
   sentFieldsResolved?: boolean;
   /**
+   * For `network` subtype only — coarse type tag per `sentFields` entry.
+   * Same key set as `sentFields`. Each tag is one of:
+   *   - `'string' | 'number' | 'boolean' | 'null'` — primitive literals
+   *   - `'object' | 'array'` — nested structured values
+   *   - `'unknown'` — value position present but type couldn't be inferred
+   *     (fallback so the key isn't silently dropped from the type map)
+   *
+   * The tag is intentionally coarse — no string-literal narrowing
+   * (`'admin' | 'user'`), no nested object shape, no generics. Powers
+   * cross-stack rules that want "names + types match" precision (e.g.
+   * `body-shape-drift` upgrading from "name overlap" to "name + type
+   * overlap"). Without this every `userId: string` (client) would silently
+   * "match" a `userId: number` (server) just because the names overlap.
+   *
+   * Populated only when `sentFieldsResolved === true`. Field-set is a
+   * subset of `sentFields` (we never emit a tag for a field name that
+   * isn't already in the names list).
+   */
+  sentFieldTypes?: Readonly<Record<string, 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array' | 'unknown'>>;
+  /**
    * For `network` subtype only. `true` when the call-site has a local error
    * path (try/catch, `.catch`, `response.ok`/status check, or known error UI);
    * `false` when a raw inspectable call has no such path; `undefined` when a
