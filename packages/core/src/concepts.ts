@@ -211,6 +211,20 @@ export interface EffectPayload {
    * True when the mapper could fully inspect query parameters on the target URL.
    */
   queryParamsResolved?: boolean;
+  /**
+   * For `network` subtype only. Lower-case host extracted from the call's URL
+   * when it was an absolute URL (`https://api.example.com/users` → `api.example.com`,
+   * `http://localhost:8080/x` → `localhost:8080`). Undefined for relative
+   * URLs (`/api/users`), template literals where the host is interpolated
+   * (`https://${HOST}/api`), and unresolved expressions.
+   *
+   * Captured but not yet consumed by cross-stack rules. Phase 1 of the
+   * surface-fingerprinting work — phase 2 will let cross-stack rules use
+   * this to filter out third-party hosts (e.g. a frontend `fetch` to
+   * `stripe.com/api/charges` should not match against the partner backend's
+   * `/api/charges` route).
+   */
+  host?: string;
 }
 
 export interface StateMutationPayload {
