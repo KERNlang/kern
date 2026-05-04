@@ -211,6 +211,39 @@ export interface EffectPayload {
    * True when the mapper could fully inspect query parameters on the target URL.
    */
   queryParamsResolved?: boolean;
+  /**
+   * For `network` subtype only. Lower-case host extracted from the call's URL
+   * when it was an absolute URL (`https://api.example.com/users` → `api.example.com`,
+   * `http://localhost:8080/x` → `localhost:8080`). Undefined for relative
+   * URLs (`/api/users`), template literals where the host is interpolated
+   * (`https://${HOST}/api`), and unresolved expressions.
+   *
+   * Captured but not yet consumed by cross-stack rules. Phase 1 of the
+   * surface-fingerprinting work — phase 2 will let cross-stack rules use
+   * this to filter out third-party hosts (e.g. a frontend `fetch` to
+   * `stripe.com/api/charges` should not match against the partner backend's
+   * `/api/charges` route).
+   */
+  host?: string;
+  /**
+   * For `network` subtype only. The set of HTTP status codes the call-site
+   * EXPLICITLY branches on — extracted from `response.status === N`,
+   * `err.status === N`, `err.response?.status === N`, or `case N:` in a
+   * switch over one of those expressions. Excludes generic catch-all
+   * handlers (`catch (e) { log(e); }`), `response.ok` checks, and
+   * status-range tests (`status >= 400`).
+   *
+   * Empty list means we saw the network call but no explicit status
+   * dispatch — the call-site treats every failure identically. Undefined
+   * means the analysis was inconclusive (response variable escaped the
+   * scope, dynamic status check, etc).
+   *
+   * Phase 1 of the `error-contract-drift` work — phase 2 will compare
+   * this against the server-side `errorStatusCodes` to flag PRs that add
+   * a server status the client doesn't handle. Captured but not yet
+   * consumed.
+   */
+  handledErrorStatusCodes?: readonly number[];
 }
 
 export interface StateMutationPayload {

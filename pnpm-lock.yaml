@@ -354,6 +354,10 @@ importers:
       '@kernlang/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
+      '@kernlang/cli':
+        specifier: workspace:*
+        version: link:../cli
 
   packages/vue:
     dependencies:
