@@ -16,7 +16,7 @@
  *  the prerequisite for the future warn promotion.
  *
  *  The reason strings here are deliberately specific (e.g. `var-destructure`,
- *  `if-elseif-chain`, `expr-stmt-mutation`) so users running
+ *  `try-finally`, `expr-stmt-mutation`) so users running
  *  `kern migrate native-handlers` and `kern review` see actionable hints
  *  instead of a generic "ineligible". */
 
@@ -28,8 +28,8 @@ export interface AstEligibilityResult {
   /** When eligible: 'empty' | 'ok'.
    *  When ineligible: a short kebab-case slug naming the first blocking shape.
    *  Examples: 'comments-present', 'ts-parse-error', 'var-destructure',
-   *  'var-non-const', 'if-elseif-chain', 'try-finally', 'for-stmt',
-   *  'expr-stmt-mutation', 'return-bad-expr', 'unsupported-stmt-<Kind>'. */
+   *  'var-non-const', 'try-finally', 'for-stmt', 'expr-stmt-mutation',
+   *  'return-bad-expr', 'unsupported-stmt-<Kind>'. */
   reason: string;
 }
 
@@ -98,9 +98,11 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile): string | null {
     const thenReason = classifyBranch(stmt.thenStatement, sf);
     if (thenReason !== null) return thenReason;
     if (stmt.elseStatement) {
-      // Body emitter has no `elseif` — `else if` chains have to be hand-
-      // unrolled. Mirror the migrator's mapIf bail.
-      if (ts.isIfStatement(stmt.elseStatement)) return 'if-elseif-chain';
+      // `else if (…)` is a nested IfStatement here. The migrator's mapIf
+      // recurses for it, and the body emitters (TS + Python) collapse the
+      // resulting `else > if` shape back to `else if` / `elif` (commit
+      // 88c06dcc on dev). classifyBranch handles the nested IfStatement
+      // by re-entering classifyStmt, so the recursion is automatic.
       const elseReason = classifyBranch(stmt.elseStatement, sf);
       if (elseReason !== null) return elseReason;
     }

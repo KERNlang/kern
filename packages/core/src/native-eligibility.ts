@@ -30,7 +30,7 @@ export interface EligibilityResult {
   eligible: boolean;
   /** When eligible: `'empty'` (whitespace-only body) or `'ok'` (passed AST walk).
    *  When ineligible: a kebab-case slug naming the first blocking shape —
-   *  e.g. `'var-destructure'`, `'if-elseif-chain'`, `'expr-stmt-mutation'`,
+   *  e.g. `'var-destructure'`, `'try-finally'`, `'expr-stmt-mutation'`,
    *  `'comments-present'`, `'ts-parse-error'`. See
    *  `native-eligibility-ast.ts` for the full set. The legacy regex source
    *  (e.g. `'\\bfor\\s*\\('`) is no longer surfaced — older callers that
