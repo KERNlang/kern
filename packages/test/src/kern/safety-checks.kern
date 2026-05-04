@@ -1,0 +1,5 @@
+const name=BINDING_NAME_RE type=RegExp value={{ /^[A-Za-z_$][A-Za-z0-9_$]*$/ }}
+
+fn name=isRuntimeBindingName params="value:string" returns=boolean
+  handler lang=kern
+    return value="BINDING_NAME_RE.test(value)"
