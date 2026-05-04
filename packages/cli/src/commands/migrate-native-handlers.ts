@@ -150,8 +150,14 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
     // regex classifier already rejects these structurally, but a defensive
     // check here keeps `do` from silently miscompiling if the classifier ever
     // loosens (e.g. `arr[i] = v` would parse as a BinaryExpression with `=`).
-    if (ts.isBinaryExpression(stmt.expression) && stmt.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-      return null;
+    //
+    // Gemini review: cover ALL assignment operators, not just `=`. The classifier
+    // regex `[+\-*/%]=` misses bitwise (`|=`, `&=`, `^=`, `<<=`, `>>=`, `>>>=`),
+    // logical (`&&=`, `||=`, `??=`), and exponentiation (`**=`) assignments.
+    // TS's FirstAssignment/LastAssignment range covers the full set.
+    if (ts.isBinaryExpression(stmt.expression)) {
+      const op = stmt.expression.operatorToken.kind;
+      if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) return null;
     }
     if (ts.isPostfixUnaryExpression(stmt.expression) || ts.isPrefixUnaryExpression(stmt.expression)) {
       const op = (stmt.expression as ts.PrefixUnaryExpression | ts.PostfixUnaryExpression).operator;

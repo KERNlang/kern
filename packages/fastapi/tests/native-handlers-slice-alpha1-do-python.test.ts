@@ -37,6 +37,11 @@ describe('do body-statement — Python codegen', () => {
     );
   });
 
+  test('await inside `do` lowers to bare `await expr` line', () => {
+    const handler = makeHandler([{ type: 'do', props: { value: 'await cleanup()' } }]);
+    expect(emitNativeKernBodyPython(handler)).toBe('await cleanup()');
+  });
+
   test('propagation `?` discards the value, preserves err-branch', () => {
     const handler = makeHandler([{ type: 'do', props: { value: 'mayFail()?' } }]);
     const out = emitNativeKernBodyPython(handler);

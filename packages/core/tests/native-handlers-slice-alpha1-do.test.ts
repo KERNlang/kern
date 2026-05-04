@@ -42,6 +42,11 @@ describe('do body-statement — TS codegen', () => {
     );
   });
 
+  test('await inside `do` lowers to bare `await expr;`', () => {
+    const handler = makeHandler([{ type: 'do', props: { value: 'await cleanup()' } }]);
+    expect(emitNativeKernBodyTS(handler)).toBe('await cleanup();');
+  });
+
   test('propagation `?` discards the value, preserves the err-branch', () => {
     const handler = makeHandler([{ type: 'do', props: { value: 'mayFail()?' } }]);
     // Body is the same hoisted-tmp + err-propagate pattern as `let`/`return`/`throw`,
