@@ -1,34 +1,40 @@
-/** Native KERN handler body eligibility classifier — slice 5a foundation.
+/** Native KERN handler body eligibility classifier — slice 5a foundation
+ *  (slice α-3 update: now delegates to the AST walker in
+ *  `native-eligibility-ast.ts`).
  *
  *  Given a raw `<<<...>>>` handler body, determines whether it could compile
  *  under `lang="kern"` opt-in WITHOUT manual rewrite. Used by:
  *
- *    1. The compiler diagnostic layer (parser-validate-propagation siblings)
- *       to surface `info`-level hints suggesting opt-in.
- *    2. The future `kern migrate native-handlers` CLI (slice 5b) to bulk-convert.
+ *    1. The compiler diagnostic layer (`parser-validate-native-eligible.ts`)
+ *       to surface `info`-level `NATIVE_KERN_ELIGIBLE` hints suggesting opt-in.
+ *    2. The `kern migrate native-handlers` CLI (slice 5b) to bulk-convert.
  *    3. Empirical scans of real-world repos (e.g. Agon-AI) to measure the
  *       practical adoption ceiling for native bodies.
  *
- *  The classifier is INTENTIONALLY HEURISTIC — full eligibility requires the
- *  type-aware AST walk that slice 5b's rewriter performs. False positives here
- *  surface as compile errors when the user opts in; false negatives just
- *  deflate the suggestion rate. We err toward false negatives so the
- *  diagnostic stays trustworthy ("if I see this hint, opting in WILL work").
+ *  Slice α-3: replaced the regex pre-screen with a TS-AST walk that mirrors
+ *  the migrator's `mapStatement` rules. Eligibility now equals migrate-success
+ *  by construction, which is the prerequisite for graduating the
+ *  `NATIVE_KERN_ELIGIBLE` diagnostic from `info` to `warn` without producing
+ *  fix-or-suppress noise on bodies the migrator silently bails on.
  *
- *  Slice 4d update: removed `try` / `catch` / `throw` / `finally`, `new`
- *  keyword, and `??` walrus from the disqualifier list — those landed in
- *  slice 4c+4d ship. Object spread is allowed; argument spread (`f(...x)`)
- *  is still gated since slice 4d only lowered the object-literal form.
+ *  The legacy regex disqualifier set lives at `LEGACY_NEG_PATTERNS` for
+ *  consumers that need a fast pre-filter (no TS parse). The canonical
+ *  classifier (`classifyHandlerBody`) uses the AST walker.
  */
+
+import { classifyHandlerBodyAst } from './native-eligibility-ast.js';
 
 /** Result of classifying a single handler body. */
 export interface EligibilityResult {
   /** True iff the body uses ONLY syntactic patterns that lang=kern supports. */
   eligible: boolean;
-  /** When eligible: 'empty' (whitespace-only body) or 'no-disqualifier'.
-   *  When ineligible: the source of the matching disqualifier regex (e.g.
-   *  '\\bfor\\s*\\('). Surfaces in diagnostics + migrate reports so users
-   *  can see what's blocking. */
+  /** When eligible: `'empty'` (whitespace-only body) or `'ok'` (passed AST walk).
+   *  When ineligible: a kebab-case slug naming the first blocking shape —
+   *  e.g. `'var-destructure'`, `'if-elseif-chain'`, `'expr-stmt-mutation'`,
+   *  `'comments-present'`, `'ts-parse-error'`. See
+   *  `native-eligibility-ast.ts` for the full set. The legacy regex source
+   *  (e.g. `'\\bfor\\s*\\('`) is no longer surfaced — older callers that
+   *  switched on the regex string need to migrate to the new slugs. */
   reason: string;
 }
 
@@ -52,10 +58,12 @@ export interface FileEligibilityReport {
   bodies: Array<RawBody & EligibilityResult>;
 }
 
-/** Patterns that disqualify a raw JS-like body from compiling under
- *  `lang="kern"` without manual rewrite. Order doesn't affect correctness
- *  but the first match wins and is reported as the `reason`. */
-const NEG_PATTERNS: ReadonlyArray<RegExp> = [
+/** Slice α-3: legacy regex disqualifier set. Kept exported for fast
+ *  pre-filtering (no TS parse) in tools that don't need precise reasons —
+ *  e.g. histogram scanners that only want a coarse "ineligible" signal.
+ *  The canonical classifier (`classifyHandlerBody`) no longer uses this set;
+ *  it delegates to the AST walker in `native-eligibility-ast.ts`. */
+export const LEGACY_NEG_PATTERNS: ReadonlyArray<RegExp> = [
   /=>/,
   /\bfunction\b/,
   /\bclass\s+\w/,
@@ -106,14 +114,10 @@ const NEG_PATTERNS: ReadonlyArray<RegExp> = [
   /\/\w+\/[gimsy]*/,
 ];
 
-/** Classify a single raw body. */
+/** Classify a single raw body. Slice α-3: delegates to the AST walker so
+ *  eligibility ≡ migrate-success by construction. */
 export function classifyHandlerBody(rawBody: string): EligibilityResult {
-  const trimmed = rawBody.trim();
-  if (trimmed === '') return { eligible: true, reason: 'empty' };
-  for (const pat of NEG_PATTERNS) {
-    if (pat.test(rawBody)) return { eligible: false, reason: pat.source };
-  }
-  return { eligible: true, reason: 'no-disqualifier' };
+  return classifyHandlerBodyAst(rawBody);
 }
 
 /** Walk a `.kern` source file's text and pull out every `<<< … >>>` body,

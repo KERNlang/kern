@@ -25,8 +25,14 @@ describe('classifyHandlerBody — eligible bodies', () => {
     expect(classifyHandlerBody(`return Text.upper(name);`).eligible).toBe(true);
   });
 
-  test('await + ? propagation is eligible', () => {
-    expect(classifyHandlerBody(`const u = await fetchUser(id)?;\nreturn u.name;`).eligible).toBe(true);
+  test('await + ? propagation rejected as ts-parse-error (slice α-3)', () => {
+    // KERN-syntax postfix `?` (propagation) is NOT valid TS — `tsc` reports
+    // a parse error. Slice α-3's classifier mirrors the migrator's TS parse
+    // bail, so bodies that use the KERN-only `?` syntax are reported
+    // ineligible. The right way to express propagation in a migratable body
+    // is to write the `?` inside a `let value="…"` attribute (lang="kern"
+    // body-statement form), not in the raw `<<<…>>>` body.
+    expect(classifyHandlerBody(`const u = await fetchUser(id)?;\nreturn u.name;`).reason).toBe('ts-parse-error');
   });
 
   test('optional chain is eligible', () => {
@@ -61,116 +67,96 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
   });
 });
 
-describe('classifyHandlerBody — disqualifiers', () => {
-  function rejected(body: string, expectedSource: string): void {
+describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => {
+  // Slice α-3: classifier now uses an AST walk instead of regex. Reasons are
+  // kebab-case slugs naming the first blocking shape — see
+  // native-eligibility-ast.ts. Old regex-source reasons (`'\\bfor\\s*\\('` etc.)
+  // are no longer surfaced. Tests here pin the new slug for each disqualifier.
+  function rejected(body: string, expectedReason: string): void {
     const result = classifyHandlerBody(body);
     expect(result.eligible).toBe(false);
-    expect(result.reason).toBe(expectedSource);
+    expect(result.reason).toBe(expectedReason);
   }
 
-  test('arrow function rejected', () => rejected(`return xs.map(x => x * 2);`, '=>'));
+  // Arrow / function inside expressions are rejected by the expression parser,
+  // surfacing as `<stmt>-bad-expr` rather than a syntactic top-level bail.
+  test('arrow function rejected (return-bad-expr)', () =>
+    rejected(`return xs.map(x => x * 2);`, 'return-bad-expr'));
 
-  test('function declaration rejected', () =>
-    rejected(`function inner() { return 1; }\nreturn inner();`, '\\bfunction\\b'));
+  test('function declaration rejected (unsupported-stmt)', () =>
+    rejected(`function inner() { return 1; }\nreturn inner();`, 'unsupported-stmt-FunctionDeclaration'));
 
-  test('class declaration rejected', () => rejected(`class Foo {}\nreturn new Foo();`, '\\bclass\\s+\\w'));
+  test('class declaration rejected (unsupported-stmt)', () =>
+    rejected(`class Foo {}\nreturn new Foo();`, 'unsupported-stmt-ClassDeclaration'));
 
-  test('for-loop rejected', () => rejected(`for (const x of xs) { y += x; }\nreturn y;`, '\\bfor\\s*\\('));
+  test('for-loop rejected', () => rejected(`for (const x of xs) { y += x; }\nreturn y;`, 'for-stmt'));
 
-  test('while-loop rejected', () => rejected(`while (i < 10) i++;\nreturn i;`, '\\bwhile\\s*\\('));
+  test('while-loop rejected', () => rejected(`while (i < 10) i++;\nreturn i;`, 'while-do-stmt'));
 
-  test('switch rejected', () => rejected(`switch (k) { case 1: return 'a'; }`, '\\bswitch\\s*\\('));
+  test('switch rejected', () => rejected(`switch (k) { case 1: return 'a'; }`, 'switch-stmt'));
 
-  test('typeof rejected', () => rejected(`return typeof x === "string";`, '\\btypeof\\b'));
+  test('typeof rejected (parser-expression bails)', () =>
+    rejected(`return typeof x === "string";`, 'return-bad-expr'));
 
-  test('instanceof rejected', () => rejected(`return x instanceof Date;`, '\\binstanceof\\b'));
+  test('instanceof rejected (parser-expression bails)', () =>
+    rejected(`return x instanceof Date;`, 'return-bad-expr'));
 
-  test('import statement rejected', () => rejected(`import { foo } from 'bar';\nreturn foo();`, '^\\s*import\\b'));
+  test('import statement rejected', () =>
+    rejected(`import { foo } from 'bar';\nreturn foo();`, 'unsupported-stmt-ImportDeclaration'));
 
-  test('require call rejected', () => rejected(`const x = require('x');\nreturn x;`, '\\brequire\\('));
+  test('this.X = Y rejected (assignment ExpressionStatement)', () =>
+    rejected(`this.value = 1;\nreturn this.value;`, 'expr-stmt-assignment'));
 
-  test('this.X = Y rejected', () =>
-    // The generic property-assignment pattern catches this before the more
-    // specific `\bthis\.\w+\s*=` pattern (first match wins).
-    rejected(`this.value = 1;\nreturn this.value;`, '^\\s*\\w+(?:\\.\\w+|\\[[^\\]]+\\])+\\s*=[^=]'));
+  test('post-increment rejected (mutation ExpressionStatement)', () =>
+    rejected(`const x = 0;\nx++;\nreturn x;`, 'expr-stmt-mutation'));
 
-  test('console.log rejected', () => rejected(`console.log(x);\nreturn x;`, '\\bconsole\\.\\w'));
+  test('pre-decrement rejected (mutation ExpressionStatement)', () =>
+    rejected(`const x = 5;\n--x;\nreturn x;`, 'expr-stmt-mutation'));
 
-  test('process.env rejected', () => rejected(`return process.env.HOME;`, '\\bprocess\\.\\w'));
+  test('compound add-assign rejected (assignment ExpressionStatement)', () =>
+    rejected(`const x = 1;\nx += 2;\nreturn x;`, 'expr-stmt-assignment'));
 
-  test('Buffer rejected', () => rejected(`return Buffer.from(x);`, '\\bBuffer\\b'));
+  test('property assignment rejected (assignment ExpressionStatement)', () =>
+    rejected(`obj.x = 1;\nreturn obj;`, 'expr-stmt-assignment'));
 
-  test('globalThis rejected', () => rejected(`return globalThis.foo;`, '\\bglobalThis\\b'));
+  test('bracket-index assignment rejected (assignment ExpressionStatement)', () =>
+    rejected(`arr[0] = 1;\nreturn arr;`, 'expr-stmt-assignment'));
 
-  test('res.X rejected', () => rejected(`res.json({ ok: true });\nreturn;`, '\\bres\\.\\w'));
+  test('bare reassignment rejected (assignment ExpressionStatement)', () =>
+    rejected(`x = 1;\nreturn x;`, 'expr-stmt-assignment'));
 
-  test('req.X rejected', () => rejected(`return req.body.id;`, '\\breq\\.\\w'));
+  test('void operator rejected (parser-expression bails)', () =>
+    rejected(`return void 0;`, 'return-bad-expr'));
 
-  test('next() rejected', () => rejected(`next(err);\nreturn;`, '\\bnext\\('));
+  test('debugger statement rejected', () =>
+    // TS SyntaxKind[kind] returns the LAST registered name — DebuggerStatement
+    // and LastStatement share a numeric value, so the slug surfaces as
+    // `unsupported-stmt-LastStatement`. Pin the actual emitted string.
+    rejected(`debugger;\nreturn 1;`, 'unsupported-stmt-LastStatement'));
 
-  test('JSON.parse rejected', () => rejected(`return JSON.parse(s);`, '\\bJSON\\.\\w'));
+  // Destructuring gap stays — `var-destructure` reason matches the migrator's
+  // bail in `mapStatement`.
+  test('object destructuring const rejected (var-destructure)', () =>
+    rejected(`const { a, b } = obj;\nreturn a + b;`, 'var-destructure'));
 
-  test('argument spread rejected', () => rejected(`return f(...args);`, '\\(\\s*\\.{3}'));
+  test('object destructuring let rejected (var-non-const)', () =>
+    rejected(`let { a } = obj;\nreturn a;`, 'var-non-const'));
 
-  test('regex literal rejected', () => rejected(`return /abc/g.test(s);`, '\\/\\w+\\/[gimsy]*'));
+  test('array destructuring rejected (var-destructure)', () =>
+    rejected(`const [first, ...rest] = xs;\nreturn first;`, 'var-destructure'));
 
-  test('yield rejected', () => rejected(`yield 1;\nreturn 2;`, '\\byield\\b'));
+  test('var destructuring rejected (var-non-const)', () =>
+    rejected(`var { x } = obj;\nreturn x;`, 'var-non-const'));
 
-  test('do-while rejected', () => {
-    // Note: NEG_PATTERNS is first-match-wins; do-while bodies trip the
-    // `while (` pattern before the `do {` pattern. Either is a valid
-    // disqualifier — the test pins the actual reported reason.
-    rejected(`do {\n  i++;\n} while (i < 5);`, '\\bwhile\\s*\\(');
-  });
+  // `let name = …` (mutable binding) — the migrator only emits `let` from
+  // `const`, so any `let` declaration in the body is rejected.
+  test('let-bind without destructure rejected (var-non-const)', () =>
+    rejected(`let x = 1;\nreturn x;`, 'var-non-const'));
 
-  // Destructuring gap — flagged by all three buddies (Codex/Gemini/OpenCode)
-  // in the slice 5a review. Slice 4d only supports the single-binding
-  // `let name=X value=EXPR` form; the rewriter (slice 5b) is what would
-  // expand `let { a, b } = obj` into multiple lets.
-  test('object destructuring const rejected', () =>
-    rejected(`const { a, b } = obj;\nreturn a + b;`, '\\b(?:const|let|var)\\s*[{[]'));
-
-  test('object destructuring let rejected', () =>
-    rejected(`let { a } = obj;\nreturn a;`, '\\b(?:const|let|var)\\s*[{[]'));
-
-  test('array destructuring rejected', () =>
-    rejected(`const [first, ...rest] = xs;\nreturn first;`, '\\b(?:const|let|var)\\s*[{[]'));
-
-  test('var destructuring rejected', () => rejected(`var { x } = obj;\nreturn x;`, '\\b(?:const|let|var)\\s*[{[]'));
-
-  // Mutation / assignment / indexing — flagged by the slice 5a pre-push
-  // review (codex+gemini). KERN's `let` lowers to `const`, the expression
-  // parser rejects assignment in expressions, and lbracket-indexing breaks
-  // codegen.
-  test('post-increment rejected', () => rejected(`let x = 0;\nx++;\nreturn x;`, '\\+\\+|--'));
-
-  test('pre-decrement rejected', () => rejected(`let x = 5;\n--x;\nreturn x;`, '\\+\\+|--'));
-
-  test('compound add-assign rejected', () => rejected(`let x = 1;\nx += 2;\nreturn x;`, '[+\\-*/%]='));
-
-  test('compound mul-assign rejected', () => rejected(`let x = 2;\nx *= 3;\nreturn x;`, '[+\\-*/%]='));
-
-  test('property assignment rejected', () =>
-    rejected(`obj.x = 1;\nreturn obj;`, '^\\s*\\w+(?:\\.\\w+|\\[[^\\]]+\\])+\\s*=[^=]'));
-
-  test('bracket-index assignment rejected', () =>
-    rejected(`arr[0] = 1;\nreturn arr;`, '^\\s*\\w+(?:\\.\\w+|\\[[^\\]]+\\])+\\s*=[^=]'));
-
-  test('bare reassignment rejected', () => rejected(`x = 1;\nreturn x;`, '^\\s*\\w+\\s*=[^=>]'));
-
-  test('delete operator rejected', () => rejected(`delete obj.x;\nreturn obj;`, '\\bdelete\\s'));
-
-  test('indexing rejected', () => rejected(`return xs[0];`, '[\\w\\]]\\['));
-
-  test('chained indexing rejected', () => rejected(`return arr[i][j];`, '[\\w\\]]\\['));
-
-  test('void operator rejected', () => rejected(`return void 0;`, '\\bvoid\\s'));
-
-  test('debugger statement rejected', () => rejected(`debugger;\nreturn 1;`, '\\bdebugger\\b'));
-
-  test('with statement rejected', () => rejected(`with (obj) { return x; }`, '\\bwith\\s*\\('));
-
-  test('eval call rejected', () => rejected(`return eval("1+2");`, '\\beval\\s*\\('));
+  // Comments-present bails the migrator silently, so the classifier mirrors
+  // that bail as a top-level reason (BEFORE statement walking).
+  test('comments inside body rejected', () =>
+    rejected(`// note\nreturn 1;`, 'comments-present'));
 });
 
 describe('classifyHandlerBody — array / object literals stay eligible', () => {
@@ -271,7 +257,7 @@ describe('scanFileForEligibility', () => {
     expect(report.eligibleBodies).toBe(2);
     expect(report.bodies[0]?.eligible).toBe(true);
     expect(report.bodies[1]?.eligible).toBe(false);
-    expect(report.bodies[1]?.reason).toBe('\\bfor\\s*\\(');
+    expect(report.bodies[1]?.reason).toBe('for-stmt');
     expect(report.bodies[2]?.eligible).toBe(true);
     expect(report.bodies[2]?.reason).toBe('empty');
   });
