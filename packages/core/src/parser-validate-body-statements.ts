@@ -1,13 +1,13 @@
 /** @internal Native KERN body-statement context validator — slice 5b-pre.
  *
- *  Body-statement nodes (`return`, `throw`, body-form `if`/`else`, body-form
- *  `try`) are valid only inside a `handler lang="kern"` scope (or nested
- *  inside another body-statement under such a handler). Without this rule,
- *  the parser silently accepts orphan `return`/`throw` lines that then crash
- *  codegen with confusing errors deep in the body emitter.
+ *  Body-statement nodes (`return`, `throw`, `do`, body-form `if`/`else`,
+ *  body-form `try`) are valid only inside a `handler lang="kern"` scope
+ *  (or nested inside another body-statement under such a handler). Without
+ *  this rule, the parser silently accepts orphan `return`/`throw` lines
+ *  that then crash codegen with confusing errors deep in the body emitter.
  *
  *  Rules:
- *    - `return` and `throw` are rejected outside a native-body scope.
+ *    - `return`, `throw`, and `do` are rejected outside a native-body scope.
  *    - `if` with a `cond` prop is body-statement form (vs `conditional`'s
  *      `if=` prop); rejected outside native-body scope.
  *    - `else` whose parent is not `conditional` is body-statement form
@@ -72,6 +72,7 @@ function isBodyStatementMisplaced(node: IRNode, ctx: WalkContext): boolean {
   switch (node.type) {
     case 'return':
     case 'throw':
+    case 'do':
       return true;
     case 'if':
       // Body-statement `if` carries a `cond` prop. `conditional` and route-
