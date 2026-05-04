@@ -31,6 +31,29 @@ describe('TS const literal resolution (phase 1 IR depth)', () => {
     return e.payload;
   }
 
+  // Multi-file variant for phase 2A cross-file import tests. Adds every file
+  // to the same project so ts-morph's symbol resolver can follow imports.
+  // The primary file (where the fetch call lives) is the LAST one in the
+  // list and is what we extract concepts from.
+  function effectOfMulti(files: Array<{ path: string; src: string }>) {
+    if (files.length === 0) throw new Error('need at least one file');
+    const p = project();
+    let primary: import('ts-morph').SourceFile | undefined;
+    for (const f of files) {
+      primary = p.createSourceFile(f.path, `export {};\n${f.src}`);
+    }
+    if (!primary) throw new Error('no primary');
+    const last = files[files.length - 1];
+    const map = extractTsConcepts(primary, last.path);
+    const effects = map.nodes.filter(
+      (n) => n.kind === 'effect' && n.payload.kind === 'effect' && n.payload.subtype === 'network',
+    );
+    if (effects.length !== 1) throw new Error(`expected 1 network effect, got ${effects.length}`);
+    const e = effects[0];
+    if (e.payload.kind !== 'effect') throw new Error('not an effect payload');
+    return e.payload;
+  }
+
   it('resolves `fetch(URL)` where URL is a same-file string-literal const', () => {
     const src = `
       const URL = 'https://api.example.com/users';
@@ -317,5 +340,126 @@ describe('TS const literal resolution (phase 1 IR depth)', () => {
     const p = effectOf('/t/a.ts', src);
     expect(p.target).toBeUndefined();
     expect(p.host).toBeUndefined();
+  });
+
+  // ── Cross-file imports (phase 2A) ────────────────────────────────────
+  // Real codebases factor URL constants into shared config files
+  // (`./config.ts`, `./constants.ts`, `./urls.ts`). Phase 1/1.5 was
+  // same-file only — phase 2A follows named imports from relative paths
+  // to the source const. Same FP gates: symbol-keyed lookup, exported
+  // const required, only `./` and `../` module specifiers.
+
+  it('resolves a relative-import named const', () => {
+    const p = effectOfMulti([
+      { path: '/t/config.ts', src: `export const API_URL = 'https://api.example.com';` },
+      { path: '/t/a.ts', src: `import { API_URL } from './config';\nasync function load() { await fetch(API_URL); }` },
+    ]);
+    expect(p.target).toBe('https://api.example.com');
+    expect(p.host).toBe('api.example.com');
+  });
+
+  it('resolves an imported env-fallback const (audiofacets shape, factored)', () => {
+    const p = effectOfMulti([
+      {
+        path: '/t/config.ts',
+        src: `export const API_URL = process.env.AUDIOFACETS_API_URL || 'https://api.audiofacets.com';`,
+      },
+      {
+        path: '/t/server-api.ts',
+        src: `import { API_URL } from './config';\nasync function load(slug: string) { await fetch(\`\${API_URL}/api/review/\${slug}\`); }`,
+      },
+    ]);
+    expect(p.host).toBe('api.audiofacets.com');
+    expect(p.target).toBe('https://api.audiofacets.com/api/review/:slug');
+  });
+
+  it('resolves an imported template-with-refs that references another same-file const', () => {
+    // c.ts has its own internal const HOST that the URL template uses.
+    const p = effectOfMulti([
+      {
+        path: '/t/c.ts',
+        src: `export const HOST = 'api.example.com';\nexport const URL = \`https://\${HOST}/v1\`;`,
+      },
+      {
+        path: '/t/a.ts',
+        src: `import { URL } from './c';\nasync function load() { await fetch(URL); }`,
+      },
+    ]);
+    expect(p.target).toBe('https://api.example.com/v1');
+    expect(p.host).toBe('api.example.com');
+  });
+
+  it('resolves an aliased named import (`import { URL as MY_URL }`) to the source name`s value', () => {
+    const p = effectOfMulti([
+      { path: '/t/c.ts', src: `export const URL = 'https://api.example.com/users';` },
+      { path: '/t/a.ts', src: `import { URL as MY_URL } from './c';\nasync function load() { await fetch(MY_URL); }` },
+    ]);
+    expect(p.target).toBe('https://api.example.com/users');
+    expect(p.host).toBe('api.example.com');
+  });
+
+  it('does NOT resolve a NON-exported const in the source file', () => {
+    const p = effectOfMulti([
+      // `const URL` (no `export`) is module-private — even if importable via
+      // some bundler magic, our gate refuses to follow it.
+      { path: '/t/c.ts', src: `const URL = 'https://api.example.com';\nexport const OTHER = 'x';` },
+      { path: '/t/a.ts', src: `import { URL } from './c';\nasync function load() { await fetch(URL); }` },
+    ]);
+    expect(p.target).toBeUndefined();
+    expect(p.host).toBeUndefined();
+  });
+
+  it('does NOT resolve a third-party (non-relative) import', () => {
+    // Phase 2A: only `./` and `../` specifiers. Library imports stay opaque
+    // — node_modules resolution + cycle risk is out of scope.
+    const p = effectOfMulti([
+      { path: '/t/a.ts', src: `import { URL } from 'some-lib';\nasync function load() { await fetch(URL); }` },
+    ]);
+    expect(p.target).toBeUndefined();
+  });
+
+  it('does NOT resolve a bare alias-path import (`@/lib/x`)', () => {
+    const p = effectOfMulti([
+      { path: '/t/a.ts', src: `import { URL } from '@/lib/config';\nasync function load() { await fetch(URL); }` },
+    ]);
+    expect(p.target).toBeUndefined();
+  });
+
+  it('does NOT resolve a default import (out of phase-2A scope)', () => {
+    const p = effectOfMulti([
+      { path: '/t/c.ts', src: `const URL = 'https://api.example.com';\nexport default URL;` },
+      { path: '/t/a.ts', src: `import URL from './c';\nasync function load() { await fetch(URL); }` },
+    ]);
+    expect(p.target).toBeUndefined();
+  });
+
+  it('does NOT resolve a namespace-import access (`M.URL`) (out of phase-2A scope)', () => {
+    const p = effectOfMulti([
+      { path: '/t/c.ts', src: `export const URL = 'https://api.example.com';` },
+      { path: '/t/a.ts', src: `import * as M from './c';\nasync function load() { await fetch(M.URL); }` },
+    ]);
+    expect(p.target).toBeUndefined();
+  });
+
+  it('preserves shadow-bail under cross-file import: parameter named like the import wins', () => {
+    const p = effectOfMulti([
+      { path: '/t/c.ts', src: `export const API_URL = 'https://api.example.com';` },
+      {
+        path: '/t/a.ts',
+        src: `import { API_URL } from './c';\nasync function load(API_URL: string) { await fetch(API_URL); }`,
+      },
+    ]);
+    expect(p.target).toBeUndefined();
+    expect(p.host).toBeUndefined();
+  });
+
+  it('does NOT resolve when the imported source const has a non-literal initializer', () => {
+    // `process.env.X` alone (no fallback) is not a literal — phase-1.5 bails
+    // on it; phase-2A transitively bails on it too.
+    const p = effectOfMulti([
+      { path: '/t/c.ts', src: `export const URL = process.env.AUDIOFACETS_API_URL;` },
+      { path: '/t/a.ts', src: `import { URL } from './c';\nasync function load() { await fetch(URL); }` },
+    ]);
+    expect(p.target).toBeUndefined();
   });
 });
