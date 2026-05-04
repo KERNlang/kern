@@ -1,7 +1,8 @@
-/** Native KERN eligibility diagnostic — slice 5a integration tests.
+/** Native KERN eligibility diagnostic — slice 5a integration tests
+ *  (slice α-4 update: severity promoted to `warning`).
  *
  *  Verifies that parseDocumentWithDiagnostics emits a NATIVE_KERN_ELIGIBLE
- *  info-severity hint on raw `<<<…>>>` handler bodies that pass the
+ *  warning-severity diagnostic on raw `<<<…>>>` handler bodies that pass the
  *  classifier, and stays silent on bodies that do not. */
 
 import { parseDocumentWithDiagnostics } from '../src/parser.js';
@@ -17,11 +18,11 @@ function nativeHints(source: string) {
 }
 
 describe('NATIVE_KERN_ELIGIBLE diagnostic — emission', () => {
-  test('emits info hint on raw handler with eligible body', () => {
+  test('emits warning hint on raw handler with eligible body', () => {
     const src = ['fn name="add" type=int', '  handler <<<', '    return 1 + 2;', '  >>>'].join('\n');
     const hints = nativeHints(src);
     expect(hints).toHaveLength(1);
-    expect(hints[0]?.severity).toBe('info');
+    expect(hints[0]?.severity).toBe('warning');
     expect(hints[0]?.message).toMatch(/lang="kern"/);
   });
 

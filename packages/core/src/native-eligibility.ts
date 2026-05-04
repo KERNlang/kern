@@ -1,20 +1,20 @@
 /** Native KERN handler body eligibility classifier — slice 5a foundation
- *  (slice α-3 update: now delegates to the AST walker in
- *  `native-eligibility-ast.ts`).
+ *  (slice α-3 update: delegates to the AST walker in
+ *  `native-eligibility-ast.ts`; slice α-4: diagnostic surfaces at `warning`).
  *
  *  Given a raw `<<<...>>>` handler body, determines whether it could compile
  *  under `lang="kern"` opt-in WITHOUT manual rewrite. Used by:
  *
  *    1. The compiler diagnostic layer (`parser-validate-native-eligible.ts`)
- *       to surface `info`-level `NATIVE_KERN_ELIGIBLE` hints suggesting opt-in.
+ *       to surface `warning`-level `NATIVE_KERN_ELIGIBLE` hints suggesting opt-in.
  *    2. The `kern migrate native-handlers` CLI (slice 5b) to bulk-convert.
  *    3. Empirical scans of real-world repos (e.g. Agon-AI) to measure the
  *       practical adoption ceiling for native bodies.
  *
  *  Slice α-3: replaced the regex pre-screen with a TS-AST walk that mirrors
  *  the migrator's `mapStatement` rules. Eligibility now equals migrate-success
- *  by construction, which is the prerequisite for graduating the
- *  `NATIVE_KERN_ELIGIBLE` diagnostic from `info` to `warn` without producing
+ *  by construction — the prerequisite for slice α-4's promotion of
+ *  `NATIVE_KERN_ELIGIBLE` from `info` to `warning` without producing
  *  fix-or-suppress noise on bodies the migrator silently bails on.
  *
  *  The legacy regex disqualifier set lives at `LEGACY_NEG_PATTERNS` for
