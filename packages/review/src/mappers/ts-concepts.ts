@@ -339,6 +339,7 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
 
     if (isDirectNetwork || isKnownLibraryMethod || isWrappedClientCall) {
       const isAsync = isInAsyncContext(call);
+      const target = extractTarget(call);
       const sentFieldsInfo = extractSentFields(call, funcName);
       const queryParamsInfo = extractQueryParams(call);
       const hasAuthHeader = extractHasAuthHeader(call, funcName);
@@ -354,7 +355,8 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
           kind: 'effect',
           subtype: 'network',
           async: isAsync,
-          target: extractTarget(call),
+          target,
+          host: extractHost(target),
           responseAsserted: isResponseAsserted(call, isWrappedClientCall),
           bodyKind: extractBodyKind(call, funcName),
           method: extractHttpMethod(call, funcName, isDirectNetwork, isKnownLibraryMethod, isWrappedClientCall),
@@ -1769,6 +1771,29 @@ function extractTarget(call: import('ts-morph').CallExpression): string | undefi
     return extractTemplateUrl(first as import('ts-morph').TemplateExpression);
   }
   return undefined;
+}
+
+// Phase 1 of surface-fingerprinting: pull the host out of an absolute URL so
+// downstream cross-stack rules can later filter third-party calls (e.g. a
+// frontend `fetch` to `stripe.com/api/charges` shouldn't match against the
+// partner backend's `/api/charges` route). Phase 2 will use this — phase 1
+// only captures it.
+//
+// Accepts the already-extracted target string (lit / no-substitution / template
+// post-extraction). Rejects targets where the host slot is a placeholder like
+// `:HOST` produced by `extractTemplateUrl` from `https://${HOST}/...` — those
+// aren't real DNS names. Returns the host lower-cased so case-insensitive
+// comparison is free downstream.
+const HOST_LIKE_RE = /^[a-z0-9][a-z0-9.-]*(:[0-9]+)?$/i;
+
+function extractHost(target: string | undefined): string | undefined {
+  if (!target) return undefined;
+  if (!target.startsWith('http://') && !target.startsWith('https://')) return undefined;
+  const hostStart = target.indexOf('://') + 3;
+  const pathStart = target.indexOf('/', hostStart);
+  const host = pathStart === -1 ? target.slice(hostStart) : target.slice(hostStart, pathStart);
+  if (!HOST_LIKE_RE.test(host)) return undefined;
+  return host.toLowerCase();
 }
 
 function extractQueryParams(call: import('ts-morph').CallExpression): {
