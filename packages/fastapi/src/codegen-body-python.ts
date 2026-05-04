@@ -226,6 +226,8 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
       throw new Error('`catch` must be a child of `try`. Found top-level `catch` in handler body.');
     } else if (child.type === 'throw') {
       for (const line of emitThrowPy(child, ctx)) lines.push(`${indent}${line}`);
+    } else if (child.type === 'do') {
+      for (const line of emitDoPy(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'each') {
       // Slice 4d — each loop.
       // Slice 4c+4d review fix (Codex P1) — read schema-compliant
@@ -339,6 +341,23 @@ function emitThrowPy(node: IRNode, ctx: BodyEmitContext): string[] {
     return [`raise Exception(${emitPyExprCtx(valueIR, ctx)})`];
   }
   return [`raise ${emitPyExprCtx(valueIR, ctx)}`];
+}
+
+function emitDoPy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawValue = props.value;
+  if (rawValue === undefined || rawValue === '') {
+    return [];
+  }
+  const valueIR = parseExpression(String(rawValue));
+  if (valueIR.kind === 'propagate' && valueIR.op === '?') {
+    rejectPropagationInsideTry(ctx);
+    const tmp = `__k_t${++ctx.gensymCounter}`;
+    const inner = emitPyExprCtx(valueIR.argument, ctx);
+    ctx.usedPropagation = true;
+    return [`${tmp} = ${inner}`, `if ${tmp}.kind == 'err':`, errPropagationLine(tmp, ctx)];
+  }
+  return [`${emitPyExprCtx(valueIR, ctx)}`];
 }
 
 /** ValueIR `kind`s that lower to Python literals/values and would trigger

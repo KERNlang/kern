@@ -141,8 +141,28 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
     return mapTry(stmt, source, indent);
   }
 
-  // ExpressionStatement (bare call), Block, ForOf, etc — no body-statement
-  // equivalent. Bail.
+  if (ts.isExpressionStatement(stmt)) {
+    // Bare expression statement (`reg.load(x);`, `arr.push(y);`) maps to the
+    // `do value="…"` body-statement (slice α-1). Largest AST-rejection bucket
+    // pre-α — see project_alpha_migrator_ast_plan.md.
+    //
+    // Reject assignments and prefix/postfix mutations explicitly — the slice 5a
+    // regex classifier already rejects these structurally, but a defensive
+    // check here keeps `do` from silently miscompiling if the classifier ever
+    // loosens (e.g. `arr[i] = v` would parse as a BinaryExpression with `=`).
+    if (ts.isBinaryExpression(stmt.expression) && stmt.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      return null;
+    }
+    if (ts.isPostfixUnaryExpression(stmt.expression) || ts.isPrefixUnaryExpression(stmt.expression)) {
+      const op = (stmt.expression as ts.PrefixUnaryExpression | ts.PostfixUnaryExpression).operator;
+      if (op === ts.SyntaxKind.PlusPlusToken || op === ts.SyntaxKind.MinusMinusToken) return null;
+    }
+    const exprText = stmt.expression.getText(source);
+    if (!isValidKernExpression(exprText)) return null;
+    return [`${indent}do value="${escapeKernString(exprText)}"`];
+  }
+
+  // Block, ForOf, while, switch, etc — no body-statement equivalent. Bail.
   return null;
 }
 

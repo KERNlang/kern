@@ -138,8 +138,22 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.hits).toHaveLength(0);
   });
 
-  test('bails on bare side-effect call (no body-statement equivalent)', () => {
+  test('migrates bare side-effect call to `do` body-statement (slice α-1)', () => {
     const source = ['fn name=ok returns=void', '  handler <<<', '    doIt();', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toContain('do value="doIt()"');
+  });
+
+  test('bails on bare property assignment ExpressionStatement (mutation)', () => {
+    // `obj.x = 1` parses as an ExpressionStatement containing a BinaryExpression
+    // with `=`. The slice 5a regex classifier already rejects this at the
+    // mutation-pattern stage, so this test asserts the regex catches it
+    // BEFORE the α-1 ExpressionStatement path. The defensive guard inside
+    // mapStatement is exercised separately in the rewriter unit (it would
+    // only fire if the classifier regex were loosened).
+    const source = ['fn name=ok returns=void', '  handler <<<', '    obj.x = 1;', '  >>>'].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
   });
@@ -354,12 +368,14 @@ describe('rewriteNativeHandlers — multi-handler files', () => {
       '  >>>',
       'fn name=skip returns=void',
       '  handler <<<',
-      '    doSideEffect();',
+      '    for (const x of xs) doSideEffect(x);',
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
     expect((result.output.match(/handler lang="kern"/g) ?? []).length).toBe(1);
-    expect(result.output).toContain('doSideEffect();');
+    // The `for` loop body has no body-statement equivalent, so the second
+    // handler stays raw `<<<…>>>`.
+    expect(result.output).toContain('for (const x of xs) doSideEffect(x);');
   });
 });
