@@ -57,6 +57,10 @@ describe('KERN-stdlib expansion — Python target', () => {
     ['Number.floor(n)', '__k_math.floor(n)'],
     ['Number.ceil(n)', '__k_math.ceil(n)'],
     ['Number.abs(n)', 'abs(n)'],
+    // `Number.isFinite` / `Number.isNaN` lower to `math.isfinite` / `math.isnan`
+    // via the `__k_math` alias (same shadow-avoidance pattern as round/floor/ceil).
+    ['Number.isFinite(n)', '__k_math.isfinite(n)'],
+    ['Number.isNaN(n)', '__k_math.isnan(n)'],
   ])('Python lowering: %s → %s', (kern, py) => {
     expect(emitPyExpression(parseExpression(kern))).toBe(py);
   });
