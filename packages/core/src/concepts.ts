@@ -225,6 +225,25 @@ export interface EffectPayload {
    * `/api/charges` route).
    */
   host?: string;
+  /**
+   * For `network` subtype only. The set of HTTP status codes the call-site
+   * EXPLICITLY branches on — extracted from `response.status === N`,
+   * `err.status === N`, `err.response?.status === N`, or `case N:` in a
+   * switch over one of those expressions. Excludes generic catch-all
+   * handlers (`catch (e) { log(e); }`), `response.ok` checks, and
+   * status-range tests (`status >= 400`).
+   *
+   * Empty list means we saw the network call but no explicit status
+   * dispatch — the call-site treats every failure identically. Undefined
+   * means the analysis was inconclusive (response variable escaped the
+   * scope, dynamic status check, etc).
+   *
+   * Phase 1 of the `error-contract-drift` work — phase 2 will compare
+   * this against the server-side `errorStatusCodes` to flag PRs that add
+   * a server status the client doesn't handle. Captured but not yet
+   * consumed.
+   */
+  handledErrorStatusCodes?: readonly number[];
 }
 
 export interface StateMutationPayload {
