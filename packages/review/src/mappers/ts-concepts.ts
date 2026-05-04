@@ -7,7 +7,7 @@
 
 import type { ConceptEdge, ConceptMap, ConceptNode, ConceptSpan, ErrorHandlePayload } from '@kernlang/core';
 import { conceptId, conceptSpan } from '@kernlang/core';
-import { type SourceFile, SyntaxKind } from 'ts-morph';
+import { type SourceFile, SyntaxKind, VariableDeclarationKind } from 'ts-morph';
 
 const EXTRACTOR_VERSION = '1.0.0';
 
@@ -318,6 +318,7 @@ function hasIntentComment(text: string): boolean {
 
 function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
   const clientIdents = collectClientIdentifiers(sf);
+  const constLiterals = buildConstLiteralMap(sf);
 
   for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const callee = call.getExpression();
@@ -339,9 +340,9 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
 
     if (isDirectNetwork || isKnownLibraryMethod || isWrappedClientCall) {
       const isAsync = isInAsyncContext(call);
-      const target = extractTarget(call);
+      const target = extractTarget(call, constLiterals);
       const sentFieldsInfo = extractSentFields(call, funcName);
-      const queryParamsInfo = extractQueryParams(call);
+      const queryParamsInfo = extractQueryParams(call, constLiterals);
       const hasAuthHeader = extractHasAuthHeader(call, funcName);
       nodes.push({
         id: conceptId(filePath, 'effect', call.getStart()),
@@ -364,6 +365,7 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
           hasAuthHeader,
           sentFields: sentFieldsInfo.fields,
           sentFieldsResolved: sentFieldsInfo.resolved,
+          sentFieldTypes: sentFieldsInfo.types,
           handlesApiErrors: extractHandlesApiErrors(call, isWrappedClientCall),
           authPropagation: extractAuthPropagation(call, funcName, objName, isWrappedClientCall, hasAuthHeader),
           queryParams: queryParamsInfo.params,
@@ -1625,12 +1627,27 @@ function isInAsyncContext(node: import('ts-morph').Node): boolean {
 //   - typed payload variables: `JSON.stringify(input)` where `input: CreateUser`
 // Everything else returns `{ fields: undefined, resolved: false }` so
 // body-shape-drift stays silent on opaque shapes rather than guessing.
+//
+// `types` is populated alongside `fields` when `resolved === true`: a coarse
+// `'string' | 'number' | 'boolean' | 'null' | 'object' | 'array' | 'unknown'`
+// tag per field, derived from the value-expression in literal objects or
+// from the inferred TS type in typed variables. Lifts cross-stack rules
+// from "name overlap" precision to "name + type overlap" — catches the
+// `userId: string` (client) vs `userId: number` (server) bug class that
+// pure-name matching misses.
+type FieldTypeTag = 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array' | 'unknown';
+type FieldTypeMap = Readonly<Record<string, FieldTypeTag>>;
+
 function extractSentFields(
   call: import('ts-morph').CallExpression,
   funcName: string,
-): { fields: readonly string[] | undefined; resolved: boolean } {
+): {
+  fields: readonly string[] | undefined;
+  resolved: boolean;
+  types: FieldTypeMap | undefined;
+} {
   const payload = extractNetworkPayloadExpression(call, funcName);
-  if (!payload) return { fields: undefined, resolved: false };
+  if (!payload) return { fields: undefined, resolved: false, types: undefined };
   return extractPayloadFields(payload);
 }
 
@@ -1661,13 +1678,16 @@ function extractNetworkPayloadExpression(
 function extractPayloadFields(node: import('ts-morph').Node): {
   fields: readonly string[] | undefined;
   resolved: boolean;
+  types: FieldTypeMap | undefined;
 } {
   const payload = unwrapPayloadExpression(node);
   if (payload.getKind() === SyntaxKind.CallExpression) {
     const bodyCall = payload as import('ts-morph').CallExpression;
-    if (bodyCall.getExpression().getText() !== 'JSON.stringify') return { fields: undefined, resolved: false };
+    if (bodyCall.getExpression().getText() !== 'JSON.stringify') {
+      return { fields: undefined, resolved: false, types: undefined };
+    }
     const stringifyArg = bodyCall.getArguments()[0];
-    return stringifyArg ? extractPayloadFields(stringifyArg) : { fields: undefined, resolved: false };
+    return stringifyArg ? extractPayloadFields(stringifyArg) : { fields: undefined, resolved: false, types: undefined };
   }
   if (payload.getKind() === SyntaxKind.ObjectLiteralExpression) {
     return extractLiteralObjectFields(payload as import('ts-morph').ObjectLiteralExpression);
@@ -1675,7 +1695,7 @@ function extractPayloadFields(node: import('ts-morph').Node): {
   if (payload.getKind() === SyntaxKind.Identifier || payload.getKind() === SyntaxKind.PropertyAccessExpression) {
     return extractObjectFieldsFromType(payload);
   }
-  return { fields: undefined, resolved: false };
+  return { fields: undefined, resolved: false, types: undefined };
 }
 
 function unwrapPayloadExpression(node: import('ts-morph').Node): import('ts-morph').Node {
@@ -1701,25 +1721,81 @@ function unwrapPayloadExpression(node: import('ts-morph').Node): import('ts-morp
 function extractObjectFieldsFromType(node: import('ts-morph').Node): {
   fields: readonly string[] | undefined;
   resolved: boolean;
+  types: FieldTypeMap | undefined;
 } {
   const type = node.getType();
-  if (type.isAny() || type.isUnknown() || type.isUnion()) return { fields: undefined, resolved: false };
-  if (type.getStringIndexType() || type.getNumberIndexType()) return { fields: undefined, resolved: false };
+  if (type.isAny() || type.isUnknown() || type.isUnion()) {
+    return { fields: undefined, resolved: false, types: undefined };
+  }
+  if (type.getStringIndexType() || type.getNumberIndexType()) {
+    return { fields: undefined, resolved: false, types: undefined };
+  }
 
   const fields = new Set<string>();
+  const types: Record<string, FieldTypeTag> = {};
   for (const prop of type.getProperties()) {
     const declarations = prop.getDeclarations();
-    if (declarations.length === 0) return { fields: undefined, resolved: false };
+    if (declarations.length === 0) return { fields: undefined, resolved: false, types: undefined };
     if (declarations.some((decl) => isExternalSourcePath(decl.getSourceFile().getFilePath()))) {
-      return { fields: undefined, resolved: false };
+      return { fields: undefined, resolved: false, types: undefined };
     }
     if (declarations.some((decl) => declarationIsOptional(decl))) continue;
     const name = prop.getName();
-    if (!/^[A-Za-z_$][\w$-]*$/.test(name)) return { fields: undefined, resolved: false };
+    if (!/^[A-Za-z_$][\w$-]*$/.test(name)) return { fields: undefined, resolved: false, types: undefined };
     fields.add(name);
+    // Coarse type tag from the property's TS type at the use site.
+    const propType = prop.getTypeAtLocation(node);
+    types[name] = coarsenTsType(propType);
   }
 
-  return fields.size > 0 ? { fields: Array.from(fields).sort(), resolved: true } : { fields: [], resolved: true };
+  if (fields.size === 0) {
+    return { fields: [], resolved: true, types: {} };
+  }
+  return { fields: Array.from(fields).sort(), resolved: true, types };
+}
+
+// Map a ts-morph Type to a coarse tag. Conservative: anything we don't
+// recognise becomes 'unknown' rather than silently dropped — body-shape-drift
+// can then choose to skip 'unknown' tags or treat them as wildcards.
+function coarsenTsType(type: import('ts-morph').Type): FieldTypeTag {
+  if (type.isAny() || type.isUnknown() || type.isNever()) return 'unknown';
+  if (type.isString() || type.isStringLiteral()) return 'string';
+  if (type.isNumber() || type.isNumberLiteral()) return 'number';
+  if (type.isBoolean() || type.isBooleanLiteral()) return 'boolean';
+  if (type.isNull()) return 'null';
+  // Bare `undefined` is NOT 'null' on the wire — `JSON.stringify({x: undefined})`
+  // omits the key entirely. We tag it `unknown` so downstream rules don't
+  // confuse it with an explicit-null field. Codex review caught this.
+  if (type.isUndefined()) return 'unknown';
+  if (type.isArray() || type.isTuple()) return 'array';
+  if (type.isUnion()) {
+    // Drop nullability branches (`T | null | undefined → T`) before
+    // coarsening — `null`/`undefined` are absorbed since the rule's question
+    // is "what is the shape of the present value?" not "is the field
+    // optional?". Then if the remaining branches all coarsen to one tag,
+    // return it; else `unknown`.
+    const branches = type.getUnionTypes().filter((t) => !t.isNull() && !t.isUndefined());
+    if (branches.length === 0) return 'null';
+    if (branches.length === 1) return coarsenTsType(branches[0]);
+    const tags = new Set(branches.map(coarsenTsType));
+    if (tags.size === 1) return [...tags][0];
+    return 'unknown';
+  }
+  // Branded primitives (`string & { __brand: 'UserId' }`) are very common
+  // for ID/count types. We walk the intersection branches: if any branch
+  // coarsens to a primitive, take that tag — the brand is structural noise
+  // we don't need on the wire. Codex review caught the original
+  // implementation collapsing brands to 'unknown'.
+  if (type.isIntersection()) {
+    const branchTags = type.getIntersectionTypes().map(coarsenTsType);
+    for (const tag of branchTags) {
+      if (tag === 'string' || tag === 'number' || tag === 'boolean') return tag;
+    }
+    if (branchTags.every((t) => t === 'object')) return 'object';
+    return 'unknown';
+  }
+  if (type.isObject()) return 'object';
+  return 'unknown';
 }
 
 function declarationIsOptional(decl: import('ts-morph').Node): boolean {
@@ -1734,31 +1810,311 @@ function declarationIsOptional(decl: import('ts-morph').Node): boolean {
 function extractLiteralObjectFields(obj: import('ts-morph').ObjectLiteralExpression): {
   fields: readonly string[] | undefined;
   resolved: boolean;
+  types: FieldTypeMap | undefined;
 } {
   const fields: string[] = [];
+  const types: Record<string, FieldTypeTag> = {};
   for (const prop of obj.getProperties()) {
     const kind = prop.getKind();
-    if (kind === SyntaxKind.SpreadAssignment) return { fields: undefined, resolved: false };
+    if (kind === SyntaxKind.SpreadAssignment) return { fields: undefined, resolved: false, types: undefined };
     if (kind === SyntaxKind.PropertyAssignment) {
-      const name = (prop as import('ts-morph').PropertyAssignment).getNameNode();
-      if (name.getKind() === SyntaxKind.ComputedPropertyName) return { fields: undefined, resolved: false };
+      const pa = prop as import('ts-morph').PropertyAssignment;
+      const name = pa.getNameNode();
+      if (name.getKind() === SyntaxKind.ComputedPropertyName) {
+        return { fields: undefined, resolved: false, types: undefined };
+      }
       if (name.getKind() === SyntaxKind.Identifier || name.getKind() === SyntaxKind.StringLiteral) {
-        fields.push((name as import('ts-morph').Identifier).getText().replace(/['"]/g, ''));
+        const fieldName = name.getText().replace(/['"]/g, '');
+        fields.push(fieldName);
+        // Type tag from the value expression. Tries syntactic recognition
+        // first (cheap, exact for literals), then falls back to TS type
+        // inference for variables / property accesses.
+        const init = pa.getInitializer();
+        types[fieldName] = init ? coarsenValueExpression(init) : 'unknown';
       } else {
-        return { fields: undefined, resolved: false };
+        return { fields: undefined, resolved: false, types: undefined };
       }
     } else if (kind === SyntaxKind.ShorthandPropertyAssignment) {
-      fields.push((prop as import('ts-morph').ShorthandPropertyAssignment).getName());
+      const sh = prop as import('ts-morph').ShorthandPropertyAssignment;
+      const fieldName = sh.getName();
+      fields.push(fieldName);
+      // Shorthand: `{ foo }` is sugar for `{ foo: foo }`. Use the binding's
+      // inferred TS type at this location.
+      const ident = sh.getNameNode();
+      types[fieldName] = coarsenTsType(ident.getType());
     } else {
       // Method definitions, getters, setters — unusual in a fetch body,
       // treat as unresolved.
-      return { fields: undefined, resolved: false };
+      return { fields: undefined, resolved: false, types: undefined };
     }
   }
-  return { fields, resolved: true };
+  return { fields, resolved: true, types };
 }
 
-function extractTarget(call: import('ts-morph').CallExpression): string | undefined {
+// Coarsen the value-expression of a literal object property. Syntactic
+// fast paths cover the common literal cases without invoking the TS type
+// checker; everything else falls through to type-based coarsening.
+function coarsenValueExpression(expr: import('ts-morph').Node): FieldTypeTag {
+  const k = expr.getKind();
+  if (
+    k === SyntaxKind.StringLiteral ||
+    k === SyntaxKind.NoSubstitutionTemplateLiteral ||
+    k === SyntaxKind.TemplateExpression
+  ) {
+    return 'string';
+  }
+  if (k === SyntaxKind.NumericLiteral) return 'number';
+  if (k === SyntaxKind.TrueKeyword || k === SyntaxKind.FalseKeyword) return 'boolean';
+  if (k === SyntaxKind.NullKeyword) return 'null';
+  if (k === SyntaxKind.ObjectLiteralExpression) return 'object';
+  if (k === SyntaxKind.ArrayLiteralExpression) return 'array';
+  // PrefixUnary: the unary operator dictates the result type, NOT the
+  // operand. `+x`, `-x`, `~x` always yield number even if x is a string
+  // (`+'1'` is type `number`); `!x` always yields boolean. Recursing into
+  // the operand would lie. Codex review caught this.
+  if (k === SyntaxKind.PrefixUnaryExpression) {
+    const op = (expr as import('ts-morph').PrefixUnaryExpression).getOperatorToken();
+    if (op === SyntaxKind.PlusToken || op === SyntaxKind.MinusToken || op === SyntaxKind.TildeToken) {
+      return 'number';
+    }
+    if (op === SyntaxKind.ExclamationToken) {
+      return 'boolean';
+    }
+    // Unknown prefix operator — fall through to TS type checker.
+    return coarsenTsType(expr.getType());
+  }
+  // Parenthesized / as-cast / non-null: unwrap and recurse.
+  if (k === SyntaxKind.ParenthesizedExpression) {
+    return coarsenValueExpression((expr as import('ts-morph').ParenthesizedExpression).getExpression());
+  }
+  if (k === SyntaxKind.AsExpression) {
+    return coarsenValueExpression((expr as import('ts-morph').AsExpression).getExpression());
+  }
+  if (k === SyntaxKind.NonNullExpression) {
+    return coarsenValueExpression((expr as import('ts-morph').NonNullExpression).getExpression());
+  }
+  // Fallback: ask the TS type checker. Catches `Identifier`,
+  // `PropertyAccessExpression`, `ConditionalExpression` (`x ?? null`),
+  // `BinaryExpression`, etc.
+  return coarsenTsType(expr.getType());
+}
+
+// ── Const literal resolution (phase-1 IR depth) ─────────────────────────
+//
+// Real-world cross-stack URLs hide behind module-level constants:
+//   const API_BASE = 'https://api.example.com';
+//   fetch(`${API_BASE}/users/${id}`)
+//
+// Without resolution, `extractTarget` sees a TemplateExpression with a bare
+// `API_BASE` identifier, drops the head (looksLikeBaseUrlName), and degrades
+// to `/users/:id`. Host extraction silently fails. Probe on audiofacets
+// (~939 files, ~48 fetch call-sites): only ~8% had `host` populated.
+//
+// This pass collects every same-file `const X = <literal>` declaration into
+// a `VariableDeclaration → literal` map. Lookup at use-sites is **symbol-
+// based**, not name-based: we ask ts-morph for the identifier's binding
+// (`getSymbol().getDeclarations()`) and only resolve if that binding is one
+// of the declarations we collected. This is the FP gate against shadowing —
+// a parameter or inner non-literal `const` with the same text would
+// otherwise fabricate a wrong host/target. (Codex review 2026-05-04 caught
+// the original name-keyed implementation as unsound; this is the fix.)
+//
+// Two passes:
+//   - pass 1: direct string / no-substitution-template literal initializers
+//   - pass 2: template-with-refs (\`\${A}/...\`) where each `${IDENT}`
+//             resolves via symbol to a pass-1 declaration. One hop only.
+//
+// Out-of-scope for phase 1 (deliberate):
+//   - Cross-file imports.
+//   - Object property destructuring (`const { url } = config`).
+//   - Conditional expressions (`const X = cond ? a : b`).
+//   - Function-call initializers other than no-sub templates.
+// Map key: declaration's source-file path + AST start offset. Stable across
+// AST walks (ts-morph node identity is not always reference-stable when the
+// node is re-fetched via a different traversal).
+type ConstLiteralMap = ReadonlyMap<string, string>;
+
+function declKey(decl: import('ts-morph').VariableDeclaration): string {
+  return `${decl.getSourceFile().getFilePath()}:${decl.getStart()}`;
+}
+
+// Extract a literal string from a const initializer. Handles:
+//   const X = 'lit';
+//   const X = `lit`;                                 (no substitutions)
+//   const X = process.env.FOO || 'fallback';         (env-with-fallback)
+//   const X = process.env.FOO ?? 'fallback';         (nullish-coalescing)
+//
+// The `||` / `??` fallback case is the dominant real-world shape — audiofacets
+// has 10+ `const API_URL = process.env.X || "https://..."` sites that the
+// pure-literal collector silently dropped. Resolution captures the FALLBACK
+// branch as the "no-env-set" value. At runtime when env IS set the URL
+// differs, but for cross-stack matching the path part is identical and
+// `host` is "best effort, stay silent if not absolute" anyway.
+//
+// Conservative: only the right-hand side of `||`/`??` is taken as the literal.
+// Chained `a || b || 'lit'` bails (right is BinaryExpression, not literal).
+// Ternaries and other shapes stay out of scope.
+function literalStringFromInit(init: import('ts-morph').Node): string | undefined {
+  if (init.getKind() === SyntaxKind.StringLiteral) {
+    return (init as import('ts-morph').StringLiteral).getLiteralValue();
+  }
+  if (init.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral) {
+    return (init as import('ts-morph').NoSubstitutionTemplateLiteral).getLiteralValue();
+  }
+  if (init.getKind() === SyntaxKind.BinaryExpression) {
+    const bin = init as import('ts-morph').BinaryExpression;
+    const op = bin.getOperatorToken().getKind();
+    if (op === SyntaxKind.BarBarToken || op === SyntaxKind.QuestionQuestionToken) {
+      const right = bin.getRight();
+      if (right.getKind() === SyntaxKind.StringLiteral) {
+        return (right as import('ts-morph').StringLiteral).getLiteralValue();
+      }
+      if (right.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral) {
+        return (right as import('ts-morph').NoSubstitutionTemplateLiteral).getLiteralValue();
+      }
+    }
+  }
+  return undefined;
+}
+
+function buildConstLiteralMap(sf: SourceFile): ConstLiteralMap {
+  const candidates: Array<{
+    decl: import('ts-morph').VariableDeclaration;
+    key: string;
+    init: import('ts-morph').Node;
+  }> = [];
+  for (const decl of sf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    const stmt = decl.getVariableStatement();
+    if (!stmt) continue;
+    if (stmt.getDeclarationKind() !== VariableDeclarationKind.Const) continue;
+    if (decl.getNameNode().getKind() !== SyntaxKind.Identifier) continue; // skip destructure
+    const init = decl.getInitializer();
+    if (!init) continue;
+    candidates.push({ decl, key: declKey(decl), init });
+  }
+
+  const direct = new Map<string, string>();
+  for (const { key, init } of candidates) {
+    const lit = literalStringFromInit(init);
+    if (lit !== undefined) direct.set(key, lit);
+  }
+
+  // Pass 2: template-with-refs against pass 1. One hop — no transitive
+  // resolution. A `const A = \`\${B}/x\`` whose `B` is itself a
+  // template-with-refs won't resolve here; that's a phase-1 cap.
+  const all = new Map(direct);
+  for (const { key, init } of candidates) {
+    if (init.getKind() !== SyntaxKind.TemplateExpression) continue;
+    const lit = resolveTemplateAgainst(init as import('ts-morph').TemplateExpression, direct);
+    if (lit !== undefined) all.set(key, lit);
+  }
+  return all;
+}
+
+function resolveTemplateAgainst(tmpl: import('ts-morph').TemplateExpression, map: ConstLiteralMap): string | undefined {
+  let out = tmpl.getHead().getLiteralText();
+  for (const span of tmpl.getTemplateSpans()) {
+    const expr = span.getExpression();
+    if (expr.getKind() !== SyntaxKind.Identifier) return undefined;
+    const inner = lookupConstLiteral(expr as import('ts-morph').Identifier, map);
+    if (inner === undefined) return undefined;
+    out += inner;
+    out += span.getLiteral().getLiteralText();
+  }
+  return out;
+}
+
+// Symbol-based lookup. Resolves the identifier to its binding via the TS
+// type checker, then checks whether that binding is a literal const we
+// collected. Returns `undefined` for any identifier that does NOT bind to
+// a single same-file VariableDeclaration in the map — including parameters,
+// `let` / `var`, function names, and shadowing declarations. (Phase 2A
+// extends this to follow named imports from relative paths to a sibling
+// source file.)
+//
+// Same-file filter on the in-file declarations: TypeScript's symbol for a
+// name that shadows a global (e.g. `URL`, `Request`, `Response`) returns
+// BOTH the local declaration AND the lib.dom.d.ts ambient. We only care
+// about the in-file declaration; the lib ambient never has a literal value.
+function lookupConstLiteral(ident: import('ts-morph').Identifier, map: ConstLiteralMap): string | undefined {
+  const sym = ident.getSymbol();
+  if (!sym) return undefined;
+  const sfPath = ident.getSourceFile().getFilePath();
+  const inFile: import('ts-morph').VariableDeclaration[] = [];
+  const importSpecs: import('ts-morph').ImportSpecifier[] = [];
+  for (const d of sym.getDeclarations()) {
+    if (d.getSourceFile().getFilePath() !== sfPath) continue;
+    const k = d.getKind();
+    if (k === SyntaxKind.VariableDeclaration) {
+      inFile.push(d as import('ts-morph').VariableDeclaration);
+    } else if (k === SyntaxKind.ImportSpecifier) {
+      importSpecs.push(d as import('ts-morph').ImportSpecifier);
+    }
+  }
+  // Same-file binding wins (phase 1 path).
+  if (inFile.length === 1 && importSpecs.length === 0) {
+    return map.get(declKey(inFile[0]));
+  }
+  // Phase 2A: cross-file named import. Single ImportSpecifier in this file,
+  // no in-file VariableDeclaration. Follow the import to its source.
+  if (importSpecs.length === 1 && inFile.length === 0) {
+    return resolveImportedConst(importSpecs[0]);
+  }
+  return undefined;
+}
+
+// Phase 2A: follow `import { X } from './c'` to the source file and resolve
+// the imported const. Same FP gates as phase 1: the source decl must be a
+// single exported `const X = <literal>` (or env-fallback / no-sub template
+// or template-with-refs against the source file's own const map).
+//
+// Out of scope (phase 2A):
+//   - Default imports (`import X from './c'`)
+//   - Namespace imports (`import * as M from './c'; M.X`)
+//   - Non-relative module specifiers (`react`, `@/lib/x`, `@shared/y`)
+//   - Re-export chains beyond what ts-morph's symbol resolver already follows
+function resolveImportedConst(spec: import('ts-morph').ImportSpecifier): string | undefined {
+  const imp = spec.getImportDeclaration();
+  const moduleSpec = imp.getModuleSpecifierValue();
+  if (!moduleSpec) return undefined;
+  if (!moduleSpec.startsWith('./') && !moduleSpec.startsWith('../')) return undefined;
+
+  const srcSf = imp.getModuleSpecifierSourceFile();
+  if (!srcSf) return undefined;
+
+  // The imported name as declared in the source module. `import { X as Y }`
+  // means we look for `X` in the source, regardless of `Y` alias here.
+  const importedName = spec.getNameNode().getText();
+
+  for (const decl of srcSf.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    if (decl.getNameNode().getKind() !== SyntaxKind.Identifier) continue;
+    if (decl.getName() !== importedName) continue;
+    const stmt = decl.getVariableStatement();
+    if (!stmt) continue;
+    if (stmt.getDeclarationKind() !== VariableDeclarationKind.Const) continue;
+    if (!stmt.isExported()) continue;
+
+    const init = decl.getInitializer();
+    if (!init) return undefined;
+
+    // Direct literal / no-sub template / env-fallback.
+    const direct = literalStringFromInit(init);
+    if (direct !== undefined) return direct;
+
+    // Template-with-refs in the SOURCE file's scope. Build that file's own
+    // const map and resolve the template against it. resolveTemplateAgainst
+    // recurses through lookupConstLiteral, so chained imports
+    // (`c.ts → d.ts`) work via the same gate.
+    if (init.getKind() === SyntaxKind.TemplateExpression) {
+      const srcMap = buildConstLiteralMap(srcSf);
+      return resolveTemplateAgainst(init as import('ts-morph').TemplateExpression, srcMap);
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
+function extractTarget(call: import('ts-morph').CallExpression, consts?: ConstLiteralMap): string | undefined {
   const args = call.getArguments();
   if (args.length === 0) return undefined;
   const first = args[0];
@@ -1769,7 +2125,10 @@ function extractTarget(call: import('ts-morph').CallExpression): string | undefi
     return (first as import('ts-morph').NoSubstitutionTemplateLiteral).getLiteralValue();
   }
   if (first.getKind() === SyntaxKind.TemplateExpression) {
-    return extractTemplateUrl(first as import('ts-morph').TemplateExpression);
+    return extractTemplateUrl(first as import('ts-morph').TemplateExpression, consts);
+  }
+  if (first.getKind() === SyntaxKind.Identifier && consts) {
+    return lookupConstLiteral(first as import('ts-morph').Identifier, consts);
   }
   return undefined;
 }
@@ -1874,11 +2233,14 @@ function isStatusPropertyAccess(node: import('ts-morph').Node | undefined): bool
   return STATUS_LIKELY_RECEIVER_RE.test(text);
 }
 
-function extractQueryParams(call: import('ts-morph').CallExpression): {
+function extractQueryParams(
+  call: import('ts-morph').CallExpression,
+  consts?: ConstLiteralMap,
+): {
   params: readonly string[] | undefined;
   resolved: boolean;
 } {
-  const target = extractTarget(call);
+  const target = extractTarget(call, consts);
   if (!target) return { params: undefined, resolved: false };
   const q = target.indexOf('?');
   if (q === -1) return { params: [], resolved: true };
@@ -1900,7 +2262,7 @@ function extractQueryParams(call: import('ts-morph').CallExpression): {
 // correlate it against backend routes. Without this every `fetch(` \`${BASE}/…\` `)`
 // call is silently dropped by `normalizeClientUrl` (which rejects targets that
 // start with \`$ instead of \`/).
-function extractTemplateUrl(tmpl: import('ts-morph').TemplateExpression): string | undefined {
+function extractTemplateUrl(tmpl: import('ts-morph').TemplateExpression, consts?: ConstLiteralMap): string | undefined {
   const head = tmpl.getHead();
   let out = head.getLiteralText();
   const spans = tmpl.getTemplateSpans();
@@ -1909,6 +2271,22 @@ function extractTemplateUrl(tmpl: import('ts-morph').TemplateExpression): string
     const expr = span.getExpression();
     const exprText = expr.getText();
     const isBareIdent = expr.getKind() === SyntaxKind.Identifier;
+
+    // Phase 1 const resolution: substitute `${IDENT}` with its same-file literal
+    // value when the symbol-resolved binding is a literal const we collected.
+    // Lifts host extraction and route matching on the common
+    // `${API_BASE}/users/${id}` shape. Symbol-based (not name-based) so that
+    // a shadowing parameter / `let` / inner non-literal const cannot
+    // fabricate a wrong absolute URL.
+    if (isBareIdent && consts) {
+      const resolved = lookupConstLiteral(expr as import('ts-morph').Identifier, consts);
+      if (resolved !== undefined) {
+        out += resolved;
+        out += span.getLiteral().getLiteralText();
+        continue;
+      }
+    }
+
     if (i === 0 && out === '' && isBareIdent && looksLikeBaseUrlName(exprText)) {
       // Drop a leading `${BASE_URL}` interpolation so the path starts with `/`.
     } else {
