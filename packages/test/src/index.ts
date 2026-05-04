@@ -14,7 +14,6 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
 import { dirname, join, relative, resolve } from 'path';
 import { inspect, isDeepStrictEqual } from 'util';
 import { createContext, Script } from 'vm';
-import { isRuntimeBindingName } from './generated/safety-checks.js';
 
 export type NativeKernTestStatus = 'passed' | 'failed' | 'warning';
 export type NativeKernTestSeverity = 'error' | 'warn';
@@ -2394,7 +2393,15 @@ function evaluateImportedKernRoundtrip(
       message: `Imported KERN does not reparse at ${parseError.line}:${parseError.col}: ${parseError.message}`,
     };
   }
-  const parseWarning = reparsed.diagnostics.find((diagnostic) => diagnostic.severity === 'warning');
+  // Slice α-4: NATIVE_KERN_ELIGIBLE is an opt-in suggestion, not a roundtrip
+  // defect. Imported KERN with raw `<<<…>>>` handler bodies that the
+  // classifier accepts will trigger this code at warning level — that is the
+  // intended IDE/LSP signal, not a contract violation. Filter it here the
+  // same way `shared.ts`, `review/src/index.ts`, and `import.ts` do at their
+  // consumer sites.
+  const parseWarning = reparsed.diagnostics.find(
+    (diagnostic) => diagnostic.severity === 'warning' && diagnostic.code !== 'NATIVE_KERN_ELIGIBLE',
+  );
   if (parseWarning && !options.allowWarnings) {
     return {
       passed: false,
@@ -2577,9 +2584,9 @@ function unsafeRuntimeWorkflowReason(source: string): string | undefined {
   return undefined;
 }
 
-// First slice of self-hosting: `isRuntimeBindingName` lives in
-// `src/kern/safety-checks.kern`. Edit the .kern file, then run
-// `pnpm --filter @kernlang/test kern:compile` to regenerate the facade.
+function isRuntimeBindingName(value: string): boolean {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
+}
 
 function transformRuntimeCodeSegments(source: string, transform: (segment: string) => string): string {
   let output = '';
