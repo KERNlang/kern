@@ -365,6 +365,7 @@ function extractEffects(sf: SourceFile, filePath: string, nodes: ConceptNode[]):
           hasAuthHeader,
           sentFields: sentFieldsInfo.fields,
           sentFieldsResolved: sentFieldsInfo.resolved,
+          sentFieldTypes: sentFieldsInfo.types,
           handlesApiErrors: extractHandlesApiErrors(call, isWrappedClientCall),
           authPropagation: extractAuthPropagation(call, funcName, objName, isWrappedClientCall, hasAuthHeader),
           queryParams: queryParamsInfo.params,
@@ -1626,12 +1627,27 @@ function isInAsyncContext(node: import('ts-morph').Node): boolean {
 //   - typed payload variables: `JSON.stringify(input)` where `input: CreateUser`
 // Everything else returns `{ fields: undefined, resolved: false }` so
 // body-shape-drift stays silent on opaque shapes rather than guessing.
+//
+// `types` is populated alongside `fields` when `resolved === true`: a coarse
+// `'string' | 'number' | 'boolean' | 'null' | 'object' | 'array' | 'unknown'`
+// tag per field, derived from the value-expression in literal objects or
+// from the inferred TS type in typed variables. Lifts cross-stack rules
+// from "name overlap" precision to "name + type overlap" — catches the
+// `userId: string` (client) vs `userId: number` (server) bug class that
+// pure-name matching misses.
+type FieldTypeTag = 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array' | 'unknown';
+type FieldTypeMap = Readonly<Record<string, FieldTypeTag>>;
+
 function extractSentFields(
   call: import('ts-morph').CallExpression,
   funcName: string,
-): { fields: readonly string[] | undefined; resolved: boolean } {
+): {
+  fields: readonly string[] | undefined;
+  resolved: boolean;
+  types: FieldTypeMap | undefined;
+} {
   const payload = extractNetworkPayloadExpression(call, funcName);
-  if (!payload) return { fields: undefined, resolved: false };
+  if (!payload) return { fields: undefined, resolved: false, types: undefined };
   return extractPayloadFields(payload);
 }
 
@@ -1662,13 +1678,16 @@ function extractNetworkPayloadExpression(
 function extractPayloadFields(node: import('ts-morph').Node): {
   fields: readonly string[] | undefined;
   resolved: boolean;
+  types: FieldTypeMap | undefined;
 } {
   const payload = unwrapPayloadExpression(node);
   if (payload.getKind() === SyntaxKind.CallExpression) {
     const bodyCall = payload as import('ts-morph').CallExpression;
-    if (bodyCall.getExpression().getText() !== 'JSON.stringify') return { fields: undefined, resolved: false };
+    if (bodyCall.getExpression().getText() !== 'JSON.stringify') {
+      return { fields: undefined, resolved: false, types: undefined };
+    }
     const stringifyArg = bodyCall.getArguments()[0];
-    return stringifyArg ? extractPayloadFields(stringifyArg) : { fields: undefined, resolved: false };
+    return stringifyArg ? extractPayloadFields(stringifyArg) : { fields: undefined, resolved: false, types: undefined };
   }
   if (payload.getKind() === SyntaxKind.ObjectLiteralExpression) {
     return extractLiteralObjectFields(payload as import('ts-morph').ObjectLiteralExpression);
@@ -1676,7 +1695,7 @@ function extractPayloadFields(node: import('ts-morph').Node): {
   if (payload.getKind() === SyntaxKind.Identifier || payload.getKind() === SyntaxKind.PropertyAccessExpression) {
     return extractObjectFieldsFromType(payload);
   }
-  return { fields: undefined, resolved: false };
+  return { fields: undefined, resolved: false, types: undefined };
 }
 
 function unwrapPayloadExpression(node: import('ts-morph').Node): import('ts-morph').Node {
@@ -1702,25 +1721,81 @@ function unwrapPayloadExpression(node: import('ts-morph').Node): import('ts-morp
 function extractObjectFieldsFromType(node: import('ts-morph').Node): {
   fields: readonly string[] | undefined;
   resolved: boolean;
+  types: FieldTypeMap | undefined;
 } {
   const type = node.getType();
-  if (type.isAny() || type.isUnknown() || type.isUnion()) return { fields: undefined, resolved: false };
-  if (type.getStringIndexType() || type.getNumberIndexType()) return { fields: undefined, resolved: false };
+  if (type.isAny() || type.isUnknown() || type.isUnion()) {
+    return { fields: undefined, resolved: false, types: undefined };
+  }
+  if (type.getStringIndexType() || type.getNumberIndexType()) {
+    return { fields: undefined, resolved: false, types: undefined };
+  }
 
   const fields = new Set<string>();
+  const types: Record<string, FieldTypeTag> = {};
   for (const prop of type.getProperties()) {
     const declarations = prop.getDeclarations();
-    if (declarations.length === 0) return { fields: undefined, resolved: false };
+    if (declarations.length === 0) return { fields: undefined, resolved: false, types: undefined };
     if (declarations.some((decl) => isExternalSourcePath(decl.getSourceFile().getFilePath()))) {
-      return { fields: undefined, resolved: false };
+      return { fields: undefined, resolved: false, types: undefined };
     }
     if (declarations.some((decl) => declarationIsOptional(decl))) continue;
     const name = prop.getName();
-    if (!/^[A-Za-z_$][\w$-]*$/.test(name)) return { fields: undefined, resolved: false };
+    if (!/^[A-Za-z_$][\w$-]*$/.test(name)) return { fields: undefined, resolved: false, types: undefined };
     fields.add(name);
+    // Coarse type tag from the property's TS type at the use site.
+    const propType = prop.getTypeAtLocation(node);
+    types[name] = coarsenTsType(propType);
   }
 
-  return fields.size > 0 ? { fields: Array.from(fields).sort(), resolved: true } : { fields: [], resolved: true };
+  if (fields.size === 0) {
+    return { fields: [], resolved: true, types: {} };
+  }
+  return { fields: Array.from(fields).sort(), resolved: true, types };
+}
+
+// Map a ts-morph Type to a coarse tag. Conservative: anything we don't
+// recognise becomes 'unknown' rather than silently dropped — body-shape-drift
+// can then choose to skip 'unknown' tags or treat them as wildcards.
+function coarsenTsType(type: import('ts-morph').Type): FieldTypeTag {
+  if (type.isAny() || type.isUnknown() || type.isNever()) return 'unknown';
+  if (type.isString() || type.isStringLiteral()) return 'string';
+  if (type.isNumber() || type.isNumberLiteral()) return 'number';
+  if (type.isBoolean() || type.isBooleanLiteral()) return 'boolean';
+  if (type.isNull()) return 'null';
+  // Bare `undefined` is NOT 'null' on the wire — `JSON.stringify({x: undefined})`
+  // omits the key entirely. We tag it `unknown` so downstream rules don't
+  // confuse it with an explicit-null field. Codex review caught this.
+  if (type.isUndefined()) return 'unknown';
+  if (type.isArray() || type.isTuple()) return 'array';
+  if (type.isUnion()) {
+    // Drop nullability branches (`T | null | undefined → T`) before
+    // coarsening — `null`/`undefined` are absorbed since the rule's question
+    // is "what is the shape of the present value?" not "is the field
+    // optional?". Then if the remaining branches all coarsen to one tag,
+    // return it; else `unknown`.
+    const branches = type.getUnionTypes().filter((t) => !t.isNull() && !t.isUndefined());
+    if (branches.length === 0) return 'null';
+    if (branches.length === 1) return coarsenTsType(branches[0]);
+    const tags = new Set(branches.map(coarsenTsType));
+    if (tags.size === 1) return [...tags][0];
+    return 'unknown';
+  }
+  // Branded primitives (`string & { __brand: 'UserId' }`) are very common
+  // for ID/count types. We walk the intersection branches: if any branch
+  // coarsens to a primitive, take that tag — the brand is structural noise
+  // we don't need on the wire. Codex review caught the original
+  // implementation collapsing brands to 'unknown'.
+  if (type.isIntersection()) {
+    const branchTags = type.getIntersectionTypes().map(coarsenTsType);
+    for (const tag of branchTags) {
+      if (tag === 'string' || tag === 'number' || tag === 'boolean') return tag;
+    }
+    if (branchTags.every((t) => t === 'object')) return 'object';
+    return 'unknown';
+  }
+  if (type.isObject()) return 'object';
+  return 'unknown';
 }
 
 function declarationIsOptional(decl: import('ts-morph').Node): boolean {
@@ -1735,28 +1810,93 @@ function declarationIsOptional(decl: import('ts-morph').Node): boolean {
 function extractLiteralObjectFields(obj: import('ts-morph').ObjectLiteralExpression): {
   fields: readonly string[] | undefined;
   resolved: boolean;
+  types: FieldTypeMap | undefined;
 } {
   const fields: string[] = [];
+  const types: Record<string, FieldTypeTag> = {};
   for (const prop of obj.getProperties()) {
     const kind = prop.getKind();
-    if (kind === SyntaxKind.SpreadAssignment) return { fields: undefined, resolved: false };
+    if (kind === SyntaxKind.SpreadAssignment) return { fields: undefined, resolved: false, types: undefined };
     if (kind === SyntaxKind.PropertyAssignment) {
-      const name = (prop as import('ts-morph').PropertyAssignment).getNameNode();
-      if (name.getKind() === SyntaxKind.ComputedPropertyName) return { fields: undefined, resolved: false };
+      const pa = prop as import('ts-morph').PropertyAssignment;
+      const name = pa.getNameNode();
+      if (name.getKind() === SyntaxKind.ComputedPropertyName) {
+        return { fields: undefined, resolved: false, types: undefined };
+      }
       if (name.getKind() === SyntaxKind.Identifier || name.getKind() === SyntaxKind.StringLiteral) {
-        fields.push((name as import('ts-morph').Identifier).getText().replace(/['"]/g, ''));
+        const fieldName = name.getText().replace(/['"]/g, '');
+        fields.push(fieldName);
+        // Type tag from the value expression. Tries syntactic recognition
+        // first (cheap, exact for literals), then falls back to TS type
+        // inference for variables / property accesses.
+        const init = pa.getInitializer();
+        types[fieldName] = init ? coarsenValueExpression(init) : 'unknown';
       } else {
-        return { fields: undefined, resolved: false };
+        return { fields: undefined, resolved: false, types: undefined };
       }
     } else if (kind === SyntaxKind.ShorthandPropertyAssignment) {
-      fields.push((prop as import('ts-morph').ShorthandPropertyAssignment).getName());
+      const sh = prop as import('ts-morph').ShorthandPropertyAssignment;
+      const fieldName = sh.getName();
+      fields.push(fieldName);
+      // Shorthand: `{ foo }` is sugar for `{ foo: foo }`. Use the binding's
+      // inferred TS type at this location.
+      const ident = sh.getNameNode();
+      types[fieldName] = coarsenTsType(ident.getType());
     } else {
       // Method definitions, getters, setters — unusual in a fetch body,
       // treat as unresolved.
-      return { fields: undefined, resolved: false };
+      return { fields: undefined, resolved: false, types: undefined };
     }
   }
-  return { fields, resolved: true };
+  return { fields, resolved: true, types };
+}
+
+// Coarsen the value-expression of a literal object property. Syntactic
+// fast paths cover the common literal cases without invoking the TS type
+// checker; everything else falls through to type-based coarsening.
+function coarsenValueExpression(expr: import('ts-morph').Node): FieldTypeTag {
+  const k = expr.getKind();
+  if (
+    k === SyntaxKind.StringLiteral ||
+    k === SyntaxKind.NoSubstitutionTemplateLiteral ||
+    k === SyntaxKind.TemplateExpression
+  ) {
+    return 'string';
+  }
+  if (k === SyntaxKind.NumericLiteral) return 'number';
+  if (k === SyntaxKind.TrueKeyword || k === SyntaxKind.FalseKeyword) return 'boolean';
+  if (k === SyntaxKind.NullKeyword) return 'null';
+  if (k === SyntaxKind.ObjectLiteralExpression) return 'object';
+  if (k === SyntaxKind.ArrayLiteralExpression) return 'array';
+  // PrefixUnary: the unary operator dictates the result type, NOT the
+  // operand. `+x`, `-x`, `~x` always yield number even if x is a string
+  // (`+'1'` is type `number`); `!x` always yields boolean. Recursing into
+  // the operand would lie. Codex review caught this.
+  if (k === SyntaxKind.PrefixUnaryExpression) {
+    const op = (expr as import('ts-morph').PrefixUnaryExpression).getOperatorToken();
+    if (op === SyntaxKind.PlusToken || op === SyntaxKind.MinusToken || op === SyntaxKind.TildeToken) {
+      return 'number';
+    }
+    if (op === SyntaxKind.ExclamationToken) {
+      return 'boolean';
+    }
+    // Unknown prefix operator — fall through to TS type checker.
+    return coarsenTsType(expr.getType());
+  }
+  // Parenthesized / as-cast / non-null: unwrap and recurse.
+  if (k === SyntaxKind.ParenthesizedExpression) {
+    return coarsenValueExpression((expr as import('ts-morph').ParenthesizedExpression).getExpression());
+  }
+  if (k === SyntaxKind.AsExpression) {
+    return coarsenValueExpression((expr as import('ts-morph').AsExpression).getExpression());
+  }
+  if (k === SyntaxKind.NonNullExpression) {
+    return coarsenValueExpression((expr as import('ts-morph').NonNullExpression).getExpression());
+  }
+  // Fallback: ask the TS type checker. Catches `Identifier`,
+  // `PropertyAccessExpression`, `ConditionalExpression` (`x ?? null`),
+  // `BinaryExpression`, etc.
+  return coarsenTsType(expr.getType());
 }
 
 // ── Const literal resolution (phase-1 IR depth) ─────────────────────────
