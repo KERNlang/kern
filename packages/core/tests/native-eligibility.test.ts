@@ -80,8 +80,7 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
 
   // Arrow / function inside expressions are rejected by the expression parser,
   // surfacing as `<stmt>-bad-expr` rather than a syntactic top-level bail.
-  test('arrow function rejected (return-bad-expr)', () =>
-    rejected(`return xs.map(x => x * 2);`, 'return-bad-expr'));
+  test('arrow function rejected (return-bad-expr)', () => rejected(`return xs.map(x => x * 2);`, 'return-bad-expr'));
 
   test('function declaration rejected (unsupported-stmt)', () =>
     rejected(`function inner() { return 1; }\nreturn inner();`, 'unsupported-stmt-FunctionDeclaration'));
@@ -95,11 +94,9 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
 
   test('switch rejected', () => rejected(`switch (k) { case 1: return 'a'; }`, 'switch-stmt'));
 
-  test('typeof rejected (parser-expression bails)', () =>
-    rejected(`return typeof x === "string";`, 'return-bad-expr'));
+  test('typeof rejected (parser-expression bails)', () => rejected(`return typeof x === "string";`, 'return-bad-expr'));
 
-  test('instanceof rejected (parser-expression bails)', () =>
-    rejected(`return x instanceof Date;`, 'return-bad-expr'));
+  test('instanceof rejected (parser-expression bails)', () => rejected(`return x instanceof Date;`, 'return-bad-expr'));
 
   test('import statement rejected', () =>
     rejected(`import { foo } from 'bar';\nreturn foo();`, 'unsupported-stmt-ImportDeclaration'));
@@ -125,8 +122,7 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('bare reassignment rejected (assignment ExpressionStatement)', () =>
     rejected(`x = 1;\nreturn x;`, 'expr-stmt-assignment'));
 
-  test('void operator rejected (parser-expression bails)', () =>
-    rejected(`return void 0;`, 'return-bad-expr'));
+  test('void operator rejected (parser-expression bails)', () => rejected(`return void 0;`, 'return-bad-expr'));
 
   test('debugger statement rejected', () =>
     // TS SyntaxKind[kind] returns the LAST registered name — DebuggerStatement
@@ -145,8 +141,7 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('array destructuring rejected (var-destructure)', () =>
     rejected(`const [first, ...rest] = xs;\nreturn first;`, 'var-destructure'));
 
-  test('var destructuring rejected (var-non-const)', () =>
-    rejected(`var { x } = obj;\nreturn x;`, 'var-non-const'));
+  test('var destructuring rejected (var-non-const)', () => rejected(`var { x } = obj;\nreturn x;`, 'var-non-const'));
 
   // `let name = …` (mutable binding) — the migrator only emits `let` from
   // `const`, so any `let` declaration in the body is rejected.
@@ -155,8 +150,7 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
 
   // Comments-present bails the migrator silently, so the classifier mirrors
   // that bail as a top-level reason (BEFORE statement walking).
-  test('comments inside body rejected', () =>
-    rejected(`// note\nreturn 1;`, 'comments-present'));
+  test('comments inside body rejected', () => rejected(`// note\nreturn 1;`, 'comments-present'));
 });
 
 describe('classifyHandlerBody — array / object literals stay eligible', () => {
