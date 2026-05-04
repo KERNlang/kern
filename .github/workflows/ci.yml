@@ -44,6 +44,9 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Verify kern facades in sync
+        run: pnpm --filter @kernlang/test kern:check
+
       - name: Test
         run: pnpm test
 
