@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/express",
-  "version": "3.4.3",
+  "version": "3.4.4",
   "description": "Kern Express TypeScript backend transpiler",
   "type": "module",
   "main": "./dist/index.js",
