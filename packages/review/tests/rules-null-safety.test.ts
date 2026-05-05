@@ -91,4 +91,59 @@ describe('Null Safety Rules', () => {
     const findings = report.findings.filter((f) => f.ruleId === 'unchecked-cast');
     expect(findings.length).toBe(0);
   });
+
+  // ── typeCheckedNullable: top-level vs. nested nullability ──────────────
+  // Regression for the substring-on-getText() bug that flagged safe array
+  // values like `(string | undefined)[]` because the rendered type
+  // contains the substring "undefined" — the top-level Array isn't
+  // nullable, only its elements are. Reported by kern-guard self-review
+  // on its own SubmitButton component (PR #287, follow-up fix here).
+
+  it('does not flag .filter().join() on string[] (top-level array, never nullable)', () => {
+    const source = `
+      function classes(a: string, b: string | undefined): string {
+        return [a, b].filter(Boolean).join(' ');
+      }
+    `;
+    const report = reviewSource(source, 'test.ts');
+    const findings = report.findings.filter((f) => f.ruleId === 'unchecked-find');
+    // The previous substring check would have flagged the .join because
+    // the filter return type renders as `(string | undefined)[]`.
+    expect(findings.length).toBe(0);
+  });
+
+  it('does not flag .filter().length on (T | undefined)[] — array, not nullable', () => {
+    const source = `
+      function countDefined(xs: Array<string | undefined>): number {
+        return xs.filter(Boolean).length;
+      }
+    `;
+    const report = reviewSource(source, 'test.ts');
+    const findings = report.findings.filter((f) => f.ruleId === 'unchecked-find');
+    expect(findings.length).toBe(0);
+  });
+
+  it('still flags arr.find().prop — top-level union with undefined IS nullable', () => {
+    const source = `
+      const items: Array<{ id: number; name: string }> = [];
+      function nameOf(id: number): string {
+        return items.find(i => i.id === id).name;
+      }
+    `;
+    const report = reviewSource(source, 'test.ts');
+    const findings = report.findings.filter((f) => f.ruleId === 'unchecked-find');
+    expect(findings.length).toBeGreaterThan(0);
+  });
+
+  it('still flags map.get().prop — Map.get returns V | undefined at top level', () => {
+    const source = `
+      const cache = new Map<string, { value: number }>();
+      function read(key: string): number {
+        return cache.get(key).value;
+      }
+    `;
+    const report = reviewSource(source, 'test.ts');
+    const findings = report.findings.filter((f) => f.ruleId === 'unchecked-find');
+    expect(findings.length).toBeGreaterThan(0);
+  });
 });

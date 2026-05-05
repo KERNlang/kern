@@ -7,9 +7,29 @@
  * - Nullable function returns used without guard
  */
 
-import { Node, SyntaxKind } from 'ts-morph';
+import { Node, SyntaxKind, type Type } from 'ts-morph';
 import type { ReviewFinding, RuleContext } from '../types.js';
 import { finding } from './utils.js';
+
+/**
+ * Structural top-level nullability check. Replaces the substring scan
+ * over `type.getText()` that was firing on safe array values like
+ * `(string | undefined)[]`: the rendered type contains the substring
+ * "undefined", but the array itself is never null/undefined — only its
+ * elements are. Calling `.length` / `.join` / etc. on it is totally
+ * safe.
+ *
+ * The right question is: does the TOP-LEVEL type include `null` or
+ * `undefined` as a union member? `arr.find()` returns `T | undefined`
+ * — yes, flag. `[a,b].filter(...)` returns `(T | undefined)[]` — no,
+ * the array is the top-level type and it's not nullable.
+ */
+function topLevelIsNullable(type: Type): boolean {
+  if (type.isUnion()) {
+    return type.getUnionTypes().some((t) => t.isUndefined() || t.isNull());
+  }
+  return type.isUndefined() || type.isNull();
+}
 
 // ── Rule 1: unchecked-find ───────────────────────────────────────────────
 // .find() returns T | undefined — using result without null check is a bug.
@@ -199,10 +219,14 @@ function typeCheckedNullable(ctx: RuleContext): ReviewFinding[] {
 
     try {
       const returnType = obj.getReturnType();
-      const typeText = returnType.getText();
-      // Check if the return type includes undefined or null
-      if (typeText.includes('undefined') || typeText.includes('null')) {
+      // Structural top-level nullability check (see `topLevelIsNullable`).
+      // Replaces the previous substring scan over `getText()` which
+      // false-positived on `(string | undefined)[]` and other arrays
+      // whose ELEMENT type was nullable but whose TOP-LEVEL type is
+      // a non-nullable Array.
+      if (topLevelIsNullable(returnType)) {
         const callText = obj.getExpression().getText().substring(0, 30);
+        const typeText = returnType.getText();
         findings.push(
           finding(
             'unchecked-find',
