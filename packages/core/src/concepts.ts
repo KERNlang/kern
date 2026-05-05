@@ -101,6 +101,19 @@ export interface EntrypointPayload {
    */
   bodyFieldsResolved?: boolean;
   /**
+   * Coarse type tag per `bodyFields` entry — server-side mirror of
+   * `EffectPayload.sentFieldTypes`. Same tag union: `'string' | 'number' |
+   * 'boolean' | 'null' | 'object' | 'array' | 'unknown'`. Populated only
+   * when `bodyFieldsResolved === true`.
+   *
+   * Keys are a subset of `bodyFields`. When the handler reads `req.body`
+   * with no usable type information (the default Express `any`), every
+   * entry is `'unknown'`. The `body-shape-drift` rule's type-aware step
+   * skips any pair where either side is `'unknown'` to keep precision
+   * high — type-mismatch findings only fire when both ends are typed.
+   */
+  bodyFieldTypes?: Readonly<Record<string, 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array' | 'unknown'>>;
+  /**
    * For server route entrypoints only — HTTP error status codes the handler can
    * explicitly return/raise. Mappers only populate high-signal statuses such as
    * 401/403/404/422/500 from constructs like Express `res.status(404)` or

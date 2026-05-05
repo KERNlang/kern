@@ -1199,6 +1199,13 @@ const REGISTRY: RuleInfo[] = [
     supersedes: ['request-validation-drift'],
   },
   {
+    id: 'body-shape-drift/type',
+    layer: 'concept',
+    severity: 'warning',
+    description: 'Client and server agree on a body field name but disagree on its type',
+    precision: 'high',
+  },
+  {
     id: 'unhandled-api-error-shape',
     layer: 'concept',
     severity: 'warning',
