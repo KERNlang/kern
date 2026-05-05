@@ -1,6 +1,6 @@
 {
   "name": "@kernlang/fastapi",
-  "version": "3.4.2",
+  "version": "3.4.3",
   "description": "Kern FastAPI Python backend transpiler",
   "type": "module",
   "main": "./dist/index.js",
