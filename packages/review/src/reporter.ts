@@ -180,9 +180,10 @@ export function sortAndDedup(findings: ReviewFinding[]): ReviewFinding[] {
 // Categories considered "real bug class" (always fire): explicit security
 // subcategories the codebase already uses, plus `'bug'`. Everything else
 // — `'structure'`, `'style'`, `'template'`, `'codegen'`, `'type'`,
-// `'pattern'` — is treated as noise-class and gated. (`tainted-across-wire`
-// is `'pattern'` but security-relevant, so it's listed by ruleId in the
-// cross-stack allowlist.)
+// `'pattern'` — is treated as noise-class and gated. The high-precision
+// cross-stack ruleId allowlist below is BELT-AND-SUSPENDERS coverage:
+// every entry should also be `category: 'bug'`, but if a future rule
+// regresses to 'pattern' or 'style' the allowlist still keeps it firing.
 
 const BUG_CLASS_CATEGORIES = new Set<string>(['bug', 'ssrf', 'sql', 'command', 'fs', 'eval', 'redirect']);
 
@@ -672,6 +673,7 @@ function buildSARIFRunProperties(
     ...reports.flatMap((report) => report.suppressedFindings ?? []),
     ...(extraSuppressedFindings ?? []),
   ];
+  const noiseGated = reports.flatMap((report) => report.noiseGatedFindings ?? []);
   const healthEntries = reports.flatMap((report) => report.health?.entries ?? []);
 
   return {
@@ -685,6 +687,12 @@ function buildSARIFRunProperties(
       },
       suppressed: {
         total: suppressed.length,
+      },
+      noiseGated: {
+        // Findings filtered by the diff-novelty noise gate (out-of-PR scope).
+        // Distinct from `suppressed`, which is reserved for `kern-ignore`
+        // user directives.
+        total: noiseGated.length,
       },
       fixable: findings.filter((finding) => finding.autofix).length,
       relatedEvidence: findings.filter((finding) => (finding.relatedSpans?.length ?? 0) > 0).length,
@@ -762,6 +770,7 @@ export function formatSummary(reports: ReviewReport[]): string {
   let totalLines = 0;
   let coveredLines = 0;
   let totalFindings = 0;
+  let totalNoiseGated = 0;
 
   for (const r of reports) {
     totalConstructs += r.stats.constructCount;
@@ -770,6 +779,7 @@ export function formatSummary(reports: ReviewReport[]): string {
     totalLines += r.stats.totalLines;
     coveredLines += r.stats.coveredLines;
     totalFindings += r.findings.length;
+    totalNoiseGated += r.noiseGatedFindings?.length ?? 0;
   }
 
   const coveragePct = totalLines > 0 ? Math.round((coveredLines / totalLines) * 100) : 0;
@@ -781,6 +791,12 @@ export function formatSummary(reports: ReviewReport[]): string {
   lines.push(`  Coverage:         ${coveragePct}%`);
   lines.push(`  Token reduction:  ${reductionPct}% (~${totalTsTokens} → ${totalKernTokens} KERN tokens)`);
   lines.push(`  Findings:         ${totalFindings}`);
+  // Noise-gate audit line — only when the gate actually filtered something,
+  // so unconfigured runs stay quiet. Gives the user visibility on what was
+  // dropped without flooding the summary.
+  if (totalNoiseGated > 0) {
+    lines.push(`  Filtered:         ${totalNoiseGated} (out-of-PR-scope, see noiseGatedFindings)`);
+  }
 
   return lines.join('\n');
 }

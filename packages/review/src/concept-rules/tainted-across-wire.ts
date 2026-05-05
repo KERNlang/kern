@@ -77,7 +77,13 @@ export function taintedAcrossWire(ctx: ConceptRuleContext): ReviewFinding[] {
       source: 'kern',
       ruleId: 'tainted-across-wire',
       severity: 'warning',
-      category: 'pattern',
+      // 'bug': unvalidated user-controlled body crossing the wire to an
+      // unguarded server handler is the SQL-injection / mass-assignment
+      // precursor — same severity class as the rest of the cross-stack
+      // contract suite. Was 'pattern' but that category gets filtered by
+      // the diff-novelty noise gate; promoting to 'bug' makes the rule
+      // ride the standard bug-class bypass instead of the ruleId allowlist.
+      category: 'bug',
       message: `Dynamic body sent to \`${target}\` but the matching server route has no validation guard (schema.parse / zod / yup / pydantic). Add a validator on the server before trusting the payload, or move validation to the client if this endpoint is internal-only.`,
       primarySpan: node.primarySpan,
       fingerprint: createFingerprint('tainted-across-wire', node.primarySpan.startLine, node.primarySpan.startCol),

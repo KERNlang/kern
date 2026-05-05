@@ -102,9 +102,11 @@ describe('applyDiffNoveltyGate — diff-novelty filter at emit boundary', () => 
     expect(applyDiffNoveltyGate(findings, new Set(['/a.ts']))).toEqual(findings);
   });
 
-  it('keeps high-precision cross-stack rules even when category is unprivileged', () => {
-    // tainted-across-wire is `category: 'pattern'` which would otherwise
-    // be filtered. Allowlisted by ruleId.
+  it('keeps high-precision cross-stack rules even when category is unprivileged (belt-and-suspenders)', () => {
+    // Defense-in-depth: even if a cross-stack rule's category regresses
+    // away from 'bug' (e.g. someone marks it 'pattern' or 'style'), the
+    // ruleId allowlist still keeps it firing. We simulate that regression
+    // by passing 'pattern' category for two allowlisted rule IDs.
     const findings = [
       makeFinding({ ruleId: 'tainted-across-wire', file: '/client.ts', category: 'pattern' }),
       makeFinding({ ruleId: 'mixed-host-same-endpoint', file: '/client.ts', category: 'pattern' }),
