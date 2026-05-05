@@ -965,7 +965,13 @@ async function runReviewLocal(args: string[]): Promise<void> {
   // so CI configs that pass it explicitly don't break.
   const includeGenerated = hasFlag(args, '--include-generated');
   const skipGenerated = !includeGenerated;
-  const graphMode = hasFlag(args, '--graph') || recursive;
+  // The diff-novelty noise gate (`--noise-gate`) only fires inside the
+  // graph-mode review pipeline (it needs the entry-file set + concept
+  // graph for cross-stack rootCause escape). Force graph mode whenever
+  // the user asks for the gate. Codex review caught that without this,
+  // `kern review --diff ... --noise-gate` would silently skip the gate.
+  const noiseGate = hasFlag(args, '--noise-gate');
+  const graphMode = hasFlag(args, '--graph') || recursive || noiseGate;
   const batchMode = hasFlag(args, '--batch');
   const maxDepth = Number(parseFlag(args, '--max-depth') ?? 3);
   const batchSize = Number(parseFlag(args, '--batch-size') ?? 20);
@@ -1247,7 +1253,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
       'Usage: kern review [file|dir] [--full] [--diff base] [--git=<url>] [--security] [--mcp] [--llm] [--spec file.kern] [--cloud] [--baseline=file.json] [--new-only]',
     );
     console.error(
-      '       [--write-baseline=file.json] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--audit] [--cross-stack-mode guard|audit]',
+      '       [--write-baseline=file.json] [--json] [--sarif] [--recursive] [--enforce] [--strict-parse] [--audit] [--cross-stack-mode guard|audit] [--noise-gate]',
     );
     console.error(
       '       [--policy guard|ci|audit] [--telemetry] [--telemetry-out file] [--telemetry-report file] [--eval-manifest file]',
@@ -1300,6 +1306,7 @@ async function runReviewLocal(args: string[]): Promise<void> {
     crossStackMode: auditMode
       ? 'audit'
       : ((crossStackModeArg as 'guard' | 'audit' | undefined) ?? reviewCfg.review.crossStackMode),
+    noiseGate: noiseGate || undefined,
     policy: (policyArg as ReviewConfig['policy']) ?? reviewCfg.review.policy ?? (auditMode ? 'audit' : undefined),
     showConfidence: showConfidence || reviewCfg.review.showConfidence,
     minConfidence: minConfidence ?? reviewCfg.review.minConfidence,
