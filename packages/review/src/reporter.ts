@@ -7,6 +7,7 @@
 
 import { buildLLMPrompt, exportKernIR } from './llm-review.js';
 import { getRuleQualityProfile } from './rule-quality.js';
+import { getRuleRegistry } from './rules/index.js';
 import type {
   EnforceResult,
   InferResult,
@@ -160,9 +161,66 @@ export function sortFindings(findings: ReviewFinding[]): void {
   });
 }
 
+/**
+ * Drop findings whose rule is superseded by another rule that ALSO fired at
+ * the same span. The `supersedes` field on `RuleInfo` already declares these
+ * relationships (e.g. `body-shape-drift` supersedes `request-validation-drift`)
+ * but until now nothing enforced them — so when both fired on the same client
+ * call, the user got two warnings about the same root cause. Pure subtraction
+ * — every drop is a duplicate finding the registry author already flagged as
+ * redundant.
+ *
+ * Conservative span match: same `(file, startLine, startCol)`. The current
+ * supersedes data was authored knowing both rules fire on the SAME concept
+ * node (and therefore the same span), so exact match is sufficient and
+ * avoids false-suppression on adjacent unrelated findings.
+ */
+export function applySupersedes(findings: ReviewFinding[]): ReviewFinding[] {
+  // Invert the registry's `supersedes` declarations: for each ruleId that can
+  // be superseded, record the set of ruleIds that supersede it. Built once
+  // per call (cheap — registry is small).
+  const supersededBy = new Map<string, Set<string>>();
+  for (const rule of getRuleRegistry()) {
+    if (!rule.supersedes || rule.supersedes.length === 0) continue;
+    for (const otherId of rule.supersedes) {
+      let set = supersededBy.get(otherId);
+      if (!set) {
+        set = new Set();
+        supersededBy.set(otherId, set);
+      }
+      set.add(rule.id);
+    }
+  }
+  if (supersededBy.size === 0) return findings;
+
+  // Index ruleIds firing at each span.
+  const firedAtLocation = new Map<string, Set<string>>();
+  for (const f of findings) {
+    const key = `${f.primarySpan.file}:${f.primarySpan.startLine}:${f.primarySpan.startCol}`;
+    let set = firedAtLocation.get(key);
+    if (!set) {
+      set = new Set();
+      firedAtLocation.set(key, set);
+    }
+    set.add(f.ruleId);
+  }
+
+  return findings.filter((f) => {
+    const supers = supersededBy.get(f.ruleId);
+    if (!supers) return true;
+    const key = `${f.primarySpan.file}:${f.primarySpan.startLine}:${f.primarySpan.startCol}`;
+    const fired = firedAtLocation.get(key);
+    if (!fired) return true;
+    for (const superRuleId of supers) {
+      if (fired.has(superRuleId)) return false;
+    }
+    return true;
+  });
+}
+
 /** Dedup + sort in one call. Replaces the 5 duplicated sort/dedup blocks. */
 export function sortAndDedup(findings: ReviewFinding[]): ReviewFinding[] {
-  const result = dedup(findings);
+  const result = applySupersedes(dedup(findings));
   sortFindings(result);
   return result;
 }
