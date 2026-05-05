@@ -167,6 +167,85 @@ export function sortAndDedup(findings: ReviewFinding[]): ReviewFinding[] {
   return result;
 }
 
+// ── Diff-novelty noise gate ──────────────────────────────────────────────
+//
+// When enabled (config.noiseGate=true) and a non-empty diff entry-file set
+// is present, drop findings whose primary span lives outside the diff —
+// EXCEPT bug/security-class findings, severity:'error', and high-precision
+// cross-stack rules whose `rootCause` node IDs reference a file inside the
+// diff. The cross-stack escape uses the fact that ConceptNode IDs encode
+// their owning file via `${path}#${kind}@${offset}`, so we don't need a
+// separate nodeId→file index.
+//
+// Categories considered "real bug class" (always fire): explicit security
+// subcategories the codebase already uses, plus `'bug'`. Everything else
+// — `'structure'`, `'style'`, `'template'`, `'codegen'`, `'type'`,
+// `'pattern'` — is treated as noise-class and gated. (`tainted-across-wire`
+// is `'pattern'` but security-relevant, so it's listed by ruleId in the
+// cross-stack allowlist.)
+
+const BUG_CLASS_CATEGORIES = new Set<string>(['bug', 'ssrf', 'sql', 'command', 'fs', 'eval', 'redirect']);
+
+const HIGH_PRECISION_CROSS_STACK_RULES = new Set<string>([
+  'tainted-across-wire',
+  'contract-drift',
+  'contract-method-drift',
+  'body-shape-drift',
+  'body-shape-drift/type',
+  'auth-drift',
+  'auth-propagation-drift',
+  'mixed-host-same-endpoint',
+  'untyped-api-response',
+  'untyped-both-ends-response',
+  'orphan-route',
+  'duplicate-route',
+  'param-name-swap',
+  'missing-response-model',
+  'unhandled-api-error-shape',
+  'unbounded-collection-query',
+  'mutation-without-idempotency',
+  'request-validation-drift',
+  'error-contract-drift',
+]);
+
+function rootCauseTouchesDiff(finding: ReviewFinding, entryFiles: ReadonlySet<string>): boolean {
+  const facets = finding.rootCause?.facets;
+  if (!facets) return false;
+  for (const key of ['clientNodeId', 'routeNodeId']) {
+    const value = (facets as Record<string, unknown>)[key];
+    if (typeof value !== 'string') continue;
+    // ConceptNode ids: `${filePath}#${kind}@${offset}`. File paths can
+    // legally contain `#` on darwin/linux, so split on the LAST `#` to
+    // recover the path correctly. Codex review fix.
+    const hashIdx = value.lastIndexOf('#');
+    const file = hashIdx > 0 ? value.slice(0, hashIdx) : value;
+    if (entryFiles.has(file)) return true;
+  }
+  return false;
+}
+
+export function applyDiffNoveltyGate(
+  findings: ReviewFinding[],
+  entryFiles: ReadonlySet<string> | undefined,
+): ReviewFinding[] {
+  if (!entryFiles || entryFiles.size === 0) return findings;
+
+  return findings.filter((f) => {
+    // Bypass list — never drop these even when outside the diff.
+    if (f.severity === 'error') return true;
+    if (f.category && BUG_CLASS_CATEGORIES.has(f.category)) return true;
+    if (HIGH_PRECISION_CROSS_STACK_RULES.has(f.ruleId)) return true;
+
+    // In-diff signals (any one is sufficient).
+    if (entryFiles.has(f.primarySpan.file)) return true;
+    if (f.origin === 'changed') return true;
+    if (rootCauseTouchesDiff(f, entryFiles)) return true;
+
+    // Confidently outside the diff and not bug-class — drop.
+    return false;
+  });
+}
+
 // ── Enforcement ──────────────────────────────────────────────────────────
 
 export function checkEnforcement(report: ReviewReport, config: ReviewConfig): EnforceResult {

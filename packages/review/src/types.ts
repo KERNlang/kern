@@ -268,6 +268,14 @@ export interface ReviewReport {
   findings: ReviewFinding[];
   /** Findings removed by inline/config suppression, preserved for SARIF and audit output */
   suppressedFindings?: ReviewFinding[];
+  /**
+   * Findings dropped by the diff-novelty noise gate (opt-in via
+   * `config.noiseGate`). Kept in a SEPARATE bucket from
+   * `suppressedFindings` because the latter is treated as `kern-ignore`
+   * directives by SARIF and other audit consumers — gated findings are
+   * not user-source suppressions, they're "out of PR scope" filters.
+   */
+  noiseGatedFindings?: ReviewFinding[];
   /** Summary stats */
   stats: ReviewStats;
   /** Cross-file taint results (present when graph-aware review detects cross-module taint) */
@@ -389,6 +397,23 @@ export interface ReviewConfig {
   fileContextMap?: Map<string, FileContext>;
   /** Pre-computed file graph map from import graph (populated by reviewGraph) */
   graphFileMap?: Map<string, GraphFile>;
+  /**
+   * When true, drop findings on files outside the diff entry set unless they
+   * are bug/security-class, severity:'error', or a high-precision cross-stack
+   * rule whose `rootCause` references a node living in an entry file. Cuts
+   * pre-existing-noise dramatically without losing real bugs.
+   *
+   * Default off — keep full-review behavior unchanged for `kern review src/`
+   * and similar audit modes. Turn on for PR-mode reviews where the user only
+   * wants to see what changed.
+   */
+  noiseGate?: boolean;
+  /**
+   * The diff/entry file set. Populated by `reviewGraph` from
+   * `graph.entryFiles` and consumed by the noise gate. When unset (or
+   * empty), the gate is a no-op.
+   */
+  entryFiles?: ReadonlySet<string>;
   /** Path to host project's tsconfig.json — loaded into the ts-morph Project so jsx/paths/lib/allowJs match the real build. */
   tsConfigFilePath?: string;
   /** When true, emit the `missing-confidence` finding for .kern files without confidence annotations. Default: false (opt-in) — teams that don't use confidence annotations see no noise. */
