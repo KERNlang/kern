@@ -378,4 +378,266 @@ describe('body-shape-drift', () => {
     const findings = bodyShapeDrift({ concepts: cMap, filePath: cf, allConcepts: mergeMaps(cMap, sMap) });
     expect(findings).toHaveLength(0);
   });
+
+  // ── Type-mismatch step (server bodyFieldTypes × client sentFieldTypes) ──
+  //
+  // Lifts the rule from "name overlap" to "name + type overlap". When BOTH
+  // sides have concrete type evidence and the tags disagree, that is a
+  // high-precision bug that pure-name matching misses (real LLM-authored
+  // pattern: client `userId: string`, server `userId: number`).
+  //
+  // Precision discipline: the type-aware step skips any pair where either
+  // tag is `'unknown'`, so the default Express `req.body: any` (every tag
+  // collapses to 'unknown') stays silent — no FPs against the long tail of
+  // untyped handlers.
+
+  describe('type-mismatch step (body-shape-drift/type)', () => {
+    it('fires body-shape-drift/type when name overlaps but client/server type tags disagree', () => {
+      const p = project();
+      const clientSrc = `
+        async function f() {
+          await fetch('/api/users', {
+            method: 'POST',
+            body: JSON.stringify({ userId: 'u-123', count: 5 }),
+          });
+        }
+      `;
+      // Local-shim app: avoids depending on @types/express in the in-memory
+      // project. The req parameter carries an inline type so destructured
+      // bindings pick up real TS types.
+      const serverSrc = `
+        declare const app: { post: (path: string, handler: (req: { body: { userId: number; count: number } }, res: { json: (x: unknown) => void }) => void) => void };
+        app.post('/api/users', (req, res) => {
+          const { userId, count } = req.body;
+          res.json({ userId, count });
+        });
+      `;
+      const cf = '/client/api.ts';
+      const sf = '/server/index.ts';
+      const cMap = extractTsConcepts(p.createSourceFile(cf, clientSrc), cf);
+      const sMap = extractTsConcepts(p.createSourceFile(sf, serverSrc), sf);
+      const findings = bodyShapeDrift({ concepts: cMap, filePath: cf, allConcepts: mergeMaps(cMap, sMap) });
+      const typeFinding = findings.find((f) => f.ruleId === 'body-shape-drift/type');
+      expect(typeFinding).toBeDefined();
+      expect(typeFinding?.message).toMatch(/userId/);
+      expect(typeFinding?.message).toMatch(/client `string`/);
+      expect(typeFinding?.message).toMatch(/server `number`/);
+      // The matching `count` (both 'number') should NOT appear in the message.
+      expect(typeFinding?.message).not.toMatch(/count/);
+    });
+
+    it('is silent when server side is untyped (req: any) — every server tag is unknown', () => {
+      const p = project();
+      const clientSrc = `
+        async function f() {
+          await fetch('/api/users', {
+            method: 'POST',
+            body: JSON.stringify({ userId: 'u-123' }),
+          });
+        }
+      `;
+      const serverSrc = `
+        import express from 'express';
+        const app = express();
+        app.post('/api/users', (req: any, res: any) => {
+          const { userId } = req.body;
+          res.json({ userId });
+        });
+      `;
+      const cf = '/client/api.ts';
+      const sf = '/server/index.ts';
+      const cMap = extractTsConcepts(p.createSourceFile(cf, clientSrc), cf);
+      const sMap = extractTsConcepts(p.createSourceFile(sf, serverSrc), sf);
+      const findings = bodyShapeDrift({ concepts: cMap, filePath: cf, allConcepts: mergeMaps(cMap, sMap) });
+      // Sent and required fields fully agree by name; type step must skip
+      // because server tag is 'unknown'.
+      expect(findings.filter((f) => f.ruleId === 'body-shape-drift/type')).toHaveLength(0);
+    });
+
+    it('emits BOTH missing-fields and type findings independently when both apply', () => {
+      const p = project();
+      const clientSrc = `
+        async function f() {
+          await fetch('/api/users', {
+            method: 'POST',
+            body: JSON.stringify({ userId: 'u-123' }),
+          });
+        }
+      `;
+      const serverSrc = `
+        declare const app: { post: (path: string, handler: (req: { body: { userId: number; email: string } }, res: { json: (x: unknown) => void }) => void) => void };
+        app.post('/api/users', (req, res) => {
+          const { userId, email } = req.body;
+          res.json({ userId, email });
+        });
+      `;
+      const cf = '/client/api.ts';
+      const sf = '/server/index.ts';
+      const cMap = extractTsConcepts(p.createSourceFile(cf, clientSrc), cf);
+      const sMap = extractTsConcepts(p.createSourceFile(sf, serverSrc), sf);
+      const findings = bodyShapeDrift({ concepts: cMap, filePath: cf, allConcepts: mergeMaps(cMap, sMap) });
+      const ids = findings.map((f) => f.ruleId).sort();
+      expect(ids).toEqual(['body-shape-drift', 'body-shape-drift/type']);
+    });
+
+    it('coarsens server union `T | null` to T so it matches a client primitive', () => {
+      const p = project();
+      const clientSrc = `
+        async function f() {
+          await fetch('/api/users', {
+            method: 'POST',
+            body: JSON.stringify({ label: 'hello' }),
+          });
+        }
+      `;
+      const serverSrc = `
+        declare const app: { post: (path: string, handler: (req: { body: { label: string | null } }, res: { json: (x: unknown) => void }) => void) => void };
+        app.post('/api/users', (req, res) => {
+          const { label } = req.body;
+          res.json({ label });
+        });
+      `;
+      const cf = '/client/api.ts';
+      const sf = '/server/index.ts';
+      const cMap = extractTsConcepts(p.createSourceFile(cf, clientSrc), cf);
+      const sMap = extractTsConcepts(p.createSourceFile(sf, serverSrc), sf);
+      const findings = bodyShapeDrift({ concepts: cMap, filePath: cf, allConcepts: mergeMaps(cMap, sMap) });
+      expect(findings.filter((f) => f.ruleId === 'body-shape-drift/type')).toHaveLength(0);
+    });
+
+    // Codex review fix: the extractor previously hard-matched the literal
+    // text `req.body`, missing the very common typed-handler pattern of
+    // casting `req.body as Body` (or a non-null/parens variant). Verify
+    // the unwrapping path actually surfaces type tags now.
+    it('extracts type tags through `req.body as Body` casts (destructure)', () => {
+      const p = project();
+      const clientSrc = `
+        async function f() {
+          await fetch('/api/users', {
+            method: 'POST',
+            body: JSON.stringify({ userId: 'u-123' }),
+          });
+        }
+      `;
+      const serverSrc = `
+        declare const app: { post: (path: string, handler: (req: any, res: any) => void) => void };
+        interface Body { userId: number; }
+        app.post('/api/users', (req, res) => {
+          const { userId } = req.body as Body;
+          res.json({ userId });
+        });
+      `;
+      const cf = '/client/api.ts';
+      const sf = '/server/index.ts';
+      const cMap = extractTsConcepts(p.createSourceFile(cf, clientSrc), cf);
+      const sMap = extractTsConcepts(p.createSourceFile(sf, serverSrc), sf);
+      const findings = bodyShapeDrift({ concepts: cMap, filePath: cf, allConcepts: mergeMaps(cMap, sMap) });
+      const typeFinding = findings.find((f) => f.ruleId === 'body-shape-drift/type');
+      expect(typeFinding).toBeDefined();
+      expect(typeFinding?.message).toMatch(/userId/);
+      expect(typeFinding?.message).toMatch(/client `string`/);
+      expect(typeFinding?.message).toMatch(/server `number`/);
+    });
+
+    it('extracts type tags through `(req.body as Body).foo` property access', () => {
+      const p = project();
+      const clientSrc = `
+        async function f() {
+          await fetch('/api/users', {
+            method: 'POST',
+            body: JSON.stringify({ count: 'five' }),
+          });
+        }
+      `;
+      const serverSrc = `
+        declare const app: { post: (path: string, handler: (req: any, res: any) => void) => void };
+        interface Body { count: number; }
+        app.post('/api/users', (req, res) => {
+          res.json({ doubled: (req.body as Body).count * 2 });
+        });
+      `;
+      const cf = '/client/api.ts';
+      const sf = '/server/index.ts';
+      const cMap = extractTsConcepts(p.createSourceFile(cf, clientSrc), cf);
+      const sMap = extractTsConcepts(p.createSourceFile(sf, serverSrc), sf);
+      const findings = bodyShapeDrift({ concepts: cMap, filePath: cf, allConcepts: mergeMaps(cMap, sMap) });
+      const typeFinding = findings.find((f) => f.ruleId === 'body-shape-drift/type');
+      expect(typeFinding).toBeDefined();
+      expect(typeFinding?.message).toMatch(/count/);
+    });
+
+    // Codex review fix: the legacy missing-fields branch matched routes by
+    // path only. For high-precision /type findings, this could fire across
+    // a verb collision (POST/PUT on the same path with different body
+    // shapes). The /type branch is now method-gated.
+    it('does NOT fire /type when client method differs from the matched route method', () => {
+      const p = project();
+      // Client POSTs (creates) — server PUT handler shouldn't gate the type
+      // finding even if the path-only matcher returned the PUT route first.
+      const clientSrc = `
+        async function f() {
+          await fetch('/api/users', {
+            method: 'POST',
+            body: JSON.stringify({ userId: 'u-123' }),
+          });
+        }
+      `;
+      const serverSrc = `
+        declare const app: {
+          put: (path: string, handler: (req: any, res: any) => void) => void;
+          post: (path: string, handler: (req: any, res: any) => void) => void;
+        };
+        interface PutBody { userId: number; }
+        // PUT handler has typed body (would mismatch client's string userId)
+        app.put('/api/users', (req, res) => {
+          const { userId } = req.body as PutBody;
+          res.json({ userId });
+        });
+        // POST handler reads userId off untyped body — server tag will be
+        // 'unknown', so even on the correct path-method match the /type
+        // branch stays silent (precision over recall).
+        app.post('/api/users', (req, res) => {
+          const { userId } = req.body;
+          res.json({ userId });
+        });
+      `;
+      const cf = '/client/api.ts';
+      const sf = '/server/index.ts';
+      const cMap = extractTsConcepts(p.createSourceFile(cf, clientSrc), cf);
+      const sMap = extractTsConcepts(p.createSourceFile(sf, serverSrc), sf);
+      const findings = bodyShapeDrift({ concepts: cMap, filePath: cf, allConcepts: mergeMaps(cMap, sMap) });
+      // No /type finding — even though the path-only matcher might have
+      // returned the PUT route, methods disagree, so /type is silent.
+      expect(findings.filter((f) => f.ruleId === 'body-shape-drift/type')).toHaveLength(0);
+    });
+
+    it('handles type tags from req.body.foo property access readings', () => {
+      const p = project();
+      const clientSrc = `
+        async function f() {
+          await fetch('/api/users', {
+            method: 'POST',
+            body: JSON.stringify({ count: 'five' }),
+          });
+        }
+      `;
+      const serverSrc = `
+        declare const app: { post: (path: string, handler: (req: { body: { count: number } }, res: { json: (x: unknown) => void }) => void) => void };
+        app.post('/api/users', (req, res) => {
+          // property-access reading, no destructuring
+          res.json({ doubled: req.body.count * 2 });
+        });
+      `;
+      const cf = '/client/api.ts';
+      const sf = '/server/index.ts';
+      const cMap = extractTsConcepts(p.createSourceFile(cf, clientSrc), cf);
+      const sMap = extractTsConcepts(p.createSourceFile(sf, serverSrc), sf);
+      const findings = bodyShapeDrift({ concepts: cMap, filePath: cf, allConcepts: mergeMaps(cMap, sMap) });
+      const typeFinding = findings.find((f) => f.ruleId === 'body-shape-drift/type');
+      expect(typeFinding).toBeDefined();
+      expect(typeFinding?.message).toMatch(/count/);
+      expect(typeFinding?.message).toMatch(/client `string`/);
+      expect(typeFinding?.message).toMatch(/server `number`/);
+    });
+  });
 });

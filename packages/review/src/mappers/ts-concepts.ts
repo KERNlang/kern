@@ -453,7 +453,11 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
 
     const bodyFieldsInfo = handlerFn
       ? extractHandlerBodyFields(handlerFn)
-      : { fields: undefined as readonly string[] | undefined, resolved: false };
+      : {
+          fields: undefined as readonly string[] | undefined,
+          resolved: false,
+          types: undefined as FieldTypeMap | undefined,
+        };
     const routeAnalysis = handlerFn
       ? analyzeExpressRouteHandler(handlerFn, args, methodName.toUpperCase(), routePath)
       : EMPTY_ROUTE_ANALYSIS;
@@ -474,6 +478,7 @@ function extractEntrypoints(sf: SourceFile, filePath: string, nodes: ConceptNode
         handlerConceptId,
         bodyFields: bodyFieldsInfo.fields,
         bodyFieldsResolved: bodyFieldsInfo.resolved,
+        bodyFieldTypes: bodyFieldsInfo.types,
         errorStatusCodes: routeAnalysis.errorStatusCodes,
         hasUnboundedCollectionQuery: routeAnalysis.hasUnboundedCollectionQuery,
         hasDbWrite: routeAnalysis.hasDbWrite,
@@ -878,18 +883,39 @@ function pathSuffixBetween(mountFile: string, targetFile: string): string {
 function extractHandlerBodyFields(fn: ExpressRouteHandlerFn): {
   fields: readonly string[] | undefined;
   resolved: boolean;
+  types: FieldTypeMap | undefined;
 } {
   const body = fn.getBody();
-  if (!body) return { fields: undefined, resolved: false };
+  if (!body) return { fields: undefined, resolved: false, types: undefined };
 
   const required = new Set<string>();
+  // Collected tag per field. A field may surface in multiple readings
+  // (destructuring AND property access). If the readings disagree we
+  // downgrade to 'unknown' rather than pick a winner.
+  const tagByField = new Map<string, FieldTypeTag>();
+  const recordTag = (name: string, tag: FieldTypeTag) => {
+    const prev = tagByField.get(name);
+    if (prev === undefined) tagByField.set(name, tag);
+    else if (prev !== tag) tagByField.set(name, 'unknown');
+  };
   let poisoned = false;
+
+  // Accept `req.body`, `(req.body)`, `req.body as Body`, `req.body!`,
+  // `req.body satisfies Body`, and any nesting of those. Without this the
+  // common typed-body pattern `const { x } = req.body as CreateUser` stays
+  // dark even though ts-morph already carries the right type on the binding
+  // element. Codex caught this gap.
+  const isReqBodyExpr = (node: import('ts-morph').Node | undefined): boolean => {
+    if (!node) return false;
+    const inner = unwrapPayloadExpression(node);
+    return inner.getKind() === SyntaxKind.PropertyAccessExpression && inner.getText() === 'req.body';
+  };
 
   // 1. Destructuring: walk VariableDeclarations whose initializer is `req.body`
   //    or a reference that aliases it. V1 matches only direct `req.body`.
   for (const decl of body.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
     const init = decl.getInitializer();
-    if (!init || init.getText() !== 'req.body') continue;
+    if (!isReqBodyExpr(init)) continue;
     const name = decl.getNameNode();
     if (name.getKind() !== SyntaxKind.ObjectBindingPattern) {
       // `const body = req.body` whole-body alias — handler may read anything
@@ -913,6 +939,12 @@ function extractHandlerBodyFields(fn: ExpressRouteHandlerFn): {
         // `propertyNameNode` when aliased, `nameNode` otherwise.
         const propName = el.getPropertyNameNode()?.getText() ?? elName.getText();
         required.add(propName);
+        // Type tag from the binding identifier's inferred type. With the
+        // default Express `Request` type this is `any` → 'unknown', which
+        // body-shape-drift's type-aware step then skips. When the handler
+        // is typed (e.g. `Request<{}, {}, CreateUser>` or `req.body as
+        // CreateUser`) it lights up.
+        recordTag(propName, coarsenTsType(elName.getType()));
       } else {
         // Nested destructuring or other exotic shape — give up for v1.
         poisoned = true;
@@ -920,25 +952,30 @@ function extractHandlerBodyFields(fn: ExpressRouteHandlerFn): {
     }
   }
 
-  // 2. Property access: `req.body.name` / `req.body['name']`.
+  // 2. Property access: `req.body.name`, `(req.body as Body).name`, etc.
   for (const pa of body.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
-    if (pa.getExpression().getText() !== 'req.body') continue;
+    if (!isReqBodyExpr(pa.getExpression())) continue;
     required.add(pa.getName());
+    recordTag(pa.getName(), coarsenTsType(pa.getType()));
   }
   for (const el of body.getDescendantsOfKind(SyntaxKind.ElementAccessExpression)) {
-    if (el.getExpression().getText() !== 'req.body') continue;
+    if (!isReqBodyExpr(el.getExpression())) continue;
     const arg = el.getArgumentExpression();
     if (arg && arg.getKind() === SyntaxKind.StringLiteral) {
-      required.add((arg as import('ts-morph').StringLiteral).getLiteralValue());
+      const lit = (arg as import('ts-morph').StringLiteral).getLiteralValue();
+      required.add(lit);
+      recordTag(lit, coarsenTsType(el.getType()));
     } else {
       // `req.body[key]` dynamic — unknowable.
       poisoned = true;
     }
   }
 
-  if (poisoned) return { fields: undefined, resolved: false };
-  if (required.size === 0) return { fields: undefined, resolved: false };
-  return { fields: Array.from(required), resolved: true };
+  if (poisoned) return { fields: undefined, resolved: false, types: undefined };
+  if (required.size === 0) return { fields: undefined, resolved: false, types: undefined };
+  const types: Record<string, FieldTypeTag> = {};
+  for (const f of required) types[f] = tagByField.get(f) ?? 'unknown';
+  return { fields: Array.from(required), resolved: true, types };
 }
 
 function guessResolvedSuffix(specifier: string, mountFile: string): string | undefined {
