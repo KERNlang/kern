@@ -144,6 +144,21 @@ export interface EntrypointPayload {
    * True when the mapper is confident the validation field list is complete.
    */
   bodyValidationResolved?: boolean;
+  /**
+   * Coarse type tag per validated body field, derived from a recognised
+   * schema literal (e.g. Zod `z.object({ name: z.string(), age: z.number() })`).
+   * Same tag union as `bodyFieldTypes`. Populated only when the validator
+   * is a recognised schema DSL whose call shapes can be coarsened.
+   *
+   * Used by `body-shape-drift/type` as a precision fallback: when the
+   * handler reads `req.body` with no usable TS type info (the default
+   * Express `any`, so `bodyFieldTypes[f] === 'unknown'`), the rule consults
+   * this map. Catches `userId: string` (client) vs `userId: z.number()`
+   * (server schema) on handlers that validate but don't type `req.body`.
+   */
+  validatedBodyFieldTypes?: Readonly<
+    Record<string, 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array' | 'unknown'>
+  >;
 }
 
 export interface EffectPayload {
