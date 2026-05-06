@@ -104,23 +104,15 @@ describe('continue / break body-statements — TS target', () => {
 
 describe('continue / break body-statements — parser + validator', () => {
   test('continue valid inside handler lang="kern"', () => {
-    const src = [
-      'fn name=ok returns=void',
-      '  handler lang="kern"',
-      '    each name=x in=xs',
-      '      continue',
-    ].join('\n');
+    const src = ['fn name=ok returns=void', '  handler lang="kern"', '    each name=x in=xs', '      continue'].join(
+      '\n',
+    );
     const { diagnostics } = parseDocumentWithDiagnostics(src);
     expect(diagnostics.filter((d) => d.severity === 'error')).toHaveLength(0);
   });
 
   test('break valid inside handler lang="kern"', () => {
-    const src = [
-      'fn name=ok returns=void',
-      '  handler lang="kern"',
-      '    each name=x in=xs',
-      '      break',
-    ].join('\n');
+    const src = ['fn name=ok returns=void', '  handler lang="kern"', '    each name=x in=xs', '      break'].join('\n');
     const { diagnostics } = parseDocumentWithDiagnostics(src);
     expect(diagnostics.filter((d) => d.severity === 'error')).toHaveLength(0);
   });
