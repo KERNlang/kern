@@ -5,7 +5,7 @@
  *  raw `<<<JS>>>` handler for the early-skip / early-exit shape. */
 
 import { emitNativeKernBodyTS } from '../src/codegen/body-ts.js';
-import { parseDocumentWithDiagnostics } from '../src/parser.js';
+import { parseDocumentStrict, parseDocumentWithDiagnostics } from '../src/parser.js';
 import type { IRNode } from '../src/types.js';
 
 function makeHandler(children: IRNode[]): IRNode {
@@ -141,5 +141,46 @@ describe('continue / break body-statements — parser + validator', () => {
       (d) => d.severity === 'error' && d.code === 'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER',
     );
     expect(errs.length).toBeGreaterThan(0);
+  });
+
+  // Codex-flagged BLOCKER on the prior commit: continue / break must appear
+  // in the allowedChildren of `try` and `catch`, otherwise schema validation
+  // rejects valid loop-control IR. parseDocumentStrict throws on schema
+  // violations, so use it to lock the regression.
+  test('strict parse: continue inside try inside each is schema-valid', () => {
+    const src = [
+      'fn name=ok returns=void',
+      '  handler lang="kern"',
+      '    each name=x in=xs',
+      '      try',
+      '        continue',
+      '        catch name=e',
+      '          do value="log(e)"',
+    ].join('\n');
+    expect(() => parseDocumentStrict(src)).not.toThrow();
+  });
+
+  test('strict parse: break inside catch is schema-valid', () => {
+    const src = [
+      'fn name=ok returns=void',
+      '  handler lang="kern"',
+      '    each name=x in=xs',
+      '      try',
+      '        do value="risky(x)"',
+      '        catch name=e',
+      '          break',
+    ].join('\n');
+    expect(() => parseDocumentStrict(src)).not.toThrow();
+  });
+
+  test('strict parse: continue inside if inside each is schema-valid', () => {
+    const src = [
+      'fn name=ok returns=void',
+      '  handler lang="kern"',
+      '    each name=x in=xs',
+      '      if cond="x.skip"',
+      '        continue',
+    ].join('\n');
+    expect(() => parseDocumentStrict(src)).not.toThrow();
   });
 });
