@@ -66,9 +66,13 @@ export function buildInternalSinkMap(sourceFile: SourceFile): Map<string, Intern
     const sinkCategories = new Map<number, Set<TaintSink['category']>>();
 
     for (const call of calls) {
-      const calleeName = getCalleeBaseName(call);
-      const sinkDef = SINK_NAMES.get(calleeName);
-      if (!sinkDef) continue;
+      // Use the same receiver-aware resolver as the outer sink scan so a
+      // helper containing `/regex/.exec(param)` doesn't mark `param` as
+      // flowing to a `'command'` sink. Mirrors the resolveSinkCategory
+      // gating put in for the kern-guard PR #316 false positive.
+      const resolved = resolveSinkCategory(call);
+      if (!resolved) continue;
+      const sinkDef = resolved.category;
 
       // Check which parameter names appear in the sink's arguments
       for (const arg of call.getArguments()) {
@@ -414,6 +418,14 @@ function getCalleeBaseName(call: import('ts-morph').CallExpression): string {
  * name (e.g., `exec` → command). Without this, qualified sinks like
  * `axios.request`, `http.request`, `https.request`, and `undici.request`
  * never match because their base name (`request`) is too generic to register.
+ *
+ * Receiver-scoped command sinks: the bare base name `exec` (and friends)
+ * collides with `RegExp.prototype.exec` — `/foo/.exec(s)` was firing as
+ * command-injection in production (kern-guard PR #316). When matched only
+ * by base name, command-class sinks now require the call site to
+ * plausibly resolve to a node command-execution module (or a regex
+ * receiver disqualifies it). Indirect cases (regex passed in via a
+ * param) become acceptable false negatives — much rarer than the FP cost.
  */
 function resolveSinkCategory(call: import('ts-morph').CallExpression):
   | {
@@ -432,8 +444,11 @@ function resolveSinkCategory(call: import('ts-morph').CallExpression):
   }
   const baseName = getCalleeBaseName(call);
   const byBase = SINK_NAMES.get(baseName);
-  if (byBase) return { category: byBase, name: baseName };
-  return undefined;
+  if (!byBase) return undefined;
+  if (byBase === 'command' && COMMAND_AMBIGUOUS_BASE_NAMES.has(baseName)) {
+    if (!isCommandSinkContext(call)) return undefined;
+  }
+  return { category: byBase, name: baseName };
 }
 
 /** Get the full static access path (e.g., req.query.id). Returns undefined for dynamic access. */
@@ -466,6 +481,100 @@ function findTaintedIdentifier(expr: Node, taintedNames: Set<string>): string | 
     if (found) return found;
   }
   return undefined;
+}
+
+// ── Command-sink receiver scoping ───────────────────────────────────────
+
+const COMMAND_AMBIGUOUS_BASE_NAMES = new Set(['exec', 'execSync', 'execFile', 'execFileSync', 'spawn', 'spawnSync']);
+
+/**
+ * True only when the call site is plausibly a command-execution sink
+ * rather than `RegExp.prototype.exec`. Two layers of rejection:
+ *   1. Syntactic — receiver is a regex literal, `new RegExp(...)`, or an
+ *      Identifier whose declaration's initializer is one of those (one
+ *      alias hop, with cycle protection).
+ *   2. Type-based — TS type checker says the receiver's type is `RegExp`.
+ *      Handles chained calls (`/foo/.compile().exec(s)`) and functions
+ *      that return regex (`getPattern().exec(s)`) where syntactic
+ *      detection would miss.
+ *
+ * Cases the layers together cover (OpenCode flagged 1 + 2 as blockers):
+ *   - `/foo/.exec(s)`                                   → syntactic
+ *   - `new RegExp(...).exec(s)`                         → syntactic
+ *   - `const re = /foo/; re.exec(s)`                    → syntactic
+ *   - `const a = /foo/; const b = a; b.exec(s)`         → syntactic (1 hop)
+ *   - `/foo/.compile().exec(s)`                         → type-based
+ *   - `getPattern().exec(s)` returning RegExp           → type-based
+ *
+ * Everything else passes through — matching the existing greedy
+ * base-name semantics for the legitimate command-injection paths.
+ */
+function isCommandSinkContext(call: import('ts-morph').CallExpression): boolean {
+  const expr = call.getExpression();
+  if (expr.getKindName() === 'PropertyAccessExpression') {
+    const receiver = (expr as any).getExpression() as Node;
+    if (isRegExpReceiver(receiver, new Set())) return false;
+    if (isRegExpTyped(receiver)) return false;
+  }
+  return true;
+}
+
+/**
+ * Syntactic detection. Walks at most one alias hop (`const re2 = re`)
+ * with a visited set to defang circular aliasing (`const a = b; const b = a`)
+ * which would otherwise infinite-recurse.
+ */
+function isRegExpReceiver(node: Node, visited: Set<Node>): boolean {
+  if (visited.has(node)) return false;
+  visited.add(node);
+  const k = node.getKindName();
+  if (k === 'RegularExpressionLiteral') return true;
+  if (k === 'NewExpression') {
+    const ctor = (node as any).getExpression?.();
+    if (ctor && typeof ctor.getText === 'function' && ctor.getText() === 'RegExp') return true;
+  }
+  if (k === 'Identifier') {
+    const sym = (node as any).getSymbol?.();
+    if (!sym || typeof sym.getDeclarations !== 'function') return false;
+    for (const decl of sym.getDeclarations() ?? []) {
+      if (decl.getKindName?.() !== 'VariableDeclaration') continue;
+      const init = (decl as any).getInitializer?.();
+      if (!init) continue;
+      const ik = init.getKindName();
+      if (ik === 'RegularExpressionLiteral') return true;
+      if (ik === 'NewExpression') {
+        const ctor = init.getExpression?.();
+        if (ctor && typeof ctor.getText === 'function' && ctor.getText() === 'RegExp') return true;
+      }
+      if (ik === 'Identifier') {
+        if (isRegExpReceiver(init, visited)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Type-based detection — asks the TS type checker whether the
+ * expression's type is `RegExp`. Catches cases the syntactic walk
+ * can't see (chained `.compile()`, function return values, generics).
+ * Wrapped in try/catch because `getType` can throw on unresolvable
+ * symbols — a safe `false` is better than crashing the whole taint pass.
+ */
+function isRegExpTyped(node: Node): boolean {
+  try {
+    const type = (node as any).getType?.();
+    if (!type) return false;
+    const symbol = type.getSymbol?.();
+    if (symbol && typeof symbol.getName === 'function' && symbol.getName() === 'RegExp') return true;
+    // Fall-through string compare — covers cases where the type symbol
+    // isn't directly named (e.g. some intersected types) but the type's
+    // text representation pins it to RegExp.
+    const text = typeof type.getText === 'function' ? type.getText() : '';
+    return text === 'RegExp';
+  } catch {
+    return false;
+  }
 }
 
 /** AST-based sanitizer detection */

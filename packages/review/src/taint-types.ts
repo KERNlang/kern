@@ -101,12 +101,18 @@ export interface SinkPattern {
 }
 
 export const SINK_PATTERNS: SinkPattern[] = [
-  // Command execution
-  { pattern: /\bexec\s*\(/, name: 'exec', category: 'command' },
-  { pattern: /\bexecSync\s*\(/, name: 'execSync', category: 'command' },
-  { pattern: /\bspawn\s*\(/, name: 'spawn', category: 'command' },
-  { pattern: /\bspawnSync\s*\(/, name: 'spawnSync', category: 'command' },
-  { pattern: /\bexecFile\s*\(/, name: 'execFile', category: 'command' },
+  // Command-class sink scanners. The regex path can't see types, so it
+  // can't distinguish a command call from `RegExp.prototype.exec(...)`.
+  // Lookbehinds reject ANY dotted call to kill the regex.exec false
+  // positive seen in production (kern-guard PR #316 via taint-crossfile,
+  // where AST-level symbol resolution isn't available). Cost: recall on
+  // aliased module bindings in cross-file mode. Accepted per the brief —
+  // FN here is much rarer than the FP cost in production review.
+  { pattern: /(?<![.\w])exec\s*\(/, name: 'exec', category: 'command' },
+  { pattern: /(?<![.\w])execSync\s*\(/, name: 'execSync', category: 'command' },
+  { pattern: /(?<![.\w])spawn\s*\(/, name: 'spawn', category: 'command' },
+  { pattern: /(?<![.\w])spawnSync\s*\(/, name: 'spawnSync', category: 'command' },
+  { pattern: /(?<![.\w])execFile\s*\(/, name: 'execFile', category: 'command' },
   // Filesystem
   { pattern: /\bwriteFile\s*\(/, name: 'writeFile', category: 'fs' },
   { pattern: /\bwriteFileSync\s*\(/, name: 'writeFileSync', category: 'fs' },
