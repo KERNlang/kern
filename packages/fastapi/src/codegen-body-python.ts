@@ -256,6 +256,10 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
       for (const line of emitThrowPy(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'do') {
       for (const line of emitDoPy(child, ctx)) lines.push(`${indent}${line}`);
+    } else if (child.type === 'continue') {
+      lines.push(`${indent}continue`);
+    } else if (child.type === 'break') {
+      lines.push(`${indent}break`);
     } else if (child.type === 'each') {
       // Slice 4d — each loop.
       // Slice 4c+4d review fix (Codex P1) — read schema-compliant

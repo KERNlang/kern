@@ -1486,6 +1486,18 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       value: { kind: 'expression' },
     },
   },
+  continue: {
+    description:
+      'Body-statement loop-continue — emits `continue;` (TS) or `continue` (Python). Only valid inside a `lang="kern"` handler body, and the surrounding TS/Python compiler still rejects use outside an enclosing loop. Pair with `each` to express skip-this-iteration logic without dropping into a raw handler.',
+    example: 'each name=item in=items\n  if cond="item.skip"\n    continue\n  do value="process(item)"',
+    props: {},
+  },
+  break: {
+    description:
+      'Body-statement loop-break — emits `break;` (TS) or `break` (Python). Only valid inside a `lang="kern"` handler body, and the surrounding TS/Python compiler still rejects use outside an enclosing loop. Pair with `each` to express early-exit search/find loops without dropping into a raw handler.',
+    example: 'each name=item in=items\n  if cond="item.matches"\n    let name=found value="item"\n    break',
+    props: {},
+  },
   if: {
     description:
       'Body-statement if — emits `if (cond) { ... }` inside a `lang="kern"` handler body. Optional `else` SIBLING (not child) emits `} else { ... }`. Distinct from the `if=` prop on `conditional` and route-guard nodes.',
