@@ -5,8 +5,8 @@
 - Treat `package.json` `packageManager` as the source of truth for the pnpm version.
 - Activate pnpm with Corepack, not `pnpm/action-setup`.
 - Do not add `cache: 'pnpm'` to `actions/setup-node`.
-- Release only from `main`.
-- Run `Release Preflight` from `main` before creating a release tag.
+- **Never push to `main` locally.** Releases happen via GitHub merge (PR merged into `main` through the GitHub UI). Claude does not run `git push origin main`, `git checkout main && git merge`, or any local main-mutating flow.
+- Release Preflight + tagging is run from `main` *after* the merge has landed on GitHub — and the user drives that step, not Claude, unless explicitly asked.
 - Use plain semver like `3.2.4` for preflight input.
 - Publish GitHub Releases with lowercase tags like `v3.2.4`.
 - **Whenever you edit any `package.json` `dependencies` / `devDependencies` / `peerDependencies` / `optionalDependencies` / `peerDependenciesMeta` field — regenerate `pnpm-lock.yaml` in the SAME commit.** CI runs `pnpm install --frozen-lockfile`; a mismatched lockfile breaks every workflow on the branch with `ERR_PNPM_OUTDATED_LOCKFILE`. Use `pnpm install --ignore-scripts --no-frozen-lockfile` if the local tree-sitter native build is broken — `--ignore-scripts` skips postinstalls so the lockfile gets written even when a postinstall would otherwise crash. Always `git add pnpm-lock.yaml` alongside the `package.json` change. Never push a `package.json` dep change without the matching lockfile update.
@@ -43,8 +43,8 @@ When upgrading pnpm:
    pnpm build
    pnpm test
    ```
-5. Wait for green CI on `main`.
-6. Run `Release Preflight`.
+5. Open a PR. Merge to `main` happens via the GitHub UI, not by Claude.
+6. After the merge lands on `main`, the user runs `Release Preflight`.
 7. Only then publish the GitHub Release.
 
 ## Architecture
