@@ -540,7 +540,21 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     //    plus a required `catch` child. Schema permits both child sets;
     //    body-ts.ts disambiguates by inspecting the children, and validateBodyStatements
     //    enforces the body-statement-only constraints when the enclosing handler is `lang="kern"`.
-    allowedChildren: ['step', 'handler', 'catch', 'let', 'do', 'return', 'if', 'else', 'each', 'try', 'throw'],
+    allowedChildren: [
+      'step',
+      'handler',
+      'catch',
+      'let',
+      'do',
+      'return',
+      'if',
+      'else',
+      'each',
+      'try',
+      'throw',
+      'continue',
+      'break',
+    ],
   },
   step: {
     description:
@@ -559,7 +573,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { kind: 'identifier' },
     },
-    allowedChildren: ['handler', 'let', 'do', 'return', 'if', 'else', 'each', 'try', 'throw'],
+    allowedChildren: ['handler', 'let', 'do', 'return', 'if', 'else', 'each', 'try', 'throw', 'continue', 'break'],
   },
   filter: {
     description:
@@ -1450,7 +1464,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   handler: {
     description:
-      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`do`/`return`/`if`/`else`/`each`/`try`/`catch`/`throw`) for cross-target structured bodies.',
+      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`do`/`return`/`if`/`else`/`each`/`try`/`catch`/`throw`/`continue`/`break`) for cross-target structured bodies. Use `continue` inside `each` to skip the current iteration; use `break` inside `each` to exit the innermost loop. Prefer these over raw handlers for loop-control bodies.',
     example: 'handler <<<\n  const result = await doWork();\n  return result;\n>>>',
     props: {
       code: { kind: 'rawBlock' },
@@ -1460,7 +1474,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     // body statements are rejected by validateBodyStatements (the schema list
     // is intentionally permissive so the validator can produce a clearer
     // context-aware error).
-    allowedChildren: ['let', 'do', 'return', 'if', 'else', 'each', 'try', 'catch', 'throw'],
+    allowedChildren: ['let', 'do', 'return', 'if', 'else', 'each', 'try', 'catch', 'throw', 'continue', 'break'],
   },
   return: {
     description:
@@ -1485,6 +1499,18 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       value: { kind: 'expression' },
     },
+  },
+  continue: {
+    description:
+      'Body-statement loop-continue — emits `continue;` (TS) or `continue` (Python). Only valid inside a `lang="kern"` handler body, and the surrounding TS/Python compiler still rejects use outside an enclosing loop. Pair with `each` to express skip-this-iteration logic without dropping into a raw handler.',
+    example: 'each name=item in=items\n  if cond="item.skip"\n    continue\n  do value="process(item)"',
+    props: {},
+  },
+  break: {
+    description:
+      'Body-statement loop-break — emits `break;` (TS) or `break` (Python). Only valid inside a `lang="kern"` handler body, and the surrounding TS/Python compiler still rejects use outside an enclosing loop. Pair with `each` to express early-exit search/find loops without dropping into a raw handler.',
+    example: 'each name=item in=items\n  if cond="item.matches"\n    let name=found value="item"\n    break',
+    props: {},
   },
   if: {
     description:
