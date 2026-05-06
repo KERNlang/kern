@@ -90,11 +90,22 @@ export function bodyShapeDrift(ctx: ConceptRuleContext): ReviewFinding[] {
     const route = findMatchingRoute(call.normalizedPath, serverRoutes);
     if (!route?.node) continue;
     if (route.node.payload.kind !== 'entrypoint') continue;
-    if (route.node.payload.bodyFieldsResolved !== true) continue;
-    const serverFields = route.node.payload.bodyFields;
-    if (!serverFields || serverFields.length === 0) continue;
+    // V1 fired only when the handler's `req.body.X` reads were resolved.
+    // We now also accept schema-validated routes (`Schema.parse(req.body)`
+    // with no per-field `req.body.X` access) — the schema's tags drive
+    // /type alone, while missing-fields stays gated on handler reads.
+    const handlerResolved = route.node.payload.bodyFieldsResolved === true;
+    const validationResolved = route.node.payload.bodyValidationResolved === true;
+    if (!handlerResolved && !validationResolved) continue;
+    const handlerFields = handlerResolved ? (route.node.payload.bodyFields ?? []) : [];
+    const validatedFields = validationResolved ? (route.node.payload.validatedBodyFields ?? []) : [];
+    if (handlerFields.length === 0 && validatedFields.length === 0) continue;
 
-    const missing = serverFields.filter((f) => !call.sentFields.includes(f));
+    // Missing-fields detection — handler-read evidence only. A schema
+    // declaring a field doesn't mean the handler will fail without it
+    // (the schema might reject the request, but that's a different
+    // failure mode best surfaced by a separate rule).
+    const missing = handlerFields.filter((f) => !call.sentFields.includes(f));
 
     // Type-mismatch step: when both ends are typed (neither side 'unknown'),
     // a tag disagreement on a name that DOES overlap is a high-precision
@@ -114,12 +125,29 @@ export function bodyShapeDrift(ctx: ConceptRuleContext): ReviewFinding[] {
     const methodsAgree = !!routeMethod && !!callMethod && routeMethod === callMethod;
 
     const serverTypes = route.node.payload.bodyFieldTypes;
+    const validatedTypes = route.node.payload.validatedBodyFieldTypes;
     const clientTypes = call.sentFieldTypes;
     const typeMismatches: Array<{ field: string; client: FieldTypeTag; server: FieldTypeTag }> = [];
-    if (methodsAgree && serverTypes && clientTypes) {
-      for (const f of serverFields) {
+    // Server-side type resolution prefers the handler-read tag from
+    // `bodyFieldTypes` (the actual TS type the handler sees). When that
+    // is `'unknown'` — typical when `req.body` is the Express-default
+    // `any` — fall back to a Zod-validated tag from
+    // `validatedBodyFieldTypes` if one exists. Catches the common shape:
+    //   const Schema = z.object({ active: z.boolean() });
+    //   app.post('/x', (req, res) => { const d = Schema.parse(req.body); ... });
+    // where the handler doesn't TS-type req.body but the schema knows
+    // the field types.
+    //
+    // Iterates the UNION of handler-read and schema-validated field
+    // names so schema-only handlers (no per-field `req.body.X` reads)
+    // still get type checks against the schema.
+    if (methodsAgree && clientTypes && (serverTypes || validatedTypes)) {
+      const compareFields = new Set<string>([...handlerFields, ...validatedFields]);
+      for (const f of compareFields) {
         if (!call.sentFields.includes(f)) continue;
-        const serverTag = serverTypes[f];
+        const handlerTag = serverTypes?.[f];
+        const validatedTag = validatedTypes?.[f];
+        const serverTag = handlerTag && handlerTag !== 'unknown' ? handlerTag : validatedTag;
         const clientTag = clientTypes[f];
         if (!serverTag || !clientTag) continue;
         if (serverTag === 'unknown' || clientTag === 'unknown') continue;
