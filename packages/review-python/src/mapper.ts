@@ -35,6 +35,14 @@ const DB_METHODS = new Set([
 
 const _FS_FUNCTIONS = new Set(['open', 'read', 'write', 'readlines', 'writelines']);
 
+type FieldTypeTag = 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array' | 'unknown';
+type FieldTypeMap = Readonly<Record<string, FieldTypeTag>>;
+
+interface PydanticModel {
+  fields: readonly string[];
+  types: FieldTypeMap;
+}
+
 interface PythonRouteAnalysis {
   errorStatusCodes?: readonly number[];
   hasUnboundedCollectionQuery?: boolean;
@@ -43,6 +51,7 @@ interface PythonRouteAnalysis {
   hasBodyValidation?: boolean;
   validatedBodyFields?: readonly string[];
   bodyValidationResolved?: boolean;
+  validatedBodyFieldTypes?: FieldTypeMap;
 }
 
 const PY_API_ERROR_STATUS_CODES = new Set([401, 403, 404, 422, 500]);
@@ -372,6 +381,7 @@ function extractEntrypoints(root: Parser.SyntaxNode, source: string, filePath: s
           hasBodyValidation: routeAnalysis.hasBodyValidation,
           validatedBodyFields: routeAnalysis.validatedBodyFields,
           bodyValidationResolved: routeAnalysis.bodyValidationResolved,
+          validatedBodyFieldTypes: routeAnalysis.validatedBodyFieldTypes,
         },
       });
     }
@@ -565,7 +575,7 @@ function analyzePythonRoute(
   method: string,
   routePath: string,
   responseModel: string | undefined,
-  pydanticModels: ReadonlyMap<string, readonly string[]>,
+  pydanticModels: ReadonlyMap<string, PydanticModel>,
 ): PythonRouteAnalysis {
   const text = source.substring(fnDef.startIndex, fnDef.endIndex);
   const validation = extractFastApiBodyValidation(fnDef, source, pydanticModels);
@@ -577,6 +587,7 @@ function analyzePythonRoute(
     hasBodyValidation: validation.has,
     validatedBodyFields: validation.fields,
     bodyValidationResolved: validation.resolved,
+    validatedBodyFieldTypes: validation.types,
   };
 }
 
@@ -611,8 +622,8 @@ function hasUnboundedPythonCollectionQuery(
   );
 }
 
-function collectPydanticModels(source: string): Map<string, readonly string[]> {
-  const models = new Map<string, readonly string[]>();
+function collectPydanticModels(source: string): Map<string, PydanticModel> {
+  const models = new Map<string, PydanticModel>();
   const classRe = /^class\s+([A-Za-z_]\w*)\s*\([^)]*BaseModel[^)]*\)\s*:/gm;
   for (const match of source.matchAll(classRe)) {
     const name = match[1];
@@ -621,38 +632,222 @@ function collectPydanticModels(source: string): Map<string, readonly string[]> {
     const nextTopLevel = rest.search(/\n\S/);
     const body = nextTopLevel === -1 ? rest : rest.slice(0, nextTopLevel);
     const fields: string[] = [];
-    const fieldRe = /^\s+([A-Za-z_]\w*)\s*:/gm;
+    const types: Record<string, FieldTypeTag> = {};
+    // Capture annotations alongside names. The annotation runs until either
+    // an `=` (default value) or end-of-line / inline comment. Multiline
+    // annotations (`x: Annotated[\n  str, Field(...)\n]`) are not handled —
+    // false-negative on the type tag, never false-positive.
+    const fieldRe = /^[ \t]+([A-Za-z_]\w*)[ \t]*:[ \t]*([^=#\n]+?)(?:[ \t]*=[^\n]*|[ \t]*#[^\n]*)?$/gm;
     for (const fieldMatch of body.matchAll(fieldRe)) {
       const field = fieldMatch[1];
       if (field === 'model_config' || field === 'Config') continue;
       fields.push(field);
+      const annotation = fieldMatch[2].trim();
+      types[field] = coarsenPythonTypeAnnotation(annotation);
     }
-    if (fields.length > 0) models.set(name, fields.sort());
+    if (fields.length > 0) {
+      models.set(name, { fields: fields.sort(), types: Object.freeze({ ...types }) });
+    }
   }
   return models;
+}
+
+// Split a type-annotation string at top-level commas / pipes — respecting
+// nested `[...]` brackets — so `Union[A, B[C, D]]` splits into `[A, B[C, D]]`
+// not `[A, B[C, D]]`.
+function splitTopLevelTypeArgs(s: string, delim: ',' | '|'): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '[' || c === '(') depth++;
+    else if (c === ']' || c === ')') depth--;
+    else if (c === delim && depth === 0) {
+      parts.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += c;
+  }
+  if (cur.trim()) parts.push(cur.trim());
+  return parts;
+}
+
+// Coarsen a Pydantic field type annotation to the same FieldTypeTag union
+// the TS mapper uses, so cross-stack rules can compare client TS types
+// against server Pydantic types symmetrically. Handles the common shapes:
+//
+//   str / int / float / bool / None / Decimal / UUID / EmailStr
+//   Optional[T] / Annotated[T, ...]               → coarsen T (drop wrapper)
+//   Union[A, B] / `A | B` (PEP 604)               → only stable if all agree
+//   List[T] / list[T] / Sequence[T] / Tuple[...]  → 'array'
+//   Dict[K, V] / dict[K, V] / Mapping[K, V]       → 'object'
+//   Literal['admin'] / Literal[1] / Literal[True] → primitive of literal
+//   <CapitalIdent>                                → 'object' (BaseModel sub)
+//
+// Anything we don't recognise → 'unknown'. Conservative on purpose:
+// /type rules skip 'unknown' tags.
+function coarsenPythonTypeAnnotation(ann: string): FieldTypeTag {
+  const t = ann.trim();
+  if (t === '') return 'unknown';
+
+  // Optional[T] / typing.Optional[T] — strip and recurse.
+  const optMatch = t.match(/^(?:typing\.)?Optional\[([\s\S]+)\]$/);
+  if (optMatch) return coarsenPythonTypeAnnotation(optMatch[1]);
+
+  // Annotated[T, ...] — first arg is the underlying type.
+  const annoMatch = t.match(/^(?:typing\.)?Annotated\[([\s\S]+)\]$/);
+  if (annoMatch) {
+    const parts = splitTopLevelTypeArgs(annoMatch[1], ',');
+    if (parts.length >= 1) return coarsenPythonTypeAnnotation(parts[0]);
+    return 'unknown';
+  }
+
+  // Union[A, B, ...] — only stable if every non-null branch agrees.
+  // ANY 'unknown' branch poisons the result.
+  const unionMatch = t.match(/^(?:typing\.)?Union\[([\s\S]+)\]$/);
+  if (unionMatch) {
+    return coarsenUnionParts(splitTopLevelTypeArgs(unionMatch[1], ','));
+  }
+
+  // PEP 604 `int | None | str`. Only treat `|` as a union separator when
+  // it appears OUTSIDE of any `[...]` — otherwise `Dict[str, int | None]`
+  // would be split incorrectly.
+  if (containsTopLevelChar(t, '|')) {
+    return coarsenUnionParts(splitTopLevelTypeArgs(t, '|'));
+  }
+
+  // Container types — coarsen to wire shape.
+  if (/^(?:typing\.)?(?:List|list|Sequence|Iterable|Tuple|tuple|Set|set|FrozenSet|frozenset)\[/.test(t)) return 'array';
+  if (/^(?:typing\.)?(?:Dict|dict|Mapping|MutableMapping)\[/.test(t)) return 'object';
+
+  // Literal[X, Y, ...] — coarsen every literal arg, return the shared tag
+  // ONLY when all literals agree. Mixed-primitive literals like
+  // `Literal['a', 1]` accept either string or number on the wire, so
+  // tagging it 'string' (first-only) would FP-flag a number client.
+  // OpenCode caught this in the v1 review.
+  const litMatch = t.match(/^(?:typing\.)?Literal\[([\s\S]+)\]$/);
+  if (litMatch) {
+    const parts = splitTopLevelTypeArgs(litMatch[1], ',');
+    if (parts.length === 0) return 'unknown';
+    const tags = parts.map((p) => coarsenLiteralValue(p.trim()));
+    if (tags.includes('unknown')) return 'unknown';
+    const set = new Set(tags);
+    return set.size === 1 ? [...set][0] : 'unknown';
+  }
+
+  // Plain primitives + common Pydantic-string newtypes. `bytes` intentionally
+  // stays 'unknown' — it's binary on the wire and not a JSON primitive.
+  switch (t) {
+    case 'str':
+    case 'EmailStr':
+    case 'HttpUrl':
+    case 'AnyUrl':
+    case 'AnyHttpUrl':
+    case 'UUID':
+    case 'UUID1':
+    case 'UUID3':
+    case 'UUID4':
+    case 'UUID5':
+    case 'SecretStr':
+      return 'string';
+    case 'int':
+    case 'float':
+    case 'Decimal':
+    case 'PositiveInt':
+    case 'NegativeInt':
+    case 'NonNegativeInt':
+    case 'NonPositiveInt':
+    case 'PositiveFloat':
+    case 'NegativeFloat':
+      return 'number';
+    case 'bool':
+    case 'StrictBool':
+      return 'boolean';
+    case 'None':
+    case 'NoneType':
+      return 'null';
+  }
+
+  // Capitalized bare identifier could be:
+  //   - A nested BaseModel ('object' on the wire)
+  //   - A `class Status(str, Enum)` ('string' on the wire)
+  //   - A `Status = Literal['a','b']` type alias ('string' on the wire)
+  //   - A custom newtype like StrictStr / IPvAnyAddress
+  // We can't disambiguate without symbol resolution. Tagging 'object'
+  // FP'd Enum/Literal aliases against string clients (Codex flag); tag
+  // 'unknown' instead — the rule will skip and we trade FN for FP.
+  if (/^[A-Z][\w]*$/.test(t)) return 'unknown';
+
+  return 'unknown';
+}
+
+// Coarsen a single literal-value source token (e.g. `'admin'`, `42`, `True`)
+// to its primitive tag. Anything we don't recognise as one of the four JSON
+// primitives → 'unknown'.
+function coarsenLiteralValue(v: string): FieldTypeTag {
+  if (/^['"]/.test(v)) return 'string';
+  if (/^-?\d/.test(v)) return 'number';
+  if (v === 'True' || v === 'False') return 'boolean';
+  if (v === 'None') return 'null';
+  return 'unknown';
+}
+
+function coarsenUnionParts(parts: readonly string[]): FieldTypeTag {
+  const tags = parts.map(coarsenPythonTypeAnnotation);
+  if (tags.includes('unknown')) return 'unknown';
+  const noNull = tags.filter((tag) => tag !== 'null');
+  if (noNull.length === 0) return 'null';
+  const set = new Set(noNull);
+  return set.size === 1 ? [...set][0] : 'unknown';
+}
+
+function containsTopLevelChar(s: string, ch: string): boolean {
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '[' || c === '(') depth++;
+    else if (c === ']' || c === ')') depth--;
+    else if (c === ch && depth === 0) return true;
+  }
+  return false;
 }
 
 function extractFastApiBodyValidation(
   fnDef: Parser.SyntaxNode,
   source: string,
-  pydanticModels: ReadonlyMap<string, readonly string[]>,
-): { has: boolean; fields: readonly string[] | undefined; resolved: boolean } {
+  pydanticModels: ReadonlyMap<string, PydanticModel>,
+): {
+  has: boolean;
+  fields: readonly string[] | undefined;
+  resolved: boolean;
+  types: FieldTypeMap | undefined;
+} {
   const body = fnDef.childForFieldName('body') ?? fnDef.namedChildren.find((child) => child.type === 'block');
   const headerEnd = body ? body.startIndex : fnDef.endIndex;
   const header = source.substring(fnDef.startIndex, headerEnd);
   const fields = new Set<string>();
+  const types: Record<string, FieldTypeTag> = {};
   let has = false;
   const annotationRe = /([A-Za-z_]\w*)\s*:\s*([A-Za-z_]\w*)/g;
   for (const match of header.matchAll(annotationRe)) {
-    const modelFields = pydanticModels.get(match[2]);
-    if (!modelFields) continue;
+    const model = pydanticModels.get(match[2]);
+    if (!model) continue;
     has = true;
-    for (const field of modelFields) fields.add(field);
+    for (const field of model.fields) fields.add(field);
+    for (const [name, tag] of Object.entries(model.types)) {
+      // Only record concrete tags. 'unknown' for a key would shadow a
+      // concrete tag from another model parameter on the same handler
+      // (rare, but multi-arg handlers do exist), so skip them.
+      if (tag !== 'unknown') types[name] = tag;
+    }
   }
   return {
     has,
     fields: fields.size > 0 ? Array.from(fields).sort() : undefined,
     resolved: fields.size > 0,
+    types: Object.keys(types).length > 0 ? Object.freeze({ ...types }) : undefined,
   };
 }
 

@@ -151,6 +151,13 @@ export function bodyShapeDrift(ctx: ConceptRuleContext): ReviewFinding[] {
         const clientTag = clientTypes[f];
         if (!serverTag || !clientTag) continue;
         if (serverTag === 'unknown' || clientTag === 'unknown') continue;
+        // Client sending `null` against a nullable server type is fine,
+        // but coarseners drop null branches (`Optional[str]` → 'string',
+        // `string | null` → 'string') for the non-null mismatch case.
+        // Skip /type when the client value IS null — we can't prove a
+        // mismatch from coarse tags alone. Codex caught this on the
+        // Pydantic mirror review.
+        if (clientTag === 'null') continue;
         if (serverTag !== clientTag) typeMismatches.push({ field: f, client: clientTag, server: serverTag });
       }
     }
