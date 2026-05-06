@@ -217,15 +217,72 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       // Read schema-compliant `name`/`in` first; accept legacy
       // `list`/`as` as a fallback for tests that pre-date this fix.
       const listRaw = String(child.props?.in ?? child.props?.list ?? '[]');
-      const asName = String(child.props?.name ?? child.props?.as ?? 'item');
       const listIR = parseExpression(listRaw);
-      lines.push(`${indent}for (const ${asName} of ${emitExpression(listIR)}) {`);
+      // 2026-05-06 — pair-mode (`pairKey=k pairValue=v`) emits Map/iterable-of-pairs
+      // destructuring `for (const [k, v] of m)`. Index-mode (`index=i`) emits
+      // `for (const [i, x] of xs.entries())`. Default form is `for (const x of xs)`.
+      // Schema/cross-prop rules already enforce mutual exclusion; here we
+      // dispatch on shape only.
+      const pairKey = child.props?.pairKey;
+      const pairValue = child.props?.pairValue;
+      if (pairKey && pairValue) {
+        lines.push(`${indent}for (const [${String(pairKey)}, ${String(pairValue)}] of ${emitExpression(listIR)}) {`);
+      } else if (child.props?.index) {
+        const idxName = String(child.props.index);
+        const asName = String(child.props?.name ?? child.props?.as ?? 'item');
+        lines.push(`${indent}for (const [${idxName}, ${asName}] of (${emitExpression(listIR)}).entries()) {`);
+      } else {
+        const asName = String(child.props?.name ?? child.props?.as ?? 'item');
+        lines.push(`${indent}for (const ${asName} of ${emitExpression(listIR)}) {`);
+      }
       for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
       lines.push(`${indent}}`);
+    } else if (child.type === 'branch') {
+      // 2026-05-06 — body-statement `branch` lowers to a TS `switch`. Distinct
+      // emit path from top-level `generateBranch` (codegen-core.ts:420) which
+      // is reached only outside body-stmt scope.
+      //
+      // path quote handling: `value` is `kind: 'string'` so the parser stores
+      // the textual prop. Quoted source (`path value="paid"`) carries
+      // `__quotedProps` containing `value`; unquoted (`path value=Status.Paid`)
+      // does not. Codex review-fix: use `JSON.stringify` for quoted form so
+      // backslashes/apostrophes/escapes survive (the original top-level
+      // emitter's `case '${value}':` is sloppy and we don't reuse it here).
+      for (const line of emitBranchTS(child, ctx, indent)) lines.push(line);
     }
     // Other child types fall through silently — slice 3 adds more.
   }
   return lines;
+}
+
+function emitBranchTS(node: IRNode, ctx: BodyEmitContext, indent: string): string[] {
+  const onRaw = String(node.props?.on ?? '');
+  if (onRaw === '') {
+    throw new Error('`branch` requires an `on=` expression in body-statement context.');
+  }
+  const onIR = parseExpression(onRaw);
+  const out: string[] = [];
+  out.push(`${indent}switch (${emitExpression(onIR)}) {`);
+  const inner = indent + INDENT_STEP;
+  const innerBody = inner + INDENT_STEP;
+  for (const child of node.children ?? []) {
+    if (child.type !== 'path') continue;
+    const isDefault = child.props?.default === true || child.props?.default === 'true';
+    if (isDefault) {
+      out.push(`${inner}default: {`);
+    } else {
+      const rawValue = child.props?.value;
+      const valueText = rawValue === undefined ? '' : String(rawValue);
+      const isIdentifier = !child.__quotedProps?.includes('value');
+      const lit = isIdentifier ? valueText : JSON.stringify(valueText);
+      out.push(`${inner}case ${lit}: {`);
+    }
+    for (const sl of emitChildrenTS(child.children ?? [], ctx, innerBody)) out.push(sl);
+    out.push(`${innerBody}break;`);
+    out.push(`${inner}}`);
+  }
+  out.push(`${indent}}`);
+  return out;
 }
 
 /** Slice 4c review fix (OpenCode + Gemini critical) — propagation `?`

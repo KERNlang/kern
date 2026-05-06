@@ -265,8 +265,24 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
       // Slice 4c+4d review fix (Codex P1) — read schema-compliant
       // `name`/`in` props (legacy `list`/`as` accepted as fallback).
       const listRaw = String(child.props?.in ?? child.props?.list ?? '[]');
-      const asName = String(child.props?.name ?? child.props?.as ?? 'item');
       const listIR = parseExpression(listRaw);
+      const pairKey = child.props?.pairKey;
+      const pairValue = child.props?.pairValue;
+      // 2026-05-06 — pair-mode (`pairKey=k pairValue=v`) emits Python dict
+      // iteration `for k, v in m.items():` (the canonical shape — covers
+      // dicts, the dominant use case; users iterating a Mapping subclass or
+      // an iterable of 2-tuples should call `.items()` explicitly upstream
+      // OR pass the iterable directly via `in=`). Schema/cross-prop rules
+      // already enforce mutual exclusion with `index=`.
+      if (pairKey && pairValue) {
+        const k = String(pairKey);
+        const v = String(pairValue);
+        lines.push(`${indent}for ${k}, ${v} in ${emitPyExprCtx(listIR, ctx)}.items():`);
+        const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
+        if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+        for (const sl of inner) lines.push(sl);
+        continue;
+      }
       // Slice 5a deferred-fix: TS `for (const item of xs)` is block-scoped
       // — `item` is undefined after the loop. Python `for item in xs:`
       // leaks: `item` keeps the last iteration value, and a prior outer
@@ -277,15 +293,75 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
       // and the inter-loop collision (two `each` with the same `as=`)
       // works because each loop has a fresh gensym + fresh body-local
       // alias. Document the residual leak in the spec.
+      const asName = String(child.props?.name ?? child.props?.as ?? 'item');
       const iterVar = `__k_each_${++ctx.gensymCounter}`;
       lines.push(`${indent}for ${iterVar} in ${emitPyExprCtx(listIR, ctx)}:`);
       lines.push(`${indent}${INDENT_STEP}${asName} = ${iterVar}`);
       const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
       if (inner.length === 0 && asName === iterVar) lines.push(`${indent}${INDENT_STEP}pass`);
       for (const sl of inner) lines.push(sl);
+    } else if (child.type === 'branch') {
+      // 2026-05-06 — body-statement `branch` lowers to a Python
+      // `if/elif/else` chain (PEP-634 `match` is deferred). Distinct from
+      // any top-level branch codegen — none currently exists on the
+      // fastapi target. We gensym the `on=` expression once so it's not
+      // double-evaluated across cases.
+      for (const line of emitBranchPy(child, ctx, indent)) lines.push(line);
     }
   }
   return lines;
+}
+
+function emitBranchPy(node: IRNode, ctx: BodyEmitContext, indent: string): string[] {
+  const onRaw = String(node.props?.on ?? '');
+  if (onRaw === '') {
+    throw new Error('`branch` requires an `on=` expression in body-statement context.');
+  }
+  const onIR = parseExpression(onRaw);
+  const subjectVar = `__k_branch_${++ctx.gensymCounter}`;
+  const out: string[] = [];
+  out.push(`${indent}${subjectVar} = ${emitPyExprCtx(onIR, ctx)}`);
+  const paths = (node.children ?? []).filter((c) => c.type === 'path');
+  // Order matters: every non-default `path` becomes `if`/`elif`; the (at
+  // most one) `default` becomes the trailing `else:`. We track whether we
+  // already emitted the leading `if` so subsequent paths use `elif`.
+  let firstEmitted = false;
+  let defaultPath: IRNode | undefined;
+  for (const p of paths) {
+    if (p.props?.default === true || p.props?.default === 'true') {
+      defaultPath = p;
+      continue;
+    }
+    const rawValue = p.props?.value;
+    const valueText = rawValue === undefined ? '' : String(rawValue);
+    const isIdentifier = !p.__quotedProps?.includes('value');
+    // Identifier values pass through verbatim (e.g. `Status.Active`).
+    // Quoted strings emit JSON-encoded Python string literals — JSON's
+    // ASCII-quoted output is a valid Python str literal subset, so this
+    // is correct for both the printable-ASCII and unicode-escaped cases.
+    const lit = isIdentifier ? valueText : JSON.stringify(valueText);
+    const keyword = firstEmitted ? 'elif' : 'if';
+    out.push(`${indent}${keyword} ${subjectVar} == ${lit}:`);
+    const inner = emitChildrenPy(p.children ?? [], ctx, indent + INDENT_STEP);
+    if (inner.length === 0) out.push(`${indent}${INDENT_STEP}pass`);
+    for (const sl of inner) out.push(sl);
+    firstEmitted = true;
+  }
+  if (defaultPath) {
+    if (!firstEmitted) {
+      // No regular paths — emit the default body unconditionally. Avoid an
+      // `else:` with no preceding `if`, which is a Python syntax error.
+      const inner = emitChildrenPy(defaultPath.children ?? [], ctx, indent);
+      if (inner.length === 0) out.push(`${indent}pass`);
+      for (const sl of inner) out.push(sl);
+    } else {
+      out.push(`${indent}else:`);
+      const inner = emitChildrenPy(defaultPath.children ?? [], ctx, indent + INDENT_STEP);
+      if (inner.length === 0) out.push(`${indent}${INDENT_STEP}pass`);
+      for (const sl of inner) out.push(sl);
+    }
+  }
+  return out;
 }
 
 /** Slice 4c review fix (OpenCode + Gemini critical) — propagation `?`
