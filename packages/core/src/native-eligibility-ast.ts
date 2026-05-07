@@ -77,9 +77,9 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile): string | null {
     const decls = stmt.declarationList.declarations;
     if (decls.length !== 1) return 'var-multi-decl';
     const decl = decls[0];
-    if (!ts.isIdentifier(decl.name)) return 'var-destructure';
     if (!decl.initializer) return 'var-no-init';
     if (decl.type) return 'var-typed';
+    if (!ts.isIdentifier(decl.name)) return classifyDestructureDecl(decl, sf);
     if (!isValidKernExpression(decl.initializer.getText(sf))) return 'var-bad-expr';
     return null;
   }
@@ -132,13 +132,60 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile): string | null {
     if (!isValidKernExpression(stmt.expression.getText(sf))) return 'expr-stmt-bad-expr';
     return null;
   }
-  if (ts.isForStatement(stmt) || ts.isForOfStatement(stmt) || ts.isForInStatement(stmt)) return 'for-stmt';
+  if (ts.isForOfStatement(stmt)) {
+    if (stmt.awaitModifier) return 'for-await-stmt';
+    if (!ts.isVariableDeclarationList(stmt.initializer)) return 'for-of-non-decl';
+    if (!(stmt.initializer.flags & ts.NodeFlags.Const)) return 'for-of-non-const';
+    const decls = stmt.initializer.declarations;
+    if (decls.length !== 1) return 'for-of-multi-decl';
+    const decl = decls[0];
+    if (!ts.isIdentifier(decl.name)) return 'for-of-destructure';
+    if (decl.initializer) return 'for-of-init';
+    if (decl.type) return 'for-of-typed';
+    if (!isValidKernExpression(stmt.expression.getText(sf))) return 'for-of-bad-expr';
+    // Only block-shaped loops are currently migratable. `each` always emits
+    // braces, so migrating `for (const x of xs) do(x);` would drift under
+    // --verify even though it is semantically close.
+    if (!ts.isBlock(stmt.statement)) return 'for-of-non-block';
+    if (stmt.statement.statements.length === 0) return 'for-of-empty-body';
+    return classifyBranch(stmt.statement, sf);
+  }
+  if (ts.isForStatement(stmt) || ts.isForInStatement(stmt)) return 'for-stmt';
   if (ts.isWhileStatement(stmt) || ts.isDoStatement(stmt)) return 'while-do-stmt';
   if (ts.isSwitchStatement(stmt)) return 'switch-stmt';
   if (ts.isBlock(stmt)) return 'bare-block';
   // Fallback — the TS SyntaxKind name surfaces in diagnostics so users have
   // a starting point when they hit something exotic (label, with, debugger).
   return `unsupported-stmt-${ts.SyntaxKind[stmt.kind]}`;
+}
+
+function classifyDestructureDecl(decl: ts.VariableDeclaration, sf: ts.SourceFile): string | null {
+  if (!decl.initializer) return 'var-no-init';
+  if (!isValidKernExpression(decl.initializer.getText(sf))) return 'var-destructure-bad-expr';
+  const name = decl.name;
+  if (ts.isObjectBindingPattern(name)) {
+    if (name.elements.length === 0) return 'var-destructure-empty';
+    for (const element of name.elements) {
+      if (element.dotDotDotToken) return 'var-destructure-rest';
+      if (element.initializer) return 'var-destructure-default';
+      if (!ts.isIdentifier(element.name)) return 'var-destructure-nested';
+      if (element.propertyName && !ts.isIdentifier(element.propertyName)) return 'var-destructure-computed';
+    }
+    return null;
+  }
+  if (ts.isArrayBindingPattern(name)) {
+    let concreteElements = 0;
+    for (const element of name.elements) {
+      if (ts.isOmittedExpression(element)) continue;
+      concreteElements++;
+      if (element.dotDotDotToken) return 'var-destructure-rest';
+      if (element.initializer) return 'var-destructure-default';
+      if (!ts.isIdentifier(element.name)) return 'var-destructure-nested';
+    }
+    if (concreteElements === 0) return 'var-destructure-empty';
+    return null;
+  }
+  return 'var-destructure';
 }
 
 function classifyBranch(node: ts.Statement, sf: ts.SourceFile): string | null {

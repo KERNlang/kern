@@ -3,7 +3,7 @@
  *  Verifies the pure rewriter in isolation. The rewriter takes raw `.kern`
  *  source containing `handler <<< … >>>` blocks and converts the eligible
  *  ones to `handler lang="kern"` body-statement form. Anything outside the
- *  supported AST shape (let/var, destructuring, side-effect calls, comments,
+ *  supported AST shape (let/var, destructuring, unsupported loops, comments,
  *  arrow functions etc.) is skipped — never half-migrated.
  *
  *  Round-trip safety is provided by the slice 5b-pre parser surface
@@ -94,6 +94,91 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(result.output).toContain('catch name=e');
     expect(result.output).toContain('throw value="new Error(\\"bad\\")"');
   });
+
+  test('migrates for-of block to each body-statement', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const user of users) {',
+      '      notify(user);',
+      '    }',
+      '    return;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toContain('each name=user in="users"');
+    expect(result.output).toContain('do value="notify(user)"');
+    expect(result.output).toMatch(/^\s*return\s*$/m);
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates object destructuring const to destructure body-statement', () => {
+    const source = [
+      'fn name=load returns=string',
+      '  handler <<<',
+      '    const { trackId, options } = req.body;',
+      '    return trackId;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('destructure kind=const source="req.body"');
+    expect(result.output).toContain('binding name=trackId');
+    expect(result.output).toContain('binding name=options');
+    expect(result.output).toContain('return value="trackId"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates renamed object destructuring const', () => {
+    const source = [
+      'fn name=load returns=string',
+      '  handler <<<',
+      '    const { id: trackId } = req.params;',
+      '    return trackId;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('destructure kind=const source="req.params"');
+    expect(result.output).toContain('binding name=trackId key=id');
+  });
+
+  test('migrates array destructuring const', () => {
+    const source = [
+      'fn name=pair returns=string',
+      '  handler <<<',
+      '    const [first, second] = values;',
+      '    return first;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('destructure kind=const source="values"');
+    expect(result.output).toContain('element name=first index=0');
+    expect(result.output).toContain('element name=second index=1');
+  });
+
+  test('migrates TS-style type assertions inside expressions', () => {
+    const source = [
+      'fn name=path returns=string',
+      '  handler <<<',
+      '    const p = params.filePath as string;',
+      '    return p;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=p value="params.filePath as string"');
+    expect(result.output).toContain('return value="p"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
 });
 
 describe('rewriteNativeHandlers — bail conditions', () => {
@@ -142,11 +227,11 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     const source = [
       'fn name=ok returns=number',
       '  handler <<<',
-      '    const { a } = obj;',
+      '    const { a, ...rest } = obj;',
       '    return a;',
       '  >>>',
     ].join('\n');
-    // Classifier already rejects destructuring; documents the safety net.
+    // Rest destructuring still has no structured body-statement equivalent.
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
   });
@@ -228,6 +313,36 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     ].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on for-of without a block to avoid verify drift', () => {
+    const source = ['fn name=ok returns=void', '  handler <<<', '    for (const x of xs) doThing(x);', '  >>>'].join(
+      '\n',
+    );
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('bails on empty for-of block to avoid verify drift', () => {
+    const source = ['fn name=ok returns=void', '  handler <<<', '    for (const x of xs) {}', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('bails on destructured for-of binding until each supports patterns', () => {
+    const source = [
+      'fn name=ok returns=void',
+      '  handler <<<',
+      '    for (const [k, v] of pairs) {',
+      '      use(k, v);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
   });
 
   test('bails on const with type annotation (body-`let` ignores `type` prop)', () => {
@@ -393,8 +508,8 @@ describe('rewriteNativeHandlers — multi-handler files', () => {
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(1);
     expect((result.output.match(/handler lang="kern"/g) ?? []).length).toBe(1);
-    // The `for` loop body has no body-statement equivalent, so the second
-    // handler stays raw `<<<…>>>`.
+    // Non-block for-of would drift under --verify because `each` emits braces,
+    // so the second handler stays raw `<<<…>>>`.
     expect(result.output).toContain('for (const x of xs) doSideEffect(x);');
   });
 });
@@ -491,5 +606,84 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     expect(ts).toContain('if (a) {');
     expect(ts).toContain('} else {');
     expect(ts).not.toContain('else if');
+  });
+
+  test('for-of block compiles through each body-statement', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const user of users) {',
+      '      notify(user);',
+      '    }',
+      '    return;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('for (const user of users) {');
+    expect(ts).toContain('  notify(user);');
+    expect(ts).toContain('}');
+    expect(ts).toContain('return;');
+  });
+
+  test('for-of block with nested destructuring composes each and destructure', () => {
+    const source = [
+      'fn name=notify returns=void',
+      '  handler <<<',
+      '    for (const user of users) {',
+      '      const { id } = user;',
+      '      notify(id);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('each name=user in="users"');
+    expect(result.output).toContain('destructure kind=const source="user"');
+    expect(result.output).toContain('binding name=id');
+    expect(result.output).toContain('do value="notify(id)"');
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('for (const user of users) {');
+    expect(ts).toContain('  const { id } = user;');
+    expect(ts).toContain('  notify(id);');
+  });
+
+  test('object destructuring compiles byte-equivalent through destructure body-statement', () => {
+    const source = [
+      'fn name=load returns=string',
+      '  handler <<<',
+      '    const { trackId, options } = req.body;',
+      '    return trackId;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('const { trackId, options } = req.body;');
+    expect(ts).toContain('return trackId;');
+  });
+
+  test('type assertion compiles byte-equivalent through ValueIR typeAssert', () => {
+    const source = [
+      'fn name=path returns=string',
+      '  handler <<<',
+      '    const p = params.filePath as string;',
+      '    return { role: "user" as const, p: p };',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('const p = params.filePath as string;');
+    expect(ts).toContain('return { role: "user" as const, p: p };');
   });
 });

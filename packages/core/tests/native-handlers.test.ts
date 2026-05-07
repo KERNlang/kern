@@ -76,11 +76,11 @@ describe('emitExpression — TS — await + propagate', () => {
 
 // ── Body codegen — TypeScript ────────────────────────────────────────────
 
-function makeHandler(stmts: Array<{ type: 'let' | 'return'; props: Record<string, unknown> }>): IRNode {
+function makeHandler(stmts: Array<{ type: string; props: Record<string, unknown>; children?: IRNode[] }>): IRNode {
   return {
     type: 'handler',
     props: { lang: 'kern' },
-    children: stmts.map((s) => ({ type: s.type, props: s.props })),
+    children: stmts.map((s) => ({ type: s.type, props: s.props, children: s.children })),
   };
 }
 
@@ -145,6 +145,60 @@ describe('emitNativeKernBodyTS — slice 1 statements', () => {
       { type: 'return', props: { value: 'u' } },
     ]);
     expect(emitNativeKernBodyTS(handler)).toBe(['const u = getUser();', 'return u;'].join('\n'));
+  });
+});
+
+describe('emitNativeKernBodyTS — destructure body statement', () => {
+  test('emits object destructuring inside native body', () => {
+    const handler = makeHandler([
+      {
+        type: 'destructure',
+        props: { kind: 'const', source: 'req.body' },
+        children: [
+          { type: 'binding', props: { name: 'trackId' } },
+          { type: 'binding', props: { name: 'opts', key: 'options' } },
+        ],
+      },
+      { type: 'return', props: { value: 'trackId' } },
+    ]);
+
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('const { trackId, options: opts } = req.body;');
+    expect(out).toContain('return trackId;');
+  });
+
+  test('emits array destructuring inside native body', () => {
+    const handler = makeHandler([
+      {
+        type: 'destructure',
+        props: { kind: 'const', source: 'pair' },
+        children: [
+          { type: 'element', props: { name: 'first', index: '0' } },
+          { type: 'element', props: { name: 'third', index: '2' } },
+        ],
+      },
+    ]);
+
+    expect(emitNativeKernBodyTS(handler)).toContain('const [first, , third] = pair;');
+  });
+
+  test('rejects propagation source inside try with try-specific guidance', () => {
+    const handler = makeHandler([
+      {
+        type: 'try',
+        props: {},
+        children: [
+          {
+            type: 'destructure',
+            props: { kind: 'const', source: 'loadPair()?' },
+            children: [{ type: 'element', props: { name: 'first', index: '0' } }],
+          },
+          { type: 'catch', props: { name: 'e' }, children: [{ type: 'return', props: {} }] },
+        ],
+      },
+    ]);
+
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/not allowed inside a `try` block/);
   });
 });
 

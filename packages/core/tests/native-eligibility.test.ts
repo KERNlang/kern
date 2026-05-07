@@ -65,6 +65,24 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
   test('object spread is eligible (slice 4c+4d)', () => {
     expect(classifyHandlerBody(`return { ...base, id: 1 };`).eligible).toBe(true);
   });
+
+  test('for-of block with migratable body is eligible', () => {
+    const body = `for (const x of xs) {\n  doThing(x);\n}\nreturn xs;`;
+    expect(classifyHandlerBody(body).eligible).toBe(true);
+  });
+
+  test('object destructuring const is eligible', () => {
+    expect(classifyHandlerBody(`const { id, name } = user;\nreturn id;`).eligible).toBe(true);
+  });
+
+  test('array destructuring const is eligible', () => {
+    expect(classifyHandlerBody(`const [first, second] = pair;\nreturn first;`).eligible).toBe(true);
+  });
+
+  test('TS-style type assertions are eligible when they erase cleanly', () => {
+    expect(classifyHandlerBody(`return params.filePath as string;`).eligible).toBe(true);
+    expect(classifyHandlerBody(`return { role: "user" as const };`).eligible).toBe(true);
+  });
 });
 
 describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => {
@@ -88,7 +106,20 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('class declaration rejected (unsupported-stmt)', () =>
     rejected(`class Foo {}\nreturn new Foo();`, 'unsupported-stmt-ClassDeclaration'));
 
-  test('for-loop rejected', () => rejected(`for (const x of xs) { y += x; }\nreturn y;`, 'for-stmt'));
+  test('classic for-loop rejected', () =>
+    rejected(`for (let i = 0; i < xs.length; i++) { doThing(xs[i]); }`, 'for-stmt'));
+
+  test('for-of non-block rejected to preserve verify byte-equivalence', () =>
+    rejected(`for (const x of xs) doThing(x);\nreturn xs;`, 'for-of-non-block'));
+
+  test('empty for-of block rejected to preserve verify byte-equivalence', () =>
+    rejected(`for (const x of xs) {}\nreturn xs;`, 'for-of-empty-body'));
+
+  test('for-of destructured binding rejected until each supports patterns', () =>
+    rejected(`for (const [k, v] of pairs) {\n  use(k, v);\n}`, 'for-of-destructure'));
+
+  test('for-of with mutation body rejected by inner reason', () =>
+    rejected(`for (const x of xs) {\n  y += x;\n}\nreturn y;`, 'expr-stmt-assignment'));
 
   test('while-loop rejected', () => rejected(`while (i < 10) i++;\nreturn i;`, 'while-do-stmt'));
 
@@ -130,16 +161,19 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     // `unsupported-stmt-LastStatement`. Pin the actual emitted string.
     rejected(`debugger;\nreturn 1;`, 'unsupported-stmt-LastStatement'));
 
-  // Destructuring gap stays — `var-destructure` reason matches the migrator's
-  // bail in `mapStatement`.
-  test('object destructuring const rejected (var-destructure)', () =>
-    rejected(`const { a, b } = obj;\nreturn a + b;`, 'var-destructure'));
+  test('object destructuring with rest rejected', () =>
+    rejected(`const { a, ...rest } = obj;\nreturn a;`, 'var-destructure-rest'));
 
   test('object destructuring let rejected (var-non-const)', () =>
     rejected(`let { a } = obj;\nreturn a;`, 'var-non-const'));
 
-  test('array destructuring rejected (var-destructure)', () =>
-    rejected(`const [first, ...rest] = xs;\nreturn first;`, 'var-destructure'));
+  test('array destructuring with rest rejected', () =>
+    rejected(`const [first, ...rest] = xs;\nreturn first;`, 'var-destructure-rest'));
+
+  test('empty object destructuring rejected', () => rejected(`const {} = obj;\nreturn obj;`, 'var-destructure-empty'));
+
+  test('array destructuring with only holes rejected', () =>
+    rejected(`const [,] = xs;\nreturn xs;`, 'var-destructure-empty'));
 
   test('var destructuring rejected (var-non-const)', () => rejected(`var { x } = obj;\nreturn x;`, 'var-non-const'));
 
@@ -251,7 +285,7 @@ describe('scanFileForEligibility', () => {
     expect(report.eligibleBodies).toBe(2);
     expect(report.bodies[0]?.eligible).toBe(true);
     expect(report.bodies[1]?.eligible).toBe(false);
-    expect(report.bodies[1]?.reason).toBe('for-stmt');
+    expect(report.bodies[1]?.reason).toBe('expr-stmt-assignment');
     expect(report.bodies[2]?.eligible).toBe(true);
     expect(report.bodies[2]?.reason).toBe('empty');
   });

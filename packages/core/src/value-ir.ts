@@ -45,6 +45,7 @@ export type ValueIR =
   | { kind: 'spread'; argument: ValueIR; loc?: IRSourceLocation }
   | { kind: 'await'; argument: ValueIR; loc?: IRSourceLocation }
   | { kind: 'new'; argument: ValueIR; loc?: IRSourceLocation }
+  | { kind: 'typeAssert'; expression: ValueIR; type: string; loc?: IRSourceLocation }
   | { kind: 'propagate'; argument: ValueIR; op: '?' | '!'; loc?: IRSourceLocation }
   | {
       kind: 'objectLit';
@@ -77,6 +78,7 @@ export function isValueIR(x: unknown): x is ValueIR {
     k === 'spread' ||
     k === 'await' ||
     k === 'new' ||
+    k === 'typeAssert' ||
     k === 'propagate' ||
     k === 'objectLit' ||
     k === 'arrayLit' ||

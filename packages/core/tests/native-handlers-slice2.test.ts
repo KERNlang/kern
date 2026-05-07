@@ -92,6 +92,14 @@ describe('parseExpression — arithmetic + comparison ops', () => {
     expect(emitExpression(parseExpression('-x'))).toBe('-x');
   });
 
+  test('await wraps lower-precedence argument', () => {
+    expect(emitExpression(parseExpression('await (a + b)'))).toBe('await (a + b)');
+  });
+
+  test('new wraps lower-precedence argument', () => {
+    expect(emitExpression(parseExpression('new (a || b)'))).toBe('new (a || b)');
+  });
+
   test('combined logical + comparison precedence', () => {
     // `a && b === c` → a && (b === c) since === binds tighter than &&.
     expect(emitExpression(parseExpression('a && b === c'))).toBe('a && b === c');
@@ -208,6 +216,48 @@ describe('parseExpression + emitExpression — literals', () => {
 
   test('trailing comma in object literal is permitted', () => {
     expect(emitExpression(parseExpression('{ a: 1, }'))).toBe('{ a: 1 }');
+  });
+});
+
+describe('parseExpression + emitExpression — type assertions', () => {
+  test('simple as-expression preserves TS assertion', () => {
+    expect(emitExpression(parseExpression('params.filePath as string'))).toBe('params.filePath as string');
+  });
+
+  test('as const inside object literal value', () => {
+    expect(emitExpression(parseExpression('{ role: "user" as const }'))).toBe('{ role: "user" as const }');
+  });
+
+  test('assertion can be used inside call args', () => {
+    expect(emitExpression(parseExpression('JSON.parse(params.variables as string)'))).toBe(
+      'JSON.parse(params.variables as string)',
+    );
+  });
+
+  test('assertion stops before outer equality operator', () => {
+    expect(emitExpression(parseExpression('value as string === expected'))).toBe('(value as string) === expected');
+  });
+
+  test('assertion stops before outer relational operators', () => {
+    expect(emitExpression(parseExpression('value as Foo < expected'))).toBe('(value as Foo) < expected');
+    expect(emitExpression(parseExpression('value as Foo <= expected'))).toBe('(value as Foo) <= expected');
+    expect(emitExpression(parseExpression('value as Foo >= expected'))).toBe('(value as Foo) >= expected');
+  });
+
+  test('assertion preserves simple array and generic type text', () => {
+    expect(emitExpression(parseExpression('value as string[]'))).toBe('value as string[]');
+    expect(emitExpression(parseExpression('value as Record<string, unknown>'))).toBe(
+      'value as Record<string, unknown>',
+    );
+  });
+
+  test('assertion preserves union and intersection type text', () => {
+    expect(emitExpression(parseExpression('value as string | null'))).toBe('value as string | null');
+    expect(emitExpression(parseExpression('value as A & B'))).toBe('value as A & B');
+  });
+
+  test('chained assertions remain nested assertions', () => {
+    expect(emitExpression(parseExpression('value as unknown as string'))).toBe('(value as unknown) as string');
   });
 });
 

@@ -162,6 +162,8 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
     const child = children[i];
     if (child.type === 'let') {
       for (const line of emitLetPy(child, ctx)) lines.push(`${indent}${line}`);
+    } else if (child.type === 'destructure') {
+      for (const line of emitDestructurePy(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'return') {
       for (const line of emitReturnPy(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'if') {
@@ -329,6 +331,55 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   return [`${name} = ${emitPyExprCtx(valueIR, ctx)}`];
 }
 
+function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawSource = props.source;
+  if (rawSource === undefined || rawSource === '') {
+    throw new Error('body-statement `destructure` requires `source=`.');
+  }
+  const source = emitPyExprCtx(parseExpression(String(rawSource)), ctx);
+  const children = node.children ?? [];
+  const bindings = children.filter((c) => c.type === 'binding');
+  const elements = children.filter((c) => c.type === 'element');
+  if (bindings.length === 0 && elements.length === 0) {
+    throw new Error('body-statement `destructure` requires `binding` or `element` children.');
+  }
+  if (bindings.length > 0 && elements.length > 0) {
+    throw new Error('body-statement `destructure` cannot mix `binding` and `element` children.');
+  }
+  if (bindings.length > 0) {
+    const tmp = `__k_d${++ctx.gensymCounter}`;
+    const lines = [`${tmp} = ${source}`];
+    for (const child of bindings) {
+      const cp = (child.props ?? {}) as Record<string, unknown>;
+      const name = String(cp.name ?? '');
+      if (!name) throw new Error('body-statement `binding` requires `name=`.');
+      const key = cp.key === undefined || cp.key === '' ? name : String(cp.key);
+      lines.push(`${ctx.symbolMap[name] ?? name} = ${tmp}.get(${JSON.stringify(key)})`);
+    }
+    return lines;
+  }
+
+  const tmp = `__k_d${++ctx.gensymCounter}`;
+  return [
+    `${tmp} = ${source}`,
+    ...elements
+      .map((child) => {
+        const cp = (child.props ?? {}) as Record<string, unknown>;
+        const name = String(cp.name ?? '');
+        if (!name) throw new Error('body-statement `element` requires `name=`.');
+        const index = Number.parseInt(String(cp.index ?? ''), 10);
+        if (Number.isNaN(index)) throw new Error('body-statement `element` requires numeric `index=`.');
+        return {
+          index,
+          line: `${ctx.symbolMap[name] ?? name} = (${tmp}[${index}] if len(${tmp}) > ${index} else None)`,
+        };
+      })
+      .sort((a, b) => a.index - b.index)
+      .map((entry) => entry.line),
+  ];
+}
+
 function emitReturnPy(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const rawValue = props.value;
@@ -465,6 +516,8 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       return `await ${emitPyExprCtx(node.argument, ctx)}`;
     case 'new':
       return emitPyExprCtx(node.argument, ctx);
+    case 'typeAssert':
+      return emitPyExprCtx(node.expression, ctx);
     case 'tmplLit': {
       // Lower TS template literals to Python f-strings.
       let out = 'f"';

@@ -185,6 +185,16 @@ describe('emitPyExpression — literals', () => {
   });
 });
 
+describe('emitPyExpression — type assertions', () => {
+  test('TS-style as-expression erases to the underlying expression', () => {
+    expect(emitPyExpression(parseExpression('params.filePath as string'))).toBe('params.filePath');
+  });
+
+  test('as const inside object literal erases for Python', () => {
+    expect(emitPyExpression(parseExpression('{ role: "user" as const }'))).toBe('{"role": "user"}');
+  });
+});
+
 // ── End-to-end: native fn (Python target) ─────────────────────────────────
 
 describe('FastAPI fn lang=kern with slice-2 features', () => {

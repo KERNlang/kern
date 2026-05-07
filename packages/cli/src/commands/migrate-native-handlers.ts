@@ -3,7 +3,7 @@
  * `lang="kern"` body-statement form.
  *
  * Input:  raw JS body in `<<<…>>>` that passes the slice 5a `classifyHandlerBody`
- *         eligibility check (no arrow functions, loops, mutation, destructuring,
+ *         eligibility check (no arrow functions, unsupported loops, mutation, destructuring,
  *         indexing, regex literals, console/process/req/res access, …).
  *
  * Output: `handler lang="kern"` with structured body-statement children
@@ -110,9 +110,9 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
     const decls = stmt.declarationList.declarations;
     if (decls.length !== 1) return null;
     const decl = decls[0];
-    if (!ts.isIdentifier(decl.name)) return null; // bail on destructuring
     if (!decl.initializer) return null;
     if (decl.type) return null; // bail on type annotations (body-`let` ignores `type`)
+    if (!ts.isIdentifier(decl.name)) return mapDestructureDecl(decl, source, indent);
     const name = decl.name.text;
     const exprText = decl.initializer.getText(source);
     if (!isValidKernExpression(exprText)) return null;
@@ -139,6 +139,10 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
 
   if (ts.isTryStatement(stmt)) {
     return mapTry(stmt, source, indent);
+  }
+
+  if (ts.isForOfStatement(stmt)) {
+    return mapForOf(stmt, source, indent);
   }
 
   if (ts.isExpressionStatement(stmt)) {
@@ -168,7 +172,7 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
     return [`${indent}do value="${escapeKernString(exprText)}"`];
   }
 
-  // Block, ForOf, while, switch, etc — no body-statement equivalent. Bail.
+  // Block, unsupported loop shapes, while, switch, etc — no body-statement equivalent. Bail.
   return null;
 }
 
@@ -225,6 +229,68 @@ function mapTry(stmt: ts.TryStatement, source: ts.SourceFile, indent: string): s
   const catchLines = mapBranch(catchClause.block, source, innerIndent + INDENT_STEP);
   if (catchLines === null) return null;
   out.push(...catchLines);
+  return out;
+}
+
+function mapDestructureDecl(decl: ts.VariableDeclaration, source: ts.SourceFile, indent: string): string[] | null {
+  if (!decl.initializer) return null;
+  const sourceText = decl.initializer.getText(source);
+  if (!isValidKernExpression(sourceText)) return null;
+  const out: string[] = [`${indent}destructure kind=const source="${escapeKernString(sourceText)}"`];
+  const name = decl.name;
+
+  if (ts.isObjectBindingPattern(name)) {
+    for (const element of name.elements) {
+      if (element.dotDotDotToken || element.initializer) return null;
+      if (!ts.isIdentifier(element.name)) return null;
+      if (element.propertyName && !ts.isIdentifier(element.propertyName)) return null;
+      const localName = element.name.text;
+      const keyName = element.propertyName?.text;
+      out.push(
+        keyName
+          ? `${indent}${INDENT_STEP}binding name=${localName} key=${keyName}`
+          : `${indent}${INDENT_STEP}binding name=${localName}`,
+      );
+    }
+    return out.length > 1 ? out : null;
+  }
+
+  if (ts.isArrayBindingPattern(name)) {
+    for (let i = 0; i < name.elements.length; i++) {
+      const element = name.elements[i];
+      if (ts.isOmittedExpression(element)) continue;
+      if (element.dotDotDotToken || element.initializer) return null;
+      if (!ts.isIdentifier(element.name)) return null;
+      out.push(`${indent}${INDENT_STEP}element name=${element.name.text} index=${i}`);
+    }
+    return out.length > 1 ? out : null;
+  }
+
+  return null;
+}
+
+function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string): string[] | null {
+  if (stmt.awaitModifier) return null;
+  if (!ts.isVariableDeclarationList(stmt.initializer)) return null;
+  const flags = stmt.initializer.flags;
+  if (!(flags & ts.NodeFlags.Const)) return null;
+  const decls = stmt.initializer.declarations;
+  if (decls.length !== 1) return null;
+  const decl = decls[0];
+  if (!ts.isIdentifier(decl.name)) return null;
+  if (decl.initializer) return null;
+  if (decl.type) return null;
+  if (!ts.isBlock(stmt.statement)) return null;
+  if (stmt.statement.statements.length === 0) return null;
+
+  const collectionText = stmt.expression.getText(source);
+  if (!isValidKernExpression(collectionText)) return null;
+
+  const innerIndent = indent + INDENT_STEP;
+  const out: string[] = [`${indent}each name=${decl.name.text} in="${escapeKernString(collectionText)}"`];
+  const bodyLines = mapBranch(stmt.statement, source, innerIndent);
+  if (bodyLines === null) return null;
+  out.push(...bodyLines);
   return out;
 }
 

@@ -1460,7 +1460,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     // body statements are rejected by validateBodyStatements (the schema list
     // is intentionally permissive so the validator can produce a clearer
     // context-aware error).
-    allowedChildren: ['let', 'do', 'return', 'if', 'else', 'each', 'try', 'catch', 'throw'],
+    allowedChildren: ['let', 'destructure', 'do', 'return', 'if', 'else', 'each', 'try', 'catch', 'throw'],
   },
   return: {
     description:
