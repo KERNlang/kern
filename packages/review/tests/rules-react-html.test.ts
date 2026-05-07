@@ -61,10 +61,22 @@ export function C() {
       expect(r.findings.find((f) => f.ruleId === 'controlled-input-no-onchange')).toBeUndefined();
     });
 
-    it('does not flag type="checkbox" without value', () => {
+    it('flags type="checkbox" with checked but no onChange (Gemini review: cover the checked case)', () => {
       const src = `
 export function C({ checked }: { checked: boolean }) {
   return <input type="checkbox" checked={checked} />;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      const f = r.findings.find((x) => x.ruleId === 'controlled-input-no-onchange');
+      expect(f).toBeDefined();
+      expect(f!.message).toMatch(/checked/);
+    });
+
+    it('does not flag type="checkbox" with checked + onChange', () => {
+      const src = `
+export function C({ checked, onChange }: { checked: boolean; onChange: (e: any) => void }) {
+  return <input type="checkbox" checked={checked} onChange={onChange} />;
 }
 `;
       const r = reviewSource(src, 'c.tsx', cfg);
@@ -143,6 +155,29 @@ export function C() {
 `;
       const r = reviewSource(src, 'c.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'form-onsubmit-no-preventdefault')).toBeUndefined();
+    });
+
+    it('does not flag when form has method attribute (Gemini review: cover dialog/post)', () => {
+      const src = `
+export function C() {
+  return <form method="dialog" onSubmit={(e) => { /* dialog submit */ }}>...</form>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'form-onsubmit-no-preventdefault')).toBeUndefined();
+    });
+
+    it('does not match preventDefault inside a comment (Gemini review: AST not regex)', () => {
+      const src = `
+export function C() {
+  return <form onSubmit={(e) => {
+    // TODO: call preventDefault() if needed
+    console.log('submit');
+  }}>...</form>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'form-onsubmit-no-preventdefault')).toBeDefined();
     });
   });
 

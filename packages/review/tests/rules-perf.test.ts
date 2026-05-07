@@ -205,6 +205,29 @@ export function C({ ts }: { ts: number }) {
       const r = reviewSource(src, 'c.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'nondeterministic-in-render')).toBeUndefined();
     });
+
+    it('does not flag a handler stored to a const and used as onClick (Codex P2)', () => {
+      const src = `
+export function C() {
+  const onClick = () => Date.now();
+  return <button onClick={onClick}>x</button>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'nondeterministic-in-render')).toBeUndefined();
+    });
+
+    it('does not flag a handler stored to a const and used as event handler later', () => {
+      const src = `
+export function C() {
+  const makeId = () => crypto.randomUUID();
+  const onAdd = () => console.log(makeId());
+  return <button onClick={onAdd}>x</button>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'nondeterministic-in-render')).toBeUndefined();
+    });
   });
 
   describe('regex-literal-in-render', () => {
@@ -261,6 +284,28 @@ export function C({ onSubmit }: { onSubmit: (s: string) => void }) {
 `;
       const r = reviewSource(src, 'c.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'regex-literal-in-render')).toBeUndefined();
+    });
+
+    it('flags /re/.test(s) used in render (Gemini review: cover .test/.exec)', () => {
+      const src = `
+export function C({ name }: { name: string }) {
+  const ok = /^[a-z]+$/.test(name);
+  return <div>{ok ? 'y' : 'n'}</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'regex-literal-in-render')).toBeDefined();
+    });
+
+    it('flags /re/.exec(s) used in render', () => {
+      const src = `
+export function C({ name }: { name: string }) {
+  const m = /(\\w+)/.exec(name);
+  return <div>{m?.[0]}</div>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'regex-literal-in-render')).toBeDefined();
     });
   });
 });

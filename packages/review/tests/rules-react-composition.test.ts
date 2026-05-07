@@ -447,7 +447,7 @@ export function Parent({ children }: { children: React.ReactNode }) {
   });
 
   describe('react-memo-defeated-by-spread', () => {
-    it('flags spread of inline object literal on memoized child', () => {
+    it('does not flag inline object literal spread (Codex review: shallow compare still bails on primitives)', () => {
       const src = `
 import { memo } from 'react';
 const Row = memo(function Row(props: { a: number; b: number }) { return <div>{props.a + props.b}</div>; });
@@ -456,9 +456,7 @@ export function Parent({ a, b }: { a: number; b: number }) {
 }
 `;
       const r = reviewSource(src, 'p.tsx', cfg);
-      const f = r.findings.find((x) => x.ruleId === 'react-memo-defeated-by-spread');
-      expect(f).toBeDefined();
-      expect(f!.message).toMatch(/inline object/);
+      expect(r.findings.find((f) => f.ruleId === 'react-memo-defeated-by-spread')).toBeUndefined();
     });
 
     it('flags spread of parent props parameter on memoized child', () => {

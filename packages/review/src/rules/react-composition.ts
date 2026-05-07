@@ -885,15 +885,13 @@ function parentRerenderViaState(ctx: RuleContext): ReviewFinding[] {
 }
 
 // ── Rule: react-memo-defeated-by-spread ─────────────────────────────────
-// `<MemoChild {...x} />` defeats React.memo bail-out in two cases the rule
-// targets with high precision:
-//   1. spread of an INLINE object literal: `{...{ a: 1, b: () => {} }}` —
-//      object and any non-primitive fields rebuilt every render.
-//   2. spread of the WHOLE props parameter from the parent component:
-//      `<MemoChild {...props} />` — couples the memoized child to every
-//      ancestor prop and is unmemoizable in practice.
-// useMemo-backed identifiers are exempt. Everything else is intentionally
-// not flagged here to keep precision high.
+// `<MemoChild {...props} />` — spread of the WHOLE props parameter from
+// the parent component couples the memoized child to every ancestor prop
+// and is unmemoizable in practice. This is the only spread shape we flag:
+// inline-object spreads (`{...{ a, b }}`) actually fan out into individual
+// props that React.memo's shallow compare can still bail on for primitive
+// values, so flagging them produces false positives (Codex review caught
+// this). useMemo-backed identifier spreads are also exempt.
 
 function isPropsParamIdentifier(expr: Node, fn: ComponentFn): boolean {
   if (!Node.isIdentifier(expr)) return false;
@@ -953,26 +951,23 @@ function reactMemoDefeatedBySpread(ctx: RuleContext): ReviewFinding[] {
         // Exempt: useMemo-backed identifier
         if (Node.isIdentifier(expr) && useMemoBacked.has(expr.getText())) continue;
 
-        let sourceDesc: string | undefined;
-        if (Node.isObjectLiteralExpression(expr)) {
-          sourceDesc = 'inline object literal';
-        } else if (isPropsParamIdentifier(expr, fn)) {
-          sourceDesc = `the parent's '${expr.getText()}' parameter`;
-        }
-        if (!sourceDesc) continue;
+        // Only flag spread of the parent's props parameter — that couples the
+        // memoized child to every ancestor prop. Inline object literals get
+        // shallow-compared field-by-field so primitives still memoize correctly.
+        if (!isPropsParamIdentifier(expr, fn)) continue;
 
         findings.push(
           finding(
             'react-memo-defeated-by-spread',
             'warning',
             'pattern',
-            `<${tag}> is memoized with React.memo, but spreading ${sourceDesc} couples it to every render of the parent and defeats the memo bail-out`,
+            `<${tag}> is memoized with React.memo, but spreading the parent's '${expr.getText()}' parameter couples it to every render of the parent and undermines the memo bail-out`,
             ctx.filePath,
             attr.getStartLineNumber(),
             1,
             {
               suggestion:
-                'Pass props explicitly so memoization can compare them, or wrap the source object in useMemo so its identity is stable across renders',
+                'Pass props explicitly so memoization can compare a stable surface, or destructure the props the child actually needs',
             },
           ),
         );

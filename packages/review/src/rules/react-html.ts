@@ -58,21 +58,24 @@ function controlledInputNoOnChange(ctx: RuleContext): ReviewFinding[] {
     const tag = jsx.getTagNameNode().getText();
     if (!CONTROLLABLE_TAGS.has(tag)) continue;
 
-    // For <input>, ignore non-text types
+    // For <input>, classify the controlled attribute by `type`.
+    // checkbox/radio use `checked`; the non-controlled types skip the rule.
+    let usesChecked = false;
     if (tag === 'input') {
       const typeAttr = getAttribute(jsx, 'type');
       const init = typeAttr?.getInitializer();
       if (init && Node.isStringLiteral(init)) {
-        if (NON_CONTROLLED_INPUT_TYPES.has(init.getLiteralValue())) continue;
-      }
-      // For checkboxes/radios, the controlled prop is `checked`, not `value`
-      if (init && Node.isStringLiteral(init)) {
         const t = init.getLiteralValue();
-        if (t === 'checkbox' || t === 'radio') continue;
+        if (NON_CONTROLLED_INPUT_TYPES.has(t)) continue;
+        if (t === 'checkbox' || t === 'radio') usesChecked = true;
       }
     }
 
-    if (!hasAttributeWithValue(jsx, 'value')) continue;
+    if (usesChecked) {
+      if (!hasAttributeWithValue(jsx, 'checked')) continue;
+    } else {
+      if (!hasAttributeWithValue(jsx, 'value')) continue;
+    }
     if (hasAttributeWithValue(jsx, 'onChange')) continue;
     if (hasAttributeWithValue(jsx, 'onInput')) continue; // alternative event name some projects use
     if (hasAttribute(jsx, 'readOnly')) continue;
@@ -80,12 +83,13 @@ function controlledInputNoOnChange(ctx: RuleContext): ReviewFinding[] {
     // Spread attributes can cover onChange — give them the benefit of the doubt
     if (jsx.getAttributes().some((a) => Node.isJsxSpreadAttribute(a))) continue;
 
+    const controlledAttr = usesChecked ? 'checked' : 'value';
     findings.push(
       finding(
         'controlled-input-no-onchange',
         'warning',
         'bug',
-        `<${tag} value={...}> without onChange creates a read-only field — React will warn at runtime and user input is silently dropped`,
+        `<${tag} ${controlledAttr}={...}> without onChange creates a read-only field — React will warn at runtime and user input is silently dropped`,
         ctx.filePath,
         jsx.getStartLineNumber(),
         1,
@@ -119,21 +123,35 @@ function flagsFormOnSubmitNoPreventDefault(ctx: RuleContext): ReviewFinding[] {
     if (!expr) continue;
     if (!Node.isArrowFunction(expr) && !Node.isFunctionExpression(expr)) continue;
 
-    // Skip when a method="get/post/dialog" or action= is also set —
-    // user clearly wants native form submission.
+    // Skip when action= or method= is also set — user clearly wants
+    // native form submission (Gemini review: comment said "method" but
+    // code only checked "action").
     if (hasAttributeWithValue(jsx, 'action')) continue;
+    if (hasAttributeWithValue(jsx, 'method')) continue;
 
     const params = expr.getParameters();
     const eventName = params.length > 0 ? params[0].getName() : 'e';
 
     const body = expr.getBody();
     if (!body) continue;
-    const bodyText = body.getText();
-    // Look for any preventDefault() call — match on the method name to be
-    // robust against `e.preventDefault()`, `event.preventDefault()`, or
-    // destructured `preventDefault()`.
-    const preventDefaultRegex = /\bpreventDefault\s*\(\s*\)/;
-    if (preventDefaultRegex.test(bodyText)) continue;
+    // AST-based preventDefault() detection (Gemini review: regex on text
+    // matched commented-out calls). Walk all CallExpressions in the body
+    // and look for any call whose property is named 'preventDefault'.
+    let hasPreventDefault = false;
+    for (const callExpr of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      const callee = callExpr.getExpression();
+      if (Node.isPropertyAccessExpression(callee)) {
+        if (callee.getName() === 'preventDefault') {
+          hasPreventDefault = true;
+          break;
+        }
+      } else if (Node.isIdentifier(callee) && callee.getText() === 'preventDefault') {
+        // destructured: const { preventDefault } = e; preventDefault();
+        hasPreventDefault = true;
+        break;
+      }
+    }
+    if (hasPreventDefault) continue;
 
     findings.push(
       finding(

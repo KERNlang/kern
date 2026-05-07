@@ -200,18 +200,25 @@ function nodeIsRenderPath(node: Node): boolean {
   let cur: Node | undefined = node;
   let foundComponentBoundary = false;
   while (cur) {
-    // 1. Function-like ancestor — check whether it's a hook callback / event handler
+    // Function-like ancestor — classify whether the FUNCTION itself is invoked
+    // synchronously during render. If we cross a function boundary that ISN'T
+    // synchronously invoked at render time, the inner code is not render-path.
     if (Node.isArrowFunction(cur) || Node.isFunctionExpression(cur)) {
       const parent: Node | undefined = cur.getParent();
+
+      // Case: the function is an argument to a call (e.g. `list.map(fn)`,
+      // `useMemo(fn, [])`, `setTimeout(fn, 100)`).
       if (parent && Node.isCallExpression(parent)) {
         const callee = parent.getExpression().getText();
         const name = callee.includes('.') ? callee.split('.').pop() : callee;
+        // Hooks / lazy initializers / async timers — function does NOT run on render
         if (name && HOOK_AND_TIMER_GATES.has(name)) {
           if (parent.getArguments().includes(cur)) return false;
         }
-      }
-      // JSX onXxx attribute → event handler
-      if (parent && Node.isJsxExpression(parent)) {
+        // Otherwise: function is an immediate-call argument (Array#map, forEach,
+        // etc.) — body runs synchronously during render. Keep walking up.
+      } else if (parent && Node.isJsxExpression(parent)) {
+        // JSX onXxx attribute → event handler, not render-path
         const grand = parent.getParent();
         if (grand && Node.isJsxAttribute(grand)) {
           const attrName = grand.getNameNode().getText();
@@ -219,11 +226,18 @@ function nodeIsRenderPath(node: Node): boolean {
             return false;
           }
         }
+        // Any other JSX-expression context for a function value (e.g. children
+        // render-prop) — function is captured, not invoked during render.
+        return false;
+      } else {
+        // Function expression assigned to a variable, returned, passed to a
+        // non-call site, etc. — captured for later use, not invoked on render.
+        // (Codex P2 fix: `const onClick = () => Date.now()` is NOT render-path.)
+        return false;
       }
     } else if (Node.isFunctionDeclaration(cur)) {
       const fnName = cur.getName();
       if (fnName && /^[A-Z]/.test(fnName)) foundComponentBoundary = true;
-      // A non-component named function passed as a hook callback would have been caught above
     } else if (Node.isVariableDeclaration(cur)) {
       const nameNode = cur.getNameNode();
       if (Node.isIdentifier(nameNode) && /^[A-Z]/.test(nameNode.getText())) {
@@ -254,7 +268,7 @@ const NONDETERMINISTIC_PROPERTY_CALLS = new Set([
 
 function nondeterministicInRender(ctx: RuleContext): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
-  const reportedLines = new Set<number>(); // dedup multiple matches on the same line
+  const reported = new Set<number>(); // dedup by absolute char offset (already unique)
 
   // Property-call form: Date.now(), Math.random(), crypto.randomUUID(), performance.now()
   for (const call of ctx.sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
@@ -268,9 +282,8 @@ function nondeterministicInRender(ctx: RuleContext): ReviewFinding[] {
     if (!nodeIsRenderPath(call)) continue;
 
     const line = call.getStartLineNumber();
-    const dedupKey = line * 100 + call.getStart();
-    if (reportedLines.has(dedupKey)) continue;
-    reportedLines.add(dedupKey);
+    if (reported.has(call.getStart())) continue;
+    reported.add(call.getStart());
 
     findings.push(
       finding(
@@ -296,9 +309,8 @@ function nondeterministicInRender(ctx: RuleContext): ReviewFinding[] {
     if (!nodeIsRenderPath(newExpr)) continue;
 
     const line = newExpr.getStartLineNumber();
-    const dedupKey = line * 100 + newExpr.getStart();
-    if (reportedLines.has(dedupKey)) continue;
-    reportedLines.add(dedupKey);
+    if (reported.has(newExpr.getStart())) continue;
+    reported.add(newExpr.getStart());
 
     findings.push(
       finding(
@@ -335,11 +347,13 @@ function regexLiteralInRender(ctx: RuleContext): ReviewFinding[] {
     if (!nodeIsRenderPath(re)) continue;
 
     // Only fire when the literal is used in a "hot" position:
-    //   1) argument to .replace/.match/.test/.exec
-    //   2) JSX attribute value
+    //   1) argument to str.replace/replaceAll/match/matchAll      e.g. s.replace(/x/, ...)
+    //   2) receiver of regex.test/exec called on the literal       e.g. /x/.test(s)
+    //   3) JSX attribute value                                     e.g. <Input pattern={/x/} />
     let isHotUse = false;
-    const parent = re.getParent();
+    const parent: Node | undefined = re.getParent();
     if (parent && Node.isCallExpression(parent)) {
+      // Case 1: regex passed as an argument to a string method
       const callee = parent.getExpression();
       if (Node.isPropertyAccessExpression(callee)) {
         const method = callee.getName();
@@ -347,8 +361,15 @@ function regexLiteralInRender(ctx: RuleContext): ReviewFinding[] {
           isHotUse = true;
         }
       }
+    } else if (parent && Node.isPropertyAccessExpression(parent)) {
+      // Case 2: literal is the receiver of a regex method (`/x/.test(s)`, `/x/.exec(s)`)
+      const grand: Node | undefined = parent.getParent();
+      if (grand && Node.isCallExpression(grand)) {
+        const method = parent.getName();
+        if (method === 'test' || method === 'exec') isHotUse = true;
+      }
     } else if (parent && Node.isJsxExpression(parent)) {
-      const grand = parent.getParent();
+      const grand: Node | undefined = parent.getParent();
       if (grand && Node.isJsxAttribute(grand)) isHotUse = true;
     }
     if (!isHotUse) continue;
