@@ -246,6 +246,9 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
   if (coreTypes.has('repository')) {
     serverImports.add('from sqlalchemy.ext.asyncio import AsyncSession');
   }
+  if (coreNodes.some(usesFunctionTypeSyntax)) {
+    serverImports.add('from typing import Callable');
+  }
   // Scan model columns for type-specific imports
   for (const node of coreNodes) {
     if (node.type === 'model') {
@@ -497,4 +500,12 @@ export function transpileFastAPI(root: IRNode, _config?: ResolvedKernConfig): Tr
     artifacts,
     diagnostics: buildDiagnostics(root, accounted, 'fastapi'),
   };
+}
+
+function usesFunctionTypeSyntax(node: IRNode): boolean {
+  const typeBearingProps = new Set(['alias', 'type', 'params', 'returns']);
+  for (const [key, value] of Object.entries(node.props ?? {})) {
+    if (typeBearingProps.has(key) && typeof value === 'string' && value.includes('=>')) return true;
+  }
+  return (node.children ?? []).some(usesFunctionTypeSyntax);
 }
