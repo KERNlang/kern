@@ -77,6 +77,12 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     expect(result).toEqual({ eligible: true, reason: 'ok' });
   });
 
+  test('for-await-of with unsupported body is rejected by inner reason', () => {
+    const body = `for await (const x of xs) {\n  x++;\n}`;
+    const result = classifyHandlerBody(body);
+    expect(result).toEqual({ eligible: false, reason: 'expr-stmt-mutation' });
+  });
+
   test('object destructuring const is eligible', () => {
     expect(classifyHandlerBody(`const { id, name } = user;\nreturn id;`).eligible).toBe(true);
   });

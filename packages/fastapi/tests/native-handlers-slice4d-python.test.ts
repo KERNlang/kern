@@ -51,6 +51,20 @@ describe('slice 4d — Python each/spread', () => {
     expect(() => emitNativeKernBodyPython(handler)).toThrow(/cannot be combined with `index=`/);
   });
 
+  test('async each pair-mode iterates async pair streams directly', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { in: 'stream', pairKey: 'k', pairValue: 'v', await: true },
+        children: [{ type: 'do', props: { value: 'sink(k, v)' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyPython(handler);
+    expect(out).toContain('async for k, v in stream:');
+    expect(out).toContain('    sink(k, v)');
+    expect(out).not.toContain('.items()');
+  });
+
   test('array spread', () => {
     expect(emitPyExpression(parseExpression('[...a, b]'))).toBe('[*a, b]');
   });

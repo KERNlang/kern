@@ -160,6 +160,12 @@ describe('decompiler — each canonical grammar', () => {
     expect(code).toContain('await=true');
   });
 
+  it('parses await=true as the same truthy prop shape codegen accepts', () => {
+    const ast = parse('each name=chunk in=stream await=true');
+    const eachNode = ast.type === 'each' ? ast : ast.children?.find((c) => c.type === 'each');
+    expect(eachNode?.props?.await).toBe('true');
+  });
+
   it('round-trips through parse — decompiled each is re-parseable', () => {
     const src = 'each name=item in=items';
     const ast = parse(src);
