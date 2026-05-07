@@ -174,12 +174,16 @@ export function generateEach(node: IRNode): string[] {
   const name = (props.name as string) || 'item';
   const collection = props.in as string;
   const index = props.index as string | undefined;
+  const isAwait = props.await === true || props.await === 'true';
 
   const lines: string[] = [...todo, ...annotations];
   if (index) {
+    if (isAwait) {
+      throw new Error('each await=true cannot be combined with index=');
+    }
     lines.push(`for ${index}, ${name} in enumerate(${collection}):`);
   } else {
-    lines.push(`for ${name} in ${collection}:`);
+    lines.push(`${isAwait ? 'async ' : ''}for ${name} in ${collection}:`);
   }
 
   const children = kids(node);

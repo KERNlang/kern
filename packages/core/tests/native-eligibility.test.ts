@@ -71,6 +71,12 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     expect(classifyHandlerBody(body).eligible).toBe(true);
   });
 
+  test('for-await-of block with migratable body is eligible', () => {
+    const body = `for await (const x of xs) {\n  await doThing(x);\n}\nreturn xs;`;
+    const result = classifyHandlerBody(body);
+    expect(result).toEqual({ eligible: true, reason: 'ok' });
+  });
+
   test('object destructuring const is eligible', () => {
     expect(classifyHandlerBody(`const { id, name } = user;\nreturn id;`).eligible).toBe(true);
   });

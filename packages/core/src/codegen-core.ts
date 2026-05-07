@@ -360,12 +360,17 @@ export function generateEach(node: IRNode): string[] {
   const name = props.name || 'item';
   const collection = props.in;
   const index = props.index;
+  const isAwait = props.await === true || props.await === 'true';
+  const awaitPrefix = isAwait ? ' await' : '';
 
   const lines: string[] = [...todo, ...annotations];
   if (index) {
+    if (isAwait) {
+      throw new KernCodegenError('each await=true cannot be combined with index=', node);
+    }
     lines.push(`for (const [${index}, ${name}] of (${collection}).entries()) {`);
   } else {
-    lines.push(`for (const ${name} of ${collection}) {`);
+    lines.push(`for${awaitPrefix} (const ${name} of ${collection}) {`);
   }
 
   for (const child of kids(node)) {

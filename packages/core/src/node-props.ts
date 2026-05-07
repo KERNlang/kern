@@ -514,8 +514,10 @@ export interface InvariantProps extends BaseProps {
 }
 
 export interface EachProps extends BaseProps {
+  name?: string;
   in?: string;
   index?: string;
+  await?: boolean | string;
 }
 
 export interface CollectProps extends BaseProps {

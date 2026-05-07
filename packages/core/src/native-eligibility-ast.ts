@@ -171,7 +171,6 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile): string | null {
     return null;
   }
   if (ts.isForOfStatement(stmt)) {
-    if (stmt.awaitModifier) return 'for-await-stmt';
     if (!ts.isVariableDeclarationList(stmt.initializer)) return 'for-of-non-decl';
     if (!(stmt.initializer.flags & ts.NodeFlags.Const)) return 'for-of-non-const';
     const decls = stmt.initializer.declarations;

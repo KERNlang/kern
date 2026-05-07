@@ -143,6 +143,16 @@ describe('each pair-mode — schema validation', () => {
     expect(violations.some((v) => v.message.includes('mutually exclusive with'))).toBe(true);
   });
 
+  test('await=true + index= is rejected (async iterators have no stable entries index)', () => {
+    const node: IRNode = {
+      type: 'each',
+      props: { name: 'x', await: true, index: 'i', in: 'stream' },
+      children: [],
+    };
+    const violations = validateSchema(node);
+    expect(violations.some((v) => v.message.includes('await=true'))).toBe(true);
+  });
+
   test('non-pair-mode each still requires name= (regression)', () => {
     const node: IRNode = {
       type: 'each',

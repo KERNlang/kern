@@ -24,6 +24,30 @@ describe('slice 4d — TS each/spread', () => {
     expect(out).toContain('}');
   });
 
+  test('async each loop', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { in: 'stream', name: 'chunk', await: true },
+        children: [{ type: 'do', props: { value: 'sink(chunk)' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('for await (const chunk of stream) {');
+    expect(out).toContain('  sink(chunk);');
+  });
+
+  test('async each rejects index mode', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { in: 'stream', name: 'chunk', index: 'i', await: true },
+        children: [{ type: 'do', props: { value: 'sink(chunk)' } }],
+      },
+    ]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/cannot be combined with `index=`/);
+  });
+
   test('array spread', () => {
     expect(emitExpression(parseExpression('[...a, b]'))).toBe('[...a, b]');
   });

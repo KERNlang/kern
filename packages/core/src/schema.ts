@@ -1211,7 +1211,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   each: {
     description:
-      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`. `let` children become iteration-scoped `const` bindings inside the callback (hook-safe, unlike `derive`). Three forms in body-statement position: (1) `each name=x in=xs` → `for (const x of xs)`; (2) `each name=x index=i in=xs` → `for (const [i, x] of xs.entries())`; (3) `each pairKey=k pairValue=v in=map` → `for (const [k, v] of map)` (TS) / `for k, v in map.items():` (Python). In pair-mode `name` is optional. `key=` (render-only) is the React render key, distinct from `pairKey=`.',
+      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`. `let` children become iteration-scoped `const` bindings inside the callback (hook-safe, unlike `derive`). Three forms in body-statement position: (1) `each name=x in=xs` → `for (const x of xs)`; (2) `each name=x index=i in=xs` → `for (const [i, x] of xs.entries())`; (3) `each pairKey=k pairValue=v in=map` → `for (const [k, v] of map)` (TS) / `for k, v in map.items():` (Python). Add `await=true` for async iterables (`for await` / `async for`); it cannot be combined with `index=`. In pair-mode `name` is optional. `key=` (render-only) is the React render key, distinct from `pairKey=`.',
     example:
       'each name=f in=files index=i key="f.path"\n  let name=isSel expr="focused && i === selIdx"\n  handler <<<\n    <Text bold={isSel}>{f.path}</Text>\n  >>>',
     props: {
@@ -1227,6 +1227,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       key: { kind: 'rawExpr' },
       pairKey: { kind: 'identifier' },
       pairValue: { kind: 'identifier' },
+      await: { kind: 'boolean' },
     },
     // Intentionally unrestricted — statement-form `each` composes with `derive`,
     // `transform`, etc. in fn/handler contexts. The `let` node is constrained
@@ -3050,6 +3051,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
     const hasPairKey = isPairProp(props.pairKey);
     const hasPairValue = isPairProp(props.pairValue);
     const hasIndex = isPairProp(props.index);
+    const hasAwait = props.await === true || props.await === 'true';
     if (hasPairKey !== hasPairValue) {
       violations.push({
         nodeType: 'each',
@@ -3062,6 +3064,14 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'each',
         message: "'each' pair-mode ('pairKey'+'pairValue') is mutually exclusive with 'index='",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasAwait && hasIndex) {
+      violations.push({
+        nodeType: 'each',
+        message: "'each await=true' is mutually exclusive with 'index='",
         line: node.loc?.line,
         col: node.loc?.col,
       });

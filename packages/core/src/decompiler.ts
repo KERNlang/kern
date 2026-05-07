@@ -654,11 +654,13 @@ export function decompile(root: IRNode): DecompileResult {
         : (rawIn as string) || '';
     const pairKey = (props.pairKey as string) || '';
     const pairValue = (props.pairValue as string) || '';
+    const isAwait = props.await === true || props.await === 'true';
     // 2026-05-06 — pair-mode round-trip. When both pairKey and pairValue are
     // present, emit `each pairKey=k pairValue=v in=...` and omit `name=`
     // (which is optional in this form per the conditional-required rule).
     if (pairKey && pairValue) {
       const parts: string[] = [`each pairKey=${pairKey}`, `pairValue=${pairValue}`, `in=${JSON.stringify(inExpr)}`];
+      if (isAwait) parts.push('await=true');
       lines.push(`${indent}${parts.join(' ')}`);
       if (node.children) {
         for (const child of node.children) {
@@ -679,6 +681,7 @@ export function decompile(root: IRNode): DecompileResult {
 
     const parts: string[] = [`each name=${name}`, `in=${JSON.stringify(inExpr)}`];
     if (index) parts.push(`index=${index}`);
+    if (isAwait) parts.push('await=true');
     if (keyExpr) parts.push(`key=${JSON.stringify(keyExpr)}`);
     lines.push(`${indent}${parts.join(' ')}`);
 

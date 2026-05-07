@@ -231,15 +231,22 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       // dispatch on shape only.
       const pairKey = child.props?.pairKey;
       const pairValue = child.props?.pairValue;
+      const isAwait = child.props?.await === true || child.props?.await === 'true';
+      const awaitPrefix = isAwait ? ' await' : '';
       if (pairKey && pairValue) {
-        lines.push(`${indent}for (const [${String(pairKey)}, ${String(pairValue)}] of ${emitExpression(listIR)}) {`);
+        lines.push(
+          `${indent}for${awaitPrefix} (const [${String(pairKey)}, ${String(pairValue)}] of ${emitExpression(listIR)}) {`,
+        );
       } else if (child.props?.index) {
         const idxName = String(child.props.index);
         const asName = String(child.props?.name ?? child.props?.as ?? 'item');
+        if (isAwait) {
+          throw new Error('body-statement `each await=true` cannot be combined with `index=`.');
+        }
         lines.push(`${indent}for (const [${idxName}, ${asName}] of (${emitExpression(listIR)}).entries()) {`);
       } else {
         const asName = String(child.props?.name ?? child.props?.as ?? 'item');
-        lines.push(`${indent}for (const ${asName} of ${emitExpression(listIR)}) {`);
+        lines.push(`${indent}for${awaitPrefix} (const ${asName} of ${emitExpression(listIR)}) {`);
       }
       for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
       lines.push(`${indent}}`);

@@ -26,6 +26,31 @@ describe('slice 4d — Python each/spread', () => {
     expect(out).toContain('    y = x * 2');
   });
 
+  test('async each loop', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { in: 'stream', name: 'chunk', await: true },
+        children: [{ type: 'do', props: { value: 'sink(chunk)' } }],
+      },
+    ]);
+    const out = emitNativeKernBodyPython(handler);
+    expect(out).toContain('async for __k_each_1 in stream:');
+    expect(out).toContain('    chunk = __k_each_1');
+    expect(out).toContain('    sink(chunk)');
+  });
+
+  test('async each rejects index mode', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { in: 'stream', name: 'chunk', index: 'i', await: true },
+        children: [{ type: 'do', props: { value: 'sink(chunk)' } }],
+      },
+    ]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/cannot be combined with `index=`/);
+  });
+
   test('array spread', () => {
     expect(emitPyExpression(parseExpression('[...a, b]'))).toBe('[*a, b]');
   });

@@ -283,7 +283,6 @@ function mapDestructureDecl(decl: ts.VariableDeclaration, source: ts.SourceFile,
 }
 
 function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string): string[] | null {
-  if (stmt.awaitModifier) return null;
   if (!ts.isVariableDeclarationList(stmt.initializer)) return null;
   const flags = stmt.initializer.flags;
   if (!(flags & ts.NodeFlags.Const)) return null;
@@ -300,7 +299,8 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
   if (!isValidKernExpression(collectionText)) return null;
 
   const innerIndent = indent + INDENT_STEP;
-  const out: string[] = [`${indent}each name=${decl.name.text} in="${escapeKernString(collectionText)}"`];
+  const awaitAttr = stmt.awaitModifier ? ' await=true' : '';
+  const out: string[] = [`${indent}each name=${decl.name.text} in="${escapeKernString(collectionText)}"${awaitAttr}`];
   const bodyLines = mapBranch(stmt.statement, source, innerIndent);
   if (bodyLines === null) return null;
   out.push(...bodyLines);

@@ -115,6 +115,25 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
+  test('migrates for-await-of block to async each body-statement', () => {
+    const source = [
+      'fn name=notify returns=void async=true',
+      '  handler <<<',
+      '    for await (const event of events) {',
+      '      await notify(event);',
+      '    }',
+      '    return;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toContain('each name=event in="events" await=true');
+    expect(result.output).toContain('do value="await notify(event)"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
   test('migrates object destructuring const to destructure body-statement', () => {
     const source = [
       'fn name=load returns=string',
