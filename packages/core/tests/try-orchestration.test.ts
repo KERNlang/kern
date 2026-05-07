@@ -182,6 +182,57 @@ describe('try — semantic validation', () => {
     const v = validateSemantics(node);
     expect(v.some((x) => x.rule === 'try-single-catch-only')).toBe(false);
   });
+
+  // ── finally rules (Codex review fix) ─────────────────────────────────
+
+  it('flags a finally at top level (no try ancestor)', () => {
+    const orphan = mk('finally', {}, []);
+    const v = validateSemantics(orphan);
+    expect(v.some((x) => x.rule === 'finally-must-be-inside-try')).toBe(true);
+  });
+
+  it('does not flag a finally that is a direct child of try', () => {
+    const node = mk('try', {}, [
+      mk('catch', {}, [mk('handler', { code: '// noop' })]),
+      mk('finally', {}, [mk('do', { value: 'cleanup()' })]),
+    ]);
+    const v = validateSemantics(node);
+    expect(v.some((x) => x.rule === 'finally-must-be-inside-try')).toBe(false);
+  });
+
+  it('flags multiple finally children on a single try (both targets only model one)', () => {
+    const node = mk('try', {}, [
+      mk('catch', {}, [mk('handler', { code: '// noop' })]),
+      mk('finally', {}, [mk('do', { value: 'a()' })]),
+      mk('finally', {}, [mk('do', { value: 'b() — silently ignored without this rule' })]),
+    ]);
+    const v = validateSemantics(node);
+    const hits = v.filter((x) => x.rule === 'try-single-finally-only');
+    expect(hits.length).toBe(1);
+  });
+
+  it('flags finally under async-orchestration `try name=…` (no codegen path)', () => {
+    // generateTry in codegen/ground-layer.ts only consumes step/handler/catch.
+    // A `finally` child of `try name=…` would pass the schema but be silently
+    // dropped; surface it at validation with the `finally-only-in-body-statement-try`
+    // rule so the author sees the missing cleanup at source level.
+    const node = mk('try', { name: 'loadUser' }, [
+      mk('step', { name: 'x', await: 'f()' }),
+      mk('catch', { name: 'err' }, [mk('handler', { code: '// noop' })]),
+      mk('finally', {}, [mk('do', { value: 'cleanup()' })]),
+    ]);
+    const v = validateSemantics(node);
+    expect(v.some((x) => x.rule === 'finally-only-in-body-statement-try')).toBe(true);
+  });
+
+  it('does not flag finally under body-statement try (no `name` prop)', () => {
+    const node = mk('try', {}, [
+      mk('catch', {}, [mk('handler', { code: '// noop' })]),
+      mk('finally', {}, [mk('do', { value: 'cleanup()' })]),
+    ]);
+    const v = validateSemantics(node);
+    expect(v.some((x) => x.rule === 'finally-only-in-body-statement-try')).toBe(false);
+  });
 });
 
 describe('try — integration', () => {
