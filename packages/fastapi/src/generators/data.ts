@@ -6,7 +6,7 @@
 import type { IRNode } from '@kernlang/core';
 import { emitIdentifier, getFirstChild, getProps, handlerCode, mapSemanticType, propsOf } from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports } from '../codegen-body-python.js';
-import { buildPythonParamList, firstChild, kids, p } from '../codegen-helpers.js';
+import { buildPythonParamList, firstChild, kids, p, parseLegacyParamParts } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toSnakeCase } from '../type-map.js';
 
 /** Slice 4b — native KERN method body dispatch (Python target).
@@ -51,16 +51,7 @@ function methodBodyCodePython(method: IRNode): { code: string; imports: Set<stri
   } else {
     const rawParams = (getProps(method).params as string) || '';
     if (rawParams) {
-      for (const part of rawParams.split(',')) {
-        const trimmed = part.trim();
-        if (!trimmed) continue;
-        const colonIdx = trimmed.indexOf(':');
-        const eqIdx = trimmed.indexOf('=');
-        let nameEnd = trimmed.length;
-        if (colonIdx >= 0) nameEnd = Math.min(nameEnd, colonIdx);
-        if (eqIdx >= 0) nameEnd = Math.min(nameEnd, eqIdx);
-        recordParam(trimmed.slice(0, nameEnd).trim());
-      }
+      for (const part of parseLegacyParamParts(rawParams)) recordParam(part.name);
     }
   }
   const { code, imports } = emitNativeKernBodyPythonWithImports(handler, { symbolMap });

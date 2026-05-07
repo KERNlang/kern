@@ -6,7 +6,7 @@
 import type { IRNode } from '@kernlang/core';
 import { emitIdentifier, handlerCode } from '@kernlang/core';
 import { emitNativeKernBodyPythonWithImports } from '../codegen-body-python.js';
-import { buildPythonParamList, kids, p } from '../codegen-helpers.js';
+import { buildPythonParamList, kids, p, parseLegacyParamParts } from '../codegen-helpers.js';
 import { mapTsTypeToPython, toScreamingSnake, toSnakeCase } from '../type-map.js';
 
 /** Slice 1 — native KERN handler bodies for Python target.
@@ -84,15 +84,8 @@ function buildPythonSymbolMap(node: IRNode): Record<string, string> {
   }
   const rawParams = (node.props?.params as string) || '';
   if (!rawParams) return map;
-  for (const part of rawParams.split(',')) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
-    const colonIdx = trimmed.indexOf(':');
-    const eqIdx = trimmed.indexOf('=');
-    let nameEnd = trimmed.length;
-    if (colonIdx >= 0) nameEnd = Math.min(nameEnd, colonIdx);
-    if (eqIdx >= 0) nameEnd = Math.min(nameEnd, eqIdx);
-    const rawName = trimmed.slice(0, nameEnd).trim();
+  for (const part of parseLegacyParamParts(rawParams)) {
+    const rawName = part.name;
     if (!rawName) continue;
     const snake = toSnakeCase(rawName);
     claimSnake(rawName, snake);
