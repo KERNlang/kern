@@ -1237,6 +1237,16 @@ function extractReactWrapperComponents(sf: SourceFile, filePath: string, nodes: 
 
 const AUTH_KEYWORDS = /auth|session|token|user|role|permission|admin|login|credential/i;
 const VALIDATION_CALLS = new Set(['parse', 'safeParse', 'validate', 'validateSync', 'check']);
+// Helper-call naming heuristic: requireAdminOrigin, assertSession, checkPermissions,
+// validateBody, ensureAuthenticated, etc. The leading verb determines the subtype.
+const GUARD_HELPER_RE = /^(require|assert|check|validate|ensure)([A-Z]\w*)$/;
+// At the call site, the first argument's surface text. Matches the request /
+// session / auth-context shapes that real guard helpers consume. Used to
+// disambiguate `requireAdminOrigin()`, `requireAuth(req)`, `assertSession(headers)`
+// (real guards) from `checkCache(key)`, `ensureConnected(client)`, `assertReady(state)`
+// (utilities that happen to share the verb prefix). See review feedback Codex P2.
+const GUARD_ARG_RE =
+  /^(req|request|session|ctx|context|auth|user|origin|headers?|tok(en)?|cred(ential)?s?|cookies?)\b/i;
 
 function extractGuards(sf: SourceFile, filePath: string, nodes: ConceptNode[]): void {
   // Pattern 1: early return/throw after auth check: if (!req.user) return/throw
@@ -1289,6 +1299,56 @@ function extractGuards(sf: SourceFile, filePath: string, nodes: ConceptNode[]): 
         payload: { kind: 'guard', subtype: 'validation', name: objText },
       });
     }
+  }
+
+  // Pattern 3: helper-call naming heuristic — requireAdminOrigin(), assertSession(),
+  // checkPermissions(), validateBody(), ensureAuthenticated() etc. Matches both
+  // bare calls (foo()) and qualified calls (auth.requireUser()). Attach to the
+  // container of the call site so the rule's container scoping picks it up.
+  for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    const callee = call.getExpression();
+    let calleeName: string | undefined;
+    if (callee.getKind() === SyntaxKind.Identifier) {
+      calleeName = callee.getText();
+    } else if (callee.getKind() === SyntaxKind.PropertyAccessExpression) {
+      calleeName = (callee as import('ts-morph').PropertyAccessExpression).getName();
+    } else {
+      continue;
+    }
+
+    const m = calleeName?.match(GUARD_HELPER_RE);
+    if (!m) continue;
+    const verb = m[1];
+
+    // Second condition: the call must look like a guard, not a utility
+    // sharing the verb prefix. Accept either:
+    //   - zero-arg calls (the helper reads its context implicitly —
+    //     `requireAdminOrigin()`, `assertAuthenticated()`, or
+    //   - calls whose first argument is a BARE identifier matching the
+    //     auth/request shape (`requireAuth(req)`, `assertSession(headers)`).
+    // Property accesses (`checkCache(req.id)`) and object literals
+    // (`assertReady({ ready: true })`) fall through — passing a derived
+    // value is the utility shape, not the guard shape.
+    const args = call.getArguments();
+    if (args.length > 0) {
+      const firstArg = args[0];
+      if (firstArg.getKind() !== SyntaxKind.Identifier) continue;
+      if (!GUARD_ARG_RE.test(firstArg.getText())) continue;
+    }
+
+    // 'validate' is validation; the rest are auth.
+    const subtype: 'auth' | 'validation' = verb === 'validate' ? 'validation' : 'auth';
+
+    nodes.push({
+      id: conceptId(filePath, 'guard', call.getStart()),
+      kind: 'guard',
+      primarySpan: span(filePath, call),
+      evidence: call.getText().substring(0, 100),
+      confidence: 0.7,
+      language: 'ts',
+      containerId: getContainerId(call, filePath),
+      payload: { kind: 'guard', subtype, name: calleeName },
+    });
   }
 }
 

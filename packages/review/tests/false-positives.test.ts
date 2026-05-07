@@ -767,3 +767,206 @@ export function Button() {
     }
   });
 });
+
+describe('False Positive Regression: unguarded-effect', () => {
+  it('does NOT fire when an auth-helper guard call (requireAdminOrigin) precedes the effect', () => {
+    const source = `
+import { db } from './db.js';
+import { requireAdminOrigin } from './auth.js';
+
+export async function updateThing(id: string, value: string): Promise<void> {
+  requireAdminOrigin();
+  await db.update({ where: { id }, data: { value } });
+}
+`;
+    const report = reviewSource(source, 'actions.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeUndefined();
+  });
+
+  it('does NOT fire on a pg-boss worker job in apps/<x>/worker/', () => {
+    const source = `
+import PgBoss from 'pg-boss';
+import { db } from './db.js';
+
+const boss = new PgBoss('postgres://...');
+
+await boss.work('cleanup', async () => {
+  await db.delete({ where: { stale: true } });
+});
+`;
+    const report = reviewSource(source, 'apps/api/worker/jobs/cleanup.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeUndefined();
+  });
+
+  it('does NOT fire when the guard sits in a middle hop (page → action → lib)', () => {
+    const dir = join(TMP, 'unguarded-effect-multi-hop');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, 'page.ts'),
+      `
+import { doUpdate } from './actions.js';
+export default async function Page() {
+  await doUpdate('x');
+}
+`,
+    );
+    writeFileSync(
+      join(dir, 'actions.ts'),
+      `
+import { writeRow } from './lib/store.js';
+export function requireAdminOrigin(): void {
+  if (!process.env.ADMIN) throw new Error('forbidden');
+}
+export async function doUpdate(id: string): Promise<void> {
+  requireAdminOrigin();
+  await writeRow(id);
+}
+`,
+    );
+    mkdirSync(join(dir, 'lib'), { recursive: true });
+    writeFileSync(
+      join(dir, 'lib/store.ts'),
+      `
+import { db } from '../db.js';
+export async function writeRow(id: string): Promise<void> {
+  await db.update({ where: { id }, data: { touched: true } });
+}
+`,
+    );
+    writeFileSync(join(dir, 'db.ts'), `export const db = { update: async (_: unknown) => {} };\n`);
+
+    const reports = reviewGraph([join(dir, 'page.ts'), join(dir, 'actions.ts'), join(dir, 'lib/store.ts')]);
+    const libReport = reports.find((r) => r.filePath === join(dir, 'lib/store.ts'));
+    const fp = libReport?.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeUndefined();
+  });
+
+  it('DOES fire on a route handler with no recognized guard anywhere', () => {
+    const source = `
+import express from 'express';
+import { db } from './db.js';
+
+const app = express();
+
+app.get('/items/:id', async (req, res) => {
+  const row = await db.update({ where: { id: req.params.id }, data: { hits: 1 } });
+  res.json(row);
+});
+`;
+    const report = reviewSource(source, 'server.ts', expressConfig);
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeDefined();
+  });
+
+  it('DOES fire when only a sibling importer (sharing a helper module) has the guard', () => {
+    // Codex P1: the previous direction-flipping BFS would walk
+    //   cron.ts → lib/db.ts (outgoing) → admin/actions.ts (incoming)
+    // and silently treat the admin file's guard as covering cron.ts. The
+    // fix splits the walk into two single-direction passes so that shared
+    // dependencies don't manufacture transitive guard relationships.
+    const dir = join(TMP, 'unguarded-effect-shared-module');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    mkdirSync(join(dir, 'lib'), { recursive: true });
+    mkdirSync(join(dir, 'admin'), { recursive: true });
+    writeFileSync(
+      join(dir, 'lib/db.ts'),
+      `export const db = { update: async (_: unknown) => {}, delete: async (_: unknown) => {} };\n`,
+    );
+    writeFileSync(
+      join(dir, 'admin/actions.ts'),
+      `
+import { db } from '../lib/db.js';
+export function requireAdminOrigin(): void {
+  if (!process.env.ADMIN) throw new Error('forbidden');
+}
+export async function adminWrite(id: string): Promise<void> {
+  requireAdminOrigin();
+  await db.update({ where: { id }, data: { hits: 1 } });
+}
+`,
+    );
+    writeFileSync(
+      join(dir, 'cron.ts'),
+      `
+import { db } from './lib/db.js';
+export async function nightly(): Promise<void> {
+  await db.delete({ where: { stale: true } });
+}
+`,
+    );
+
+    const reports = reviewGraph([join(dir, 'cron.ts'), join(dir, 'admin/actions.ts')]);
+    const cronReport = reports.find((r) => r.filePath.endsWith('cron.ts'));
+    const fp = cronReport?.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeDefined();
+  });
+
+  it('does NOT classify utility helpers (checkCache, ensureConnected, assertReady) as guards', () => {
+    // Codex P2: the verb-prefix regex alone matches utilities like
+    // checkCache(key) that have nothing to do with auth. The second
+    // condition (zero args OR first arg is auth/request-shaped) filters
+    // those out so they no longer suppress unguarded-effect findings.
+    const source = `
+import { db } from './db.js';
+
+function checkCache(_key: string): boolean { return false; }
+function ensureConnected(_client: { ping(): void }): void {}
+function assertReady(_state: { ready: boolean }): void {}
+
+export async function handler(req: { id: string }): Promise<unknown> {
+  checkCache(req.id);
+  ensureConnected({ ping: () => {} });
+  assertReady({ ready: true });
+  return db.update({ where: { id: req.id }, data: { hits: 1 } });
+}
+`;
+    const report = reviewSource(source, 'handler.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeDefined();
+  });
+
+  it('does NOT fire on a single-file worker at apps/<x>/worker.ts', () => {
+    // Gemini: the original WORKER_PATH_RE only matched directory-style
+    // workers (apps/api/worker/...). Single-file workers (apps/api/worker.ts)
+    // were not exempted. Allow trailing dot.
+    const source = `
+import PgBoss from 'pg-boss';
+import { db } from './db.js';
+
+const boss = new PgBoss('postgres://...');
+await boss.work('cleanup', async () => {
+  await db.delete({ where: { stale: true } });
+});
+`;
+    const report = reviewSource(source, 'apps/api/worker.ts');
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeUndefined();
+  });
+
+  it('DOES fire on a route handler in a worker file (file-level exemption is too coarse)', () => {
+    const source = `
+import express from 'express';
+import PgBoss from 'pg-boss';
+import { db } from './db.js';
+
+const app = express();
+const boss = new PgBoss('postgres://...');
+
+await boss.work('cleanup', async () => {
+  await db.delete({ where: { stale: true } });
+});
+
+app.get('/items/:id', async (req, res) => {
+  const row = await db.update({ where: { id: req.params.id }, data: { hits: 1 } });
+  res.json(row);
+});
+`;
+    const report = reviewSource(source, 'apps/api/worker/mixed.ts', expressConfig);
+    const fp = report.findings.find((f) => f.ruleId === 'unguarded-effect');
+    expect(fp).toBeDefined();
+  });
+});
