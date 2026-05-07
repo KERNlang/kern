@@ -6,7 +6,9 @@
 
 import type { IRNode } from '@kernlang/core';
 import { execSync, spawn } from 'child_process';
+import { once } from 'events';
 import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
+import { createServer } from 'net';
 import { tmpdir } from 'os';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -17,11 +19,94 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const MONOREPO_ROOT = resolve(__dirname, '../../../../');
 const MCP_SERVER_MODULES = resolve(MONOREPO_ROOT, 'packages/mcp-server/node_modules');
 const TSC_BIN = resolve(MONOREPO_ROOT, 'node_modules/typescript/bin/tsc');
+const HTTP_BIND_ATTEMPTS = 2;
+const HTTP_READY_TIMEOUT_MS = 8000;
+const HTTP_TEST_TIMEOUT_MS = 60000;
 
 // ── IR helper ──────────────────────────────────────────────────────────
 
 function node(type: string, props: Record<string, unknown> = {}, children: IRNode[] = []): IRNode {
   return { type, props, children, loc: { line: 1, col: 1, endLine: 1, endCol: 1 } } as IRNode;
+}
+
+async function getFreePort(): Promise<number> {
+  return await new Promise((done, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      if (!address || typeof address === 'string') {
+        server.close(() => reject(new Error('Could not allocate a TCP port for MCP HTTP E2E')));
+        return;
+      }
+      const port = address.port;
+      server.removeListener('error', reject);
+      // The generated server runs in a child process and only accepts a port
+      // number, so we must close this probe listener before spawning it. That
+      // leaves a TOCTOU window during child startup; the test retries on
+      // bind/startup failures below.
+      server.close(() => done(port));
+    });
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((done) => setTimeout(done, ms));
+}
+
+function errorDetails(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = (error as Error & { cause?: unknown }).cause;
+  return cause ? `${error.stack ?? error.message}\nCause: ${String(cause)}` : (error.stack ?? error.message);
+}
+
+async function stopChild(cp: ReturnType<typeof spawn>): Promise<void> {
+  if (cp.exitCode !== null || cp.signalCode !== null) return;
+
+  const exited = once(cp, 'exit')
+    .then(() => undefined)
+    .catch(() => undefined);
+  cp.kill();
+  await Promise.race([exited, sleep(1000)]);
+
+  if (cp.exitCode !== null || cp.signalCode !== null) return;
+
+  cp.kill('SIGKILL');
+  await Promise.race([exited, sleep(1000)]);
+}
+
+async function waitForHttpReady(url: string, cp: ReturnType<typeof spawn>, readOutput: () => string): Promise<void> {
+  await new Promise<void>((ok, reject) => {
+    let done = false;
+    const finish = (err?: Error) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timeout);
+      cp.off('exit', onExit);
+      err ? reject(err) : ok();
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      finish(
+        new Error(`Server exited before accepting HTTP requests (code=${code}, signal=${signal}): ${readOutput()}`),
+      );
+    };
+    const timeout = setTimeout(() => {
+      finish(new Error(`Server did not accept HTTP requests at ${url}: ${readOutput()}`));
+    }, HTTP_READY_TIMEOUT_MS);
+    const check = async () => {
+      try {
+        const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(500) });
+        const ready = res.status < 500;
+        await res.body?.cancel().catch(() => undefined);
+        if (ready) finish();
+        else if (!done) setTimeout(check, 100);
+      } catch {
+        if (!done) setTimeout(check, 100);
+      }
+    };
+    cp.once('exit', onExit);
+    void check();
+  });
 }
 
 // ── Test infrastructure ────────────────────────────────────────────────
@@ -1035,77 +1120,90 @@ describe('transpileMCP HTTP transport E2E', () => {
     }
   });
 
-  it('should start HTTP server and respond to MCP POST', async () => {
-    const port = 39000 + Math.floor(Math.random() * 1000);
-    const ast = node('mcp', { name: 'HttpE2E', version: '1.0', transport: 'http', port: String(port) }, [
-      node('tool', { name: 'ping' }, [
-        node('handler', { code: 'return { content: [{ type: "text" as const, text: "pong" }] };' }),
-      ]),
-    ]);
+  it(
+    'should start HTTP server and respond to MCP POST',
+    async () => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < HTTP_BIND_ATTEMPTS; attempt++) {
+        const port = await getFreePort();
+        const url = `http://127.0.0.1:${port}/mcp`;
+        const ast = node('mcp', { name: 'HttpE2E', version: '1.0', transport: 'http', port: String(port) }, [
+          node('tool', { name: 'ping' }, [
+            node('handler', { code: 'return { content: [{ type: "text" as const, text: "pong" }] };' }),
+          ]),
+        ]);
 
-    const result = transpileMCP(ast);
-    const { dir, entryJS } = compileServer(result.code);
-    dirs.push(dir);
+        const result = transpileMCP(ast);
+        const { dir, entryJS } = compileServer(result.code);
+        dirs.push(dir);
 
-    // Spawn HTTP server
-    const cp = spawn('node', [entryJS], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
-    });
-    let stderr = '';
-    cp.stderr.on('data', (d: Buffer) => {
-      stderr += d.toString();
-    });
+        const cp = spawn('node', [entryJS], {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          env: { ...process.env },
+        });
+        let stderr = '';
+        cp.stderr.on('data', (d: Buffer) => {
+          stderr += d.toString();
+        });
+        let stdout = '';
+        cp.stdout.on('data', (d: Buffer) => {
+          stdout += d.toString();
+        });
+        const output = () => `${stderr}${stdout ? `\nstdout:\n${stdout}` : ''}`;
 
-    // Wait for server to be ready
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`Server did not start: ${stderr}`)), 8000);
-      const check = () => {
-        if (stderr.includes('server:listening')) {
-          clearTimeout(timeout);
-          resolve();
+        try {
+          // Wait for the socket to accept requests. This is more reliable on CI
+          // than racing the generated server's stderr log line.
+          await waitForHttpReady(url, cp, output);
+
+          // Send MCP initialize via HTTP POST — StreamableHTTP may return SSE or JSON
+          const initRes = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'initialize',
+              id: 1,
+              params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } },
+            }),
+          });
+
+          // Server accepted the request (2xx status)
+          expect(initRes.ok).toBe(true);
+
+          const contentType = initRes.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            // Plain JSON response
+            const initData = (await initRes.json()) as MCPResponse;
+            expect(initData.result).toBeDefined();
+            expect((initData.result as any).serverInfo.name).toBe('HttpE2E');
+          } else {
+            // SSE response — parse the first event
+            const body = await initRes.text();
+            const dataLine = body.split('\n').find((l) => l.startsWith('data: '));
+            expect(dataLine).toBeDefined();
+            const initData = JSON.parse(dataLine!.replace('data: ', '')) as MCPResponse;
+            expect(initData.result).toBeDefined();
+            expect((initData.result as any).serverInfo.name).toBe('HttpE2E');
+          }
           return;
+        } catch (error) {
+          lastError = error;
+          const details = `${errorDetails(error)}\n${output()}`;
+          const canRetry = attempt < HTTP_BIND_ATTEMPTS - 1;
+          const isStartupFailure =
+            details.includes('EADDRINUSE') ||
+            details.includes('Server exited before accepting HTTP requests') ||
+            details.includes('Server did not accept HTTP requests');
+          if (!canRetry || !isStartupFailure) throw new Error(details);
+        } finally {
+          await stopChild(cp);
         }
-        setTimeout(check, 200);
-      };
-      setTimeout(check, 500);
-    });
-
-    try {
-      // Send MCP initialize via HTTP POST — StreamableHTTP may return SSE or JSON
-      const initRes = await fetch(`http://localhost:${port}/mcp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          method: 'initialize',
-          id: 1,
-          params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } },
-        }),
-      });
-
-      // Server accepted the request (2xx status)
-      expect(initRes.ok).toBe(true);
-
-      const contentType = initRes.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        // Plain JSON response
-        const initData = (await initRes.json()) as MCPResponse;
-        expect(initData.result).toBeDefined();
-        expect((initData.result as any).serverInfo.name).toBe('HttpE2E');
-      } else {
-        // SSE response — parse the first event
-        const body = await initRes.text();
-        const dataLine = body.split('\n').find((l) => l.startsWith('data: '));
-        expect(dataLine).toBeDefined();
-        const initData = JSON.parse(dataLine!.replace('data: ', '')) as MCPResponse;
-        expect(initData.result).toBeDefined();
-        expect((initData.result as any).serverInfo.name).toBe('HttpE2E');
       }
-    } finally {
-      cp.kill();
-    }
-  }, 20000);
+      throw lastError;
+    },
+    HTTP_TEST_TIMEOUT_MS,
+  );
 });
 
 describe('transpileMCP guard integration', () => {
