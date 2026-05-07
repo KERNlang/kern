@@ -43,6 +43,41 @@ describe('body-statement while — TS target', () => {
     expect(out).toContain('break;');
   });
 
+  test('emits nested while and each loops with innermost loop control', () => {
+    const handler = makeHandler([
+      {
+        type: 'while',
+        props: { cond: 'running' },
+        children: [
+          {
+            type: 'each',
+            props: { name: 'job', in: 'jobs' },
+            children: [
+              {
+                type: 'while',
+                props: { cond: 'job.pending' },
+                children: [
+                  { type: 'do', props: { value: 'job.step()' } },
+                  { type: 'if', props: { cond: 'job.done' }, children: [{ type: 'break', props: {} }] },
+                ],
+              },
+              { type: 'continue', props: {} },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('while (running) {');
+    expect(out).toContain('  for (const job of jobs) {');
+    expect(out).toContain('    while (job.pending) {');
+    expect(out).toContain('      job.step();');
+    expect(out).toContain('        break;');
+    expect(out).toContain('    }');
+    expect(out).toContain('    continue;');
+  });
+
   test('rejects propagation in condition', () => {
     const handler = makeHandler([{ type: 'while', props: { cond: 'load()?' }, children: [] }]);
     expect(() => emitNativeKernBodyTS(handler)).toThrow(/Propagation '\?' is not allowed in `while cond=`/);
