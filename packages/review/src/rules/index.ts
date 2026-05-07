@@ -31,6 +31,7 @@ import { perfRules } from './perf.js';
 import { reactRules } from './react.js';
 import { reactCompositionRules } from './react-composition.js';
 import { reactHooksRules } from './react-hooks.js';
+import { reactHtmlRules } from './react-html.js';
 import { securityRules } from './security.js';
 import { securityV2Rules } from './security-v2.js';
 import { securityV3Rules } from './security-v3.js';
@@ -70,6 +71,7 @@ export function getActiveRules(target?: string): ReviewRule[] {
     rules.push(...reactRules);
     rules.push(...reactHooksRules);
     rules.push(...reactCompositionRules);
+    rules.push(...reactHtmlRules);
     rules.push(...a11yRules);
     rules.push(...perfRules);
   }
@@ -697,6 +699,41 @@ const REGISTRY: RuleInfo[] = [
     rolloutPhase: 5,
   },
 
+  // React HTML quality (Wave 5) — JSX-element correctness footguns
+  {
+    id: 'controlled-input-no-onchange',
+    layer: 'react-html',
+    severity: 'warning',
+    description: '<input/select/textarea> with value but no onChange — read-only field, React warns at runtime',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'form-onsubmit-no-preventdefault',
+    layer: 'react-html',
+    severity: 'warning',
+    description: '<form onSubmit={fn}> handler missing preventDefault() — browser will reload the page on submit',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'submit-button-implicit-type',
+    layer: 'react-html',
+    severity: 'warning',
+    description:
+      '<button> inside <form> without explicit type attribute — defaults to type="submit" and triggers submission',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'target-blank-no-rel-noopener',
+    layer: 'react-html',
+    severity: 'warning',
+    description: '<a target="_blank"> without rel="noopener noreferrer" — tab-jacking risk and process-isolation cost',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+
   // a11y — Wave 3
   {
     id: 'img-missing-alt',
@@ -1289,6 +1326,7 @@ const LAYER_TARGET_MAP: Record<string, string[] | null> = {
   react: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   'react-hooks': ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   'react-composition': ['nextjs', 'tailwind', 'web', 'native', 'ink'],
+  'react-html': ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   a11y: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   perf: ['nextjs', 'tailwind', 'web', 'native', 'ink'],
   cli: ['cli'],
