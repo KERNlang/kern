@@ -155,6 +155,55 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
+  test('migrates typed const binding to typed let body-statement', () => {
+    const source = [
+      'fn name=load returns="User | null"',
+      '  handler <<<',
+      '    const user: User | null = loadUser();',
+      '    return user;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=user type="User | null" value="loadUser()"');
+    expect(result.output).toContain('return value="user"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates typed const binding inside loop bodies', () => {
+    const source = [
+      'fn name=scan returns=void',
+      '  handler <<<',
+      '    while (running) {',
+      '      const user: User = loadUser();',
+      '      process(user);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('while cond="running"');
+    expect(result.output).toContain('let name=user type="User" value="loadUser()"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates string-literal union type with escaping', () => {
+    const source = [
+      'fn name=mode returns="string"',
+      '  handler <<<',
+      '    const mode: "on" | "off" = readMode();',
+      '    return mode;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('let name=mode type="\\"on\\" | \\"off\\"" value="readMode()"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
   test('migrates break and continue inside loop bodies', () => {
     const source = [
       'fn name=notify returns=void',
@@ -506,11 +555,23 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.output).toBe(source);
   });
 
-  test('bails on const with type annotation (body-`let` ignores `type` prop)', () => {
+  test('bails on unsafe const type annotation', () => {
+    const source = [
+      'fn name=ok returns=unknown',
+      '  handler <<<',
+      '    const x: typeof import("fs") = value;',
+      '    return x;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on typed destructuring until destructure preserves annotations', () => {
     const source = [
       'fn name=ok returns=number',
       '  handler <<<',
-      '    const x: number = 1;',
+      '    const { x }: { x: number } = obj;',
       '    return x;',
       '  >>>',
     ].join('\n');
@@ -853,6 +914,56 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     expect(ts.split('\n').filter((line: string) => line === '}')).toHaveLength(1);
     expect(ts).not.toContain('}}\n');
     expect(ts).not.toContain('while (queue.length > 0) {\n}');
+  });
+
+  test('typed const binding compiles byte-equivalent', () => {
+    const source = [
+      'fn name=load returns="User | null"',
+      '  handler <<<',
+      '    const user: User | null = loadUser();',
+      '    return user;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['const user: User | null = loadUser();', 'return user;'].join('\n'));
+  });
+
+  test('typed const binding inside loop compiles byte-equivalent', () => {
+    const source = [
+      'fn name=scan returns=void',
+      '  handler <<<',
+      '    while (running) {',
+      '      const user: User = loadUser();',
+      '      process(user);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['while (running) {', '  const user: User = loadUser();', '  process(user);', '}'].join('\n'));
+  });
+
+  test('string-literal union type compiles byte-equivalent', () => {
+    const source = [
+      'fn name=mode returns="string"',
+      '  handler <<<',
+      '    const mode: "on" | "off" = readMode();',
+      '    return mode;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['const mode: "on" | "off" = readMode();', 'return mode;'].join('\n'));
   });
 
   test('nested while block compiles through while body-statement', () => {

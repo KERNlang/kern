@@ -21,6 +21,7 @@
  *  instead of a generic "ineligible". */
 
 import ts from 'typescript';
+import { emitTypeAnnotation } from './codegen/emitters.js';
 import { parseExpression } from './parser-expression.js';
 import type { ValueIR } from './value-ir.js';
 
@@ -76,6 +77,19 @@ export function isValidKernAssignmentValue(exprText: string): boolean {
   }
 }
 
+export function isValidKernTypeAnnotation(typeText: string): boolean {
+  if (/\n/.test(typeText)) return false;
+  try {
+    // Reuse the TS codegen sanitizer as a round-trip safety gate. This is
+    // not a full type-system soundness check; it only decides whether the
+    // original TS annotation can be preserved in native KERN source.
+    emitTypeAnnotation(typeText, 'unknown');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isAssignableTarget(node: ValueIR): boolean {
   if (node.kind === 'ident') return true;
   if (node.kind === 'member') return !node.optional && !containsOptionalAccess(node.object);
@@ -116,7 +130,8 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     if (decls.length !== 1) return 'var-multi-decl';
     const decl = decls[0];
     if (!decl.initializer) return 'var-no-init';
-    if (decl.type) return 'var-typed';
+    if (decl.type && !isValidKernTypeAnnotation(decl.type.getText(sf))) return 'var-bad-type';
+    if (decl.type && !ts.isIdentifier(decl.name)) return 'var-typed-destructure';
     if (!ts.isIdentifier(decl.name)) return classifyDestructureDecl(decl, sf);
     if (!isValidKernExpression(decl.initializer.getText(sf))) return 'var-bad-expr';
     return null;

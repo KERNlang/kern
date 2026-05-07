@@ -6,6 +6,23 @@ import {
   extractRawBodies,
   scanFileForEligibility,
 } from '../src/native-eligibility.js';
+import { isValidKernTypeAnnotation } from '../src/native-eligibility-ast.js';
+
+describe('isValidKernTypeAnnotation', () => {
+  test('accepts common safe TypeScript annotations', () => {
+    expect(isValidKernTypeAnnotation('User | null')).toBe(true);
+    expect(isValidKernTypeAnnotation('"on" | "off"')).toBe(true);
+    expect(isValidKernTypeAnnotation('Map<string, number>')).toBe(true);
+  });
+
+  test('rejects unsafe or malformed annotations', () => {
+    expect(isValidKernTypeAnnotation('string\nnumber')).toBe(false);
+    expect(isValidKernTypeAnnotation('typeof import("fs")')).toBe(false);
+    expect(isValidKernTypeAnnotation('`${evil}`')).toBe(false);
+    expect(isValidKernTypeAnnotation('string; process.exit(1)')).toBe(false);
+    expect(isValidKernTypeAnnotation('Map<string')).toBe(false);
+  });
+});
 
 describe('classifyHandlerBody — eligible bodies', () => {
   test('empty body is eligible', () => {
@@ -104,6 +121,13 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
   test('optional element access is eligible in let and return expressions', () => {
     expect(classifyHandlerBody(`const maybe = items?.[0];\nreturn maybe;`).eligible).toBe(true);
     expect(classifyHandlerBody(`return users?.[id]?.name;`).eligible).toBe(true);
+  });
+
+  test('typed const bindings are eligible when the annotation is safe', () => {
+    expect(classifyHandlerBody(`const user: User | null = loadUser();\nreturn user;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
   });
 
   test('plain assignment statements are eligible', () => {
@@ -225,6 +249,12 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
     rejected(`const x = 1;\nx += 2;\nreturn x;`, 'expr-stmt-assignment'));
 
   test('void operator rejected (parser-expression bails)', () => rejected(`return void 0;`, 'return-bad-expr'));
+
+  test('unsafe type annotation rejected', () =>
+    rejected(`const mod: typeof import("fs") = value;\nreturn mod;`, 'var-bad-type'));
+
+  test('typed destructuring rejected until destructure preserves annotations', () =>
+    rejected(`const { x }: { x: number } = obj;\nreturn x;`, 'var-typed-destructure'));
 
   test('debugger statement rejected', () =>
     // TS SyntaxKind[kind] returns the LAST registered name — DebuggerStatement

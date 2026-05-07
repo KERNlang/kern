@@ -23,6 +23,7 @@ import {
   isValidKernAssignmentTarget,
   isValidKernAssignmentValue,
   isValidKernExpression,
+  isValidKernTypeAnnotation,
 } from '@kernlang/core';
 import ts from 'typescript';
 
@@ -122,12 +123,15 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string,
     if (decls.length !== 1) return null;
     const decl = decls[0];
     if (!decl.initializer) return null;
-    if (decl.type) return null; // bail on type annotations (body-`let` ignores `type`)
+    const typeText = decl.type?.getText(source);
+    if (typeText && !isValidKernTypeAnnotation(typeText)) return null;
+    if (typeText && !ts.isIdentifier(decl.name)) return null;
     if (!ts.isIdentifier(decl.name)) return mapDestructureDecl(decl, source, indent);
     const name = decl.name.text;
     const exprText = decl.initializer.getText(source);
     if (!isValidKernExpression(exprText)) return null;
-    return [`${indent}let name=${name} value="${escapeKernString(exprText)}"`];
+    const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
+    return [`${indent}let name=${name}${typeAttr} value="${escapeKernString(exprText)}"`];
   }
 
   if (ts.isReturnStatement(stmt)) {

@@ -134,6 +134,7 @@ export {
   isValidKernAssignmentTarget,
   isValidKernAssignmentValue,
   isValidKernExpression,
+  isValidKernTypeAnnotation,
 } from './native-eligibility-ast.js';
 export type {
   ActionProps,

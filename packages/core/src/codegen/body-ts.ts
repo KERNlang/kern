@@ -46,6 +46,7 @@ import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { IRNode } from '../types.js';
 import type { ValueIR } from '../value-ir.js';
+import { emitTypeAnnotation } from './emitters.js';
 
 /** Slice 3e — caller-provided options, parity with the Python body emitter.
  *  `symbolMap` is currently unused on the TS target; reserved for future
@@ -329,18 +330,23 @@ function rejectPropagationInsideTry(ctx: BodyEmitContext): void {
 function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const name = String(props.name ?? '_');
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
   const rawValue = props.value;
   if (rawValue === undefined || rawValue === '') {
-    return [`const ${name} = undefined;`];
+    return [`const ${name}${typeAnn} = undefined;`];
   }
   const valueIR = parseExpression(String(rawValue));
   if (valueIR.kind === 'propagate' && valueIR.op === '?') {
     rejectPropagationInsideTry(ctx);
     const tmp = `__k_t${++ctx.gensymCounter}`;
     const inner = emitExpression(valueIR.argument);
-    return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`, `const ${name} = ${tmp}.value;`];
+    return [
+      `const ${tmp} = ${inner};`,
+      `if (${tmp}.kind === 'err') return ${tmp};`,
+      `const ${name}${typeAnn} = ${tmp}.value;`,
+    ];
   }
-  return [`const ${name} = ${emitExpression(valueIR)};`];
+  return [`const ${name}${typeAnn} = ${emitExpression(valueIR)};`];
 }
 
 function emitAssignTS(node: IRNode, _ctx: BodyEmitContext): string[] {
