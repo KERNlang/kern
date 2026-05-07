@@ -394,9 +394,10 @@ function emitDestructureTS(node: IRNode, ctx: BodyEmitContext): string[] {
   }
   const pattern = formatBodyDestructurePattern(node);
   const kind = props.kind === 'let' ? 'let' : 'const';
+  const typeAnn = props.type ? `: ${emitTypeAnnotation(String(props.type), 'unknown', node)}` : '';
   const sourceIR = parseExpression(String(rawSource));
   if (sourceIR.kind === 'propagate' && sourceIR.op === '?') rejectPropagationInsideTry(ctx);
-  return [`${kind} ${pattern} = ${emitExpression(sourceIR)};`];
+  return [`${kind} ${pattern}${typeAnn} = ${emitExpression(sourceIR)};`];
 }
 
 function formatBodyDestructurePattern(node: IRNode): string {

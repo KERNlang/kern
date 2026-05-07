@@ -253,8 +253,16 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('unsafe type annotation rejected', () =>
     rejected(`const mod: typeof import("fs") = value;\nreturn mod;`, 'var-bad-type'));
 
-  test('typed destructuring rejected until destructure preserves annotations', () =>
-    rejected(`const { x }: { x: number } = obj;\nreturn x;`, 'var-typed-destructure'));
+  test('typed destructuring is eligible when the annotation is safe', () => {
+    expect(classifyHandlerBody(`const { x }: { x: number } = obj;\nreturn x;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+    expect(classifyHandlerBody(`const [x, y]: [number, string] = pair;\nreturn x;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
 
   test('debugger statement rejected', () =>
     // TS SyntaxKind[kind] returns the LAST registered name — DebuggerStatement

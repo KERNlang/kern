@@ -131,7 +131,6 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     const decl = decls[0];
     if (!decl.initializer) return 'var-no-init';
     if (decl.type && !isValidKernTypeAnnotation(decl.type.getText(sf))) return 'var-bad-type';
-    if (decl.type && !ts.isIdentifier(decl.name)) return 'var-typed-destructure';
     if (!ts.isIdentifier(decl.name)) return classifyDestructureDecl(decl, sf);
     if (!isValidKernExpression(decl.initializer.getText(sf))) return 'var-bad-expr';
     return null;

@@ -125,8 +125,7 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string,
     if (!decl.initializer) return null;
     const typeText = decl.type?.getText(source);
     if (typeText && !isValidKernTypeAnnotation(typeText)) return null;
-    if (typeText && !ts.isIdentifier(decl.name)) return null;
-    if (!ts.isIdentifier(decl.name)) return mapDestructureDecl(decl, source, indent);
+    if (!ts.isIdentifier(decl.name)) return mapDestructureDecl(decl, source, indent, typeText);
     const name = decl.name.text;
     const exprText = decl.initializer.getText(source);
     if (!isValidKernExpression(exprText)) return null;
@@ -267,11 +266,17 @@ function mapTry(stmt: ts.TryStatement, source: ts.SourceFile, indent: string, ct
   return out;
 }
 
-function mapDestructureDecl(decl: ts.VariableDeclaration, source: ts.SourceFile, indent: string): string[] | null {
+function mapDestructureDecl(
+  decl: ts.VariableDeclaration,
+  source: ts.SourceFile,
+  indent: string,
+  typeText?: string,
+): string[] | null {
   if (!decl.initializer) return null;
   const sourceText = decl.initializer.getText(source);
   if (!isValidKernExpression(sourceText)) return null;
-  const out: string[] = [`${indent}destructure kind=const source="${escapeKernString(sourceText)}"`];
+  const typeAttr = typeText ? ` type="${escapeKernString(typeText)}"` : '';
+  const out: string[] = [`${indent}destructure kind=const${typeAttr} source="${escapeKernString(sourceText)}"`];
   const name = decl.name;
 
   if (ts.isObjectBindingPattern(name)) {

@@ -536,7 +536,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     // Two shapes share this `try` node type:
     // 1. Async-orchestration: `try name=loadUser` with `step`/`handler`/`catch` children.
     // 2. Body-statement (slice 4c+4d, opt-in via parent `handler lang="kern"`):
-    //    `try` with `let`/`assign`/`return`/`if`/`throw`/`each`/`try` body-statement children
+    //    `try` with `let`/`assign`/`destructure`/`return`/`if`/`throw`/`each`/`try` body-statement children
     //    plus a required `catch` child. Schema permits both child sets;
     //    body-ts.ts disambiguates by inspecting the children, and validateBodyStatements
     //    enforces the body-statement-only constraints when the enclosing handler is `lang="kern"`.
@@ -546,6 +546,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'catch',
       'let',
       'assign',
+      'destructure',
       'do',
       'return',
       'if',
@@ -580,6 +581,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'handler',
       'let',
       'assign',
+      'destructure',
       'do',
       'return',
       'if',

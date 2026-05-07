@@ -180,6 +180,23 @@ describe('emitNativeKernBodyTS — destructure body statement', () => {
     expect(out).toContain('return trackId;');
   });
 
+  test('emits typed object destructuring inside native body', () => {
+    const handler = makeHandler([
+      {
+        type: 'destructure',
+        props: { kind: 'const', source: 'req.body', type: '{ trackId: string; options: Options }' },
+        children: [
+          { type: 'binding', props: { name: 'trackId' } },
+          { type: 'binding', props: { name: 'opts', key: 'options' } },
+        ],
+      },
+    ]);
+
+    expect(emitNativeKernBodyTS(handler)).toContain(
+      'const { trackId, options: opts }: { trackId: string; options: Options } = req.body;',
+    );
+  });
+
   test('emits array destructuring inside native body', () => {
     const handler = makeHandler([
       {
@@ -193,6 +210,21 @@ describe('emitNativeKernBodyTS — destructure body statement', () => {
     ]);
 
     expect(emitNativeKernBodyTS(handler)).toContain('const [first, , third] = pair;');
+  });
+
+  test('emits typed array destructuring inside native body', () => {
+    const handler = makeHandler([
+      {
+        type: 'destructure',
+        props: { kind: 'const', source: 'pair', type: '[string, number]' },
+        children: [
+          { type: 'element', props: { name: 'first', index: '0' } },
+          { type: 'element', props: { name: 'second', index: '1' } },
+        ],
+      },
+    ]);
+
+    expect(emitNativeKernBodyTS(handler)).toContain('const [first, second]: [string, number] = pair;');
   });
 
   test('rejects propagation source inside try with try-specific guidance', () => {

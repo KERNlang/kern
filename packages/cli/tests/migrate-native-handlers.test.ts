@@ -267,6 +267,43 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
+  test('migrates typed object destructuring const', () => {
+    const source = [
+      'fn name=load returns=string',
+      '  handler <<<',
+      '    const { trackId, options }: { trackId: string; options: Options } = req.body;',
+      '    return trackId;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain(
+      'destructure kind=const type="{ trackId: string; options: Options }" source="req.body"',
+    );
+    expect(result.output).toContain('binding name=trackId');
+    expect(result.output).toContain('binding name=options');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates renamed typed object destructuring with string-literal type', () => {
+    const source = [
+      'fn name=load returns=string',
+      '  handler <<<',
+      '    const { status: mode }: { status: "active" | "paused" } = req.body;',
+      '    return mode;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain(
+      'destructure kind=const type="{ status: \\"active\\" | \\"paused\\" }" source="req.body"',
+    );
+    expect(result.output).toContain('binding name=mode key=status');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
   test('migrates renamed object destructuring const', () => {
     const source = [
       'fn name=load returns=string',
@@ -296,6 +333,40 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(result.output).toContain('destructure kind=const source="values"');
     expect(result.output).toContain('element name=first index=0');
     expect(result.output).toContain('element name=second index=1');
+  });
+
+  test('migrates typed array destructuring const', () => {
+    const source = [
+      'fn name=pair returns=string',
+      '  handler <<<',
+      '    const [first, second]: [string, number] = values;',
+      '    return first;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('destructure kind=const type="[string, number]" source="values"');
+    expect(result.output).toContain('element name=first index=0');
+    expect(result.output).toContain('element name=second index=1');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
+  test('migrates typed array destructuring with elision', () => {
+    const source = [
+      'fn name=pair returns=boolean',
+      '  handler <<<',
+      '    const [first, , third]: [string, number, boolean] = values;',
+      '    return third;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('destructure kind=const type="[string, number, boolean]" source="values"');
+    expect(result.output).toContain('element name=first index=0');
+    expect(result.output).toContain('element name=third index=2');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
   test('migrates TS-style type assertions inside expressions', () => {
@@ -567,16 +638,35 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.hits).toHaveLength(0);
   });
 
-  test('bails on typed destructuring until destructure preserves annotations', () => {
+  test('bails on typed destructuring with unsafe type annotation', () => {
     const source = [
       'fn name=ok returns=number',
       '  handler <<<',
-      '    const { x }: { x: number } = obj;',
+      '    const { x }: typeof import("fs") = obj;',
       '    return x;',
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
+  });
+
+  test('migrates typed destructuring inside try blocks', () => {
+    const source = [
+      'fn name=load returns=void',
+      '  handler <<<',
+      '    try {',
+      '      const { id }: { id: string } = req.body;',
+      '      use(id);',
+      '    } catch (err) {',
+      '      return;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('try');
+    expect(result.output).toContain('destructure kind=const type="{ id: string }" source="req.body"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
   test('bails on while without a block to avoid verify drift', () => {
@@ -1109,6 +1199,96 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     const ts = emitNativeKernBodyTS(handler as IRNode);
     expect(ts).toContain('const { trackId, options } = req.body;');
     expect(ts).toContain('return trackId;');
+  });
+
+  test('typed object destructuring compiles byte-equivalent through destructure body-statement', () => {
+    const source = [
+      'fn name=load returns=string',
+      '  handler <<<',
+      '    const { trackId, options }: { trackId: string; options: Options } = req.body;',
+      '    return trackId;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('const { trackId, options }: { trackId: string; options: Options } = req.body;');
+    expect(ts).toContain('return trackId;');
+  });
+
+  test('renamed typed object destructuring compiles byte-equivalent', () => {
+    const source = [
+      'fn name=load returns=string',
+      '  handler <<<',
+      '    const { status: mode }: { status: "active" | "paused" } = req.body;',
+      '    return mode;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['const { status: mode }: { status: "active" | "paused" } = req.body;', 'return mode;'].join('\n'));
+  });
+
+  test('typed array destructuring compiles byte-equivalent through destructure body-statement', () => {
+    const source = [
+      'fn name=pair returns=string',
+      '  handler <<<',
+      '    const [first, second]: [string, number] = values;',
+      '    return first;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('const [first, second]: [string, number] = values;');
+    expect(ts).toContain('return first;');
+  });
+
+  test('typed array destructuring with elision compiles byte-equivalent', () => {
+    const source = [
+      'fn name=pair returns=boolean',
+      '  handler <<<',
+      '    const [first, , third]: [string, number, boolean] = values;',
+      '    return third;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['const [first, , third]: [string, number, boolean] = values;', 'return third;'].join('\n'));
+  });
+
+  test('typed destructuring inside try compiles byte-equivalent', () => {
+    const source = [
+      'fn name=load returns=void',
+      '  handler <<<',
+      '    try {',
+      '      const { id }: { id: string } = req.body;',
+      '      use(id);',
+      '    } catch (err) {',
+      '      return;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(
+      ['try {', '  const { id }: { id: string } = req.body;', '  use(id);', '} catch (err) {', '  return;', '}'].join(
+        '\n',
+      ),
+    );
   });
 
   test('type assertion compiles byte-equivalent through ValueIR typeAssert', () => {
