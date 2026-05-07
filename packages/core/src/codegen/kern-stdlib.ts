@@ -115,6 +115,79 @@ export const KERN_STDLIB: Record<string, Record<string, StdlibEntry>> = {
     // (not the global `isNaN`) so the TS output is the strict, type-safe form.
     isNaN: { arity: 1, ts: 'Number.isNaN($0)', py: '__k_math.isnan($0)', requires: { py: 'math' } },
   },
+  // Json + Path — pure/sync stdlib slice. Json relies on globals on TS (`JSON`)
+  // and the stdlib `json` module on Python. Path covers the most common pure
+  // string-on-path operation (`basename`); `posixpath` is platform-independent
+  // (always treats `/` as the separator) so cross-target results match the
+  // TS split-pop lowering byte-for-byte regardless of host OS.
+  //
+  // Variadic stdlib (e.g., `Path.join(a, b, ...rest)`) is intentionally NOT
+  // included here. The current `StdlibEntry.arity: number` shape and the
+  // arity check at both call sites (`call.args.length !== entry.arity`) only
+  // model a fixed-arity contract. Adding `Path.join` would either need a
+  // schema change to the lowering table or a special-case branch in the
+  // dispatcher; both are out of scope for this slice. Users who need
+  // multi-segment join can chain `Text.…` / nested calls or fall back to a
+  // raw `lang=ts`/`lang=python` body until variadic lands.
+  //
+  // Cross-target divergences (Json) — known and documented, NOT corrected
+  // automatically:
+  //   - `Json.stringify` review fix (Codex): default `json.dumps` inserts
+  //     `", "` / `": "` separators and ASCII-escapes non-ASCII (`"caf\\u00e9"`).
+  //     `JSON.stringify` is compact and Unicode-literal. To restore byte
+  //     parity for typical inputs we pass `separators=(",", ":")` and
+  //     `ensure_ascii=False`.
+  //   - `Json.parse` accepts more on Python than on TS: `json.loads` parses
+  //     `NaN` / `Infinity` / `-Infinity` literals (a Python extension);
+  //     `JSON.parse` rejects them as `SyntaxError`. KERN's typical use case
+  //     parses API responses which never contain those literals, so this
+  //     slice does not attempt to tighten Python parsing — we lift this to
+  //     a follow-up if real divergence shows up. Until then, treat both
+  //     targets as "JSON only" at the API boundary.
+  //   - `Json.stringify` of `undefined` / functions / `Date` instances:
+  //     TS silently drops `undefined` and function values, and serializes
+  //     `Date` via `.toISOString()`. Python `dumps` raises `TypeError` on
+  //     all three. KERN's type system already rejects `undefined` and
+  //     functions as serializable inputs in typed bodies, so this is
+  //     unreachable from well-typed source. `Date` is reachable; users
+  //     handling timestamps should serialize them explicitly with
+  //     `Text.…` helpers before stringifying, matching what they would
+  //     write in Python today.
+  //   - `Json.parse` and `Json.stringify` failure modes throw target-native
+  //     error classes (TS `SyntaxError`/`TypeError` vs Python
+  //     `JSONDecodeError`/`TypeError`). KERN doesn't yet wrap stdlib errors
+  //     into a portable hierarchy; user code should not catch on the class
+  //     name, only on the call boundary.
+  Json: {
+    parse: { arity: 1, ts: 'JSON.parse($0)', py: '__k_json.loads($0)', requires: { py: 'json' } },
+    // Slice review fix (Codex): default Python `json.dumps` inserts `", "`/`": "`
+    // separators and ASCII-escapes non-ASCII characters, so the same KERN source
+    // emitted byte-divergent strings on the two targets — breaking hashing /
+    // comparison / network-payload equality. Force compact separators and
+    // literal-Unicode output to match `JSON.stringify` byte-for-byte for
+    // primitives, arrays, and plain objects of strings/numbers/booleans/null.
+    stringify: {
+      arity: 1,
+      ts: 'JSON.stringify($0)',
+      py: '__k_json.dumps($0, separators=(",", ":"), ensure_ascii=False)',
+      requires: { py: 'json' },
+    },
+  },
+  Path: {
+    // TS: split-pop is single-eval (`$0` substituted once) and posix-only,
+    // matching the Python `posixpath` semantics. The outer parens are required
+    // because `??` has lower precedence than member access — without them,
+    // `Path.basename(x).slice(0)` would parse as `… ?? ''.slice(0)`.
+    // Python: `__k_posixpath.basename` is platform-independent (unlike
+    // `os.path.basename`, which switches separators on Windows). Aliased via
+    // `__k_posixpath` so any user binding named `posixpath` stays accessible.
+    basename: {
+      arity: 1,
+      ts: '($0.split("/").at(-1) ?? "")',
+      py: '__k_posixpath.basename($0)',
+      requires: { py: 'posixpath' },
+    },
+  },
 };
 
 export const KERN_STDLIB_MODULES = new Set(Object.keys(KERN_STDLIB));

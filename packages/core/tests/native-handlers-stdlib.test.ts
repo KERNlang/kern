@@ -85,3 +85,119 @@ describe('emitExpression — TS — KERN-stdlib dispatch', () => {
     expect(emitExpression(parseExpression('arr.push(x)'))).toBe('arr.push(x)');
   });
 });
+
+// ── Json + Path slice — pure/sync stdlib, no closures, no IO ──────────────
+
+describe('KERN_STDLIB table — Json module', () => {
+  test('Json module is registered as known stdlib module', () => {
+    expect(KERN_STDLIB_MODULES.has('Json')).toBe(true);
+  });
+
+  test('Json.parse and Json.stringify are registered with both targets', () => {
+    for (const op of ['parse', 'stringify']) {
+      const entry = lookupStdlib('Json', op);
+      expect(entry).not.toBeNull();
+      expect(entry!.ts).toBeDefined();
+      expect(entry!.py).toBeDefined();
+    }
+  });
+
+  test('Json.parse declares a Python `json` import requirement (TS none)', () => {
+    const entry = lookupStdlib('Json', 'parse');
+    expect(entry!.requires?.py).toBe('json');
+    expect(entry!.requires?.ts).toBeUndefined();
+  });
+
+  test('Json.stringify declares a Python `json` import requirement (TS none)', () => {
+    const entry = lookupStdlib('Json', 'stringify');
+    expect(entry!.requires?.py).toBe('json');
+    expect(entry!.requires?.ts).toBeUndefined();
+  });
+
+  test('suggestStdlibMethod on Json finds near matches', () => {
+    expect(suggestStdlibMethod('Json', 'pase')).toBe('parse');
+    expect(suggestStdlibMethod('Json', 'stringfy')).toBe('stringify');
+  });
+});
+
+describe('KERN_STDLIB table — Path module', () => {
+  test('Path module is registered as known stdlib module', () => {
+    expect(KERN_STDLIB_MODULES.has('Path')).toBe(true);
+  });
+
+  test('Path.basename is registered (variadic Path.join intentionally omitted)', () => {
+    expect(lookupStdlib('Path', 'basename')).not.toBeNull();
+    // Variadic operations are not yet expressible in the StdlibEntry shape
+    // (fixed `arity: number`), so `Path.join(a, b, ...rest)` is excluded
+    // from this slice. Re-add when the table grows variadic support.
+    expect(lookupStdlib('Path', 'join')).toBeNull();
+  });
+
+  test('Path.basename declares a Python `posixpath` import requirement (TS none)', () => {
+    const entry = lookupStdlib('Path', 'basename');
+    expect(entry!.requires?.py).toBe('posixpath');
+    expect(entry!.requires?.ts).toBeUndefined();
+  });
+});
+
+describe('emitExpression — TS — Json/Path stdlib dispatch', () => {
+  test('Json.parse(x) lowers to TS JSON.parse(x)', () => {
+    expect(emitExpression(parseExpression('Json.parse(s)'))).toBe('JSON.parse(s)');
+  });
+
+  test('Json.stringify(x) lowers to TS JSON.stringify(x)', () => {
+    expect(emitExpression(parseExpression('Json.stringify(obj)'))).toBe('JSON.stringify(obj)');
+  });
+
+  test('Json.parse arity is enforced (zero args throws)', () => {
+    expect(() => emitExpression(parseExpression('Json.parse()'))).toThrow(/takes 1 arg/);
+  });
+
+  test('Json.stringify arity is enforced (two args throws)', () => {
+    expect(() => emitExpression(parseExpression('Json.stringify(a, b)'))).toThrow(/takes 1 arg/);
+  });
+
+  test('unknown method on Json throws with did-you-mean', () => {
+    expect(() => emitExpression(parseExpression('Json.parze(s)'))).toThrow(/Json.parse/);
+  });
+
+  test('Path.basename(p) lowers to TS split-pop expression with empty-string fallback', () => {
+    // Single-eval: `$0` is substituted once into `($0.split("/").at(-1) ?? "")`.
+    expect(emitExpression(parseExpression('Path.basename(p)'))).toBe('(p.split("/").at(-1) ?? "")');
+  });
+
+  test('Path.basename composes inside another call', () => {
+    expect(emitExpression(parseExpression('check(Path.basename(p))'))).toBe('check((p.split("/").at(-1) ?? ""))');
+  });
+
+  test('Path.basename arity is enforced', () => {
+    expect(() => emitExpression(parseExpression('Path.basename(a, b)'))).toThrow(/takes 1 arg/);
+  });
+
+  test('unknown method on Path throws with did-you-mean', () => {
+    expect(() => emitExpression(parseExpression('Path.basname(p)'))).toThrow(/Path.basename/);
+  });
+
+  test('nested Json + Text composes', () => {
+    expect(emitExpression(parseExpression('Json.parse(Text.trim(raw))'))).toBe('JSON.parse(raw.trim())');
+  });
+
+  // OpenCode review-coverage fix: Path.basename's `?? ""` fallback is reached
+  // for empty-string and trailing-slash inputs at runtime. Codegen-level
+  // tests can't exercise runtime values directly, but we assert the emitted
+  // form preserves the empty-fallback expression so the runtime contract
+  // remains visible in source. The cross-target parity for those inputs is
+  // documented in kern-stdlib.ts comments and confirmed in OpenCode's review
+  // table (TS split-pop and Python posixpath.basename agree on `""`, `"a/"`,
+  // `"//"`, and `"a/b"`).
+  test('Path.basename emit preserves the empty-string fallback', () => {
+    const out = emitExpression(parseExpression('Path.basename(p)'));
+    expect(out).toContain('?? ""');
+    expect(out).toContain('.split("/").at(-1)');
+  });
+
+  test('Path.basename works on a literal string arg', () => {
+    // Confirms template substitution doesn't break on string-literal `$0`.
+    expect(emitExpression(parseExpression('Path.basename("a/b/c.txt")'))).toBe('("a/b/c.txt".split("/").at(-1) ?? "")');
+  });
+});
