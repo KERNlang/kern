@@ -3,7 +3,7 @@
  *  Verifies the pure rewriter in isolation. The rewriter takes raw `.kern`
  *  source containing `handler <<< … >>>` blocks and converts the eligible
  *  ones to `handler lang="kern"` body-statement form. Anything outside the
- *  supported AST shape (let/var, destructuring, unsupported loops, comments,
+ *  supported AST shape (mutable declarations, unsupported loops, comments,
  *  arrow functions etc.) is skipped — never half-migrated.
  *
  *  Round-trip safety is provided by the slice 5b-pre parser surface
@@ -562,9 +562,42 @@ describe('rewriteNativeHandlers — bail conditions', () => {
   });
 
   test('bails on compound assignment ExpressionStatement', () => {
-    const source = ['fn name=ok returns=void', '  handler <<<', '    x += 1;', '  >>>'].join('\n');
+    const source = ['fn name=ok returns=void', '  handler <<<', '    x &&= next;', '  >>>'].join('\n');
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on JS-only unsigned right shift assignment', () => {
+    const source = ['fn name=ok returns=void', '  handler <<<', '    x >>>= 1;', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('bails on compound assignment with optional-chain target', () => {
+    const source = ['fn name=ok returns=void', '  handler <<<', '    obj?.x += 1;', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+  });
+
+  test('migrates compound assignment ExpressionStatement to assign op', () => {
+    const source = [
+      'fn name=ok returns=number',
+      '  handler <<<',
+      '    total += item.value;',
+      '    obj.count += 1;',
+      '    arr[0] |= mask;',
+      '    this.count += 1;',
+      '    mask |= Flag.Ready;',
+      '    return total;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('assign target="total" op="+=" value="item.value"');
+    expect(result.output).toContain('assign target="obj.count" op="+=" value="1"');
+    expect(result.output).toContain('assign target="arr[0]" op="|=" value="mask"');
+    expect(result.output).toContain('assign target="mask" op="|=" value="Flag.Ready"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
   test('bails on optional-chain assignment targets', () => {
@@ -687,7 +720,7 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     expect(result.hits).toHaveLength(0);
   });
 
-  test('typed for-of still bails on unsupported body mutation', () => {
+  test('typed for-of migrates compound assignment body', () => {
     const source = [
       'fn name=ok returns=void',
       '  handler <<<',
@@ -697,7 +730,9 @@ describe('rewriteNativeHandlers — bail conditions', () => {
       '  >>>',
     ].join('\n');
     const result = rewriteNativeHandlers(source);
-    expect(result.hits).toHaveLength(0);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('each name=user in="users" type="User"');
+    expect(result.output).toContain('assign target="count" op="+=" value="1"');
   });
 
   test('bails on typed destructuring with unsafe type annotation', () => {
@@ -1455,6 +1490,76 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     expect(ts).toContain('x = 1;');
     expect(ts).toContain('obj.x = x;');
     expect(ts).toContain('arr[0] = obj.x;');
+  });
+
+  test('compound assignment compiles byte-equivalent through body assign op', () => {
+    const source = [
+      'fn name=mutate returns=void',
+      '  handler <<<',
+      '    total += item.value;',
+      '    obj.count += 1;',
+      '    arr[0] |= mask;',
+      '    this.count += 1;',
+      '    mask |= Flag.Ready;',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(
+      ['total += item.value;', 'obj.count += 1;', 'arr[0] |= mask;', 'this.count += 1;', 'mask |= Flag.Ready;'].join(
+        '\n',
+      ),
+    );
+  });
+
+  test('compound assignment with optional-chain value compiles byte-equivalent', () => {
+    const source = ['fn name=mutate returns=void', '  handler <<<', '    total += item?.value;', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe('total += item?.value;');
+  });
+
+  test('compound assignment nested in typed for-of compiles byte-equivalent', () => {
+    const source = [
+      'fn name=mutate returns=void',
+      '  handler <<<',
+      '    for (const user: User of users) {',
+      '      count += user.score;',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(['for (const user: User of users) {', '  count += user.score;', '}'].join('\n'));
+  });
+
+  test.each([
+    '-=',
+    '*=',
+    '/=',
+    '%=',
+    '**=',
+    '&=',
+    '^=',
+    '<<=',
+    '>>=',
+  ])('compound assignment %s compiles byte-equivalent through body assign op', (op) => {
+    const source = ['fn name=mutate returns=void', '  handler <<<', `    value ${op} delta;`, '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toBe(`value ${op} delta;`);
   });
 
   test('this assignment compiles byte-equivalent through body assign', () => {

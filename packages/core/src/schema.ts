@@ -16,6 +16,7 @@
  *   - 'number'         → numeric value
  */
 
+import { isSupportedAssignOperator, SUPPORTED_ASSIGN_OPERATORS } from './assignment-operators.js';
 import { type KernTarget, VALID_TARGETS } from './config.js';
 import { defaultRuntime, type KernRuntime } from './runtime.js';
 import { KERN_VERSION, NODE_TYPES, STYLE_SHORTHANDS, VALUE_SHORTHANDS } from './spec.js';
@@ -1535,11 +1536,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   assign: {
     description:
-      'Body-statement assignment — emits `target = value` inside a `lang="kern"` handler body. Supports assignable targets only: identifier, member access, and index access. Compound assignment (`+=`) and increment/decrement are deliberately separate future features.',
-    example: 'assign target="user.name" value="nextName"',
+      'Body-statement assignment — emits `target = value` inside a `lang="kern"` handler body. Supports assignable targets only: identifier, member access, and index access. Add `op=` for target-native compound operators (`+=`, `-=`, `*=`, `/=`, `%=`, `**=`, `&=`, `|=`, `^=`, `<<=`, `>>=`). Compound assignment follows the target runtime model: `/=` may mutate Python int-like bindings to floats, `**=` has JS/Python edge-case differences, bitwise ops use JS int32 coercion on TS but arbitrary-precision integers on Python, and closure/global rebinding may require target-specific scoping (`nonlocal`/`global` in Python). JS-only logical/nullish/unsigned-right-shift assignment stays foreign/raw.',
+    example: 'assign target="user.name" value="nextName"\nassign target="count" op="+=" value="1"',
     props: {
       target: { required: true, kind: 'expression' },
       value: { required: true, kind: 'expression' },
+      op: { kind: 'string' },
     },
   },
   throw: {
@@ -2758,6 +2760,17 @@ function checkRequiredProps(node: IRNode, schema: NodeSchema, violations: Schema
 
 function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
   const props = node.props || {};
+  if (node.type === 'assign' && props.op !== undefined && props.op !== '') {
+    const op = String(props.op);
+    if (!isSupportedAssignOperator(op)) {
+      violations.push({
+        nodeType: 'assign',
+        message: `'assign op=' supports only ${SUPPORTED_ASSIGN_OPERATORS.map((v) => `\`${v}\``).join(', ')} (got \`${op}\`)`,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
   if (node.type === 'component' && !('ref' in props) && !('name' in props)) {
     violations.push({
       nodeType: 'component',

@@ -21,6 +21,7 @@
  *  instead of a generic "ineligible". */
 
 import ts from 'typescript';
+import { supportedCompoundAssignmentOperator } from './assignment-operators.js';
 import { emitTypeAnnotation } from './codegen/emitters.js';
 import { parseExpression } from './parser-expression.js';
 import type { ValueIR } from './value-ir.js';
@@ -183,7 +184,9 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile, ctx: ClassifyContex
     if (ts.isBinaryExpression(stmt.expression)) {
       const op = stmt.expression.operatorToken.kind;
       if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) {
-        if (op !== ts.SyntaxKind.EqualsToken) return 'expr-stmt-assignment';
+        if (op !== ts.SyntaxKind.EqualsToken && !supportedCompoundAssignmentOperator(op)) {
+          return 'expr-stmt-assignment';
+        }
         if (!isValidKernAssignmentTarget(stmt.expression.left.getText(sf))) return 'expr-stmt-bad-assign-target';
         if (!isValidKernAssignmentValue(stmt.expression.right.getText(sf))) return 'expr-stmt-bad-assign-value';
         return null;

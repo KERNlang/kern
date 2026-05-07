@@ -12,6 +12,7 @@
  */
 
 import { emitNativeKernBodyTS } from '../src/codegen/body-ts.js';
+import { decompile } from '../src/decompiler.js';
 import { parseDocumentStrict, parseDocumentWithDiagnostics } from '../src/parser.js';
 import type { IRNode } from '../src/types.js';
 
@@ -130,6 +131,47 @@ describe('slice 5b-pre — body-statement source round-trip (positive)', () => {
 
     const emitted = emitNativeKernBodyTS(handler);
     expect(emitted).toContain('obj.x = 1;');
+  });
+
+  test('body-statement compound assign round-trips and decompiles re-parseably', () => {
+    const src = [
+      'fn name=setValue returns=void',
+      '  handler lang="kern"',
+      '    assign target=total op="+=" value="item.value"',
+    ].join('\n');
+
+    const root = parseDocumentStrict(src);
+    const handler = findFirstHandler(root);
+    expect((handler.children ?? [])[0]?.props).toMatchObject({ target: 'total', op: '+=', value: 'item.value' });
+    expect(emitNativeKernBodyTS(handler)).toContain('total += item.value;');
+
+    // Decompile the body statement directly; handler decompile still renders
+    // raw `props.code` blocks and intentionally does not reconstruct children.
+    const text = decompile((handler.children ?? [])[0] as IRNode).code;
+    expect(text).toContain('assign target=total op="+=" value="item.value"');
+    expect(() =>
+      parseDocumentStrict(['fn name=setValue returns=void', '  handler lang="kern"', `    ${text}`].join('\n')),
+    ).not.toThrow();
+  });
+
+  test.each([
+    '+=',
+    '-=',
+    '*=',
+    '/=',
+    '%=',
+    '**=',
+    '&=',
+    '|=',
+    '^=',
+    '<<=',
+    '>>=',
+  ])('body-statement compound assign op %s decompiles re-parseably', (op) => {
+    const text = decompile({ type: 'assign', props: { target: 'value', op, value: 'delta' } }).code;
+    expect(text).toBe(`assign target=value op="${op}" value=delta`);
+    expect(() =>
+      parseDocumentStrict(['fn name=setValue returns=void', '  handler lang="kern"', `    ${text}`].join('\n')),
+    ).not.toThrow();
   });
 
   test('body-statement while round-trips', () => {

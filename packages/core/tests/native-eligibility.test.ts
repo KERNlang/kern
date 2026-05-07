@@ -149,6 +149,12 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     expect(classifyHandlerBody(`arr[obj?.idx] = value;\nreturn arr;`).eligible).toBe(true);
   });
 
+  test('cross-target-safe compound assignment statements are eligible', () => {
+    expect(classifyHandlerBody(`total += item.value;\nreturn total;`)).toEqual({ eligible: true, reason: 'ok' });
+    expect(classifyHandlerBody(`mask |= Flag.Ready;\nreturn mask;`)).toEqual({ eligible: true, reason: 'ok' });
+    expect(classifyHandlerBody(`count **= 2;\nreturn count;`)).toEqual({ eligible: true, reason: 'ok' });
+  });
+
   test('while block with migratable body is eligible', () => {
     const body = `while (queue.length > 0) {\n  const item = queue.shift();\n  process(item);\n}\nreturn queue;`;
     expect(classifyHandlerBody(body)).toEqual({ eligible: true, reason: 'ok' });
@@ -212,8 +218,12 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('for-of with unsafe type annotation rejected', () =>
     rejected(`for (const user: typeof import("fs") of users) {\n  notify(user);\n}`, 'for-of-bad-type'));
 
-  test('for-of with mutation body rejected by inner reason', () =>
-    rejected(`for (const x of xs) {\n  y += x;\n}\nreturn y;`, 'expr-stmt-assignment'));
+  test('for-of with compound assignment body is eligible', () => {
+    expect(classifyHandlerBody(`for (const x of xs) {\n  y += x;\n}\nreturn y;`)).toEqual({
+      eligible: true,
+      reason: 'ok',
+    });
+  });
 
   test('while non-block rejected to preserve verify byte-equivalence', () =>
     rejected(`while (i < 10) i++;\nreturn i;`, 'while-non-block'));
@@ -259,8 +269,11 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('pre-decrement rejected (mutation ExpressionStatement)', () =>
     rejected(`const x = 5;\n--x;\nreturn x;`, 'expr-stmt-mutation'));
 
-  test('compound add-assign rejected (assignment ExpressionStatement)', () =>
-    rejected(`const x = 1;\nx += 2;\nreturn x;`, 'expr-stmt-assignment'));
+  test('JS-only logical assignment rejected (assignment ExpressionStatement)', () =>
+    rejected(`x &&= next;\nreturn x;`, 'expr-stmt-assignment'));
+
+  test('JS-only unsigned right shift assignment rejected (assignment ExpressionStatement)', () =>
+    rejected(`x >>>= 1;\nreturn x;`, 'expr-stmt-assignment'));
 
   test('void operator rejected (parser-expression bails)', () => rejected(`return void 0;`, 'return-bad-expr'));
 
@@ -397,7 +410,7 @@ describe('scanFileForEligibility', () => {
       `  return 1 + 2;`,
       `>>>`,
       `fn name="loop" handler<<<`,
-      `  for (const x of xs) { y += x; }`,
+      `  for (const x of xs) { y &&= x; }`,
       `  return y;`,
       `>>>`,
       `fn name="empty" handler<<<`,

@@ -3,8 +3,8 @@
  * `lang="kern"` body-statement form.
  *
  * Input:  raw JS body in `<<<…>>>` that passes the slice 5a `classifyHandlerBody`
- *         eligibility check (no arrow functions, unsupported loops, mutation, destructuring,
- *         indexing, regex literals, console/process/req/res access, …).
+ *         eligibility check (no arrow functions, unsupported loops, unsafe mutation,
+ *         regex literals, console/process/req/res access, …).
  *
  * Output: `handler lang="kern"` with structured body-statement children
  *         (`let`/`return`/`if`/`else`/`try`/`catch`/`throw`). Slice 5b-pre
@@ -24,6 +24,7 @@ import {
   isValidKernAssignmentValue,
   isValidKernExpression,
   isValidKernTypeAnnotation,
+  supportedCompoundAssignmentOperator,
 } from '@kernlang/core';
 import ts from 'typescript';
 
@@ -179,22 +180,26 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string,
     // pre-α — see project_alpha_migrator_ast_plan.md.
     //
     // Plain `=` assignment maps to the structured `assign` body-statement.
-    // Compound assignment and prefix/postfix mutations remain unsupported
-    // because they need distinct cross-target semantics.
+    // Cross-target-safe compound assignment maps to `assign op=...`.
+    // Prefix/postfix mutations remain unsupported because `x++` would not be
+    // byte-equivalent to the `x += 1` body-statement shape under --verify.
     //
-    // Gemini review: cover ALL assignment operators, not just `=`. The classifier
-    // regex `[+\-*/%]=` misses bitwise (`|=`, `&=`, `^=`, `<<=`, `>>=`, `>>>=`),
-    // logical (`&&=`, `||=`, `??=`), and exponentiation (`**=`) assignments.
-    // TS's FirstAssignment/LastAssignment range covers the full set.
+    // TS's FirstAssignment/LastAssignment range covers the full assignment
+    // family. We then admit only the cross-target-safe subset; JS-only
+    // `>>>=`, `&&=`, `||=`, and `??=` deliberately stay foreign/raw.
     if (ts.isBinaryExpression(stmt.expression)) {
       const op = stmt.expression.operatorToken.kind;
       if (op >= ts.SyntaxKind.FirstAssignment && op <= ts.SyntaxKind.LastAssignment) {
-        if (op !== ts.SyntaxKind.EqualsToken) return null;
+        const opText = op === ts.SyntaxKind.EqualsToken ? '=' : supportedCompoundAssignmentOperator(op);
+        if (!opText) return null;
         const targetText = stmt.expression.left.getText(source);
         const valueText = stmt.expression.right.getText(source);
         if (!isValidKernAssignmentTarget(targetText)) return null;
         if (!isValidKernAssignmentValue(valueText)) return null;
-        return [`${indent}assign target="${escapeKernString(targetText)}" value="${escapeKernString(valueText)}"`];
+        const opAttr = opText === '=' ? '' : ` op="${escapeKernString(opText)}"`;
+        return [
+          `${indent}assign target="${escapeKernString(targetText)}"${opAttr} value="${escapeKernString(valueText)}"`,
+        ];
       }
     }
     if (ts.isPostfixUnaryExpression(stmt.expression) || ts.isPrefixUnaryExpression(stmt.expression)) {

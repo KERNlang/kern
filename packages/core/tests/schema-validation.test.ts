@@ -12,6 +12,15 @@ function validate(source: string) {
 }
 
 describe('Schema Validation', () => {
+  describe('assign op', () => {
+    it('rejects unsupported compound assignment operators at schema validation', () => {
+      const v = validate(
+        ['fn name=bad returns=void', '  handler lang="kern"', '    assign target=x op="&&=" value=next'].join('\n'),
+      );
+      expect(v.some((violation) => violation.message.includes("'assign op=' supports only"))).toBe(true);
+    });
+  });
+
   describe('required props', () => {
     it('passes valid interface', () => {
       const v = validate(['interface name=User', '  field name=id type=string'].join('\n'));

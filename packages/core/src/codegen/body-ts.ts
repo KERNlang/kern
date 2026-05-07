@@ -42,6 +42,7 @@
  *  `if`/`else` branches indent correctly. The caller adds the leading indent
  *  for the surrounding function body. */
 
+import { isSupportedAssignOperator } from '../assignment-operators.js';
 import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { IRNode } from '../types.js';
@@ -361,11 +362,15 @@ function emitAssignTS(node: IRNode, _ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const rawTarget = props.target;
   const rawValue = props.value;
+  const rawOp = props.op === undefined || props.op === '' ? '=' : String(props.op);
   if (rawTarget === undefined || rawTarget === '') {
     throw new Error('body-statement `assign` requires `target=`.');
   }
   if (rawValue === undefined || rawValue === '') {
     throw new Error('body-statement `assign` requires `value=`.');
+  }
+  if (!isSupportedAssignOperator(rawOp)) {
+    throw new Error(`body-statement \`assign op=\` does not support \`${rawOp}\`.`);
   }
   const targetIR = parseExpression(String(rawTarget));
   if (!isAssignableTarget(targetIR)) {
@@ -377,7 +382,7 @@ function emitAssignTS(node: IRNode, _ctx: BodyEmitContext): string[] {
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
     );
   }
-  return [`${emitExpression(targetIR)} = ${emitExpression(valueIR)};`];
+  return [`${emitExpression(targetIR)} ${rawOp} ${emitExpression(valueIR)};`];
 }
 
 function isAssignableTarget(node: ValueIR): boolean {

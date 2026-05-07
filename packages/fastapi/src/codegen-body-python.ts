@@ -41,6 +41,7 @@
 import type { IRNode, ValueIR } from '@kernlang/core';
 import {
   applyTemplate,
+  isSupportedAssignOperator,
   KERN_STDLIB_MODULES,
   lookupStdlib,
   needsArgParens,
@@ -436,11 +437,15 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const rawTarget = props.target;
   const rawValue = props.value;
+  const rawOp = props.op === undefined || props.op === '' ? '=' : String(props.op);
   if (rawTarget === undefined || rawTarget === '') {
     throw new Error('body-statement `assign` requires `target=`.');
   }
   if (rawValue === undefined || rawValue === '') {
     throw new Error('body-statement `assign` requires `value=`.');
+  }
+  if (!isSupportedAssignOperator(rawOp)) {
+    throw new Error(`body-statement \`assign op=\` does not support \`${rawOp}\` on Python.`);
   }
   const targetIR = parseExpression(String(rawTarget));
   if (!isAssignableTarget(targetIR)) {
@@ -452,7 +457,7 @@ function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
       `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
     );
   }
-  return [`${emitPyExprCtx(targetIR, ctx)} = ${emitPyExprCtx(valueIR, ctx)}`];
+  return [`${emitPyExprCtx(targetIR, ctx)} ${rawOp} ${emitPyExprCtx(valueIR, ctx)}`];
 }
 
 function isAssignableTarget(node: ValueIR): boolean {
