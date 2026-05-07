@@ -595,6 +595,24 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
     rolloutPhase: 2,
   },
+  {
+    id: 'unstable-deps-literal',
+    layer: 'react-hooks',
+    severity: 'warning',
+    description:
+      'Hook dependency array contains an inline object/array/function literal — fresh reference every render, silently defeats memoization',
+    precision: 'high',
+    rolloutPhase: 5,
+  },
+  {
+    id: 'usememo-primitive-cheap',
+    layer: 'react-hooks',
+    severity: 'info',
+    description:
+      'useMemo wraps a trivially cheap expression (literal, identifier, primitive arithmetic) — memoization overhead exceeds the work saved',
+    precision: 'medium',
+    rolloutPhase: 5,
+  },
 
   // Async — Wave 2 net-new rules
   {
@@ -668,6 +686,15 @@ const REGISTRY: RuleInfo[] = [
       'Parent with useState renders a child that does not receive that state — lift child to children prop to avoid re-render',
     precision: 'medium',
     rolloutPhase: 4,
+  },
+  {
+    id: 'react-memo-defeated-by-spread',
+    layer: 'react-composition',
+    severity: 'warning',
+    description:
+      'React.memo child receives a spread of an inline object or the parent props parameter — defeats shallow comparison bail-out',
+    precision: 'high',
+    rolloutPhase: 5,
   },
 
   // a11y — Wave 3
