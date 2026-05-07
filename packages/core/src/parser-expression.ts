@@ -1,17 +1,18 @@
 /** Expression-mode tokenizer + recursive-descent parser producing ValueIR.
  *  Supports: identifiers, literals (number/string/true/false/null/undefined/none),
- *  member access (. and ?.), call (() and ?.()), spread (...), logical ?? || &&,
- *  parenthesized grouping, template literals with ${...} interpolation,
- *  `await` prefix, propagation `?` postfix on call/await-call.
+ *  member access (. and ?.), index access ([] and ?.[), call (() and ?.()), spread
+ *  (...), logical ?? || &&, parenthesized grouping, template literals with
+ *  ${...} interpolation, `await` prefix, TS-style `as Type` assertion nodes,
+ *  propagation `?` postfix on call/await-call.
  *
  *  `none` is a KERN-side alias for `null` — both produce nullLit. Per native-handler
  *  spec, `none` is the canonical empty-value form in `lang=kern` bodies; `null` is
  *  retained for legacy/round-trip compatibility.
  *
  *  Slice 2c added arithmetic and comparisons; slice α-2 added ternary
- *  `a ? b : c`. Still NOT supported: indexing (`xs[0]`), bitwise ops,
- *  assignment — these would require shape changes the body emitter
- *  doesn't have, so the parser deliberately rejects them. */
+ *  `a ? b : c`. Still NOT supported: bitwise ops, assignment — these would
+ *  require shape changes the body emitter doesn't have, so the parser
+ *  deliberately rejects them. */
 
 import type { ValueIR } from './value-ir.js';
 
@@ -27,6 +28,8 @@ export type ExprTokenKind =
   | 'nullish'
   | 'or'
   | 'and'
+  | 'pipe'
+  | 'amp'
   | 'lparen'
   | 'rparen'
   | 'lbrace'
@@ -94,6 +97,29 @@ const EXPR_START_KINDS: ReadonlySet<ExprTokenKind> = new Set<ExprTokenKind>([
 
 function isExprStartKind(kind: ExprTokenKind): boolean {
   return EXPR_START_KINDS.has(kind);
+}
+
+function isTypeAssertionBoundary(kind: ExprTokenKind): boolean {
+  return (
+    kind === 'comma' ||
+    kind === 'rparen' ||
+    kind === 'rbracket' ||
+    kind === 'rbrace' ||
+    kind === 'colon' ||
+    kind === 'qmark' ||
+    kind === 'nullish' ||
+    kind === 'or' ||
+    kind === 'and' ||
+    kind === 'eq' ||
+    kind === 'neq' ||
+    kind === 'strictEq' ||
+    kind === 'strictNeq' ||
+    kind === 'plus' ||
+    kind === 'minus' ||
+    kind === 'star' ||
+    kind === 'slash' ||
+    kind === 'percent'
+  );
 }
 
 const KEYWORDS: Record<string, ExprTokenKind> = {
@@ -325,9 +351,19 @@ export function tokenizeExpression(input: string): ExprToken[] {
       i += 2;
       continue;
     }
+    if (ch === '|') {
+      tokens.push({ kind: 'pipe', value: '|', pos: i });
+      i++;
+      continue;
+    }
     if (ch === '&' && input[i + 1] === '&') {
       tokens.push({ kind: 'and', value: '&&', pos: i });
       i += 2;
+      continue;
+    }
+    if (ch === '&') {
+      tokens.push({ kind: 'amp', value: '&', pos: i });
+      i++;
       continue;
     }
     if (ch === '.' && input[i + 1] === '.' && input[i + 2] === '.') {
@@ -598,7 +634,11 @@ class Parser {
   }
 
   private parsePostfix(): ValueIR {
-    const node = this.parseCall();
+    let node = this.parseCall();
+    while (this.peek().kind === 'ident' && this.peek().value === 'as') {
+      this.advance();
+      node = { kind: 'typeAssert', expression: node, type: this.consumeTypeAssertionText() };
+    }
     // Slice α-2: only consume postfix `?` as propagation if the token after
     // it is NOT an expression-start. Otherwise leave it for the outer
     // parseConditional (ternary).
@@ -607,6 +647,56 @@ class Parser {
       return { kind: 'propagate', argument: node, op: '?' };
     }
     return node;
+  }
+
+  private consumeTypeAssertionText(): string {
+    const first = this.peek();
+    const start = first.pos;
+    let end = start;
+    let parenDepth = 0;
+    let bracketDepth = 0;
+    let braceDepth = 0;
+    let angleDepth = 0;
+    while (true) {
+      const t = this.peek();
+      if (t.kind === 'eof') break;
+      if (
+        parenDepth === 0 &&
+        bracketDepth === 0 &&
+        braceDepth === 0 &&
+        angleDepth === 0 &&
+        isTypeAssertionBoundary(t.kind)
+      ) {
+        break;
+      }
+      if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && angleDepth === 0) {
+        if (t.kind === 'ident' && t.value === 'as') break;
+        if (t.kind === 'lte' || t.kind === 'gte' || t.kind === 'gt') break;
+        if (t.kind === 'lt' && end !== t.pos) break;
+      }
+      if (t.kind === 'lparen') parenDepth++;
+      else if (t.kind === 'rparen') {
+        if (parenDepth === 0) break;
+        parenDepth--;
+      } else if (t.kind === 'lbracket') bracketDepth++;
+      else if (t.kind === 'rbracket') {
+        if (bracketDepth === 0) break;
+        bracketDepth--;
+      } else if (t.kind === 'lbrace') braceDepth++;
+      else if (t.kind === 'rbrace') {
+        if (braceDepth === 0) break;
+        braceDepth--;
+      } else if (t.kind === 'lt') angleDepth++;
+      else if (t.kind === 'gt') {
+        if (angleDepth === 0) break;
+        angleDepth--;
+      }
+      const advanced = this.advance();
+      end = advanced.pos + advanced.value.length;
+    }
+    const text = this.input.slice(start, end).trim();
+    if (text === '') throw new Error(`Expected type after 'as' at column ${first.pos + 1}`);
+    return text;
   }
 
   private parseCall(): ValueIR {
@@ -620,7 +710,12 @@ class Parser {
       } else if (t.kind === 'optDot') {
         this.advance();
         const next = this.peek();
-        if (next.kind === 'lparen') {
+        if (next.kind === 'lbracket') {
+          this.advance();
+          const index = this.parseConditional();
+          this.expect('rbracket');
+          node = { kind: 'index', object: node, index, optional: true };
+        } else if (next.kind === 'lparen') {
           this.advance();
           const args = this.parseArgs();
           this.expect('rparen');
@@ -634,6 +729,11 @@ class Parser {
         const args = this.parseArgs();
         this.expect('rparen');
         node = { kind: 'call', callee: node, args, optional: false };
+      } else if (t.kind === 'lbracket') {
+        this.advance();
+        const index = this.parseConditional();
+        this.expect('rbracket');
+        node = { kind: 'index', object: node, index, optional: false };
       } else {
         break;
       }

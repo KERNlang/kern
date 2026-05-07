@@ -92,6 +92,14 @@ describe('parseExpression — arithmetic + comparison ops', () => {
     expect(emitExpression(parseExpression('-x'))).toBe('-x');
   });
 
+  test('await wraps lower-precedence argument', () => {
+    expect(emitExpression(parseExpression('await (a + b)'))).toBe('await (a + b)');
+  });
+
+  test('new wraps lower-precedence argument', () => {
+    expect(emitExpression(parseExpression('new (a || b)'))).toBe('new (a || b)');
+  });
+
   test('combined logical + comparison precedence', () => {
     // `a && b === c` → a && (b === c) since === binds tighter than &&.
     expect(emitExpression(parseExpression('a && b === c'))).toBe('a && b === c');
@@ -175,6 +183,64 @@ describe('emitNativeKernBodyTS — if / else control flow', () => {
   });
 });
 
+describe('emitNativeKernBodyTS — assignment body statement', () => {
+  test('plain assignment targets emit as statements', () => {
+    const handler = makeHandler([
+      { type: 'assign', props: { target: 'x', value: '1' } },
+      { type: 'assign', props: { target: 'obj.x', value: 'x' } },
+      { type: 'assign', props: { target: 'arr[0]', value: 'obj.x' } },
+    ]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('x = 1;');
+    expect(out).toContain('obj.x = x;');
+    expect(out).toContain('arr[0] = obj.x;');
+  });
+
+  test('assignment rejects non-lvalue targets', () => {
+    const handler = makeHandler([{ type: 'assign', props: { target: 'a + b', value: '1' } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/identifier, member access, or index access/);
+  });
+
+  test('assignment rejects optional-chain targets', () => {
+    expect(() =>
+      emitNativeKernBodyTS(makeHandler([{ type: 'assign', props: { target: 'obj?.x', value: '1' } }])),
+    ).toThrow(/identifier, member access, or index access/);
+    expect(() =>
+      emitNativeKernBodyTS(makeHandler([{ type: 'assign', props: { target: 'arr?.[0]', value: '1' } }])),
+    ).toThrow(/identifier, member access, or index access/);
+  });
+
+  test('assignment rejects propagation values', () => {
+    const handler = makeHandler([{ type: 'assign', props: { target: 'x', value: 'load()?' } }]);
+    expect(() => emitNativeKernBodyTS(handler)).toThrow(/bind to `let` first/);
+  });
+
+  test('assignment allows optional access inside index rvalue', () => {
+    const handler = makeHandler([{ type: 'assign', props: { target: 'arr[obj?.idx]', value: '1' } }]);
+    expect(emitNativeKernBodyTS(handler)).toContain('arr[obj?.idx] = 1;');
+  });
+
+  test('assignment composes inside nested control-flow body statements', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { name: 'item', in: 'items' },
+        children: [
+          {
+            type: 'if',
+            props: { cond: 'item.ok' },
+            children: [{ type: 'assign', props: { target: 'last', value: 'item.value' } }],
+          },
+        ],
+      },
+    ]);
+    const out = emitNativeKernBodyTS(handler);
+    expect(out).toContain('for (const item of items) {');
+    expect(out).toContain('if (item.ok) {');
+    expect(out).toContain('last = item.value;');
+  });
+});
+
 // ── 2d: object + array literals ───────────────────────────────────────────
 
 describe('parseExpression + emitExpression — literals', () => {
@@ -208,6 +274,91 @@ describe('parseExpression + emitExpression — literals', () => {
 
   test('trailing comma in object literal is permitted', () => {
     expect(emitExpression(parseExpression('{ a: 1, }'))).toBe('{ a: 1 }');
+  });
+});
+
+describe('parseExpression + emitExpression — index access', () => {
+  test('array index access', () => {
+    expect(emitExpression(parseExpression('items[0]'))).toBe('items[0]');
+  });
+
+  test('computed object key access', () => {
+    expect(emitExpression(parseExpression('record[key]'))).toBe('record[key]');
+  });
+
+  test('index access composes with member and call chains', () => {
+    expect(emitExpression(parseExpression('items[0].name'))).toBe('items[0].name');
+    expect(emitExpression(parseExpression('load()[idx]'))).toBe('load()[idx]');
+  });
+
+  test('index receiver wraps lower-precedence expression', () => {
+    expect(emitExpression(parseExpression('(a || b)[0]'))).toBe('(a || b)[0]');
+    expect(emitExpression(parseExpression('(c ? a : b)[0]'))).toBe('(c ? a : b)[0]');
+    expect(emitExpression(parseExpression('(await load())[0]'))).toBe('(await load())[0]');
+  });
+
+  test('member receiver wraps lower-precedence expression', () => {
+    expect(emitExpression(parseExpression('(c ? a : b).field'))).toBe('(c ? a : b).field');
+    expect(emitExpression(parseExpression('(await load()).field'))).toBe('(await load()).field');
+  });
+
+  test('nested and string-literal index access', () => {
+    expect(emitExpression(parseExpression('matrix[0][1]'))).toBe('matrix[0][1]');
+    expect(emitExpression(parseExpression('obj["key"]'))).toBe('obj["key"]');
+  });
+
+  test('optional element access composes with index and trailing chains', () => {
+    expect(emitExpression(parseExpression('arr?.[i]'))).toBe('arr?.[i]');
+    expect(emitExpression(parseExpression('users?.[id].name'))).toBe('users?.[id].name');
+    expect(emitExpression(parseExpression('users?.[id]?.name'))).toBe('users?.[id]?.name');
+    expect(emitExpression(parseExpression('items?.[0]?.[1]'))).toBe('items?.[0]?.[1]');
+    expect(emitExpression(parseExpression('items[0]?.[1]'))).toBe('items[0]?.[1]');
+  });
+
+  test('optional index receiver wraps lower-precedence expression', () => {
+    expect(emitExpression(parseExpression('(load ?? fallback)?.[i]'))).toBe('(load ?? fallback)?.[i]');
+  });
+});
+
+describe('parseExpression + emitExpression — type assertions', () => {
+  test('simple as-expression preserves TS assertion', () => {
+    expect(emitExpression(parseExpression('params.filePath as string'))).toBe('params.filePath as string');
+  });
+
+  test('as const inside object literal value', () => {
+    expect(emitExpression(parseExpression('{ role: "user" as const }'))).toBe('{ role: "user" as const }');
+  });
+
+  test('assertion can be used inside call args', () => {
+    expect(emitExpression(parseExpression('JSON.parse(params.variables as string)'))).toBe(
+      'JSON.parse(params.variables as string)',
+    );
+  });
+
+  test('assertion stops before outer equality operator', () => {
+    expect(emitExpression(parseExpression('value as string === expected'))).toBe('(value as string) === expected');
+  });
+
+  test('assertion stops before outer relational operators', () => {
+    expect(emitExpression(parseExpression('value as Foo < expected'))).toBe('(value as Foo) < expected');
+    expect(emitExpression(parseExpression('value as Foo <= expected'))).toBe('(value as Foo) <= expected');
+    expect(emitExpression(parseExpression('value as Foo >= expected'))).toBe('(value as Foo) >= expected');
+  });
+
+  test('assertion preserves simple array and generic type text', () => {
+    expect(emitExpression(parseExpression('value as string[]'))).toBe('value as string[]');
+    expect(emitExpression(parseExpression('value as Record<string, unknown>'))).toBe(
+      'value as Record<string, unknown>',
+    );
+  });
+
+  test('assertion preserves union and intersection type text', () => {
+    expect(emitExpression(parseExpression('value as string | null'))).toBe('value as string | null');
+    expect(emitExpression(parseExpression('value as A & B'))).toBe('value as A & B');
+  });
+
+  test('chained assertions remain nested assertions', () => {
+    expect(emitExpression(parseExpression('value as unknown as string'))).toBe('(value as unknown) as string');
   });
 });
 

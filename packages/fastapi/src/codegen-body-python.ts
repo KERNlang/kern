@@ -162,6 +162,10 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
     const child = children[i];
     if (child.type === 'let') {
       for (const line of emitLetPy(child, ctx)) lines.push(`${indent}${line}`);
+    } else if (child.type === 'assign') {
+      for (const line of emitAssignPy(child, ctx)) lines.push(`${indent}${line}`);
+    } else if (child.type === 'destructure') {
+      for (const line of emitDestructurePy(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'return') {
       for (const line of emitReturnPy(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'if') {
@@ -409,6 +413,92 @@ function emitLetPy(node: IRNode, ctx: BodyEmitContext): string[] {
   return [`${name} = ${emitPyExprCtx(valueIR, ctx)}`];
 }
 
+function emitAssignPy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawTarget = props.target;
+  const rawValue = props.value;
+  if (rawTarget === undefined || rawTarget === '') {
+    throw new Error('body-statement `assign` requires `target=`.');
+  }
+  if (rawValue === undefined || rawValue === '') {
+    throw new Error('body-statement `assign` requires `value=`.');
+  }
+  const targetIR = parseExpression(String(rawTarget));
+  if (!isAssignableTarget(targetIR)) {
+    throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
+  }
+  const valueIR = parseExpression(String(rawValue));
+  if (valueIR.kind === 'propagate') {
+    throw new Error(
+      `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
+    );
+  }
+  return [`${emitPyExprCtx(targetIR, ctx)} = ${emitPyExprCtx(valueIR, ctx)}`];
+}
+
+function isAssignableTarget(node: ValueIR): boolean {
+  if (node.kind === 'ident') return true;
+  if (node.kind === 'member') return !node.optional && !containsOptionalAccess(node.object);
+  if (node.kind === 'index') return !node.optional && !containsOptionalAccess(node.object);
+  return false;
+}
+
+function containsOptionalAccess(node: ValueIR): boolean {
+  if (node.kind === 'member') return node.optional || containsOptionalAccess(node.object);
+  if (node.kind === 'index') return node.optional || containsOptionalAccess(node.object);
+  if (node.kind === 'call') return node.optional || containsOptionalAccess(node.callee);
+  return false;
+}
+
+function emitDestructurePy(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawSource = props.source;
+  if (rawSource === undefined || rawSource === '') {
+    throw new Error('body-statement `destructure` requires `source=`.');
+  }
+  const source = emitPyExprCtx(parseExpression(String(rawSource)), ctx);
+  const children = node.children ?? [];
+  const bindings = children.filter((c) => c.type === 'binding');
+  const elements = children.filter((c) => c.type === 'element');
+  if (bindings.length === 0 && elements.length === 0) {
+    throw new Error('body-statement `destructure` requires `binding` or `element` children.');
+  }
+  if (bindings.length > 0 && elements.length > 0) {
+    throw new Error('body-statement `destructure` cannot mix `binding` and `element` children.');
+  }
+  if (bindings.length > 0) {
+    const tmp = `__k_d${++ctx.gensymCounter}`;
+    const lines = [`${tmp} = ${source}`];
+    for (const child of bindings) {
+      const cp = (child.props ?? {}) as Record<string, unknown>;
+      const name = String(cp.name ?? '');
+      if (!name) throw new Error('body-statement `binding` requires `name=`.');
+      const key = cp.key === undefined || cp.key === '' ? name : String(cp.key);
+      lines.push(`${ctx.symbolMap[name] ?? name} = ${tmp}.get(${JSON.stringify(key)})`);
+    }
+    return lines;
+  }
+
+  const tmp = `__k_d${++ctx.gensymCounter}`;
+  return [
+    `${tmp} = ${source}`,
+    ...elements
+      .map((child) => {
+        const cp = (child.props ?? {}) as Record<string, unknown>;
+        const name = String(cp.name ?? '');
+        if (!name) throw new Error('body-statement `element` requires `name=`.');
+        const index = Number.parseInt(String(cp.index ?? ''), 10);
+        if (Number.isNaN(index)) throw new Error('body-statement `element` requires numeric `index=`.');
+        return {
+          index,
+          line: `${ctx.symbolMap[name] ?? name} = (${tmp}[${index}] if len(${tmp}) > ${index} else None)`,
+        };
+      })
+      .sort((a, b) => a.index - b.index)
+      .map((entry) => entry.line),
+  ];
+}
+
 function emitReturnPy(node: IRNode, ctx: BodyEmitContext): string[] {
   const props = (node.props ?? {}) as Record<string, unknown>;
   const rawValue = props.value;
@@ -523,7 +613,8 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // module names) pass through unchanged.
       return ctx.symbolMap[node.name] ?? node.name;
     case 'member':
-    case 'call': {
+    case 'call':
+    case 'index': {
       // Slice 3d (review fix — Codex critical): optional chains short-circuit
       // the ENTIRE trailing expression after `?.`, not just the immediate
       // access. So `user?.profile.name` must lower to
@@ -538,13 +629,15 @@ function emitPyExprCtx(node: ValueIR, ctx: BodyEmitContext): string {
       // appends each `.prop` / `(...args)` link to the unguarded form.
       // The top-level wrapper produces `(expr if guard else None)` once
       // (or just `expr` when no `?.` was seen).
-      const lowered = lowerMemberOrCall(node, ctx);
+      const lowered = lowerChain(node, ctx);
       return wrapGuardIfAny(lowered);
     }
     case 'await':
       return `await ${emitPyExprCtx(node.argument, ctx)}`;
     case 'new':
       return emitPyExprCtx(node.argument, ctx);
+    case 'typeAssert':
+      return emitPyExprCtx(node.expression, ctx);
     case 'tmplLit': {
       // Lower TS template literals to Python f-strings.
       let out = 'f"';
@@ -689,14 +782,14 @@ interface GuardedExpr {
   expr: string;
 }
 
-type MemberOrCall = Extract<ValueIR, { kind: 'member' | 'call' }>;
+type ChainNode = Extract<ValueIR, { kind: 'member' | 'call' | 'index' }>;
 
-function lowerMemberOrCall(node: MemberOrCall, ctx: BodyEmitContext): GuardedExpr {
+function lowerChain(node: ChainNode, ctx: BodyEmitContext): GuardedExpr {
   if (node.kind === 'member') {
     const obj = node.object;
     const inner: GuardedExpr =
-      obj.kind === 'member' || obj.kind === 'call'
-        ? lowerMemberOrCall(obj, ctx)
+      obj.kind === 'member' || obj.kind === 'call' || obj.kind === 'index'
+        ? lowerChain(obj, ctx)
         : { guard: null, expr: emitPyExprCtx(obj, ctx) };
     if (node.optional) {
       // The receiver expression names what we need to test. The expr names
@@ -714,6 +807,30 @@ function lowerMemberOrCall(node: MemberOrCall, ctx: BodyEmitContext): GuardedExp
     }
     return { guard: inner.guard, expr: `${inner.expr}.${node.property}` };
   }
+  if (node.kind === 'index') {
+    const obj = node.object;
+    const inner: GuardedExpr =
+      obj.kind === 'member' || obj.kind === 'call' || obj.kind === 'index'
+        ? lowerChain(obj, ctx)
+        : { guard: null, expr: emitPyExprCtx(obj, ctx) };
+    const index = emitPyExprCtx(node.index, ctx);
+    if (node.optional) {
+      // The Python lowering names the receiver in the guard and the branch.
+      // Keep that single-eval-safe by requiring a pure receiver. The index
+      // expression appears only in the selected branch, matching JS `?.[]`.
+      if (!isReceiverChainPure(node.object)) {
+        throw new Error(
+          "Optional element access '?.[]' on Python target requires a side-effect-free receiver. " +
+            'Bind call/await receiver results to `let` first, then index the bound name.',
+        );
+      }
+      const newGuard =
+        inner.guard === null ? `${inner.expr} is not None` : `${inner.guard} and ${inner.expr} is not None`;
+      return { guard: newGuard, expr: `${inner.expr}[${index}]` };
+    }
+    const wrapped = needsIndexReceiverParens(node.object) ? `(${inner.expr})` : inner.expr;
+    return { guard: inner.guard, expr: `${wrapped}[${index}]` };
+  }
   // node.kind === 'call'
   if (node.optional) {
     throw new Error(
@@ -728,8 +845,8 @@ function lowerMemberOrCall(node: MemberOrCall, ctx: BodyEmitContext): GuardedExp
   if (stdlib !== null) return { guard: null, expr: stdlib };
   const callee = node.callee;
   const inner: GuardedExpr =
-    callee.kind === 'member' || callee.kind === 'call'
-      ? lowerMemberOrCall(callee, ctx)
+    callee.kind === 'member' || callee.kind === 'call' || callee.kind === 'index'
+      ? lowerChain(callee, ctx)
       : { guard: null, expr: emitPyExprCtx(callee, ctx) };
   const args = node.args.map((a) => emitPyExprCtx(a, ctx)).join(', ');
   return { guard: inner.guard, expr: `${inner.expr}(${args})` };
@@ -739,18 +856,50 @@ function wrapGuardIfAny(g: GuardedExpr): string {
   return g.guard === null ? g.expr : `(${g.expr} if ${g.guard} else None)`;
 }
 
+function needsIndexReceiverParens(child: ValueIR): boolean {
+  return (
+    child.kind === 'binary' ||
+    child.kind === 'conditional' ||
+    child.kind === 'unary' ||
+    child.kind === 'spread' ||
+    child.kind === 'typeAssert' ||
+    child.kind === 'await'
+  );
+}
+
 /** Slice 3d (review fix) — receiver-purity walk for the optional-chain
  *  short-circuit lowering. Pure means: no observable side effects when
  *  re-named twice (once in the `is not None` guard, once in the branch).
  *
  *  Pure: `ident`, member chains rooted at `ident` (whether optional or
  *  not — repeated attribute access on `None` raises but never silently
- *  side-effects). NOT pure: `call`, `await`, `binary`, `unary`, `propagate`,
- *  literals (which are technically pure but never sensible receivers). */
+ *  side-effects), and index chains rooted at pure receivers with pure index
+ *  expressions. NOT pure: `call`, `await`, `binary`, `unary`, `propagate`,
+ *  non-index literals (which are technically pure but never sensible
+ *  receivers). */
 function isReceiverChainPure(node: ValueIR): boolean {
   if (node.kind === 'ident') return true;
   if (node.kind === 'member') return isReceiverChainPure(node.object);
+  if (node.kind === 'index') return isReceiverChainPure(node.object) && isPureIndexExpression(node.index);
   return false;
+}
+
+function isPureIndexExpression(node: ValueIR): boolean {
+  switch (node.kind) {
+    case 'ident':
+    case 'numLit':
+    case 'strLit':
+    case 'boolLit':
+    case 'nullLit':
+    case 'undefLit':
+      return true;
+    case 'member':
+      return isReceiverChainPure(node);
+    case 'index':
+      return isReceiverChainPure(node);
+    default:
+      return false;
+  }
 }
 
 const COMPARISON_OPS = new Set(['==', '!=', '===', '!==', '<', '<=', '>', '>=']);

@@ -10,11 +10,11 @@ import { parseDocument, parseExpression } from '@kernlang/core';
 import { emitNativeKernBodyPython, emitPyExpression } from '../src/codegen-body-python.js';
 import { generateFunction } from '../src/generators/core.js';
 
-function makeHandler(stmts: Array<{ type: 'let' | 'return'; props: Record<string, unknown> }>): IRNode {
+function makeHandler(stmts: Array<{ type: string; props: Record<string, unknown>; children?: IRNode[] }>): IRNode {
   return {
     type: 'handler',
     props: { lang: 'kern' },
-    children: stmts.map((s) => ({ type: s.type, props: s.props })),
+    children: stmts.map((s) => ({ type: s.type, props: s.props, children: s.children })),
   };
 }
 
@@ -115,6 +115,56 @@ describe('emitNativeKernBodyPython — slice 1 statements', () => {
     const out = emitNativeKernBodyPython(h);
     expect(out).toContain('__k_t1 = first()');
     expect(out).toContain('__k_t2 = second()');
+  });
+
+  test('object destructuring lowers to missing-safe dict reads', () => {
+    const h = makeHandler([
+      {
+        type: 'destructure',
+        props: { kind: 'const', source: 'body' },
+        children: [
+          { type: 'binding', props: { name: 'trackId', key: 'track_id' } },
+          { type: 'binding', props: { name: 'options' } },
+        ],
+      },
+      { type: 'return', props: { value: 'trackId' } },
+    ]);
+    expect(emitNativeKernBodyPython(h, { symbolMap: { trackId: 'track_id' } })).toBe(
+      ['__k_d1 = body', 'track_id = __k_d1.get("track_id")', 'options = __k_d1.get("options")', 'return track_id'].join(
+        '\n',
+      ),
+    );
+  });
+
+  test('empty key is treated like an omitted rename in Python destructuring', () => {
+    const h = makeHandler([
+      {
+        type: 'destructure',
+        props: { kind: 'const', source: 'body' },
+        children: [{ type: 'binding', props: { name: 'id', key: '' } }],
+      },
+    ]);
+    expect(emitNativeKernBodyPython(h)).toBe(['__k_d1 = body', 'id = __k_d1.get("id")'].join('\n'));
+  });
+
+  test('array destructuring lowers to missing-safe index reads', () => {
+    const h = makeHandler([
+      {
+        type: 'destructure',
+        props: { kind: 'const', source: 'pair' },
+        children: [
+          { type: 'element', props: { name: 'first', index: '0' } },
+          { type: 'element', props: { name: 'third', index: '2' } },
+        ],
+      },
+    ]);
+    expect(emitNativeKernBodyPython(h)).toBe(
+      [
+        '__k_d1 = pair',
+        'first = (__k_d1[0] if len(__k_d1) > 0 else None)',
+        'third = (__k_d1[2] if len(__k_d1) > 2 else None)',
+      ].join('\n'),
+    );
   });
 });
 

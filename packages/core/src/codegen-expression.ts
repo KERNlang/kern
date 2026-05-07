@@ -66,6 +66,11 @@ export function emitExpression(node: ValueIR): string {
       const wrapped = needsReceiverParens(node.object) ? `(${obj})` : obj;
       return `${wrapped}${node.optional ? '?.' : '.'}${node.property}`;
     }
+    case 'index': {
+      const obj = emitExpression(node.object);
+      const wrapped = needsReceiverParens(node.object) ? `(${obj})` : obj;
+      return `${wrapped}${node.optional ? '?.' : ''}[${emitExpression(node.index)}]`;
+    }
     case 'call': {
       // Slice 2a — KERN-stdlib dispatch. When the callee is `Module.method`
       // and `Module` is a known stdlib module, route through the per-target
@@ -94,10 +99,21 @@ export function emitExpression(node: ValueIR): string {
     }
     case 'spread':
       return `...${emitExpression(node.argument)}`;
-    case 'await':
-      return `await ${emitExpression(node.argument)}`;
-    case 'new':
-      return `new ${emitExpression(node.argument)}`;
+    case 'await': {
+      const arg = emitExpression(node.argument);
+      const wrapped = needsPrefixArgParens(node.argument) ? `(${arg})` : arg;
+      return `await ${wrapped}`;
+    }
+    case 'new': {
+      const arg = emitExpression(node.argument);
+      const wrapped = needsPrefixArgParens(node.argument) ? `(${arg})` : arg;
+      return `new ${wrapped}`;
+    }
+    case 'typeAssert': {
+      const expr = emitExpression(node.expression);
+      const wrapped = needsTypeAssertionParens(node.expression) ? `(${expr})` : expr;
+      return `${wrapped} as ${node.type}`;
+    }
     case 'objectLit': {
       // Slice 2d — TS object literal. Bare-key when valid identifier; else JSON-quote.
       // Empty object emits `{}` to match JS convention.
@@ -151,11 +167,41 @@ export function needsBinaryParens(child: ValueIR, parentOp: string, side: 'left'
 }
 
 function needsParens(child: ValueIR, parentOp: string, side: 'left' | 'right'): boolean {
+  if (child.kind === 'typeAssert') return true;
   return needsBinaryParens(child, parentOp, side);
 }
 
 function needsReceiverParens(child: ValueIR): boolean {
-  return child.kind === 'binary' || child.kind === 'unary' || child.kind === 'spread';
+  return (
+    child.kind === 'binary' ||
+    child.kind === 'unary' ||
+    child.kind === 'spread' ||
+    child.kind === 'typeAssert' ||
+    child.kind === 'conditional' ||
+    child.kind === 'await'
+  );
+}
+
+function needsTypeAssertionParens(child: ValueIR): boolean {
+  return (
+    child.kind === 'binary' ||
+    child.kind === 'conditional' ||
+    child.kind === 'unary' ||
+    child.kind === 'spread' ||
+    child.kind === 'await' ||
+    child.kind === 'new' ||
+    child.kind === 'typeAssert'
+  );
+}
+
+function needsPrefixArgParens(child: ValueIR): boolean {
+  return (
+    child.kind === 'binary' ||
+    child.kind === 'conditional' ||
+    child.kind === 'unary' ||
+    child.kind === 'spread' ||
+    child.kind === 'typeAssert'
+  );
 }
 
 /** Slice α-2: paren-wrap predicate for ternary children. Ternary has very
@@ -169,6 +215,7 @@ function needsConditionalChildParens(child: ValueIR): boolean {
     case 'spread':
     case 'await':
     case 'new':
+    case 'typeAssert':
     case 'conditional':
       return true;
     default:
@@ -226,5 +273,5 @@ function applyStdlibLoweringTS(call: Extract<ValueIR, { kind: 'call' }>): string
  *  unary, or spread expression. Templates like `'$0.length'` would otherwise
  *  bind member-access tighter than the arg's own ops. */
 export function needsArgParens(arg: ValueIR): boolean {
-  return arg.kind === 'binary' || arg.kind === 'unary' || arg.kind === 'spread';
+  return arg.kind === 'binary' || arg.kind === 'unary' || arg.kind === 'spread' || arg.kind === 'typeAssert';
 }

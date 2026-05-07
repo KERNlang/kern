@@ -117,6 +117,20 @@ describe('slice 5b-pre — body-statement source round-trip (positive)', () => {
     const emitted = emitNativeKernBodyTS(handler);
     expect(emitted).toContain('throw new Error("boom");');
   });
+
+  test('body-statement assign round-trips', () => {
+    const src = ['fn name=setValue returns=void', '  handler lang="kern"', '    assign target="obj.x" value="1"'].join(
+      '\n',
+    );
+
+    const root = parseDocumentStrict(src);
+    const handler = findFirstHandler(root);
+    const types = (handler.children ?? []).map((c) => c.type);
+    expect(types).toEqual(['assign']);
+
+    const emitted = emitNativeKernBodyTS(handler);
+    expect(emitted).toContain('obj.x = 1;');
+  });
 });
 
 describe('slice 5b-pre — body-statement context validator (negative)', () => {
@@ -135,6 +149,14 @@ describe('slice 5b-pre — body-statement context validator (negative)', () => {
     const violation = diagnostics.find((d) => d.code === 'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER');
     expect(violation).toBeDefined();
     expect(violation?.message).toMatch(/`throw`/);
+  });
+
+  test('`assign` outside scope errors', () => {
+    const src = ['fn name=top returns=void', '  assign target="x" value="1"'].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    const violation = diagnostics.find((d) => d.code === 'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER');
+    expect(violation).toBeDefined();
+    expect(violation?.message).toMatch(/`assign`/);
   });
 
   test('body-statement `if cond=...` outside scope errors', () => {

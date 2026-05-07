@@ -39,6 +39,7 @@ function requireOptionalModule(specifier: string): unknown {
 
 import { buildCallGraph } from './call-graph.js';
 import { runConceptRules } from './concept-rules/index.js';
+import { isWorkerContextFile } from './concept-rules/unguarded-effect.js';
 import { structuralDiff } from './differ.js';
 import { runTSCDiagnostics } from './external-tools.js';
 import { buildFileContextMap } from './file-context.js';
@@ -819,6 +820,15 @@ function reviewSourceInternal(
       if (!f.primarySpan.file) f.primarySpan.file = filePath;
     }
     allFindings.push(...nativeFindings);
+  }
+
+  // Drop unguarded-effect findings from worker/jobs files — the native .kern
+  // version of this rule cannot express the file-context exemption, so we
+  // re-apply the predicate here for parity with the TS concept rule.
+  if (isWorkerContextFile(filePath, concepts)) {
+    for (let i = allFindings.length - 1; i >= 0; i--) {
+      if (allFindings[i].ruleId === 'unguarded-effect') allFindings.splice(i, 1);
+    }
   }
 
   // Phase 8: TSC diagnostics — native TypeScript compiler errors.

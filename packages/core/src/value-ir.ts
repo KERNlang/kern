@@ -39,12 +39,14 @@ export type ValueIR =
   | { kind: 'regexLit'; pattern: string; flags: string; loc?: IRSourceLocation }
   | { kind: 'ident'; name: string; loc?: IRSourceLocation }
   | { kind: 'member'; object: ValueIR; property: string; optional: boolean; loc?: IRSourceLocation }
+  | { kind: 'index'; object: ValueIR; index: ValueIR; optional: boolean; loc?: IRSourceLocation }
   | { kind: 'call'; callee: ValueIR; args: ValueIR[]; optional: boolean; loc?: IRSourceLocation }
   | { kind: 'binary'; op: BinaryOp; left: ValueIR; right: ValueIR; loc?: IRSourceLocation }
   | { kind: 'unary'; op: UnaryOp; argument: ValueIR; loc?: IRSourceLocation }
   | { kind: 'spread'; argument: ValueIR; loc?: IRSourceLocation }
   | { kind: 'await'; argument: ValueIR; loc?: IRSourceLocation }
   | { kind: 'new'; argument: ValueIR; loc?: IRSourceLocation }
+  | { kind: 'typeAssert'; expression: ValueIR; type: string; loc?: IRSourceLocation }
   | { kind: 'propagate'; argument: ValueIR; op: '?' | '!'; loc?: IRSourceLocation }
   | {
       kind: 'objectLit';
@@ -71,12 +73,14 @@ export function isValueIR(x: unknown): x is ValueIR {
     k === 'regexLit' ||
     k === 'ident' ||
     k === 'member' ||
+    k === 'index' ||
     k === 'call' ||
     k === 'binary' ||
     k === 'unary' ||
     k === 'spread' ||
     k === 'await' ||
     k === 'new' ||
+    k === 'typeAssert' ||
     k === 'propagate' ||
     k === 'objectLit' ||
     k === 'arrayLit' ||

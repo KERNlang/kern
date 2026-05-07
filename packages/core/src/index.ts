@@ -131,6 +131,8 @@ export type { AstEligibilityResult } from './native-eligibility-ast.js';
 export {
   classifyHandlerBodyAst,
   hasComments,
+  isValidKernAssignmentTarget,
+  isValidKernAssignmentValue,
   isValidKernExpression,
 } from './native-eligibility-ast.js';
 export type {

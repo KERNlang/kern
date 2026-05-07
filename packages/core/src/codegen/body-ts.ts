@@ -4,6 +4,7 @@
  *  body string. Recognized statements:
  *
  *    - `let name=X value="EXPR"` — `const X = EXPR;` (slice 1)
+ *    - `destructure source="EXPR"` — `const { X } = EXPR;` / `const [X] = EXPR;`
  *    - `return value="EXPR"` / bare `return` — `return EXPR;` (slice 1)
  *    - `if cond="EXPR"` / sibling `else` — `if (EXPR) { … } else { … }` (slice 2c)
  *
@@ -43,6 +44,7 @@
 import { emitExpression } from '../codegen-expression.js';
 import { parseExpression } from '../parser-expression.js';
 import type { IRNode } from '../types.js';
+import type { ValueIR } from '../value-ir.js';
 
 /** Slice 3e — caller-provided options, parity with the Python body emitter.
  *  `symbolMap` is currently unused on the TS target; reserved for future
@@ -102,6 +104,10 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
     const child = children[i];
     if (child.type === 'let') {
       for (const line of emitLetTS(child, ctx)) lines.push(`${indent}${line}`);
+    } else if (child.type === 'assign') {
+      for (const line of emitAssignTS(child, ctx)) lines.push(`${indent}${line}`);
+    } else if (child.type === 'destructure') {
+      for (const line of emitDestructureTS(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'return') {
       for (const line of emitReturnTS(child, ctx)) lines.push(`${indent}${line}`);
     } else if (child.type === 'if') {
@@ -316,6 +322,94 @@ function emitLetTS(node: IRNode, ctx: BodyEmitContext): string[] {
     return [`const ${tmp} = ${inner};`, `if (${tmp}.kind === 'err') return ${tmp};`, `const ${name} = ${tmp}.value;`];
   }
   return [`const ${name} = ${emitExpression(valueIR)};`];
+}
+
+function emitAssignTS(node: IRNode, _ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawTarget = props.target;
+  const rawValue = props.value;
+  if (rawTarget === undefined || rawTarget === '') {
+    throw new Error('body-statement `assign` requires `target=`.');
+  }
+  if (rawValue === undefined || rawValue === '') {
+    throw new Error('body-statement `assign` requires `value=`.');
+  }
+  const targetIR = parseExpression(String(rawTarget));
+  if (!isAssignableTarget(targetIR)) {
+    throw new Error('body-statement `assign target=` must be an identifier, member access, or index access.');
+  }
+  const valueIR = parseExpression(String(rawValue));
+  if (valueIR.kind === 'propagate') {
+    throw new Error(
+      `Propagation \`${valueIR.op}\` is not supported in \`assign value=\` — bind to \`let\` first, then assign.`,
+    );
+  }
+  return [`${emitExpression(targetIR)} = ${emitExpression(valueIR)};`];
+}
+
+function isAssignableTarget(node: ValueIR): boolean {
+  if (node.kind === 'ident') return true;
+  if (node.kind === 'member') return !node.optional && !containsOptionalAccess(node.object);
+  if (node.kind === 'index') return !node.optional && !containsOptionalAccess(node.object);
+  return false;
+}
+
+function containsOptionalAccess(node: ValueIR): boolean {
+  if (node.kind === 'member') return node.optional || containsOptionalAccess(node.object);
+  if (node.kind === 'index') return node.optional || containsOptionalAccess(node.object);
+  if (node.kind === 'call') return node.optional || containsOptionalAccess(node.callee);
+  return false;
+}
+
+function emitDestructureTS(node: IRNode, ctx: BodyEmitContext): string[] {
+  const props = (node.props ?? {}) as Record<string, unknown>;
+  const rawSource = props.source;
+  if (rawSource === undefined || rawSource === '') {
+    throw new Error('body-statement `destructure` requires `source=`.');
+  }
+  const pattern = formatBodyDestructurePattern(node);
+  const kind = props.kind === 'let' ? 'let' : 'const';
+  const sourceIR = parseExpression(String(rawSource));
+  if (sourceIR.kind === 'propagate' && sourceIR.op === '?') rejectPropagationInsideTry(ctx);
+  return [`${kind} ${pattern} = ${emitExpression(sourceIR)};`];
+}
+
+function formatBodyDestructurePattern(node: IRNode): string {
+  const children = node.children ?? [];
+  const bindings = children.filter((c) => c.type === 'binding');
+  const elements = children.filter((c) => c.type === 'element');
+  if (bindings.length === 0 && elements.length === 0) {
+    throw new Error('body-statement `destructure` requires `binding` or `element` children.');
+  }
+  if (bindings.length > 0 && elements.length > 0) {
+    throw new Error('body-statement `destructure` cannot mix `binding` and `element` children.');
+  }
+  if (bindings.length > 0) {
+    const parts = bindings.map((child) => {
+      const props = (child.props ?? {}) as Record<string, unknown>;
+      const name = String(props.name ?? '');
+      if (!name) throw new Error('body-statement `binding` requires `name=`.');
+      const key = props.key === undefined || props.key === '' ? undefined : String(props.key);
+      return key ? `${key}: ${name}` : name;
+    });
+    return `{ ${parts.join(', ')} }`;
+  }
+
+  const indexed = elements.map((child) => {
+    const props = (child.props ?? {}) as Record<string, unknown>;
+    const name = String(props.name ?? '');
+    if (!name) throw new Error('body-statement `element` requires `name=`.');
+    const index = Number.parseInt(String(props.index ?? ''), 10);
+    if (Number.isNaN(index)) throw new Error('body-statement `element` requires numeric `index=`.');
+    return { index, name };
+  });
+  indexed.sort((a, b) => a.index - b.index);
+  const max = indexed[indexed.length - 1].index;
+  const slots: string[] = [];
+  for (let i = 0; i <= max; i++) {
+    slots.push(indexed.find((entry) => entry.index === i)?.name ?? '');
+  }
+  return `[${slots.join(', ')}]`;
 }
 
 function emitReturnTS(node: IRNode, ctx: BodyEmitContext): string[] {

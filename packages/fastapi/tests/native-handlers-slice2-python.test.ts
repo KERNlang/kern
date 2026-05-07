@@ -153,6 +153,64 @@ describe('emitNativeKernBodyPython — if / else control flow', () => {
   });
 });
 
+describe('emitNativeKernBodyPython — assignment body statement', () => {
+  test('plain assignment targets emit as Python statements', () => {
+    const handler = makeHandler([
+      { type: 'assign', props: { target: 'x', value: '1' } },
+      { type: 'assign', props: { target: 'obj.x', value: 'x' } },
+      { type: 'assign', props: { target: 'arr[0]', value: 'obj.x' } },
+    ]);
+    const out = emitNativeKernBodyPython(handler);
+    expect(out).toContain('x = 1');
+    expect(out).toContain('obj.x = x');
+    expect(out).toContain('arr[0] = obj.x');
+  });
+
+  test('assignment rejects non-lvalue targets', () => {
+    const handler = makeHandler([{ type: 'assign', props: { target: 'a + b', value: '1' } }]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/identifier, member access, or index access/);
+  });
+
+  test('assignment rejects optional-chain targets', () => {
+    expect(() =>
+      emitNativeKernBodyPython(makeHandler([{ type: 'assign', props: { target: 'obj?.x', value: '1' } }])),
+    ).toThrow(/identifier, member access, or index access/);
+    expect(() =>
+      emitNativeKernBodyPython(makeHandler([{ type: 'assign', props: { target: 'arr?.[0]', value: '1' } }])),
+    ).toThrow(/identifier, member access, or index access/);
+  });
+
+  test('assignment rejects propagation values', () => {
+    const handler = makeHandler([{ type: 'assign', props: { target: 'x', value: 'load()?' } }]);
+    expect(() => emitNativeKernBodyPython(handler)).toThrow(/bind to `let` first/);
+  });
+
+  test('assignment allows optional access inside index rvalue', () => {
+    const handler = makeHandler([{ type: 'assign', props: { target: 'arr[obj?.idx]', value: '1' } }]);
+    expect(emitNativeKernBodyPython(handler)).toContain('arr[(obj.idx if obj is not None else None)] = 1');
+  });
+
+  test('assignment composes inside nested control-flow body statements', () => {
+    const handler = makeHandler([
+      {
+        type: 'each',
+        props: { name: 'item', in: 'items' },
+        children: [
+          {
+            type: 'if',
+            props: { cond: 'item.ok' },
+            children: [{ type: 'assign', props: { target: 'last', value: 'item.value' } }],
+          },
+        ],
+      },
+    ]);
+    const out = emitNativeKernBodyPython(handler);
+    expect(out).toContain('for __k_each_1 in items:');
+    expect(out).toContain('if item.ok:');
+    expect(out).toContain('last = item.value');
+  });
+});
+
 // ── 2d: object + array literals (Python dict/list) ───────────────────────
 
 describe('emitPyExpression — literals', () => {
@@ -182,6 +240,67 @@ describe('emitPyExpression — literals', () => {
 
   test('object literal with stdlib call value', () => {
     expect(emitPyExpression(parseExpression('{ name: Text.upper(raw) }'))).toBe('{"name": raw.upper()}');
+  });
+});
+
+describe('emitPyExpression — index access', () => {
+  test('array index access', () => {
+    expect(emitPyExpression(parseExpression('items[0]'))).toBe('items[0]');
+  });
+
+  test('computed object key access', () => {
+    expect(emitPyExpression(parseExpression('record[key]'))).toBe('record[key]');
+  });
+
+  test('index access composes with member and call chains', () => {
+    expect(emitPyExpression(parseExpression('items[0].name'))).toBe('items[0].name');
+    expect(emitPyExpression(parseExpression('load()[idx]'))).toBe('load()[idx]');
+  });
+
+  test('index receiver wraps lower-precedence expression', () => {
+    expect(emitPyExpression(parseExpression('(a || b)[0]'))).toBe('(a or b)[0]');
+    expect(emitPyExpression(parseExpression('(c ? a : b)[0]'))).toBe('(a if c else b)[0]');
+    expect(emitPyExpression(parseExpression('(await load())[0]'))).toBe('(await load())[0]');
+  });
+
+  test('nested and string-literal index access', () => {
+    expect(emitPyExpression(parseExpression('matrix[0][1]'))).toBe('matrix[0][1]');
+    expect(emitPyExpression(parseExpression('obj["key"]'))).toBe('obj["key"]');
+  });
+
+  test('optional element access short-circuits trailing chains', () => {
+    expect(emitPyExpression(parseExpression('arr?.[i]'))).toBe('(arr[i] if arr is not None else None)');
+    expect(emitPyExpression(parseExpression('users?.[id].name'))).toBe(
+      '(users[id].name if users is not None else None)',
+    );
+    expect(emitPyExpression(parseExpression('users?.[id]?.name'))).toBe(
+      '(users[id].name if users is not None and users[id] is not None else None)',
+    );
+    expect(emitPyExpression(parseExpression('obj?.field[0]'))).toBe('(obj.field[0] if obj is not None else None)');
+    expect(emitPyExpression(parseExpression('arr?.[i][j]'))).toBe('(arr[i][j] if arr is not None else None)');
+    expect(emitPyExpression(parseExpression('users[id]?.name'))).toBe(
+      '(users[id].name if users[id] is not None else None)',
+    );
+  });
+
+  test('optional element access keeps index expressions branch-local', () => {
+    expect(emitPyExpression(parseExpression('arr?.[nextIndex()]'))).toBe(
+      '(arr[nextIndex()] if arr is not None else None)',
+    );
+  });
+
+  test('optional element access rejects side-effecting Python receiver inputs', () => {
+    expect(() => emitPyExpression(parseExpression('load()?.[i]'))).toThrow(/requires a side-effect-free receiver/);
+  });
+});
+
+describe('emitPyExpression — type assertions', () => {
+  test('TS-style as-expression erases to the underlying expression', () => {
+    expect(emitPyExpression(parseExpression('params.filePath as string'))).toBe('params.filePath');
+  });
+
+  test('as const inside object literal erases for Python', () => {
+    expect(emitPyExpression(parseExpression('{ role: "user" as const }'))).toBe('{"role": "user"}');
   });
 });
 
