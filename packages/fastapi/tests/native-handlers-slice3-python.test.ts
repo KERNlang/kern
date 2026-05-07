@@ -137,6 +137,48 @@ describe('slice 3a — Python symbol-map for snake_case params', () => {
     expect(() => generateFunction(fn)).toThrow(/snake-cases to 'x_count', which collides/);
   });
 
+  test('legacy params string emits Python defaults and maps camelCase body refs', () => {
+    const fn = makeFn(
+      {
+        name: 'greet',
+        params:
+          'userName:string=`Ada, Lovelace`,limit:number=3,active:boolean=true,disabled:boolean=false,maybe:string=null,missing:string=undefined,tags:string[]=["a","b"],options:Record<string,number>={},raw=5,count:boolean=1<2',
+        returns: 'string',
+      },
+      [{ type: 'return', props: { value: 'userName' } }],
+    );
+
+    const out = generateFunction(fn).join('\n');
+    expect(out).toContain('def greet(user_name: str = "Ada, Lovelace", limit: float = 3, active: bool = True');
+    expect(out).toContain('disabled: bool = False');
+    expect(out).toContain('maybe: str = None');
+    expect(out).toContain('missing: str = None');
+    expect(out).toContain('tags: list[str] = ["a","b"]');
+    expect(out).toContain('options: dict[str, float] = {}');
+    expect(out).toContain('raw = 5');
+    expect(out).toContain('count: bool = 1<2');
+    expect(out).toContain('return user_name');
+  });
+
+  test('legacy params string rejects TS-only defaults on Python target', () => {
+    const arrowFn = makeFn({ name: 'badArrow', params: 'cb:any=()=>null', returns: 'any' }, [
+      { type: 'return', props: { value: 'cb' } },
+    ]);
+    expect(() => generateFunction(arrowFn)).toThrow(/arrow-function parameter defaults/);
+
+    const constructorFn = makeFn({ name: 'badCtor', params: 'table:any=new Map<string, number>()', returns: 'any' }, [
+      { type: 'return', props: { value: 'table' } },
+    ]);
+    expect(() => generateFunction(constructorFn)).toThrow(/TypeScript constructor parameter defaults/);
+  });
+
+  test('legacy params string rejects interpolated template-literal defaults on Python target', () => {
+    const fn = makeFn({ name: 'bad', params: 'name:string=`hi ${name}`', returns: 'string' }, [
+      { type: 'return', props: { value: 'name' } },
+    ]);
+    expect(() => generateFunction(fn)).toThrow(/template-literal parameter defaults with interpolation/);
+  });
+
   test('destructured params (binding/element children) skipped in symbol map', () => {
     // Destructured params have no single name — they're emitted in-body, not
     // in the signature. The symbol-map builder must not crash on them.

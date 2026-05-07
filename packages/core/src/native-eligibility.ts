@@ -69,7 +69,6 @@ export const LEGACY_NEG_PATTERNS: ReadonlyArray<RegExp> = [
   /\bclass\s+\w/,
   /\byield\b/,
   /\bfor\s*\(/,
-  /\bwhile\s*\(/,
   /\bdo\s*\{/,
   /\bswitch\s*\(/,
   /\btypeof\b/,

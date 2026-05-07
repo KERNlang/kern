@@ -514,8 +514,14 @@ export interface InvariantProps extends BaseProps {
 }
 
 export interface EachProps extends BaseProps {
+  name?: string;
   in?: string;
   index?: string;
+  await?: boolean | string;
+}
+
+export interface WhileProps extends BaseProps {
+  cond?: string;
 }
 
 export interface CollectProps extends BaseProps {
@@ -817,6 +823,7 @@ export interface NodePropsMap {
   assume: AssumeProps;
   invariant: InvariantProps;
   each: EachProps;
+  while: WhileProps;
   collect: CollectProps;
   branch: BranchProps;
   resolve: ResolveProps;

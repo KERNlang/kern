@@ -58,6 +58,11 @@ describe('each inside render — JSX-expression codegen', () => {
     );
   });
 
+  it('rejects await=true inside render each', () => {
+    const screen = screenWithRenderEach({ name: 'f', in: 'stream', await: true }, '<Text>{f.path}</Text>');
+    expect(() => generateCoreNode(screen)).toThrow(/await=true is only valid/);
+  });
+
   it('leaves statement-position `each` untouched (still emits for...of)', () => {
     // Not inside a render — top-level / fn body context.
     const node = mk('each', { name: 'x', in: 'xs' }, [mk('derive', { name: 'y', expr: 'x + 1' })]);
@@ -141,6 +146,24 @@ describe('decompiler — each canonical grammar', () => {
     const { code } = decompile(node);
     expect(code).toContain('index=i');
     expect(code).toContain('key="item.id"');
+  });
+
+  it('includes await=true when set', () => {
+    const node = mk('each', {
+      name: 'chunk',
+      in: 'stream',
+      await: true,
+    });
+    const { code } = decompile(node);
+    expect(code).toContain('each name=chunk');
+    expect(code).toContain('in="stream"');
+    expect(code).toContain('await=true');
+  });
+
+  it('parses await=true as the same truthy prop shape codegen accepts', () => {
+    const ast = parse('each name=chunk in=stream await=true');
+    const eachNode = ast.type === 'each' ? ast : ast.children?.find((c) => c.type === 'each');
+    expect(eachNode?.props?.await).toBe('true');
   });
 
   it('round-trips through parse — decompiled each is re-parseable', () => {

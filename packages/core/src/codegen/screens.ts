@@ -509,6 +509,9 @@ function generateEachJSX(node: IRNode): string[] {
       ? (rawCollection as ExprObject).code
       : (rawCollection as string);
   if (!collection) throw new KernCodegenError("each node requires an 'in' prop", node);
+  if (props.await === true || props.await === 'true') {
+    throw new KernCodegenError('each await=true is only valid in statement/native-body context, not render JSX', node);
+  }
 
   const index = (props.index as string) || '__i';
   const rawKey = props.key;

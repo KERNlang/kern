@@ -71,6 +71,18 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     expect(classifyHandlerBody(body).eligible).toBe(true);
   });
 
+  test('for-await-of block with migratable body is eligible', () => {
+    const body = `for await (const x of xs) {\n  await doThing(x);\n}\nreturn xs;`;
+    const result = classifyHandlerBody(body);
+    expect(result).toEqual({ eligible: true, reason: 'ok' });
+  });
+
+  test('for-await-of with unsupported body is rejected by inner reason', () => {
+    const body = `for await (const x of xs) {\n  x++;\n}`;
+    const result = classifyHandlerBody(body);
+    expect(result).toEqual({ eligible: false, reason: 'expr-stmt-mutation' });
+  });
+
   test('object destructuring const is eligible', () => {
     expect(classifyHandlerBody(`const { id, name } = user;\nreturn id;`).eligible).toBe(true);
   });
@@ -100,6 +112,11 @@ describe('classifyHandlerBody — slice 4d additions are now eligible', () => {
     expect(classifyHandlerBody(`arr[0] = value;\nreturn arr;`).eligible).toBe(true);
     expect(classifyHandlerBody(`this.value = 1;\nreturn this.value;`).eligible).toBe(true);
     expect(classifyHandlerBody(`arr[obj?.idx] = value;\nreturn arr;`).eligible).toBe(true);
+  });
+
+  test('while block with migratable body is eligible', () => {
+    const body = `while (queue.length > 0) {\n  const item = queue.shift();\n  process(item);\n}\nreturn queue;`;
+    expect(classifyHandlerBody(body)).toEqual({ eligible: true, reason: 'ok' });
   });
 });
 
@@ -139,7 +156,15 @@ describe('classifyHandlerBody — disqualifiers (slice α-3 AST walker)', () => 
   test('for-of with mutation body rejected by inner reason', () =>
     rejected(`for (const x of xs) {\n  y += x;\n}\nreturn y;`, 'expr-stmt-assignment'));
 
-  test('while-loop rejected', () => rejected(`while (i < 10) i++;\nreturn i;`, 'while-do-stmt'));
+  test('while non-block rejected to preserve verify byte-equivalence', () =>
+    rejected(`while (i < 10) i++;\nreturn i;`, 'while-non-block'));
+
+  test('empty while block rejected to preserve verify byte-equivalence', () =>
+    rejected(`while (i < 10) {}\nreturn i;`, 'while-empty-body'));
+
+  test('while with bad condition rejected', () => rejected(`while (x => x) {\n  return 1;\n}`, 'while-bad-cond'));
+
+  test('do-while rejected', () => rejected(`do { i = i + 1; } while (i < 10);`, 'do-while-stmt'));
 
   test('switch rejected', () => rejected(`switch (k) { case 1: return 'a'; }`, 'switch-stmt'));
 

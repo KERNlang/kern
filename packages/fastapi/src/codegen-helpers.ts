@@ -109,7 +109,163 @@ function jsLiteralToPython(token: string): string {
   if (token === 'true') return 'True';
   if (token === 'false') return 'False';
   if (token === 'null' || token === 'undefined') return 'None';
+  if (token.includes('=>')) {
+    throw new Error('KERN-Python codegen: arrow-function parameter defaults are unsupported.');
+  }
+  if (/^new\s+/.test(token)) {
+    throw new Error('KERN-Python codegen: TypeScript constructor parameter defaults are unsupported.');
+  }
+  if (token.startsWith('`') && token.endsWith('`')) {
+    const inner = token.slice(1, -1);
+    if (inner.includes('${')) {
+      throw new Error('KERN-Python codegen: template-literal parameter defaults with interpolation are unsupported.');
+    }
+    return JSON.stringify(inner);
+  }
   return token;
+}
+
+interface LegacyParamPart {
+  name: string;
+  type: string;
+  defaultValue: string;
+}
+
+export function parseLegacyParamParts(rawParams: string): LegacyParamPart[] {
+  return splitParamsRespectingDepth(rawParams).map((part) => {
+    const trimmed = part.trim();
+    const colonIdx = trimmed.indexOf(':');
+    if (colonIdx === -1) {
+      const eqIdx = findDefaultSeparator(trimmed);
+      if (eqIdx === -1) return { name: trimmed, type: '', defaultValue: '' };
+      return {
+        name: trimmed.slice(0, eqIdx).trim(),
+        type: '',
+        defaultValue: trimmed.slice(eqIdx + 1).trim(),
+      };
+    }
+    const name = trimmed.slice(0, colonIdx).trim();
+    const rest = trimmed.slice(colonIdx + 1).trim();
+    const eqIdx = findDefaultSeparator(rest);
+    if (eqIdx === -1) return { name, type: rest, defaultValue: '' };
+    return {
+      name,
+      type: rest.slice(0, eqIdx).trim(),
+      defaultValue: rest.slice(eqIdx + 1).trim(),
+    };
+  });
+}
+
+function splitParamsRespectingDepth(s: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  let quote: '"' | "'" | '`' | '' = '';
+  let escaped = false;
+  let inDefault = false;
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (quote) {
+      current += ch;
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === quote) {
+        quote = '';
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (!inDefault && ch === '=' && s[i + 1] !== '>' && depth === 0) {
+      inDefault = true;
+    }
+    const angleOpensTypeArg = ch === '<' && (!inDefault || looksLikeGenericAngle(s, i));
+    if (angleOpensTypeArg || ch === '(' || ch === '{' || ch === '[') depth++;
+    else if ((ch === '>' || ch === ')' || ch === '}' || ch === ']') && depth > 0) depth--;
+
+    if (ch === ',' && depth === 0) {
+      if (current.trim()) parts.push(current);
+      current = '';
+      inDefault = false;
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current);
+  return parts;
+}
+
+function looksLikeGenericAngle(input: string, ltIndex: number): boolean {
+  let j = ltIndex - 1;
+  while (j >= 0 && /\s/.test(input[j])) j--;
+  if (j < 0 || !/[A-Za-z0-9_$\]>)]/.test(input[j])) return false;
+
+  let quote: '"' | "'" | '`' | '' = '';
+  let escaped = false;
+  let nested = 0;
+  for (let i = ltIndex + 1; i < input.length; i++) {
+    const ch = input[i];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === quote) {
+        quote = '';
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '<') nested++;
+    else if (ch === '>') {
+      if (nested === 0) return true;
+      nested--;
+    } else if (ch === ',' && nested === 0) {
+      return false;
+    }
+  }
+  return false;
+}
+
+function findDefaultSeparator(rest: string): number {
+  let depth = 0;
+  let quote: '"' | "'" | '`' | '' = '';
+  let escaped = false;
+
+  for (let i = 0; i < rest.length; i++) {
+    const ch = rest[i];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === quote) {
+        quote = '';
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') {
+      quote = ch;
+      continue;
+    }
+    if (ch === '<' || ch === '(' || ch === '{' || ch === '[') depth++;
+    else if ((ch === '>' || ch === ')' || ch === '}' || ch === ']') && depth > 0) depth--;
+    else if (ch === '=' && depth === 0) {
+      if (rest[i + 1] === '>') continue;
+      return i;
+    }
+  }
+  return -1;
 }
 
 function formatPyDefault(paramNode: IRNode): string {
@@ -179,15 +335,12 @@ export function buildPythonParamList(node: IRNode, options?: { selfPrefix?: bool
     const rawParams = (p(node).params as string) || '';
     if (!rawParams) signature = '';
     else
-      signature = rawParams
-        .split(',')
+      signature = parseLegacyParamParts(rawParams)
         .map((part) => {
-          const [pname, ...ptype] = part
-            .trim()
-            .split(':')
-            .map((t) => t.trim());
-          const ptypeStr = ptype.join(':');
-          return ptypeStr ? `${toSnakeCase(pname)}: ${mapTsTypeToPython(ptypeStr)}` : toSnakeCase(pname);
+          const namePart = toSnakeCase(part.name);
+          const typePart = part.type ? `: ${mapTsTypeToPython(part.type)}` : '';
+          const defaultPart = part.defaultValue ? ` = ${jsLiteralToPython(part.defaultValue)}` : '';
+          return `${namePart}${typePart}${defaultPart}`;
         })
         .join(', ');
   }

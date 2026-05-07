@@ -550,6 +550,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'return',
       'if',
       'else',
+      'while',
       'each',
       'try',
       'throw',
@@ -583,6 +584,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'return',
       'if',
       'else',
+      'while',
       'each',
       'try',
       'throw',
@@ -1211,7 +1213,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   each: {
     description:
-      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`. `let` children become iteration-scoped `const` bindings inside the callback (hook-safe, unlike `derive`). Three forms in body-statement position: (1) `each name=x in=xs` → `for (const x of xs)`; (2) `each name=x index=i in=xs` → `for (const [i, x] of xs.entries())`; (3) `each pairKey=k pairValue=v in=map` → `for (const [k, v] of map)` (TS) / `for k, v in map.items():` (Python). In pair-mode `name` is optional. `key=` (render-only) is the React render key, distinct from `pairKey=`.',
+      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`. `let` children become iteration-scoped `const` bindings inside the callback (hook-safe, unlike `derive`). Three forms in body-statement position: (1) `each name=x in=xs` → `for (const x of xs)`; (2) `each name=x index=i in=xs` → `for (const [i, x] of xs.entries())`; (3) `each pairKey=k pairValue=v in=map` → `for (const [k, v] of map)` (TS) / `for k, v in map.items():` (Python). Add `await=true` for async iterables (`for await` / `async for`); it cannot be combined with `index=` and is rejected inside render JSX. Async pair-mode expects an async iterable of pairs, not a mapping (`async for k, v in stream`). In pair-mode `name` is optional. `key=` (render-only) is the React render key, distinct from `pairKey=`.',
     example:
       'each name=f in=files index=i key="f.path"\n  let name=isSel expr="focused && i === selIdx"\n  handler <<<\n    <Text bold={isSel}>{f.path}</Text>\n  >>>',
     props: {
@@ -1227,6 +1229,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       key: { kind: 'rawExpr' },
       pairKey: { kind: 'identifier' },
       pairValue: { kind: 'identifier' },
+      await: { kind: 'boolean' },
     },
     // Intentionally unrestricted — statement-form `each` composes with `derive`,
     // `transform`, etc. in fn/handler contexts. The `let` node is constrained
@@ -1491,7 +1494,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   handler: {
     description:
-      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`assign`/`do`/`return`/`if`/`else`/`each`/`try`/`catch`/`throw`/`continue`/`break`/`branch`) for cross-target structured bodies. Use `continue` inside `each` to skip the current iteration; use `break` inside `each` to exit the innermost loop. Use `branch` for switch-style structural matching (TS `switch`, Python `if/elif/else`). Prefer these over raw handlers for loop-control and dispatch bodies.',
+      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`assign`/`do`/`return`/`if`/`else`/`while`/`each`/`try`/`catch`/`throw`/`continue`/`break`/`branch`) for cross-target structured bodies. Use `continue` inside `each`/`while` to skip the current iteration; use `break` inside `each`/`while` to exit the innermost loop. Use `branch` for switch-style structural matching (TS `switch`, Python `if/elif/else`). Prefer these over raw handlers for loop-control and dispatch bodies.',
     example: 'handler <<<\n  const result = await doWork();\n  return result;\n>>>',
     props: {
       code: { kind: 'rawBlock' },
@@ -1509,6 +1512,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'return',
       'if',
       'else',
+      'while',
       'each',
       'try',
       'catch',
@@ -1570,6 +1574,31 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       cond: { required: true, kind: 'expression' },
     },
+  },
+  while: {
+    description:
+      'Body-statement while loop — emits `while (cond) { ... }` (TS) or `while cond:` (Python) inside a `lang="kern"` handler body. The loop condition is a native KERN expression; propagation `?` is rejected in `cond=`. Only block-shaped loops are migratable from raw TS to preserve verify byte-equivalence.',
+    example: 'while cond="queue.length > 0"\n  let name=item value="queue.shift()"\n  do value="process(item)"',
+    props: {
+      cond: { required: true, kind: 'expression' },
+    },
+    allowedChildren: [
+      'let',
+      'assign',
+      'destructure',
+      'do',
+      'return',
+      'if',
+      'else',
+      'while',
+      'each',
+      'try',
+      'catch',
+      'throw',
+      'continue',
+      'break',
+      'branch',
+    ],
   },
   conditional: {
     description:
@@ -3050,6 +3079,7 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
     const hasPairKey = isPairProp(props.pairKey);
     const hasPairValue = isPairProp(props.pairValue);
     const hasIndex = isPairProp(props.index);
+    const hasAwait = props.await === true || props.await === 'true';
     if (hasPairKey !== hasPairValue) {
       violations.push({
         nodeType: 'each',
@@ -3062,6 +3092,14 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
       violations.push({
         nodeType: 'each',
         message: "'each' pair-mode ('pairKey'+'pairValue') is mutually exclusive with 'index='",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasAwait && hasIndex) {
+      violations.push({
+        nodeType: 'each',
+        message: "'each await=true' is mutually exclusive with 'index='",
         line: node.loc?.line,
         col: node.loc?.col,
       });

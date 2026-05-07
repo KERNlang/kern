@@ -7,6 +7,7 @@
  *    - `destructure source="EXPR"` — `const { X } = EXPR;` / `const [X] = EXPR;`
  *    - `return value="EXPR"` / bare `return` — `return EXPR;` (slice 1)
  *    - `if cond="EXPR"` / sibling `else` — `if (EXPR) { … } else { … }` (slice 2c)
+ *    - `while cond="EXPR"` — `while (EXPR) { … }`
  *
  *  Statement-level propagation `?` lowers to the same hoisted shape that
  *  slice 7 established for raw-body propagation:
@@ -161,6 +162,17 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       // miscompiles. The `if` arm above consumes its paired `else` via i++,
       // so reaching one here means it was orphaned.
       throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
+    } else if (child.type === 'while') {
+      const condRaw = String(child.props?.cond ?? '');
+      const condIR = parseExpression(condRaw);
+      if (condIR.kind === 'propagate') {
+        throw new Error(
+          "Propagation '?' is not allowed in `while cond=` — bind the call to a `let` first, then test the bound name.",
+        );
+      }
+      lines.push(`${indent}while (${emitExpression(condIR)}) {`);
+      for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
+      lines.push(`${indent}}`);
     } else if (child.type === 'try') {
       // Slice 4c — try/catch control flow.
       //
@@ -231,15 +243,22 @@ function emitChildrenTS(children: IRNode[], ctx: BodyEmitContext, indent: string
       // dispatch on shape only.
       const pairKey = child.props?.pairKey;
       const pairValue = child.props?.pairValue;
+      const isAwait = child.props?.await === true || child.props?.await === 'true';
+      const awaitPrefix = isAwait ? ' await' : '';
       if (pairKey && pairValue) {
-        lines.push(`${indent}for (const [${String(pairKey)}, ${String(pairValue)}] of ${emitExpression(listIR)}) {`);
+        lines.push(
+          `${indent}for${awaitPrefix} (const [${String(pairKey)}, ${String(pairValue)}] of ${emitExpression(listIR)}) {`,
+        );
       } else if (child.props?.index) {
         const idxName = String(child.props.index);
         const asName = String(child.props?.name ?? child.props?.as ?? 'item');
+        if (isAwait) {
+          throw new Error('body-statement `each await=true` cannot be combined with `index=`.');
+        }
         lines.push(`${indent}for (const [${idxName}, ${asName}] of (${emitExpression(listIR)}).entries()) {`);
       } else {
         const asName = String(child.props?.name ?? child.props?.as ?? 'item');
-        lines.push(`${indent}for (const ${asName} of ${emitExpression(listIR)}) {`);
+        lines.push(`${indent}for${awaitPrefix} (const ${asName} of ${emitExpression(listIR)}) {`);
       }
       for (const sl of emitChildrenTS(child.children ?? [], ctx, indent + INDENT_STEP)) lines.push(sl);
       lines.push(`${indent}}`);

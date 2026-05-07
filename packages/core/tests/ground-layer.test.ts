@@ -660,6 +660,17 @@ describe('Python Ground Layer', () => {
     expect(code).toContain('for stem in track.stems:');
   });
 
+  it('each await=true generates async for loop', () => {
+    const node = makeNode('each', { name: 'chunk', in: 'stream', await: true });
+    const code = pyGen.generateEach(node).join('\n');
+    expect(code).toContain('async for chunk in stream:');
+  });
+
+  it('each await=true rejects index mode', () => {
+    const node = makeNode('each', { name: 'chunk', in: 'stream', await: true, index: 'i' });
+    expect(() => pyGen.generateEach(node)).toThrow(/cannot be combined with index=/);
+  });
+
   it('collect generates list comprehension', () => {
     const node = makeNode('collect', {
       name: 'overThreshold',
