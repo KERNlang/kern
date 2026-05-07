@@ -647,12 +647,27 @@ export function decompile(root: IRNode): DecompileResult {
 
   function renderEach(node: IRNode, indent: string): void {
     const props = node.props || {};
-    const name = (props.name as string) || 'item';
     const rawIn = props.in;
     const inExpr =
       rawIn && typeof rawIn === 'object' && (rawIn as ExprObject).__expr
         ? (rawIn as ExprObject).code
         : (rawIn as string) || '';
+    const pairKey = (props.pairKey as string) || '';
+    const pairValue = (props.pairValue as string) || '';
+    // 2026-05-06 — pair-mode round-trip. When both pairKey and pairValue are
+    // present, emit `each pairKey=k pairValue=v in=...` and omit `name=`
+    // (which is optional in this form per the conditional-required rule).
+    if (pairKey && pairValue) {
+      const parts: string[] = [`each pairKey=${pairKey}`, `pairValue=${pairValue}`, `in=${JSON.stringify(inExpr)}`];
+      lines.push(`${indent}${parts.join(' ')}`);
+      if (node.children) {
+        for (const child of node.children) {
+          render(child, `${indent}  `);
+        }
+      }
+      return;
+    }
+    const name = (props.name as string) || 'item';
     const index = (props.index as string) || '';
     const rawKey = props.key;
     const keyExpr =

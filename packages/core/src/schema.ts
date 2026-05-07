@@ -554,6 +554,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'throw',
       'continue',
       'break',
+      'branch',
     ],
   },
   step: {
@@ -573,7 +574,20 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       name: { kind: 'identifier' },
     },
-    allowedChildren: ['handler', 'let', 'do', 'return', 'if', 'else', 'each', 'try', 'throw', 'continue', 'break'],
+    allowedChildren: [
+      'handler',
+      'let',
+      'do',
+      'return',
+      'if',
+      'else',
+      'each',
+      'try',
+      'throw',
+      'continue',
+      'break',
+      'branch',
+    ],
   },
   filter: {
     description:
@@ -1195,14 +1209,22 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
   },
   each: {
     description:
-      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`. `let` children become iteration-scoped `const` bindings inside the callback (hook-safe, unlike `derive`).',
+      'Iteration — renders children for each item in a collection. Inside a render block emits `items.map(...)` with auto-key; elsewhere emits `for...of`. `let` children become iteration-scoped `const` bindings inside the callback (hook-safe, unlike `derive`). Three forms in body-statement position: (1) `each name=x in=xs` → `for (const x of xs)`; (2) `each name=x index=i in=xs` → `for (const [i, x] of xs.entries())`; (3) `each pairKey=k pairValue=v in=map` → `for (const [k, v] of map)` (TS) / `for k, v in map.items():` (Python). In pair-mode `name` is optional. `key=` (render-only) is the React render key, distinct from `pairKey=`.',
     example:
       'each name=f in=files index=i key="f.path"\n  let name=isSel expr="focused && i === selIdx"\n  handler <<<\n    <Text bold={isSel}>{f.path}</Text>\n  >>>',
     props: {
+      // `name` is required schema-side for the array-iteration forms; the
+      // pair-mode (`pairKey` + `pairValue`) form relaxes this via a
+      // conditional-required exemption inside `checkRequiredProps` in this
+      // same file. (The `each-pair-mode-body-stmt-only` semantic rule in
+      // semantic-validator.ts is unrelated — it just blocks pair-mode in
+      // render/group ancestor scope.)
       name: { required: true, kind: 'identifier' },
       in: { required: true, kind: 'rawExpr' },
       index: { kind: 'identifier' },
       key: { kind: 'rawExpr' },
+      pairKey: { kind: 'identifier' },
+      pairValue: { kind: 'identifier' },
     },
     // Intentionally unrestricted — statement-form `each` composes with `derive`,
     // `transform`, etc. in fn/handler contexts. The `let` node is constrained
@@ -1243,9 +1265,12 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     },
   },
   branch: {
-    description: 'Pattern-match/switch on an expression — contains path children',
-    example: 'branch name=route on=path\n  path value="/home"\n  path value="/about"',
+    description:
+      'Pattern-match/switch on an expression — contains `path` children. Top-level form (statement context) emits TS `switch` with `case` blocks. Body-statement form (child of `handler lang="kern"` / `try` / `catch`) emits the same TS `switch` plus a Python `if/elif/else` chain on the fastapi target. Each `path value=X` is a case; `path default=true` is the trailing default case (parallels JS `switch`/`default`). Identifier values like `path value=Status.Active` (unquoted) emit raw refs; quoted strings emit JSON-quoted literals.',
+    example: 'branch name=route on=path\n  path value="/home"\n  path value="/about"\n  path default=true',
     props: {
+      // `name` is required for the top-level branch shape; body-statement
+      // branches inherit the same shape for diagnostic clarity.
       name: { required: true, kind: 'identifier' },
       on: { required: true, kind: 'rawExpr' },
     },
@@ -1464,7 +1489,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   handler: {
     description:
-      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`do`/`return`/`if`/`else`/`each`/`try`/`catch`/`throw`/`continue`/`break`) for cross-target structured bodies. Use `continue` inside `each` to skip the current iteration; use `break` inside `each` to exit the innermost loop. Prefer these over raw handlers for loop-control bodies.',
+      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`do`/`return`/`if`/`else`/`each`/`try`/`catch`/`throw`/`continue`/`break`/`branch`) for cross-target structured bodies. Use `continue` inside `each` to skip the current iteration; use `break` inside `each` to exit the innermost loop. Use `branch` for switch-style structural matching (TS `switch`, Python `if/elif/else`). Prefer these over raw handlers for loop-control and dispatch bodies.',
     example: 'handler <<<\n  const result = await doWork();\n  return result;\n>>>',
     props: {
       code: { kind: 'rawBlock' },
@@ -1474,7 +1499,20 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     // body statements are rejected by validateBodyStatements (the schema list
     // is intentionally permissive so the validator can produce a clearer
     // context-aware error).
-    allowedChildren: ['let', 'do', 'return', 'if', 'else', 'each', 'try', 'catch', 'throw', 'continue', 'break'],
+    allowedChildren: [
+      'let',
+      'do',
+      'return',
+      'if',
+      'else',
+      'each',
+      'try',
+      'catch',
+      'throw',
+      'continue',
+      'break',
+      'branch',
+    ],
   },
   return: {
     description:
@@ -2422,9 +2460,16 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   // Ground layer — semantic reasoning
   path: {
-    description: 'Decision path — a named branch in a resolve/branch tree',
-    example: 'path value="/api/users"',
-    props: { value: { required: true, kind: 'string' } },
+    description:
+      'Decision path — a named branch inside a `branch` (or resolve) tree. Provide exactly one of `value=` (the case literal: quoted → string compare, unquoted → identifier reference such as `Status.Active`) or `default=true` (the trailing fallback case, parallels JS `switch`/`default`). The validator rejects paths that supply neither or both. Body-statement child of `branch` admits the same body-statements as `handler lang="kern"`.',
+    example: 'path value="/api/users"\npath value=Status.Active\npath default=true',
+    props: {
+      // `value` is no longer schema-required because `path default=true` is a
+      // legal alternative shape. `path-shape` semantic rule enforces
+      // exactly-one-of(value, default) at validation time.
+      value: { kind: 'string' },
+      default: { kind: 'boolean' },
+    },
   },
   resolve: {
     description: 'Resolution node — selects among candidates using a discriminator',
@@ -2636,14 +2681,33 @@ const UNIVERSAL_CHILDREN = new Set(['handler', 'cleanup', 'reason', 'evidence', 
 function checkRequiredProps(node: IRNode, schema: NodeSchema, violations: SchemaViolation[]): void {
   const props = node.props || {};
   for (const [propName, propSchema] of Object.entries(schema.props)) {
-    if (propSchema.required && !(propName in props)) {
-      violations.push({
-        nodeType: node.type,
-        message: `'${node.type}' requires prop '${propName}'`,
-        line: node.loc?.line,
-        col: node.loc?.col,
-      });
+    if (!propSchema.required) continue;
+    if (propName in props) continue;
+    // each-pair-mode (2026-05-06): `name` becomes optional when both
+    // `pairKey` and `pairValue` are present (Map / iterable-of-pairs form).
+    // The schema can't express conditional-required, so suppress the
+    // `name`-required violation here under that exact shape. Other props
+    // (notably `in=`) still error if missing.
+    // Codex review-fix (mid-build, confidence 0.91): require BOTH props to
+    // be non-empty strings — accepting `null`/`0`/`false` here would let
+    // malformed source bypass the `name=` requirement and emit silently-wrong
+    // loop bindings (codegen does strict-truthy detection later).
+    if (
+      node.type === 'each' &&
+      propName === 'name' &&
+      typeof props.pairKey === 'string' &&
+      props.pairKey.length > 0 &&
+      typeof props.pairValue === 'string' &&
+      props.pairValue.length > 0
+    ) {
+      continue;
     }
+    violations.push({
+      nodeType: node.type,
+      message: `'${node.type}' requires prop '${propName}'`,
+      line: node.loc?.line,
+      col: node.loc?.col,
+    });
   }
 }
 
@@ -2916,6 +2980,82 @@ function checkCrossProps(node: IRNode, violations: SchemaViolation[]): void {
     // Neither `name` nor `return=true` selects the inline-JSX form; that form
     // is only valid inside `render`/`group` — the positional check lives in
     // the semantic validator, which has ancestry context.
+  }
+  if (node.type === 'path') {
+    // path-shape (2026-05-06): exactly one of `value=` (case literal) or
+    // `default=true` (trailing fallback). Both → ambiguous; neither → empty
+    // case clause that codegen can't emit. Schema dropped `value: required`
+    // so this rule replaces the requirement with a context-aware shape check.
+    const hasValue = 'value' in props;
+    const hasDefault = isTruthyProp(props.default);
+    if (!hasValue && !hasDefault) {
+      violations.push({
+        nodeType: 'path',
+        message: "'path' requires either 'value=' (case literal) or 'default=true' (trailing fallback)",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasValue && hasDefault) {
+      violations.push({
+        nodeType: 'path',
+        message: "'path' must not combine 'value=' and 'default=true' — choose one",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+  if (node.type === 'branch') {
+    // At most one default `path` per branch. More than one is a structural
+    // bug — codegen would emit unreachable trailing default clauses.
+    const defaultCount = (node.children ?? []).filter(
+      (c) => c.type === 'path' && isTruthyProp(c.props?.default),
+    ).length;
+    if (defaultCount > 1) {
+      violations.push({
+        nodeType: 'branch',
+        message: `'branch' must contain at most one 'path default=true' (found ${defaultCount})`,
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+  }
+  if (node.type === 'each') {
+    // each-pair-mode (2026-05-06): the Map / iterable-of-pairs form uses
+    // `pairKey=` + `pairValue=` for `for (const [k, v] of m)`. Three rules:
+    //   1. pairKey and pairValue come as a pair — neither alone is meaningful.
+    //   2. pair-mode is incompatible with `index=` (entries-with-index form).
+    //   3. `name=` becomes optional in pair-mode (relaxes schema `required`).
+    // Codex review-fix (2026-05-06, mid-build, confidence 0.91): use a strict
+    // string check so malformed source like `pairKey: null` / `pairValue: 0`
+    // is treated as ABSENT rather than as a truthy pair-mode declaration.
+    // The previous `!== '' && !== undefined` check accepted `null`/`0`/`false`,
+    // which allowed validator bypass when codegen later does a strict-truthy
+    // check (codegen would fall back to plain `each name=item` and silently
+    // emit a wrong loop binding).
+    const isPairProp = (raw: unknown): raw is string => typeof raw === 'string' && raw.length > 0;
+    const hasPairKey = isPairProp(props.pairKey);
+    const hasPairValue = isPairProp(props.pairValue);
+    const hasIndex = isPairProp(props.index);
+    if (hasPairKey !== hasPairValue) {
+      violations.push({
+        nodeType: 'each',
+        message: "'each' pair-mode requires both 'pairKey=' AND 'pairValue=' (or neither)",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    if (hasPairKey && hasPairValue && hasIndex) {
+      violations.push({
+        nodeType: 'each',
+        message: "'each' pair-mode ('pairKey'+'pairValue') is mutually exclusive with 'index='",
+        line: node.loc?.line,
+        col: node.loc?.col,
+      });
+    }
+    // Pair-mode relaxes `name` requirement — handled by checkRequiredProps
+    // (suppresses the `name`-required violation when pairKey+pairValue are
+    // both present).
   }
 }
 

@@ -41,11 +41,11 @@ if (process.env.NODE_ENV !== 'production') {
 exports[`golden: branch branch with paths 1`] = `
 "/** branch: route */
 switch (user.tier) {
-  case 'free': {
+  case "free": {
     export const limit: number = [object Object];
     break;
   }
-  case 'pro': {
+  case "pro": {
     export const limit: number = [object Object];
     break;
   }

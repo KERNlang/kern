@@ -280,15 +280,32 @@ describe('Ground Layer: collect', () => {
 // ==========================================================================
 
 describe('Ground Layer: branch', () => {
+  // 2026-05-06 — top-level `branch` codegen distinguishes string vs identifier
+  // case values via the `__quotedProps` IR marker (matches body-ts.ts and the
+  // parser convention). Hand-built IR for these tests therefore sets
+  // `__quotedProps: ['value']` to opt into string-literal emission. Without
+  // that marker the emitter treats `value=` as an unquoted identifier.
   it('generates switch statement', () => {
     const node = makeNode('branch', { name: 'tierRoute', on: 'user.tier' }, [
-      makeNode('path', { value: 'free' }, [makeNode('derive', { name: 'maxStems', expr: '4', type: 'number' })]),
-      makeNode('path', { value: 'pro' }, [makeNode('derive', { name: 'maxStems', expr: 'Infinity', type: 'number' })]),
+      {
+        ...makeNode('path', { value: 'free' }, [makeNode('derive', { name: 'maxStems', expr: '4', type: 'number' })]),
+        __quotedProps: ['value'],
+      },
+      {
+        ...makeNode('path', { value: 'pro' }, [
+          makeNode('derive', { name: 'maxStems', expr: 'Infinity', type: 'number' }),
+        ]),
+        __quotedProps: ['value'],
+      },
     ]);
     const code = generateBranch(node).join('\n');
     expect(code).toContain('switch (user.tier)');
-    expect(code).toContain("case 'free':");
-    expect(code).toContain("case 'pro':");
+    // Codex final-review fix landed JSON.stringify quoting → double-quotes
+    // for safety (apostrophes/backslashes survive). Use a regex tolerant of
+    // either quote style so the test focuses on the case-emit semantic
+    // rather than the JSON-stringify policy detail.
+    expect(code).toMatch(/case ['"]free['"]:/);
+    expect(code).toMatch(/case ['"]pro['"]:/);
     expect(code).toContain('const maxStems: number = 4');
   });
 
@@ -300,21 +317,42 @@ describe('Ground Layer: branch', () => {
 
   it('handles multi-path', () => {
     const node = makeNode('branch', { name: 'b', on: 'v' }, [
-      makeNode('path', { value: 'a' }),
-      makeNode('path', { value: 'b' }),
-      makeNode('path', { value: 'c' }),
+      { ...makeNode('path', { value: 'a' }), __quotedProps: ['value'] },
+      { ...makeNode('path', { value: 'b' }), __quotedProps: ['value'] },
+      { ...makeNode('path', { value: 'c' }), __quotedProps: ['value'] },
     ]);
     const code = generateBranch(node).join('\n');
-    expect(code).toContain("case 'a':");
-    expect(code).toContain("case 'b':");
-    expect(code).toContain("case 'c':");
+    expect(code).toMatch(/case ['"]a['"]:/);
+    expect(code).toMatch(/case ['"]b['"]:/);
+    expect(code).toMatch(/case ['"]c['"]:/);
   });
 
   it('handles empty path (no children)', () => {
-    const node = makeNode('branch', { name: 'empty', on: 'x' }, [makeNode('path', { value: 'empty' })]);
+    const node = makeNode('branch', { name: 'empty', on: 'x' }, [
+      { ...makeNode('path', { value: 'empty' }), __quotedProps: ['value'] },
+    ]);
     const code = generateBranch(node).join('\n');
-    expect(code).toContain("case 'empty':");
+    expect(code).toMatch(/case ['"]empty['"]:/);
     expect(code).toContain('break;');
+  });
+
+  it('emits unquoted identifier for path without __quotedProps (e.g. `path value=Status.Active`)', () => {
+    const node = makeNode('branch', { name: 'r', on: 'status' }, [
+      makeNode('path', { value: 'Status.Active' }), // no __quotedProps → identifier
+    ]);
+    const code = generateBranch(node).join('\n');
+    expect(code).toContain('case Status.Active:');
+    expect(code).not.toContain('"Status.Active"');
+  });
+
+  it('emits `default:` clause for path default=true', () => {
+    const node = makeNode('branch', { name: 'r', on: 'x' }, [
+      { ...makeNode('path', { value: 'a' }), __quotedProps: ['value'] },
+      makeNode('path', { default: true }), // trailing default fallback
+    ]);
+    const code = generateBranch(node).join('\n');
+    expect(code).toMatch(/case ['"]a['"]:/);
+    expect(code).toContain('default: {');
   });
 });
 
