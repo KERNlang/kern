@@ -634,15 +634,6 @@ const REGISTRY: RuleInfo[] = [
     precision: 'high',
     rolloutPhase: 2,
   },
-  {
-    id: 'response-no-ok-check',
-    layer: 'async',
-    severity: 'warning',
-    description:
-      'fetch() result is parsed (.json/.text/.blob/.arrayBuffer/.formData) without checking response.ok first — 4xx/5xx error bodies surface as success data',
-    precision: 'high',
-    rolloutPhase: 5,
-  },
 
   // React composition — Wave 4 (children-as-perf, prop drilling)
   {

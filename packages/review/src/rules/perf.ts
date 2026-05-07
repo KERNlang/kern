@@ -194,6 +194,11 @@ const HOOK_AND_TIMER_GATES = new Set([
   'queueMicrotask',
   'requestAnimationFrame',
   'requestIdleCallback',
+  // Promise prototype callbacks — body runs after the promise settles, never
+  // synchronously during render. (Gemini final review.)
+  'then',
+  'catch',
+  'finally',
 ]);
 
 function nodeIsRenderPath(node: Node): boolean {
@@ -229,10 +234,21 @@ function nodeIsRenderPath(node: Node): boolean {
         // Any other JSX-expression context for a function value (e.g. children
         // render-prop) — function is captured, not invoked during render.
         return false;
+      } else if (parent && Node.isVariableDeclaration(parent)) {
+        // The arrow IS a `const X = () => { ... }` declaration. If X is a
+        // capitalized name, the arrow is the React component itself — body
+        // executes whenever X renders, so the node IS render-path.
+        const nameNode = parent.getNameNode();
+        if (Node.isIdentifier(nameNode) && /^[A-Z]/.test(nameNode.getText())) {
+          return true;
+        }
+        // Otherwise the arrow is captured for later use (handler, helper, etc.)
+        // — not invoked during render.
+        return false;
       } else {
-        // Function expression assigned to a variable, returned, passed to a
-        // non-call site, etc. — captured for later use, not invoked on render.
-        // (Codex P2 fix: `const onClick = () => Date.now()` is NOT render-path.)
+        // Function expression returned, passed to a non-recognised call, used
+        // as a JSX child, etc. — captured for later use, not invoked on render.
+        // (`const onClick = () => Date.now()` was the canonical example.)
         return false;
       }
     } else if (Node.isFunctionDeclaration(cur)) {

@@ -179,6 +179,16 @@ export function C() {
       const r = reviewSource(src, 'c.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'form-onsubmit-no-preventdefault')).toBeDefined();
     });
+
+    it('does not flag concise body that calls preventDefault (Codex P2-2)', () => {
+      const src = `
+export function C() {
+  return <form onSubmit={(e) => e.preventDefault()}>...</form>;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'form-onsubmit-no-preventdefault')).toBeUndefined();
+    });
   });
 
   describe('submit-button-implicit-type', () => {

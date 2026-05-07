@@ -228,6 +228,39 @@ export function C() {
       const r = reviewSource(src, 'c.tsx', cfg);
       expect(r.findings.find((f) => f.ruleId === 'nondeterministic-in-render')).toBeUndefined();
     });
+
+    it('flags Math.random() in arrow-component body (Codex P2-1: const C = () => ...)', () => {
+      const src = `
+export const C = () => {
+  const id = Math.random();
+  return <div>{id}</div>;
+};
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'nondeterministic-in-render')).toBeDefined();
+    });
+
+    it('flags Date.now() in arrow-component JSX', () => {
+      const src = `
+export const C = () => <div>now: {Date.now()}</div>;
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'nondeterministic-in-render')).toBeDefined();
+    });
+
+    it('does not flag Math.random() inside a promise.then() callback (Gemini final review)', () => {
+      const src = `
+export function C({ url }: { url: string }) {
+  fetch(url).then(() => {
+    const id = Math.random();
+    console.log(id);
+  });
+  return <div />;
+}
+`;
+      const r = reviewSource(src, 'c.tsx', cfg);
+      expect(r.findings.find((f) => f.ruleId === 'nondeterministic-in-render')).toBeUndefined();
+    });
   });
 
   describe('regex-literal-in-render', () => {

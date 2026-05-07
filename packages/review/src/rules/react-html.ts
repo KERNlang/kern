@@ -135,10 +135,15 @@ function flagsFormOnSubmitNoPreventDefault(ctx: RuleContext): ReviewFinding[] {
     const body = expr.getBody();
     if (!body) continue;
     // AST-based preventDefault() detection (Gemini review: regex on text
-    // matched commented-out calls). Walk all CallExpressions in the body
-    // and look for any call whose property is named 'preventDefault'.
+    // matched commented-out calls). Walk all CallExpressions in the body —
+    // including the body itself when it's an expression-bodied arrow like
+    // `(e) => e.preventDefault()` (Codex P2-2 fix: descendants don't
+    // include the body node itself).
+    const callsInBody: import('ts-morph').CallExpression[] = [...body.getDescendantsOfKind(SyntaxKind.CallExpression)];
+    if (Node.isCallExpression(body)) callsInBody.unshift(body);
+
     let hasPreventDefault = false;
-    for (const callExpr of body.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+    for (const callExpr of callsInBody) {
       const callee = callExpr.getExpression();
       if (Node.isPropertyAccessExpression(callee)) {
         if (callee.getName() === 'preventDefault') {
