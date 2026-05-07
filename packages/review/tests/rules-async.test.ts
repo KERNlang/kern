@@ -234,4 +234,80 @@ export function C() {
       expect(r.findings.find((x) => x.ruleId === 'abortcontroller-leak')).toBeDefined();
     });
   });
+
+  describe('response-no-ok-check', () => {
+    it('flags r.json() without r.ok check', () => {
+      const src = `
+export async function load(url: string) {
+  const r = await fetch(url);
+  const data = await r.json();
+  return data;
+}
+`;
+      const result = reviewSource(src, 'a.ts', cfg);
+      expect(result.findings.find((f) => f.ruleId === 'response-no-ok-check')).toBeDefined();
+    });
+
+    it('flags r.text() without r.ok check', () => {
+      const src = `
+export async function load(url: string) {
+  const r = await fetch(url);
+  return await r.text();
+}
+`;
+      const result = reviewSource(src, 'a.ts', cfg);
+      expect(result.findings.find((f) => f.ruleId === 'response-no-ok-check')).toBeDefined();
+    });
+
+    it('does not flag when r.ok is checked first', () => {
+      const src = `
+export async function load(url: string) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('http');
+  return await r.json();
+}
+`;
+      const result = reviewSource(src, 'a.ts', cfg);
+      expect(result.findings.find((f) => f.ruleId === 'response-no-ok-check')).toBeUndefined();
+    });
+
+    it('does not flag when r.status is checked first', () => {
+      const src = `
+export async function load(url: string) {
+  const r = await fetch(url);
+  if (r.status !== 200) return null;
+  return await r.json();
+}
+`;
+      const result = reviewSource(src, 'a.ts', cfg);
+      expect(result.findings.find((f) => f.ruleId === 'response-no-ok-check')).toBeUndefined();
+    });
+
+    it('does not flag when parse is wrapped in try/catch', () => {
+      const src = `
+export async function load(url: string) {
+  const r = await fetch(url);
+  try {
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+`;
+      const result = reviewSource(src, 'a.ts', cfg);
+      expect(result.findings.find((f) => f.ruleId === 'response-no-ok-check')).toBeUndefined();
+    });
+
+    it('does not flag non-fetch responses (custom client)', () => {
+      const src = `
+declare const httpClient: { get: (u: string) => Promise<{ json(): Promise<unknown> }> };
+export async function load(url: string) {
+  const r = await httpClient.get(url);
+  return await r.json();
+}
+`;
+      const result = reviewSource(src, 'a.ts', cfg);
+      expect(result.findings.find((f) => f.ruleId === 'response-no-ok-check')).toBeUndefined();
+    });
+  });
 });
