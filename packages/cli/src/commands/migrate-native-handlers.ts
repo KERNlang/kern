@@ -152,6 +152,10 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
     return mapForOf(stmt, source, indent);
   }
 
+  if (ts.isWhileStatement(stmt)) {
+    return mapWhile(stmt, source, indent);
+  }
+
   if (ts.isExpressionStatement(stmt)) {
     // Bare expression statement (`reg.load(x);`, `arr.push(y);`) maps to the
     // `do value="…"` body-statement (slice α-1). Largest AST-rejection bucket
@@ -185,7 +189,7 @@ function mapStatement(stmt: ts.Statement, source: ts.SourceFile, indent: string)
     return [`${indent}do value="${escapeKernString(exprText)}"`];
   }
 
-  // Block, unsupported loop shapes, while, switch, etc — no body-statement equivalent. Bail.
+  // Block, unsupported loop shapes, switch, etc — no body-statement equivalent. Bail.
   return null;
 }
 
@@ -301,6 +305,20 @@ function mapForOf(stmt: ts.ForOfStatement, source: ts.SourceFile, indent: string
   const innerIndent = indent + INDENT_STEP;
   const awaitAttr = stmt.awaitModifier ? ' await=true' : '';
   const out: string[] = [`${indent}each name=${decl.name.text} in="${escapeKernString(collectionText)}"${awaitAttr}`];
+  const bodyLines = mapBranch(stmt.statement, source, innerIndent);
+  if (bodyLines === null) return null;
+  out.push(...bodyLines);
+  return out;
+}
+
+function mapWhile(stmt: ts.WhileStatement, source: ts.SourceFile, indent: string): string[] | null {
+  const condText = stmt.expression.getText(source);
+  if (!isValidKernExpression(condText)) return null;
+  if (!ts.isBlock(stmt.statement)) return null;
+  if (stmt.statement.statements.length === 0) return null;
+
+  const innerIndent = indent + INDENT_STEP;
+  const out: string[] = [`${indent}while cond="${escapeKernString(condText)}"`];
   const bodyLines = mapBranch(stmt.statement, source, innerIndent);
   if (bodyLines === null) return null;
   out.push(...bodyLines);

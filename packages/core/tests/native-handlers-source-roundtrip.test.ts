@@ -131,6 +131,26 @@ describe('slice 5b-pre — body-statement source round-trip (positive)', () => {
     const emitted = emitNativeKernBodyTS(handler);
     expect(emitted).toContain('obj.x = 1;');
   });
+
+  test('body-statement while round-trips', () => {
+    const src = [
+      'fn name=drain returns=void',
+      '  handler lang="kern"',
+      '    while cond="queue.length > 0"',
+      '      let name=item value="queue.shift()"',
+      '      do value="process(item)"',
+    ].join('\n');
+
+    const root = parseDocumentStrict(src);
+    const handler = findFirstHandler(root);
+    const types = (handler.children ?? []).map((c) => c.type);
+    expect(types).toEqual(['while']);
+
+    const emitted = emitNativeKernBodyTS(handler);
+    expect(emitted).toContain('while (queue.length > 0) {');
+    expect(emitted).toContain('const item = queue.shift();');
+    expect(emitted).toContain('process(item);');
+  });
 });
 
 describe('slice 5b-pre — body-statement context validator (negative)', () => {
@@ -178,6 +198,13 @@ describe('slice 5b-pre — body-statement context validator (negative)', () => {
     const violation = diagnostics.find((d) => d.code === 'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER');
     expect(violation).toBeDefined();
     expect(violation?.message).toMatch(/`try`/);
+  });
+
+  test('body-statement `while` outside scope errors', () => {
+    const src = ['fn name=top returns=void', '  while cond="running"', '    break'].join('\n');
+    const { diagnostics } = parseDocumentWithDiagnostics(src);
+    const violation = diagnostics.find((d) => d.code === 'BODY_STATEMENT_OUTSIDE_NATIVE_HANDLER');
+    expect(violation?.message).toMatch(/`while`/);
   });
 
   test('async-orchestration `try name=…` is NOT flagged (different shape)', () => {

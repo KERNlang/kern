@@ -550,6 +550,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'return',
       'if',
       'else',
+      'while',
       'each',
       'try',
       'throw',
@@ -583,6 +584,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'return',
       'if',
       'else',
+      'while',
       'each',
       'try',
       'throw',
@@ -1492,7 +1494,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
 
   handler: {
     description:
-      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`assign`/`do`/`return`/`if`/`else`/`each`/`try`/`catch`/`throw`/`continue`/`break`/`branch`) for cross-target structured bodies. Use `continue` inside `each` to skip the current iteration; use `break` inside `each` to exit the innermost loop. Use `branch` for switch-style structural matching (TS `switch`, Python `if/elif/else`). Prefer these over raw handlers for loop-control and dispatch bodies.',
+      'Code block — the body of a function, method, route, tool, or event handler. Use <<<...>>> for raw multiline code, or `lang="kern"` with body-statement children (`let`/`assign`/`do`/`return`/`if`/`else`/`while`/`each`/`try`/`catch`/`throw`/`continue`/`break`/`branch`) for cross-target structured bodies. Use `continue` inside `each`/`while` to skip the current iteration; use `break` inside `each`/`while` to exit the innermost loop. Use `branch` for switch-style structural matching (TS `switch`, Python `if/elif/else`). Prefer these over raw handlers for loop-control and dispatch bodies.',
     example: 'handler <<<\n  const result = await doWork();\n  return result;\n>>>',
     props: {
       code: { kind: 'rawBlock' },
@@ -1510,6 +1512,7 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
       'return',
       'if',
       'else',
+      'while',
       'each',
       'try',
       'catch',
@@ -1571,6 +1574,31 @@ export const NODE_SCHEMAS: Record<string, NodeSchema> = {
     props: {
       cond: { required: true, kind: 'expression' },
     },
+  },
+  while: {
+    description:
+      'Body-statement while loop — emits `while (cond) { ... }` (TS) or `while cond:` (Python) inside a `lang="kern"` handler body. The loop condition is a native KERN expression; propagation `?` is rejected in `cond=`. Only block-shaped loops are migratable from raw TS to preserve verify byte-equivalence.',
+    example: 'while cond="queue.length > 0"\n  let name=item value="queue.shift()"\n  do value="process(item)"',
+    props: {
+      cond: { required: true, kind: 'expression' },
+    },
+    allowedChildren: [
+      'let',
+      'assign',
+      'destructure',
+      'do',
+      'return',
+      'if',
+      'else',
+      'while',
+      'each',
+      'try',
+      'catch',
+      'throw',
+      'continue',
+      'break',
+      'branch',
+    ],
   },
   conditional: {
     description:

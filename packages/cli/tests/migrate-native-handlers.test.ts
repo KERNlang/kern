@@ -134,6 +134,27 @@ describe('rewriteNativeHandlers — supported statement types', () => {
     expect(() => parseDocumentStrict(result.output)).not.toThrow();
   });
 
+  test('migrates while block to while body-statement', () => {
+    const source = [
+      'fn name=drain returns=void',
+      '  handler <<<',
+      '    while (queue.length > 0) {',
+      '      const item = queue.shift();',
+      '      process(item);',
+      '    }',
+      '    return;',
+      '  >>>',
+    ].join('\n');
+
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+    expect(result.output).toContain('handler lang="kern"');
+    expect(result.output).toContain('while cond="queue.length > 0"');
+    expect(result.output).toContain('let name=item value="queue.shift()"');
+    expect(result.output).toContain('do value="process(item)"');
+    expect(() => parseDocumentStrict(result.output)).not.toThrow();
+  });
+
   test('migrates object destructuring const to destructure body-statement', () => {
     const source = [
       'fn name=load returns=string',
@@ -451,6 +472,20 @@ describe('rewriteNativeHandlers — bail conditions', () => {
     const result = rewriteNativeHandlers(source);
     expect(result.hits).toHaveLength(0);
   });
+
+  test('bails on while without a block to avoid verify drift', () => {
+    const source = ['fn name=ok returns=void', '  handler <<<', '    while (running) tick();', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
+
+  test('bails on empty while block to avoid verify drift', () => {
+    const source = ['fn name=ok returns=void', '  handler <<<', '    while (running) {}', '  >>>'].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(0);
+    expect(result.output).toBe(source);
+  });
 });
 
 describe('rewriteNativeHandlers — round-trip', () => {
@@ -722,6 +757,26 @@ describe('rewriteNativeHandlers — verify contract (compiled TS byte-equivalenc
     expect(ts).toContain('  notify(user);');
     expect(ts).toContain('}');
     expect(ts).toContain('return;');
+  });
+
+  test('while block compiles through while body-statement', () => {
+    const source = [
+      'fn name=drain returns=void',
+      '  handler <<<',
+      '    while (queue.length > 0) {',
+      '      const item = queue.shift();',
+      '      process(item);',
+      '    }',
+      '  >>>',
+    ].join('\n');
+    const result = rewriteNativeHandlers(source);
+    expect(result.hits).toHaveLength(1);
+
+    const handler = findHandler(parseDocumentStrict(result.output));
+    const ts = emitNativeKernBodyTS(handler as IRNode);
+    expect(ts).toContain('while (queue.length > 0) {');
+    expect(ts).toContain('  const item = queue.shift();');
+    expect(ts).toContain('  process(item);');
   });
 
   test('for-of block with nested destructuring composes each and destructure', () => {

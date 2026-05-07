@@ -7,6 +7,7 @@
  *    - `let name=X value="EXPR"` — `X = EXPR` (slice 1)
  *    - `return value="EXPR"` / bare `return` (slice 1)
  *    - `if cond="EXPR"` / sibling `else` — `if EXPR:\n    body\nelse:\n    body` (slice 2c).
+ *    - `while cond="EXPR"` — `while EXPR:\n    body`
  *      `else > if(…)` and `else > [if(…), else_inner]` collapse to `elif EXPR:` so
  *      raw `elif` chains round-trip byte-equivalent through slice 5b migration.
  *
@@ -218,6 +219,18 @@ function emitChildrenPy(children: IRNode[], ctx: BodyEmitContext, indent: string
     } else if (child.type === 'else') {
       // Slice-2 review fix: orphan `else` is a structural error (matches TS side).
       throw new Error('`else` must immediately follow an `if` sibling. Found orphan `else` in handler body.');
+    } else if (child.type === 'while') {
+      const condRaw = String(child.props?.cond ?? '');
+      const condIR = parseExpression(condRaw);
+      if (condIR.kind === 'propagate') {
+        throw new Error(
+          "Propagation '?' is not allowed in `while cond=` — bind the call to a `let` first, then test the bound name.",
+        );
+      }
+      lines.push(`${indent}while ${emitPyExprCtx(condIR, ctx)}:`);
+      const inner = emitChildrenPy(child.children ?? [], ctx, indent + INDENT_STEP);
+      if (inner.length === 0) lines.push(`${indent}${INDENT_STEP}pass`);
+      for (const sl of inner) lines.push(sl);
     } else if (child.type === 'try') {
       // Slice 4c — try/except control flow.
       //

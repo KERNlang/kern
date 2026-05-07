@@ -187,8 +187,14 @@ function classifyStmt(stmt: ts.Statement, sf: ts.SourceFile): string | null {
     if (stmt.statement.statements.length === 0) return 'for-of-empty-body';
     return classifyBranch(stmt.statement, sf);
   }
+  if (ts.isWhileStatement(stmt)) {
+    if (!isValidKernExpression(stmt.expression.getText(sf))) return 'while-bad-cond';
+    if (!ts.isBlock(stmt.statement)) return 'while-non-block';
+    if (stmt.statement.statements.length === 0) return 'while-empty-body';
+    return classifyBranch(stmt.statement, sf);
+  }
   if (ts.isForStatement(stmt) || ts.isForInStatement(stmt)) return 'for-stmt';
-  if (ts.isWhileStatement(stmt) || ts.isDoStatement(stmt)) return 'while-do-stmt';
+  if (ts.isDoStatement(stmt)) return 'do-while-stmt';
   if (ts.isSwitchStatement(stmt)) return 'switch-stmt';
   if (ts.isBlock(stmt)) return 'bare-block';
   // Fallback — the TS SyntaxKind name surfaces in diagnostics so users have

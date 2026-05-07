@@ -520,6 +520,10 @@ export interface EachProps extends BaseProps {
   await?: boolean | string;
 }
 
+export interface WhileProps extends BaseProps {
+  cond?: string;
+}
+
 export interface CollectProps extends BaseProps {
   from?: string;
   where?: string;
@@ -819,6 +823,7 @@ export interface NodePropsMap {
   assume: AssumeProps;
   invariant: InvariantProps;
   each: EachProps;
+  while: WhileProps;
   collect: CollectProps;
   branch: BranchProps;
   resolve: ResolveProps;
